@@ -62,6 +62,14 @@ Path(r'C:\AI\m_projects\RE\streamfab')
 8. 运行关键验证：`py_compile`、`build_routine_ir.py`、文档预算检查。
 9. 确认无误后，再停止使用旧 `streamfab` 路径。
 
+## 当前迁移准备状态
+
+- 四层目录骨架已创建：`kits/`、`cases/`、`shared-artifacts/`。
+- 模板仓库已位于：`C:\AI\m_projects\RE\kits\re-context-kits`。
+- 当前项目已先行相对化 4 个主线脚本默认路径：`auto_mine_handler_semantics.py`、`build_routine_ir.py`、`mine_routine_superinstructions.py`、`trace_vmenter_seed.py`。
+- 尚未移动 `streamfab` 项目目录。
+- 下一步继续相对化 `extract_handler_value_flow.py`、`analyze_focused_handler_occurrences.py`、`augment_context_memory.py`、`launch_suspended_with_probe.py` 等辅助主线脚本。
+
 ## 待人工确认
 
 - `captures/` 中哪些大型 trace 需要迁移，哪些只归档。
