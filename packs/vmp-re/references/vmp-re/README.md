@@ -7,7 +7,7 @@
 - 先读项目内 `CLAUDE.local.md`，再按本文件路由。
 - 不要整段读取 `captures/doc_archive/**`、大型 CSV、长 Markdown 结果；只读必要行范围或用脚本/CSV 统计。
 - 当前项目状态以 `task-handoff.md` 为接手入口；权威数据以项目内 `captures/*.csv` 为准。
-- 每完成一轮语义降低，都要更新 `task-handoff.md`，必要时把可复用经验沉淀到模板文档。
+- 每完成一轮语义降低，都要更新 `task-handoff.md`；必要时先在 case 文档中沉淀可复用经验，再用 `/rekit promote` 或 `rekit/rekit.ps1 promote` 回流模板。
 
 ## 路由表
 
@@ -33,4 +33,4 @@
    - 上下文/文档策略 → `progressive-disclosure.md`
    - singleton handler 复核经验 → `singleton-handler-review.md`
 4. 不把大表粘进 Markdown；保留到 CSV/JSON/归档。
-5. Stop hook 前验证文档存在、大小合理、关键脚本语法通过。
+5. Stop hook 前运行 `/rekit validate` 或 `rekit/rekit.ps1 validate`，验证文档存在、大小合理、关键脚本语法通过。

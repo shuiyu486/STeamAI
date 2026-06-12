@@ -34,8 +34,8 @@
 1. 若代码变更：运行相关 `py_compile` / rebuild / smoke test。
 2. 若 confirmed CSV 变更：重建 `routine_ir.*` 与 superinstruction 产物。
 3. 若任务进度变化：更新 `task-handoff.md`。
-4. 若产生新可复用经验：更新对应 reference，但保持短。
-5. 验证 Markdown 大小不超预算。
+4. 若产生新可复用经验：更新对应 reference，但保持短；需要回流模板时运行 `/rekit promote` 或 `rekit/rekit.ps1 promote`。
+5. 运行 `/rekit validate` 或 `rekit/rekit.ps1 validate`，验证 Markdown 大小不超预算。
 
 ## 自动维护触发点
 
@@ -46,6 +46,7 @@
 | 发现可复用项目流程 | `workflow-template.md`。 |
 | 新增/重评工具或止损条件 | `toolchain-router.md`。 |
 | 文档再次变大 | 归档长内容，保留短摘要。 |
+| 需要将 case 经验回流模板 | 先预览 `/rekit promote -WhatIf`，确认安全后再 `-Apply`。 |
 
 ## 新会话恢复提示
 

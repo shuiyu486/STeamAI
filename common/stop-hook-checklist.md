@@ -3,7 +3,8 @@
 每轮修改项目文件后：
 
 1. 更新相关 README / CLAUDE / reference / task handoff。
-2. 若代码变更，运行语法检查或测试。
-3. 若 confirmed CSV 变更，重建 routine IR / superinstruction。
-4. 验证 Markdown 大小不超预算。
-5. 如果当前目录不是 git 仓库，在最终回复说明无法 commit/push。
+2. 若产生可复用经验，先运行 `/rekit promote -WhatIf` 或对应 backend 预览，避免把 case 私有状态回流模板。
+3. 若代码变更，运行语法检查或测试。
+4. 若 confirmed CSV 变更，重建 routine IR / superinstruction。
+5. 运行 `/rekit validate` 或对应 backend，验证 Markdown 大小不超预算。
+6. 如果当前目录不是 git 仓库，在最终回复说明无法 commit/push。

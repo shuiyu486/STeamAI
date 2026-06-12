@@ -1,7 +1,8 @@
 param(
   [Parameter(Mandatory=$true)]
   [string]$Target,
-  [switch]$NoBackup
+  [switch]$WhatIf,
+  [switch]$Apply
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,8 +13,4 @@ $PacksDir = Split-Path -Parent $PackRoot
 $RepoRoot = Split-Path -Parent $PacksDir
 $PackName = Split-Path -Leaf $PackRoot
 
-if ($NoBackup) {
-  Write-Warning 'NoBackup is kept for compatibility but rekit sync currently always creates backups when overwriting managed files.'
-}
-
-& (Join-Path $RepoRoot 'rekit\rekit.ps1') -Command sync -Target $Target -Pack $PackName
+& (Join-Path $RepoRoot 'rekit\rekit.ps1') -Command promote -Target $Target -Pack $PackName -WhatIf:$WhatIf -Apply:$Apply

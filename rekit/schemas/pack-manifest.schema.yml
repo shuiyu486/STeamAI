@@ -1,0 +1,22 @@
+# rekit pack manifest schema v1（说明性文档）
+
+required:
+  - name
+  - version
+  - managedFiles
+  - templateFiles
+  - localNeverOverwrite
+  - budgets
+
+fields:
+  name: pack 名称，例如 vmp-re
+  version: pack 版本
+  description: 一行用途说明
+  managedFiles: 可由 kit 同步到 case、也可按 promotePolicy 反向提升的文件路径列表
+  templateFiles: 只在 case 缺失时实例化的模板文件列表
+  localNeverOverwrite: 永不被 sync 覆盖、永不被 promote 的 case-local 文件
+  managedBlock: 单个 managed block 定义，包含 file/blockId/source
+  syncPolicy: sync 默认策略
+  promoteFiles: 允许进入 promote 候选的 managed 文件列表
+  promoteDenyPatterns: promote 安全阻断正则或字符串模式
+  budgets: Markdown/文本预算，defaultMarkdown 为默认值

@@ -1,5 +1,6 @@
+schemaVersion: 1
 name: vmp-re
-version: 0.1.0
+version: 0.2.0
 description: VMProtect x64 trace-based devirtualization context kit
 
 managedFiles:
@@ -16,6 +17,33 @@ localNeverOverwrite:
   - CLAUDE.local.md
   - references/vmp-re/task-handoff.md
   - tools.local.yml
+
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: vmp-re-template:router
+  source: CLAUDE.local.snippet.md
+
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+
+promoteFiles:
+  - references/vmp-re/README.md
+  - references/vmp-re/workflow-template.md
+  - references/vmp-re/progressive-disclosure.md
+  - references/vmp-re/toolchain-router.md
+  - references/vmp-re/singleton-handler-review.md
+
+promoteDenyPatterns:
+  - "C:\\"
+  - "StreamFab"
+  - "artifacts[\\/]\\S+"
+  - "captures[\\/]doc_archive"
+  - "0x[0-9A-Fa-f]{6,}"
+  - "ctx0[0-9]{2}"
+  - "round[0-9]+"
+  - "Task #\\d+"
 
 budgets:
   CLAUDE.local.md: 8192
