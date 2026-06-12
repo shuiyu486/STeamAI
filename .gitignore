@@ -1,0 +1,29 @@
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local/private config
+*.local.yml
+*.local.yaml
+tools.local.yml
+
+# RE artifacts must not enter template repo
+*.exe
+*.dll
+*.bin
+*.dump
+*.dmp
+*.idb
+*.i64
+*.pdb
+*.log
+*.zip
+*.7z
+captures/
+artifacts/
+shared-artifacts/
+
+# PowerShell temp
+*.ps1xml

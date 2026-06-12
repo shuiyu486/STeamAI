@@ -1,0 +1,34 @@
+# 大文件/敏感/运行产物默认忽略
+artifacts/
+captures/*
+*.exe
+*.dll
+*.bin
+*.dump
+*.dmp
+*.log
+*.pdb
+*.idb
+*.i64
+*.zip
+*.7z
+
+# 本地工具/环境配置
+tools.local.yml
+*.local.yml
+
+# 允许保留小型权威状态文件
+!captures/vm_opcode_semantics_confirmed.csv
+!captures/vm_handler_roles_confirmed.csv
+!captures/routine_ir.summary.csv
+!captures/vm_semantics_progress.md
+!captures/vm_value_flow_notes.md
+!captures/vm_opcode_semantics_candidates.md
+!captures/vmexit_routine_summary.md
+
+# 保留上下文模板和接手文档
+!references/
+!references/**
+!CLAUDE.local.md
+!.re-template.yml
+!.gitignore

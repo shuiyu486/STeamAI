@@ -1,0 +1,23 @@
+name: vmp-re
+version: 0.1.0
+description: VMProtect x64 trace-based devirtualization context kit
+
+managedFiles:
+  - references/vmp-re/README.md
+  - references/vmp-re/workflow-template.md
+  - references/vmp-re/progressive-disclosure.md
+  - references/vmp-re/toolchain-router.md
+  - references/vmp-re/singleton-handler-review.md
+
+templateFiles:
+  - references/vmp-re/task-handoff.template.md
+
+localNeverOverwrite:
+  - CLAUDE.local.md
+  - references/vmp-re/task-handoff.md
+  - tools.local.yml
+
+budgets:
+  CLAUDE.local.md: 8192
+  references/vmp-re/task-handoff.md: 12288
+  defaultMarkdown: 16384
