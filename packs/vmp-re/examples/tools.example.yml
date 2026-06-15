@@ -1,18 +1,18 @@
 # 复制为 tools.local.yml 后按本机环境修改；tools.local.yml 不应提交。
 workspace:
-  root: C:\AI\m_projects\RE
-  kits: C:\AI\m_projects\RE\kits
-  cases: C:\AI\m_projects\RE\cases
-  tools: C:\AI\m_projects\RE\tools
-  sharedArtifacts: C:\AI\m_projects\RE\shared-artifacts
+  root: <workspaceRoot>
+  kits: <workspaceRoot>\kits
+  cases: <workspaceRoot>\cases
+  tools: <workspaceRoot>\tools
+  sharedArtifacts: <workspaceRoot>\shared-artifacts
 
 ida:
-  path: C:\Program Files\IDA Professional 9.0\ida64.exe
+  path: <idaRoot>\ida64.exe
 
 x64dbg:
-  path: C:\m_Software\x64dbg\x64dbg\release\x64\x64dbg.exe
+  path: <toolsRoot>\x64dbg\release\x64\x64dbg.exe
   mcpEndpoint: http://127.0.0.1:3000/mcp
 
 scyllahide:
-  injectorX64: C:\AI\m_projects\RE\tools\ScyllaHide\InjectorCLIx64.exe
-  hookLibraryX64: C:\AI\m_projects\RE\tools\ScyllaHide\HookLibraryx64.dll
+  injectorX64: <toolsRoot>\ScyllaHide\InjectorCLIx64.exe
+  hookLibraryX64: <toolsRoot>\ScyllaHide\HookLibraryx64.dll

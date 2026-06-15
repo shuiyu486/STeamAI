@@ -53,6 +53,16 @@ function Test-RekitPack {
   foreach ($rel in $manifest.ToolingFiles) {
     $rows += Assert-RekitTextFile -Path (Get-RekitSourcePath -Manifest $manifest -RelativePath $rel) -LimitBytes (Get-RekitBudgetLimit -Manifest $manifest -RelativePath $rel)
   }
+  foreach ($rel in $manifest.PromoteFiles) {
+    [void](Join-RekitPath -Root $manifest.PackRoot -RelativePath $rel)
+  }
+  foreach ($rel in $manifest.LocalFiles) {
+    [void](Join-RekitPath -Root $manifest.PackRoot -RelativePath $rel)
+  }
+  foreach ($rel in $manifest.ToolingCandidateSources) {
+    [void](Join-RekitPath -Root $manifest.PackRoot -RelativePath $rel)
+  }
+  [void](Join-RekitPath -Root $manifest.PackRoot -RelativePath $manifest.ManagedBlock['file'])
   $blockSource = Join-RekitPath -Root $manifest.PackRoot -RelativePath $manifest.ManagedBlock['source']
   $rows += Assert-RekitTextFile -Path $blockSource -LimitBytes 8192
   return $rows

@@ -4,22 +4,51 @@
 
 一句话：**你平时在具体 case 里工作，直接用 `/rekit`；本仓库保存通用模板、工具经验和可回流改进。**
 
-## 当前 streamfab-vmp 怎么用
+## 快速使用
 
-当前 case 已经绑定到本仓库：
+推荐 workspace 结构：
 
 ```text
-case:         C:\AI\m_projects\RE\cases\streamfab-vmp
-kit:          C:\AI\m_projects\RE\kits\re-context-kits
-pack:         vmp-re
-case shim:    C:\AI\m_projects\RE\cases\streamfab-vmp\.claude\skills\rekit\SKILL.md
-case state:   C:\AI\m_projects\RE\cases\streamfab-vmp\.rekit\instance.yml
+<workspaceRoot>\
+  kits\
+    re-context-kits\              # 模板仓库；canonical /rekit + packs + tooling
+  cases\
+    <caseName>\                   # 具体 case
+  tools\                          # 第三方工具
+  shared-artifacts\               # 大文件/共享产物
 ```
 
-进入 case 后启动 Claude Code：
+`kits/` 和 `cases/` 是 sibling，不是包含关系。这样多个 case 可以复用同一套模板，同时避免样本、trace、dump、大文件混入模板仓库。
+
+### 已有 case 接入
 
 ```powershell
-cd C:\AI\m_projects\RE\cases\streamfab-vmp
+pwsh <workspaceRoot>\kits\re-context-kits\rekit\rekit.ps1 attach `
+  -Target <workspaceRoot>\cases\<caseName> `
+  -Pack vmp-re
+```
+
+### 新建 case
+
+```powershell
+pwsh <workspaceRoot>\kits\re-context-kits\rekit\rekit.ps1 init `
+  -Target <workspaceRoot>\cases\<caseName> `
+  -Pack vmp-re `
+  -ProjectName <caseName>
+```
+
+`attach/init` 会生成 case-local shim：
+
+```text
+<caseRoot>\.claude\skills\rekit\SKILL.md
+<caseRoot>\.rekit\instance.yml
+<caseRoot>\.rekit\state.json
+```
+
+之后进入 case 目录启动 Claude Code：
+
+```powershell
+cd <workspaceRoot>\cases\<caseName>
 claude
 ```
 
@@ -81,6 +110,8 @@ artifacts/**
 CLAUDE.local.md 中 block 外的 case 私有内容
 ```
 
+`sync` 只允许作用于已经 `attach/init` 的 case。若目标目录拼错或还未绑定，会直接失败，不会静默创建假 case。
+
 ### 3. 回流可复用经验
 
 ```text
@@ -89,26 +120,28 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 
 它会同时做两类事：
 
-1. managed docs：安全时生成候选或在 `-Apply` 时写回 pack。
+1. managed docs：安全时生成候选；写回 pack 需要显式 `-Apply`。
 2. tooling：从 case 工具链文档抽象候选，写入 `packs/vmp-re/tooling/candidates/`。
 
 后端预览命令：
 
 ```powershell
-pwsh C:\AI\m_projects\RE\kits\re-context-kits\rekit\rekit.ps1 promote `
-  -Target C:\AI\m_projects\RE\cases\streamfab-vmp `
+pwsh <templateRoot>\rekit\rekit.ps1 promote `
+  -Target <caseRoot> `
   -WhatIf
 ```
 
 明确确认后才写回 managed docs：
 
 ```powershell
-pwsh C:\AI\m_projects\RE\kits\re-context-kits\rekit\rekit.ps1 promote `
-  -Target C:\AI\m_projects\RE\cases\streamfab-vmp `
+pwsh <templateRoot>\rekit\rekit.ps1 promote `
+  -Target <caseRoot> `
   -Apply
 ```
 
-`promote` 很保守：若 managed docs 含 `StreamFab`、真实路径、RVA/VA、ctx/round 快照、artifact/trace 路径，会阻止直接回流。工具链经验会先脱敏生成 tooling candidate，由你审查后合入正式 tooling 文档。
+`promote` 很保守：若 managed docs 含真实绝对路径、样本名、RVA/VA、ctx/round 快照、artifact/capture/trace/dump 路径，会阻止直接回流。工具链经验会先脱敏生成 tooling candidate，由你审查后合入正式 tooling 文档。
+
+`promote` 只允许作用于已经 `attach/init` 的 case，避免从普通目录误回流到 pack。
 
 ## 工具经验保存在哪里
 
@@ -117,7 +150,7 @@ pwsh C:\AI\m_projects\RE\kits\re-context-kits\rekit\rekit.ps1 promote `
 | 层级 | 路径 | 内容 |
 |---|---|---|
 | 通用 tooling 资产 | `packs/vmp-re/tooling/` | 工具 catalog、recipes、脚本模板化清单、补丁/止损经验。 |
-| 当前 case 状态 | `cases/streamfab-vmp/references/vmp-re/toolchain-router.md` | 当前样本具体脚本、路径、工具结论和状态。 |
+| 当前 case 状态 | `<caseRoot>/references/vmp-re/toolchain-router.md` | 当前样本具体脚本、路径、工具结论和状态。 |
 
 通用 tooling 资产包括：
 
@@ -142,7 +175,7 @@ packs/vmp-re/tooling/patches/vmpimportfixer-timeout-and-quiet-log.md
 假设新目录是：
 
 ```text
-D:\RE\cases\streamfab-vmp
+<newCaseRoot>
 ```
 
 ### 1. 复制 case 目录
@@ -150,13 +183,13 @@ D:\RE\cases\streamfab-vmp
 先关闭正在使用该 case 的 Claude Code、IDA、x64dbg、trace 脚本等进程：
 
 ```powershell
-robocopy C:\AI\m_projects\RE\cases\streamfab-vmp D:\RE\cases\streamfab-vmp /E
+robocopy <oldCaseRoot> <newCaseRoot> /E
 ```
 
 ### 2. 在新目录检查状态
 
 ```powershell
-cd D:\RE\cases\streamfab-vmp
+cd <newCaseRoot>
 claude
 /rekit status
 ```
@@ -174,15 +207,15 @@ claude
 后端命令默认也只预览：
 
 ```powershell
-pwsh C:\AI\m_projects\RE\kits\re-context-kits\rekit\rekit.ps1 repair `
-  -Target D:\RE\cases\streamfab-vmp
+pwsh <templateRoot>\rekit\rekit.ps1 repair `
+  -Target <newCaseRoot>
 ```
 
 确认无误后显式写入：
 
 ```powershell
-pwsh C:\AI\m_projects\RE\kits\re-context-kits\rekit\rekit.ps1 repair `
-  -Target D:\RE\cases\streamfab-vmp `
+pwsh <templateRoot>\rekit\rekit.ps1 repair `
+  -Target <newCaseRoot> `
   -Apply
 ```
 
@@ -203,8 +236,8 @@ pwsh C:\AI\m_projects\RE\kits\re-context-kits\rekit\rekit.ps1 repair `
 或 backend：
 
 ```powershell
-pwsh C:\AI\m_projects\RE\kits\re-context-kits\rekit\rekit.ps1 doctor `
-  -Target D:\RE\cases\streamfab-vmp
+pwsh <templateRoot>\rekit\rekit.ps1 doctor `
+  -Target <newCaseRoot>
 ```
 
 ### 5. 检查旧绝对路径
@@ -218,53 +251,7 @@ references/vmp-re/task-handoff.md
 自写脚本中的 PROJECT_ROOT / workdir / output path
 ```
 
-样本路径如 `C:\m_Software\...\StreamFab64.exe` 如果没有变化，不需要改。
-
-## 新 case 怎么接入
-
-### 新建 case
-
-```powershell
-pwsh C:\AI\m_projects\RE\kits\re-context-kits\rekit\rekit.ps1 init `
-  -Target C:\AI\m_projects\RE\cases\new-vmp-case `
-  -Pack vmp-re `
-  -ProjectName new-vmp-case
-```
-
-### 已有 case 接入
-
-```powershell
-pwsh C:\AI\m_projects\RE\kits\re-context-kits\rekit\rekit.ps1 attach `
-  -Target C:\AI\m_projects\RE\cases\existing-case `
-  -Pack vmp-re
-```
-
-`attach` 只绑定 case 和生成 shim/state，不主动覆盖 managed docs。
-
-## 目录模型
-
-`kits/` 和 `cases/` 是同一个 RE workspace 下的 sibling 目录，不是包含关系。`re-context-kits` 是共享模板/工具资产仓库；`cases/<case>` 才是具体样本项目。这样可以让多个 case 复用同一套模板，同时避免样本、trace、dump、大文件混入模板仓库。
-
-```text
-C:\AI\m_projects\RE\
-  kits\
-    re-context-kits\              # 模板仓库；canonical /rekit + packs + tooling
-      .claude\skills\rekit\
-      rekit\
-      packs\vmp-re\
-        references\vmp-re\
-        tooling\
-  cases\
-    streamfab-vmp\                # 当前具体 case
-      .claude\skills\rekit\       # case-local thin shim
-      .rekit\                     # instance.yml / state.json
-      CLAUDE.local.md
-      references\vmp-re\
-      captures\
-      artifacts\
-  tools\                          # 第三方工具
-  shared-artifacts\               # 大文件/共享产物
-```
+目标样本路径如果没有变化，不需要改。
 
 ## 架构边界
 

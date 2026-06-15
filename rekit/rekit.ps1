@@ -66,18 +66,19 @@ switch ($Command) {
   }
   { $_ -in @('sync','update') } {
     $caseRoot = Resolve-RekitTarget $Target
-    Assert-RekitInstanceNotMoved -Target $caseRoot
+    [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
     Sync-RekitPack -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf
   }
   'promote' {
     $caseRoot = Resolve-RekitTarget $Target
-    Assert-RekitInstanceNotMoved -Target $caseRoot
+    [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
     Promote-RekitChanges -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -WhatIf:$WhatIf -Apply:$Apply
   }
   { $_ -in @('validate','doctor') } {
     if ([string]::IsNullOrWhiteSpace($Target)) {
       $cwd = Resolve-RekitTarget ''
-      if (Test-RekitLooksLikeCase $cwd -and ($cwd -ne $RepoRoot)) {
+      if (Test-RekitLooksLikeCase $cwd -and (-not [string]::Equals($cwd, $RepoRoot, [System.StringComparison]::OrdinalIgnoreCase))) {
+        [void](Assert-RekitAttachedCase -Target $cwd -RepoRoot $RepoRoot -Pack $Pack)
         Test-RekitInstance -Target $cwd -RepoRoot $RepoRoot -Pack $Pack | ForEach-Object {
           Write-Host ("{0}`t{1}/{2}" -f $_.File, $_.Bytes, $_.Limit)
         }
@@ -89,17 +90,20 @@ switch ($Command) {
         Write-Host 'pack validation ok'
       }
     } else {
-      $caseRoot = Resolve-RekitTarget $Target
-      if (($caseRoot -eq $RepoRoot) -or (-not (Test-RekitLooksLikeCase $caseRoot))) {
+      $resolvedTarget = Resolve-RekitTarget $Target
+      if ([string]::Equals($resolvedTarget, $RepoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
         Test-RekitPack -RepoRoot $RepoRoot -Pack $Pack | ForEach-Object {
           Write-Host ("{0}`t{1}/{2}" -f $_.File, $_.Bytes, $_.Limit)
         }
         Write-Host 'pack validation ok'
-      } else {
-        Test-RekitInstance -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack | ForEach-Object {
+      } elseif (Test-RekitLooksLikeCase $resolvedTarget) {
+        [void](Assert-RekitAttachedCase -Target $resolvedTarget -RepoRoot $RepoRoot -Pack $Pack)
+        Test-RekitInstance -Target $resolvedTarget -RepoRoot $RepoRoot -Pack $Pack | ForEach-Object {
           Write-Host ("{0}`t{1}/{2}" -f $_.File, $_.Bytes, $_.Limit)
         }
         Write-Host 'instance validation ok'
+      } else {
+        throw "target is neither this kit root nor an attached rekit case: $resolvedTarget"
       }
     }
   }

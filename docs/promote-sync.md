@@ -4,14 +4,15 @@
 
 | 命令 | 方向 | 目标 |
 |---|---|---|
-| `sync` | kit -> case | 将 pack 的 managed docs / managed block 下发到 case。 |
-| `promote` | case -> kit | 将 case 中可复用的 managed doc 改进生成候选或写回 pack，并生成 tooling 候选。 |
+| `sync` | kit -> case | 将 pack 的 managed docs / managed block 下发到已绑定 case。 |
+| `promote` | case -> kit | 将已绑定 case 中可复用的 managed doc 改进生成候选或写回 pack，并生成 tooling 候选。 |
 
 两者不对称：`sync` 可自动覆盖 managed files 并备份；`promote` 默认保守，不自动提升 live state。
 
 ## sync 规则
 
 - 只处理 `manifest.yml` 的 `managedFiles` 与 `managedBlock`。
+- 目标必须是已经 `attach/init` 的 case；拼错路径或普通目录会失败，不会静默创建假 case。
 - 覆盖前备份到 `references/vmp-re/.backup/<timestamp>/`。
 - `templateFiles` 只在目标缺失时创建。
 - 不覆盖：
@@ -24,6 +25,7 @@
 
 ## promote 规则
 
+- 目标必须是已经 `attach/init` 的 case；普通目录不会参与回流候选。
 - 扫描 `manifest.yml` 的 `promoteFiles`，处理 managed docs。
 - 同时扫描 `toolingCandidateSources`，将 case 工具链经验脱敏后写入 `packs/<pack>/tooling/candidates/`。
 - 默认 `-WhatIf` 用于预览；不带 `-Apply` 时 managed docs 写入 `packs/<pack>/promote-candidates/`。
@@ -41,27 +43,37 @@
 - dump/trace/binary/log
 - 当前 coverage、handler 地址列表、round/task 快照
 
+## 路径安全
+
+manifest 中的文件路径必须是相对路径，并且不能通过 `..` 越出对应根目录：
+
+- pack source 路径不能越出 `packs/<pack>/`
+- case target 路径不能越出 `<caseRoot>/`
+- `managedBlock.file` / `managedBlock.source` 同样受约束
+
+`validate/doctor` 会尽早检查这些路径，避免等到 `sync/promote` 写文件时才失败。
+
 ## 推荐日常流程
 
 ```powershell
 # 1. 在 case 中完成一轮实践后，先预览可回流内容
-pwsh C:\AI\m_projects\RE\kits\re-context-kits\rekit\rekit.ps1 promote `
-  -Target C:\AI\m_projects\RE\cases\streamfab-vmp `
+pwsh <templateRoot>\rekit\rekit.ps1 promote `
+  -Target <caseRoot> `
   -WhatIf
 
 # 2. 如果候选安全，显式写回 kit
-pwsh C:\AI\m_projects\RE\kits\re-context-kits\rekit\rekit.ps1 promote `
-  -Target C:\AI\m_projects\RE\cases\streamfab-vmp `
+pwsh <templateRoot>\rekit\rekit.ps1 promote `
+  -Target <caseRoot> `
   -Apply
 
 # 3. 验证 pack 与 case
-pwsh C:\AI\m_projects\RE\kits\re-context-kits\rekit\rekit.ps1 validate `
-  -Target C:\AI\m_projects\RE\kits\re-context-kits
-pwsh C:\AI\m_projects\RE\kits\re-context-kits\rekit\rekit.ps1 validate `
-  -Target C:\AI\m_projects\RE\cases\streamfab-vmp
+pwsh <templateRoot>\rekit\rekit.ps1 validate `
+  -Target <templateRoot>
+pwsh <templateRoot>\rekit\rekit.ps1 doctor `
+  -Target <caseRoot>
 
 # 4. 用户自行审查并提交
-cd C:\AI\m_projects\RE\kits\re-context-kits
+cd <templateRoot>
 git diff
 git commit
 git push

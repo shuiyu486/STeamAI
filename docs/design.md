@@ -49,7 +49,7 @@
 6. 更新 `.rekit/state.json`。
 7. 运行 validate。
 
-`sync` 不碰 local files，不删除 case 文档，不自动 merge live state。
+`sync` 不碰 local files，不删除 case 文档，不自动 merge live state。`sync` 只允许作用于已经 `attach/init` 的 case；普通目录或拼错路径会失败。
 
 ## Promote
 
@@ -59,8 +59,13 @@
 - 同时读取 `toolingCandidateSources`，将 case 工具链经验脱敏为 tooling candidate。
 - 默认生成候选或 dry-run 输出；写回 managed docs 需要明确 `-Apply`。
 - tooling candidate 默认写入 `packs/<pack>/tooling/candidates/`，由人工审查后合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
-- 命中 deny patterns 时阻止，例如绝对路径、artifact/trace 路径、`.exe/.dll`、地址快照、round/task 状态。
+- 目标必须是已经 `attach/init` 的 case；普通目录不会参与候选生成或写回。
+- 命中 deny patterns 时阻止，例如绝对路径、artifact/capture/trace/dump 路径、`.exe/.dll`、地址快照、round/task 状态。
 - 永不 promote `CLAUDE.local.md` 全文、`task-handoff.md`、`tools.local.yml`、`captures/**`、`artifacts/**`。
+
+## 路径边界
+
+manifest 中所有文件路径必须是相对路径，并且 normalize 后不能越出对应 root。runtime 对 pack source、case target、managed block 和 tooling candidate source 统一做 containment check。
 
 ## Case shim
 

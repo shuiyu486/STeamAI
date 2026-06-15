@@ -85,6 +85,37 @@ function Assert-RekitInstanceNotMoved {
   }
 }
 
+function Assert-RekitAttachedCase {
+  param(
+    [Parameter(Mandatory=$true)][string]$Target,
+    [Parameter(Mandatory=$true)][string]$RepoRoot,
+    [string]$Pack = 'vmp-re'
+  )
+  $caseRoot = [System.IO.Path]::GetFullPath($Target)
+  if (-not (Test-Path -LiteralPath $caseRoot)) {
+    throw "case directory does not exist. Use 'rekit init -Target `"$caseRoot`"' to create a new case."
+  }
+
+  $inst = Get-RekitInstance -Target $caseRoot
+  if ($inst.Source -eq 'missing') {
+    throw "target is not an attached rekit case. Use 'rekit attach -Target `"$caseRoot`"' or 'rekit init -Target `"$caseRoot`"' first."
+  }
+  if (Test-RekitInstanceMoved -Instance $inst) {
+    throw "case metadata points to a different directory. Run 'rekit repair -Target `"$caseRoot`" -Apply' after confirming the move."
+  }
+  if ([string]::IsNullOrWhiteSpace($inst.TemplateRoot)) { throw "missing templateRoot in case metadata: $caseRoot" }
+
+  $expectedRoot = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd('\')
+  $actualRoot = [System.IO.Path]::GetFullPath($inst.TemplateRoot).TrimEnd('\')
+  if (-not [string]::Equals($actualRoot, $expectedRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "case is attached to a different templateRoot: $($inst.TemplateRoot)"
+  }
+  if (-not [string]::Equals($inst.TemplatePack, $Pack, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "case is attached to a different templatePack: $($inst.TemplatePack)"
+  }
+  return $inst
+}
+
 function Set-RekitYamlScalar {
   param(
     [Parameter(Mandatory=$true)][string]$Path,
@@ -178,6 +209,9 @@ function Repair-RekitInstance {
   $case = [System.IO.Path]::GetFullPath($CaseRoot)
   $repo = [System.IO.Path]::GetFullPath($RepoRoot)
   $inst = Get-RekitInstance -Target $case
+  if ($inst.Source -eq 'missing') {
+    throw "target is not an attached rekit case. Use 'rekit attach -Target `"$case`"' or 'rekit init -Target `"$case`"' first."
+  }
   if ([string]::IsNullOrWhiteSpace($ProjectName)) { $ProjectName = if ([string]::IsNullOrWhiteSpace($inst.ProjectName)) { Get-RekitProjectName $case } else { $inst.ProjectName } }
 
   Write-Host "repair target: $case"

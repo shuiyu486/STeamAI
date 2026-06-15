@@ -52,13 +52,15 @@ toolingCandidateSources:
 
 promoteDenyPatterns:
   - "C:\\"
-  - "StreamFab"
-  - "artifacts[\\/]\\S+"
-  - "captures[\\/]doc_archive"
+  - "artifacts[\\/]"
+  - "captures[\\/]"
+  - "[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\.(csv|jsonl|log|txt|bin)"
+  - "[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\.(dmp|bin|raw|exe|dll)"
+  - "\.dmp\b"
   - "0x[0-9A-Fa-f]{6,}"
-  - "ctx0[0-9]{2}"
+  - "ctx[0-9]+"
   - "round[0-9]+"
-  - "Task #\\d+"
+  - "Task #[0-9]+"
 
 budgets:
   CLAUDE.local.md: 8192

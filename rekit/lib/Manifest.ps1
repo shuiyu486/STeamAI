@@ -100,7 +100,7 @@ function Get-RekitPackManifest {
   if (-not $managedBlock.ContainsKey('source')) { $managedBlock['source'] = 'CLAUDE.local.snippet.md' }
   if (-not $budgets.ContainsKey('defaultMarkdown')) { $budgets['defaultMarkdown'] = '16384' }
   if ($promoteDenyPatterns.Count -eq 0) {
-    $promoteDenyPatterns = @('C:\\', 'C:\\m_Software\\', 'artifacts/', 'captures/', 'StreamFab64.exe', '0x[0-9A-Fa-f]{6,}')
+    $promoteDenyPatterns = @('C:\\', 'artifacts[\\/]', 'captures[\\/]', '[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\.(csv|jsonl|log|txt|bin)', '[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\.(dmp|bin|raw|exe|dll)', '\.dmp\b', '0x[0-9A-Fa-f]{6,}', 'ctx[0-9]+', 'round[0-9]+', 'Task #[0-9]+')
   }
 
   return [pscustomobject]@{
@@ -129,7 +129,15 @@ function Join-RekitPath {
     [Parameter(Mandatory=$true)][string]$Root,
     [Parameter(Mandatory=$true)][string]$RelativePath
   )
-  return [System.IO.Path]::GetFullPath((Join-Path $Root $RelativePath))
+  if ([string]::IsNullOrWhiteSpace($RelativePath)) { throw 'relative path is empty' }
+  if ([System.IO.Path]::IsPathRooted($RelativePath)) { throw "path must be relative: $RelativePath" }
+
+  $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd('\')
+  $pathFull = [System.IO.Path]::GetFullPath((Join-Path $rootFull $RelativePath)).TrimEnd('\')
+  $isRoot = [string]::Equals($pathFull, $rootFull, [System.StringComparison]::OrdinalIgnoreCase)
+  $isChild = $pathFull.StartsWith($rootFull + '\', [System.StringComparison]::OrdinalIgnoreCase)
+  if (-not ($isRoot -or $isChild)) { throw "path escapes root: $RelativePath" }
+  return $pathFull
 }
 
 function Get-RekitSourcePath {

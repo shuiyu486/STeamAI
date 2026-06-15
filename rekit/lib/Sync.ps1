@@ -103,6 +103,14 @@ function Sync-RekitPack {
   )
   $caseRoot = [System.IO.Path]::GetFullPath($Target)
   $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
+  $inst = Get-RekitInstance -Target $caseRoot
+  if ($inst.Source -eq 'missing' -and -not $CreateLocalFiles) {
+    throw "target is not an attached rekit case. Use 'rekit attach -Target `"$caseRoot`"' or 'rekit init -Target `"$caseRoot`"' first."
+  }
+  if (Test-RekitInstanceMoved -Instance $inst) {
+    throw "case metadata points to a different directory. Run 'rekit repair -Target `"$caseRoot`" -Apply' after confirming the move."
+  }
+  if ([string]::IsNullOrWhiteSpace($ProjectName) -and $inst.Source -ne 'missing') { $ProjectName = $inst.ProjectName }
   Invoke-RekitAttach -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf
 
   $backupRoot = Join-Path $caseRoot ("references\vmp-re\.backup\" + (Get-Date -Format 'yyyyMMdd-HHmmss'))

@@ -15,6 +15,13 @@ function Test-RekitPromoteContent {
   return $violations
 }
 
+function Get-RekitCaseSpecificPatterns {
+  param([Parameter(Mandatory=$true)][string]$CaseRoot)
+  $caseName = Split-Path -Leaf ([System.IO.Path]::GetFullPath($CaseRoot).TrimEnd('\'))
+  $terms = @($caseName -split '[-_\.\s]+' | Where-Object { $_.Length -ge 4 })
+  return @($terms | ForEach-Object { [regex]::Escape($_) })
+}
+
 function Backup-RekitPackFile {
   param(
     [Parameter(Mandatory=$true)][string]$Path,
@@ -36,11 +43,17 @@ function Convert-RekitToolingCandidateText {
   $case = [regex]::Escape(([System.IO.Path]::GetFullPath($CaseRoot)).TrimEnd('\'))
   $out = $Text
   $out = [regex]::Replace($out, $case, '<caseRoot>', 'IgnoreCase')
-  $out = [regex]::Replace($out, 'C:\\m_Software\\[^`\r\n|，。；;\)\] ]+', '<targetRoot>', 'IgnoreCase')
-  $out = [regex]::Replace($out, 'StreamFab64\.exe', '<target.exe>', 'IgnoreCase')
-  $out = [regex]::Replace($out, 'StreamFab', '<target>', 'IgnoreCase')
-  $out = [regex]::Replace($out, 'streamfab[\\/]', '<case>/', 'IgnoreCase')
+  $out = [regex]::Replace($out, '[A-Za-z]:\\[^`\r\n|，。；;\)\] ]+', '<absolutePath>', 'IgnoreCase')
+  foreach ($pattern in (Get-RekitCaseSpecificPatterns -CaseRoot $CaseRoot)) {
+    $out = [regex]::Replace($out, $pattern + '[A-Za-z0-9_.-]*\.exe', '<target.exe>', 'IgnoreCase')
+    $out = [regex]::Replace($out, $pattern + '[\\/]', '<case>/', 'IgnoreCase')
+    $out = [regex]::Replace($out, $pattern, '<caseTerm>', 'IgnoreCase')
+  }
   $out = [regex]::Replace($out, '\.\.[\\/]tools[\\/]', '<toolsRoot>/', 'IgnoreCase')
+  $out = [regex]::Replace($out, 'artifacts[\\/][^`\r\n|，。；;\)\] ]+', '<artifactsPath>', 'IgnoreCase')
+  $out = [regex]::Replace($out, 'captures[\\/][^`\r\n|，。；;\)\] ]+', '<capturesPath>', 'IgnoreCase')
+  $out = [regex]::Replace($out, '[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\.(csv|jsonl|log|txt|bin)', '<traceFile>', 'IgnoreCase')
+  $out = [regex]::Replace($out, '[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\.(dmp|bin|raw|exe|dll)', '<dumpFile>', 'IgnoreCase')
   $out = [regex]::Replace($out, '0x[0-9A-Fa-f]{6,}', '<address>')
   $out = [regex]::Replace($out, 'ctx\d+', '<ctxNNN>', 'IgnoreCase')
   $out = [regex]::Replace($out, 'round\d+', '<roundN>', 'IgnoreCase')
@@ -56,6 +69,7 @@ function Write-RekitToolingCandidates {
   )
   $caseRoot = [System.IO.Path]::GetFullPath($Target)
   $candidateRoot = Join-Path $Manifest.PackRoot 'tooling\candidates'
+  $denyPatterns = @($Manifest.PromoteDenyPatterns) + @(Get-RekitCaseSpecificPatterns -CaseRoot $caseRoot)
   $written = @()
   foreach ($rel in $Manifest.ToolingCandidateSources) {
     $source = Join-RekitPath -Root $caseRoot -RelativePath $rel
@@ -65,7 +79,7 @@ function Write-RekitToolingCandidates {
     }
     $raw = [System.IO.File]::ReadAllText($source, [System.Text.Encoding]::UTF8)
     $sanitized = Convert-RekitToolingCandidateText -Text $raw -CaseRoot $caseRoot
-    $violations = @(Test-RekitPromoteContent -Text $sanitized -Patterns @('C:\\AI\\m_projects\\RE\\cases\\', 'C:\\m_Software\\', 'StreamFab', '0x[0-9A-Fa-f]{6,}', 'ctx\d+', 'round\d+'))
+    $violations = @(Test-RekitPromoteContent -Text $sanitized -Patterns $denyPatterns)
     if ($violations.Count -gt 0) {
       Write-Host "blocked tooling candidate after sanitization: $rel"
       foreach ($v in $violations) { Write-Host "  remaining pattern: $v" }
@@ -106,10 +120,12 @@ function Promote-RekitChanges {
     [switch]$Apply
   )
   $caseRoot = [System.IO.Path]::GetFullPath($Target)
+  [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
   $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
   $candidateRoot = Join-Path $manifest.PackRoot 'promote-candidates'
   if (-not $WhatIf) { Ensure-RekitDirectory $candidateRoot }
 
+  $denyPatterns = @($manifest.PromoteDenyPatterns) + @(Get-RekitCaseSpecificPatterns -CaseRoot $caseRoot)
   $changed = 0
   $blocked = 0
   $candidateIndex = @()
@@ -132,7 +148,7 @@ function Promote-RekitChanges {
       continue
     }
 
-    $violations = @(Test-RekitPromoteContent -Text $caseText -Patterns $manifest.PromoteDenyPatterns)
+    $violations = @(Test-RekitPromoteContent -Text $caseText -Patterns $denyPatterns)
     if ($violations.Count -gt 0) {
       $blocked++
       Write-Host "blocked promote: $rel"
