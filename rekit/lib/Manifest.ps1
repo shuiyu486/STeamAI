@@ -85,6 +85,8 @@ function Get-RekitPackManifest {
   $templateFiles = @(Get-RekitYamlList -Lines $lines -Key 'templateFiles')
   $localFiles = @(Get-RekitYamlList -Lines $lines -Key 'localNeverOverwrite')
   $promoteFiles = @(Get-RekitYamlList -Lines $lines -Key 'promoteFiles')
+  $toolingFiles = @(Get-RekitYamlList -Lines $lines -Key 'toolingFiles')
+  $toolingCandidateSources = @(Get-RekitYamlList -Lines $lines -Key 'toolingCandidateSources')
   $promoteDenyPatterns = @(Get-RekitYamlList -Lines $lines -Key 'promoteDenyPatterns')
   $budgets = Get-RekitYamlMap -Lines $lines -Key 'budgets'
   $managedBlock = Get-RekitYamlMap -Lines $lines -Key 'managedBlock'
@@ -92,6 +94,7 @@ function Get-RekitPackManifest {
 
   if ($managedFiles.Count -eq 0) { throw "manifest managedFiles is empty: $manifestPath" }
   if ($promoteFiles.Count -eq 0) { $promoteFiles = $managedFiles }
+  if ($toolingCandidateSources.Count -eq 0) { $toolingCandidateSources = @('references/vmp-re/toolchain-router.md') }
   if (-not $managedBlock.ContainsKey('file')) { $managedBlock['file'] = 'CLAUDE.local.md' }
   if (-not $managedBlock.ContainsKey('blockId')) { $managedBlock['blockId'] = 'vmp-re-template:router' }
   if (-not $managedBlock.ContainsKey('source')) { $managedBlock['source'] = 'CLAUDE.local.snippet.md' }
@@ -112,6 +115,8 @@ function Get-RekitPackManifest {
     TemplateFiles = $templateFiles
     LocalFiles = $localFiles
     PromoteFiles = $promoteFiles
+    ToolingFiles = $toolingFiles
+    ToolingCandidateSources = $toolingCandidateSources
     PromoteDenyPatterns = $promoteDenyPatterns
     Budgets = $budgets
     ManagedBlock = $managedBlock

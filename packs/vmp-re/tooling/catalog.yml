@@ -1,0 +1,104 @@
+schemaVersion: 1
+pack: vmp-re
+purpose: VMProtect x64 trace-based devirtualization reusable tooling catalog
+
+paths:
+  caseRoot: <caseRoot>
+  toolsRoot: <toolsRoot>
+  target: <target.exe>
+
+tools:
+  - id: vmenter-trace-script
+    status: mainline-template
+    entry: <caseRoot>/trace_vmenter_seed.py
+    purpose: VMEnter seed、dispatch trace、focused handler trace 的核心脚本模板。
+    reusableNotes:
+      - 参数化 target、rebuilt PE、context JSON、VMEnter RVA、dispatch limit。
+      - 输出 trace CSV、summary、focused handler occurrence 数据。
+      - 不把完整 trace 输出带入上下文，只保存到 captures 或机器可读文件。
+
+  - id: vmenter-context-probe
+    status: mainline-recipe
+    entry: <caseRoot>/vmenter_context_probe*.dll or source/build recipe
+    purpose: 在真实进程内捕获 VMEnter registers、stack、TEB/PEB/GS、heap/DLL memory ranges。
+    reusableNotes:
+      - 成品 DLL 通常不进模板；保留接口说明、字段 schema、build/attach recipe。
+      - 优先 in-process probe，避免裸 debug_run 触发反调试。
+
+  - id: suspended-launcher-injector
+    status: auxiliary-template
+    entry: <caseRoot>/launch_* or <caseRoot>/inject_*
+    purpose: suspended 启动或注入 probe，捕获启动期 VMEnter。
+    reusableNotes:
+      - 参数化 target path、DLL path、output context path。
+      - 记录权限要求和失败时的 stop condition。
+
+  - id: unicorn-context-augmenter
+    status: mainline-template
+    entry: <caseRoot>/augment_context_memory.py
+    purpose: 为 Unicorn 离线 trace 补 TEB/PEB/GS、DLL、heap 页。
+    reusableNotes:
+      - 输入 context JSON 与 memory map。
+      - 输出 augmented context，供 trace script 使用。
+
+  - id: value-flow-extractor
+    status: mainline-template
+    entry: <caseRoot>/extract_handler_value_flow.py
+    purpose: 聚合 bytecode、old/new VSP、register writes、memory writes。
+    reusableNotes:
+      - 低样本、alias-heavy、early write overwritten 必须人工复核。
+
+  - id: semantics-miner
+    status: mainline-template
+    entry: <caseRoot>/auto_mine_handler_semantics.py
+    purpose: 批量挖掘 handler semantics、shape clustering、recommendation。
+    reusableNotes:
+      - 自动候选不能直接写 confirmed CSV；1-count/alias-heavy 必须 focused review。
+
+  - id: routine-ir-builder
+    status: mainline-template
+    entry: <caseRoot>/build_routine_ir.py
+    purpose: 合并 opcode/role confirmed CSV，输出 routine IR 与 coverage。
+    reusableNotes:
+      - confirmed opcode 与 bridge/control role 分表。
+
+  - id: superinstruction-miner
+    status: mainline-template
+    entry: <caseRoot>/mine_routine_superinstructions.py
+    purpose: 挖 repeated n-gram、shape motif、routine-level pattern。
+
+  - id: ida-pro-idalib-mcp
+    status: auxiliary
+    entry: external IDA Pro / idalib MCP
+    purpose: 静态 xref、函数精读、type/comment 辅助。
+    reusableNotes:
+      - 大范围查询交给子任务或片段化，不把完整 decompile/disasm 粘进上下文。
+
+  - id: x64dbg-mcp
+    status: cautious
+    entry: <toolsRoot>/x64dbg-mcp
+    purpose: 必要动态交互与调试自动化。
+    reusableNotes:
+      - 反调试强样本避免裸 debug_run。
+      - 必要时配合 ScyllaHide、管理员权限、attach 而非裸启动。
+
+  - id: scyllahide
+    status: auxiliary
+    entry: <toolsRoot>/ScyllaHide
+    purpose: 动态交互时降低反调试干扰。
+
+  - id: vmp-import-fixers
+    status: short-test-stoploss
+    entry: <toolsRoot>/VMP-Imports-Deobfuscator, <toolsRoot>/VMPImportFixer, <toolsRoot>/vmpfix
+    purpose: 公开 import fixer 短测。
+    reusableNotes:
+      - 设置 timeout、候选上限、日志静音。
+      - 无 protected import 明确命中、候选爆炸、unresolved/missing export/emulation failed 即止损。
+
+  - id: static-devirtualizers
+    status: short-test-stoploss
+    entry: <toolsRoot>/NoVmp, <toolsRoot>/VMPStatic, <toolsRoot>/minivmpfix
+    purpose: 静态 devirtualizer 或 VMEnter 模板匹配短测。
+    reusableNotes:
+      - VMProtect 3.7+ on-the-fly/merged handler/rolling key 下旧模板经常不匹配。
+      - 模板断言失败应快速转 trace-based pipeline。

@@ -24,11 +24,13 @@ disable-model-invocation: true
 5. 调用 canonical backend：
 
 ```powershell
-pwsh "<templateRoot>/rekit/rekit.ps1" <status|attach|init|sync|promote|validate> -Target "<当前 case 根目录>"
+pwsh "<templateRoot>/rekit/rekit.ps1" <status|repair|attach|init|sync|promote|doctor> -Target "<当前 case 根目录>"
 ```
 
 ## 规则
 
 - 不要在本 shim 里维护模板规则；所有规则以 canonical `/rekit` 和 `<templateRoot>/packs/<templatePack>/manifest.yml` 为准。
 - 不要读取或修改用户级 `~/.claude/skills`。
+- `status` 只读检测迁移；需要修复路径时必须由用户确认后运行 canonical `repair -Apply`。
 - 不要 promote live state，例如 `CLAUDE.local.md` 全文、`task-handoff.md`、`tools.local.yml`、`captures/**`、`artifacts/**`。
+- 工具链经验通过 canonical `promote` 生成 tooling 候选，候选位置为 `<templateRoot>/packs/<templatePack>/tooling/candidates/`。

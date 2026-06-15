@@ -50,6 +50,9 @@ function Test-RekitPack {
   foreach ($rel in $manifest.TemplateFiles) {
     $rows += Assert-RekitTextFile -Path (Get-RekitSourcePath -Manifest $manifest -RelativePath $rel) -LimitBytes (Get-RekitBudgetLimit -Manifest $manifest -RelativePath ($rel -replace '\.template\.md$', '.md'))
   }
+  foreach ($rel in $manifest.ToolingFiles) {
+    $rows += Assert-RekitTextFile -Path (Get-RekitSourcePath -Manifest $manifest -RelativePath $rel) -LimitBytes (Get-RekitBudgetLimit -Manifest $manifest -RelativePath $rel)
+  }
   $blockSource = Join-RekitPath -Root $manifest.PackRoot -RelativePath $manifest.ManagedBlock['source']
   $rows += Assert-RekitTextFile -Path $blockSource -LimitBytes 8192
   return $rows

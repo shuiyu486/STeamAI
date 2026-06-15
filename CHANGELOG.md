@@ -8,11 +8,12 @@
 - 新增 `rekit/rekit.ps1` runtime 与 Manifest / Instance / Sync / Promote / Validate 模块。
 - 新增 case-local `/rekit` shim 模板与 `.rekit/instance.yml` / `state.json` 实例模型。
 - 新增 `promote` 工作流，用于将 case 中可复用 managed docs 生成候选或显式写回 pack。
+- 新增 `packs/vmp-re/tooling/`，保存工具 catalog、recipes、脚本模板化清单、补丁/止损经验和 promote 候选。
 - 新增 `docs/promote-sync.md`。
 
 ### Changed
 
-- `packs/vmp-re/manifest.yml` 升级为 sync/promote/managed block/budget 的单一事实源。
+- `packs/vmp-re/manifest.yml` 升级为 sync/promote/managed block/tooling/budget 的单一事实源。
 - `bootstrap.ps1`、`update.ps1`、`validate.ps1` 改为兼容 wrapper，转调 `rekit/rekit.ps1`。
 - README 与 design 文档改为以 `/rekit`、runtime、pack、instance 四层模型说明。
 

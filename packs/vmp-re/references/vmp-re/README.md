@@ -15,7 +15,7 @@
 |---|---|---|
 | 新会话接手当前项目进度 | `task-handoff.md` | 当前 coverage、待处理 handler、下一步 checklist。 |
 | 复用本流程到新的 VMProtect x64 样本 | `workflow-template.md` | 从样本基准、VMEnter、context probe 到 value-flow 的模板。 |
-| 选择/复查已用、可用、应止损的工具链 | `toolchain-router.md` | 工具状态表、按任务路由、公开工具止损条件。 |
+| 选择/复查已用、可用、应止损的工具链 | `toolchain-router.md`、`../../tooling/README.md` | 工具状态表、按任务路由、公开工具止损条件和可复用 tooling 资产。 |
 | 控制上下文膨胀、处理 `/compact` / unexpected EOF | `progressive-disclosure.md` | 文档层级、读取预算、归档与 Stop hook 收尾规则。 |
 | 继续 singleton handler 复核 | `singleton-handler-review.md` | 1-count handler 的 focused instruction review 流程。 |
 | 查看权威 opcode/role 数据 | `captures/vm_opcode_semantics_confirmed.csv`、`captures/vm_handler_roles_confirmed.csv` | 不复制进 Markdown；按 handler 过滤读取。 |

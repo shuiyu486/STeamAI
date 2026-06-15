@@ -35,6 +35,21 @@ promoteFiles:
   - references/vmp-re/toolchain-router.md
   - references/vmp-re/singleton-handler-review.md
 
+toolingFiles:
+  - tooling/README.md
+  - tooling/catalog.yml
+  - tooling/recipes/public-tool-triage.md
+  - tooling/recipes/vmenter-context-probe.md
+  - tooling/recipes/unicorn-trace.md
+  - tooling/recipes/focused-handler-review.md
+  - tooling/recipes/value-flow-mining.md
+  - tooling/recipes/ida-x64dbg-mcp.md
+  - tooling/scripts/README.md
+  - tooling/patches/vmpimportfixer-timeout-and-quiet-log.md
+
+toolingCandidateSources:
+  - references/vmp-re/toolchain-router.md
+
 promoteDenyPatterns:
   - "C:\\"
   - "StreamFab"

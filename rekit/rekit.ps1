@@ -1,6 +1,6 @@
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','attach','init','bootstrap','sync','update','promote','validate')]
+  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -43,16 +43,22 @@ switch ($Command) {
       Write-Host "case metadata: $($inst.Source) $($inst.InstancePath)"
       Write-Host "case templateRoot: $($inst.TemplateRoot)"
       Write-Host "case templatePack: $($inst.TemplatePack)"
+      if (Test-RekitInstanceMoved -Instance $inst) { Write-RekitMoveWarning -Instance $inst }
     } else {
       $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
       Write-Host "manifest: $($manifest.ManifestPath)"
       Write-Host "managed files: $($manifest.ManagedFiles.Count)"
       Write-Host "promote files: $($manifest.PromoteFiles.Count)"
+      Write-Host "tooling files: $($manifest.ToolingFiles.Count)"
     }
   }
   'attach' {
     $caseRoot = Resolve-RekitTarget $Target
     Invoke-RekitAttach -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf
+  }
+  'repair' {
+    $caseRoot = Resolve-RekitTarget $Target
+    Repair-RekitInstance -CaseRoot $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -Apply:$Apply
   }
   { $_ -in @('init','bootstrap') } {
     $caseRoot = Resolve-RekitTarget $Target
@@ -60,13 +66,15 @@ switch ($Command) {
   }
   { $_ -in @('sync','update') } {
     $caseRoot = Resolve-RekitTarget $Target
+    Assert-RekitInstanceNotMoved -Target $caseRoot
     Sync-RekitPack -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf
   }
   'promote' {
     $caseRoot = Resolve-RekitTarget $Target
+    Assert-RekitInstanceNotMoved -Target $caseRoot
     Promote-RekitChanges -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -WhatIf:$WhatIf -Apply:$Apply
   }
-  'validate' {
+  { $_ -in @('validate','doctor') } {
     if ([string]::IsNullOrWhiteSpace($Target)) {
       $cwd = Resolve-RekitTarget ''
       if (Test-RekitLooksLikeCase $cwd -and ($cwd -ne $RepoRoot)) {

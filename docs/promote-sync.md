@@ -5,7 +5,7 @@
 | 命令 | 方向 | 目标 |
 |---|---|---|
 | `sync` | kit -> case | 将 pack 的 managed docs / managed block 下发到 case。 |
-| `promote` | case -> kit | 将 case 中可复用的 managed doc 改进生成候选或写回 pack。 |
+| `promote` | case -> kit | 将 case 中可复用的 managed doc 改进生成候选或写回 pack，并生成 tooling 候选。 |
 
 两者不对称：`sync` 可自动覆盖 managed files 并备份；`promote` 默认保守，不自动提升 live state。
 
@@ -24,10 +24,12 @@
 
 ## promote 规则
 
-- 只扫描 `manifest.yml` 的 `promoteFiles`。
-- 默认 `-WhatIf` 用于预览；不带 `-Apply` 时写入 `packs/<pack>/promote-candidates/`。
+- 扫描 `manifest.yml` 的 `promoteFiles`，处理 managed docs。
+- 同时扫描 `toolingCandidateSources`，将 case 工具链经验脱敏后写入 `packs/<pack>/tooling/candidates/`。
+- 默认 `-WhatIf` 用于预览；不带 `-Apply` 时 managed docs 写入 `packs/<pack>/promote-candidates/`。
 - `-Apply` 才会写回 pack managed docs。
-- 命中 `promoteDenyPatterns` 时阻止提升。
+- tooling 候选不直接覆盖正式 recipe；需要人工审查后合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
+- 命中 `promoteDenyPatterns` 时阻止 managed docs 提升；tooling 候选会先做脱敏再检查残留私有信息。
 
 ## 永不提升
 

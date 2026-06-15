@@ -4,7 +4,7 @@
 
 1. **Skill UI**：`.claude/skills/rekit/SKILL.md`，clone 后在 kit 仓库内直接提供 `/rekit`。
 2. **Runtime**：`rekit/rekit.ps1` 与 `rekit/lib/*.ps1`，执行 attach/init/sync/promote/validate。
-3. **Pack**：`packs/<pack>`，保存可复用模板、示例、snippet 与 `manifest.yml`。
+3. **Pack**：`packs/<pack>`，保存可复用模板、tooling 资产、示例、snippet 与 `manifest.yml`。
 4. **Instance**：每个 case 的 `.rekit/instance.yml`、`.rekit/state.json`、case-local `.claude/skills/rekit` shim。
 
 ## managed vs local
@@ -27,6 +27,7 @@
 - sync policy
 - promote files
 - promote deny patterns
+- tooling files 和 tooling candidate sources
 
 脚本不应再维护另一份 managed file 列表。旧 pack 脚本只作为兼容 wrapper，转调 `rekit/rekit.ps1`。
 
@@ -54,8 +55,10 @@
 
 `promote` 是 `case -> kit`，但默认保守：
 
-- 只扫描 manifest 中 `promoteFiles` 声明的 managed docs。
-- 默认生成候选或 dry-run 输出；写回 pack 需要明确 `-Apply`。
+- 扫描 manifest 中 `promoteFiles` 声明的 managed docs。
+- 同时读取 `toolingCandidateSources`，将 case 工具链经验脱敏为 tooling candidate。
+- 默认生成候选或 dry-run 输出；写回 managed docs 需要明确 `-Apply`。
+- tooling candidate 默认写入 `packs/<pack>/tooling/candidates/`，由人工审查后合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
 - 命中 deny patterns 时阻止，例如绝对路径、artifact/trace 路径、`.exe/.dll`、地址快照、round/task 状态。
 - 永不 promote `CLAUDE.local.md` 全文、`task-handoff.md`、`tools.local.yml`、`captures/**`、`artifacts/**`。
 

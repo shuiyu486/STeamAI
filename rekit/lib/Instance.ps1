@@ -59,6 +59,32 @@ function Get-RekitInstance {
   }
 }
 
+function Test-RekitInstanceMoved {
+  param([Parameter(Mandatory=$true)]$Instance)
+  if ($Instance.Source -eq 'missing') { return $false }
+  if ([string]::IsNullOrWhiteSpace($Instance.ProjectRoot)) { return $false }
+  $recorded = [System.IO.Path]::GetFullPath($Instance.ProjectRoot).TrimEnd('\')
+  $actual = [System.IO.Path]::GetFullPath($Instance.CaseRoot).TrimEnd('\')
+  return -not [string]::Equals($recorded, $actual, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Write-RekitMoveWarning {
+  param([Parameter(Mandatory=$true)]$Instance)
+  if (-not (Test-RekitInstanceMoved -Instance $Instance)) { return }
+  Write-Host 'detected moved case metadata:'
+  Write-Host "  recorded projectRoot: $($Instance.ProjectRoot)"
+  Write-Host "  current directory:     $($Instance.CaseRoot)"
+  Write-Host 'No files were changed. Run rekit repair -Apply after confirming this move is intended.'
+}
+
+function Assert-RekitInstanceNotMoved {
+  param([Parameter(Mandatory=$true)][string]$Target)
+  $inst = Get-RekitInstance -Target $Target
+  if (Test-RekitInstanceMoved -Instance $inst) {
+    throw "case metadata points to a different directory. Run 'rekit repair -Target `"$($inst.CaseRoot)`" -Apply' after confirming the move."
+  }
+}
+
 function Set-RekitYamlScalar {
   param(
     [Parameter(Mandatory=$true)][string]$Path,
@@ -139,6 +165,43 @@ function Write-RekitCaseShim {
   $text = [System.IO.File]::ReadAllText($templatePath, [System.Text.Encoding]::UTF8)
   [System.IO.File]::WriteAllText($dest, $text, [System.Text.UTF8Encoding]::new($false))
   return $dest
+}
+
+function Repair-RekitInstance {
+  param(
+    [Parameter(Mandatory=$true)][string]$CaseRoot,
+    [Parameter(Mandatory=$true)][string]$RepoRoot,
+    [string]$Pack = 'vmp-re',
+    [string]$ProjectName = '',
+    [switch]$Apply
+  )
+  $case = [System.IO.Path]::GetFullPath($CaseRoot)
+  $repo = [System.IO.Path]::GetFullPath($RepoRoot)
+  $inst = Get-RekitInstance -Target $case
+  if ([string]::IsNullOrWhiteSpace($ProjectName)) { $ProjectName = if ([string]::IsNullOrWhiteSpace($inst.ProjectName)) { Get-RekitProjectName $case } else { $inst.ProjectName } }
+
+  Write-Host "repair target: $case"
+  Write-Host "template root: $repo"
+  Write-Host "pack: $Pack"
+  if ($inst.Source -ne 'missing') {
+    Write-Host "metadata source: $($inst.Source) $($inst.InstancePath)"
+    Write-Host "recorded projectRoot: $($inst.ProjectRoot)"
+  }
+  Write-Host "new projectRoot: $case"
+
+  if (-not $Apply) {
+    Write-Host 'No files were changed. Re-run with -Apply after confirming this repair is intended.'
+    return
+  }
+
+  $instancePath = Write-RekitInstance -CaseRoot $case -RepoRoot $repo -Pack $Pack -ProjectName $ProjectName
+  $shimPath = Write-RekitCaseShim -CaseRoot $case -RepoRoot $repo
+  $legacyPath = Join-Path $case '.re-template.yml'
+  Set-RekitYamlScalar -Path $legacyPath -Key 'currentProjectPath' -Value $case
+  Set-RekitYamlScalar -Path $legacyPath -Key 'templatePack' -Value $Pack
+  Write-Host "repaired instance: $instancePath"
+  Write-Host "refreshed case shim: $shimPath"
+  Write-Host "updated legacy metadata: $legacyPath"
 }
 
 function Update-RekitStateAfterSync {
