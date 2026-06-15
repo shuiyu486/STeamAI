@@ -51,7 +51,7 @@ Path(r'<oldCaseRoot>')
 3. 在新目录启动 Claude Code，执行 `/rekit status`。
 4. 如果 status 提示 `projectRoot` 与当前目录不一致，先确认这是预期迁移。
 5. 执行 `/rekit repair` 预览 metadata 变更。
-6. 确认无误后执行 backend `repair -Apply`，或让 `/rekit` 按确认后的写入流程调用 backend。
+6. 确认无误后，直接告诉 Claude：`确认修复，执行 repair -Apply`。
 7. 执行 `/rekit doctor` 验证 case 绑定。
 8. 必要时执行 `/rekit sync` 同步最新 managed docs。
 9. 搜索并更新只属于旧 case 根目录的绝对路径。
@@ -70,18 +70,15 @@ tools.local.yml
 
 目标样本路径如果没有变化，不需要因为 case 目录迁移而修改。
 
-## 后端命令示例
+## Skill-first 命令示例
 
-```powershell
-# 只读查看绑定状态
-pwsh <templateRoot>\rekit\rekit.ps1 status -Target <newCaseRoot>
+在新 case 目录启动 Claude Code 后使用：
 
-# 预览修复，不写文件
-pwsh <templateRoot>\rekit\rekit.ps1 repair -Target <newCaseRoot>
-
-# 确认后写入 metadata 和 case-local shim
-pwsh <templateRoot>\rekit\rekit.ps1 repair -Target <newCaseRoot> -Apply
-
-# 验证新目录
-pwsh <templateRoot>\rekit\rekit.ps1 doctor -Target <newCaseRoot>
+```text
+/rekit status
+/rekit repair
+确认修复，执行 repair -Apply
+/rekit doctor
 ```
+
+> 后端 `pwsh <templateRoot>\rekit\rekit.ps1 ...` 只用于自动化、CI 或排障，不是日常迁移入口。

@@ -55,26 +55,30 @@ manifest 中的文件路径必须是相对路径，并且不能通过 `..` 越�
 
 ## 推荐日常流程
 
-```powershell
-# 1. 在 case 中完成一轮实践后，先预览可回流内容
-pwsh <templateRoot>\rekit\rekit.ps1 promote `
-  -Target <caseRoot> `
-  -WhatIf
+在 case 中完成一轮实践后：
 
-# 2. 如果候选安全，显式写回 kit
-pwsh <templateRoot>\rekit\rekit.ps1 promote `
-  -Target <caseRoot> `
-  -Apply
+```text
+/rekit promote
+```
 
-# 3. 验证 pack 与 case
-pwsh <templateRoot>\rekit\rekit.ps1 validate `
-  -Target <templateRoot>
-pwsh <templateRoot>\rekit\rekit.ps1 doctor `
-  -Target <caseRoot>
+如果候选安全，需要写回 pack，直接告诉 Claude：
 
-# 4. 用户自行审查并提交
-cd <templateRoot>
+```text
+确认写回这次 promote 候选
+```
+
+验证 case：
+
+```text
+/rekit doctor
+```
+
+最后在 kit 仓库审查并提交：
+
+```text
 git diff
 git commit
 git push
 ```
+
+> `pwsh <templateRoot>\rekit\rekit.ps1 ...` 只是 backend/自动化入口，不是日常用户入口。

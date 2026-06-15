@@ -10,9 +10,25 @@ disable-model-invocation: true
 
 ## 工作模式
 
-- **kit 模式**：当前目录是 `re-context-kits` 仓库，直接使用本仓库的 `rekit/rekit.ps1`。
+- **kit 模式**：当前目录是 `re-context-kits` 仓库，直接使用本仓库的 canonical `/rekit`。
 - **case 模式**：当前目录是具体 case，先读取 `.rekit/instance.yml`；若不存在则回退读取 `.re-template.yml`，取得 `templateRoot` 与 `templatePack`，再调用 `<templateRoot>/rekit/rekit.ps1`。
 - **不默认安装用户级 skill**：canonical skill 跟随 git 仓库；case 只生成 `.claude/skills/rekit/SKILL.md` 薄 shim。
+
+## 用户使用方式
+
+默认给用户展示 `/rekit` 形式，不要让用户手动记 backend PowerShell：
+
+```text
+/rekit init -Target <caseRoot> -Pack vmp-re -ProjectName <caseName>
+/rekit attach -Target <caseRoot> -Pack vmp-re
+/rekit status
+/rekit sync
+/rekit promote
+/rekit doctor
+/rekit repair
+```
+
+backend 命令只在实际执行、自动化、CI、排障或用户明确要求时展示。
 
 ## 命令语义
 
@@ -30,7 +46,7 @@ disable-model-invocation: true
 
 ## 执行规则
 
-1. 优先调用 `rekit/rekit.ps1`，不要让用户手动记 `packs/<pack>/scripts/*.ps1`。
+1. 优先调用 `rekit/rekit.ps1`，但不要把它作为用户日常入口展示。
 2. `sync` 只做 `kit -> case`：更新 manifest 声明的 managed files 与 managed blocks，并为覆盖前文件创建 backup；不碰 local files。
 3. `sync` / `promote` 必须要求目标是已经 `attach/init` 的 case；不要对普通目录或拼错路径隐式创建 case 或生成回流候选。
 4. `promote` 只做 `case -> kit` 的候选提取或显式 `-Apply` 写回；永不提升 `CLAUDE.local.md`、`task-handoff.md`、`tools.local.yml`、`captures/**`、`artifacts/**`。
@@ -40,23 +56,12 @@ disable-model-invocation: true
 8. manifest 中所有文件路径必须是相对路径，并且不能越出 case root 或 pack root。
 9. 所有写操作后都运行对应 doctor/validate；失败时如实报告错误与下一步。
 
-## 常用示例
+## 常用说明模板
 
-```powershell
-# 在 kit 仓库内验证 pack
-pwsh "<templateRoot>\rekit\rekit.ps1" validate -Target "<templateRoot>"
+对用户解释时优先这样说：
 
-# 绑定已有 case，生成 .rekit 与 case-local /rekit shim
-pwsh "<templateRoot>\rekit\rekit.ps1" attach `
-  -Target "<caseRoot>" `
-  -Pack vmp-re
-
-# 从 kit 同步 managed docs 到 case
-pwsh "<templateRoot>\rekit\rekit.ps1" sync `
-  -Target "<caseRoot>"
-
-# 从 case 生成可提升候选，并抽象 tooling 候选；不直接写回敏感内容
-pwsh "<templateRoot>\rekit\rekit.ps1" promote `
-  -Target "<caseRoot>" `
-  -WhatIf
+```text
+第一次 clone 后，在 kit 仓库启动 Claude Code，然后用 /rekit init 或 /rekit attach。
+以后在 case 里只用 /rekit status / sync / promote；排障用 /rekit doctor。
+脚本只是 backend，不需要手动执行。
 ```

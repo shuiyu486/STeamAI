@@ -36,10 +36,6 @@
 /rekit promote
 ```
 
-或 backend：
-
-```powershell
-pwsh <templateRoot>\rekit\rekit.ps1 promote -Target <caseRoot>
-```
-
 `promote` 会同时处理 managed docs 和 tooling 候选。tooling 候选默认写入 `tooling/candidates/`，不会直接覆盖正式 recipe。
+
+> 后端脚本只用于自动化、CI 或排障；日常不要手动执行。
