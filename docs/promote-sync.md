@@ -7,13 +7,46 @@
 | `sync` | kit -> case | 将 pack 的 managed docs / managed block 下发到已绑定 case。 |
 | `promote` | case -> kit | 将已绑定 case 中可复用的 managed doc 改进生成候选或写回 pack，并生成 tooling 候选。 |
 
-两者不对称：`sync` 可自动覆盖 managed files 并备份；`promote` 默认保守，不自动提升 live state。
+两者不对称：`sync` 是模板升级，`promote` 是经验蒸馏。日常 `/rekit sync` / `/rekit promote` 默认采用 LLM-first review：先生成审查包，Claude 比较优劣/冲突并让用户确认，确认后才写入。
+
+## review-first 流程
+
+默认日常流程：
+
+```text
+/rekit sync
+/rekit promote
+```
+
+skill 层应先调用 backend 只读 review：
+
+```powershell
+pwsh <templateRoot>\rekit\rekit.ps1 sync -Target <caseRoot> -Review
+pwsh <templateRoot>\rekit\rekit.ps1 promote -Target <caseRoot> -Review
+```
+
+backend 会写入 case-local review 目录：
+
+```text
+<caseRoot>/.rekit/reviews/<timestamp>-sync/
+<caseRoot>/.rekit/reviews/<timestamp>-promote/
+```
+
+每个 review 至少包含：
+
+- `packet.json`：结构化事实包，供 Claude 判断。
+- `summary.md`：简短机械摘要。
+- `diffs/combined.diff` 和逐文件 bounded diff。
+- `previews/*.md`：promote tooling 的脱敏预览。
+
+`-Review` 是强只读；不要和 `-Apply` 混用。`-WhatIf` 仍是旧式 stdout dry run，不等同于 LLM review。
 
 ## sync 规则
 
-- 只处理 `manifest.yml` 的 `managedFiles` 与 `managedBlock`。
+- 只处理 `manifest.yml` 的 `managedFiles`、`templateFiles`、`managedBlock` 和少量 support files。
 - 目标必须是已经 `attach/init` 的 case；拼错路径或普通目录会失败，不会静默创建假 case。
-- 覆盖前备份到 `references/vmp-re/.backup/<timestamp>/`。
+- review 报告应说明每项：是否会 create / overwrite / backup / skip，case 是否相对 last sync hash 有本地修改，风险与推荐动作。
+- 用户确认后，写入型 sync 才覆盖 managed files；覆盖前备份到 `references/vmp-re/.backup/<timestamp>/`。
 - `templateFiles` 只在目标缺失时创建。
 - 不覆盖：
   - `CLAUDE.local.md` block 外内容
@@ -26,12 +59,12 @@
 ## promote 规则
 
 - 目标必须是已经 `attach/init` 的 case；普通目录不会参与回流候选。
-- 扫描 `manifest.yml` 的 `promoteFiles`，处理 managed docs。
-- 同时扫描 `toolingCandidateSources`，将 case 工具链经验脱敏后写入 `packs/<pack>/tooling/candidates/`。
-- 默认 `-WhatIf` 用于预览；不带 `-Apply` 时 managed docs 写入 `packs/<pack>/promote-candidates/`。
-- `-Apply` 才会写回 pack managed docs。
+- review 扫描 `manifest.yml` 的 `promoteFiles`，处理 managed docs 的 case -> pack 差异。
+- review 同时扫描 `toolingCandidateSources`，生成脱敏 preview 供 Claude 判断是否值得吸收。
+- 命中 `promoteDenyPatterns` 的 managed docs 只在 packet 中记录 metadata 和 deny pattern；不要输出 raw diff，避免把 case-specific 信息带回模板审查材料。
+- 用户确认后，才生成 `packs/<pack>/promote-candidates/` 或 `packs/<pack>/tooling/candidates/`，或由 Claude 改写正式 pack 文档。
+- `-Apply` 才会直接写回 pack managed docs；默认不推荐 whole-file apply，优先让 Claude 提炼经验片段。
 - tooling 候选不直接覆盖正式 recipe；需要人工审查后合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
-- 命中 `promoteDenyPatterns` 时阻止 managed docs 提升；tooling 候选会先做脱敏再检查残留私有信息。
 
 ## 永不提升
 
@@ -61,24 +94,27 @@ manifest 中的文件路径必须是相对路径，并且不能通过 `..` 越�
 /rekit promote
 ```
 
-如果候选安全，需要写回 pack，直接告诉 Claude：
+Claude 读取 review 包后输出：
+
+- 每个大项即将同步/回流什么。
+- 新旧经验是否冲突。
+- 新旧经验各自优劣。
+- 推荐同步、候选、改写、跳过或取消。
+
+用户确认具体动作后再执行写入。常见确认语义：
 
 ```text
-确认写回这次 promote 候选
+只生成 tooling candidate
+生成 promote 候选，不写回 pack
+同步全部推荐项
+只同步 references/vmp-re/README.md
+取消
 ```
 
-验证 case：
+最后验证：
 
 ```text
 /rekit doctor
-```
-
-最后在 kit 仓库审查并提交：
-
-```text
-git diff
-git commit
-git push
 ```
 
 > `pwsh <templateRoot>\rekit\rekit.ps1 ...` 只是 backend/自动化入口，不是日常用户入口。

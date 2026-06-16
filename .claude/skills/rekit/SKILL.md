@@ -38,11 +38,21 @@ backend 命令只在实际执行、自动化、CI、排障或用户明确要求�
 | `/rekit attach` | `pwsh <templateRoot>/rekit/rekit.ps1 attach -Target <caseRoot> -Pack vmp-re` |
 | `/rekit repair` | `pwsh <templateRoot>/rekit/rekit.ps1 repair -Target <caseRoot>` 预览；确认后用 `-Apply` 修复迁移后的 metadata |
 | `/rekit init` / `/rekit bootstrap` | `pwsh <templateRoot>/rekit/rekit.ps1 init -Target <caseRoot> -Pack vmp-re` |
-| `/rekit sync` | `pwsh <templateRoot>/rekit/rekit.ps1 sync -Target <caseRoot>` |
-| `/rekit promote` | `pwsh <templateRoot>/rekit/rekit.ps1 promote -Target <caseRoot>`，默认只生成候选；写回 pack 需要 `-Apply` |
+| `/rekit sync` | 默认先运行 `pwsh <templateRoot>/rekit/rekit.ps1 sync -Target <caseRoot> -Review`，生成 LLM 审查包；用户确认后才执行写入型 sync |
+| `/rekit promote` | 默认先运行 `pwsh <templateRoot>/rekit/rekit.ps1 promote -Target <caseRoot> -Review`，生成回流审查包；用户确认后才生成候选或写回 pack |
 | `/rekit doctor` | `pwsh <templateRoot>/rekit/rekit.ps1 doctor [-Target <caseRoot>]`；`validate` 是兼容别名 |
 
 如果用户没有显式给 `Target`，在 case 模式下使用当前工作目录；在 kit 模式下 `doctor/status` 作用于 kit 本身。`status` 只读检测迁移，不静默修复；`repair -Apply` 才会写 metadata。
+
+## LLM-first review 规则
+
+1. `/rekit sync` 与 `/rekit promote` 默认都是 **review-first**：先生成 `.rekit/reviews/<timestamp>-<command>/packet.json`、`summary.md` 和 bounded diff，再由 Claude 比较优劣、冲突与风险。
+2. 用户确认前，不要执行会写入 managed files、pack docs、promote candidates、tooling candidates 或 state 的 backend。
+3. review 报告必须按大项说明：方向、变化、收益、风险、冲突、推荐动作，并给出可选择项。
+4. `/rekit sync` 的确认选项优先使用：同步全部推荐项、只同步无冲突项、逐项选择、取消。
+5. `/rekit promote` 的确认选项优先使用：仅生成候选、只生成 tooling candidate、按报告改写进模板、逐项选择、取消。
+6. “继续”“好”“confirm”不能扩大授权；写入前必须确认具体动作、target、pack 与文件范围。
+7. backend 的 `-Review` 是强只读；`-Review -Apply` 应拒绝。`-WhatIf` 只是旧式 stdout dry run，不等同于 LLM review。
 
 ## 执行规则
 
@@ -62,6 +72,6 @@ backend 命令只在实际执行、自动化、CI、排障或用户明确要求�
 
 ```text
 第一次 clone 后，在 kit 仓库启动 Claude Code，然后用 /rekit init 或 /rekit attach。
-以后在 case 里只用 /rekit status / sync / promote；排障用 /rekit doctor。
+以后在 case 里只用 /rekit status / sync / promote；sync/promote 会先生成审查报告，确认后才写入。
 脚本只是 backend，不需要手动执行。
 ```

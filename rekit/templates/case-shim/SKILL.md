@@ -21,10 +21,12 @@ disable-model-invocation: true
 <templateRoot>/.claude/skills/rekit/SKILL.md
 ```
 
-5. 调用 canonical backend：
+5. 遵循 canonical skill 的 LLM-first 语义调用 backend。`sync` / `promote` 默认先生成 review 包：
 
 ```powershell
 pwsh "<templateRoot>/rekit/rekit.ps1" <status|repair|attach|init|sync|promote|doctor> -Target "<当前 case 根目录>"
+pwsh "<templateRoot>/rekit/rekit.ps1" sync -Target "<当前 case 根目录>" -Review
+pwsh "<templateRoot>/rekit/rekit.ps1" promote -Target "<当前 case 根目录>" -Review
 ```
 
 ## 规则
@@ -33,5 +35,6 @@ pwsh "<templateRoot>/rekit/rekit.ps1" <status|repair|attach|init|sync|promote|do
 - 不要读取或修改用户级 `~/.claude/skills`。
 - `status` 只读检测迁移；需要修复路径时必须由用户确认后运行 canonical `repair -Apply`。
 - `sync` / `promote` 只允许作用于已经绑定的 case；不要对普通目录或拼错路径隐式创建 case 或生成回流候选。
+- `sync` / `promote` 默认必须 review-first：先运行 canonical backend 的 `-Review`，让 Claude 输出优劣/冲突报告并取得用户明确确认后，才执行写入动作。
 - 不要 promote live state，例如 `CLAUDE.local.md` 全文、`task-handoff.md`、`tools.local.yml`、`captures/**`、`artifacts/**`。
 - 工具链经验通过 canonical `promote` 生成 tooling 候选，候选位置为 `<templateRoot>/packs/<templatePack>/tooling/candidates/`。

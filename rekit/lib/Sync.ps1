@@ -99,7 +99,11 @@ function Sync-RekitPack {
     [string]$Pack = 'vmp-re',
     [string]$ProjectName = '',
     [switch]$WhatIf,
-    [switch]$CreateLocalFiles
+    [switch]$CreateLocalFiles,
+    [switch]$Review,
+    [string]$ReviewOutputDir = '',
+    [string]$PacketPath = '',
+    [string]$DiffPath = ''
   )
   $caseRoot = [System.IO.Path]::GetFullPath($Target)
   $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
@@ -111,6 +115,10 @@ function Sync-RekitPack {
     throw "case metadata points to a different directory. Run 'rekit repair -Target `"$caseRoot`" -Apply' after confirming the move."
   }
   if ([string]::IsNullOrWhiteSpace($ProjectName) -and $inst.Source -ne 'missing') { $ProjectName = $inst.ProjectName }
+  if ($Review) {
+    Write-RekitSyncReview -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -CreateLocalFiles:$CreateLocalFiles -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
+    return
+  }
   Invoke-RekitAttach -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf
 
   $backupRoot = Join-Path $caseRoot ("references\vmp-re\.backup\" + (Get-Date -Format 'yyyyMMdd-HHmmss'))

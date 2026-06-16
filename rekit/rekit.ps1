@@ -7,7 +7,11 @@ param(
   [string]$ProjectName = '',
   [switch]$WhatIf,
   [switch]$Apply,
-  [switch]$Force
+  [switch]$Force,
+  [switch]$Review,
+  [string]$ReviewOutputDir = '',
+  [string]$PacketPath = '',
+  [string]$DiffPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,8 +21,9 @@ $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot '..'))
 . (Join-Path $RuntimeRoot 'lib\Manifest.ps1')
 . (Join-Path $RuntimeRoot 'lib\Instance.ps1')
 . (Join-Path $RuntimeRoot 'lib\Validate.ps1')
-. (Join-Path $RuntimeRoot 'lib\Sync.ps1')
 . (Join-Path $RuntimeRoot 'lib\Promote.ps1')
+. (Join-Path $RuntimeRoot 'lib\Review.ps1')
+. (Join-Path $RuntimeRoot 'lib\Sync.ps1')
 
 function Resolve-RekitTarget {
   param([string]$Value)
@@ -67,12 +72,12 @@ switch ($Command) {
   { $_ -in @('sync','update') } {
     $caseRoot = Resolve-RekitTarget $Target
     [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
-    Sync-RekitPack -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf
+    Sync-RekitPack -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf -Review:$Review -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
   }
   'promote' {
     $caseRoot = Resolve-RekitTarget $Target
     [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
-    Promote-RekitChanges -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -WhatIf:$WhatIf -Apply:$Apply
+    Promote-RekitChanges -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -WhatIf:$WhatIf -Apply:$Apply -Review:$Review -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
   }
   { $_ -in @('validate','doctor') } {
     if ([string]::IsNullOrWhiteSpace($Target)) {
