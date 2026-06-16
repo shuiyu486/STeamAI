@@ -85,6 +85,8 @@ function Get-RekitPackManifest {
   $templateFiles = @(Get-RekitYamlList -Lines $lines -Key 'templateFiles')
   $localFiles = @(Get-RekitYamlList -Lines $lines -Key 'localNeverOverwrite')
   $promoteFiles = @(Get-RekitYamlList -Lines $lines -Key 'promoteFiles')
+  $commonPolicies = @(Get-RekitYamlList -Lines $lines -Key 'commonPolicies')
+  $policyOverlays = @(Get-RekitYamlList -Lines $lines -Key 'policyOverlays')
   $toolingFiles = @(Get-RekitYamlList -Lines $lines -Key 'toolingFiles')
   $toolingCandidateSources = @(Get-RekitYamlList -Lines $lines -Key 'toolingCandidateSources')
   $promoteDenyPatterns = @(Get-RekitYamlList -Lines $lines -Key 'promoteDenyPatterns')
@@ -115,6 +117,8 @@ function Get-RekitPackManifest {
     TemplateFiles = $templateFiles
     LocalFiles = $localFiles
     PromoteFiles = $promoteFiles
+    CommonPolicies = $commonPolicies
+    PolicyOverlays = $policyOverlays
     ToolingFiles = $toolingFiles
     ToolingCandidateSources = $toolingCandidateSources
     PromoteDenyPatterns = $promoteDenyPatterns

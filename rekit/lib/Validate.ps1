@@ -31,6 +31,50 @@ function Test-RekitManagedBlock {
   if ($text -notmatch ('<!-- END ' + [regex]::Escape($BlockId) + ' -->')) { throw "missing managed block end marker in ${Path}: $BlockId" }
 }
 
+function Get-RekitPolicyManifestPaths {
+  param(
+    [Parameter(Mandatory=$true)][string]$ManifestPath,
+    [Parameter(Mandatory=$true)][string]$ListKey,
+    [Parameter(Mandatory=$true)][string]$PathKey
+  )
+  $lines = [System.IO.File]::ReadAllLines($ManifestPath, [System.Text.Encoding]::UTF8)
+  $paths = @()
+  $inside = $false
+  foreach ($line in $lines) {
+    if (-not $inside) {
+      if ($line -match ('^' + [regex]::Escape($ListKey) + '\s*:\s*$')) { $inside = $true }
+      continue
+    }
+    if ($line -match '^\S') { break }
+    if ($line -match ('^\s{4}' + [regex]::Escape($PathKey) + '\s*:\s*(.+?)\s*$')) {
+      $paths += (Convert-RekitYamlValue $Matches[1])
+    }
+  }
+  return $paths
+}
+
+function Test-RekitPolicyRegistry {
+  param([Parameter(Mandatory=$true)]$Manifest)
+  $rows = @()
+  $commonManifest = Join-RekitPath -Root $Manifest.RepoRoot -RelativePath 'common/policies/manifest.yml'
+  $rows += Assert-RekitTextFile -Path $commonManifest -LimitBytes 16384
+  $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root $Manifest.RepoRoot -RelativePath 'common/policies/README.md') -LimitBytes 16384
+  foreach ($rel in (Get-RekitPolicyManifestPaths -ManifestPath $commonManifest -ListKey 'policies' -PathKey 'path')) {
+    $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root (Split-Path -Parent $commonManifest) -RelativePath $rel) -LimitBytes 16384
+  }
+
+  $overlayManifest = Join-RekitPath -Root $Manifest.PackRoot -RelativePath 'policies/manifest.yml'
+  $rows += Assert-RekitTextFile -Path $overlayManifest -LimitBytes 16384
+  $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root $Manifest.PackRoot -RelativePath 'policies/README.md') -LimitBytes 16384
+  foreach ($rel in (Get-RekitPolicyManifestPaths -ManifestPath $overlayManifest -ListKey 'overlays' -PathKey 'path')) {
+    $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root (Split-Path -Parent $overlayManifest) -RelativePath $rel) -LimitBytes 16384
+  }
+  foreach ($rel in $Manifest.PolicyOverlays) {
+    [void](Join-RekitPath -Root $Manifest.PackRoot -RelativePath $rel)
+  }
+  return $rows
+}
+
 function Test-RekitPack {
   param(
     [Parameter(Mandatory=$true)][string]$RepoRoot,
@@ -43,6 +87,7 @@ function Test-RekitPack {
   $rows += Assert-RekitTextFile -Path $canonicalSkill -LimitBytes 32768
   $caseShimTemplate = Join-Path $RepoRoot 'rekit\templates\case-shim\SKILL.md'
   $rows += Assert-RekitTextFile -Path $caseShimTemplate -LimitBytes 16384
+  $rows += Test-RekitPolicyRegistry -Manifest $manifest
 
   foreach ($rel in $manifest.ManagedFiles) {
     $rows += Assert-RekitTextFile -Path (Get-RekitSourcePath -Manifest $manifest -RelativePath $rel) -LimitBytes (Get-RekitBudgetLimit -Manifest $manifest -RelativePath $rel)

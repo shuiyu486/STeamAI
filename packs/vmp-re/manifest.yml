@@ -28,6 +28,22 @@ syncPolicy:
   templateFiles: create-if-missing
   localFiles: never-overwrite
 
+commonPolicies:
+  - context-budget
+  - subagents
+  - review-first
+  - write-boundaries
+  - verification
+  - evidence
+  - tool-output
+  - handoff
+
+policyOverlays:
+  - policies/subagents.overlay.md
+  - policies/context-budget.overlay.md
+  - policies/review-first.overlay.md
+  - policies/verification.overlay.md
+
 promoteFiles:
   - references/vmp-re/README.md
   - references/vmp-re/workflow-template.md
