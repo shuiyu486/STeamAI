@@ -1,6 +1,6 @@
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents')]
+  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','parallel')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -18,7 +18,9 @@ param(
   [string]$Items = '',
   [string]$ItemsFile = '',
   [int]$ItemsPerAgent = 0,
-  [int]$MaxParallel = 0
+  [int]$MaxParallel = 0,
+  [Parameter(ValueFromRemainingArguments=$true)]
+  [string[]]$RemainingArgs = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,6 +46,23 @@ function Test-RekitLooksLikeCase {
 }
 
 switch ($Command) {
+  'parallel' {
+    $caseRoot = Resolve-RekitTarget $Target
+    $goRoot = Join-Path $RepoRoot 'rekit-go'
+    $goEntry = Join-Path $goRoot 'cmd\rekit'
+    if (-not (Test-Path -LiteralPath (Join-Path $goRoot 'go.mod'))) { throw "missing Go rekit runtime: $goRoot" }
+    $parallelArgs = @('run', './cmd/rekit', 'parallel', '--target', $caseRoot, '--repo-root', $RepoRoot)
+    if ($PSBoundParameters.ContainsKey('Pack')) { $parallelArgs += @('--pack', $Pack) }
+    if ($Force) { $parallelArgs += '--force' }
+    if ($RemainingArgs.Count -gt 0) { $parallelArgs += $RemainingArgs }
+    Push-Location $goRoot
+    try {
+      & go @parallelArgs
+      if ($LASTEXITCODE -ne 0) { throw "rekit parallel failed with exit code $LASTEXITCODE" }
+    } finally {
+      Pop-Location
+    }
+  }
   'status' {
     $cwd = Resolve-RekitTarget $Target
     Write-Host "rekit runtime: $RuntimeRoot"
@@ -74,14 +93,15 @@ switch ($Command) {
   }
   { $_ -in @('init','bootstrap') } {
     $caseRoot = Resolve-RekitTarget $Target
-    Sync-RekitPack -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf -CreateLocalFiles -Apply
+    Sync-RekitPack -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf -CreateLocalFiles -Apply -ForceLocalTemplates:$Force
   }
   { $_ -in @('sync','update') } {
     $caseRoot = Resolve-RekitTarget $Target
     [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
     if ($Review -and $Apply) { throw 'sync -Review cannot be combined with -Apply. Review first, then run sync -Apply after user confirmation.' }
-    $syncReview = (-not $Apply)
+    $syncReview = (-not $Apply -and -not $WhatIf)
     if ($Review) { $syncReview = $true }
+    if ($Review -and $WhatIf) { throw 'sync -Review cannot be combined with -WhatIf. Choose review artifacts or a PowerShell dry run.' }
     Sync-RekitPack -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf -Apply:$Apply -Review:$syncReview -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
   }
   'promote' {
@@ -89,8 +109,9 @@ switch ($Command) {
     [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
     if ($Review -and ($Apply -or $CreateCandidates)) { throw 'promote -Review cannot be combined with -Apply or -CreateCandidates. Review first, then run an explicit write action after user confirmation.' }
     if ($Apply -and $CreateCandidates) { throw 'promote -Apply cannot be combined with -CreateCandidates. Choose one write action.' }
-    $promoteReview = (-not $Apply -and -not $CreateCandidates)
+    $promoteReview = (-not $Apply -and -not $CreateCandidates -and -not $WhatIf)
     if ($Review) { $promoteReview = $true }
+    if ($Review -and $WhatIf) { throw 'promote -Review cannot be combined with -WhatIf. Choose review artifacts or a PowerShell dry run.' }
     Promote-RekitChanges -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -WhatIf:$WhatIf -Apply:$Apply -CreateCandidates:$CreateCandidates -Review:$promoteReview -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
   }
   'plan-subagents' {

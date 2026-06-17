@@ -9,6 +9,7 @@ managedFiles:
   - references/vmp-re/progressive-disclosure.md
   - references/vmp-re/toolchain-router.md
   - references/vmp-re/singleton-handler-review.md
+  - references/vmp-re/parallel-sessions.md
 
 templateFiles:
   - references/vmp-re/task-handoff.template.md
@@ -31,6 +32,7 @@ syncPolicy:
 commonPolicies:
   - context-budget
   - subagents
+  - parallel-sessions
   - review-first
   - write-boundaries
   - verification
@@ -40,6 +42,7 @@ commonPolicies:
 
 policyOverlays:
   - policies/subagents.overlay.md
+  - policies/parallel-sessions.overlay.md
   - policies/context-budget.overlay.md
   - policies/review-first.overlay.md
   - policies/verification.overlay.md
@@ -56,6 +59,17 @@ subagentRoutes:
     subagentPermissions: read-only
     mainAgentOwns: csv-backup,csv-write,validation,handoff-update
     outputContract: item,decision,confidence,evidence,risk,next_action,handler,csv_ready,row,defer_reason
+  - id: vmp-re:parallel-feature-analysis
+    taskTypes: feature-analysis,function-analysis,parallel-feature-review,lowering-request-review
+    trigger: feature workspace has requests/candidates or needs merge review
+    shardBasis: feature
+    targetItemsPerAgent: 1
+    maxParallel: 2
+    reference: references/vmp-re/parallel-sessions.md
+    policyOverlay: policies/parallel-sessions.overlay.md
+    subagentPermissions: read-only-or-workspace-only
+    mainAgentOwns: canonical-write,confirmed-csv,validation,handoff-update,authority-sync
+    outputContract: item,decision,confidence,evidence,risk,next_action,feature,request_id,candidate_path,defer_reason
 
 promoteFiles:
   - references/vmp-re/README.md
@@ -63,11 +77,13 @@ promoteFiles:
   - references/vmp-re/progressive-disclosure.md
   - references/vmp-re/toolchain-router.md
   - references/vmp-re/singleton-handler-review.md
+  - references/vmp-re/parallel-sessions.md
 
 toolingFiles:
   - tooling/README.md
   - tooling/catalog.yml
   - tooling/recipes/public-tool-triage.md
+  - tooling/recipes/parallel-sessions.md
   - tooling/recipes/vmenter-context-probe.md
   - tooling/recipes/unicorn-trace.md
   - tooling/recipes/focused-handler-review.md
@@ -76,8 +92,23 @@ toolingFiles:
   - tooling/scripts/README.md
   - tooling/patches/vmpimportfixer-timeout-and-quiet-log.md
 
+promptFiles:
+  - common/prompts/parallel-main-session.md
+  - common/prompts/parallel-feature-session.md
+  - common/prompts/parallel-merge-review.md
+  - packs/vmp-re/prompts/feature-analysis-session.md
+
+parallelTemplateFiles:
+  - templates/parallel/feature-analysis/summary.template.md
+  - templates/parallel/feature-analysis/evidence.template.md
+  - templates/parallel/feature-analysis/vm_blockers.template.csv
+  - templates/parallel/feature-analysis/lowering_requests.template.csv
+  - templates/parallel/feature-analysis/handler_roles.template.csv
+  - templates/parallel/feature-analysis/opcode_semantics.template.csv
+
 toolingCandidateSources:
   - references/vmp-re/toolchain-router.md
+  - references/vmp-re/parallel-sessions.md
 
 promoteDenyPatterns:
   - "C:\\"
@@ -94,4 +125,5 @@ promoteDenyPatterns:
 budgets:
   CLAUDE.local.md: 8192
   references/vmp-re/task-handoff.md: 12288
+  references/vmp-re/parallel-sessions.md: 16384
   defaultMarkdown: 16384

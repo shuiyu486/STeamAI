@@ -15,6 +15,7 @@
 | 验证标准 | `<templateRoot>/common/policies/verification.md` | `<templateRoot>/packs/vmp-re/policies/verification.overlay.md` |
 | 大工具输出 | `<templateRoot>/common/policies/tool-output.md` | `<templateRoot>/packs/vmp-re/policies/context-budget.overlay.md` |
 | 接手与连续性 | `<templateRoot>/common/policies/handoff.md` | `task-handoff.md` |
+| 并行功能会话 | `<templateRoot>/common/policies/parallel-sessions.md` | `parallel-sessions.md` 与 `<templateRoot>/packs/vmp-re/policies/parallel-sessions.overlay.md` |
 
 ## VMP RE 快速规则
 

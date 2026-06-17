@@ -12,6 +12,14 @@ overlays:
       sync: managed
       promote: review-first
       validate: true
+  - id: parallel-sessions-vmp
+    extends: parallel-sessions
+    path: parallel-sessions.overlay.md
+    title: VMP parallel feature-analysis session overlay
+    lifecycle:
+      sync: managed
+      promote: review-first
+      validate: true
   - id: context-budget-vmp
     extends: context-budget
     path: context-budget.overlay.md

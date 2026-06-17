@@ -53,24 +53,42 @@ function Get-RekitPolicyManifestPaths {
   return $paths
 }
 
+function Get-RekitPolicyManifestEntries {
+  param(
+    [Parameter(Mandatory=$true)][string]$ManifestPath,
+    [Parameter(Mandatory=$true)][string]$ListKey
+  )
+  $lines = [System.IO.File]::ReadAllLines($ManifestPath, [System.Text.Encoding]::UTF8)
+  return @(Get-RekitYamlObjectList -Lines $lines -Key $ListKey)
+}
+
 function Test-RekitPolicyRegistry {
   param([Parameter(Mandatory=$true)]$Manifest)
   $rows = @()
   $commonManifest = Join-RekitPath -Root $Manifest.RepoRoot -RelativePath 'common/policies/manifest.yml'
   $rows += Assert-RekitTextFile -Path $commonManifest -LimitBytes 16384
   $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root $Manifest.RepoRoot -RelativePath 'common/policies/README.md') -LimitBytes 16384
+  $commonEntries = @(Get-RekitPolicyManifestEntries -ManifestPath $commonManifest -ListKey 'policies')
+  $commonIds = @($commonEntries | ForEach-Object { [string]$_.id })
   foreach ($rel in (Get-RekitPolicyManifestPaths -ManifestPath $commonManifest -ListKey 'policies' -PathKey 'path')) {
     $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root (Split-Path -Parent $commonManifest) -RelativePath $rel) -LimitBytes 16384
+  }
+  foreach ($id in $Manifest.CommonPolicies) {
+    if ($commonIds -notcontains $id) { throw "manifest common policy is not registered: $id" }
   }
 
   $overlayManifest = Join-RekitPath -Root $Manifest.PackRoot -RelativePath 'policies/manifest.yml'
   $rows += Assert-RekitTextFile -Path $overlayManifest -LimitBytes 16384
   $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root $Manifest.PackRoot -RelativePath 'policies/README.md') -LimitBytes 16384
+  $overlayEntries = @(Get-RekitPolicyManifestEntries -ManifestPath $overlayManifest -ListKey 'overlays')
+  $overlayPaths = @($overlayEntries | ForEach-Object { [string]$_.path })
   foreach ($rel in (Get-RekitPolicyManifestPaths -ManifestPath $overlayManifest -ListKey 'overlays' -PathKey 'path')) {
     $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root (Split-Path -Parent $overlayManifest) -RelativePath $rel) -LimitBytes 16384
   }
   foreach ($rel in $Manifest.PolicyOverlays) {
-    [void](Join-RekitPath -Root $Manifest.PackRoot -RelativePath $rel)
+    $normalized = ([string]$rel) -replace '^policies[\/]', ''
+    if ($overlayPaths -notcontains $normalized) { throw "manifest policy overlay is not registered: $rel" }
+    $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root $Manifest.PackRoot -RelativePath $rel) -LimitBytes 16384
   }
   return $rows
 }
@@ -139,6 +157,12 @@ function Test-RekitPack {
     $rows += Assert-RekitTextFile -Path (Get-RekitSourcePath -Manifest $manifest -RelativePath $rel) -LimitBytes (Get-RekitBudgetLimit -Manifest $manifest -RelativePath ($rel -replace '\.template\.md$', '.md'))
   }
   foreach ($rel in $manifest.ToolingFiles) {
+    $rows += Assert-RekitTextFile -Path (Get-RekitSourcePath -Manifest $manifest -RelativePath $rel) -LimitBytes (Get-RekitBudgetLimit -Manifest $manifest -RelativePath $rel)
+  }
+  foreach ($rel in $manifest.PromptFiles) {
+    $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root $manifest.RepoRoot -RelativePath $rel) -LimitBytes 16384
+  }
+  foreach ($rel in $manifest.ParallelTemplateFiles) {
     $rows += Assert-RekitTextFile -Path (Get-RekitSourcePath -Manifest $manifest -RelativePath $rel) -LimitBytes (Get-RekitBudgetLimit -Manifest $manifest -RelativePath $rel)
   }
   foreach ($rel in $manifest.PromoteFiles) {

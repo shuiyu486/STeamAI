@@ -100,6 +100,7 @@ function Sync-RekitPack {
     [string]$ProjectName = '',
     [switch]$WhatIf,
     [switch]$CreateLocalFiles,
+    [switch]$ForceLocalTemplates,
     [switch]$Apply,
     [switch]$Review,
     [string]$ReviewOutputDir = '',
@@ -134,13 +135,21 @@ function Sync-RekitPack {
     $source = Get-RekitSourcePath -Manifest $manifest -RelativePath $rel
     $targetRel = $rel -replace '\.template\.md$', '.md'
     $dest = Join-RekitPath -Root $caseRoot -RelativePath $targetRel
-    if ((Test-Path -LiteralPath $dest) -and -not $CreateLocalFiles) {
+    if ((Test-Path -LiteralPath $dest) -and -not $ForceLocalTemplates) {
       Write-Host "skip existing local file: $dest"
       continue
     }
     if ($WhatIf) {
-      Write-Host "would create local template file: $dest"
+      if (Test-Path -LiteralPath $dest) {
+        Write-Host "would overwrite local template file with -Force: $dest"
+      } else {
+        Write-Host "would create local template file: $dest"
+      }
       continue
+    }
+    if ((Test-Path -LiteralPath $dest) -and $ForceLocalTemplates) {
+      $backup = Backup-RekitFile -Path $dest -CaseRoot $caseRoot -BackupRoot $backupRoot
+      Write-Host "backup local template file: $backup"
     }
     Ensure-RekitDirectory (Split-Path -Parent $dest)
     $text = [System.IO.File]::ReadAllText($source, [System.Text.Encoding]::UTF8)

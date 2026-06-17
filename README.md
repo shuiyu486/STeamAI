@@ -44,6 +44,8 @@ claude
 /rekit status
 /rekit sync
 /rekit promote
+/rekit parallel
+/rekit parallel <feature-name>
 ```
 
 排障时再用：
@@ -90,6 +92,7 @@ claude
 | `/rekit sync` | kit -> case | 默认生成同步审查包；确认后才用 `-Apply` 写入 managed docs / managed block。 |
 | `/rekit promote` | case -> kit | 默认生成回流审查包；确认后才用 `-CreateCandidates` 生成候选或用 `-Apply` 写回 pack。 |
 | `/rekit plan-subagents` | 只读计划 | 按 manifest `subagentRoutes` 生成子 agent 分片审查产物；不启动 agent、不改项目源文件。 |
+| `/rekit parallel` / `/rekit parallel <name>` | case-local 状态 | 智能并行会话面板；创建/续接功能分析 workspace，生成 resume prompt，汇总 request/candidate。 |
 | `/rekit doctor` | 只读 | 排障时详细验证结构；日常不必主动运行。 |
 | `/rekit repair` | case metadata | 迁移目录后先预览修复；确认后由 Claude 调用 backend `-Apply`。 |
 
@@ -158,6 +161,32 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 `promote` 很保守：若 managed docs 含真实绝对路径、样本名、RVA/VA、ctx/round 快照、artifact/capture/trace/dump 路径，会阻止直接回流。工具链经验只有在脱敏后不再命中 deny pattern 时才写 sanitized preview；候选由你审查后合入正式 tooling 文档。
 
 `promote` 只允许作用于已经 `attach/init` 的 case，避免从普通目录误回流到 pack。
+
+## 并行功能会话
+
+当主线任务很长、但你想并行分析某个具体功能时，用：
+
+```text
+/rekit parallel <feature-name>
+```
+
+如果该功能会话不存在，`parallel` 会创建：
+
+```text
+.rekit/parallel/<feature-name>/
+captures/feature_analysis/<feature-name>_<yyyymmdd>/
+```
+
+并生成 `START_HERE.md`、`FEATURE_RESUME.md`、`MAIN_RESUME.md`、`AUTHORITY_RESUME.md`、`summary.md`、`evidence.md`、request/candidate CSV。第二天重启电脑或上下文污染时，不从零开始，直接把对应 `*_RESUME.md` 发给新会话。
+
+日常仍只需要记：
+
+```text
+/rekit parallel
+/rekit parallel <feature-name>
+```
+
+显式动作只在需要时使用：`collect` 生成主线审查包，`sync` 把主线结果回传 feature inbox，`standalone` 让主线结束后的功能会话继续只读/候选探索，`close` 收尾。
 
 ## 子 agent 分片计划
 

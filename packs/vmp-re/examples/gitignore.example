@@ -1,6 +1,8 @@
 # 大文件/敏感/运行产物默认忽略
 artifacts/
 captures/*
+!captures/feature_analysis/
+!captures/feature_analysis/**
 *.exe
 *.dll
 *.bin

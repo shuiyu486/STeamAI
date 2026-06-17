@@ -78,9 +78,9 @@ function Get-RekitFileBytesIfExists {
 function New-RekitBoundedDiffText {
   param(
     [Parameter(Mandatory=$true)][string]$OldLabel,
-    [Parameter(Mandatory=$true)][string]$OldText,
+    [AllowEmptyString()][string]$OldText,
     [Parameter(Mandatory=$true)][string]$NewLabel,
-    [Parameter(Mandatory=$true)][string]$NewText,
+    [AllowEmptyString()][string]$NewText,
     [int]$MaxChanges = 120,
     [int]$MaxLineChars = 240
   )
@@ -121,9 +121,9 @@ function Write-RekitDiffFile {
     [Parameter(Mandatory=$true)][string]$DiffRoot,
     [Parameter(Mandatory=$true)][string]$RelativePath,
     [Parameter(Mandatory=$true)][string]$OldLabel,
-    [Parameter(Mandatory=$true)][string]$OldText,
+    [AllowEmptyString()][string]$OldText,
     [Parameter(Mandatory=$true)][string]$NewLabel,
-    [Parameter(Mandatory=$true)][string]$NewText,
+    [AllowEmptyString()][string]$NewText,
     [Parameter(Mandatory=$true)][string]$CombinedDiffPath
   )
   $diff = New-RekitBoundedDiffText -OldLabel $OldLabel -OldText $OldText -NewLabel $NewLabel -NewText $NewText

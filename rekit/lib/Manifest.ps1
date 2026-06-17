@@ -121,6 +121,8 @@ function Get-RekitPackManifest {
   $commonPolicies = @(Get-RekitYamlList -Lines $lines -Key 'commonPolicies')
   $policyOverlays = @(Get-RekitYamlList -Lines $lines -Key 'policyOverlays')
   $toolingFiles = @(Get-RekitYamlList -Lines $lines -Key 'toolingFiles')
+  $promptFiles = @(Get-RekitYamlList -Lines $lines -Key 'promptFiles')
+  $parallelTemplateFiles = @(Get-RekitYamlList -Lines $lines -Key 'parallelTemplateFiles')
   $toolingCandidateSources = @(Get-RekitYamlList -Lines $lines -Key 'toolingCandidateSources')
   $subagentRoutes = @(Get-RekitYamlObjectList -Lines $lines -Key 'subagentRoutes')
   $promoteDenyPatterns = @(Get-RekitYamlList -Lines $lines -Key 'promoteDenyPatterns')
@@ -154,6 +156,8 @@ function Get-RekitPackManifest {
     CommonPolicies = $commonPolicies
     PolicyOverlays = $policyOverlays
     ToolingFiles = $toolingFiles
+    PromptFiles = $promptFiles
+    ParallelTemplateFiles = $parallelTemplateFiles
     ToolingCandidateSources = $toolingCandidateSources
     SubagentRoutes = $subagentRoutes
     PromoteDenyPatterns = $promoteDenyPatterns

@@ -18,6 +18,13 @@ policies:
       sync: reference
       promote: review-only
       validate: true
+  - id: parallel-sessions
+    path: parallel-sessions.md
+    title: Parallel session orchestration and continuity
+    lifecycle:
+      sync: reference
+      promote: review-only
+      validate: true
   - id: review-first
     path: review-first.md
     title: Review-first writes and user confirmation
