@@ -36,9 +36,11 @@
 触发后：
 
 1. 用 `/rekit plan-subagents` 或等价手工计划生成固定分片。
-2. 子 agent 只读复核分片，不写文件，不粘贴长 trace/disasm。
-3. 主 agent 只接收结构化短结论，并独占 CSV backup/write、验证和 handoff 更新。
-4. 不能给出固定分片时，先脚本化聚合或缩小输入；不要启动无界子 agent。
+2. 默认先走 L1 packet review；只有冲突项才升级到 L2 sidecar review 或 L3 deep tool review。
+3. 子 agent 只读复核分片，不写文件，不粘贴长 trace/disasm。
+4. 普通 batch 子 agent 不自行打开 IDA/调试器、不全量分析 rebuilt PE；需要重型工具时返回 `needs_l3`，由主 agent 显式窄范围后台升级。
+5. 主 agent 只接收结构化短结论，并独占 CSV backup/write、验证和 handoff 更新。
+6. 不能给出固定分片时，先脚本化聚合或缩小输入；不要启动无界子 agent。
 
 ## 禁止模式
 

@@ -28,6 +28,23 @@
 
 不要为了“看起来更并行”增加 agent。过多 agent 会重复读取、增加 token 成本，并放大合并负担。
 
+## 分层授权与升级
+
+不要用同一种子 agent 承担所有深度。默认先窄后深，只有证据不足且收益足够高时才升级：
+
+| 层级 | 用途 | 工具边界 | 失败策略 |
+|---|---|---|---|
+| L1 packet review | 基于主 agent 或脚本抽取的短 evidence packet 做初筛 | 不主动查大文件，不调用重型工具 | 证据不足返回 `defer` / `needs_l2` |
+| L2 bounded evidence review | 读取明确指定的小范围文件、行范围或 sidecar | 只读；不重跑长任务，不打开重型 GUI / 二进制分析工具 | 证据不足返回 `defer` / `needs_l3` |
+| L3 deep tool review | 对少数高价值 blocker 做深挖 | 允许重型工具，但必须 narrow target、明确预算，优先后台运行 | 超时/中断不阻塞主线，标记 pending/deferred |
+
+升级规则：
+
+- L1/L2 prompt 必须声明允许读取的输入范围和禁止的重型动作。
+- L3 必须说明目标、范围、预算、可接受的等待方式和失败后的回退状态。
+- 可能长时间运行的 L3 应后台化；主会话继续处理其它分片。
+- 子 agent 卡住时，不扩大等待；下一轮改成更窄输入或显式 L3。
+
 ## 主 agent 职责
 
 1. 明确分片：给每个子 agent 固定输入范围。
@@ -43,11 +60,13 @@
 
 ```text
 item: <id>
-decision: accept | reject | defer
+decision: accept | reject | defer | needs_l2 | needs_l3
 confidence: high | medium | low
 evidence: 最多 3 条关键证据或定位
 risk: 主要风险或空
 next_action: 主 agent 下一步
+tier_used: L1 | L2 | L3
+tool_scope: packet_only | sidecar_only | bounded_read | deep_tool
 ```
 
 pack overlay 可以追加领域字段，但仍应保持短输出。
