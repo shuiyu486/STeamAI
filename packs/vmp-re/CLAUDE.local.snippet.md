@@ -9,7 +9,8 @@
 | 复用到新的 VMProtect x64 样本 | `references/vmp-re/workflow-template.md` |
 | 选择/复查工具链与止损条件 | `references/vmp-re/toolchain-router.md` |
 | 控制上下文膨胀、子 agent 并行复核、避免 `/compact` / EOF 问题 | `references/vmp-re/progressive-disclosure.md` |
+| 批量只读复核 / 子 agent 分片规划 | `references/vmp-re/progressive-disclosure.md` |
 | 继续 singleton handler 复核 | `references/vmp-re/singleton-handler-review.md` |
 
-规则：不要整段读取归档长文档；优先读 CSV、summary、当前任务文档和必要行范围。每轮推进后同步 `task-handoff.md`；发现可复用经验时通过 `/rekit promote` 的 review-first 流程回流模板，用户确认具体动作前不要写候选或 pack。
+规则：不要整段读取归档长文档；优先读 CSV、summary、当前任务文档和必要行范围。批量 handler/trace/value-flow 复核先过 delegation gate，必要时用 `/rekit plan-subagents` 或固定分片子 agent。每轮推进后同步 `task-handoff.md`；发现可复用经验时通过 `/rekit promote` 的 review-first 流程回流模板，用户确认具体动作前不要写候选或 pack。
 <!-- END vmp-re-template:router -->

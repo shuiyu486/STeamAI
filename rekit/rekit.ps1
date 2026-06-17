@@ -1,17 +1,24 @@
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor')]
+  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
   [string]$ProjectName = '',
   [switch]$WhatIf,
   [switch]$Apply,
+  [switch]$CreateCandidates,
   [switch]$Force,
   [switch]$Review,
   [string]$ReviewOutputDir = '',
   [string]$PacketPath = '',
-  [string]$DiffPath = ''
+  [string]$DiffPath = '',
+  [string]$Route = '',
+  [string]$TaskType = '',
+  [string]$Items = '',
+  [string]$ItemsFile = '',
+  [int]$ItemsPerAgent = 0,
+  [int]$MaxParallel = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -67,17 +74,35 @@ switch ($Command) {
   }
   { $_ -in @('init','bootstrap') } {
     $caseRoot = Resolve-RekitTarget $Target
-    Sync-RekitPack -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf -CreateLocalFiles
+    Sync-RekitPack -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf -CreateLocalFiles -Apply
   }
   { $_ -in @('sync','update') } {
     $caseRoot = Resolve-RekitTarget $Target
     [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
-    Sync-RekitPack -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf -Review:$Review -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
+    if ($Review -and $Apply) { throw 'sync -Review cannot be combined with -Apply. Review first, then run sync -Apply after user confirmation.' }
+    $syncReview = (-not $Apply)
+    if ($Review) { $syncReview = $true }
+    Sync-RekitPack -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf -Apply:$Apply -Review:$syncReview -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
   }
   'promote' {
     $caseRoot = Resolve-RekitTarget $Target
     [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
-    Promote-RekitChanges -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -WhatIf:$WhatIf -Apply:$Apply -Review:$Review -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
+    if ($Review -and ($Apply -or $CreateCandidates)) { throw 'promote -Review cannot be combined with -Apply or -CreateCandidates. Review first, then run an explicit write action after user confirmation.' }
+    if ($Apply -and $CreateCandidates) { throw 'promote -Apply cannot be combined with -CreateCandidates. Choose one write action.' }
+    $promoteReview = (-not $Apply -and -not $CreateCandidates)
+    if ($Review) { $promoteReview = $true }
+    Promote-RekitChanges -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -WhatIf:$WhatIf -Apply:$Apply -CreateCandidates:$CreateCandidates -Review:$promoteReview -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
+  }
+  'plan-subagents' {
+    $planRoot = Resolve-RekitTarget $Target
+    if (Test-RekitLooksLikeCase $planRoot) {
+      [void](Assert-RekitAttachedCase -Target $planRoot -RepoRoot $RepoRoot -Pack $Pack)
+    } elseif ([string]::IsNullOrWhiteSpace($ReviewOutputDir)) {
+      throw 'plan-subagents target must be an attached rekit case unless -ReviewOutputDir is provided for an explicit out-of-case review artifact path.'
+    } elseif (-not (Test-Path -LiteralPath $planRoot)) {
+      throw "plan-subagents target directory does not exist: $planRoot"
+    }
+    Write-RekitSubagentPlan -Target $planRoot -RepoRoot $RepoRoot -Pack $Pack -Route $Route -TaskType $TaskType -Items $Items -ItemsFile $ItemsFile -ItemsPerAgent $ItemsPerAgent -MaxParallel $MaxParallel -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
   }
   { $_ -in @('validate','doctor') } {
     if ([string]::IsNullOrWhiteSpace($Target)) {

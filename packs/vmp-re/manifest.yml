@@ -44,6 +44,19 @@ policyOverlays:
   - policies/review-first.overlay.md
   - policies/verification.overlay.md
 
+subagentRoutes:
+  - id: vmp-re:bounded-review
+    taskTypes: handler-lowering,focused-batch-review,instruction-level-review,trace-review,value-flow-review,tooling-diff-review
+    trigger: fixed-boundary read-only batch review; candidates >= 4 or alias/low-occurrence blockers or long trace/value-flow evidence
+    shardBasis: handler
+    targetItemsPerAgent: 4
+    maxParallel: 3
+    reference: references/vmp-re/progressive-disclosure.md
+    policyOverlay: policies/subagents.overlay.md
+    subagentPermissions: read-only
+    mainAgentOwns: csv-backup,csv-write,validation,handoff-update
+    outputContract: item,decision,confidence,evidence,risk,next_action,handler,csv_ready,row,defer_reason
+
 promoteFiles:
   - references/vmp-re/README.md
   - references/vmp-re/workflow-template.md

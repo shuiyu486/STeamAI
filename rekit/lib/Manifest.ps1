@@ -62,6 +62,39 @@ function Get-RekitYamlMap {
   return $map
 }
 
+function Get-RekitYamlObjectList {
+  param(
+    [string[]]$Lines,
+    [string]$Key
+  )
+  $items = @()
+  $inside = $false
+  $current = $null
+  foreach ($line in $Lines) {
+    if (-not $inside) {
+      if ($line -match ('^' + [regex]::Escape($Key) + '\s*:\s*$')) { $inside = $true }
+      continue
+    }
+    if ($line -match '^\S') { break }
+    if ($line -match '^\s{2,}-\s*(.*?)\s*$') {
+      if ($null -ne $current) { $items += [pscustomobject]$current }
+      $current = [ordered]@{}
+      $rest = $Matches[1].Trim()
+      if ($rest -match '^([^:#]+?)\s*:\s*(.*?)\s*$') {
+        $current[$Matches[1].Trim()] = Convert-RekitYamlValue $Matches[2]
+      } elseif (-not [string]::IsNullOrWhiteSpace($rest)) {
+        $current['value'] = Convert-RekitYamlValue $rest
+      }
+      continue
+    }
+    if ($null -ne $current -and $line -match '^\s{4}([^:#]+?)\s*:\s*(.*?)\s*$') {
+      $current[$Matches[1].Trim()] = Convert-RekitYamlValue $Matches[2]
+    }
+  }
+  if ($null -ne $current) { $items += [pscustomobject]$current }
+  return $items
+}
+
 function Get-RekitRepoRoot {
   param([string]$RuntimeRoot)
   return [System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot '..'))
@@ -89,6 +122,7 @@ function Get-RekitPackManifest {
   $policyOverlays = @(Get-RekitYamlList -Lines $lines -Key 'policyOverlays')
   $toolingFiles = @(Get-RekitYamlList -Lines $lines -Key 'toolingFiles')
   $toolingCandidateSources = @(Get-RekitYamlList -Lines $lines -Key 'toolingCandidateSources')
+  $subagentRoutes = @(Get-RekitYamlObjectList -Lines $lines -Key 'subagentRoutes')
   $promoteDenyPatterns = @(Get-RekitYamlList -Lines $lines -Key 'promoteDenyPatterns')
   $budgets = Get-RekitYamlMap -Lines $lines -Key 'budgets'
   $managedBlock = Get-RekitYamlMap -Lines $lines -Key 'managedBlock'
@@ -121,6 +155,7 @@ function Get-RekitPackManifest {
     PolicyOverlays = $policyOverlays
     ToolingFiles = $toolingFiles
     ToolingCandidateSources = $toolingCandidateSources
+    SubagentRoutes = $subagentRoutes
     PromoteDenyPatterns = $promoteDenyPatterns
     Budgets = $budgets
     ManagedBlock = $managedBlock

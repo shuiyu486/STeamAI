@@ -52,6 +52,20 @@ next_action: 主 agent 下一步
 
 pack overlay 可以追加领域字段，但仍应保持短输出。
 
+## Planner contract
+
+pack 可以在 manifest 中声明 `subagentRoutes`，让 `/rekit plan-subagents` 生成分片计划。每条 route 至少应说明：
+
+- `id`：稳定 route 名称。
+- `taskTypes`：适用任务类型，用逗号分隔。
+- `shardBasis`、`targetItemsPerAgent`、`maxParallel`：分片维度与并行上限。
+- `reference` / `policyOverlay`：人类可读规则入口。
+- `subagentPermissions`：默认 `read-only`，除非明确隔离写入边界。
+- `mainAgentOwns`：主 agent 独占的写入、验证、发布或 handoff 动作。
+- `outputContract`：子 agent 必须返回的短字段列表。
+
+使用 route 前，主 agent 仍需确认任务边界清楚；若无法给定固定分片，则不要启动无界子 agent。
+
 ## 失败与中断
 
 - 子 agent 卡住或中断时，只丢弃该分片结果，不影响其它分片。

@@ -108,6 +108,7 @@ function Promote-RekitChanges {
     [string]$Pack = 'vmp-re',
     [switch]$WhatIf,
     [switch]$Apply,
+    [switch]$CreateCandidates,
     [switch]$Review,
     [string]$ReviewOutputDir = '',
     [string]$PacketPath = '',
@@ -115,14 +116,14 @@ function Promote-RekitChanges {
   )
   $caseRoot = [System.IO.Path]::GetFullPath($Target)
   [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
-  if ($Review -and $Apply) { throw 'promote -Review cannot be combined with -Apply. Review first, then run an explicit write action after user confirmation.' }
   $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
   if ($Review) {
     Write-RekitPromoteReview -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
     return
   }
+  if (-not ($Apply -or $CreateCandidates -or $WhatIf)) { throw 'promote writes candidates or pack files; run promote without write flags for review, or re-run with -CreateCandidates / -Apply after user confirmation.' }
   $candidateRoot = Join-Path $manifest.PackRoot 'promote-candidates'
-  if (-not $WhatIf) { Ensure-RekitDirectory $candidateRoot }
+  if ($CreateCandidates -and -not $WhatIf) { Ensure-RekitDirectory $candidateRoot }
 
   $denyPatterns = @($manifest.PromoteDenyPatterns) + @(Get-RekitCaseSpecificPatterns -CaseRoot $caseRoot)
   $changed = 0
@@ -166,7 +167,7 @@ function Promote-RekitChanges {
       if (-not [string]::IsNullOrWhiteSpace($backup)) { Write-Host "backup pack file: $backup" }
       [System.IO.File]::WriteAllText($packFile, $caseText, [System.Text.UTF8Encoding]::new($false))
       Write-Host "promoted: $caseFile -> $packFile"
-    } else {
+    } elseif ($CreateCandidates) {
       $safeName = ($rel -replace '[\\/:*?"<>|]', '_')
       $candidate = Join-Path $candidateRoot ((Get-Date -Format 'yyyyMMdd-HHmmss') + '_' + $safeName + '.candidate.md')
       [System.IO.File]::WriteAllText($candidate, $caseText, [System.Text.UTF8Encoding]::new($false))
@@ -175,18 +176,21 @@ function Promote-RekitChanges {
     }
   }
 
-  if (-not $WhatIf -and -not $Apply -and $candidateIndex.Count -gt 0) {
+  if (-not $WhatIf -and $CreateCandidates -and $candidateIndex.Count -gt 0) {
     $indexPath = Join-Path $candidateRoot 'index.json'
     [System.IO.File]::WriteAllText($indexPath, ($candidateIndex | ConvertTo-Json -Depth 4), [System.Text.UTF8Encoding]::new($false))
     Write-Host "candidate index: $indexPath"
   }
 
-  $toolingCandidates = @(Write-RekitToolingCandidates -Target $caseRoot -Manifest $manifest -WhatIf:$WhatIf)
+  $toolingCandidates = @()
+  if ($CreateCandidates -or $WhatIf) {
+    $toolingCandidates = @(Write-RekitToolingCandidates -Target $caseRoot -Manifest $manifest -WhatIf:$WhatIf)
+  }
 
   if ($Apply -and -not $WhatIf) {
     Test-RekitPack -RepoRoot $RepoRoot -Pack $Pack | ForEach-Object {
       Write-Host ("{0}`t{1}/{2}" -f $_.File, $_.Bytes, $_.Limit)
     }
   }
-  Write-Host "promote summary: changed=$changed blocked=$blocked toolingCandidates=$($toolingCandidates.Count) apply=$Apply whatIf=$WhatIf"
+  Write-Host "promote summary: changed=$changed blocked=$blocked toolingCandidates=$($toolingCandidates.Count) apply=$Apply createCandidates=$CreateCandidates whatIf=$WhatIf"
 }

@@ -190,7 +190,7 @@ function Convert-RekitToolingCandidateTextWithStats {
   $out = $Text
   $case = [regex]::Escape(([System.IO.Path]::GetFullPath($CaseRoot)).TrimEnd('\'))
   $out = Invoke-RekitRegexReplaceWithCount -Text $out -Pattern $case -Replacement '<caseRoot>' -Key 'caseRoot' -Counts $counts
-  $out = Invoke-RekitRegexReplaceWithCount -Text $out -Pattern '[A-Za-z]:\[^`\r\n|，。；;\)\] ]+' -Replacement '<absolutePath>' -Key 'absolutePath' -Counts $counts
+  $out = Invoke-RekitRegexReplaceWithCount -Text $out -Pattern '[A-Za-z]:\\[^`\r\n|，。；;\)\] ]+' -Replacement '<absolutePath>' -Key 'absolutePath' -Counts $counts
   foreach ($pattern in (Get-RekitCaseSpecificPatterns -CaseRoot $CaseRoot)) {
     $out = Invoke-RekitRegexReplaceWithCount -Text $out -Pattern ($pattern + '[A-Za-z0-9_.-]*\.exe') -Replacement '<target.exe>' -Key 'targetExe' -Counts $counts
     $out = Invoke-RekitRegexReplaceWithCount -Text $out -Pattern ($pattern + '[\/]') -Replacement '<case>/' -Key 'casePath' -Counts $counts
@@ -235,6 +235,130 @@ function Write-RekitReviewPacket {
   Write-Host "review packet: $($Paths.PacketPath)"
   Write-Host "review summary: $($Paths.SummaryPath)"
   Write-Host "review diff: $($Paths.CombinedDiffPath)"
+}
+
+function Split-RekitPlanItems {
+  param(
+    [string]$Items = '',
+    [string]$ItemsFile = ''
+  )
+  $text = $Items
+  if (-not [string]::IsNullOrWhiteSpace($ItemsFile)) {
+    $itemPath = [System.IO.Path]::GetFullPath($ItemsFile)
+    if (-not (Test-Path -LiteralPath $itemPath)) { throw "missing plan items file: $itemPath" }
+    $text = [System.IO.File]::ReadAllText($itemPath, [System.Text.Encoding]::UTF8)
+  }
+  if ([string]::IsNullOrWhiteSpace($text)) { return @() }
+  $parts = $text -split '[,;\r\n\t ]+'
+  return @($parts | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim() })
+}
+
+function Get-RekitSubagentRoute {
+  param(
+    [Parameter(Mandatory=$true)]$Manifest,
+    [string]$Route = '',
+    [string]$TaskType = ''
+  )
+  $routes = @($Manifest.SubagentRoutes)
+  if ($routes.Count -eq 0) { throw "manifest has no subagentRoutes: $($Manifest.ManifestPath)" }
+  if (-not [string]::IsNullOrWhiteSpace($Route)) {
+    foreach ($item in $routes) {
+      if ([string]::Equals([string]$item.id, $Route, [System.StringComparison]::OrdinalIgnoreCase)) { return $item }
+    }
+    throw "subagent route not found: $Route"
+  }
+  if (-not [string]::IsNullOrWhiteSpace($TaskType)) {
+    foreach ($item in $routes) {
+      $taskTypes = ([string]$item.taskTypes) -split '[,;]' | ForEach-Object { $_.Trim() }
+      foreach ($task in $taskTypes) {
+        if ([string]::Equals($task, $TaskType, [System.StringComparison]::OrdinalIgnoreCase)) { return $item }
+      }
+    }
+  }
+  return $routes[0]
+}
+
+function New-RekitPlanShards {
+  param(
+    [string[]]$Items,
+    [int]$TargetItemsPerAgent = 4
+  )
+  if ($TargetItemsPerAgent -lt 1) { $TargetItemsPerAgent = 4 }
+  $shards = @()
+  for ($i = 0; $i -lt $Items.Count; $i += $TargetItemsPerAgent) {
+    $end = [Math]::Min($i + $TargetItemsPerAgent - 1, $Items.Count - 1)
+    $slice = @($Items[$i..$end])
+    $shards += [pscustomobject]@{
+      id = ('shard-{0:D2}' -f ($shards.Count + 1))
+      items = $slice
+      prompt = ('Review only these items: ' + ($slice -join ', ') + '. Return the route output contract only; do not write files or paste long logs.')
+    }
+  }
+  return $shards
+}
+
+function Write-RekitSubagentPlan {
+  param(
+    [Parameter(Mandatory=$true)][string]$Target,
+    [Parameter(Mandatory=$true)][string]$RepoRoot,
+    [string]$Pack = 'vmp-re',
+    [string]$Route = '',
+    [string]$TaskType = '',
+    [string]$Items = '',
+    [string]$ItemsFile = '',
+    [int]$ItemsPerAgent = 0,
+    [int]$MaxParallel = 0,
+    [string]$ReviewOutputDir = '',
+    [string]$PacketPath = '',
+    [string]$DiffPath = ''
+  )
+  $planRoot = [System.IO.Path]::GetFullPath($Target)
+  $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
+  $routeItem = Get-RekitSubagentRoute -Manifest $manifest -Route $Route -TaskType $TaskType
+  $routeItemsPerAgent = 4
+  if (-not [string]::IsNullOrWhiteSpace([string]$routeItem.targetItemsPerAgent)) { $routeItemsPerAgent = [int]$routeItem.targetItemsPerAgent }
+  if ($ItemsPerAgent -gt 0) { $routeItemsPerAgent = $ItemsPerAgent }
+  $routeMaxParallel = 3
+  if (-not [string]::IsNullOrWhiteSpace([string]$routeItem.maxParallel)) { $routeMaxParallel = [int]$routeItem.maxParallel }
+  if ($MaxParallel -gt 0) { $routeMaxParallel = $MaxParallel }
+
+  $planItems = @(Split-RekitPlanItems -Items $Items -ItemsFile $ItemsFile)
+  $shards = @(New-RekitPlanShards -Items $planItems -TargetItemsPerAgent $routeItemsPerAgent)
+  $paths = Get-RekitReviewPaths -Command 'plan-subagents' -CaseRoot $planRoot -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
+  if (Test-Path -LiteralPath $paths.CombinedDiffPath) { Remove-Item -LiteralPath $paths.CombinedDiffPath -Force }
+
+  $packet = [ordered]@{
+    schemaVersion = 1
+    command = 'plan-subagents'
+    isMutation = $false
+    writesReviewArtifacts = $true
+    repoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
+    pack = $Pack
+    manifestPath = $manifest.ManifestPath
+    route = $routeItem
+    input = [ordered]@{ taskType = $TaskType; itemCount = $planItems.Count; itemsFile = $ItemsFile }
+    shardPolicy = [ordered]@{ basis = [string]$routeItem.shardBasis; targetItemsPerAgent = $routeItemsPerAgent; maxParallel = $routeMaxParallel }
+    shards = $shards
+    mainAgentResponsibilities = ([string]$routeItem.mainAgentOwns)
+    subagentPermissions = ([string]$routeItem.subagentPermissions)
+    outputContract = ([string]$routeItem.outputContract)
+    reviewRequired = $true
+  }
+
+  $summary = @(
+    '# rekit subagent plan',
+    '',
+    ('- route: `' + [string]$routeItem.id + '`'),
+    ('- task type: `' + $TaskType + '`'),
+    ('- items: `' + $planItems.Count + '`'),
+    ('- shards: `' + $shards.Count + '`'),
+    ('- target items per agent: `' + $routeItemsPerAgent + '`'),
+    ('- max parallel: `' + $routeMaxParallel + '`'),
+    '- writes review artifacts: `true`',
+    '',
+    'Use the generated packet to launch read-only subagents. The command only writes review artifacts; the main agent owns project writes, validation, and handoff updates.'
+  )
+  Write-RekitReviewPacket -Paths $paths -Packet $packet -SummaryLines $summary
 }
 
 function Write-RekitSyncReview {
@@ -470,9 +594,12 @@ function Write-RekitPromoteReview {
     $raw = [System.IO.File]::ReadAllText($source, [System.Text.Encoding]::UTF8)
     $converted = Convert-RekitToolingCandidateTextWithStats -Text $raw -CaseRoot $caseRoot
     $remaining = @(Test-RekitPromoteContent -Text $converted.Text -Patterns $denyPatterns)
-    $previewName = (ConvertTo-RekitSafeFileName $rel) + '.sanitized-preview.md'
-    $previewPath = Join-Path $paths.PreviewRoot $previewName
-    [System.IO.File]::WriteAllText($previewPath, (New-RekitToolingCandidateHeader -RelativePath $rel) + $converted.Text, [System.Text.UTF8Encoding]::new($false))
+    $previewPath = ''
+    if ($remaining.Count -eq 0) {
+      $previewName = (ConvertTo-RekitSafeFileName $rel) + '.sanitized-preview.md'
+      $previewPath = Join-Path $paths.PreviewRoot $previewName
+      [System.IO.File]::WriteAllText($previewPath, (New-RekitToolingCandidateHeader -RelativePath $rel) + $converted.Text, [System.Text.UTF8Encoding]::new($false))
+    }
     $tooling += [ordered]@{
       path = $rel
       kind = 'tooling-candidate-source'

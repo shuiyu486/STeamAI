@@ -28,15 +28,39 @@ Extends: `common/policies/subagents.md`
 
 默认总并行度 2-3。高风险时用 1-2 个分片 agent + 1 个反驳 agent，总并行度不超过 3。
 
+## Route id / trigger / planner hints
+
+manifest route：`vmp-re:bounded-review`。
+
+触发条件：
+
+- focused batch、top unknown、trace/value-flow 或 tooling diff 需要批量只读复核。
+- 候选数量 `>= 4`，或需要 instruction-level review。
+- 出现 `LOW_OCCURRENCE`、`POINTER_ALIAS`、`SOURCE_POINTER_ALIAS`、`NO_TEMPLATE_MATCH` 等需要独立复核的 blocker。
+- 主会话只需要短结论，长 instruction/memory/value-flow 证据应留在子 agent 上下文。
+
+默认 planner 参数：
+
+- `shardBasis=handler`
+- `targetItemsPerAgent=4`
+- `maxParallel=3`
+- `subagentPermissions=read-only`
+- `mainAgentOwns=csv-backup,csv-write,validation,handoff-update`
+
+不满足固定分片边界时，先用脚本聚合/缩小输入，不启动无界子 agent。
+
 ## 输出契约
 
 每个 handler 返回：
 
 ```text
-handler:
-decision: role | semantics | defer
+item: <handler RVA>
+handler: <handler RVA>
+decision: accept | reject | defer
 confidence: high | medium | low
 evidence: 最多 3 条关键指令或文件定位
+risk: 主要风险或空
+next_action: write-role | write-semantics | focused-review | no-op
 csv_ready: yes | no
 row: 可写时给完整字段；不可写时留空
 defer_reason:

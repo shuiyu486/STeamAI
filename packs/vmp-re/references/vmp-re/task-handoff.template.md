@@ -30,6 +30,22 @@
 |---|---:|---|
 | `0x...` | high | <为什么优先处理。> |
 
+## 子 agent 分片计划
+
+| 字段 | 当前值 |
+|---|---|
+| route | `vmp-re:bounded-review` 或 `none` |
+| shard basis | `handler` / `trace` / `file` |
+| max parallel | `<n>` |
+| main agent owns | `csv-backup,csv-write,validation,handoff-update` |
+| deferred policy | 分歧或证据不足默认 deferred |
+
+待分片对象：
+
+```text
+<handler-or-item-list>
+```
+
 ## 下一步 checklist
 
 1. 不要回到裸调试；优先离线 focused trace/value-flow。

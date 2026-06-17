@@ -75,6 +75,48 @@ function Test-RekitPolicyRegistry {
   return $rows
 }
 
+function Test-RekitSubagentRoutesPack {
+  param([Parameter(Mandatory=$true)]$Manifest)
+  $rows = @()
+  $routes = @($Manifest.SubagentRoutes)
+  if ($routes.Count -eq 0) {
+    Write-Warning "manifest has no subagentRoutes: $($Manifest.ManifestPath)"
+    return $rows
+  }
+  foreach ($route in $routes) {
+    if ([string]::IsNullOrWhiteSpace([string]$route.id)) { throw "subagent route is missing id in $($Manifest.ManifestPath)" }
+    if ([string]::IsNullOrWhiteSpace([string]$route.taskTypes)) { Write-Warning "subagent route $($route.id) has no taskTypes" }
+    if ([string]::IsNullOrWhiteSpace([string]$route.outputContract)) { Write-Warning "subagent route $($route.id) has no outputContract" }
+    if (-not [string]::IsNullOrWhiteSpace([string]$route.reference)) {
+      $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root $Manifest.PackRoot -RelativePath ([string]$route.reference)) -LimitBytes 16384
+    } else {
+      Write-Warning "subagent route $($route.id) has no reference document"
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$route.policyOverlay)) {
+      $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root $Manifest.PackRoot -RelativePath ([string]$route.policyOverlay)) -LimitBytes 16384
+    }
+  }
+  return $rows
+}
+
+function Test-RekitSubagentRoutesInstance {
+  param(
+    [Parameter(Mandatory=$true)]$Manifest,
+    [Parameter(Mandatory=$true)][string]$CaseRoot
+  )
+  foreach ($route in @($Manifest.SubagentRoutes)) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$route.reference)) {
+      $target = Join-RekitPath -Root $CaseRoot -RelativePath ([string]$route.reference)
+      if (Test-Path -LiteralPath $target) {
+        $text = [System.IO.File]::ReadAllText($target, [System.Text.Encoding]::UTF8)
+        if ($text -notmatch 'agent|分片|bounded') { Write-Warning "route reference lacks visible subagent guidance: $target" }
+      } else {
+        Write-Warning "route reference is not present in case: $target"
+      }
+    }
+  }
+}
+
 function Test-RekitPack {
   param(
     [Parameter(Mandatory=$true)][string]$RepoRoot,
@@ -88,6 +130,7 @@ function Test-RekitPack {
   $caseShimTemplate = Join-Path $RepoRoot 'rekit\templates\case-shim\SKILL.md'
   $rows += Assert-RekitTextFile -Path $caseShimTemplate -LimitBytes 16384
   $rows += Test-RekitPolicyRegistry -Manifest $manifest
+  $rows += Test-RekitSubagentRoutesPack -Manifest $manifest
 
   foreach ($rel in $manifest.ManagedFiles) {
     $rows += Assert-RekitTextFile -Path (Get-RekitSourcePath -Manifest $manifest -RelativePath $rel) -LimitBytes (Get-RekitBudgetLimit -Manifest $manifest -RelativePath $rel)
@@ -148,5 +191,6 @@ function Test-RekitInstance {
 
   $blockHost = Join-RekitPath -Root $caseRoot -RelativePath $manifest.ManagedBlock['file']
   Test-RekitManagedBlock -Path $blockHost -BlockId $manifest.ManagedBlock['blockId']
+  Test-RekitSubagentRoutesInstance -Manifest $manifest -CaseRoot $caseRoot
   return $rows
 }

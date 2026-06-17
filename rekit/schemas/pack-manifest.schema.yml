@@ -19,4 +19,5 @@ fields:
   syncPolicy: sync 默认策略
   promoteFiles: 允许进入 promote 候选的 managed 文件列表
   promoteDenyPatterns: promote 安全阻断正则或字符串模式
+  subagentRoutes: 可选的子 agent 分流 route 列表；每项可包含 id、taskTypes、trigger、shardBasis、targetItemsPerAgent、maxParallel、reference、policyOverlay、subagentPermissions、mainAgentOwns、outputContract
   budgets: Markdown/文本预算，defaultMarkdown 为默认值

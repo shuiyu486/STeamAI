@@ -87,8 +87,9 @@ claude
 | 命令 | 方向 | 什么时候用 |
 |---|---|---|
 | `/rekit status` | 只读 | 看当前 case 绑定状态；若目录被移动，只提示，不修复。 |
-| `/rekit sync` | kit -> case | 模板仓库更新后，把 managed docs / managed block 同步到当前 case。 |
-| `/rekit promote` | case -> kit | 将 case 中可复用经验回流为 managed docs 候选或 tooling 候选。 |
+| `/rekit sync` | kit -> case | 默认生成同步审查包；确认后才用 `-Apply` 写入 managed docs / managed block。 |
+| `/rekit promote` | case -> kit | 默认生成回流审查包；确认后才用 `-CreateCandidates` 生成候选或用 `-Apply` 写回 pack。 |
+| `/rekit plan-subagents` | 只读计划 | 按 manifest `subagentRoutes` 生成子 agent 分片审查产物；不启动 agent、不改项目源文件。 |
 | `/rekit doctor` | 只读 | 排障时详细验证结构；日常不必主动运行。 |
 | `/rekit repair` | case metadata | 迁移目录后先预览修复；确认后由 Claude 调用 backend `-Apply`。 |
 
@@ -116,7 +117,9 @@ claude
 /rekit sync
 ```
 
-会同步：
+默认只生成 `.rekit/reviews/<timestamp>-sync/packet.json`、`summary.md` 和 bounded diff。Claude 复核冲突与收益、你确认具体范围后，才执行写入型同步（backend 为 `sync -Apply`）。
+
+写入型同步会同步：
 
 ```text
 references/vmp-re/README.md
@@ -147,14 +150,24 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 /rekit promote
 ```
 
-它会同时做两类事：
+默认只生成 `.rekit/reviews/<timestamp>-promote/packet.json`、`summary.md`、bounded diff 和安全的脱敏 preview。Claude 复核后，你再选择明确写入动作：
 
-1. managed docs：安全时生成候选；写回 pack 需要你明确确认。
-2. tooling：从 case 工具链文档抽象候选，写入 `packs/vmp-re/tooling/candidates/`。
+1. `-CreateCandidates`：生成 managed docs 候选或 tooling candidate。
+2. `-Apply`：按已确认内容写回 pack。
 
-`promote` 很保守：若 managed docs 含真实绝对路径、样本名、RVA/VA、ctx/round 快照、artifact/capture/trace/dump 路径，会阻止直接回流。工具链经验会先脱敏生成 tooling candidate，由你审查后合入正式 tooling 文档。
+`promote` 很保守：若 managed docs 含真实绝对路径、样本名、RVA/VA、ctx/round 快照、artifact/capture/trace/dump 路径，会阻止直接回流。工具链经验只有在脱敏后不再命中 deny pattern 时才写 sanitized preview；候选由你审查后合入正式 tooling 文档。
 
 `promote` 只允许作用于已经 `attach/init` 的 case，避免从普通目录误回流到 pack。
+
+## 子 agent 分片计划
+
+当一个 case 的批量只读复核能按 handler、trace、tooling diff 等固定边界拆分时，先用：
+
+```text
+/rekit plan-subagents -TaskType focused-batch-review -Items <item1,item2,...>
+```
+
+它会读取 pack manifest 的 `subagentRoutes`，写入 `.rekit/reviews/<timestamp>-plan-subagents/packet.json` 和 `summary.md`。该命令只生成审查/计划产物，不启动 agent，也不修改 managed docs 或项目源文件；主 agent 仍负责实际写入、验证和 handoff 更新。
 
 ## 工具经验保存在哪里
 
