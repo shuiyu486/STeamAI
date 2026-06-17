@@ -27,7 +27,7 @@ claude
 /rekit attach -Target <workspaceRoot>\cases\<caseName> -Pack vmp-re
 ```
 
-> 这里不需要你手动执行 `pwsh ...\rekit.ps1`。`/rekit` skill 会调用 backend。
+> 这里不需要你手动执行底层脚本。`/rekit` 会调用内部 runtime。
 
 ### 2. 之后每天在 case 里
 

@@ -22,7 +22,7 @@
 - 查当前 coverage：用 `routine_ir.summary.csv` 或脚本统计，不整读 `routine_ir.events.csv`。
 - 查某个 handler：按 RVA 过滤 CSV/JSON，不读全部 round Markdown。
 - 批量 handler / trace / value-flow 复核：按 `../../policies/subagents.overlay.md` 分片给子 agent。
-- 可复用经验回流：走 `/rekit promote` 的 review-first 流程；backend 排障时使用 `rekit.ps1 promote -Review`。
+- 可复用经验回流：走 `/rekit promote` 的 review-first 流程；日常不手动执行底层 runtime。
 
 ## 禁止模式
 
@@ -31,7 +31,7 @@
 - 不在 `CLAUDE.local.md` 追加 round-by-round 长历史。
 - 不把 tool 大输出原样带回主会话；用脚本统计后只返回摘要。
 - 不启动无界子 agent 去“自行探索整批大文件”；必须给定明确分片和输出契约。
-- 不把裸 `rekit.ps1 promote` 或 `-WhatIf -> -Apply` 作为常规回流路径。
+- 不把底层 runtime 或旧式 dry run / direct apply 作为常规回流路径。
 
 ## Stop hook 收尾规则
 

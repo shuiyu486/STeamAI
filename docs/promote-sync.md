@@ -18,14 +18,9 @@
 /rekit promote
 ```
 
-skill 层应先调用 backend 只读 review：
+Claude 会先使用内部 runtime 生成只读 review 包。用户不需要手动执行底层脚本。
 
-```powershell
-pwsh <templateRoot>\rekit\rekit.ps1 sync -Target <caseRoot> -Review
-pwsh <templateRoot>\rekit\rekit.ps1 promote -Target <caseRoot> -Review
-```
-
-backend 会写入 case-local review 目录：
+review 包写入 case-local 目录：
 
 ```text
 <caseRoot>/.rekit/reviews/<timestamp>-sync/
@@ -39,7 +34,7 @@ backend 会写入 case-local review 目录：
 - `diffs/combined.diff` 和逐文件 bounded diff。
 - `previews/*.md`：promote tooling 的脱敏预览。
 
-`-Review` 是强只读；不要和 `-Apply` 混用。`-WhatIf` 仍是旧式 stdout dry run，不等同于 LLM review。
+内部 review 模式是强只读；旧式 dry run 不等同于 LLM review。
 
 ## sync 规则
 
@@ -63,7 +58,7 @@ backend 会写入 case-local review 目录：
 - review 同时扫描 `toolingCandidateSources`，生成脱敏 preview 供 Claude 判断是否值得吸收。
 - 命中 `promoteDenyPatterns` 的 managed docs 只在 packet 中记录 metadata 和 deny pattern；不要输出 raw diff，避免把 case-specific 信息带回模板审查材料。
 - 用户确认后，才生成 `packs/<pack>/promote-candidates/` 或 `packs/<pack>/tooling/candidates/`，或由 Claude 改写正式 pack 文档。
-- `-Apply` 才会直接写回 pack managed docs；默认不推荐 whole-file apply，优先让 Claude 提炼经验片段。
+- 直接整文件写回 pack managed docs 不作为默认推荐路径；优先让 Claude 提炼经验片段。
 - tooling 候选不直接覆盖正式 recipe；需要人工审查后合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
 
 ## 永不提升
@@ -84,7 +79,7 @@ manifest 中的文件路径必须是相对路径，并且不能通过 `..` 越�
 - case target 路径不能越出 `<caseRoot>/`
 - `managedBlock.file` / `managedBlock.source` 同样受约束
 
-`validate/doctor` 会尽早检查这些路径，避免等到 `sync/promote` 写文件时才失败。
+`doctor` 会尽早检查这些路径，避免等到 `sync/promote` 写文件时才失败。
 
 ## 推荐日常流程
 
@@ -117,4 +112,4 @@ Claude 读取 review 包后输出：
 /rekit doctor
 ```
 
-> `pwsh <templateRoot>\rekit\rekit.ps1 ...` 只是 backend/自动化入口，不是日常用户入口。
+> 底层 runtime 只是 `/rekit` 的内部实现；日常不要手动执行。

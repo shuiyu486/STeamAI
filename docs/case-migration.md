@@ -81,4 +81,4 @@ tools.local.yml
 /rekit doctor
 ```
 
-> 后端 `pwsh <templateRoot>\rekit\rekit.ps1 ...` 只用于自动化、CI 或排障，不是日常迁移入口。
+> 底层 runtime 只作为 `/rekit` 的内部实现；日常迁移入口只使用 `/rekit`。

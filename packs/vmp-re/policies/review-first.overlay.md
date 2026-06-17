@@ -16,9 +16,9 @@ VMP RE 中发现的经验先分类，再决定落点：
 
 ## promote 规则
 
-- 日常使用 `/rekit promote`，由 skill 先运行 backend `promote -Review`。
-- backend 排障时使用 `rekit.ps1 promote -Review`，不要把裸 `rekit.ps1 promote` 放入常规流程。
-- 用户确认具体 target、pack、文件范围和动作后，才生成候选或执行 `-Apply`。
+- 日常使用 `/rekit promote`，由 `/rekit` 先生成 review 包。
+- 不要把底层 runtime 命令放入常规流程；用户只需要使用 `/rekit`。
+- 用户确认具体 target、pack、文件范围和动作后，才生成候选或写回。
 - 命中 case-specific deny pattern 的 managed docs 不做 whole-file apply。
 
 ## high-risk 写入
