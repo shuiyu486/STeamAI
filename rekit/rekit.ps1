@@ -1,7 +1,7 @@
 [CmdletBinding(PositionalBinding=$false)]
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','board','lane','auto','policy')]
+  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','start','handoff')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -34,7 +34,12 @@ $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot '..'))
 . (Join-Path $RuntimeRoot 'lib\Promote.ps1')
 . (Join-Path $RuntimeRoot 'lib\Review.ps1')
 . (Join-Path $RuntimeRoot 'lib\Sync.ps1')
-. (Join-Path $RuntimeRoot 'lib\Board.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.Core.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.State.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.Policy.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.Lane.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.Auto.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.Commands.ps1')
 
 function Resolve-RekitTarget {
   param([string]$Value)
@@ -65,21 +70,21 @@ function Resolve-RekitActionTargetAndArgs {
 }
 
 switch ($Command) {
-  'board' {
+  'overview' {
     $caseRoot = Resolve-RekitTarget $Target
-    Show-RekitBoard -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack
+    Show-RekitOverview -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack
   }
-  'lane' {
+  'continue' {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
-    Invoke-RekitLaneCommand -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -WhatIf:$WhatIf -Force:$Force
+    Invoke-RekitContinue -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -WhatIf:$WhatIf
   }
-  'auto' {
+  'start' {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
-    Invoke-RekitAuto -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -WhatIf:$WhatIf
+    Invoke-RekitStart -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -WhatIf:$WhatIf -Force:$Force
   }
-  'policy' {
-    $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
-    Invoke-RekitPolicyCommand -Target $resolved.Target -ActionArgs $resolved.Args
+  'handoff' {
+    $caseRoot = Resolve-RekitTarget $Target
+    Write-RekitHandoff -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -WhatIf:$WhatIf
   }
   'status' {
     $cwd = Resolve-RekitTarget $Target

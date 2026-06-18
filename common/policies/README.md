@@ -6,7 +6,7 @@
 
 | 层级 | 路径 | 用途 |
 |---|---|---|
-| Common policy | `common/policies/*.md` | 跨 pack 通用规则，例如子 agent、B3/lane 协同、上下文预算、写入确认、验证标准。 |
+| Common policy | `common/policies/*.md` | 跨 pack 通用规则，例如子 agent、工作线协同、上下文预算、写入确认、验证标准。 |
 | Pack overlay | `packs/<pack>/policies/*.overlay.md` | 某个 pack 对通用规则的领域化补充。 |
 | Case reference | `packs/<pack>/references/**` | 任务路由、领域 workflow、接手入口，不承载所有横切规范。 |
 

@@ -172,7 +172,7 @@ function Test-RekitLaneTypesManifest {
     $outputs = @(Split-RekitManifestScalarList ([string]$lane.outputs))
     if ($outputs.Count -eq 0) { throw "laneTypes.$id outputs is empty" }
   }
-  if ($Manifest.LaneTypes.Count -gt 0 -and -not $hasAuthority) { throw "manifest laneTypes must include at least one authority lane" }
+  if ($Manifest.LaneTypes.Count -gt 0 -and -not $hasAuthority) { throw "manifest laneTypes must include at least one authority workstream" }
   return @()
 }
 

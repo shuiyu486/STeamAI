@@ -19,16 +19,16 @@ fields:
   syncPolicy: sync 默认策略
   promoteFiles: 允许进入 promote 候选的 managed 文件列表
   promoteDenyPatterns: promote 安全阻断正则或字符串模式
-  subagentRoutes: 可选的子 agent / lane review 分流 route 列表；每项可包含 id、taskTypes、trigger、shardBasis、targetItemsPerAgent、maxParallel、reference、policyOverlay、subagentPermissions、mainAgentOwns、outputContract
+  subagentRoutes: 可选的子 agent / 工作线 review 分流 route 列表；每项可包含 id、taskTypes、trigger、shardBasis、targetItemsPerAgent、maxParallel、reference、policyOverlay、subagentPermissions、mainAgentOwns、outputContract
   promptFiles: 可选的 common/pack prompt 文档列表，用于 doctor 校验与人工查阅
-  laneTypes: 可选的 B3 lane 类型列表；定义 authority、workspaceRoot、canWrite/readOnly/outputs，供 `/rekit board/lane/auto` 使用
+  laneTypes: 可选的内部工作线类型列表；定义 authority、workspaceRoot、canWrite/readOnly/outputs，供 `/rekit overview/continue/start/handoff` 使用
   b3PolicyFile: case-local `.rekit/policy.yml`，由 runtime 初始化，不写在 manifest 中；此 schema 只说明相关字段
   budgets: Markdown/文本预算，defaultMarkdown 为默认值
 
 laneTypes:
-  id: lane 类型 slug，例如 devirt-main、feature-analysis、tooling
+  id: 内部工作线类型 slug，例如 devirt-main、feature-analysis、tooling
   title: 给用户看的名称
-  authority: true 表示此 lane 可作为 authority owner；至少应有一个 authority lane
+  authority: true 表示此工作线可作为主线 owner；至少应有一个主线工作线
   workspaceRoot: case 内 workspace 根路径，必须是相对路径且不越出 case
   canWrite: 逗号分隔的可写边界；`own-workspace` 表示只写自己的 workspace
   readOnly: 逗号分隔的只读输入边界，例如 `.rekit/facts/**` 或 confirmed CSV
@@ -37,9 +37,9 @@ laneTypes:
 b3PolicyFile:
   path: `.rekit/policy.yml`
   automationMode: 默认 assisted-autopilot
-  autoCollect: 是否自动收集 lane output events
+  autoCollect: 是否自动收集工作线 output events
   autoVerify: 是否运行 rule verifier
-  autoRouteRequests: 是否自动把 request 路由到 target lane inbox/tasks
+  autoRouteRequests: 是否自动把 request 路由到 target 工作线 inbox/tasks
   autoPublishSharedFacts: 是否自动发布低风险 observation/publication
   autoAcceptLowRiskCandidates: 是否自动接受不触碰 authority 且 verifier 通过的 candidate
   authorityAutoAppend: conditional 或 never；只允许 append，不允许 overwrite/delete
@@ -62,4 +62,4 @@ reviewPacketEnvelope:
   isMutation: false 表示 packet 本身不是 authority 写入
   writesReviewArtifacts: true 表示命令会写 review artifact
   reviewRequired: true 表示主线合入前必须 review-first
-  producer: 生成器，例如 rekit/plan-subagents 或 B3 auto
+  producer: 生成器，例如 rekit/plan-subagents 或 rekit/continue

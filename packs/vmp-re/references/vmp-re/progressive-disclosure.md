@@ -15,7 +15,7 @@
 | 验证标准 | `<templateRoot>/common/policies/verification.md` | `<templateRoot>/packs/vmp-re/policies/verification.overlay.md` |
 | 大工具输出 | `<templateRoot>/common/policies/tool-output.md` | `<templateRoot>/packs/vmp-re/policies/context-budget.overlay.md` |
 | 接手与连续性 | `<templateRoot>/common/policies/handoff.md` | `task-handoff.md` |
-| 功能支线协同 | `<templateRoot>/common/policies/lane-collaboration.md` | B3 lane/auto、`lane-collaboration.md` 与 `<templateRoot>/packs/vmp-re/policies/lane-collaboration.overlay.md` |
+| 功能支线协同 | `<templateRoot>/common/policies/lane-collaboration.md` | `/rekit overview/continue/start/handoff`、`lane-collaboration.md` 与 `<templateRoot>/packs/vmp-re/policies/lane-collaboration.overlay.md` |
 
 ## VMP RE 快速规则
 
@@ -36,7 +36,7 @@
 
 触发后：
 
-1. 由主 agent/B3 生成固定分片计划；需要机器可读 packet 时可内部调用 `plan-subagents`。
+1. 由主 agent 或自动流程生成固定分片计划；需要机器可读 packet 时可内部调用 `plan-subagents`。
 2. 默认先走 L1 packet review；只有冲突项才升级到 L2 sidecar review 或 L3 deep tool review。
 3. 子 agent 只读复核分片，不写文件，不粘贴长 trace/disasm。
 4. 普通 batch 子 agent 不自行打开 IDA/调试器、不全量分析 rebuilt PE；需要重型工具时返回 `needs_l3`，由主 agent 显式窄范围后台升级。

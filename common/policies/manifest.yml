@@ -20,7 +20,7 @@ policies:
       validate: true
   - id: lane-collaboration
     path: lane-collaboration.md
-    title: Lane collaboration orchestration and continuity
+    title: Workstream collaboration and continuity
     lifecycle:
       sync: reference
       promote: review-only

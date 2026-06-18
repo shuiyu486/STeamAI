@@ -22,11 +22,10 @@ disable-model-invocation: true
 /rekit init -Target <caseRoot> -Pack vmp-re -ProjectName <caseName>
 /rekit attach -Target <caseRoot> -Pack vmp-re
 /rekit status
-/rekit board
-/rekit lane start <laneType> <name>
-/rekit lane resume <laneId>
-/rekit auto
-/rekit policy
+/rekit overview
+/rekit continue
+/rekit start <name>
+/rekit handoff
 /rekit sync
 /rekit promote
 /rekit doctor
@@ -43,15 +42,14 @@ disable-model-invocation: true
 | `/rekit attach` | 将已有 case 绑定到当前 template root 和 pack。 |
 | `/rekit repair` | 预览迁移后的 metadata 修复；用户确认后才写入。 |
 | `/rekit init` / `/rekit bootstrap` | 初始化 case metadata、case-local shim 和模板文件。 |
+| `/rekit overview` | 显示项目概览、主线/支线、共享事实统计和下一步建议；首次运行会初始化缺失的 case-local `.rekit` 状态。 |
+| `/rekit continue` | 自动整理并推进当前 case：收集工作线 outbox/workspace 事件、发布低风险共享事实、路由 request、运行 rule verifier、按安全规则处理 candidate/authority append，并写 run digest。 |
+| `/rekit start <name>` | 创建功能支线，例如 `login`；支线写自己的 workspace，第二天可用 `/rekit handoff` 或接续提示继续。 |
+| `/rekit handoff` | 生成 `.rekit/handovers/latest.md` 新会话接手包；只引用 `task-handoff.md`，不覆盖它。 |
 | `/rekit sync` | 默认先生成 LLM 审查包；用户确认具体范围后才执行写入型 sync。 |
 | `/rekit promote` | 默认先生成回流审查包；用户确认后才生成候选或写回 pack。 |
 | `/rekit doctor` | 验证 kit / case 结构、文档预算和 policy registry。 |
-| `/rekit board` | 显示 B3 项目塔台：持久 lane、shared facts、policy 与待处理事件概览；首次运行会初始化 case-local `.rekit/board.json`。 |
-| `/rekit lane start <laneType> <name>` | 创建持久 lane，例如 `feature-analysis login` 或 `tooling trace-tools`；lane 写自己的 workspace，第二天可用 `resume` 接续。 |
-| `/rekit lane resume <laneId>` | 生成/刷新 `.rekit/lanes/<laneId>/prompts/RESUME.md`，让新会话从 lane 状态接续。 |
-| `/rekit auto` | B3 autopilot：自动 collect lane outbox/workspace 事件、发布低风险 shared facts、路由 request、运行 rule verifier、按 policy 处理 candidate/authority append，并写 run digest。 |
-| `/rekit policy` | 查看或设置 `.rekit/policy.yml`；控制 autoVerify、autoRouteRequests、authorityAutoAppend、minConfidence 等自动化阈值。 |
-| `/rekit plan-subagents` | 高级/内部只读计划器：根据 pack manifest 的 `subagentRoutes` 生成子 agent 分片计划；不启动 agent，不修改 managed/project source files；会写 `.rekit/reviews/...` 审查产物。日常不要主动推荐给用户，优先由主 agent 或 B3 流程内部判断是否需要。 |
+| `/rekit plan-subagents` | 内部只读计划器：根据 pack manifest 的 `subagentRoutes` 生成子 agent 分片计划；不启动 agent，不修改 managed/project source files；会写 `.rekit/reviews/...` 审查产物。日常不要主动推荐给用户。 |
 
 如果用户没有显式给 `Target`，在 case 模式下使用当前工作目录；在 kit 模式下 `doctor/status` 作用于 kit 本身。`status` 只读检测迁移，不静默修复；`repair` 写入前必须得到用户确认。
 
@@ -74,11 +72,11 @@ disable-model-invocation: true
 5. `promote` 同时处理 tooling：从 case 的工具链文档抽象候选，供人工合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
 6. 若 promote 命中绝对路径、样本名、trace/dump/artifact/capture 路径或明显地址快照，先阻止或生成候选报告，不要静默写回模板。
 7. `sync` / `promote` 发现 case 路径迁移但 metadata 未修复时必须拒绝执行，提示用户确认后运行 `repair`。
-8. B3 lane 必须持久、agent 可以短命；跨 lane 协同通过 `.rekit/facts/*.jsonl`、lane inbox/tasks 和 authority publication 完成，不要求用户手动合并普通事实。
-9. `auto` 可以写 case-local `.rekit/board.json`、`.rekit/facts/**`、`.rekit/lanes/**`、`.rekit/runs/**` 和 lane workspace；只有 candidate 同时满足 evidence、accepted verifier、confidence、schema、no-conflict、backup、diff、max rows 时，才允许自动 append authority CSV。
+8. 工作线必须持久、agent 可以短命；跨工作线协同通过 `.rekit/facts/*.jsonl`、inbox/tasks 和 publication 完成，不要求用户手动合并普通事实。
+9. `/rekit continue` 可以写 case-local `.rekit/board.json`、`.rekit/facts/**`、`.rekit/lanes/**`、`.rekit/runs/**`、`.rekit/handovers/**` 和支线 workspace；只有 candidate 同时满足 evidence、accepted verifier、confidence、schema、no-conflict、backup、diff、max rows 时，才允许自动 append authority CSV。
 10. 覆盖/删除 authority、冲突、schema change、changesProjectBaseline、externalSideEffect、destructiveAction 必须停下来问用户；不要自动执行。
-11. 新功能分析使用 B3 `lane/auto`，不要再建议用户使用旧功能会话入口。
-12. `plan-subagents` 只作为高级/内部只读计划器，不是日常用户入口；能由主 agent/B3 自动判断时，不要求用户手动调用。
+11. 新功能分析使用 `/rekit start <name>`；不要再建议用户使用旧的底层工作线命令。
+12. `plan-subagents` 只作为内部只读计划器，不是日常用户入口；能由主 agent 或自动流程判断时，不要求用户手动调用。
 13. manifest 中所有文件路径必须是相对路径，并且不能越出 case root 或 pack root。
 14. 所有写操作后都运行对应 doctor；失败时如实报告错误与下一步。
 
@@ -88,6 +86,6 @@ disable-model-invocation: true
 
 ```text
 第一次 clone 后，在 kit 仓库启动 Claude Code，然后用 /rekit init 或 /rekit attach。
-以后在 case 里优先用 /rekit board 看项目塔台，用 /rekit auto 继续自动收集、验证、路由和发布低风险事实；需要新支线时用 /rekit lane start。
+以后在 case 里优先用 /rekit overview 看项目概览，用 /rekit continue 继续自动整理和推进；需要新功能支线时用 /rekit start <name>；换新会话前用 /rekit handoff。
 sync/promote 仍会先生成审查报告，确认后才写入模板；底层脚本只是内部实现，不需要手动执行。
 ```

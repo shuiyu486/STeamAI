@@ -7,7 +7,7 @@
 | Overlay | Extends | 用途 |
 |---|---|---|
 | `subagents.overlay.md` | `subagents` | handler / trace / value-flow 复核的子 agent 分片、输出契约和合并规则。 |
-| `lane-collaboration.overlay.md` | `lane-collaboration` | B3 lane 下主线与功能支线协同推进、续接、standalone 和 VMP request/candidate 边界。 |
+| `lane-collaboration.overlay.md` | `lane-collaboration` | 主线与功能支线协同推进、续接、standalone 和 VMP request/candidate 边界。 |
 | `context-budget.overlay.md` | `context-budget` | captures、routine IR、trace、归档文档的读取预算和禁止模式。 |
 | `review-first.overlay.md` | `review-first` | VMP RE 经验回流、confirmed CSV 写入、tooling 候选的 review-first 约束。 |
 | `verification.overlay.md` | `verification` | confirmed CSV、routine IR、superinstruction 和 handoff 的验证要求。 |

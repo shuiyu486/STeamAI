@@ -1,4 +1,4 @@
-# VMP RE lane collaboration
+# VMP RE 工作线协同
 
 > 用途：在 VMProtect x64 case 中，把底层 handler lowering 主线与具体功能分析支线协同推进，同时保持 confirmed 数据单写者和上下文可续接。
 
@@ -7,43 +7,54 @@
 在 case 中日常只需要：
 
 ```text
-/rekit board
-/rekit auto
-/rekit lane start feature-analysis <feature-name>
-/rekit lane resume <laneId>
+/rekit overview
+/rekit continue
+/rekit start <feature-name>
+/rekit handoff
 ```
 
-如果 `<feature-name>` 不存在，`lane start` 会创建 feature workspace 和续接提示词；如果已存在，用 `lane resume` 刷新续接提示，`auto` 负责收集、验证、路由和发布低风险事实。
+如果 `<feature-name>` 不存在，`start` 会创建功能分析工作区和接续提示；`continue` 负责收集、验证、路由和发布低风险事实；`handoff` 负责生成新会话接手包。
 
 ## 推荐分工
 
-| lane | 职责 | 可写 |
+批量合入审查或 request/candidate 复核可以由主 agent 按固定分片交给只读子 agent；主线仍独占 confirmed CSV、验证和 handoff 更新。
+
+| 工作线 | 职责 | 可写 |
 |---|---|---|
-| Authority / main lane | handler lowering、confirmed CSV、routine IR、handoff、验证 | canonical 文件 |
-| Feature lane | 功能入口、字符串/import/xref、native wrapper、证据、VM 阻塞点 | 自己的 workspace |
-| Merge review | 只读审查 feature 产物，给主线建议 | 不写 |
+| 主线 | handler lowering、confirmed CSV、routine IR、handoff、验证 | canonical 文件 |
+| 功能支线 | 功能入口、字符串/import/xref、native wrapper、证据、VM 阻塞点 | 自己的 workspace |
+| 合入审查 | 只读审查功能支线产物，给主线建议 | 不写 |
+
+主线/支线不是能力高低，而是写入权限不同：主线维护最终结论，功能支线收集证据、提出候选和 request。
 
 ## VMP feature workspace
 
 默认路径：
 
 ```text
-captures/feature_analysis/<name>_<yyyymmdd>/
+captures/feature_analysis/<feature-id>/
 ```
 
 关键文件：
 
 ```text
-START_HERE.md
 summary.md
 evidence.md
-vm_blockers.csv
+notes.md
 lowering_requests.csv
+observations.jsonl
+requests.jsonl
+candidates.jsonl
+publications.jsonl
 candidates/handler_roles.csv
 candidates/opcode_semantics.csv
-prompts/FEATURE_RESUME.md
-inbox/from-main.jsonl
-outbox/to-main.jsonl
+```
+
+内部状态和接续提示位于：
+
+```text
+.rekit/lanes/<laneId>/prompts/RESUME.md
+.rekit/handovers/latest.md
 ```
 
 ## request 规则
@@ -60,11 +71,11 @@ request_id,feature,rva,handler,reason,evidence,priority,status,main_response,not
 
 ## 主线结束后的 standalone
 
-如果主线已经完成而 feature 还没完成，将 feature lane 标记为 standalone / needs-authority 后继续 native 周边、字符串/import/xref 和证据整理；需要新的底层语义时继续写 request，未来由 authority lane 或临时 authority 会话处理。
+如果主线已经完成而功能支线还没完成，将支线标记为 standalone / needs-authority 后继续 native 周边、字符串/import/xref 和证据整理；需要新的底层语义时继续写 request，未来由主线或临时主线会话处理。
 
 ## 禁止
 
-- Feature lane 不写 `captures/vm_opcode_semantics_confirmed.csv`、`captures/vm_handler_roles_confirmed.csv`、`references/vmp-re/task-handoff.md`。
+- 功能支线不写 `captures/vm_opcode_semantics_confirmed.csv`、`captures/vm_handler_roles_confirmed.csv`、`references/vmp-re/task-handoff.md`。
 - 不并发写 IDB 注释/rename/type。
 - 不把完整 trace、disasm、decompile、dump 内容复制进 Markdown。
 - 不 promote 样本名、RVA/VA、ctx/round、captures/artifacts 路径。

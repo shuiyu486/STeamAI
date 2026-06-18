@@ -1,16 +1,16 @@
-# VMP lane collaboration overlay
+# VMP 工作线协同 overlay
 
-本 overlay 扩展 `common/policies/lane-collaboration.md`，用于 VMProtect x64 trace-based devirtualization case。功能支线公开入口使用 B3 lane/auto。
+本 overlay 扩展 `common/policies/lane-collaboration.md`，用于 VMProtect x64 trace-based devirtualization case。功能支线公开入口使用 `/rekit start <name>`，日常继续使用 `/rekit continue`。
 
 ## VMP 角色边界
 
-- Authority / main lane：维护 handler role/opcode semantics confirmed CSV、routine IR、superinstruction、task-handoff 和最终验证。
-- Feature lane：分析某个业务功能的入口、native wrapper、字符串/import/xref、证据与 VM 阻塞点。
-- Merge review：只读审查 feature 产物，给主线提供 lowering 优先级和候选合并建议。
+- 主线：维护 handler role/opcode semantics confirmed CSV、routine IR、superinstruction、task-handoff 和最终验证。
+- 功能支线：分析某个业务功能的入口、native wrapper、字符串/import/xref、证据与 VM 阻塞点。
+- 合入审查：只读审查功能支线产物，给主线提供 lowering 优先级和候选合并建议。
 
 ## VMP 单写者
 
-Feature lane 默认不得写：
+功能支线默认不得写：
 
 ```text
 captures/vm_opcode_semantics_confirmed.csv
@@ -24,7 +24,7 @@ references/vmp-re/task-handoff.md
 
 ## VMP request 字段
 
-`lowering_requests.csv` 用于把功能支线遇到的 VM 阻塞点交给 authority：
+`lowering_requests.csv` 用于把功能支线遇到的 VM 阻塞点交给主线：
 
 ```csv
 request_id,feature,rva,handler,reason,evidence,priority,status,main_response,notes
@@ -38,7 +38,7 @@ blocker_id,feature,rva,va,kind,evidence,need,status,owner,notes
 
 ## standalone 规则
 
-主线完成后，feature lane 可以 standalone 继续 native 周边分析和证据整理；新的 VM 语义需求保留在 request CSV，未来由 authority lane 或临时 authority 会话处理。
+主线完成后，功能支线可以 standalone 继续 native 周边分析和证据整理；新的 VM 语义需求保留在 request CSV，未来由主线或临时主线会话处理。
 
 ## 回流分类
 

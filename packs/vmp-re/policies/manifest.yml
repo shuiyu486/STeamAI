@@ -15,7 +15,7 @@ overlays:
   - id: lane-collaboration-vmp
     extends: lane-collaboration
     path: lane-collaboration.overlay.md
-    title: VMP lane feature-analysis collaboration overlay
+    title: VMP feature workstream collaboration overlay
     lifecycle:
       sync: managed
       promote: review-first
