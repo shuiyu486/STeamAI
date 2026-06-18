@@ -21,7 +21,7 @@ disable-model-invocation: true
 <templateRoot>/.claude/skills/rekit/SKILL.md
 ```
 
-5. 按 canonical skill 的 LLM-first 语义执行 `/rekit`。`sync` / `promote` 默认先生成 review 包，让 Claude 输出优劣/冲突报告并取得用户明确确认后，才执行写入动作。
+5. 按 canonical skill 的 LLM-first / B3 autopilot 语义执行 `/rekit`。`board/lane/auto/policy` 由 canonical runtime 解释；`sync` / `promote` 默认先生成 review 包，让 Claude 输出优劣/冲突报告并取得用户明确确认后，才执行写入动作。
 
 ## 规则
 
@@ -29,6 +29,8 @@ disable-model-invocation: true
 - 不要读取或修改用户级 `~/.claude/skills`。
 - `status` 只读检测迁移；需要修复路径时必须由用户确认后运行 canonical `repair`。
 - `sync` / `promote` 只允许作用于已经绑定的 case；不要对普通目录或拼错路径隐式创建 case 或生成回流候选。
+- `board/lane/auto/policy` 是当前推荐的 B3 项目塔台入口；优先让 canonical runtime 处理，不要在 shim 中复制逻辑。
+- `auto` 可以自动发布低风险事实、路由 request、处理 verifier 通过的 candidate；覆盖/删除 authority、冲突、schema change、外部副作用或破坏性动作仍必须问用户。
 - `sync` / `promote` 默认必须 review-first。
 - 不要 promote live state，例如 `CLAUDE.local.md` 全文、`task-handoff.md`、`tools.local.yml`、`captures/**`、`artifacts/**`。
 - 工具链经验通过 canonical `promote` 生成 tooling 候选，候选位置为 `<templateRoot>/packs/<templatePack>/tooling/candidates/`。

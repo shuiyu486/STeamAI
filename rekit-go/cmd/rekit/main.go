@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,12 +14,16 @@ import (
 const schemaVersion = 1
 
 type Options struct {
-	RepoRoot string
-	Target   string
-	Pack     string
-	Kind     string
-	Force    bool
-	Note     string
+	RepoRoot        string
+	Target          string
+	Pack            string
+	Kind            string
+	Force           bool
+	WhatIf          bool
+	Note            string
+	ReviewOutputDir string
+	PacketPath      string
+	DiffPath        string
 }
 
 type State struct {
@@ -42,12 +45,13 @@ type State struct {
 }
 
 type Counters struct {
-	LoweringRequests   int `json:"loweringRequests"`
-	UnresolvedRequests int `json:"unresolvedRequests"`
-	VMBlockers         int `json:"vmBlockers"`
-	CandidateRows      int `json:"candidateRows"`
-	OutboxMessages     int `json:"outboxMessages"`
-	InboxMessages      int `json:"inboxMessages"`
+	LoweringRequests        int `json:"loweringRequests"`
+	UnresolvedRequests      int `json:"unresolvedRequests"`
+	VMBlockers              int `json:"vmBlockers"`
+	CandidateRows           int `json:"candidateRows"`
+	CandidateUnresolvedRows int `json:"candidateUnresolvedRows,omitempty"`
+	OutboxMessages          int `json:"outboxMessages"`
+	InboxMessages           int `json:"inboxMessages"`
 }
 
 type Paths struct {
@@ -60,16 +64,25 @@ type Paths struct {
 }
 
 type Packet struct {
-	SchemaVersion   int            `json:"schemaVersion"`
-	Command         string         `json:"command"`
-	CreatedAt       string         `json:"createdAt"`
-	CaseRoot        string         `json:"caseRoot"`
-	RepoRoot        string         `json:"repoRoot"`
-	Pack            string         `json:"pack"`
-	Session         State          `json:"session"`
-	Summary         map[string]any `json:"summary"`
-	Artifacts       []Artifact     `json:"artifacts"`
-	Recommendations []string       `json:"recommendations"`
+	SchemaVersion         int            `json:"schemaVersion"`
+	PacketKind            string         `json:"packetKind"`
+	Command               string         `json:"command"`
+	Direction             string         `json:"direction"`
+	CreatedAt             string         `json:"createdAt"`
+	CaseRoot              string         `json:"caseRoot"`
+	RepoRoot              string         `json:"repoRoot"`
+	Pack                  string         `json:"pack"`
+	ManifestPath          string         `json:"manifestPath,omitempty"`
+	ManifestVersion       string         `json:"manifestVersion,omitempty"`
+	ReviewRoot            string         `json:"reviewRoot,omitempty"`
+	IsMutation            bool           `json:"isMutation"`
+	WritesReviewArtifacts bool           `json:"writesReviewArtifacts"`
+	ReviewRequired        bool           `json:"reviewRequired"`
+	Producer              string         `json:"producer"`
+	Session               State          `json:"session"`
+	Summary               map[string]any `json:"summary"`
+	Artifacts             []Artifact     `json:"artifacts"`
+	Recommendations       []string       `json:"recommendations"`
 }
 
 type Artifact struct {
@@ -95,9 +108,6 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	if opts.Kind == "" {
-		opts.Kind = "feature-analysis"
-	}
 	if opts.Target == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
@@ -119,6 +129,10 @@ func run(args []string) error {
 		} else {
 			opts.Pack = "vmp-re"
 		}
+	}
+	if opts.Kind == "" {
+		manifest := loadPackManifestFromRoots(opts.RepoRoot, opts.Pack)
+		opts.Kind = nonEmpty(manifest.ParallelDefaults.DefaultKind, "feature-analysis")
 	}
 
 	action, name := parseAction(pos)
@@ -146,7 +160,7 @@ func run(args []string) error {
 
 	switch action {
 	case "auto":
-		if !sessionExists(caseRoot, name) {
+		if !sessionExists(opts, name) {
 			return initSession(opts, name)
 		}
 		return smartSession(opts, name)
@@ -217,9 +231,28 @@ func parseOptions(args []string) (Options, []string, error) {
 				return opts, pos, fmt.Errorf("%s 缺少值", a)
 			}
 			opts.Note = args[i]
+		case "--review-output-dir", "-reviewoutputdir":
+			i++
+			if i >= len(args) {
+				return opts, pos, fmt.Errorf("%s 缺少值", a)
+			}
+			opts.ReviewOutputDir = args[i]
+		case "--packet-path", "-packetpath":
+			i++
+			if i >= len(args) {
+				return opts, pos, fmt.Errorf("%s 缺少值", a)
+			}
+			opts.PacketPath = args[i]
+		case "--diff-path", "-diffpath":
+			return opts, pos, fmt.Errorf("parallel does not support %s; use packet.json and summary.md outputs instead", a)
 		case "--force", "-force":
 			opts.Force = true
+		case "--what-if", "-whatif":
+			opts.WhatIf = true
 		default:
+			if strings.HasPrefix(a, "-") {
+				return opts, pos, fmt.Errorf("未知选项：%s", a)
+			}
 			pos = append(pos, a)
 		}
 	}
@@ -303,8 +336,16 @@ func sanitizeName(name string) string {
 	return strings.Trim(strings.ToLower(b.String()), "-_.")
 }
 
-func sessionExists(caseRoot, name string) bool {
-	_, err := os.Stat(filepath.Join(caseRoot, ".rekit", "parallel", name, "state.json"))
+func sessionExists(opts Options, name string) bool {
+	p, err := makePaths(opts, name)
+	if err != nil {
+		return false
+	}
+	return stateExists(p)
+}
+
+func stateExists(p Paths) bool {
+	_, err := os.Stat(filepath.Join(p.SessionRoot, "state.json"))
 	return err == nil
 }
 
@@ -320,8 +361,13 @@ func makePaths(opts Options, name string) (Paths, error) {
 	if !isAttachedCase(caseRoot) {
 		return Paths{}, fmt.Errorf("parallel 需要在已 attach/init 的 case 中使用：%s", caseRoot)
 	}
-	sessionRoot := filepath.Join(caseRoot, ".rekit", "parallel", name)
-	workspace := filepath.Join(caseRoot, "captures", "feature_analysis", name+"_"+time.Now().Format("20060102"))
+	manifest := loadPackManifestFromRoots(repoRoot, opts.Pack)
+	sessionRootBase, workspaceRootBase, err := sessionAndWorkspaceRoots(caseRoot, manifest)
+	if err != nil {
+		return Paths{}, err
+	}
+	sessionRoot := filepath.Join(sessionRootBase, name)
+	workspace := filepath.Join(workspaceRootBase, workspaceName(name, manifest))
 	if st, err := loadStateFrom(sessionRoot); err == nil && st.Workspace != "" {
 		loadedWorkspace := st.Workspace
 		if !filepath.IsAbs(loadedWorkspace) {
@@ -357,9 +403,18 @@ func initSession(opts Options, name string) error {
 	if err != nil {
 		return err
 	}
-	if sessionExists(p.CaseRoot, name) && !opts.Force {
+	if stateExists(p) && !opts.Force {
 		fmt.Printf("parallel session `%s` 已存在。下面是当前状态：\n\n", name)
 		return smartSession(opts, name)
+	}
+	if opts.WhatIf {
+		fmt.Printf("would create parallel session `%s`\n", name)
+		fmt.Printf("- session root: %s\n", rel(p.CaseRoot, p.SessionRoot))
+		fmt.Printf("- workspace: %s\n", rel(p.CaseRoot, p.Workspace))
+		for path := range configuredInitialFiles(p, State{Name: name, Kind: opts.Kind}) {
+			fmt.Printf("- file: %s\n", rel(p.CaseRoot, path))
+		}
+		return nil
 	}
 	for _, dir := range []string{
 		p.SessionRoot, filepath.Join(p.SessionRoot, "prompts"), filepath.Join(p.SessionRoot, "agents"), filepath.Join(p.SessionRoot, "inbox"), filepath.Join(p.SessionRoot, "outbox"), filepath.Join(p.SessionRoot, "checkpoints"), filepath.Join(p.SessionRoot, "reviews"),
@@ -370,7 +425,10 @@ func initSession(opts Options, name string) error {
 		}
 	}
 	now := nowText()
-	st := State{SchemaVersion: schemaVersion, Name: name, Kind: opts.Kind, Status: "open", LifecycleMode: "attached_to_main", CaseRoot: p.CaseRoot, RepoRoot: p.RepoRoot, Pack: p.Pack, Workspace: p.Workspace, CreatedAt: now, UpdatedAt: now, Checkpoint: map[string]string{"nextAction": "把 START_HERE.md 发给功能会话，或继续执行 /rekit parallel " + name}}
+	manifest := loadPackManifestForPaths(p)
+	status := nonEmpty(manifest.ParallelDefaults.InitialStatus, "open")
+	lifecycleMode := nonEmpty(manifest.ParallelDefaults.DefaultLifecycleMode, "attached_to_main")
+	st := State{SchemaVersion: schemaVersion, Name: name, Kind: opts.Kind, Status: status, LifecycleMode: lifecycleMode, CaseRoot: p.CaseRoot, RepoRoot: p.RepoRoot, Pack: p.Pack, Workspace: rel(p.CaseRoot, p.Workspace), CreatedAt: now, UpdatedAt: now, Checkpoint: map[string]string{"nextAction": "把 START_HERE.md 发给功能会话，或继续执行 /rekit parallel " + name}}
 	if err := writeState(p, st); err != nil {
 		return err
 	}
@@ -389,19 +447,20 @@ func initSession(opts Options, name string) error {
 }
 
 func writeInitialArtifacts(p Paths, st State) error {
-	files := map[string]string{
-		filepath.Join(p.Workspace, "summary.md"):                         templateText(p, "summary.template.md", summaryTemplate(st), st),
-		filepath.Join(p.Workspace, "evidence.md"):                        templateText(p, "evidence.template.md", evidenceTemplate(st), st),
-		filepath.Join(p.Workspace, "notes.md"):                           notesTemplate(st),
-		filepath.Join(p.Workspace, "vm_blockers.csv"):                    templateText(p, "vm_blockers.template.csv", "blocker_id,feature,rva,va,kind,evidence,need,status,owner,notes\n", st),
-		filepath.Join(p.Workspace, "lowering_requests.csv"):              templateText(p, "lowering_requests.template.csv", "request_id,feature,rva,handler,reason,evidence,priority,status,main_response,notes\n", st),
-		filepath.Join(p.Workspace, "candidates", "handler_roles.csv"):    templateText(p, "handler_roles.template.csv", "feature,handler,role,confidence,evidence,status,notes\n", st),
-		filepath.Join(p.Workspace, "candidates", "opcode_semantics.csv"): templateText(p, "opcode_semantics.template.csv", "feature,handler,opcode,semantics,confidence,evidence,status,notes\n", st),
-		filepath.Join(p.Workspace, "outbox", "to-main.jsonl"):            "",
-		filepath.Join(p.Workspace, "inbox", "from-main.jsonl"):           "",
-		filepath.Join(p.SessionRoot, "outbox", "to-main.jsonl"):          "",
-		filepath.Join(p.SessionRoot, "inbox", "from-main.jsonl"):         "",
+	files := configuredInitialFiles(p, st)
+	if len(files) == 0 {
+		files = map[string]string{
+			filepath.Join(p.Workspace, "summary.md"):                         templateText(p, "summary.template.md", summaryTemplate(st), st),
+			filepath.Join(p.Workspace, "evidence.md"):                        templateText(p, "evidence.template.md", evidenceTemplate(st), st),
+			filepath.Join(p.Workspace, "notes.md"):                           notesTemplate(st),
+			filepath.Join(p.Workspace, "vm_blockers.csv"):                    templateText(p, "vm_blockers.template.csv", "blocker_id,feature,rva,va,kind,evidence,need,status,owner,notes\n", st),
+			filepath.Join(p.Workspace, "lowering_requests.csv"):              templateText(p, "lowering_requests.template.csv", "request_id,feature,rva,handler,reason,evidence,priority,status,main_response,notes\n", st),
+			filepath.Join(p.Workspace, "candidates", "handler_roles.csv"):    templateText(p, "handler_roles.template.csv", "feature,handler,role,confidence,evidence,status,notes\n", st),
+			filepath.Join(p.Workspace, "candidates", "opcode_semantics.csv"): templateText(p, "opcode_semantics.template.csv", "feature,handler,opcode,semantics,confidence,evidence,status,notes\n", st),
+		}
 	}
+	files[filepath.Join(p.Workspace, "outbox", "to-main.jsonl")] = ""
+	files[filepath.Join(p.Workspace, "inbox", "from-main.jsonl")] = ""
 	for path, text := range files {
 		if err := writeIfMissing(path, text); err != nil {
 			return err
@@ -432,7 +491,11 @@ func smartSession(opts Options, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := refreshSessionFiles(p, &st); err != nil {
+	if opts.WhatIf {
+		if err := scanSessionFiles(p, &st); err != nil {
+			return err
+		}
+	} else if err := refreshSessionFiles(p, &st); err != nil {
 		return err
 	}
 	fmt.Printf("parallel session `%s`\n", name)
@@ -450,7 +513,11 @@ func overview(opts Options) error {
 	if !isAttachedCase(caseRoot) {
 		return fmt.Errorf("parallel 总览需要在已 attach/init 的 case 中使用：%s", caseRoot)
 	}
-	root := filepath.Join(caseRoot, ".rekit", "parallel")
+	manifest := loadPackManifestFromRoots(opts.RepoRoot, opts.Pack)
+	root, _, err := sessionAndWorkspaceRoots(caseRoot, manifest)
+	if err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -475,7 +542,7 @@ func overview(opts Options) error {
 		if err != nil {
 			continue
 		}
-		_ = refreshSessionFiles(p, &st)
+		_ = scanSessionFiles(p, &st)
 		fmt.Printf("- %s：%s / %s，未处理 request=%d，候选=%d\n", name, st.Status, st.LifecycleMode, st.Counters.UnresolvedRequests, st.Counters.CandidateRows)
 		count++
 	}
@@ -494,7 +561,11 @@ func showSession(opts Options, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := refreshSessionFiles(p, &st); err != nil {
+	if opts.WhatIf {
+		if err := scanSessionFiles(p, &st); err != nil {
+			return err
+		}
+	} else if err := refreshSessionFiles(p, &st); err != nil {
 		return err
 	}
 	printStateSummary(p, st)
@@ -510,29 +581,47 @@ func collectSession(opts Options, name string, command string) error {
 	if err != nil {
 		return err
 	}
-	if err := refreshSessionFiles(p, &st); err != nil {
+	if opts.WhatIf {
+		if err := scanSessionFiles(p, &st); err != nil {
+			return err
+		}
+	} else if err := refreshSessionFiles(p, &st); err != nil {
 		return err
 	}
-	packet, artifacts := buildPacket(p, st, command)
-	reviewRoot := filepath.Join(p.CaseRoot, ".rekit", "reviews", time.Now().Format("20060102-150405000")+"-"+command+"-"+name)
-	if err := os.MkdirAll(reviewRoot, 0755); err != nil {
-		return err
-	}
-	b, _ := json.MarshalIndent(packet, "", "  ")
-	if err := os.WriteFile(filepath.Join(reviewRoot, "packet.json"), b, 0644); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(reviewRoot, "summary.md"), []byte(reviewSummary(p, st, command, artifacts)), 0644); err != nil {
+	reviewRoot, err := reviewRootPath(opts, p, command, name)
+	if err != nil {
 		return err
 	}
 	st.Status = "needs-review"
 	st.LastCollectAt = nowText()
 	st.LastReviewRoot = reviewRoot
 	st.UpdatedAt = nowText()
+	packet, artifacts := buildPacket(p, st, command)
+	if opts.WhatIf {
+		fmt.Printf("would generate %s package: %s\n", command, rel(p.CaseRoot, reviewRoot))
+		return nil
+	}
+	if err := os.MkdirAll(reviewRoot, 0755); err != nil {
+		return err
+	}
+	packetFile, err := packetPath(opts, reviewRoot)
+	if err != nil {
+		return err
+	}
+	b, _ := json.MarshalIndent(packet, "", "  ")
+	if err := os.WriteFile(packetFile, b, 0644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(summaryPath(reviewRoot), []byte(reviewSummary(p, st, command, artifacts)), 0644); err != nil {
+		return err
+	}
 	if err := writeState(p, st); err != nil {
 		return err
 	}
 	appendTimeline(p, command, map[string]any{"reviewRoot": rel(p.CaseRoot, reviewRoot), "unresolvedRequests": st.Counters.UnresolvedRequests})
+	if err := refreshSessionFiles(p, &st); err != nil {
+		return err
+	}
 	fmt.Printf("已生成 %s 包：%s\n", command, rel(p.CaseRoot, reviewRoot))
 	fmt.Println("主线会话读取 packet.json / summary.md 后决定如何消费 request/candidate。")
 	return nil
@@ -547,7 +636,11 @@ func syncSession(opts Options, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := refreshSessionFiles(p, &st); err != nil {
+	if opts.WhatIf {
+		if err := scanSessionFiles(p, &st); err != nil {
+			return err
+		}
+	} else if err := refreshSessionFiles(p, &st); err != nil {
 		return err
 	}
 	note := opts.Note
@@ -555,12 +648,15 @@ func syncSession(opts Options, name string) error {
 		note = fmt.Sprintf("主线同步检查：当前未处理 lowering request=%d，候选行=%d。若主线已补齐语义，请在 summary.md/evidence.md 中继续验证，不要直接写 canonical 文件。", st.Counters.UnresolvedRequests, st.Counters.CandidateRows)
 	}
 	msg := map[string]any{"time": nowText(), "event": "main-sync", "note": note, "status": st.Status}
+	if opts.WhatIf {
+		fmt.Printf("would write feature inbox: %s\n", rel(p.CaseRoot, filepath.Join(p.Workspace, "inbox", "from-main.jsonl")))
+		return nil
+	}
 	if err := appendJSONL(filepath.Join(p.Workspace, "inbox", "from-main.jsonl"), msg); err != nil {
 		return err
 	}
-	if err := appendJSONL(filepath.Join(p.SessionRoot, "inbox", "from-main.jsonl"), msg); err != nil {
-		return err
-	}
+	st.Status = "synced"
+	st.UpdatedAt = nowText()
 	appendTimeline(p, "sync", msg)
 	if err := refreshSessionFiles(p, &st); err != nil {
 		return err
@@ -579,23 +675,39 @@ func promoteSession(opts Options, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := refreshSessionFiles(p, &st); err != nil {
+	if opts.WhatIf {
+		if err := scanSessionFiles(p, &st); err != nil {
+			return err
+		}
+	} else if err := refreshSessionFiles(p, &st); err != nil {
 		return err
 	}
+	reviewRoot, err := reviewRootPath(opts, p, "parallel-promote", name)
+	if err != nil {
+		return err
+	}
+	st.LastReviewRoot = reviewRoot
 	packet, artifacts := buildPacket(p, st, "parallel-promote")
 	packet.Recommendations = append(packet.Recommendations,
 		"只把通用提示词/流程/工具经验回流 common 或 pack；样本路径、RVA/VA、trace/captures/artifacts 留在 case。",
 		"此命令只生成审查包，不直接写 pack。确认后再用 /rekit promote 的 review-first 流程处理。",
 	)
-	reviewRoot := filepath.Join(p.CaseRoot, ".rekit", "reviews", time.Now().Format("20060102-150405000")+"-parallel-promote-"+name)
+	if opts.WhatIf {
+		fmt.Printf("would generate parallel promote package: %s\n", rel(p.CaseRoot, reviewRoot))
+		return nil
+	}
 	if err := os.MkdirAll(reviewRoot, 0755); err != nil {
 		return err
 	}
-	b, _ := json.MarshalIndent(packet, "", "  ")
-	if err := os.WriteFile(filepath.Join(reviewRoot, "packet.json"), b, 0644); err != nil {
+	packetFile, err := packetPath(opts, reviewRoot)
+	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(reviewRoot, "summary.md"), []byte(reviewSummary(p, st, "parallel-promote", artifacts)), 0644); err != nil {
+	b, _ := json.MarshalIndent(packet, "", "  ")
+	if err := os.WriteFile(packetFile, b, 0644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(summaryPath(reviewRoot), []byte(reviewSummary(p, st, "parallel-promote", artifacts)), 0644); err != nil {
 		return err
 	}
 	appendTimeline(p, "promote-review", map[string]any{"reviewRoot": rel(p.CaseRoot, reviewRoot)})
@@ -612,18 +724,31 @@ func closeSession(opts Options, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := refreshSessionFiles(p, &st); err != nil {
+	if opts.WhatIf {
+		if err := scanSessionFiles(p, &st); err != nil {
+			return err
+		}
+	} else if err := refreshSessionFiles(p, &st); err != nil {
 		return err
 	}
-	if (st.Counters.UnresolvedRequests > 0 || st.Counters.CandidateRows > 0) && !opts.Force {
+	if (st.Counters.UnresolvedRequests > 0 || st.Counters.CandidateUnresolvedRows > 0 || st.Counters.OutboxMessages > 0) && !opts.Force {
+		if opts.WhatIf {
+			fmt.Printf("would mark `%s` as needs-authority because pending work exists\n", name)
+			return nil
+		}
 		st.Status = "needs-authority"
 		st.UpdatedAt = nowText()
 		_ = writeState(p, st)
 		_ = refreshSessionFiles(p, &st)
 		fmt.Printf("`%s` 还有未处理项，未关闭。\n", name)
 		fmt.Printf("- 未处理 lowering request：%d\n", st.Counters.UnresolvedRequests)
-		fmt.Printf("- candidate 行：%d\n", st.Counters.CandidateRows)
-		fmt.Println("如主线已结束，可继续 standalone；若确认强制关闭，使用 close --force。")
+		fmt.Printf("- 未处理 candidate 行：%d\n", st.Counters.CandidateUnresolvedRows)
+		fmt.Printf("- outbox 消息：%d\n", st.Counters.OutboxMessages)
+		fmt.Println("如主线已结束，可继续 standalone；若确认强制关闭，使用 /rekit parallel " + name + " close --force。")
+		return nil
+	}
+	if opts.WhatIf {
+		fmt.Printf("would close parallel session `%s`\n", name)
 		return nil
 	}
 	st.Status = "closed"
@@ -632,6 +757,9 @@ func closeSession(opts Options, name string) error {
 		return err
 	}
 	appendTimeline(p, "closed", map[string]any{"force": opts.Force})
+	if err := refreshSessionFiles(p, &st); err != nil {
+		return err
+	}
 	fmt.Printf("parallel session `%s` 已关闭。\n", name)
 	return nil
 }
@@ -644,6 +772,13 @@ func resumeSession(opts Options, name string) error {
 	st, err := loadState(p)
 	if err != nil {
 		return err
+	}
+	if opts.WhatIf {
+		if err := scanSessionFiles(p, &st); err != nil {
+			return err
+		}
+		fmt.Printf("would refresh resume prompts for `%s`\n", name)
+		return nil
 	}
 	if err := refreshSessionFiles(p, &st); err != nil {
 		return err
@@ -661,6 +796,10 @@ func setStandalone(opts Options, name string) error {
 	if err != nil {
 		return err
 	}
+	if opts.WhatIf {
+		fmt.Printf("would switch `%s` to standalone\n", name)
+		return nil
+	}
 	st.LifecycleMode = "standalone"
 	st.Status = "standalone"
 	st.UpdatedAt = nowText()
@@ -677,7 +816,11 @@ func setStandalone(opts Options, name string) error {
 
 func doctorAll(opts Options) error {
 	caseRoot := filepath.Clean(opts.Target)
-	root := filepath.Join(caseRoot, ".rekit", "parallel")
+	manifest := loadPackManifestFromRoots(opts.RepoRoot, opts.Pack)
+	root, _, err := sessionAndWorkspaceRoots(caseRoot, manifest)
+	if err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -706,12 +849,10 @@ func doctorSession(opts Options, name string) error {
 	if err != nil {
 		return err
 	}
-	if !isChildPath(p.CaseRoot, p.SessionRoot) || !isChildPath(p.CaseRoot, st.Workspace) {
+	if !isChildPath(p.CaseRoot, p.SessionRoot) || !isChildPath(p.CaseRoot, p.Workspace) {
 		return fmt.Errorf("session path escapes case root: %s", name)
 	}
-	required := []string{
-		filepath.Join(p.SessionRoot, "state.json"), filepath.Join(p.SessionRoot, "timeline.jsonl"), filepath.Join(p.Workspace, "START_HERE.md"), filepath.Join(p.Workspace, "summary.md"), filepath.Join(p.Workspace, "evidence.md"), filepath.Join(p.Workspace, "lowering_requests.csv"), filepath.Join(p.Workspace, "vm_blockers.csv"),
-	}
+	required := configuredRequiredFiles(p, st)
 	for _, path := range required {
 		if info, err := os.Stat(path); err != nil {
 			return fmt.Errorf("missing required file: %s", path)
@@ -742,9 +883,19 @@ func writeState(p Paths, st State) error {
 	return os.WriteFile(filepath.Join(p.SessionRoot, "state.json"), b, 0644)
 }
 
-func refreshSessionFiles(p Paths, st *State) error {
-	counts := scanCounters(p)
+func scanSessionFiles(p Paths, st *State) error {
+	counts, err := scanCounters(p)
+	if err != nil {
+		return err
+	}
 	st.Counters = counts
+	return nil
+}
+
+func refreshSessionFiles(p Paths, st *State) error {
+	if err := scanSessionFiles(p, st); err != nil {
+		return err
+	}
 	st.UpdatedAt = nowText()
 	if st.Checkpoint == nil {
 		st.Checkpoint = map[string]string{}
@@ -780,18 +931,8 @@ func refreshSessionFiles(p Paths, st *State) error {
 	return nil
 }
 
-func scanCounters(p Paths) Counters {
-	lowerTotal, lowerUnresolved := countCSVStatus(filepath.Join(p.Workspace, "lowering_requests.csv"), "status")
-	blockers, _ := countCSVStatus(filepath.Join(p.Workspace, "vm_blockers.csv"), "status")
-	candidateRows := 0
-	_ = filepath.WalkDir(filepath.Join(p.Workspace, "candidates"), func(path string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(path), ".csv") {
-			rows, _ := countCSVStatus(path, "status")
-			candidateRows += rows
-		}
-		return nil
-	})
-	return Counters{LoweringRequests: lowerTotal, UnresolvedRequests: lowerUnresolved, VMBlockers: blockers, CandidateRows: candidateRows, OutboxMessages: countLines(filepath.Join(p.Workspace, "outbox", "to-main.jsonl")) + countLines(filepath.Join(p.SessionRoot, "outbox", "to-main.jsonl")), InboxMessages: countLines(filepath.Join(p.Workspace, "inbox", "from-main.jsonl")) + countLines(filepath.Join(p.SessionRoot, "inbox", "from-main.jsonl"))}
+func scanCounters(p Paths) (Counters, error) {
+	return scanConfiguredCounters(p)
 }
 
 func countCSVStatus(path, statusCol string) (int, int) {
@@ -853,7 +994,7 @@ func countLines(path string) int {
 
 func buildPacket(p Paths, st State, command string) (Packet, []Artifact) {
 	arts := []Artifact{}
-	for _, item := range importantFiles(p) {
+	for _, item := range importantFilesForState(p, st) {
 		path := filepath.Join(p.CaseRoot, filepath.FromSlash(item))
 		info, err := os.Stat(path)
 		rows := 0
@@ -867,20 +1008,16 @@ func buildPacket(p Paths, st State, command string) (Packet, []Artifact) {
 			return 0
 		}(), Rows: rows})
 	}
-	return Packet{SchemaVersion: schemaVersion, Command: command, CreatedAt: nowText(), CaseRoot: p.CaseRoot, RepoRoot: p.RepoRoot, Pack: p.Pack, Session: st, Summary: map[string]any{"unresolvedRequests": st.Counters.UnresolvedRequests, "candidateRows": st.Counters.CandidateRows, "outboxMessages": st.Counters.OutboxMessages, "reviewRequired": true}, Artifacts: arts, Recommendations: recommendations(st)}, arts
+	manifest := loadPackManifestForPaths(p)
+	return Packet{SchemaVersion: schemaVersion, PacketKind: "rekit-review", Command: command, Direction: "feature-to-authority", CreatedAt: nowText(), CaseRoot: p.CaseRoot, RepoRoot: p.RepoRoot, Pack: p.Pack, ManifestPath: manifest.Path, ManifestVersion: manifest.Version, ReviewRoot: rel(p.CaseRoot, st.LastReviewRoot), IsMutation: false, WritesReviewArtifacts: true, ReviewRequired: true, Producer: "rekit-go/parallel", Session: st, Summary: map[string]any{"unresolvedRequests": st.Counters.UnresolvedRequests, "candidateRows": st.Counters.CandidateRows, "candidateUnresolvedRows": st.Counters.CandidateUnresolvedRows, "outboxMessages": st.Counters.OutboxMessages, "reviewRequired": true}, Artifacts: arts, Recommendations: recommendations(st)}, arts
 }
 
 func importantFiles(p Paths) []string {
-	files := []string{
-		rel(p.CaseRoot, filepath.Join(p.Workspace, "summary.md")),
-		rel(p.CaseRoot, filepath.Join(p.Workspace, "evidence.md")),
-		rel(p.CaseRoot, filepath.Join(p.Workspace, "lowering_requests.csv")),
-		rel(p.CaseRoot, filepath.Join(p.Workspace, "vm_blockers.csv")),
-		rel(p.CaseRoot, filepath.Join(p.Workspace, "notes.md")),
-		rel(p.CaseRoot, filepath.Join(p.Workspace, "outbox", "to-main.jsonl")),
-		rel(p.CaseRoot, filepath.Join(p.SessionRoot, "checkpoints", "latest.json")),
-	}
-	return files
+	return importantFilesForState(p, State{Kind: "feature-analysis"})
+}
+
+func importantFilesForState(p Paths, st State) []string {
+	return configuredReviewFiles(p, st)
 }
 
 func artifactKind(path string) string {
@@ -1020,6 +1157,12 @@ func isChildPath(root, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+func samePath(a, b string) bool {
+	aAbs, _ := filepath.Abs(a)
+	bAbs, _ := filepath.Abs(b)
+	return strings.EqualFold(filepath.Clean(aAbs), filepath.Clean(bAbs))
+}
+
 func summaryTemplate(st State) string {
 	return "# 功能分析摘要：" + st.Name + "\n\n## 当前结论\n\n- 待填写。\n\n## 已确认事实\n\n- 待填写；每条结论必须有 evidence.md 或文件/地址证据。\n\n## 未确认假设\n\n- 待填写。\n\n## 下一步\n\n- 按 START_HERE.md 继续。\n"
 }
@@ -1035,6 +1178,9 @@ func mdCode(value string) string {
 }
 
 func startHerePrompt(p Paths, st State) string {
+	if text, ok := renderPromptTemplate(p, st, "START_HERE.template.md"); ok {
+		return text
+	}
 	workspace := rel(p.CaseRoot, p.Workspace)
 	return fmt.Sprintf("# rekit parallel START_HERE：%s\n\n"+
 		"你是当前 case 的功能分析会话，负责分析 **%s**。不要从零脱壳，不要覆盖主线 canonical 文件。\n\n"+
@@ -1075,6 +1221,9 @@ func startHerePrompt(p Paths, st State) string {
 }
 
 func featureResumePrompt(p Paths, st State) string {
+	if text, ok := renderPromptTemplate(p, st, "FEATURE_RESUME.template.md"); ok {
+		return text
+	}
 	return fmt.Sprintf("# FEATURE_RESUME：%s\n\n"+
 		"你是功能分析会话的续接。不要从零开始。\n\n"+
 		"## 读取顺序\n\n"+
@@ -1108,6 +1257,9 @@ func featureResumePrompt(p Paths, st State) string {
 }
 
 func mainResumePrompt(p Paths, st State) string {
+	if text, ok := renderPromptTemplate(p, st, "MAIN_RESUME.template.md"); ok {
+		return text
+	}
 	return fmt.Sprintf("# MAIN_RESUME：%s\n\n"+
 		"你是主线/authority 会话的续接。目标是消费功能会话的 request/candidate，而不是重做功能分析。\n\n"+
 		"## 读取\n\n"+
@@ -1132,6 +1284,9 @@ func mainResumePrompt(p Paths, st State) string {
 }
 
 func authorityResumePrompt(p Paths, st State) string {
+	if text, ok := renderPromptTemplate(p, st, "AUTHORITY_RESUME.template.md"); ok {
+		return text
+	}
 	return fmt.Sprintf("# AUTHORITY_RESUME：%s\n\n"+
 		"当主线已结束但功能会话遇到 VM 阻塞时，用此提示词开临时 authority 会话。\n\n"+
 		"读取：\n\n"+
@@ -1148,6 +1303,9 @@ func authorityResumePrompt(p Paths, st State) string {
 }
 
 func standaloneResumePrompt(p Paths, st State) string {
+	if text, ok := renderPromptTemplate(p, st, "STANDALONE_RESUME.template.md"); ok {
+		return text
+	}
 	return fmt.Sprintf("# STANDALONE_RESUME：%s\n\n"+
 		"主线可能已经完成或暂时不可用。功能会话可以继续 standalone 分析：native 周边、字符串/import/xref、证据整理、候选 request。\n\n"+
 		"限制：不要写 canonical 文件；需要底层 VM 语义时写 %s，未来用 AUTHORITY_RESUME.md 处理。\n\n"+

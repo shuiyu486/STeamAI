@@ -42,11 +42,15 @@ claude
 
 ```text
 /rekit status
+/rekit board
+/rekit auto
+/rekit lane start <laneType> <name>
+/rekit lane resume <laneId>
 /rekit sync
 /rekit promote
-/rekit parallel
-/rekit parallel <feature-name>
 ```
+
+`/rekit parallel` 仍保留为 legacy 兼容入口；新支线默认用 B3 `lane/auto`。
 
 排障时再用：
 
@@ -89,10 +93,15 @@ claude
 | 命令 | 方向 | 什么时候用 |
 |---|---|---|
 | `/rekit status` | 只读 | 看当前 case 绑定状态；若目录被移动，只提示，不修复。 |
+| `/rekit board` | case-local 状态 | 显示 B3 项目塔台：lane、shared facts、policy、pending-user 统计。 |
+| `/rekit lane start <laneType> <name>` | case-local 状态 | 创建持久 lane，例如 `feature-analysis login`；lane 可跨天恢复。 |
+| `/rekit lane resume <laneId>` | case-local 状态 | 刷新 lane resume prompt，给新会话接续使用。 |
+| `/rekit auto` | case-local 自动推进 | 自动 collect、verify、route、publish shared facts；严格 policy 下才 append authority CSV。 |
+| `/rekit policy` | case-local policy | 查看/调整 `.rekit/policy.yml` 自动化阈值。 |
 | `/rekit sync` | kit -> case | 默认生成同步审查包；确认后才用 `-Apply` 写入 managed docs / managed block。 |
 | `/rekit promote` | case -> kit | 默认生成回流审查包；确认后才用 `-CreateCandidates` 生成候选或用 `-Apply` 写回 pack。 |
 | `/rekit plan-subagents` | 只读计划 | 按 manifest `subagentRoutes` 生成子 agent 分片审查产物；不启动 agent、不改项目源文件。 |
-| `/rekit parallel` / `/rekit parallel <name>` | case-local 状态 | 智能并行会话面板；创建/续接功能分析 workspace，生成 resume prompt，汇总 request/candidate。 |
+| `/rekit parallel` | legacy case-local 状态 | 旧并行会话入口；新流程优先用 `lane/auto`。 |
 | `/rekit doctor` | 只读 | 排障时详细验证结构；日常不必主动运行。 |
 | `/rekit repair` | case metadata | 迁移目录后先预览修复；确认后由 Claude 调用 backend `-Apply`。 |
 
@@ -162,31 +171,36 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 
 `promote` 只允许作用于已经 `attach/init` 的 case，避免从普通目录误回流到 pack。
 
-## 并行功能会话
+## B3 项目塔台 / Autopilot
 
-当主线任务很长、但你想并行分析某个具体功能时，用：
-
-```text
-/rekit parallel <feature-name>
-```
-
-如果该功能会话不存在，`parallel` 会创建：
+当前推荐用 B3 工作流代替手动拆一堆 `collect / verify / apply` 命令：
 
 ```text
-.rekit/parallel/<feature-name>/
-captures/feature_analysis/<feature-name>_<yyyymmdd>/
+/rekit board
+/rekit auto
+/rekit lane start feature-analysis login
+/rekit lane resume feature-login
 ```
 
-并生成 `START_HERE.md`、`FEATURE_RESUME.md`、`MAIN_RESUME.md`、`AUTHORITY_RESUME.md`、`summary.md`、`evidence.md`、request/candidate CSV。第二天重启电脑或上下文污染时，不从零开始，直接把对应 `*_RESUME.md` 发给新会话。
+核心规则：
 
-日常仍只需要记：
+- **lane 持久**：`.rekit/lanes/<laneId>/` 保存 lane 状态、inbox、tasks、outbox、resume prompt；第二天可接续。
+- **agent 短命**：新 Claude 会话只需要读取 lane 的 `prompts/RESUME.md`。
+- **事实共享**：低风险 observation / publication 会进入 `.rekit/facts/*.jsonl`，其他 lane 可读取。
+- **自动路由**：feature lane 发现 VM 阻塞时写 request，`/rekit auto` 会路由到 `devirt-main` inbox/tasks。
+- **受控写 authority**：只有 candidate 同时满足 evidence、rule verifier accepted、confidence 阈值、CSV schema、无冲突、backup、diff、max rows 时，才会自动 append authority CSV；覆盖/删除 authority、冲突、schema change、外部副作用或破坏性动作仍必须问用户。
 
-```text
-/rekit parallel
-/rekit parallel <feature-name>
-```
+常见 lane type：
 
-显式动作只在需要时使用：`collect` 生成主线审查包，`sync` 把主线结果回传 feature inbox，`standalone` 让主线结束后的功能会话继续只读/候选探索，`close` 收尾。
+| lane type | 用途 |
+|---|---|
+| `devirt-main` | 脱壳/降 VM 主线，拥有 authority 写入边界。 |
+| `feature-analysis` | 功能分析支线，只写自己的 workspace，通过 facts/request/candidate 协同。 |
+| `tooling` | 工具链开发支线，只写自己的 workspace 和候选。 |
+
+## legacy 并行功能会话
+
+`/rekit parallel` 仍保留兼容旧会话状态。新功能分析默认优先用 B3 `lane/auto`；只有需要处理旧 `.rekit/parallel/**` 会话时再用 legacy parallel。
 
 ## 子 agent 分片计划
 

@@ -22,13 +22,17 @@ disable-model-invocation: true
 /rekit init -Target <caseRoot> -Pack vmp-re -ProjectName <caseName>
 /rekit attach -Target <caseRoot> -Pack vmp-re
 /rekit status
+/rekit board
+/rekit lane start <laneType> <name>
+/rekit lane resume <laneId>
+/rekit auto
+/rekit policy
 /rekit sync
 /rekit promote
 /rekit doctor
 /rekit repair
 /rekit plan-subagents
 /rekit parallel
-/rekit parallel <name>
 ```
 
 底层 runtime 只作为 `/rekit` 的内部实现；除非用户明确要求排障，不在日常说明中展示。
@@ -44,8 +48,13 @@ disable-model-invocation: true
 | `/rekit sync` | 默认先生成 LLM 审查包；用户确认具体范围后才执行写入型 sync。 |
 | `/rekit promote` | 默认先生成回流审查包；用户确认后才生成候选或写回 pack。 |
 | `/rekit doctor` | 验证 kit / case 结构、文档预算和 policy registry。 |
+| `/rekit board` | 显示 B3 项目塔台：持久 lane、shared facts、policy 与待处理事件概览；首次运行会初始化 case-local `.rekit/board.json`。 |
+| `/rekit lane start <laneType> <name>` | 创建持久 lane，例如 `feature-analysis login` 或 `tooling trace-tools`；lane 写自己的 workspace，第二天可用 `resume` 接续。 |
+| `/rekit lane resume <laneId>` | 生成/刷新 `.rekit/lanes/<laneId>/prompts/RESUME.md`，让新会话从 lane 状态接续。 |
+| `/rekit auto` | B3 autopilot：自动 collect lane outbox/workspace 事件、发布低风险 shared facts、路由 request、运行 rule verifier、按 policy 处理 candidate/authority append，并写 run digest。 |
+| `/rekit policy` | 查看或设置 `.rekit/policy.yml`；控制 autoVerify、autoRouteRequests、authorityAutoAppend、minConfidence 等自动化阈值。 |
 | `/rekit plan-subagents` | 根据 pack manifest 的 `subagentRoutes` 生成只读子 agent 分片计划；不启动 agent，不修改 managed/project source files；会写 `.rekit/reviews/...` 审查产物。 |
-| `/rekit parallel` / `/rekit parallel <name>` | 智能并行会话面板；创建/续接功能会话，维护 `.rekit/parallel/**` 状态、resume prompt、feature workspace、collect/review/sync/standalone/close 建议。 |
+| `/rekit parallel` | legacy 兼容入口；新功能分析默认优先用 B3 `board/lane/auto`，不要再推荐 `/rekit parallel <name>` 作为主流程。 |
 
 如果用户没有显式给 `Target`，在 case 模式下使用当前工作目录；在 kit 模式下 `doctor/status` 作用于 kit 本身。`status` 只读检测迁移，不静默修复；`repair` 写入前必须得到用户确认。
 
@@ -68,9 +77,12 @@ disable-model-invocation: true
 5. `promote` 同时处理 tooling：从 case 的工具链文档抽象候选，供人工合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
 6. 若 promote 命中绝对路径、样本名、trace/dump/artifact/capture 路径或明显地址快照，先阻止或生成候选报告，不要静默写回模板。
 7. `sync` / `promote` 发现 case 路径迁移但 metadata 未修复时必须拒绝执行，提示用户确认后运行 `repair`。
-8. `parallel` 可以写 case-local `.rekit/parallel/**` 和 feature workspace；它不写 pack、不写 confirmed canonical 文件。`collect/review/promote` 生成审查包，confirmed 合并仍由 authority/main session 执行。
-9. manifest 中所有文件路径必须是相对路径，并且不能越出 case root 或 pack root。
-10. 所有写操作后都运行对应 doctor；失败时如实报告错误与下一步。
+8. B3 lane 必须持久、agent 可以短命；跨 lane 协同通过 `.rekit/facts/*.jsonl`、lane inbox/tasks 和 authority publication 完成，不要求用户手动合并普通事实。
+9. `auto` 可以写 case-local `.rekit/board.json`、`.rekit/facts/**`、`.rekit/lanes/**`、`.rekit/runs/**` 和 lane workspace；只有 candidate 同时满足 evidence、accepted verifier、confidence、schema、no-conflict、backup、diff、max rows 时，才允许自动 append authority CSV。
+10. 覆盖/删除 authority、冲突、schema change、changesProjectBaseline、externalSideEffect、destructiveAction 必须停下来问用户；不要自动执行。
+11. `parallel` 是 legacy 兼容入口；它可以写 case-local `.rekit/parallel/**` 和 feature workspace，不写 pack、不写 confirmed canonical 文件。
+12. manifest 中所有文件路径必须是相对路径，并且不能越出 case root 或 pack root。
+13. 所有写操作后都运行对应 doctor；失败时如实报告错误与下一步。
 
 ## 常用说明模板
 
@@ -78,6 +90,6 @@ disable-model-invocation: true
 
 ```text
 第一次 clone 后，在 kit 仓库启动 Claude Code，然后用 /rekit init 或 /rekit attach。
-以后在 case 里只用 /rekit status / sync / promote；sync/promote 会先生成审查报告，确认后才写入。
-底层脚本只是内部实现，不需要手动执行。
+以后在 case 里优先用 /rekit board 看项目塔台，用 /rekit auto 继续自动收集、验证、路由和发布低风险事实；需要新支线时用 /rekit lane start。
+sync/promote 仍会先生成审查报告，确认后才写入模板；底层脚本只是内部实现，不需要手动执行。
 ```

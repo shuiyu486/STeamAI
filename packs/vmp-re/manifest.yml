@@ -101,10 +101,124 @@ promptFiles:
 parallelTemplateFiles:
   - templates/parallel/feature-analysis/summary.template.md
   - templates/parallel/feature-analysis/evidence.template.md
+  - templates/parallel/feature-analysis/notes.template.md
   - templates/parallel/feature-analysis/vm_blockers.template.csv
   - templates/parallel/feature-analysis/lowering_requests.template.csv
   - templates/parallel/feature-analysis/handler_roles.template.csv
   - templates/parallel/feature-analysis/opcode_semantics.template.csv
+  - templates/parallel/feature-analysis/START_HERE.template.md
+  - templates/parallel/feature-analysis/FEATURE_RESUME.template.md
+  - templates/parallel/feature-analysis/MAIN_RESUME.template.md
+  - templates/parallel/feature-analysis/AUTHORITY_RESUME.template.md
+  - templates/parallel/feature-analysis/STANDALONE_RESUME.template.md
+
+parallelDefaults:
+  defaultKind: feature-analysis
+  sessionRoot: .rekit/parallel
+  reviewRoot: .rekit/reviews
+  workspaceRoot: captures/feature_analysis
+  workspaceDateLayout: "20060102"
+  initialStatus: open
+  defaultLifecycleMode: attached_to_main
+
+parallelFiles:
+  - kind: feature-analysis
+    path: summary.md
+    category: summary
+    template: templates/parallel/feature-analysis/summary.template.md
+    artifactKind: summary
+    required: true
+    includeInReview: true
+    includeInDoctor: true
+  - kind: feature-analysis
+    path: evidence.md
+    category: evidence
+    template: templates/parallel/feature-analysis/evidence.template.md
+    artifactKind: evidence
+    required: true
+    includeInReview: true
+    includeInDoctor: true
+  - kind: feature-analysis
+    path: notes.md
+    category: notes
+    template: templates/parallel/feature-analysis/notes.template.md
+    artifactKind: support
+    required: false
+    includeInReview: true
+    includeInDoctor: false
+  - kind: feature-analysis
+    path: vm_blockers.csv
+    category: blocker
+    template: templates/parallel/feature-analysis/vm_blockers.template.csv
+    statusColumn: status
+    counterName: vmBlockers
+    artifactKind: vm-blockers
+    required: true
+    includeInReview: true
+    includeInDoctor: true
+  - kind: feature-analysis
+    path: lowering_requests.csv
+    category: request
+    template: templates/parallel/feature-analysis/lowering_requests.template.csv
+    statusColumn: status
+    counterName: loweringRequests
+    artifactKind: lowering-requests
+    required: true
+    includeInReview: true
+    includeInDoctor: true
+  - kind: feature-analysis
+    path: candidates/handler_roles.csv
+    category: candidate
+    template: templates/parallel/feature-analysis/handler_roles.template.csv
+    statusColumn: status
+    counterName: candidateRows
+    artifactKind: candidate
+    required: false
+    includeInReview: true
+    includeInDoctor: false
+  - kind: feature-analysis
+    path: candidates/opcode_semantics.csv
+    category: candidate
+    template: templates/parallel/feature-analysis/opcode_semantics.template.csv
+    statusColumn: status
+    counterName: candidateRows
+    artifactKind: candidate
+    required: false
+    includeInReview: true
+    includeInDoctor: false
+
+parallelReadOnlyFiles:
+  - captures/vm_opcode_semantics_confirmed.csv
+  - captures/vm_handler_roles_confirmed.csv
+  - captures/routine_ir.events.csv
+  - captures/routine_ir.summary.csv
+  - captures/routine_ir.md
+  - captures/routine_ir.superinstructions.csv
+  - captures/routine_ir.superinstructions.md
+  - references/vmp-re/task-handoff.md
+
+laneTypes:
+  - id: devirt-main
+    title: VMProtect 脱壳主线
+    authority: true
+    workspaceRoot: captures/devirt_main
+    canWrite: captures/vm_opcode_semantics_confirmed.csv,captures/vm_handler_roles_confirmed.csv,references/vmp-re/task-handoff.md,captures/routine_ir.events.csv,captures/routine_ir.summary.csv,captures/routine_ir.md
+    readOnly: .rekit/facts/**
+    outputs: publication,authority-update,resolved-request,observation
+  - id: feature-analysis
+    title: 功能分析
+    authority: false
+    workspaceRoot: captures/feature_analysis
+    canWrite: own-workspace
+    readOnly: captures/vm_opcode_semantics_confirmed.csv,captures/vm_handler_roles_confirmed.csv,captures/routine_ir.events.csv,captures/routine_ir.summary.csv,captures/routine_ir.md,references/vmp-re/task-handoff.md,.rekit/facts/**
+    outputs: observation,request,candidate,summary
+  - id: tooling
+    title: 工具链开发
+    authority: false
+    workspaceRoot: captures/tooling_lanes
+    canWrite: own-workspace
+    readOnly: .rekit/facts/**,references/vmp-re/**
+    outputs: observation,request,candidate,tooling-change
 
 toolingCandidateSources:
   - references/vmp-re/toolchain-router.md

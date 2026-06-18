@@ -1,6 +1,7 @@
+[CmdletBinding(PositionalBinding=$false)]
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','parallel')]
+  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','parallel','board','lane','auto','policy')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -33,6 +34,8 @@ $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot '..'))
 . (Join-Path $RuntimeRoot 'lib\Promote.ps1')
 . (Join-Path $RuntimeRoot 'lib\Review.ps1')
 . (Join-Path $RuntimeRoot 'lib\Sync.ps1')
+. (Join-Path $RuntimeRoot 'lib\GoRuntime.ps1')
+. (Join-Path $RuntimeRoot 'lib\Board.ps1')
 
 function Resolve-RekitTarget {
   param([string]$Value)
@@ -45,23 +48,43 @@ function Test-RekitLooksLikeCase {
   return (Test-Path -LiteralPath (Join-Path $Path '.rekit\instance.yml')) -or (Test-Path -LiteralPath (Join-Path $Path '.re-template.yml'))
 }
 
-switch ($Command) {
-  'parallel' {
-    $caseRoot = Resolve-RekitTarget $Target
-    $goRoot = Join-Path $RepoRoot 'rekit-go'
-    $goEntry = Join-Path $goRoot 'cmd\rekit'
-    if (-not (Test-Path -LiteralPath (Join-Path $goRoot 'go.mod'))) { throw "missing Go rekit runtime: $goRoot" }
-    $parallelArgs = @('run', './cmd/rekit', 'parallel', '--target', $caseRoot, '--repo-root', $RepoRoot)
-    if ($PSBoundParameters.ContainsKey('Pack')) { $parallelArgs += @('--pack', $Pack) }
-    if ($Force) { $parallelArgs += '--force' }
-    if ($RemainingArgs.Count -gt 0) { $parallelArgs += $RemainingArgs }
-    Push-Location $goRoot
-    try {
-      & go @parallelArgs
-      if ($LASTEXITCODE -ne 0) { throw "rekit parallel failed with exit code $LASTEXITCODE" }
-    } finally {
-      Pop-Location
+function Resolve-RekitActionTargetAndArgs {
+  param(
+    [string]$Value,
+    [string[]]$Remaining = @()
+  )
+  $actionTarget = $Value
+  $actionArgs = @($Remaining)
+  if (-not [string]::IsNullOrWhiteSpace($Value)) {
+    $maybeTarget = Resolve-RekitTarget $Value
+    if (-not (Test-RekitLooksLikeCase $maybeTarget)) {
+      $actionTarget = ''
+      $actionArgs = @($Value) + $actionArgs
     }
+  }
+  return [pscustomobject]@{ Target = (Resolve-RekitTarget $actionTarget); Args = $actionArgs }
+}
+
+switch ($Command) {
+  'board' {
+    $caseRoot = Resolve-RekitTarget $Target
+    Show-RekitBoard -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack
+  }
+  'lane' {
+    $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
+    Invoke-RekitLaneCommand -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -WhatIf:$WhatIf -Force:$Force
+  }
+  'auto' {
+    $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
+    Invoke-RekitAuto -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -WhatIf:$WhatIf
+  }
+  'policy' {
+    $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
+    Invoke-RekitPolicyCommand -Target $resolved.Target -ActionArgs $resolved.Args
+  }
+  'parallel' {
+    $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
+    Invoke-RekitGoParallel -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -RemainingArgs $resolved.Args -Force:$Force -WhatIf:$WhatIf -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
   }
   'status' {
     $cwd = Resolve-RekitTarget $Target

@@ -62,6 +62,23 @@ function Get-RekitYamlMap {
   return $map
 }
 
+function Convert-RekitYamlBool {
+  param(
+    [object]$Value,
+    [bool]$Default = $false
+  )
+  if ($null -eq $Value) { return $Default }
+  switch (([string]$Value).Trim().ToLowerInvariant()) {
+    'true' { return $true }
+    'yes' { return $true }
+    '1' { return $true }
+    'false' { return $false }
+    'no' { return $false }
+    '0' { return $false }
+    default { return $Default }
+  }
+}
+
 function Get-RekitYamlObjectList {
   param(
     [string[]]$Lines,
@@ -123,6 +140,10 @@ function Get-RekitPackManifest {
   $toolingFiles = @(Get-RekitYamlList -Lines $lines -Key 'toolingFiles')
   $promptFiles = @(Get-RekitYamlList -Lines $lines -Key 'promptFiles')
   $parallelTemplateFiles = @(Get-RekitYamlList -Lines $lines -Key 'parallelTemplateFiles')
+  $parallelDefaults = Get-RekitYamlMap -Lines $lines -Key 'parallelDefaults'
+  $parallelFilesRaw = @(Get-RekitYamlObjectList -Lines $lines -Key 'parallelFiles')
+  $parallelReadOnlyFiles = @(Get-RekitYamlList -Lines $lines -Key 'parallelReadOnlyFiles')
+  $laneTypes = @(Get-RekitYamlObjectList -Lines $lines -Key 'laneTypes')
   $toolingCandidateSources = @(Get-RekitYamlList -Lines $lines -Key 'toolingCandidateSources')
   $subagentRoutes = @(Get-RekitYamlObjectList -Lines $lines -Key 'subagentRoutes')
   $promoteDenyPatterns = @(Get-RekitYamlList -Lines $lines -Key 'promoteDenyPatterns')
@@ -137,6 +158,27 @@ function Get-RekitPackManifest {
   if (-not $managedBlock.ContainsKey('blockId')) { $managedBlock['blockId'] = 'vmp-re-template:router' }
   if (-not $managedBlock.ContainsKey('source')) { $managedBlock['source'] = 'CLAUDE.local.snippet.md' }
   if (-not $budgets.ContainsKey('defaultMarkdown')) { $budgets['defaultMarkdown'] = '16384' }
+  if (-not $parallelDefaults.ContainsKey('defaultKind')) { $parallelDefaults['defaultKind'] = 'feature-analysis' }
+  if (-not $parallelDefaults.ContainsKey('sessionRoot')) { $parallelDefaults['sessionRoot'] = '.rekit/parallel' }
+  if (-not $parallelDefaults.ContainsKey('reviewRoot')) { $parallelDefaults['reviewRoot'] = '.rekit/reviews' }
+  if (-not $parallelDefaults.ContainsKey('workspaceRoot')) { $parallelDefaults['workspaceRoot'] = 'captures/feature_analysis' }
+  if (-not $parallelDefaults.ContainsKey('workspaceDateLayout')) { $parallelDefaults['workspaceDateLayout'] = '20060102' }
+  if (-not $parallelDefaults.ContainsKey('initialStatus')) { $parallelDefaults['initialStatus'] = 'open' }
+  if (-not $parallelDefaults.ContainsKey('defaultLifecycleMode')) { $parallelDefaults['defaultLifecycleMode'] = 'attached_to_main' }
+  $parallelFiles = @($parallelFilesRaw | ForEach-Object {
+    [pscustomobject]@{
+      Kind = if ([string]::IsNullOrWhiteSpace([string]$_.kind)) { [string]$parallelDefaults['defaultKind'] } else { [string]$_.kind }
+      Path = [string]$_.path
+      Category = [string]$_.category
+      Template = [string]$_.template
+      StatusColumn = [string]$_.statusColumn
+      CounterName = [string]$_.counterName
+      ArtifactKind = [string]$_.artifactKind
+      Required = Convert-RekitYamlBool $_.required
+      IncludeInReview = Convert-RekitYamlBool $_.includeInReview
+      IncludeInDoctor = Convert-RekitYamlBool $_.includeInDoctor
+    }
+  })
   if ($promoteDenyPatterns.Count -eq 0) {
     $promoteDenyPatterns = @('C:\\', 'artifacts[\\/]', 'captures[\\/]', '[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\.(csv|jsonl|log|txt|bin)', '[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\.(dmp|bin|raw|exe|dll)', '\.dmp\b', '0x[0-9A-Fa-f]{6,}', 'ctx[0-9]+', 'round[0-9]+', 'Task #[0-9]+')
   }
@@ -158,6 +200,10 @@ function Get-RekitPackManifest {
     ToolingFiles = $toolingFiles
     PromptFiles = $promptFiles
     ParallelTemplateFiles = $parallelTemplateFiles
+    ParallelDefaults = $parallelDefaults
+    ParallelFiles = $parallelFiles
+    ParallelReadOnlyFiles = $parallelReadOnlyFiles
+    LaneTypes = $laneTypes
     ToolingCandidateSources = $toolingCandidateSources
     SubagentRoutes = $subagentRoutes
     PromoteDenyPatterns = $promoteDenyPatterns
