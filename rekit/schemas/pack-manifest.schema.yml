@@ -19,36 +19,11 @@ fields:
   syncPolicy: sync 默认策略
   promoteFiles: 允许进入 promote 候选的 managed 文件列表
   promoteDenyPatterns: promote 安全阻断正则或字符串模式
-  subagentRoutes: 可选的子 agent / parallel review 分流 route 列表；每项可包含 id、taskTypes、trigger、shardBasis、targetItemsPerAgent、maxParallel、reference、policyOverlay、subagentPermissions、mainAgentOwns、outputContract
+  subagentRoutes: 可选的子 agent / lane review 分流 route 列表；每项可包含 id、taskTypes、trigger、shardBasis、targetItemsPerAgent、maxParallel、reference、policyOverlay、subagentPermissions、mainAgentOwns、outputContract
   promptFiles: 可选的 common/pack prompt 文档列表，用于 doctor 校验与人工查阅
-  parallelTemplateFiles: 可选的 pack-local parallel workspace / prompt 模板列表；parallelFiles.template 必须引用其中之一
-  parallelDefaults: 可选的 /rekit parallel 默认值；包含 defaultKind、sessionRoot、reviewRoot、workspaceRoot、workspaceDateLayout、initialStatus、defaultLifecycleMode
-  parallelFiles: 可选的 /rekit parallel 工作区文件声明列表；每项可包含 kind、path、category、template、statusColumn、counterName、artifactKind、required、includeInReview、includeInDoctor
-  parallelReadOnlyFiles: 可选的 /rekit parallel 只读 authority/canonical 文件列表；用于提示词边界声明，不由 feature session 写入
   laneTypes: 可选的 B3 lane 类型列表；定义 authority、workspaceRoot、canWrite/readOnly/outputs，供 `/rekit board/lane/auto` 使用
   b3PolicyFile: case-local `.rekit/policy.yml`，由 runtime 初始化，不写在 manifest 中；此 schema 只说明相关字段
   budgets: Markdown/文本预算，defaultMarkdown 为默认值
-
-parallelDefaults:
-  defaultKind: 未显式传入 --kind 时使用的 session kind
-  sessionRoot: case 内 session state 根目录，必须是相对路径并留在 case 内
-  reviewRoot: case 内 review packet 根目录，必须是相对路径并留在 case 内
-  workspaceRoot: case 内 feature workspace 根目录，必须是相对路径并留在 case 内
-  workspaceDateLayout: Go time layout，用于 workspace 目录后缀
-  initialStatus: 新 session 初始 status
-  defaultLifecycleMode: 新 session 初始 lifecycleMode
-
-parallelFiles:
-  kind: 适用的 session kind；为空时使用 parallelDefaults.defaultKind
-  path: workspace 内相对路径，必须留在 workspace 内
-  category: 语义类别，例如 summary、evidence、request、blocker、candidate
-  template: pack-local 模板路径，必须列入 parallelTemplateFiles
-  statusColumn: CSV 状态列名；设置后用于 counter 统计
-  counterName: 计数器名称；支持 loweringRequests、vmBlockers、candidateRows
-  artifactKind: review packet artifact kind；为空时由 category/path fallback 推断
-  required: true 表示 init/doctor 要求该文件存在
-  includeInReview: true 表示 collect/review/promote packet 包含该文件
-  includeInDoctor: true 表示 doctor 检查该文件
 
 laneTypes:
   id: lane 类型 slug，例如 devirt-main、feature-analysis、tooling
@@ -87,4 +62,4 @@ reviewPacketEnvelope:
   isMutation: false 表示 packet 本身不是 authority 写入
   writesReviewArtifacts: true 表示命令会写 review artifact
   reviewRequired: true 表示主线合入前必须 review-first
-  producer: 生成器，例如 rekit-go/parallel
+  producer: 生成器，例如 rekit/plan-subagents 或 B3 auto

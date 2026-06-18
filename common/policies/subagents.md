@@ -73,7 +73,7 @@ pack overlay 可以追加领域字段，但仍应保持短输出。
 
 ## Planner contract
 
-pack 可以在 manifest 中声明 `subagentRoutes`，让 `/rekit plan-subagents` 生成分片计划。每条 route 至少应说明：
+pack 可以在 manifest 中声明 `subagentRoutes`，让高级/内部 `plan-subagents` 计划器生成分片计划。每条 route 至少应说明：
 
 - `id`：稳定 route 名称。
 - `taskTypes`：适用任务类型，用逗号分隔。

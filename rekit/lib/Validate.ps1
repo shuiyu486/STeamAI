@@ -135,49 +135,6 @@ function Test-RekitSubagentRoutesInstance {
   }
 }
 
-function Test-RekitParallelManifest {
-  param([Parameter(Mandatory=$true)]$Manifest)
-  $rows = @()
-  foreach ($key in @('defaultKind','sessionRoot','reviewRoot','workspaceRoot','workspaceDateLayout','initialStatus','defaultLifecycleMode')) {
-    if (-not $Manifest.ParallelDefaults.ContainsKey($key) -or [string]::IsNullOrWhiteSpace([string]$Manifest.ParallelDefaults[$key])) {
-      throw "manifest parallelDefaults.$key is empty: $($Manifest.ManifestPath)"
-    }
-  }
-  foreach ($key in @('sessionRoot','reviewRoot','workspaceRoot')) {
-    [void](Join-RekitPath -Root $Manifest.PackRoot -RelativePath ([string]$Manifest.ParallelDefaults[$key]))
-  }
-
-  $seen = @{}
-  foreach ($rel in @($Manifest.ParallelTemplateFiles)) {
-    if ([string]::IsNullOrWhiteSpace([string]$rel)) { throw "manifest parallelTemplateFiles contains an empty path: $($Manifest.ManifestPath)" }
-    $seen[[string]$rel] = $true
-    $rows += Assert-RekitTextFile -Path (Get-RekitSourcePath -Manifest $Manifest -RelativePath ([string]$rel)) -LimitBytes (Get-RekitBudgetLimit -Manifest $Manifest -RelativePath ([string]$rel))
-  }
-
-  foreach ($file in @($Manifest.ParallelFiles)) {
-    if ([string]::IsNullOrWhiteSpace([string]$file.Path)) { throw "manifest parallelFiles entry is missing path: $($Manifest.ManifestPath)" }
-    [void](Join-RekitPath -Root $Manifest.PackRoot -RelativePath ([string]$file.Path))
-    if (-not [string]::IsNullOrWhiteSpace([string]$file.Template)) {
-      $template = [string]$file.Template
-      [void](Join-RekitPath -Root $Manifest.PackRoot -RelativePath $template)
-      if (-not $seen.ContainsKey($template)) { throw "parallelFiles template is not listed in parallelTemplateFiles: $template" }
-    }
-    if (-not [string]::IsNullOrWhiteSpace([string]$file.StatusColumn) -and [string]::IsNullOrWhiteSpace([string]$file.CounterName)) {
-      throw "parallelFiles entry with statusColumn must declare counterName: $($file.Path)"
-    }
-    if (-not [string]::IsNullOrWhiteSpace([string]$file.CounterName)) {
-      $counter = ([string]$file.CounterName).ToLowerInvariant()
-      if (@('loweringrequests','vmblockers','candidaterows') -notcontains $counter) { throw "unsupported parallelFiles counterName '$($file.CounterName)' for $($file.Path)" }
-    }
-  }
-
-  foreach ($rel in @($Manifest.ParallelReadOnlyFiles)) {
-    if ([string]::IsNullOrWhiteSpace([string]$rel)) { throw "manifest parallelReadOnlyFiles contains an empty path: $($Manifest.ManifestPath)" }
-    [void](Join-RekitPath -Root $Manifest.PackRoot -RelativePath ([string]$rel))
-  }
-  return $rows
-}
-
 function Split-RekitManifestScalarList {
   param([string]$Value)
   if ([string]::IsNullOrWhiteSpace($Value)) { return @() }
@@ -246,7 +203,6 @@ function Test-RekitPack {
   foreach ($rel in $manifest.PromptFiles) {
     $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root $manifest.RepoRoot -RelativePath $rel) -LimitBytes 16384
   }
-  $rows += Test-RekitParallelManifest -Manifest $manifest
   $rows += Test-RekitLaneTypesManifest -Manifest $manifest
   foreach ($rel in $manifest.PromoteFiles) {
     [void](Join-RekitPath -Root $manifest.PackRoot -RelativePath $rel)

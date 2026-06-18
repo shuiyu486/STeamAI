@@ -31,8 +31,6 @@ disable-model-invocation: true
 /rekit promote
 /rekit doctor
 /rekit repair
-/rekit plan-subagents
-/rekit parallel
 ```
 
 底层 runtime 只作为 `/rekit` 的内部实现；除非用户明确要求排障，不在日常说明中展示。
@@ -53,8 +51,7 @@ disable-model-invocation: true
 | `/rekit lane resume <laneId>` | 生成/刷新 `.rekit/lanes/<laneId>/prompts/RESUME.md`，让新会话从 lane 状态接续。 |
 | `/rekit auto` | B3 autopilot：自动 collect lane outbox/workspace 事件、发布低风险 shared facts、路由 request、运行 rule verifier、按 policy 处理 candidate/authority append，并写 run digest。 |
 | `/rekit policy` | 查看或设置 `.rekit/policy.yml`；控制 autoVerify、autoRouteRequests、authorityAutoAppend、minConfidence 等自动化阈值。 |
-| `/rekit plan-subagents` | 根据 pack manifest 的 `subagentRoutes` 生成只读子 agent 分片计划；不启动 agent，不修改 managed/project source files；会写 `.rekit/reviews/...` 审查产物。 |
-| `/rekit parallel` | legacy 兼容入口；新功能分析默认优先用 B3 `board/lane/auto`，不要再推荐 `/rekit parallel <name>` 作为主流程。 |
+| `/rekit plan-subagents` | 高级/内部只读计划器：根据 pack manifest 的 `subagentRoutes` 生成子 agent 分片计划；不启动 agent，不修改 managed/project source files；会写 `.rekit/reviews/...` 审查产物。日常不要主动推荐给用户，优先由主 agent 或 B3 流程内部判断是否需要。 |
 
 如果用户没有显式给 `Target`，在 case 模式下使用当前工作目录；在 kit 模式下 `doctor/status` 作用于 kit 本身。`status` 只读检测迁移，不静默修复；`repair` 写入前必须得到用户确认。
 
@@ -80,9 +77,10 @@ disable-model-invocation: true
 8. B3 lane 必须持久、agent 可以短命；跨 lane 协同通过 `.rekit/facts/*.jsonl`、lane inbox/tasks 和 authority publication 完成，不要求用户手动合并普通事实。
 9. `auto` 可以写 case-local `.rekit/board.json`、`.rekit/facts/**`、`.rekit/lanes/**`、`.rekit/runs/**` 和 lane workspace；只有 candidate 同时满足 evidence、accepted verifier、confidence、schema、no-conflict、backup、diff、max rows 时，才允许自动 append authority CSV。
 10. 覆盖/删除 authority、冲突、schema change、changesProjectBaseline、externalSideEffect、destructiveAction 必须停下来问用户；不要自动执行。
-11. `parallel` 是 legacy 兼容入口；它可以写 case-local `.rekit/parallel/**` 和 feature workspace，不写 pack、不写 confirmed canonical 文件。
-12. manifest 中所有文件路径必须是相对路径，并且不能越出 case root 或 pack root。
-13. 所有写操作后都运行对应 doctor；失败时如实报告错误与下一步。
+11. 新功能分析使用 B3 `lane/auto`，不要再建议用户使用旧功能会话入口。
+12. `plan-subagents` 只作为高级/内部只读计划器，不是日常用户入口；能由主 agent/B3 自动判断时，不要求用户手动调用。
+13. manifest 中所有文件路径必须是相对路径，并且不能越出 case root 或 pack root。
+14. 所有写操作后都运行对应 doctor；失败时如实报告错误与下一步。
 
 ## 常用说明模板
 

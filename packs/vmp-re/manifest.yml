@@ -9,7 +9,7 @@ managedFiles:
   - references/vmp-re/progressive-disclosure.md
   - references/vmp-re/toolchain-router.md
   - references/vmp-re/singleton-handler-review.md
-  - references/vmp-re/parallel-sessions.md
+  - references/vmp-re/lane-collaboration.md
 
 templateFiles:
   - references/vmp-re/task-handoff.template.md
@@ -32,7 +32,7 @@ syncPolicy:
 commonPolicies:
   - context-budget
   - subagents
-  - parallel-sessions
+  - lane-collaboration
   - review-first
   - write-boundaries
   - verification
@@ -42,7 +42,7 @@ commonPolicies:
 
 policyOverlays:
   - policies/subagents.overlay.md
-  - policies/parallel-sessions.overlay.md
+  - policies/lane-collaboration.overlay.md
   - policies/context-budget.overlay.md
   - policies/review-first.overlay.md
   - policies/verification.overlay.md
@@ -59,14 +59,14 @@ subagentRoutes:
     subagentPermissions: read-only
     mainAgentOwns: csv-backup,csv-write,validation,handoff-update
     outputContract: item,decision,confidence,evidence,risk,next_action,handler,csv_ready,row,defer_reason
-  - id: vmp-re:parallel-feature-analysis
-    taskTypes: feature-analysis,function-analysis,parallel-feature-review,lowering-request-review
+  - id: vmp-re:lane-feature-analysis
+    taskTypes: feature-analysis,function-analysis,lane-feature-review,lowering-request-review
     trigger: feature workspace has requests/candidates or needs merge review
     shardBasis: feature
     targetItemsPerAgent: 1
     maxParallel: 2
-    reference: references/vmp-re/parallel-sessions.md
-    policyOverlay: policies/parallel-sessions.overlay.md
+    reference: references/vmp-re/lane-collaboration.md
+    policyOverlay: policies/lane-collaboration.overlay.md
     subagentPermissions: read-only-or-workspace-only
     mainAgentOwns: canonical-write,confirmed-csv,validation,handoff-update,authority-sync
     outputContract: item,decision,confidence,evidence,risk,next_action,feature,request_id,candidate_path,defer_reason
@@ -77,13 +77,13 @@ promoteFiles:
   - references/vmp-re/progressive-disclosure.md
   - references/vmp-re/toolchain-router.md
   - references/vmp-re/singleton-handler-review.md
-  - references/vmp-re/parallel-sessions.md
+  - references/vmp-re/lane-collaboration.md
 
 toolingFiles:
   - tooling/README.md
   - tooling/catalog.yml
   - tooling/recipes/public-tool-triage.md
-  - tooling/recipes/parallel-sessions.md
+  - tooling/recipes/lane-collaboration.md
   - tooling/recipes/vmenter-context-probe.md
   - tooling/recipes/unicorn-trace.md
   - tooling/recipes/focused-handler-review.md
@@ -93,109 +93,10 @@ toolingFiles:
   - tooling/patches/vmpimportfixer-timeout-and-quiet-log.md
 
 promptFiles:
-  - common/prompts/parallel-main-session.md
-  - common/prompts/parallel-feature-session.md
-  - common/prompts/parallel-merge-review.md
+  - common/prompts/lane-main-session.md
+  - common/prompts/lane-feature-session.md
+  - common/prompts/lane-merge-review.md
   - packs/vmp-re/prompts/feature-analysis-session.md
-
-parallelTemplateFiles:
-  - templates/parallel/feature-analysis/summary.template.md
-  - templates/parallel/feature-analysis/evidence.template.md
-  - templates/parallel/feature-analysis/notes.template.md
-  - templates/parallel/feature-analysis/vm_blockers.template.csv
-  - templates/parallel/feature-analysis/lowering_requests.template.csv
-  - templates/parallel/feature-analysis/handler_roles.template.csv
-  - templates/parallel/feature-analysis/opcode_semantics.template.csv
-  - templates/parallel/feature-analysis/START_HERE.template.md
-  - templates/parallel/feature-analysis/FEATURE_RESUME.template.md
-  - templates/parallel/feature-analysis/MAIN_RESUME.template.md
-  - templates/parallel/feature-analysis/AUTHORITY_RESUME.template.md
-  - templates/parallel/feature-analysis/STANDALONE_RESUME.template.md
-
-parallelDefaults:
-  defaultKind: feature-analysis
-  sessionRoot: .rekit/parallel
-  reviewRoot: .rekit/reviews
-  workspaceRoot: captures/feature_analysis
-  workspaceDateLayout: "20060102"
-  initialStatus: open
-  defaultLifecycleMode: attached_to_main
-
-parallelFiles:
-  - kind: feature-analysis
-    path: summary.md
-    category: summary
-    template: templates/parallel/feature-analysis/summary.template.md
-    artifactKind: summary
-    required: true
-    includeInReview: true
-    includeInDoctor: true
-  - kind: feature-analysis
-    path: evidence.md
-    category: evidence
-    template: templates/parallel/feature-analysis/evidence.template.md
-    artifactKind: evidence
-    required: true
-    includeInReview: true
-    includeInDoctor: true
-  - kind: feature-analysis
-    path: notes.md
-    category: notes
-    template: templates/parallel/feature-analysis/notes.template.md
-    artifactKind: support
-    required: false
-    includeInReview: true
-    includeInDoctor: false
-  - kind: feature-analysis
-    path: vm_blockers.csv
-    category: blocker
-    template: templates/parallel/feature-analysis/vm_blockers.template.csv
-    statusColumn: status
-    counterName: vmBlockers
-    artifactKind: vm-blockers
-    required: true
-    includeInReview: true
-    includeInDoctor: true
-  - kind: feature-analysis
-    path: lowering_requests.csv
-    category: request
-    template: templates/parallel/feature-analysis/lowering_requests.template.csv
-    statusColumn: status
-    counterName: loweringRequests
-    artifactKind: lowering-requests
-    required: true
-    includeInReview: true
-    includeInDoctor: true
-  - kind: feature-analysis
-    path: candidates/handler_roles.csv
-    category: candidate
-    template: templates/parallel/feature-analysis/handler_roles.template.csv
-    statusColumn: status
-    counterName: candidateRows
-    artifactKind: candidate
-    required: false
-    includeInReview: true
-    includeInDoctor: false
-  - kind: feature-analysis
-    path: candidates/opcode_semantics.csv
-    category: candidate
-    template: templates/parallel/feature-analysis/opcode_semantics.template.csv
-    statusColumn: status
-    counterName: candidateRows
-    artifactKind: candidate
-    required: false
-    includeInReview: true
-    includeInDoctor: false
-
-parallelReadOnlyFiles:
-  - captures/vm_opcode_semantics_confirmed.csv
-  - captures/vm_handler_roles_confirmed.csv
-  - captures/routine_ir.events.csv
-  - captures/routine_ir.summary.csv
-  - captures/routine_ir.md
-  - captures/routine_ir.superinstructions.csv
-  - captures/routine_ir.superinstructions.md
-  - references/vmp-re/task-handoff.md
 
 laneTypes:
   - id: devirt-main
@@ -222,7 +123,7 @@ laneTypes:
 
 toolingCandidateSources:
   - references/vmp-re/toolchain-router.md
-  - references/vmp-re/parallel-sessions.md
+  - references/vmp-re/lane-collaboration.md
 
 promoteDenyPatterns:
   - "C:\\"
@@ -239,5 +140,5 @@ promoteDenyPatterns:
 budgets:
   CLAUDE.local.md: 8192
   references/vmp-re/task-handoff.md: 12288
-  references/vmp-re/parallel-sessions.md: 16384
+  references/vmp-re/lane-collaboration.md: 16384
   defaultMarkdown: 16384

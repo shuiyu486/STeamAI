@@ -18,9 +18,9 @@ policies:
       sync: reference
       promote: review-only
       validate: true
-  - id: parallel-sessions
-    path: parallel-sessions.md
-    title: Parallel session orchestration and continuity
+  - id: lane-collaboration
+    path: lane-collaboration.md
+    title: Lane collaboration orchestration and continuity
     lifecycle:
       sync: reference
       promote: review-only

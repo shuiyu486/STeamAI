@@ -50,7 +50,7 @@ claude
 /rekit promote
 ```
 
-`/rekit parallel` 仍保留为 legacy 兼容入口；新支线默认用 B3 `lane/auto`。
+新支线统一使用 B3 `lane/auto`。
 
 排障时再用：
 
@@ -100,8 +100,6 @@ claude
 | `/rekit policy` | case-local policy | 查看/调整 `.rekit/policy.yml` 自动化阈值。 |
 | `/rekit sync` | kit -> case | 默认生成同步审查包；确认后才用 `-Apply` 写入 managed docs / managed block。 |
 | `/rekit promote` | case -> kit | 默认生成回流审查包；确认后才用 `-CreateCandidates` 生成候选或用 `-Apply` 写回 pack。 |
-| `/rekit plan-subagents` | 只读计划 | 按 manifest `subagentRoutes` 生成子 agent 分片审查产物；不启动 agent、不改项目源文件。 |
-| `/rekit parallel` | legacy case-local 状态 | 旧并行会话入口；新流程优先用 `lane/auto`。 |
 | `/rekit doctor` | 只读 | 排障时详细验证结构；日常不必主动运行。 |
 | `/rekit repair` | case metadata | 迁移目录后先预览修复；确认后由 Claude 调用 backend `-Apply`。 |
 
@@ -198,19 +196,11 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 | `feature-analysis` | 功能分析支线，只写自己的 workspace，通过 facts/request/candidate 协同。 |
 | `tooling` | 工具链开发支线，只写自己的 workspace 和候选。 |
 
-## legacy 并行功能会话
+## 高级/内部：子 agent 分片计划
 
-`/rekit parallel` 仍保留兼容旧会话状态。新功能分析默认优先用 B3 `lane/auto`；只有需要处理旧 `.rekit/parallel/**` 会话时再用 legacy parallel。
+`/rekit plan-subagents` 是高级只读计划器，用于主 agent 或 B3 流程在批量复核时按 handler、trace、tooling diff 等固定边界生成分片审查产物。它不启动 agent，也不修改 managed docs 或项目源文件；日常不需要用户手动调用。
 
-## 子 agent 分片计划
-
-当一个 case 的批量只读复核能按 handler、trace、tooling diff 等固定边界拆分时，先用：
-
-```text
-/rekit plan-subagents -TaskType focused-batch-review -Items <item1,item2,...>
-```
-
-它会读取 pack manifest 的 `subagentRoutes`，写入 `.rekit/reviews/<timestamp>-plan-subagents/packet.json` 和 `summary.md`。该命令只生成审查/计划产物，不启动 agent，也不修改 managed docs 或项目源文件；主 agent 仍负责实际写入、验证和 handoff 更新。
+并行功能分析统一使用 B3 `lane/auto`。
 
 ## 工具经验保存在哪里
 

@@ -12,10 +12,10 @@ overlays:
       sync: managed
       promote: review-first
       validate: true
-  - id: parallel-sessions-vmp
-    extends: parallel-sessions
-    path: parallel-sessions.overlay.md
-    title: VMP parallel feature-analysis session overlay
+  - id: lane-collaboration-vmp
+    extends: lane-collaboration
+    path: lane-collaboration.overlay.md
+    title: VMP lane feature-analysis collaboration overlay
     lifecycle:
       sync: managed
       promote: review-first

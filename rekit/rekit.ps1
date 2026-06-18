@@ -1,7 +1,7 @@
 [CmdletBinding(PositionalBinding=$false)]
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','parallel','board','lane','auto','policy')]
+  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','board','lane','auto','policy')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -34,7 +34,6 @@ $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot '..'))
 . (Join-Path $RuntimeRoot 'lib\Promote.ps1')
 . (Join-Path $RuntimeRoot 'lib\Review.ps1')
 . (Join-Path $RuntimeRoot 'lib\Sync.ps1')
-. (Join-Path $RuntimeRoot 'lib\GoRuntime.ps1')
 . (Join-Path $RuntimeRoot 'lib\Board.ps1')
 
 function Resolve-RekitTarget {
@@ -81,10 +80,6 @@ switch ($Command) {
   'policy' {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
     Invoke-RekitPolicyCommand -Target $resolved.Target -ActionArgs $resolved.Args
-  }
-  'parallel' {
-    $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
-    Invoke-RekitGoParallel -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -RemainingArgs $resolved.Args -Force:$Force -WhatIf:$WhatIf -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
   }
   'status' {
     $cwd = Resolve-RekitTarget $Target
