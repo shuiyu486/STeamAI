@@ -27,6 +27,44 @@
 | 开源工具发现 | Exa / WebSearch / GitHub README review | 手工短测 | 搜索结果只作为候选，不直接替代验证。 |
 | 上下文管理 | `references/vmp-re/*` | `captures/doc_archive/**` | 归档只按需片段读取。 |
 
+## 重型工具升级门禁
+
+full trace、动态调试、注入、patch、dump、长时间符号执行等都属于重型动作。执行前先记录：
+
+```yaml
+heavy_action: full-trace | debug | inject | patch | dump | symex
+decision_reason: <为什么轻路径无法闭合>
+tried_light_steps:
+  - <已完成的静态/窄 trace/value-flow 动作>
+budget:
+  runtime_s: <估计>
+  disk_mb: <估计>
+outputs:
+  - <sidecar 输出位置>
+stop_conditions:
+  - <何时停止>
+requires_user_confirmation: true
+```
+
+规则：
+
+- 没有明确阻塞原因时，不把 full trace / dynamic debug 当默认开局。
+- 工具大输出只保存到 sidecar，Markdown 只写摘要和路径。
+- 会修改 IDB、patch 字节、注入进程、产生 dump 或外部副作用的动作必须确认。
+- 多 agent 不并发写同一个 IDB、debug session 或 confirmed 文件。
+
+## 候选工具进入流程
+
+```text
+candidate
+  -> short-test with timeout / output cap / stop condition
+  -> auxiliary when useful but not主线
+  -> mainline-template only after repeated case validation
+  -> stoploss when noisy, unstable, or mismatched
+```
+
+新增或重评工具时，只记录工具能力、输入输出、适用阶段、风险和止损条件；不要把完整 README 或长 build log 粘入模板。
+
 ## 工具状态模板
 
 | 工具/脚本 | 状态 | 路径/入口 | 当前结论 |

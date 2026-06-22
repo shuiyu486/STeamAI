@@ -1,4 +1,4 @@
-function Test-RekitPromoteContent {
+﻿function Test-RekitPromoteContent {
   param(
     [Parameter(Mandatory=$true)][string]$Text,
     [Parameter(Mandatory=$true)][string[]]$Patterns

@@ -1,4 +1,4 @@
-function Get-RekitActionSelector {
+﻿function Get-RekitActionSelector {
   param([string[]]$ActionArgs = @())
   $selector = (($ActionArgs | ForEach-Object { [string]$_ }) -join '-').Trim('-')
   return $selector

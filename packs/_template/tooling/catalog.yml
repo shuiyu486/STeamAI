@@ -1,0 +1,16 @@
+schemaVersion: 1
+pack: _template
+purpose: Template tooling catalog
+
+paths:
+  caseRoot: <caseRoot>
+  toolsRoot: <toolsRoot>
+  target: <target>
+
+tools:
+  - id: example-tool
+    status: candidate
+    entry: <toolsRoot>/example-tool
+    purpose: Replace with a concrete tool capability.
+    reusableNotes:
+      - Define inputs, outputs, sidecar path, risk, and stop conditions before use.

@@ -2,8 +2,9 @@
 
 ## 项目定位
 
-`re-context-kits` 是给 RE case 使用的 Claude Code context kit / `/rekit` 模板仓库。
-本仓库本身是 kit/template/runtime 仓库，不是具体 RE case。
+`re-context-kits` 是面向逆向工程的 Claude Code Agent Team 框架，用于组织多 Agent 协作、RE 工具链、证据账本、工作线管理、验证门禁和可复用 pack。
+
+当前阶段，本仓库主要是 Agent Team 的 context / workflow / tooling / runtime 底座，不是具体 RE case，也不是已经全自动化的脱壳器或逆向引擎。
 
 维护本仓库时，不要因为 README 的 case 初始化示例而创建无关 case。只有在需要验证 `init`、`attach`、`sync`、`promote` 行为时，才创建临时 case。
 
@@ -16,7 +17,12 @@
 - pack manifest：`packs/vmp-re/manifest.yml`
 - 通用策略：`common/policies/**`
 - 通用 prompts：`common/prompts/**`
+- 长期愿景与阶段路线：`docs/vision.md`
+- 后续批次计划：`docs/batch-plan.md`
 - 设计文档：`docs/design.md`
+- pack 编写指南：`docs/pack-authoring.md`
+- evidence / intervention 账本草案：`docs/evidence-ledger.md`
+- orchestration 计划：`docs/orchestration-plan.md`
 - sync/promote 说明：`docs/promote-sync.md`
 - 变更记录：`CHANGELOG.md`
 
@@ -29,6 +35,8 @@
 3. Pack：改 `packs/vmp-re/**`
 4. Common policies/prompts：改 `common/**`
 5. 用户文档：改 `README.md` 或 `docs/**`
+
+后续路线可以按 `docs/vision.md` 分批实施。用户已授权：每批完成后自行 review/评估并做低风险调整；只有遇到产品方向变化、破坏性动作、外部副作用、动态调试/注入/patch/dump、confirmed/authority 写入、runtime schema 迁移或难以判断的架构取舍时，再停下来询问用户。为避免上下文压缩导致偏差，后续批次计划必须持续写回文档，不能只留在聊天上下文中。
 
 不要复制 runtime 逻辑到 case shim；case-local `/rekit` 应保持 thin shim，并回到 kit 仓库中的 canonical runtime。
 

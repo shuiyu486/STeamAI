@@ -31,16 +31,33 @@ ImportDir/IAT：...
 
 经验：VMProtect 3.7+ on-the-fly/merged handler/rolling key 下，通用 import fixer 与旧静态模型常不适合作为主线。
 
-## 2. 反调试优先级
+## 2. 轻到重路线与反调试优先级
 
-默认不要裸调试。推荐顺序：
+默认不要裸调试，也不要一上来捕获 full trace。推荐顺序是先用便宜证据缩小问题，再按证据升级：
+
+```text
+static triage
+  -> I/O shape / entry / sink
+  -> VMEnter source stubs / real context
+  -> focused trace
+  -> value-flow / producer chain
+  -> candidate semantics
+  -> verifier / parity / cross-run check
+  -> confirmed CSV / routine IR rebuild
+  -> heavy trace / dynamic debug only as escalation
+```
+
+推荐动作顺序：
 
 1. 正常运行进程 dump / rebuilt PE。
-2. 静态定位 VMEnter source stubs。
+2. 静态定位 VMEnter source stubs、入口、出口、输出 sink。
 3. in-process probe 捕获真实 VMEnter context。
-4. Unicorn 离线 trace。
+4. Unicorn 离线 trace，优先 trace 窄区间。
 5. focused instruction trace + value-flow。
-6. 只有必要交互时，用 ScyllaHide + 管理员 x64dbg attach。
+6. 只有轻路径无法闭合且说明原因时，才升级 full trace 或动态调试。
+7. 只有必要交互时，用 ScyllaHide + 管理员 x64dbg attach。
+
+升级到 heavy trace / dynamic debug 前，至少记录：阻塞在哪个阶段、已尝试的轻量动作、预计 runtime / disk / output size、输出位置和止损条件。
 
 ## 3. VMEnter 与真实 context 捕获
 

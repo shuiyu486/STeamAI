@@ -1,4 +1,4 @@
-function Get-RekitKnownEventIds {
+﻿function Get-RekitKnownEventIds {
   param([Parameter(Mandatory=$true)][string]$CaseRoot)
   $paths = Get-RekitBoardPaths -CaseRoot $CaseRoot
   $ids = @{}

@@ -1,4 +1,4 @@
-function New-RekitReviewTimestamp {
+﻿function New-RekitReviewTimestamp {
   return (Get-Date -Format 'yyyyMMdd-HHmmssfff')
 }
 
@@ -136,7 +136,7 @@ function Write-RekitDiffFile {
 
 function Get-RekitManagedBlockAppliedText {
   param(
-    [Parameter(Mandatory=$true)][string]$HostText,
+    [Parameter(Mandatory=$true)][AllowEmptyString()][string]$HostText,
     [Parameter(Mandatory=$true)][string]$BlockId,
     [Parameter(Mandatory=$true)][string]$BlockText
   )

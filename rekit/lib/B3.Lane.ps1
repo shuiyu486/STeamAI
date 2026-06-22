@@ -1,4 +1,4 @@
-function Get-RekitDefaultLaneTypes {
+﻿function Get-RekitDefaultLaneTypes {
   return @(
     [pscustomobject]@{
       Id = 'devirt-main'

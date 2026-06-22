@@ -60,7 +60,9 @@ function Set-RekitManagedBlock {
     }
     $text = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
     $pattern = '(?s)<!-- BEGIN ' + [regex]::Escape($BlockId) + '.*?<!-- END ' + [regex]::Escape($BlockId) + ' -->'
-    if ([regex]::IsMatch($text, $pattern)) {
+    if ([string]::IsNullOrWhiteSpace($text)) {
+      $text = "# Project Context`r`n`r`n" + $block + "`r`n"
+    } elseif ([regex]::IsMatch($text, $pattern)) {
       $text = [regex]::Replace($text, $pattern, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $block })
     } else {
       $text = $text.TrimEnd() + "`r`n`r`n" + $block + "`r`n"

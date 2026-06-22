@@ -1,10 +1,36 @@
 # re-context-kits
 
-`re-context-kits` 是给 RE case 使用的 Claude Code 上下文模板与 tooling 资产仓库。
+`re-context-kits` 是面向逆向工程的 Claude Code Agent Team 框架，用于把多 Agent 协作、RE 工具链、证据账本、工作线管理、验证门禁和可复用 pack 组织成可持续迭代的 case workspace。
 
-一句话：**你平时只用 `/rekit`，不要手动跑脚本；脚本只是 `/rekit` 背后的 backend。**
+当前阶段，它已经提供 `/rekit` case 管理、`vmp-re` pack、工作线协同、handoff、sync/promote 和 tooling 经验沉淀；长期目标是逐步支持脱壳、反混淆、反虚拟化、算法还原和大型二进制工程分析。
 
-## 最短使用方式
+一句话：**用户日常只用 `/rekit`；维护者迭代 runtime、pack、policy、tooling 和文档。脚本只是 `/rekit` 背后的 backend。**
+
+## 项目路线
+
+- 长期愿景与阶段实施方案：`docs/vision.md`
+- 当前架构说明：`docs/design.md`
+- 后续批次计划：`docs/batch-plan.md`
+- pack 编写指南：`docs/pack-authoring.md`（新 pack 可从 `packs/_template/` 复制）
+- evidence / intervention 账本草案：`docs/evidence-ledger.md`
+- 半自动 orchestration 计划：`docs/orchestration-plan.md`
+- VMP/RE Agent Team 工作方式：`packs/vmp-re/references/vmp-re/agent-driven-re.md`
+- sync/promote 机制：`docs/promote-sync.md`
+- case 迁移说明：`docs/case-migration.md`
+
+## 如果你在维护本仓库
+
+本仓库本身不是具体 RE case。维护时优先看根目录 `CLAUDE.md` 和 `docs/vision.md`，再按职责修改：
+
+- `/rekit` skill：`.claude/skills/rekit/SKILL.md`
+- runtime：`rekit/rekit.ps1`、`rekit/lib/*.ps1`
+- 领域 pack：`packs/<pack>/**`
+- 通用 policy / prompt：`common/**`
+- 设计与路线：`docs/**`
+
+不要因为下面的 case 初始化示例而在本仓库内伪造 case state；只有验证 `init/attach/sync/promote` 行为时才创建临时 case。
+
+## 使用方式：把 kit 接入 RE case
 
 ### 1. 第一次 clone 后
 
@@ -190,6 +216,7 @@ claude
 
 ```text
 references/vmp-re/README.md
+references/vmp-re/agent-driven-re.md
 references/vmp-re/workflow-template.md
 references/vmp-re/progressive-disclosure.md
 references/vmp-re/toolchain-router.md

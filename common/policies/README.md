@@ -6,9 +6,25 @@
 
 | 层级 | 路径 | 用途 |
 |---|---|---|
-| Common policy | `common/policies/*.md` | 跨 pack 通用规则，例如子 agent、工作线协同、上下文预算、写入确认、验证标准。 |
+| Common policy | `common/policies/*.md` | 跨 pack 通用规则，例如 Agent Team、子 agent、工作线协同、工具 adapter、上下文预算、写入确认、验证标准。 |
 | Pack overlay | `packs/<pack>/policies/*.overlay.md` | 某个 pack 对通用规则的领域化补充。 |
 | Case reference | `packs/<pack>/references/**` | 任务路由、领域 workflow、接手入口，不承载所有横切规范。 |
+
+## Policy 列表
+
+| Policy | 用途 |
+|---|---|
+| `agent-team.md` | Agent Team 角色、packet、状态流和人工确认边界。 |
+| `tool-adapters.md` | 外部工具能力卡、adapter 输出契约和重型工具门禁。 |
+| `context-budget.md` | 上下文预算与渐进式披露。 |
+| `subagents.md` | 子 agent 分片、只读复核和输出契约。 |
+| `lane-collaboration.md` | 工作线协同、续接和写入权限。 |
+| `review-first.md` | 写入前审查、用户确认和回流边界。 |
+| `write-boundaries.md` | 写入边界和外部副作用。 |
+| `verification.md` | 验证与完成标准。 |
+| `evidence.md` | 证据、引用和结论质量。 |
+| `tool-output.md` | 工具输出与大产物处理。 |
+| `handoff.md` | 接手和会话连续性。 |
 
 ## 生命周期
 

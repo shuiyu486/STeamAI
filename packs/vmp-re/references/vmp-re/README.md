@@ -17,6 +17,7 @@
 | 复用本流程到新的 VMProtect x64 样本 | `workflow-template.md` | 从样本基准、VMEnter、context probe 到 value-flow 的模板。 |
 | 选择/复查已用、可用、应止损的工具链 | `toolchain-router.md`、`<templateRoot>/packs/vmp-re/tooling/README.md` | 工具状态表、按任务路由、公开工具止损条件和可复用 tooling 资产。 |
 | 控制上下文膨胀、处理 `/compact` / unexpected EOF | `progressive-disclosure.md` | 文档层级、读取预算、policy overlay、子 agent 并行复核、归档与 Stop hook 收尾规则。 |
+| Agent Team 工作方式 | `agent-driven-re.md` | 主 agent、功能支线、reviewer、tooling agent、人类确认者的职责、packet、candidate→confirmed 流程和人工门禁。 |
 | 主线与功能支线协同推进 | `lane-collaboration.md` | `/rekit overview/continue/start/handoff`、功能支线 workspace、续接提示、request/candidate、standalone 规则。 |
 | 继续 singleton handler 复核 | `singleton-handler-review.md` | 1-count handler 的 focused instruction review 流程。 |
 | 查看通用 policy | `<templateRoot>/common/policies/README.md` | 子 agent、review-first、写入边界、验证、tool output 等跨 pack 规范。 |

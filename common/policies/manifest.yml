@@ -4,6 +4,20 @@ version: 0.1.0
 description: Cross-pack policies for re-context-kits
 
 policies:
+  - id: agent-team
+    path: agent-team.md
+    title: Agent Team roles, packets, and confirmation gates
+    lifecycle:
+      sync: reference
+      promote: review-only
+      validate: true
+  - id: tool-adapters
+    path: tool-adapters.md
+    title: External tool adapter contracts and heavy-tool gates
+    lifecycle:
+      sync: reference
+      promote: review-only
+      validate: true
   - id: context-budget
     path: context-budget.md
     title: Context budget and progressive disclosure

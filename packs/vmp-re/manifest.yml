@@ -5,6 +5,7 @@ description: VMProtect x64 trace-based devirtualization context kit
 
 managedFiles:
   - references/vmp-re/README.md
+  - references/vmp-re/agent-driven-re.md
   - references/vmp-re/workflow-template.md
   - references/vmp-re/progressive-disclosure.md
   - references/vmp-re/toolchain-router.md
@@ -73,6 +74,7 @@ subagentRoutes:
 
 promoteFiles:
   - references/vmp-re/README.md
+  - references/vmp-re/agent-driven-re.md
   - references/vmp-re/workflow-template.md
   - references/vmp-re/progressive-disclosure.md
   - references/vmp-re/toolchain-router.md

@@ -1,0 +1,70 @@
+schemaVersion: 1
+name: _template
+version: 0.1.0
+description: Template pack skeleton for authoring new RE Agent Team packs
+
+managedFiles:
+  - references/template/README.md
+  - references/template/workflow-template.md
+  - references/template/toolchain-router.md
+
+templateFiles: []
+
+localNeverOverwrite:
+  - CLAUDE.local.md
+  - tools.local.yml
+
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: template-pack:router
+  source: CLAUDE.local.snippet.md
+
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+
+commonPolicies:
+  - agent-team
+  - tool-adapters
+  - context-budget
+  - subagents
+  - lane-collaboration
+  - review-first
+  - write-boundaries
+  - verification
+  - evidence
+  - tool-output
+  - handoff
+
+policyOverlays: []
+
+promoteFiles:
+  - references/template/README.md
+  - references/template/workflow-template.md
+  - references/template/toolchain-router.md
+
+toolingFiles:
+  - tooling/README.md
+  - tooling/catalog.yml
+
+promptFiles: []
+
+toolingCandidateSources:
+  - references/template/toolchain-router.md
+
+promoteDenyPatterns:
+  - "C:\\"
+  - "artifacts[\\/]"
+  - "captures[\\/]"
+  - "[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\\.(csv|jsonl|log|txt|bin)"
+  - "[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\\.(dmp|bin|raw|exe|dll)"
+  - "\\.dmp\\b"
+  - "0x[0-9A-Fa-f]{6,}"
+  - "ctx[0-9]+"
+  - "round[0-9]+"
+  - "Task #[0-9]+"
+
+budgets:
+  CLAUDE.local.md: 8192
+  defaultMarkdown: 16384

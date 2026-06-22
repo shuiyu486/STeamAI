@@ -74,6 +74,16 @@ tools:
     reusableNotes:
       - 大范围查询交给子任务或片段化，不把完整 decompile/disasm 粘进上下文。
 
+  - id: ida-agent-bridge
+    status: candidate
+    entry: external ida-agent-bridge / ida-bridge export directory
+    purpose: headless IDA bridge；将 function index、strings、imports、decompile sidecar 和短连接查询暴露给 Agent。
+    reusableNotes:
+      - 适合 Agent 先读 function_index.tsv / strings.tsv / imports.tsv，再窄范围查询 pseudocode、xref、hexdump。
+      - 默认不要求全量导出；需要批量索引时先确认导出成本。
+      - rename/comment/patch 会修改共享 IDB 状态，多 Agent 不并发写。
+      - 不把完整 decompile/disasm 输出写入 Markdown，只记录摘要和 sidecar 路径。
+
   - id: x64dbg-mcp
     status: cautious
     entry: <toolsRoot>/x64dbg-mcp
