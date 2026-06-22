@@ -21,6 +21,39 @@
 - 大产物留在 `artifacts/` 或 `captures/`，用 `.gitignore` 控制。
 - 迁移后用 `/rekit status -> /rekit repair -> /rekit doctor` 确认 metadata，不再把 `bootstrap.ps1` / `update.ps1` 当主流程。
 - 旧 PowerShell scripts 只保留为兼容 wrapper。
+- 新架构的使用方式、旧 case 接入和主线/功能支线工作流见 `docs/agent-team-usage.md`。
+
+## 旧 case 接入 Agent Team 架构
+
+旧 case 不需要一次性重建。推荐分两步接入：
+
+1. **绑定 metadata 和 thin shim**：
+
+```text
+/rekit attach -Target <caseRoot> -Pack vmp-re
+```
+
+`attach` 只写 `.rekit/instance.yml`、`.rekit/state.json` 和 case-local `/rekit` shim，不覆盖已有 reference、handoff 或工具链文档。
+
+2. **同步 managed docs 前先 review**：
+
+```text
+/rekit sync
+```
+
+默认只生成 `.rekit/reviews/<timestamp>-sync/packet.json`、`summary.md` 和 bounded diff。确认具体范围后，才执行写入型 `sync -Apply`。
+
+接入后仍然可以继续使用主线/功能支线：
+
+```text
+/rekit overview
+/rekit continue main
+/rekit start <feature>
+/rekit continue <feature>
+/rekit handoff
+```
+
+`.re-template.yml` 仍作为旧 case 兼容入口保留；新 runtime 优先读取 `.rekit/instance.yml`，缺失时回退读取 `.re-template.yml`。
 
 ## Python 路径相对化建议
 

@@ -8,6 +8,7 @@
 
 ## 项目路线
 
+- 新架构使用与旧 case 兼容：`docs/agent-team-usage.md`
 - 长期愿景与阶段实施方案：`docs/vision.md`
 - 当前架构说明：`docs/design.md`
 - 后续批次计划：`docs/batch-plan.md`

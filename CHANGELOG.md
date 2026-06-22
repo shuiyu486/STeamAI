@@ -9,6 +9,7 @@
 - 新增 `references/vmp-re/agent-driven-re.md`，定义 VMP RE Agent Team 的角色、packet、candidate→confirmed 流程和人工门禁。
 - 在 `docs/vision.md` 中新增批次执行协议，明确后续可分批实施、自审调整、需停下询问的边界和计划写回文档要求。
 - 新增 `common/policies/agent-team.md` 与 `common/policies/tool-adapters.md`，沉淀跨 pack Agent Team 和外部工具 adapter 通用契约。
+- 新增 `docs/agent-team-usage.md`，说明新架构使用方式、旧 case 兼容、主线/功能支线工作流和后续优化空间。
 - 新增 `docs/pack-authoring.md`、`docs/evidence-ledger.md`、`docs/orchestration-plan.md` 和 `docs/batch-plan.md`，分别记录 pack 编写、证据账本、半自动编排和后续批次计划。
 - 新增 `packs/_template/` pack 作者骨架，用于后续创建 `unpack-pe`、`android-native`、`ollvm` 等新 pack。
 

@@ -1,0 +1,255 @@
+# Agent Team 使用与兼容指南
+
+## 读取指南
+
+如果你只是维护本仓库，先读根目录 `CLAUDE.md`、`README.md` 和本文件即可；需要理解长期路线时再读 `docs/vision.md`。
+
+如果你正在具体 RE case 中工作，先在 case 目录用 `/rekit status` 确认绑定，再按本文件选择新 case、旧 case、主线或功能支线流程。
+
+本文件只说明通用使用方式和兼容策略，不记录真实样本名、RVA/VA、trace/dump、artifact 路径或 case-specific 进度。
+
+## 实施摘要
+
+新方案不是替换旧 case 的大迁移，而是在现有 `/rekit`、pack、case shim、工作线机制上增加 Agent Team 的组织方式：
+
+- 用户入口仍然是 `/rekit`。
+- 旧 case 可继续使用 `.re-template.yml`，也可以通过 `/rekit attach` / `/rekit repair` 补齐 `.rekit/instance.yml`。
+- 主线和功能支线仍然保留，而且是新架构的核心协作单元。
+- `sync` / `promote` 仍然 review-first，写入前需要确认具体范围。
+- Agent Team 当前主要是 context、workflow、tooling、ledger、gate 的底座，不代表已经全自动脱壳或全自动逆向。
+
+推荐心智模型：
+
+```text
+kit 仓库 = runtime + packs + common policies + tooling 经验
+case 目录 = 具体样本/项目状态 + 工作线 + 证据 + 候选结论
+主线 = 收敛、确认、长期 handoff
+功能支线 = 专项探索、证据收集、候选结论
+```
+
+## 执行清单
+
+### 新 case
+
+1. 在 kit 仓库启动 Claude Code。
+2. 使用 `/rekit init -Target <caseRoot> -Pack vmp-re -ProjectName <caseName>`。
+3. 进入 case 目录启动 Claude Code。
+4. 执行 `/rekit status` 和 `/rekit overview`。
+5. 用 `/rekit continue main` 接手主线。
+6. 需要专项分析时，用 `/rekit start <name>` 创建功能支线。
+7. 每轮结束用 `/rekit handoff` 或 `/rekit handoff <name>` 生成接手文档。
+
+### 旧 case
+
+1. 在 kit 仓库或 case 目录确认当前绑定：`/rekit status`。
+2. 如果还没有 `.rekit/instance.yml`，用 `/rekit attach -Target <caseRoot> -Pack vmp-re` 补齐 metadata 和 case-local shim。
+3. 执行 `/rekit sync` 生成同步审查包。
+4. Claude 复核冲突、收益和覆盖范围后，再由用户确认是否执行写入型 `sync -Apply`。
+5. 执行 `/rekit doctor` 验证结构。
+6. 执行 `/rekit overview`，再选择 `/rekit continue main` 或 `/rekit start <name>`。
+
+### 日常工作
+
+```text
+/rekit overview              # 看项目总览，不选择工作线
+/rekit continue main         # 接手主线
+/rekit start unpacking       # 创建/进入功能支线
+/rekit continue unpacking    # 继续功能支线
+/rekit handoff               # 生成项目级接手索引
+/rekit handoff main          # 生成主线接手文档
+/rekit handoff unpacking     # 生成功能支线接手文档
+/rekit sync                  # kit -> case，默认只生成 review
+/rekit promote               # case -> kit，默认只生成 review
+```
+
+## 验证标准
+
+- `/rekit status` 能正确显示 kit/case 绑定。
+- `/rekit doctor` 通过，且 managed docs、policy、tooling 文件预算未超限。
+- 旧 case 同步前先看到 `.rekit/reviews/<timestamp>-sync/summary.md`、`packet.json` 和 bounded diff。
+- `overview` 能显示主线、功能支线、共享事实统计和下一步建议。
+- `continue main` 与 `continue <name>` 明确接手不同工作线；无参数 `continue` 不应在多工作线时盲猜。
+- 功能支线只写自己的 workspace、outbox、candidate/request，不直接写 confirmed CSV、routine IR 或长期 handoff。
+- confirmed / authority 写入、动态调试、注入、patch、dump、full trace、外部副作用仍需要人工确认。
+
+## 风险与注意事项
+
+- 不要把 `docs/vision.md` 中的长期目标理解为当前已经具备全自动脱壳或全自动逆向能力。
+- 不要在 kit 仓库里创建真实 case state；验证 `init/attach/sync/promote` 时只用临时 case。
+- 不要将真实样本、客户信息、RVA/VA、trace/dump、artifact 路径或绝对 case 路径写回 pack 模板。
+- `attach` 只绑定 metadata 和 shim，不会直接同步 managed docs；旧 case 接入后还需要 `/rekit sync` review。
+- `sync -Apply` 会写 managed docs / managed block，必须先 review 再确认。
+- `promote -Apply` 会写回 pack，风险更高；优先使用 `promote` review 或 `-CreateCandidates`。
+- 多 Agent 可以并行读和产出候选，但不要并发写同一个 IDB、confirmed CSV、handoff 或 authority 文件。
+
+## 1. 新架构如何使用
+
+### 1.1 维护 kit 仓库
+
+维护者主要改五层：
+
+| 层 | 路径 | 什么时候改 |
+|---|---|---|
+| Skill UI | `.claude/skills/rekit/SKILL.md` | 调整用户可见 `/rekit` 语义和确认规则 |
+| Runtime | `rekit/rekit.ps1`、`rekit/lib/*.ps1` | 调整确定性命令、状态、review、sync/promote 行为 |
+| Pack | `packs/<pack>/**` | 新增领域流程、tooling、reference、manifest 规则 |
+| Common | `common/**` | 多 pack 共享 policy / prompt |
+| Docs | `README.md`、`docs/**` | 使用说明、设计、路线、迁移和验证 |
+
+维护本仓库时不需要运行 `/rekit init`。只有需要验证 case 行为时，才创建临时 case。
+
+### 1.2 接入新 case
+
+从 kit 仓库启动 Claude Code，然后：
+
+```text
+/rekit init -Target <workspaceRoot>\cases\<caseName> -Pack vmp-re -ProjectName <caseName>
+```
+
+`init` 会创建：
+
+```text
+<caseRoot>\.rekit\instance.yml
+<caseRoot>\.rekit\state.json
+<caseRoot>\.claude\skills\rekit\SKILL.md
+<caseRoot>\references\vmp-re\...
+<caseRoot>\CLAUDE.local.md 中的 managed router block
+```
+
+之后进入 case 目录，每天只用 `/rekit`：
+
+```text
+/rekit overview
+/rekit continue main
+/rekit start <feature>
+/rekit handoff
+```
+
+### 1.3 接入已有 case
+
+已有 case 不建议直接 `init` 覆盖。先用：
+
+```text
+/rekit attach -Target <caseRoot> -Pack vmp-re
+```
+
+`attach` 只做三件事：
+
+1. 写 `.rekit/instance.yml`。
+2. 写/更新 `.rekit/state.json`。
+3. 写 case-local `/rekit` thin shim。
+
+它不会覆盖已有 references、handoff 或工具链文档。随后用：
+
+```text
+/rekit sync
+```
+
+生成 review 包。确认无误后，再让 Claude 执行写入型 sync。
+
+## 2. 主线和功能支线是否还能用
+
+能，而且新架构更依赖它们。
+
+| 工作线 | 典型命令 | 主要职责 | 默认可写 |
+|---|---|---|---|
+| 主线 | `/rekit continue main` | 收敛结论、验证 candidate、维护长期 handoff、处理 authority 写入 | canonical 文件、主线 workspace、`.rekit/**` |
+| 功能支线 | `/rekit start <name>`、`/rekit continue <name>` | 围绕一个功能点/阻塞点做探索、收集 evidence、提出 candidate/request | 自己的 lane workspace、outbox、candidate/request |
+| 项目级索引 | `/rekit handoff` | 生成跨工作线接手索引 | `.rekit/handovers/latest.md` |
+
+推荐流程：
+
+```text
+/rekit overview
+/rekit continue main
+# 主线判断需要专项探索
+/rekit start vm-entry
+# 在 vm-entry 支线收集证据和候选
+/rekit continue vm-entry
+# 回主线复核并决定是否确认
+/rekit continue main
+/rekit handoff
+```
+
+功能支线不是“低级 agent”，而是隔离写入和上下文的单位。它可以由同一个 Claude 会话推进，也可以由后续子 agent 或新会话接手。
+
+## 3. 旧 case 如何兼容
+
+### 3.1 旧 metadata
+
+旧 case 可能只有 `.re-template.yml`。新 runtime 会优先读 `.rekit/instance.yml`，缺失时回退 `.re-template.yml`。
+
+建议逐步补齐：
+
+```text
+/rekit status
+/rekit attach -Target <caseRoot> -Pack vmp-re
+/rekit sync
+/rekit doctor
+```
+
+如果 case 被移动过：
+
+```text
+/rekit status
+/rekit repair
+确认修复，执行 repair -Apply
+/rekit doctor
+```
+
+### 3.2 旧文档和 handoff
+
+- `references/vmp-re/task-handoff.md` 是 local file，不会被 sync 覆盖。
+- `CLAUDE.local.md` 的 managed router block 会被 sync 管理，但 block 外私有内容保留。
+- `tools.local.yml`、`captures/**`、`artifacts/**` 不会被 promote。
+- 旧 handoff 可继续保留；新 handoff 会优先写 `.rekit/handovers/**`。
+
+### 3.3 旧命令习惯
+
+旧 wrapper 仍保留，但日常不推荐直接使用脚本：
+
+| 旧习惯 | 新入口 |
+|---|---|
+| 手动跑 `bootstrap.ps1` | `/rekit init` |
+| 手动跑 `update.ps1` | `/rekit sync` |
+| 手动跑 `validate.ps1` | `/rekit doctor` |
+| 手动维护单一 task handoff | `/rekit handoff` 与 `/rekit handoff <name>` |
+| 直接把 case 经验复制回 pack | `/rekit promote` review-first |
+
+## 4. 这套架构的后续优化空间
+
+### 4.1 短期优化
+
+- 补 `docs/agent-team-usage.md` 到 case managed docs 或 reference 路由中，让 case 内也能直接看到本指南。
+- 让 `/rekit overview` 更清楚地区分“未接手工作线”和“已接手工作线”。
+- 增加旧 case 检测摘要：缺 `.rekit/instance.yml`、只有 `.re-template.yml`、缺 managed docs、缺 handoff 索引时给出明确下一步。
+- 为 smoke test 固化脚本或 CI 检查，避免只靠人工临时命令。
+
+### 4.2 中期优化
+
+- 将 evidence ledger 从文档草案推进到 runtime 支持的 append-only JSONL。
+- 将 heavy-tool gate 做成可复用 packet 和确认流程。
+- 将 `plan-subagents` 从只读计划器推进到 bounded dispatch，但仍保持主 agent 拥有最终写入权。
+- 为 `packs/_template` 增加最小验证命令，降低新 pack 作者出错概率。
+
+### 4.3 长期优化
+
+- 拆出更多领域 pack，例如 `unpack-pe`、`ollvm`、`android-native`、`generic-binary-re`。
+- 引入工具 adapter 层，把 IDA/x64dbg/trace/unicorn/symex 等能力先 recipe 化，再稳定成 adapter。
+- 建立 candidate -> review -> confirmed 的机器可验证 gate。
+- 将多 Agent 编排与证据账本结合，支持可回放、可审计、可回滚的 RE 工作流。
+
+## 5. 推荐使用决策表
+
+| 你现在的情况 | 推荐动作 |
+|---|---|
+| 只维护本仓库 | 读 `CLAUDE.md`、`docs/vision.md`、本文件；不要 init case |
+| 新建 RE case | 在 kit 仓库用 `/rekit init -Target ...` |
+| 已有 case 接入新架构 | 用 `/rekit attach`，再 `/rekit sync` review |
+| 旧 case 移动了目录 | `/rekit status` -> `/rekit repair` -> 确认后 `repair -Apply` -> `/rekit doctor` |
+| 想看项目全局状态 | `/rekit overview` |
+| 想继续主线 | `/rekit continue main` |
+| 想做专项探索 | `/rekit start <name>`，之后 `/rekit continue <name>` |
+| 想换会话 | `/rekit handoff` 或 `/rekit handoff <name>` |
+| 想把 kit 更新同步到 case | `/rekit sync`，确认后才 apply |
+| 想把 case 经验回流到 kit | `/rekit promote`，优先生成 candidate |
