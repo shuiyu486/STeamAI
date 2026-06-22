@@ -6,12 +6,14 @@
 
 ```text
 /rekit overview
-/rekit continue
+/rekit continue main
+/rekit continue <feature-name>
 /rekit start <feature-name>
 /rekit handoff
+/rekit handoff <feature-name>
 ```
 
-工具会根据项目概览和工作线状态提示下一步。显式底层动作主要用于排障和内部自动化。
+工具会根据项目概览和工作线状态提示下一步。`overview` 不选择会话身份；多工作线时用 `continue main` 或 `continue <feature-name>` 明确接手对象。显式底层动作主要用于排障和内部自动化。
 
 ## 生成内容
 
@@ -20,7 +22,8 @@
 - `.rekit/lanes/<laneId>/tasks.jsonl`：待处理任务。
 - `.rekit/lanes/<laneId>/checkpoints/latest.json`：短 checkpoint。
 - `.rekit/lanes/<laneId>/prompts/RESUME.md`：新会话接续提示。
-- `.rekit/handovers/latest.md`：项目级新会话接手包。
+- `.rekit/handovers/latest.md`：项目级接手索引。
+- `.rekit/handovers/<laneId>-latest.md`：指定工作线接手文档。
 - `captures/feature_analysis/<laneId>/`：功能支线工作区。
 
 ## 设计原则
@@ -28,7 +31,7 @@
 - CLI 负责状态、模板、汇总和 review packet；LLM 负责解释建议与实际分析。
 - 功能支线可写自己的 workspace，不写 canonical。
 - `continue/review/promote` 只生成或消费审查包；confirmed 合并仍由主线执行。
-- 跨天重启或上下文污染时，重新读取 `.rekit/handovers/latest.md` 或工作线 `RESUME.md`，不要从零开始。
+- 跨天重启或上下文污染时，先读取 `.rekit/handovers/latest.md` 项目索引，再读取目标工作线 handoff 或 `RESUME.md`，不要从零开始。
 
 ## 止损
 

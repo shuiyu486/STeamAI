@@ -389,6 +389,7 @@ function Invoke-RekitAuto {
     [Parameter(Mandatory=$true)][string]$RepoRoot,
     [string]$Pack = 'vmp-re',
     [string[]]$ActionArgs = @(),
+    [string]$FocusLaneId = '',
     [switch]$WhatIf
   )
   $caseRoot = [System.IO.Path]::GetFullPath($Target)
@@ -408,9 +409,11 @@ function Invoke-RekitAuto {
   $digest = New-Object System.Collections.Generic.List[string]
   $digest.Add("# rekit continue digest：$runId")
   $digest.Add('')
+  if (-not [string]::IsNullOrWhiteSpace($FocusLaneId)) { $digest.Add(('focus lane: `{0}`' -f $FocusLaneId)); $digest.Add('') }
   foreach ($dir in (Get-RekitLaneDirectories -CaseRoot $caseRoot)) {
     $lane = Read-RekitJsonFile -Path (Join-Path $dir.FullName 'lane.json')
     if ($null -eq $lane -or $lane.status -eq 'archived' -or $lane.status -eq 'paused') { continue }
+    if (-not [string]::IsNullOrWhiteSpace($FocusLaneId) -and -not [string]::Equals([string]$lane.id, $FocusLaneId, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
     foreach ($event in (Get-RekitLaneOutputEvents -CaseRoot $caseRoot -Lane $lane)) {
       if ($known.ContainsKey([string]$event.eventId)) { continue }
       $summary.collected++
@@ -418,7 +421,7 @@ function Invoke-RekitAuto {
       if (-not $event.PSObject.Properties['time']) { $event | Add-Member -NotePropertyName time -NotePropertyValue (New-RekitIsoTime) -Force }
       $kind = ([string]$event.kind).ToLowerInvariant()
       if ($WhatIf) {
-        $digest.Add("- would collect `$kind` from `$($lane.id)`: $($event.summary)")
+        $digest.Add(('- would collect `{0}` from `{1}`: {2}' -f $kind, $lane.id, $event.summary))
         continue
       }
       switch ($kind) {

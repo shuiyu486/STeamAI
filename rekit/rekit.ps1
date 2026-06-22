@@ -83,8 +83,8 @@ switch ($Command) {
     Invoke-RekitStart -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -WhatIf:$WhatIf -Force:$Force
   }
   'handoff' {
-    $caseRoot = Resolve-RekitTarget $Target
-    Write-RekitHandoff -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -WhatIf:$WhatIf
+    $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
+    Write-RekitHandoff -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -WhatIf:$WhatIf
   }
   'status' {
     $cwd = Resolve-RekitTarget $Target

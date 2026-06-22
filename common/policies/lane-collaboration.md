@@ -16,12 +16,14 @@
 
 ```text
 /rekit overview
-/rekit continue
+/rekit continue main
+/rekit continue <name>
 /rekit start <name>
 /rekit handoff
+/rekit handoff <name>
 ```
 
-`overview` 看项目状态，`continue` 自动整理和推进，`start` 创建功能支线，`handoff` 生成新会话接手包。显式底层动作只用于内部 runtime、排障和自动化。
+`overview` 看项目状态但不选择会话身份；`continue main` 或 `continue <name>` 明确接手主线/功能支线；`start` 创建或进入功能支线；无参数 `handoff` 生成项目级索引，带参数 `handoff <name>` 生成指定工作线接手文档。显式底层动作只用于内部 runtime、排障和自动化。
 
 ## 持久化续接
 
@@ -35,7 +37,7 @@
 .rekit/lanes/<laneId>/prompts/RESUME.md
 ```
 
-聊天上下文不是事实源。跨天、重启电脑、`/compact` 后上下文污染，均通过 `.rekit/handovers/latest.md`、`RESUME.md` 与 `checkpoints/latest.json` 接续。
+聊天上下文不是事实源。跨天、重启电脑、`/compact` 后上下文污染，先用 `.rekit/handovers/latest.md` 看项目级索引，再按具体工作线读取 `.rekit/handovers/<laneId>-latest.md`、`RESUME.md` 与 `checkpoints/latest.json` 接续。
 
 ## 写入边界
 

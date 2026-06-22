@@ -91,10 +91,12 @@ claude
 | 命令 | 方向 | 什么时候用 |
 |---|---|---|
 | `/rekit status` | 只读 | 看当前 case 绑定状态；若目录被移动，只提示，不修复。 |
-| `/rekit overview` | case-local 状态 | 显示项目概览、主线/支线、共享事实统计和下一步建议；首次运行会初始化缺失的本地 rekit 状态。 |
-| `/rekit continue` | case-local 自动整理 | 收集支线产物、验证候选、路由 request、发布低风险共享事实并刷新接续提示；冲突或高风险写入仍会停下。 |
-| `/rekit start <name>` | case-local 状态 | 创建一个新的功能支线，例如 `/rekit start login`；支线只写自己的工作区。 |
-| `/rekit handoff` | case-local 状态 | 生成 `.rekit/handovers/latest.md` 新会话接手包，不覆盖 `task-handoff.md`。 |
+| `/rekit overview` | case-local 状态 | 显示项目概览、主线/支线、共享事实统计和下一步建议；只表示总览，不代表当前会话已选择工作线。 |
+| `/rekit continue main` | case-local 自动整理 | 明确接手主线并整理相关状态；多工作线时不要用无参数 `continue` 盲猜。 |
+| `/rekit continue <name>` | case-local 自动整理 | 明确接手某条功能支线，只整理该支线的 workspace/outbox 并刷新接续提示。 |
+| `/rekit start <name>` | case-local 状态 | 创建或进入一个功能支线，例如 `/rekit start login`；支线只写自己的工作区。 |
+| `/rekit handoff` | case-local 状态 | 生成项目级接手索引 `.rekit/handovers/latest.md`，不代表某个会话。 |
+| `/rekit handoff <name>` | case-local 状态 | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`。 |
 | `/rekit sync` | kit -> case | 默认生成同步审查包；确认后才用 `-Apply` 写入 managed docs / managed block。 |
 | `/rekit promote` | case -> kit | 默认生成回流审查包；确认后才用 `-CreateCandidates` 生成候选或用 `-Apply` 写回 pack。 |
 | `/rekit doctor` | 只读 | 排障时详细验证结构；日常不必主动运行。 |
@@ -117,13 +119,14 @@ claude
 - 需要人工确认的事项；
 - 推荐下一步。
 
-### 2. 继续推进当前项目
+### 2. 选择并继续某条工作线
 
 ```text
-/rekit continue
+/rekit continue main
+/rekit continue login
 ```
 
-它会自动整理 case-local 状态：收集支线 outbox/workspace 事件、发布低风险共享事实、路由 request、验证候选并刷新接续提示。
+`overview` 只是项目总览，不代表当前会话已经选择主线或支线。多条 open 工作线时，无参数 `/rekit continue` 只会列出选择，不会盲目推进。明确选择后，它会自动整理对应工作线的 case-local 状态：收集 outbox/workspace 事件、发布低风险共享事实、路由 request、验证候选并刷新接续提示。
 
 安全边界：只有 candidate 同时满足 evidence、accepted verifier、confidence 阈值、CSV schema、无冲突、backup、diff、max rows 时，才允许自动 append authority CSV；覆盖/删除 authority、冲突、schema change、外部副作用或破坏性动作仍必须问用户。
 
@@ -144,24 +147,34 @@ claude
 
 ### 4. 换新会话
 
+项目级索引用：
+
 ```text
 /rekit handoff
+```
+
+指定工作线接手文档用：
+
+```text
+/rekit handoff main
+/rekit handoff login
 ```
 
 它会生成：
 
 ```text
-.rekit/handovers/latest.md
-.rekit/handovers/<timestamp>.md
+.rekit/handovers/latest.md                 # 项目级索引
+.rekit/handovers/devirt-main-latest.md     # 主线接手
+.rekit/handovers/feature-login-latest.md   # 功能支线接手
 ```
 
-新会话里直接说：
+新会话应先明确接哪条工作线，例如：
 
 ```text
-按 .rekit/handovers/latest.md 接手继续。
+按 .rekit/handovers/devirt-main-latest.md 接手，然后 /rekit continue main。
 ```
 
-这个接手包只引用 `references/vmp-re/task-handoff.md`，不会覆盖它。
+这些接手文档只引用 `references/vmp-re/task-handoff.md`，不会覆盖它。
 
 ### 5. 同步模板更新到当前 case
 
@@ -224,7 +237,8 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 | `.rekit/lanes/<id>/` | 每条工作线的事件、任务、inbox/outbox 和接续提示。 |
 | `.rekit/facts/*.jsonl` | 共享事实、request、candidate、publication、decision。 |
 | `.rekit/runs/<run-id>/digest.md` | `/rekit continue` 每轮摘要。 |
-| `.rekit/handovers/latest.md` | 新会话接手包。 |
+| `.rekit/handovers/latest.md` | 项目级接手索引。 |
+| `.rekit/handovers/<laneId>-latest.md` | 指定工作线接手文档。 |
 
 字段名中仍保留 `lane`，这是内部 schema 名称；用户层统一称“工作线 / 主线 / 功能支线”。
 

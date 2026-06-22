@@ -7,6 +7,7 @@
 - 将日常 `/rekit` 工作流收敛为 `overview / continue / start / handoff`，移除公开的 `board / auto / lane / policy` 旧入口。
 - 将原集中式 B3 PowerShell runtime 拆分为 `B3.Core/State/Policy/Lane/Auto/Commands` 模块，并新增项目级 handoff 生成。
 - 更新 README、skill、case shim、policy/reference/prompt 文档，用户层统一使用“工作线 / 主线 / 功能支线”术语。
+- 明确 `/rekit overview` 只是项目总览，`/rekit continue main|<name>` 才选择工作线；`/rekit handoff` 改为项目级接手索引，并新增指定工作线 handoff。
 
 ## 0.2.0 - 2026-06-12
 

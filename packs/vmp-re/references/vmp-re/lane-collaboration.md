@@ -8,12 +8,14 @@
 
 ```text
 /rekit overview
-/rekit continue
+/rekit continue main
+/rekit continue <feature-name>
 /rekit start <feature-name>
 /rekit handoff
+/rekit handoff <feature-name>
 ```
 
-如果 `<feature-name>` 不存在，`start` 会创建功能分析工作区和接续提示；`continue` 负责收集、验证、路由和发布低风险事实；`handoff` 负责生成新会话接手包。
+`overview` 只是项目总览，不代表当前会话已选择工作线。如果 `<feature-name>` 不存在，`start` 会创建功能分析工作区和接续提示；`continue main` 接手主线，`continue <feature-name>` 接手指定功能支线；无参数 `handoff` 生成项目级索引，`handoff main` / `handoff <feature-name>` 生成指定工作线接手文档。
 
 ## 推荐分工
 
@@ -54,7 +56,8 @@ candidates/opcode_semantics.csv
 
 ```text
 .rekit/lanes/<laneId>/prompts/RESUME.md
-.rekit/handovers/latest.md
+.rekit/handovers/latest.md                 # 项目级索引
+.rekit/handovers/<laneId>-latest.md        # 指定工作线接手文档
 ```
 
 ## request 规则

@@ -42,10 +42,12 @@ disable-model-invocation: true
 | `/rekit attach` | 将已有 case 绑定到当前 template root 和 pack。 |
 | `/rekit repair` | 预览迁移后的 metadata 修复；用户确认后才写入。 |
 | `/rekit init` / `/rekit bootstrap` | 初始化 case metadata、case-local shim 和模板文件。 |
-| `/rekit overview` | 显示项目概览、主线/支线、共享事实统计和下一步建议；首次运行会初始化缺失的 case-local `.rekit` 状态。 |
-| `/rekit continue` | 自动整理并推进当前 case：收集工作线 outbox/workspace 事件、发布低风险共享事实、路由 request、运行 rule verifier、按安全规则处理 candidate/authority append，并写 run digest。 |
-| `/rekit start <name>` | 创建功能支线，例如 `login`；支线写自己的 workspace，第二天可用 `/rekit handoff` 或接续提示继续。 |
-| `/rekit handoff` | 生成 `.rekit/handovers/latest.md` 新会话接手包；只引用 `task-handoff.md`，不覆盖它。 |
+| `/rekit overview` | 显示项目概览、主线/支线、共享事实统计和下一步建议；只表示总览，不代表当前会话已选择工作线。 |
+| `/rekit continue main` | 明确接手主线并整理相关状态；多工作线时无参数 `continue` 只列选择，不盲猜。 |
+| `/rekit continue <name>` | 明确接手某条功能支线，只整理该支线的 workspace/outbox、路由 request、刷新接续提示。 |
+| `/rekit start <name>` | 创建或进入功能支线，例如 `login`；支线写自己的 workspace，第二天可用 `/rekit continue <name>` 或接续提示继续。 |
+| `/rekit handoff` | 生成项目级接手索引 `.rekit/handovers/latest.md`；不代表某个会话。 |
+| `/rekit handoff <name>` | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`。 |
 | `/rekit sync` | 默认先生成 LLM 审查包；用户确认具体范围后才执行写入型 sync。 |
 | `/rekit promote` | 默认先生成回流审查包；用户确认后才生成候选或写回 pack。 |
 | `/rekit doctor` | 验证 kit / case 结构、文档预算和 policy registry。 |
@@ -73,7 +75,7 @@ disable-model-invocation: true
 6. 若 promote 命中绝对路径、样本名、trace/dump/artifact/capture 路径或明显地址快照，先阻止或生成候选报告，不要静默写回模板。
 7. `sync` / `promote` 发现 case 路径迁移但 metadata 未修复时必须拒绝执行，提示用户确认后运行 `repair`。
 8. 工作线必须持久、agent 可以短命；跨工作线协同通过 `.rekit/facts/*.jsonl`、inbox/tasks 和 publication 完成，不要求用户手动合并普通事实。
-9. `/rekit continue` 可以写 case-local `.rekit/board.json`、`.rekit/facts/**`、`.rekit/lanes/**`、`.rekit/runs/**`、`.rekit/handovers/**` 和支线 workspace；只有 candidate 同时满足 evidence、accepted verifier、confidence、schema、no-conflict、backup、diff、max rows 时，才允许自动 append authority CSV。
+9. `/rekit continue <name>` 可以写 case-local `.rekit/board.json`、`.rekit/facts/**`、`.rekit/lanes/**`、`.rekit/runs/**`、`.rekit/handovers/**` 和所选支线 workspace；只有 candidate 同时满足 evidence、accepted verifier、confidence、schema、no-conflict、backup、diff、max rows 时，才允许自动 append authority CSV。
 10. 覆盖/删除 authority、冲突、schema change、changesProjectBaseline、externalSideEffect、destructiveAction 必须停下来问用户；不要自动执行。
 11. 新功能分析使用 `/rekit start <name>`；不要再建议用户使用旧的底层工作线命令。
 12. `plan-subagents` 只作为内部只读计划器，不是日常用户入口；能由主 agent 或自动流程判断时，不要求用户手动调用。
@@ -86,6 +88,7 @@ disable-model-invocation: true
 
 ```text
 第一次 clone 后，在 kit 仓库启动 Claude Code，然后用 /rekit init 或 /rekit attach。
-以后在 case 里优先用 /rekit overview 看项目概览，用 /rekit continue 继续自动整理和推进；需要新功能支线时用 /rekit start <name>；换新会话前用 /rekit handoff。
+以后在 case 里优先用 /rekit overview 看项目概览，再用 /rekit continue main 或 /rekit continue <name> 明确选择工作线；需要新功能支线时用 /rekit start <name>。
+/rekit handoff 生成项目级索引，/rekit handoff main 或 /rekit handoff <name> 生成指定工作线接手文档。
 sync/promote 仍会先生成审查报告，确认后才写入模板；底层脚本只是内部实现，不需要手动执行。
 ```
