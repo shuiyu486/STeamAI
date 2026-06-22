@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- 新增仓库根目录 `CLAUDE.md`，提供 Claude Code 维护本 kit/template/runtime 仓库的入口说明、分层改动边界和验证命令。
+
 ### Changed
 
 - 将日常 `/rekit` 工作流收敛为 `overview / continue / start / handoff`，移除公开的 `board / auto / lane / policy` 旧入口。
