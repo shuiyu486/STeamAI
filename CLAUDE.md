@@ -18,6 +18,7 @@
 - 通用策略：`common/policies/**`
 - 通用 prompts：`common/prompts/**`
 - 新架构使用与旧 case 兼容：`docs/agent-team-usage.md`
+- 参考资料吸收映射：`docs/reference-absorption.md`
 - 长期愿景与阶段路线：`docs/vision.md`
 - 后续批次计划：`docs/batch-plan.md`
 - 设计文档：`docs/design.md`
