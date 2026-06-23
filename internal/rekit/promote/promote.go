@@ -1,0 +1,148 @@
+package promote
+
+import (
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
+)
+
+func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
+	if _, err := instance.AssertAttached(caseRoot, repoRoot, pack); err != nil {
+		return review.Plan{}, err
+	}
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return review.Plan{}, err
+	}
+	denyPatterns := append([]string{}, m.PromoteDenyPatterns...)
+	denyPatterns = append(denyPatterns, caseSpecificPatterns(caseRoot)...)
+	managed := map[string]bool{}
+	for _, rel := range m.ManagedFiles {
+		managed[rel] = true
+	}
+	items := []review.Item{}
+	for _, rel := range m.PromoteFiles {
+		if !managed[rel] {
+			items = append(items, review.Item{Path: rel, Kind: "managed-doc", Direction: "case-to-kit", Action: "skip-non-managed-promote-file", RiskLevel: "none"})
+			continue
+		}
+		caseFile, err := refsf.SafeJoin(caseRoot, rel)
+		if err != nil {
+			return review.Plan{}, err
+		}
+		packFile, err := m.SourcePath(rel)
+		if err != nil {
+			return review.Plan{}, err
+		}
+		caseText, caseExists, err := review.ReadTextIfExists(caseFile)
+		if err != nil {
+			return review.Plan{}, err
+		}
+		packText, packExists, err := review.ReadTextIfExists(packFile)
+		if err != nil {
+			return review.Plan{}, err
+		}
+		violations := []string{}
+		if caseExists {
+			violations = review.MatchAny(caseText, denyPatterns)
+		}
+		changed := caseText != packText
+		action := "candidate-after-llm-review"
+		switch {
+		case !caseExists:
+			action = "skip-missing-case-file"
+		case !packExists:
+			action = "blocked-missing-pack-file"
+		case !changed:
+			action = "unchanged"
+		case len(violations) > 0:
+			action = "blocked-deny-pattern"
+		}
+		risk := "medium"
+		if action == "unchanged" || strings.HasPrefix(action, "skip") {
+			risk = "none"
+		} else if len(violations) > 0 || strings.HasPrefix(action, "blocked") {
+			risk = "high"
+		}
+		recommendation := "llm-review-before-merge"
+		if action == "unchanged" || strings.HasPrefix(action, "skip") {
+			recommendation = "skip"
+		} else if len(violations) > 0 {
+			recommendation = "do-not-apply-directly"
+		}
+		items = append(items, review.Item{Path: rel, Kind: "managed-doc", Direction: "case-to-kit", Action: action, RiskLevel: risk, CaseHash: review.FileHash(caseFile), PackHash: review.FileHash(packFile), Changed: changed, DenyViolations: violations, MechanicalRecommendation: recommendation})
+	}
+	tooling := []review.Item{}
+	for _, rel := range m.ToolingCandidateSources {
+		source, err := refsf.SafeJoin(caseRoot, rel)
+		if err != nil {
+			return review.Plan{}, err
+		}
+		raw, exists, err := review.ReadTextIfExists(source)
+		if err != nil {
+			return review.Plan{}, err
+		}
+		if !exists {
+			tooling = append(tooling, review.Item{Path: rel, Kind: "tooling-candidate-source", Direction: "case-to-kit", Action: "skip-missing-source", RiskLevel: "none"})
+			continue
+		}
+		sanitized, counts := sanitizeToolingCandidate(raw, caseRoot)
+		remaining := review.MatchAny(sanitized, denyPatterns)
+		action := "sanitized-preview-for-llm-review"
+		risk := "medium"
+		recommendation := "llm-review-before-merge"
+		if len(remaining) > 0 {
+			action = "blocked-after-sanitization"
+			risk = "high"
+			recommendation = "do-not-create-candidate"
+		}
+		tooling = append(tooling, review.Item{Path: rel, Kind: "tooling-candidate-source", Direction: "case-to-kit", Action: action, RiskLevel: risk, SourceHash: review.FileHash(source), ReplacementCounts: counts, DenyViolations: remaining, MechanicalRecommendation: recommendation})
+	}
+	return review.Plan{SchemaVersion: 1, Command: "promote", Direction: "case-to-kit", CaseRoot: caseRoot, RepoRoot: repoRoot, Pack: pack, ManifestPath: m.ManifestPath, ManifestVersion: m.Version, Items: items, ToolingItems: tooling}, nil
+}
+
+func caseSpecificPatterns(caseRoot string) []string {
+	name := filepath.Base(filepath.Clean(caseRoot))
+	parts := regexp.MustCompile(`[-_\.\s]+`).Split(name, -1)
+	out := []string{}
+	for _, part := range parts {
+		if len(part) >= 4 {
+			out = append(out, regexp.QuoteMeta(part))
+		}
+	}
+	return out
+}
+
+func sanitizeToolingCandidate(text, caseRoot string) (string, map[string]int) {
+	counts := map[string]int{}
+	out := text
+	replace := func(key, pattern, repl string) {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindAllStringIndex(out, -1)
+		counts[key] += len(matches)
+		out = re.ReplaceAllString(out, repl)
+	}
+	casePattern := regexp.QuoteMeta(strings.TrimRight(filepath.Clean(caseRoot), string(filepath.Separator)))
+	replace("caseRoot", `(?i)`+casePattern, "<caseRoot>")
+	replace("absolutePath", `(?i)[A-Za-z]:\\[^`+"`"+`\r\n|，。；;\)\] ]+`, "<absolutePath>")
+	for _, pattern := range caseSpecificPatterns(caseRoot) {
+		replace("targetExe", `(?i)`+pattern+`[A-Za-z0-9_.-]*\.exe`, "<target.exe>")
+		replace("casePath", `(?i)`+pattern+`[\\/]`, "<case>/")
+		replace("caseTerm", `(?i)`+pattern, "<caseTerm>")
+	}
+	replace("toolsRoot", `(?i)\.\.[\\/]tools[\\/]`, "<toolsRoot>/")
+	replace("artifactsPath", `(?i)artifacts[\\/][^`+"`"+`\r\n|，。；;\)\] ]+`, "<artifactsPath>")
+	replace("capturesPath", `(?i)captures[\\/][^`+"`"+`\r\n|，。；;\)\] ]+`, "<capturesPath>")
+	replace("traceFile", `(?i)[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\.(csv|jsonl|log|txt|bin)`, "<traceFile>")
+	replace("dumpFile", `(?i)[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\.(dmp|bin|raw|exe|dll)`, "<dumpFile>")
+	replace("address", `0x[0-9A-Fa-f]{6,}`, "<address>")
+	replace("ctx", `(?i)ctx\d+`, "<ctxNNN>")
+	replace("round", `(?i)round\d+`, "<roundN>")
+	replace("task", `(?i)Task #\d+`, "Task #<n>")
+	return out, counts
+}

@@ -16,6 +16,9 @@
 - 增强 `doctor` 的 manifest、policy overlay、case thin shim、board/lane 和 JSONL 校验，作为后续 runtime 架构调整的安全网。
 - 为 `packs/_template` 补齐最小 policy overlay registry，使模板 pack 可通过 pack validation。
 - 将 B3 工作线默认主线、默认 start 类型、长期 handoff 路径、sync backup root、authority files 和 request 默认路由改为 manifest 驱动，减少 `vmp-re` 硬编码。
+- 新增 Go runtime 迁移方案文档，明确 PowerShell façade + Go deterministic backend 的渐进迁移路线。
+- 新增 Go read-only runtime skeleton，支持手动运行 `status`、pack `doctor/validate` 与 manifest/policy validation，并补充 manifest/CLI/runtime guard tests；未实现 case doctor 时显式拒绝 case target。
+- 新增 Go `sync/promote` review-only plan skeleton，先输出非写入 JSON plan，并拒绝 `sync -Apply`、`promote -CreateCandidates/-Apply` 等写入路径。
 
 ### Fixed
 

@@ -140,3 +140,34 @@ git diff --check
 # vmp-re 临时 case smoke：init / overview / start / continue / handoff 行为保持兼容
 git diff --check
 ```
+
+### Batch 8：Go runtime migration plan
+
+状态：已完成 G1 skeleton，并完成 G2 review-only plan skeleton（仍不默认接入 PowerShell façade）。
+
+目标：在不破坏现有 `/rekit`、case-local thin shim、pack wrapper、旧 case metadata 和 review-first 边界的前提下，将复杂 deterministic runtime 逐步迁移到 Go backend。
+
+方案：
+
+- 采用 PowerShell façade + Go deterministic backend。
+- `rekit/rekit.ps1` 继续作为公共 ABI 和 fallback；Go binary 缺失或命令未覆盖时继续走 PowerShell。
+- G1 Go 实现只读能力：manifest parser、status、pack doctor/validate。
+- G2 第一版实现 `sync/promote` review-only plan skeleton；review artifact 写入、写入命令、工作线、authority gate 分后续 G2.1-G6 迁移。
+- 迁移计划详见 `docs/go-runtime-migration.md`。
+
+G1/G2 验证：
+
+```powershell
+go test ./... # 覆盖 manifest parser、CLI parser、repo root discovery、doctor target guard 和 review-only guard
+go vet ./...
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command doctor
+go run ./cmd/rekit -- -Command doctor -Target .
+go run ./cmd/rekit -- -Command doctor -Target .\does-not-exist # 预期报错，不得误报 pack validation ok
+go run ./cmd/rekit -- -Command doctor -Pack _template
+# 使用临时 case 验证 go sync/promote review-only plan；sync -Apply / promote -CreateCandidates 预期被拒绝
+.\rekit\rekit.ps1 status
+.\rekit\rekit.ps1 doctor
+.\packs\vmp-re\scripts\validate.ps1
+git diff --check
+```
