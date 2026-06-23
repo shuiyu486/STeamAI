@@ -198,6 +198,26 @@ REKIT_GO_DISABLE=1  # 强制 fallback PowerShell
 | 临时 case template | init/overview/start/continue/handoff/sync review/doctor | 不泄漏 `vmp-re` / `devirt-main`。 |
 | 空白检查 | `git diff --check` | 无 whitespace error。 |
 
+## 新会话接手提示
+
+如果从新会话继续，先确认 `main` 已包含 `4ae3f78 Add Go runtime skeleton`，然后运行：
+
+```powershell
+git pull origin main
+git status --short
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 doctor
+```
+
+接手时只需记住：
+
+- PowerShell 仍是公共入口，Go backend 还没有被 `rekit.ps1` 默认调用。
+- G1 已完成 read-only skeleton：`status`、pack `doctor/validate`、manifest/instance/runtime/CLI guard tests。
+- G2 已完成第一版 review-only JSON plan skeleton：`sync/promote` 只读 plan，拒绝写入 flags。
+- 下一批优先 G2.1：review artifact 写入、bounded diff、sanitized preview、packet 字段 parity 和临时 case golden tests。
+- 在 G2.1 前不要启用默认 Go 委托；写入命令、authority/confirmed 更新和 schema 迁移仍需单独确认。
+
 ## 风险与止损
 
 - 如果 Go parser 与 PowerShell parser 不一致，停止委托，只保留 Go test fixture，先修 parser。

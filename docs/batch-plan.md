@@ -171,3 +171,13 @@ go run ./cmd/rekit -- -Command doctor -Pack _template
 .\packs\vmp-re\scripts\validate.ps1
 git diff --check
 ```
+
+新会话接手：
+
+- 先确认 `main` 包含提交 `4ae3f78 Add Go runtime skeleton`，并运行 `git status --short` 确认工作区干净。
+- 必读 `docs/go-runtime-migration.md`、本节、`CHANGELOG.md`、`internal/rekit/**` 和 `rekit/rekit.ps1`。
+- 当前 Go backend 仅手动运行；`rekit/rekit.ps1` 仍是公共入口和 canonical ABI，尚未默认委托 Go。
+- G1 已实现 `status`、pack `doctor/validate`、manifest/policy validation 与 guard tests；case doctor 尚未实现，遇 case target 必须显式拒绝。
+- G2 已实现 `sync/promote` review-only JSON plan skeleton；只输出非写入 JSON，不写 `.rekit/reviews/**`、case 或 pack，并拒绝 `sync -Apply`、`promote -Apply/-CreateCandidates/-WhatIf`。
+- 下一步优先做 G2.1：补齐 review artifact 写入、bounded diff、sanitized preview、PowerShell review packet 字段 parity、临时 case fixture / golden tests。
+- 仍不要默认启用 PowerShell façade 委托；等 G2.1 parity 与 smoke test 足够后，再设计显式开关。
