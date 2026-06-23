@@ -1,0 +1,9 @@
+schemaVersion: 1
+name: template-policy-overlays
+version: 0.1.0
+description: Empty policy overlay registry for template-derived packs
+
+overlays: []
+
+budgets:
+  defaultMarkdown: 16384

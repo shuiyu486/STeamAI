@@ -381,7 +381,7 @@ function Write-RekitSyncReview {
   if (Test-Path -LiteralPath $paths.CombinedDiffPath) { Remove-Item -LiteralPath $paths.CombinedDiffPath -Force }
 
   $items = @()
-  $backupPreview = Join-Path $caseRoot 'references\vmp-re\.backup\<timestamp>'
+  $backupPreview = ((Get-RekitBackupRootRelativePath -Manifest $manifest).TrimEnd([char]'/', [char]'\') + '/<timestamp>')
   $items += [ordered]@{
     path = '.rekit/instance.yml + .claude/skills/rekit/SKILL.md'
     kind = 'case-metadata'

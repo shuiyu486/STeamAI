@@ -13,6 +13,9 @@
 - 新增 `docs/reference-absorption.md`，映射参考文章、`ida-agent-bridge`、`clark-utov` 的吸收点、当前落地能力和后续优化项。
 - 新增 `docs/pack-authoring.md`、`docs/evidence-ledger.md`、`docs/orchestration-plan.md` 和 `docs/batch-plan.md`，分别记录 pack 编写、证据账本、半自动编排和后续批次计划。
 - 新增 `packs/_template/` pack 作者骨架，用于后续创建 `unpack-pe`、`android-native`、`ollvm` 等新 pack。
+- 增强 `doctor` 的 manifest、policy overlay、case thin shim、board/lane 和 JSONL 校验，作为后续 runtime 架构调整的安全网。
+- 为 `packs/_template` 补齐最小 policy overlay registry，使模板 pack 可通过 pack validation。
+- 将 B3 工作线默认主线、默认 start 类型、长期 handoff 路径、sync backup root、authority files 和 request 默认路由改为 manifest 驱动，减少 `vmp-re` 硬编码。
 
 ### Fixed
 

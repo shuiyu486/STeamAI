@@ -34,13 +34,14 @@ function Save-RekitBoard {
       $lanes += [ordered]@{ id = $lane.id; type = $lane.type; title = $lane.title; status = $lane.status; authority = $lane.authority; workspace = $lane.workspace; updatedAt = $lane.updatedAt }
     }
   }
+  $authorityLane = Get-RekitAuthorityLaneType -Manifest $Manifest
   $board = [ordered]@{
     schemaVersion = 1
     caseRoot = [System.IO.Path]::GetFullPath($CaseRoot)
     repoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
     pack = $Manifest.Pack
     automationMode = (Get-RekitPolicy -CaseRoot $CaseRoot).automationMode
-    defaultAuthorityLane = 'devirt-main'
+    defaultAuthorityLane = $authorityLane.Id
     lanes = $lanes
     factsRoot = '.rekit/facts'
     updatedAt = New-RekitIsoTime
@@ -65,8 +66,10 @@ function Ensure-RekitBoard {
     if (-not (Test-Path -LiteralPath $file)) { [System.IO.File]::WriteAllText($file, '', [System.Text.UTF8Encoding]::new($false)) }
   }
   [void](Ensure-RekitPolicyFile -CaseRoot $case)
-  if ($CreateDefaultLane -and -not (Test-Path -LiteralPath (Join-Path (Get-RekitLanePath -CaseRoot $case -LaneId 'devirt-main') 'lane.json'))) {
-    New-RekitLane -CaseRoot $case -RepoRoot $RepoRoot -Manifest $manifest -Type 'devirt-main' -Name '' | Out-Null
+  $authorityLane = Get-RekitAuthorityLaneType -Manifest $manifest
+  $authorityLaneId = ConvertTo-RekitLaneId -Type $authorityLane.Id -Name ''
+  if ($CreateDefaultLane -and -not (Test-Path -LiteralPath (Join-Path (Get-RekitLanePath -CaseRoot $case -LaneId $authorityLaneId) 'lane.json'))) {
+    New-RekitLane -CaseRoot $case -RepoRoot $RepoRoot -Manifest $manifest -Type $authorityLane.Id -Name '' | Out-Null
   }
   return Save-RekitBoard -CaseRoot $case -RepoRoot $RepoRoot -Manifest $manifest
 }

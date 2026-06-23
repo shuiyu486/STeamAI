@@ -143,15 +143,16 @@ function Get-RekitPackManifest {
   $toolingCandidateSources = @(Get-RekitYamlList -Lines $lines -Key 'toolingCandidateSources')
   $subagentRoutes = @(Get-RekitYamlObjectList -Lines $lines -Key 'subagentRoutes')
   $promoteDenyPatterns = @(Get-RekitYamlList -Lines $lines -Key 'promoteDenyPatterns')
+  $authorityFiles = @(Get-RekitYamlList -Lines $lines -Key 'authorityFiles')
   $budgets = Get-RekitYamlMap -Lines $lines -Key 'budgets'
   $managedBlock = Get-RekitYamlMap -Lines $lines -Key 'managedBlock'
   $syncPolicy = Get-RekitYamlMap -Lines $lines -Key 'syncPolicy'
+  $workstreamDefaults = Get-RekitYamlMap -Lines $lines -Key 'workstreamDefaults'
 
   if ($managedFiles.Count -eq 0) { throw "manifest managedFiles is empty: $manifestPath" }
   if ($promoteFiles.Count -eq 0) { $promoteFiles = $managedFiles }
-  if ($toolingCandidateSources.Count -eq 0) { $toolingCandidateSources = @('references/vmp-re/toolchain-router.md') }
   if (-not $managedBlock.ContainsKey('file')) { $managedBlock['file'] = 'CLAUDE.local.md' }
-  if (-not $managedBlock.ContainsKey('blockId')) { $managedBlock['blockId'] = 'vmp-re-template:router' }
+  if (-not $managedBlock.ContainsKey('blockId')) { $managedBlock['blockId'] = 'rekit:router' }
   if (-not $managedBlock.ContainsKey('source')) { $managedBlock['source'] = 'CLAUDE.local.snippet.md' }
   if (-not $budgets.ContainsKey('defaultMarkdown')) { $budgets['defaultMarkdown'] = '16384' }
   if ($promoteDenyPatterns.Count -eq 0) {
@@ -175,6 +176,8 @@ function Get-RekitPackManifest {
     ToolingFiles = $toolingFiles
     PromptFiles = $promptFiles
     LaneTypes = $laneTypes
+    WorkstreamDefaults = $workstreamDefaults
+    AuthorityFiles = $authorityFiles
     ToolingCandidateSources = $toolingCandidateSources
     SubagentRoutes = $subagentRoutes
     PromoteDenyPatterns = $promoteDenyPatterns

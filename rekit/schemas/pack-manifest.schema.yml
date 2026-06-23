@@ -6,6 +6,11 @@ required:
   - managedFiles
   - templateFiles
   - localNeverOverwrite
+  - managedBlock
+  - syncPolicy
+  - workstreamDefaults
+  - authorityFiles
+  - toolingCandidateSources
   - budgets
 
 fields:
@@ -16,14 +21,23 @@ fields:
   templateFiles: 只在 case 缺失时实例化的模板文件列表
   localNeverOverwrite: 永不被 sync 覆盖、永不被 promote 的 case-local 文件
   managedBlock: 单个 managed block 定义，包含 file/blockId/source
-  syncPolicy: sync 默认策略
-  promoteFiles: 允许进入 promote 候选的 managed 文件列表
+  syncPolicy: sync 默认策略；当前 runtime 支持 managedFiles=overwrite-with-backup、templateFiles=create-if-missing、localFiles=never-overwrite
+  workstreamDefaults: 工作线 runtime 默认值，包含 defaultAuthorityLane、defaultStartLaneType、handoffPath、backupRoot、requestDefaultTargetLane
+  authorityFiles: 允许 authority auto-append 的文件 allowlist；必须由 defaultAuthorityLane 的 canWrite 覆盖
+  promoteFiles: 允许进入 promote 候选的 managed 文件列表，必须是 managedFiles 子集
   promoteDenyPatterns: promote 安全阻断正则或字符串模式
   subagentRoutes: 可选的子 agent / 工作线 review 分流 route 列表；每项可包含 id、taskTypes、trigger、shardBasis、targetItemsPerAgent、maxParallel、reference、policyOverlay、subagentPermissions、mainAgentOwns、outputContract
   promptFiles: 可选的 common/pack prompt 文档列表，用于 doctor 校验与人工查阅
-  laneTypes: 可选的内部工作线类型列表；定义 authority、workspaceRoot、canWrite/readOnly/outputs，供 `/rekit overview/continue/start/handoff` 使用
+  laneTypes: 内部工作线类型列表；定义 authority、workspaceRoot、canWrite/readOnly/outputs，供 `/rekit overview/continue/start/handoff` 使用；至少应有一个 authority lane
   b3PolicyFile: case-local `.rekit/policy.yml`，由 runtime 初始化，不写在 manifest 中；此 schema 只说明相关字段
   budgets: Markdown/文本预算，defaultMarkdown 为默认值
+
+workstreamDefaults:
+  defaultAuthorityLane: 默认主线 lane type id，必须存在且 authority=true
+  defaultStartLaneType: `/rekit start <name>` 默认创建的 lane type id，必须存在
+  handoffPath: 可选的长期 handoff 文件路径；为空时项目/工作线 handoff 不引用长期 handoff
+  backupRoot: sync 覆盖 managed files 前的 case-local backup 根路径
+  requestDefaultTargetLane: request 未声明 targetLane 时默认路由到的 lane type id，必须存在
 
 laneTypes:
   id: 内部工作线类型 slug，例如 devirt-main、feature-analysis、tooling

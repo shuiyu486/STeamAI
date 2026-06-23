@@ -118,10 +118,8 @@ function Get-RekitAuthorityFiles {
     [Parameter(Mandatory=$true)][string]$CaseRoot,
     [Parameter(Mandatory=$true)]$Manifest
   )
-  $files = @('captures/vm_opcode_semantics_confirmed.csv','captures/vm_handler_roles_confirmed.csv','references/vmp-re/task-handoff.md')
-  $devirt = Get-RekitLaneType -Manifest $Manifest -Type 'devirt-main'
-  $files += @($devirt.CanWrite | Where-Object { $_ -ne 'own-workspace' })
-  return @($files | Select-Object -Unique)
+  if (-not $Manifest.PSObject.Properties['AuthorityFiles']) { return @() }
+  return @($Manifest.AuthorityFiles | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -Unique)
 }
 
 function Test-RekitEventConflict {
@@ -325,7 +323,8 @@ function New-RekitDecision {
 function Get-RekitLaneOutputEvents {
   param(
     [Parameter(Mandatory=$true)][string]$CaseRoot,
-    [Parameter(Mandatory=$true)]$Lane
+    [Parameter(Mandatory=$true)]$Lane,
+    [Parameter(Mandatory=$true)]$Manifest
   )
   $laneRoot = Get-RekitLanePath -CaseRoot $CaseRoot -LaneId $Lane.id
   $workspace = Get-RekitLaneWorkspacePath -CaseRoot $CaseRoot -Lane $Lane
@@ -340,7 +339,7 @@ function Get-RekitLaneOutputEvents {
       if (@('resolved','done','closed','accepted','rejected') -contains $status) { continue }
       $summary = if (-not [string]::IsNullOrWhiteSpace([string]$row.reason)) { [string]$row.reason } else { 'lowering request' }
       $requestId = [string]$row.request_id
-      $event = [pscustomobject]@{ kind = 'request'; lane = $Lane.id; targetLane = 'devirt-main'; requestId = $requestId; summary = $summary; evidence = [string]$row.evidence; priority = [string]$row.priority; status = 'open'; source = (Join-RekitRelativePath -Root $CaseRoot -Path $lowering) }
+      $event = [pscustomobject]@{ kind = 'request'; lane = $Lane.id; targetLane = (Get-RekitRequestDefaultTargetLane -Manifest $Manifest); requestId = $requestId; summary = $summary; evidence = [string]$row.evidence; priority = [string]$row.priority; status = 'open'; source = (Join-RekitRelativePath -Root $CaseRoot -Path $lowering) }
       if (-not [string]::IsNullOrWhiteSpace($requestId)) { $event | Add-Member -NotePropertyName eventId -NotePropertyValue ('evt-' + (Get-RekitTextHash ($Lane.id + '|request|' + $requestId)).Substring(0,16)) -Force }
       $events += (Ensure-RekitEventId -Event $event -LaneId $Lane.id)
     }
@@ -414,7 +413,7 @@ function Invoke-RekitAuto {
     $lane = Read-RekitJsonFile -Path (Join-Path $dir.FullName 'lane.json')
     if ($null -eq $lane -or $lane.status -eq 'archived' -or $lane.status -eq 'paused') { continue }
     if (-not [string]::IsNullOrWhiteSpace($FocusLaneId) -and -not [string]::Equals([string]$lane.id, $FocusLaneId, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
-    foreach ($event in (Get-RekitLaneOutputEvents -CaseRoot $caseRoot -Lane $lane)) {
+    foreach ($event in (Get-RekitLaneOutputEvents -CaseRoot $caseRoot -Lane $lane -Manifest $manifest)) {
       if ($known.ContainsKey([string]$event.eventId)) { continue }
       $summary.collected++
       $event | Add-Member -NotePropertyName lane -NotePropertyValue $lane.id -Force
@@ -435,7 +434,7 @@ function Invoke-RekitAuto {
         'request' {
           Add-RekitJsonLine -Path $paths.Requests -Object $event
           $summary.requests++
-          $targetLane = if ($event.PSObject.Properties['targetLane'] -and -not [string]::IsNullOrWhiteSpace([string]$event.targetLane)) { [string]$event.targetLane } else { 'devirt-main' }
+          $targetLane = if ($event.PSObject.Properties['targetLane'] -and -not [string]::IsNullOrWhiteSpace([string]$event.targetLane)) { [string]$event.targetLane } else { Get-RekitRequestDefaultTargetLane -Manifest $manifest }
           if (Test-RekitPolicyBool -Policy $policy -Name 'autoRouteRequests' -Default $true) {
             try {
               if (Add-RekitTaskIfMissing -CaseRoot $caseRoot -LaneId $targetLane -Event $event) { $summary.routed++ }

@@ -1,42 +1,9 @@
-﻿function Get-RekitDefaultLaneTypes {
-  return @(
-    [pscustomobject]@{
-      Id = 'devirt-main'
-      Title = 'VMProtect 脱壳主线'
-      Authority = $true
-      WorkspaceRoot = 'captures/devirt_main'
-      CanWrite = @('captures/vm_opcode_semantics_confirmed.csv','captures/vm_handler_roles_confirmed.csv','references/vmp-re/task-handoff.md','captures/routine_ir.events.csv','captures/routine_ir.summary.csv','captures/routine_ir.md')
-      ReadOnly = @('.rekit/facts/**')
-      Outputs = @('publication','authority-update','resolved-request','observation')
-    },
-    [pscustomobject]@{
-      Id = 'feature-analysis'
-      Title = '功能分析'
-      Authority = $false
-      WorkspaceRoot = 'captures/feature_analysis'
-      CanWrite = @('own-workspace')
-      ReadOnly = @('captures/vm_opcode_semantics_confirmed.csv','captures/vm_handler_roles_confirmed.csv','captures/routine_ir.events.csv','captures/routine_ir.summary.csv','captures/routine_ir.md','references/vmp-re/task-handoff.md','.rekit/facts/**')
-      Outputs = @('observation','request','candidate','summary')
-    },
-    [pscustomobject]@{
-      Id = 'tooling'
-      Title = '工具链开发'
-      Authority = $false
-      WorkspaceRoot = 'captures/tooling_lanes'
-      CanWrite = @('own-workspace')
-      ReadOnly = @('.rekit/facts/**','references/vmp-re/**')
-      Outputs = @('observation','request','candidate','tooling-change')
-    }
-  )
-}
-
-function Get-RekitLaneTypes {
+﻿function Get-RekitLaneTypes {
   param([Parameter(Mandatory=$true)]$Manifest)
-  $types = @(Get-RekitDefaultLaneTypes)
+  $types = @()
   if ($Manifest.PSObject.Properties['LaneTypes']) {
     foreach ($row in @($Manifest.LaneTypes)) {
       if ([string]::IsNullOrWhiteSpace([string]$row.id)) { continue }
-      $types = @($types | Where-Object { $_.Id -ne [string]$row.id })
       $types += [pscustomobject]@{
         Id = [string]$row.id
         Title = if ([string]::IsNullOrWhiteSpace([string]$row.title)) { [string]$row.id } else { [string]$row.title }
@@ -49,6 +16,44 @@ function Get-RekitLaneTypes {
     }
   }
   return $types
+}
+
+function Get-RekitAuthorityLaneType {
+  param([Parameter(Mandatory=$true)]$Manifest)
+  $configured = if ($Manifest.PSObject.Properties['WorkstreamDefaults']) { [string]$Manifest.WorkstreamDefaults['defaultAuthorityLane'] } else { '' }
+  if (-not [string]::IsNullOrWhiteSpace($configured)) { return Get-RekitLaneType -Manifest $Manifest -Type $configured }
+  $authority = @(Get-RekitLaneTypes -Manifest $Manifest | Where-Object { $_.Authority } | Select-Object -First 1)
+  if ($authority.Count -eq 0) { throw "manifest laneTypes must include an authority lane: $($Manifest.ManifestPath)" }
+  return $authority[0]
+}
+
+function Get-RekitDefaultStartLaneTypeId {
+  param([Parameter(Mandatory=$true)]$Manifest)
+  $configured = if ($Manifest.PSObject.Properties['WorkstreamDefaults']) { [string]$Manifest.WorkstreamDefaults['defaultStartLaneType'] } else { '' }
+  if (-not [string]::IsNullOrWhiteSpace($configured)) { return $configured }
+  $nonAuthority = @(Get-RekitLaneTypes -Manifest $Manifest | Where-Object { -not $_.Authority } | Select-Object -First 1)
+  if ($nonAuthority.Count -gt 0) { return [string]$nonAuthority[0].Id }
+  return [string](Get-RekitAuthorityLaneType -Manifest $Manifest).Id
+}
+
+function Get-RekitHandoffPath {
+  param([Parameter(Mandatory=$true)]$Manifest)
+  $configured = if ($Manifest.PSObject.Properties['WorkstreamDefaults']) { [string]$Manifest.WorkstreamDefaults['handoffPath'] } else { '' }
+  return $configured
+}
+
+function Get-RekitBackupRootRelativePath {
+  param([Parameter(Mandatory=$true)]$Manifest)
+  $configured = if ($Manifest.PSObject.Properties['WorkstreamDefaults']) { [string]$Manifest.WorkstreamDefaults['backupRoot'] } else { '' }
+  if (-not [string]::IsNullOrWhiteSpace($configured)) { return $configured }
+  return '.rekit/backups/sync'
+}
+
+function Get-RekitRequestDefaultTargetLane {
+  param([Parameter(Mandatory=$true)]$Manifest)
+  $configured = if ($Manifest.PSObject.Properties['WorkstreamDefaults']) { [string]$Manifest.WorkstreamDefaults['requestDefaultTargetLane'] } else { '' }
+  if (-not [string]::IsNullOrWhiteSpace($configured)) { return $configured }
+  return [string](Get-RekitAuthorityLaneType -Manifest $Manifest).Id
 }
 
 function Get-RekitLaneType {
@@ -67,7 +72,7 @@ function ConvertTo-RekitLaneId {
     [Parameter(Mandatory=$true)][string]$Type,
     [string]$Name = ''
   )
-  $raw = if ([string]::IsNullOrWhiteSpace($Name)) { $Type } elseif ($Type -eq 'feature-analysis') { 'feature-' + $Name } else { $Type + '-' + $Name }
+  $raw = if ([string]::IsNullOrWhiteSpace($Name)) { $Type } elseif ($Type -match 'feature') { 'feature-' + $Name } else { $Type + '-' + $Name }
   $safe = ($raw.Trim().ToLowerInvariant() -replace '[^a-z0-9._-]+', '-')
   return $safe.Trim('-_.')
 }
@@ -122,7 +127,7 @@ function New-RekitLane {
     $path = Join-Path $workspace $file
     if (-not (Test-Path -LiteralPath $path)) { [System.IO.File]::WriteAllText($path, '', [System.Text.UTF8Encoding]::new($false)) }
   }
-  if ($laneType.Id -eq 'feature-analysis') {
+  if (-not $laneType.Authority) {
     foreach ($nameFile in @('summary.md','evidence.md','notes.md')) {
       $path = Join-Path $workspace $nameFile
       if (-not (Test-Path -LiteralPath $path)) {

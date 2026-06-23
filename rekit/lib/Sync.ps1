@@ -126,7 +126,7 @@ function Sync-RekitPack {
   if (-not $Apply -and -not $WhatIf) { throw 'sync writes managed files and state; run sync without -Apply for review, or re-run with -Apply after user confirmation.' }
   Invoke-RekitAttach -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf
 
-  $backupRoot = Join-Path $caseRoot ("references\vmp-re\.backup\" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+  $backupRoot = Join-RekitPath -Root $caseRoot -RelativePath (Join-Path (Get-RekitBackupRootRelativePath -Manifest $manifest) (Get-Date -Format 'yyyyMMdd-HHmmss'))
   foreach ($rel in $manifest.ManagedFiles) {
     $source = Get-RekitSourcePath -Manifest $manifest -RelativePath $rel
     $dest = Join-RekitPath -Root $caseRoot -RelativePath $rel

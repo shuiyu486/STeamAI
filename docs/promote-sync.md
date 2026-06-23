@@ -41,11 +41,11 @@ review 包写入 case-local 目录：
 - 只处理 `manifest.yml` 的 `managedFiles`、`templateFiles`、`managedBlock` 和少量 support files。
 - 目标必须是已经 `attach/init` 的 case；拼错路径或普通目录会失败，不会静默创建假 case。
 - review 报告应说明每项：是否会 create / overwrite / backup / skip，case 是否相对 last sync hash 有本地修改，风险与推荐动作。
-- 用户确认后，写入型 sync 才覆盖 managed files；覆盖前备份到 `references/vmp-re/.backup/<timestamp>/`。
+- 用户确认后，写入型 sync 才覆盖 managed files；覆盖前备份到 manifest `workstreamDefaults.backupRoot` 下的时间戳目录。
 - `templateFiles` 只在目标缺失时创建。
 - 不覆盖：
   - `CLAUDE.local.md` block 外内容
-  - `references/vmp-re/task-handoff.md`
+  - pack 的长期 handoff local file，例如 `references/vmp-re/task-handoff.md`
   - `tools.local.yml`
   - case-local 文档
   - `captures/**`
@@ -64,7 +64,7 @@ review 包写入 case-local 目录：
 ## 永不提升
 
 - `CLAUDE.local.md` 全文
-- `references/vmp-re/task-handoff.md`
+- pack 的长期 handoff local file，例如 `references/vmp-re/task-handoff.md`
 - `tools.local.yml`
 - `captures/**`
 - `artifacts/**`

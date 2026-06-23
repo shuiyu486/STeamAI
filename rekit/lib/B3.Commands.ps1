@@ -149,8 +149,12 @@ function Invoke-RekitContinue {
   Write-Host "工作区：$($lane.workspace)"
   Write-Host "接续提示：$(Join-RekitRelativePath -Root $caseRoot -Path $resume)"
   if ([bool]$lane.authority) {
-    $taskHandoff = Join-Path $caseRoot 'references/vmp-re/task-handoff.md'
-    if (Test-Path -LiteralPath $taskHandoff) { Write-Host "主线长期 handoff：$(Join-RekitRelativePath -Root $caseRoot -Path $taskHandoff)" }
+    $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
+    $handoffRel = Get-RekitHandoffPath -Manifest $manifest
+    if (-not [string]::IsNullOrWhiteSpace($handoffRel)) {
+      $taskHandoff = Join-RekitPath -Root $caseRoot -RelativePath $handoffRel
+      if (Test-Path -LiteralPath $taskHandoff) { Write-Host "主线长期 handoff：$(Join-RekitRelativePath -Root $caseRoot -Path $taskHandoff)" }
+    }
   }
 }
 
@@ -168,15 +172,16 @@ function Invoke-RekitStart {
   if ([string]::IsNullOrWhiteSpace($name)) { throw 'start requires a non-empty feature name' }
   $caseRoot = [System.IO.Path]::GetFullPath($Target)
   $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
+  $startLaneType = Get-RekitDefaultStartLaneTypeId -Manifest $manifest
   if ($WhatIf) {
     [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
-    [void](Get-RekitLaneType -Manifest $manifest -Type 'feature-analysis')
-    $id = ConvertTo-RekitLaneId -Type 'feature-analysis' -Name $name
+    [void](Get-RekitLaneType -Manifest $manifest -Type $startLaneType)
+    $id = ConvertTo-RekitLaneId -Type $startLaneType -Name $name
     Write-Host "would create or enter feature workstream: $id"
     return
   }
   [void](Ensure-RekitBoard -CaseRoot $caseRoot -RepoRoot $RepoRoot -Pack $Pack -CreateDefaultLane)
-  $lane = New-RekitLane -CaseRoot $caseRoot -RepoRoot $RepoRoot -Manifest $manifest -Type 'feature-analysis' -Name $name -Force:$Force
+  $lane = New-RekitLane -CaseRoot $caseRoot -RepoRoot $RepoRoot -Manifest $manifest -Type $startLaneType -Name $name -Force:$Force
   [void](Save-RekitBoard -CaseRoot $caseRoot -RepoRoot $RepoRoot -Manifest $manifest)
   Write-Host "功能支线已准备：$($lane.id)"
   Write-Host "工作区：$($lane.workspace)"
@@ -199,13 +204,15 @@ function Write-RekitProjectHandoff {
   param(
     [Parameter(Mandatory=$true)][string]$CaseRoot,
     [Parameter(Mandatory=$true)]$Board,
+    [Parameter(Mandatory=$true)]$Manifest,
     [Parameter(Mandatory=$true)][string]$Pack,
     [Parameter(Mandatory=$true)][string]$Handovers,
     [Parameter(Mandatory=$true)][string]$Stamp
   )
   $handoffPath = Join-Path $Handovers ($Stamp + '.md')
   $latestPath = Join-Path $Handovers 'latest.md'
-  $taskHandoff = Join-Path $CaseRoot 'references/vmp-re/task-handoff.md'
+  $handoffRel = Get-RekitHandoffPath -Manifest $Manifest
+  $taskHandoff = if ([string]::IsNullOrWhiteSpace($handoffRel)) { '' } else { Join-RekitPath -Root $CaseRoot -RelativePath $handoffRel }
   $latestDigest = Get-RekitLatestRunDigestPath -CaseRoot $CaseRoot
   $lines = New-Object System.Collections.Generic.List[string]
   $lines.Add('# rekit 项目接手索引')
@@ -220,7 +227,7 @@ function Write-RekitProjectHandoff {
   $lines.Add('')
   $lines.Add('## 推荐读取')
   $lines.Add('')
-  if (Test-Path -LiteralPath $taskHandoff) { $lines.Add('- `' + (Join-RekitRelativePath -Root $CaseRoot -Path $taskHandoff) + '`：case 长期主线 handoff。') }
+  if (-not [string]::IsNullOrWhiteSpace($taskHandoff) -and (Test-Path -LiteralPath $taskHandoff)) { $lines.Add('- `' + (Join-RekitRelativePath -Root $CaseRoot -Path $taskHandoff) + '`：case 长期主线 handoff。') }
   if (-not [string]::IsNullOrWhiteSpace($latestDigest)) { $lines.Add('- `' + (Join-RekitRelativePath -Root $CaseRoot -Path $latestDigest) + '`：最近一次自动整理摘要。') }
   $lines.Add('')
   $lines.Add('## 工作线')
@@ -240,7 +247,7 @@ function Write-RekitProjectHandoff {
   $lines.Add('## 注意边界')
   $lines.Add('')
   $lines.Add('- 主线负责最终结论写入；功能支线只写自己的工作区、证据、候选和请求。')
-  $lines.Add('- 本索引不会覆盖 `references/vmp-re/task-handoff.md`，只引用它。')
+  if (-not [string]::IsNullOrWhiteSpace($handoffRel)) { $lines.Add('- 本索引不会覆盖 `' + $handoffRel + '`，只引用它。') }
   $lines.Add('- 多工作线时不要使用无参数 `/rekit continue` 盲目继续，应使用 `/rekit continue main` 或 `/rekit continue <name>`。')
   $text = ($lines -join "`r`n") + "`r`n"
   [System.IO.File]::WriteAllText($handoffPath, $text, [System.Text.UTF8Encoding]::new($false))
@@ -252,6 +259,7 @@ function Write-RekitLaneHandoff {
   param(
     [Parameter(Mandatory=$true)][string]$CaseRoot,
     [Parameter(Mandatory=$true)]$Lane,
+    [Parameter(Mandatory=$true)]$Manifest,
     [Parameter(Mandatory=$true)][string]$Pack,
     [Parameter(Mandatory=$true)][string]$Handovers,
     [Parameter(Mandatory=$true)][string]$Stamp
@@ -281,8 +289,11 @@ function Write-RekitLaneHandoff {
   $lines.Add('')
   $lines.Add('- `' + (Join-RekitRelativePath -Root $CaseRoot -Path $resume) + '`：本工作线接续提示。')
   if ([bool]$Lane.authority) {
-    $taskHandoff = Join-Path $CaseRoot 'references/vmp-re/task-handoff.md'
-    if (Test-Path -LiteralPath $taskHandoff) { $lines.Add('- `' + (Join-RekitRelativePath -Root $CaseRoot -Path $taskHandoff) + '`：case 长期主线 handoff。') }
+    $handoffRel = Get-RekitHandoffPath -Manifest $Manifest
+    if (-not [string]::IsNullOrWhiteSpace($handoffRel)) {
+      $taskHandoff = Join-RekitPath -Root $CaseRoot -RelativePath $handoffRel
+      if (Test-Path -LiteralPath $taskHandoff) { $lines.Add('- `' + (Join-RekitRelativePath -Root $CaseRoot -Path $taskHandoff) + '`：case 长期主线 handoff。') }
+    }
   }
   if (-not [string]::IsNullOrWhiteSpace($latestDigest)) { $lines.Add('- `' + (Join-RekitRelativePath -Root $CaseRoot -Path $latestDigest) + '`：最近一次自动整理摘要。') }
   $lines.Add('')
@@ -316,12 +327,13 @@ function Write-RekitHandoff {
     return
   }
   $board = Ensure-RekitBoard -CaseRoot $caseRoot -RepoRoot $RepoRoot -Pack $Pack -CreateDefaultLane
+  $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
   $paths = Get-RekitBoardPaths -CaseRoot $caseRoot
   $handovers = Join-Path $paths.Root 'handovers'
   Ensure-RekitDirectory $handovers
   $stamp = New-RekitBoardTimestamp
   if ([string]::IsNullOrWhiteSpace($selector)) {
-    $path = Write-RekitProjectHandoff -CaseRoot $caseRoot -Board $board -Pack $Pack -Handovers $handovers -Stamp $stamp
+    $path = Write-RekitProjectHandoff -CaseRoot $caseRoot -Board $board -Manifest $manifest -Pack $Pack -Handovers $handovers -Stamp $stamp
     Write-Host "项目级接手索引：$(Join-RekitRelativePath -Root $caseRoot -Path $path)"
     return
   }
@@ -330,6 +342,6 @@ function Write-RekitHandoff {
     Write-RekitWorkstreamChoices -Board $board -Prefix "找不到工作线：$selector"
     throw "unknown workstream selector: $selector"
   }
-  $path = Write-RekitLaneHandoff -CaseRoot $caseRoot -Lane $lane -Pack $Pack -Handovers $handovers -Stamp $stamp
+  $path = Write-RekitLaneHandoff -CaseRoot $caseRoot -Lane $lane -Manifest $manifest -Pack $Pack -Handovers $handovers -Stamp $stamp
   Write-Host "工作线接手文档：$(Join-RekitRelativePath -Root $caseRoot -Path $path)"
 }

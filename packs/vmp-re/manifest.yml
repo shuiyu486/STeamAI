@@ -30,6 +30,18 @@ syncPolicy:
   templateFiles: create-if-missing
   localFiles: never-overwrite
 
+workstreamDefaults:
+  defaultAuthorityLane: devirt-main
+  defaultStartLaneType: feature-analysis
+  handoffPath: references/vmp-re/task-handoff.md
+  backupRoot: references/vmp-re/.backup
+  requestDefaultTargetLane: devirt-main
+
+authorityFiles:
+  - captures/vm_opcode_semantics_confirmed.csv
+  - captures/vm_handler_roles_confirmed.csv
+  - references/vmp-re/task-handoff.md
+
 commonPolicies:
   - context-budget
   - subagents

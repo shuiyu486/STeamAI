@@ -8,10 +8,12 @@ managedFiles:
   - references/template/workflow-template.md
   - references/template/toolchain-router.md
 
-templateFiles: []
+templateFiles:
+  - references/template/task-handoff.template.md
 
 localNeverOverwrite:
   - CLAUDE.local.md
+  - references/template/task-handoff.md
   - tools.local.yml
 
 managedBlock:
@@ -23,6 +25,16 @@ syncPolicy:
   managedFiles: overwrite-with-backup
   templateFiles: create-if-missing
   localFiles: never-overwrite
+
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
+  handoffPath: references/template/task-handoff.md
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+
+authorityFiles:
+  - references/template/task-handoff.md
 
 commonPolicies:
   - agent-team
@@ -50,6 +62,22 @@ toolingFiles:
 
 promptFiles: []
 
+laneTypes:
+  - id: main
+    title: 主线
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/template/task-handoff.md
+    readOnly: .rekit/facts/**
+    outputs: publication,decision,observation
+  - id: feature
+    title: 功能分析
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/template/**,.rekit/facts/**
+    outputs: observation,request,candidate,summary
+
 toolingCandidateSources:
   - references/template/toolchain-router.md
 
@@ -57,9 +85,9 @@ promoteDenyPatterns:
   - "C:\\"
   - "artifacts[\\/]"
   - "captures[\\/]"
-  - "[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\\.(csv|jsonl|log|txt|bin)"
-  - "[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\\.(dmp|bin|raw|exe|dll)"
-  - "\\.dmp\\b"
+  - "[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\.(csv|jsonl|log|txt|bin)"
+  - "[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\.(dmp|bin|raw|exe|dll)"
+  - "\.dmp\b"
   - "0x[0-9A-Fa-f]{6,}"
   - "ctx[0-9]+"
   - "round[0-9]+"

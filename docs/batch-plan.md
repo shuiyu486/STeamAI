@@ -90,3 +90,53 @@ packs/_template/tooling/catalog.yml
 .\rekit\rekit.ps1 doctor
 # 临时 case smoke test：init/attach/sync/promote 边界均通过
 ```
+
+### Batch 6：doctor / manifest safety net
+
+状态：已完成。
+
+目标：先增强部署前验证网，避免后续 pack-neutral、review/apply 闭环和 ledger runtime 改动在弱校验下引入隐性回归。
+
+结果：
+
+- `doctor` 增加 manifest schema 安全检查：`promoteFiles` 必须是 `managedFiles` 子集、`managedBlock` 必须显式声明 `file/blockId/source`、`toolingCandidateSources` 必须显式声明、`syncPolicy` 只能使用当前 runtime 支持的策略值、`promoteDenyPatterns` 必须是有效 regex。
+- 非 `vmp-re` pack 的 manifest 路径不允许声明 `vmp-re` 路径，避免新 pack 误用旧默认值。
+- policy overlay 校验会检查 `extends` 是否指向已注册 common policy。
+- case `doctor` 增加 thin shim 校验，要求 case-local `.claude/skills/rekit/SKILL.md` 与 canonical thin shim 模板一致。
+- case `doctor` 增加 `.rekit/board.json`、lane `lane.json`、lane/workspace JSONL 的基础可解析性和路径边界校验。
+- `packs/_template` 补齐 `policies/manifest.yml` 与 `policies/README.md`，并修正 deny pattern 反斜杠，使 `_template` 可以作为可验证的新 pack 起点。
+
+验证：
+
+```powershell
+.\rekit\rekit.ps1 doctor
+.\rekit\rekit.ps1 doctor -Pack _template
+git diff --check
+```
+
+### Batch 7：pack-neutral 工作线基础
+
+状态：已完成。
+
+目标：将 B3 工作线默认主线、默认 start 类型、长期 handoff 路径、sync backup root、authority files 和 request 默认路由从 runtime 硬编码迁移到 manifest，避免后续多 pack 继承 `vmp-re` 语义。
+
+结果：
+
+- manifest 解析新增 `workstreamDefaults` 与 `authorityFiles`。
+- `vmp-re` manifest 显式声明 `devirt-main`、`feature-analysis`、`references/vmp-re/task-handoff.md`、`references/vmp-re/.backup` 和 VMP confirmed CSV authority files，保持现有行为兼容。
+- `_template` manifest 新增 pack-neutral `main` / `feature` laneTypes 和工作线默认值，可用于派生新 pack 时验证 `overview/start/continue/handoff` 不泄漏 VMP 路径。
+- `B3.State` 默认 authority lane 改由 manifest 驱动。
+- `B3.Commands` 的 `start`、`continue` 主线 handoff 提示、项目/工作线 handoff 引用改由 manifest 驱动。
+- `B3.Auto` 的 authority allowlist 和 request 默认 target lane 改由 manifest 驱动。
+- `sync` backup root 与 sync review backup preview 改由 manifest 驱动。
+- `doctor` 校验新增工作线默认值、authorityFiles 和非 `vmp-re` pack 的 VMP 路径污染检查。
+
+验证：
+
+```powershell
+.\rekit\rekit.ps1 doctor
+.\rekit\rekit.ps1 doctor -Pack _template
+# 临时 case smoke：_template init / overview / start / continue / handoff 不应出现 vmp-re/devirt-main
+# vmp-re 临时 case smoke：init / overview / start / continue / handoff 行为保持兼容
+git diff --check
+```

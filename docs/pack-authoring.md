@@ -35,8 +35,12 @@ name: <pack-name>
 version: <semver-like>
 description: <one-line>
 managedFiles: []
-templateFiles: []
-localNeverOverwrite: []
+templateFiles:
+  - references/<pack>/task-handoff.template.md
+localNeverOverwrite:
+  - CLAUDE.local.md
+  - references/<pack>/task-handoff.md
+  - tools.local.yml
 managedBlock:
   file: CLAUDE.local.md
   blockId: <pack>:router
@@ -45,10 +49,36 @@ syncPolicy:
   managedFiles: overwrite-with-backup
   templateFiles: create-if-missing
   localFiles: never-overwrite
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
+  handoffPath: references/<pack>/task-handoff.md
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+authorityFiles:
+  - references/<pack>/task-handoff.md
 commonPolicies: []
 policyOverlays: []
 toolingFiles: []
 promoteFiles: []
+promptFiles: []
+laneTypes:
+  - id: main
+    title: 主线
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/<pack>/task-handoff.md
+    readOnly: .rekit/facts/**
+    outputs: publication,decision,observation
+  - id: feature
+    title: 功能分析
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/<pack>/**,.rekit/facts/**
+    outputs: observation,request,candidate,summary
+toolingCandidateSources:
+  - references/<pack>/toolchain-router.md
 promoteDenyPatterns: []
 budgets:
   defaultMarkdown: 16384
