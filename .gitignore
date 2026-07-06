@@ -27,3 +27,15 @@ shared-artifacts/
 
 # PowerShell temp
 *.ps1xml
+
+# Sensitive jumpbox material — never commit (contains SSH private keys, VPS IP, IVPN nodes)
+vps_and_ivpn.md
+VPS_JUMPBOX_PORTABLE.md
+*_ed25519
+*_rsa
+*.pem
+*.key
+id_*
+
+# VPS recon case backups pulled locally (RE case artifacts, scripts, results)
+.vps-recon-backup-*/
