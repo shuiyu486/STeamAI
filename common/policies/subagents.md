@@ -69,7 +69,9 @@ tier_used: L1 | L2 | L3
 tool_scope: packet_only | sidecar_only | bounded_read | deep_tool
 ```
 
-pack overlay 可以追加领域字段，但仍应保持短输出。
+pack overlay 可以追加领域字段，但仍应保持短输出。`decision` 通用枚举是 `accept | reject | defer | needs_l2 | needs_l3`；overlay 可 extend（如追加领域专用 `supersede`、`needs_heavy_tool` 等），但应在 overlay 中显式声明扩展值，不静默改通用枚举。注意 ledger decision event（`docs/evidence-ledger.md`）的 `decision` 字段是 `accept | reject | defer | supersede`，与 reviewer output contract 的 `needs_l2 | needs_l3` 是不同层（前者是账本最终决策，后者是 reviewer 升级提示）。
+
+`tier_used` / `tool_scope` 在 L1 packet-only 场景可省略 `tool_scope`（默认 `packet_only`）；L2/L3 必须显式声明，便于主 agent 判断是否需要 heavy-tool gate。
 
 ## Planner contract
 

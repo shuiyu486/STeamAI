@@ -84,7 +84,12 @@ function Show-RekitOverview {
   $req = @(Read-RekitJsonLines -Path $paths.Requests).Count
   $cand = @(Read-RekitJsonLines -Path $paths.Candidates).Count
   $pub = @(Read-RekitJsonLines -Path $paths.Publications).Count
-  $pending = @((Read-RekitJsonLines -Path $paths.Decisions) | Where-Object { $_.action -eq 'pending-user' }).Count
+  $pending = @((Read-RekitJsonLines -Path $paths.Decisions) | Where-Object {
+    $d = [string]$_.decision
+    $s = [string]$_.status
+    $a = [string]$_.action
+    $a -eq 'pending-user' -or $d -eq 'defer' -or ($s -ne '' -and @('confirmed','rejected','superseded') -notcontains $s)
+  }).Count
   Write-Host ''
   Write-Host '共享事实：'
   Write-Host "- observation: $obs"
@@ -93,6 +98,63 @@ function Show-RekitOverview {
   Write-Host "- publication: $pub"
   Write-Host "- 需要确认: $pending"
   Write-Host ''
+
+  $terminalStatus = @('confirmed','accepted','rejected','superseded','resolved')
+  $candidates = @(Read-RekitJsonLines -Path $paths.Candidates)
+  $requests = @(Read-RekitJsonLines -Path $paths.Requests)
+  $openCands = @($candidates | Where-Object {
+    $s = [string]$_.status
+    $s -eq '' -or $terminalStatus -notcontains $s
+  })
+  $pendingGates = @($requests | Where-Object { [string]$_.status -eq 'pending-gate' })
+  $conflicts = @()
+  if ($candidates.Count -gt 0) {
+    $groups = $candidates | Where-Object {
+      $s = [string]$_.status
+      $s -eq '' -or $terminalStatus -notcontains $s
+    } | Group-Object -Property subject | Where-Object { $_.Count -gt 1 }
+    $conflicts = @($groups | ForEach-Object { $_.Name })
+  }
+  $maxRows = 10
+  if ($openCands.Count -gt 0) {
+    Write-Host '未决 candidate：'
+    $shown = @($openCands | Select-Object -Last $maxRows)
+    foreach ($c in $shown) {
+      $subj = [string]$c.subject; $summ = [string]$c.summary; $conf = [string]$c.confidence
+      $mark = if ($conflicts -contains $subj) { ' [冲突]' } else { '' }
+      Write-Host ("- {0} | {1} | confidence={2}{3}" -f $subj, $summ, $conf, $mark)
+    }
+    $rest = $openCands.Count - $shown.Count
+    if ($rest -gt 0) { Write-Host "- 另有 $rest 条未决 candidate" }
+    Write-Host ''
+  }
+  if ($pendingGates.Count -gt 0) {
+    Write-Host 'pending-gate（heavy-tool 待确认）：'
+    $shown = @($pendingGates | Select-Object -Last $maxRows)
+    foreach ($g in $shown) {
+      Write-Host ("- {0} | {1}" -f [string]$g.subject, [string]$g.summary)
+    }
+    $rest = $pendingGates.Count - $shown.Count
+    if ($rest -gt 0) { Write-Host "- 另有 $rest 条 pending-gate" }
+    Write-Host ''
+  }
+  $allDecisions = @(Read-RekitJsonLines -Path $paths.Decisions)
+  if ($allDecisions.Count -gt 0) {
+    Write-Host '最近 decision：'
+    $shownD = @($allDecisions | Select-Object -Last $maxRows)
+    foreach ($d in $shownD) {
+      $subj = [string]$d.subject; if ([string]::IsNullOrWhiteSpace($subj)) { $subj = [string]$d.kind }
+      $dec = [string]$d.decision; if ([string]::IsNullOrWhiteSpace($dec)) { $dec = [string]$d.action }
+      $ln = [string]$d.lane
+      $actor = [string]$d.actor; if ([string]::IsNullOrWhiteSpace($actor)) { $actor = [string]$d.confirmedBy }
+      $extra = ''
+      if (-not [string]::IsNullOrWhiteSpace($actor)) { $extra = " | by=$actor" }
+      Write-Host ("- {0} | lane={1} | decision={2}{3} | reason={4}" -f $subj, $ln, $dec, $extra, [string]$d.reason)
+    }
+    $rest = $allDecisions.Count - $shownD.Count
+    if ($rest -gt 0) { Write-Host "- 另有 $rest 条 decision" }
+    Write-Host ''
+  }
   Write-Host '建议下一步：'
   $open = @(Get-RekitOpenBoardLanes -Board $board)
   if ($open.Count -eq 1) {
@@ -189,159 +251,89 @@ function Invoke-RekitStart {
   Write-Host "继续此支线：/rekit continue $(Get-RekitWorkstreamLabel -Lane $lane)"
 }
 
-function Get-RekitLatestRunDigestPath {
-  param([Parameter(Mandatory=$true)][string]$CaseRoot)
-  $paths = Get-RekitBoardPaths -CaseRoot $CaseRoot
-  if (-not (Test-Path -LiteralPath $paths.Runs)) { return '' }
-  $latest = Get-ChildItem -LiteralPath $paths.Runs -Directory | Sort-Object Name -Descending | Select-Object -First 1
-  if ($null -eq $latest) { return '' }
-  $digest = Join-Path $latest.FullName 'digest.md'
-  if (Test-Path -LiteralPath $digest) { return $digest }
-  return ''
-}
 
-function Write-RekitProjectHandoff {
-  param(
-    [Parameter(Mandatory=$true)][string]$CaseRoot,
-    [Parameter(Mandatory=$true)]$Board,
-    [Parameter(Mandatory=$true)]$Manifest,
-    [Parameter(Mandatory=$true)][string]$Pack,
-    [Parameter(Mandatory=$true)][string]$Handovers,
-    [Parameter(Mandatory=$true)][string]$Stamp
-  )
-  $handoffPath = Join-Path $Handovers ($Stamp + '.md')
-  $latestPath = Join-Path $Handovers 'latest.md'
-  $handoffRel = Get-RekitHandoffPath -Manifest $Manifest
-  $taskHandoff = if ([string]::IsNullOrWhiteSpace($handoffRel)) { '' } else { Join-RekitPath -Root $CaseRoot -RelativePath $handoffRel }
-  $latestDigest = Get-RekitLatestRunDigestPath -CaseRoot $CaseRoot
-  $lines = New-Object System.Collections.Generic.List[string]
-  $lines.Add('# rekit 项目接手索引')
-  $lines.Add('')
-  $lines.Add("生成时间：$(New-RekitIsoTime)")
-  $lines.Add("case：$CaseRoot")
-  $lines.Add("pack：$Pack")
-  $lines.Add('')
-  $lines.Add('## 说明')
-  $lines.Add('')
-  $lines.Add('这是项目级索引，不代表某个会话已经选择主线或支线。新会话应先选择要接手的工作线。')
-  $lines.Add('')
-  $lines.Add('## 推荐读取')
-  $lines.Add('')
-  if (-not [string]::IsNullOrWhiteSpace($taskHandoff) -and (Test-Path -LiteralPath $taskHandoff)) { $lines.Add('- `' + (Join-RekitRelativePath -Root $CaseRoot -Path $taskHandoff) + '`：case 长期主线 handoff。') }
-  if (-not [string]::IsNullOrWhiteSpace($latestDigest)) { $lines.Add('- `' + (Join-RekitRelativePath -Root $CaseRoot -Path $latestDigest) + '`：最近一次自动整理摘要。') }
-  $lines.Add('')
-  $lines.Add('## 工作线')
-  $lines.Add('')
-  foreach ($lane in @($Board.lanes)) {
-    $laneFull = Read-RekitLane -CaseRoot $CaseRoot -LaneId ([string]$lane.id)
-    if ($null -eq $laneFull) { continue }
-    $resume = Write-RekitLaneResume -CaseRoot $CaseRoot -LaneId ([string]$laneFull.id)
-    $kind = if ($laneFull.authority) { '主线' } else { '功能支线' }
-    $label = Get-RekitWorkstreamLabel -Lane $laneFull
-    $lines.Add(('- {0} `{1}`：status={2}，workspace=`{3}`' -f $kind, $laneFull.id, $laneFull.status, $laneFull.workspace))
-    $lines.Add(('  - 接手：`/rekit continue {0}`' -f $label))
-    $lines.Add(('  - 指定交接：`/rekit handoff {0}`' -f $label))
-    $lines.Add(('  - 接续提示：`{0}`' -f (Join-RekitRelativePath -Root $CaseRoot -Path $resume)))
-  }
-  $lines.Add('')
-  $lines.Add('## 注意边界')
-  $lines.Add('')
-  $lines.Add('- 主线负责最终结论写入；功能支线只写自己的工作区、证据、候选和请求。')
-  if (-not [string]::IsNullOrWhiteSpace($handoffRel)) { $lines.Add('- 本索引不会覆盖 `' + $handoffRel + '`，只引用它。') }
-  $lines.Add('- 多工作线时不要使用无参数 `/rekit continue` 盲目继续，应使用 `/rekit continue main` 或 `/rekit continue <name>`。')
-  $text = ($lines -join "`r`n") + "`r`n"
-  [System.IO.File]::WriteAllText($handoffPath, $text, [System.Text.UTF8Encoding]::new($false))
-  [System.IO.File]::WriteAllText($latestPath, $text, [System.Text.UTF8Encoding]::new($false))
-  return $latestPath
-}
-
-function Write-RekitLaneHandoff {
-  param(
-    [Parameter(Mandatory=$true)][string]$CaseRoot,
-    [Parameter(Mandatory=$true)]$Lane,
-    [Parameter(Mandatory=$true)]$Manifest,
-    [Parameter(Mandatory=$true)][string]$Pack,
-    [Parameter(Mandatory=$true)][string]$Handovers,
-    [Parameter(Mandatory=$true)][string]$Stamp
-  )
-  $laneId = [string]$Lane.id
-  $handoffPath = Join-Path $Handovers ($laneId + '-' + $Stamp + '.md')
-  $latestPath = Join-Path $Handovers ($laneId + '-latest.md')
-  $resume = Write-RekitLaneResume -CaseRoot $CaseRoot -LaneId $laneId
-  $latestDigest = Get-RekitLatestRunDigestPath -CaseRoot $CaseRoot
-  $lines = New-Object System.Collections.Generic.List[string]
-  $kind = if ($Lane.authority) { '主线' } else { '功能支线' }
-  $label = Get-RekitWorkstreamLabel -Lane $Lane
-  $lines.Add("# rekit 工作线接手：$laneId")
-  $lines.Add('')
-  $lines.Add("生成时间：$(New-RekitIsoTime)")
-  $lines.Add("case：$CaseRoot")
-  $lines.Add("pack：$Pack")
-  $lines.Add("类型：$kind")
-  $lines.Add("状态：$($Lane.status)")
-  $lines.Add("工作区：$($Lane.workspace)")
-  $lines.Add('')
-  $lines.Add('## 新会话开场')
-  $lines.Add('')
-  $lines.Add(("直接说：按 `{0}` 接手，然后执行 `/rekit continue {1}`。" -f (Join-RekitRelativePath -Root $CaseRoot -Path $latestPath), $label))
-  $lines.Add('')
-  $lines.Add('## 推荐读取')
-  $lines.Add('')
-  $lines.Add('- `' + (Join-RekitRelativePath -Root $CaseRoot -Path $resume) + '`：本工作线接续提示。')
-  if ([bool]$Lane.authority) {
-    $handoffRel = Get-RekitHandoffPath -Manifest $Manifest
-    if (-not [string]::IsNullOrWhiteSpace($handoffRel)) {
-      $taskHandoff = Join-RekitPath -Root $CaseRoot -RelativePath $handoffRel
-      if (Test-Path -LiteralPath $taskHandoff) { $lines.Add('- `' + (Join-RekitRelativePath -Root $CaseRoot -Path $taskHandoff) + '`：case 长期主线 handoff。') }
-    }
-  }
-  if (-not [string]::IsNullOrWhiteSpace($latestDigest)) { $lines.Add('- `' + (Join-RekitRelativePath -Root $CaseRoot -Path $latestDigest) + '`：最近一次自动整理摘要。') }
-  $lines.Add('')
-  $lines.Add('## 边界')
-  $lines.Add('')
-  if ([bool]$Lane.authority) {
-    $lines.Add('- 这是主线；可以维护最终结论、验证和长期 handoff。')
-  } else {
-    $lines.Add('- 这是功能支线；只写自己的 workspace、证据、候选和 request。')
-  }
-  $lines.Add('- 不并发写 IDB 注释/rename/type；不把完整 trace、disasm、decompile、dump 内容复制进 Markdown。')
-  $text = ($lines -join "`r`n") + "`r`n"
-  [System.IO.File]::WriteAllText($handoffPath, $text, [System.Text.UTF8Encoding]::new($false))
-  [System.IO.File]::WriteAllText($latestPath, $text, [System.Text.UTF8Encoding]::new($false))
-  return $latestPath
-}
-
-function Write-RekitHandoff {
+function Invoke-RekitNote {
+  <#
+    Internal command: append a single fact event to .rekit/facts/*.jsonl. Lets the main agent persist
+    observation/candidate/request/publication/decision without the continue auto flow. Append-only,
+    dedups by eventId, does not write authority files or kit templates.
+    Args: -Kind <observation|candidate|request|publication|decision> -Lane <id> [-Subject ...] [-Summary ...]
+          [-Confidence low|medium|high] [-Decision confirm|reject|defer|supersede] [-Reason ...] [-Status ...]
+          [-EvidenceRefs id1,id2]
+  #>
   param(
     [Parameter(Mandatory=$true)][string]$Target,
     [Parameter(Mandatory=$true)][string]$RepoRoot,
     [string]$Pack = 'vmp-re',
-    [string[]]$ActionArgs = @(),
+    [string]$Kind = '',
+    [string]$Lane = '',
+    [string]$Subject = '',
+    [string]$Summary = '',
+    [string]$Actor = '',
+    [string]$Risk = '',
+    [string]$Related = '',
+    [string]$Confidence = '',
+    [string]$Decision = '',
+    [string]$Reason = '',
+    [string]$Status = '',
+    [string]$TargetRef = '',
+    [string]$Verifier = '',
+    [string]$Verdict = '',
+    [string]$Action = '',
+    [string]$ApprovedBy = '',
+    [string]$Scope = '',
+    [string]$Expires = '',
+    [string]$EvidenceRefs = '',
+    [switch]$List,
     [switch]$WhatIf
   )
   $caseRoot = [System.IO.Path]::GetFullPath($Target)
-  $selector = Get-RekitActionSelector -ActionArgs $ActionArgs
+  [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
+  $validKinds = @('observation','candidate','request','publication','decision','hypothesis','verification','intervention','rollback')
+  if ($List) {
+    $paths = Get-RekitBoardPaths -CaseRoot $caseRoot
+    $kindsToList = if ([string]::IsNullOrWhiteSpace($Kind)) { $validKinds } else { @($Kind) }
+    $hasFilter = $false
+    foreach ($k in $kindsToList) { if ($validKinds -notcontains $k) { throw "invalid note kind: $k" } }
+    $maxRows = 20
+    foreach ($k in $kindsToList) {
+      $file = Get-RekitFactFilePath -Paths $paths -Kind $k
+      $items = @(Read-RekitJsonLines -Path $file)
+      if (-not [string]::IsNullOrWhiteSpace($Lane)) { $items = @($items | Where-Object { [string]$_.lane -eq $Lane }); $hasFilter = $true }
+      if ($items.Count -eq 0) { continue }
+      Write-Host "[$k] ($($items.Count) 条)"
+      $shown = @($items | Select-Object -Last $maxRows)
+      foreach ($it in $shown) {
+        $subj = [string]$it.subject; if ([string]::IsNullOrWhiteSpace($subj)) { $subj = [string]$it.kind }
+        $ln = [string]$it.lane
+        $extra = ''
+        if ($k -eq 'candidate') { $extra = " | confidence=$([string]$it.confidence) | status=$([string]$it.status) | risk=$([string]$it.risk)" }
+        if ($k -eq 'decision') { $dec = [string]$it.decision; if ([string]::IsNullOrWhiteSpace($dec)) { $dec = [string]$it.action }; $by = [string]$it.confirmedBy; if ([string]::IsNullOrWhiteSpace($by)) { $by = [string]$it.actor }; $extra = " | decision=$dec | by=$by" }
+        if ($k -eq 'request') { $extra = " | status=$([string]$it.status)" }
+        if ($k -eq 'verification') { $extra = " | verifier=$([string]$it.verifier) | verdict=$([string]$it.verdict) | target=$([string]$it.target)" }
+        if ($k -eq 'intervention') { $extra = " | action=$([string]$it.action) | approvedBy=$([string]$it.approvedBy) | scope=$([string]$it.scope)" }
+        Write-Host ("- {0} | lane={1}{2}" -f $subj, $ln, $extra)
+      }
+      $rest = $items.Count - $shown.Count
+      if ($rest -gt 0) { Write-Host "- 另有 $rest 条 $k" }
+      Write-Host ''
+    }
+    return
+  }
+  if ([string]::IsNullOrWhiteSpace($Kind)) { throw 'note requires -Kind observation|candidate|request|publication|decision|hypothesis|verification|intervention|rollback' }
+  if ([string]::IsNullOrWhiteSpace($Lane)) { throw 'note requires -Lane <lane id>' }
+  if ($validKinds -notcontains $Kind) { throw "invalid note kind: $Kind" }
+  $refs = @(Split-RekitScalarList $EvidenceRefs)
   if ($WhatIf) {
-    [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
-    if ([string]::IsNullOrWhiteSpace($selector)) { Write-Host 'would write project handoff index: .rekit/handovers/latest.md' } else { Write-Host "would write workstream handoff: $selector" }
+    Write-Host "would append $Kind event to lane=$Lane subject=$Subject"
     return
   }
-  $board = Ensure-RekitBoard -CaseRoot $caseRoot -RepoRoot $RepoRoot -Pack $Pack -CreateDefaultLane
-  $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
-  $paths = Get-RekitBoardPaths -CaseRoot $caseRoot
-  $handovers = Join-Path $paths.Root 'handovers'
-  Ensure-RekitDirectory $handovers
-  $stamp = New-RekitBoardTimestamp
-  if ([string]::IsNullOrWhiteSpace($selector)) {
-    $path = Write-RekitProjectHandoff -CaseRoot $caseRoot -Board $board -Manifest $manifest -Pack $Pack -Handovers $handovers -Stamp $stamp
-    Write-Host "项目级接手索引：$(Join-RekitRelativePath -Root $caseRoot -Path $path)"
-    return
+  $board = Ensure-RekitBoard -CaseRoot $caseRoot -RepoRoot $RepoRoot -Pack $Pack
+  $result = Add-RekitFactEvent -CaseRoot $caseRoot -Kind $Kind -Lane $Lane -Subject $Subject -Summary $Summary -Actor $Actor -Risk $Risk -Related $Related -Confidence $Confidence -Decision $Decision -Reason $Reason -Status $Status -Target $TargetRef -Verifier $Verifier -Verdict $Verdict -Action $Action -ApprovedBy $ApprovedBy -Scope $Scope -Expires $Expires -EvidenceRefs $refs -Board $board
+  if ($result.Applied) {
+    Write-Host "已记录 $Kind 事件：$($result.EventId)"
+    Write-Host "账本：$($result.Path)"
+  } else {
+    Write-Host "跳过 $Kind 事件：$($result.EventId)（$($result.Reason)）"
   }
-  $lane = Resolve-RekitWorkstreamSelector -CaseRoot $caseRoot -Board $board -Selector $selector
-  if ($null -eq $lane) {
-    Write-RekitWorkstreamChoices -Board $board -Prefix "找不到工作线：$selector"
-    throw "unknown workstream selector: $selector"
-  }
-  $path = Write-RekitLaneHandoff -CaseRoot $caseRoot -Lane $lane -Manifest $manifest -Pack $Pack -Handovers $handovers -Stamp $stamp
-  Write-Host "工作线接手文档：$(Join-RekitRelativePath -Root $caseRoot -Path $path)"
 }

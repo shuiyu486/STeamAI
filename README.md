@@ -16,6 +16,7 @@
 - pack 编写指南：`docs/pack-authoring.md`（新 pack 可从 `packs/_template/` 复制）
 - evidence / intervention 账本草案：`docs/evidence-ledger.md`
 - 半自动 orchestration 计划：`docs/orchestration-plan.md`
+- Agent Team rollout 计划：`docs/agent-team-rollout-plan.md`
 - VMP/RE Agent Team 工作方式：`packs/vmp-re/references/vmp-re/agent-driven-re.md`
 - sync/promote 机制：`docs/promote-sync.md`
 - case 迁移说明：`docs/case-migration.md`

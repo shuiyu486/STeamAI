@@ -21,3 +21,11 @@
 ## 子 agent 结果沉淀
 
 主 agent 只把合并后的结论、deferred 列表和下一步写入 handoff。子 agent 原始长输出不进入 handoff。
+
+## workspace packet 引用
+
+工作线 handoff 应列出当前 open candidate / defer 的 packet 文件路径（扫描 lane workspace 内 packet `.md`），让新会话只读 handoff 即可定位已产出证据，不必重跑。packet 文件路径相对 case root。
+
+## decision event 引用
+
+工作线 handoff `## decision` 区段应列本 lane latest N 条 decision event 摘要（`subject + decision + by + reason`），从 `.rekit/facts/decisions.jsonl` 读取。decision event schema 见 `docs/evidence-ledger.md`（`decision: accept|reject|defer|supersede`、`confirmedBy`、`writes`）。`by` 字段展示 `confirmedBy` 优先、fallback `actor`。`## pending-gate` 区段列本 lane `status=pending-gate` 的 request，供 heavy-tool gate 可见。

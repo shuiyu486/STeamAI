@@ -1,5 +1,7 @@
 # Review-first writes and user confirmation
 
+本文件偏**流程**（先 review 再 write、确认语义）；什么能写、子 agent 默认只读等**边界**规则见 `write-boundaries.md`。两者配合：边界决定是否需要审查，流程决定审查如何进行。
+
 目标：所有可能覆盖、删除、回流模板、发布或影响外部状态的动作，都先生成可审查事实，再由 Claude 说明优劣和风险，最后等待用户明确确认。
 
 ## 基本规则

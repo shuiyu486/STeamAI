@@ -169,7 +169,7 @@ function Assert-RekitJsonLinesValid {
 function Test-RekitWorkstreamState {
   param([Parameter(Mandatory=$true)][string]$CaseRoot)
   $paths = Get-RekitBoardPaths -CaseRoot $CaseRoot
-  foreach ($file in @($paths.Observations,$paths.Candidates,$paths.Requests,$paths.Publications,$paths.Decisions)) { Assert-RekitJsonLinesValid -Path $file }
+  foreach ($file in @($paths.Observations,$paths.Candidates,$paths.Requests,$paths.Publications,$paths.Decisions,$paths.Hypotheses,$paths.Verifications,$paths.Interventions,$paths.Rollbacks)) { Assert-RekitJsonLinesValid -Path $file }
   if (Test-Path -LiteralPath $paths.Board) {
     Assert-RekitJsonFileValid -Path $paths.Board
     $board = Read-RekitJsonFile -Path $paths.Board

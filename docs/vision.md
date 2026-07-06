@@ -30,6 +30,7 @@
 - [ ] Phase 4：工具适配与候选工具路由。
 - [ ] Phase 5：证据账本与 intervention 模型增强。
 - [ ] Phase 6：半自动 Agent Team runtime / orchestration。
+- [ ] Agent Team rollout（选项 C：契约 dry-run 优先）：见 `docs/agent-team-rollout-plan.md`，先压测契约再按真实缺口决定 Phase 5/6 顺序。
 
 每个阶段都应按“小步可验证”落地：先文档契约，再 case-local 试用，再 runtime 自动化，最后才抽象为跨 pack 能力。
 
@@ -368,4 +369,5 @@ packs/<pack>/
 4. 已完成草案：细化 `.rekit/facts/*.jsonl` 事件类型，见 `docs/evidence-ledger.md`。
 5. 已完成草案：为未来 pack 写 `docs/pack-authoring.md`，降低新增 pack 的成本。
 6. 已完成草案：写 `docs/orchestration-plan.md`，定义半自动 Agent Team runtime 的实施边界。
-7. 后续批次按 `docs/batch-plan.md` 推进；下一批优先评估是否创建 `packs/_template/`，以及是否单独修复既有 `B3.Lane.ps1` PowerShell 解析问题。
+7. `packs/_template/` pack 骨架与 `B3.Lane.ps1` PowerShell 解析问题已完成；后续按 `docs/batch-plan.md` 与 `docs/agent-team-rollout-plan.md` §4-§5 推进。
+8. Agent Team rollout 按 `docs/agent-team-rollout-plan.md` 推进：先 R0-R2 契约 dry-run 压测，再在 R3 决策门决定 ledger runtime（Phase 5）与 bounded dispatch（Phase 6）顺序。

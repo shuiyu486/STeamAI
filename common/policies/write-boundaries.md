@@ -1,5 +1,7 @@
 # Write boundaries and external side effects
 
+本文件偏**边界**（什么能写、主/子 agent 写权限、外部副作用分级）；需要审查的写入如何走 review 流程见 `review-first.md`。两者配合：边界决定是否需要审查，流程决定审查如何进行。
+
 目标：把可逆的本地编辑、难以恢复的本地改动、外部动作清晰区分，避免误写、误删或误发布。
 
 ## 默认边界

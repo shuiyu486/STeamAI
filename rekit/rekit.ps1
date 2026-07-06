@@ -1,7 +1,7 @@
 [CmdletBinding(PositionalBinding=$false)]
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','start','handoff')]
+  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','start','handoff','note')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -39,6 +39,7 @@ $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot '..'))
 . (Join-Path $RuntimeRoot 'lib\B3.Policy.ps1')
 . (Join-Path $RuntimeRoot 'lib\B3.Lane.ps1')
 . (Join-Path $RuntimeRoot 'lib\B3.Auto.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.Handoff.ps1')
 . (Join-Path $RuntimeRoot 'lib\B3.Commands.ps1')
 
 function Resolve-RekitTarget {
@@ -85,6 +86,28 @@ switch ($Command) {
   'handoff' {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
     Write-RekitHandoff -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -WhatIf:$WhatIf
+  }
+  'note' {
+    $caseRoot = Resolve-RekitTarget $Target
+    $noteParams = @{ Target = $caseRoot; RepoRoot = $RepoRoot; Pack = $Pack; WhatIf = $WhatIf }
+    $noteArgs = @($RemainingArgs)
+    for ($i = 0; $i -lt $noteArgs.Count; $i++) {
+      $token = [string]$noteArgs[$i]
+      if ($token -like '-*=*') {
+        $eq = $token.IndexOf('=')
+        $name = $token.Substring(1, $eq - 1)
+        $value = $token.Substring($eq + 1)
+        $noteParams[$name] = $value
+      } elseif ($token.StartsWith('-')) {
+        $name = $token.Substring(1)
+        if (($i + 1) -lt $noteArgs.Count -and -not ([string]$noteArgs[$i+1]).StartsWith('-')) {
+          $noteParams[$name] = [string]$noteArgs[$i+1]; $i++
+        } else {
+          $noteParams[$name] = $true
+        }
+      }
+    }
+    Invoke-RekitNote @noteParams
   }
   'status' {
     $cwd = Resolve-RekitTarget $Target

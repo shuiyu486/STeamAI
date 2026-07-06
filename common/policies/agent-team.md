@@ -43,6 +43,7 @@ output_contract: evidence | candidate | review | request | handoff
 用于短证据摘要：
 
 ```yaml
+evidence_id: <stable-id>
 subject: <对象>
 evidence:
   - kind: source | trace | disasm | decompile | xref | tool-output | test
@@ -52,6 +53,8 @@ confidence: low | medium | high
 limitations:
   - <缺失、低样本、alias、未 cross-run 等>
 ```
+
+`evidence_id` 必填，供 candidate 的 `evidence_refs` 引用。
 
 ### Candidate packet
 
@@ -110,6 +113,26 @@ draft -> candidate -> review -> confirmed | rejected | superseded | needs_more_e
 - confirmed / authority 写入必须由 main agent 在 gate 通过后执行。
 - rejected / superseded 必须保留原因，避免后续重复走旧路。
 
+### Decision event
+
+每次 review 后 main agent 产出 decision event 持久化到 `.rekit/facts/decisions.jsonl`（即使手动写入也要对齐此格式）：
+
+```yaml
+event_id: <stable-id>
+kind: decision
+lane: <runtime 规范化后的 lane id>
+subject: <candidate-id 或对象>
+decision: confirm | reject | defer | supersede
+reason: <短理由>
+superseded_by: <新 candidate-id 或 null>
+status: confirmed | rejected | deferred | superseded
+evidence_refs:
+  - <evidence-id>
+created_at: <ISO 时间>
+```
+
+`status=deferred` 的 decision 仍要写入账本，让下一会话知道"为什么不再走旧路"。
+
 ## 必须询问用户的情况
 
 - confirmed / authority 写入、覆盖或删除。
@@ -117,6 +140,16 @@ draft -> candidate -> review -> confirmed | rejected | superseded | needs_more_e
 - runtime schema 迁移或破坏兼容性的 manifest 变更。
 - 需要扩大授权范围的架构取舍。
 - 工具运行成本、输出规模或风险明显超出当前 packet。
+
+## packet 文件与 facts event 的关系
+
+- **packet 文件**是 agent 产出物，写在 lane workspace（路径由 manifest `workstreamDefaults` 驱动，以 `/rekit start` 输出为准，不写死 `.rekit/lanes/<id>/workspace`）。
+- **facts event**是 runtime 从 packet 抽取的账本条目，append 到 `.rekit/facts/*.jsonl`，供 `overview` 聚合。
+- packet 是 source of truth；event 是 runtime 视图。当前 runtime 仅在 `continue` auto 流程中从 lane CSV/workspace 扫描生成 event，没有手动 append 单条 event 的入口；手动产出的 packet 暂不被 `overview` 计数（见 `docs/agent-team-rollout-plan.md` R3 决策门）。
+
+## lane id 规范化
+
+lane id 由 runtime 规范化（小写）。packet 字段中 `lane` 沿用 runtime 实际 id，不要用原始输入大小写。
 
 ## 维护要求
 

@@ -23,7 +23,7 @@
 2. **工具 adapter 策略**：IDA/调试器/trace 等工具先 recipe 化、candidate 化，再逐步 adapter 化，避免成为硬依赖或大输出源。
 3. **证据与门禁模型**：evidence ledger、batch/intervention、heavy-tool gate、人工确认和可回滚的审查流程。
 
-当前已经落地的是框架底座、文档契约、`/rekit` 工作线 runtime、review-first sync/promote、vmp-re pack 扩展和 tooling candidate；尚未落地的是完整自动 evidence ledger、真实 IDA bridge adapter、自动多 Agent dispatch 和自动脱壳/逆向引擎。
+当前已经落地的是框架底座、文档契约、`/rekit` 工作线 runtime、review-first sync/promote、vmp-re pack 扩展、tooling candidate，以及 evidence ledger runtime（`/rekit note` 手动 append 9 种 kind 事件 + overview/handoff/note-List 读层 + auto 流程 decision 字段对齐 `docs/evidence-ledger.md` 草案）；尚未落地的是 runtime 强制 heavy-tool gate、真实 IDA bridge adapter、自动多 Agent dispatch（R5 判定 runtime 不自动 spawn，由主会话用 Agent 工具完成）和自动脱壳/逆向引擎。
 
 ## 执行清单
 
@@ -34,10 +34,10 @@
 - [x] 将 `ida-agent-bridge` 作为 candidate tooling 记录，而非硬依赖。
 - [x] 增加 evidence/intervention ledger 草案。
 - [x] 增加 orchestration 计划和 pack authoring template。
-- [ ] 将 evidence ledger 从文档推进为 runtime append-only JSONL。
-- [ ] 将 heavy-tool gate 从文档推进为 runtime packet / confirmation flow。
+- [x] 将 evidence ledger 从文档推进为 runtime append-only JSONL（`/rekit note` + `Add-RekitFactEvent` 9 种 kind + overview/handoff/note-List 读层 + auto 流程 decision 字段对齐 `docs/evidence-ledger.md`，见 `docs/agent-team-rollout-plan.md` §4-§5）。
+- [ ] 将 heavy-tool gate 从文档推进为 runtime packet / confirmation flow（R6 已落 `packs/vmp-re/policies/verification.overlay.md` 用 `note -Kind request -Status pending-gate` 登记 gate 事件，runtime 不强制 gate，属 Phase 6 后段）。
 - [ ] 将 `ida-agent-bridge` 从 candidate tooling 推进为可选 adapter。
-- [ ] 将 bounded dispatch 从计划推进为可验证 runtime 功能。
+- [ ] 将 bounded dispatch 从计划推进为可验证 runtime 功能（R5 已判定 runtime 不扩，spawn 是主会话职责；`plan-subagents` + `note -Kind decision` 构成支撑）。
 - [ ] 扩展 `unpack-pe`、`ollvm`、`android-native` 等领域 pack。
 
 ## 验证标准
@@ -66,7 +66,7 @@ git diff --check
 
 - 外部参考只能作为设计来源，不能替代本项目的 manifest、runtime 和 pack 边界。
 - `ida-agent-bridge` 当前是 candidate，不是必装工具。
-- `clark-utov` 风格的 batch/ledger/intervention 当前主要落在文档和计划中，不能误导为 runtime 已完整实现。
+- `clark-utov` 风格的 batch/ledger/intervention 已从文档推进到 runtime ledger（`/rekit note` 9 种 kind + auto decision 字段对齐 `docs/evidence-ledger.md`），但 batch 模型（`batchId`/整体接受/回滚）与 intervention runtime 强制门禁仍未实现，不能误导为 runtime 已完整实现。
 - heavy trace、dynamic debug、inject、patch、dump、symex、网络/外部副作用仍必须用户确认。
 - confirmed / authority 写入仍必须经 evidence、verifier、schema、backup、diff、无冲突等 gate。
 
@@ -76,7 +76,7 @@ git diff --check
 |---|---|---|---|
 | 微信文章：Agent 化逆向经验 | 多 Agent 分工、上下文管理、人工确认、handoff、证据先行 | `docs/vision.md`、`docs/agent-team-usage.md`、`common/policies/agent-team.md`、`packs/vmp-re/references/vmp-re/agent-driven-re.md` | 已落地为工作方式和 policy；自动编排仍在计划中 |
 | `TsingShui/ida-agent-bridge` | IDA sidecar/bridge、短连接查询、function index、strings/imports/xref、避免全量输出 | `packs/vmp-re/tooling/catalog.yml`、`packs/vmp-re/tooling/recipes/ida-x64dbg-mcp.md`、`common/policies/tool-adapters.md` | 已作为 candidate tooling；未成为硬依赖 |
-| `clarkluoluo/clark-utov` | batch/ledger/intervention、agent-as-judge、轻到重门禁、可回滚记录 | `docs/evidence-ledger.md`、`docs/orchestration-plan.md`、`packs/vmp-re/references/vmp-re/toolchain-router.md`、`workflow-template.md` | 已落地为设计契约；runtime ledger/gate 待实现 |
+| `clarkluoluo/clark-utov` | batch/ledger/intervention、agent-as-judge、轻到重门禁、可回滚记录 | `docs/evidence-ledger.md`、`docs/orchestration-plan.md`、`packs/vmp-re/references/vmp-re/toolchain-router.md`、`workflow-template.md`、`rekit/lib/B3.State.ps1`（`Add-RekitFactEvent`）、`rekit/lib/B3.Auto.ps1`（`New-RekitDecision`） | 设计契约已落地；runtime ledger 9 种 kind + decision 字段已对齐草案，batch 模型与 intervention 强制门禁待实现 |
 
 ## 2. 微信文章方向：Agent 化逆向工作流
 
@@ -102,9 +102,9 @@ git diff --check
 
 ### 2.3 当前还没落地
 
-- 还没有自动调度多个子 agent 的完整 runtime。
-- 还没有机器强制的 candidate -> verified -> confirmed gate。
-- 还没有完整 evidence ledger runtime 写入。
+- 还没有自动调度多个子 agent 的完整 runtime（R5 判定 runtime 不自动 spawn，由主会话用 Agent 工具完成）。
+- 还没有机器强制的 candidate -> verified -> confirmed gate（runtime 不强制，靠 policy 契约 + `note` 手动落账）。
+- evidence ledger runtime 写入已落地（`/rekit note` 9 种 kind + auto 流程 decision 字段对齐草案），但 batch 模型与 intervention 强制门禁尚未实现。
 
 对应后续计划：`docs/orchestration-plan.md`、`docs/evidence-ledger.md`、`docs/batch-plan.md`。
 
@@ -154,7 +154,7 @@ git diff --check
 
 | 能力 | 落地位置 | 说明 |
 |---|---|---|
-| evidence / intervention ledger 草案 | `docs/evidence-ledger.md` | 定义 observation、hypothesis、candidate、verification、decision、intervention、rollback 等事件 |
+| evidence / intervention ledger 草案 | `docs/evidence-ledger.md`、`rekit/lib/B3.State.ps1`、`rekit/lib/B3.Auto.ps1` | 草案定义 9 种事件；runtime `Add-RekitFactEvent`/`New-RekitDecision` 已对齐草案字段（`schemaVersion`/`actor`/`risk`/`related`/`decision`/`confirmedBy`/`writes` + verification/intervention 扩展字段） |
 | orchestration 计划 | `docs/orchestration-plan.md` | 定义 Planner、Dispatcher、Gate、Digest、Ledger 分阶段实现 |
 | 轻到重路线 | `packs/vmp-re/references/vmp-re/workflow-template.md` | static triage -> I/O shape -> focused trace -> value-flow -> verifier -> confirmed |
 | heavy-tool gate | `toolchain-router.md`、`common/policies/tool-adapters.md` | 重型动作必须记录原因、预算、输出、止损和确认 |
@@ -162,8 +162,8 @@ git diff --check
 
 ### 4.3 当前还没落地
 
-- append-only ledger runtime 尚未实现。
-- intervention / rollback event 尚未由 `/rekit` 自动写入。
+- append-only ledger runtime 已落地（`/rekit note` 9 种 kind + auto 流程 decision），但 batch 模型（`batchId`/整体接受/回滚）尚未实现。
+- intervention / rollback event 可由 `/rekit note` 手动写入，但尚未由 `/rekit continue` auto 流程自动写入（auto 仅写 observation/request/candidate/publication/decision）。
 - agent-as-judge 尚未成为固定命令。
 - batch-level replay / resume 还处于设计阶段。
 
@@ -188,9 +188,9 @@ git diff --check
 
 | 能力 | 当前状态 | 下一步 |
 |---|---|---|
-| evidence ledger | 文档草案 | 设计 `.rekit/ledger/*.jsonl` runtime 写入 |
-| orchestration | 阶段计划 | 先增强 `plan-subagents`，再做 bounded dispatch |
-| heavy-tool gate runtime | 文档和 policy | 生成 gate packet，确认后才执行 tool recipe |
+| evidence ledger | runtime 已落地（`/rekit note` 9 种 kind + overview/handoff/note-List 读层 + auto decision 字段对齐草案） | 索引优化（SQLite 仅在查询压垮 runtime 时） |
+| orchestration | `plan-subagents` 只读计划器 + `note -Kind decision` verdict 写回（R5 判定 runtime 不自动 spawn） | 跨工具 adapter 实际调用属 Phase 6 后段 |
+| heavy-tool gate runtime | overlay 契约 + `note -Kind request -Status pending-gate` 登记（R6）；runtime 不强制 gate | Phase 6 后段 runtime 强制 gate |
 | tool adapter | policy + candidate | 为 `ida-agent-bridge` 做只读 index adapter |
 | 多 pack 扩展 | `_template` | 新增 `unpack-pe` / `ollvm` / `android-native` pack |
 
@@ -274,9 +274,9 @@ claude
    - 将现有临时 `init/attach/sync/promote` 验证整理成脚本或 CI 文档。
    - 风险低，能保护后续 runtime 改动。
 
-2. **ledger 最小实现**
-   - 增加 `.rekit/ledger/events.jsonl` 或 `.rekit/facts/events.jsonl`。
-   - 先只记录 observation/candidate/verification/decision，不做复杂查询。
+2. **ledger 最小实现**（已完成）
+   - `.rekit/facts/*.jsonl` 已落地 9 种 kind 文件（observation/hypothesis/candidate/verification/decision/intervention/rollback/publication/request）。
+   - `/rekit note` 手动 append + `/rekit continue` auto 流程写入；`overview`/`handoff`/`note -List` 读层聚合查询。
 
 3. **heavy-tool gate packet**
    - 增加只读命令或 helper，生成 heavy action request packet。

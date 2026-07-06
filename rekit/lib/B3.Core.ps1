@@ -82,6 +82,15 @@ function Join-RekitRelativePath {
     [Parameter(Mandatory=$true)][string]$Root,
     [Parameter(Mandatory=$true)][string]$Path
   )
-  $rel = [System.IO.Path]::GetRelativePath([System.IO.Path]::GetFullPath($Root), [System.IO.Path]::GetFullPath($Path))
-  return ($rel -replace '\\','/')
+  $rootFull = [System.IO.Path]::GetFullPath($Root)
+  $pathFull = [System.IO.Path]::GetFullPath($Path)
+  if ([string]::IsNullOrWhiteSpace($rootFull)) { return ($pathFull -replace '\\','/') }
+  $rootTrimmed = $rootFull.TrimEnd([char[]]@('\','/'))
+  if ($pathFull.Equals($rootTrimmed, [System.StringComparison]::OrdinalIgnoreCase)) { return '.' }
+  $prefix = $rootTrimmed + [System.IO.Path]::DirectorySeparatorChar
+  if ($pathFull.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    return (($pathFull.Substring($prefix.Length)) -replace '\\','/')
+  }
+  # Fallback: not under root, return full path normalized.
+  return ($pathFull -replace '\\','/')
 }

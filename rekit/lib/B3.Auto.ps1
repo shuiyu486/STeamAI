@@ -2,7 +2,7 @@
   param([Parameter(Mandatory=$true)][string]$CaseRoot)
   $paths = Get-RekitBoardPaths -CaseRoot $CaseRoot
   $ids = @{}
-  foreach ($file in @($paths.Observations,$paths.Candidates,$paths.Requests,$paths.Publications,$paths.Decisions)) {
+  foreach ($file in @($paths.Observations,$paths.Candidates,$paths.Requests,$paths.Publications,$paths.Decisions,$paths.Hypotheses,$paths.Verifications,$paths.Interventions,$paths.Rollbacks)) {
     foreach ($item in (Read-RekitJsonLines -Path $file)) {
       if ($item.PSObject.Properties['eventId'] -and -not [string]::IsNullOrWhiteSpace([string]$item.eventId)) { $ids[[string]$item.eventId] = $true }
     }
@@ -307,16 +307,38 @@ function New-RekitDecision {
     [string]$RunId = '',
     $Extra = $null
   )
+  # Map legacy action labels to draft decision enum (accept|reject|defer|supersede) per docs/evidence-ledger.md.
+  # auto-publish / auto-route / auto-apply-authority / auto-accept-shared -> accept; pending-user / defer -> defer.
+  $decisionMap = [ordered]@{
+    'auto-publish'          = 'accept'
+    'auto-route'            = 'accept'
+    'auto-apply-authority'  = 'accept'
+    'auto-accept-shared'    = 'accept'
+    'pending-user'          = 'defer'
+    'defer'                 = 'defer'
+  }
+  $decisionValue = if ($decisionMap.Contains($Action)) { $decisionMap[$Action] } else { 'defer' }
   $decision = [ordered]@{
+    schemaVersion = 1
     eventId = [string]$Event.eventId
-    kind = [string]$Event.kind
+    kind = 'decision'
     lane = [string]$Event.lane
-    action = $Action
+    subject = [string]$Event.subject
+    summary = [string]$Event.summary
+    decision = $decisionValue
+    confirmedBy = 'runtime'
     reason = $Reason
     runId = $RunId
     time = New-RekitIsoTime
   }
-  if ($null -ne $Extra) { $decision['extra'] = $Extra }
+  if ($null -ne $Extra) {
+    # authority append result carries file/backup/diff -> draft decision.writes
+    if ($Action -eq 'auto-apply-authority' -and $null -ne $Extra.AuthorityFile) {
+      $decision['writes'] = @([ordered]@{ file = [string]$Extra.AuthorityFile; backup = [string]$Extra.Backup; diff = [string]$Extra.Diff })
+    } else {
+      $decision['extra'] = $Extra
+    }
+  }
   return $decision
 }
 

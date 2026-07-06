@@ -69,7 +69,7 @@ policies:
       validate: true
   - id: tool-output
     path: tool-output.md
-    title: Tool output and large artifact handling
+    title: Tool output and large artifact handling (deprecated; merged into tool-adapters)
     lifecycle:
       sync: reference
       promote: review-only

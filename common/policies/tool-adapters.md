@@ -51,6 +51,19 @@ notes:
 
 禁止把完整 trace、完整 disasm、完整 decompile、完整 build log 粘进 Markdown。
 
+工具报告建议格式（写入 summary sidecar 或 packet）：
+
+```text
+command:
+output_path:
+summary:
+key_findings:
+errors:
+next_action:
+```
+
+能用脚本统计的不手工复制长表；需要 LLM 判断时先抽取小样本、摘要或 bounded diff。
+
 ## 重型工具门禁
 
 以下动作必须有明确原因、预算、输出位置和用户确认：

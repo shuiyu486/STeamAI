@@ -34,6 +34,8 @@
 
 ### O2：bounded dispatch 约定
 
+> **状态注：** 本节描述的"runtime 自动 bounded dispatch"已被 `docs/agent-team-rollout-plan.md` R5 否决——spawn 子 agent 是主会话/Claude Code 职责，不是 PowerShell runtime 职责。runtime 侧由 `plan-subagents`（输出分片计划）+ `note -Kind decision`（verdict 写回）构成支撑，真启 reviewer 由主会话用 Agent 工具完成。本节保留作为 Phase 6 后段（跨工具 adapter 实际调用）的设计参考，当前不按此自动 spawn。
+
 - 由主 agent 根据 packet 启动只读 reviewer。
 - reviewer 输出 `decision, confidence, evidence, risk, next_action`。
 - 主 agent 合并 accepted/rejected/deferred。
