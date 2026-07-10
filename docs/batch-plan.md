@@ -1184,3 +1184,35 @@ git diff --check
 ```
 
 验证结果：全部通过；init/bootstrap smoke 使用临时 case，验证后删除，不污染 kit 仓库。
+
+### Batch 40：G3.6 promote -CreateCandidates 迁移预研
+
+状态：已完成。
+
+目标：先固化 PowerShell `promote -CreateCandidates` 写入候选语义、sanitization 规则、阻断条件与 Go review parity 验证资产；本批不直接迁移 Go 写入路径，后续再评估是否实现 Go CLI 手动 `-CreateCandidates`。
+
+计划文档：`docs/promote-candidates-migration.md`。
+
+实施范围：
+
+- 固化 managed doc candidate、tooling sanitized candidate、deny pattern、case-specific pattern、index 写入和 cleanup 的基线。
+- 新增 `rekit/tests/promote-candidates-preflight-smoke.ps1`，用临时 case 验证 PowerShell `-WhatIf -CreateCandidates` baseline 与 Go promote review artifact / sanitized preview 对齐。
+- 验证 Go backend 仍拒绝 `promote -CreateCandidates`，PowerShell façade 即使启用 Go 也不委托写入命令。
+- 更新 Go migration 文档、batch plan 与 changelog。
+
+边界：不写 pack candidates，不执行 `promote -Apply`，不覆盖 pack managed docs，不写 authority/confirmed，不执行 heavy-tool/debug/inject/patch/dump/network，不纳入 PowerShell façade 委托安全集合。
+
+停止条件：sanitization 与 PowerShell baseline 无法对齐、preflight smoke 会残留 pack candidates、deny pattern 未能阻断 case-specific 内容、或需要改变 manifest/runtime schema。
+
+验证：
+
+```powershell
+go test ./...
+.\rekit\tests\promote-candidates-preflight-smoke.ps1
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过；preflight smoke 使用临时 case，验证后删除，不写 pack candidates，不污染 kit 仓库。
