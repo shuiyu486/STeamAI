@@ -305,6 +305,7 @@ function New-RekitDecision {
     [Parameter(Mandatory=$true)][string]$Action,
     [Parameter(Mandatory=$true)][string]$Reason,
     [string]$RunId = '',
+    [string]$BatchId = '',
     $Extra = $null
   )
   # Map legacy action labels to draft decision enum (accept|reject|defer|supersede) per docs/evidence-ledger.md.
@@ -318,6 +319,7 @@ function New-RekitDecision {
     'defer'                 = 'defer'
   }
   $decisionValue = if ($decisionMap.Contains($Action)) { $decisionMap[$Action] } else { 'defer' }
+  if ([string]::IsNullOrWhiteSpace($BatchId) -and $Event.PSObject.Properties['batchId']) { $BatchId = [string]$Event.batchId }
   $decision = [ordered]@{
     schemaVersion = 1
     eventId = [string]$Event.eventId
@@ -331,6 +333,7 @@ function New-RekitDecision {
     runId = $RunId
     time = New-RekitIsoTime
   }
+  if (-not [string]::IsNullOrWhiteSpace($BatchId)) { $decision['batchId'] = $BatchId }
   if ($null -ne $Extra) {
     # authority append result carries file/backup/diff -> draft decision.writes
     if ($Action -eq 'auto-apply-authority' -and $null -ne $Extra.AuthorityFile) {
@@ -423,12 +426,15 @@ function Invoke-RekitAuto {
   $policy = Get-RekitPolicy -CaseRoot $caseRoot -NoCreate:$WhatIf
   $paths = Get-RekitBoardPaths -CaseRoot $caseRoot
   $runId = 'run-' + (New-RekitBoardTimestamp)
+  $batchId = 'batch-' + $runId
   $runRoot = Join-Path $paths.Runs $runId
   if (-not $WhatIf) { Ensure-RekitDirectory $runRoot }
   $known = Get-RekitKnownEventIds -CaseRoot $caseRoot
   $summary = [ordered]@{ collected = 0; observations = 0; requests = 0; routed = 0; candidates = 0; acceptedCandidates = 0; publications = 0; authorityApplied = 0; pendingUser = 0; skipped = 0 }
   $digest = New-Object System.Collections.Generic.List[string]
   $digest.Add("# rekit continue digest：$runId")
+  $digest.Add('')
+  $digest.Add(('batchId: `{0}`' -f $batchId))
   $digest.Add('')
   if (-not [string]::IsNullOrWhiteSpace($FocusLaneId)) { $digest.Add(('focus lane: `{0}`' -f $FocusLaneId)); $digest.Add('') }
   foreach ($dir in (Get-RekitLaneDirectories -CaseRoot $caseRoot)) {
@@ -440,6 +446,7 @@ function Invoke-RekitAuto {
       $summary.collected++
       $event | Add-Member -NotePropertyName lane -NotePropertyValue $lane.id -Force
       if (-not $event.PSObject.Properties['time']) { $event | Add-Member -NotePropertyName time -NotePropertyValue (New-RekitIsoTime) -Force }
+      if (-not $event.PSObject.Properties['batchId'] -or [string]::IsNullOrWhiteSpace([string]$event.batchId)) { $event | Add-Member -NotePropertyName batchId -NotePropertyValue $batchId -Force }
       $kind = ([string]$event.kind).ToLowerInvariant()
       if ($WhatIf) {
         $digest.Add(('- would collect `{0}` from `{1}`: {2}' -f $kind, $lane.id, $event.summary))
@@ -483,7 +490,7 @@ function Invoke-RekitAuto {
           if (-not [string]::IsNullOrWhiteSpace($authority)) {
             $result = Invoke-RekitAuthorityAppend -CaseRoot $caseRoot -Manifest $manifest -Policy $policy -Event $event -RunRoot $runRoot
             if ($result.Applied) {
-              Add-RekitJsonLine -Path $paths.Publications -Object ([ordered]@{ eventId = [string]$event.eventId; kind = 'publication'; sourceLane = [string]$event.lane; summary = "authority append: $($result.AuthorityFile)"; authorityFile = $result.AuthorityFile; rows = $result.Rows; backup = $result.Backup; diff = $result.Diff; time = New-RekitIsoTime; runId = $runId })
+              Add-RekitJsonLine -Path $paths.Publications -Object ([ordered]@{ eventId = [string]$event.eventId; kind = 'publication'; sourceLane = [string]$event.lane; summary = "authority append: $($result.AuthorityFile)"; authorityFile = $result.AuthorityFile; rows = $result.Rows; backup = $result.Backup; diff = $result.Diff; time = New-RekitIsoTime; runId = $runId; batchId = $batchId })
               Add-RekitJsonLine -Path $paths.Decisions -Object (New-RekitDecision -Event $event -Action 'auto-apply-authority' -Reason 'passed authority append policy' -RunId $runId -Extra $result)
               $summary.authorityApplied += [int]$result.Rows
             } else {

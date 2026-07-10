@@ -1,0 +1,345 @@
+package gate
+
+import (
+	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+)
+
+type Options struct {
+	Action          string
+	Lane            string
+	Subject         string
+	Summary         string
+	Actor           string
+	Risk            string
+	TargetRef       string
+	BatchID         string
+	Scope           string
+	Budget          string
+	TriedLightSteps string
+	StopConditions  string
+}
+
+type Plan struct {
+	SchemaVersion        int          `json:"schemaVersion"`
+	Command              string       `json:"command"`
+	CaseRoot             string       `json:"caseRoot"`
+	RepoRoot             string       `json:"repoRoot"`
+	Pack                 string       `json:"pack"`
+	IsMutation           bool         `json:"isMutation"`
+	ReviewRequired       bool         `json:"reviewRequired"`
+	RequiresConfirmation bool         `json:"requiresConfirmation"`
+	EventPreview         EventPreview `json:"eventPreview"`
+	BlockedActions       []string     `json:"blockedActions"`
+	NextSteps            []string     `json:"nextSteps"`
+}
+
+type ApplyResult struct {
+	SchemaVersion int          `json:"schemaVersion"`
+	Command       string       `json:"command"`
+	CaseRoot      string       `json:"caseRoot"`
+	RepoRoot      string       `json:"repoRoot"`
+	Pack          string       `json:"pack"`
+	IsMutation    bool         `json:"isMutation"`
+	Applied       bool         `json:"applied"`
+	EventID       string       `json:"eventId"`
+	Path          string       `json:"path"`
+	Reason        string       `json:"reason,omitempty"`
+	Event         EventPreview `json:"event"`
+	NextSteps     []string     `json:"nextSteps"`
+}
+
+type EventPreview struct {
+	SchemaVersion int         `json:"schemaVersion"`
+	Kind          string      `json:"kind"`
+	Lane          string      `json:"lane"`
+	Subject       string      `json:"subject"`
+	Summary       string      `json:"summary"`
+	CreatedAt     string      `json:"createdAt,omitempty"`
+	Status        string      `json:"status"`
+	Actor         string      `json:"actor,omitempty"`
+	Risk          string      `json:"risk,omitempty"`
+	Target        string      `json:"target,omitempty"`
+	BatchID       string      `json:"batchId,omitempty"`
+	Gate          GateDetails `json:"gate"`
+	EventID       string      `json:"eventId,omitempty"`
+}
+
+type GateDetails struct {
+	Action                      string   `json:"action"`
+	Scope                       string   `json:"scope,omitempty"`
+	Budget                      string   `json:"budget,omitempty"`
+	TriedLightSteps             []string `json:"triedLightSteps,omitempty"`
+	StopConditions              []string `json:"stopConditions,omitempty"`
+	RequiresConfirmation        bool     `json:"requiresConfirmation"`
+	DeniedUntilUserConfirmation []string `json:"deniedUntilUserConfirmation"`
+}
+
+func PlanDryRun(repoRoot, caseRoot, pack string, opt Options) (Plan, error) {
+	inst, preview, blocked, err := buildPreview(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return Plan{}, err
+	}
+	return Plan{
+		SchemaVersion:        1,
+		Command:              "gate",
+		CaseRoot:             inst.CaseRoot,
+		RepoRoot:             repoRoot,
+		Pack:                 pack,
+		IsMutation:           false,
+		ReviewRequired:       true,
+		RequiresConfirmation: true,
+		EventPreview:         preview,
+		BlockedActions:       blocked,
+		NextSteps: []string{
+			"Record the pending-gate request in the ledger only if this preview is accepted.",
+			"Ask the user to confirm the exact action, target, scope, budget, and stop conditions.",
+			"Run the heavy tool only after that explicit confirmation; this dry-run is not approval.",
+			"After the tool run, append an observation event summarizing output path, findings, errors, and next action.",
+		},
+	}, nil
+}
+
+func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
+	if strings.TrimSpace(opt.Actor) == "" {
+		return ApplyResult{}, fmt.Errorf("gate -Apply requires -Actor <confirmed-by>; this records who approved writing the pending gate")
+	}
+	inst, preview, _, err := buildPreview(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	preview.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	preview.EventID = eventID(preview)
+	path := filepath.Join(inst.CaseRoot, ".rekit", "facts", "requests.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return ApplyResult{}, err
+	}
+	exists, err := eventIDExists(path, preview.EventID)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	result := ApplyResult{
+		SchemaVersion: 1,
+		Command:       "gate",
+		CaseRoot:      inst.CaseRoot,
+		RepoRoot:      repoRoot,
+		Pack:          pack,
+		IsMutation:    true,
+		Applied:       false,
+		EventID:       preview.EventID,
+		Path:          relativeCasePath(inst.CaseRoot, path),
+		Event:         preview,
+		NextSteps: []string{
+			"Ask the user to confirm the exact action, target, scope, budget, and stop conditions before running the heavy tool.",
+			"This ledger write records a pending gate only; it is not heavy-tool approval.",
+			"After the tool run, append an observation event summarizing output path, findings, errors, and next action.",
+		},
+	}
+	if exists {
+		result.Reason = "duplicate eventId"
+		return result, nil
+	}
+	line, err := json.Marshal(preview)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	defer f.Close()
+	if _, err := f.Write(append(line, '\r', '\n')); err != nil {
+		return ApplyResult{}, err
+	}
+	result.Applied = true
+	return result, nil
+}
+
+func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instance, EventPreview, []string, error) {
+	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
+	if err != nil {
+		return instance.Instance{}, EventPreview{}, nil, err
+	}
+	action := strings.ToLower(strings.TrimSpace(opt.Action))
+	if action == "" {
+		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("gate requires -Action full-trace|debug|inject|patch|dump|network")
+	}
+	if !allowedAction(action) {
+		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("invalid gate action %q; allowed: full-trace,debug,inject,patch,dump,network", action)
+	}
+	lane := strings.TrimSpace(opt.Lane)
+	if lane == "" {
+		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("gate requires -Lane <lane id>")
+	}
+	if err := assertLane(caseRoot, lane); err != nil {
+		return instance.Instance{}, EventPreview{}, nil, err
+	}
+	subject := strings.TrimSpace(opt.Subject)
+	if subject == "" {
+		subject = action + " gate"
+	}
+	summary := strings.TrimSpace(opt.Summary)
+	if summary == "" {
+		summary = "Request user confirmation before running " + action
+	}
+	risk := strings.TrimSpace(opt.Risk)
+	if risk == "" {
+		risk = "high"
+	}
+	blocked := []string{action}
+	preview := EventPreview{
+		SchemaVersion: 1,
+		Kind:          "request",
+		Lane:          lane,
+		Subject:       subject,
+		Summary:       summary,
+		Status:        "pending-gate",
+		Actor:         strings.TrimSpace(opt.Actor),
+		Risk:          risk,
+		Target:        strings.TrimSpace(opt.TargetRef),
+		BatchID:       strings.TrimSpace(opt.BatchID),
+		Gate: GateDetails{
+			Action:                      action,
+			Scope:                       strings.TrimSpace(opt.Scope),
+			Budget:                      strings.TrimSpace(opt.Budget),
+			TriedLightSteps:             splitList(opt.TriedLightSteps),
+			StopConditions:              defaultStopConditions(splitList(opt.StopConditions)),
+			RequiresConfirmation:        true,
+			DeniedUntilUserConfirmation: blocked,
+		},
+	}
+	return inst, preview, blocked, nil
+}
+
+func allowedAction(action string) bool {
+	switch action {
+	case "full-trace", "debug", "inject", "patch", "dump", "network":
+		return true
+	default:
+		return false
+	}
+}
+
+type boardFile struct {
+	Lanes []struct {
+		ID string `json:"id"`
+	} `json:"lanes"`
+}
+
+func assertLane(caseRoot, lane string) error {
+	path := filepath.Join(caseRoot, ".rekit", "board.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("gate requires .rekit/board.json to validate lane: %s", path)
+		}
+		return err
+	}
+	var board boardFile
+	if err := json.Unmarshal(b, &board); err != nil {
+		return fmt.Errorf("invalid board json: %w", err)
+	}
+	known := []string{}
+	for _, item := range board.Lanes {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		known = append(known, id)
+		if strings.EqualFold(id, lane) {
+			return nil
+		}
+	}
+	if len(known) == 0 {
+		return fmt.Errorf("gate requires at least one lane in .rekit/board.json")
+	}
+	return fmt.Errorf("unknown lane %q; known: %s", lane, strings.Join(known, ","))
+}
+
+func splitList(value string) []string {
+	parts := strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' || r == '\n' })
+	out := []string{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func defaultStopConditions(items []string) []string {
+	if len(items) > 0 {
+		return items
+	}
+	return []string{
+		"budget exhausted",
+		"scope no longer matches the approved question",
+		"tool output becomes too large for a bounded evidence packet",
+	}
+}
+
+func eventID(event EventPreview) string {
+	seed := strings.Join([]string{
+		event.Kind,
+		event.Lane,
+		event.Subject,
+		event.Summary,
+		event.Actor,
+		event.Risk,
+		event.Target,
+		event.BatchID,
+		event.Gate.Action,
+		event.Gate.Scope,
+		event.Gate.Budget,
+		strings.Join(event.Gate.TriedLightSteps, ","),
+		strings.Join(event.Gate.StopConditions, ","),
+	}, "|")
+	sum := sha256.Sum256([]byte(seed))
+	return "evt-" + hex.EncodeToString(sum[:])[:16]
+}
+
+func eventIDExists(path, id string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var item struct {
+			EventID string `json:"eventId"`
+		}
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			continue
+		}
+		if item.EventID == id {
+			return true, nil
+		}
+	}
+	return false, scanner.Err()
+}
+
+func relativeCasePath(caseRoot, path string) string {
+	rel, err := filepath.Rel(caseRoot, path)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
+}

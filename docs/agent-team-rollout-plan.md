@@ -6,16 +6,17 @@
 - 维护者开始新批次前先读本文件顶部：读取指南、实施摘要、执行清单、验证标准、风险与注意事项，再按批次读细节。
 - 本文件只写计划与契约压测方法，不替代 `common/policies/agent-team.md` 和 `common/policies/subagents.md` 的契约定义。
 - 推进姿态为 **选项 C：契约 dry-run + 临时 case 验证优先**。先压测契约，再按真实缺口决定 ledger runtime（Phase 5）与 bounded dispatch（Phase 6）的顺序。
-- 当前状态：`/rekit status` 与 `/rekit doctor` 通过；Go runtime G1/G2 skeleton 存在但未接入 façade；`plan-subagents` 仍是只读计划器。R0-R7 已完成：`.rekit/facts/*.jsonl` 由 `note` 命令 + `Add-RekitFactEvent` 支撑手动 append/聚合/查询，`overview` 展示未决/pending-gate/最近 decision，`handoff` 引用 decision event；`continue` auto 流程仍写 `.rekit/runs/<run-id>/digest.md`。后续按本文件 §4（B 系列）与 §5（C 系列）推进 ledger schema 对齐与架构治理。
+- 当前状态：PowerShell `/rekit` 仍是公共入口；R0-R7、B/C 系列、D2-D4、Go G1/G2/G2.1/G2.2/G2.3 已完成。Ledger runtime 支持 9 种 kind、`batchId`、overview/handoff/note-List 读层和 intervention/rollback 展示闭环；`continue` auto 流程写 `.rekit/runs/<run-id>/digest.md`。Go backend 可手动输出 `sync/promote` review plan/artifacts 和 gate preview/request，但未默认接入 façade；`plan-subagents` 仍是只读计划器。后续聚焦 D5/D6、bounded dispatch/gate enforcement、Go façade 显式开关与低风险迁移。
 
 ## 实施摘要
 
-Agent Team 当前真实状态是**契约层完整、运行编排层基本没搭**：
+Agent Team 当前真实状态是**契约层完整、ledger/runtime 基础已落地、自动编排与强制 gate 仍待推进**：
 
 - 已固化：`common/policies/agent-team.md`（角色 + packet + 状态流）、`common/policies/subagents.md`（L1/L2/L3 + output contract）、manifest `subagentRoutes`、`B3` 工作线 runtime、vmp-re pack、`_template` pack。
-- 未落地：bounded dispatch（`plan-subagents` 不启动 agent）、evidence ledger runtime（`facts/*.jsonl` 只在草案）、heavy-tool gate runtime、run digest、reviewer/verifier 实际 spawn 路径。
+- 已落地：PowerShell ledger runtime（9 种 kind、batchId、overview/handoff/note-List、run digest）、sync/promote review-first、Go review-only plan/artifacts、Go gate dry-run 与 pending-gate request 写入。
+- 未落地：bounded dispatch 自动 spawn、candidate → verified → confirmed 的机器强制 gate、真实 heavy-tool 执行闭环、PowerShell façade 默认委托 Go。
 
-本计划不直接补 runtime，而是先用临时 case 端到端 dry-run 一次 main → feature → reviewer → confirmed 全流程，压测 packet schema 与 output contract 是否够用，把缺口写回 policy；再按 dry-run 暴露的真实需求分批做 ledger runtime 与 bounded dispatch。
+本计划先用临时 case 端到端 dry-run 压测 main → feature → reviewer → confirmed 全流程，再按 dry-run 暴露的真实需求分批做 ledger runtime、gate 与 bounded dispatch。当前文档保留历史批次记录，新批次以顶部当前状态和 `docs/batch-plan.md` 最新 batch 为准。
 
 ## 执行清单
 
@@ -53,10 +54,10 @@ R4-R6（runtime 切片阶段，按 R3 决定激活）：
 - **dry-run 不执行真实 heavy-tool 动作**：full trace、动态调试、注入、patch、dump、网络、外部副作用一律 dry-run 或 mock，不碰真实样本。
 - **不绕过 review-first**：sync/promote 仍默认 review；confirmed/authority 写入仍需人工确认；dry-run 中的 "confirmed" 只写临时 case workspace，不写 kit 模板。
 - **不复制 runtime 逻辑到 case shim**：case-local `/rekit` 保持 thin shim。
-- **Go runtime 不强行接入**：R4-R6 仍以 PowerShell runtime 为准；Go façade 委托等 G2.1 parity 与 smoke test 足够后再开显式开关。
+- **Go runtime 不强行接入**：R4-R6 仍以 PowerShell runtime 为准；G2.1 artifact parity 已完成，但 Go façade 委托仍需显式开关和 smoke test，不默认启用。
 - **R3 是决策门，不是自动推进**：dry-run 结果可能指向 ledger 优先、dispatch 优先、或两者并行；必须显式记录决策理由，不能默认全做。
 - **schema 改动走文档先**：packet schema 缺口先回写 policy 文档，再考虑 runtime 校验；不在 dry-run 阶段做 schema 迁移。
-- **批次写回**：每批完成后回写本文件、`docs/batch-plan.md`、`CHANGELOG.md` 与 `docs/vision.md` 执行清单，不能只留在聊天上下文。
+- **批次写回**：每批完成后回写本文件、`docs/batch-plan.md`、`CHANGELOG.md` 与 `docs/vision.md` 执行清单；后续所有实施计划必须先落到文档，并随代码提交推送到远程 `main`，不能只留在聊天上下文。
 
 ## 1. 当前 Agent Team 状态评估
 
@@ -69,16 +70,16 @@ R4-R6（runtime 切片阶段，按 R3 决定激活）：
 | 工作线 runtime | `rekit/lib/B3.*.ps1` | manifest 驱动主线/支线/authorityFiles/handoff；`status`/`doctor`/`overview`/`continue`/`start`/`handoff` 可跑 |
 | pack 领域层 | `packs/vmp-re/**`、`packs/_template/**` | workflow-template、toolchain-router、tooling recipes、policy overlay 齐全且通过 budget 校验 |
 | sync/promote review-first | `rekit/lib/Sync.ps1`、`Promote.ps1`、`Review.ps1` | review packet + bounded diff + sanitized preview；写入需确认 |
-| Go runtime skeleton | `internal/rekit/**`、`cmd/rekit/main.go` | G1 只读 status/doctor/manifest + G2 sync/promote review-only plan JSON；测试通过，未接入 façade |
+| Go runtime backend | `internal/rekit/**`、`cmd/rekit/main.go` | G1/G2.5 只读 status/doctor/manifest/case doctor + G2 sync/promote review-only plan/artifacts + G2.2/G2.3 gate preview/request；显式开关可委托安全集合，默认未接入 façade |
 
 ### 1.2 未落地
 
 | 缺口 | 当前形态 | 期望形态 |
 |---|---|---|
 | bounded dispatch | `plan-subagents` 只输出分片计划，不启动 agent | 主 agent 按 route 启动只读 reviewer，回收 verdict，合并 accepted/rejected/deferred |
-| evidence ledger runtime | `docs/evidence-ledger.md` 草案 | `.rekit/facts/*.jsonl` append/聚合/查询；`overview` 展示 stuck statistics |
-| run digest | 无 | `.rekit/runs/<run-id>/digest.md` 可重放 |
-| heavy-tool gate runtime | 文档描述 reason/budget/stop-condition | runtime 在 full-trace/debug/inject/patch/dump 前生成确认 packet |
+| evidence ledger runtime 强制 gate | `.rekit/facts/*.jsonl` append/聚合/查询已落地；candidate/verification/decision/intervention/rollback 可记账，但 confirmed/authority 仍需人工确认 | candidate → verified → confirmed 的机器强制 gate 与 authority 写入保护 |
+| batch-level replay/resume | `batchId` 与 run digest 已落地；overview 可聚合 batch | batch-level replay、resume、整体接受/回滚自动化 |
+| heavy-tool gate runtime | Go `gate -WhatIf` 可预览，`gate -Apply` 只写 pending-gate request；不执行工具 | runtime 在 full-trace/debug/inject/patch/dump 前强制确认 packet，并在确认后执行受控动作 |
 | reviewer/verifier spawn 路径 | 靠主会话自觉 | 强契约：route → packet → spawn → verdict → merge |
 
 ## 2. 推进姿态：选项 C
@@ -596,7 +597,152 @@ C8：
 3. `docs/reference-absorption.md` 候选清单勾选已落地项。
 4. 临时 case 保留供后续验证。
 
-## 6. 与现有文档的关系
+## 6. 后续实施方案（D 系列：batch / intervention / gate 闭环）
+
+### 读取指南
+
+- 本节是 C 系列完成后的下一阶段方案，方向：把 ledger 从"事件账本已对齐草案"推进到"批次、干预、回滚、门禁可闭环"。
+- 优先级：先 D1 稳定性自检，再 D2 最小 batch 模型；不要直接跳到 IDA bridge adapter 或自动 dispatch。
+- D 系列继续遵循：兼容旧 JSONL、append-only 不迁移历史、每批一个可验证切片、临时 case 验证、confirmed/authority/heavy-tool 仍需人工确认。
+
+### 实施摘要
+
+C 系列已经完成 9 种 ledger kind、基础字段、展示层、policy 去重与 handoff 模块拆分。当前最大缺口不是"再加更多 kind"，而是：
+
+1. batch 模型还没有 runtime 字段（`batchId`、整体接受/回滚、批次摘要）。
+2. intervention/rollback 可手动写，但未形成 overview/handoff 闭环。
+3. heavy-tool gate 目前是 policy + `pending-gate` 事件登记，runtime 不强制。
+4. IDA bridge adapter 仍是 candidate tooling，未接只读 packet contract。
+
+D 系列推荐先完成 Phase 5 闭环，再考虑 Phase 6 后段 adapter/dispatch。
+
+### 执行清单
+
+- [x] D1：post-merge sanity + release hygiene
+- [x] D2：batch 模型最小实现（`batchId` + batch 摘要 + rollback 引用）
+- [x] D3：intervention / rollback 展示闭环（overview/handoff/note-List）
+- [x] D4：heavy-tool gate runtime 强制化 dry-run 方案（Go backend 非写入 plan）
+- [ ] D5：真实 case dry-run 试用（mock/非敏感 case）
+- [ ] D6：IDA bridge adapter 预研（只读 packet contract，不接 runtime 强依赖）
+
+### 验证标准
+
+D1：
+
+1. `git status --short` 只剩明确无关的本地未跟踪/未提交文件，或完全干净。
+2. `./rekit/rekit.ps1 -Command doctor` 通过。
+3. 临时 case `doctor` 通过。
+4. `go test ./...` 通过。
+5. `git diff --check` 通过。
+6. 确认 `B3.Handoff.ps1` UTF-8 BOM、dot-source 顺序、case shim thin boundary 不回归。
+
+D2：
+
+1. `note` 支持 `-BatchId`，event JSONL 非空时写入 `batchId`。
+2. `continue` runId 可派生/关联 batchId，auto decision 写入 `batchId`。
+3. rollback / intervention 可通过 `-TargetRef batch-...` 引用 batch。
+4. overview 显示最近 batch 摘要（限 N，避免刷屏）。
+5. 历史无 batchId 的 JSONL 仍可读。
+
+D3：
+
+1. overview 显示 recent intervention、recent rollback、unresolved intervention。
+2. handoff 增加 intervention/rollback 摘要区段（无事件不显示）。
+3. note -List 对 intervention/rollback 展示 target/action/approvedBy/scope/reason。
+4. 不自动执行 heavy-tool，不迁移历史事件。
+
+D4：
+
+1. gate dry-run 能展示将记录什么、需要用户确认什么、scope 是什么。
+2. full-trace/debug/inject/patch/dump/network 未确认时只生成 gate packet，不执行外部动作。
+3. 用户确认只覆盖列明 scope，不能被"继续"扩大。
+
+D5：
+
+1. mock/非敏感 case 跑通 candidate → verification → decision → batch → intervention/rollback → handoff。
+2. 临时 case 用完清理测试事件，不污染 kit 模板。
+
+D6：
+
+1. 只写 adapter contract / recipe / capability card，不要求安装或连接 IDA。
+2. 定义只读 index packet（functions/strings/imports/xrefs/selected summary），不读全量大输出。
+3. 不让 runtime 直接控制 IDA。
+
+### 风险与注意事项
+
+- **不要跳过 D1**：C 系列刚完成并已推 main，先做 post-merge sanity。
+- **不要过早 SQLite**：JSONL 仍足够；只有查询复杂度压垮 runtime 时再考虑索引。
+- **不要把 gate 登记误写成自动授权**：`pending-gate` / intervention 只是记录和提示，执行 heavy-tool 仍需用户确认。
+- **IDA bridge adapter 不做硬依赖**：先 contract/recipe，后续多个 case 验证后再考虑 adapter。
+- **schema 扩展仍需兼容**：D2 增 `batchId` 是新增字段，历史事件无该字段应正常展示。
+
+### 6.D1：post-merge sanity + release hygiene
+
+**目标：** 确认 main 上 C 系列提交后状态稳定，没有把无关本地文件纳入后续工作。
+
+**切片：**
+
+1. 检查 `git status --short`。
+2. 运行 kit doctor、临时 case doctor、`go test ./...`、`git diff --check`。
+3. 检查 `rekit/rekit.ps1` dot-source 顺序含 `B3.Handoff.ps1`。
+4. 检查 `B3.Handoff.ps1` 是 UTF-8 with BOM（含中文，PS 5.1 需要）。
+5. 检查 case shim 仍 thin，不复制 runtime 逻辑。
+6. 回写 `docs/batch-plan.md`。
+
+### 6.D2：batch 模型最小实现
+
+**目标：** 让一轮自动整理、review 或人工决策可以用 `batchId` 串起来，并支持后续整体 rollback。
+
+**切片：**
+
+1. `Add-RekitFactEvent` / `Invoke-RekitNote` 支持 `-BatchId`。
+2. `New-RekitDecision` 支持 batchId（从 event 或 runId 派生）。
+3. `continue` auto 流程为本轮生成 stable `batchId`（例如 `batch-<runId>`），写入 decision/publication 等事件。
+4. `overview` 增加最近 batch 摘要（latest N，按 batchId 聚合 kind/count/last time）。
+5. rollback/intervention 可用 `-TargetRef batch-...` 指向 batch。
+
+**不做：** 不迁移历史 JSONL；不引入 SQLite；不自动回滚文件。
+
+### 6.D3：intervention / rollback 展示闭环
+
+**目标：** 让 intervention/rollback 不只是可写，还能在 overview/handoff 中被新会话看见。
+
+**切片：**
+
+1. overview 增 recent intervention / recent rollback / unresolved intervention。
+2. lane handoff 增 `## intervention` 与 `## rollback`（各 latest 5）。
+3. note -List 对 rollback 显示 target/reason/status；对 intervention 显示 action/approvedBy/scope/target。
+
+### 6.D4：heavy-tool gate runtime 强制化 dry-run 方案
+
+**目标：** 先实现 runtime gate dry-run，不直接执行 heavy tool；按维护判断，避免继续扩大 PowerShell runtime，D4 改由 Go backend 承接确定性预览逻辑。
+
+**结果：**
+
+1. 新增 Go `internal/rekit/gate`，`go run ./cmd/rekit -- -Command gate -WhatIf ...` 输出非写入 JSON plan。
+2. plan 明确 `isMutation=false`、`reviewRequired=true`、`requiresConfirmation=true`，并预览 ledger request：`kind=request`、`status=pending-gate`、`target`/`batchId`、gate action/scope/budget/triedLightSteps/stopConditions。
+3. Go CLI 拒绝无 `-WhatIf` 的 gate 调用；校验 attached case 和 `.rekit/board.json` lane id。
+4. D4 不写 JSONL、不执行 full-trace/debug/inject/patch/dump/network、不把 dry-run 视为自动授权。
+
+**后续：** 用户确认后的 ledger 写入与执行闭环留给后续 Go 切片；PowerShell façade 暂不默认委托 Go。
+
+### 6.D5：真实 case dry-run 试用
+
+**目标：** 用 mock/非敏感 case 跑完整闭环。
+
+**切片：** candidate → verification → decision → batch → intervention/rollback → handoff。
+
+### 6.D6：IDA bridge adapter 预研
+
+**目标：** 只定义只读 adapter contract，不接 runtime 强依赖。
+
+**切片：**
+
+1. 新增/扩展 recipe：`ida-agent-bridge` 只读 index adapter。
+2. 定义 packet schema：functions/strings/imports/xrefs/selected decompile summary。
+3. 保持 candidate tooling，不要求安装，不自动连接 IDA。
+
+## 7. 与现有文档的关系
 
 - 本文件是 `docs/vision.md` Phase 5/6 与 `docs/orchestration-plan.md` 的执行细化，不替代它们。
 - 契约定义仍在 `common/policies/agent-team.md`、`common/policies/subagents.md`、`packs/vmp-re/manifest.yml`。

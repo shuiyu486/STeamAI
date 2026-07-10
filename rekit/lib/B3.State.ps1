@@ -117,6 +117,7 @@ function Add-RekitFactEvent {
     [string]$Decision = '',
     [string]$Reason = '',
     [string]$Status = '',
+    [string]$BatchId = '',
     [string]$Target = '',
     [string]$Verifier = '',
     [string]$Verdict = '',
@@ -189,6 +190,7 @@ function Add-RekitFactEvent {
   if (-not [string]::IsNullOrWhiteSpace($Decision)) { $event['decision'] = $Decision }
   if (-not [string]::IsNullOrWhiteSpace($Reason)) { $event['reason'] = $Reason }
   if (-not [string]::IsNullOrWhiteSpace($Status)) { $event['status'] = $Status }
+  if (-not [string]::IsNullOrWhiteSpace($BatchId)) { $event['batchId'] = $BatchId }
   if ($EvidenceRefs.Count -gt 0) { $event['evidenceRefs'] = @($EvidenceRefs) }
   if (-not [string]::IsNullOrWhiteSpace($Target)) { $event['target'] = $Target }
   if ($Kind -eq 'verification') {

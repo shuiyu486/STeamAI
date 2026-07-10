@@ -1,7 +1,7 @@
 [CmdletBinding(PositionalBinding=$false)]
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','start','handoff','note')]
+  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','start','handoff','note','gate')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -14,6 +14,18 @@ param(
   [string]$ReviewOutputDir = '',
   [string]$PacketPath = '',
   [string]$DiffPath = '',
+  [string]$Action = '',
+  [string]$Lane = '',
+  [string]$Subject = '',
+  [string]$Summary = '',
+  [string]$Actor = '',
+  [string]$Risk = '',
+  [string]$TargetRef = '',
+  [string]$BatchId = '',
+  [string]$Scope = '',
+  [string]$Budget = '',
+  [string]$TriedLightSteps = '',
+  [string]$StopConditions = '',
   [string]$Route = '',
   [string]$TaskType = '',
   [string]$Items = '',
@@ -68,6 +80,142 @@ function Resolve-RekitActionTargetAndArgs {
     }
   }
   return [pscustomobject]@{ Target = (Resolve-RekitTarget $actionTarget); Args = $actionArgs }
+}
+
+function Test-RekitEnvTruthy {
+  param([string]$Name)
+  $value = [Environment]::GetEnvironmentVariable($Name)
+  if ([string]::IsNullOrWhiteSpace($value)) { return $false }
+  $normalized = $value.Trim().ToLowerInvariant()
+  return @('1','true','yes','on') -contains $normalized
+}
+
+function Test-RekitGoDelegationEnabled {
+  if (Test-RekitEnvTruthy 'REKIT_GO_DISABLE') { return $false }
+  return (Test-RekitEnvTruthy 'REKIT_GO_ENABLE')
+}
+
+function Test-RekitGoDelegationSafe {
+  switch ($Command) {
+    'status' { return $true }
+    { $_ -in @('doctor','validate') } { return $true }
+    { $_ -in @('sync','update') } {
+      if ($Apply -or $WhatIf) { return $false }
+      $caseRoot = Resolve-RekitTarget $Target
+      return (Test-RekitLooksLikeCase $caseRoot)
+    }
+    'promote' {
+      if ($Apply -or $CreateCandidates -or $WhatIf) { return $false }
+      $caseRoot = Resolve-RekitTarget $Target
+      return (Test-RekitLooksLikeCase $caseRoot)
+    }
+    'gate' {
+      return ($WhatIf -and -not $Apply)
+    }
+    default { return $false }
+  }
+}
+
+function Get-RekitGoInvocation {
+  $envExe = [Environment]::GetEnvironmentVariable('REKIT_GO_EXE')
+  if (-not [string]::IsNullOrWhiteSpace($envExe)) {
+    return [pscustomobject]@{ Command = $envExe; Prefix = @(); WorkingDirectory = $RepoRoot }
+  }
+  $bin = Join-Path $RepoRoot 'rekit\bin\rekit-go.exe'
+  if (Test-Path -LiteralPath $bin) {
+    return [pscustomobject]@{ Command = $bin; Prefix = @(); WorkingDirectory = $RepoRoot }
+  }
+  $go = Get-Command go -ErrorAction SilentlyContinue
+  if ($null -ne $go) {
+    return [pscustomobject]@{ Command = $go.Source; Prefix = @('run','./cmd/rekit','--'); WorkingDirectory = $RepoRoot }
+  }
+  return $null
+}
+
+function Add-RekitGoArg {
+  param([ref]$List, [string]$Name, [string]$Value)
+  if (-not [string]::IsNullOrWhiteSpace($Value)) {
+    $List.Value = @($List.Value) + @($Name, $Value)
+  }
+}
+
+function Add-RekitGoSwitch {
+  param([ref]$List, [string]$Name, [bool]$Enabled)
+  if ($Enabled) {
+    $List.Value = @($List.Value) + @($Name)
+  }
+}
+
+function Get-RekitGoTarget {
+  switch ($Command) {
+    'status' { return (Resolve-RekitTarget $Target) }
+    { $_ -in @('sync','update','promote','gate') } { return (Resolve-RekitTarget $Target) }
+    { $_ -in @('doctor','validate') } {
+      if (-not [string]::IsNullOrWhiteSpace($Target)) { return (Resolve-RekitTarget $Target) }
+      $cwd = Resolve-RekitTarget ''
+      if ((Test-RekitLooksLikeCase $cwd) -and (-not [string]::Equals($cwd, $RepoRoot, [System.StringComparison]::OrdinalIgnoreCase))) { return $cwd }
+      return ''
+    }
+    default { return '' }
+  }
+}
+
+function Get-RekitGoArgs {
+  $goArgs = @('-Command', $Command, '-Pack', $Pack)
+  $goTarget = Get-RekitGoTarget
+  Add-RekitGoArg ([ref]$goArgs) '-Target' $goTarget
+  $goReview = $Review.IsPresent
+  if ($Command -in @('sync','update') -and (-not $Apply) -and (-not $WhatIf)) { $goReview = $true }
+  if ($Command -eq 'promote' -and (-not $Apply) -and (-not $CreateCandidates) -and (-not $WhatIf)) { $goReview = $true }
+  Add-RekitGoSwitch ([ref]$goArgs) '-Review' $goReview
+  Add-RekitGoSwitch ([ref]$goArgs) '-Apply' $Apply.IsPresent
+  Add-RekitGoSwitch ([ref]$goArgs) '-CreateCandidates' $CreateCandidates.IsPresent
+  Add-RekitGoSwitch ([ref]$goArgs) '-WhatIf' $WhatIf.IsPresent
+  Add-RekitGoArg ([ref]$goArgs) '-ReviewOutputDir' $ReviewOutputDir
+  Add-RekitGoArg ([ref]$goArgs) '-PacketPath' $PacketPath
+  Add-RekitGoArg ([ref]$goArgs) '-DiffPath' $DiffPath
+  if ($Command -eq 'gate') {
+    Add-RekitGoArg ([ref]$goArgs) '-Action' $Action
+    Add-RekitGoArg ([ref]$goArgs) '-Lane' $Lane
+    Add-RekitGoArg ([ref]$goArgs) '-Subject' $Subject
+    Add-RekitGoArg ([ref]$goArgs) '-Summary' $Summary
+    Add-RekitGoArg ([ref]$goArgs) '-Actor' $Actor
+    Add-RekitGoArg ([ref]$goArgs) '-Risk' $Risk
+    Add-RekitGoArg ([ref]$goArgs) '-TargetRef' $TargetRef
+    Add-RekitGoArg ([ref]$goArgs) '-BatchId' $BatchId
+    Add-RekitGoArg ([ref]$goArgs) '-Scope' $Scope
+    Add-RekitGoArg ([ref]$goArgs) '-Budget' $Budget
+    Add-RekitGoArg ([ref]$goArgs) '-TriedLightSteps' $TriedLightSteps
+    Add-RekitGoArg ([ref]$goArgs) '-StopConditions' $StopConditions
+  }
+  return $goArgs
+}
+
+function Invoke-RekitGoBackend {
+  param([Parameter(Mandatory=$true)]$Invocation)
+  $goArgs = Get-RekitGoArgs
+  Push-Location $Invocation.WorkingDirectory
+  try {
+    $argv = @($Invocation.Prefix) + @($goArgs)
+    & $Invocation.Command @argv
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  } finally {
+    Pop-Location
+  }
+}
+
+if (Test-RekitGoDelegationEnabled) {
+  if (Test-RekitGoDelegationSafe) {
+    $goInvocation = Get-RekitGoInvocation
+    if ($null -ne $goInvocation) {
+      Invoke-RekitGoBackend -Invocation $goInvocation
+      return
+    }
+  }
+}
+
+if ($Command -eq 'gate') {
+  throw 'gate is implemented by the Go backend only; set REKIT_GO_ENABLE=1 and use -WhatIf for facade delegation, or run go run ./cmd/rekit -- -Command gate manually.'
 }
 
 switch ($Command) {

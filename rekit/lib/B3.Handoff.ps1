@@ -149,6 +149,30 @@ function Write-RekitLaneHandoff {
     }
     $lines.Add('')
   }
+  $interventions = @(Read-RekitJsonLines -Path $paths.Interventions | Where-Object { [string]$_.lane -eq $laneId } | Select-Object -Last 5)
+  if ($interventions.Count -gt 0) {
+    $lines.Add('## intervention')
+    $lines.Add('')
+    foreach ($i in $interventions) {
+      $subj = [string]$i.subject; if ([string]::IsNullOrWhiteSpace($subj)) { $subj = [string]$i.action }
+      $batch = [string]$i.batchId
+      $batchTag = if (-not [string]::IsNullOrWhiteSpace($batch)) { " | batch=$batch" } else { '' }
+      $lines.Add(("- {0} | action={1} | target={2} | approvedBy={3} | scope={4} | status={5}{6}" -f $subj, [string]$i.action, [string]$i.target, [string]$i.approvedBy, [string]$i.scope, [string]$i.status, $batchTag))
+    }
+    $lines.Add('')
+  }
+  $rollbacks = @(Read-RekitJsonLines -Path $paths.Rollbacks | Where-Object { [string]$_.lane -eq $laneId } | Select-Object -Last 5)
+  if ($rollbacks.Count -gt 0) {
+    $lines.Add('## rollback')
+    $lines.Add('')
+    foreach ($r in $rollbacks) {
+      $subj = [string]$r.subject; if ([string]::IsNullOrWhiteSpace($subj)) { $subj = [string]$r.kind }
+      $batch = [string]$r.batchId
+      $batchTag = if (-not [string]::IsNullOrWhiteSpace($batch)) { " | batch=$batch" } else { '' }
+      $lines.Add(("- {0} | target={1} | status={2}{3} | reason={4}" -f $subj, [string]$r.target, [string]$r.status, $batchTag, [string]$r.reason))
+    }
+    $lines.Add('')
+  }
   $lines.Add('## 边界')
   $lines.Add('')
   if ([bool]$Lane.authority) {

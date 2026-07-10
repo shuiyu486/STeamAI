@@ -155,6 +155,71 @@ function Show-RekitOverview {
     if ($rest -gt 0) { Write-Host "- 另有 $rest 条 decision" }
     Write-Host ''
   }
+
+  $allBatchEvents = @()
+  foreach ($batchFile in @($paths.Observations,$paths.Hypotheses,$paths.Candidates,$paths.Verifications,$paths.Decisions,$paths.Interventions,$paths.Rollbacks,$paths.Publications,$paths.Requests)) {
+    $allBatchEvents += @(Read-RekitJsonLines -Path $batchFile | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.batchId) })
+  }
+  if ($allBatchEvents.Count -gt 0) {
+    Write-Host '最近 batch：'
+    $batchGroups = @($allBatchEvents | Group-Object -Property batchId | Sort-Object { @($_.Group | Select-Object -Last 1)[0].time } | Select-Object -Last $maxRows)
+    foreach ($g in $batchGroups) {
+      $kindSummary = @($g.Group | Group-Object -Property kind | ForEach-Object { "$($_.Name)=$($_.Count)" }) -join ','
+      $last = @($g.Group | Select-Object -Last 1)[0]
+      $lastTime = [string]$last.time; if ([string]::IsNullOrWhiteSpace($lastTime)) { $lastTime = [string]$last.createdAt }
+      Write-Host ("- {0} | events={1} | kinds={2} | last={3}" -f $g.Name, $g.Count, $kindSummary, $lastTime)
+    }
+    $restB = (@($allBatchEvents | Group-Object -Property batchId).Count) - $batchGroups.Count
+    if ($restB -gt 0) { Write-Host "- 另有 $restB 个 batch" }
+    Write-Host ''
+  }
+
+  $interventions = @(Read-RekitJsonLines -Path $paths.Interventions)
+  $rollbacks = @(Read-RekitJsonLines -Path $paths.Rollbacks)
+  $openInterventions = @($interventions | Where-Object {
+    $s = [string]$_.status
+    $s -eq '' -or $terminalStatus -notcontains $s
+  })
+  if ($openInterventions.Count -gt 0) {
+    Write-Host '未解决 intervention：'
+    $shownI = @($openInterventions | Select-Object -Last $maxRows)
+    foreach ($i in $shownI) {
+      $subj = [string]$i.subject; if ([string]::IsNullOrWhiteSpace($subj)) { $subj = [string]$i.action }
+      $status = [string]$i.status; if ([string]::IsNullOrWhiteSpace($status)) { $status = 'open' }
+      $batch = [string]$i.batchId
+      $batchTag = if (-not [string]::IsNullOrWhiteSpace($batch)) { " | batch=$batch" } else { '' }
+      Write-Host ("- {0} | action={1} | target={2} | status={3}{4} | summary={5}" -f $subj, [string]$i.action, [string]$i.target, $status, $batchTag, [string]$i.summary)
+    }
+    $restI = $openInterventions.Count - $shownI.Count
+    if ($restI -gt 0) { Write-Host "- 另有 $restI 条未解决 intervention" }
+    Write-Host ''
+  }
+  if ($interventions.Count -gt 0) {
+    Write-Host '最近 intervention：'
+    $shownI2 = @($interventions | Select-Object -Last $maxRows)
+    foreach ($i in $shownI2) {
+      $subj = [string]$i.subject; if ([string]::IsNullOrWhiteSpace($subj)) { $subj = [string]$i.action }
+      $batch = [string]$i.batchId
+      $batchTag = if (-not [string]::IsNullOrWhiteSpace($batch)) { " | batch=$batch" } else { '' }
+      Write-Host ("- {0} | action={1} | target={2} | approvedBy={3} | scope={4}{5}" -f $subj, [string]$i.action, [string]$i.target, [string]$i.approvedBy, [string]$i.scope, $batchTag)
+    }
+    $restI2 = $interventions.Count - $shownI2.Count
+    if ($restI2 -gt 0) { Write-Host "- 另有 $restI2 条 intervention" }
+    Write-Host ''
+  }
+  if ($rollbacks.Count -gt 0) {
+    Write-Host '最近 rollback：'
+    $shownR = @($rollbacks | Select-Object -Last $maxRows)
+    foreach ($r in $shownR) {
+      $subj = [string]$r.subject; if ([string]::IsNullOrWhiteSpace($subj)) { $subj = [string]$r.kind }
+      $batch = [string]$r.batchId
+      $batchTag = if (-not [string]::IsNullOrWhiteSpace($batch)) { " | batch=$batch" } else { '' }
+      Write-Host ("- {0} | target={1} | status={2}{3} | reason={4}" -f $subj, [string]$r.target, [string]$r.status, $batchTag, [string]$r.reason)
+    }
+    $restR = $rollbacks.Count - $shownR.Count
+    if ($restR -gt 0) { Write-Host "- 另有 $restR 条 rollback" }
+    Write-Host ''
+  }
   Write-Host '建议下一步：'
   $open = @(Get-RekitOpenBoardLanes -Board $board)
   if ($open.Count -eq 1) {
@@ -276,6 +341,7 @@ function Invoke-RekitNote {
     [string]$Decision = '',
     [string]$Reason = '',
     [string]$Status = '',
+    [string]$BatchId = '',
     [string]$TargetRef = '',
     [string]$Verifier = '',
     [string]$Verdict = '',
@@ -311,7 +377,10 @@ function Invoke-RekitNote {
         if ($k -eq 'decision') { $dec = [string]$it.decision; if ([string]::IsNullOrWhiteSpace($dec)) { $dec = [string]$it.action }; $by = [string]$it.confirmedBy; if ([string]::IsNullOrWhiteSpace($by)) { $by = [string]$it.actor }; $extra = " | decision=$dec | by=$by" }
         if ($k -eq 'request') { $extra = " | status=$([string]$it.status)" }
         if ($k -eq 'verification') { $extra = " | verifier=$([string]$it.verifier) | verdict=$([string]$it.verdict) | target=$([string]$it.target)" }
-        if ($k -eq 'intervention') { $extra = " | action=$([string]$it.action) | approvedBy=$([string]$it.approvedBy) | scope=$([string]$it.scope)" }
+        if ($k -eq 'intervention') { $extra = " | action=$([string]$it.action) | target=$([string]$it.target) | approvedBy=$([string]$it.approvedBy) | scope=$([string]$it.scope) | status=$([string]$it.status) | reason=$([string]$it.reason)" }
+        if ($k -eq 'rollback') { $extra = " | target=$([string]$it.target) | status=$([string]$it.status) | reason=$([string]$it.reason)" }
+        $batch = [string]$it.batchId
+        if (-not [string]::IsNullOrWhiteSpace($batch)) { $extra += " | batch=$batch" }
         Write-Host ("- {0} | lane={1}{2}" -f $subj, $ln, $extra)
       }
       $rest = $items.Count - $shown.Count
@@ -329,7 +398,7 @@ function Invoke-RekitNote {
     return
   }
   $board = Ensure-RekitBoard -CaseRoot $caseRoot -RepoRoot $RepoRoot -Pack $Pack
-  $result = Add-RekitFactEvent -CaseRoot $caseRoot -Kind $Kind -Lane $Lane -Subject $Subject -Summary $Summary -Actor $Actor -Risk $Risk -Related $Related -Confidence $Confidence -Decision $Decision -Reason $Reason -Status $Status -Target $TargetRef -Verifier $Verifier -Verdict $Verdict -Action $Action -ApprovedBy $ApprovedBy -Scope $Scope -Expires $Expires -EvidenceRefs $refs -Board $board
+  $result = Add-RekitFactEvent -CaseRoot $caseRoot -Kind $Kind -Lane $Lane -Subject $Subject -Summary $Summary -Actor $Actor -Risk $Risk -Related $Related -Confidence $Confidence -Decision $Decision -Reason $Reason -Status $Status -BatchId $BatchId -Target $TargetRef -Verifier $Verifier -Verdict $Verdict -Action $Action -ApprovedBy $ApprovedBy -Scope $Scope -Expires $Expires -EvidenceRefs $refs -Board $board
   if ($result.Applied) {
     Write-Host "已记录 $Kind 事件：$($result.EventId)"
     Write-Host "账本：$($result.Path)"

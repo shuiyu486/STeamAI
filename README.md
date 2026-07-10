@@ -20,13 +20,14 @@
 - VMP/RE Agent Team 工作方式：`packs/vmp-re/references/vmp-re/agent-driven-re.md`
 - sync/promote 机制：`docs/promote-sync.md`
 - case 迁移说明：`docs/case-migration.md`
+- Go backend 渐进迁移：`docs/go-runtime-migration.md`
 
 ## 如果你在维护本仓库
 
 本仓库本身不是具体 RE case。维护时优先看根目录 `CLAUDE.md` 和 `docs/vision.md`，再按职责修改：
 
 - `/rekit` skill：`.claude/skills/rekit/SKILL.md`
-- runtime：`rekit/rekit.ps1`、`rekit/lib/*.ps1`
+- runtime：`rekit/rekit.ps1`、`rekit/lib/*.ps1`、`cmd/rekit/**`、`internal/rekit/**`
 - 领域 pack：`packs/<pack>/**`
 - 通用 policy / prompt：`common/**`
 - 设计与路线：`docs/**`
@@ -265,7 +266,7 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 |---|---|
 | `.rekit/board.json` | 项目概览的机器状态。 |
 | `.rekit/lanes/<id>/` | 每条工作线的事件、任务、inbox/outbox 和接续提示。 |
-| `.rekit/facts/*.jsonl` | 共享事实、request、candidate、publication、decision。 |
+| `.rekit/facts/*.jsonl` | append-only ledger：observation、hypothesis、candidate、verification、decision、intervention、rollback、publication、request。 |
 | `.rekit/runs/<run-id>/digest.md` | `/rekit continue` 每轮摘要。 |
 | `.rekit/handovers/latest.md` | 项目级接手索引。 |
 | `.rekit/handovers/<laneId>-latest.md` | 指定工作线接手文档。 |
@@ -378,6 +379,8 @@ references/vmp-re/task-handoff.md
 
 ```text
 rekit/rekit.ps1
+cmd/rekit/main.go                  # Go backend CLI，默认不直接作为用户入口
+rekit/tests/facade-smoke.ps1       # façade 委托回归 smoke
 packs/vmp-re/scripts/bootstrap.ps1
 packs/vmp-re/scripts/update.ps1
 packs/vmp-re/scripts/validate.ps1
@@ -389,7 +392,8 @@ packs/vmp-re/scripts/promote.ps1
 ## 架构边界
 
 - `/rekit` 是用户入口。
-- `rekit/rekit.ps1` 是确定性 runtime，只是 backend。
+- `rekit/rekit.ps1` 是稳定 PowerShell façade / fallback，只是 backend。
+- Go backend 位于 `cmd/rekit/**` 与 `internal/rekit/**`；默认不启用，维护者显式设置 `REKIT_GO_ENABLE=1` 后才委托安全集合（status、doctor/validate、sync/promote review-only、gate -WhatIf）。
 - 工作流 runtime 已拆为 `rekit/lib/B3.*.ps1`，按 Core / State / Policy / Lane / Auto / Commands 分层。
 - `packs/<pack>/manifest.yml` 是 managed/local/tooling/budget/promote 规则的单一事实源。
 - case-local `.claude/skills/rekit/SKILL.md` 只是 thin shim，不维护业务逻辑。

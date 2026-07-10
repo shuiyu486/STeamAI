@@ -178,9 +178,9 @@ git diff --check
 - 必读 `docs/go-runtime-migration.md`、本节、`CHANGELOG.md`、`internal/rekit/**` 和 `rekit/rekit.ps1`。
 - 当前 Go backend 仅手动运行；`rekit/rekit.ps1` 仍是公共入口和 canonical ABI，尚未默认委托 Go。
 - G1 已实现 `status`、pack `doctor/validate`、manifest/policy validation 与 guard tests；case doctor 尚未实现，遇 case target 必须显式拒绝。
-- G2 已实现 `sync/promote` review-only JSON plan skeleton；只输出非写入 JSON，不写 `.rekit/reviews/**`、case 或 pack，并拒绝 `sync -Apply`、`promote -Apply/-CreateCandidates/-WhatIf`。
-- 下一步优先做 G2.1：补齐 review artifact 写入、bounded diff、sanitized preview、PowerShell review packet 字段 parity、临时 case fixture / golden tests。
-- 仍不要默认启用 PowerShell façade 委托；等 G2.1 parity 与 smoke test 足够后，再设计显式开关。
+- G2/G2.1 已实现 `sync/promote` review-only JSON plan 与 review artifacts：`packet.json`、`summary.md`、bounded diff、sanitized preview；仍拒绝 `sync -Apply`、`promote -Apply/-CreateCandidates/-WhatIf`。
+- G2.2/G2.3 已实现 Go gate preview 与 pending-gate request 写入；`gate -Apply` 只 append request JSONL，要求 `-Actor`，不执行 heavy-tool。
+- 仍不要默认启用 PowerShell façade 委托；下一步优先评估显式开关、case doctor parity 或 gate request schema parity。
 
 ### Batch 9：Agent Team rollout 计划落盘
 
@@ -647,3 +647,412 @@ git diff --check
 - C 系列（C1-C8）全部完成。Agent Team 从"契约完整、编排未落地、ledger 断的"推进到"ledger runtime 9 种 kind 对齐草案、读层可查可聚合、policy single source of truth、handoff 子系统独立"。
 - 后续方向（不在 C 系列范围）：batch 模型（`batchId`/整体接受/回滚）、intervention runtime 强制门禁、runtime 强制 heavy-tool gate、IDA bridge adapter、多 pack 扩展。按 `docs/vision.md` Phase 5/6 与 `docs/agent-team-rollout-plan.md` §4-§5 后续推进。
 - 临时 case `agent-team-dryrun` 保留供后续验证。
+
+### Batch 24：D 系列后续方案落盘
+
+状态：已完成（仅计划文档，未动 runtime）。
+
+目标：承接 C 系列成果，给出后续实施方案，先把 ledger 从"事件账本已对齐草案"推进到"批次、干预、回滚、门禁可闭环"，再考虑 adapter/dispatch。
+
+结果：
+
+- `docs/agent-team-rollout-plan.md` 新增 §6 D 系列：batch / intervention / gate 闭环。
+- 推荐顺序：D1 post-merge sanity → D2 batch 模型最小实现 → D3 intervention/rollback 展示闭环 → D4 heavy-tool gate runtime 强制化 dry-run → D5 mock/非敏感 case 试用 → D6 IDA bridge adapter 预研。
+- 明确不做：不跳过 D1、不提前 SQLite、不把 gate 登记误当自动授权、IDA bridge 不做硬依赖、不自动 spawn reviewer。
+- D2 schema 扩展原则：新增 `batchId` 字段，历史事件无该字段仍可读；不迁移 JSONL。
+
+验证：
+
+```powershell
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+go test ./...
+git diff --check
+```
+
+新会话接手：
+
+- 下一步执行 D1：post-merge sanity + release hygiene。
+- D1 只做自检和回写，不动 runtime。
+- 若 D1 通过，再进入 D2 batch 模型最小实现。
+
+### Batch 25：D1 post-merge sanity + release hygiene
+
+状态：已完成（仅自检与文档回写，未动 runtime）。
+
+目标：确认 main 上 C 系列提交后状态稳定，D 系列实施前安全网正常。
+
+结果：
+
+- `git status --short` 只显示本批 D 系列计划文档改动（`docs/agent-team-rollout-plan.md`、`docs/batch-plan.md`）。
+- `B3.Handoff.ps1` UTF-8 BOM 检查通过（含中文，PS 5.1 解析需要 BOM）。
+- `rekit/rekit.ps1` dot-source 顺序确认：Core → State → Policy → Lane → Auto → Handoff → Commands。
+- case shim thin boundary 确认：`rekit/templates/case-shim/SKILL.md` 不引用 B3 模块、不复制 runtime 逻辑。
+- D1 执行清单已在 `docs/agent-team-rollout-plan.md` §6 勾选。
+
+验证：
+
+```powershell
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+go test ./...
+git diff --check
+```
+
+验证结果：全部通过。
+
+新会话接手：
+
+- 下一步 D2：batch 模型最小实现。
+- D2 涉及 schema 扩展（新增 `batchId` 字段），原则：兼容旧 JSONL、历史事件不迁移、读层无 batchId 时正常展示。
+
+### Batch 26：D2 batch 模型最小实现
+
+状态：已完成。
+
+目标：给 ledger event 增加最小 `batchId` 关联能力，让一次 `/rekit continue` 或一组手动 note 可在 overview 中被聚合，并为后续 rollback/intervention 闭环提供引用锚点。
+
+结果：
+
+- `Add-RekitFactEvent` 增加 `-BatchId` 参数；非空时写入 event `batchId` 字段。历史 JSONL 无该字段仍可读，不迁移旧事件。
+- `Invoke-RekitNote` 增加 `-BatchId` 参数并透传；`note -List` 对含 `batchId` 的事件追加 `batch=<id>` 展示。
+- `Invoke-RekitAuto` 为每次 `continue` run 派生 `batchId = batch-<runId>`，并写入自动收集的 event、publication object、decision event 与 run digest。
+- `New-RekitDecision` 增加 `-BatchId` 参数，未显式传入时从原 event 的 `batchId` 继承。
+- `overview` 增加“最近 batch”区段，跨 9 种 fact JSONL 聚合含 `batchId` 的事件，显示 event 数、kind 分布与最后时间。
+- rollback/intervention 仍沿用 `TargetRef` 指向目标；D2 smoke 验证可用 `TargetRef batch-...` 指向整个 batch。
+- D2 测试事件、feature outbox 测试输入和测试 run 目录已清理，未把 smoke 数据留在临时 case。
+
+验证：
+
+```powershell
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+go test ./...
+git diff --check
+```
+
+验证结果：全部通过。
+
+新会话接手：
+
+- 下一步 D3：intervention / rollback 展示闭环。
+- D3 优先做读层与手动闭环：overview/handoff/note-List 能从 batch、target、action、approvedBy 还原“发生了什么干预、影响哪个 batch、如何回滚”。
+- 仍不要把 `pending-gate` 或 intervention 登记误当成自动授权；confirmed/authority 写入继续人工确认。
+
+### Batch 27：D3 intervention / rollback 展示闭环
+
+状态：已完成。
+
+目标：让 intervention/rollback 不只是可写入 JSONL，还能被 overview、handoff 和 note 查询读出，方便新会话判断“发生过什么干预、影响哪个 batch、是否已回滚”。
+
+结果：
+
+- `overview` 增加三个区段：
+  - `未解决 intervention`：过滤 status 非终态或空 status 的 intervention，展示 action、target、status、batch 与 summary。
+  - `最近 intervention`：展示 action、target、approvedBy、scope、batch。
+  - `最近 rollback`：展示 target、status、batch、reason。
+- `Write-RekitLaneHandoff` 增加 `## intervention` 与 `## rollback` 区段（各 latest 5，仅本 lane，有事件才显示）。
+- `note -List`：
+  - intervention 展示 action、target、approvedBy、scope、status、reason、batch。
+  - rollback 展示 target、status、reason、batch。
+- D3 只增强读层，不自动执行 heavy-tool、不自动回滚文件、不迁移历史 JSONL。
+- D3 smoke 写入的 intervention/rollback 测试事件、临时 handoff artifact 已清理；latest handoff 已重新生成，确认无 `d3-*` / `batch-d3-smoke` 残留。
+
+验证：
+
+```powershell
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+go test ./...
+git diff --check
+```
+
+验证结果：全部通过。
+
+新会话接手：
+
+- 下一步 D4：heavy-tool gate runtime 强制化 dry-run 方案。
+- D4 仍只做 dry-run / review-first gate 设计与最小 runtime 入口，不执行 full-trace/debug/inject/patch/dump/network。
+- 用户确认只覆盖列明 scope，不能被“继续”扩大。
+
+### Batch 28：D4 Go gate dry-run 最小切片
+
+状态：已完成。
+
+目标：按“Go 更适合 deterministic runtime”的方向调整 D4，停止继续扩大 PowerShell runtime，把 heavy-tool gate 的非写入预览逻辑落到 Go backend。
+
+结果：
+
+- 新增 `internal/rekit/gate`：生成 gate dry-run JSON plan。
+- Go CLI 新增 `-Command gate`，仅支持 `-WhatIf`；无 `-WhatIf` 直接拒绝，避免误写 ledger 或误执行工具。
+- gate plan 字段：
+  - 顶层：`schemaVersion`、`command=gate`、`caseRoot`、`repoRoot`、`pack`、`isMutation=false`、`reviewRequired=true`、`requiresConfirmation=true`。
+  - `eventPreview`：`kind=request`、`status=pending-gate`、`lane`、`subject`、`summary`、`risk`、`target`、`batchId`。
+  - `eventPreview.gate`：`action`、`scope`、`budget`、`triedLightSteps`、`stopConditions`、`deniedUntilUserConfirmation`。
+- 校验 attached case 与 `.rekit/board.json` lane id；未知 lane 拒绝。
+- D4 smoke 使用临时 case 输出 non-mutating JSON plan；未写 JSONL、未执行 full-trace/debug/inject/patch/dump/network、未产生需清理的 case state。
+- `docs/go-runtime-migration.md` 更新 G2.2，明确 PowerShell façade 暂不默认委托；`gate -WhatIf` 属可选安全集合。
+
+验证：
+
+```powershell
+go test ./...
+go run ./cmd/rekit -- -Command gate -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re -WhatIf -Action full-trace -Lane feature-handler-0x40a010 -Subject 'D4 gate dry-run smoke' -Summary 'preview heavy-tool gate only' -TargetRef batch-d4-smoke -BatchId batch-d4-smoke -Scope 'handler only' -Budget '60s' -TriedLightSteps 'static review,overview' -StopConditions 'timeout,unexpected side effect'
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过。
+
+新会话接手：
+
+- 下一步优先 Go 方向，不再把 D5/D6 大量堆到 PowerShell。
+- 建议下一批：G2.3 gate confirm-to-ledger review-first 写入路径，或 G2.1 review artifact 写入 parity；继续保持 PowerShell façade 不默认委托。
+- 用户已授权后续批次自主审查、评估、调整并继续执行；只有破坏性动作、外部副作用、真实 heavy-tool 执行、confirmed/authority 写入或难判架构取舍再停。
+
+### Batch 29：G2.3 Go gate pending-gate ledger 写入
+
+状态：已完成。
+
+目标：在 D4 Go gate dry-run 之后，补上 Go backend 的最小落账路径：把 gate preview 显式写入 `.rekit/facts/requests.jsonl` 的 `pending-gate` request，但仍不执行 heavy-tool、不写 confirmed/authority。
+
+结果：
+
+- `internal/rekit/gate` 增加 `Apply` 路径，复用 dry-run preview 构造与 lane 校验。
+- Go CLI `-Command gate` 现在要求显式选择一种模式：
+  - `-WhatIf`：非写入 JSON preview。
+  - `-Apply`：只 append pending-gate request JSONL。
+  - 两者同时传入会被拒绝；两者都不传也会被拒绝。
+- `gate -Apply` 要求 `-Actor`，用于记录谁批准写入 pending-gate request；无 `-Actor` 拒绝。
+- 写入事件字段：`schemaVersion:1`、`kind:request`、`status:pending-gate`、`lane`、`subject`、`summary`、`actor`、`risk`、`target`、`batchId`、`gate{action,scope,budget,triedLightSteps,stopConditions,requiresConfirmation,deniedUntilUserConfirmation}`、`eventId`。
+- `eventId` 由 gate 语义字段派生；重复写入返回 `applied=false` 与 `reason=duplicate eventId`，不重复 append。
+- Go tests 覆盖：模式 guard、dry-run plan、未知 lane、apply 写入、apply 要求 actor、重复 eventId 幂等。
+- 临时 case smoke 执行 `gate -Apply` 后已清理测试 request，未留下 G2.3 测试状态。
+- PowerShell façade 仍不默认委托 Go；`gate -Apply` 也暂不列入默认委托安全集合，因为它已经是 case ledger mutation。
+
+验证：
+
+```powershell
+go test ./...
+go run ./cmd/rekit -- -Command gate -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re -Apply -Action debug -Lane feature-handler-0x40a010 -Actor runtime-test -Subject 'G2.3 gate apply smoke' -Summary 'append pending gate request only' -TargetRef batch-g23-apply-smoke -BatchId batch-g23-apply-smoke -Scope 'handler only' -Budget '30s' -TriedLightSteps 'static review' -StopConditions 'timeout'
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过；smoke 写入已清理。
+
+### Batch 30：G2.1 Go review artifact 写入 parity
+
+状态：已完成。
+
+目标：在 Go `sync/promote` review-only JSON plan 基础上补齐 review artifact 写入，使 Go backend 能输出可交给人工/LLM review 的 packet、summary、bounded diff 与 sanitized preview，但仍不执行 `sync -Apply`、不写 pack、不创建 candidates。
+
+结果：
+
+- Go CLI 增加 `-ReviewOutputDir`、`-PacketPath`、`-DiffPath` 参数；`sync/promote` review-only 路径检测到这些参数或 `-Review` 时写 artifact，而不是只把 plan 输出到 stdout。
+- `internal/rekit/review` 增加 artifact writer：
+  - `packet.json`：包含 plan、item path metadata、diff/preview 路径、`reviewRequired=true`。
+  - `summary.md`：给 Claude/维护者的短 review 指南。
+  - `diffs/combined.diff`：bounded diff 聚合；即使没有 diff 也创建空文件，保证调用方路径稳定。
+  - `diffs/*.diff`：按 item 输出 bounded diff，限制变更行数和单行长度。
+  - `previews/*.sanitized-preview.md`：promote tooling candidate source 的脱敏预览。
+- `sync` review item 补充 source/target path 与 template planned text，使 managed-file、template-file、managed-block、support-file 可生成 bounded diff。
+- `promote` review item 补充 case/pack path；tooling candidate source 生成带来源 header 的 sanitized preview，只在 deny pattern 清理后无残留时写 preview。
+- artifact 写入结果返回 `isMutation=false`、`writesArtifacts=true`；这只表示写 review packet/diff/preview，不代表写 managed docs、pack 或 candidates。
+- Go tests 覆盖 sync artifact、promote artifact、combined diff、sanitized preview，以及既有 review-only/gate guard。
+- PowerShell façade 仍不默认委托 Go；G2.1 只完成手动 Go CLI parity。
+
+验证：
+
+```powershell
+go test ./...
+go run ./cmd/rekit -- -Command sync -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re -ReviewOutputDir <tmp>\sync
+go run ./cmd/rekit -- -Command promote -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re -ReviewOutputDir <tmp>\promote
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过；manual smoke 产生的 review artifact 位于临时目录，不写入 kit 仓库，也不修改 case managed docs/pack/candidates。
+
+### Batch 31：G2.4 PowerShell façade 显式 Go 委托开关
+
+状态：已完成。
+
+目标：在 G2/G2.1/G2.2/G2.3 手动 Go CLI 验证后，给 `rekit.ps1` 增加低风险、显式启用的 Go backend 委托开关；默认仍保持 PowerShell canonical 入口和 fallback。
+
+结果：
+
+- `rekit.ps1` 增加环境变量：
+  - `REKIT_GO_ENABLE=1`：允许安全集合委托 Go。
+  - `REKIT_GO_DISABLE=1`：强制 fallback PowerShell，优先级高于 enable。
+  - `REKIT_GO_EXE=<path>`：可选指定已构建 Go backend；未指定时优先 `rekit/bin/rekit-go.exe`，否则使用 `go run ./cmd/rekit --`。
+- 委托安全集合：
+  - `status`；
+  - kit-root `doctor` / `validate`；case doctor 继续 PowerShell fallback；
+  - `sync/update` review-only（含 `-ReviewOutputDir` / `-PacketPath` / `-DiffPath` artifact）；
+  - `promote` review-only（含 artifact）；
+  - `gate -WhatIf` dry-run。
+- 明确不委托：`sync -Apply`、`promote -Apply/-CreateCandidates`、`gate -Apply`、case doctor、工作线命令、`note`。
+- `rekit.ps1` 现在暴露 `gate` 参数集合（`-Action`、`-Lane`、`-Subject`、`-Summary`、`-Risk`、`-TargetRef`、`-BatchId`、`-Scope`、`-Budget`、`-TriedLightSteps`、`-StopConditions`），但只有 `REKIT_GO_ENABLE=1` 且 `-WhatIf` 时委托；未启用时明确拒绝，避免误以为 PowerShell 有 gate executor。
+- Go CLI parser 兼容 `go run ./cmd/rekit -- ...` 中的 `--` 分隔符，并新增单元测试。
+- `.claude/skills/rekit/SKILL.md` 与 `docs/go-runtime-migration.md` 记录 façade 默认关闭、显式开关和安全集合。
+
+验证：
+
+```powershell
+go test ./...
+$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command status
+$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command doctor
+$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command sync -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re -ReviewOutputDir <tmp>\sync
+$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command gate -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re -WhatIf -Action debug -Lane feature-handler-0x40a010
+Remove-Item Env:\REKIT_GO_ENABLE
+.\rekit\rekit.ps1 -Command gate -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re -WhatIf -Action debug -Lane feature-handler-0x40a010 # 预期拒绝
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过；`gate` 未启用 façade 时按预期拒绝。review artifact smoke 写到临时目录，不修改 kit 或 case managed docs。
+
+### Batch 32：G2.5 Go case doctor parity
+
+状态：已完成。
+
+目标：补齐 Go backend attached case `doctor/validate` 的只读校验，使显式 Go façade 可以覆盖 case doctor，但不写 case state、不修复 shim、不迁移 schema。
+
+结果：
+
+- 新增 `internal/rekit/doctor.Case`：复用 `instance.AssertAttached` 与 manifest parser，只读校验 attached case。
+- Go case doctor 覆盖：
+  - `.rekit/instance.yml` / `.re-template.yml`（存在时非空且预算内）；
+  - case-local `.claude/skills/rekit/SKILL.md` 非空、预算内，并与 canonical thin shim template 完全一致；
+  - canonical skill 非空、预算内；
+  - manifest managed files 与 template target files 非空、预算内；
+  - managed block host 含 begin/end marker；
+  - facts 9 种 JSONL、board.json、lane.json、lane root JSONL 与 workspace JSONL 可解析；
+  - board `caseRoot` 与实际 case root 一致；lane id 与目录名一致，workspace/laneRoot 不逃逸 case root。
+- Go CLI `doctor/validate` 对 attached case 输出 `instance validation ok`；非 case target 仍报错，不误报 pack validation。
+- PowerShell façade 显式启用 `REKIT_GO_ENABLE=1` 时可委托 case doctor；默认仍走 PowerShell。
+- Go tests 增加 full attached `_template` case doctor smoke 与 shim drift 失败用例。
+- UTF-8 BOM 兼容：Go case doctor 读取 JSON/JSONL 时忽略行首 BOM，兼容 Windows PowerShell 5.1 可能生成的 BOM 文件。
+
+验证：
+
+```powershell
+go test ./...
+go run ./cmd/rekit -- -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+Remove-Item Env:\REKIT_GO_ENABLE
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过；case doctor 只读，不写 case state，不修复任何文件。
+
+### Batch 33：G2.6 PowerShell façade 回归 smoke
+
+状态：已完成。
+
+目标：给 G2.4/G2.5 的 PowerShell façade 显式 Go 委托加回归 smoke，避免后续迁移误把写入命令、`gate -Apply` 或默认路径委托到 Go。
+
+结果：
+
+- 新增 `rekit/tests/facade-smoke.ps1`，使用独立 `powershell.exe` 子进程测试 façade 行为，避免当前会话环境变量污染结果。
+- 覆盖默认行为：
+  - 未设置 `REKIT_GO_ENABLE` 时，`status` 仍走 PowerShell，输出 `rekit runtime:`。
+  - 未设置 `REKIT_GO_ENABLE` 时，`gate -WhatIf` 被 façade 拒绝，提示需启用 Go 或手动运行 Go CLI。
+- 覆盖显式 Go 委托安全集合：
+  - `REKIT_GO_ENABLE=1` 时，`status` 输出 `rekit go backend:`。
+  - `doctor -Target <case>` 输出 `instance validation ok`。
+  - `sync -ReviewOutputDir <tmp>` 返回 `writesArtifacts=true`，并写 `packet.json` 与 `diffs/combined.diff`。
+  - `gate -WhatIf` 返回非写入 plan，含 `isMutation=false` 与 `pending-gate`。
+- 覆盖拒绝/回退边界：
+  - `sync -Apply -WhatIf` 不委托 Go，而走 PowerShell dry-run，输出 `would attach case`。
+  - `REKIT_GO_DISABLE=1` 优先级高于 `REKIT_GO_ENABLE=1`，`status` 回退 PowerShell。
+- 该 smoke 不写 managed docs、不写 pack、不写 candidates、不写 ledger；review artifact 只写 `$env:TEMP\rekit-facade-smoke-sync`。
+
+验证：
+
+```powershell
+go test ./...
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过；smoke 仅产生临时 review artifact。
+
+新会话接手：
+
+- 下一步继续 Go 方向，优先 gate request schema parity，或评估 `attach/repair` 这类低风险写入命令迁移。
+- 默认仍不要开启 Go 委托；只有维护者显式设置 `REKIT_GO_ENABLE=1` 时使用安全集合。
+- `gate -Apply` 仍不经 façade 委托；pending-gate request 也不代表 heavy-tool 已获执行授权。
+
+## 后续实施计划：G3+ Go 写入命令迁移
+
+### Batch 34：G3.1 Go attach 迁移（计划）
+
+状态：待实施。
+
+目标：把低风险 `attach` 写入路径迁移到 Go backend，但仍保持 review/preview-first 边界：默认不写；只有显式 `-Apply` 才写 `.rekit/instance.yml` 与 case-local thin shim。该批不接管 `init/bootstrap`，不同步 managed docs，不创建 board/facts/lanes，不纳入默认 façade 安全集合。
+
+实施切片：
+
+1. Go backend 增加 `attach` command：
+   - `-WhatIf`：输出 JSON plan，包含将写入的 metadata/shim 路径、repoRoot、pack、projectName、isMutation=false。
+   - `-Apply`：仅写 `.rekit/instance.yml` 与 `.claude/skills/rekit/SKILL.md` thin shim，返回 `isMutation=true` 与写入路径。
+   - 无 `-WhatIf/-Apply` 拒绝，避免误写。
+2. metadata 内容与 PowerShell `Write-RekitInstance` 保持兼容：`templateRoot`、`templatePack`、`projectName`、`projectRoot`。
+3. shim 必须复制 `rekit/templates/case-shim/SKILL.md`；不得把 runtime 逻辑复制到 case shim。
+4. 若目标目录不存在，`attach -Apply` 可创建目录；`attach -WhatIf` 只预览。
+5. 若目标已绑定到不同 `templateRoot` / `templatePack`，拒绝覆盖并提示走 `repair` 计划。
+6. PowerShell façade 默认仍不委托 `attach`；如后续要委托，必须另起批次并用临时 case smoke 覆盖。
+
+验证标准：
+
+```powershell
+go test ./...
+go run ./cmd/rekit -- -Command attach -Target <tmpCase> -Pack vmp-re -WhatIf
+go run ./cmd/rekit -- -Command attach -Target <tmpCase> -Pack vmp-re -ProjectName <name> -Apply
+go run ./cmd/rekit -- -Command doctor -Target <tmpCase> -Pack vmp-re
+.\rekit\rekit.ps1 -Command attach -Target <tmpCase2> -Pack vmp-re -ProjectName <name>
+.\rekit\rekit.ps1 -Command doctor -Target <tmpCase2>
+git diff --check
+```
+
+预期：
+
+- `attach -WhatIf` 不创建任何文件。
+- `attach -Apply` 只写 metadata + thin shim，不写 managed docs、facts、board、lanes 或 review artifacts。
+- Go `doctor -Target <tmpCase>` 对只 attach 未 sync 的 case 应能给出明确缺 managed docs 的失败信息；完整 init/sync 后通过。
+- PowerShell attach 继续不回归。
+- 临时 case 验证后删除，不污染 kit 仓库。
+
+### Batch 35：G3.2 Go repair 迁移（计划）
+
+状态：待 G3.1 后实施。
+
+目标：迁移 `repair` 的 moved-case metadata 修复路径。默认 preview；显式 `-Apply` 才更新 metadata 与 shim。不得修改 managed docs、facts、board、lanes 或 authority 文件。
+
+关键验证：旧路径 metadata 能被检测；`repair -WhatIf` 不写；`repair -Apply` 后 PowerShell/Go doctor 均通过；错误 templateRoot/templatePack 不被静默覆盖。
+
+### Batch 36：gate request schema parity（计划）
+
+状态：可与 G3.1/G3.2 后并行评估。
+
+目标：让 Go `gate -Apply` 写入的 pending-gate request 与 PowerShell `note -Kind request` 的字段展示/查询语义完全对齐，包括 `actor/risk/target/batchId/gate` 扩展字段在 overview/handoff/note-List 中的展示策略。
+
+边界：仍不执行 heavy-tool，不写 confirmed/authority，不把 `gate -Apply` 纳入 façade 默认委托。
+
+### Batch 37：G3.3 sync -Apply 迁移预研（计划）
+
+状态：待 attach/repair 稳定后再实施。
+
+目标：只做设计与 golden test 预研，不直接迁移写入。需先补齐 backup、bounded diff、managed block、template local-file skip、失败恢复与旧 case compatibility 的测试矩阵。
+
+停止条件：任何 backup/rollback 语义不清、PowerShell/Go diff 不一致、或旧 case 行为无法解释时，暂停并回到 PowerShell fallback。

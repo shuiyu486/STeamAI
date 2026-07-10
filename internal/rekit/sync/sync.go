@@ -54,7 +54,7 @@ func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
 		if action == "unchanged" {
 			risk = "none"
 		}
-		items = append(items, review.Item{Path: rel, Kind: "managed-file", Direction: "kit-to-case", Action: action, RiskLevel: risk, SourceHash: sourceHash, TargetHash: targetHash})
+		items = append(items, review.Item{Path: rel, Kind: "managed-file", Direction: "kit-to-case", Action: action, RiskLevel: risk, SourcePath: source, TargetPath: dest, SourceHash: sourceHash, TargetHash: targetHash})
 	}
 	for _, rel := range m.TemplateFiles {
 		source, err := m.SourcePath(rel)
@@ -86,7 +86,7 @@ func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
 		if action == "skip-existing-local-file" || action == "unchanged" {
 			risk = "none"
 		}
-		items = append(items, review.Item{Path: targetRel, Kind: "template-file", Direction: "kit-to-case", Action: action, RiskLevel: risk, SourceHash: review.FileHash(source), TargetHash: review.FileHash(dest)})
+		items = append(items, review.Item{Path: targetRel, Kind: "template-file", Direction: "kit-to-case", Action: action, RiskLevel: risk, SourcePath: source, TargetPath: dest, SourceHash: review.FileHash(source), TargetHash: review.FileHash(dest), PlannedText: sourceText})
 	}
 	blockSource, err := m.SourcePath(m.ManagedBlock["source"])
 	if err != nil {
@@ -117,7 +117,7 @@ func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
 	if blockAction == "unchanged" {
 		blockRisk = "none"
 	}
-	items = append(items, review.Item{Path: m.ManagedBlock["file"], Kind: "managed-block", Direction: "kit-to-case", Action: blockAction, RiskLevel: blockRisk, SourceHash: review.FileHash(blockSource), TargetHash: review.FileHash(blockHost)})
+	items = append(items, review.Item{Path: m.ManagedBlock["file"], Kind: "managed-block", Direction: "kit-to-case", Action: blockAction, RiskLevel: blockRisk, SourcePath: blockSource, TargetPath: blockHost, BlockID: m.ManagedBlock["blockId"], SourceHash: review.FileHash(blockSource), TargetHash: review.FileHash(blockHost)})
 	gitignoreSource, err := m.SourcePath("examples/gitignore.example")
 	if err == nil && refsf.Exists(gitignoreSource) {
 		gitignoreTarget, err := refsf.SafeJoin(caseRoot, ".gitignore")
@@ -128,7 +128,7 @@ func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
 		if refsf.Exists(gitignoreTarget) {
 			action = "skip-existing-support-file"
 		}
-		items = append(items, review.Item{Path: ".gitignore", Kind: "support-file", Direction: "kit-to-case", Action: action, RiskLevel: "low", SourceHash: review.FileHash(gitignoreSource), TargetHash: review.FileHash(gitignoreTarget)})
+		items = append(items, review.Item{Path: ".gitignore", Kind: "support-file", Direction: "kit-to-case", Action: action, RiskLevel: "low", SourcePath: gitignoreSource, TargetPath: gitignoreTarget, SourceHash: review.FileHash(gitignoreSource), TargetHash: review.FileHash(gitignoreTarget)})
 	}
 	return review.Plan{SchemaVersion: 1, Command: "sync", Direction: "kit-to-case", CaseRoot: caseRoot, RepoRoot: repoRoot, Pack: pack, ManifestPath: m.ManifestPath, ManifestVersion: m.Version, Items: items}, nil
 }

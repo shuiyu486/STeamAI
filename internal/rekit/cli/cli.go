@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
@@ -25,11 +26,18 @@ type Options struct {
 	Apply            bool
 	CreateCandidates bool
 	WhatIf           bool
+	ReviewOutputDir  string
+	PacketPath       string
+	DiffPath         string
+	Gate             gate.Options
 }
 
 func Parse(args []string) (Options, error) {
 	opt := Options{Command: "status", Pack: "vmp-re"}
 	for i := 0; i < len(args); i++ {
+		if strings.EqualFold(args[i], "--") {
+			continue
+		}
 		switch args[i] {
 		case "-Command", "--command":
 			i++
@@ -57,6 +65,96 @@ func Parse(args []string) (Options, error) {
 			opt.CreateCandidates = true
 		case "-WhatIf", "--what-if":
 			opt.WhatIf = true
+		case "-ReviewOutputDir", "--review-output-dir":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewOutputDir")
+			}
+			opt.ReviewOutputDir = args[i]
+		case "-PacketPath", "--packet-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -PacketPath")
+			}
+			opt.PacketPath = args[i]
+		case "-DiffPath", "--diff-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -DiffPath")
+			}
+			opt.DiffPath = args[i]
+		case "-Action", "--action":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Action")
+			}
+			opt.Gate.Action = args[i]
+		case "-Lane", "--lane":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Lane")
+			}
+			opt.Gate.Lane = args[i]
+		case "-Subject", "--subject":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Subject")
+			}
+			opt.Gate.Subject = args[i]
+		case "-Summary", "--summary":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Summary")
+			}
+			opt.Gate.Summary = args[i]
+		case "-Actor", "--actor":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Actor")
+			}
+			opt.Gate.Actor = args[i]
+		case "-Risk", "--risk":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Risk")
+			}
+			opt.Gate.Risk = args[i]
+		case "-TargetRef", "--target-ref":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -TargetRef")
+			}
+			opt.Gate.TargetRef = args[i]
+		case "-BatchId", "--batch-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -BatchId")
+			}
+			opt.Gate.BatchID = args[i]
+		case "-Scope", "--scope":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Scope")
+			}
+			opt.Gate.Scope = args[i]
+		case "-Budget", "--budget":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Budget")
+			}
+			opt.Gate.Budget = args[i]
+		case "-TriedLightSteps", "--tried-light-steps":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -TriedLightSteps")
+			}
+			opt.Gate.TriedLightSteps = args[i]
+		case "-StopConditions", "--stop-conditions":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -StopConditions")
+			}
+			opt.Gate.StopConditions = args[i]
 		default:
 			if i == 0 && args[i] != "" && args[i][0] != '-' {
 				opt.Command = args[i]
@@ -90,6 +188,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runSyncReview(ctx, opt, stdout)
 	case "promote":
 		return runPromoteReview(ctx, opt, stdout)
+	case "gate":
+		return runGate(ctx, opt, stdout)
 	default:
 		return fmt.Errorf("go backend does not implement command yet: %s", opt.Command)
 	}
@@ -135,7 +235,7 @@ func runStatus(ctx runtime.Context, out io.Writer) error {
 func runDoctor(ctx runtime.Context, out io.Writer) error {
 	if !ctx.TargetProvided {
 		if instance.LooksLikeCase(ctx.Cwd) && !samePath(ctx.Cwd, ctx.RepoRoot) {
-			return fmt.Errorf("go backend does not implement case doctor yet: %s", ctx.Cwd)
+			return runCaseDoctor(ctx, ctx.Cwd, out)
 		}
 		return runPackDoctor(ctx, out)
 	}
@@ -143,7 +243,7 @@ func runDoctor(ctx runtime.Context, out io.Writer) error {
 		return runPackDoctor(ctx, out)
 	}
 	if instance.LooksLikeCase(ctx.Target) {
-		return fmt.Errorf("go backend does not implement case doctor yet: %s", ctx.Target)
+		return runCaseDoctor(ctx, ctx.Target, out)
 	}
 	return fmt.Errorf("target is neither this kit root nor an attached rekit case: %s", ctx.Target)
 }
@@ -158,6 +258,16 @@ func runPackDoctor(ctx runtime.Context, out io.Writer) error {
 	return nil
 }
 
+func runCaseDoctor(ctx runtime.Context, target string, out io.Writer) error {
+	rows, err := doctor.Case(ctx.RepoRoot, target, ctx.Pack)
+	if err != nil {
+		return err
+	}
+	printRows(out, rows)
+	fmt.Fprintln(out, "instance validation ok")
+	return nil
+}
+
 func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.Apply || opt.WhatIf {
 		return fmt.Errorf("go backend only implements sync review-only planning")
@@ -168,6 +278,9 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 	plan, err := syncreview.Plan(ctx.RepoRoot, ctx.Target, ctx.Pack)
 	if err != nil {
 		return err
+	}
+	if wantsReviewArtifacts(opt) {
+		return writeReviewArtifacts(out, plan, opt)
 	}
 	return writeReviewPlan(out, plan)
 }
@@ -183,13 +296,67 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if wantsReviewArtifacts(opt) {
+		return writeReviewArtifacts(out, plan, opt)
+	}
 	return writeReviewPlan(out, plan)
+}
+
+func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
+	if !ctx.TargetProvided {
+		return fmt.Errorf("gate requires an explicit -Target attached case")
+	}
+	if opt.WhatIf && opt.Apply {
+		return fmt.Errorf("gate -WhatIf cannot be combined with -Apply")
+	}
+	if opt.WhatIf {
+		plan, err := gate.PlanDryRun(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Gate)
+		if err != nil {
+			return err
+		}
+		b, err := json.MarshalIndent(plan, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(append(b, '\n'))
+		return err
+	}
+	if !opt.Apply {
+		return fmt.Errorf("gate write requires -Apply; use -WhatIf for dry-run preview")
+	}
+	result, err := gate.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Gate)
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(append(b, '\n'))
+	return err
 }
 
 func writeReviewPlan(out io.Writer, plan review.Plan) error {
 	plan.IsMutation = false
 	plan.Summary = review.Summary{Changed: plan.ChangedItems(), Blocked: plan.BlockedItems(), ReviewRequired: true}
 	b, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(append(b, '\n'))
+	return err
+}
+
+func wantsReviewArtifacts(opt Options) bool {
+	return opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.PacketPath) != "" || strings.TrimSpace(opt.DiffPath) != ""
+}
+
+func writeReviewArtifacts(out io.Writer, plan review.Plan, opt Options) error {
+	result, err := review.WriteArtifacts(plan, review.ArtifactOptions{ReviewOutputDir: opt.ReviewOutputDir, PacketPath: opt.PacketPath, DiffPath: opt.DiffPath})
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return err
 	}

@@ -41,8 +41,10 @@ BEGIN.
 ## 常用维护入口
 
 - `/rekit` skill 说明：`.claude/skills/rekit/SKILL.md`
-- runtime 入口：`rekit/rekit.ps1`
-- runtime 模块：`rekit/lib/*.ps1`
+- PowerShell façade / runtime 入口：`rekit/rekit.ps1`
+- PowerShell runtime 模块：`rekit/lib/*.ps1`
+- Go backend 入口：`cmd/rekit/main.go`
+- Go backend 模块：`internal/rekit/**`
 - vmp-re pack：`packs/vmp-re/**`
 - pack manifest：`packs/vmp-re/manifest.yml`
 - 通用策略：`common/policies/**`
@@ -64,12 +66,12 @@ BEGIN.
 改动前先判断属于哪一层：
 
 1. Skill UI：改 `.claude/skills/rekit/SKILL.md`
-2. Runtime：改 `rekit/rekit.ps1` 或 `rekit/lib/*.ps1`
+2. Runtime：改 `rekit/rekit.ps1`、`rekit/lib/*.ps1`、`cmd/rekit/**` 或 `internal/rekit/**`
 3. Pack：改 `packs/vmp-re/**`
 4. Common policies/prompts：改 `common/**`
 5. 用户文档：改 `README.md` 或 `docs/**`
 
-后续路线可以按 `docs/vision.md` 分批实施。用户已授权：每批完成后自行 review/评估并做低风险调整；只有遇到产品方向变化、破坏性动作、外部副作用、动态调试/注入/patch/dump、confirmed/authority 写入、runtime schema 迁移或难以判断的架构取舍时，再停下来询问用户。为避免上下文压缩导致偏差，后续批次计划必须持续写回文档，不能只留在聊天上下文中。
+后续路线可以按 `docs/vision.md` 分批实施。用户已授权：每批完成后自行 review/评估并做低风险调整；只有遇到产品方向变化、破坏性动作、外部副作用、动态调试/注入/patch/dump、confirmed/authority 写入、runtime schema 迁移或难以判断的架构取舍时，再停下来询问用户。为避免上下文压缩导致偏差，后续所有实施计划必须持续写回 `docs/batch-plan.md` 或相关设计文档，不能只留在聊天上下文中；完成后按用户要求提交并推送到远程 `main`。
 
 不要复制 runtime 逻辑到 case shim；case-local `/rekit` 应保持 thin shim，并回到 kit 仓库中的 canonical runtime。
 
@@ -80,6 +82,13 @@ BEGIN.
 ```powershell
 .\rekit\rekit.ps1 status
 .\rekit\rekit.ps1 doctor
+go test ./...
+```
+
+涉及 PowerShell façade / Go backend 委托时额外检查：
+
+```powershell
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
 ```
 
 改动 pack wrapper 时可额外检查：
@@ -88,7 +97,7 @@ BEGIN.
 .\packs\vmp-re\scripts\validate.ps1
 ```
 
-涉及 `init`、`attach`、`sync`、`promote` 的改动，应使用临时 case 验证，不要在 kit 仓库内伪造 case state。
+涉及 `init`、`attach`、`sync`、`promote`、case doctor 或 Go façade 委托的改动，应使用临时 case 验证，不要在 kit 仓库内伪造 case state。
 
 ## 关键边界
 
@@ -96,5 +105,6 @@ BEGIN.
 - `packs/vmp-re/manifest.yml` 是 managed files、template files、promote files、tooling files、budgets 的单一事实源。
 - `sync` 是 kit -> case；`promote` 是 case -> kit。
 - `sync` / `promote` 默认 review-first，写入前需要用户确认具体范围。
+- Go backend 默认不接管 `/rekit`；只有显式 `REKIT_GO_ENABLE=1` 时，PowerShell façade 才委托安全集合（status、doctor/validate、sync/promote review-only、gate -WhatIf）。
 - 不要把真实样本、trace、dump、capture、artifact、绝对路径或 case-specific 进度写入本仓库模板。
 - `.gitignore` 已排除常见 RE artifacts；新增产物类型时先确认是否应继续排除。

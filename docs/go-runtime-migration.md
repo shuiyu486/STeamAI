@@ -106,21 +106,54 @@ git diff --check
 
 ### G2：Go review-only backend
 
-状态：已完成第一版只读 plan skeleton；仍不默认接入 PowerShell façade。
+状态：已完成 review-only plan 与 G2.1 artifact 写入；仍不默认接入 PowerShell façade。
 
-目标：Go 接管 `sync/promote` review-only plan，不写 managed docs、不写 pack、不写 candidates。
+目标：Go 接管 `sync/promote` review-only plan，不写 managed docs、不写 pack、不写 candidates；需要 review packet 时只写 `.rekit/reviews/**` 或显式指定的 artifact 路径。
 
 已实现：
 
-- `internal/rekit/review`：共享 plan/item、hash、deny pattern 和 managed block helper；
+- `internal/rekit/review`：共享 plan/item、hash、deny pattern、managed block helper、bounded diff 与 review artifact writer；
 - `internal/rekit/sync`：生成 `sync` review-only plan，并拒绝 `-Apply` / `-WhatIf` 写入路径；
-- `internal/rekit/promote`：生成 `promote` review-only plan，覆盖 deny pattern 和 tooling source sanitization metadata，并拒绝 `-Apply` / `-CreateCandidates` / `-WhatIf`；
-- Go CLI 以 JSON 输出 review plan 到 stdout，不写 `.rekit/reviews/**`，因此 `ReviewOutputDir` / `PacketPath` / `DiffPath` 仍留给后续 G2.1；
-- 轻量 tests 覆盖 review-only guard 与 attached-case guard。
-
-后续 G2.1：补齐 review artifact 写入、bounded diff 文件、sanitized preview 文件与 PowerShell review packet 字段 parity。
+- `internal/rekit/promote`：生成 `promote` review-only plan，覆盖 deny pattern、tooling source sanitization metadata 与 sanitized preview 内容，并拒绝 `-Apply` / `-CreateCandidates` / `-WhatIf`；
+- Go CLI 默认以 JSON 输出 review plan 到 stdout，`isMutation=false`、`reviewRequired=true`；
+- G2.1 artifact 写入：`-ReviewOutputDir` / `-PacketPath` / `-DiffPath` 会输出 `packet.json`、`summary.md`、`diffs/combined.diff`、per-item bounded diff，以及 promote tooling candidate 的 `previews/*.sanitized-preview.md`；
+- artifact 写入返回 `writesArtifacts=true`，仅代表写 review packet/diff/preview，不代表写 managed docs、pack 或 candidate；
+- tests 覆盖 review-only guard、attached-case guard、sync artifact、promote artifact 与 sanitized preview。
 
 不迁移：`sync -Apply`、`promote -CreateCandidates`、`promote -Apply`。
+
+### G2.2：Go gate dry-run（D4）
+
+状态：已完成第一版非写入 dry-run；仍不默认接入 PowerShell façade。
+
+目标：避免继续扩大 PowerShell runtime，把 heavy-tool gate 的确定性预览逻辑先放入 Go backend。
+
+已实现：
+
+- 新增 `internal/rekit/gate`：生成非写入 JSON gate plan，`isMutation=false`、`reviewRequired=true`、`requiresConfirmation=true`。
+- Go CLI 支持 `-Command gate -WhatIf`。
+- gate plan 校验 attached case 与 `.rekit/board.json` lane id；未知 lane 直接拒绝。
+- event preview 对齐 ledger request 语义：`kind=request`、`status=pending-gate`、可带 `target`/`batchId`，并内嵌 `gate` 详情（action、scope、budget、triedLightSteps、stopConditions、deniedUntilUserConfirmation）。
+- D4 dry-run 只预览将登记什么、需要确认什么；不写 JSONL、不执行 full-trace/debug/inject/patch/dump/network、不自动授权。
+
+不迁移：PowerShell `/rekit` 默认委托、heavy-tool 执行、用户确认后的 heavy-tool 执行闭环。
+
+### G2.3：Go gate pending-gate ledger 写入
+
+状态：已完成第一版显式写入；仍不默认接入 PowerShell façade。
+
+目标：在 Go backend 内补上 gate preview → pending-gate request 的最小落账路径，但只写 ledger request，不执行 heavy-tool、不写 confirmed/authority。
+
+已实现：
+
+- Go CLI 支持 `-Command gate -Apply`，将 gate preview append 到 `.rekit/facts/requests.jsonl`。
+- `gate -Apply` 要求显式 `-Actor`，记录谁批准写入 pending-gate request；无 `-Actor` 拒绝。
+- `gate -WhatIf` 与 `gate -Apply` 互斥；无 `-WhatIf/-Apply` 拒绝，避免误操作。
+- 写入事件仍是 `kind=request`、`status=pending-gate`，包含 `gate` 详情；`isMutation=true` 只表示写入 ledger request。
+- eventId 由 kind/lane/subject/summary/actor/risk/target/batch/action/scope/budget/triedLightSteps/stopConditions 派生；重复 eventId 返回 `applied=false` 与 `reason=duplicate eventId`，不重复追加。
+- 临时 case smoke 写入后已清理测试 request，未留下 D4/G2.3 测试状态。
+
+不迁移：heavy-tool 执行、用户确认后的执行器、PowerShell 默认委托、confirmed/authority 写入。
 
 ### G3：低风险写入命令迁移
 
@@ -133,7 +166,7 @@ git diff --check
 5. `promote -CreateCandidates`；
 6. 最后评估 `promote -Apply`。
 
-每一步都必须有临时 case smoke、backup 检查和 review-first 边界验证。
+每一步都必须有临时 case smoke、backup 检查和 review-first 边界验证。后续所有实施计划必须写入 `docs/batch-plan.md` 或本文件后再实施，并随代码一起提交推送到远程 `main`，避免只留在聊天上下文中。
 
 ### G4：工作线只读/低风险命令迁移
 
@@ -169,18 +202,22 @@ git diff --check
 
 ## PowerShell façade 策略
 
-首批不默认委托 Go，先通过维护者手动运行 Go CLI 验证。后续可以增加环境变量开关：
+G2.4 已增加显式环境变量开关；默认仍走 PowerShell，只有维护者主动启用时才委托 Go：
 
 ```text
 REKIT_GO_ENABLE=1   # 允许 rekit.ps1 对已迁移命令委托 Go
-REKIT_GO_DISABLE=1  # 强制 fallback PowerShell
+REKIT_GO_DISABLE=1  # 强制 fallback PowerShell，优先级高于 ENABLE
+REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优先 rekit/bin/rekit-go.exe，否则 fallback 到 go run ./cmd/rekit --
 ```
 
 即使启用委托，也只允许命令安全集合：
 
 - `status`；
-- `doctor` / `validate`；
-- 后续 `sync/promote` review-only。
+- kit-root 与 attached case `doctor` / `validate`；
+- `sync/promote` review-only（含 `-ReviewOutputDir` / `-PacketPath` / `-DiffPath` artifact 写入）；
+- `gate -WhatIf` dry-run（仅输出非写入 plan，不执行 heavy-tool、不写 ledger）。
+
+不委托：`gate -Apply`、`sync -Apply`、`promote -Apply/-CreateCandidates`、工作线命令、ledger `note`。这些路径继续由 PowerShell 处理或手动运行 Go CLI 验证。
 
 ## 验证矩阵
 
@@ -189,8 +226,18 @@ REKIT_GO_DISABLE=1  # 强制 fallback PowerShell
 | Go status | `go run ./cmd/rekit -- -Command status` | 输出 runtime root、template root、pack、manifest counts。 |
 | Go vmp doctor | `go run ./cmd/rekit -- -Command doctor` | pack validation ok。 |
 | Go explicit root doctor | `go run ./cmd/rekit -- -Command doctor -Target .` | pack validation ok。 |
+| Go case doctor | `go run ./cmd/rekit -- -Command doctor -Target <case> -Pack vmp-re` | attached case 结构只读验证，输出 `instance validation ok`。 |
 | Go non-case target doctor | `go run ./cmd/rekit -- -Command doctor -Target .\does-not-exist` | 报错，不得误报 pack validation ok。 |
 | Go template doctor | `go run ./cmd/rekit -- -Command doctor -Pack _template` | pack validation ok，允许 no subagentRoutes warning。 |
+| Go sync review artifacts | `go run ./cmd/rekit -- -Command sync -Target <case> -Pack vmp-re -ReviewOutputDir <dir>` | 写 `packet.json`、`summary.md`、`diffs/combined.diff`，返回 `isMutation=false` / `writesArtifacts=true`。 |
+| Go promote review artifacts | `go run ./cmd/rekit -- -Command promote -Target <case> -Pack vmp-re -ReviewOutputDir <dir>` | 写 review packet、bounded diff 和 tooling sanitized preview，不写 pack/candidates。 |
+| Go gate dry-run | `go run ./cmd/rekit -- -Command gate -Target <case> -Pack vmp-re -WhatIf -Action full-trace -Lane <lane>` | 输出非写入 JSON plan，`eventPreview.kind=request`、`status=pending-gate`、`requiresConfirmation=true`。 |
+| Go gate no-mode guard | `go run ./cmd/rekit -- -Command gate -Target <case> -Action debug -Lane <lane>` | 报错，必须显式选择 `-WhatIf` 或 `-Apply`。 |
+| Go gate apply | `go run ./cmd/rekit -- -Command gate -Target <case> -Pack vmp-re -Apply -Action debug -Lane <lane> -Actor <user>` | 只 append `.rekit/facts/requests.jsonl` pending-gate request，返回 `isMutation=true`，不执行工具。 |
+| Façade Go status | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command status` | 通过显式开关委托 Go，输出 `rekit go backend`。 |
+| Façade Go sync review artifacts | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command sync -Target <case> -ReviewOutputDir <dir>` | 委托 Go 写 review artifacts，不写 managed docs。 |
+| Façade Go gate dry-run | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command gate -Target <case> -WhatIf -Action debug -Lane <lane>` | 委托 Go 输出非写入 gate plan；无 ENABLE 时拒绝并提示手动 Go。 |
+| Façade smoke | `.\rekit\tests\facade-smoke.ps1 -CaseRoot <case> -Pack vmp-re` | 覆盖默认不委托、显式安全集合、disable 优先级和写入 flags fallback。 |
 | PowerShell status | `.\rekit\rekit.ps1 status` | 现有入口不回归。 |
 | PowerShell doctor | `.\rekit\rekit.ps1 doctor` | 现有 doctor 不回归。 |
 | Wrapper validate | `.\packs\vmp-re\scripts\validate.ps1` | 旧 wrapper 不回归。 |
@@ -213,10 +260,12 @@ go vet ./...
 接手时只需记住：
 
 - PowerShell 仍是公共入口，Go backend 还没有被 `rekit.ps1` 默认调用。
-- G1 已完成 read-only skeleton：`status`、pack `doctor/validate`、manifest/instance/runtime/CLI guard tests。
-- G2 已完成第一版 review-only JSON plan skeleton：`sync/promote` 只读 plan，拒绝写入 flags。
-- 下一批优先 G2.1：review artifact 写入、bounded diff、sanitized preview、packet 字段 parity 和临时 case golden tests。
-- 在 G2.1 前不要启用默认 Go 委托；写入命令、authority/confirmed 更新和 schema 迁移仍需单独确认。
+- G1/G2.5 已完成 read-only doctor skeleton：`status`、pack `doctor/validate`、attached case `doctor/validate`、manifest/instance/runtime/CLI guard tests。
+- G2 已完成 review-only JSON plan 与 G2.1 artifact 写入：`sync/promote` 只读 plan、bounded diff、sanitized preview、packet 输出；仍拒绝写入 flags。
+- G2.2 已完成第一版 Go gate dry-run：`gate -WhatIf` 输出非写入 pending-gate JSON plan，拒绝无 `-WhatIf` 调用，不执行 heavy-tool。
+- G2.3 已完成 Go gate pending-gate ledger 写入：`gate -Apply` 只 append request JSONL，要求 `-Actor`，不执行 heavy-tool。
+- 下一批优先 Go 低风险迁移收敛：PowerShell façade 显式开关、case doctor parity、或 gate request schema parity；不要直接迁移 authority/confirmed 写入。
+- 在 PowerShell façade 默认委托前，继续用手动 Go CLI smoke 验证；写入命令、authority/confirmed 更新和 schema 迁移仍需单独确认。
 
 ## 风险与止损
 

@@ -104,7 +104,7 @@ git diff --check
 
 - 还没有自动调度多个子 agent 的完整 runtime（R5 判定 runtime 不自动 spawn，由主会话用 Agent 工具完成）。
 - 还没有机器强制的 candidate -> verified -> confirmed gate（runtime 不强制，靠 policy 契约 + `note` 手动落账）。
-- evidence ledger runtime 写入已落地（`/rekit note` 9 种 kind + auto 流程 decision 字段对齐草案），但 batch 模型与 intervention 强制门禁尚未实现。
+- evidence ledger runtime 写入已落地（`/rekit note` 9 种 kind + auto 流程 decision 字段对齐草案 + `batchId` + intervention/rollback 展示闭环），但 candidate → verified → confirmed 的机器强制门禁尚未实现。
 
 对应后续计划：`docs/orchestration-plan.md`、`docs/evidence-ledger.md`、`docs/batch-plan.md`。
 
@@ -162,8 +162,8 @@ git diff --check
 
 ### 4.3 当前还没落地
 
-- append-only ledger runtime 已落地（`/rekit note` 9 种 kind + auto 流程 decision），但 batch 模型（`batchId`/整体接受/回滚）尚未实现。
-- intervention / rollback event 可由 `/rekit note` 手动写入，但尚未由 `/rekit continue` auto 流程自动写入（auto 仅写 observation/request/candidate/publication/decision）。
+- append-only ledger runtime 已落地（`/rekit note` 9 种 kind + auto 流程 decision + `batchId`），但 batch-level replay/resume 与整体接受/回滚自动化尚未实现。
+- intervention / rollback event 可由 `/rekit note` 手动写入，并已进入 overview/handoff/note-List 展示闭环；尚未由 `/rekit continue` auto 流程自动写入（auto 仅写 observation/request/candidate/publication/decision）。
 - agent-as-judge 尚未成为固定命令。
 - batch-level replay / resume 还处于设计阶段。
 
@@ -190,7 +190,7 @@ git diff --check
 |---|---|---|
 | evidence ledger | runtime 已落地（`/rekit note` 9 种 kind + overview/handoff/note-List 读层 + auto decision 字段对齐草案） | 索引优化（SQLite 仅在查询压垮 runtime 时） |
 | orchestration | `plan-subagents` 只读计划器 + `note -Kind decision` verdict 写回（R5 判定 runtime 不自动 spawn） | 跨工具 adapter 实际调用属 Phase 6 后段 |
-| heavy-tool gate runtime | overlay 契约 + `note -Kind request -Status pending-gate` 登记（R6）；runtime 不强制 gate | Phase 6 后段 runtime 强制 gate |
+| heavy-tool gate runtime | overlay 契约 + PowerShell `note -Kind request -Status pending-gate` + Go `gate -WhatIf/-Apply` preview/request；不执行 heavy-tool、不写 confirmed/authority、不默认接入 façade | Phase 6 后段 runtime 强制 gate 与受控执行闭环 |
 | tool adapter | policy + candidate | 为 `ida-agent-bridge` 做只读 index adapter |
 | 多 pack 扩展 | `_template` | 新增 `unpack-pe` / `ollvm` / `android-native` pack |
 

@@ -52,6 +52,7 @@ disable-model-invocation: true
 | `/rekit sync` | 默认先生成 LLM 审查包；用户确认具体范围后才执行写入型 sync。 |
 | `/rekit promote` | 默认先生成回流审查包；用户确认后才生成候选或写回 pack。 |
 | `/rekit doctor` | 验证 kit / case 结构、文档预算和 policy registry。 |
+| `/rekit gate -WhatIf` | Go backend 的 heavy-tool gate 预览入口；只输出 pending-gate request plan，不写 ledger、不执行 full-trace/debug/inject/patch/dump。默认不启用 façade 委托，维护者显式设置 `REKIT_GO_ENABLE=1` 后才可经 `/rekit` 调用。 |
 | `/rekit plan-subagents` | 内部只读计划器：根据 pack manifest 的 `subagentRoutes` 生成子 agent 分片计划；不启动 agent，不修改 managed/project source files；会写 `.rekit/reviews/...` 审查产物。日常不要主动推荐给用户。 |
 | `/rekit note` | 账本写入/查询入口：手动向 `.rekit/facts/*.jsonl` append observation/hypothesis/candidate/verification/decision/intervention/rollback/publication/request 事件，用于 heavy-tool gate 登记、decision/observation 手动落账。`-List` 进入查询模式，按 `-Kind`/`-Lane` 过滤列出事件。写入受 schema 校验（confidence/decision/status 枚举、evidenceRefs 非空、lane 存在性）。 |
 
@@ -81,8 +82,9 @@ disable-model-invocation: true
 10. 覆盖/删除 authority、冲突、schema change、changesProjectBaseline、externalSideEffect、destructiveAction 必须停下来问用户；不要自动执行。
 11. 新功能分析使用 `/rekit start <name>`；不要再建议用户使用旧的底层工作线命令。
 12. `plan-subagents` 只作为内部只读计划器，不是日常用户入口；能由主 agent 或自动流程判断时，不要求用户手动调用。
-13. manifest 中所有文件路径必须是相对路径，并且不能越出 case root 或 pack root。
-14. 所有写操作后都运行对应 doctor；失败时如实报告错误与下一步。
+13. Go façade 默认关闭；只有维护者显式设置 `REKIT_GO_ENABLE=1` 时，`status`、kit/case `doctor/validate`、`sync/promote` review-only 和 `gate -WhatIf` 才可委托 Go。`REKIT_GO_DISABLE=1` 强制回退 PowerShell。
+14. manifest 中所有文件路径必须是相对路径，并且不能越出 case root 或 pack root。
+15. 所有写操作后都运行对应 doctor；失败时如实报告错误与下一步。
 
 ## 常用说明模板
 
