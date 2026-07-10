@@ -995,43 +995,39 @@ git diff --check
 
 ## 后续实施计划：G3+ Go 写入命令迁移
 
-### Batch 34：G3.1 Go attach 迁移（计划）
+### Batch 34：G3.1 Go attach 迁移
 
-状态：待实施。
+状态：已完成。
 
-目标：把低风险 `attach` 写入路径迁移到 Go backend，但仍保持 review/preview-first 边界：默认不写；只有显式 `-Apply` 才写 `.rekit/instance.yml` 与 case-local thin shim。该批不接管 `init/bootstrap`，不同步 managed docs，不创建 board/facts/lanes，不纳入默认 façade 安全集合。
+目标：把低风险 `attach` 写入路径迁移到 Go backend，但仍保持 preview-first 边界：默认不写；只有显式 `-Apply` 才写 `.rekit/instance.yml` 与 case-local thin shim。该批不接管 `init/bootstrap`，不同步 managed docs，不创建 board/facts/lanes，不纳入 PowerShell façade 默认或显式委托安全集合。
 
-实施切片：
+结果：
 
-1. Go backend 增加 `attach` command：
-   - `-WhatIf`：输出 JSON plan，包含将写入的 metadata/shim 路径、repoRoot、pack、projectName、isMutation=false。
-   - `-Apply`：仅写 `.rekit/instance.yml` 与 `.claude/skills/rekit/SKILL.md` thin shim，返回 `isMutation=true` 与写入路径。
-   - 无 `-WhatIf/-Apply` 拒绝，避免误写。
-2. metadata 内容与 PowerShell `Write-RekitInstance` 保持兼容：`templateRoot`、`templatePack`、`projectName`、`projectRoot`。
-3. shim 必须复制 `rekit/templates/case-shim/SKILL.md`；不得把 runtime 逻辑复制到 case shim。
-4. 若目标目录不存在，`attach -Apply` 可创建目录；`attach -WhatIf` 只预览。
-5. 若目标已绑定到不同 `templateRoot` / `templatePack`，拒绝覆盖并提示走 `repair` 计划。
-6. PowerShell façade 默认仍不委托 `attach`；如后续要委托，必须另起批次并用临时 case smoke 覆盖。
+- 新增 `internal/rekit/attach`，提供 `Preview` 与 `Apply` 两条路径。
+- Go CLI 新增 `-Command attach` 与 `-ProjectName` 解析：
+  - `-WhatIf`：输出 JSON plan，包含 metadata/shim 写入路径、repoRoot、pack、projectName、`isMutation=false`、`reviewRequired=true`、`requiresConfirmation=true`。
+  - `-Apply`：仅写 `.rekit/instance.yml` 与 `.claude/skills/rekit/SKILL.md` thin shim，返回 `isMutation=true`、`applied=true` 与写入路径。
+  - 无 `-WhatIf/-Apply` 拒绝；两者同时传入也拒绝。
+- metadata 内容与 PowerShell `Write-RekitInstance` 的核心字段保持兼容：`schemaVersion`、`templateRoot`、`templatePack`、`projectName`、`projectRoot`、`mode: case-local-shim`。
+- shim 直接复制 `rekit/templates/case-shim/SKILL.md`，不复制 runtime 逻辑到 case。
+- `attach -WhatIf` 对不存在目标只预览，不创建目录或文件；`attach -Apply` 可创建目标目录。
+- 若目标已绑定到不同 `templateRoot` / `templatePack`，拒绝覆盖并提示走 repair 路径。
+- Go tests 覆盖 mode guard、preview 不写文件、apply 只写 metadata+shim、不同绑定拒绝。
+- 自审决定：Go attach 暂不写 `.re-template.yml` 与 `.rekit/state.json`，保持本批“只写 instance + thin shim”的低风险边界；legacy/state 兼容仍由 PowerShell attach/init 与后续 repair/sync 批次覆盖。
 
-验证标准：
+验证：
 
 ```powershell
 go test ./...
 go run ./cmd/rekit -- -Command attach -Target <tmpCase> -Pack vmp-re -WhatIf
 go run ./cmd/rekit -- -Command attach -Target <tmpCase> -Pack vmp-re -ProjectName <name> -Apply
-go run ./cmd/rekit -- -Command doctor -Target <tmpCase> -Pack vmp-re
+go run ./cmd/rekit -- -Command doctor -Target <tmpCase> -Pack vmp-re # 预期只 attach 未 sync 时缺 managed docs
 .\rekit\rekit.ps1 -Command attach -Target <tmpCase2> -Pack vmp-re -ProjectName <name>
 .\rekit\rekit.ps1 -Command doctor -Target <tmpCase2>
 git diff --check
 ```
 
-预期：
-
-- `attach -WhatIf` 不创建任何文件。
-- `attach -Apply` 只写 metadata + thin shim，不写 managed docs、facts、board、lanes 或 review artifacts。
-- Go `doctor -Target <tmpCase>` 对只 attach 未 sync 的 case 应能给出明确缺 managed docs 的失败信息；完整 init/sync 后通过。
-- PowerShell attach 继续不回归。
-- 临时 case 验证后删除，不污染 kit 仓库。
+验证结果：全部通过；Go attach smoke 临时目录已清理。Go doctor 对只 attach 未 sync 的 case 按预期报告缺 managed docs，未误报完整 case ok。
 
 ### Batch 35：G3.2 Go repair 迁移（计划）
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/attach"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
@@ -29,6 +30,7 @@ type Options struct {
 	ReviewOutputDir  string
 	PacketPath       string
 	DiffPath         string
+	ProjectName      string
 	Gate             gate.Options
 }
 
@@ -57,6 +59,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -Pack")
 			}
 			opt.Pack = args[i]
+		case "-ProjectName", "--project-name":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ProjectName")
+			}
+			opt.ProjectName = args[i]
 		case "-Review", "--review":
 			opt.Review = true
 		case "-Apply", "--apply":
@@ -184,6 +192,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runStatus(ctx, stdout)
 	case "doctor", "validate":
 		return runDoctor(ctx, stdout)
+	case "attach":
+		return runAttach(ctx, opt, stdout)
 	case "sync", "update":
 		return runSyncReview(ctx, opt, stdout)
 	case "promote":
@@ -266,6 +276,34 @@ func runCaseDoctor(ctx runtime.Context, target string, out io.Writer) error {
 	printRows(out, rows)
 	fmt.Fprintln(out, "instance validation ok")
 	return nil
+}
+
+func runAttach(ctx runtime.Context, opt Options, out io.Writer) error {
+	if !ctx.TargetProvided {
+		return fmt.Errorf("attach requires an explicit -Target case directory")
+	}
+	if opt.WhatIf && opt.Apply {
+		return fmt.Errorf("attach -WhatIf cannot be combined with -Apply")
+	}
+	attachOpt := attach.Options{ProjectName: opt.ProjectName}
+	var result any
+	var err error
+	if opt.WhatIf {
+		result, err = attach.Preview(ctx.RepoRoot, ctx.Target, ctx.Pack, attachOpt)
+	} else if opt.Apply {
+		result, err = attach.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, attachOpt)
+	} else {
+		return fmt.Errorf("attach write requires -Apply; use -WhatIf for preview")
+	}
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(append(b, '\n'))
+	return err
 }
 
 func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {

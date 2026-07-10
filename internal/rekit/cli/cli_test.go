@@ -89,6 +89,111 @@ func TestRunCaseDoctorRejectsShimDrift(t *testing.T) {
 	}
 }
 
+func TestRunAttachRequiresExplicitMode(t *testing.T) {
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "attach", "-Target", filepath.Join(t.TempDir(), "case"), "-Pack", "_template"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for attach without -WhatIf or -Apply")
+	}
+	if !strings.Contains(err.Error(), "-Apply") || !strings.Contains(err.Error(), "-WhatIf") {
+		t.Fatalf("error = %q, want apply/whatif guard", err.Error())
+	}
+}
+
+func TestRunAttachPreviewDoesNotCreateFiles(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "attach", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "demo-case", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var plan struct {
+		Command              string `json:"command"`
+		CaseRoot             string `json:"caseRoot"`
+		ProjectName          string `json:"projectName"`
+		IsMutation           bool   `json:"isMutation"`
+		ReviewRequired       bool   `json:"reviewRequired"`
+		RequiresConfirmation bool   `json:"requiresConfirmation"`
+		Writes               []struct {
+			Path   string `json:"path"`
+			Kind   string `json:"kind"`
+			Action string `json:"action"`
+		} `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
+		t.Fatalf("attach preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if plan.Command != "attach" || plan.IsMutation || !plan.ReviewRequired || !plan.RequiresConfirmation {
+		t.Fatalf("unexpected attach preview flags: %+v", plan)
+	}
+	if plan.CaseRoot != caseRoot || plan.ProjectName != "demo-case" || len(plan.Writes) != 2 {
+		t.Fatalf("unexpected attach preview: %+v", plan)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "instance.yml")); !os.IsNotExist(err) {
+		t.Fatalf("attach -WhatIf created instance metadata, err=%v", err)
+	}
+}
+
+func TestRunAttachApplyWritesOnlyMetadataAndShim(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "attach", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "demo-case", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command    string `json:"command"`
+		IsMutation bool   `json:"isMutation"`
+		Applied    bool   `json:"applied"`
+		Writes     []struct {
+			Path string `json:"path"`
+			Kind string `json:"kind"`
+		} `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("attach apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Command != "attach" || !result.IsMutation || !result.Applied || len(result.Writes) != 2 {
+		t.Fatalf("unexpected attach apply result: %+v", result)
+	}
+	metadata, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "instance.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(metadata)
+	if !strings.Contains(text, "templatePack: _template") || !strings.Contains(text, "projectName: demo-case") || !strings.Contains(text, "mode: case-local-shim") {
+		t.Fatalf("instance metadata missing expected values: %s", text)
+	}
+	shim, err := os.ReadFile(filepath.Join(caseRoot, ".claude", "skills", "rekit", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := os.ReadFile(filepath.Join(repoRoot(t), "rekit", "templates", "case-shim", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(shim, canonical) {
+		t.Fatal("case shim does not match canonical thin shim")
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".re-template.yml")); !os.IsNotExist(err) {
+		t.Fatalf("attach -Apply wrote legacy metadata unexpectedly, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "state.json")); !os.IsNotExist(err) {
+		t.Fatalf("attach -Apply wrote state unexpectedly, err=%v", err)
+	}
+}
+
+func TestRunAttachRejectsDifferentBinding(t *testing.T) {
+	caseRoot := attachedCase(t)
+	writeCaseFile(t, caseRoot, ".rekit/instance.yml", "templateRoot: C:\\other\\kit\ntemplatePack: _template\nprojectName: demo\nprojectRoot: "+caseRoot+"\n")
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "attach", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for different templateRoot")
+	}
+	if !strings.Contains(err.Error(), "different templateRoot") {
+		t.Fatalf("error = %q, want different templateRoot", err.Error())
+	}
+}
+
 func TestRunSyncReviewRejectsWriteFlags(t *testing.T) {
 	var out bytes.Buffer
 	err := Run([]string{"-Command", "sync", "-Target", t.TempDir(), "-Apply"}, &out)

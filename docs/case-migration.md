@@ -33,7 +33,7 @@
 /rekit attach -Target <caseRoot> -Pack vmp-re
 ```
 
-`attach` 只写 `.rekit/instance.yml`、`.rekit/state.json` 和 case-local `/rekit` shim，不覆盖已有 reference、handoff 或工具链文档。
+PowerShell `/rekit attach` 只写 `.rekit/instance.yml`、`.rekit/state.json`、`.re-template.yml` 和 case-local `/rekit` shim，不覆盖已有 reference、handoff 或工具链文档。维护者手动验证用的 Go `attach -Apply` 当前只写 `.rekit/instance.yml` 与 thin shim；不替代日常 `/rekit attach`。
 
 2. **同步 managed docs 前先 review**：
 
