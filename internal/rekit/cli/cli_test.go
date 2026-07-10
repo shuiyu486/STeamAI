@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -1031,27 +1032,40 @@ func writeCaseFile(t *testing.T, caseRoot, rel, text string) {
 	}
 }
 
-func snapshotFiles(t *testing.T, root string) map[string][]byte {
+type fileSnapshot struct {
+	rootExisted bool
+	files       map[string][]byte
+	dirs        map[string]bool
+}
+
+func snapshotFiles(t *testing.T, root string) fileSnapshot {
 	t.Helper()
-	out := map[string][]byte{}
+	out := fileSnapshot{files: map[string][]byte{}, dirs: map[string]bool{}}
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		return out
 	} else if err != nil {
 		t.Fatal(err)
 	}
+	out.rootExisted = true
 	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return err
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
+		if d.IsDir() {
+			if rel != "." {
+				out.dirs[rel] = true
+			}
+			return nil
+		}
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		out[rel] = append([]byte(nil), content...)
+		out.files[rel] = append([]byte(nil), content...)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -1059,12 +1073,18 @@ func snapshotFiles(t *testing.T, root string) map[string][]byte {
 	return out
 }
 
-func removeNewFiles(t *testing.T, root string, before map[string][]byte) {
+func removeNewFiles(t *testing.T, root string, before fileSnapshot) {
 	t.Helper()
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		return
 	} else if err != nil {
 		t.Fatal(err)
+	}
+	if !before.rootExisted {
+		if err := os.RemoveAll(root); err != nil {
+			t.Fatal(err)
+		}
+		return
 	}
 	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -1074,20 +1094,52 @@ func removeNewFiles(t *testing.T, root string, before map[string][]byte) {
 		if err != nil {
 			return err
 		}
-		if _, ok := before[rel]; !ok {
+		if _, ok := before.files[rel]; !ok {
 			return os.Remove(path)
 		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for rel, content := range before {
+	for rel, content := range before.files {
 		path := filepath.Join(root, rel)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(path, content, 0o644); err != nil {
 			t.Fatal(err)
+		}
+	}
+	dirs := []string{}
+	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if rel != "." && !before.dirs[rel] {
+			dirs = append(dirs, rel)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
+	for _, rel := range dirs {
+		path := filepath.Join(root, rel)
+		entries, err := os.ReadDir(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) == 0 {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
 		}
 	}
 }

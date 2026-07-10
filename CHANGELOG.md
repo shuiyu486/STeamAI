@@ -59,7 +59,7 @@
 
 - 修复 Windows PowerShell 5.1 解析含非 ASCII 的 runtime `.ps1` 文件时可能因 UTF-8 无 BOM 产生 mojibake 并破坏语法的问题。
 - 修复裸 `attach` 后执行 `sync` review 时，空 `CLAUDE.local.md` host text 被 PowerShell 参数绑定拒绝的问题，并统一空白 host 下 sync review 与 `sync -Apply` 的 managed block 写入结果。
-- 修复 G3.7 promote candidates Go 单测与 apply smoke 的清理策略：对已有 `promote-candidates/index.json` 或 tooling candidates 做内容级 snapshot/restore，避免验证覆盖人工候选索引或污染 pack。
+- 修复 G3.7 promote candidates Go 单测与 apply smoke 的清理策略：对已有 `promote-candidates/index.json`、tooling candidates 和原始目录结构做 snapshot/restore，避免验证覆盖人工候选索引或残留空 backup/candidate 目录污染 pack。
 
 ### Verified
 

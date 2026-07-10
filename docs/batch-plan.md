@@ -1289,3 +1289,35 @@ git diff --check
 ```
 
 验证结果：全部通过；preflight smoke 使用临时 case，验证后删除；PowerShell apply baseline 写入的 `_template` pack source 已恢复，新增 backup/candidate 已清理；Go backend 仍拒绝 `promote -Apply`。
+
+### Batch 43：G3.9 Go promote -Apply 手动路径
+
+状态：计划中。
+
+目标：在 Go backend 中实现显式 `promote -Apply` 手动写入路径，用于维护者把已确认的 case managed docs 回流到 pack source；默认 `promote` 继续 review-only，PowerShell façade 仍不委托写入命令。
+
+计划文档：`docs/promote-apply-migration.md`。
+
+实施范围：
+
+- 新增 Go `promote.Apply` helper，复用 `Plan` 的 managed promote action、deny pattern 与 case-specific pattern 结果。
+- CLI 支持 `-Command promote -Apply` 与 `-Apply -WhatIf`：`-WhatIf` 输出非写入 JSON preview；无 `-WhatIf` 时先备份 pack source，再写 safe managed docs，并运行 pack validation。
+- 写入仅限 `candidate-after-llm-review` 的 managed docs；blocked/skip/unchanged 只进入结构化 result，不写 pack source。
+- 输出结构化 JSON result，包含 `isMutation`、`applied`、changed/blocked/skipped 统计、backup/target/source 路径、validation rows、requiresCleanup 与 denied write actions。
+- 增加 Go tests 与临时 case smoke，验证 what-if 非写入、backup 内容、blocked deny、pack-root containment、validation、cleanup、façade fallback。
+
+边界：不写 authority/confirmed，不执行 heavy-tool/debug/inject/patch/dump/network，不写 tooling candidates（tooling 仍走 `-CreateCandidates`），不纳入 PowerShell façade 委托安全集合。
+
+停止条件：backup/target 无法证明在 pack root 内、validation 失败无法恢复 pack source、deny pattern 未能阻断 case-specific 内容、smoke 会残留 backup/candidates、或需要改变 manifest/runtime schema。
+
+验证：
+
+```powershell
+go test ./...
+.\rekit\tests\promote-apply-preflight-smoke.ps1
+.\rekit\tests\promote-apply-smoke.ps1
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```

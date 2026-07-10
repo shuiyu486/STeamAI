@@ -107,6 +107,18 @@ function Save-TreeSnapshot {
   return $snapshot
 }
 
+function Save-TreeDirectories {
+  param([Parameter(Mandatory=$true)][string]$Path)
+  $snapshot = @{}
+  if (-not (Test-Path -LiteralPath $Path)) { return $snapshot }
+  $root = [System.IO.Path]::GetFullPath($Path).TrimEnd('\')
+  Get-ChildItem -LiteralPath $Path -Recurse -Directory | ForEach-Object {
+    $rel = $_.FullName.Substring($root.Length).TrimStart('\')
+    if (-not [string]::IsNullOrWhiteSpace($rel)) { $snapshot[$rel] = $true }
+  }
+  return $snapshot
+}
+
 function Assert-InsideRoot {
   param(
     [Parameter(Mandatory=$true)][string]$Root,
@@ -123,7 +135,9 @@ function Assert-InsideRoot {
 function Restore-TreeSnapshot {
   param(
     [string]$Root,
-    [hashtable]$BeforeSnapshot
+    [hashtable]$BeforeSnapshot,
+    [hashtable]$BeforeDirectories,
+    [bool]$RootExisted
   )
   if (-not (Test-Path -LiteralPath $Root)) { return }
   $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd('\')
@@ -137,6 +151,18 @@ function Restore-TreeSnapshot {
     if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
     [System.IO.File]::WriteAllBytes($path, [byte[]]$BeforeSnapshot[$rel])
   }
+  if (-not $RootExisted -and (Test-Path -LiteralPath $Root)) {
+    Remove-Item -LiteralPath $Root -Recurse -Force -Confirm:$false
+    return
+  }
+  $dirs = @(Get-ChildItem -LiteralPath $Root -Recurse -Directory | Sort-Object { $_.FullName.Length } -Descending)
+  foreach ($dir in $dirs) {
+    $rel = $dir.FullName.Substring($rootFull.Length).TrimStart('\')
+    if ($BeforeDirectories.ContainsKey($rel)) { continue }
+    if (@(Get-ChildItem -LiteralPath $dir.FullName -Force).Count -eq 0) {
+      Remove-Item -LiteralPath $dir.FullName -Force -Confirm:$false
+    }
+  }
 }
 
 Get-ChildItem -LiteralPath $WorkRoot | Select-Object -First 1 | Out-Null
@@ -145,8 +171,12 @@ $caseRoot = Join-Path $WorkRoot "pca-$suffix"
 $packRoot = Join-Path $RepoRoot "packs\$Pack"
 $promoteCandidateRoot = Join-Path $packRoot 'promote-candidates'
 $toolingCandidateRoot = Join-Path $packRoot 'tooling\candidates'
+$promoteRootExisted = Test-Path -LiteralPath $promoteCandidateRoot
+$toolingRootExisted = Test-Path -LiteralPath $toolingCandidateRoot
 $beforePromote = Save-TreeSnapshot -Path $promoteCandidateRoot
 $beforeTooling = Save-TreeSnapshot -Path $toolingCandidateRoot
+$beforePromoteDirs = Save-TreeDirectories -Path $promoteCandidateRoot
+$beforeToolingDirs = Save-TreeDirectories -Path $toolingCandidateRoot
 $beforePromoteTree = Get-TreeSnapshot -Path $promoteCandidateRoot
 $beforeToolingTree = Get-TreeSnapshot -Path $toolingCandidateRoot
 try {
@@ -215,7 +245,7 @@ Context: ctx123 round7 Task #99
 
   'promote candidates apply smoke ok'
 } finally {
-  Restore-TreeSnapshot -Root $promoteCandidateRoot -BeforeSnapshot $beforePromote
-  Restore-TreeSnapshot -Root $toolingCandidateRoot -BeforeSnapshot $beforeTooling
+  Restore-TreeSnapshot -Root $promoteCandidateRoot -BeforeSnapshot $beforePromote -BeforeDirectories $beforePromoteDirs -RootExisted $promoteRootExisted
+  Restore-TreeSnapshot -Root $toolingCandidateRoot -BeforeSnapshot $beforeTooling -BeforeDirectories $beforeToolingDirs -RootExisted $toolingRootExisted
   if (Test-Path -LiteralPath $caseRoot) { Remove-Item -LiteralPath $caseRoot -Recurse -Force -Confirm:$false }
 }
