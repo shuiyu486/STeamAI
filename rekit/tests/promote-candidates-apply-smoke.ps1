@@ -95,6 +95,18 @@ function Get-TreeSnapshot {
   return ($files -join "`n")
 }
 
+function Save-TreeSnapshot {
+  param([Parameter(Mandatory=$true)][string]$Path)
+  $snapshot = @{}
+  if (-not (Test-Path -LiteralPath $Path)) { return $snapshot }
+  $root = [System.IO.Path]::GetFullPath($Path).TrimEnd('\')
+  Get-ChildItem -LiteralPath $Path -Recurse -File | ForEach-Object {
+    $rel = $_.FullName.Substring($root.Length).TrimStart('\')
+    $snapshot[$rel] = [System.IO.File]::ReadAllBytes($_.FullName)
+  }
+  return $snapshot
+}
+
 function Assert-InsideRoot {
   param(
     [Parameter(Mandatory=$true)][string]$Root,
@@ -108,20 +120,22 @@ function Assert-InsideRoot {
   }
 }
 
-function Remove-NewFiles {
+function Restore-TreeSnapshot {
   param(
     [string]$Root,
-    [AllowEmptyString()][string]$BeforeSnapshot
+    [hashtable]$BeforeSnapshot
   )
   if (-not (Test-Path -LiteralPath $Root)) { return }
-  $before = @{}
-  foreach ($line in @($BeforeSnapshot -split "`n")) {
-    if (-not [string]::IsNullOrWhiteSpace($line)) { $before[$line] = $true }
-  }
   $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd('\')
   Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object {
     $rel = $_.FullName.Substring($rootFull.Length).TrimStart('\')
-    if (-not $before.ContainsKey($rel)) { Remove-Item -LiteralPath $_.FullName -Force -Confirm:$false }
+    if (-not $BeforeSnapshot.ContainsKey($rel)) { Remove-Item -LiteralPath $_.FullName -Force -Confirm:$false }
+  }
+  foreach ($rel in $BeforeSnapshot.Keys) {
+    $path = Join-Path $rootFull ([string]$rel)
+    $parent = Split-Path -Parent $path
+    if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+    [System.IO.File]::WriteAllBytes($path, [byte[]]$BeforeSnapshot[$rel])
   }
 }
 
@@ -131,8 +145,10 @@ $caseRoot = Join-Path $WorkRoot "pca-$suffix"
 $packRoot = Join-Path $RepoRoot "packs\$Pack"
 $promoteCandidateRoot = Join-Path $packRoot 'promote-candidates'
 $toolingCandidateRoot = Join-Path $packRoot 'tooling\candidates'
-$beforePromote = Get-TreeSnapshot -Path $promoteCandidateRoot
-$beforeTooling = Get-TreeSnapshot -Path $toolingCandidateRoot
+$beforePromote = Save-TreeSnapshot -Path $promoteCandidateRoot
+$beforeTooling = Save-TreeSnapshot -Path $toolingCandidateRoot
+$beforePromoteTree = Get-TreeSnapshot -Path $promoteCandidateRoot
+$beforeToolingTree = Get-TreeSnapshot -Path $toolingCandidateRoot
 try {
   Invoke-GoRekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"promote-apply-$suffix",'-Apply') | Out-Null
 
@@ -158,8 +174,8 @@ Context: ctx123 round7 Task #99
   Assert-WriteAction -Result $preview -Path 'references/template/README.md' -Action 'would-create-candidate' | Out-Null
   Assert-WriteAction -Result $preview -Path 'references/template/workflow-template.md' -Action 'blocked-deny-pattern' | Out-Null
   Assert-WriteAction -Result $preview -Path 'references/template/toolchain-router.md' -Action 'would-create-candidate' | Out-Null
-  if ($beforePromote -ne (Get-TreeSnapshot -Path $promoteCandidateRoot)) { throw 'Go promote what-if changed promote-candidates tree' }
-  if ($beforeTooling -ne (Get-TreeSnapshot -Path $toolingCandidateRoot)) { throw 'Go promote what-if changed tooling candidates tree' }
+  if ($beforePromoteTree -ne (Get-TreeSnapshot -Path $promoteCandidateRoot)) { throw 'Go promote what-if changed promote-candidates tree' }
+  if ($beforeToolingTree -ne (Get-TreeSnapshot -Path $toolingCandidateRoot)) { throw 'Go promote what-if changed tooling candidates tree' }
 
   $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
   Assert-ContainsText -Text $facadeWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote write fallback'
@@ -199,7 +215,7 @@ Context: ctx123 round7 Task #99
 
   'promote candidates apply smoke ok'
 } finally {
-  Remove-NewFiles -Root $promoteCandidateRoot -BeforeSnapshot $beforePromote
-  Remove-NewFiles -Root $toolingCandidateRoot -BeforeSnapshot $beforeTooling
+  Restore-TreeSnapshot -Root $promoteCandidateRoot -BeforeSnapshot $beforePromote
+  Restore-TreeSnapshot -Root $toolingCandidateRoot -BeforeSnapshot $beforeTooling
   if (Test-Path -LiteralPath $caseRoot) { Remove-Item -LiteralPath $caseRoot -Recurse -Force -Confirm:$false }
 }

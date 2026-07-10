@@ -1031,9 +1031,9 @@ func writeCaseFile(t *testing.T, caseRoot, rel, text string) {
 	}
 }
 
-func snapshotFiles(t *testing.T, root string) map[string]bool {
+func snapshotFiles(t *testing.T, root string) map[string][]byte {
 	t.Helper()
-	out := map[string]bool{}
+	out := map[string][]byte{}
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		return out
 	} else if err != nil {
@@ -1047,7 +1047,11 @@ func snapshotFiles(t *testing.T, root string) map[string]bool {
 		if err != nil {
 			return err
 		}
-		out[rel] = true
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		out[rel] = append([]byte(nil), content...)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -1055,7 +1059,7 @@ func snapshotFiles(t *testing.T, root string) map[string]bool {
 	return out
 }
 
-func removeNewFiles(t *testing.T, root string, before map[string]bool) {
+func removeNewFiles(t *testing.T, root string, before map[string][]byte) {
 	t.Helper()
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		return
@@ -1070,12 +1074,21 @@ func removeNewFiles(t *testing.T, root string, before map[string]bool) {
 		if err != nil {
 			return err
 		}
-		if !before[rel] {
+		if _, ok := before[rel]; !ok {
 			return os.Remove(path)
 		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+	for rel, content := range before {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, content, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
