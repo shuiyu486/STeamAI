@@ -1152,3 +1152,35 @@ git diff --check
 ```
 
 验证结果：全部通过；sync apply smoke 使用临时 case，验证后删除，不污染 kit 仓库。
+
+### Batch 39：G3.5 Go init/bootstrap 手动路径
+
+状态：已完成。
+
+目标：在 Go backend 中实现 `init` / `bootstrap` 手动验证路径，使维护者可用 Go CLI 初始化临时 case；公共 `/rekit init` 仍由 PowerShell façade / fallback 处理，Go 写入路径不纳入 façade 委托安全集合。
+
+计划文档：`docs/init-bootstrap-migration.md`。
+
+实施范围：
+
+- 在 Go sync/apply 层增加受控 create-local-files 模式，允许 missing target 进入 init/bootstrap 写入流程，同时继续拒绝 moved case、different templateRoot/templatePack 和 kit repo root target。
+- 新增 Go CLI `-Command init|bootstrap`：`-WhatIf` 输出非写入 JSON plan，`-Apply` 执行写入；裸命令拒绝，`-WhatIf` 与 `-Apply` 互斥。
+- 复用 G3.4 sync apply 语义落地 metadata/shim/legacy metadata、managed files、template files、managed block、support file 和 `.rekit/state.json`。
+- 增加 Go tests 与临时 case smoke，验证 `init -WhatIf` 不写、`init/bootstrap -Apply` 写入完整 case、`-Force` template 覆盖、doctor 双通过、PowerShell façade 不委托。
+
+边界：不写 pack，不执行 promote，不写 authority/confirmed，不创建 confirmed CSV，不执行 heavy-tool/debug/inject/patch/dump/network，不自动 rollback，不迁移 board/facts/lanes 初始化语义，不纳入 PowerShell façade 委托安全集合。
+
+停止条件：missing target guard 无法区分普通目录与 moved/different binding、kit repo root target 保护不清晰、`-WhatIf` 有副作用、apply 后 Go/PowerShell doctor 失败、或实现需要改变 manifest/runtime schema。
+
+验证：
+
+```powershell
+go test ./...
+.\rekit\tests\init-bootstrap-smoke.ps1
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过；init/bootstrap smoke 使用临时 case，验证后删除，不污染 kit 仓库。

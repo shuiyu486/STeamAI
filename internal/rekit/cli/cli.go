@@ -200,6 +200,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runAttach(ctx, opt, stdout)
 	case "repair":
 		return runRepair(ctx, opt, stdout)
+	case "init", "bootstrap":
+		return runInitBootstrap(ctx, opt, stdout)
 	case "sync", "update":
 		return runSyncReview(ctx, opt, stdout)
 	case "promote":
@@ -326,6 +328,40 @@ func runRepair(ctx runtime.Context, opt Options, out io.Writer) error {
 		result, err = repair.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, repairOpt)
 	} else {
 		result, err = repair.Preview(ctx.RepoRoot, ctx.Target, ctx.Pack, repairOpt)
+	}
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(append(b, '\n'))
+	return err
+}
+
+func runInitBootstrap(ctx runtime.Context, opt Options, out io.Writer) error {
+	if !ctx.TargetProvided {
+		return fmt.Errorf("%s requires an explicit -Target case directory", opt.Command)
+	}
+	if opt.WhatIf && opt.Apply {
+		return fmt.Errorf("%s -WhatIf cannot be combined with -Apply", opt.Command)
+	}
+	if opt.CreateCandidates {
+		return fmt.Errorf("%s does not support -CreateCandidates", opt.Command)
+	}
+	if wantsReviewArtifacts(opt) {
+		return fmt.Errorf("%s does not support review artifact options; use -WhatIf for preview or -Apply for explicit write", opt.Command)
+	}
+	applyOpt := syncreview.ApplyOptions{ProjectName: opt.ProjectName, ForceLocalTemplates: opt.Force, CreateLocalFiles: true, Command: opt.Command}
+	var result any
+	var err error
+	if opt.WhatIf {
+		result, err = syncreview.InitPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
+	} else if opt.Apply {
+		result, err = syncreview.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
+	} else {
+		return fmt.Errorf("%s write requires -Apply; use -WhatIf for preview", opt.Command)
 	}
 	if err != nil {
 		return err
