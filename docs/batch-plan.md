@@ -1257,3 +1257,35 @@ git diff --check
 - 新增 `rekit/tests/promote-candidates-apply-smoke.ps1`，验证 candidate 写入、blocked deny、tooling sanitization、pack-root containment、cleanup 与 façade fallback；更新 preflight smoke 验证 Go `-CreateCandidates -WhatIf` 非写入。
 
 验证结果：全部通过；preflight/apply smoke 使用临时 case，验证后删除；apply smoke 清理本次新增 `promote-candidates/**` 与 `tooling/candidates/**` 文件，未留下 pack candidates。
+
+### Batch 42：G3.8 promote -Apply 迁移预研
+
+状态：已完成（预研与验证资产；未实现 Go `promote -Apply` 写入）。
+
+目标：在实现 Go `promote -Apply` 前，固化 PowerShell apply baseline、backup/deny/validation/cleanup 语义和 Go 迁移契约。`promote -Apply` 会直接覆盖 pack managed docs，风险高于 candidate 写入，因此本批只做 preflight，不迁移写入 helper。
+
+计划文档：`docs/promote-apply-migration.md`。
+
+实施范围：
+
+- 固化 PowerShell `promote -Apply -WhatIf` 非写入 baseline：safe changed managed doc 显示 would promote，deny 内容 blocked，不写 pack source/backups/candidates。
+- 固化 PowerShell `promote -Apply` baseline：safe changed managed doc 先 backup 再写 pack source；deny 内容不写；写入后运行 pack validation；smoke 在 finally 中恢复 pack source 并清理新增 backup/candidate。
+- 新增 `rekit/tests/promote-apply-preflight-smoke.ps1`，覆盖 PowerShell apply baseline、Go apply guard、façade fallback、backup root containment 与 cleanup。
+- 更新 `docs/go-runtime-migration.md`、`docs/promote-apply-migration.md` 与 `CHANGELOG.md`。
+
+边界：不实现 Go `promote -Apply`，不覆盖 pack managed docs（最终状态恢复原文），不写 authority/confirmed，不执行 heavy-tool/debug/inject/patch/dump/network，不纳入 PowerShell façade 委托安全集合。
+
+停止条件：无法可靠恢复 pack source、backup 无法证明在 pack root 内、deny pattern 未能阻断 case-specific 内容、smoke 会残留 backup/candidates、或需要改变 manifest/runtime schema。
+
+验证：
+
+```powershell
+go test ./...
+.\rekit\tests\promote-apply-preflight-smoke.ps1
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过；preflight smoke 使用临时 case，验证后删除；PowerShell apply baseline 写入的 `_template` pack source 已恢复，新增 backup/candidate 已清理；Go backend 仍拒绝 `promote -Apply`。
