@@ -1093,10 +1093,30 @@ git diff --check
 
 验证结果：全部通过；gate parity smoke 使用临时 case，验证后删除，不污染 kit 仓库。
 
-### Batch 37：G3.3 sync -Apply 迁移预研（计划）
+### Batch 37：G3.3 sync -Apply 迁移预研
 
-状态：待 attach/repair 稳定后再实施。
+状态：已完成（预研与验证资产；未实现 Go `sync -Apply` 写入）。
 
 目标：只做设计与 golden test 预研，不直接迁移写入。需先补齐 backup、bounded diff、managed block、template local-file skip、失败恢复与旧 case compatibility 的测试矩阵。
 
+结果：
+
+- 新增 `docs/sync-apply-migration.md`，固化 PowerShell `sync -Apply` 当前语义基线、Go 迁移契约、停止条件与 S1-S18 测试矩阵。
+- 明确下一批实现 Go `sync -Apply` 前必须先完成双临时 case parity：PowerShell apply 与 Go apply 内容 hash 一致，允许 backup timestamp 差异。
+- 明确 Go `sync -Apply` 后续仍是手动 CLI 验证路径；默认 `sync` 保持 review-only，PowerShell façade 暂不委托写入。
+- 新增 `rekit/tests/sync-review-parity-smoke.ps1`，用 `_template` 临时 case 构造 managed drift、managed missing、managed block drift、local template existing，验证 PowerShell/Go review action 与 bounded diff parity，且 review-only 不改目标文件。
+
 停止条件：任何 backup/rollback 语义不清、PowerShell/Go diff 不一致、或旧 case 行为无法解释时，暂停并回到 PowerShell fallback。
+
+验证：
+
+```powershell
+.\rekit\tests\sync-review-parity-smoke.ps1
+go test ./...
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过；sync review parity smoke 使用临时 case，验证后删除，不污染 kit 仓库。

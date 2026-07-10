@@ -162,7 +162,7 @@ git diff --check
 
 1. `attach`（G3.1 已完成 Go CLI 手动路径：`-WhatIf` 预览、`-Apply` 只写 `.rekit/instance.yml` + thin shim；暂不经 PowerShell façade 委托）；
 2. `repair`（G3.2 已完成 Go CLI 手动路径：默认/`-WhatIf` 预览，`-Apply` 刷新 `.rekit/instance.yml`、legacy `.re-template.yml` 与 thin shim；暂不经 PowerShell façade 委托）；
-3. `sync -Apply`；
+3. `sync -Apply`（G3.3 已完成预研与 review parity smoke，见 `docs/sync-apply-migration.md`；尚未实现写入）；
 4. `init/bootstrap`；
 5. `promote -CreateCandidates`；
 6. 最后评估 `promote -Apply`。
@@ -272,7 +272,7 @@ go vet ./...
 - G2.3 已完成 Go gate pending-gate ledger 写入：`gate -Apply` 只 append request JSONL，要求 `-Actor`，不执行 heavy-tool。
 - G3.1 已完成 Go attach 手动路径：`attach -WhatIf` 只预览，`attach -Apply` 只写 `.rekit/instance.yml` 与 case-local thin shim；不写 managed docs、legacy metadata、state、board/facts/lanes，也不经 PowerShell façade 委托。
 - G3.2 已完成 Go repair 手动路径：默认/`repair -WhatIf` 只预览，`repair -Apply` 只刷新 `.rekit/instance.yml`、`.re-template.yml` 与 case-local thin shim；不写 managed docs、board/facts/lanes 或 authority，也不经 PowerShell façade 委托。
-- 下一批优先 Go 低风险迁移收敛：gate request schema parity，或 `sync -Apply` 预研；不要直接迁移 authority/confirmed 写入。
+- G3.3 已完成 `sync -Apply` 迁移预研与 review parity smoke：见 `docs/sync-apply-migration.md`；Go `sync -Apply` 写入尚未实现，下一步应先做手动 CLI apply + 双临时 case parity，不要直接迁移 authority/confirmed 写入。
 - 在 PowerShell façade 默认委托前，继续用手动 Go CLI smoke 验证；写入命令、authority/confirmed 更新和 schema 迁移仍需单独确认。
 
 ## 风险与止损
