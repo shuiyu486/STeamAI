@@ -483,15 +483,92 @@ func TestRunPromoteReviewRequiresAttachedCase(t *testing.T) {
 	}
 }
 
-func TestRunPromoteRejectsApply(t *testing.T) {
+func TestRunPromoteApplyWhatIfEmitsNonMutatingPlan(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Apply\n\nReusable safe update.\n")
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	result := decodePromoteApplyResult(t, out.Bytes())
+	if result.Command != "promote" || result.IsMutation || result.Applied || result.Changed == 0 || result.BackupRoot != "" {
+		t.Fatalf("unexpected promote apply what-if result: %+v", result)
+	}
+	readmeWrite := assertPromoteApplyWrite(t, result.Writes, "references/template/README.md", "would-promote")
+	if _, err := os.Stat(readmeWrite.BackupPath); !os.IsNotExist(err) {
+		t.Fatalf("promote apply what-if created backup %s", readmeWrite.BackupPath)
+	}
+}
+
+func TestRunPromoteApplyWritesPackWithBackup(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	root := repoRoot(t)
+	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
+	candidateBefore := snapshotFiles(t, candidateRoot)
+	packRefsRoot := filepath.Join(root, "packs", "_template", "references", "template")
+	packRefsBefore := snapshotFiles(t, packRefsRoot)
+	t.Cleanup(func() {
+		removeNewFiles(t, packRefsRoot, packRefsBefore)
+		removeNewFiles(t, candidateRoot, candidateBefore)
+	})
+	packReadme := filepath.Join(packRefsRoot, "README.md")
+	original, err := os.ReadFile(packReadme)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Apply\n\nReusable safe update.\n")
+	writeCaseFile(t, caseRoot, "references/template/workflow-template.md", "# Blocked\n\nDo not promote C:\\case\\artifact\\sample-trace.csv.\n")
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	result := decodePromoteApplyResult(t, out.Bytes())
+	if result.Command != "promote" || !result.IsMutation || !result.Applied || result.Changed == 0 || result.Blocked == 0 || !result.RequiresCleanup || len(result.ValidationRows) == 0 {
+		t.Fatalf("unexpected promote apply result: %+v", result)
+	}
+	readmeWrite := assertPromoteApplyWrite(t, result.Writes, "references/template/README.md", "promote")
+	workflowWrite := assertPromoteApplyWrite(t, result.Writes, "references/template/workflow-template.md", "blocked-deny-pattern")
+	if !strings.HasPrefix(readmeWrite.TargetPath, filepath.Join(root, "packs", "_template")) || !strings.HasPrefix(readmeWrite.BackupPath, filepath.Join(candidateRoot, ".backup")) {
+		t.Fatalf("promote apply paths outside pack/candidate roots: %+v", readmeWrite)
+	}
+	assertFileExists(t, readmeWrite.BackupPath)
+	backup, err := os.ReadFile(readmeWrite.BackupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(backup, original) {
+		t.Fatal("promote apply backup did not preserve original pack README")
+	}
+	updated, err := os.ReadFile(packReadme)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(updated), "Reusable safe update") {
+		t.Fatalf("promote apply did not update pack README: %s", string(updated))
+	}
+	workflowPack, err := os.ReadFile(filepath.Join(packRefsRoot, "workflow-template.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(workflowPack), "sample-trace") {
+		t.Fatal("blocked workflow was written to pack source")
+	}
+	if workflowWrite.BackupPath != "" {
+		t.Fatalf("blocked write unexpectedly has backup path: %+v", workflowWrite)
+	}
+}
+
+func TestRunPromoteApplyRejectsCreateCandidatesAndArtifacts(t *testing.T) {
 	caseRoot := attachedCase(t)
 	var out bytes.Buffer
-	err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out)
-	if err == nil {
-		t.Fatal("Run returned nil error for promote -Apply")
+	err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-CreateCandidates"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("error = %v, want apply/create-candidates combination guard", err)
 	}
-	if !strings.Contains(err.Error(), "does not implement promote -Apply") {
-		t.Fatalf("error = %q, want promote apply guard", err.Error())
+	err = Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-ReviewOutputDir", filepath.Join(t.TempDir(), "review")}, &out)
+	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("error = %v, want apply/review artifact combination guard", err)
 	}
 }
 
@@ -934,6 +1011,27 @@ type syncWrite struct {
 	BackupPath string `json:"backupPath"`
 }
 
+type promoteApplyResult struct {
+	Command         string              `json:"command"`
+	IsMutation      bool                `json:"isMutation"`
+	Applied         bool                `json:"applied"`
+	BackupRoot      string              `json:"backupRoot"`
+	Changed         int                 `json:"changed"`
+	Blocked         int                 `json:"blocked"`
+	RequiresCleanup bool                `json:"requiresCleanup"`
+	ValidationRows  []map[string]any    `json:"validationRows"`
+	Writes          []promoteApplyWrite `json:"writes"`
+}
+
+type promoteApplyWrite struct {
+	Path       string `json:"path"`
+	Kind       string `json:"kind"`
+	Action     string `json:"action"`
+	SourcePath string `json:"sourcePath"`
+	TargetPath string `json:"targetPath"`
+	BackupPath string `json:"backupPath"`
+}
+
 type candidateResult struct {
 	Command         string           `json:"command"`
 	IsMutation      bool             `json:"isMutation"`
@@ -973,6 +1071,15 @@ func decodeCandidateResult(t *testing.T, b []byte) candidateResult {
 	return result
 }
 
+func decodePromoteApplyResult(t *testing.T, b []byte) promoteApplyResult {
+	t.Helper()
+	var result promoteApplyResult
+	if err := json.Unmarshal(b, &result); err != nil {
+		t.Fatalf("promote apply stdout is not JSON: %v\n%s", err, string(b))
+	}
+	return result
+}
+
 func assertFileExists(t *testing.T, path string) {
 	t.Helper()
 	st, err := os.Stat(path)
@@ -997,6 +1104,21 @@ func assertCandidateWrite(t *testing.T, writes []candidateWrite, path, action st
 	}
 	t.Fatalf("candidate write %s with action %q not found in %+v", path, action, writes)
 	return candidateWrite{}
+}
+
+func assertPromoteApplyWrite(t *testing.T, writes []promoteApplyWrite, path, action string) promoteApplyWrite {
+	t.Helper()
+	for _, write := range writes {
+		if write.Path != path || write.Action != action {
+			continue
+		}
+		if write.TargetPath == "" {
+			t.Fatalf("promote apply write %s missing target path", path)
+		}
+		return write
+	}
+	t.Fatalf("promote apply write %s with action %q not found in %+v", path, action, writes)
+	return promoteApplyWrite{}
 }
 
 func assertSyncWrite(t *testing.T, writes []syncWrite, path, action string, wantBackup bool) {

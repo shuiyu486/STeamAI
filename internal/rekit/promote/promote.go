@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
@@ -17,6 +18,40 @@ import (
 
 type CandidateOptions struct {
 	WhatIf bool
+}
+
+type ApplyOptions struct {
+	WhatIf bool
+}
+
+type ApplyWrite struct {
+	Path       string `json:"path"`
+	Kind       string `json:"kind"`
+	Action     string `json:"action"`
+	SourcePath string `json:"sourcePath,omitempty"`
+	TargetPath string `json:"targetPath,omitempty"`
+	BackupPath string `json:"backupPath,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+type ApplyResult struct {
+	SchemaVersion     int          `json:"schemaVersion"`
+	Command           string       `json:"command"`
+	CaseRoot          string       `json:"caseRoot"`
+	RepoRoot          string       `json:"repoRoot"`
+	Pack              string       `json:"pack"`
+	IsMutation        bool         `json:"isMutation"`
+	Applied           bool         `json:"applied"`
+	BackupRoot        string       `json:"backupRoot,omitempty"`
+	Changed           int          `json:"changed"`
+	Blocked           int          `json:"blocked"`
+	Skipped           int          `json:"skipped"`
+	Writes            []ApplyWrite `json:"writes"`
+	ValidationRows    []doctor.Row `json:"validationRows,omitempty"`
+	RequiresReview    bool         `json:"requiresReview"`
+	RequiresCleanup   bool         `json:"requiresCleanup"`
+	DeniedWriteAction []string     `json:"deniedWriteAction"`
+	NextSteps         []string     `json:"nextSteps"`
 }
 
 type CandidateWrite struct {
@@ -53,6 +88,8 @@ type candidateIndexEntry struct {
 	Path      string `json:"path"`
 	Candidate string `json:"candidate"`
 }
+
+var deniedApplyActions = []string{"authority/confirmed writes", "heavy-tool execution", "tooling candidate writes"}
 
 func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
 	if _, err := instance.AssertAttached(caseRoot, repoRoot, pack); err != nil {
@@ -269,6 +306,181 @@ func CreateCandidates(repoRoot, caseRoot, pack string, opt CandidateOptions) (Ca
 	}
 
 	return CandidateResult{SchemaVersion: 1, Command: "promote", CaseRoot: plan.CaseRoot, RepoRoot: plan.RepoRoot, Pack: plan.Pack, IsMutation: !opt.WhatIf, Applied: !opt.WhatIf, CandidateRoot: candidateRoot, ToolingRoot: toolingRoot, IndexPath: indexPath, Created: created, Blocked: blocked, Skipped: skipped, Writes: writes, RequiresReview: true, RequiresCleanup: !opt.WhatIf && created > 0, DeniedWriteAction: []string{"promote -Apply", "pack managed file overwrite", "authority/confirmed writes", "heavy-tool execution"}, NextSteps: []string{"review candidate files before promoting them into pack sources", "delete rejected candidates after review"}}, nil
+}
+
+func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (ApplyResult, error) {
+	plan, err := Plan(repoRoot, caseRoot, pack)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	backupRoot, err := uniqueBackupRoot(filepath.Join(m.PackRoot, "promote-candidates", ".backup"))
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	if err := assertInsideRoot(m.PackRoot, backupRoot); err != nil {
+		return ApplyResult{}, err
+	}
+
+	writes := []ApplyWrite{}
+	changed := 0
+	blocked := 0
+	skipped := 0
+	addWrite := func(write ApplyWrite) {
+		writes = append(writes, write)
+		switch write.Action {
+		case "promote", "would-promote":
+			changed++
+		case "blocked-deny-pattern", "blocked-missing-pack-file":
+			blocked++
+		default:
+			if strings.HasPrefix(write.Action, "skip") || write.Action == "unchanged" {
+				skipped++
+			}
+		}
+	}
+	restoreFailure := func(err error) (ApplyResult, error) {
+		if !opt.WhatIf && len(writes) > 0 {
+			if restoreErr := restorePromoteBackups(writes); restoreErr != nil {
+				return ApplyResult{}, fmt.Errorf("%w; restore failed: %v", err, restoreErr)
+			}
+			return ApplyResult{}, fmt.Errorf("%w; pack files restored from backup", err)
+		}
+		return ApplyResult{}, err
+	}
+
+	for _, item := range plan.Items {
+		switch item.Action {
+		case "candidate-after-llm-review":
+			if err := assertInsideRoot(m.PackRoot, item.PackPath); err != nil {
+				return restoreFailure(err)
+			}
+			backupPath, err := packBackupPath(item.PackPath, m.PackRoot, backupRoot)
+			if err != nil {
+				return restoreFailure(err)
+			}
+			action := "promote"
+			if opt.WhatIf {
+				action = "would-promote"
+				addWrite(ApplyWrite{Path: item.Path, Kind: item.Kind, Action: action, SourcePath: item.CasePath, TargetPath: item.PackPath, BackupPath: backupPath})
+				continue
+			}
+			text, err := os.ReadFile(item.CasePath)
+			if err != nil {
+				return restoreFailure(err)
+			}
+			if err := backupPackFile(item.PackPath, m.PackRoot, backupRoot); err != nil {
+				return restoreFailure(err)
+			}
+			addWrite(ApplyWrite{Path: item.Path, Kind: item.Kind, Action: action, SourcePath: item.CasePath, TargetPath: item.PackPath, BackupPath: backupPath})
+			if err := os.MkdirAll(filepath.Dir(item.PackPath), 0o755); err != nil {
+				return restoreFailure(err)
+			}
+			if err := os.WriteFile(item.PackPath, text, 0o644); err != nil {
+				return restoreFailure(err)
+			}
+		case "blocked-deny-pattern", "blocked-missing-pack-file":
+			addWrite(ApplyWrite{Path: item.Path, Kind: item.Kind, Action: item.Action, SourcePath: item.CasePath, TargetPath: item.PackPath, Reason: strings.Join(item.DenyViolations, ",")})
+		case "skip-missing-case-file", "skip-non-managed-promote-file", "unchanged":
+			addWrite(ApplyWrite{Path: item.Path, Kind: item.Kind, Action: item.Action, SourcePath: item.CasePath, TargetPath: item.PackPath})
+		}
+	}
+
+	result := ApplyResult{SchemaVersion: 1, Command: "promote", CaseRoot: plan.CaseRoot, RepoRoot: plan.RepoRoot, Pack: plan.Pack, IsMutation: !opt.WhatIf, Applied: !opt.WhatIf, BackupRoot: backupRoot, Changed: changed, Blocked: blocked, Skipped: skipped, Writes: writes, RequiresReview: true, RequiresCleanup: !opt.WhatIf && changed > 0, DeniedWriteAction: deniedApplyActions, NextSteps: []string{"run doctor after apply", "review backupRoot if any promoted pack file must be restored"}}
+	if opt.WhatIf {
+		result.BackupRoot = ""
+		result.NextSteps = []string{"review would-promote entries before rerunning with -Apply"}
+		return result, nil
+	}
+
+	rows, err := doctor.Pack(repoRoot, pack)
+	if err != nil {
+		if restoreErr := restorePromoteBackups(writes); restoreErr != nil {
+			return result, fmt.Errorf("pack validation failed after promote apply: %w; restore failed: %v", err, restoreErr)
+		}
+		return result, fmt.Errorf("pack validation failed after promote apply; pack files restored from backup: %w", err)
+	}
+	result.ValidationRows = rows
+	return result, nil
+}
+
+func uniqueBackupRoot(root string) (string, error) {
+	stamp := time.Now().Format("20060102-150405")
+	candidate := filepath.Join(root, stamp)
+	if _, err := os.Stat(candidate); os.IsNotExist(err) {
+		return candidate, nil
+	} else if err != nil {
+		return "", err
+	}
+	for i := 1; i <= 999; i++ {
+		candidate = filepath.Join(root, fmt.Sprintf("%s-%d", stamp, i))
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate, nil
+		} else if err != nil {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("unable to allocate unique backup root under %s", root)
+}
+
+func packBackupPath(path, packRoot, backupRoot string) (string, error) {
+	packFull, err := filepath.Abs(packRoot)
+	if err != nil {
+		return "", err
+	}
+	pathFull, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(packFull, pathFull)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("cannot backup file outside pack root: %s", path)
+	}
+	dest := filepath.Join(backupRoot, rel)
+	if err := assertInsideRoot(backupRoot, dest); err != nil {
+		return "", err
+	}
+	return dest, nil
+}
+
+func backupPackFile(path, packRoot, backupRoot string) error {
+	if !refsf.Exists(path) {
+		return fmt.Errorf("missing pack file: %s", path)
+	}
+	dest, err := packBackupPath(path, packRoot, backupRoot)
+	if err != nil {
+		return err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(dest, b, 0o644)
+}
+
+func restorePromoteBackups(writes []ApplyWrite) error {
+	for _, write := range writes {
+		if write.BackupPath == "" || write.TargetPath == "" || write.Action != "promote" {
+			continue
+		}
+		b, err := os.ReadFile(write.BackupPath)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(write.TargetPath, b, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func assertInsideRoot(root, path string) error {

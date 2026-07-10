@@ -414,10 +414,25 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		return fmt.Errorf("promote review requires an explicit -Target attached case")
 	}
 	if opt.Apply {
-		return fmt.Errorf("go backend does not implement promote -Apply")
+		if opt.CreateCandidates {
+			return fmt.Errorf("promote -Apply cannot be combined with -CreateCandidates")
+		}
+		if wantsReviewArtifacts(opt) {
+			return fmt.Errorf("promote -Apply cannot be combined with review artifact options")
+		}
+		result, err := promote.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, promote.ApplyOptions{WhatIf: opt.WhatIf})
+		if err != nil {
+			return err
+		}
+		b, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(append(b, '\n'))
+		return err
 	}
 	if opt.WhatIf && !opt.CreateCandidates {
-		return fmt.Errorf("promote -WhatIf is only supported with -CreateCandidates")
+		return fmt.Errorf("promote -WhatIf is only supported with -CreateCandidates or -Apply")
 	}
 	if opt.CreateCandidates {
 		if wantsReviewArtifacts(opt) {

@@ -1292,7 +1292,7 @@ git diff --check
 
 ### Batch 43：G3.9 Go promote -Apply 手动路径
 
-状态：计划中。
+状态：已完成。
 
 目标：在 Go backend 中实现显式 `promote -Apply` 手动写入路径，用于维护者把已确认的 case managed docs 回流到 pack source；默认 `promote` 继续 review-only，PowerShell façade 仍不委托写入命令。
 
@@ -1321,3 +1321,5 @@ go test ./...
 .\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
 git diff --check
 ```
+
+验证结果：全部通过；preflight/apply smoke 使用临时 case，验证后删除；Go `promote -Apply -WhatIf` 未写 pack/backups/candidates；Go `promote -Apply` 只写 safe managed docs，blocked deny 未写，backup 内容、validation rows、pack-root containment 与 cleanup 均通过；PowerShell façade 显式 Go enable 下仍 fallback，不委托该写入命令。
