@@ -77,6 +77,69 @@ function Select-RekitFirstText {
   return ''
 }
 
+function Get-RekitObjectValue {
+  param(
+    $Object,
+    [Parameter(Mandatory=$true)][string]$Name
+  )
+  if ($null -eq $Object) { return $null }
+  if ($Object -is [System.Collections.IDictionary]) {
+    if ($Object.Contains($Name)) { return $Object[$Name] }
+    return $null
+  }
+  $prop = $Object.PSObject.Properties[$Name]
+  if ($null -ne $prop) { return $prop.Value }
+  return $null
+}
+
+function Format-RekitScalarDisplay {
+  param($Value)
+  if ($null -eq $Value) { return '' }
+  if ($Value -is [string]) { return [string]$Value }
+  if ($Value -is [System.Collections.IEnumerable]) {
+    $items = @()
+    foreach ($item in $Value) {
+      if ($null -ne $item -and -not [string]::IsNullOrWhiteSpace([string]$item)) { $items += [string]$item }
+    }
+    return ($items -join ',')
+  }
+  return [string]$Value
+}
+
+function Format-RekitGateRequestDetail {
+  param(
+    [Parameter(Mandatory=$true)]$Event,
+    [switch]$OmitStatus,
+    [switch]$OmitBatch
+  )
+  $parts = New-Object System.Collections.Generic.List[string]
+  $status = Format-RekitScalarDisplay (Get-RekitObjectValue -Object $Event -Name 'status')
+  if (-not $OmitStatus -and -not [string]::IsNullOrWhiteSpace($status)) { $parts.Add("status=$status") }
+  $actor = Format-RekitScalarDisplay (Get-RekitObjectValue -Object $Event -Name 'actor')
+  if (-not [string]::IsNullOrWhiteSpace($actor)) { $parts.Add("by=$actor") }
+  $risk = Format-RekitScalarDisplay (Get-RekitObjectValue -Object $Event -Name 'risk')
+  if (-not [string]::IsNullOrWhiteSpace($risk)) { $parts.Add("risk=$risk") }
+  $target = Format-RekitScalarDisplay (Get-RekitObjectValue -Object $Event -Name 'target')
+  if (-not [string]::IsNullOrWhiteSpace($target)) { $parts.Add("target=$target") }
+  $batch = Format-RekitScalarDisplay (Get-RekitObjectValue -Object $Event -Name 'batchId')
+  if (-not $OmitBatch -and -not [string]::IsNullOrWhiteSpace($batch)) { $parts.Add("batch=$batch") }
+  $gate = Get-RekitObjectValue -Object $Event -Name 'gate'
+  if ($null -ne $gate) {
+    $action = Format-RekitScalarDisplay (Get-RekitObjectValue -Object $gate -Name 'action')
+    if (-not [string]::IsNullOrWhiteSpace($action)) { $parts.Add("action=$action") }
+    $scope = Format-RekitScalarDisplay (Get-RekitObjectValue -Object $gate -Name 'scope')
+    if (-not [string]::IsNullOrWhiteSpace($scope)) { $parts.Add("scope=$scope") }
+    $budget = Format-RekitScalarDisplay (Get-RekitObjectValue -Object $gate -Name 'budget')
+    if (-not [string]::IsNullOrWhiteSpace($budget)) { $parts.Add("budget=$budget") }
+    $tried = Format-RekitScalarDisplay (Get-RekitObjectValue -Object $gate -Name 'triedLightSteps')
+    if (-not [string]::IsNullOrWhiteSpace($tried)) { $parts.Add("tried=$tried") }
+    $stop = Format-RekitScalarDisplay (Get-RekitObjectValue -Object $gate -Name 'stopConditions')
+    if (-not [string]::IsNullOrWhiteSpace($stop)) { $parts.Add("stop=$stop") }
+  }
+  if ($parts.Count -eq 0) { return '' }
+  return ' | ' + ($parts -join ' | ')
+}
+
 function Join-RekitRelativePath {
   param(
     [Parameter(Mandatory=$true)][string]$Root,

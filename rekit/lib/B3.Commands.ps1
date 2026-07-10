@@ -132,7 +132,8 @@ function Show-RekitOverview {
     Write-Host 'pending-gate（heavy-tool 待确认）：'
     $shown = @($pendingGates | Select-Object -Last $maxRows)
     foreach ($g in $shown) {
-      Write-Host ("- {0} | {1}" -f [string]$g.subject, [string]$g.summary)
+      $detail = Format-RekitGateRequestDetail -Event $g -OmitStatus
+      Write-Host ("- {0} | {1}{2}" -f [string]$g.subject, [string]$g.summary, $detail)
     }
     $rest = $pendingGates.Count - $shown.Count
     if ($rest -gt 0) { Write-Host "- 另有 $rest 条 pending-gate" }
@@ -375,7 +376,7 @@ function Invoke-RekitNote {
         $extra = ''
         if ($k -eq 'candidate') { $extra = " | confidence=$([string]$it.confidence) | status=$([string]$it.status) | risk=$([string]$it.risk)" }
         if ($k -eq 'decision') { $dec = [string]$it.decision; if ([string]::IsNullOrWhiteSpace($dec)) { $dec = [string]$it.action }; $by = [string]$it.confirmedBy; if ([string]::IsNullOrWhiteSpace($by)) { $by = [string]$it.actor }; $extra = " | decision=$dec | by=$by" }
-        if ($k -eq 'request') { $extra = " | status=$([string]$it.status)" }
+        if ($k -eq 'request') { $extra = Format-RekitGateRequestDetail -Event $it -OmitBatch }
         if ($k -eq 'verification') { $extra = " | verifier=$([string]$it.verifier) | verdict=$([string]$it.verdict) | target=$([string]$it.target)" }
         if ($k -eq 'intervention') { $extra = " | action=$([string]$it.action) | target=$([string]$it.target) | approvedBy=$([string]$it.approvedBy) | scope=$([string]$it.scope) | status=$([string]$it.status) | reason=$([string]$it.reason)" }
         if ($k -eq 'rollback') { $extra = " | target=$([string]$it.target) | status=$([string]$it.status) | reason=$([string]$it.reason)" }

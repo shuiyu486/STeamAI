@@ -47,6 +47,7 @@
 - Go runtime G2.6 完成：新增 `rekit/tests/facade-smoke.ps1`，覆盖默认不委托、显式 Go 安全集合、`REKIT_GO_DISABLE` 优先级、`sync` 写入 flags 回退 PowerShell、`gate -WhatIf` 非写入委托与未启用时拒绝。
 - Go runtime G3.1 完成：新增 `internal/rekit/attach` 与 Go CLI `-Command attach`，支持 `-WhatIf` 非写入预览和 `-Apply` 只写 `.rekit/instance.yml` + case-local thin shim；不写 managed docs、legacy metadata、state、board/facts/lanes，也暂不纳入 PowerShell façade 委托。
 - Go runtime G3.2 完成：新增 `internal/rekit/casebind` 与 `internal/rekit/repair`，支持 Go CLI `-Command repair` 默认/`-WhatIf` 非写入预览和 `-Apply` 刷新 `.rekit/instance.yml`、`.re-template.yml`、case-local thin shim；不写 managed docs、board/facts/lanes 或 authority，也暂不纳入 PowerShell façade 委托。
+- Gate request schema parity 完成：PowerShell `overview`、lane `handoff`、`note -List -Kind request` 现在展示 Go `gate -Apply` 写入 pending-gate request 的 `actor/risk/target/batchId/gate{action,scope,budget,triedLightSteps,stopConditions}` 字段；新增 `rekit/tests/gate-parity-smoke.ps1` 覆盖 Go 写入 + PowerShell 三处读层展示。
 
 ### Fixed
 

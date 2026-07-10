@@ -190,7 +190,7 @@ git diff --check
 |---|---|---|
 | evidence ledger | runtime 已落地（`/rekit note` 9 种 kind + overview/handoff/note-List 读层 + auto decision 字段对齐草案） | 索引优化（SQLite 仅在查询压垮 runtime 时） |
 | orchestration | `plan-subagents` 只读计划器 + `note -Kind decision` verdict 写回（R5 判定 runtime 不自动 spawn） | 跨工具 adapter 实际调用属 Phase 6 后段 |
-| heavy-tool gate runtime | overlay 契约 + PowerShell `note -Kind request -Status pending-gate` + Go `gate -WhatIf/-Apply` preview/request；不执行 heavy-tool、不写 confirmed/authority、不默认接入 façade | Phase 6 后段 runtime 强制 gate 与受控执行闭环 |
+| heavy-tool gate runtime | overlay 契约 + PowerShell `note -Kind request -Status pending-gate` + Go `gate -WhatIf/-Apply` preview/request；PowerShell `overview`/`handoff`/`note -List` 已展示 Go request 的 actor/risk/target/batch/gate 详情；不执行 heavy-tool、不写 confirmed/authority、不默认接入 façade | Phase 6 后段 runtime 强制 gate 与受控执行闭环 |
 | tool adapter | policy + candidate | 为 `ida-agent-bridge` 做只读 index adapter |
 | 多 pack 扩展 | `_template` | 新增 `unpack-pe` / `ollvm` / `android-native` pack |
 

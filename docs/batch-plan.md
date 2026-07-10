@@ -1064,13 +1064,34 @@ git diff --check
 
 验证结果：全部通过；repair smoke 使用临时 case，验证后已删除，不污染 kit 仓库。
 
-### Batch 36：gate request schema parity（计划）
+### Batch 36：gate request schema parity
 
-状态：可与 G3.1/G3.2 后并行评估。
+状态：已完成。
 
 目标：让 Go `gate -Apply` 写入的 pending-gate request 与 PowerShell `note -Kind request` 的字段展示/查询语义完全对齐，包括 `actor/risk/target/batchId/gate` 扩展字段在 overview/handoff/note-List 中的展示策略。
 
-边界：仍不执行 heavy-tool，不写 confirmed/authority，不把 `gate -Apply` 纳入 façade 默认委托。
+结果：
+
+- `B3.Core.ps1` 新增共享展示 helper：兼容 PSCustomObject / dictionary / array 的字段读取与 scalar 展示，并集中格式化 pending-gate request 明细。
+- `overview` 的 `pending-gate（heavy-tool 待确认）` 区段现在展示 `by`、`risk`、`target`、`batch`、`action`、`scope`、`budget`、`tried`、`stop`。
+- lane `handoff` 的 `## pending-gate` 区段复用同一 formatter，避免 Go `gate -Apply` 写入的 `gate{...}` 详情在接手文档中丢失。
+- `note -List -Kind request` 复用 formatter 展示 `status` 与 gate 扩展字段，并避免 `batchId` 重复输出。
+- 新增 `rekit/tests/gate-parity-smoke.ps1`：创建临时 case，通过 Go `gate -Apply` 写入 pending-gate request，再验证 PowerShell `overview`、`note -List` 与 `handoff` 三处展示字段，最后删除临时 case。
+
+边界：仍不执行 heavy-tool，不写 confirmed/authority，不把 `gate -Apply` 纳入 façade 默认委托；本批只增强读层展示与 smoke 验证。
+
+验证：
+
+```powershell
+.\rekit\tests\gate-parity-smoke.ps1
+go test ./...
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过；gate parity smoke 使用临时 case，验证后删除，不污染 kit 仓库。
 
 ### Batch 37：G3.3 sync -Apply 迁移预研（计划）
 

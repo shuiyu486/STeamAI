@@ -145,7 +145,8 @@ function Write-RekitLaneHandoff {
     $lines.Add('## pending-gate')
     $lines.Add('')
     foreach ($g in $pendingGates) {
-      $lines.Add(("- {0} | {1}" -f [string]$g.subject, [string]$g.summary))
+      $detail = Format-RekitGateRequestDetail -Event $g -OmitStatus
+      $lines.Add(("- {0} | {1}{2}" -f [string]$g.subject, [string]$g.summary, $detail))
     }
     $lines.Add('')
   }

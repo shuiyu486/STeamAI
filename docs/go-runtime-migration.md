@@ -152,6 +152,7 @@ git diff --check
 - 写入事件仍是 `kind=request`、`status=pending-gate`，包含 `gate` 详情；`isMutation=true` 只表示写入 ledger request。
 - eventId 由 kind/lane/subject/summary/actor/risk/target/batch/action/scope/budget/triedLightSteps/stopConditions 派生；重复 eventId 返回 `applied=false` 与 `reason=duplicate eventId`，不重复追加。
 - 临时 case smoke 写入后已清理测试 request，未留下 D4/G2.3 测试状态。
+- Batch 36 已补 PowerShell 读层 parity：`overview`、lane `handoff`、`note -List -Kind request` 会展示 `actor/risk/target/batchId/gate{action,scope,budget,triedLightSteps,stopConditions}` 语义字段；验证脚本见 `rekit/tests/gate-parity-smoke.ps1`。
 
 不迁移：heavy-tool 执行、用户确认后的执行器、PowerShell 默认委托、confirmed/authority 写入。
 
@@ -234,6 +235,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Go gate dry-run | `go run ./cmd/rekit -- -Command gate -Target <case> -Pack vmp-re -WhatIf -Action full-trace -Lane <lane>` | 输出非写入 JSON plan，`eventPreview.kind=request`、`status=pending-gate`、`requiresConfirmation=true`。 |
 | Go gate no-mode guard | `go run ./cmd/rekit -- -Command gate -Target <case> -Action debug -Lane <lane>` | 报错，必须显式选择 `-WhatIf` 或 `-Apply`。 |
 | Go gate apply | `go run ./cmd/rekit -- -Command gate -Target <case> -Pack vmp-re -Apply -Action debug -Lane <lane> -Actor <user>` | 只 append `.rekit/facts/requests.jsonl` pending-gate request，返回 `isMutation=true`，不执行工具。 |
+| Gate request display parity | `.\rekit\tests\gate-parity-smoke.ps1` | Go `gate -Apply` 写入的 pending-gate request 在 PowerShell `overview`、`note -List`、lane `handoff` 中展示 actor/risk/target/batch/gate 详情。 |
 | Go attach preview | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -WhatIf` | 输出非写入 plan，不创建目录或文件。 |
 | Go attach apply | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -ProjectName <name> -Apply` | 只写 `.rekit/instance.yml` 与 case-local thin shim，不写 managed docs、board/facts/lanes、legacy metadata 或 state。 |
 | Go repair preview | `go run ./cmd/rekit -- -Command repair -Target <movedCase> -Pack vmp-re -WhatIf` | 输出非写入 repair plan，展示 recorded/new projectRoot 与写入计划。 |
