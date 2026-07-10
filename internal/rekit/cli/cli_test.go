@@ -483,6 +483,36 @@ func TestRunPromoteReviewRequiresAttachedCase(t *testing.T) {
 	}
 }
 
+func TestRunOverviewRequiresExistingBoard(t *testing.T) {
+	caseRoot := attachedCase(t)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for overview without board")
+	}
+	if !strings.Contains(err.Error(), "board.json") {
+		t.Fatalf("error = %q, want board initialization guard", err.Error())
+	}
+}
+
+func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeOverviewFixture(t, caseRoot)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "/rekit continue main"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("overview missing %q:\n%s", expected, text)
+		}
+	}
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
+}
+
 func TestRunPromoteApplyWhatIfEmitsNonMutatingPlan(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeCaseFile(t, caseRoot, "references/template/README.md", "# Apply\n\nReusable safe update.\n")
@@ -1195,6 +1225,30 @@ func snapshotFiles(t *testing.T, root string) fileSnapshot {
 	return out
 }
 
+func assertSnapshotEqual(t *testing.T, before, after fileSnapshot) {
+	t.Helper()
+	if before.rootExisted != after.rootExisted {
+		t.Fatalf("snapshot root existence changed: before=%v after=%v", before.rootExisted, after.rootExisted)
+	}
+	if len(before.files) != len(after.files) || len(before.dirs) != len(after.dirs) {
+		t.Fatalf("snapshot shape changed: before=%+v after=%+v", before, after)
+	}
+	for rel, content := range before.files {
+		afterContent, ok := after.files[rel]
+		if !ok {
+			t.Fatalf("snapshot missing file after overview: %s", rel)
+		}
+		if !bytes.Equal(content, afterContent) {
+			t.Fatalf("snapshot file changed after overview: %s", rel)
+		}
+	}
+	for rel := range before.dirs {
+		if !after.dirs[rel] {
+			t.Fatalf("snapshot missing directory after overview: %s", rel)
+		}
+	}
+}
+
 func removeNewFiles(t *testing.T, root string, before fileSnapshot) {
 	t.Helper()
 	if _, err := os.Stat(root); os.IsNotExist(err) {
@@ -1263,6 +1317,41 @@ func removeNewFiles(t *testing.T, root string, before fileSnapshot) {
 				t.Fatal(err)
 			}
 		}
+	}
+}
+
+func writeOverviewFixture(t *testing.T, caseRoot string) {
+	t.Helper()
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	lanesRoot := filepath.Join(caseRoot, ".rekit", "lanes")
+	if err := os.MkdirAll(factsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(lanesRoot, "main"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[{"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"captures/lanes/main"}],"factsRoot":".rekit/facts"}`
+	writeCaseFile(t, caseRoot, ".rekit/board.json", board)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"captures/lanes/main"}`)
+	writeFactFile(t, factsRoot, "observations.jsonl", []string{`{"kind":"observation","lane":"main","subject":"obs","summary":"seen"}`})
+	writeFactFile(t, factsRoot, "candidates.jsonl", []string{`{"kind":"candidate","lane":"main","subject":"handler","summary":"candidate one","confidence":"high","status":"open"}`, `{"kind":"candidate","lane":"main","subject":"handler","summary":"candidate two","confidence":"medium","status":"open"}`})
+	writeFactFile(t, factsRoot, "requests.jsonl", []string{`{"kind":"request","lane":"main","subject":"debug gate","summary":"needs confirmation","status":"pending-gate","actor":"runtime-test","risk":"high","target":"batch-overview","batchId":"batch-overview","gate":{"action":"debug","scope":"handler only","budget":"30s","triedLightSteps":["overview","static review"],"stopConditions":["timeout"]}}`})
+	writeFactFile(t, factsRoot, "publications.jsonl", []string{`{"kind":"publication","lane":"main","subject":"pub","summary":"published"}`})
+	writeFactFile(t, factsRoot, "decisions.jsonl", []string{`{"kind":"decision","lane":"main","subject":"decision subject","decision":"defer","actor":"runtime-test","reason":"needs review","batchId":"batch-overview"}`})
+	writeFactFile(t, factsRoot, "hypotheses.jsonl", nil)
+	writeFactFile(t, factsRoot, "verifications.jsonl", nil)
+	writeFactFile(t, factsRoot, "interventions.jsonl", []string{`{"kind":"intervention","lane":"main","subject":"manual override","summary":"needs human","action":"override","target":"batch-overview","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-overview"}`})
+	writeFactFile(t, factsRoot, "rollbacks.jsonl", []string{`{"kind":"rollback","lane":"main","subject":"rollback item","target":"batch-overview","status":"resolved","reason":"cleanup","batchId":"batch-overview"}`})
+}
+
+func writeFactFile(t *testing.T, root, name string, lines []string) {
+	t.Helper()
+	text := ""
+	if len(lines) > 0 {
+		text = strings.Join(lines, "\n") + "\n"
+	}
+	if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

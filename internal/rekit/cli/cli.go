@@ -13,6 +13,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/overview"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/repair"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
@@ -206,6 +207,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runSyncReview(ctx, opt, stdout)
 	case "promote":
 		return runPromoteReview(ctx, opt, stdout)
+	case "overview":
+		return runOverview(ctx, stdout)
 	case "gate":
 		return runGate(ctx, opt, stdout)
 	default:
@@ -407,6 +410,18 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writeReviewArtifacts(out, plan, opt)
 	}
 	return writeReviewPlan(out, plan)
+}
+
+func runOverview(ctx runtime.Context, out io.Writer) error {
+	if !ctx.TargetProvided {
+		return fmt.Errorf("overview requires an explicit -Target attached case")
+	}
+	text, err := overview.Render(ctx.RepoRoot, ctx.Target, ctx.Pack)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(out, text)
+	return err
 }
 
 func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {

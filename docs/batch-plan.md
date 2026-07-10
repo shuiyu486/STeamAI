@@ -1323,3 +1323,34 @@ git diff --check
 ```
 
 验证结果：全部通过；preflight/apply smoke 使用临时 case，验证后删除；Go `promote -Apply -WhatIf` 未写 pack/backups/candidates；Go `promote -Apply` 只写 safe managed docs，blocked deny 未写，backup 内容、validation rows、pack-root containment 与 cleanup 均通过；PowerShell façade 显式 Go enable 下仍 fallback，不委托该写入命令。
+
+### Batch 44：G4.1 Go overview 只读路径
+
+状态：已完成。
+
+目标：启动 G4 工作线命令迁移，先在 Go backend 中实现 `overview` 只读手动路径，用于读取 attached case 的现有 board/facts/lane 状态并输出项目总览；公共 PowerShell façade 默认仍不委托工作线命令。
+
+实施范围：
+
+- 新增 Go workstream/overview 模块，读取 `.rekit/board.json`、9 类 facts JSONL 与 lanes metadata，生成与 PowerShell overview 主要区段对齐的只读摘要。
+- CLI 支持 `-Command overview`，要求显式 attached case target；不自动创建 board/facts/lanes，不写 handoff、不写 ledger、不刷新 metadata。
+- 输出面向维护者的文本 summary，覆盖工作线、共享事实计数、未决 candidate、pending-gate、最近 decision、最近 batch、未解决/最近 intervention、最近 rollback 与建议下一步。
+- 增加 Go tests 与临时 case smoke，验证只读、历史/新 ledger 字段兼容、Go gate request 展示字段、缺失 board 时拒绝并提示使用 PowerShell overview 初始化。
+- 更新 `docs/go-runtime-migration.md`、`CHANGELOG.md` 与后续批次计划。
+
+边界：不迁移 `continue/start/handoff` 写入，不执行 heavy-tool/debug/inject/patch/dump/network，不写 authority/confirmed，不默认纳入 PowerShell façade 委托。
+
+停止条件：无法安全兼容现有 board/facts JSONL、需要 runtime schema 迁移、需要 PowerShell overview 的初始化写入语义、或只读 smoke 发现 Go 输出会误导用户进入不存在的工作线。
+
+验证：
+
+```powershell
+go test ./...
+.\rekit\tests\overview-readonly-smoke.ps1
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过；Go `overview` 只读取既有 board/facts，缺 board 时拒绝且不创建 board/facts/lanes；临时 case smoke 验证 pending-gate gate 详情、未决 candidate 冲突、decision、batch、intervention、rollback 和下一步建议展示；PowerShell façade 显式 Go enable 下仍 fallback，不委托 `overview`；reviewer 未发现高置信问题。
