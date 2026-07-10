@@ -52,6 +52,7 @@
 - G3.4 Go `sync -Apply` 手动路径完成：Go CLI 显式 `-Command sync -Apply` 可刷新 metadata/shim/legacy metadata、同步 managed files、处理 template create/skip/`-Force`、更新 managed block、写 `.rekit/state.json` 并报告 backup/writes；新增 `rekit/tests/sync-apply-smoke.ps1` 覆盖临时 case apply、backup、state、Go/PowerShell doctor。该写入路径仍不经 PowerShell façade 委托。
 - G3.5 Go `init/bootstrap` 手动路径完成：Go CLI 显式 `-Command init|bootstrap -WhatIf` 输出非写入预览，`-Apply` 可创建临时 case 的 metadata/shim/legacy metadata、managed files、template files、managed block 与 `.rekit/state.json`；新增 `docs/init-bootstrap-migration.md` 和 `rekit/tests/init-bootstrap-smoke.ps1` 覆盖 preview 无副作用、apply、`-Force`、Go/PowerShell doctor 与 façade fallback。该写入路径仍不经 PowerShell façade 委托。
 - G3.6 `promote -CreateCandidates` 迁移预研完成：新增 `docs/promote-candidates-migration.md` 固化 PowerShell candidate 写入、tooling sanitization、deny pattern 与 Go 迁移契约；新增 `rekit/tests/promote-candidates-preflight-smoke.ps1` 验证 PowerShell `-WhatIf -CreateCandidates` baseline、Go promote review artifact/sanitized preview parity、Go 写入 guard 与 façade fallback。本批不写 pack candidates，不实现 Go `promote -CreateCandidates` 写入。
+- G3.7 Go `promote -CreateCandidates` 手动路径完成：新增 `promote.CreateCandidates` helper 与 CLI JSON result，支持 `-WhatIf` 非写入预览和显式 candidate/index/tooling candidate 写入；新增 `rekit/tests/promote-candidates-apply-smoke.ps1` 覆盖临时 case candidate 写入、blocked deny、tooling sanitization、pack-root containment、cleanup 与 façade fallback。该路径仍不经 PowerShell façade 委托，不实现 `promote -Apply`，不覆盖 pack managed docs。
 
 ### Fixed
 

@@ -410,11 +410,29 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
-	if opt.Apply || opt.CreateCandidates || opt.WhatIf {
-		return fmt.Errorf("go backend only implements promote review-only planning")
-	}
 	if !ctx.TargetProvided {
 		return fmt.Errorf("promote review requires an explicit -Target attached case")
+	}
+	if opt.Apply {
+		return fmt.Errorf("go backend does not implement promote -Apply")
+	}
+	if opt.WhatIf && !opt.CreateCandidates {
+		return fmt.Errorf("promote -WhatIf is only supported with -CreateCandidates")
+	}
+	if opt.CreateCandidates {
+		if wantsReviewArtifacts(opt) {
+			return fmt.Errorf("promote -CreateCandidates cannot be combined with review artifact options")
+		}
+		result, err := promote.CreateCandidates(ctx.RepoRoot, ctx.Target, ctx.Pack, promote.CandidateOptions{WhatIf: opt.WhatIf})
+		if err != nil {
+			return err
+		}
+		b, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(append(b, '\n'))
+		return err
 	}
 	plan, err := promote.Plan(ctx.RepoRoot, ctx.Target, ctx.Pack)
 	if err != nil {

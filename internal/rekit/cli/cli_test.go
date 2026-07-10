@@ -482,14 +482,101 @@ func TestRunPromoteReviewRequiresAttachedCase(t *testing.T) {
 	}
 }
 
-func TestRunPromoteReviewRejectsWriteFlags(t *testing.T) {
+func TestRunPromoteRejectsApply(t *testing.T) {
+	caseRoot := attachedCase(t)
 	var out bytes.Buffer
-	err := Run([]string{"-Command", "promote", "-Target", t.TempDir(), "-CreateCandidates"}, &out)
+	err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out)
 	if err == nil {
-		t.Fatal("Run returned nil error for promote -CreateCandidates")
+		t.Fatal("Run returned nil error for promote -Apply")
 	}
-	if !strings.Contains(err.Error(), "review-only") {
-		t.Fatalf("error = %q, want review-only guard", err.Error())
+	if !strings.Contains(err.Error(), "does not implement promote -Apply") {
+		t.Fatalf("error = %q, want promote apply guard", err.Error())
+	}
+}
+
+func TestRunPromoteCreateCandidatesWhatIf(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Candidate\n\nReusable safe update.\n")
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-CreateCandidates", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	result := decodeCandidateResult(t, out.Bytes())
+	if result.Command != "promote" || result.IsMutation || result.Applied || result.Created == 0 {
+		t.Fatalf("unexpected promote candidates what-if result: %+v", result)
+	}
+	assertCandidateWrite(t, result.Writes, "references/template/README.md", "would-create-candidate")
+	if _, err := os.Stat(result.Writes[0].TargetPath); !os.IsNotExist(err) {
+		t.Fatalf("promote candidates what-if created %s", result.Writes[0].TargetPath)
+	}
+}
+
+func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	root := repoRoot(t)
+	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
+	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
+	candidateBefore := snapshotFiles(t, candidateRoot)
+	toolingBefore := snapshotFiles(t, toolingRoot)
+	t.Cleanup(func() {
+		removeNewFiles(t, candidateRoot, candidateBefore)
+		removeNewFiles(t, toolingRoot, toolingBefore)
+	})
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Candidate\n\nReusable safe update.\n")
+	writeCaseFile(t, caseRoot, "references/template/workflow-template.md", "# Blocked\n\nDo not promote C:\\case\\artifact\\sample-trace.csv.\n")
+	writeCaseFile(t, caseRoot, "references/template/toolchain-router.md", "# Tooling\n\nCase root: "+caseRoot+"\nAbsolute: C:\\cases\\demo.exe\nTrace: artifacts/run/demo-trace.csv\nAddress: 0x401000\nContext: ctx123 round7 Task #99\n")
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-CreateCandidates"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	result := decodeCandidateResult(t, out.Bytes())
+	if result.Command != "promote" || !result.IsMutation || !result.Applied || result.Created != 2 || result.Blocked == 0 || !result.RequiresCleanup {
+		t.Fatalf("unexpected promote candidates apply result: %+v", result)
+	}
+	readmeWrite := assertCandidateWrite(t, result.Writes, "references/template/README.md", "create-candidate")
+	workflowWrite := assertCandidateWrite(t, result.Writes, "references/template/workflow-template.md", "blocked-deny-pattern")
+	toolingWrite := assertCandidateWrite(t, result.Writes, "references/template/toolchain-router.md", "create-candidate")
+	if !strings.HasPrefix(readmeWrite.TargetPath, result.CandidateRoot) {
+		t.Fatalf("managed candidate target %q outside %q", readmeWrite.TargetPath, result.CandidateRoot)
+	}
+	if !strings.HasPrefix(toolingWrite.TargetPath, result.ToolingRoot) {
+		t.Fatalf("tooling candidate target %q outside %q", toolingWrite.TargetPath, result.ToolingRoot)
+	}
+	assertFileExists(t, readmeWrite.TargetPath)
+	assertFileExists(t, toolingWrite.TargetPath)
+	if workflowWrite.TargetPath != filepath.Join(repoRoot(t), "packs", "_template", filepath.FromSlash("references/template/workflow-template.md")) {
+		t.Fatalf("blocked write target = %q, want pack source", workflowWrite.TargetPath)
+	}
+	if result.IndexPath == "" {
+		t.Fatal("missing candidate index path")
+	}
+	assertFileExists(t, result.IndexPath)
+	toolingText, err := os.ReadFile(toolingWrite.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"<caseRoot>", "<absolutePath>", "<artifactsPath>", "<address>", "<ctxNNN>", "<roundN>", "Task #<n>"} {
+		if !strings.Contains(string(toolingText), expected) {
+			t.Fatalf("tooling candidate missing %q:\n%s", expected, string(toolingText))
+		}
+	}
+	for _, unexpected := range []string{caseRoot, "C:\\cases", "demo-trace.csv", "0x401000", "ctx123", "round7", "Task #99"} {
+		if strings.Contains(string(toolingText), unexpected) {
+			t.Fatalf("tooling candidate contains %q:\n%s", unexpected, string(toolingText))
+		}
+	}
+}
+
+func TestRunPromoteCreateCandidatesRejectsReviewArtifacts(t *testing.T) {
+	caseRoot := attachedCase(t)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-CreateCandidates", "-ReviewOutputDir", filepath.Join(t.TempDir(), "review")}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for promote -CreateCandidates with review artifacts")
+	}
+	if !strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("error = %q, want combination guard", err.Error())
 	}
 }
 
@@ -846,11 +933,41 @@ type syncWrite struct {
 	BackupPath string `json:"backupPath"`
 }
 
+type candidateResult struct {
+	Command         string           `json:"command"`
+	IsMutation      bool             `json:"isMutation"`
+	Applied         bool             `json:"applied"`
+	CandidateRoot   string           `json:"candidateRoot"`
+	ToolingRoot     string           `json:"toolingRoot"`
+	IndexPath       string           `json:"indexPath"`
+	Created         int              `json:"created"`
+	Blocked         int              `json:"blocked"`
+	RequiresCleanup bool             `json:"requiresCleanup"`
+	Writes          []candidateWrite `json:"writes"`
+}
+
+type candidateWrite struct {
+	Path       string `json:"path"`
+	Kind       string `json:"kind"`
+	Action     string `json:"action"`
+	SourcePath string `json:"sourcePath"`
+	TargetPath string `json:"targetPath"`
+}
+
 func decodeArtifactResult(t *testing.T, b []byte) artifactResult {
 	t.Helper()
 	var result artifactResult
 	if err := json.Unmarshal(b, &result); err != nil {
 		t.Fatalf("artifact stdout is not JSON: %v\n%s", err, string(b))
+	}
+	return result
+}
+
+func decodeCandidateResult(t *testing.T, b []byte) candidateResult {
+	t.Helper()
+	var result candidateResult
+	if err := json.Unmarshal(b, &result); err != nil {
+		t.Fatalf("promote create-candidates stdout is not JSON: %v\n%s", err, string(b))
 	}
 	return result
 }
@@ -864,6 +981,21 @@ func assertFileExists(t *testing.T, path string) {
 	if st.IsDir() {
 		t.Fatalf("expected file, got directory: %s", path)
 	}
+}
+
+func assertCandidateWrite(t *testing.T, writes []candidateWrite, path, action string) candidateWrite {
+	t.Helper()
+	for _, write := range writes {
+		if write.Path != path || write.Action != action {
+			continue
+		}
+		if write.TargetPath == "" {
+			t.Fatalf("candidate write %s missing target path", path)
+		}
+		return write
+	}
+	t.Fatalf("candidate write %s with action %q not found in %+v", path, action, writes)
+	return candidateWrite{}
 }
 
 func assertSyncWrite(t *testing.T, writes []syncWrite, path, action string, wantBackup bool) {
@@ -895,6 +1027,54 @@ func writeCaseFile(t *testing.T, caseRoot, rel, text string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func snapshotFiles(t *testing.T, root string) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return out
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		out[rel] = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func removeNewFiles(t *testing.T, root string, before map[string]bool) {
+	t.Helper()
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if !before[rel] {
+			return os.Remove(path)
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 }

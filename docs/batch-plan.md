@@ -1216,3 +1216,44 @@ git diff --check
 ```
 
 验证结果：全部通过；preflight smoke 使用临时 case，验证后删除，不写 pack candidates，不污染 kit 仓库。
+
+### Batch 41：G3.7 Go promote -CreateCandidates 手动路径
+
+状态：已完成。
+
+目标：在 Go backend 中实现显式 `promote -CreateCandidates` 手动写入路径，用于维护者生成 pack candidate 文件；默认 `promote` 继续 review-only，PowerShell façade 仍不委托写入命令。
+
+计划文档：`docs/promote-candidates-migration.md`。
+
+实施范围：
+
+- 新增 Go `promote.CreateCandidates` helper，复用 existing promote plan、deny pattern 与 tooling sanitization 结果。
+- CLI 支持 `-Command promote -CreateCandidates`，可选 `-WhatIf` 输出非写入 preview；拒绝 `-Apply`、拒绝与 review artifact options 混用。
+- 写入 managed doc candidates 到 `packs/<pack>/promote-candidates/`，写 `index.json`；写 tooling candidates 到 `packs/<pack>/tooling/candidates/`。
+- 输出结构化 JSON result，包含 `isMutation`、created/blocked/skipped 统计、candidate/index/tooling 路径与逐项 writes。
+- 增加 Go tests 与临时 case smoke，验证 candidate 写入、blocked deny、tooling sanitization、pack-root containment、cleanup、façade fallback。
+
+边界：不执行 `promote -Apply`，不覆盖 pack managed docs，不写 authority/confirmed，不执行 heavy-tool/debug/inject/patch/dump/network，不纳入 PowerShell façade 委托安全集合。
+
+停止条件：candidate root 无法证明在 pack root 内、sanitization 与 PowerShell baseline 冲突、deny pattern 未能阻断 case-specific 内容、smoke 会残留 candidates、或需要改变 manifest/runtime schema。
+
+验证：
+
+```powershell
+go test ./...
+.\rekit\tests\promote-candidates-preflight-smoke.ps1
+.\rekit\tests\promote-candidates-apply-smoke.ps1
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+结果：
+
+- 新增 Go `promote.CreateCandidates` helper，复用 `Plan` 的 managed promote action、deny pattern 与 tooling sanitization 结果。
+- Go CLI 支持 `-Command promote -CreateCandidates`：`-WhatIf` 输出非写入 JSON preview；无 `-WhatIf` 时写 pack root 下的 `promote-candidates/*.candidate.md`、`promote-candidates/index.json` 与 `tooling/candidates/*.candidate.md`。
+- `promote -Apply` 仍拒绝；`-CreateCandidates` 拒绝与 review artifact options 混用；PowerShell façade 仍不委托该写入命令。
+- 新增 `rekit/tests/promote-candidates-apply-smoke.ps1`，验证 candidate 写入、blocked deny、tooling sanitization、pack-root containment、cleanup 与 façade fallback；更新 preflight smoke 验证 Go `-CreateCandidates -WhatIf` 非写入。
+
+验证结果：全部通过；preflight/apply smoke 使用临时 case，验证后删除；apply smoke 清理本次新增 `promote-candidates/**` 与 `tooling/candidates/**` 文件，未留下 pack candidates。

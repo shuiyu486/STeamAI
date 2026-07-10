@@ -142,8 +142,9 @@ Context: ctx123 round7 Task #99
   Assert-ContainsText -Text $facadeWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote write fallback'
   Assert-ContainsText -Text $facadeWhatIf -Expected 'would write tooling candidate:' -Label 'facade tooling candidate fallback'
 
-  $goReject = Invoke-GoRekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates') -AllowedExitCodes @(1)
-  Assert-ContainsText -Text $goReject -Expected 'review-only' -Label 'Go promote create-candidates guard'
+  $goWhatIf = Invoke-GoRekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') | ConvertFrom-Json
+  if ([bool]$goWhatIf.isMutation -or [bool]$goWhatIf.applied) { throw "Go promote create-candidates what-if reported mutation: $($goWhatIf | ConvertTo-Json -Depth 8)" }
+  if ([int]$goWhatIf.created -lt 2 -or [int]$goWhatIf.blocked -lt 1) { throw "Go promote create-candidates what-if had unexpected counts: $($goWhatIf | ConvertTo-Json -Depth 8)" }
 
   Invoke-GoRekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-ReviewOutputDir',$reviewRoot) | Out-Null
   $packetPath = Join-Path $reviewRoot 'packet.json'

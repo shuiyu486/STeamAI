@@ -1,15 +1,58 @@
 package promote
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 )
+
+type CandidateOptions struct {
+	WhatIf bool
+}
+
+type CandidateWrite struct {
+	Path       string `json:"path"`
+	Kind       string `json:"kind"`
+	Action     string `json:"action"`
+	SourcePath string `json:"sourcePath,omitempty"`
+	TargetPath string `json:"targetPath,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+type CandidateResult struct {
+	SchemaVersion     int              `json:"schemaVersion"`
+	Command           string           `json:"command"`
+	CaseRoot          string           `json:"caseRoot"`
+	RepoRoot          string           `json:"repoRoot"`
+	Pack              string           `json:"pack"`
+	IsMutation        bool             `json:"isMutation"`
+	Applied           bool             `json:"applied"`
+	CandidateRoot     string           `json:"candidateRoot"`
+	ToolingRoot       string           `json:"toolingRoot"`
+	IndexPath         string           `json:"indexPath,omitempty"`
+	Created           int              `json:"created"`
+	Blocked           int              `json:"blocked"`
+	Skipped           int              `json:"skipped"`
+	Writes            []CandidateWrite `json:"writes"`
+	RequiresReview    bool             `json:"requiresReview"`
+	RequiresCleanup   bool             `json:"requiresCleanup"`
+	DeniedWriteAction []string         `json:"deniedWriteAction"`
+	NextSteps         []string         `json:"nextSteps"`
+}
+
+type candidateIndexEntry struct {
+	Path      string `json:"path"`
+	Candidate string `json:"candidate"`
+}
 
 func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
 	if _, err := instance.AssertAttached(caseRoot, repoRoot, pack); err != nil {
@@ -108,6 +151,186 @@ func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
 		tooling = append(tooling, review.Item{Path: rel, Kind: "tooling-candidate-source", Direction: "case-to-kit", Action: action, RiskLevel: risk, SourcePath: source, SourceHash: review.FileHash(source), ReplacementCounts: counts, DenyViolations: remaining, MechanicalRecommendation: recommendation, SanitizedPreviewText: previewText})
 	}
 	return review.Plan{SchemaVersion: 1, Command: "promote", Direction: "case-to-kit", CaseRoot: caseRoot, RepoRoot: repoRoot, Pack: pack, ManifestPath: m.ManifestPath, ManifestVersion: m.Version, Items: items, ToolingItems: tooling}, nil
+}
+
+func CreateCandidates(repoRoot, caseRoot, pack string, opt CandidateOptions) (CandidateResult, error) {
+	plan, err := Plan(repoRoot, caseRoot, pack)
+	if err != nil {
+		return CandidateResult{}, err
+	}
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return CandidateResult{}, err
+	}
+	candidateRoot := filepath.Join(m.PackRoot, "promote-candidates")
+	toolingRoot := filepath.Join(m.PackRoot, "tooling", "candidates")
+	if err := assertInsideRoot(m.PackRoot, candidateRoot); err != nil {
+		return CandidateResult{}, err
+	}
+	if err := assertInsideRoot(m.PackRoot, toolingRoot); err != nil {
+		return CandidateResult{}, err
+	}
+
+	stamp := time.Now().Format("20060102-150405")
+	writes := []CandidateWrite{}
+	index := []candidateIndexEntry{}
+	created := 0
+	blocked := 0
+	skipped := 0
+	addWrite := func(write CandidateWrite) {
+		writes = append(writes, write)
+		switch write.Action {
+		case "create-candidate", "would-create-candidate":
+			created++
+		case "blocked-deny-pattern", "blocked-missing-pack-file", "blocked-after-sanitization":
+			blocked++
+		default:
+			if strings.HasPrefix(write.Action, "skip") || write.Action == "unchanged" {
+				skipped++
+			}
+		}
+	}
+
+	for _, item := range plan.Items {
+		switch item.Action {
+		case "candidate-after-llm-review":
+			candidate, err := uniqueCandidatePath(candidateRoot, stamp+"_"+safeCandidateName(item.Path)+".candidate.md")
+			if err != nil {
+				return CandidateResult{}, err
+			}
+			if err := assertInsideRoot(candidateRoot, candidate); err != nil {
+				return CandidateResult{}, err
+			}
+			action := "create-candidate"
+			if opt.WhatIf {
+				action = "would-create-candidate"
+			} else {
+				text, err := os.ReadFile(item.CasePath)
+				if err != nil {
+					return CandidateResult{}, err
+				}
+				if err := writeNewFile(candidate, text); err != nil {
+					return CandidateResult{}, err
+				}
+			}
+			index = append(index, candidateIndexEntry{Path: item.Path, Candidate: candidate})
+			addWrite(CandidateWrite{Path: item.Path, Kind: item.Kind, Action: action, SourcePath: item.CasePath, TargetPath: candidate})
+		case "blocked-deny-pattern", "blocked-missing-pack-file":
+			addWrite(CandidateWrite{Path: item.Path, Kind: item.Kind, Action: item.Action, SourcePath: item.CasePath, TargetPath: item.PackPath, Reason: strings.Join(item.DenyViolations, ",")})
+		case "skip-missing-case-file", "skip-non-managed-promote-file", "unchanged":
+			addWrite(CandidateWrite{Path: item.Path, Kind: item.Kind, Action: item.Action, SourcePath: item.CasePath, TargetPath: item.PackPath})
+		}
+	}
+
+	indexPath := ""
+	if len(index) > 0 {
+		indexPath = filepath.Join(candidateRoot, "index.json")
+		if err := assertInsideRoot(candidateRoot, indexPath); err != nil {
+			return CandidateResult{}, err
+		}
+		if !opt.WhatIf {
+			b, err := json.MarshalIndent(index, "", "  ")
+			if err != nil {
+				return CandidateResult{}, err
+			}
+			if err := os.MkdirAll(filepath.Dir(indexPath), 0o755); err != nil {
+				return CandidateResult{}, err
+			}
+			if err := os.WriteFile(indexPath, append(b, '\n'), 0o644); err != nil {
+				return CandidateResult{}, err
+			}
+		}
+	}
+
+	for _, item := range plan.ToolingItems {
+		switch item.Action {
+		case "sanitized-preview-for-llm-review":
+			candidate, err := uniqueCandidatePath(toolingRoot, stamp+"_tooling_"+safeCandidateName(item.Path)+".candidate.md")
+			if err != nil {
+				return CandidateResult{}, err
+			}
+			if err := assertInsideRoot(toolingRoot, candidate); err != nil {
+				return CandidateResult{}, err
+			}
+			action := "create-candidate"
+			if opt.WhatIf {
+				action = "would-create-candidate"
+			} else {
+				if err := writeNewFile(candidate, []byte(item.SanitizedPreviewText)); err != nil {
+					return CandidateResult{}, err
+				}
+			}
+			addWrite(CandidateWrite{Path: item.Path, Kind: item.Kind, Action: action, SourcePath: item.SourcePath, TargetPath: candidate})
+		case "blocked-after-sanitization":
+			addWrite(CandidateWrite{Path: item.Path, Kind: item.Kind, Action: item.Action, SourcePath: item.SourcePath, Reason: strings.Join(item.DenyViolations, ",")})
+		case "skip-missing-source":
+			addWrite(CandidateWrite{Path: item.Path, Kind: item.Kind, Action: item.Action, SourcePath: item.SourcePath})
+		}
+	}
+
+	return CandidateResult{SchemaVersion: 1, Command: "promote", CaseRoot: plan.CaseRoot, RepoRoot: plan.RepoRoot, Pack: plan.Pack, IsMutation: !opt.WhatIf, Applied: !opt.WhatIf, CandidateRoot: candidateRoot, ToolingRoot: toolingRoot, IndexPath: indexPath, Created: created, Blocked: blocked, Skipped: skipped, Writes: writes, RequiresReview: true, RequiresCleanup: !opt.WhatIf && created > 0, DeniedWriteAction: []string{"promote -Apply", "pack managed file overwrite", "authority/confirmed writes", "heavy-tool execution"}, NextSteps: []string{"review candidate files before promoting them into pack sources", "delete rejected candidates after review"}}, nil
+}
+
+func assertInsideRoot(root, path string) error {
+	rootFull, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	pathFull, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(rootFull, pathFull)
+	if err != nil {
+		return err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("candidate path escapes root: %s", path)
+	}
+	return nil
+}
+
+func safeCandidateName(value string) string {
+	replacer := strings.NewReplacer("\\", "_", "/", "_", ":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_")
+	out := strings.TrimSpace(replacer.Replace(value))
+	if out == "" {
+		return "candidate"
+	}
+	return out
+}
+
+func uniqueCandidatePath(root, name string) (string, error) {
+	candidate := filepath.Join(root, name)
+	if _, err := os.Stat(candidate); os.IsNotExist(err) {
+		return candidate, nil
+	} else if err != nil {
+		return "", err
+	}
+
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	for i := 1; i <= 999; i++ {
+		candidate = filepath.Join(root, fmt.Sprintf("%s-%d%s", base, i, ext))
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate, nil
+		} else if err != nil {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("unable to allocate unique candidate path for %s", name)
+}
+
+func writeNewFile(path string, text []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.Write(text)
+	return err
 }
 
 func toolingCandidateHeader(rel string) string {
