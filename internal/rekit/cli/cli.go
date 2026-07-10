@@ -14,6 +14,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/repair"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
@@ -194,6 +195,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runDoctor(ctx, stdout)
 	case "attach":
 		return runAttach(ctx, opt, stdout)
+	case "repair":
+		return runRepair(ctx, opt, stdout)
 	case "sync", "update":
 		return runSyncReview(ctx, opt, stdout)
 	case "promote":
@@ -294,6 +297,32 @@ func runAttach(ctx runtime.Context, opt Options, out io.Writer) error {
 		result, err = attach.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, attachOpt)
 	} else {
 		return fmt.Errorf("attach write requires -Apply; use -WhatIf for preview")
+	}
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(append(b, '\n'))
+	return err
+}
+
+func runRepair(ctx runtime.Context, opt Options, out io.Writer) error {
+	if !ctx.TargetProvided {
+		return fmt.Errorf("repair requires an explicit -Target attached case")
+	}
+	if opt.WhatIf && opt.Apply {
+		return fmt.Errorf("repair -WhatIf cannot be combined with -Apply")
+	}
+	repairOpt := repair.Options{ProjectName: opt.ProjectName}
+	var result any
+	var err error
+	if opt.Apply {
+		result, err = repair.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, repairOpt)
+	} else {
+		result, err = repair.Preview(ctx.RepoRoot, ctx.Target, ctx.Pack, repairOpt)
 	}
 	if err != nil {
 		return err

@@ -46,6 +46,7 @@
 - Go runtime G2.5 完成：Go `doctor/validate` 增加 attached case 只读校验，覆盖 instance/legacy metadata、case-local shim parity、managed/template files、managed block、facts JSONL、board/lane/workspace JSONL；PowerShell façade 显式启用 Go 时也可委托 case doctor。
 - Go runtime G2.6 完成：新增 `rekit/tests/facade-smoke.ps1`，覆盖默认不委托、显式 Go 安全集合、`REKIT_GO_DISABLE` 优先级、`sync` 写入 flags 回退 PowerShell、`gate -WhatIf` 非写入委托与未启用时拒绝。
 - Go runtime G3.1 完成：新增 `internal/rekit/attach` 与 Go CLI `-Command attach`，支持 `-WhatIf` 非写入预览和 `-Apply` 只写 `.rekit/instance.yml` + case-local thin shim；不写 managed docs、legacy metadata、state、board/facts/lanes，也暂不纳入 PowerShell façade 委托。
+- Go runtime G3.2 完成：新增 `internal/rekit/casebind` 与 `internal/rekit/repair`，支持 Go CLI `-Command repair` 默认/`-WhatIf` 非写入预览和 `-Apply` 刷新 `.rekit/instance.yml`、`.re-template.yml`、case-local thin shim；不写 managed docs、board/facts/lanes 或 authority，也暂不纳入 PowerShell façade 委托。
 
 ### Fixed
 

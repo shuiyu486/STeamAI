@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 )
@@ -15,11 +15,7 @@ type Options struct {
 	ProjectName string
 }
 
-type WritePlan struct {
-	Path   string `json:"path"`
-	Kind   string `json:"kind"`
-	Action string `json:"action"`
-}
+type WritePlan = casebind.WritePlan
 
 type PreviewPlan struct {
 	SchemaVersion        int         `json:"schemaVersion"`
@@ -69,24 +65,10 @@ func Apply(repoRoot, target, pack string, opt Options) (ApplyResult, error) {
 	if err := os.MkdirAll(p.CaseRoot, 0o755); err != nil {
 		return ApplyResult{}, err
 	}
-	instancePath := filepath.Join(p.CaseRoot, ".rekit", "instance.yml")
-	if err := os.MkdirAll(filepath.Dir(instancePath), 0o755); err != nil {
+	if _, err := casebind.WriteInstance(p.CaseRoot, p.RepoRoot, p.Pack, p.ProjectName); err != nil {
 		return ApplyResult{}, err
 	}
-	if err := os.WriteFile(instancePath, []byte(instanceText(p.CaseRoot, p.RepoRoot, p.Pack, p.ProjectName)), 0o644); err != nil {
-		return ApplyResult{}, err
-	}
-
-	shimSource := filepath.Join(p.RepoRoot, "rekit", "templates", "case-shim", "SKILL.md")
-	shimText, err := os.ReadFile(shimSource)
-	if err != nil {
-		return ApplyResult{}, fmt.Errorf("missing case shim template: %s", shimSource)
-	}
-	shimPath := filepath.Join(p.CaseRoot, ".claude", "skills", "rekit", "SKILL.md")
-	if err := os.MkdirAll(filepath.Dir(shimPath), 0o755); err != nil {
-		return ApplyResult{}, err
-	}
-	if err := os.WriteFile(shimPath, shimText, 0o644); err != nil {
+	if _, err := casebind.WriteCaseShim(p.CaseRoot, p.RepoRoot); err != nil {
 		return ApplyResult{}, err
 	}
 
@@ -138,10 +120,7 @@ func buildPlan(repoRoot, target, pack string, opt Options) (PreviewPlan, error) 
 	if projectName == "" {
 		projectName = projectNameFromRoot(caseRoot)
 	}
-	writes := []WritePlan{
-		{Path: filepath.Join(caseRoot, ".rekit", "instance.yml"), Kind: "instance-metadata", Action: actionFor(filepath.Join(caseRoot, ".rekit", "instance.yml"))},
-		{Path: filepath.Join(caseRoot, ".claude", "skills", "rekit", "SKILL.md"), Kind: "case-local-thin-shim", Action: actionFor(filepath.Join(caseRoot, ".claude", "skills", "rekit", "SKILL.md"))},
-	}
+	writes := casebind.BindingWrites(caseRoot)
 	return PreviewPlan{
 		SchemaVersion:  1,
 		Command:        "attach",
@@ -154,36 +133,10 @@ func buildPlan(repoRoot, target, pack string, opt Options) (PreviewPlan, error) 
 	}, nil
 }
 
-func instanceText(caseRoot, repoRoot, pack, projectName string) string {
-	return "schemaVersion: 1\n" +
-		"templateRoot: " + repoRoot + "\n" +
-		"templatePack: " + pack + "\n" +
-		"projectName: " + projectName + "\n" +
-		"projectRoot: " + caseRoot + "\n" +
-		"mode: case-local-shim\n"
-}
-
-func actionFor(path string) string {
-	if refsf.Exists(path) {
-		return "refresh"
-	}
-	return "create"
-}
-
 func projectNameFromRoot(caseRoot string) string {
-	return filepath.Base(strings.TrimRight(filepath.Clean(caseRoot), string(filepath.Separator)))
+	return casebind.ProjectNameFromRoot(caseRoot)
 }
 
 func samePath(a, b string) bool {
-	left, err := filepath.Abs(a)
-	if err != nil {
-		return false
-	}
-	right, err := filepath.Abs(b)
-	if err != nil {
-		return false
-	}
-	left = strings.TrimRight(filepath.Clean(left), string(filepath.Separator))
-	right = strings.TrimRight(filepath.Clean(right), string(filepath.Separator))
-	return strings.EqualFold(left, right)
+	return casebind.SamePath(a, b)
 }

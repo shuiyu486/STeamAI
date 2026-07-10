@@ -194,6 +194,109 @@ func TestRunAttachRejectsDifferentBinding(t *testing.T) {
 	}
 }
 
+func TestRunRepairPreviewDoesNotWrite(t *testing.T) {
+	caseRoot := movedAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "repair", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var plan struct {
+		Command              string `json:"command"`
+		IsMutation           bool   `json:"isMutation"`
+		ReviewRequired       bool   `json:"reviewRequired"`
+		RequiresConfirmation bool   `json:"requiresConfirmation"`
+		Moved                bool   `json:"moved"`
+		RecordedProjectRoot  string `json:"recordedProjectRoot"`
+		NewProjectRoot       string `json:"newProjectRoot"`
+		Writes               []struct {
+			Kind string `json:"kind"`
+		} `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
+		t.Fatalf("repair preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if plan.Command != "repair" || plan.IsMutation || !plan.ReviewRequired || !plan.RequiresConfirmation || !plan.Moved {
+		t.Fatalf("unexpected repair preview flags: %+v", plan)
+	}
+	if plan.RecordedProjectRoot == plan.NewProjectRoot || len(plan.Writes) != 3 {
+		t.Fatalf("unexpected repair preview: %+v", plan)
+	}
+	metadata, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "instance.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(metadata), "projectRoot: "+caseRoot) {
+		t.Fatalf("repair preview updated instance metadata: %s", string(metadata))
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".re-template.yml")); !os.IsNotExist(err) {
+		t.Fatalf("repair preview wrote legacy metadata, err=%v", err)
+	}
+}
+
+func TestRunRepairApplyRefreshesMetadataShimAndLegacy(t *testing.T) {
+	caseRoot := movedAttachedCase(t)
+	writeCaseFile(t, caseRoot, ".claude/skills/rekit/SKILL.md", "drift\n")
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "repair", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command    string `json:"command"`
+		IsMutation bool   `json:"isMutation"`
+		Applied    bool   `json:"applied"`
+		Moved      bool   `json:"moved"`
+		Writes     []struct {
+			Kind string `json:"kind"`
+		} `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("repair apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Command != "repair" || !result.IsMutation || !result.Applied || !result.Moved || len(result.Writes) != 3 {
+		t.Fatalf("unexpected repair apply result: %+v", result)
+	}
+	metadata, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "instance.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(metadata)
+	if !strings.Contains(text, "projectRoot: "+caseRoot) || !strings.Contains(text, "templatePack: _template") {
+		t.Fatalf("instance metadata not refreshed: %s", text)
+	}
+	shim, err := os.ReadFile(filepath.Join(caseRoot, ".claude", "skills", "rekit", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := os.ReadFile(filepath.Join(repoRoot(t), "rekit", "templates", "case-shim", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(shim, canonical) {
+		t.Fatal("repair did not refresh the case shim")
+	}
+	legacy, err := os.ReadFile(filepath.Join(caseRoot, ".re-template.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyText := string(legacy)
+	if !strings.Contains(legacyText, "currentProjectPath: "+caseRoot) || !strings.Contains(legacyText, "templatePack: _template") {
+		t.Fatalf("legacy metadata not refreshed: %s", legacyText)
+	}
+}
+
+func TestRunRepairRejectsDifferentBinding(t *testing.T) {
+	caseRoot := attachedCase(t)
+	writeCaseFile(t, caseRoot, ".rekit/instance.yml", "templateRoot: C:\\other\\kit\ntemplatePack: _template\nprojectName: demo\nprojectRoot: C:\\old\\case\n")
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "repair", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for repair with different templateRoot")
+	}
+	if !strings.Contains(err.Error(), "different templateRoot") {
+		t.Fatalf("error = %q, want different templateRoot", err.Error())
+	}
+}
+
 func TestRunSyncReviewRejectsWriteFlags(t *testing.T) {
 	var out bytes.Buffer
 	err := Run([]string{"-Command", "sync", "-Target", t.TempDir(), "-Apply"}, &out)
@@ -547,6 +650,17 @@ func attachedCaseWithBoard(t *testing.T) string {
 	caseRoot := attachedCase(t)
 	board := `{"lanes":[{"id":"main"},{"id":"feature-demo"}]}`
 	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), []byte(board), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return caseRoot
+}
+
+func movedAttachedCase(t *testing.T) string {
+	t.Helper()
+	caseRoot := attachedCase(t)
+	oldRoot := filepath.Join(t.TempDir(), "old-case")
+	metadata := "templateRoot: " + repoRoot(t) + "\ntemplatePack: _template\nprojectName: demo\nprojectRoot: " + oldRoot + "\n"
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "instance.yml"), []byte(metadata), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return caseRoot

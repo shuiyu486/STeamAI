@@ -83,8 +83,8 @@ Path(r'<oldCaseRoot>')
 2. 复制 case 到新目录，例如：`robocopy <oldCaseRoot> <newCaseRoot> /E`。
 3. 在新目录启动 Claude Code，执行 `/rekit status`。
 4. 如果 status 提示 `projectRoot` 与当前目录不一致，先确认这是预期迁移。
-5. 执行 `/rekit repair` 预览 metadata 变更。
-6. 确认无误后，直接告诉 Claude：`确认修复，执行 repair -Apply`。
+5. 执行 `/rekit repair` 预览 metadata 变更。维护者也可手动用 Go `repair -WhatIf` 对比 JSON preview，但日常入口仍是 `/rekit`。
+6. 确认无误后，直接告诉 Claude：`确认修复，执行 repair -Apply`。Go `repair -Apply` 目前只作为维护者验证路径，不经 PowerShell façade 委托。
 7. 执行 `/rekit doctor` 验证 case 绑定。
 8. 必要时执行 `/rekit sync` 同步最新 managed docs。
 9. 搜索并更新只属于旧 case 根目录的绝对路径。

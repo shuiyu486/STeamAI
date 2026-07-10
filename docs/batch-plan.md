@@ -1029,13 +1029,40 @@ git diff --check
 
 验证结果：全部通过；Go attach smoke 临时目录已清理。Go doctor 对只 attach 未 sync 的 case 按预期报告缺 managed docs，未误报完整 case ok。
 
-### Batch 35：G3.2 Go repair 迁移（计划）
+### Batch 35：G3.2 Go repair 迁移
 
-状态：待 G3.1 后实施。
+状态：已完成。
 
 目标：迁移 `repair` 的 moved-case metadata 修复路径。默认 preview；显式 `-Apply` 才更新 metadata 与 shim。不得修改 managed docs、facts、board、lanes 或 authority 文件。
 
-关键验证：旧路径 metadata 能被检测；`repair -WhatIf` 不写；`repair -Apply` 后 PowerShell/Go doctor 均通过；错误 templateRoot/templatePack 不被静默覆盖。
+结果：
+
+- 新增 `internal/rekit/casebind`，集中 metadata、legacy metadata 与 case-local thin shim 写入 helper，避免 attach/repair 复制逻辑。
+- 新增 `internal/rekit/repair`：
+  - 默认 preview（含 `-WhatIf`）输出 JSON plan，`isMutation=false`、`reviewRequired=true`、`requiresConfirmation=true`，展示 metadata source、recorded/new projectRoot、moved 状态与写入计划。
+  - `-Apply` 只刷新 `.rekit/instance.yml`、`.claude/skills/rekit/SKILL.md` thin shim 和 legacy `.re-template.yml` 的迁移相关字段。
+- Go CLI 新增 `-Command repair`：
+  - 要求显式 `-Target`；
+  - `-WhatIf` 与 `-Apply` 同时传入会被拒绝；
+  - 未传 `-Apply` 时只 preview，不写文件。
+- repair 拒绝普通目录、kit repo root、不同 `templateRoot` 或不同 `templatePack`，不静默重绑到当前 kit。
+- Go tests 覆盖 preview 不写、apply 刷新 metadata/shim/legacy、不同 binding 拒绝。
+- PowerShell façade 仍不委托 `repair`；日常 `/rekit repair` 继续走 PowerShell fallback，Go repair 只作为维护者手动验证路径。
+
+验证：
+
+```powershell
+go test ./...
+go run ./cmd/rekit -- -Command repair -Target <movedCase> -Pack vmp-re -WhatIf
+go run ./cmd/rekit -- -Command repair -Target <movedCase> -Pack vmp-re -Apply
+go run ./cmd/rekit -- -Command doctor -Target <movedCase> -Pack vmp-re
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过；repair smoke 使用临时 case，验证后已删除，不污染 kit 仓库。
 
 ### Batch 36：gate request schema parity（计划）
 
