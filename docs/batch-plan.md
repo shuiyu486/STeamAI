@@ -1354,3 +1354,34 @@ git diff --check
 ```
 
 验证结果：全部通过；Go `overview` 只读取既有 board/facts，缺 board 时拒绝且不创建 board/facts/lanes；临时 case smoke 验证 pending-gate gate 详情、未决 candidate 冲突、decision、batch、intervention、rollback 和下一步建议展示；PowerShell façade 显式 Go enable 下仍 fallback，不委托 `overview`；reviewer 未发现高置信问题。
+
+### Batch 45：G4.2 Go start 手动路径
+
+状态：已完成。
+
+目标：在 Go backend 中实现显式 `start` 手动路径，用于维护者创建或进入功能工作线；公共 PowerShell façade 仍不委托工作线命令，用户 `/rekit start <name>` 继续走 PowerShell runtime。
+
+实施范围：
+
+- 新增 Go workstream start helper，复刻 PowerShell `Invoke-RekitStart` 的核心语义：基于 manifest `defaultStartLaneType` 计算 lane id，初始化 board/facts/policy/default authority lane，创建或进入目标 feature lane，并刷新 board。
+- CLI 支持 `-Command start -WhatIf` 与 `-Apply`：`-WhatIf` 输出非写入 JSON preview，不创建 board/facts/lanes/workspace；`-Apply` 显式写 `.rekit/board.json`、`.rekit/policy.yml`、facts JSONL、lane state、workspace scaffold、lane resume/checkpoint。
+- 支持 `-Force` 刷新已有 lane metadata；无 `-WhatIf/-Apply` 时拒绝，避免手动 Go CLI 裸 `start` 意外写 case state。
+- 增加 Go tests 与临时 case smoke，验证 preview 只读、apply 写入范围、existing-lane/force 行为、Go/PowerShell doctor、PowerShell façade fallback。
+- 更新 `docs/go-runtime-migration.md`、`README.md`、`CHANGELOG.md` 与后续批次计划。
+
+边界：不迁移 `continue/handoff/plan-subagents`，不写 handoff，不写 authority/confirmed，不执行 heavy-tool/debug/inject/patch/dump/network，不默认纳入 PowerShell façade 委托。
+
+停止条件：lane id/path 无法证明在 case root 内、Go 写入不能通过 case doctor、PowerShell façade 误委托 `start`、或实现需要 runtime schema 迁移。
+
+验证：
+
+```powershell
+go test ./...
+.\rekit\tests\start-apply-smoke.ps1
+.\rekit\tests\facade-smoke.ps1 -CaseRoot '<attachedCase>' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target '<attachedCase>'
+git diff --check
+```
+
+验证结果：全部通过；Go `start -WhatIf` 未写 board/facts/lanes/workspace；Go `start -Apply` 显式初始化 board/facts/policy/default authority lane 并创建 feature lane；existing/force 行为、Go/PowerShell doctor 与 PowerShell façade fallback 均通过；`-Force` 刷新已有 lane 时保留 live inbox/tasks 的 resume/checkpoint；reviewer 发现的 force refresh 状态覆盖与 Batch 45 绝对路径问题已修复；不写 handoff、authority/confirmed，不执行 heavy-tool。

@@ -513,6 +513,99 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 	assertSnapshotEqual(t, before, after)
 }
 
+func TestRunStartPreviewDoesNotWriteBoard(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		IsMutation bool `json:"isMutation"`
+		Applied    bool `json:"applied"`
+		Lane       struct {
+			ID        string `json:"id"`
+			Workspace string `json:"workspace"`
+		} `json:"lane"`
+		Writes []struct {
+			Path   string `json:"path"`
+			Action string `json:"action"`
+		} `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.IsMutation || result.Applied || result.Lane.ID != "feature-login" || result.Lane.Workspace != "workspace/features/feature-login" {
+		t.Fatalf("unexpected start preview result: %+v", result)
+	}
+	if len(result.Writes) != 1 || result.Writes[0].Path != ".rekit/lanes/feature-login/lane.json" || result.Writes[0].Action != "would-create-lane" {
+		t.Fatalf("unexpected start preview writes: %+v", result.Writes)
+	}
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
+}
+
+func TestRunStartApplyCreatesFeatureLane(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	result := decodeStartResult(t, out.Bytes())
+	if !result.IsMutation || !result.Applied || result.Lane.ID != "feature-login" {
+		t.Fatalf("unexpected start apply result: %+v", result)
+	}
+	assertStartWrite(t, result.Writes, ".rekit/policy.yml", "create-policy")
+	assertStartWrite(t, result.Writes, ".rekit/lanes/main/lane.json", "create-lane")
+	assertStartWrite(t, result.Writes, ".rekit/lanes/feature-login/lane.json", "create-lane")
+	assertStartWrite(t, result.Writes, ".rekit/board.json", "refresh")
+	for _, rel := range []string{".rekit/board.json", ".rekit/lanes/main/lane.json", ".rekit/lanes/feature-login/lane.json", ".rekit/lanes/feature-login/prompts/RESUME.md", "workspace/features/feature-login/summary.md"} {
+		if _, err := os.Stat(filepath.Join(caseRoot, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("missing start artifact %s: %v", rel, err)
+		}
+	}
+	var doctorOut bytes.Buffer
+	if err := Run([]string{"-Command", "doctor", "-Target", caseRoot, "-Pack", "_template"}, &doctorOut); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	again := decodeStartResult(t, out.Bytes())
+	assertStartWrite(t, again.Writes, ".rekit/lanes/feature-login/lane.json", "enter-existing-lane")
+
+	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/inbox.jsonl", "{\"eventId\":\"in-1\",\"summary\":\"review queued\"}\n")
+	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/tasks.jsonl", "{\"taskId\":\"task-1\",\"summary\":\"inspect candidate\",\"status\":\"open\"}\n{\"taskId\":\"task-2\",\"summary\":\"closed task\",\"status\":\"closed\"}\n")
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Force"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	forced := decodeStartResult(t, out.Bytes())
+	assertStartWrite(t, forced.Writes, ".rekit/lanes/feature-login/lane.json", "refresh-lane-with-force")
+	assertStartWrite(t, forced.Writes, ".rekit/lanes/feature-login/events.jsonl", "append-lane-refreshed")
+	resume, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "feature-login", "prompts", "RESUME.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(resume), "review queued") || !strings.Contains(string(resume), "inspect candidate") || strings.Contains(string(resume), "closed task") {
+		t.Fatalf("force refresh resume did not preserve live inbox/tasks:\n%s", string(resume))
+	}
+}
+
+func TestRunStartRequiresMode(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for start without mode")
+	}
+	if !strings.Contains(err.Error(), "-Apply") || !strings.Contains(err.Error(), "-WhatIf") {
+		t.Fatalf("error = %q, want apply/whatif guard", err.Error())
+	}
+}
+
 func TestRunPromoteApplyWhatIfEmitsNonMutatingPlan(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeCaseFile(t, caseRoot, "references/template/README.md", "# Apply\n\nReusable safe update.\n")
@@ -1062,6 +1155,28 @@ type promoteApplyWrite struct {
 	BackupPath string `json:"backupPath"`
 }
 
+type startResult struct {
+	Command    string       `json:"command"`
+	IsMutation bool         `json:"isMutation"`
+	Applied    bool         `json:"applied"`
+	Lane       startLane    `json:"lane"`
+	Writes     []startWrite `json:"writes"`
+}
+
+type startLane struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	Workspace string `json:"workspace"`
+}
+
+type startWrite struct {
+	Path       string `json:"path"`
+	Kind       string `json:"kind"`
+	Action     string `json:"action"`
+	TargetPath string `json:"targetPath"`
+}
+
 type candidateResult struct {
 	Command         string           `json:"command"`
 	IsMutation      bool             `json:"isMutation"`
@@ -1110,6 +1225,15 @@ func decodePromoteApplyResult(t *testing.T, b []byte) promoteApplyResult {
 	return result
 }
 
+func decodeStartResult(t *testing.T, b []byte) startResult {
+	t.Helper()
+	var result startResult
+	if err := json.Unmarshal(b, &result); err != nil {
+		t.Fatalf("start stdout is not JSON: %v\n%s", err, string(b))
+	}
+	return result
+}
+
 func assertFileExists(t *testing.T, path string) {
 	t.Helper()
 	st, err := os.Stat(path)
@@ -1149,6 +1273,21 @@ func assertPromoteApplyWrite(t *testing.T, writes []promoteApplyWrite, path, act
 	}
 	t.Fatalf("promote apply write %s with action %q not found in %+v", path, action, writes)
 	return promoteApplyWrite{}
+}
+
+func assertStartWrite(t *testing.T, writes []startWrite, path, action string) startWrite {
+	t.Helper()
+	for _, write := range writes {
+		if write.Path != path || write.Action != action {
+			continue
+		}
+		if write.TargetPath == "" {
+			t.Fatalf("start write %s missing target path", path)
+		}
+		return write
+	}
+	t.Fatalf("start write %s with action %q not found in %+v", path, action, writes)
+	return startWrite{}
 }
 
 func assertSyncWrite(t *testing.T, writes []syncWrite, path, action string, wantBackup bool) {

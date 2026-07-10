@@ -19,6 +19,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
 type Options struct {
@@ -35,6 +36,7 @@ type Options struct {
 	DiffPath         string
 	ProjectName      string
 	Gate             gate.Options
+	Start            workstream.StartOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -68,6 +70,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ProjectName")
 			}
 			opt.ProjectName = args[i]
+		case "-Name", "--name":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Name")
+			}
+			opt.Start.Name = args[i]
 		case "-Review", "--review":
 			opt.Review = true
 		case "-Apply", "--apply":
@@ -171,6 +179,12 @@ func Parse(args []string) (Options, error) {
 		default:
 			if i == 0 && args[i] != "" && args[i][0] != '-' {
 				opt.Command = args[i]
+			} else if strings.EqualFold(opt.Command, "start") && args[i] != "" && args[i][0] != '-' {
+				if opt.Start.Name == "" {
+					opt.Start.Name = args[i]
+				} else {
+					opt.Start.Name += "-" + args[i]
+				}
 			}
 		}
 	}
@@ -209,6 +223,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runPromoteReview(ctx, opt, stdout)
 	case "overview":
 		return runOverview(ctx, stdout)
+	case "start":
+		return runStart(ctx, opt, stdout)
 	case "gate":
 		return runGate(ctx, opt, stdout)
 	default:
@@ -421,6 +437,35 @@ func runOverview(ctx runtime.Context, out io.Writer) error {
 		return err
 	}
 	_, err = io.WriteString(out, text)
+	return err
+}
+
+func runStart(ctx runtime.Context, opt Options, out io.Writer) error {
+	if !ctx.TargetProvided {
+		return fmt.Errorf("start requires an explicit -Target attached case")
+	}
+	if opt.WhatIf && opt.Apply {
+		return fmt.Errorf("start -WhatIf cannot be combined with -Apply")
+	}
+	startOpt := opt.Start
+	startOpt.Force = opt.Force
+	var result any
+	var err error
+	if opt.WhatIf {
+		result, err = workstream.StartPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, startOpt)
+	} else if opt.Apply {
+		result, err = workstream.StartApply(ctx.RepoRoot, ctx.Target, ctx.Pack, startOpt)
+	} else {
+		return fmt.Errorf("start write requires -Apply; use -WhatIf for preview")
+	}
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(append(b, '\n'))
 	return err
 }
 
