@@ -1120,3 +1120,35 @@ git diff --check
 ```
 
 验证结果：全部通过；sync review parity smoke 使用临时 case，验证后删除，不污染 kit 仓库。
+
+### Batch 38：G3.4 Go sync -Apply 手动路径
+
+状态：已完成。
+
+目标：在 Go backend 中实现显式 `sync -Apply` 写入路径，但只作为维护者手动 CLI 验证路径；默认 `sync` 继续 review-only，PowerShell façade 仍不委托写入命令。
+
+实施范围：
+
+- 新增 Go `sync.Apply` helper，复用 manifest/instance/casebind/review 基础能力。
+- 覆盖 PowerShell `sync -Apply` 的核心语义：刷新 metadata/shim/legacy metadata、同步 managed files、template create-if-missing、managed block 更新、可选 `-Force` 覆盖本地模板、`.gitignore` support file create-if-missing、更新 `.rekit/state.json`。
+- 写入前对 changed managed files、forced template files、managed block host 创建 backup，backup root 来自 manifest `workstreamDefaults.backupRoot`。
+- CLI 输出结构化 JSON apply result，包含 `isMutation=true`、`applied=true`、`backupRoot` 与逐项 writes。
+- Go tests 覆盖 apply 写入/backup/state、template skip、`-Force` 覆盖、moved/different binding guard、默认 review-only 不回归。
+- 新增 `rekit/tests/sync-apply-smoke.ps1`，对 Go `sync -Apply` 执行后验证 backup、managed file、managed block、template skip/force、state，并运行 Go doctor 与 PowerShell doctor；临时 case 验证后删除。
+
+边界：不实现 `init/bootstrap`，不写 pack，不执行 promote，不写 authority/confirmed，不自动 rollback，不纳入 PowerShell façade 委托安全集合。
+
+停止条件：backup 路径无法证明在 case root 内、state hash 与实际写入不一致、managed block 写入与 PowerShell 语义冲突、旧 case 兼容 guard 不清晰、或 apply 后 doctor 失败。
+
+验证：
+
+```powershell
+go test ./...
+.\rekit\tests\sync-apply-smoke.ps1
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
+git diff --check
+```
+
+验证结果：全部通过；sync apply smoke 使用临时 case，验证后删除，不污染 kit 仓库。

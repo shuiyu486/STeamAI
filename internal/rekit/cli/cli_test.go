@@ -297,14 +297,51 @@ func TestRunRepairRejectsDifferentBinding(t *testing.T) {
 	}
 }
 
-func TestRunSyncReviewRejectsWriteFlags(t *testing.T) {
+func TestRunSyncApplyRequiresAttachedCase(t *testing.T) {
 	var out bytes.Buffer
 	err := Run([]string{"-Command", "sync", "-Target", t.TempDir(), "-Apply"}, &out)
 	if err == nil {
-		t.Fatal("Run returned nil error for sync -Apply")
+		t.Fatal("Run returned nil error for sync -Apply on a non-case target")
 	}
-	if !strings.Contains(err.Error(), "review-only") {
-		t.Fatalf("error = %q, want review-only guard", err.Error())
+	if !strings.Contains(err.Error(), "target is not an attached rekit case") {
+		t.Fatalf("error = %q, want attached case guard", err.Error())
+	}
+}
+
+func TestRunSyncRejectsWhatIf(t *testing.T) {
+	caseRoot := attachedCase(t)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-WhatIf"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for sync -WhatIf")
+	}
+	if !strings.Contains(err.Error(), "does not implement -WhatIf") {
+		t.Fatalf("error = %q, want what-if guard", err.Error())
+	}
+}
+
+func TestRunSyncApplyRejectsMovedCase(t *testing.T) {
+	caseRoot := movedAttachedCase(t)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for sync -Apply on moved case")
+	}
+	if !strings.Contains(err.Error(), "case metadata points to a different directory") {
+		t.Fatalf("error = %q, want moved case guard", err.Error())
+	}
+}
+
+func TestRunSyncApplyRejectsDifferentBinding(t *testing.T) {
+	caseRoot := attachedCase(t)
+	writeCaseFile(t, caseRoot, ".rekit/instance.yml", "templateRoot: C:\\other\\kit\ntemplatePack: _template\nprojectName: demo\nprojectRoot: "+caseRoot+"\n")
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for sync -Apply with different templateRoot")
+	}
+	if !strings.Contains(err.Error(), "different templateRoot") {
+		t.Fatalf("error = %q, want different templateRoot", err.Error())
 	}
 }
 
@@ -377,6 +414,81 @@ func TestRunSyncReviewWritesArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(string(packet), `"command": "sync"`) || !strings.Contains(string(packet), `"reviewRequired": true`) {
 		t.Fatalf("sync packet missing expected fields: %s", string(packet))
+	}
+}
+
+func TestRunSyncApplyWritesManagedFilesBackupAndState(t *testing.T) {
+	caseRoot := attachedCase(t)
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Local drift\n\nchanged\n")
+	writeCaseFile(t, caseRoot, "references/template/task-handoff.md", "# Local handoff\n\nkeep\n")
+	writeCaseFile(t, caseRoot, "CLAUDE.local.md", "prefix\n\n<!-- BEGIN template-pack:router -->\nold block\n<!-- END template-pack:router -->\n\nsuffix\n")
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-ProjectName", "demo-sync"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command    string      `json:"command"`
+		IsMutation bool        `json:"isMutation"`
+		Applied    bool        `json:"applied"`
+		BackupRoot string      `json:"backupRoot"`
+		Writes     []syncWrite `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("sync apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Command != "sync" || !result.IsMutation || !result.Applied || result.BackupRoot == "" {
+		t.Fatalf("unexpected sync apply result: %+v", result)
+	}
+	readme, err := os.ReadFile(filepath.Join(caseRoot, "references", "template", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	packReadme, err := os.ReadFile(filepath.Join(repoRoot(t), "packs", "_template", "references", "template", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(readme, packReadme) {
+		t.Fatal("managed README was not overwritten with pack content")
+	}
+	state, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(state), "targetHashAtSync") || !strings.Contains(string(state), "references/template/README.md") {
+		t.Fatalf("sync state missing managed hashes: %s", string(state))
+	}
+	legacy, err := os.ReadFile(filepath.Join(caseRoot, ".re-template.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(legacy), "templateRoot: "+repoRoot(t)) || strings.Contains(string(legacy), "currentProjectPath") {
+		t.Fatalf("legacy metadata should match attach semantics, got: %s", string(legacy))
+	}
+	assertSyncWrite(t, result.Writes, "references/template/README.md", "overwrite-with-backup", true)
+	assertSyncWrite(t, result.Writes, "references/template/task-handoff.md", "skip-existing-local-file", false)
+	assertSyncWrite(t, result.Writes, "CLAUDE.local.md", "replace-managed-block", true)
+}
+
+func TestRunSyncApplyForceOverwritesLocalTemplate(t *testing.T) {
+	caseRoot := attachedCase(t)
+	writeCaseFile(t, caseRoot, "references/template/task-handoff.md", "# Local handoff\n")
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Force", "-ProjectName", "forced-demo"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Writes []syncWrite `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("sync apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	assertSyncWrite(t, result.Writes, "references/template/task-handoff.md", "overwrite-local-template-file-with-force", true)
+	text, err := os.ReadFile(filepath.Join(caseRoot, "references", "template", "task-handoff.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(text), "forced-demo") || !strings.Contains(string(text), caseRoot) {
+		t.Fatalf("forced template did not replace placeholders: %s", string(text))
 	}
 }
 
@@ -601,6 +713,13 @@ type artifactResult struct {
 	CombinedDiffPath string `json:"combinedDiffPath"`
 }
 
+type syncWrite struct {
+	Path       string `json:"path"`
+	Kind       string `json:"kind"`
+	Action     string `json:"action"`
+	BackupPath string `json:"backupPath"`
+}
+
 func decodeArtifactResult(t *testing.T, b []byte) artifactResult {
 	t.Helper()
 	var result artifactResult
@@ -619,6 +738,28 @@ func assertFileExists(t *testing.T, path string) {
 	if st.IsDir() {
 		t.Fatalf("expected file, got directory: %s", path)
 	}
+}
+
+func assertSyncWrite(t *testing.T, writes []syncWrite, path, action string, wantBackup bool) {
+	t.Helper()
+	for _, write := range writes {
+		if write.Path != path {
+			continue
+		}
+		if write.Action != action {
+			t.Fatalf("sync write %s action = %q, want %q", path, write.Action, action)
+		}
+		if wantBackup {
+			if write.BackupPath == "" {
+				t.Fatalf("sync write %s missing backup path", path)
+			}
+			assertFileExists(t, write.BackupPath)
+		} else if write.BackupPath != "" {
+			t.Fatalf("sync write %s backup path = %q, want empty", path, write.BackupPath)
+		}
+		return
+	}
+	t.Fatalf("sync write %s not found in %+v", path, writes)
 }
 
 func writeCaseFile(t *testing.T, caseRoot, rel, text string) {

@@ -76,6 +76,26 @@ func WriteLegacyMetadata(caseRoot, repoRoot, pack string) (string, error) {
 	return legacyPath, nil
 }
 
+func WriteLegacyMetadataForAttach(caseRoot, repoRoot, pack string) (string, error) {
+	legacyPath := filepath.Join(caseRoot, ".re-template.yml")
+	legacyExists := refsf.Exists(legacyPath)
+	if err := SetYAMLScalar(legacyPath, "templateRoot", repoRoot); err != nil {
+		return "", err
+	}
+	if err := SetYAMLScalar(legacyPath, "rekitMode", "case-local-shim"); err != nil {
+		return "", err
+	}
+	if !legacyExists {
+		if err := SetYAMLScalar(legacyPath, "templatePack", pack); err != nil {
+			return "", err
+		}
+		if err := SetYAMLScalar(legacyPath, "templateVersion", "0.0.0"); err != nil {
+			return "", err
+		}
+	}
+	return legacyPath, nil
+}
+
 func SetYAMLScalar(path, key, value string) error {
 	var text string
 	if b, err := os.ReadFile(path); err == nil {

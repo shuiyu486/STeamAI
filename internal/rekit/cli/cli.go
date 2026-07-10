@@ -28,6 +28,7 @@ type Options struct {
 	Apply            bool
 	CreateCandidates bool
 	WhatIf           bool
+	Force            bool
 	ReviewOutputDir  string
 	PacketPath       string
 	DiffPath         string
@@ -74,6 +75,8 @@ func Parse(args []string) (Options, error) {
 			opt.CreateCandidates = true
 		case "-WhatIf", "--what-if":
 			opt.WhatIf = true
+		case "-Force", "--force":
+			opt.Force = true
 		case "-ReviewOutputDir", "--review-output-dir":
 			i++
 			if i >= len(args) {
@@ -336,11 +339,29 @@ func runRepair(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
-	if opt.Apply || opt.WhatIf {
-		return fmt.Errorf("go backend only implements sync review-only planning")
+	if opt.WhatIf {
+		return fmt.Errorf("go backend sync does not implement -WhatIf; run review-only sync without -Apply, or use -Apply for explicit write")
+	}
+	if opt.Force && !opt.Apply {
+		return fmt.Errorf("sync -Force is only supported with -Apply")
 	}
 	if !ctx.TargetProvided {
-		return fmt.Errorf("sync review requires an explicit -Target attached case")
+		return fmt.Errorf("sync requires an explicit -Target attached case")
+	}
+	if opt.Apply {
+		if wantsReviewArtifacts(opt) {
+			return fmt.Errorf("sync -Apply cannot be combined with review artifact options")
+		}
+		result, err := syncreview.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, syncreview.ApplyOptions{ProjectName: opt.ProjectName, ForceLocalTemplates: opt.Force})
+		if err != nil {
+			return err
+		}
+		b, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(append(b, '\n'))
+		return err
 	}
 	plan, err := syncreview.Plan(ctx.RepoRoot, ctx.Target, ctx.Pack)
 	if err != nil {

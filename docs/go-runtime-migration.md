@@ -113,14 +113,14 @@ git diff --check
 已实现：
 
 - `internal/rekit/review`：共享 plan/item、hash、deny pattern、managed block helper、bounded diff 与 review artifact writer；
-- `internal/rekit/sync`：生成 `sync` review-only plan，并拒绝 `-Apply` / `-WhatIf` 写入路径；
+- `internal/rekit/sync`：生成 `sync` review-only plan；G3.4 另支持显式 `sync -Apply` 手动写入路径，仍拒绝 `-WhatIf`；
 - `internal/rekit/promote`：生成 `promote` review-only plan，覆盖 deny pattern、tooling source sanitization metadata 与 sanitized preview 内容，并拒绝 `-Apply` / `-CreateCandidates` / `-WhatIf`；
 - Go CLI 默认以 JSON 输出 review plan 到 stdout，`isMutation=false`、`reviewRequired=true`；
 - G2.1 artifact 写入：`-ReviewOutputDir` / `-PacketPath` / `-DiffPath` 会输出 `packet.json`、`summary.md`、`diffs/combined.diff`、per-item bounded diff，以及 promote tooling candidate 的 `previews/*.sanitized-preview.md`；
 - artifact 写入返回 `writesArtifacts=true`，仅代表写 review packet/diff/preview，不代表写 managed docs、pack 或 candidate；
 - tests 覆盖 review-only guard、attached-case guard、sync artifact、promote artifact 与 sanitized preview。
 
-不迁移：`sync -Apply`、`promote -CreateCandidates`、`promote -Apply`。
+不迁移：PowerShell façade 对 `sync -Apply` 的委托、`promote -CreateCandidates`、`promote -Apply`。
 
 ### G2.2：Go gate dry-run（D4）
 
@@ -162,7 +162,7 @@ git diff --check
 
 1. `attach`（G3.1 已完成 Go CLI 手动路径：`-WhatIf` 预览、`-Apply` 只写 `.rekit/instance.yml` + thin shim；暂不经 PowerShell façade 委托）；
 2. `repair`（G3.2 已完成 Go CLI 手动路径：默认/`-WhatIf` 预览，`-Apply` 刷新 `.rekit/instance.yml`、legacy `.re-template.yml` 与 thin shim；暂不经 PowerShell façade 委托）；
-3. `sync -Apply`（G3.3 已完成预研与 review parity smoke，见 `docs/sync-apply-migration.md`；尚未实现写入）；
+3. `sync -Apply`（G3.3 已完成预研与 review parity smoke；G3.4 已完成 Go CLI 手动写入路径，见 `docs/sync-apply-migration.md`；暂不经 PowerShell façade 委托）；
 4. `init/bootstrap`；
 5. `promote -CreateCandidates`；
 6. 最后评估 `promote -Apply`。
@@ -218,7 +218,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 - `sync/promote` review-only（含 `-ReviewOutputDir` / `-PacketPath` / `-DiffPath` artifact 写入）；
 - `gate -WhatIf` dry-run（仅输出非写入 plan，不执行 heavy-tool、不写 ledger）。
 
-不委托：`attach`、`repair`、`gate -Apply`、`sync -Apply`、`promote -Apply/-CreateCandidates`、工作线命令、ledger `note`。这些路径继续由 PowerShell 处理或手动运行 Go CLI 验证。
+不委托：`attach`、`repair`、`gate -Apply`、`sync -Apply`、`promote -Apply/-CreateCandidates`、工作线命令、ledger `note`。其中 `attach`、`repair`、`sync -Apply` 可手动运行 Go CLI 验证；公共 `/rekit` 入口继续由 PowerShell 处理写入命令。
 
 ## 验证矩阵
 
@@ -231,6 +231,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Go non-case target doctor | `go run ./cmd/rekit -- -Command doctor -Target .\does-not-exist` | 报错，不得误报 pack validation ok。 |
 | Go template doctor | `go run ./cmd/rekit -- -Command doctor -Pack _template` | pack validation ok，允许 no subagentRoutes warning。 |
 | Go sync review artifacts | `go run ./cmd/rekit -- -Command sync -Target <case> -Pack vmp-re -ReviewOutputDir <dir>` | 写 `packet.json`、`summary.md`、`diffs/combined.diff`，返回 `isMutation=false` / `writesArtifacts=true`。 |
+| Go sync apply | `go run ./cmd/rekit -- -Command sync -Target <case> -Pack vmp-re -Apply` | 手动写入 managed docs / managed block / template create-if-missing / sync state，返回 `isMutation=true`；不经 PowerShell façade 委托。 |
 | Go promote review artifacts | `go run ./cmd/rekit -- -Command promote -Target <case> -Pack vmp-re -ReviewOutputDir <dir>` | 写 review packet、bounded diff 和 tooling sanitized preview，不写 pack/candidates。 |
 | Go gate dry-run | `go run ./cmd/rekit -- -Command gate -Target <case> -Pack vmp-re -WhatIf -Action full-trace -Lane <lane>` | 输出非写入 JSON plan，`eventPreview.kind=request`、`status=pending-gate`、`requiresConfirmation=true`。 |
 | Go gate no-mode guard | `go run ./cmd/rekit -- -Command gate -Target <case> -Action debug -Lane <lane>` | 报错，必须显式选择 `-WhatIf` 或 `-Apply`。 |
@@ -272,7 +273,7 @@ go vet ./...
 - G2.3 已完成 Go gate pending-gate ledger 写入：`gate -Apply` 只 append request JSONL，要求 `-Actor`，不执行 heavy-tool。
 - G3.1 已完成 Go attach 手动路径：`attach -WhatIf` 只预览，`attach -Apply` 只写 `.rekit/instance.yml` 与 case-local thin shim；不写 managed docs、legacy metadata、state、board/facts/lanes，也不经 PowerShell façade 委托。
 - G3.2 已完成 Go repair 手动路径：默认/`repair -WhatIf` 只预览，`repair -Apply` 只刷新 `.rekit/instance.yml`、`.re-template.yml` 与 case-local thin shim；不写 managed docs、board/facts/lanes 或 authority，也不经 PowerShell façade 委托。
-- G3.3 已完成 `sync -Apply` 迁移预研与 review parity smoke：见 `docs/sync-apply-migration.md`；Go `sync -Apply` 写入尚未实现，下一步应先做手动 CLI apply + 双临时 case parity，不要直接迁移 authority/confirmed 写入。
+- G3.3/G3.4 已完成 `sync -Apply` 迁移预研、review parity smoke 与 Go CLI 手动写入路径：见 `docs/sync-apply-migration.md`；下一步若继续推进，应先扩展双临时 case parity 或评估 `init/bootstrap`，不要直接迁移 authority/confirmed 写入。
 - 在 PowerShell façade 默认委托前，继续用手动 Go CLI smoke 验证；写入命令、authority/confirmed 更新和 schema 迁移仍需单独确认。
 
 ## 风险与止损

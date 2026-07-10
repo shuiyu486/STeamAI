@@ -4,13 +4,13 @@
 
 - 只接手实现时，先读“实施摘要”“执行清单”“验证标准”。
 - 需要判断语义差异时，再读“PowerShell 当前语义基线”和“Go 迁移契约”。
-- 本文是迁移前预研，不代表 Go `sync -Apply` 已实现；当前写入入口仍以 PowerShell fallback 为准。
+- G3.3 时本文是迁移前预研；G3.4 已补 Go `sync -Apply` 手动路径，但当前用户入口仍以 PowerShell façade / fallback 为准，Go 写入命令不经 façade 委托。
 
 ## 实施摘要
 
 G3.3 的目标不是直接迁移 `sync -Apply`，而是先把未来迁移必须保持的写入语义、风险点和验证矩阵固化下来。`sync -Apply` 会覆盖 managed docs、写 managed block、创建本地模板文件、刷新 metadata/shim 和更新 state，因此必须比 `attach`/`repair` 更谨慎。
 
-结论：下一批如果实现 Go `sync -Apply`，应先做内部 Go apply helper 和临时 case golden tests，仍不纳入 PowerShell façade 委托；只有 Go/Powershell apply 输出在临时 case 上达到内容 parity，并证明 backup/state/doctor 不回归后，才考虑显式委托。
+结论：G3.4 已实现 Go `sync -Apply` 内部 helper 与临时 case smoke，仍不纳入 PowerShell façade 委托；后续只有在 Go/PowerShell apply 输出进一步扩展为双临时 case parity，并持续证明 backup/state/doctor 不回归后，才考虑显式委托。
 
 ## 执行清单
 
@@ -18,8 +18,8 @@ G3.3 的目标不是直接迁移 `sync -Apply`，而是先把未来迁移必须�
 - [x] 固化未来 Go `sync -Apply` 的迁移契约和不迁移边界。
 - [x] 固化 backup、bounded diff、managed block、template local-file skip、失败恢复、旧 case compatibility 的测试矩阵。
 - [x] 增加 review-only parity smoke：`rekit/tests/sync-review-parity-smoke.ps1`。
-- [ ] 后续批次实现 Go `sync -Apply` 内部 helper。
-- [ ] 后续批次用双临时 case 比较 PowerShell apply 与 Go apply 的内容结果。
+- [x] G3.4 实现 Go `sync -Apply` 内部 helper。
+- [x] G3.4 增加临时 case smoke，验证 Go apply 写入、backup、state、doctor；双实现内容 parity 后续继续扩展。
 - [ ] 后续批次评估是否把 `sync -Apply` 加入显式 Go façade 安全集合；默认仍不委托。
 
 ## 验证标准
@@ -35,7 +35,7 @@ go test ./...
 git diff --check
 ```
 
-未来 Go `sync -Apply` 实现完成标准：
+Go `sync -Apply` 实现完成标准：
 
 - Go CLI `sync -Apply` 只接受显式 `-Target` attached case。
 - 默认 `sync` 仍是 review-only；无 `-Apply` 不写 managed docs。
@@ -50,7 +50,7 @@ git diff --check
 - PowerShell 当前没有事务性 rollback；未来 Go 不应声称具备自动回滚，除非先实现并验证。
 - `managedBlock` 的 PowerShell apply 会在 host 存在时先备份再写入；review 可能显示 `unchanged`，这是一个需要迁移时明确处理的历史语义。
 - `templateFiles` 默认只 create-if-missing；只有显式 force 路径才允许覆盖本地模板文件。
-- Go `attach -Apply` 当前不写 legacy `.re-template.yml` / `state.json`，但 PowerShell `sync -Apply` 会经 `Invoke-RekitAttach` 刷新 legacy metadata 和 state。未来 Go sync apply 不能复用 Go attach 的当前最小写入语义而遗漏 sync 需要的兼容状态。
+- Go `attach -Apply` 当前不写 legacy `.re-template.yml` / `state.json`，但 PowerShell `sync -Apply` 会经 `Invoke-RekitAttach` 刷新 legacy metadata 和 state。Go sync apply 已单独补 legacy metadata 与 sync state 写入，不能退化为 Go attach 的当前最小写入语义。
 - 旧 case 可能只有 `.re-template.yml`，也可能存在迁移后的 `.rekit/instance.yml`；迁移必须保持 `AssertAttached` / repair guard 语义。
 
 ## PowerShell 当前语义基线
