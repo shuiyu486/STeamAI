@@ -62,6 +62,7 @@
 - Agent Team review loop Batch B 启动：同步 VMP managed docs 与 manifest route；`agent-driven-re.md` 补 canonical contract 指向、`evidence_id`、runtime normalized lane id、`output_contract`、accepted decision 与 confirmed/authority 写入分层；`vmp-re` 两条 `subagentRoutes.outputContract` 补 `tier_used,tool_scope`，对齐通用 subagent contract。
 - Agent Team review loop Batch C 完成：新增 `rekit/tests/agent-team-review-loop-smoke.ps1`，覆盖 `plan-subagents` review packet、`note -Kind verification`、`note -Kind decision`、`note -List`、`overview` 与 lane `handoff` 的最小闭环；该 smoke 只使用临时 case，不启动 subagent、不写 confirmed/authority、不执行 heavy-tool。
 - Agent Team review loop Batch D 完成：PowerShell 与 Go `overview` 现在展示最近 verification，lane `handoff` 增加 `## verification` 区段；相关 smoke 与 Go CLI fixtures 覆盖 reviewer verdict 到 main decision 的可见性。该批只增强读层展示，不写 confirmed/authority、不执行 heavy-tool。
+- Agent Team review loop Batch E 完成：`/rekit continue` digest 升级为结构化摘要，记录 inputs、route、packet refs、outputs、decisions 与 open risks，并在 `status.json` 写入对应索引字段；新增 `rekit/tests/continue-digest-smoke.ps1` 覆盖临时 case。该批不启动 subagent、不写 confirmed/authority、不执行 heavy-tool。
 
 ### Fixed
 

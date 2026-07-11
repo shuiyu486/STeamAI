@@ -383,6 +383,100 @@ function Get-RekitLaneOutputEvents {
   return $events
 }
 
+function Get-RekitAutoInputRefs {
+  param(
+    [Parameter(Mandatory=$true)][string]$CaseRoot,
+    [Parameter(Mandatory=$true)]$Lane
+  )
+  $refs = New-Object System.Collections.Generic.List[string]
+  $laneRoot = Get-RekitLanePath -CaseRoot $CaseRoot -LaneId ([string]$Lane.id)
+  $workspace = Get-RekitLaneWorkspacePath -CaseRoot $CaseRoot -Lane $Lane
+  foreach ($file in @((Join-Path $laneRoot 'outbox.jsonl'), (Join-Path $workspace 'observations.jsonl'), (Join-Path $workspace 'requests.jsonl'), (Join-Path $workspace 'candidates.jsonl'), (Join-Path $workspace 'publications.jsonl'))) {
+    if (Test-Path -LiteralPath $file) { $refs.Add((Join-RekitRelativePath -Root $CaseRoot -Path $file)) }
+  }
+  return @($refs)
+}
+
+function Get-RekitAutoPacketRefs {
+  param(
+    [Parameter(Mandatory=$true)][string]$CaseRoot,
+    [Parameter(Mandatory=$true)]$Lane
+  )
+  $workspace = Get-RekitLaneWorkspacePath -CaseRoot $CaseRoot -Lane $Lane
+  if (-not (Test-Path -LiteralPath $workspace)) { return @() }
+  return @(Get-ChildItem -LiteralPath $workspace -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 10 | ForEach-Object { Join-RekitRelativePath -Root $CaseRoot -Path $_.FullName })
+}
+
+function Get-RekitAutoEventSubject {
+  param($Event)
+  return (Select-RekitFirstText @($Event.subject, $Event.summary, $Event.kind, $Event.eventId))
+}
+
+function Format-RekitAutoDecisionLine {
+  param([Parameter(Mandatory=$true)]$Decision)
+  $subject = Get-RekitAutoEventSubject $Decision
+  $decision = Select-RekitFirstText @($Decision.decision, $Decision.action, 'defer')
+  $actor = Select-RekitFirstText @($Decision.actor, $Decision.confirmedBy)
+  $line = "- $subject | lane=$([string]$Decision.lane) | decision=$decision"
+  if (-not [string]::IsNullOrWhiteSpace($actor)) { $line += " | by=$actor" }
+  if (-not [string]::IsNullOrWhiteSpace([string]$Decision.reason)) { $line += " | reason=$([string]$Decision.reason)" }
+  if (-not [string]::IsNullOrWhiteSpace([string]$Decision.batchId)) { $line += " | batch=$([string]$Decision.batchId)" }
+  return $line
+}
+
+function Format-RekitAutoRiskLine {
+  param(
+    [Parameter(Mandatory=$true)][string]$Kind,
+    [Parameter(Mandatory=$true)]$Event,
+    [string]$Reason = ''
+  )
+  $subject = Get-RekitAutoEventSubject $Event
+  $line = "- $Kind：$subject | lane=$([string]$Event.lane)"
+  if (-not [string]::IsNullOrWhiteSpace([string]$Event.target)) { $line += " | target=$([string]$Event.target)" }
+  if (-not [string]::IsNullOrWhiteSpace($Reason)) { $line += " | reason=$Reason" }
+  elseif (-not [string]::IsNullOrWhiteSpace([string]$Event.reason)) { $line += " | reason=$([string]$Event.reason)" }
+  if (-not [string]::IsNullOrWhiteSpace([string]$Event.batchId)) { $line += " | batch=$([string]$Event.batchId)" }
+  return $line
+}
+
+function Get-RekitAutoRunFacts {
+  param(
+    [Parameter(Mandatory=$true)]$Paths,
+    [Parameter(Mandatory=$true)][string]$RunId,
+    [Parameter(Mandatory=$true)][string]$BatchId
+  )
+  return [ordered]@{
+    Observations = @(Read-RekitJsonLines -Path $Paths.Observations | Where-Object { [string]$_.batchId -eq $BatchId })
+    Requests = @(Read-RekitJsonLines -Path $Paths.Requests | Where-Object { [string]$_.batchId -eq $BatchId })
+    Candidates = @(Read-RekitJsonLines -Path $Paths.Candidates | Where-Object { [string]$_.batchId -eq $BatchId })
+    Publications = @(Read-RekitJsonLines -Path $Paths.Publications | Where-Object { [string]$_.batchId -eq $BatchId })
+    Decisions = @(Read-RekitJsonLines -Path $Paths.Decisions | Where-Object { [string]$_.runId -eq $RunId -or [string]$_.batchId -eq $BatchId })
+  }
+}
+
+function Get-RekitAutoOpenRiskLines {
+  param([Parameter(Mandatory=$true)]$RunFacts)
+  $risks = New-Object System.Collections.Generic.List[string]
+  foreach ($d in @($RunFacts.Decisions)) {
+    $decision = Select-RekitFirstText @($d.decision, $d.action)
+    $status = [string]$d.status
+    if ($decision -eq 'defer' -or $decision -eq 'pending-user' -or $status -eq 'pending-user') {
+      $risks.Add((Format-RekitAutoRiskLine -Kind 'decision' -Event $d -Reason (Select-RekitFirstText @($d.reason, 'pending user review'))))
+    }
+  }
+  foreach ($c in @($RunFacts.Candidates)) {
+    if ([string]$c.decision -eq 'needs-evidence') {
+      $risks.Add((Format-RekitAutoRiskLine -Kind 'candidate' -Event $c -Reason 'needs evidence or accepted verifier verdict'))
+    }
+  }
+  foreach ($r in @($RunFacts.Requests)) {
+    if ([string]$r.status -eq 'pending-gate') {
+      $risks.Add((Format-RekitAutoRiskLine -Kind 'pending-gate' -Event $r -Reason 'heavy-tool confirmation required'))
+    }
+  }
+  return @($risks)
+}
+
 function Add-RekitTaskIfMissing {
   param(
     [Parameter(Mandatory=$true)][string]$CaseRoot,
@@ -431,16 +525,25 @@ function Invoke-RekitAuto {
   if (-not $WhatIf) { Ensure-RekitDirectory $runRoot }
   $known = Get-RekitKnownEventIds -CaseRoot $caseRoot
   $summary = [ordered]@{ collected = 0; observations = 0; requests = 0; routed = 0; candidates = 0; acceptedCandidates = 0; publications = 0; authorityApplied = 0; pendingUser = 0; skipped = 0 }
+  $runInputs = New-Object System.Collections.Generic.List[string]
+  $runPacketRefs = New-Object System.Collections.Generic.List[string]
   $digest = New-Object System.Collections.Generic.List[string]
   $digest.Add("# rekit continue digest：$runId")
   $digest.Add('')
-  $digest.Add(('batchId: `{0}`' -f $batchId))
+  $digest.Add('## 输入')
   $digest.Add('')
-  if (-not [string]::IsNullOrWhiteSpace($FocusLaneId)) { $digest.Add(('focus lane: `{0}`' -f $FocusLaneId)); $digest.Add('') }
+  $digest.Add(('case: `{0}`' -f $caseRoot))
+  $digest.Add(('pack: `{0}`' -f $Pack))
+  $digest.Add(('runId: `{0}`' -f $runId))
+  $digest.Add(('batchId: `{0}`' -f $batchId))
+  if (-not [string]::IsNullOrWhiteSpace($FocusLaneId)) { $digest.Add(('focus lane: `{0}`' -f $FocusLaneId)) }
+  $digest.Add('')
   foreach ($dir in (Get-RekitLaneDirectories -CaseRoot $caseRoot)) {
     $lane = Read-RekitJsonFile -Path (Join-Path $dir.FullName 'lane.json')
     if ($null -eq $lane -or $lane.status -eq 'archived' -or $lane.status -eq 'paused') { continue }
     if (-not [string]::IsNullOrWhiteSpace($FocusLaneId) -and -not [string]::Equals([string]$lane.id, $FocusLaneId, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+    foreach ($ref in (Get-RekitAutoInputRefs -CaseRoot $caseRoot -Lane $lane)) { $runInputs.Add($ref) }
+    foreach ($ref in (Get-RekitAutoPacketRefs -CaseRoot $caseRoot -Lane $lane)) { $runPacketRefs.Add($ref) }
     foreach ($event in (Get-RekitLaneOutputEvents -CaseRoot $caseRoot -Lane $lane -Manifest $manifest)) {
       if ($known.ContainsKey([string]$event.eventId)) { continue }
       $summary.collected++
@@ -528,6 +631,46 @@ function Invoke-RekitAuto {
     if (-not $WhatIf) { Write-RekitLaneResume -CaseRoot $caseRoot -LaneId $lane.id | Out-Null }
   }
   if (-not $WhatIf) { [void](Save-RekitBoard -CaseRoot $caseRoot -RepoRoot $RepoRoot -Manifest $manifest) }
+  $digest.Add('## route')
+  $digest.Add('')
+  if (-not [string]::IsNullOrWhiteSpace($FocusLaneId)) {
+    $digest.Add(('- focus lane `{0}` only' -f $FocusLaneId))
+  } else {
+    $digest.Add('- all open lanes')
+  }
+  $digest.Add('')
+  $digest.Add('## packet refs')
+  $digest.Add('')
+  $uniquePackets = @($runPacketRefs | Select-Object -Unique)
+  if ($uniquePackets.Count -gt 0) { foreach ($ref in $uniquePackets) { $digest.Add('- `' + $ref + '`') } } else { $digest.Add('- 无。') }
+  $digest.Add('')
+  $digest.Add('## inputs')
+  $digest.Add('')
+  $uniqueInputs = @($runInputs | Select-Object -Unique)
+  if ($uniqueInputs.Count -gt 0) { foreach ($ref in $uniqueInputs) { $digest.Add('- `' + $ref + '`') } } else { $digest.Add('- 无。') }
+  $digest.Add('')
+  $digest.Add('## outputs')
+  $digest.Add('')
+  foreach ($key in $summary.Keys) { $digest.Add("- ${key}: $($summary[$key])") }
+  $digest.Add('')
+  $runFacts = if ($WhatIf) { [ordered]@{ Observations=@(); Requests=@(); Candidates=@(); Publications=@(); Decisions=@() } } else { Get-RekitAutoRunFacts -Paths $paths -RunId $runId -BatchId $batchId }
+  $digest.Add('## decisions')
+  $digest.Add('')
+  if (@($runFacts.Decisions).Count -gt 0) {
+    foreach ($d in @($runFacts.Decisions | Select-Object -Last 20)) { $digest.Add((Format-RekitAutoDecisionLine -Decision $d)) }
+  } else {
+    $digest.Add('- 无。')
+  }
+  $digest.Add('')
+  $digest.Add('## open risks')
+  $digest.Add('')
+  $riskLines = @(Get-RekitAutoOpenRiskLines -RunFacts $runFacts)
+  if ($riskLines.Count -gt 0) {
+    foreach ($line in ($riskLines | Select-Object -Last 20)) { $digest.Add($line) }
+  } else {
+    $digest.Add('- 无。')
+  }
+  $digest.Add('')
   $digest.Add('## 自动处理')
   $digest.Add('')
   foreach ($key in $summary.Keys) { $digest.Add("- ${key}: $($summary[$key])") }
@@ -542,7 +685,7 @@ function Invoke-RekitAuto {
     $digest.Add('- 无。')
   }
   if (-not $WhatIf) {
-    Write-RekitJsonFile -Path (Join-Path $runRoot 'status.json') -Object ([ordered]@{ schemaVersion = 1; runId = $runId; summary = $summary; time = New-RekitIsoTime })
+    Write-RekitJsonFile -Path (Join-Path $runRoot 'status.json') -Object ([ordered]@{ schemaVersion = 1; runId = $runId; batchId = $batchId; summary = $summary; inputs = @($uniqueInputs); packetRefs = @($uniquePackets); openRisks = @($riskLines); time = New-RekitIsoTime })
     [System.IO.File]::WriteAllText((Join-Path $runRoot 'digest.md'), (($digest -join "`r`n") + "`r`n"), [System.Text.UTF8Encoding]::new($false))
   }
   Write-Host "继续推进完成：$runId"

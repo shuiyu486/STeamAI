@@ -1559,3 +1559,33 @@ git diff --check
 ```
 
 验证结果：全部通过；PowerShell/Go `overview` 均显示最近 verification，PowerShell/Go lane `handoff` 均显示 `## verification`，review loop smoke 覆盖 `verification -> decision -> overview/handoff` 可见性。本批未写 confirmed/authority、未启动 subagent、未执行 heavy-tool，临时 case 均清理。
+
+### Batch 52：continue digest 升级
+
+状态：已完成。
+
+目标：把 `/rekit continue` 的 `.rekit/runs/<run-id>/digest.md` 从计数摘要升级为可接手的结构化运行摘要，补齐 `docs/orchestration-plan.md` O4 要求的 inputs、route、packet refs、outputs、decisions 与 open risks。
+
+实施范围：
+
+- PowerShell `Invoke-RekitAuto` 收集本轮扫描到的 lane/workspace 输入 JSONL 与 workspace packet refs，在 digest 中写入 `## 输入`、`## route`、`## packet refs`、`## inputs`、`## outputs`、`## decisions`、`## open risks`。
+- `status.json` 增加 `batchId`、`inputs`、`packetRefs` 与 `openRisks` 字段，便于后续 replay/debug 只读索引。
+- 保留旧 `## 自动处理` 与 `## 需要关注` 区段，兼容已有接手习惯。
+- 新增 `rekit/tests/continue-digest-smoke.ps1`，用临时 case 写入 feature lane outbox 与 workspace packet，验证 digest/status 结构、decision 行与 open risk 行。
+- 更新 README、skill、rollout plan、CHANGELOG 与本计划。
+
+边界：本批只增强 PowerShell continue digest 与 smoke；不改变 ledger schema，不迁移历史 JSONL，不自动 dispatch reviewer，不启动 subagent，不写 confirmed/authority，不执行 full-trace/debug/inject/patch/dump/network；`gate -Apply` 仍只表示 pending-gate request 写入，不代表 heavy-tool 授权。
+
+停止条件：需要实现 replay 执行器、改变 continue 自动处理语义、把 Go `continue` 纳入实现范围、或把 open risk 自动转 gate/confirmed 时暂停并重新评估。
+
+验证：
+
+```powershell
+.\rekit\tests\continue-digest-smoke.ps1
+.\rekit\tests\agent-team-review-loop-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+go test ./...
+git diff --check
+```
+
+验证结果：全部通过；`continue` digest 现在包含输入、route、workspace packet refs、outputs、decisions 与 open risks，`status.json` 写入 `batchId`、`inputs`、`packetRefs`、`openRisks`；review loop 回归、doctor、Go tests 与 whitespace 检查均通过。reviewer 复核未发现高置信问题。本批未启动 subagent、未写 confirmed/authority、未执行 heavy-tool，临时 case 已清理。

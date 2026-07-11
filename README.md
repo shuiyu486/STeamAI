@@ -270,7 +270,7 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 | `.rekit/board.json` | 项目概览的机器状态。 |
 | `.rekit/lanes/<id>/` | 每条工作线的事件、任务、inbox/outbox 和接续提示。 |
 | `.rekit/facts/*.jsonl` | append-only ledger：observation、hypothesis、candidate、verification、decision、intervention、rollback、publication、request。 |
-| `.rekit/runs/<run-id>/digest.md` | `/rekit continue` 每轮摘要。 |
+| `.rekit/runs/<run-id>/digest.md` | `/rekit continue` 每轮摘要，记录 inputs、route、packet refs、outputs、decisions、open risks。 |
 | `.rekit/handovers/latest.md` | 项目级接手索引。 |
 | `.rekit/handovers/<laneId>-latest.md` | 指定工作线接手文档。 |
 

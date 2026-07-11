@@ -43,7 +43,7 @@ R4-R6（runtime 切片阶段，按 R3 决定激活）：
 
 6. ledger runtime 切片：`.rekit/facts/*.jsonl` 可 append observation/candidate/decision 事件，`/rekit overview` 展示未决 request、冲突 candidate、需人工确认项计数；append-only，可 grep、可 diff。
 7. bounded dispatch 切片：`plan-subagents` 输出的分片计划可被主 agent 按 route 启动只读 reviewer 并回收 verdict；reviewer 不能写 authority；失败分片不影响其它分片。
-8. run digest：每轮自动动作写 `.rekit/runs/<run-id>/digest.md`，含 inputs/route/packet refs/outputs/decisions/open risks；新会话只读 digest 能理解本轮。
+8. run digest：每轮自动动作写 `.rekit/runs/<run-id>/digest.md`，含 inputs/route/packet refs/outputs/decisions/open risks；新会话只读 digest 能理解本轮（Batch 52 已补齐结构化 digest）。
 9. heavy-tool gate：full-trace/debug/inject/patch/dump 触发确认问题与 budget 说明，无确认不执行；dry-run 可展示将问什么、将写什么。
 10. 临时 case smoke：init/attach/sync/promote 不回归；任一 agent 失败不污染 confirmed。
 
