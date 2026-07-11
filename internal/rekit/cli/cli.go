@@ -14,6 +14,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/overview"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/repair"
@@ -33,6 +34,7 @@ type Options struct {
 	CreateCandidates bool
 	WhatIf           bool
 	Force            bool
+	List             bool
 	ReviewOutputDir  string
 	PacketPath       string
 	DiffPath         string
@@ -44,6 +46,7 @@ type Options struct {
 	ItemsPerAgent    int
 	MaxParallel      int
 	Gate             gate.Options
+	Note             note.Options
 	Start            workstream.StartOptions
 	Handoff          workstream.HandoffOptions
 }
@@ -95,6 +98,8 @@ func Parse(args []string) (Options, error) {
 			opt.WhatIf = true
 		case "-Force", "--force":
 			opt.Force = true
+		case "-List", "--list":
+			opt.List = true
 		case "-ReviewOutputDir", "--review-output-dir":
 			i++
 			if i >= len(args) {
@@ -125,6 +130,13 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -Lane")
 			}
 			opt.Gate.Lane = args[i]
+			opt.Note.Lane = args[i]
+		case "-Kind", "--kind":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Kind")
+			}
+			opt.Note.Kind = args[i]
 		case "-Subject", "--subject":
 			i++
 			if i >= len(args) {
@@ -290,6 +302,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runPlanSubagents(ctx, opt, stdout)
 	case "gate":
 		return runGate(ctx, opt, stdout)
+	case "note":
+		return runNote(ctx, opt, stdout)
 	default:
 		return fmt.Errorf("go backend does not implement command yet: %s", opt.Command)
 	}
@@ -496,6 +510,24 @@ func runOverview(ctx runtime.Context, out io.Writer) error {
 		return fmt.Errorf("overview requires an explicit -Target attached case")
 	}
 	text, err := overview.Render(ctx.RepoRoot, ctx.Target, ctx.Pack)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(out, text)
+	return err
+}
+
+func runNote(ctx runtime.Context, opt Options, out io.Writer) error {
+	if !ctx.TargetProvided {
+		return fmt.Errorf("note requires an explicit -Target attached case")
+	}
+	if opt.Apply || opt.WhatIf || opt.CreateCandidates {
+		return fmt.Errorf("go backend note only supports -List in this batch; do not combine it with -Apply, -WhatIf, or -CreateCandidates")
+	}
+	if !opt.List {
+		return fmt.Errorf("go backend note currently supports -List only")
+	}
+	text, err := note.List(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Note)
 	if err != nil {
 		return err
 	}

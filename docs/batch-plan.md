@@ -1619,3 +1619,32 @@ git diff --check
 ```
 
 验证结果：全部通过；本批仅更新迁移评估与路线文档，确认 `note` 下一步适合按只读 `-List` → append 手动路径迁移，`continue` 继续等待 G5 authority/routing/digest parity tests 完整后再迁移。未改 runtime、未写 case state、未启动 subagent、未执行 heavy-tool、未写 confirmed/authority。
+
+### Batch 54：Go note -List 只读路径
+
+状态：已完成。
+
+目标：先把低风险的 ledger 查询能力迁移为 Go 手动路径，为后续 append 模式复用 facts JSONL 读取、kind 映射与 CLI guard。
+
+实施范围：
+
+- 新增 `internal/rekit/note`：读取 `.rekit/facts/*.jsonl`，支持 9 类 kind（observation、hypothesis、candidate、verification、decision、intervention、rollback、publication、request），按 `-Kind`/`-Lane` 过滤，每类最多展示 20 条。
+- Go CLI 新增 `-Command note -List`、`-Kind` 与 note 侧 `-Lane` 过滤；无 `-List` 或组合 `-Apply`/`-WhatIf`/`-CreateCandidates` 时拒绝，避免把 Go `note` 误当写入入口。
+- 输出展示 candidate confidence/status/risk、request gate detail、decision by、verification verifier/verdict/target、intervention/rollback target/status/reason/batch 等 PowerShell `note -List` 主要字段。
+- 新增 Go tests 覆盖全量只读展示、`-Kind`/`-Lane` 过滤、invalid kind guard、write flag guard 与 `.rekit` snapshot 不变。
+- 更新 `docs/go-runtime-migration.md`、CHANGELOG 与本计划。
+
+边界：本批只实现手动 Go CLI 查询；不实现 append，不写 facts/board/lane/handoff/authority/confirmed，不执行 full-trace/debug/inject/patch/dump/network，不纳入 PowerShell façade 委托。
+
+停止条件：需要改变 ledger schema、迁移历史 JSONL、改变 PowerShell `note` 行为、或将 `note` 纳入 façade 委托时暂停并重新评估。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/note
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过；Go `note -List` 只读路径、过滤/guard tests、全量 Go tests、PowerShell doctor 与 whitespace 检查均通过。reviewer 复核未发现高置信问题。本批未写 case state、未启动 subagent、未执行 heavy-tool、未写 confirmed/authority。

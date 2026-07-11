@@ -184,17 +184,17 @@ git diff --check
 
 ### G4.5：`note` / `continue` 迁移再评估（Batch F）
 
-状态：已完成评估，暂不改 runtime。
+状态：已完成评估；G4.5a 已完成 Go `note -List` 只读手动路径，append 仍待 G4.5b。
 
 结论：
 
-- `note` 适合作为下一条低风险 Go 手动路径：它是 append-only ledger 写入/查询入口，目标限定在 `.rekit/facts/*.jsonl`，可用现有 schema/enums、lane guard、eventId dedupe 与 `note -List` 输出做 parity。迁移时仍应只作为手动 Go CLI 路径，不纳入 PowerShell façade 默认或显式安全委托集合。
+- `note -List` 已作为 Go 手动只读路径落地：`-Command note -List` 读取 `.rekit/facts/*.jsonl`，支持 `-Kind` 与 `-Lane` 过滤，展示 9 类 ledger event 的主要字段；该路径只读，不纳入 PowerShell façade 默认或显式安全委托集合。
 - `continue` 暂不迁移：它同时承担 workspace/outbox 收集、request routing、rule verifier、candidate decision、可选 authority append、run digest/status、lane resume/checkpoint 与 board refresh；其中 authority append 涉及 backup/diff/CSV schema/conflict/恢复语义，迁移前必须先补完整 G5 gate tests。
 - Batch E 已把 PowerShell `continue` digest 补齐为 inputs/route/packet refs/outputs/decisions/open risks，降低短期迁移压力；后续 Go `continue` 应以该 digest 结构作为 parity baseline。
 
-`note` 未来最小迁移契约：
+`note` 迁移契约：
 
-- 支持 `-List` 与 append 两种模式；append 支持 9 种 kind：observation、hypothesis、candidate、verification、decision、intervention、rollback、publication、request。
+- 已支持 `-List` 只读模式；append 模式后续 G4.5b 再实现，支持 9 种 kind：observation、hypothesis、candidate、verification、decision、intervention、rollback、publication、request。
 - 保持 PowerShell schema 校验：confidence/decision/status/verifier/verdict/intervention action 枚举、非空 evidenceRefs、lane 存在性、eventId 去重。
 - 只写对应 facts JSONL；不写 board、lane、handoff、authority/confirmed 文件，不执行 full-trace/debug/inject/patch/dump/network。
 - tests 覆盖合法写入、非法枚举、未知 lane、duplicate eventId、`note -List -Kind/-Lane`、verification/decision/request/intervention 展示字段与 PowerShell doctor。
@@ -269,6 +269,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Go start apply | `.\rekit\tests\start-apply-smoke.ps1` | 手动 Go CLI `start -WhatIf/-Apply` 预览或创建 feature lane，验证 board/facts/policy/lane/workspace scaffold、doctor 与 façade fallback；不经 PowerShell façade 委托。 |
 | Go handoff apply | `.\rekit\tests\handoff-apply-smoke.ps1` | 手动 Go CLI `handoff -WhatIf/-Apply` 预览或写项目级/工作线级 handoff，验证 lane resume/checkpoint、verification/decision 等 ledger 展示区段、doctor 与 façade fallback；不经 PowerShell façade 委托。 |
 | Go plan-subagents artifacts | `.\rekit\tests\plan-subagents-smoke.ps1` | 手动 Go CLI `plan-subagents` 写 review packet/summary，验证 route/taskType 选择、Items/ItemsFile 分片、out-of-case guard、missing routes、doctor 与 façade fallback；不写 board/facts/lanes/handoff/authority，不启动 agent。 |
+| Go note list readonly | `go test ./internal/rekit/cli ./internal/rekit/note` | 手动 Go CLI `note -List` 读取 facts JSONL，验证全量展示、`-Kind`/`-Lane` 过滤、invalid kind guard、write flag guard 与只读 snapshot。 |
 | Go attach preview | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -WhatIf` | 输出非写入 plan，不创建目录或文件。 |
 | Go attach apply | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -ProjectName <name> -Apply` | 只写 `.rekit/instance.yml` 与 case-local thin shim，不写 managed docs、board/facts/lanes、legacy metadata 或 state。 |
 | Go repair preview | `go run ./cmd/rekit -- -Command repair -Target <movedCase> -Pack vmp-re -WhatIf` | 输出非写入 repair plan，展示 recorded/new projectRoot 与写入计划。 |

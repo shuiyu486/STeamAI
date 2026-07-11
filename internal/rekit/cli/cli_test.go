@@ -524,6 +524,83 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 	assertSnapshotEqual(t, before, after)
 }
 
+func TestRunNoteListEmitsReadOnlySummary(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeOverviewFixture(t, caseRoot)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-List"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{"[observation] (1 条)", "obs | lane=main", "[candidate] (2 条)", "handler | lane=main | confidence=high | status=open", "[request] (1 条)", "pending-gate", "action=debug", "[decision] (1 条)", "decision=defer", "[verification] (1 条)", "verifier=manual-review", "[intervention] (1 条)", "approvedBy=lead", "[rollback] (1 条)", "status=resolved"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("note list missing %q:\n%s", expected, text)
+		}
+	}
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
+}
+
+func TestRunNoteListFiltersKindAndLane(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeOverviewFixture(t, caseRoot)
+	writeFactFile(t, filepath.Join(caseRoot, ".rekit", "facts"), "candidates.jsonl", []string{
+		`{"kind":"candidate","lane":"main","subject":"main candidate","confidence":"high","status":"open","batchId":"batch-main"}`,
+		`{"kind":"candidate","lane":"feature-login","subject":"feature candidate","confidence":"medium","status":"open","batchId":"batch-feature"}`,
+	})
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-List", "-Kind", "candidate", "-Lane", "feature-login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{"[candidate] (1 条)", "feature candidate", "lane=feature-login", "batch=batch-feature"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("filtered note list missing %q:\n%s", expected, text)
+		}
+	}
+	for _, unexpected := range []string{"[observation]", "main candidate", "batch-main"} {
+		if strings.Contains(text, unexpected) {
+			t.Fatalf("filtered note list contains %q:\n%s", unexpected, text)
+		}
+	}
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
+}
+
+func TestRunNoteListRejectsInvalidKind(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-List", "-Kind", "unknown"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for invalid note kind")
+	}
+	if !strings.Contains(err.Error(), "invalid note kind") {
+		t.Fatalf("error = %q, want invalid kind guard", err.Error())
+	}
+}
+
+func TestRunNoteRequiresListAndRejectsWriteFlags(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for note without -List")
+	}
+	if !strings.Contains(err.Error(), "supports -List only") {
+		t.Fatalf("error = %q, want -List guard", err.Error())
+	}
+
+	err = Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-List", "-Apply"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for note -List -Apply")
+	}
+	if !strings.Contains(err.Error(), "only supports -List") || !strings.Contains(err.Error(), "-Apply") {
+		t.Fatalf("error = %q, want write flag guard", err.Error())
+	}
+}
+
 func TestRunStartPreviewDoesNotWriteBoard(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
