@@ -6,6 +6,7 @@
 - 本文件说明 Agent Team 的职责、packet、证据状态和人工确认边界；具体 VMP 技术路线见 `workflow-template.md`。
 - 工具选择与止损见 `toolchain-router.md`；工作线上下文和写入权限见 `lane-collaboration.md`。
 - 本文件是 pack managed doc，会随 `/rekit sync` 下发到 case；不要写入真实样本名、RVA/VA、trace/dump 路径或本机绝对路径。
+- 通用 packet / ledger 字段以 `common/policies/agent-team.md` 和 `docs/evidence-ledger.md` 为准；本文件只给 VMP case 的使用方式和示例。
 
 ## 实施摘要
 
@@ -58,7 +59,7 @@ Agent 可以并行、短命；工作线、证据和 handoff 必须持久。任�
 
 ```yaml
 task_id: <stable-id>
-lane: main | feature-<name> | tooling-<name>
+lane: <runtime 规范化后的 lane id，例如 devirt-main 或 feature-login>
 goal: <要回答的问题>
 inputs:
   - <文件或 sidecar 定位>
@@ -76,6 +77,7 @@ output_contract: evidence | candidate | review | request
 用于保存证据摘要，字段建议：
 
 ```yaml
+evidence_id: <stable-id>
 subject: <handler/function/tool finding>
 evidence:
   - kind: trace | xref | disasm | value-flow | tool-output
@@ -98,7 +100,7 @@ evidence_refs:
   - <evidence id 或文件定位>
 verifier: pending | accepted | rejected | needs_more_evidence
 risk: low | medium | high
-next_action: confirm | focused-review | request-authority | reject
+next_action: accept | focused-review | request-authority | reject
 ```
 
 ### Review packet
@@ -111,7 +113,7 @@ candidate: <candidate-id 或摘要>
 lens: correctness | evidence | simplicity | tooling-risk | schema
 scope: <必须保持窄范围>
 question: <需要 reviewer 判断的问题>
-output: decision, confidence, evidence, risk, next_action
+output_contract: decision, confidence, evidence, risk, next_action, tier_used, tool_scope
 ```
 
 ### Stuck-point packet
@@ -136,8 +138,8 @@ budget:
 draft
   -> candidate
   -> review: accepted | rejected | needs_more_evidence
-  -> user/main confirmation when required
-  -> confirmed | rejected | superseded
+  -> main decision: accepted | rejected | deferred | superseded
+  -> confirmed / authority write only after required gate
 ```
 
 规则：

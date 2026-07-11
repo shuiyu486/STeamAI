@@ -59,6 +59,7 @@
 - G4.3 Go `handoff` 手动路径完成：新增 `workstream` handoff helper 与 CLI `-Command handoff -WhatIf/-Apply`，支持非写入预览、显式写项目级/工作线级 handoff、刷新 lane resume/checkpoint，并展示 workspace packet、decision、pending-gate、intervention、rollback 区段；新增 `rekit/tests/handoff-apply-smoke.ps1` 覆盖 preview 只读、apply 输出、Go/PowerShell doctor 与 façade fallback。公共 PowerShell façade 仍不委托工作线命令，不写 authority/confirmed，不执行 heavy-tool。
 - G4.4 Go `plan-subagents` 手动路径完成：新增 `internal/rekit/subagents` plan helper 与 CLI `-Command plan-subagents`，支持 route/taskType 选择、`Items`/`ItemsFile` 分片、`ItemsPerAgent`/`MaxParallel` override，以及 review packet/summary artifact 写入；新增 `rekit/tests/plan-subagents-smoke.ps1` 覆盖 attached case、out-of-case guard、missing routes、Go/PowerShell doctor 与 façade fallback。公共 PowerShell façade 仍不委托该内部命令，不启动 subagent、不写 board/facts/lanes/authority/confirmed，不执行 heavy-tool。
 - Agent Team review loop Batch A 启动：收敛通用 contract，明确 reviewer output decision 与 ledger decision 分层，canonical decision enum 使用 `accept|reject|defer|supersede`，历史 `confirm`/`confirmed`/`action` 仅作为读层兼容；`agent-team.md` 更新 `/rekit note` 手动 append 与 `/rekit continue` 自动抽取两条 facts event 路径，`evidence-ledger.md` 补 request/heavy-tool gate 扩展字段与 `needs_more_evidence` → `needs-more-evidence` 归一化说明。
+- Agent Team review loop Batch B 启动：同步 VMP managed docs 与 manifest route；`agent-driven-re.md` 补 canonical contract 指向、`evidence_id`、runtime normalized lane id、`output_contract`、accepted decision 与 confirmed/authority 写入分层；`vmp-re` 两条 `subagentRoutes.outputContract` 补 `tier_used,tool_scope`，对齐通用 subagent contract。
 
 ### Fixed
 

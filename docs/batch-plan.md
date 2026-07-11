@@ -1475,3 +1475,29 @@ git diff --check
 ```
 
 验证结果：全部通过；本批只更新 contract/schema 文档与 CHANGELOG，未改 PowerShell/Go runtime、manifest 或 VMP managed docs。`agent-team.md` 已将 main decision canonical enum 收敛为 `accept|reject|defer|supersede`，明确 reviewer output decision 先映射为 `verification.verdict`，accepted decision 不自动写 confirmed/authority；facts event 关系已更新为 `/rekit continue` 自动抽取与 `/rekit note` 手动 append 两条路径。`evidence-ledger.md` 已补 request/heavy-tool gate 扩展字段、status/decision 兼容说明，以及 packet `needs_more_evidence` 到 ledger `needs-more-evidence` 的归一化说明。
+
+### Batch 49：VMP managed docs / manifest route 同步
+
+状态：已完成。
+
+目标：同步 VMP 下发文档与 manifest `subagentRoutes`，让 case-local managed docs、route output contract 与 Batch 48 的通用 Agent Team contract 保持一致。
+
+实施范围：
+
+- 更新 `packs/vmp-re/references/vmp-re/agent-driven-re.md`：补 canonical contract 指向，Evidence packet 示例补 `evidence_id`，Task packet `lane` 改为 runtime normalized lane id，Review packet 示例改 `output_contract`，candidate next_action 从旧 `confirm` 改为 `accept`，状态流明确 main decision 与 confirmed/authority 写入分层。
+- 更新 `packs/vmp-re/manifest.yml`：两条 `subagentRoutes.outputContract` 补 `tier_used,tool_scope`，与 `common/policies/subagents.md` 和 VMP overlay 对齐。
+- 更新 `CHANGELOG.md` 与本计划。
+
+边界：不改 runtime，不改 common contract，不写 case state，不启动 agent，不执行 heavy-tool/debug/inject/patch/dump/network，不写 confirmed/authority。
+
+停止条件：manifest 校验或 pack validation 因 outputContract 扩展失败，或发现需要修改 managed file schema / sync 语义。
+
+验证：
+
+```powershell
+.\rekit\rekit.ps1 -Command doctor
+.\packs\vmp-re\scripts\validate.ps1
+git diff --check
+```
+
+验证结果：全部通过；VMP managed doc 已对齐 Batch 48 contract，`agent-driven-re.md` 明确 canonical contract 来源、补 `evidence_id`、runtime normalized lane id、`output_contract` 与 main decision / confirmed-authority 分层；`packs/vmp-re/manifest.yml` 两条 `subagentRoutes.outputContract` 已补 `tier_used,tool_scope`。本批未改 runtime、未写 case state、未启动 agent、未执行 heavy-tool，pack validation 与 doctor 均通过。

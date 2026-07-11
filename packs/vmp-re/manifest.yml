@@ -71,7 +71,7 @@ subagentRoutes:
     policyOverlay: policies/subagents.overlay.md
     subagentPermissions: read-only
     mainAgentOwns: csv-backup,csv-write,validation,handoff-update
-    outputContract: item,decision,confidence,evidence,risk,next_action,handler,csv_ready,row,defer_reason
+    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,handler,csv_ready,row,defer_reason
   - id: vmp-re:lane-feature-analysis
     taskTypes: feature-analysis,function-analysis,lane-feature-review,lowering-request-review
     trigger: feature workspace has requests/candidates or needs merge review
@@ -82,7 +82,7 @@ subagentRoutes:
     policyOverlay: policies/lane-collaboration.overlay.md
     subagentPermissions: read-only-or-workspace-only
     mainAgentOwns: canonical-write,confirmed-csv,validation,handoff-update,authority-sync
-    outputContract: item,decision,confidence,evidence,risk,next_action,feature,request_id,candidate_path,defer_reason
+    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,feature,request_id,candidate_path,defer_reason
 
 promoteFiles:
   - references/vmp-re/README.md
