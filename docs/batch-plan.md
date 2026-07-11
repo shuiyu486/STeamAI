@@ -1588,4 +1588,34 @@ go test ./...
 git diff --check
 ```
 
-验证结果：全部通过；`continue` digest 现在包含输入、route、workspace packet refs、outputs、decisions 与 open risks，`status.json` 写入 `batchId`、`inputs`、`packetRefs`、`openRisks`；review loop 回归、doctor、Go tests 与 whitespace 检查均通过。reviewer 复核未发现高置信问题。本批未启动 subagent、未写 confirmed/authority、未执行 heavy-tool，临时 case 已清理。
+验证结果：全部通过；`continue` digest 现在包含输入、route、workspace packet refs、outputs、decisions 与 open risks，`status.json` 写入 `batchId`、`inputs`、`packetRefs`、`openRisks`；review loop 回归、doctor、Go tests 与 whitespace 检查均通过。reviewer 复核未发现高置信问题。本批未启动 subagent、未写 confirmed/authority、未执行 heavy-tool，临时 case已清理。
+
+### Batch 53：Go note / continue 迁移再评估
+
+状态：已完成（仅评估与文档回写，未改 runtime）。
+
+目标：在 Batch E digest 升级后，重新评估 `note` 与 `continue` 是否适合继续迁移到 Go backend，并明确下一步低风险切片。
+
+结论：
+
+- `note` 建议作为下一条低风险 Go 手动路径：append-only ledger 写入/查询，目标仅 `.rekit/facts/*.jsonl`，可用现有 schema/enums、lane guard、eventId dedupe、`note -List` 展示做 parity；不纳入 PowerShell façade 委托。
+- `continue` 暂缓迁移：仍包含 request routing、rule verifier、candidate decision、可选 authority append、digest/status、lane resume/checkpoint、board refresh 等多重副作用；其中 authority append 需要完整 G5 gate/parity tests 后再迁移。
+- Batch E 的结构化 digest 已作为未来 Go `continue` 的 parity baseline：inputs、route、packet refs、outputs、decisions、open risks。
+
+后续建议切片：
+
+1. G4.5a Go `note -List` 只读路径：读取 9 类 facts JSONL，按 `-Kind`/`-Lane` 过滤并输出与 PowerShell 主要字段对齐的文本；只读、可先做。
+2. G4.5b Go `note` append 手动路径：支持 9 种 kind 与 PowerShell enum/schema 校验、lane guard、eventId dedupe；只写 facts JSONL，不写 board/lane/handoff/authority。
+3. G5 preflight：为 `continue` authority/routing/digest 建 parity tests，再决定是否实现 Go `continue -WhatIf` 或 apply 手动路径。
+
+边界：本批不改 runtime、不迁移 schema、不改变 façade 委托集合、不写 case state、不启动 subagent、不执行 full-trace/debug/inject/patch/dump/network、不写 confirmed/authority。
+
+验证：
+
+```powershell
+.\rekit\rekit.ps1 -Command doctor
+go test ./...
+git diff --check
+```
+
+验证结果：全部通过；本批仅更新迁移评估与路线文档，确认 `note` 下一步适合按只读 `-List` → append 手动路径迁移，`continue` 继续等待 G5 authority/routing/digest parity tests 完整后再迁移。未改 runtime、未写 case state、未启动 subagent、未执行 heavy-tool、未写 confirmed/authority。

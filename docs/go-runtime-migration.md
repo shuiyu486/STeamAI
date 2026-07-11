@@ -171,7 +171,7 @@ git diff --check
 
 ### G4：工作线只读/低风险命令迁移
 
-状态：G4.1 已完成 `overview` 只读手动路径；G4.2 已完成 `start -WhatIf/-Apply` 手动路径；G4.3 已完成 `handoff -WhatIf/-Apply` 手动路径；G4.4 已完成 `plan-subagents` review artifact 手动路径；四者仍不纳入 PowerShell façade 委托，公共 `/rekit overview/start/handoff/plan-subagents` 继续走 PowerShell 语义。
+状态：G4.1 已完成 `overview` 只读手动路径；G4.2 已完成 `start -WhatIf/-Apply` 手动路径；G4.3 已完成 `handoff -WhatIf/-Apply` 手动路径；G4.4 已完成 `plan-subagents` review artifact 手动路径；Batch F 已完成 `note` / `continue` 迁移再评估。已迁移工作线命令仍不纳入 PowerShell façade 委托，公共 `/rekit overview/start/handoff/plan-subagents` 继续走 PowerShell 语义。
 
 顺序：
 
@@ -182,9 +182,26 @@ git diff --check
 
 `continue` 仍保留 PowerShell，直到 authority gate 测试完善。
 
+### G4.5：`note` / `continue` 迁移再评估（Batch F）
+
+状态：已完成评估，暂不改 runtime。
+
+结论：
+
+- `note` 适合作为下一条低风险 Go 手动路径：它是 append-only ledger 写入/查询入口，目标限定在 `.rekit/facts/*.jsonl`，可用现有 schema/enums、lane guard、eventId dedupe 与 `note -List` 输出做 parity。迁移时仍应只作为手动 Go CLI 路径，不纳入 PowerShell façade 默认或显式安全委托集合。
+- `continue` 暂不迁移：它同时承担 workspace/outbox 收集、request routing、rule verifier、candidate decision、可选 authority append、run digest/status、lane resume/checkpoint 与 board refresh；其中 authority append 涉及 backup/diff/CSV schema/conflict/恢复语义，迁移前必须先补完整 G5 gate tests。
+- Batch E 已把 PowerShell `continue` digest 补齐为 inputs/route/packet refs/outputs/decisions/open risks，降低短期迁移压力；后续 Go `continue` 应以该 digest 结构作为 parity baseline。
+
+`note` 未来最小迁移契约：
+
+- 支持 `-List` 与 append 两种模式；append 支持 9 种 kind：observation、hypothesis、candidate、verification、decision、intervention、rollback、publication、request。
+- 保持 PowerShell schema 校验：confidence/decision/status/verifier/verdict/intervention action 枚举、非空 evidenceRefs、lane 存在性、eventId 去重。
+- 只写对应 facts JSONL；不写 board、lane、handoff、authority/confirmed 文件，不执行 full-trace/debug/inject/patch/dump/network。
+- tests 覆盖合法写入、非法枚举、未知 lane、duplicate eventId、`note -List -Kind/-Lane`、verification/decision/request/intervention 展示字段与 PowerShell doctor。
+
 ### G5：`continue` 与 policy gate 迁移
 
-只有在以下 gate tests 完整后再迁移：
+只有在以下 gate tests 完整后再迁移；Batch F 评估后继续 defer：
 
 - evidence required；
 - accepted verifier verdict；
@@ -195,7 +212,10 @@ git diff --check
 - bounded diff created；
 - max rows；
 - authorityFiles allowlist；
-- append 后 CSV 失败可恢复 backup。
+- append 后 CSV 失败可恢复 backup；
+- request routing 写 task/inbox 幂等；
+- run digest/status parity（inputs、route、packet refs、outputs、decisions、open risks）；
+- `-WhatIf` 不创建 runRoot、不刷新 board/lane resume、不写 facts。
 
 ### G6：PowerShell 收敛为 wrapper
 
@@ -220,7 +240,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 - `sync/promote` review-only（含 `-ReviewOutputDir` / `-PacketPath` / `-DiffPath` artifact 写入）；
 - `gate -WhatIf` dry-run（仅输出非写入 plan，不执行 heavy-tool、不写 ledger）。
 
-不委托：`attach`、`repair`、`gate -Apply`、`sync -Apply`、`init/bootstrap -Apply`、`promote -Apply/-CreateCandidates`、工作线命令、内部命令、ledger `note`。其中 `overview` 可手动运行 Go CLI 只读验证；`plan-subagents` 可手动运行 Go CLI 生成 review artifact；`start -WhatIf/-Apply`、`handoff -WhatIf/-Apply`、`attach`、`repair`、`sync -Apply`、`init/bootstrap -WhatIf/-Apply`、`promote -CreateCandidates`、`promote -Apply/-Apply -WhatIf` 可手动运行 Go CLI 验证；公共 `/rekit` 入口继续由 PowerShell 处理工作线命令、内部命令和写入命令。
+不委托：`attach`、`repair`、`gate -Apply`、`sync -Apply`、`init/bootstrap -Apply`、`promote -Apply/-CreateCandidates`、工作线命令、内部命令、ledger `note`。其中 `overview` 可手动运行 Go CLI 只读验证；`plan-subagents` 可手动运行 Go CLI 生成 review artifact；`start -WhatIf/-Apply`、`handoff -WhatIf/-Apply`、`attach`、`repair`、`sync -Apply`、`init/bootstrap -WhatIf/-Apply`、`promote -CreateCandidates`、`promote -Apply/-Apply -WhatIf` 可手动运行 Go CLI 验证；Batch F 评估建议未来补 Go `note` 手动路径，但仍不纳入 façade 委托；公共 `/rekit` 入口继续由 PowerShell 处理工作线命令、内部命令和写入命令。
 
 ## 验证矩阵
 

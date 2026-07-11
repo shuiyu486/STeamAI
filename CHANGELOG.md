@@ -63,6 +63,7 @@
 - Agent Team review loop Batch C 完成：新增 `rekit/tests/agent-team-review-loop-smoke.ps1`，覆盖 `plan-subagents` review packet、`note -Kind verification`、`note -Kind decision`、`note -List`、`overview` 与 lane `handoff` 的最小闭环；该 smoke 只使用临时 case，不启动 subagent、不写 confirmed/authority、不执行 heavy-tool。
 - Agent Team review loop Batch D 完成：PowerShell 与 Go `overview` 现在展示最近 verification，lane `handoff` 增加 `## verification` 区段；相关 smoke 与 Go CLI fixtures 覆盖 reviewer verdict 到 main decision 的可见性。该批只增强读层展示，不写 confirmed/authority、不执行 heavy-tool。
 - Agent Team review loop Batch E 完成：`/rekit continue` digest 升级为结构化摘要，记录 inputs、route、packet refs、outputs、decisions 与 open risks，并在 `status.json` 写入对应索引字段；新增 `rekit/tests/continue-digest-smoke.ps1` 覆盖临时 case。该批不启动 subagent、不写 confirmed/authority、不执行 heavy-tool。
+- Agent Team review loop Batch F 完成：重新评估 Go `note` / `continue` 迁移，结论是下一步优先 Go `note` 手动路径（先 `-List` 只读，再 append），`continue` 因 authority append、routing、digest/status 与 lane/board 刷新副作用继续暂缓到 G5 gate/parity tests 完整后。
 
 ### Fixed
 
