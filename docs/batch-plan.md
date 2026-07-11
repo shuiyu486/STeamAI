@@ -1501,3 +1501,29 @@ git diff --check
 ```
 
 验证结果：全部通过；VMP managed doc 已对齐 Batch 48 contract，`agent-driven-re.md` 明确 canonical contract 来源、补 `evidence_id`、runtime normalized lane id、`output_contract` 与 main decision / confirmed-authority 分层；`packs/vmp-re/manifest.yml` 两条 `subagentRoutes.outputContract` 已补 `tier_used,tool_scope`。本批未改 runtime、未写 case state、未启动 agent、未执行 heavy-tool，pack validation 与 doctor 均通过。
+
+### Batch 50：review loop smoke
+
+状态：已完成。
+
+目标：把 `plan-subagents -> reviewer verdict -> verification/decision ledger -> overview/handoff` 的 Agent Team review loop 固化为可重复 smoke，防止 Batch 48/49 收敛后的 contract 再次漂移。
+
+实施范围：
+
+- 新增 `rekit/tests/agent-team-review-loop-smoke.ps1`，使用临时 case 验证：初始化 case、创建功能支线、生成 `plan-subagents` review packet、检查 route output contract 包含 `tier_used`/`tool_scope`、写入 `verification` 与 `decision` ledger event、用 `note -List` 查询 verification/decision、用 `overview` 与 lane `handoff` 展示 main decision。
+- 修复 PowerShell façade `note` 参数透传：显式命名参数（如 `-Lane`/`-Subject`/`-Actor`/`-TargetRef`）应进入 `Invoke-RekitNote`，保留 `RemainingArgs` 解析用于 slash-command 风格兼容。
+- 更新 `CHANGELOG.md` 与本计划。
+
+边界：不启动 subagent，不写 confirmed/authority，不执行 full-trace/debug/inject/patch/dump/network，不把 `gate -Apply` 视为 heavy-tool 授权；临时 case 与 review artifact 用完即删，不污染 kit 仓库或 pack 模板。
+
+停止条件：smoke 需要改变 ledger schema、历史 JSONL 迁移、自动 dispatch reviewer，或要求 overview/handoff 新增 verification 展示时暂停并重新评估。
+
+验证：
+
+```powershell
+.\rekit\tests\agent-team-review-loop-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过；smoke 覆盖 review packet、verification event、main decision event、`note -List` 查询、`overview` decision 展示与 lane `handoff` decision 展示。PowerShell façade `note` 已恢复显式命名参数透传，并保留 `RemainingArgs` 兼容解析。本批仅写临时 case/review artifact 并清理，未启动 subagent、未写 confirmed/authority、未执行 heavy-tool。

@@ -237,7 +237,21 @@ switch ($Command) {
   }
   'note' {
     $caseRoot = Resolve-RekitTarget $Target
-    $noteParams = @{ Target = $caseRoot; RepoRoot = $RepoRoot; Pack = $Pack; WhatIf = $WhatIf }
+    $noteParams = @{
+      Target = $caseRoot
+      RepoRoot = $RepoRoot
+      Pack = $Pack
+      WhatIf = $WhatIf
+      Lane = $Lane
+      Subject = $Subject
+      Summary = $Summary
+      Actor = $Actor
+      Risk = $Risk
+      TargetRef = $TargetRef
+      BatchId = $BatchId
+      Action = $Action
+      Scope = $Scope
+    }
     $noteArgs = @($RemainingArgs)
     for ($i = 0; $i -lt $noteArgs.Count; $i++) {
       $token = [string]$noteArgs[$i]
