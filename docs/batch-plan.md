@@ -1934,3 +1934,33 @@ git diff --check
 ```
 
 验证结果：全部通过。`pack-inventory-smoke.ps1` 覆盖 Go、PowerShell fallback、Go façade 委托 sentinel，以及临时缺失/非法 maturity pack 的 `schema=error` 行与错误文本；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。自审发现并修复：pack authoring 示例的 inline comment 会被简易 YAML parser 当成值、说明性 schema 漏列 `maturity`、inventory 对缺失 maturity 不应继续启发式推断。
+
+### Batch 64：pack inventory JSON 输出
+
+状态：已完成。
+
+目标：在 Batch 62-63 的 `/rekit packs` TSV 矩阵基础上，补齐机器可读 JSON 输出，让 CI、新会话接手、pack-neutral 编排和后续多 pack tooling 能直接消费同一 pack inventory，而不需要解析表格文本。
+
+实施范围：
+
+- Go CLI `packs` 增加 `-Format json` / `--format json`，输出只读 envelope：`command`、`schemaVersion`、`isMutation`、`packCount` 与 `packs[]`。
+- PowerShell façade / fallback 增加 `-Format` 参数，`/rekit packs -Format json` 输出与 Go 对齐的 envelope；显式 `REKIT_GO_ENABLE=1` 时将 `-Format` 透传给 Go backend。
+- `PackSummary.error` 在 JSON 中稳定出现，合法 pack 为空字符串，非法/缺失 schema 的 pack 保留错误文本。
+- `rekit/tests/pack-inventory-smoke.ps1` 覆盖 Go、PowerShell fallback、Go façade 的 JSON 输出，以及缺失/非法 maturity pack 的 JSON `schemaValid=false` 与错误文本。
+- 更新 README、skill、pack authoring、Go runtime migration 与 CHANGELOG，说明 `-Format json` 是只读机器可读 inventory 输出。
+
+边界：本批只增强只读 pack inventory 输出；不创建/修改 case，不写 board/facts/lanes/handoff/authority/confirmed，不改变 sync/promote review-first 语义，不扩大 façade 委托命令集合。
+
+验证：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/cli
+go test ./...
+.\rekit\tests\pack-inventory-smoke.ps1
+.\rekit\rekit.ps1 -Command packs
+.\rekit\rekit.ps1 -Command packs -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。首次验证中 `pack-inventory-smoke.ps1` 暴露 PowerShell 字符串中 `$Pack:` 被解析为变量作用域的问题，已改为 `${Pack}:` 后重跑通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

@@ -76,7 +76,7 @@ type PackSummary struct {
 	Description          string `json:"description"`
 	ManifestPath         string `json:"manifestPath"`
 	SchemaValid          bool   `json:"schemaValid"`
-	Error                string `json:"error,omitempty"`
+	Error                string `json:"error"`
 	ManagedFiles         int    `json:"managedFiles"`
 	TemplateFiles        int    `json:"templateFiles"`
 	LocalFiles           int    `json:"localFiles"`

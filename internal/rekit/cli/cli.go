@@ -45,6 +45,7 @@ type Options struct {
 	ItemsFile        string
 	ItemsPerAgent    int
 	MaxParallel      int
+	Format           string
 	Gate             gate.Options
 	Note             note.Options
 	Start            workstream.StartOptions
@@ -273,6 +274,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -StopConditions")
 			}
 			opt.Gate.StopConditions = args[i]
+		case "-Format", "--format":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Format")
+			}
+			opt.Format = args[i]
 		case "-Route", "--route":
 			i++
 			if i >= len(args) {
@@ -363,7 +370,7 @@ func Run(args []string, stdout io.Writer) error {
 	case "status":
 		return runStatus(ctx, stdout)
 	case "packs":
-		return runPacks(ctx, stdout)
+		return runPacks(ctx, opt, stdout)
 	case "doctor", "validate":
 		return runDoctor(ctx, stdout)
 	case "attach":
@@ -403,21 +410,42 @@ func Main() int {
 	return 0
 }
 
-func runPacks(ctx runtime.Context, out io.Writer) error {
+type packsInventory struct {
+	Command       string                 `json:"command"`
+	SchemaVersion int                    `json:"schemaVersion"`
+	IsMutation    bool                   `json:"isMutation"`
+	PackCount     int                    `json:"packCount"`
+	Packs         []manifest.PackSummary `json:"packs"`
+}
+
+func runPacks(ctx runtime.Context, opt Options, out io.Writer) error {
 	packs, err := manifest.List(ctx.RepoRoot)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(out, "pack\tmaturity\tschema\troutes\tmanaged\ttooling\tauthority\tversion\tdescription")
-	for _, pack := range packs {
-		schema := "ok"
-		if !pack.SchemaValid {
-			schema = "error"
+	format := strings.ToLower(strings.TrimSpace(opt.Format))
+	if format == "" {
+		format = "table"
+	}
+	switch format {
+	case "table", "tsv":
+		fmt.Fprintln(out, "pack\tmaturity\tschema\troutes\tmanaged\ttooling\tauthority\tversion\tdescription")
+		for _, pack := range packs {
+			schema := "ok"
+			if !pack.SchemaValid {
+				schema = "error"
+			}
+			fmt.Fprintf(out, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\n", pack.ID, pack.Maturity, schema, pack.SubagentRoutes, pack.ManagedFiles, pack.ToolingFiles, pack.DefaultAuthorityLane, pack.Version, pack.Description)
+			if pack.Error != "" {
+				fmt.Fprintf(out, "  error: %s\n", pack.Error)
+			}
 		}
-		fmt.Fprintf(out, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\n", pack.ID, pack.Maturity, schema, pack.SubagentRoutes, pack.ManagedFiles, pack.ToolingFiles, pack.DefaultAuthorityLane, pack.Version, pack.Description)
-		if pack.Error != "" {
-			fmt.Fprintf(out, "  error: %s\n", pack.Error)
-		}
+	case "json":
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(packsInventory{Command: "packs", SchemaVersion: 1, IsMutation: false, PackCount: len(packs), Packs: packs})
+	default:
+		return fmt.Errorf("unsupported packs format: %s", opt.Format)
 	}
 	return nil
 }

@@ -32,6 +32,7 @@ param(
   [string]$ItemsFile = '',
   [int]$ItemsPerAgent = 0,
   [int]$MaxParallel = 0,
+  [string]$Format = '',
   [Parameter(ValueFromRemainingArguments=$true)]
   [string[]]$RemainingArgs = @()
 )
@@ -174,6 +175,7 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-ReviewOutputDir' $ReviewOutputDir
   Add-RekitGoArg ([ref]$goArgs) '-PacketPath' $PacketPath
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' $DiffPath
+  if ($Command -eq 'packs') { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
   if ($Command -eq 'gate') {
     Add-RekitGoArg ([ref]$goArgs) '-Action' $Action
     Add-RekitGoArg ([ref]$goArgs) '-Lane' $Lane
@@ -221,11 +223,49 @@ if ($Command -eq 'gate') {
 switch ($Command) {
   'packs' {
     $packs = @(Get-RekitPackInventory -RepoRoot $RepoRoot)
-    Write-Host "pack`tmaturity`tschema`troutes`tmanaged`ttooling`tauthority`tversion`tdescription"
-    foreach ($packItem in $packs) {
-      $schema = if ([bool]$packItem.SchemaValid) { 'ok' } else { 'error' }
-      Write-Host ("{0}`t{1}`t{2}`t{3}`t{4}`t{5}`t{6}`t{7}`t{8}" -f $packItem.ID,$packItem.Maturity,$schema,$packItem.SubagentRoutes,$packItem.ManagedFiles,$packItem.ToolingFiles,$packItem.DefaultAuthorityLane,$packItem.Version,$packItem.Description)
-      if (-not [bool]$packItem.SchemaValid -and -not [string]::IsNullOrWhiteSpace([string]$packItem.Error)) { Write-Host ("  error: {0}" -f $packItem.Error) }
+    $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($formatValue)) { $formatValue = 'table' }
+    switch ($formatValue) {
+      { $_ -in @('table','tsv') } {
+        Write-Host "pack`tmaturity`tschema`troutes`tmanaged`ttooling`tauthority`tversion`tdescription"
+        foreach ($packItem in $packs) {
+          $schema = if ([bool]$packItem.SchemaValid) { 'ok' } else { 'error' }
+          Write-Host ("{0}`t{1}`t{2}`t{3}`t{4}`t{5}`t{6}`t{7}`t{8}" -f $packItem.ID,$packItem.Maturity,$schema,$packItem.SubagentRoutes,$packItem.ManagedFiles,$packItem.ToolingFiles,$packItem.DefaultAuthorityLane,$packItem.Version,$packItem.Description)
+          if (-not [bool]$packItem.SchemaValid -and -not [string]::IsNullOrWhiteSpace([string]$packItem.Error)) { Write-Host ("  error: {0}" -f $packItem.Error) }
+        }
+      }
+      'json' {
+        $packRows = @($packs | ForEach-Object {
+          [ordered]@{
+            id = [string]$_.ID
+            name = [string]$_.Name
+            version = [string]$_.Version
+            maturity = [string]$_.Maturity
+            description = [string]$_.Description
+            manifestPath = [string]$_.ManifestPath
+            schemaValid = [bool]$_.SchemaValid
+            error = [string]$_.Error
+            managedFiles = [int]$_.ManagedFiles
+            templateFiles = [int]$_.TemplateFiles
+            localFiles = [int]$_.LocalFiles
+            promoteFiles = [int]$_.PromoteFiles
+            toolingFiles = [int]$_.ToolingFiles
+            promptFiles = [int]$_.PromptFiles
+            subagentRoutes = [int]$_.SubagentRoutes
+            laneTypes = [int]$_.LaneTypes
+            authorityFiles = [int]$_.AuthorityFiles
+            defaultAuthorityLane = [string]$_.DefaultAuthorityLane
+          }
+        })
+        [ordered]@{
+          command = 'packs'
+          schemaVersion = 1
+          isMutation = $false
+          packCount = [int]$packRows.Count
+          packs = $packRows
+        } | ConvertTo-Json -Depth 8
+      }
+      default { throw "unsupported packs format: $Format" }
     }
   }
   'overview' {

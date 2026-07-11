@@ -101,6 +101,26 @@ function Assert-PackSchemaRow {
   Assert-ContainsText -Text $Text -Expected $ErrorText -Label "schema error for $Pack"
 }
 
+function Assert-PackJson {
+  param(
+    [Parameter(Mandatory=$true)]$Inventory,
+    [Parameter(Mandatory=$true)][string]$Pack,
+    [Parameter(Mandatory=$true)][string]$Maturity,
+    [Parameter(Mandatory=$true)][string]$Authority,
+    [Parameter(Mandatory=$true)][int]$Managed,
+    [Parameter(Mandatory=$true)][int]$Tooling
+  )
+  if ([string]$Inventory.command -ne 'packs' -or [int]$Inventory.schemaVersion -ne 1 -or [bool]$Inventory.isMutation -or [int]$Inventory.packCount -ne @($Inventory.packs).Count) {
+    throw "unexpected packs JSON envelope: $($Inventory | ConvertTo-Json -Depth 20)"
+  }
+  $rows = @($Inventory.packs | Where-Object { [string]$_.id -eq $Pack })
+  if ($rows.Count -ne 1) { throw "expected one JSON row for ${Pack}: $($Inventory | ConvertTo-Json -Depth 20)" }
+  $row = $rows[0]
+  if ([string]$row.maturity -ne $Maturity -or -not [bool]$row.schemaValid -or [string]$row.defaultAuthorityLane -ne $Authority -or [int]$row.managedFiles -ne $Managed -or [int]$row.toolingFiles -ne $Tooling) {
+    throw "unexpected JSON row for ${Pack}: $($row | ConvertTo-Json -Depth 20)"
+  }
+}
+
 function New-TransientPackManifest {
   param(
     [Parameter(Mandatory=$true)][string]$Pack,
@@ -135,6 +155,15 @@ foreach ($out in @($goOut,$psOut,$facadeOut)) {
   Assert-PackRow -Text $out -Pack 'web-security' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
 }
 
+$goJson = Invoke-GoRekitSmoke -Arguments @('-Command','packs','-Format','json') | ConvertFrom-Json
+$psJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') | ConvertFrom-Json
+$facadeJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
+foreach ($json in @($goJson,$psJson,$facadeJson)) {
+  Assert-PackJson -Inventory $json -Pack '_template' -Maturity 'template' -Authority 'main' -Managed 4 -Tooling 2
+  Assert-PackJson -Inventory $json -Pack 'vmp-re' -Maturity 'mature' -Authority 'devirt-main' -Managed 7 -Tooling 11
+  Assert-PackJson -Inventory $json -Pack 'web-security' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
+}
+
 $transientPacks = @()
 try {
   $suffix = [Guid]::NewGuid().ToString('N')
@@ -149,6 +178,14 @@ try {
     Assert-PackSchemaRow -Text $out -Pack $missingPack -Maturity 'missing' -Schema 'error' -ErrorText 'maturity is missing'
     Assert-PackSchemaRow -Text $out -Pack $invalidPack -Maturity 'preview' -Schema 'error' -ErrorText 'maturity has unsupported value'
   }
+  $goMaturityJson = Invoke-GoRekitSmoke -Arguments @('-Command','packs','-Format','json') | ConvertFrom-Json
+  $psMaturityJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') | ConvertFrom-Json
+  foreach ($json in @($goMaturityJson,$psMaturityJson)) {
+    $missingRow = @($json.packs | Where-Object { [string]$_.id -eq $missingPack })[0]
+    $invalidRow = @($json.packs | Where-Object { [string]$_.id -eq $invalidPack })[0]
+    if ([string]$missingRow.maturity -ne 'missing' -or [bool]$missingRow.schemaValid -or [string]$missingRow.error -notlike '*maturity is missing*') { throw "unexpected missing maturity JSON row: $($missingRow | ConvertTo-Json -Depth 20)" }
+    if ([string]$invalidRow.maturity -ne 'preview' -or [bool]$invalidRow.schemaValid -or [string]$invalidRow.error -notlike '*maturity has unsupported value*') { throw "unexpected invalid maturity JSON row: $($invalidRow | ConvertTo-Json -Depth 20)" }
+  }
 } finally {
   foreach ($packRoot in $transientPacks) {
     if (Test-Path -LiteralPath $packRoot) { Remove-Item -LiteralPath $packRoot -Recurse -Force -Confirm:$false }
@@ -161,6 +198,9 @@ try {
   $sentinelOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
   Assert-ContainsText -Text $sentinelOut -Expected 'sentinel-go-packs' -Label 'facade packs go delegation sentinel'
   Assert-ContainsText -Text $sentinelOut -Expected '-Command packs' -Label 'facade packs delegated command args'
+
+  $sentinelJsonOut = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
+  Assert-ContainsText -Text $sentinelJsonOut -Expected '-Format json' -Label 'facade packs format delegation args'
 
   $disabledOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $sentinel }
   Assert-NotContainsText -Text $disabledOut -Unexpected 'sentinel-go-packs' -Label 'facade packs disable fallback'

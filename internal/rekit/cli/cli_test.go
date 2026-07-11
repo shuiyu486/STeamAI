@@ -107,6 +107,62 @@ func TestRunPacksListsPackMatrix(t *testing.T) {
 	}
 }
 
+func TestRunPacksJsonInventory(t *testing.T) {
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "packs", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var inventory struct {
+		Command       string `json:"command"`
+		SchemaVersion int    `json:"schemaVersion"`
+		IsMutation    bool   `json:"isMutation"`
+		PackCount     int    `json:"packCount"`
+		Packs         []struct {
+			ID                   string `json:"id"`
+			Maturity             string `json:"maturity"`
+			SchemaValid          bool   `json:"schemaValid"`
+			Error                string `json:"error"`
+			ManagedFiles         int    `json:"managedFiles"`
+			ToolingFiles         int    `json:"toolingFiles"`
+			SubagentRoutes       int    `json:"subagentRoutes"`
+			DefaultAuthorityLane string `json:"defaultAuthorityLane"`
+		} `json:"packs"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &inventory); err != nil {
+		t.Fatalf("packs JSON did not decode: %v\n%s", err, out.String())
+	}
+	if inventory.Command != "packs" || inventory.SchemaVersion != 1 || inventory.IsMutation || inventory.PackCount != len(inventory.Packs) {
+		t.Fatalf("unexpected packs JSON envelope: %+v", inventory)
+	}
+	byID := map[string]struct {
+		ID                   string `json:"id"`
+		Maturity             string `json:"maturity"`
+		SchemaValid          bool   `json:"schemaValid"`
+		Error                string `json:"error"`
+		ManagedFiles         int    `json:"managedFiles"`
+		ToolingFiles         int    `json:"toolingFiles"`
+		SubagentRoutes       int    `json:"subagentRoutes"`
+		DefaultAuthorityLane string `json:"defaultAuthorityLane"`
+	}{}
+	for _, pack := range inventory.Packs {
+		byID[pack.ID] = pack
+	}
+	if pack := byID["vmp-re"]; pack.Maturity != "mature" || !pack.SchemaValid || pack.Error != "" || pack.ManagedFiles != 7 || pack.ToolingFiles != 11 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "devirt-main" {
+		t.Fatalf("unexpected vmp-re JSON row: %+v", pack)
+	}
+	if pack := byID["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.DefaultAuthorityLane != "main" {
+		t.Fatalf("unexpected web-security JSON row: %+v", pack)
+	}
+}
+
+func TestRunPacksRejectsUnsupportedFormat(t *testing.T) {
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "packs", "-Format", "yaml"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "unsupported packs format") {
+		t.Fatalf("error = %v, want unsupported packs format", err)
+	}
+}
+
 func TestRunCaseDoctorRejectsShimDrift(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeCaseFile(t, caseRoot, ".claude/skills/rekit/SKILL.md", "drift\n")
