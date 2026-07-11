@@ -280,6 +280,8 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 
 `/rekit plan-subagents` 是内部只读计划器，用于主 agent 或自动流程在批量复核时按 handler、trace、tooling diff 等固定边界生成分片审查产物。它不启动 agent，也不修改 managed docs 或项目源文件；日常不需要用户手动调用。
 
+生成的 `packet.json` / `summary.md` 会标出 route 选择原因、每个 shard 的初始 `planned` 状态、spawn/merge 责任、verdict 写回入口和被 runtime 阻止的动作（例如 runtime 不自动 spawn、子 agent 不写文件）。这些字段只帮助主会话审计 bounded dispatch，不代表 runtime 会启动 reviewer。
+
 ## 工具经验保存在哪里
 
 工具经验不会只留在当前 case。现在分两层：

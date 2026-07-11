@@ -68,6 +68,7 @@
 - G4.5b Go `note` append 手动路径完成：CLI `-Command note` 可显式 append 9 类 ledger event 到 `.rekit/facts/*.jsonl`，支持 PowerShell 对齐 enum/schema 校验、lane guard、eventId dedupe 与 `-WhatIf` 非写入预览；该路径只写 facts JSONL，不写 board/lane/handoff/authority/confirmed，也不纳入 PowerShell façade 委托。
 - G5 preflight baseline 完成：新增 `rekit/tests/continue-preflight-smoke.ps1`，覆盖 PowerShell `continue` 的 authority append gate matrix（evidence、accepted verifier、confidence、CSV schema、conflict、max rows、allowlist）、backup/bounded diff、CSV 失败恢复、request routing 幂等、digest/status parity 与 `-WhatIf` no-write，作为后续 Go `continue -WhatIf` 迁移前测试网。
 - G5 Go `continue -WhatIf` 预览路径完成：新增 `internal/rekit/workstream/continue.go` 与 CLI `-Command continue -WhatIf`，读取既有 board/lane/outbox/workspace 输出非写入 JSON preview，包含 inputs、packet refs、收集事件、routing/authority 决策预览、wouldWrites 与 blocked actions；新增 `rekit/tests/continue-whatif-smoke.ps1` 覆盖临时 case 预览、no-write、unsupported apply guard 与 PowerShell façade fallback。该路径不写 facts/run/board/lane/authority/confirmed，不纳入 façade 委托，不执行 heavy-tool。
+- Batch 58 bounded dispatch 可观测性增强：Go 与 PowerShell `plan-subagents` review packet/summary 增加 `observability` 与 `reviewLoop`，记录 route 选择原因、review artifact 路径、shard 初始 `planned` 状态、blocked runtime actions、spawn/merge owner、verdict writeback 和 completion criteria；`plan-subagents` smoke 覆盖 Go 与 PowerShell fallback artifacts。该路径仍不启动 subagent、不写 board/facts/lanes/handoff/authority/confirmed。
 
 ### Fixed
 

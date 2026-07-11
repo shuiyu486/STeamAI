@@ -103,6 +103,12 @@ function Assert-PlanPacket {
   }
   $packet = Get-Content -LiteralPath ([string]$Result.packetPath) -Raw | ConvertFrom-Json
   if ([string]$packet.route.id -ne $Route) { throw "unexpected route: $($packet | ConvertTo-Json -Depth 10)" }
+  if ([string]$Result.observability.dispatchMode -ne 'manual-main-agent' -or [string]$packet.observability.dispatchMode -ne 'manual-main-agent') { throw "missing plan observability: $($packet | ConvertTo-Json -Depth 20)" }
+  if ([string]$packet.reviewLoop.spawnOwner -ne 'main-agent' -or [string]$packet.reviewLoop.mergeOwner -ne 'main-agent') { throw "missing review loop ownership: $($packet | ConvertTo-Json -Depth 20)" }
+  if (@($packet.observability.shardStatuses).Count -ne $Shards) { throw "unexpected shard status count: $($packet | ConvertTo-Json -Depth 20)" }
+  foreach ($status in @($packet.observability.shardStatuses)) {
+    if ([string]$status.status -ne 'planned') { throw "unexpected shard status: $($packet | ConvertTo-Json -Depth 20)" }
+  }
   return $packet
 }
 
@@ -120,7 +126,10 @@ try {
   $packet = Assert-PlanPacket -Result $go -Route 'vmp-re:lane-feature-analysis' -Items 3 -Shards 2
   if ([int]$packet.shardPolicy.targetItemsPerAgent -ne 2 -or [int]$packet.shardPolicy.maxParallel -ne 7) { throw "unexpected shard policy: $($packet | ConvertTo-Json -Depth 10)" }
   if ((@($packet.shards)[0].items -join ',') -ne 'alpha,beta' -or (@($packet.shards)[1].items -join ',') -ne 'gamma') { throw "unexpected shards: $($packet | ConvertTo-Json -Depth 10)" }
-  Assert-ContainsText -Text ([System.IO.File]::ReadAllText([string]$go.summaryPath, [System.Text.Encoding]::UTF8)) -Expected '# rekit subagent plan' -Label 'go plan summary'
+  $goSummary = [System.IO.File]::ReadAllText([string]$go.summaryPath, [System.Text.Encoding]::UTF8)
+  Assert-ContainsText -Text $goSummary -Expected '# rekit subagent plan' -Label 'go plan summary'
+  Assert-ContainsText -Text $goSummary -Expected 'bounded dispatch observability' -Label 'go plan summary observability'
+  Assert-ContainsText -Text $goSummary -Expected 'runtime does not spawn subagents' -Label 'go plan summary blocked actions'
   if (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json')) { throw 'plan-subagents created board.json' }
   if (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\facts')) { throw 'plan-subagents created facts' }
   if (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\lanes')) { throw 'plan-subagents created lanes' }
@@ -141,7 +150,22 @@ try {
   $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-Items','alpha,beta','-ReviewOutputDir',$facadeRoot) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
   Assert-ContainsText -Text $facadeOut -Expected 'review packet:' -Label 'facade plan-subagents fallback'
   Assert-NotContainsText -Text $facadeOut -Unexpected 'schemaVersion' -Label 'facade plan-subagents fallback'
-  if (-not (Test-Path -LiteralPath (Join-Path $facadeRoot 'packet.json'))) { throw 'facade plan-subagents packet was not written' }
+  $facadePacketPath = Join-Path $facadeRoot 'packet.json'
+  if (-not (Test-Path -LiteralPath $facadePacketPath)) { throw 'facade plan-subagents packet was not written' }
+  $facadePacket = Get-Content -LiteralPath $facadePacketPath -Raw | ConvertFrom-Json
+  if ([string]$facadePacket.observability.dispatchMode -ne 'manual-main-agent' -or [string]$facadePacket.reviewLoop.spawnOwner -ne 'main-agent' -or [string]$facadePacket.reviewLoop.mergeOwner -ne 'main-agent') { throw "facade packet missing observability: $($facadePacket | ConvertTo-Json -Depth 20)" }
+  foreach ($expected in @('runtime does not spawn subagents','subagents must not write files','authority, and confirmed writes')) {
+    Assert-ContainsText -Text (@($facadePacket.observability.blockedActions) -join ';') -Expected $expected -Label 'facade blocked actions'
+  }
+  Assert-ContainsText -Text ([string]$facadePacket.reviewLoop.verdictWriteback) -Expected 'note -Kind verification' -Label 'facade verdict writeback'
+  if (@($facadePacket.reviewLoop.completionCriteria).Count -lt 3 -or @($facadePacket.observability.shardStatuses).Count -ne 1 -or [string]@($facadePacket.observability.shardStatuses)[0].status -ne 'planned') { throw "facade packet missing review loop details: $($facadePacket | ConvertTo-Json -Depth 20)" }
+  $facadeSummary = [System.IO.File]::ReadAllText((Join-Path $facadeRoot 'summary.md'), [System.Text.Encoding]::UTF8)
+  Assert-ContainsText -Text $facadeSummary -Expected 'bounded dispatch observability' -Label 'facade plan summary observability'
+  Assert-ContainsText -Text $facadeSummary -Expected 'runtime does not spawn subagents' -Label 'facade plan summary blocked action'
+  Assert-ContainsText -Text $facadeSummary -Expected 'completion criteria' -Label 'facade plan summary completion criteria'
+  foreach ($unexpectedPath in @('.rekit\board.json','.rekit\facts','.rekit\lanes','.rekit\handovers','captures\vm_opcode_semantics_confirmed.csv')) {
+    if (Test-Path -LiteralPath (Join-Path $caseRoot $unexpectedPath)) { throw "facade plan-subagents created unexpected case state: $unexpectedPath" }
+  }
 
   'plan-subagents smoke ok'
 } finally {

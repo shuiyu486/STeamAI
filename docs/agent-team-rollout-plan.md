@@ -6,7 +6,7 @@
 - 维护者开始新批次前先读本文件顶部：读取指南、实施摘要、执行清单、验证标准、风险与注意事项，再按批次读细节。
 - 本文件只写计划与契约压测方法，不替代 `common/policies/agent-team.md` 和 `common/policies/subagents.md` 的契约定义。
 - 推进姿态为 **选项 C：契约 dry-run + 临时 case 验证优先**。先压测契约，再按真实缺口决定 ledger runtime（Phase 5）与 bounded dispatch（Phase 6）的顺序。
-- 当前状态：PowerShell `/rekit` 仍是公共入口；R0-R7、B/C 系列、D2-D4、Go G1/G2/G2.1/G2.2/G2.3 已完成。Ledger runtime 支持 9 种 kind、`batchId`、overview/handoff/note-List 读层和 intervention/rollback 展示闭环；`continue` auto 流程写 `.rekit/runs/<run-id>/digest.md`。Go backend 可手动输出 `sync/promote` review plan/artifacts 和 gate preview/request，但未默认接入 façade；`plan-subagents` 仍是只读计划器。后续聚焦 D5/D6、bounded dispatch/gate enforcement、Go façade 显式开关与低风险迁移。
+- 当前状态：PowerShell `/rekit` 仍是公共入口；R0-R7、B/C 系列、D2-D4、Go G1-G5 已完成。Ledger runtime 支持 9 种 kind、`batchId`、overview/handoff/note-List 读层和 intervention/rollback 展示闭环；`continue` auto 流程写 `.rekit/runs/<run-id>/digest.md`，Go backend 可手动输出 `continue -WhatIf` 非写入 preview；`plan-subagents` 仍是只读计划器，已输出 route/shard/review-loop observability，但不自动 spawn reviewer。Go backend 可手动输出 `sync/promote` review plan/artifacts 和 gate preview/request，但工作线命令未默认接入 façade。后续聚焦 bounded dispatch/gate enforcement 后段、Go façade 显式开关与低风险迁移。
 
 ## 实施摘要
 

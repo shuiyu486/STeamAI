@@ -1745,3 +1745,33 @@ git diff --check
 ```
 
 验证结果：全部通过；targeted Go tests、全量 Go tests、`continue-whatif-smoke.ps1`、Batch 56 `continue-preflight-smoke.ps1`、既有 `continue-digest-smoke.ps1`、PowerShell doctor 与 `git diff --check` 均通过（仅出现既有 LF/CRLF warning）。reviewer 复核发现 preview summary 使用 `authorityApplied` 容易误导为已写入 authority，已改为保持 `authorityApplied=0` 并新增 preview-only `authorityWouldAppend` 计数，测试与 smoke 同步断言。本批未实现 Go `continue -Apply`，未改变 PowerShell `continue` 行为，未纳入 façade 委托，未启动 subagent，未执行 heavy-tool，未写 facts/run/board/lane/handoff/authority/confirmed。
+
+### Batch 58：bounded dispatch 可观测性增强
+
+状态：已完成。
+
+目标：在不把 runtime 变成 agent 调度器的前提下，增强 `plan-subagents` review artifacts，让主会话能审计 route 选择、shard 状态、review loop 责任和 verdict 写回闭环。
+
+实施范围：
+
+- Go `internal/rekit/subagents` 的 `Result` / `Packet` 增加 `observability` 与 `reviewLoop`：包含 dispatch mode、route debug、review artifact 路径、每个 shard 初始 `planned` 状态、blocked runtime actions、spawn/merge owner、verdict writeback 与 completion criteria。
+- PowerShell `Write-RekitSubagentPlan` 输出同名字段，保持 façade fallback 与 Go 手动路径的 packet/summary parity。
+- `summary.md` 增加 bounded dispatch observability 区段，列出 shard status、blocked runtime actions 和 completion criteria，便于主 agent 启动 reviewer 前检查范围。
+- 更新 `plan-subagents` Go tests 与 smoke，覆盖 Go packet/summary observability、PowerShell façade fallback packet/summary observability。
+- 更新 README、subagents policy、Go migration 文档、reference absorption 与 CHANGELOG。
+
+边界：本批只写 review artifacts；不自动 spawn subagent，不写 facts/board/lane/handoff/authority/confirmed，不执行 full-trace/debug/inject/patch/dump/network，不改变 PowerShell façade 委托集合。
+
+停止条件：如果要让 `/rekit continue` 或 runtime 自动 spawn reviewer、自动合并 verdict、自动写 confirmed/authority，必须按独立批次重新评估并确认。
+
+验证：
+
+```powershell
+go test ./internal/rekit/subagents ./internal/rekit/cli
+go test ./...
+.\rekit\tests\plan-subagents-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过；targeted Go tests、全量 Go tests、`plan-subagents-smoke.ps1`、PowerShell doctor 与 `git diff --check` 均通过（仅出现既有 LF/CRLF warning）。reviewer 复核发现两个问题：未知 `-TaskType` fallback 时 `routeDebug.selectedBy` 会误报为 `taskType`，已改为仅在实际匹配 route taskTypes 时标记 `taskType`，否则标记 `manifest-default` 并补 Go 测试；PowerShell façade fallback smoke 对 blocked actions/review loop/no-write 边界断言不足，已补 packet/summary 与 case state no-write 断言。本批只写 review artifacts，未启动 subagent，未写 facts/board/lane/handoff/authority/confirmed，未执行 heavy-tool。

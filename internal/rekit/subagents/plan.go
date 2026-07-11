@@ -29,38 +29,78 @@ type Options struct {
 }
 
 type Result struct {
-	SchemaVersion         int    `json:"schemaVersion"`
-	Command               string `json:"command"`
-	PlanRoot              string `json:"planRoot"`
-	RepoRoot              string `json:"repoRoot"`
-	Pack                  string `json:"pack"`
-	IsMutation            bool   `json:"isMutation"`
-	WritesReviewArtifacts bool   `json:"writesReviewArtifacts"`
-	ReviewRequired        bool   `json:"reviewRequired"`
-	ReviewRoot            string `json:"reviewRoot"`
-	PacketPath            string `json:"packetPath"`
-	SummaryPath           string `json:"summaryPath"`
-	CombinedDiffPath      string `json:"combinedDiffPath"`
-	ItemCount             int    `json:"itemCount"`
-	ShardCount            int    `json:"shardCount"`
+	SchemaVersion         int           `json:"schemaVersion"`
+	Command               string        `json:"command"`
+	PlanRoot              string        `json:"planRoot"`
+	RepoRoot              string        `json:"repoRoot"`
+	Pack                  string        `json:"pack"`
+	IsMutation            bool          `json:"isMutation"`
+	WritesReviewArtifacts bool          `json:"writesReviewArtifacts"`
+	ReviewRequired        bool          `json:"reviewRequired"`
+	ReviewRoot            string        `json:"reviewRoot"`
+	PacketPath            string        `json:"packetPath"`
+	SummaryPath           string        `json:"summaryPath"`
+	CombinedDiffPath      string        `json:"combinedDiffPath"`
+	ItemCount             int           `json:"itemCount"`
+	ShardCount            int           `json:"shardCount"`
+	Observability         Observability `json:"observability"`
+	ReviewLoop            ReviewLoop    `json:"reviewLoop"`
 }
 
 type Packet struct {
-	SchemaVersion             int         `json:"schemaVersion"`
-	Command                   string      `json:"command"`
-	IsMutation                bool        `json:"isMutation"`
-	WritesReviewArtifacts     bool        `json:"writesReviewArtifacts"`
-	RepoRoot                  string      `json:"repoRoot"`
-	Pack                      string      `json:"pack"`
-	ManifestPath              string      `json:"manifestPath"`
-	Route                     Route       `json:"route"`
-	Input                     Input       `json:"input"`
-	ShardPolicy               ShardPolicy `json:"shardPolicy"`
-	Shards                    []Shard     `json:"shards"`
-	MainAgentResponsibilities string      `json:"mainAgentResponsibilities"`
-	SubagentPermissions       string      `json:"subagentPermissions"`
-	OutputContract            string      `json:"outputContract"`
-	ReviewRequired            bool        `json:"reviewRequired"`
+	SchemaVersion             int           `json:"schemaVersion"`
+	Command                   string        `json:"command"`
+	IsMutation                bool          `json:"isMutation"`
+	WritesReviewArtifacts     bool          `json:"writesReviewArtifacts"`
+	RepoRoot                  string        `json:"repoRoot"`
+	Pack                      string        `json:"pack"`
+	ManifestPath              string        `json:"manifestPath"`
+	Route                     Route         `json:"route"`
+	Input                     Input         `json:"input"`
+	ShardPolicy               ShardPolicy   `json:"shardPolicy"`
+	Shards                    []Shard       `json:"shards"`
+	MainAgentResponsibilities string        `json:"mainAgentResponsibilities"`
+	SubagentPermissions       string        `json:"subagentPermissions"`
+	OutputContract            string        `json:"outputContract"`
+	ReviewRequired            bool          `json:"reviewRequired"`
+	Observability             Observability `json:"observability"`
+	ReviewLoop                ReviewLoop    `json:"reviewLoop"`
+}
+
+type Observability struct {
+	DispatchMode     string        `json:"dispatchMode"`
+	RouteDebug       RouteDebug    `json:"routeDebug"`
+	ReviewRoot       string        `json:"reviewRoot"`
+	PacketPath       string        `json:"packetPath"`
+	SummaryPath      string        `json:"summaryPath"`
+	CombinedDiffPath string        `json:"combinedDiffPath"`
+	ShardStatuses    []ShardStatus `json:"shardStatuses"`
+	BlockedActions   []string      `json:"blockedActions"`
+}
+
+type RouteDebug struct {
+	SelectedBy    string `json:"selectedBy"`
+	RouteID       string `json:"routeId"`
+	TaskTypes     string `json:"taskTypes"`
+	Trigger       string `json:"trigger"`
+	Reference     string `json:"reference"`
+	PolicyOverlay string `json:"policyOverlay"`
+}
+
+type ShardStatus struct {
+	ShardID        string `json:"shardId"`
+	Status         string `json:"status"`
+	ItemCount      int    `json:"itemCount"`
+	ExpectedOutput string `json:"expectedOutput"`
+}
+
+type ReviewLoop struct {
+	SpawnOwner         string   `json:"spawnOwner"`
+	MergeOwner         string   `json:"mergeOwner"`
+	MainAgentOwns      []string `json:"mainAgentOwns"`
+	VerdictWriteback   string   `json:"verdictWriteback"`
+	CompletionCriteria []string `json:"completionCriteria"`
+	FailureHandling    string   `json:"failureHandling"`
 }
 
 type Route struct {
@@ -157,6 +197,8 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	if err := prepareArtifactDirs(paths); err != nil {
 		return Result{}, err
 	}
+	observability := newObservability(route, opt, paths, shards)
+	reviewLoop := newReviewLoop(route)
 	packet := Packet{
 		SchemaVersion:             1,
 		Command:                   commandName,
@@ -173,14 +215,16 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 		SubagentPermissions:       route.SubagentPermissions,
 		OutputContract:            route.OutputContract,
 		ReviewRequired:            true,
+		Observability:             observability,
+		ReviewLoop:                reviewLoop,
 	}
 	if err := writeJSON(paths.PacketPath, packet); err != nil {
 		return Result{}, err
 	}
-	if err := os.WriteFile(paths.SummaryPath, []byte(summaryText(route, opt.TaskType, len(items), len(shards), itemsPerAgent, maxParallel)), 0o644); err != nil {
+	if err := os.WriteFile(paths.SummaryPath, []byte(summaryText(route, opt.TaskType, len(items), len(shards), itemsPerAgent, maxParallel, observability, reviewLoop)), 0o644); err != nil {
 		return Result{}, err
 	}
-	return Result{SchemaVersion: 1, Command: commandName, PlanRoot: planRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, IsMutation: false, WritesReviewArtifacts: true, ReviewRequired: true, ReviewRoot: paths.Root, PacketPath: paths.PacketPath, SummaryPath: paths.SummaryPath, CombinedDiffPath: paths.CombinedDiffPath, ItemCount: len(items), ShardCount: len(shards)}, nil
+	return Result{SchemaVersion: 1, Command: commandName, PlanRoot: planRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, IsMutation: false, WritesReviewArtifacts: true, ReviewRequired: true, ReviewRoot: paths.Root, PacketPath: paths.PacketPath, SummaryPath: paths.SummaryPath, CombinedDiffPath: paths.CombinedDiffPath, ItemCount: len(items), ShardCount: len(shards), Observability: observability, ReviewLoop: reviewLoop}, nil
 }
 
 func selectRoute(m *manifest.Manifest, routeID, taskType string) (Route, error) {
@@ -255,6 +299,77 @@ func newShards(items []string, targetItemsPerAgent int) []Shard {
 		shards = append(shards, Shard{ID: fmt.Sprintf("shard-%02d", len(shards)+1), Items: slice, Prompt: "Review only these items: " + strings.Join(slice, ", ") + ". Return the route output contract only; do not write files or paste long logs."})
 	}
 	return shards
+}
+
+func newObservability(route Route, opt Options, paths artifactPaths, shards []Shard) Observability {
+	statuses := make([]ShardStatus, 0, len(shards))
+	for _, shard := range shards {
+		statuses = append(statuses, ShardStatus{ShardID: shard.ID, Status: "planned", ItemCount: len(shard.Items), ExpectedOutput: route.OutputContract})
+	}
+	return Observability{
+		DispatchMode: "manual-main-agent",
+		RouteDebug: RouteDebug{
+			SelectedBy:    routeSelectionReason(route, opt),
+			RouteID:       route.ID,
+			TaskTypes:     route.TaskTypes,
+			Trigger:       route.Trigger,
+			Reference:     route.Reference,
+			PolicyOverlay: route.PolicyOverlay,
+		},
+		ReviewRoot:       paths.Root,
+		PacketPath:       paths.PacketPath,
+		SummaryPath:      paths.SummaryPath,
+		CombinedDiffPath: paths.CombinedDiffPath,
+		ShardStatuses:    statuses,
+		BlockedActions: []string{
+			"runtime does not spawn subagents",
+			"subagents must not write files",
+			"main agent owns ledger writeback, validation, handoff, authority, and confirmed writes",
+		},
+	}
+}
+
+func routeSelectionReason(route Route, opt Options) string {
+	if strings.TrimSpace(opt.Route) != "" {
+		return "route"
+	}
+	taskType := strings.TrimSpace(opt.TaskType)
+	if taskType != "" {
+		for _, task := range strings.FieldsFunc(route.TaskTypes, func(r rune) bool { return r == ',' || r == ';' }) {
+			if strings.EqualFold(strings.TrimSpace(task), taskType) {
+				return "taskType"
+			}
+		}
+		return "manifest-default"
+	}
+	return "manifest-default"
+}
+
+func newReviewLoop(route Route) ReviewLoop {
+	mainOwns := splitCSV(route.MainAgentOwns)
+	return ReviewLoop{
+		SpawnOwner:       "main-agent",
+		MergeOwner:       "main-agent",
+		MainAgentOwns:    mainOwns,
+		VerdictWriteback: "/rekit note -Kind verification for reviewer verdicts; /rekit note -Kind decision for main merge decisions",
+		CompletionCriteria: []string{
+			"each planned shard is accepted, rejected, deferred, or explicitly abandoned",
+			"reviewer verdicts are recorded in the ledger before main merge decisions",
+			"accepted writes remain gated by main-agent validation and authority/confirmed confirmation",
+		},
+		FailureHandling: "discard failed shard result and retry later with a smaller bounded shard; do not block unrelated shards",
+	}
+}
+
+func splitCSV(value string) []string {
+	items := []string{}
+	for _, part := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' }) {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			items = append(items, part)
+		}
+	}
+	return items
 }
 
 func optionInt(value string, fallback int) int {
@@ -338,7 +453,7 @@ func writeJSON(path string, v any) error {
 	return os.WriteFile(path, append(b, '\n'), 0o644)
 }
 
-func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAgent, maxParallel int) string {
+func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAgent, maxParallel int, observability Observability, reviewLoop ReviewLoop) string {
 	lines := []string{
 		"# rekit subagent plan",
 		"",
@@ -350,7 +465,46 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 		fmt.Sprintf("- max parallel: `%d`", maxParallel),
 		"- writes review artifacts: `true`",
 		"",
-		"Use the generated packet to launch read-only subagents. The command only writes review artifacts; the main agent owns project writes, validation, and handoff updates.",
+		"## bounded dispatch observability",
+		"",
+		"- dispatch mode: `" + observability.DispatchMode + "`",
+		"- route selected by: `" + observability.RouteDebug.SelectedBy + "`",
+		"- review root: `" + observability.ReviewRoot + "`",
+		"- packet: `" + observability.PacketPath + "`",
+		"- combined diff: `" + observability.CombinedDiffPath + "`",
+		"- spawn owner: `" + reviewLoop.SpawnOwner + "`",
+		"- merge owner: `" + reviewLoop.MergeOwner + "`",
+		"- verdict writeback: `" + reviewLoop.VerdictWriteback + "`",
+		"",
+		"### shard status",
+		"",
 	}
+	if len(observability.ShardStatuses) == 0 {
+		lines = append(lines, "- no shards planned")
+	} else {
+		for _, status := range observability.ShardStatuses {
+			lines = append(lines, fmt.Sprintf("- %s: `%s`, items=`%d`", status.ShardID, status.Status, status.ItemCount))
+		}
+	}
+	lines = append(lines,
+		"",
+		"### blocked runtime actions",
+		"",
+	)
+	for _, action := range observability.BlockedActions {
+		lines = append(lines, "- "+action)
+	}
+	lines = append(lines,
+		"",
+		"### completion criteria",
+		"",
+	)
+	for _, criterion := range reviewLoop.CompletionCriteria {
+		lines = append(lines, "- "+criterion)
+	}
+	lines = append(lines,
+		"",
+		"Use the generated packet to launch read-only subagents. The command only writes review artifacts; the main agent owns project writes, validation, and handoff updates.",
+	)
 	return strings.Join(lines, "\r\n") + "\r\n"
 }

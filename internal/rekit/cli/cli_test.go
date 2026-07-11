@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -1094,8 +1095,36 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if len(packet.Shards) != 2 || strings.Join(packet.Shards[0].Items, ",") != "alpha,beta" || strings.Join(packet.Shards[1].Items, ",") != "gamma" {
 		t.Fatalf("unexpected shards: %+v", packet.Shards)
 	}
-	if _, err := os.Stat(result.SummaryPath); err != nil {
+	if result.Observability.DispatchMode != "manual-main-agent" || result.Observability.RouteDebug.SelectedBy != "taskType" || result.ReviewLoop.SpawnOwner != "main-agent" {
+		t.Fatalf("unexpected result observability: result=%+v", result)
+	}
+	if packet.Observability.DispatchMode != "manual-main-agent" || packet.Observability.RouteDebug.RouteID != "vmp-re:lane-feature-analysis" || len(packet.Observability.ShardStatuses) != 2 || packet.Observability.ShardStatuses[0].Status != "planned" || packet.ReviewLoop.MergeOwner != "main-agent" {
+		t.Fatalf("unexpected packet observability: %+v", packet)
+	}
+	if !slices.Contains(packet.Observability.BlockedActions, "runtime does not spawn subagents") || !strings.Contains(packet.ReviewLoop.VerdictWriteback, "note -Kind verification") {
+		t.Fatalf("unexpected review loop contract: %+v", packet)
+	}
+	summary, err := os.ReadFile(result.SummaryPath)
+	if err != nil {
 		t.Fatalf("missing summary: %v", err)
+	}
+	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback"} {
+		if !strings.Contains(string(summary), expected) {
+			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
+		}
+	}
+}
+
+func TestRunPlanSubagentsUnknownTaskTypeReportsDefaultRoute(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "vmp-re", "-TaskType", "unknown-task", "-Items", "alpha"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	result := decodePlanSubagentsResult(t, out.Bytes())
+	packet := decodePlanSubagentsPacket(t, result.PacketPath)
+	if packet.Route.ID != "vmp-re:bounded-review" || packet.Observability.RouteDebug.SelectedBy != "manifest-default" {
+		t.Fatalf("unexpected fallback route observability: %+v", packet)
 	}
 }
 
@@ -1722,15 +1751,17 @@ type handoffResult struct {
 }
 
 type planSubagentsResult struct {
-	Command               string `json:"command"`
-	IsMutation            bool   `json:"isMutation"`
-	WritesReviewArtifacts bool   `json:"writesReviewArtifacts"`
-	ReviewRequired        bool   `json:"reviewRequired"`
-	ReviewRoot            string `json:"reviewRoot"`
-	PacketPath            string `json:"packetPath"`
-	SummaryPath           string `json:"summaryPath"`
-	ItemCount             int    `json:"itemCount"`
-	ShardCount            int    `json:"shardCount"`
+	Command               string                   `json:"command"`
+	IsMutation            bool                     `json:"isMutation"`
+	WritesReviewArtifacts bool                     `json:"writesReviewArtifacts"`
+	ReviewRequired        bool                     `json:"reviewRequired"`
+	ReviewRoot            string                   `json:"reviewRoot"`
+	PacketPath            string                   `json:"packetPath"`
+	SummaryPath           string                   `json:"summaryPath"`
+	ItemCount             int                      `json:"itemCount"`
+	ShardCount            int                      `json:"shardCount"`
+	Observability         planSubagentsObservables `json:"observability"`
+	ReviewLoop            planSubagentsReviewLoop  `json:"reviewLoop"`
 }
 
 type planSubagentsPacket struct {
@@ -1748,6 +1779,30 @@ type planSubagentsPacket struct {
 	Shards []struct {
 		Items []string `json:"items"`
 	} `json:"shards"`
+	Observability planSubagentsObservables `json:"observability"`
+	ReviewLoop    planSubagentsReviewLoop  `json:"reviewLoop"`
+}
+
+type planSubagentsObservables struct {
+	DispatchMode string `json:"dispatchMode"`
+	RouteDebug   struct {
+		SelectedBy string `json:"selectedBy"`
+		RouteID    string `json:"routeId"`
+	} `json:"routeDebug"`
+	ShardStatuses []struct {
+		ShardID   string `json:"shardId"`
+		Status    string `json:"status"`
+		ItemCount int    `json:"itemCount"`
+	} `json:"shardStatuses"`
+	BlockedActions []string `json:"blockedActions"`
+}
+
+type planSubagentsReviewLoop struct {
+	SpawnOwner         string   `json:"spawnOwner"`
+	MergeOwner         string   `json:"mergeOwner"`
+	MainAgentOwns      []string `json:"mainAgentOwns"`
+	VerdictWriteback   string   `json:"verdictWriteback"`
+	CompletionCriteria []string `json:"completionCriteria"`
 }
 
 type startLane struct {

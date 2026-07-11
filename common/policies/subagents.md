@@ -85,6 +85,8 @@ pack 可以在 manifest 中声明 `subagentRoutes`，让高级/内部 `plan-suba
 - `mainAgentOwns`：主 agent 独占的写入、验证、发布或 handoff 动作。
 - `outputContract`：子 agent 必须返回的短字段列表。
 
+计划器生成的 review artifact 应同时包含可观测性字段：route 选择原因、review root / packet / summary / diff 路径、每个 shard 的初始 `planned` 状态、blocked runtime actions、spawn/merge owner、verdict writeback 入口和 completion criteria。这些字段用于主 agent 审计 bounded dispatch；不表示 runtime 会自动 spawn 子 agent。
+
 使用 route 前，主 agent 仍需确认任务边界清楚；若无法给定固定分片，则不要启动无界子 agent。
 
 ## 失败与中断

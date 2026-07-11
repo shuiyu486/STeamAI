@@ -297,6 +297,84 @@ function New-RekitPlanShards {
   return $shards
 }
 
+function Split-RekitPlanCsv {
+  param([AllowEmptyString()][string]$Value)
+  if ([string]::IsNullOrWhiteSpace($Value)) { return @() }
+  return @($Value -split '[,;]' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim() })
+}
+
+function Get-RekitPlanRouteSelectionReason {
+  param(
+    [Parameter(Mandatory=$true)]$RouteItem,
+    [string]$Route = '',
+    [string]$TaskType = ''
+  )
+  if (-not [string]::IsNullOrWhiteSpace($Route)) { return 'route' }
+  if (-not [string]::IsNullOrWhiteSpace($TaskType)) {
+    $taskTypes = ([string]$RouteItem.taskTypes) -split '[,;]' | ForEach-Object { $_.Trim() }
+    foreach ($task in $taskTypes) {
+      if ([string]::Equals($task, $TaskType, [System.StringComparison]::OrdinalIgnoreCase)) { return 'taskType' }
+    }
+  }
+  return 'manifest-default'
+}
+
+function New-RekitSubagentPlanObservability {
+  param(
+    [Parameter(Mandatory=$true)]$RouteItem,
+    [Parameter(Mandatory=$true)]$Paths,
+    [Parameter(Mandatory=$true)]$Shards,
+    [string]$Route = '',
+    [string]$TaskType = ''
+  )
+  $statuses = @()
+  foreach ($shard in @($Shards)) {
+    $statuses += [ordered]@{
+      shardId = [string]$shard.id
+      status = 'planned'
+      itemCount = @($shard.items).Count
+      expectedOutput = ([string]$RouteItem.outputContract)
+    }
+  }
+  return [ordered]@{
+    dispatchMode = 'manual-main-agent'
+    routeDebug = [ordered]@{
+      selectedBy = (Get-RekitPlanRouteSelectionReason -RouteItem $RouteItem -Route $Route -TaskType $TaskType)
+      routeId = ([string]$RouteItem.id)
+      taskTypes = ([string]$RouteItem.taskTypes)
+      trigger = ([string]$RouteItem.trigger)
+      reference = ([string]$RouteItem.reference)
+      policyOverlay = ([string]$RouteItem.policyOverlay)
+    }
+    reviewRoot = $Paths.Root
+    packetPath = $Paths.PacketPath
+    summaryPath = $Paths.SummaryPath
+    combinedDiffPath = $Paths.CombinedDiffPath
+    shardStatuses = @($statuses)
+    blockedActions = @(
+      'runtime does not spawn subagents',
+      'subagents must not write files',
+      'main agent owns ledger writeback, validation, handoff, authority, and confirmed writes'
+    )
+  }
+}
+
+function New-RekitSubagentReviewLoop {
+  param([Parameter(Mandatory=$true)]$RouteItem)
+  return [ordered]@{
+    spawnOwner = 'main-agent'
+    mergeOwner = 'main-agent'
+    mainAgentOwns = @(Split-RekitPlanCsv -Value ([string]$RouteItem.mainAgentOwns))
+    verdictWriteback = '/rekit note -Kind verification for reviewer verdicts; /rekit note -Kind decision for main merge decisions'
+    completionCriteria = @(
+      'each planned shard is accepted, rejected, deferred, or explicitly abandoned',
+      'reviewer verdicts are recorded in the ledger before main merge decisions',
+      'accepted writes remain gated by main-agent validation and authority/confirmed confirmation'
+    )
+    failureHandling = 'discard failed shard result and retry later with a smaller bounded shard; do not block unrelated shards'
+  }
+}
+
 function Write-RekitSubagentPlan {
   param(
     [Parameter(Mandatory=$true)][string]$Target,
@@ -326,6 +404,8 @@ function Write-RekitSubagentPlan {
   $shards = @(New-RekitPlanShards -Items $planItems -TargetItemsPerAgent $routeItemsPerAgent)
   $paths = Get-RekitReviewPaths -Command 'plan-subagents' -CaseRoot $planRoot -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
   if (Test-Path -LiteralPath $paths.CombinedDiffPath) { Remove-Item -LiteralPath $paths.CombinedDiffPath -Force }
+  $observability = New-RekitSubagentPlanObservability -RouteItem $routeItem -Paths $paths -Shards $shards -Route $Route -TaskType $TaskType
+  $reviewLoop = New-RekitSubagentReviewLoop -RouteItem $routeItem
 
   $packet = [ordered]@{
     schemaVersion = 1
@@ -343,6 +423,8 @@ function Write-RekitSubagentPlan {
     subagentPermissions = ([string]$routeItem.subagentPermissions)
     outputContract = ([string]$routeItem.outputContract)
     reviewRequired = $true
+    observability = $observability
+    reviewLoop = $reviewLoop
   }
 
   $summary = @(
@@ -355,6 +437,41 @@ function Write-RekitSubagentPlan {
     ('- target items per agent: `' + $routeItemsPerAgent + '`'),
     ('- max parallel: `' + $routeMaxParallel + '`'),
     '- writes review artifacts: `true`',
+    '',
+    '## bounded dispatch observability',
+    '',
+    ('- dispatch mode: `' + [string]$observability.dispatchMode + '`'),
+    ('- route selected by: `' + [string]$observability.routeDebug.selectedBy + '`'),
+    ('- review root: `' + [string]$observability.reviewRoot + '`'),
+    ('- packet: `' + [string]$observability.packetPath + '`'),
+    ('- combined diff: `' + [string]$observability.combinedDiffPath + '`'),
+    ('- spawn owner: `' + [string]$reviewLoop.spawnOwner + '`'),
+    ('- merge owner: `' + [string]$reviewLoop.mergeOwner + '`'),
+    ('- verdict writeback: `' + [string]$reviewLoop.verdictWriteback + '`'),
+    '',
+    '### shard status',
+    ''
+  )
+  if (@($observability.shardStatuses).Count -eq 0) {
+    $summary += '- no shards planned'
+  } else {
+    foreach ($status in @($observability.shardStatuses)) {
+      $summary += ('- ' + [string]$status.shardId + ': `' + [string]$status.status + '`, items=`' + [string]$status.itemCount + '`')
+    }
+  }
+  $summary += @(
+    '',
+    '### blocked runtime actions',
+    ''
+  )
+  foreach ($action in @($observability.blockedActions)) { $summary += ('- ' + [string]$action) }
+  $summary += @(
+    '',
+    '### completion criteria',
+    ''
+  )
+  foreach ($criterion in @($reviewLoop.completionCriteria)) { $summary += ('- ' + [string]$criterion) }
+  $summary += @(
     '',
     'Use the generated packet to launch read-only subagents. The command only writes review artifacts; the main agent owns project writes, validation, and handoff updates.'
   )
