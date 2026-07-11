@@ -515,7 +515,7 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "/rekit continue main"} {
+	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "/rekit continue main"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("overview missing %q:\n%s", expected, text)
 		}
@@ -669,7 +669,7 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
+	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
 		if !strings.Contains(string(laneText), expected) {
 			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
 		}
@@ -1745,7 +1745,7 @@ func writeOverviewFixture(t *testing.T, caseRoot string) {
 	writeFactFile(t, factsRoot, "publications.jsonl", []string{`{"kind":"publication","lane":"main","subject":"pub","summary":"published"}`})
 	writeFactFile(t, factsRoot, "decisions.jsonl", []string{`{"kind":"decision","lane":"main","subject":"decision subject","decision":"defer","actor":"runtime-test","reason":"needs review","batchId":"batch-overview"}`})
 	writeFactFile(t, factsRoot, "hypotheses.jsonl", nil)
-	writeFactFile(t, factsRoot, "verifications.jsonl", nil)
+	writeFactFile(t, factsRoot, "verifications.jsonl", []string{`{"kind":"verification","lane":"main","subject":"review target","actor":"reviewer-smoke","target":"candidate-alpha","verifier":"manual-review","verdict":"accepted","batchId":"batch-overview"}`})
 	writeFactFile(t, factsRoot, "interventions.jsonl", []string{`{"kind":"intervention","lane":"main","subject":"manual override","summary":"needs human","action":"override","target":"batch-overview","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-overview"}`})
 	writeFactFile(t, factsRoot, "rollbacks.jsonl", []string{`{"kind":"rollback","lane":"main","subject":"rollback item","target":"batch-overview","status":"resolved","reason":"cleanup","batchId":"batch-overview"}`})
 }
@@ -1777,7 +1777,7 @@ func writeHandoffFixture(t *testing.T, caseRoot string) {
 	writeFactFile(t, factsRoot, "candidates.jsonl", nil)
 	writeFactFile(t, factsRoot, "publications.jsonl", nil)
 	writeFactFile(t, factsRoot, "hypotheses.jsonl", nil)
-	writeFactFile(t, factsRoot, "verifications.jsonl", nil)
+	writeFactFile(t, factsRoot, "verifications.jsonl", []string{`{"kind":"verification","lane":"feature-login","subject":"review target","actor":"reviewer-smoke","target":"candidate-alpha","verifier":"manual-review","verdict":"accepted","batchId":"batch-handoff"}`})
 	writeFactFile(t, factsRoot, "requests.jsonl", []string{`{"kind":"request","lane":"feature-login","subject":"debug gate","summary":"needs confirmation","status":"pending-gate","actor":"runtime-test","risk":"high","target":"batch-handoff","batchId":"batch-handoff","gate":{"action":"debug","scope":"handler only","budget":"30s","triedLightSteps":["overview","static review"],"stopConditions":["timeout"]}}`})
 	writeFactFile(t, factsRoot, "decisions.jsonl", []string{`{"kind":"decision","lane":"feature-login","subject":"decision subject","decision":"defer","actor":"runtime-test","reason":"needs review","batchId":"batch-handoff"}`})
 	writeFactFile(t, factsRoot, "interventions.jsonl", []string{`{"kind":"intervention","lane":"feature-login","subject":"manual override","summary":"needs human","action":"override","target":"batch-handoff","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-handoff"}`})

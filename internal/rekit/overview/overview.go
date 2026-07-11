@@ -74,6 +74,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 
 	writeOpenCandidates(&out, facts.Candidates)
 	writePendingGates(&out, facts.Requests)
+	writeVerifications(&out, facts.Verifications)
 	writeDecisions(&out, facts.Decisions)
 	writeBatches(&out, facts.AllBatchEvents)
 	writeInterventions(&out, facts.Interventions)
@@ -170,6 +171,29 @@ func writePendingGates(out *bytes.Buffer, requests []event) {
 	}
 	if rest := len(pending) - len(shown); rest > 0 {
 		fmt.Fprintf(out, "- 另有 %d 条 pending-gate\n", rest)
+	}
+	fmt.Fprintln(out)
+}
+
+func writeVerifications(out *bytes.Buffer, verifications []event) {
+	if len(verifications) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "最近 verification：")
+	shown := lastEvents(verifications, maxRows)
+	for _, v := range shown {
+		subject := stringValue(v, "subject")
+		if strings.TrimSpace(subject) == "" {
+			subject = stringValue(v, "kind")
+		}
+		by := ""
+		if actor := stringValue(v, "actor"); strings.TrimSpace(actor) != "" {
+			by = " | by=" + actor
+		}
+		fmt.Fprintf(out, "- %s | lane=%s | verifier=%s | verdict=%s | target=%s%s%s\n", subject, stringValue(v, "lane"), stringValue(v, "verifier"), stringValue(v, "verdict"), stringValue(v, "target"), by, batchTag(v))
+	}
+	if rest := len(verifications) - len(shown); rest > 0 {
+		fmt.Fprintf(out, "- 另有 %d 条 verification\n", rest)
 	}
 	fmt.Fprintln(out)
 }
@@ -348,11 +372,12 @@ func writeNextSteps(out *bytes.Buffer, lanes []event) {
 
 func pendingDecisions(decisions []event) int {
 	pending := 0
+	terminalStatus := map[string]bool{"confirmed": true, "accepted": true, "rejected": true, "resolved": true, "deferred": true, "superseded": true}
 	for _, d := range decisions {
 		decision := stringValue(d, "decision")
 		status := stringValue(d, "status")
 		action := stringValue(d, "action")
-		if action == "pending-user" || decision == "defer" || (status != "" && !map[string]bool{"confirmed": true, "rejected": true, "superseded": true}[status]) {
+		if action == "pending-user" || (status == "" && decision == "defer") || (status != "" && !terminalStatus[status]) {
 			pending++
 		}
 	}

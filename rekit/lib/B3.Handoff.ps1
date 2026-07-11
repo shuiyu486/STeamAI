@@ -126,6 +126,20 @@ function Write-RekitLaneHandoff {
     }
   }
   $paths = Get-RekitBoardPaths -CaseRoot $CaseRoot
+  $verifications = @(Read-RekitJsonLines -Path $paths.Verifications | Where-Object { [string]$_.lane -eq $laneId } | Select-Object -Last 5)
+  if ($verifications.Count -gt 0) {
+    $lines.Add('## verification')
+    $lines.Add('')
+    foreach ($v in $verifications) {
+      $subj = [string]$v.subject; if ([string]::IsNullOrWhiteSpace($subj)) { $subj = [string]$v.kind }
+      $by = [string]$v.actor
+      $byTag = if (-not [string]::IsNullOrWhiteSpace($by)) { " | by=$by" } else { '' }
+      $batch = [string]$v.batchId
+      $batchTag = if (-not [string]::IsNullOrWhiteSpace($batch)) { " | batch=$batch" } else { '' }
+      $lines.Add(("- {0} | verifier={1} | verdict={2} | target={3}{4}{5}" -f $subj, [string]$v.verifier, [string]$v.verdict, [string]$v.target, $byTag, $batchTag))
+    }
+    $lines.Add('')
+  }
   $decisions = @(Read-RekitJsonLines -Path $paths.Decisions | Where-Object { [string]$_.lane -eq $laneId } | Select-Object -Last 5)
   if ($decisions.Count -gt 0) {
     $lines.Add('## decision')

@@ -146,6 +146,7 @@ claude
 
 - 当前主线和功能支线；
 - 共享事实、request、candidate、publication 统计；
+- 未决 candidate、pending-gate、最近 verification / decision 等 review loop 摘要；
 - 需要人工确认的事项；
 - 推荐下一步。
 
@@ -203,6 +204,8 @@ claude
 ```text
 按 .rekit/handovers/devirt-main-latest.md 接手，然后 /rekit continue main。
 ```
+
+工作线接手文档会附带本工作线的 workspace packet、最近 verification、decision、pending-gate、intervention 和 rollback 摘要，便于新会话看到 reviewer verdict 到 main decision 的状态。
 
 这些接手文档只引用 `references/vmp-re/task-handoff.md`，不会覆盖它。
 

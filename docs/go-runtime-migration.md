@@ -175,9 +175,9 @@ git diff --check
 
 顺序：
 
-1. `overview`（G4.1 已完成 Go CLI 只读 renderer：读取既有 board/facts，不创建 board/facts/lanes，不写 handoff/ledger/metadata）；
+1. `overview`（G4.1 已完成 Go CLI 只读 renderer：读取既有 board/facts，展示最近 verification/decision，不创建 board/facts/lanes，不写 handoff/ledger/metadata）；
 2. `start`（G4.2 已完成 Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式创建/进入 feature lane 并初始化 board/facts/policy/default authority lane）；
-3. `handoff`（G4.3 已完成 Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式写项目级/工作线级 handoff 并刷新 lane resume/checkpoint）；
+3. `handoff`（G4.3 已完成 Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式写项目级/工作线级 handoff、展示最近 verification/decision 并刷新 lane resume/checkpoint）；
 4. `plan-subagents`（G4.4 已完成 Go CLI review artifact 手动路径：按 manifest `subagentRoutes` 选择 route、拆分 Items/ItemsFile、写 packet/summary review artifact；不启动 agent、不写 board/facts/lanes/handoff/authority）。
 
 `continue` 仍保留 PowerShell，直到 authority gate 测试完善。
@@ -245,9 +245,9 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Go gate no-mode guard | `go run ./cmd/rekit -- -Command gate -Target <case> -Action debug -Lane <lane>` | 报错，必须显式选择 `-WhatIf` 或 `-Apply`。 |
 | Go gate apply | `go run ./cmd/rekit -- -Command gate -Target <case> -Pack vmp-re -Apply -Action debug -Lane <lane> -Actor <user>` | 只 append `.rekit/facts/requests.jsonl` pending-gate request，返回 `isMutation=true`，不执行工具。 |
 | Gate request display parity | `.\rekit\tests\gate-parity-smoke.ps1` | Go `gate -Apply` 写入的 pending-gate request 在 PowerShell `overview`、`note -List`、lane `handoff` 中展示 actor/risk/target/batch/gate 详情。 |
-| Go overview readonly | `.\rekit\tests\overview-readonly-smoke.ps1` | 手动 Go CLI 读取既有 board/facts 输出项目总览；缺 board 时拒绝，不创建 board/facts/lanes；PowerShell façade 即使显式 Go enable 仍不委托 `overview`。 |
+| Go overview readonly | `.\rekit\tests\overview-readonly-smoke.ps1` | 手动 Go CLI 读取既有 board/facts 输出项目总览，含最近 verification/decision；缺 board 时拒绝，不创建 board/facts/lanes；PowerShell façade 即使显式 Go enable 仍不委托 `overview`。 |
 | Go start apply | `.\rekit\tests\start-apply-smoke.ps1` | 手动 Go CLI `start -WhatIf/-Apply` 预览或创建 feature lane，验证 board/facts/policy/lane/workspace scaffold、doctor 与 façade fallback；不经 PowerShell façade 委托。 |
-| Go handoff apply | `.\rekit\tests\handoff-apply-smoke.ps1` | 手动 Go CLI `handoff -WhatIf/-Apply` 预览或写项目级/工作线级 handoff，验证 lane resume/checkpoint、ledger 展示区段、doctor 与 façade fallback；不经 PowerShell façade 委托。 |
+| Go handoff apply | `.\rekit\tests\handoff-apply-smoke.ps1` | 手动 Go CLI `handoff -WhatIf/-Apply` 预览或写项目级/工作线级 handoff，验证 lane resume/checkpoint、verification/decision 等 ledger 展示区段、doctor 与 façade fallback；不经 PowerShell façade 委托。 |
 | Go plan-subagents artifacts | `.\rekit\tests\plan-subagents-smoke.ps1` | 手动 Go CLI `plan-subagents` 写 review packet/summary，验证 route/taskType 选择、Items/ItemsFile 分片、out-of-case guard、missing routes、doctor 与 façade fallback；不写 board/facts/lanes/handoff/authority，不启动 agent。 |
 | Go attach preview | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -WhatIf` | 输出非写入 plan，不创建目录或文件。 |
 | Go attach apply | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -ProjectName <name> -Apply` | 只写 `.rekit/instance.yml` 与 case-local thin shim，不写 managed docs、board/facts/lanes、legacy metadata 或 state。 |

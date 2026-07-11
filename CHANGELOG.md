@@ -61,6 +61,7 @@
 - Agent Team review loop Batch A 启动：收敛通用 contract，明确 reviewer output decision 与 ledger decision 分层，canonical decision enum 使用 `accept|reject|defer|supersede`，历史 `confirm`/`confirmed`/`action` 仅作为读层兼容；`agent-team.md` 更新 `/rekit note` 手动 append 与 `/rekit continue` 自动抽取两条 facts event 路径，`evidence-ledger.md` 补 request/heavy-tool gate 扩展字段与 `needs_more_evidence` → `needs-more-evidence` 归一化说明。
 - Agent Team review loop Batch B 启动：同步 VMP managed docs 与 manifest route；`agent-driven-re.md` 补 canonical contract 指向、`evidence_id`、runtime normalized lane id、`output_contract`、accepted decision 与 confirmed/authority 写入分层；`vmp-re` 两条 `subagentRoutes.outputContract` 补 `tier_used,tool_scope`，对齐通用 subagent contract。
 - Agent Team review loop Batch C 完成：新增 `rekit/tests/agent-team-review-loop-smoke.ps1`，覆盖 `plan-subagents` review packet、`note -Kind verification`、`note -Kind decision`、`note -List`、`overview` 与 lane `handoff` 的最小闭环；该 smoke 只使用临时 case，不启动 subagent、不写 confirmed/authority、不执行 heavy-tool。
+- Agent Team review loop Batch D 完成：PowerShell 与 Go `overview` 现在展示最近 verification，lane `handoff` 增加 `## verification` 区段；相关 smoke 与 Go CLI fixtures 覆盖 reviewer verdict 到 main decision 的可见性。该批只增强读层展示，不写 confirmed/authority、不执行 heavy-tool。
 
 ### Fixed
 

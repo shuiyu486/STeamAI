@@ -163,6 +163,7 @@ try {
   Write-Utf8File -Path (Join-Path $laneRoot 'inbox.jsonl') -Text ('{"eventId":"in-1","summary":"review queued"}' + "`r`n")
   Write-Utf8File -Path (Join-Path $laneRoot 'tasks.jsonl') -Text ('{"taskId":"task-1","summary":"inspect candidate","status":"open"}' + "`r`n")
   Write-Utf8File -Path (Join-Path $workspace 'packet.md') -Text "# packet`r`n"
+  Write-Utf8File -Path (Join-Path $factsRoot 'verifications.jsonl') -Text ('{"kind":"verification","lane":"feature-login","subject":"review target","actor":"reviewer-smoke","target":"candidate-alpha","verifier":"manual-review","verdict":"accepted","batchId":"batch-handoff"}' + "`r`n")
   Write-Utf8File -Path (Join-Path $factsRoot 'decisions.jsonl') -Text ('{"kind":"decision","lane":"feature-login","subject":"decision subject","decision":"defer","actor":"runtime-test","reason":"needs review","batchId":"batch-handoff"}' + "`r`n")
   Write-Utf8File -Path (Join-Path $factsRoot 'requests.jsonl') -Text ('{"kind":"request","lane":"feature-login","subject":"debug gate","summary":"needs confirmation","status":"pending-gate","actor":"runtime-test","risk":"high","target":"batch-handoff","batchId":"batch-handoff","gate":{"action":"debug","scope":"handler only","budget":"30s","triedLightSteps":["overview","static review"],"stopConditions":["timeout"]}}' + "`r`n")
   Write-Utf8File -Path (Join-Path $factsRoot 'interventions.jsonl') -Text ('{"kind":"intervention","lane":"feature-login","subject":"manual override","action":"override","target":"batch-handoff","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-handoff"}' + "`r`n")
@@ -188,7 +189,7 @@ try {
   if (-not [bool]$lane.isMutation -or -not [bool]$lane.applied -or [bool]$lane.project -or [string]$lane.lane.id -ne 'feature-login') { throw "unexpected lane handoff result: $($lane | ConvertTo-Json -Depth 10)" }
   Assert-WriteAction -Result $lane -Path '.rekit/handovers/feature-login-latest.md' -Action 'write-latest-lane-handoff' | Out-Null
   $laneText = [System.IO.File]::ReadAllText((Join-Path $caseRoot '.rekit\handovers\feature-login-latest.md'), [System.Text.Encoding]::UTF8)
-  foreach ($expected in @('# rekit ','feature-login','workspace/features/feature-login/packet.md','## decision','by=runtime-test','## pending-gate','action=debug','## intervention','## rollback')) {
+  foreach ($expected in @('# rekit ','feature-login','workspace/features/feature-login/packet.md','## verification','verifier=manual-review','verdict=accepted','target=candidate-alpha','by=reviewer-smoke','## decision','by=runtime-test','## pending-gate','action=debug','## intervention','## rollback')) {
     Assert-ContainsText -Text $laneText -Expected $expected -Label 'lane handoff content'
   }
   $resume = [System.IO.File]::ReadAllText((Join-Path $laneRoot 'prompts\RESUME.md'), [System.Text.Encoding]::UTF8)

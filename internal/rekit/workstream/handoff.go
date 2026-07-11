@@ -356,6 +356,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	if err != nil {
 		return "", nil, err
 	}
+	writeVerificationSection(&out, facts.Verifications, lane.ID)
 	writeDecisionSection(&out, facts.Decisions, lane.ID)
 	writePendingGateSection(&out, facts.Requests, lane.ID)
 	writeInterventionSection(&out, facts.Interventions, lane.ID)
@@ -572,6 +573,7 @@ func writeWorkspacePackets(out *bytes.Buffer, caseRoot string, lane Lane) error 
 }
 
 type handoffFacts struct {
+	Verifications []map[string]any
 	Decisions     []map[string]any
 	Requests      []map[string]any
 	Interventions []map[string]any
@@ -587,6 +589,9 @@ func readHandoffFacts(caseRoot string) (handoffFacts, error) {
 		return readJSONLineObjects(filepath.Join(factsRoot, name))
 	}
 	out := handoffFacts{}
+	if out.Verifications, err = read("verifications.jsonl"); err != nil {
+		return out, err
+	}
 	if out.Decisions, err = read("decisions.jsonl"); err != nil {
 		return out, err
 	}
@@ -600,6 +605,25 @@ func readHandoffFacts(caseRoot string) (handoffFacts, error) {
 		return out, err
 	}
 	return out, nil
+}
+
+func writeVerificationSection(out *bytes.Buffer, verifications []map[string]any, laneID string) {
+	items := filterLane(verifications, laneID, "")
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "## verification")
+	fmt.Fprintln(out)
+	for _, v := range lastObjects(items, maxHandoffRows) {
+		subj := firstObjectText(v, "subject", "kind")
+		by := firstObjectText(v, "actor")
+		byTag := ""
+		if by != "" {
+			byTag = " | by=" + by
+		}
+		fmt.Fprintf(out, "- %s | verifier=%s | verdict=%s | target=%s%s%s\n", subj, firstObjectText(v, "verifier"), firstObjectText(v, "verdict"), firstObjectText(v, "target"), byTag, batchTag(v))
+	}
+	fmt.Fprintln(out)
 }
 
 func writeDecisionSection(out *bytes.Buffer, decisions []map[string]any, laneID string) {

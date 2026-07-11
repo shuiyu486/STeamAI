@@ -164,7 +164,7 @@ try {
   Write-FactFile -FactsRoot $factsRoot -Name 'publications.jsonl' -Events @([ordered]@{ kind='publication'; lane=$lane; subject='pub'; summary='published' })
   Write-FactFile -FactsRoot $factsRoot -Name 'decisions.jsonl' -Events @([ordered]@{ kind='decision'; lane=$lane; subject='decision subject'; decision='defer'; actor='overview-smoke'; reason='needs review'; batchId=$batch })
   Write-FactFile -FactsRoot $factsRoot -Name 'hypotheses.jsonl' -Events @()
-  Write-FactFile -FactsRoot $factsRoot -Name 'verifications.jsonl' -Events @()
+  Write-FactFile -FactsRoot $factsRoot -Name 'verifications.jsonl' -Events @([ordered]@{ kind='verification'; lane=$lane; subject='review target'; actor='reviewer-smoke'; target='candidate-alpha'; verifier='manual-review'; verdict='accepted'; batchId=$batch })
   Write-FactFile -FactsRoot $factsRoot -Name 'interventions.jsonl' -Events @([ordered]@{ kind='intervention'; lane=$lane; subject='manual override'; summary='needs human'; action='override'; target=$batch; approvedBy='lead'; scope='metadata'; status='open'; batchId=$batch })
   Write-FactFile -FactsRoot $factsRoot -Name 'rollbacks.jsonl' -Events @([ordered]@{ kind='rollback'; lane=$lane; subject='rollback item'; target=$batch; status='resolved'; reason='cleanup'; batchId=$batch })
 
@@ -176,12 +176,13 @@ try {
   $sectionFacts = TextFromCodes @(20849,20139,20107,23454,65306)
   $sectionCandidates = TextFromCodes @(26410,20915,32,99,97,110,100,105,100,97,116,101,65306)
   $conflictMark = TextFromCodes @(91,20914,31361,93)
+  $sectionVerification = TextFromCodes @(26368,36817,32,118,101,114,105,102,105,99,97,116,105,111,110,65306)
   $sectionDecisions = TextFromCodes @(26368,36817,32,100,101,99,105,115,105,111,110,65306)
   $sectionBatches = TextFromCodes @(26368,36817,32,98,97,116,99,104,65306)
   $sectionOpenInterventions = TextFromCodes @(26410,35299,20915,32,105,110,116,101,114,118,101,110,116,105,111,110,65306)
   $sectionInterventions = TextFromCodes @(26368,36817,32,105,110,116,101,114,118,101,110,116,105,111,110,65306)
   $sectionRollbacks = TextFromCodes @(26368,36817,32,114,111,108,108,98,97,99,107,65306)
-  foreach ($expected in @($sectionProject,$sectionLanes,$sectionFacts,$sectionCandidates,'smoke-handler',$conflictMark,'pending-gate','by=overview-smoke','risk=high',"target=$batch",'action=debug','scope=handler only','budget=30s','tried=overview,static review','stop=timeout',$sectionDecisions,'decision=defer',$sectionBatches,$batch,$sectionOpenInterventions,$sectionInterventions,$sectionRollbacks,'/rekit continue main')) {
+  foreach ($expected in @($sectionProject,$sectionLanes,$sectionFacts,$sectionCandidates,'smoke-handler',$conflictMark,'pending-gate','by=overview-smoke','risk=high',"target=$batch",'action=debug','scope=handler only','budget=30s','tried=overview,static review','stop=timeout',$sectionVerification,'verifier=manual-review','verdict=accepted','target=candidate-alpha','by=reviewer-smoke',$sectionDecisions,'decision=defer',$sectionBatches,$batch,$sectionOpenInterventions,$sectionInterventions,$sectionRollbacks,'/rekit continue main')) {
     Assert-ContainsText -Text $overview -Expected $expected -Label 'go overview readonly summary'
   }
   Assert-TreeUnchanged -Root $rekitRoot -BeforeSnapshot $beforeFiles -BeforeDirectories $beforeDirs

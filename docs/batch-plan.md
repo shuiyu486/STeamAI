@@ -1527,3 +1527,35 @@ git diff --check
 ```
 
 验证结果：全部通过；smoke 覆盖 review packet、verification event、main decision event、`note -List` 查询、`overview` decision 展示与 lane `handoff` decision 展示。PowerShell façade `note` 已恢复显式命名参数透传，并保留 `RemainingArgs` 兼容解析。本批仅写临时 case/review artifact 并清理，未启动 subagent、未写 confirmed/authority、未执行 heavy-tool。
+
+### Batch 51：overview / handoff review visibility
+
+状态：已完成。
+
+目标：让 Batch 50 固化的 review loop 在日常接手入口中更直观可见：`overview` 直接显示 reviewer verification，lane `handoff` 显示 reviewer verdict 与 main decision 的相邻状态。
+
+实施范围：
+
+- PowerShell `overview` 增加“最近 verification”区段，展示 `lane`、`verifier`、`verdict`、`target`、`actor` 与 `batchId`。
+- PowerShell lane `handoff` 增加 `## verification` 区段，限最近 5 条，与既有 `## decision`、`## pending-gate`、`## intervention`、`## rollback` 并列。
+- Go `overview` 与 Go `handoff` 手动路径同步展示 verification，保持 PowerShell/Go 读层语义一致；公共 PowerShell façade 仍不委托工作线命令。
+- 修正 `overview` 需要确认计数的 accepted/resolved/deferred status 兼容，让 accepted decision 不再被误计为待确认。
+- 扩展 `agent-team-review-loop-smoke.ps1`、`overview-readonly-smoke.ps1`、`handoff-apply-smoke.ps1` 与 Go CLI fixtures，覆盖 verification visibility。
+- 更新 README、skill、Go migration 文档、CHANGELOG 与本计划。
+
+边界：本批只增强读层 visibility 与 smoke，不改变 ledger schema，不迁移历史 JSONL，不自动 dispatch reviewer，不启动 subagent，不写 confirmed/authority，不执行 full-trace/debug/inject/patch/dump/network；`gate -Apply` 仍只表示 pending-gate request 写入，不代表 heavy-tool 授权。
+
+停止条件：需要改变 verification schema、把 reviewer verdict 自动转成 main decision、或把 Go 工作线命令纳入 façade 默认委托时暂停并重新评估。
+
+验证：
+
+```powershell
+.\rekit\tests\agent-team-review-loop-smoke.ps1
+.\rekit\tests\overview-readonly-smoke.ps1
+.\rekit\tests\handoff-apply-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过；PowerShell/Go `overview` 均显示最近 verification，PowerShell/Go lane `handoff` 均显示 `## verification`，review loop smoke 覆盖 `verification -> decision -> overview/handoff` 可见性。本批未写 confirmed/authority、未启动 subagent、未执行 heavy-tool，临时 case 均清理。

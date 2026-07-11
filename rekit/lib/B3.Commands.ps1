@@ -84,11 +84,12 @@ function Show-RekitOverview {
   $req = @(Read-RekitJsonLines -Path $paths.Requests).Count
   $cand = @(Read-RekitJsonLines -Path $paths.Candidates).Count
   $pub = @(Read-RekitJsonLines -Path $paths.Publications).Count
+  $pendingDecisionTerminalStatus = @('confirmed','accepted','rejected','resolved','deferred','superseded')
   $pending = @((Read-RekitJsonLines -Path $paths.Decisions) | Where-Object {
     $d = [string]$_.decision
     $s = [string]$_.status
     $a = [string]$_.action
-    $a -eq 'pending-user' -or $d -eq 'defer' -or ($s -ne '' -and @('confirmed','rejected','superseded') -notcontains $s)
+    $a -eq 'pending-user' -or ([string]::IsNullOrWhiteSpace($s) -and $d -eq 'defer') -or ($s -ne '' -and $pendingDecisionTerminalStatus -notcontains $s)
   }).Count
   Write-Host ''
   Write-Host '共享事实：'
@@ -139,6 +140,23 @@ function Show-RekitOverview {
     if ($rest -gt 0) { Write-Host "- 另有 $rest 条 pending-gate" }
     Write-Host ''
   }
+  $allVerifications = @(Read-RekitJsonLines -Path $paths.Verifications)
+  if ($allVerifications.Count -gt 0) {
+    Write-Host '最近 verification：'
+    $shownV = @($allVerifications | Select-Object -Last $maxRows)
+    foreach ($v in $shownV) {
+      $subj = [string]$v.subject; if ([string]::IsNullOrWhiteSpace($subj)) { $subj = [string]$v.kind }
+      $actor = [string]$v.actor
+      $byTag = if (-not [string]::IsNullOrWhiteSpace($actor)) { " | by=$actor" } else { '' }
+      $batch = [string]$v.batchId
+      $batchTag = if (-not [string]::IsNullOrWhiteSpace($batch)) { " | batch=$batch" } else { '' }
+      Write-Host ("- {0} | lane={1} | verifier={2} | verdict={3} | target={4}{5}{6}" -f $subj, [string]$v.lane, [string]$v.verifier, [string]$v.verdict, [string]$v.target, $byTag, $batchTag)
+    }
+    $rest = $allVerifications.Count - $shownV.Count
+    if ($rest -gt 0) { Write-Host "- 另有 $rest 条 verification" }
+    Write-Host ''
+  }
+
   $allDecisions = @(Read-RekitJsonLines -Path $paths.Decisions)
   if ($allDecisions.Count -gt 0) {
     Write-Host '最近 decision：'

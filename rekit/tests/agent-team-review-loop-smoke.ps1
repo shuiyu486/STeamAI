@@ -39,6 +39,11 @@ function Assert-ContainsText {
   if ($Text -notlike "*$Expected*") { throw "$Label missing expected text '$Expected'. Output:`n$Text" }
 }
 
+function TextFromCodes {
+  param([Parameter(Mandatory=$true)][int[]]$Codes)
+  return (-join ($Codes | ForEach-Object { [char]$_ }))
+}
+
 Get-ChildItem -LiteralPath $WorkRoot | Select-Object -First 1 | Out-Null
 $suffix = [Guid]::NewGuid().ToString('N').Substring(0,8)
 $caseRoot = Join-Path $WorkRoot "agent-team-review-loop-$suffix"
@@ -80,16 +85,17 @@ try {
   }
 
   $overview = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack)
-  foreach ($expected in @($candidate,'decision=accept','by=main-smoke')) {
-    Assert-ContainsText -Text $overview -Expected $expected -Label 'overview decision display'
+  $sectionVerification = TextFromCodes @(26368,36817,32,118,101,114,105,102,105,99,97,116,105,111,110,65306)
+  foreach ($expected in @($sectionVerification,$candidate,'verifier=manual-review','verdict=accepted',"target=$candidate",'decision=accept','by=main-smoke')) {
+    Assert-ContainsText -Text $overview -Expected $expected -Label 'overview review loop display'
   }
 
   Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,$lane) | Out-Null
   $handoffPath = Join-Path $caseRoot ('.rekit\handovers\' + $lane + '-latest.md')
   if (-not (Test-Path -LiteralPath $handoffPath)) { throw "missing handoff: $handoffPath" }
   $handoff = [System.IO.File]::ReadAllText($handoffPath, [System.Text.Encoding]::UTF8)
-  foreach ($expected in @($candidate,'decision=accept','by=main-smoke')) {
-    Assert-ContainsText -Text $handoff -Expected $expected -Label 'handoff decision display'
+  foreach ($expected in @('## verification',$candidate,'verifier=manual-review','verdict=accepted',"target=$candidate",'decision=accept','by=main-smoke')) {
+    Assert-ContainsText -Text $handoff -Expected $expected -Label 'handoff review loop display'
   }
 
   Invoke-RekitSmoke -Arguments @('-Command','doctor','-Target',$caseRoot,'-Pack',$Pack) | Out-Null
