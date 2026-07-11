@@ -240,6 +240,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 即使启用委托，也只允许命令安全集合：
 
 - `status`；
+- `packs` 只读 pack inventory；
 - kit-root 与 attached case `doctor` / `validate`；
 - `sync/promote` review-only（含 `-ReviewOutputDir` / `-PacketPath` / `-DiffPath` artifact 写入）；
 - `gate -WhatIf` dry-run（仅输出非写入 plan，不执行 heavy-tool、不写 ledger）。
@@ -251,11 +252,12 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | 场景 | 命令 | 预期 |
 |---|---|---|
 | Go status | `go run ./cmd/rekit -- -Command status` | 输出 runtime root、template root、pack、manifest counts。 |
+| Go packs inventory | `go run ./cmd/rekit -- -Command packs` | 只读列出所有 `packs/*/manifest.yml`，显示成熟度、schema、route、managed/tooling、authority lane、version 与 description。 |
 | Go vmp doctor | `go run ./cmd/rekit -- -Command doctor` | pack validation ok。 |
 | Go explicit root doctor | `go run ./cmd/rekit -- -Command doctor -Target .` | pack validation ok。 |
 | Go case doctor | `go run ./cmd/rekit -- -Command doctor -Target <case> -Pack vmp-re` | attached case 结构只读验证，输出 `instance validation ok`。 |
 | Go non-case target doctor | `go run ./cmd/rekit -- -Command doctor -Target .\does-not-exist` | 报错，不得误报 pack validation ok。 |
-| Go template doctor | `go run ./cmd/rekit -- -Command doctor -Pack _template` | pack validation ok，允许 no subagentRoutes warning。 |
+| Go template doctor | `go run ./cmd/rekit -- -Command doctor -Pack _template` | pack validation ok，模板 pack 自带 pack-neutral subagent routes。 |
 | Go sync review artifacts | `go run ./cmd/rekit -- -Command sync -Target <case> -Pack vmp-re -ReviewOutputDir <dir>` | 写 `packet.json`、`summary.md`、`diffs/combined.diff`，返回 `isMutation=false` / `writesArtifacts=true`。 |
 | Go sync apply | `go run ./cmd/rekit -- -Command sync -Target <case> -Pack vmp-re -Apply` | 手动写入 managed docs / managed block / template create-if-missing / sync state，返回 `isMutation=true`；不经 PowerShell façade 委托。 |
 | Go init preview | `go run ./cmd/rekit -- -Command init -Target <newCase> -Pack vmp-re -WhatIf` | 输出非写入 JSON plan，`isMutation=false` / `requiresConfirmation=true`，不创建 target。 |
@@ -282,6 +284,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Go repair preview | `go run ./cmd/rekit -- -Command repair -Target <movedCase> -Pack vmp-re -WhatIf` | 输出非写入 repair plan，展示 recorded/new projectRoot 与写入计划。 |
 | Go repair apply | `go run ./cmd/rekit -- -Command repair -Target <movedCase> -Pack vmp-re -Apply` | 只刷新 `.rekit/instance.yml`、`.re-template.yml` 与 case-local thin shim，不写 managed docs、board/facts/lanes 或 authority。 |
 | Façade Go status | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command status` | 通过显式开关委托 Go，输出 `rekit go backend`。 |
+| Façade Go packs inventory | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command packs` | 通过显式开关委托 Go，输出与 PowerShell fallback 对齐的 pack inventory 表。 |
 | Façade Go sync review artifacts | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command sync -Target <case> -ReviewOutputDir <dir>` | 委托 Go 写 review artifacts，不写 managed docs。 |
 | Façade Go gate dry-run | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command gate -Target <case> -WhatIf -Action debug -Lane <lane>` | 委托 Go 输出非写入 gate plan；无 ENABLE 时拒绝并提示手动 Go。 |
 | Façade smoke | `.\rekit\tests\facade-smoke.ps1 -CaseRoot <case> -Pack vmp-re` | 覆盖默认不委托、显式安全集合、disable 优先级和写入 flags fallback。 |
@@ -321,6 +324,7 @@ go vet ./...
 - G4.2 已完成 `start` Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式初始化 board/facts/policy/default authority lane 并创建或进入 feature lane；公共 PowerShell façade 仍不委托工作线命令。
 - G4.3 已完成 `handoff` Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式写项目级/工作线级 handoff 并刷新 lane resume/checkpoint；公共 PowerShell façade 仍不委托工作线命令。
 - G4.4 已完成 `plan-subagents` Go CLI review artifact 手动路径：按 manifest `subagentRoutes` 生成分片 packet/summary；Batch 58 已补 route/shard/review-loop observability；公共 PowerShell façade 仍不委托内部命令，不启动 agent、不写 board/facts/lanes/handoff/authority/confirmed。
+- Batch 62 已新增只读 `packs` inventory：Go CLI 与 PowerShell fallback 均可列出全部 pack 的 maturity/schema/routes/managed/tooling/authority；显式 `REKIT_GO_ENABLE=1` 时可委托 Go。
 - 在 PowerShell façade 默认委托前，继续用手动 Go CLI smoke 验证；写入命令、工作线命令、内部命令、authority/confirmed 更新和 schema 迁移仍需单独确认。
 
 ## 风险与止损

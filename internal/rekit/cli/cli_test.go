@@ -89,6 +89,24 @@ func TestRunCaseDoctorValidatesAttachedCase(t *testing.T) {
 	}
 }
 
+func TestRunPacksListsPackMatrix(t *testing.T) {
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "packs"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{
+		"pack\tmaturity\tschema\troutes\tmanaged\ttooling\tauthority\tversion\tdescription",
+		"_template\ttemplate\tok\t2\t4\t2\tmain\t0.1.0",
+		"vmp-re\tmature\tok\t2\t7\t11\tdevirt-main\t0.2.0",
+		"web-security\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("packs output missing %q:\n%s", expected, text)
+		}
+	}
+}
+
 func TestRunCaseDoctorRejectsShimDrift(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeCaseFile(t, caseRoot, ".claude/skills/rekit/SKILL.md", "drift\n")

@@ -2,10 +2,12 @@ package manifest
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -61,6 +63,29 @@ type Manifest struct {
 	Budgets                 map[string]string
 	ManagedBlock            map[string]string
 	SyncPolicy              map[string]string
+
+	explicitManagedBlock map[string]string
+}
+
+type PackSummary struct {
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Version              string `json:"version"`
+	Maturity             string `json:"maturity"`
+	Description          string `json:"description"`
+	ManifestPath         string `json:"manifestPath"`
+	SchemaValid          bool   `json:"schemaValid"`
+	Error                string `json:"error,omitempty"`
+	ManagedFiles         int    `json:"managedFiles"`
+	TemplateFiles        int    `json:"templateFiles"`
+	LocalFiles           int    `json:"localFiles"`
+	PromoteFiles         int    `json:"promoteFiles"`
+	ToolingFiles         int    `json:"toolingFiles"`
+	PromptFiles          int    `json:"promptFiles"`
+	SubagentRoutes       int    `json:"subagentRoutes"`
+	LaneTypes            int    `json:"laneTypes"`
+	AuthorityFiles       int    `json:"authorityFiles"`
+	DefaultAuthorityLane string `json:"defaultAuthorityLane"`
 }
 
 func Load(repoRoot, pack string) (*Manifest, error) {
@@ -71,13 +96,18 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 	if strings.TrimSpace(pack) == "" {
 		pack = "vmp-re"
 	}
-	packRoot := filepath.Join(repo, "packs", pack)
+	pack, err = normalizePackID(pack)
+	if err != nil {
+		return nil, err
+	}
+	packRoot := filepath.Join(repo, "packs", filepath.FromSlash(pack))
 	manifestPath := filepath.Join(packRoot, "manifest.yml")
 	b, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("missing pack manifest: %s", manifestPath)
 	}
 	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
+	explicitManagedBlock := yamlMap(lines, "managedBlock")
 	m := &Manifest{
 		RepoRoot:                repo,
 		Pack:                    pack,
@@ -101,8 +131,9 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 		SubagentRoutes:          yamlSubagentRoutes(lines, "subagentRoutes"),
 		PromoteDenyPatterns:     yamlList(lines, "promoteDenyPatterns"),
 		Budgets:                 yamlMap(lines, "budgets"),
-		ManagedBlock:            yamlMap(lines, "managedBlock"),
+		ManagedBlock:            cloneStringMap(explicitManagedBlock),
 		SyncPolicy:              yamlMap(lines, "syncPolicy"),
+		explicitManagedBlock:    explicitManagedBlock,
 	}
 	if len(m.ManagedFiles) == 0 {
 		return nil, fmt.Errorf("manifest managedFiles is empty: %s", manifestPath)
@@ -131,6 +162,94 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 func (m *Manifest) SourcePath(rel string) (string, error) { return refsf.SafeJoin(m.PackRoot, rel) }
 func (m *Manifest) RepoPath(rel string) (string, error)   { return refsf.SafeJoin(m.RepoRoot, rel) }
 
+func List(repoRoot string) ([]PackSummary, error) {
+	repo, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	packsRoot := filepath.Join(repo, "packs")
+	entries, err := os.ReadDir(packsRoot)
+	if err != nil {
+		return nil, fmt.Errorf("missing packs root: %s", packsRoot)
+	}
+	summaries := []PackSummary{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		id := entry.Name()
+		manifestPath := filepath.Join(packsRoot, id, "manifest.yml")
+		if _, err := os.Stat(manifestPath); err != nil {
+			continue
+		}
+		m, err := Load(repo, id)
+		if err != nil {
+			summaries = append(summaries, PackSummary{ID: id, Name: id, Maturity: inferPackMaturity(id, ""), ManifestPath: manifestPath, SchemaValid: false, Error: err.Error()})
+			continue
+		}
+		summary := m.Summary()
+		if err := m.ValidateSchema(); err != nil {
+			summary.SchemaValid = false
+			summary.Error = err.Error()
+		}
+		summaries = append(summaries, summary)
+	}
+	sort.Slice(summaries, func(i, j int) bool { return strings.ToLower(summaries[i].ID) < strings.ToLower(summaries[j].ID) })
+	return summaries, nil
+}
+
+func (m *Manifest) Summary() PackSummary {
+	return PackSummary{
+		ID:                   m.Pack,
+		Name:                 m.Name,
+		Version:              m.Version,
+		Maturity:             inferPackMaturity(m.Pack, m.Description),
+		Description:          m.Description,
+		ManifestPath:         m.ManifestPath,
+		SchemaValid:          true,
+		ManagedFiles:         len(m.ManagedFiles),
+		TemplateFiles:        len(m.TemplateFiles),
+		LocalFiles:           len(m.LocalFiles),
+		PromoteFiles:         len(m.PromoteFiles),
+		ToolingFiles:         len(m.ToolingFiles),
+		PromptFiles:          len(m.PromptFiles),
+		SubagentRoutes:       len(m.SubagentRoutes),
+		LaneTypes:            len(m.LaneTypes),
+		AuthorityFiles:       len(m.AuthorityFiles),
+		DefaultAuthorityLane: m.WorkstreamDefaults["defaultAuthorityLane"],
+	}
+}
+
+func normalizePackID(pack string) (string, error) {
+	id := strings.TrimSpace(pack)
+	if id == "" {
+		return "vmp-re", nil
+	}
+	if filepath.IsAbs(id) || strings.ContainsAny(id, `/\\`) || id == "." || id == ".." || strings.Contains(id, "..") {
+		return "", fmt.Errorf("invalid pack id: %s", pack)
+	}
+	if !regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]*$`).MatchString(id) {
+		return "", fmt.Errorf("invalid pack id: %s", pack)
+	}
+	return id, nil
+}
+
+func inferPackMaturity(id, description string) string {
+	if strings.EqualFold(id, "_template") {
+		return "template"
+	}
+	if strings.Contains(strings.ToLower(description), "skeleton") {
+		return "skeleton"
+	}
+	return "mature"
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	maps.Copy(out, in)
+	return out
+}
+
 func (m *Manifest) BudgetLimit(rel string) int64 {
 	if v, ok := m.Budgets[rel]; ok {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
@@ -146,6 +265,11 @@ func (m *Manifest) BudgetLimit(rel string) int64 {
 }
 
 func (m *Manifest) ValidateSchema() error {
+	for _, key := range []string{"file", "blockId", "source"} {
+		if strings.TrimSpace(m.explicitManagedBlock[key]) == "" {
+			return fmt.Errorf("managedBlock is missing required key: %s", key)
+		}
+	}
 	managed := map[string]bool{}
 	for _, rel := range m.ManagedFiles {
 		managed[rel] = true
@@ -171,11 +295,6 @@ func (m *Manifest) ValidateSchema() error {
 	for _, rel := range m.PromoteFiles {
 		if !managed[rel] {
 			return fmt.Errorf("promoteFiles entry is not managed: %s", rel)
-		}
-	}
-	for _, key := range []string{"file", "blockId", "source"} {
-		if strings.TrimSpace(m.ManagedBlock[key]) == "" {
-			return fmt.Errorf("managedBlock is missing required key: %s", key)
 		}
 	}
 	managedTargets[m.ManagedBlock["file"]] = true

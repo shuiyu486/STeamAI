@@ -82,6 +82,7 @@ BEGIN.
 
 ```powershell
 .\rekit\rekit.ps1 status
+.\rekit\rekit.ps1 packs
 .\rekit\rekit.ps1 doctor
 go test ./...
 ```
@@ -103,9 +104,9 @@ go test ./...
 ## 关键边界
 
 - README 中的 `/rekit init -Target ...` 是给外部 case 用的，不是维护本仓库的必经步骤。
-- `packs/vmp-re/manifest.yml` 是 managed files、template files、promote files、tooling files、budgets 的单一事实源。
+- `packs/<pack>/manifest.yml` 是 managed files、template files、promote files、tooling files、budgets 和 subagent routes 的单一事实源。
 - `sync` 是 kit -> case；`promote` 是 case -> kit。
 - `sync` / `promote` 默认 review-first，写入前需要用户确认具体范围。
-- Go backend 默认不接管 `/rekit`；只有显式 `REKIT_GO_ENABLE=1` 时，PowerShell façade 才委托安全集合（status、doctor/validate、sync/promote review-only、gate -WhatIf）。
+- Go backend 默认不接管 `/rekit`；只有显式 `REKIT_GO_ENABLE=1` 时，PowerShell façade 才委托安全集合（status、packs、doctor/validate、sync/promote review-only、gate -WhatIf）。
 - 不要把真实样本、trace、dump、capture、artifact、绝对路径或 case-specific 进度写入本仓库模板。
 - `.gitignore` 已排除常见 RE artifacts；新增产物类型时先确认是否应继续排除。

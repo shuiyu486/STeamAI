@@ -117,18 +117,37 @@ function Get-RekitRepoRoot {
   return [System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot '..'))
 }
 
+function Resolve-RekitPackId {
+  param([string]$Pack = 'vmp-re')
+  $id = if ([string]::IsNullOrWhiteSpace($Pack)) { 'vmp-re' } else { $Pack.Trim() }
+  if ([System.IO.Path]::IsPathRooted($id) -or $id.Contains('/') -or $id.Contains('\') -or $id -eq '.' -or $id -eq '..' -or $id.Contains('..')) { throw "invalid pack id: $Pack" }
+  if ($id -notmatch '^[A-Za-z0-9_][A-Za-z0-9._-]*$') { throw "invalid pack id: $Pack" }
+  return $id
+}
+
+function Get-RekitPackMaturity {
+  param(
+    [string]$Pack,
+    [string]$Description = ''
+  )
+  if ([string]::Equals($Pack, '_template', [System.StringComparison]::OrdinalIgnoreCase)) { return 'template' }
+  if (([string]$Description).ToLowerInvariant().Contains('skeleton')) { return 'skeleton' }
+  return 'mature'
+}
+
 function Get-RekitPackManifest {
   param(
     [Parameter(Mandatory=$true)][string]$RepoRoot,
     [string]$Pack = 'vmp-re'
   )
   $repo = [System.IO.Path]::GetFullPath($RepoRoot)
-  $packRoot = Join-Path $repo ("packs\" + $Pack)
+  $packId = Resolve-RekitPackId $Pack
+  $packRoot = Join-Path $repo ("packs\" + $packId)
   $manifestPath = Join-Path $packRoot 'manifest.yml'
   if (-not (Test-Path -LiteralPath $manifestPath)) { throw "missing pack manifest: $manifestPath" }
 
   $lines = [System.IO.File]::ReadAllLines($manifestPath, [System.Text.Encoding]::UTF8)
-  $name = Get-RekitYamlScalar -Lines $lines -Key 'name' -Default $Pack
+  $name = Get-RekitYamlScalar -Lines $lines -Key 'name' -Default $packId
   $version = Get-RekitYamlScalar -Lines $lines -Key 'version' -Default '0.0.0'
   $description = Get-RekitYamlScalar -Lines $lines -Key 'description' -Default ''
   $managedFiles = @(Get-RekitYamlList -Lines $lines -Key 'managedFiles')
@@ -161,7 +180,7 @@ function Get-RekitPackManifest {
 
   return [pscustomobject]@{
     RepoRoot = $repo
-    Pack = $Pack
+    Pack = $packId
     PackRoot = $packRoot
     ManifestPath = $manifestPath
     Name = $name
@@ -209,4 +228,69 @@ function Get-RekitSourcePath {
     [Parameter(Mandatory=$true)][string]$RelativePath
   )
   return Join-RekitPath -Root $Manifest.PackRoot -RelativePath $RelativePath
+}
+
+function Get-RekitPackInventory {
+  param([Parameter(Mandatory=$true)][string]$RepoRoot)
+  $repo = [System.IO.Path]::GetFullPath($RepoRoot)
+  $packsRoot = Join-Path $repo 'packs'
+  if (-not (Test-Path -LiteralPath $packsRoot)) { throw "missing packs root: $packsRoot" }
+  $packs = @()
+  foreach ($dir in @(Get-ChildItem -LiteralPath $packsRoot -Directory | Sort-Object Name)) {
+    $manifestPath = Join-Path $dir.FullName 'manifest.yml'
+    if (-not (Test-Path -LiteralPath $manifestPath)) { continue }
+    try {
+      $manifest = Get-RekitPackManifest -RepoRoot $repo -Pack $dir.Name
+      try {
+        Test-RekitManifestSchema -Manifest $manifest | Out-Null
+        $schemaValid = $true
+        $errorText = ''
+      } catch {
+        $schemaValid = $false
+        $errorText = [string]$_
+      }
+      $packs += [pscustomobject]@{
+        ID = [string]$manifest.Pack
+        Name = [string]$manifest.Name
+        Version = [string]$manifest.Version
+        Maturity = Get-RekitPackMaturity -Pack ([string]$manifest.Pack) -Description ([string]$manifest.Description)
+        Description = [string]$manifest.Description
+        ManifestPath = [string]$manifest.ManifestPath
+        SchemaValid = $schemaValid
+        Error = $errorText
+        ManagedFiles = @($manifest.ManagedFiles).Count
+        TemplateFiles = @($manifest.TemplateFiles).Count
+        LocalFiles = @($manifest.LocalFiles).Count
+        PromoteFiles = @($manifest.PromoteFiles).Count
+        ToolingFiles = @($manifest.ToolingFiles).Count
+        PromptFiles = @($manifest.PromptFiles).Count
+        SubagentRoutes = @($manifest.SubagentRoutes).Count
+        LaneTypes = @($manifest.LaneTypes).Count
+        AuthorityFiles = @($manifest.AuthorityFiles).Count
+        DefaultAuthorityLane = [string]$manifest.WorkstreamDefaults['defaultAuthorityLane']
+      }
+    } catch {
+      $packs += [pscustomobject]@{
+        ID = [string]$dir.Name
+        Name = [string]$dir.Name
+        Version = ''
+        Maturity = Get-RekitPackMaturity -Pack ([string]$dir.Name)
+        Description = ''
+        ManifestPath = [string]$manifestPath
+        SchemaValid = $false
+        Error = [string]$_
+        ManagedFiles = 0
+        TemplateFiles = 0
+        LocalFiles = 0
+        PromoteFiles = 0
+        ToolingFiles = 0
+        PromptFiles = 0
+        SubagentRoutes = 0
+        LaneTypes = 0
+        AuthorityFiles = 0
+        DefaultAuthorityLane = ''
+      }
+    }
+  }
+  return $packs
 }

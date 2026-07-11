@@ -362,6 +362,8 @@ func Run(args []string, stdout io.Writer) error {
 	switch opt.Command {
 	case "status":
 		return runStatus(ctx, stdout)
+	case "packs":
+		return runPacks(ctx, stdout)
 	case "doctor", "validate":
 		return runDoctor(ctx, stdout)
 	case "attach":
@@ -399,6 +401,25 @@ func Main() int {
 		return 1
 	}
 	return 0
+}
+
+func runPacks(ctx runtime.Context, out io.Writer) error {
+	packs, err := manifest.List(ctx.RepoRoot)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "pack\tmaturity\tschema\troutes\tmanaged\ttooling\tauthority\tversion\tdescription")
+	for _, pack := range packs {
+		schema := "ok"
+		if !pack.SchemaValid {
+			schema = "error"
+		}
+		fmt.Fprintf(out, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\n", pack.ID, pack.Maturity, schema, pack.SubagentRoutes, pack.ManagedFiles, pack.ToolingFiles, pack.DefaultAuthorityLane, pack.Version, pack.Description)
+		if pack.Error != "" {
+			fmt.Fprintf(out, "  error: %s\n", pack.Error)
+		}
+	}
+	return nil
 }
 
 func runStatus(ctx runtime.Context, out io.Writer) error {

@@ -22,6 +22,7 @@ disable-model-invocation: true
 /rekit init -Target <caseRoot> -Pack vmp-re -ProjectName <caseName>
 /rekit attach -Target <caseRoot> -Pack vmp-re
 /rekit status
+/rekit packs
 /rekit overview
 /rekit continue
 /rekit start <name>
@@ -40,6 +41,7 @@ disable-model-invocation: true
 | 用户意图 | 行为 |
 |---|---|
 | `/rekit status` | 只读显示 kit / case 绑定状态；检测迁移但不修复。 |
+| `/rekit packs` | 维护者只读查看当前 kit 内 pack 矩阵：成熟度、schema、route、managed/tooling 和 authority lane 概览。 |
 | `/rekit attach` | 将已有 case 绑定到当前 template root 和 pack。 |
 | `/rekit repair` | 预览迁移后的 metadata 修复；用户确认后才写入。 |
 | `/rekit init` / `/rekit bootstrap` | 初始化 case metadata、case-local shim 和模板文件。 |
@@ -82,7 +84,7 @@ disable-model-invocation: true
 10. 覆盖/删除 authority、冲突、schema change、changesProjectBaseline、externalSideEffect、destructiveAction 必须停下来问用户；不要自动执行。
 11. 新功能分析使用 `/rekit start <name>`；不要再建议用户使用旧的底层工作线命令。
 12. `plan-subagents` 只作为内部只读计划器，不是日常用户入口；能由主 agent 或自动流程判断时，不要求用户手动调用。
-13. Go façade 默认关闭；只有维护者显式设置 `REKIT_GO_ENABLE=1` 时，`status`、kit/case `doctor/validate`、`sync/promote` review-only 和 `gate -WhatIf` 才可委托 Go。`REKIT_GO_DISABLE=1` 强制回退 PowerShell。
+13. Go façade 默认关闭；只有维护者显式设置 `REKIT_GO_ENABLE=1` 时，`status`、`packs`、kit/case `doctor/validate`、`sync/promote` review-only 和 `gate -WhatIf` 才可委托 Go。`REKIT_GO_DISABLE=1` 强制回退 PowerShell。
 14. manifest 中所有文件路径必须是相对路径，并且不能越出 case root 或 pack root。
 15. 所有写操作后都运行对应 doctor；失败时如实报告错误与下一步。
 

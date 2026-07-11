@@ -1,7 +1,7 @@
 [CmdletBinding(PositionalBinding=$false)]
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','start','handoff','note','gate')]
+  [ValidateSet('status','packs','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','start','handoff','note','gate')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -97,7 +97,7 @@ function Test-RekitGoDelegationEnabled {
 
 function Test-RekitGoDelegationSafe {
   switch ($Command) {
-    'status' { return $true }
+    { $_ -in @('status','packs') } { return $true }
     { $_ -in @('doctor','validate') } { return $true }
     { $_ -in @('sync','update') } {
       if ($Apply -or $WhatIf) { return $false }
@@ -148,7 +148,7 @@ function Add-RekitGoSwitch {
 
 function Get-RekitGoTarget {
   switch ($Command) {
-    'status' { return (Resolve-RekitTarget $Target) }
+    { $_ -in @('status','packs') } { return (Resolve-RekitTarget $Target) }
     { $_ -in @('sync','update','promote','gate') } { return (Resolve-RekitTarget $Target) }
     { $_ -in @('doctor','validate') } {
       if (-not [string]::IsNullOrWhiteSpace($Target)) { return (Resolve-RekitTarget $Target) }
@@ -219,6 +219,15 @@ if ($Command -eq 'gate') {
 }
 
 switch ($Command) {
+  'packs' {
+    $packs = @(Get-RekitPackInventory -RepoRoot $RepoRoot)
+    Write-Host "pack`tmaturity`tschema`troutes`tmanaged`ttooling`tauthority`tversion`tdescription"
+    foreach ($packItem in $packs) {
+      $schema = if ([bool]$packItem.SchemaValid) { 'ok' } else { 'error' }
+      Write-Host ("{0}`t{1}`t{2}`t{3}`t{4}`t{5}`t{6}`t{7}`t{8}" -f $packItem.ID,$packItem.Maturity,$schema,$packItem.SubagentRoutes,$packItem.ManagedFiles,$packItem.ToolingFiles,$packItem.DefaultAuthorityLane,$packItem.Version,$packItem.Description)
+      if (-not [bool]$packItem.SchemaValid -and -not [string]::IsNullOrWhiteSpace([string]$packItem.Error)) { Write-Host ("  error: {0}" -f $packItem.Error) }
+    }
+  }
   'overview' {
     $caseRoot = Resolve-RekitTarget $Target
     Show-RekitOverview -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack

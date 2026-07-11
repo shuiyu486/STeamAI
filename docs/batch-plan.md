@@ -1872,3 +1872,35 @@ git diff --check
 ```
 
 验证结果：全部通过；targeted Go tests、全量 `go test ./...`、`web-security-pack-smoke.ps1`、默认 doctor、`_template` doctor、`web-security` doctor、`git diff --check` 均通过（仅出现既有 LF/CRLF warning）。只读 reviewer 发现 `authorization:` 占位会被 deny pattern 误阻断，已改为 `auth_scope` 并收窄 Authorization header deny 规则，smoke 增加 promote review 断言确保 safe workflow 修改可进入 `candidate-after-llm-review`。本批未执行真实网络请求、扫描、fuzz、登录尝试、exploit replay 或数据导出；未写真实 case confirmed/authority；未改变 façade 委托集合。
+
+### Batch 62：pack inventory matrix
+
+状态：已完成。
+
+目标：在 `vmp-re`、`_template` 和 `web-security` 并存后，新增只读 pack inventory 矩阵，让维护者不用逐个指定 `-Pack` 即可发现当前 kit 内所有 pack，并快速看到 maturity、schema、route、managed/tooling、authority lane 与版本信息，为后续多安全领域 pack 扩展提供 Go-first 验证入口。
+
+实施范围：
+
+- Go manifest 层新增 `List` / `PackSummary`，扫描 `packs/*/manifest.yml` 并复用 manifest schema 校验；同时收紧 pack id，拒绝路径穿越、绝对路径或含分隔符的 pack 名，并保持 `managedBlock` 显式字段校验与 PowerShell doctor 对齐。
+- Go CLI 新增 `-Command packs`，输出只读 TSV 矩阵；PowerShell façade/fallback 同步新增 `/rekit packs`。
+- 显式 `REKIT_GO_ENABLE=1` 时，PowerShell façade 可委托 Go `packs`，因该命令只读且不触碰 case state。
+- 新增 `rekit/tests/pack-inventory-smoke.ps1`，覆盖 Go、PowerShell fallback 和 Go façade 三条路径，断言 `_template`、`vmp-re`、`web-security` 行计数与 maturity；用 `REKIT_GO_EXE` sentinel 证明 façade 确实委托 Go，且 `REKIT_GO_DISABLE=1` 会回退。
+- 更新 README、skill、pack authoring、Go migration、CLAUDE.md 与 CHANGELOG，说明 `packs` 是维护者/排障入口，不是 case 日常主流程。
+
+边界：本批只读列出 pack inventory；不初始化 case、不写 board/facts/lanes/handoff/authority/confirmed、不执行外部工具、不改变 sync/promote review-first 语义；除 `packs` 外不扩大 façade 委托集合。
+
+验证：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/cli
+go test ./...
+.\rekit\tests\pack-inventory-smoke.ps1
+.\rekit\rekit.ps1 -Command packs
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Pack _template
+.\rekit\rekit.ps1 -Command doctor -Pack web-security
+.\rekit\tests\facade-smoke.ps1 -CaseRoot <fresh-temp-vmp-case> -Pack vmp-re
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/manifest ./internal/rekit/cli`、`go test ./...`、`pack-inventory-smoke.ps1`、`/rekit packs`、默认 / `_template` / `web-security` 三组 doctor、fresh temp vmp case façade smoke 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。第一次直接复用旧 `agent-team-dryrun` façade fixture 时因该临时 case 的 case-local shim 已过期而被 doctor 拒绝，随后使用本批新建并 `start handler-0x40a010` 的临时 case 验证通过；该失败不是 Batch 62 代码回归。
