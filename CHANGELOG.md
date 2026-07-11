@@ -65,6 +65,7 @@
 - Agent Team review loop Batch E 完成：`/rekit continue` digest 升级为结构化摘要，记录 inputs、route、packet refs、outputs、decisions 与 open risks，并在 `status.json` 写入对应索引字段；新增 `rekit/tests/continue-digest-smoke.ps1` 覆盖临时 case。该批不启动 subagent、不写 confirmed/authority、不执行 heavy-tool。
 - Agent Team review loop Batch F 完成：重新评估 Go `note` / `continue` 迁移，结论是下一步优先 Go `note` 手动路径（先 `-List` 只读，再 append），`continue` 因 authority append、routing、digest/status 与 lane/board 刷新副作用继续暂缓到 G5 gate/parity tests 完整后。
 - G4.5a Go `note -List` 只读路径完成：新增 `internal/rekit/note` 与 CLI `-Command note -List`，读取 9 类 facts JSONL，支持 `-Kind`/`-Lane` 过滤并展示 candidate/request/decision/verification/intervention/rollback 关键字段；该路径只读、不写 board/facts/lanes/handoff/authority/confirmed，不纳入 PowerShell façade 委托。
+- G4.5b Go `note` append 手动路径完成：CLI `-Command note` 可显式 append 9 类 ledger event 到 `.rekit/facts/*.jsonl`，支持 PowerShell 对齐 enum/schema 校验、lane guard、eventId dedupe 与 `-WhatIf` 非写入预览；该路径只写 facts JSONL，不写 board/lane/handoff/authority/confirmed，也不纳入 PowerShell façade 委托。
 
 ### Fixed
 

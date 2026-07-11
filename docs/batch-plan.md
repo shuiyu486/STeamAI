@@ -1648,3 +1648,33 @@ git diff --check
 ```
 
 验证结果：全部通过；Go `note -List` 只读路径、过滤/guard tests、全量 Go tests、PowerShell doctor 与 whitespace 检查均通过。reviewer 复核未发现高置信问题。本批未写 case state、未启动 subagent、未执行 heavy-tool、未写 confirmed/authority。
+
+### Batch 55：Go note append 手动路径
+
+状态：已完成。
+
+目标：在 G4.5a `note -List` 只读基础上补齐 Go `note` append 手动路径，让主会话可用 Go backend 显式写入 ledger event，同时保持 PowerShell façade 不委托、写入范围仅限 facts JSONL。
+
+实施范围：
+
+- `internal/rekit/note` 增加 `Append`：支持 9 类 kind（observation、hypothesis、candidate、verification、decision、intervention、rollback、publication、request），写入 `.rekit/facts/<kind>.jsonl`。
+- Go CLI `-Command note` 无 `-List` 时进入 append；支持 `-WhatIf` 非写入预览；拒绝 `-Apply`/`-CreateCandidates`，避免把 note 混入通用写入模式。
+- append 字段对齐 PowerShell：`actor`、`risk`、`related`、`confidence`、`decision`、`reason`、`status`、`batchId`、`evidenceRefs`、`target`、verification `verifier/verdict`、intervention `action/approvedBy/scope/expires`。
+- 保持 PowerShell enum/schema guard：confidence、decision、status、verifier、verdict、intervention action；写入前校验 `.rekit/board.json` lane id；eventId 支持显式传入，否则按事件字段（含 createdAt）派生；跨 9 类 facts JSONL 去重。
+- 新增 Go tests 覆盖 append 写入、9 类 kind、`-WhatIf` 非写入、eventId dedupe、missing kind/lane、unknown lane、非法 enum 与 unsupported write flags。
+- 更新 `docs/go-runtime-migration.md`、CHANGELOG 与本计划。
+
+边界：本批只写 facts JSONL；不写 board/lane/handoff/authority/confirmed，不执行 full-trace/debug/inject/patch/dump/network，不纳入 PowerShell façade 委托，不改变 PowerShell `note` 行为。
+
+停止条件：需要自动写 authority/confirmed、改变 ledger schema、迁移历史 JSONL、改变 façade 委托集合、或实现 request routing/continue 自动化时暂停并重新评估。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/note
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过；targeted Go tests、全量 Go tests、PowerShell doctor 与 whitespace 检查均通过。reviewer 复核发现 `docs/go-runtime-migration.md` façade 策略段仍写“未来补 Go note 手动路径”，已修正为 `note -List` 与 append 均可手动运行但仍不纳入 façade 委托。本批仅写 facts JSONL，不写 board/lane/handoff/authority/confirmed，不执行 heavy-tool。

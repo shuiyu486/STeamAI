@@ -581,23 +581,209 @@ func TestRunNoteListRejectsInvalidKind(t *testing.T) {
 	}
 }
 
-func TestRunNoteRequiresListAndRejectsWriteFlags(t *testing.T) {
+func TestRunNoteAppendWritesFactEvent(t *testing.T) {
+	caseRoot := attachedCaseWithBoard(t)
+	var out bytes.Buffer
+	if err := Run([]string{
+		"-Command", "note",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Kind", "verification",
+		"-Lane", "main",
+		"-Subject", "review target",
+		"-Summary", "accepted by reviewer",
+		"-Actor", "runtime-test",
+		"-Verifier", "manual-review",
+		"-Verdict", "accepted",
+		"-TargetRef", "candidate-alpha",
+		"-BatchId", "batch-note",
+		"-EvidenceRefs", "evidence-one,evidence-two",
+	}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command    string         `json:"command"`
+		IsMutation bool           `json:"isMutation"`
+		Applied    bool           `json:"applied"`
+		EventID    string         `json:"eventId"`
+		Path       string         `json:"path"`
+		Event      map[string]any `json:"event"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("note append stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Command != "note" || !result.IsMutation || !result.Applied || result.EventID == "" || result.Path != ".rekit/facts/verifications.jsonl" {
+		t.Fatalf("unexpected note append result: %+v", result)
+	}
+	if result.Event["kind"] != "verification" || result.Event["lane"] != "main" || result.Event["verifier"] != "manual-review" || result.Event["verdict"] != "accepted" || result.Event["target"] != "candidate-alpha" || result.Event["batchId"] != "batch-note" {
+		t.Fatalf("unexpected event fields: %+v", result.Event)
+	}
+	refs, ok := result.Event["evidenceRefs"].([]any)
+	if !ok || len(refs) != 2 {
+		t.Fatalf("unexpected evidence refs: %+v", result.Event["evidenceRefs"])
+	}
+	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(ledger)
+	for _, expected := range []string{result.EventID, `"kind":"verification"`, `"verdict":"accepted"`, `"evidenceRefs":["evidence-one","evidence-two"]`} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("ledger missing %q:\n%s", expected, text)
+		}
+	}
+}
+
+func TestRunNoteAppendSupportsAllKinds(t *testing.T) {
+	caseRoot := attachedCaseWithBoard(t)
+	cases := []struct {
+		kind  string
+		path  string
+		extra []string
+	}{
+		{kind: "observation", path: "observations.jsonl"},
+		{kind: "hypothesis", path: "hypotheses.jsonl"},
+		{kind: "candidate", path: "candidates.jsonl", extra: []string{"-Confidence", "medium"}},
+		{kind: "verification", path: "verifications.jsonl", extra: []string{"-Verifier", "manual-review", "-Verdict", "inconclusive"}},
+		{kind: "decision", path: "decisions.jsonl", extra: []string{"-Decision", "defer"}},
+		{kind: "intervention", path: "interventions.jsonl", extra: []string{"-Action", "override", "-ApprovedBy", "lead"}},
+		{kind: "rollback", path: "rollbacks.jsonl", extra: []string{"-TargetRef", "batch-one", "-Status", "resolved"}},
+		{kind: "publication", path: "publications.jsonl"},
+		{kind: "request", path: "requests.jsonl", extra: []string{"-Status", "pending-gate", "-Risk", "high"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.kind, func(t *testing.T) {
+			args := []string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", tc.kind, "-Lane", "main", "-Subject", tc.kind + " subject"}
+			args = append(args, tc.extra...)
+			var out bytes.Buffer
+			if err := Run(args, &out); err != nil {
+				t.Fatal(err)
+			}
+			var result struct {
+				Applied bool   `json:"applied"`
+				EventID string `json:"eventId"`
+				Path    string `json:"path"`
+				Event   struct {
+					Kind string `json:"kind"`
+				} `json:"event"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				t.Fatalf("note append stdout is not JSON: %v\n%s", err, out.String())
+			}
+			if !result.Applied || result.EventID == "" || result.Event.Kind != tc.kind || result.Path != ".rekit/facts/"+tc.path {
+				t.Fatalf("unexpected note append result for %s: %+v", tc.kind, result)
+			}
+			ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", tc.path))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(ledger), result.EventID) || !strings.Contains(string(ledger), `"kind":"`+tc.kind+`"`) {
+				t.Fatalf("ledger missing %s event:\n%s", tc.kind, string(ledger))
+			}
+		})
+	}
+}
+
+func TestRunNoteAppendWhatIfDoesNotWrite(t *testing.T) {
+	caseRoot := attachedCaseWithBoard(t)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Kind", "observation", "-Lane", "main", "-Subject", "preview only"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		IsMutation bool   `json:"isMutation"`
+		Applied    bool   `json:"applied"`
+		Reason     string `json:"reason"`
+		Path       string `json:"path"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("note what-if stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if result.IsMutation || result.Applied || result.Reason != "what-if" || result.Path != ".rekit/facts/observations.jsonl" {
+		t.Fatalf("unexpected note what-if result: %+v", result)
+	}
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
+}
+
+func TestRunNoteAppendDedupesByEventID(t *testing.T) {
+	caseRoot := attachedCaseWithBoard(t)
+	args := []string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "candidate", "-Lane", "main", "-Subject", "candidate one", "-Confidence", "high", "-EventId", "evt-fixed-note"}
+	var first bytes.Buffer
+	if err := Run(args, &first); err != nil {
+		t.Fatal(err)
+	}
+	var second bytes.Buffer
+	if err := Run(args, &second); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Applied bool   `json:"applied"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.Unmarshal(second.Bytes(), &result); err != nil {
+		t.Fatalf("second note append stdout is not JSON: %v\n%s", err, second.String())
+	}
+	if result.Applied || result.Reason != "duplicate eventId" {
+		t.Fatalf("unexpected duplicate result: %+v", result)
+	}
+	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "candidates.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(ledger), "evt-fixed-note") != 1 {
+		t.Fatalf("duplicate event id written more than once:\n%s", string(ledger))
+	}
+}
+
+func TestRunNoteAppendRejectsInvalidInputs(t *testing.T) {
+	caseRoot := attachedCaseWithBoard(t)
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing kind", args: []string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main"}, want: "requires -Kind"},
+		{name: "missing lane", args: []string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "observation"}, want: "requires -Lane"},
+		{name: "unknown lane", args: []string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "observation", "-Lane", "missing"}, want: "unknown lane"},
+		{name: "invalid confidence", args: []string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "candidate", "-Lane", "main", "-Confidence", "certain"}, want: "invalid Confidence"},
+		{name: "invalid decision", args: []string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "decision", "-Lane", "main", "-Decision", "confirm"}, want: "invalid Decision"},
+		{name: "invalid verifier", args: []string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "verification", "-Lane", "main", "-Verifier", "unknown"}, want: "invalid Verifier"},
+		{name: "invalid verdict", args: []string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "verification", "-Lane", "main", "-Verdict", "maybe"}, want: "invalid Verdict"},
+		{name: "invalid action", args: []string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "intervention", "-Lane", "main", "-Action", "delete"}, want: "invalid Action"},
+		{name: "invalid status", args: []string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "observation", "-Lane", "main", "-Status", "pending"}, want: "invalid Status"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			err := Run(tc.args, &out)
+			if err == nil {
+				t.Fatal("Run returned nil error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %q, want %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func TestRunNoteRejectsUnsupportedWriteFlags(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
-	err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template"}, &out)
+	err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "observation", "-Lane", "main", "-Apply"}, &out)
 	if err == nil {
-		t.Fatal("Run returned nil error for note without -List")
+		t.Fatal("Run returned nil error for note -Apply")
 	}
-	if !strings.Contains(err.Error(), "supports -List only") {
-		t.Fatalf("error = %q, want -List guard", err.Error())
+	if !strings.Contains(err.Error(), "does not support -Apply") {
+		t.Fatalf("error = %q, want -Apply guard", err.Error())
 	}
 
-	err = Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-List", "-Apply"}, &out)
+	err = Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-List", "-WhatIf"}, &out)
 	if err == nil {
-		t.Fatal("Run returned nil error for note -List -Apply")
+		t.Fatal("Run returned nil error for note -List -WhatIf")
 	}
-	if !strings.Contains(err.Error(), "only supports -List") || !strings.Contains(err.Error(), "-Apply") {
-		t.Fatalf("error = %q, want write flag guard", err.Error())
+	if !strings.Contains(err.Error(), "note -List cannot be combined with -WhatIf") {
+		t.Fatalf("error = %q, want list/whatif guard", err.Error())
 	}
 }
 

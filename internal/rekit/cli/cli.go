@@ -124,6 +124,7 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -Action")
 			}
 			opt.Gate.Action = args[i]
+			opt.Note.Action = args[i]
 		case "-Lane", "--lane":
 			i++
 			if i >= len(args) {
@@ -137,48 +138,121 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -Kind")
 			}
 			opt.Note.Kind = args[i]
+		case "-Related", "--related":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Related")
+			}
+			opt.Note.Related = args[i]
+		case "-Confidence", "--confidence":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Confidence")
+			}
+			opt.Note.Confidence = args[i]
+		case "-Decision", "--decision":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Decision")
+			}
+			opt.Note.Decision = args[i]
+		case "-Reason", "--reason":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Reason")
+			}
+			opt.Note.Reason = args[i]
+		case "-Status", "--status":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Status")
+			}
+			opt.Note.Status = args[i]
+		case "-Verifier", "--verifier":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Verifier")
+			}
+			opt.Note.Verifier = args[i]
+		case "-Verdict", "--verdict":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Verdict")
+			}
+			opt.Note.Verdict = args[i]
+		case "-ApprovedBy", "--approved-by":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ApprovedBy")
+			}
+			opt.Note.ApprovedBy = args[i]
+		case "-Expires", "--expires":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Expires")
+			}
+			opt.Note.Expires = args[i]
+		case "-EvidenceRefs", "--evidence-refs":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -EvidenceRefs")
+			}
+			opt.Note.EvidenceRefs = args[i]
+		case "-EventId", "--event-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -EventId")
+			}
+			opt.Note.EventID = args[i]
 		case "-Subject", "--subject":
 			i++
 			if i >= len(args) {
 				return opt, fmt.Errorf("missing value for -Subject")
 			}
 			opt.Gate.Subject = args[i]
+			opt.Note.Subject = args[i]
 		case "-Summary", "--summary":
 			i++
 			if i >= len(args) {
 				return opt, fmt.Errorf("missing value for -Summary")
 			}
 			opt.Gate.Summary = args[i]
+			opt.Note.Summary = args[i]
 		case "-Actor", "--actor":
 			i++
 			if i >= len(args) {
 				return opt, fmt.Errorf("missing value for -Actor")
 			}
 			opt.Gate.Actor = args[i]
+			opt.Note.Actor = args[i]
 		case "-Risk", "--risk":
 			i++
 			if i >= len(args) {
 				return opt, fmt.Errorf("missing value for -Risk")
 			}
 			opt.Gate.Risk = args[i]
+			opt.Note.Risk = args[i]
 		case "-TargetRef", "--target-ref":
 			i++
 			if i >= len(args) {
 				return opt, fmt.Errorf("missing value for -TargetRef")
 			}
 			opt.Gate.TargetRef = args[i]
+			opt.Note.Target = args[i]
 		case "-BatchId", "--batch-id":
 			i++
 			if i >= len(args) {
 				return opt, fmt.Errorf("missing value for -BatchId")
 			}
 			opt.Gate.BatchID = args[i]
+			opt.Note.BatchID = args[i]
 		case "-Scope", "--scope":
 			i++
 			if i >= len(args) {
 				return opt, fmt.Errorf("missing value for -Scope")
 			}
 			opt.Gate.Scope = args[i]
+			opt.Note.Scope = args[i]
 		case "-Budget", "--budget":
 			i++
 			if i >= len(args) {
@@ -521,17 +595,29 @@ func runNote(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !ctx.TargetProvided {
 		return fmt.Errorf("note requires an explicit -Target attached case")
 	}
-	if opt.Apply || opt.WhatIf || opt.CreateCandidates {
-		return fmt.Errorf("go backend note only supports -List in this batch; do not combine it with -Apply, -WhatIf, or -CreateCandidates")
+	if opt.Apply || opt.CreateCandidates {
+		return fmt.Errorf("note does not support -Apply or -CreateCandidates; omit write mode flags or use -WhatIf for preview")
 	}
-	if !opt.List {
-		return fmt.Errorf("go backend note currently supports -List only")
+	if opt.List {
+		if opt.WhatIf {
+			return fmt.Errorf("note -List cannot be combined with -WhatIf")
+		}
+		text, err := note.List(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Note)
+		if err != nil {
+			return err
+		}
+		_, err = io.WriteString(out, text)
+		return err
 	}
-	text, err := note.List(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Note)
+	result, err := note.Append(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Note, opt.WhatIf)
 	if err != nil {
 		return err
 	}
-	_, err = io.WriteString(out, text)
+	b, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(append(b, '\n'))
 	return err
 }
 

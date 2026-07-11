@@ -3,12 +3,15 @@ package note
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 )
@@ -28,8 +31,41 @@ var validKinds = []string{
 }
 
 type Options struct {
-	Kind string
-	Lane string
+	Kind         string
+	Lane         string
+	Subject      string
+	Summary      string
+	Actor        string
+	Risk         string
+	Related      string
+	Confidence   string
+	Decision     string
+	Reason       string
+	Status       string
+	BatchID      string
+	Target       string
+	Verifier     string
+	Verdict      string
+	Action       string
+	ApprovedBy   string
+	Scope        string
+	Expires      string
+	EvidenceRefs string
+	EventID      string
+}
+
+type AppendResult struct {
+	SchemaVersion int            `json:"schemaVersion"`
+	Command       string         `json:"command"`
+	CaseRoot      string         `json:"caseRoot"`
+	RepoRoot      string         `json:"repoRoot"`
+	Pack          string         `json:"pack"`
+	IsMutation    bool           `json:"isMutation"`
+	Applied       bool           `json:"applied"`
+	EventID       string         `json:"eventId"`
+	Path          string         `json:"path"`
+	Reason        string         `json:"reason,omitempty"`
+	Event         map[string]any `json:"event"`
 }
 
 type event map[string]any
@@ -79,6 +115,152 @@ func List(repoRoot, caseRoot, pack string, opt Options) (string, error) {
 		fmt.Fprintln(&out)
 	}
 	return out.String(), nil
+}
+
+func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendResult, error) {
+	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
+	if err != nil {
+		return AppendResult{}, err
+	}
+	kind := strings.ToLower(strings.TrimSpace(opt.Kind))
+	if kind == "" {
+		return AppendResult{}, fmt.Errorf("note requires -Kind observation|candidate|request|publication|decision|hypothesis|verification|intervention|rollback")
+	}
+	if !isValidKind(kind) {
+		return AppendResult{}, fmt.Errorf("invalid note kind: %s", opt.Kind)
+	}
+	lane := strings.TrimSpace(opt.Lane)
+	if lane == "" {
+		return AppendResult{}, fmt.Errorf("note requires -Lane <lane id>")
+	}
+	if err := assertLane(inst.CaseRoot, lane); err != nil {
+		return AppendResult{}, err
+	}
+	if err := validateAppendOptions(kind, opt); err != nil {
+		return AppendResult{}, err
+	}
+	event := buildEvent(kind, lane, opt)
+	eventID := strings.TrimSpace(opt.EventID)
+	if eventID == "" {
+		eventID = eventIDFor(event)
+	}
+	event["eventId"] = eventID
+	path := filepath.Join(inst.CaseRoot, ".rekit", "facts", factFile(kind))
+	result := AppendResult{
+		SchemaVersion: 1,
+		Command:       "note",
+		CaseRoot:      inst.CaseRoot,
+		RepoRoot:      repoRoot,
+		Pack:          pack,
+		IsMutation:    !whatIf,
+		Applied:       false,
+		EventID:       eventID,
+		Path:          relativeCasePath(inst.CaseRoot, path),
+		Event:         event,
+	}
+	if whatIf {
+		result.Reason = "what-if"
+		return result, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return AppendResult{}, err
+	}
+	exists, err := eventIDExists(filepath.Join(inst.CaseRoot, ".rekit", "facts"), eventID)
+	if err != nil {
+		return AppendResult{}, err
+	}
+	if exists {
+		result.Reason = "duplicate eventId"
+		return result, nil
+	}
+	line, err := json.Marshal(event)
+	if err != nil {
+		return AppendResult{}, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return AppendResult{}, err
+	}
+	defer f.Close()
+	if _, err := f.Write(append(line, '\r', '\n')); err != nil {
+		return AppendResult{}, err
+	}
+	result.Applied = true
+	return result, nil
+}
+
+func buildEvent(kind, lane string, opt Options) map[string]any {
+	event := map[string]any{
+		"schemaVersion": 1,
+		"kind":          kind,
+		"lane":          lane,
+		"subject":       strings.TrimSpace(opt.Subject),
+		"summary":       strings.TrimSpace(opt.Summary),
+		"createdAt":     time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	addString := func(key, value string) {
+		if strings.TrimSpace(value) != "" {
+			event[key] = strings.TrimSpace(value)
+		}
+	}
+	addString("actor", opt.Actor)
+	addString("risk", opt.Risk)
+	if related := splitList(opt.Related); len(related) > 0 {
+		event["related"] = related
+	}
+	addString("confidence", opt.Confidence)
+	addString("decision", opt.Decision)
+	addString("reason", opt.Reason)
+	addString("status", opt.Status)
+	addString("batchId", opt.BatchID)
+	if refs := splitList(opt.EvidenceRefs); len(refs) > 0 {
+		event["evidenceRefs"] = refs
+	}
+	addString("target", opt.Target)
+	if kind == "verification" {
+		addString("verifier", opt.Verifier)
+		addString("verdict", opt.Verdict)
+	}
+	if kind == "intervention" {
+		addString("action", opt.Action)
+		addString("approvedBy", opt.ApprovedBy)
+		addString("scope", opt.Scope)
+		addString("expires", opt.Expires)
+	}
+	return event
+}
+
+func validateAppendOptions(kind string, opt Options) error {
+	validConfidence := []string{"low", "medium", "high"}
+	validDecision := []string{"accept", "reject", "defer", "supersede"}
+	validStatus := []string{"open", "accepted", "rejected", "superseded", "resolved", "deferred", "pending-gate", "confirmed", "needs_more_evidence"}
+	validVerifier := []string{"manual-review", "schema-check", "focused-trace", "parity", "cross-run", "tool-review"}
+	validVerdict := []string{"accepted", "rejected", "inconclusive", "needs-more-evidence"}
+	validInterventionAction := []string{"override", "rollback", "heavy-tool-approval", "schema-migration", "external-side-effect"}
+	if confidence := strings.TrimSpace(opt.Confidence); confidence != "" && !slices.Contains(validConfidence, confidence) {
+		return fmt.Errorf("invalid Confidence %q; allowed: %s", confidence, strings.Join(validConfidence, ","))
+	}
+	if decision := strings.TrimSpace(opt.Decision); kind == "decision" && decision != "" && !slices.Contains(validDecision, decision) {
+		return fmt.Errorf("invalid Decision %q; allowed: %s", decision, strings.Join(validDecision, ","))
+	}
+	if verdict := strings.TrimSpace(opt.Verdict); kind == "verification" && verdict != "" && !slices.Contains(validVerdict, verdict) {
+		return fmt.Errorf("invalid Verdict %q; allowed: %s", verdict, strings.Join(validVerdict, ","))
+	}
+	if verifier := strings.TrimSpace(opt.Verifier); kind == "verification" && verifier != "" && !slices.Contains(validVerifier, verifier) {
+		return fmt.Errorf("invalid Verifier %q; allowed: %s", verifier, strings.Join(validVerifier, ","))
+	}
+	if action := strings.TrimSpace(opt.Action); kind == "intervention" && action != "" && !slices.Contains(validInterventionAction, action) {
+		return fmt.Errorf("invalid Action %q; allowed: %s", action, strings.Join(validInterventionAction, ","))
+	}
+	if status := strings.TrimSpace(opt.Status); status != "" && !slices.Contains(validStatus, status) {
+		return fmt.Errorf("invalid Status %q; allowed: %s", status, strings.Join(validStatus, ","))
+	}
+	for _, ref := range strings.FieldsFunc(opt.EvidenceRefs, func(r rune) bool { return r == ',' || r == ';' || r == '\n' }) {
+		if strings.TrimSpace(ref) == "" {
+			return fmt.Errorf("EvidenceRefs contains empty element")
+		}
+	}
+	return nil
 }
 
 func isValidKind(kind string) bool {
@@ -221,6 +403,8 @@ func stringValue(m map[string]any, key string) string {
 			}
 		}
 		return strings.Join(parts, ",")
+	case []string:
+		return strings.Join(t, ",")
 	case bool:
 		if t {
 			return "true"
@@ -229,4 +413,104 @@ func stringValue(m map[string]any, key string) string {
 	default:
 		return strings.TrimSpace(fmt.Sprint(t))
 	}
+}
+
+func splitList(value string) []string {
+	parts := strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' || r == '\n' })
+	out := []string{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+type boardFile struct {
+	Lanes []struct {
+		ID string `json:"id"`
+	} `json:"lanes"`
+}
+
+func assertLane(caseRoot, lane string) error {
+	path := filepath.Join(caseRoot, ".rekit", "board.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("note requires .rekit/board.json to validate lane: %s", path)
+		}
+		return err
+	}
+	var board boardFile
+	if err := json.Unmarshal(b, &board); err != nil {
+		return fmt.Errorf("invalid board json: %w", err)
+	}
+	known := []string{}
+	for _, item := range board.Lanes {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		known = append(known, id)
+		if id == lane {
+			return nil
+		}
+	}
+	if len(known) == 0 {
+		return fmt.Errorf("note requires at least one lane in .rekit/board.json")
+	}
+	return fmt.Errorf("unknown lane %q; known: %s", lane, strings.Join(known, ","))
+}
+
+func eventIDFor(event map[string]any) string {
+	seed := strings.Join([]string{
+		stringValue(event, "kind"),
+		stringValue(event, "lane"),
+		stringValue(event, "subject"),
+		stringValue(event, "summary"),
+		stringValue(event, "actor"),
+		stringValue(event, "risk"),
+		stringValue(event, "related"),
+		stringValue(event, "confidence"),
+		stringValue(event, "decision"),
+		stringValue(event, "reason"),
+		stringValue(event, "status"),
+		stringValue(event, "batchId"),
+		stringValue(event, "evidenceRefs"),
+		stringValue(event, "target"),
+		stringValue(event, "verifier"),
+		stringValue(event, "verdict"),
+		stringValue(event, "action"),
+		stringValue(event, "approvedBy"),
+		stringValue(event, "scope"),
+		stringValue(event, "expires"),
+		stringValue(event, "createdAt"),
+	}, "|")
+	sum := sha256.Sum256([]byte(seed))
+	return "evt-" + hex.EncodeToString(sum[:])[:16]
+}
+
+func eventIDExists(factsRoot, id string) (bool, error) {
+	for _, kind := range validKinds {
+		path := filepath.Join(factsRoot, factFile(kind))
+		items, err := readJSONLines(path)
+		if err != nil {
+			return false, err
+		}
+		for _, item := range items {
+			if stringValue(item, "eventId") == id {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func relativeCasePath(caseRoot, path string) string {
+	rel, err := filepath.Rel(caseRoot, path)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
 }
