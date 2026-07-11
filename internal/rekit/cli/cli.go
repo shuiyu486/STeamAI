@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/attach"
@@ -18,6 +19,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/repair"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -35,6 +37,12 @@ type Options struct {
 	PacketPath       string
 	DiffPath         string
 	ProjectName      string
+	Route            string
+	TaskType         string
+	Items            string
+	ItemsFile        string
+	ItemsPerAgent    int
+	MaxParallel      int
 	Gate             gate.Options
 	Start            workstream.StartOptions
 	Handoff          workstream.HandoffOptions
@@ -177,6 +185,50 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -StopConditions")
 			}
 			opt.Gate.StopConditions = args[i]
+		case "-Route", "--route":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Route")
+			}
+			opt.Route = args[i]
+		case "-TaskType", "--task-type":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -TaskType")
+			}
+			opt.TaskType = args[i]
+		case "-Items", "--items":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Items")
+			}
+			opt.Items = args[i]
+		case "-ItemsFile", "--items-file":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ItemsFile")
+			}
+			opt.ItemsFile = args[i]
+		case "-ItemsPerAgent", "--items-per-agent":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ItemsPerAgent")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return opt, fmt.Errorf("invalid -ItemsPerAgent: %s", args[i])
+			}
+			opt.ItemsPerAgent = n
+		case "-MaxParallel", "--max-parallel":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -MaxParallel")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return opt, fmt.Errorf("invalid -MaxParallel: %s", args[i])
+			}
+			opt.MaxParallel = n
 		default:
 			if i == 0 && args[i] != "" && args[i][0] != '-' {
 				opt.Command = args[i]
@@ -234,6 +286,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runStart(ctx, opt, stdout)
 	case "handoff":
 		return runHandoff(ctx, opt, stdout)
+	case "plan-subagents":
+		return runPlanSubagents(ctx, opt, stdout)
 	case "gate":
 		return runGate(ctx, opt, stdout)
 	default:
@@ -494,6 +548,25 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 	} else {
 		return fmt.Errorf("handoff write requires -Apply; use -WhatIf for preview")
 	}
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(append(b, '\n'))
+	return err
+}
+
+func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
+	if !ctx.TargetProvided {
+		return fmt.Errorf("plan-subagents requires an explicit -Target directory")
+	}
+	if opt.Apply || opt.WhatIf || opt.CreateCandidates {
+		return fmt.Errorf("plan-subagents only writes review artifacts; do not combine it with -Apply, -WhatIf, or -CreateCandidates")
+	}
+	result, err := subagents.WritePlan(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.Options{Route: opt.Route, TaskType: opt.TaskType, Items: opt.Items, ItemsFile: opt.ItemsFile, ItemsPerAgent: opt.ItemsPerAgent, MaxParallel: opt.MaxParallel, ReviewOutputDir: opt.ReviewOutputDir, PacketPath: opt.PacketPath, DiffPath: opt.DiffPath})
 	if err != nil {
 		return err
 	}

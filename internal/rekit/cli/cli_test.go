@@ -51,6 +51,17 @@ func TestParseDefaults(t *testing.T) {
 	}
 }
 
+func TestParsePlanSubagentsNumericOptionsRejectTrailingJunk(t *testing.T) {
+	_, err := Parse([]string{"-Command", "plan-subagents", "-ItemsPerAgent", "2x"})
+	if err == nil || !strings.Contains(err.Error(), "invalid -ItemsPerAgent") {
+		t.Fatalf("error = %v, want invalid -ItemsPerAgent", err)
+	}
+	_, err = Parse([]string{"-Command", "plan-subagents", "-MaxParallel", "3x"})
+	if err == nil || !strings.Contains(err.Error(), "invalid -MaxParallel") {
+		t.Fatalf("error = %v, want invalid -MaxParallel", err)
+	}
+}
+
 func TestRunDoctorRejectsNonCaseTarget(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "missing-case")
 	var out bytes.Buffer
@@ -715,6 +726,83 @@ func TestRunHandoffFallsBackToDerivedLaneRoot(t *testing.T) {
 	assertStartWrite(t, result.Writes, ".rekit/lanes/feature-login/prompts/RESUME.md", "refresh")
 }
 
+func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "vmp-re", "-TaskType", "feature-analysis", "-Items", "alpha,beta gamma", "-ItemsPerAgent", "2", "-MaxParallel", "7"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	result := decodePlanSubagentsResult(t, out.Bytes())
+	if result.Command != "plan-subagents" || result.IsMutation || !result.WritesReviewArtifacts || !result.ReviewRequired || result.ItemCount != 3 || result.ShardCount != 2 {
+		t.Fatalf("unexpected plan-subagents result: %+v", result)
+	}
+	packet := decodePlanSubagentsPacket(t, result.PacketPath)
+	if packet.Command != "plan-subagents" || packet.Route.ID != "vmp-re:lane-feature-analysis" || packet.ShardPolicy.TargetItemsPerAgent != 2 || packet.ShardPolicy.MaxParallel != 7 {
+		t.Fatalf("unexpected plan-subagents packet: %+v", packet)
+	}
+	if len(packet.Shards) != 2 || strings.Join(packet.Shards[0].Items, ",") != "alpha,beta" || strings.Join(packet.Shards[1].Items, ",") != "gamma" {
+		t.Fatalf("unexpected shards: %+v", packet.Shards)
+	}
+	if _, err := os.Stat(result.SummaryPath); err != nil {
+		t.Fatalf("missing summary: %v", err)
+	}
+}
+
+func TestRunPlanSubagentsItemsFileAndOutOfCaseGuard(t *testing.T) {
+	target := t.TempDir()
+	itemsFile := filepath.Join(t.TempDir(), "items.txt")
+	if err := os.WriteFile(itemsFile, []byte("one\ntwo;three"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "plan-subagents", "-Target", target, "-Pack", "vmp-re", "-ItemsFile", itemsFile}, &out)
+	if err == nil || !strings.Contains(err.Error(), "unless -ReviewOutputDir") {
+		t.Fatalf("error = %v, want out-of-case guard", err)
+	}
+	out.Reset()
+	reviewRoot := filepath.Join(t.TempDir(), "review")
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", target, "-Pack", "vmp-re", "-Route", "vmp-re:bounded-review", "-ItemsFile", itemsFile, "-ReviewOutputDir", reviewRoot}, &out); err != nil {
+		t.Fatal(err)
+	}
+	result := decodePlanSubagentsResult(t, out.Bytes())
+	packet := decodePlanSubagentsPacket(t, result.PacketPath)
+	if result.ItemCount != 3 || result.ShardCount != 1 || packet.Route.ID != "vmp-re:bounded-review" || packet.Input.ItemsFile == "" {
+		t.Fatalf("unexpected out-of-case plan: result=%+v packet=%+v", result, packet)
+	}
+	if !samePath(result.ReviewRoot, reviewRoot) {
+		t.Fatalf("review root = %q, want %q", result.ReviewRoot, reviewRoot)
+	}
+}
+
+func TestRunPlanSubagentsRejectsMissingRoutes(t *testing.T) {
+	caseRoot := attachedCase(t)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-ReviewOutputDir", t.TempDir()}, &out)
+	if err == nil || !strings.Contains(err.Error(), "no subagentRoutes") {
+		t.Fatalf("error = %v, want missing routes", err)
+	}
+}
+
+func TestRunPlanSubagentsRejectsDefaultArtifactEscape(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "vmp-re", "-Items", "alpha", "-PacketPath", filepath.Join(t.TempDir(), "packet.json")}, &out)
+	if err == nil || !strings.Contains(err.Error(), "packet path escapes review root") {
+		t.Fatalf("error = %v, want packet path containment guard", err)
+	}
+}
+
+func TestRunPlanSubagentsRejectsMutationFlags(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	for _, flag := range []string{"-Apply", "-WhatIf", "-CreateCandidates"} {
+		var out bytes.Buffer
+		err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "vmp-re", flag}, &out)
+		if err == nil || !strings.Contains(err.Error(), "only writes review artifacts") {
+			t.Fatalf("%s error = %v, want mutation flag guard", flag, err)
+		}
+	}
+}
+
 func TestRunPromoteApplyWhatIfEmitsNonMutatingPlan(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeCaseFile(t, caseRoot, "references/template/README.md", "# Apply\n\nReusable safe update.\n")
@@ -1282,6 +1370,35 @@ type handoffResult struct {
 	Writes               []startWrite `json:"writes"`
 }
 
+type planSubagentsResult struct {
+	Command               string `json:"command"`
+	IsMutation            bool   `json:"isMutation"`
+	WritesReviewArtifacts bool   `json:"writesReviewArtifacts"`
+	ReviewRequired        bool   `json:"reviewRequired"`
+	ReviewRoot            string `json:"reviewRoot"`
+	PacketPath            string `json:"packetPath"`
+	SummaryPath           string `json:"summaryPath"`
+	ItemCount             int    `json:"itemCount"`
+	ShardCount            int    `json:"shardCount"`
+}
+
+type planSubagentsPacket struct {
+	Command string `json:"command"`
+	Route   struct {
+		ID string `json:"id"`
+	} `json:"route"`
+	Input struct {
+		ItemsFile string `json:"itemsFile"`
+	} `json:"input"`
+	ShardPolicy struct {
+		TargetItemsPerAgent int `json:"targetItemsPerAgent"`
+		MaxParallel         int `json:"maxParallel"`
+	} `json:"shardPolicy"`
+	Shards []struct {
+		Items []string `json:"items"`
+	} `json:"shards"`
+}
+
 type startLane struct {
 	ID        string `json:"id"`
 	Type      string `json:"type"`
@@ -1360,6 +1477,28 @@ func decodeHandoffResult(t *testing.T, b []byte) handoffResult {
 		t.Fatalf("handoff stdout is not JSON: %v\n%s", err, string(b))
 	}
 	return result
+}
+
+func decodePlanSubagentsResult(t *testing.T, b []byte) planSubagentsResult {
+	t.Helper()
+	var result planSubagentsResult
+	if err := json.Unmarshal(b, &result); err != nil {
+		t.Fatalf("plan-subagents stdout is not JSON: %v\n%s", err, string(b))
+	}
+	return result
+}
+
+func decodePlanSubagentsPacket(t *testing.T, path string) planSubagentsPacket {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packet planSubagentsPacket
+	if err := json.Unmarshal(b, &packet); err != nil {
+		t.Fatalf("plan-subagents packet is not JSON: %v\n%s", err, string(b))
+	}
+	return packet
 }
 
 func assertFileExists(t *testing.T, path string) {
@@ -1658,11 +1797,16 @@ func writeFactFile(t *testing.T, root, name string, lines []string) {
 
 func attachedCase(t *testing.T) string {
 	t.Helper()
+	return attachedCaseWithPack(t, "_template")
+}
+
+func attachedCaseWithPack(t *testing.T, pack string) string {
+	t.Helper()
 	caseRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	metadata := "templateRoot: " + repoRoot(t) + "\ntemplatePack: _template\nprojectName: demo\nprojectRoot: " + caseRoot + "\n"
+	metadata := "templateRoot: " + repoRoot(t) + "\ntemplatePack: " + pack + "\nprojectName: demo\nprojectRoot: " + caseRoot + "\n"
 	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "instance.yml"), []byte(metadata), 0o644); err != nil {
 		t.Fatal(err)
 	}

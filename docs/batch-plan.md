@@ -1416,3 +1416,34 @@ git diff --check
 ```
 
 验证结果：全部通过；Go `handoff -WhatIf` 未写 `.rekit/handovers` 或 lane resume/checkpoint；Go `handoff -Apply` 显式写项目级/工作线级 handoff 并刷新 lane resume/checkpoint；项目级/工作线级关键区段、selector、Go/PowerShell doctor 与 PowerShell façade fallback 均通过；reviewer 发现的 lane id/path containment 与旧 lane `laneRoot` 兼容问题已修复并补回归测试；公共 PowerShell façade 仍不委托 `handoff`，不创建 board/facts/lanes，不写 authority/confirmed，不执行 heavy-tool。
+
+### Batch 47：G4.4 Go plan-subagents 手动路径
+
+状态：已完成。
+
+目标：在 Go backend 中实现显式 `plan-subagents` 手动路径，用于维护者生成只读 subagent 分片 review artifact；公共 PowerShell façade 仍不委托内部/工作线命令，用户日常仍不需要直接调用底层 Go CLI。
+
+实施范围：
+
+- 新增 Go subagent plan helper，复刻 PowerShell `Write-RekitSubagentPlan` 的核心语义：按 manifest `subagentRoutes` 选择 route，按 `Items` / `ItemsFile` 拆分 item，按 `targetItemsPerAgent` / `ItemsPerAgent` 生成 shard，并输出 route、input、shardPolicy、shards、mainAgentResponsibilities、subagentPermissions 与 outputContract。
+- CLI 支持 `-Command plan-subagents` 及 `-Route`、`-TaskType`、`-Items`、`-ItemsFile`、`-ItemsPerAgent`、`-MaxParallel`、`-ReviewOutputDir`、`-PacketPath`、`-DiffPath`；默认写 `.rekit/reviews/<timestamp>-plan-subagents` review artifact，或在显式 `-ReviewOutputDir` 下允许 out-of-case artifact。
+- 保持 `isMutation=false`、`writesReviewArtifacts=true`、`reviewRequired=true`；只写 review packet / summary / diff 路径清理，不写 board/facts/lanes/handoff/authority，不启动 subagent。
+- 增加 Go tests 与临时 case smoke，验证 route/taskType 选择、items 分片、ItemsFile、review artifact 写入、out-of-case guard、Go/PowerShell doctor 与 PowerShell façade fallback。
+- 更新 `docs/go-runtime-migration.md`、`README.md`、`CHANGELOG.md` 与后续批次计划。
+
+边界：不迁移 `continue`，不自动启动 agent，不读取/写入真实 RE artifact，不创建或修改 case board/facts/lanes，不写 authority/confirmed，不执行 heavy-tool/debug/inject/patch/dump/network，不默认纳入 PowerShell façade 委托。
+
+停止条件：route selection 与 PowerShell 行为不能对齐、artifact path containment / out-of-case guard 无法证明、PowerShell façade 误委托 `plan-subagents`、Go 写入不能通过 case doctor、或实现需要 manifest/runtime schema 迁移。
+
+验证：
+
+```powershell
+go test ./...
+.\rekit\tests\plan-subagents-smoke.ps1
+.\rekit\tests\facade-smoke.ps1 -CaseRoot '<attachedCase>' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target '<attachedCase>'
+git diff --check
+```
+
+验证结果：全部通过；`plan-subagents` Go CLI 只写 review packet/summary artifact，attached case 默认写 `.rekit/reviews/<timestamp>-plan-subagents`，out-of-case target 必须显式 `-ReviewOutputDir`；route/taskType、Items/ItemsFile 分片、ItemsPerAgent/MaxParallel override、missing routes guard、Go/PowerShell doctor 与 PowerShell façade fallback 均通过。reviewer 未发现 correctness/boundary 高置信问题；project-guideline reviewer 提出的 Batch 47 状态与 mutation flag guard 已修复并补回归测试。公共 PowerShell façade 仍不委托 `plan-subagents`，未写 board/facts/lanes/handoff/authority/confirmed，未启动 subagent，未执行 heavy-tool。
