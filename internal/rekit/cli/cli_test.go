@@ -606,6 +606,115 @@ func TestRunStartRequiresMode(t *testing.T) {
 	}
 }
 
+func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeHandoffFixture(t, caseRoot)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	result := decodeHandoffResult(t, out.Bytes())
+	if result.Command != "handoff" || result.IsMutation || result.Applied || !result.Project || !result.RequiresConfirmation {
+		t.Fatalf("unexpected handoff preview result: %+v", result)
+	}
+	assertStartWrite(t, result.Writes, ".rekit/handovers/latest.md", "would-write-latest-project-handoff")
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
+}
+
+func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeHandoffFixture(t, caseRoot)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	project := decodeHandoffResult(t, out.Bytes())
+	if !project.IsMutation || !project.Applied || !project.Project {
+		t.Fatalf("unexpected project handoff result: %+v", project)
+	}
+	latest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
+	text, err := os.ReadFile(latest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"# rekit 项目接手索引", "## 工作线", "/rekit continue main", "/rekit handoff login"} {
+		if !strings.Contains(string(text), expected) {
+			t.Fatalf("project handoff missing %q:\n%s", expected, string(text))
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	lane := decodeHandoffResult(t, out.Bytes())
+	if !lane.IsMutation || !lane.Applied || lane.Project || lane.Lane == nil || lane.Lane.ID != "feature-login" {
+		t.Fatalf("unexpected lane handoff result: %+v", lane)
+	}
+	laneLatest := assertStartWrite(t, lane.Writes, ".rekit/handovers/feature-login-latest.md", "write-latest-lane-handoff")
+	laneText, err := os.ReadFile(laneLatest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
+		if !strings.Contains(string(laneText), expected) {
+			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
+		}
+	}
+	resume, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "feature-login", "prompts", "RESUME.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(resume), "review queued") || !strings.Contains(string(resume), "inspect candidate") {
+		t.Fatalf("lane resume missing live inbox/tasks:\n%s", string(resume))
+	}
+}
+
+func TestRunHandoffRequiresModeAndBoard(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "board.json") {
+		t.Fatalf("error = %v, want missing board guard", err)
+	}
+	writeHandoffFixture(t, caseRoot)
+	err = Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for handoff without mode")
+	}
+	if !strings.Contains(err.Error(), "-Apply") || !strings.Contains(err.Error(), "-WhatIf") {
+		t.Fatalf("error = %q, want apply/whatif guard", err.Error())
+	}
+}
+
+func TestRunHandoffRejectsUnsafeLaneMetadata(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeHandoffFixture(t, caseRoot)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/lane.json", `{"schemaVersion":1,"id":"../../outside","type":"feature","name":"login","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login","laneRoot":".rekit/lanes/feature-login"}`)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "lane id mismatch") {
+		t.Fatalf("error = %v, want lane id mismatch guard", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, "outside-latest.md")); !os.IsNotExist(err) {
+		t.Fatalf("unsafe handoff path was created or stat failed: %v", err)
+	}
+}
+
+func TestRunHandoffFallsBackToDerivedLaneRoot(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeHandoffFixture(t, caseRoot)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/lane.json", `{"schemaVersion":1,"id":"feature-login","type":"feature","name":"login","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login"}`)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	result := decodeHandoffResult(t, out.Bytes())
+	assertStartWrite(t, result.Writes, ".rekit/lanes/feature-login/prompts/RESUME.md", "refresh")
+}
+
 func TestRunPromoteApplyWhatIfEmitsNonMutatingPlan(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeCaseFile(t, caseRoot, "references/template/README.md", "# Apply\n\nReusable safe update.\n")
@@ -1163,6 +1272,16 @@ type startResult struct {
 	Writes     []startWrite `json:"writes"`
 }
 
+type handoffResult struct {
+	Command              string       `json:"command"`
+	IsMutation           bool         `json:"isMutation"`
+	Applied              bool         `json:"applied"`
+	RequiresConfirmation bool         `json:"requiresConfirmation"`
+	Project              bool         `json:"project"`
+	Lane                 *startLane   `json:"lane"`
+	Writes               []startWrite `json:"writes"`
+}
+
 type startLane struct {
 	ID        string `json:"id"`
 	Type      string `json:"type"`
@@ -1230,6 +1349,15 @@ func decodeStartResult(t *testing.T, b []byte) startResult {
 	var result startResult
 	if err := json.Unmarshal(b, &result); err != nil {
 		t.Fatalf("start stdout is not JSON: %v\n%s", err, string(b))
+	}
+	return result
+}
+
+func decodeHandoffResult(t *testing.T, b []byte) handoffResult {
+	t.Helper()
+	var result handoffResult
+	if err := json.Unmarshal(b, &result); err != nil {
+		t.Fatalf("handoff stdout is not JSON: %v\n%s", err, string(b))
 	}
 	return result
 }
@@ -1481,6 +1609,40 @@ func writeOverviewFixture(t *testing.T, caseRoot string) {
 	writeFactFile(t, factsRoot, "verifications.jsonl", nil)
 	writeFactFile(t, factsRoot, "interventions.jsonl", []string{`{"kind":"intervention","lane":"main","subject":"manual override","summary":"needs human","action":"override","target":"batch-overview","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-overview"}`})
 	writeFactFile(t, factsRoot, "rollbacks.jsonl", []string{`{"kind":"rollback","lane":"main","subject":"rollback item","target":"batch-overview","status":"resolved","reason":"cleanup","batchId":"batch-overview"}`})
+}
+
+func writeHandoffFixture(t *testing.T, caseRoot string) {
+	t.Helper()
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	if err := os.MkdirAll(factsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{
+		".rekit/lanes/main",
+		".rekit/lanes/feature-login",
+		"workspace/main/main",
+		"workspace/features/feature-login",
+	} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[{"id":"main","type":"main","title":"主线","status":"open","authority":true,"workspace":"workspace/main/main"},{"id":"feature-login","type":"feature","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login"}],"factsRoot":".rekit/facts"}`
+	writeCaseFile(t, caseRoot, ".rekit/board.json", board)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","title":"主线","status":"open","authority":true,"workspace":"workspace/main/main","laneRoot":".rekit/lanes/main"}`)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/lane.json", `{"schemaVersion":1,"id":"feature-login","type":"feature","name":"login","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login","laneRoot":".rekit/lanes/feature-login"}`)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/inbox.jsonl", `{"eventId":"in-1","summary":"review queued"}`+"\n")
+	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/tasks.jsonl", `{"taskId":"task-1","summary":"inspect candidate","status":"open"}`+"\n")
+	writeCaseFile(t, caseRoot, "workspace/features/feature-login/packet.md", "# packet\n")
+	writeFactFile(t, factsRoot, "observations.jsonl", nil)
+	writeFactFile(t, factsRoot, "candidates.jsonl", nil)
+	writeFactFile(t, factsRoot, "publications.jsonl", nil)
+	writeFactFile(t, factsRoot, "hypotheses.jsonl", nil)
+	writeFactFile(t, factsRoot, "verifications.jsonl", nil)
+	writeFactFile(t, factsRoot, "requests.jsonl", []string{`{"kind":"request","lane":"feature-login","subject":"debug gate","summary":"needs confirmation","status":"pending-gate","actor":"runtime-test","risk":"high","target":"batch-handoff","batchId":"batch-handoff","gate":{"action":"debug","scope":"handler only","budget":"30s","triedLightSteps":["overview","static review"],"stopConditions":["timeout"]}}`})
+	writeFactFile(t, factsRoot, "decisions.jsonl", []string{`{"kind":"decision","lane":"feature-login","subject":"decision subject","decision":"defer","actor":"runtime-test","reason":"needs review","batchId":"batch-handoff"}`})
+	writeFactFile(t, factsRoot, "interventions.jsonl", []string{`{"kind":"intervention","lane":"feature-login","subject":"manual override","summary":"needs human","action":"override","target":"batch-handoff","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-handoff"}`})
+	writeFactFile(t, factsRoot, "rollbacks.jsonl", []string{`{"kind":"rollback","lane":"feature-login","subject":"rollback item","target":"batch-handoff","status":"resolved","reason":"cleanup","batchId":"batch-handoff"}`})
 }
 
 func writeFactFile(t *testing.T, root, name string, lines []string) {

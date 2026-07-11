@@ -171,13 +171,13 @@ git diff --check
 
 ### G4：工作线只读/低风险命令迁移
 
-状态：G4.1 已完成 `overview` 只读手动路径；G4.2 已完成 `start -WhatIf/-Apply` 手动路径；二者仍不纳入 PowerShell façade 委托，公共 `/rekit overview/start` 继续走 PowerShell 工作线语义。
+状态：G4.1 已完成 `overview` 只读手动路径；G4.2 已完成 `start -WhatIf/-Apply` 手动路径；G4.3 已完成 `handoff -WhatIf/-Apply` 手动路径；三者仍不纳入 PowerShell façade 委托，公共 `/rekit overview/start/handoff` 继续走 PowerShell 工作线语义。
 
 顺序：
 
 1. `overview`（G4.1 已完成 Go CLI 只读 renderer：读取既有 board/facts，不创建 board/facts/lanes，不写 handoff/ledger/metadata）；
 2. `start`（G4.2 已完成 Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式创建/进入 feature lane 并初始化 board/facts/policy/default authority lane）；
-3. `handoff`；
+3. `handoff`（G4.3 已完成 Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式写项目级/工作线级 handoff 并刷新 lane resume/checkpoint）；
 4. `plan-subagents`。
 
 `continue` 仍保留 PowerShell，直到 authority gate 测试完善。
@@ -220,7 +220,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 - `sync/promote` review-only（含 `-ReviewOutputDir` / `-PacketPath` / `-DiffPath` artifact 写入）；
 - `gate -WhatIf` dry-run（仅输出非写入 plan，不执行 heavy-tool、不写 ledger）。
 
-不委托：`attach`、`repair`、`gate -Apply`、`sync -Apply`、`init/bootstrap -Apply`、`promote -Apply/-CreateCandidates`、工作线命令、ledger `note`。其中 `overview` 可手动运行 Go CLI 只读验证；`start -WhatIf/-Apply`、`attach`、`repair`、`sync -Apply`、`init/bootstrap -WhatIf/-Apply`、`promote -CreateCandidates`、`promote -Apply/-Apply -WhatIf` 可手动运行 Go CLI 验证；公共 `/rekit` 入口继续由 PowerShell 处理工作线命令和写入命令。
+不委托：`attach`、`repair`、`gate -Apply`、`sync -Apply`、`init/bootstrap -Apply`、`promote -Apply/-CreateCandidates`、工作线命令、ledger `note`。其中 `overview` 可手动运行 Go CLI 只读验证；`start -WhatIf/-Apply`、`handoff -WhatIf/-Apply`、`attach`、`repair`、`sync -Apply`、`init/bootstrap -WhatIf/-Apply`、`promote -CreateCandidates`、`promote -Apply/-Apply -WhatIf` 可手动运行 Go CLI 验证；公共 `/rekit` 入口继续由 PowerShell 处理工作线命令和写入命令。
 
 ## 验证矩阵
 
@@ -247,6 +247,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Gate request display parity | `.\rekit\tests\gate-parity-smoke.ps1` | Go `gate -Apply` 写入的 pending-gate request 在 PowerShell `overview`、`note -List`、lane `handoff` 中展示 actor/risk/target/batch/gate 详情。 |
 | Go overview readonly | `.\rekit\tests\overview-readonly-smoke.ps1` | 手动 Go CLI 读取既有 board/facts 输出项目总览；缺 board 时拒绝，不创建 board/facts/lanes；PowerShell façade 即使显式 Go enable 仍不委托 `overview`。 |
 | Go start apply | `.\rekit\tests\start-apply-smoke.ps1` | 手动 Go CLI `start -WhatIf/-Apply` 预览或创建 feature lane，验证 board/facts/policy/lane/workspace scaffold、doctor 与 façade fallback；不经 PowerShell façade 委托。 |
+| Go handoff apply | `.\rekit\tests\handoff-apply-smoke.ps1` | 手动 Go CLI `handoff -WhatIf/-Apply` 预览或写项目级/工作线级 handoff，验证 lane resume/checkpoint、ledger 展示区段、doctor 与 façade fallback；不经 PowerShell façade 委托。 |
 | Go attach preview | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -WhatIf` | 输出非写入 plan，不创建目录或文件。 |
 | Go attach apply | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -ProjectName <name> -Apply` | 只写 `.rekit/instance.yml` 与 case-local thin shim，不写 managed docs、board/facts/lanes、legacy metadata 或 state。 |
 | Go repair preview | `go run ./cmd/rekit -- -Command repair -Target <movedCase> -Pack vmp-re -WhatIf` | 输出非写入 repair plan，展示 recorded/new projectRoot 与写入计划。 |
@@ -289,6 +290,7 @@ go vet ./...
 - G3.8/G3.9 已完成 `promote -Apply` 迁移预研、preflight smoke 与 Go CLI 手动写入路径：见 `docs/promote-apply-migration.md`；公共 PowerShell façade 仍不委托该写入命令，不迁移 authority/confirmed 写入。
 - G4.1 已完成 `overview` Go CLI 只读路径：读取既有 `.rekit/board.json` 与 9 类 facts JSONL，输出项目总览；不创建 board/facts/lanes，不写 handoff/ledger/metadata，公共 PowerShell façade 仍不委托工作线命令。
 - G4.2 已完成 `start` Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式初始化 board/facts/policy/default authority lane 并创建或进入 feature lane；公共 PowerShell façade 仍不委托工作线命令。
+- G4.3 已完成 `handoff` Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式写项目级/工作线级 handoff 并刷新 lane resume/checkpoint；公共 PowerShell façade 仍不委托工作线命令。
 - 在 PowerShell façade 默认委托前，继续用手动 Go CLI smoke 验证；写入命令、工作线命令、authority/confirmed 更新和 schema 迁移仍需单独确认。
 
 ## 风险与止损

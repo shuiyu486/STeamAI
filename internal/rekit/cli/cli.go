@@ -37,6 +37,7 @@ type Options struct {
 	ProjectName      string
 	Gate             gate.Options
 	Start            workstream.StartOptions
+	Handoff          workstream.HandoffOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -185,6 +186,12 @@ func Parse(args []string) (Options, error) {
 				} else {
 					opt.Start.Name += "-" + args[i]
 				}
+			} else if strings.EqualFold(opt.Command, "handoff") && args[i] != "" && args[i][0] != '-' {
+				if opt.Handoff.Selector == "" {
+					opt.Handoff.Selector = args[i]
+				} else {
+					opt.Handoff.Selector += "-" + args[i]
+				}
 			}
 		}
 	}
@@ -225,6 +232,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runOverview(ctx, stdout)
 	case "start":
 		return runStart(ctx, opt, stdout)
+	case "handoff":
+		return runHandoff(ctx, opt, stdout)
 	case "gate":
 		return runGate(ctx, opt, stdout)
 	default:
@@ -457,6 +466,33 @@ func runStart(ctx runtime.Context, opt Options, out io.Writer) error {
 		result, err = workstream.StartApply(ctx.RepoRoot, ctx.Target, ctx.Pack, startOpt)
 	} else {
 		return fmt.Errorf("start write requires -Apply; use -WhatIf for preview")
+	}
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(append(b, '\n'))
+	return err
+}
+
+func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
+	if !ctx.TargetProvided {
+		return fmt.Errorf("handoff requires an explicit -Target attached case")
+	}
+	if opt.WhatIf && opt.Apply {
+		return fmt.Errorf("handoff -WhatIf cannot be combined with -Apply")
+	}
+	var result any
+	var err error
+	if opt.WhatIf {
+		result, err = workstream.HandoffPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Handoff)
+	} else if opt.Apply {
+		result, err = workstream.HandoffApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Handoff)
+	} else {
+		return fmt.Errorf("handoff write requires -Apply; use -WhatIf for preview")
 	}
 	if err != nil {
 		return err

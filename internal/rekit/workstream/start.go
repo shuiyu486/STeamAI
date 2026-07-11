@@ -39,6 +39,8 @@ maxAuthorityRowsPerRun: 10
 askUserWhen: conflict,overwriteAuthority,deleteAuthority,confidenceBelowThreshold,schemaChange,changesProjectBaseline,externalSideEffect,destructiveAction
 `
 
+var safeLaneIDSegment = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
+
 type StartOptions struct {
 	Name  string
 	Force bool
@@ -451,7 +453,7 @@ func saveBoard(caseRoot string, m *manifest.Manifest) (string, error) {
 }
 
 func writeLaneResume(caseRoot string, lane Lane) (string, string, error) {
-	laneRoot, err := refsf.SafeJoin(caseRoot, lane.LaneRoot)
+	laneRoot, err := laneRootPath(caseRoot, lane)
 	if err != nil {
 		return "", "", err
 	}
@@ -547,6 +549,34 @@ func workstreamLabel(lane Lane) string {
 	return lane.ID
 }
 
+func validateLaneIDSegment(id string) error {
+	if !safeLaneIDSegment.MatchString(strings.TrimSpace(id)) {
+		return fmt.Errorf("invalid lane id path segment: %s", id)
+	}
+	return nil
+}
+
+func laneRootPath(caseRoot string, lane Lane) (string, error) {
+	if err := validateLaneIDSegment(lane.ID); err != nil {
+		return "", err
+	}
+	rootFromID, err := refsf.SafeJoin(caseRoot, relJoin(".rekit", "lanes", lane.ID))
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(lane.LaneRoot) == "" {
+		return rootFromID, nil
+	}
+	rootFromLane, err := refsf.SafeJoin(caseRoot, lane.LaneRoot)
+	if err != nil {
+		return "", err
+	}
+	if !strings.EqualFold(filepath.Clean(rootFromLane), filepath.Clean(rootFromID)) {
+		return "", fmt.Errorf("laneRoot mismatch for %s: got %s, want %s", lane.ID, lane.LaneRoot, relativePath(caseRoot, rootFromID))
+	}
+	return rootFromID, nil
+}
+
 func ensureEmptyFile(path string) (string, error) {
 	if refsf.Exists(path) {
 		return "unchanged", nil
@@ -605,13 +635,38 @@ func lastObjects(items []map[string]any, limit int) []map[string]any {
 func firstObjectText(item map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if value, ok := item[key]; ok {
-			text := strings.TrimSpace(fmt.Sprint(value))
-			if text != "" && text != "<nil>" {
+			text := objectText(value)
+			if text != "" {
 				return text
 			}
 		}
 	}
 	return ""
+}
+
+func objectText(value any) string {
+	if value == nil {
+		return ""
+	}
+	switch t := value.(type) {
+	case string:
+		return strings.TrimSpace(t)
+	case []any:
+		parts := []string{}
+		for _, item := range t {
+			text := objectText(item)
+			if text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, ",")
+	default:
+		text := strings.TrimSpace(fmt.Sprint(t))
+		if text == "<nil>" {
+			return ""
+		}
+		return text
+	}
 }
 
 func readAutomationMode(caseRoot string) string {

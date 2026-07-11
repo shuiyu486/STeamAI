@@ -1385,3 +1385,34 @@ git diff --check
 ```
 
 验证结果：全部通过；Go `start -WhatIf` 未写 board/facts/lanes/workspace；Go `start -Apply` 显式初始化 board/facts/policy/default authority lane 并创建 feature lane；existing/force 行为、Go/PowerShell doctor 与 PowerShell façade fallback 均通过；`-Force` 刷新已有 lane 时保留 live inbox/tasks 的 resume/checkpoint；reviewer 发现的 force refresh 状态覆盖与 Batch 45 绝对路径问题已修复；不写 handoff、authority/confirmed，不执行 heavy-tool。
+
+### Batch 46：G4.3 Go handoff 手动路径
+
+状态：已完成。
+
+目标：在 Go backend 中实现显式 `handoff` 手动路径，用于维护者预览或生成项目级/工作线级接手文档；公共 PowerShell façade 仍不委托工作线命令，用户 `/rekit handoff` 继续走 PowerShell runtime。
+
+实施范围：
+
+- 新增 Go workstream handoff helper，复刻 PowerShell `Write-RekitHandoff` / `Write-RekitProjectHandoff` / `Write-RekitLaneHandoff` 的核心输出语义：项目级 `latest.md` 索引、工作线级 `<laneId>-latest.md`、推荐读取、工作线列表、workspace packet、decision、pending-gate、intervention、rollback 与边界区段。
+- CLI 支持 `-Command handoff -WhatIf` 与 `-Apply`：`-WhatIf` 输出非写入 JSON preview；`-Apply` 显式写 `.rekit/handovers/**`，并刷新相关 lane `prompts/RESUME.md` / `checkpoints/latest.json`。
+- 支持无 selector 生成项目级 handoff；支持 `main`、feature name 与 lane id selector 生成指定工作线 handoff；未知 selector 必须拒绝并列出可选工作线。
+- 增加 Go tests 与临时 case smoke，验证 preview 只读、apply 写入范围、项目级/工作线级输出关键区段、Go/PowerShell doctor、PowerShell façade fallback。
+- 更新 `docs/go-runtime-migration.md`、`README.md`、`CHANGELOG.md` 与后续批次计划。
+
+边界：不迁移 `continue/plan-subagents`，不创建 board/facts/lanes（缺 board 时拒绝并提示先运行 `start` 或 PowerShell `overview` 初始化），不写 authority/confirmed，不执行 heavy-tool/debug/inject/patch/dump/network，不默认纳入 PowerShell façade 委托。
+
+停止条件：selector 解析不能与 PowerShell 行为对齐、handoff path/lane resume path 无法证明在 case root 内、Go 写入不能通过 case doctor、PowerShell façade 误委托 `handoff`、或实现需要 runtime schema 迁移。
+
+验证：
+
+```powershell
+go test ./...
+.\rekit\tests\handoff-apply-smoke.ps1
+.\rekit\tests\facade-smoke.ps1 -CaseRoot '<attachedCase>' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Target '<attachedCase>'
+git diff --check
+```
+
+验证结果：全部通过；Go `handoff -WhatIf` 未写 `.rekit/handovers` 或 lane resume/checkpoint；Go `handoff -Apply` 显式写项目级/工作线级 handoff 并刷新 lane resume/checkpoint；项目级/工作线级关键区段、selector、Go/PowerShell doctor 与 PowerShell façade fallback 均通过；reviewer 发现的 lane id/path containment 与旧 lane `laneRoot` 兼容问题已修复并补回归测试；公共 PowerShell façade 仍不委托 `handoff`，不创建 board/facts/lanes，不写 authority/confirmed，不执行 heavy-tool。
