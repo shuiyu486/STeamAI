@@ -32,9 +32,9 @@ BEGIN.
 
 ## 项目定位
 
-`re-context-kits` 是面向逆向工程的 Claude Code Agent Team 框架，用于组织多 Agent 协作、RE 工具链、证据账本、工作线管理、验证门禁和可复用 pack。
+`re-context-kits` 是面向网络安全研究与安全工程任务的 Claude Code Agent Team 框架，用于组织多 Agent 协作、领域工具链、证据账本、工作线管理、验证门禁和可复用安全领域 pack。
 
-当前阶段，本仓库主要是 Agent Team 的 context / workflow / tooling / runtime 底座，不是具体 RE case，也不是已经全自动化的脱壳器或逆向引擎。
+当前阶段，本仓库主要是 Agent Team 的 context / workflow / tooling / runtime 底座；`vmp-re` 是首个成熟 pack 和验证场，不是最终边界。本仓库不是具体安全 case 或 RE case，也不是已经全自动化的脱壳器、逆向引擎、漏洞挖掘器或渗透执行器。
 
 维护本仓库时，不要因为 README 的 case 初始化示例而创建无关 case。只有在需要验证 `init`、`attach`、`sync`、`promote` 行为时，才创建临时 case。
 
@@ -67,7 +67,7 @@ BEGIN.
 
 1. Skill UI：改 `.claude/skills/rekit/SKILL.md`
 2. Runtime：改 `rekit/rekit.ps1`、`rekit/lib/*.ps1`、`cmd/rekit/**` 或 `internal/rekit/**`
-3. Pack：改 `packs/vmp-re/**`
+3. Pack：改 `packs/<pack>/**`；当前首个成熟 pack 是 `packs/vmp-re/**`
 4. Common policies/prompts：改 `common/**`
 5. 用户文档：改 `README.md` 或 `docs/**`
 

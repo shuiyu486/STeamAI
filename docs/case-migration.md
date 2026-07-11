@@ -1,6 +1,6 @@
 # Case 迁移与路径相对化指南
 
-本文件描述把已有 RE case 移到新目录时的通用流程。具体样本名、真实绝对路径、当前进度和脚本状态应保存在 case-local 文档中，不写入 kit 仓库。
+本文件描述把已有安全 case（当前常见示例为 `vmp-re` RE case）移到新目录时的通用流程。具体目标/样本名、真实绝对路径、当前进度和脚本状态应保存在 case-local 文档中，不写入 kit 仓库。
 
 ## 推荐 workspace 结构
 
@@ -23,9 +23,9 @@
 - 旧 PowerShell scripts 只保留为兼容 wrapper。
 - 新架构的使用方式、旧 case 接入和主线/功能支线工作流见 `docs/agent-team-usage.md`。
 
-## 旧 case 接入 Agent Team 架构
+## 旧安全 case 接入 Agent Team 架构
 
-旧 case 不需要一次性重建。推荐分两步接入：
+旧 case 不需要一次性重建。推荐分两步接入；当前成熟 pack 示例仍使用 `vmp-re`：
 
 1. **绑定 metadata 和 thin shim**：
 
@@ -101,7 +101,7 @@ references/vmp-re/task-handoff.md
 tools.local.yml
 ```
 
-目标样本路径如果没有变化，不需要因为 case 目录迁移而修改。
+目标/样本路径如果没有变化，不需要因为 case 目录迁移而修改。
 
 ## Skill-first 命令示例
 

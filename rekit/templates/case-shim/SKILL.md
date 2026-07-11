@@ -1,6 +1,6 @@
 ---
 name: rekit
-description: Case-local shim for re-context-kits. Use when working inside this case and the user asks for rekit, syncing context templates, promoting case learnings, validating the context-kit binding, or updating managed RE reference docs.
+description: Case-local shim for re-context-kits. Use when working inside this case and the user asks for rekit, syncing context templates, promoting case learnings, validating the context-kit binding, or updating managed pack reference docs.
 disable-model-invocation: true
 ---
 

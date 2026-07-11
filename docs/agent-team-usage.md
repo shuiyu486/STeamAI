@@ -4,7 +4,7 @@
 
 如果你只是维护本仓库，先读根目录 `CLAUDE.md`、`README.md` 和本文件即可；需要理解长期路线时再读 `docs/vision.md`。
 
-如果你正在具体 RE case 中工作，先在 case 目录用 `/rekit status` 确认绑定，再按本文件选择新 case、旧 case、主线或功能支线流程。
+如果你正在具体安全 case 中工作（当前成熟示例是 `vmp-re` RE case），先在 case 目录用 `/rekit status` 确认绑定，再按本文件选择新 case、旧 case、主线或功能支线流程。
 
 本文件只说明通用使用方式和兼容策略，不记录真实样本名、RVA/VA、trace/dump、artifact 路径或 case-specific 进度。
 
@@ -16,20 +16,20 @@
 - 旧 case 可继续使用 `.re-template.yml`，也可以通过 `/rekit attach` / `/rekit repair` 补齐 `.rekit/instance.yml`。
 - 主线和功能支线仍然保留，而且是新架构的核心协作单元。
 - `sync` / `promote` 仍然 review-first，写入前需要确认具体范围。
-- Agent Team 当前主要是 context、workflow、tooling、ledger、gate 的底座，不代表已经全自动脱壳或全自动逆向。
+- Agent Team 当前主要是 context、workflow、tooling、ledger、gate 的底座，不代表已经全自动脱壳、全自动逆向、自动漏洞挖掘、自动恶意样本分析或通用自动渗透。
 
 推荐心智模型：
 
 ```text
 kit 仓库 = runtime + packs + common policies + tooling 经验
-case 目录 = 具体样本/项目状态 + 工作线 + 证据 + 候选结论
+case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结论
 主线 = 收敛、确认、长期 handoff
 功能支线 = 专项探索、证据收集、候选结论
 ```
 
 ## 执行清单
 
-### 新 case
+### 新安全 case（当前以 `vmp-re` 为例）
 
 1. 在 kit 仓库启动 Claude Code。
 2. 使用 `/rekit init -Target <caseRoot> -Pack vmp-re -ProjectName <caseName>`。
@@ -74,7 +74,7 @@ case 目录 = 具体样本/项目状态 + 工作线 + 证据 + 候选结论
 
 ## 风险与注意事项
 
-- 不要把 `docs/vision.md` 中的长期目标理解为当前已经具备全自动脱壳或全自动逆向能力。
+- 不要把 `docs/vision.md` 中的长期目标理解为当前已经具备全自动脱壳、全自动逆向、自动漏洞挖掘、自动恶意样本分析或通用自动渗透能力。
 - 不要在 kit 仓库里创建真实 case state；验证 `init/attach/sync/promote` 时只用临时 case。
 - 不要将真实样本、客户信息、RVA/VA、trace/dump、artifact 路径或绝对 case 路径写回 pack 模板。
 - `attach` 只绑定 metadata 和 shim，不会直接同步 managed docs；旧 case 接入后还需要 `/rekit sync` review。
@@ -98,7 +98,7 @@ case 目录 = 具体样本/项目状态 + 工作线 + 证据 + 候选结论
 
 维护本仓库时不需要运行 `/rekit init`。只有需要验证 case 行为时，才创建临时 case。
 
-### 1.2 接入新 case
+### 1.2 接入新安全 case（当前以 `vmp-re` 为例）
 
 从 kit 仓库启动 Claude Code，然后：
 
@@ -234,17 +234,17 @@ case 目录 = 具体样本/项目状态 + 工作线 + 证据 + 候选结论
 
 ### 4.3 长期优化
 
-- 拆出更多领域 pack，例如 `unpack-pe`、`ollvm`、`android-native`、`generic-binary-re`。
-- 引入工具 adapter 层，把 IDA/x64dbg/trace/unicorn/symex 等能力先 recipe 化，再稳定成 adapter。
+- 拆出更多安全领域 pack，例如 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native`、`generic-binary-re`。
+- 引入工具 adapter 层，把 IDA/x64dbg/trace/unicorn/symex、Web/API 测试、样本分析等能力先 recipe 化，再稳定成 adapter。
 - 建立 candidate -> review -> confirmed 的机器可验证 gate。
-- 将多 Agent 编排与证据账本结合，支持可回放、可审计、可回滚的 RE 工作流。
+- 将多 Agent 编排与证据账本结合，支持可回放、可审计、可回滚的安全研究工作流。
 
 ## 5. 推荐使用决策表
 
 | 你现在的情况 | 推荐动作 |
 |---|---|
 | 只维护本仓库 | 读 `CLAUDE.md`、`docs/vision.md`、本文件；不要 init case |
-| 新建 RE case | 在 kit 仓库用 `/rekit init -Target ...` |
+| 新建安全 case（当前成熟示例：`vmp-re` RE case） | 在 kit 仓库用 `/rekit init -Target ... -Pack vmp-re` |
 | 已有 case 接入新架构 | 用 `/rekit attach`，再 `/rekit sync` review |
 | 旧 case 移动了目录 | `/rekit status` -> `/rekit repair` -> 确认后 `repair -Apply` -> `/rekit doctor` |
 | 想看项目全局状态 | `/rekit overview` |

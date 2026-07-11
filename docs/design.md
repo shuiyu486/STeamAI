@@ -4,7 +4,7 @@
 
 1. **Skill UI**：`.claude/skills/rekit/SKILL.md`，clone 后在 kit 仓库内直接提供 `/rekit`。
 2. **Runtime**：`rekit/rekit.ps1` 与 `rekit/lib/*.ps1`，执行 attach/init/sync/promote/validate。
-3. **Pack**：`packs/<pack>`，保存可复用模板、tooling 资产、示例、snippet 与 `manifest.yml`。
+3. **Pack**：`packs/<pack>`，保存某个安全领域的可复用模板、tooling 资产、示例、snippet 与 `manifest.yml`；当前首个成熟 pack 是 `vmp-re`。
 4. **Instance**：每个 case 的 `.rekit/instance.yml`、`.rekit/state.json`、case-local `.claude/skills/rekit` shim。
 
 ## managed vs local

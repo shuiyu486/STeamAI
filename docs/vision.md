@@ -2,31 +2,31 @@
 
 ## 读取指南
 
-- 如果你只想使用当前仓库初始化一个 RE case，先读 `README.md` 的使用方式；本文件用于理解长期方向与阶段路线。
+- 如果你只想使用当前仓库初始化一个安全 case（当前成熟示例是 `vmp-re` RE case），先读 `README.md` 的使用方式；本文件用于理解长期方向与阶段路线。
 - 如果你要维护或迭代本仓库，先读本文件顶部的实施摘要、执行清单、验证标准，再按阶段读取细节。
-- 本文件是路线图，不代表所有能力已经实现；当前已经落地的是 `/rekit`、case 绑定、工作线、handoff、sync/promote、`vmp-re` pack 和 tooling 文档底座。
+- 本文件是路线图，不代表所有能力已经实现；当前已经落地的是 `/rekit`、case 绑定、工作线、handoff、sync/promote、首个成熟领域 pack `vmp-re` 和 tooling 文档底座。
 - 需要具体执行时，优先选择当前阶段的最小可验证切片，不跨阶段提前重构 runtime。
 
 ## 实施摘要
 
-`re-context-kits` 的长期定位是：**面向逆向工程的 Claude Code Agent Team 框架**。
+`re-context-kits` 的长期定位是：**面向网络安全研究与安全工程任务的 Claude Code Agent Team 框架**。
 
-它不是单个脱壳工具、IDA 插件或自动化脚本集合，而是把多 Agent 协作、RE 工具链、证据账本、工作线管理、验证门禁和可复用领域 pack 组织成可持续迭代的 case workspace。目标是逐步支持脱壳、反混淆、反虚拟化、算法还原和大型二进制工程分析。
+它不是单个脱壳工具、IDA 插件、漏洞扫描器或自动化脚本集合，而是把多 Agent 协作、领域工具链、证据账本、工作线管理、验证门禁和可复用安全领域 pack 组织成可持续迭代的 case workspace。`vmp-re` 是当前首个成熟 pack 和验证场，不是最终边界；长期目标是逐步支持逆向工程、恶意样本分析、漏洞研究、Web/API 安全评估、授权测试/靶场/CTF、Android native、OLLVM 等多类安全任务。
 
 当前项目的合理边界是：
 
 - Agent 负责决策、拆解、复核和调度。
-- 外部 RE 工具负责执行静态/动态/trace/仿真任务。
+- 外部领域工具负责执行静态/动态/trace/仿真、安全测试、分析或验证任务。
 - `rekit` runtime 负责 case 状态、工作线、sync/promote、handoff 和可审计流程。
 - `packs/<pack>` 负责领域知识、工具路由、验证规则和可复用模板。
-- case-local 目录保存样本、trace、dump、当前进度和私有结论。
+- case-local 目录保存目标样本/系统信息、trace、dump、当前进度和私有结论。
 
 ## 执行清单
 
 - [ ] Phase 0：定位与文档收敛。
 - [ ] Phase 1：Agent Team 工作流固化。
 - [ ] Phase 2：`vmp-re` 专项能力深化。
-- [ ] Phase 3：通用脱壳、Android native、OLLVM 等多 pack 扩展。
+- [ ] Phase 3：网络安全多领域 pack 扩展（Web/API 安全、恶意样本分析、漏洞研究、CTF/靶场、Android native、OLLVM 等）。
 - [ ] Phase 4：工具适配与候选工具路由。
 - [ ] Phase 5：证据账本与 intervention 模型增强。
 - [ ] Phase 6：半自动 Agent Team runtime / orchestration。
@@ -65,8 +65,8 @@ runtime 阶段还应增加：
 
 ## 风险与注意事项
 
-- 不要把“长期目标是全能逆向 Agent Team”误写成“当前已能全自动脱壳/逆向”。
-- 不把真实样本、RVA/VA、trace、dump、artifact、客户信息或本机绝对路径写入模板仓库。
+- 不要把“长期目标是安全 Agent Team 框架”误写成“当前已能全自动脱壳、逆向、漏洞挖掘、恶意样本分析或渗透测试”。
+- 不把真实样本、RVA/VA、trace、dump、artifact、客户信息、目标系统信息或本机绝对路径写入模板仓库。
 - 不把外部工具变成硬依赖；优先以 tooling recipe、capability card、adapter contract 的方式接入。
 - 不让 runtime 直接包含具体工具的业务逻辑；工具细节应留在 pack tooling 或 case-local adapter。
 - 动态调试、注入、patch、dump、脱壳写文件等高风险动作必须有显式用户确认和可回溯记录。
@@ -74,11 +74,11 @@ runtime 阶段还应增加：
 
 ## 1. 项目定位
 
-`re-context-kits` 是 RE Agent Team 的上下文、流程和工具编排框架。
+`re-context-kits` 是安全研究 / 安全工程 Agent Team 的上下文、流程和工具编排框架。
 
 它服务的对象有两类：
 
-1. **逆向 case 使用者**：在某个 case 中使用 `/rekit overview`、`/rekit continue`、`/rekit start`、`/rekit handoff` 组织长期分析。
+1. **安全 case 使用者**：在某个安全研究或安全工程 case 中使用 `/rekit overview`、`/rekit continue`、`/rekit start`、`/rekit handoff` 组织长期分析；当前最成熟示例是 `vmp-re` RE case。
 2. **框架维护者**：在本仓库中迭代 runtime、pack、policy、tooling recipe、agent workflow 和文档。
 
 最终形态不是一个“大而全脚本”，而是一个模块化 team system：每个 agent、工具、证据、候选结论和验证动作都有边界、输入输出和留痕。
@@ -102,14 +102,14 @@ runtime 阶段还应增加：
 | Skill UI 层 | 给 Claude Code 暴露 `/rekit` 入口和用户语义 | `.claude/skills/rekit/SKILL.md`、case shim |
 | Case runtime 层 | 管理 case 绑定、工作线、状态、handoff、sync/promote | `rekit/rekit.ps1`、`rekit/lib/*.ps1` |
 | Agent Team 层 | 定义主 agent、功能支线、reviewer、工具 agent 的职责和 packet | `common/prompts/**`、`packs/*/prompts/**`、manifest `subagentRoutes` |
-| Pack 领域层 | 保存某类 RE 任务的领域知识、流程、验证标准 | `packs/vmp-re/**` |
-| Tooling / adapter 层 | 描述外部工具能力、用法、止损条件和未来 adapter contract | `packs/vmp-re/tooling/**` |
+| Pack 领域层 | 保存某类安全任务的领域知识、流程、验证标准 | `packs/vmp-re/**`（当前成熟示例） |
+| Tooling / adapter 层 | 描述外部工具能力、用法、止损条件和未来 adapter contract | `packs/<pack>/tooling/**`，当前以 `packs/vmp-re/tooling/**` 为主 |
 | Evidence ledger 层 | 保存 observation、request、candidate、publication、decision、intervention | `.rekit/facts/*.jsonl`、`.rekit/lanes/**` |
 | Verification gate 层 | 决定什么能进入 confirmed / authority，什么必须人工确认 | `common/policies/**`、pack overlays、runtime policy gate |
 
 架构原则：
 
-- runtime 只理解通用 case / lane / packet / manifest，不内嵌具体 RE 工具细节。
+- runtime 只理解通用 case / lane / packet / manifest，不内嵌具体安全领域工具细节。
 - pack 只声明领域流程和工具契约，不写 case 私有状态。
 - case-local 只保存当前样本事实、产物、证据和私有脚本。
 - confirmed/authority 写入必须比 candidate 写入更严格，并有验证和回滚线索。
@@ -121,7 +121,7 @@ re-context-kits/
   .claude/skills/rekit/        # canonical Claude Code 入口
   rekit/                       # deterministic runtime backend
   common/                      # 跨 pack 的 policy 与 prompt
-  packs/vmp-re/                # 当前主领域 pack
+  packs/vmp-re/                # 当前首个成熟领域 pack / RE 验证场
     references/vmp-re/         # 下发到 case 的 managed docs
     policies/                  # pack-specific policy overlay
     prompts/                   # pack-specific agent prompt
@@ -133,8 +133,8 @@ re-context-kits/
 短期不要打破这个结构。新增能力优先放在最贴近职责的位置：
 
 - 通用 agent/team 规则：`common/policies` 或 `common/prompts`。
-- VMP 领域流程：`packs/vmp-re/references/vmp-re` 或 `packs/vmp-re/policies`。
-- 外部工具经验：`packs/vmp-re/tooling`。
+- `vmp-re` 领域流程：`packs/vmp-re/references/vmp-re` 或 `packs/vmp-re/policies`；新增领域应放入对应 `packs/<pack>/`。
+- 外部工具经验：`packs/<pack>/tooling`；当前成熟内容主要在 `packs/vmp-re/tooling`。
 - runtime 自动化：`rekit/lib`，并保持 Core / State / Policy / Lane / Auto / Commands 分层。
 - 长期路线与架构说明：`docs`。
 
@@ -142,11 +142,11 @@ re-context-kits/
 
 ### Phase 0：定位与文档收敛
 
-**目标：** 让 README、CLAUDE.md、docs/vision.md 对项目定位达成一致，避免维护者把本仓库误解成普通模板仓库，也避免用户误以为当前已具备全自动脱壳能力。
+**目标：** 让 README、CLAUDE.md、docs/vision.md 对项目定位达成一致，避免维护者把本仓库误解成普通模板仓库，也避免用户误以为当前已具备全自动脱壳、自动逆向、自动漏洞挖掘或通用自动渗透能力。
 
 **实施切片：**
 
-1. README 顶部改为 RE Agent Team 框架定位。
+1. README 顶部改为面向网络安全研究与安全工程任务的 Agent Team 框架定位，并说明 `vmp-re` 是首个成熟 pack。
 2. 新增本文件，承载长期愿景和阶段路线。
 3. CLAUDE.md 补充维护者视角：当前是 Agent Team 的 context/workflow/tooling 底座。
 4. CHANGELOG 记录定位调整。
@@ -212,13 +212,17 @@ re-context-kits/
 
 **调试维护点：** 每个阶段产物要有确定文件位置、输入输出和失败原因；不要用“看情况”作为唯一流程说明。
 
-### Phase 3：多 pack 扩展
+### Phase 3：网络安全多领域 pack 扩展
 
-**目标：** 在不污染 `vmp-re` 的前提下，逐步支持通用脱壳、Android native、OLLVM、通用二进制功能分析等领域。
+**目标：** 在不污染 `vmp-re` 的前提下，逐步支持 Web/API 安全评估、恶意样本分析、漏洞研究、授权测试/靶场/CTF、通用脱壳、Android native、OLLVM、通用二进制功能分析等领域。
 
 **候选 pack：**
 
 ```text
+packs/web-security/
+packs/malware-analysis/
+packs/vuln-research/
+packs/ctf/
 packs/unpack-pe/
 packs/android-native/
 packs/ollvm/
@@ -367,7 +371,8 @@ packs/<pack>/
 2. 已完成：扩写 `workflow-template.md`，加入 VMP 轻到重路线和 heavy trace 升级条件。
 3. 已完成：扩写 `toolchain-router.md` 与 `tooling/recipes/ida-x64dbg-mcp.md`，将 `ida-agent-bridge` 作为候选/辅助工具记录。
 4. 已完成草案：细化 `.rekit/facts/*.jsonl` 事件类型，见 `docs/evidence-ledger.md`。
-5. 已完成草案：为未来 pack 写 `docs/pack-authoring.md`，降低新增 pack 的成本。
+5. 已完成草案：为未来 pack 写 `docs/pack-authoring.md`，降低新增安全领域 pack 的成本。
 6. 已完成草案：写 `docs/orchestration-plan.md`，定义半自动 Agent Team runtime 的实施边界。
 7. `packs/_template/` pack 骨架与 `B3.Lane.ps1` PowerShell 解析问题已完成；后续按 `docs/batch-plan.md` 与 `docs/agent-team-rollout-plan.md` §4-§5 推进。
 8. Agent Team rollout 按 `docs/agent-team-rollout-plan.md` 推进：先 R0-R2 契约 dry-run 压测，再在 R3 决策门决定 ledger runtime（Phase 5）与 bounded dispatch（Phase 6）顺序。
+9. 定位纠偏完成后，后续新增 pack 规划应以网络安全多领域框架为边界：`vmp-re` 继续作为首个成熟 pack，但不要把 RE-only 路线写成项目最终目标。

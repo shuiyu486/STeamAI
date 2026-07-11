@@ -4,7 +4,7 @@
 
 本文件用于新增或维护 `packs/<pack>`。如果只使用现有 `vmp-re`，不需要先读全文。
 
-新增 pack 前先确认：该能力是否真的是新领域，还是应作为 `vmp-re` 的 reference、tooling recipe 或 common policy 改进。
+新增 pack 前先确认：该能力是否真的是新的安全领域，还是应作为现有 pack（当前主要是 `vmp-re`）的 reference、tooling recipe 或 common policy 改进。候选方向可以包括 Web/API 安全、恶意样本分析、漏洞研究、CTF/靶场、Android native、OLLVM 或通用二进制分析，但不要盲目复制 `vmp-re`。
 
 ## 最小 pack 结构
 

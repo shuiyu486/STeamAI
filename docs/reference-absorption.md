@@ -23,11 +23,11 @@
 2. **工具 adapter 策略**：IDA/调试器/trace 等工具先 recipe 化、candidate 化，再逐步 adapter 化，避免成为硬依赖或大输出源。
 3. **证据与门禁模型**：evidence ledger、batch/intervention、heavy-tool gate、人工确认和可回滚的审查流程。
 
-当前已经落地的是框架底座、文档契约、`/rekit` 工作线 runtime、review-first sync/promote、vmp-re pack 扩展、tooling candidate，以及 evidence ledger runtime（`/rekit note` 手动 append 9 种 kind 事件 + overview/handoff/note-List 读层 + auto 流程 decision 字段对齐 `docs/evidence-ledger.md` 草案）；尚未落地的是 runtime 强制 heavy-tool gate、真实 IDA bridge adapter、自动多 Agent dispatch（R5 判定 runtime 不自动 spawn，由主会话用 Agent 工具完成）和自动脱壳/逆向引擎。
+当前已经落地的是安全 Agent Team 框架底座、文档契约、`/rekit` 工作线 runtime、review-first sync/promote、首个成熟 pack `vmp-re` 扩展、tooling candidate，以及 evidence ledger runtime（`/rekit note` 手动 append 9 种 kind 事件 + overview/handoff/note-List 读层 + auto 流程 decision 字段对齐 `docs/evidence-ledger.md` 草案）；尚未落地的是 runtime 强制 heavy-tool gate、真实工具 bridge adapter、自动多 Agent dispatch（R5 判定 runtime 不自动 spawn，由主会话用 Agent 工具完成），也不能宣称已具备自动脱壳/逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
 
 ## 执行清单
 
-- [x] 将项目定位从 context kit 扩展为 RE Agent Team 框架。
+- [x] 将项目定位从 context kit 扩展为面向网络安全研究与安全工程任务的 Agent Team 框架，`vmp-re` 作为首个成熟 pack。
 - [x] 增加 Agent Team roles、packet、candidate/review/confirmed 流程。
 - [x] 增加主线/功能支线日常入口与 handoff 说明。
 - [x] 增加 heavy-tool gate 和轻到重分析路线。
@@ -38,7 +38,7 @@
 - [ ] 将 heavy-tool gate 从文档推进为 runtime packet / confirmation flow（R6 已落 `packs/vmp-re/policies/verification.overlay.md` 用 `note -Kind request -Status pending-gate` 登记 gate 事件，runtime 不强制 gate，属 Phase 6 后段）。
 - [ ] 将 `ida-agent-bridge` 从 candidate tooling 推进为可选 adapter。
 - [ ] 将 bounded dispatch 从计划推进为可验证 runtime 功能（R5 已判定 runtime 不扩，spawn 是主会话职责；`plan-subagents` + `note -Kind decision` 构成支撑）。
-- [ ] 扩展 `unpack-pe`、`ollvm`、`android-native` 等领域 pack。
+- [ ] 扩展 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 等安全领域 pack。
 
 ## 验证标准
 
@@ -57,7 +57,7 @@ git diff --check
 
 文档内容还应满足：
 
-- 不声称当前已经具备完整自动脱壳或自动逆向能力。
+- 不声称当前已经具备完整自动脱壳、自动逆向、自动漏洞挖掘、自动恶意样本分析或通用自动渗透能力。
 - 不把外部工具写成硬依赖。
 - 不泄漏真实样本、路径、trace、dump、artifact 或 case 进度。
 - 每个吸收点都能指向当前 repo 中的落地文件或后续计划文档。
@@ -94,7 +94,7 @@ git diff --check
 
 | 能力 | 落地位置 | 说明 |
 |---|---|---|
-| Agent Team 定位 | `README.md`、`CLAUDE.md`、`docs/vision.md` | 项目定位已从 context kit 扩展为 RE Agent Team 框架 |
+| Agent Team 定位 | `README.md`、`CLAUDE.md`、`docs/vision.md` | 项目定位已从 context kit 扩展为网络安全研究 / 安全工程 Agent Team 框架，`vmp-re` 是首个成熟 pack |
 | 角色与 packet | `common/policies/agent-team.md`、`packs/vmp-re/references/vmp-re/agent-driven-re.md` | 定义主 agent、功能支线、tooling agent、reviewer、verifier、人类确认者 |
 | 主线 / 功能支线 | `/rekit overview`、`continue`、`start`、`handoff`；说明见 `docs/agent-team-usage.md` | 工作线仍是核心，不是被新架构替代 |
 | candidate -> review -> confirmed | `agent-driven-re.md`、`common/policies/agent-team.md` | 结论必须先进入 candidate/review，不直接写 confirmed |
@@ -192,13 +192,16 @@ git diff --check
 | orchestration | `plan-subagents` 只读计划器 + route/shard/review-loop observability + `note -Kind decision` verdict 写回（R5 判定 runtime 不自动 spawn） | 跨工具 adapter 实际调用属 Phase 6 后段 |
 | heavy-tool gate runtime | overlay 契约 + PowerShell `note -Kind request -Status pending-gate` + Go `gate -WhatIf/-Apply` preview/request；PowerShell `overview`/`handoff`/`note -List` 已展示 Go request 的 actor/risk/target/batch/gate 详情；不执行 heavy-tool、不写 confirmed/authority、不默认接入 façade | Phase 6 后段 runtime 强制 gate 与受控执行闭环 |
 | tool adapter | policy + candidate | 为 `ida-agent-bridge` 做只读 index adapter |
-| 多 pack 扩展 | `_template` | 新增 `unpack-pe` / `ollvm` / `android-native` pack |
+| 多 pack 扩展 | `_template` | 新增 `web-security` / `malware-analysis` / `vuln-research` / `ctf` / `unpack-pe` / `ollvm` / `android-native` pack |
 
 ### 5.3 尚未实现，不能对外宣称
 
 - 全自动脱壳。
 - 全自动反虚拟化。
 - 全自动算法还原。
+- 全自动漏洞挖掘或漏洞利用链生成。
+- 全自动恶意样本分析平台。
+- 通用自动渗透执行平台。
 - 自动 IDA/x64dbg 操作。
 - 自动 patch / dump / inject。
 - 无人工确认的 confirmed / authority 写入。
@@ -218,7 +221,7 @@ claude
 ```text
 你正在接手 re-context-kits 项目。
 请先读 CLAUDE.md、README.md、docs/agent-team-usage.md、docs/reference-absorption.md、docs/vision.md、docs/batch-plan.md。
-本项目目标是逐步优化为逆向 Agent Team 框架；当前不是完整自动脱壳器或自动逆向引擎。
+本项目目标是逐步优化为网络安全研究 / 安全工程 Agent Team 框架；当前以 vmp-re 作为首个成熟 pack，不是完整自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
 不要在 kit 仓库里创建真实 case；验证 init/attach/sync/promote 时只用临时 case。
 请总结当前已落地能力和待实现能力，然后按 docs/batch-plan.md 选择下一批最小可验证优化。
 ```
@@ -287,5 +290,5 @@ claude
    - 不做 rename/comment/patch。
 
 5. **新 pack 试点**
-   - 从 `packs/_template/` 派生一个低风险 pack，例如 `generic-binary-re`。
+   - 从 `packs/_template/` 派生一个低风险 pack，例如 `web-security`、`ctf` 或 `generic-binary-re`。
    - 用临时 case 验证 init/sync/promote。

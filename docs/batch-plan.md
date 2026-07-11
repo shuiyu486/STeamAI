@@ -9,7 +9,7 @@
 ### Batch 0：项目定位与维护入口
 
 - 新增根目录 `CLAUDE.md`。
-- README 顶部改为 RE Agent Team 框架定位。
+- README 顶部改为 Agent Team 框架定位（Batch 59 已将 RE-only 描述纠偏为网络安全研究 / 安全工程 Agent Team 框架）。
 - 新增 `docs/vision.md`。
 
 ### Batch 1：VMP Agent Team 与工具路由
@@ -34,7 +34,7 @@
 
 状态：已完成。
 
-目标：降低新增 `unpack-pe`、`android-native`、`ollvm`、`generic-binary-re` 的成本。
+目标：降低新增安全领域 pack 的成本；当时以 `unpack-pe`、`android-native`、`ollvm`、`generic-binary-re` 为候选，Batch 59 后补充 `web-security`、`malware-analysis`、`vuln-research`、`ctf` 等非 RE-only 方向。
 
 已创建产物：
 
@@ -1775,3 +1775,37 @@ git diff --check
 ```
 
 验证结果：全部通过；targeted Go tests、全量 Go tests、`plan-subagents-smoke.ps1`、PowerShell doctor 与 `git diff --check` 均通过（仅出现既有 LF/CRLF warning）。reviewer 复核发现两个问题：未知 `-TaskType` fallback 时 `routeDebug.selectedBy` 会误报为 `taskType`，已改为仅在实际匹配 route taskTypes 时标记 `taskType`，否则标记 `manifest-default` 并补 Go 测试；PowerShell façade fallback smoke 对 blocked actions/review loop/no-write 边界断言不足，已补 packet/summary 与 case state no-write 断言。本批只写 review artifacts，未启动 subagent，未写 facts/board/lane/handoff/authority/confirmed，未执行 heavy-tool。
+
+### Batch 59：项目定位纠偏（security Agent Team）
+
+状态：已完成。
+
+目标：将项目顶层定位从 RE-only 纠偏为面向网络安全研究与安全工程任务的 Claude Code Agent Team 框架，明确 `vmp-re` 是首个成熟 pack / 验证场而不是最终边界，并为新会话接手提供一致文档入口。
+
+实施范围：
+
+- README、根目录 `CLAUDE.md` 与 `docs/vision.md` 改为安全 Agent Team 框架定位，保留 `vmp-re` 作为当前成熟示例。
+- `docs/reference-absorption.md`、`docs/agent-team-usage.md`、`docs/pack-authoring.md`、`docs/case-migration.md`、`docs/orchestration-plan.md` 与 `docs/design.md` 同步非 RE-only 边界。
+- `.claude/skills/rekit/SKILL.md`、case shim 模板和 `packs/_template/manifest.yml` 扩展为 security pack 表述。
+- CHANGELOG 记录本批定位纠偏，避免后续新会话沿旧 RE-only 目标继续推进。
+
+边界：本批仅做文档与模板描述纠偏；不改 runtime 行为，不新增真实 pack，不创建或修改真实 case state，不执行 full-trace/debug/inject/patch/dump/network，不写 confirmed/authority，不改变 PowerShell façade / Go backend 委托集合。
+
+停止条件：若后续要改变实际产品方向、引入新安全领域 pack 的 runtime/schema 迁移、或把某类安全任务做成自动执行平台，必须按独立批次重新评估并确认。
+
+验证：
+
+```powershell
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Pack _template
+go test ./...
+git diff --check
+```
+
+验证结果：全部通过；`doctor` / `_template` doctor 均通过，`_template` 仅保留既有 `manifest has no subagentRoutes` warning；`go test ./...` 通过；`git diff --check` 通过（仅出现既有 LF/CRLF warning）。本批只改文档与模板描述，未改 runtime，未新增真实 pack，未创建 case state，未执行 heavy-tool，未写 confirmed/authority。
+
+新会话接手：
+
+- 先读 `README.md`、`CLAUDE.md`、`docs/vision.md` 顶部和本 Batch 59，按“网络安全研究 / 安全工程 Agent Team 框架”理解项目目标。
+- `vmp-re` 是当前首个成熟 pack 和验证场；后续多 pack 扩展可考虑 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`android-native`、`ollvm` 等，但不要把 RE-only 当成最终目标。
+- 后续继续推进前，仍遵守 review-first、临时 case 验证、Go façade 默认不接管、heavy-tool/confirmed/authority 需明确确认等边界。

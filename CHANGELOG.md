@@ -5,14 +5,14 @@
 ### Added
 
 - 新增仓库根目录 `CLAUDE.md`，提供 Claude Code 维护本 kit/template/runtime 仓库的入口说明、分层改动边界和验证命令。
-- 新增 `docs/vision.md`，定义 RE Agent Team 框架定位、模块边界和后续阶段实施方案。
+- 新增 `docs/vision.md`，定义网络安全研究 / 安全工程 Agent Team 框架定位、模块边界和后续阶段实施方案；`vmp-re` 是首个成熟 pack。
 - 新增 `references/vmp-re/agent-driven-re.md`，定义 VMP RE Agent Team 的角色、packet、candidate→confirmed 流程和人工门禁。
 - 在 `docs/vision.md` 中新增批次执行协议，明确后续可分批实施、自审调整、需停下询问的边界和计划写回文档要求。
 - 新增 `common/policies/agent-team.md` 与 `common/policies/tool-adapters.md`，沉淀跨 pack Agent Team 和外部工具 adapter 通用契约。
 - 新增 `docs/agent-team-usage.md`，说明新架构使用方式、旧 case 兼容、主线/功能支线工作流和后续优化空间。
 - 新增 `docs/reference-absorption.md`，映射参考文章、`ida-agent-bridge`、`clark-utov` 的吸收点、当前落地能力和后续优化项。
 - 新增 `docs/pack-authoring.md`、`docs/evidence-ledger.md`、`docs/orchestration-plan.md` 和 `docs/batch-plan.md`，分别记录 pack 编写、证据账本、半自动编排和后续批次计划。
-- 新增 `packs/_template/` pack 作者骨架，用于后续创建 `unpack-pe`、`android-native`、`ollvm` 等新 pack。
+- 新增 `packs/_template/` pack 作者骨架，用于后续创建 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`android-native`、`ollvm` 等新 pack。
 - 增强 `doctor` 的 manifest、policy overlay、case thin shim、board/lane 和 JSONL 校验，作为后续 runtime 架构调整的安全网。
 - 为 `packs/_template` 补齐最小 policy overlay registry，使模板 pack 可通过 pack validation。
 - 将 B3 工作线默认主线、默认 start 类型、长期 handoff 路径、sync backup root、authority files 和 request 默认路由改为 manifest 驱动，减少 `vmp-re` 硬编码。
@@ -69,6 +69,7 @@
 - G5 preflight baseline 完成：新增 `rekit/tests/continue-preflight-smoke.ps1`，覆盖 PowerShell `continue` 的 authority append gate matrix（evidence、accepted verifier、confidence、CSV schema、conflict、max rows、allowlist）、backup/bounded diff、CSV 失败恢复、request routing 幂等、digest/status parity 与 `-WhatIf` no-write，作为后续 Go `continue -WhatIf` 迁移前测试网。
 - G5 Go `continue -WhatIf` 预览路径完成：新增 `internal/rekit/workstream/continue.go` 与 CLI `-Command continue -WhatIf`，读取既有 board/lane/outbox/workspace 输出非写入 JSON preview，包含 inputs、packet refs、收集事件、routing/authority 决策预览、wouldWrites 与 blocked actions；新增 `rekit/tests/continue-whatif-smoke.ps1` 覆盖临时 case 预览、no-write、unsupported apply guard 与 PowerShell façade fallback。该路径不写 facts/run/board/lane/authority/confirmed，不纳入 façade 委托，不执行 heavy-tool。
 - Batch 58 bounded dispatch 可观测性增强：Go 与 PowerShell `plan-subagents` review packet/summary 增加 `observability` 与 `reviewLoop`，记录 route 选择原因、review artifact 路径、shard 初始 `planned` 状态、blocked runtime actions、spawn/merge owner、verdict writeback 和 completion criteria；`plan-subagents` smoke 覆盖 Go 与 PowerShell fallback artifacts。该路径仍不启动 subagent、不写 board/facts/lanes/handoff/authority/confirmed。
+- Batch 59 项目定位纠偏：将顶层定位从 RE-only 修正为面向网络安全研究与安全工程任务的 Claude Code Agent Team 框架，明确 `vmp-re` 是首个成熟 pack / 验证场而非最终边界，并同步 README、CLAUDE.md、vision、reference absorption、usage、pack authoring、skill、case shim、design 与 pack template 描述。
 
 ### Fixed
 
@@ -82,7 +83,7 @@
 
 ### Changed
 
-- 更新 README 顶部定位，将项目说明从单纯 context kit 扩展为面向逆向工程的 Claude Code Agent Team 框架，并区分维护本仓库与接入 RE case 的入口。
+- 更新 README 顶部定位，将项目说明从单纯 context kit 扩展为面向网络安全研究与安全工程任务的 Claude Code Agent Team 框架，并区分维护本仓库与接入安全 case（当前以 `vmp-re` 为例）的入口。
 - 扩展 `vmp-re` 工作流与工具路由，加入轻到重分析路线、重型工具升级门禁和 `ida-agent-bridge` 候选工具说明。
 - 将日常 `/rekit` 工作流收敛为 `overview / continue / start / handoff`，移除公开的 `board / auto / lane / policy` 旧入口。
 - 将原集中式 B3 PowerShell runtime 拆分为 `B3.Core/State/Policy/Lane/Auto/Commands` 模块，并新增项目级 handoff 生成。

@@ -4,11 +4,11 @@
 
 定义未来 `/rekit` 半自动 Agent Team runtime 的实施计划。当前文件是设计计划，不表示 runtime 已实现自动分派。
 
-目标是在保持 review-first、可解释、可暂停、可回放的前提下，让 `/rekit` 能生成 packet、分派只读复核、收敛结论、提示人工确认并更新 handoff。
+目标是在保持 review-first、可解释、可暂停、可回放的前提下，让 `/rekit` 能为不同安全领域 pack 生成 packet、分派只读复核、收敛结论、提示人工确认并更新 handoff。`vmp-re` 是当前首个成熟验证场，不是最终边界。
 
 ## 非目标
 
-- 不让 runtime 直接控制所有外部 RE 工具。
+- 不让 runtime 直接控制所有外部安全领域工具。
 - 不绕过用户确认执行 debug、inject、patch、dump、network 或 confirmed 写入。
 - 不让子 agent 写 authority 文件。
 - 不把 orchestration 做成不可解释的黑盒。
