@@ -1154,12 +1154,19 @@ func TestRunPlanSubagentsItemsFileAndOutOfCaseGuard(t *testing.T) {
 	}
 }
 
-func TestRunPlanSubagentsRejectsMissingRoutes(t *testing.T) {
+func TestRunPlanSubagentsTemplatePackRoutes(t *testing.T) {
 	caseRoot := attachedCase(t)
 	var out bytes.Buffer
-	err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-ReviewOutputDir", t.TempDir()}, &out)
-	if err == nil || !strings.Contains(err.Error(), "no subagentRoutes") {
-		t.Fatalf("error = %v, want missing routes", err)
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha,beta", "-ReviewOutputDir", t.TempDir()}, &out); err != nil {
+		t.Fatal(err)
+	}
+	result := decodePlanSubagentsResult(t, out.Bytes())
+	packet := decodePlanSubagentsPacket(t, result.PacketPath)
+	if packet.Route.ID != "_template:lane-feature-analysis" || packet.Observability.RouteDebug.SelectedBy != "taskType" || result.ItemCount != 2 || result.ShardCount != 2 {
+		t.Fatalf("unexpected template plan: result=%+v packet=%+v", result, packet)
+	}
+	if !strings.Contains(packet.ReviewLoop.VerdictWriteback, "note -Kind verification") || len(packet.Observability.BlockedActions) == 0 {
+		t.Fatalf("template route missing review loop contract: %+v", packet)
 	}
 }
 
@@ -2282,6 +2289,7 @@ func fullAttachedCase(t *testing.T) string {
 	root := repoRoot(t)
 	copyRepoFile(t, root, "rekit/templates/case-shim/SKILL.md", caseRoot, ".claude/skills/rekit/SKILL.md")
 	copyRepoFile(t, root, "packs/_template/references/template/README.md", caseRoot, "references/template/README.md")
+	copyRepoFile(t, root, "packs/_template/references/template/agent-team.md", caseRoot, "references/template/agent-team.md")
 	copyRepoFile(t, root, "packs/_template/references/template/workflow-template.md", caseRoot, "references/template/workflow-template.md")
 	copyRepoFile(t, root, "packs/_template/references/template/toolchain-router.md", caseRoot, "references/template/toolchain-router.md")
 	copyRepoFile(t, root, "packs/_template/CLAUDE.local.snippet.md", caseRoot, "CLAUDE.local.md")

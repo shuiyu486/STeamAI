@@ -70,6 +70,7 @@
 - G5 Go `continue -WhatIf` 预览路径完成：新增 `internal/rekit/workstream/continue.go` 与 CLI `-Command continue -WhatIf`，读取既有 board/lane/outbox/workspace 输出非写入 JSON preview，包含 inputs、packet refs、收集事件、routing/authority 决策预览、wouldWrites 与 blocked actions；新增 `rekit/tests/continue-whatif-smoke.ps1` 覆盖临时 case 预览、no-write、unsupported apply guard 与 PowerShell façade fallback。该路径不写 facts/run/board/lane/authority/confirmed，不纳入 façade 委托，不执行 heavy-tool。
 - Batch 58 bounded dispatch 可观测性增强：Go 与 PowerShell `plan-subagents` review packet/summary 增加 `observability` 与 `reviewLoop`，记录 route 选择原因、review artifact 路径、shard 初始 `planned` 状态、blocked runtime actions、spawn/merge owner、verdict writeback 和 completion criteria；`plan-subagents` smoke 覆盖 Go 与 PowerShell fallback artifacts。该路径仍不启动 subagent、不写 board/facts/lanes/handoff/authority/confirmed。
 - Batch 59 项目定位纠偏：将顶层定位从 RE-only 修正为面向网络安全研究与安全工程任务的 Claude Code Agent Team 框架，明确 `vmp-re` 是首个成熟 pack / 验证场而非最终边界，并同步 README、CLAUDE.md、vision、reference absorption、usage、pack authoring、skill、case shim、design 与 pack template 描述。
+- Batch 60 完成：`packs/_template` 新增 managed `agent-team.md` 与两条 pack-neutral `subagentRoutes`，让新安全领域 pack 复制模板后即可通过 `plan-subagents` 生成 bounded review packet；Go manifest schema 与 PowerShell doctor 增加 subagent route 必填字段、正整数分片、reference 边界和 route id 唯一性校验，smoke 覆盖 Go 与 PowerShell fallback 的 `_template` route packet。
 
 ### Fixed
 

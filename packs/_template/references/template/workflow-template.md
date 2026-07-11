@@ -44,13 +44,20 @@ static triage
 - main agent 在 gate 通过后写 confirmed / authority。
 - rejected / superseded 保留原因。
 
-## 4. Documentation and handoff
+## 4. Agent Team review loop
+
+- 先用 `plan-subagents` 生成 bounded review packet，再由主会话按 route 启动只读或工作区限定 agent。
+- reviewer verdict 写入 verification event；main merge decision 写入 decision event。
+- 任何 confirmed / authority 写入都必须由 main agent 在 gate 通过后执行。
+- 子 agent 不负责更新 handoff、authority 或 pack reference。
+
+## 5. Documentation and handoff
 
 - Markdown 只保存摘要、证据定位和下一步。
 - 大输出保存为 sidecar。
 - 每轮结束更新 handoff 或 lane resume。
 
-## 5. Validation checklist
+## 6. Validation checklist
 
 - 文档没有真实样本、绝对路径或大输出。
 - candidate 能追溯 evidence。

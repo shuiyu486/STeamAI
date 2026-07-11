@@ -5,6 +5,7 @@ description: Template pack skeleton for authoring new security Agent Team packs
 
 managedFiles:
   - references/template/README.md
+  - references/template/agent-team.md
   - references/template/workflow-template.md
   - references/template/toolchain-router.md
 
@@ -51,8 +52,33 @@ commonPolicies:
 
 policyOverlays: []
 
+subagentRoutes:
+  - id: _template:bounded-review
+    taskTypes: candidate-review,evidence-review,tooling-review,security-assessment,workstream-review
+    trigger: fixed-boundary read-only review for candidate evidence, tooling notes, or security assessment slices
+    shardBasis: item
+    targetItemsPerAgent: 4
+    maxParallel: 3
+    reference: references/template/agent-team.md
+    policyOverlay:
+    subagentPermissions: read-only
+    mainAgentOwns: ledger-writeback,validation,handoff-update,authority-confirmation
+    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,defer_reason
+  - id: _template:lane-feature-analysis
+    taskTypes: feature-analysis,workstream-analysis,request-review,candidate-analysis
+    trigger: feature workspace has requests/candidates or needs bounded analysis before main merge
+    shardBasis: feature
+    targetItemsPerAgent: 1
+    maxParallel: 2
+    reference: references/template/agent-team.md
+    policyOverlay:
+    subagentPermissions: read-only-or-workspace-only
+    mainAgentOwns: canonical-write,ledger-writeback,validation,handoff-update,authority-confirmation
+    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,feature,request_id,candidate_path,defer_reason
+
 promoteFiles:
   - references/template/README.md
+  - references/template/agent-team.md
   - references/template/workflow-template.md
   - references/template/toolchain-router.md
 

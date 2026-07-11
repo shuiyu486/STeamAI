@@ -106,6 +106,8 @@ function Test-RekitManifestSchema {
     try { [void][regex]::new([string]$pattern) } catch { throw "invalid promoteDenyPatterns regex '$pattern': $_" }
   }
 
+  Assert-RekitSubagentRouteSchema -Manifest $Manifest -ManagedTargets $managedTargets
+
   if (-not [string]::Equals([string]$Manifest.Pack, 'vmp-re', [System.StringComparison]::OrdinalIgnoreCase)) {
     $routePaths = @()
     foreach ($route in @($Manifest.SubagentRoutes)) {
@@ -263,6 +265,34 @@ function Test-RekitPolicyRegistry {
     $rows += Assert-RekitTextFile -Path (Join-RekitPath -Root $Manifest.PackRoot -RelativePath $rel) -LimitBytes 16384
   }
   return $rows
+}
+
+function Assert-RekitSubagentRouteSchema {
+  param(
+    [Parameter(Mandatory=$true)]$Manifest,
+    [Parameter(Mandatory=$true)][string[]]$ManagedTargets
+  )
+  $seen = @{}
+  foreach ($route in @($Manifest.SubagentRoutes)) {
+    $id = [string]$route.id
+    if ([string]::IsNullOrWhiteSpace($id)) { throw "subagent route is missing id in $($Manifest.ManifestPath)" }
+    $idKey = $id.ToLowerInvariant()
+    if ($seen.ContainsKey($idKey)) { throw "duplicate subagent route id: $id" }
+    $seen[$idKey] = $true
+    if ([string]::IsNullOrWhiteSpace([string]$route.taskTypes)) { throw "subagent route $id is missing taskTypes" }
+    if ([string]::IsNullOrWhiteSpace([string]$route.shardBasis)) { throw "subagent route $id is missing shardBasis" }
+    $targetItemsPerAgent = 0
+    if (-not [int]::TryParse([string]$route.targetItemsPerAgent, [ref]$targetItemsPerAgent) -or $targetItemsPerAgent -lt 1) { throw "subagent route $id has invalid targetItemsPerAgent: $($route.targetItemsPerAgent)" }
+    $maxParallel = 0
+    if (-not [int]::TryParse([string]$route.maxParallel, [ref]$maxParallel) -or $maxParallel -lt 1) { throw "subagent route $id has invalid maxParallel: $($route.maxParallel)" }
+    if ([string]::IsNullOrWhiteSpace([string]$route.reference)) { throw "subagent route $id is missing reference document" }
+    [void](Join-RekitPath -Root $Manifest.PackRoot -RelativePath ([string]$route.reference))
+    if ($ManagedTargets -notcontains ([string]$route.reference)) { throw "subagent route $id reference is not a managed/template/local file: $($route.reference)" }
+    if (-not [string]::IsNullOrWhiteSpace([string]$route.policyOverlay)) { [void](Join-RekitPath -Root $Manifest.PackRoot -RelativePath ([string]$route.policyOverlay)) }
+    if ([string]::IsNullOrWhiteSpace([string]$route.subagentPermissions)) { throw "subagent route $id is missing subagentPermissions" }
+    if ([string]::IsNullOrWhiteSpace([string]$route.mainAgentOwns)) { throw "subagent route $id is missing mainAgentOwns" }
+    if ([string]::IsNullOrWhiteSpace([string]$route.outputContract)) { throw "subagent route $id is missing outputContract" }
+  }
 }
 
 function Test-RekitSubagentRoutesPack {

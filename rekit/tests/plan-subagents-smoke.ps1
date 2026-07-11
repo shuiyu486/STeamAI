@@ -118,6 +118,7 @@ $caseRoot = Join-Path $WorkRoot "plan-subagents-$suffix"
 $outRoot = Join-Path $WorkRoot "plan-subagents-out-$suffix"
 $facadeRoot = Join-Path $WorkRoot "plan-subagents-facade-$suffix"
 $templateRoot = Join-Path $WorkRoot "plan-subagents-template-$suffix"
+$templateFacadeRoot = Join-Path $WorkRoot "plan-subagents-template-facade-$suffix"
 $itemsFile = Join-Path $WorkRoot "plan-subagents-items-$suffix.txt"
 try {
   Invoke-GoRekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"plan-subagents-$suffix",'-Apply') | Out-Null
@@ -141,8 +142,16 @@ try {
   $outPacket = Assert-PlanPacket -Result $outCase -Route 'vmp-re:bounded-review' -Items 3 -Shards 1
   if ([string]$outPacket.input.itemsFile -ne $itemsFile) { throw "itemsFile was not preserved: $($outPacket | ConvertTo-Json -Depth 10)" }
 
-  $missingRoutes = Invoke-GoRekitSmoke -Arguments @('-Command','plan-subagents','-Target',$WorkRoot,'-Pack','_template','-ReviewOutputDir',$templateRoot) -AllowedExitCodes @(1)
-  Assert-ContainsText -Text $missingRoutes -Expected 'no subagentRoutes' -Label 'go plan missing route guard'
+  $templatePlan = Invoke-GoRekitSmoke -Arguments @('-Command','plan-subagents','-Target',$WorkRoot,'-Pack','_template','-TaskType','feature-analysis','-Items','one,two','-ReviewOutputDir',$templateRoot) | ConvertFrom-Json
+  $templatePacket = Assert-PlanPacket -Result $templatePlan -Route '_template:lane-feature-analysis' -Items 2 -Shards 2
+  if ([string]$templatePacket.observability.routeDebug.selectedBy -ne 'taskType') { throw "template route was not selected by taskType: $($templatePacket | ConvertTo-Json -Depth 20)" }
+  $templateSummary = [System.IO.File]::ReadAllText([string]$templatePlan.summaryPath, [System.Text.Encoding]::UTF8)
+  Assert-ContainsText -Text $templateSummary -Expected 'bounded dispatch observability' -Label 'template plan summary observability'
+
+  $templateFacadeOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$WorkRoot,'-Pack','_template','-TaskType','feature-analysis','-Items','one,two','-ReviewOutputDir',$templateFacadeRoot) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
+  Assert-ContainsText -Text $templateFacadeOut -Expected 'review packet:' -Label 'template facade plan-subagents fallback'
+  $templateFacadePacket = Get-Content -LiteralPath (Join-Path $templateFacadeRoot 'packet.json') -Raw | ConvertFrom-Json
+  if ([string]$templateFacadePacket.route.id -ne '_template:lane-feature-analysis' -or [string]$templateFacadePacket.observability.routeDebug.selectedBy -ne 'taskType') { throw "template facade route mismatch: $($templateFacadePacket | ConvertTo-Json -Depth 20)" }
 
   Invoke-GoRekitSmoke -Arguments @('-Command','doctor','-Target',$caseRoot,'-Pack',$Pack) | Out-Null
   Invoke-RekitSmoke -Arguments @('-Command','doctor','-Target',$caseRoot,'-Pack',$Pack) | Out-Null
@@ -169,7 +178,7 @@ try {
 
   'plan-subagents smoke ok'
 } finally {
-  foreach ($path in @($caseRoot,$outRoot,$facadeRoot,$templateRoot,$itemsFile)) {
+  foreach ($path in @($caseRoot,$outRoot,$facadeRoot,$templateRoot,$templateFacadeRoot,$itemsFile)) {
     if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path -LiteralPath $path)) { Remove-Item -LiteralPath $path -Recurse -Force -Confirm:$false }
   }
 }

@@ -6,6 +6,7 @@
 - 当前 pack：`<new-pack-name>`
 - 路由入口：`references/<new-pack-name>/README.md`
 - 工作流：`references/<new-pack-name>/workflow-template.md`
+- Agent Team route：`references/<new-pack-name>/agent-team.md`
 - 工具路由：`references/<new-pack-name>/toolchain-router.md`
 
 规则：

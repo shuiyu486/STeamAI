@@ -1809,3 +1809,34 @@ git diff --check
 - 先读 `README.md`、`CLAUDE.md`、`docs/vision.md` 顶部和本 Batch 59，按“网络安全研究 / 安全工程 Agent Team 框架”理解项目目标。
 - `vmp-re` 是当前首个成熟 pack 和验证场；后续多 pack 扩展可考虑 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`android-native`、`ollvm` 等，但不要把 RE-only 当成最终目标。
 - 后续继续推进前，仍遵守 review-first、临时 case 验证、Go façade 默认不接管、heavy-tool/confirmed/authority 需明确确认等边界。
+
+### Batch 60：pack template Agent Team route 契约
+
+状态：已完成。
+
+目标：把 Batch 59 纠偏后的多安全领域 pack 扩展能力从“文档说可扩展”推进到“模板自带可验证 Agent Team route”。新 pack 复制 `_template` 后应立即具备 pack-neutral `subagentRoutes`、route reference、review packet 输出契约和 Go/PowerShell `plan-subagents` 验证路径，而不是先遇到 `manifest has no subagentRoutes` 再补。
+
+实施范围：
+
+- `_template` 新增 `references/template/agent-team.md`，定义 main / feature / reviewer / tooling 边界、默认 route、packet 输出契约、review-first 门禁和新 pack 改写 checklist。
+- `_template/manifest.yml` 将 `agent-team.md` 纳入 managed/promote files，并新增 `_template:bounded-review` 与 `_template:lane-feature-analysis` 两条 pack-neutral `subagentRoutes`。
+- `docs/pack-authoring.md` 将 `agent-team.md` 与 `subagentRoutes` 升级为新 pack 最小结构与 manifest checklist，明确 route id、taskTypes、shardBasis、权限、mainAgentOwns 和 outputContract 要求。
+- Go manifest schema 与 PowerShell doctor 增加 subagent route 硬校验：route id 唯一、必填字段齐全、分片数字为正、reference 留在 managed/template/local 边界内。
+- 更新 `plan-subagents` Go tests 与 smoke：`_template` 不再是 missing routes guard，而应能生成 route packet / summary；Go 与 PowerShell fallback 均保持只写 review artifacts、不写 board/facts/lanes/authority。
+
+边界：本批不新增真实领域 pack，不改变 PowerShell façade 委托集合，不自动 spawn subagent，不写 facts/board/lane/handoff/authority/confirmed，不执行 full-trace/debug/inject/patch/dump/network。
+
+停止条件：若后续要把 `plan-subagents` 变成自动 dispatch、让 runtime 自动合并 verdict、或创建真实 `web-security` / `malware-analysis` 等 pack，应作为独立批次重新评估。
+
+验证：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/cli
+go test ./...
+.\rekit\tests\plan-subagents-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Pack _template
+git diff --check
+```
+
+验证结果：全部通过；`plan-subagents-smoke.ps1` 覆盖 vmp-re Go path、_template Go path、_template PowerShell fallback path 与 no-write 边界；targeted Go tests、全量 `go test ./...`、默认 doctor、`_template` doctor、`git diff --check` 均通过（仅出现既有 LF/CRLF warning）。只读 reviewer 未发现高置信问题。本批未新增真实 pack、未改变 façade 委托集合、未启动 subagent、未写 facts/board/lane/handoff/authority/confirmed、未执行 heavy-tool。

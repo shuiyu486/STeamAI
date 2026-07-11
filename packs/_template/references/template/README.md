@@ -13,6 +13,7 @@
 | 任务 | 读取文档 | 说明 |
 |---|---|---|
 | 了解本 pack 工作流 | `workflow-template.md` | 领域主流程、验证路线和升级条件。 |
+| 规划 Agent Team 分片 | `agent-team.md` | 默认 subagent routes、packet 输出契约和 review-first 合并边界。 |
 | 选择工具 | `toolchain-router.md` | 工具状态、适用阶段、止损条件和重型工具门禁。 |
 | 查看通用 Agent Team 规则 | `<templateRoot>/common/policies/agent-team.md` | 角色、packet、状态流和人工确认边界。 |
 | 查看工具 adapter 规则 | `<templateRoot>/common/policies/tool-adapters.md` | capability card、sidecar 输出和 heavy-tool gate。 |

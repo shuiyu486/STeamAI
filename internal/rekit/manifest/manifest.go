@@ -228,6 +228,9 @@ func (m *Manifest) ValidateSchema() error {
 			return fmt.Errorf("invalid promoteDenyPatterns regex %q: %w", pattern, err)
 		}
 	}
+	if err := m.validateSubagentRoutes(managedTargets); err != nil {
+		return err
+	}
 	if _, err := m.LaneType(m.WorkstreamDefaults["defaultAuthorityLane"]); err != nil {
 		return err
 	}
@@ -255,6 +258,64 @@ func (m *Manifest) ValidateSchema() error {
 		}
 	}
 	return nil
+}
+
+func (m *Manifest) validateSubagentRoutes(managedTargets map[string]bool) error {
+	seen := map[string]bool{}
+	for _, route := range m.SubagentRoutes {
+		id := strings.TrimSpace(route.ID)
+		if id == "" {
+			return fmt.Errorf("subagent route is missing id in %s", m.ManifestPath)
+		}
+		if seen[strings.ToLower(id)] {
+			return fmt.Errorf("duplicate subagent route id: %s", id)
+		}
+		seen[strings.ToLower(id)] = true
+		if strings.TrimSpace(route.TaskTypes) == "" {
+			return fmt.Errorf("subagent route %s is missing taskTypes", id)
+		}
+		if strings.TrimSpace(route.ShardBasis) == "" {
+			return fmt.Errorf("subagent route %s is missing shardBasis", id)
+		}
+		if n := optionPositiveInt(route.TargetItemsPerAgent); n < 1 {
+			return fmt.Errorf("subagent route %s has invalid targetItemsPerAgent: %s", id, route.TargetItemsPerAgent)
+		}
+		if n := optionPositiveInt(route.MaxParallel); n < 1 {
+			return fmt.Errorf("subagent route %s has invalid maxParallel: %s", id, route.MaxParallel)
+		}
+		if strings.TrimSpace(route.Reference) == "" {
+			return fmt.Errorf("subagent route %s is missing reference document", id)
+		}
+		if _, err := m.SourcePath(route.Reference); err != nil {
+			return err
+		}
+		if !managedTargets[route.Reference] {
+			return fmt.Errorf("subagent route %s reference is not a managed/template/local file: %s", id, route.Reference)
+		}
+		if strings.TrimSpace(route.PolicyOverlay) != "" {
+			if _, err := m.SourcePath(route.PolicyOverlay); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(route.SubagentPermissions) == "" {
+			return fmt.Errorf("subagent route %s is missing subagentPermissions", id)
+		}
+		if strings.TrimSpace(route.MainAgentOwns) == "" {
+			return fmt.Errorf("subagent route %s is missing mainAgentOwns", id)
+		}
+		if strings.TrimSpace(route.OutputContract) == "" {
+			return fmt.Errorf("subagent route %s is missing outputContract", id)
+		}
+	}
+	return nil
+}
+
+func optionPositiveInt(value string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func (m *Manifest) LaneType(id string) (LaneType, error) {

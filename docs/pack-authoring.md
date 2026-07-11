@@ -13,6 +13,7 @@ packs/<pack>/
   manifest.yml
   CLAUDE.local.snippet.md
   references/<pack>/README.md
+  references/<pack>/agent-team.md
   references/<pack>/workflow-template.md
   references/<pack>/toolchain-router.md
   policies/README.md
@@ -23,7 +24,7 @@ packs/<pack>/
   tooling/recipes/*.md
 ```
 
-不是每个目录第一天都要完整实现，但 `manifest.yml`、`README.md`、`workflow-template.md`、`toolchain-router.md` 必须先有清晰边界。
+不是每个目录第一天都要完整实现，但 `manifest.yml`、`README.md`、`agent-team.md`、`workflow-template.md`、`toolchain-router.md` 必须先有清晰边界。
 
 ## manifest 必填方向
 
@@ -34,7 +35,11 @@ schemaVersion: 1
 name: <pack-name>
 version: <semver-like>
 description: <one-line>
-managedFiles: []
+managedFiles:
+  - references/<pack>/README.md
+  - references/<pack>/agent-team.md
+  - references/<pack>/workflow-template.md
+  - references/<pack>/toolchain-router.md
 templateFiles:
   - references/<pack>/task-handoff.template.md
 localNeverOverwrite:
@@ -59,8 +64,24 @@ authorityFiles:
   - references/<pack>/task-handoff.md
 commonPolicies: []
 policyOverlays: []
+subagentRoutes:
+  - id: <pack>:bounded-review
+    taskTypes: candidate-review,evidence-review,tooling-review,security-assessment
+    trigger: fixed-boundary read-only review for candidate evidence or tooling notes
+    shardBasis: item
+    targetItemsPerAgent: 4
+    maxParallel: 3
+    reference: references/<pack>/agent-team.md
+    policyOverlay:
+    subagentPermissions: read-only
+    mainAgentOwns: ledger-writeback,validation,handoff-update,authority-confirmation
+    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,defer_reason
 toolingFiles: []
-promoteFiles: []
+promoteFiles:
+  - references/<pack>/README.md
+  - references/<pack>/agent-team.md
+  - references/<pack>/workflow-template.md
+  - references/<pack>/toolchain-router.md
 promptFiles: []
 laneTypes:
   - id: main
@@ -91,6 +112,7 @@ budgets:
 | 文件 | 职责 |
 |---|---|
 | `references/<pack>/README.md` | case 内按需路由入口，不承载长教程全文。 |
+| `agent-team.md` | pack 默认 subagent routes、packet 输出契约和 review-first 合并边界。 |
 | `workflow-template.md` | 领域主流程和验证路线。 |
 | `toolchain-router.md` | 工具选择、状态、升级门禁和止损条件。 |
 | `CLAUDE.local.snippet.md` | case-local router block，不写 case 私有事实。 |
@@ -105,6 +127,7 @@ budgets:
 
 - `name`、`description`、`blockId`。
 - `references/template/**` 路径和目录名。
+- `subagentRoutes` 的 route id、taskTypes、trigger、shardBasis 和 outputContract。
 - `tooling/catalog.yml` 的工具条目。
 - `commonPolicies`、`policyOverlays`、`promoteDenyPatterns` 和 budgets。
 
@@ -114,10 +137,10 @@ budgets:
 
 1. 写 `docs` 或 issue 级设计草案，明确 pack 目标和非目标。
 2. 从 `packs/_template/` 复制最小目录并改名。
-3. 写 `references/<pack>/README.md`、`workflow-template.md`、`toolchain-router.md`。
+3. 写 `references/<pack>/README.md`、`agent-team.md`、`workflow-template.md`、`toolchain-router.md`。
 4. 写 `CLAUDE.local.snippet.md`，只放短 router block。
 5. 补 tooling catalog 和至少一个 recipe。
-6. 用临时 case 验证 `init/attach/sync/promote`。
+6. 用 `plan-subagents` 验证 route packet / summary，再用临时 case 验证 `init/attach/sync/promote`。
 7. 只有两个以上 pack 重复出现相同规则时，才抽到 `common/` 或 runtime。
 
 ## 禁止
@@ -133,5 +156,6 @@ budgets:
 - `git diff --check` 通过。
 - `manifest.yml` 路径均为相对路径。
 - managed/template/local 边界清晰。
+- `subagentRoutes.reference` 指向 managed/template/local 文件，route id 唯一，`taskTypes`、`shardBasis`、`targetItemsPerAgent`、`maxParallel`、`subagentPermissions`、`mainAgentOwns`、`outputContract` 齐全。
 - 新 pack 初始化不会覆盖 case-local 文件。
 - promote deny patterns 覆盖绝对路径、artifact/capture/trace/dump、地址快照和 case 状态。
