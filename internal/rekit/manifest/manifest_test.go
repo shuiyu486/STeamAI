@@ -42,6 +42,25 @@ func TestLoadTemplateManifestSchema(t *testing.T) {
 	}
 }
 
+func TestLoadWebSecurityManifestSchema(t *testing.T) {
+	m, err := Load(repoRoot(t), "web-security")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ValidateSchema(); err != nil {
+		t.Fatal(err)
+	}
+	if m.WorkstreamDefaults["defaultAuthorityLane"] != "main" {
+		t.Fatalf("defaultAuthorityLane = %q, want main", m.WorkstreamDefaults["defaultAuthorityLane"])
+	}
+	if len(m.SubagentRoutes) != 2 {
+		t.Fatalf("SubagentRoutes = %d, want 2", len(m.SubagentRoutes))
+	}
+	if m.SubagentRoutes[0].ID != "web-security:bounded-review" || m.SubagentRoutes[1].ID != "web-security:feature-analysis" {
+		t.Fatalf("unexpected web-security routes: %+v", m.SubagentRoutes)
+	}
+}
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)

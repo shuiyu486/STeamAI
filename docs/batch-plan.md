@@ -1840,3 +1840,35 @@ git diff --check
 ```
 
 验证结果：全部通过；`plan-subagents-smoke.ps1` 覆盖 vmp-re Go path、_template Go path、_template PowerShell fallback path 与 no-write 边界；targeted Go tests、全量 `go test ./...`、默认 doctor、`_template` doctor、`git diff --check` 均通过（仅出现既有 LF/CRLF warning）。只读 reviewer 未发现高置信问题。本批未新增真实 pack、未改变 façade 委托集合、未启动 subagent、未写 facts/board/lane/handoff/authority/confirmed、未执行 heavy-tool。
+
+### Batch 61：首个非 RE pack 骨架 web-security
+
+状态：已完成。
+
+目标：在 Batch 60 的 pack-neutral route 契约基础上，新增首个非 RE pack 骨架 `web-security`，用 Web/API 安全评估验证多领域安全 Agent Team 扩展能力，避免项目继续只停留在 `vmp-re` 验证场。
+
+实施范围：
+
+- 新增 `packs/web-security/manifest.yml`、`CLAUDE.local.snippet.md`、policy overlay 空 registry、reference docs、task handoff template、tooling catalog 与两条 recipes。
+- Web/API reference docs 覆盖 scope baseline、轻到重路线、pending-gate、endpoint/finding bounded review、request replay 边界、sidecar 与敏感信息留在 case-local 的规则。
+- manifest 声明 `web-security:bounded-review` 与 `web-security:feature-analysis` 两条 route，验证非 RE pack 的 `plan-subagents` packet / summary 与 PowerShell fallback。
+- 更新 README、CLAUDE.md、vision、reference absorption，把 `web-security` 标为首个非 RE pack 骨架，而不是成熟自动化扫描平台。
+- 新增 Go manifest schema test 与 `web-security-pack-smoke.ps1`，覆盖 Go/PowerShell doctor、Go init、case doctor、Go/PowerShell `plan-subagents`、promote review 不被占位文案 deny 误阻断和 no-write 边界。
+
+边界：本批只新增最小 pack 骨架和验证；不执行真实网络请求、扫描、fuzz、登录尝试、exploit replay 或数据导出；不把 Web/API 工具变成硬依赖；不写真实 case confirmed/authority；不改变 PowerShell façade 委托集合。
+
+停止条件：若后续要把 `web-security` 扩展成主动扫描 adapter、认证 replay runtime、漏洞报告 authority schema 或真实外部工具执行，应按独立批次评估 gate 与授权边界。
+
+验证：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/cli
+go test ./...
+.\rekit\tests\web-security-pack-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Pack _template
+.\rekit\rekit.ps1 -Command doctor -Pack web-security
+git diff --check
+```
+
+验证结果：全部通过；targeted Go tests、全量 `go test ./...`、`web-security-pack-smoke.ps1`、默认 doctor、`_template` doctor、`web-security` doctor、`git diff --check` 均通过（仅出现既有 LF/CRLF warning）。只读 reviewer 发现 `authorization:` 占位会被 deny pattern 误阻断，已改为 `auth_scope` 并收窄 Authorization header deny 规则，smoke 增加 promote review 断言确保 safe workflow 修改可进入 `candidate-after-llm-review`。本批未执行真实网络请求、扫描、fuzz、登录尝试、exploit replay 或数据导出；未写真实 case confirmed/authority；未改变 façade 委托集合。

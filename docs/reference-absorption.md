@@ -23,7 +23,7 @@
 2. **工具 adapter 策略**：IDA/调试器/trace 等工具先 recipe 化、candidate 化，再逐步 adapter 化，避免成为硬依赖或大输出源。
 3. **证据与门禁模型**：evidence ledger、batch/intervention、heavy-tool gate、人工确认和可回滚的审查流程。
 
-当前已经落地的是安全 Agent Team 框架底座、文档契约、`/rekit` 工作线 runtime、review-first sync/promote、首个成熟 pack `vmp-re` 扩展、tooling candidate，以及 evidence ledger runtime（`/rekit note` 手动 append 9 种 kind 事件 + overview/handoff/note-List 读层 + auto 流程 decision 字段对齐 `docs/evidence-ledger.md` 草案）；尚未落地的是 runtime 强制 heavy-tool gate、真实工具 bridge adapter、自动多 Agent dispatch（R5 判定 runtime 不自动 spawn，由主会话用 Agent 工具完成），也不能宣称已具备自动脱壳/逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
+当前已经落地的是安全 Agent Team 框架底座、文档契约、`/rekit` 工作线 runtime、review-first sync/promote、首个成熟 pack `vmp-re` 扩展、首个非 RE pack 骨架 `web-security`、tooling candidate，以及 evidence ledger runtime（`/rekit note` 手动 append 9 种 kind 事件 + overview/handoff/note-List 读层 + auto 流程 decision 字段对齐 `docs/evidence-ledger.md` 草案）；尚未落地的是 runtime 强制 heavy-tool gate、真实工具 bridge adapter、自动多 Agent dispatch（R5 判定 runtime 不自动 spawn，由主会话用 Agent 工具完成），也不能宣称已具备自动脱壳/逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
 
 ## 执行清单
 
@@ -38,7 +38,7 @@
 - [ ] 将 heavy-tool gate 从文档推进为 runtime packet / confirmation flow（R6 已落 `packs/vmp-re/policies/verification.overlay.md` 用 `note -Kind request -Status pending-gate` 登记 gate 事件，runtime 不强制 gate，属 Phase 6 后段）。
 - [ ] 将 `ida-agent-bridge` 从 candidate tooling 推进为可选 adapter。
 - [ ] 将 bounded dispatch 从计划推进为可验证 runtime 功能（R5 已判定 runtime 不扩，spawn 是主会话职责；`plan-subagents` + `note -Kind decision` 构成支撑）。
-- [ ] 扩展 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 等安全领域 pack。
+- [ ] 扩展 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 等安全领域 pack（`web-security` 已有最小骨架，其它仍待推进）。
 
 ## 验证标准
 

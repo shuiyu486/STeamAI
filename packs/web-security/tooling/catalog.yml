@@ -1,0 +1,33 @@
+schemaVersion: 1
+pack: web-security
+purpose: Web/API security tooling catalog
+
+paths:
+  caseRoot: <caseRoot>
+  toolsRoot: <toolsRoot>
+  target: <target>
+  sidecar: <caseRoot>/evidence/sidecars
+
+tools:
+  - id: passive-doc-review
+    status: mainline-template
+    entry: case-local docs / OpenAPI / route map
+    purpose: Build route and endpoint inventory without external side effects.
+    sideEffects: none
+    reusableNotes:
+      - Store endpoint inventory as case-local sidecar, then cite only summaries in Markdown.
+  - id: request-replay-harness
+    status: cautious
+    entry: <caseRoot>/tools/request-replay
+    purpose: Replay a bounded set of authorized requests for verification.
+    sideEffects: network requests and possible state changes
+    reusableNotes:
+      - Requires explicit scope, request budget, rate limit, and stop conditions before use.
+      - Never store credentials, cookies, tokens, or full responses in pack docs.
+  - id: proxy-export-review
+    status: auxiliary
+    entry: Burp/ZAP/HAR export summary sidecar
+    purpose: Review saved proxy summaries without importing full project files into chat.
+    sideEffects: none when reviewing saved exports
+    reusableNotes:
+      - Sanitize target names and secrets before promoting any recipe.

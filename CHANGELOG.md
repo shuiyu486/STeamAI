@@ -71,6 +71,7 @@
 - Batch 58 bounded dispatch 可观测性增强：Go 与 PowerShell `plan-subagents` review packet/summary 增加 `observability` 与 `reviewLoop`，记录 route 选择原因、review artifact 路径、shard 初始 `planned` 状态、blocked runtime actions、spawn/merge owner、verdict writeback 和 completion criteria；`plan-subagents` smoke 覆盖 Go 与 PowerShell fallback artifacts。该路径仍不启动 subagent、不写 board/facts/lanes/handoff/authority/confirmed。
 - Batch 59 项目定位纠偏：将顶层定位从 RE-only 修正为面向网络安全研究与安全工程任务的 Claude Code Agent Team 框架，明确 `vmp-re` 是首个成熟 pack / 验证场而非最终边界，并同步 README、CLAUDE.md、vision、reference absorption、usage、pack authoring、skill、case shim、design 与 pack template 描述。
 - Batch 60 完成：`packs/_template` 新增 managed `agent-team.md` 与两条 pack-neutral `subagentRoutes`，让新安全领域 pack 复制模板后即可通过 `plan-subagents` 生成 bounded review packet；Go manifest schema 与 PowerShell doctor 增加 subagent route 必填字段、正整数分片、reference 边界和 route id 唯一性校验，smoke 覆盖 Go 与 PowerShell fallback 的 `_template` route packet。
+- Batch 61 启动：新增首个非 RE pack 骨架 `packs/web-security`，覆盖 Web/API 安全评估的 scope、Agent Team routes、toolchain router、tooling catalog、passive triage 与 bounded request replay recipe，并补 smoke 验证 Go/PowerShell doctor、init 与 `plan-subagents` route packet。
 
 ### Fixed
 
