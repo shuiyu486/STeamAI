@@ -68,7 +68,7 @@ evidence_refs:
   - <evidence id 或文件定位>
 verifier: pending | accepted | rejected | needs_more_evidence
 risk: low | medium | high
-next_action: confirm | review | request-authority | reject | defer
+next_action: accept | review | request-authority | reject | defer
 ```
 
 ### Review packet
@@ -103,33 +103,46 @@ budget:
 ## 状态流
 
 ```text
-draft -> candidate -> review -> confirmed | rejected | superseded | needs_more_evidence
+draft -> candidate -> review -> accepted | rejected | superseded | needs_more_evidence
 ```
 
 规则：
 
 - Worker / feature agent 最高只产出 candidate。
-- Reviewer 只出 verdict 和 evidence，不直接写 confirmed。
-- confirmed / authority 写入必须由 main agent 在 gate 通过后执行。
+- Reviewer 只出 verdict 和 evidence，不直接写 accepted/confirmed 结论。
+- accepted decision 只表示 main agent 接受该 candidate；confirmed / authority 写入仍必须由 main agent 在 gate 通过后执行。
 - rejected / superseded 必须保留原因，避免后续重复走旧路。
+
+### Reviewer verdict 与 ledger decision
+
+Reviewer output contract 中的 `decision` 是分片复核结论，不是最终 ledger decision。主 agent 合并时按下表转换：
+
+| reviewer output | main agent ledger 写入 | 说明 |
+|---|---|---|
+| `accept` | 先写 `verification.verdict=accepted`；满足 gate 后才写 `decision=accept` | `decision=accept` 不等于自动写 confirmed/authority。 |
+| `reject` | 写 `verification.verdict=rejected`，通常再写 `decision=reject` | 保留 evidence/reason，避免重复复核。 |
+| `defer` | 写 `verification.verdict=inconclusive` 或 `decision=defer` | 表示当前证据不足或暂不合并。 |
+| `needs_l2` / `needs_l3` | 写 `verification.verdict=needs-more-evidence` 或 `request` | 升级前仍需遵守 tool_scope 与 heavy-tool gate。 |
 
 ### Decision event
 
-每次 review 后 main agent 产出 decision event 持久化到 `.rekit/facts/decisions.jsonl`（即使手动写入也要对齐此格式）：
+每次 review 后，若 main agent 对 candidate 做出合并判断，应产出 decision event 持久化到 `.rekit/facts/decisions.jsonl`（即使手动写入也要对齐此格式）：
 
 ```yaml
 event_id: <stable-id>
 kind: decision
 lane: <runtime 规范化后的 lane id>
 subject: <candidate-id 或对象>
-decision: confirm | reject | defer | supersede
+decision: accept | reject | defer | supersede
 reason: <短理由>
 superseded_by: <新 candidate-id 或 null>
-status: confirmed | rejected | deferred | superseded
+status: accepted | rejected | deferred | superseded
 evidence_refs:
   - <evidence-id>
 created_at: <ISO 时间>
 ```
+
+`decision=accept` / `status=accepted` 是当前 canonical 写法；历史事件中可能存在 `confirm`、`confirmed` 或自动流程旧字段 `action`，读层可兼容展示，但新写入不应继续使用旧值。
 
 `status=deferred` 的 decision 仍要写入账本，让下一会话知道"为什么不再走旧路"。
 
@@ -144,8 +157,9 @@ created_at: <ISO 时间>
 ## packet 文件与 facts event 的关系
 
 - **packet 文件**是 agent 产出物，写在 lane workspace（路径由 manifest `workstreamDefaults` 驱动，以 `/rekit start` 输出为准，不写死 `.rekit/lanes/<id>/workspace`）。
-- **facts event**是 runtime 从 packet 抽取的账本条目，append 到 `.rekit/facts/*.jsonl`，供 `overview` 聚合。
-- packet 是 source of truth；event 是 runtime 视图。当前 runtime 仅在 `continue` auto 流程中从 lane CSV/workspace 扫描生成 event，没有手动 append 单条 event 的入口；手动产出的 packet 暂不被 `overview` 计数（见 `docs/agent-team-rollout-plan.md` R3 决策门）。
+- **facts event**是 runtime 视图，append 到 `.rekit/facts/*.jsonl`，供 `overview`、`handoff` 和 `note -List` 聚合。
+- 当前有两条写入路径：`/rekit continue` 自动从 lane CSV/workspace 抽取低风险 event；`/rekit note` 手动 append 单条 observation/candidate/verification/decision/request/publication/intervention/rollback/hypothesis event。
+- packet 仍是 agent 产出 source of truth；event 是可聚合索引。手动 packet 若需要进入 `overview` / `handoff`，主 agent 应通过 `/rekit note` 写入对应 facts event，而不是让 reviewer 直接写 authority。
 
 ## lane id 规范化
 

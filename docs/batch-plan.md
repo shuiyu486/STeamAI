@@ -1447,3 +1447,31 @@ git diff --check
 ```
 
 验证结果：全部通过；`plan-subagents` Go CLI 只写 review packet/summary artifact，attached case 默认写 `.rekit/reviews/<timestamp>-plan-subagents`，out-of-case target 必须显式 `-ReviewOutputDir`；route/taskType、Items/ItemsFile 分片、ItemsPerAgent/MaxParallel override、missing routes guard、Go/PowerShell doctor 与 PowerShell façade fallback 均通过。reviewer 未发现 correctness/boundary 高置信问题；project-guideline reviewer 提出的 Batch 47 状态与 mutation flag guard 已修复并补回归测试。公共 PowerShell façade 仍不委托 `plan-subagents`，未写 board/facts/lanes/handoff/authority/confirmed，未启动 subagent，未执行 heavy-tool。
+
+### Batch 48：Agent Team contract 收敛
+
+状态：已完成。
+
+目标：先修正 Agent Team review loop 的通用契约漂移，让 `plan-subagents -> reviewer verdict -> verification/decision ledger -> overview/handoff` 的字段语义一致；本批只改 contract / schema 文档，不改 runtime，不启动 agent，不写 case state。
+
+实施范围：
+
+- 更新 `common/policies/agent-team.md`，将 main decision event canonical enum 收敛为 `accept|reject|defer|supersede`，说明历史 `confirm`/`confirmed`/`action` 仅作为读层兼容值。
+- 更新 reviewer verdict 到 ledger 的映射说明：reviewer output `decision` 先进入 `verification.verdict`，再由 main agent 写最终 `decision` event；accepted decision 不等于直接写 authority。
+- 更新 packet 文件与 facts event 关系，反映当前已有 `/rekit note` 手动 append 与 `/rekit continue` 自动抽取两条路径。
+- 更新 `docs/evidence-ledger.md`，补 `request`/heavy-tool gate 扩展字段、status/decision 命名兼容说明，以及 `needs_more_evidence` packet 与 `needs-more-evidence` ledger verdict 的转换策略。
+- 必要时补充 `common/policies/subagents.md` 的层级说明，避免 reviewer output decision 与 ledger decision 混用。
+- 更新 `CHANGELOG.md`。
+
+边界：不改 PowerShell/Go runtime，不改 manifest，不改 VMP managed docs（留给 Batch 49），不写 confirmed/authority，不执行 heavy-tool/debug/inject/patch/dump/network，不创建临时 case。
+
+停止条件：发现需要 runtime schema 迁移、历史 JSONL 迁移、或必须改变 `/rekit note`/`continue` 写入行为时暂停并重新评估。
+
+验证：
+
+```powershell
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过；本批只更新 contract/schema 文档与 CHANGELOG，未改 PowerShell/Go runtime、manifest 或 VMP managed docs。`agent-team.md` 已将 main decision canonical enum 收敛为 `accept|reject|defer|supersede`，明确 reviewer output decision 先映射为 `verification.verdict`，accepted decision 不自动写 confirmed/authority；facts event 关系已更新为 `/rekit continue` 自动抽取与 `/rekit note` 手动 append 两条路径。`evidence-ledger.md` 已补 request/heavy-tool gate 扩展字段、status/decision 兼容说明，以及 packet `needs_more_evidence` 到 ledger `needs-more-evidence` 的归一化说明。

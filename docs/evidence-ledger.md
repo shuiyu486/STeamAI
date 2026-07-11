@@ -2,7 +2,7 @@
 
 ## 目的
 
-定义后续 `.rekit/facts/*.jsonl`、lane outbox/inbox 和 review packet 的统一事件模型草案。当前文件是设计契约，不表示 runtime 已全部实现。
+定义 `.rekit/facts/*.jsonl`、lane outbox/inbox 和 review packet 的统一事件模型。当前 runtime 已支持 9 种 kind 的 append/read 基础能力；本文件仍作为字段语义的 canonical contract，后续优化应保持 append-only 和历史兼容。
 
 目标是降低长程逆向中的漂移、重复返工和不可追溯 confirmed 写入。
 
@@ -48,6 +48,8 @@
 }
 ```
 
+`accepted` / `resolved` / `rejected` / `superseded` 是读层应视为终态的状态；`confirmed`、`pending-gate`、`needs_more_evidence` 是已落地 runtime 的兼容值，分别用于历史确认事件、gate request 与 packet 侧候选状态。新 decision event 应优先使用 `accepted|rejected|deferred|superseded`。
+
 ## Candidate 字段
 
 ```json
@@ -61,7 +63,7 @@
     "file": "captures/...csv",
     "rowPreview": "..."
   },
-  "nextAction": "review|focused-trace|confirm|reject"
+  "nextAction": "review|focused-trace|accept|reject"
 }
 ```
 
@@ -78,6 +80,8 @@
 }
 ```
 
+packet / reviewer output 中可使用 `needs_more_evidence` 表达候选仍缺证据；ledger `verification.verdict` 使用 kebab-case `needs-more-evidence`。主 agent 写回时负责这个轻量归一化，不要求历史 packet 迁移。
+
 ## Decision 字段
 
 ```json
@@ -92,6 +96,29 @@
   ]
 }
 ```
+
+`decision=accept` 是 canonical 写法；旧事件可能含 `decision=confirm` 或 `action=<auto-*|pending-user>`，读层可兼容展示，但新写入不应继续产生旧字段。`decision=accept` 只表示 candidate 被 main 接受；confirmed/authority 写入仍必须满足 evidence、verification、backup/diff、schema 与人工确认 gate。
+
+## Request 字段
+
+`request` 用于请求 main/tooling/user 处理，也承载 heavy-tool gate 的 pending 请求：
+
+```json
+{
+  "kind": "request",
+  "target": "<event|lane|batch|object>",
+  "status": "open|pending-gate|resolved|deferred|rejected",
+  "gate": {
+    "action": "full-trace|debug|inject|patch|dump|network|other",
+    "scope": "<narrow authorized scope>",
+    "budget": "<runtime/disk/token budget summary>",
+    "triedLightSteps": "<lighter steps already tried>",
+    "stopConditions": "<when to stop and report>"
+  }
+}
+```
+
+`status=pending-gate` 表示需要用户确认；它不是执行授权本身。确认只覆盖 event 中列明的 action/scope/budget/stopConditions，不得扩大到其它 heavy-tool 动作。
 
 ## Intervention 字段
 
