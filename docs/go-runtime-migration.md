@@ -201,7 +201,9 @@ git diff --check
 
 ### G5：`continue` 与 policy gate 迁移
 
-只有在以下 gate tests 完整后再迁移；Batch F 评估后继续 defer：
+状态：G5 preflight baseline 已完成；Go `continue` 仍未实现，下一步只允许先做 `continue -WhatIf` 预览路径，apply/authority 写入继续 deferred。
+
+已补齐的 preflight gate tests（见 `rekit/tests/continue-preflight-smoke.ps1`）：
 
 - evidence required；
 - accepted verifier verdict；
@@ -216,6 +218,8 @@ git diff --check
 - request routing 写 task/inbox 幂等；
 - run digest/status parity（inputs、route、packet refs、outputs、decisions、open risks）；
 - `-WhatIf` 不创建 runRoot、不刷新 board/lane resume、不写 facts。
+
+迁移顺序：先实现 Go `continue -WhatIf` 非写入预览并与上述 baseline 对齐；只有 preview parity 和旧 PowerShell smoke 都稳定后，才重新评估 apply 手动路径。任何自动写 authority/confirmed、policy schema 迁移或 façade 委托变化都必须单独停下确认。
 
 ### G6：PowerShell 收敛为 wrapper
 
@@ -271,6 +275,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Go plan-subagents artifacts | `.\rekit\tests\plan-subagents-smoke.ps1` | 手动 Go CLI `plan-subagents` 写 review packet/summary，验证 route/taskType 选择、Items/ItemsFile 分片、out-of-case guard、missing routes、doctor 与 façade fallback；不写 board/facts/lanes/handoff/authority，不启动 agent。 |
 | Go note list readonly | `go test ./internal/rekit/cli ./internal/rekit/note` | 手动 Go CLI `note -List` 读取 facts JSONL，验证全量展示、`-Kind`/`-Lane` 过滤、invalid kind guard、write flag guard 与只读 snapshot。 |
 | Go note append | `go test ./internal/rekit/cli ./internal/rekit/note` | 手动 Go CLI `note` append 写 facts JSONL，验证 9 类 kind 基础写入、`-WhatIf` 非写入、enum/schema/lane guard、eventId dedupe 与 unsupported write flags。 |
+| Continue preflight baseline | `.\rekit\tests\continue-preflight-smoke.ps1` | 验证 PowerShell `continue` authority append gate matrix、backup/diff、CSV 失败恢复、request routing 幂等、digest/status parity 与 `-WhatIf` no-write，作为 Go `continue` 迁移 baseline。 |
 | Go attach preview | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -WhatIf` | 输出非写入 plan，不创建目录或文件。 |
 | Go attach apply | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -ProjectName <name> -Apply` | 只写 `.rekit/instance.yml` 与 case-local thin shim，不写 managed docs、board/facts/lanes、legacy metadata 或 state。 |
 | Go repair preview | `go run ./cmd/rekit -- -Command repair -Target <movedCase> -Pack vmp-re -WhatIf` | 输出非写入 repair plan，展示 recorded/new projectRoot 与写入计划。 |

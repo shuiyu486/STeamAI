@@ -66,6 +66,7 @@
 - Agent Team review loop Batch F 完成：重新评估 Go `note` / `continue` 迁移，结论是下一步优先 Go `note` 手动路径（先 `-List` 只读，再 append），`continue` 因 authority append、routing、digest/status 与 lane/board 刷新副作用继续暂缓到 G5 gate/parity tests 完整后。
 - G4.5a Go `note -List` 只读路径完成：新增 `internal/rekit/note` 与 CLI `-Command note -List`，读取 9 类 facts JSONL，支持 `-Kind`/`-Lane` 过滤并展示 candidate/request/decision/verification/intervention/rollback 关键字段；该路径只读、不写 board/facts/lanes/handoff/authority/confirmed，不纳入 PowerShell façade 委托。
 - G4.5b Go `note` append 手动路径完成：CLI `-Command note` 可显式 append 9 类 ledger event 到 `.rekit/facts/*.jsonl`，支持 PowerShell 对齐 enum/schema 校验、lane guard、eventId dedupe 与 `-WhatIf` 非写入预览；该路径只写 facts JSONL，不写 board/lane/handoff/authority/confirmed，也不纳入 PowerShell façade 委托。
+- G5 preflight baseline 完成：新增 `rekit/tests/continue-preflight-smoke.ps1`，覆盖 PowerShell `continue` 的 authority append gate matrix（evidence、accepted verifier、confidence、CSV schema、conflict、max rows、allowlist）、backup/bounded diff、CSV 失败恢复、request routing 幂等、digest/status parity 与 `-WhatIf` no-write，作为后续 Go `continue -WhatIf` 迁移前测试网。
 
 ### Fixed
 

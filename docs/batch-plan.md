@@ -1678,3 +1678,36 @@ git diff --check
 ```
 
 验证结果：全部通过；targeted Go tests、全量 Go tests、PowerShell doctor 与 whitespace 检查均通过。reviewer 复核发现 `docs/go-runtime-migration.md` façade 策略段仍写“未来补 Go note 手动路径”，已修正为 `note -List` 与 append 均可手动运行但仍不纳入 façade 委托。本批仅写 facts JSONL，不写 board/lane/handoff/authority/confirmed，不执行 heavy-tool。
+
+### Batch 56：continue 迁移前测试网
+
+状态：已完成。
+
+目标：在实现 Go `continue -WhatIf` 之前，先为 PowerShell `continue` 的 authority/routing/digest 副作用补齐可重复 preflight smoke，作为后续 Go parity baseline。
+
+实施范围：
+
+- 新增 `rekit/tests/continue-preflight-smoke.ps1`，使用临时 `vmp-re` case 与 pack-declared CSV authority files，避免把 VMP authority 语义塞进 `_template`。
+- 覆盖 authority append 正向路径：evidence、accepted verifier verdict、confidence 阈值、CSV schema、无冲突、allowlist、backup、bounded diff 与 publication/decision writes。
+- 覆盖 authority append 拒绝路径：缺 evidence、confidence below threshold、schema invalid、authority key conflict、authorityFiles allowlist 拒绝、max rows。
+- 覆盖 CSV append 后校验失败的 backup 恢复路径：通过本地注入 `Import-Csv` 失败验证 target CSV 恢复到 append 前内容，且 backup 已创建。
+- 覆盖 request routing 幂等：同一 `requestId + sourceLane` 两个 request event 只写一条 target lane `tasks.jsonl` 与 `inbox.jsonl`。
+- 覆盖 run digest/status parity：验证 inputs、route、packet refs、outputs、decisions、open risks 与 `status.json` summary/index 字段。
+- 覆盖 `continue -WhatIf` no-write：快照临时 case 全树，验证不创建 runRoot、不写 facts、不刷新 board/lane resume/checkpoint、不改 authority CSV。
+- 更新 `docs/go-runtime-migration.md`、CHANGELOG 与本计划，把 G5-preflight 从待补测试网改为已具备 baseline。
+
+边界：本批只新增/运行临时 case smoke；不实现 Go `continue`，不改变 PowerShell `continue` 行为，不纳入 PowerShell façade Go 委托，不启动 subagent，不执行 full-trace/debug/inject/patch/dump/network，不写真实 case confirmed/authority。
+
+停止条件：若后续要实现 Go `continue -Apply`、自动写 authority/confirmed 到真实 case、改变 policy schema、或将 `continue` 纳入 façade 委托，需重新评估并按独立批次推进。
+
+验证：
+
+```powershell
+.\rekit\tests\continue-preflight-smoke.ps1
+.\rekit\tests\continue-digest-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+go test ./...
+git diff --check
+```
+
+验证结果：全部通过；`continue-preflight-smoke.ps1`、既有 `continue-digest-smoke.ps1`、PowerShell doctor、全量 Go tests 与 `git diff --check` 均通过（仅出现既有 LF/CRLF warning）。reviewer 复核发现 accepted verifier verdict 缺少独立失败路径断言，已补 `Invoke-RekitAuthorityAppend` 直测：条件均满足但缺 accepted verifier 时必须返回 `missing accepted verifier verdict` 且不追加 CSV。本批只新增临时 case smoke 与文档记录；未实现 Go `continue`，未改变 PowerShell `continue` 行为，未纳入 façade 委托，未启动 subagent，未执行 heavy-tool，未写真实 case confirmed/authority。
