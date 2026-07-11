@@ -85,6 +85,45 @@ function Assert-PackRow {
   }
 }
 
+function Assert-PackSchemaRow {
+  param(
+    [Parameter(Mandatory=$true)][string]$Text,
+    [Parameter(Mandatory=$true)][string]$Pack,
+    [Parameter(Mandatory=$true)][string]$Maturity,
+    [Parameter(Mandatory=$true)][string]$Schema,
+    [Parameter(Mandatory=$true)][string]$ErrorText
+  )
+  $line = @($Text -split "`r?`n" | Where-Object { $_ -like "$Pack`t*" })
+  if ($line.Count -ne 1) { throw "expected one row for $Pack; output:`n$Text" }
+  $cols = @([string]$line[0] -split "`t")
+  if ($cols.Count -lt 9) { throw "pack row has too few columns for ${Pack}: $($line[0])" }
+  if ($cols[1] -ne $Maturity -or $cols[2] -ne $Schema) { throw "unexpected schema row for ${Pack}: $($line[0])" }
+  Assert-ContainsText -Text $Text -Expected $ErrorText -Label "schema error for $Pack"
+}
+
+function New-TransientPackManifest {
+  param(
+    [Parameter(Mandatory=$true)][string]$Pack,
+    [string]$MaturityLine = ''
+  )
+  $packRoot = Join-Path $RepoRoot ("packs\" + $Pack)
+  [System.IO.Directory]::CreateDirectory($packRoot) | Out-Null
+  $lines = @(
+    'schemaVersion: 1',
+    "name: $Pack",
+    'version: 0.1.0',
+    'description: maturity inventory smoke pack'
+  )
+  if (-not [string]::IsNullOrWhiteSpace($MaturityLine)) { $lines += $MaturityLine }
+  $lines += @(
+    '',
+    'managedFiles:',
+    '  - references/test/README.md'
+  )
+  [System.IO.File]::WriteAllText((Join-Path $packRoot 'manifest.yml'), (($lines -join "`n") + "`n"), [System.Text.Encoding]::UTF8)
+  return $packRoot
+}
+
 $goOut = Invoke-GoRekitSmoke -Arguments @('-Command','packs')
 $psOut = Invoke-RekitSmoke -Arguments @('-Command','packs')
 $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
@@ -94,6 +133,26 @@ foreach ($out in @($goOut,$psOut,$facadeOut)) {
   Assert-PackRow -Text $out -Pack '_template' -Maturity 'template' -Authority 'main' -Managed '4' -Tooling '2'
   Assert-PackRow -Text $out -Pack 'vmp-re' -Maturity 'mature' -Authority 'devirt-main' -Managed '7' -Tooling '11'
   Assert-PackRow -Text $out -Pack 'web-security' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
+}
+
+$transientPacks = @()
+try {
+  $suffix = [Guid]::NewGuid().ToString('N')
+  $missingPack = "_maturity_missing_$suffix"
+  $invalidPack = "_maturity_invalid_$suffix"
+  $transientPacks += (New-TransientPackManifest -Pack $missingPack)
+  $transientPacks += (New-TransientPackManifest -Pack $invalidPack -MaturityLine 'maturity: preview')
+
+  $goMaturityOut = Invoke-GoRekitSmoke -Arguments @('-Command','packs')
+  $psMaturityOut = Invoke-RekitSmoke -Arguments @('-Command','packs')
+  foreach ($out in @($goMaturityOut,$psMaturityOut)) {
+    Assert-PackSchemaRow -Text $out -Pack $missingPack -Maturity 'missing' -Schema 'error' -ErrorText 'maturity is missing'
+    Assert-PackSchemaRow -Text $out -Pack $invalidPack -Maturity 'preview' -Schema 'error' -ErrorText 'maturity has unsupported value'
+  }
+} finally {
+  foreach ($packRoot in $transientPacks) {
+    if (Test-Path -LiteralPath $packRoot) { Remove-Item -LiteralPath $packRoot -Recurse -Force -Confirm:$false }
+  }
 }
 
 $sentinel = Join-Path ([System.IO.Path]::GetTempPath()) ("rekit-pack-inventory-sentinel-$([Guid]::NewGuid().ToString('N')).cmd")

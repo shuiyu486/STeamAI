@@ -324,7 +324,7 @@ go vet ./...
 - G4.2 已完成 `start` Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式初始化 board/facts/policy/default authority lane 并创建或进入 feature lane；公共 PowerShell façade 仍不委托工作线命令。
 - G4.3 已完成 `handoff` Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式写项目级/工作线级 handoff 并刷新 lane resume/checkpoint；公共 PowerShell façade 仍不委托工作线命令。
 - G4.4 已完成 `plan-subagents` Go CLI review artifact 手动路径：按 manifest `subagentRoutes` 生成分片 packet/summary；Batch 58 已补 route/shard/review-loop observability；公共 PowerShell façade 仍不委托内部命令，不启动 agent、不写 board/facts/lanes/handoff/authority/confirmed。
-- Batch 62 已新增只读 `packs` inventory：Go CLI 与 PowerShell fallback 均可列出全部 pack 的 maturity/schema/routes/managed/tooling/authority；显式 `REKIT_GO_ENABLE=1` 时可委托 Go。
+- Batch 62/63 已新增只读 `packs` inventory，并将 pack maturity 固化为 manifest 显式字段：Go CLI 与 PowerShell fallback 均可列出全部 pack 的 maturity/schema/routes/managed/tooling/authority；显式 `REKIT_GO_ENABLE=1` 时可委托 Go。
 - 在 PowerShell façade 默认委托前，继续用手动 Go CLI smoke 验证；写入命令、工作线命令、内部命令、authority/confirmed 更新和 schema 迁移仍需单独确认。
 
 ## 风险与止损

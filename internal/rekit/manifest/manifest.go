@@ -46,6 +46,7 @@ type Manifest struct {
 	Name                    string
 	Version                 string
 	Description             string
+	Maturity                string
 	ManagedFiles            []string
 	TemplateFiles           []string
 	LocalFiles              []string
@@ -116,6 +117,7 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 		Name:                    yamlScalar(lines, "name", pack),
 		Version:                 yamlScalar(lines, "version", "0.0.0"),
 		Description:             yamlScalar(lines, "description", ""),
+		Maturity:                yamlScalar(lines, "maturity", ""),
 		ManagedFiles:            yamlList(lines, "managedFiles"),
 		TemplateFiles:           yamlList(lines, "templateFiles"),
 		LocalFiles:              yamlList(lines, "localNeverOverwrite"),
@@ -184,7 +186,7 @@ func List(repoRoot string) ([]PackSummary, error) {
 		}
 		m, err := Load(repo, id)
 		if err != nil {
-			summaries = append(summaries, PackSummary{ID: id, Name: id, Maturity: inferPackMaturity(id, ""), ManifestPath: manifestPath, SchemaValid: false, Error: err.Error()})
+			summaries = append(summaries, PackSummary{ID: id, Name: id, Maturity: packMaturity(""), ManifestPath: manifestPath, SchemaValid: false, Error: err.Error()})
 			continue
 		}
 		summary := m.Summary()
@@ -203,7 +205,7 @@ func (m *Manifest) Summary() PackSummary {
 		ID:                   m.Pack,
 		Name:                 m.Name,
 		Version:              m.Version,
-		Maturity:             inferPackMaturity(m.Pack, m.Description),
+		Maturity:             packMaturity(m.Maturity),
 		Description:          m.Description,
 		ManifestPath:         m.ManifestPath,
 		SchemaValid:          true,
@@ -234,14 +236,25 @@ func normalizePackID(pack string) (string, error) {
 	return id, nil
 }
 
-func inferPackMaturity(id, description string) string {
-	if strings.EqualFold(id, "_template") {
-		return "template"
+func packMaturity(explicit string) string {
+	maturity := normalizePackMaturity(explicit)
+	if maturity == "" {
+		return "missing"
 	}
-	if strings.Contains(strings.ToLower(description), "skeleton") {
-		return "skeleton"
+	return maturity
+}
+
+func normalizePackMaturity(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func isSupportedPackMaturity(value string) bool {
+	switch normalizePackMaturity(value) {
+	case "mature", "skeleton", "template", "experimental":
+		return true
+	default:
+		return false
 	}
-	return "mature"
 }
 
 func cloneStringMap(in map[string]string) map[string]string {
@@ -265,6 +278,13 @@ func (m *Manifest) BudgetLimit(rel string) int64 {
 }
 
 func (m *Manifest) ValidateSchema() error {
+	maturity := normalizePackMaturity(m.Maturity)
+	if maturity == "" {
+		return fmt.Errorf("maturity is missing")
+	}
+	if !isSupportedPackMaturity(maturity) {
+		return fmt.Errorf("maturity has unsupported value: %s", m.Maturity)
+	}
 	for _, key := range []string{"file", "blockId", "source"} {
 		if strings.TrimSpace(m.explicitManagedBlock[key]) == "" {
 			return fmt.Errorf("managedBlock is missing required key: %s", key)

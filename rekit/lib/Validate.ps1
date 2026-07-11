@@ -58,6 +58,9 @@ function Test-RekitManifestSchema {
   $lines = [System.IO.File]::ReadAllLines($Manifest.ManifestPath, [System.Text.Encoding]::UTF8)
   $explicitManagedBlock = Get-RekitYamlMap -Lines $lines -Key 'managedBlock'
   $explicitToolingCandidateSources = @(Get-RekitYamlList -Lines $lines -Key 'toolingCandidateSources')
+  $maturity = ([string]$Manifest.Maturity).Trim().ToLowerInvariant()
+  if ([string]::IsNullOrWhiteSpace($maturity)) { throw 'maturity is missing' }
+  if (@('mature','skeleton','template','experimental') -notcontains $maturity) { throw "maturity has unsupported value: $($Manifest.Maturity)" }
 
   foreach ($rel in $Manifest.PromoteFiles) {
     if ($Manifest.ManagedFiles -notcontains $rel) { throw "promoteFiles entry is not managed: $rel" }

@@ -1904,3 +1904,33 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/manifest ./internal/rekit/cli`、`go test ./...`、`pack-inventory-smoke.ps1`、`/rekit packs`、默认 / `_template` / `web-security` 三组 doctor、fresh temp vmp case façade smoke 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。第一次直接复用旧 `agent-team-dryrun` façade fixture 时因该临时 case 的 case-local shim 已过期而被 doctor 拒绝，随后使用本批新建并 `start handler-0x40a010` 的临时 case 验证通过；该失败不是 Batch 62 代码回归。
+
+### Batch 63：manifest 显式 maturity 字段
+
+状态：已完成。
+
+目标：将 Batch 62 `/rekit packs` 中的 pack maturity 从名称/description 启发式推断升级为 `manifest.yml` 显式字段，避免后续更多安全领域 pack 依赖描述文本判定成熟度。
+
+实施范围：
+
+- `_template`、`vmp-re`、`web-security` 三个 pack manifest 均新增 `maturity` 字段，当前取值分别为 `template`、`mature`、`skeleton`。
+- Go manifest parser 读取 `maturity`，`PackSummary` 优先使用显式字段；`ValidateSchema` 要求 maturity 非空且属于 `mature` / `template` / `skeleton` / `experimental`。
+- PowerShell manifest parser、inventory 和 doctor schema 校验同步读取并校验显式 maturity，与 Go schema 判定保持一致。
+- `docs/pack-authoring.md` 更新最小 manifest 示例与验证标准；`CHANGELOG.md` 与 Go runtime 迁移说明同步记录。
+
+边界：本批只调整 pack manifest schema、只读 inventory 显示和文档；不创建/修改 case，不写 board/facts/lanes/handoff/authority/confirmed，不改变 sync/promote review-first 语义，不扩大 façade 委托集合。
+
+验证：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/cli
+go test ./...
+.\rekit\tests\pack-inventory-smoke.ps1
+.\rekit\rekit.ps1 -Command packs
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Pack _template
+.\rekit\rekit.ps1 -Command doctor -Pack web-security
+git diff --check
+```
+
+验证结果：全部通过。`pack-inventory-smoke.ps1` 覆盖 Go、PowerShell fallback、Go façade 委托 sentinel，以及临时缺失/非法 maturity pack 的 `schema=error` 行与错误文本；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。自审发现并修复：pack authoring 示例的 inline comment 会被简易 YAML parser 当成值、说明性 schema 漏列 `maturity`、inventory 对缺失 maturity 不应继续启发式推断。

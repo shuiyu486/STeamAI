@@ -35,6 +35,8 @@ schemaVersion: 1
 name: <pack-name>
 version: <semver-like>
 description: <one-line>
+# maturity: mature | skeleton | template | experimental
+maturity: skeleton
 managedFiles:
   - references/<pack>/README.md
   - references/<pack>/agent-team.md
@@ -125,7 +127,7 @@ budgets:
 
 本仓库提供 `packs/_template/` 作为新 pack 的起点。创建真实 pack 时复制该目录并替换：
 
-- `name`、`description`、`blockId`。
+- `name`、`description`、`maturity`、`blockId`。
 - `references/template/**` 路径和目录名。
 - `subagentRoutes` 的 route id、taskTypes、trigger、shardBasis 和 outputContract。
 - `tooling/catalog.yml` 的工具条目。
@@ -154,7 +156,7 @@ budgets:
 ## 验证标准
 
 - `git diff --check` 通过。
-- `/rekit packs` 能列出新 pack，且该行 `schema=ok`、route / managed / tooling / authority 计数符合预期。
+- `/rekit packs` 能列出新 pack，且该行 `maturity` 来自 manifest 显式字段，`schema=ok`、route / managed / tooling / authority 计数符合预期。
 - `manifest.yml` 路径均为相对路径。
 - managed/template/local 边界清晰。
 - `subagentRoutes.reference` 指向 managed/template/local 文件，route id 唯一，`taskTypes`、`shardBasis`、`targetItemsPerAgent`、`maxParallel`、`subagentPermissions`、`mainAgentOwns`、`outputContract` 齐全。

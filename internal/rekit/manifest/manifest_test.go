@@ -63,6 +63,80 @@ func TestLoadWebSecurityManifestSchema(t *testing.T) {
 	}
 }
 
+func TestPackSummaryUsesExplicitMaturity(t *testing.T) {
+	m := &Manifest{
+		Pack:               "plain-pack",
+		Maturity:           "experimental",
+		Description:        "plain security pack",
+		WorkstreamDefaults: map[string]string{},
+	}
+	if got := m.Summary().Maturity; got != "experimental" {
+		t.Fatalf("Summary().Maturity = %q, want experimental", got)
+	}
+	m.Maturity = ""
+	if got := m.Summary().Maturity; got != "missing" {
+		t.Fatalf("Summary().Maturity = %q, want missing", got)
+	}
+}
+
+func TestValidateSchemaRequiresSupportedMaturity(t *testing.T) {
+	m := &Manifest{Maturity: "preview"}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "maturity has unsupported value") {
+		t.Fatalf("ValidateSchema error = %v, want unsupported maturity error", err)
+	}
+	m.Maturity = ""
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "maturity is missing") {
+		t.Fatalf("ValidateSchema error = %v, want missing maturity error", err)
+	}
+}
+
+func TestListMarksMissingAndInvalidMaturity(t *testing.T) {
+	repo := t.TempDir()
+	cases := []struct {
+		pack         string
+		maturityLine string
+		wantMaturity string
+		wantError    string
+	}{
+		{pack: "missing-maturity", wantMaturity: "missing", wantError: "maturity is missing"},
+		{pack: "invalid-maturity", maturityLine: "maturity: preview", wantMaturity: "preview", wantError: "maturity has unsupported value"},
+	}
+	for _, tc := range cases {
+		packRoot := filepath.Join(repo, "packs", tc.pack)
+		if err := os.MkdirAll(packRoot, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		manifestText := "schemaVersion: 1\nname: " + tc.pack + "\nversion: 0.1.0\ndescription: maturity test pack\n"
+		if tc.maturityLine != "" {
+			manifestText += tc.maturityLine + "\n"
+		}
+		manifestText += "\nmanagedFiles:\n  - references/test/README.md\n"
+		if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	packs, err := List(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]PackSummary{}
+	for _, pack := range packs {
+		byID[pack.ID] = pack
+	}
+	for _, tc := range cases {
+		pack := byID[tc.pack]
+		if pack.SchemaValid {
+			t.Fatalf("%s SchemaValid = true, want false: %+v", tc.pack, pack)
+		}
+		if pack.Maturity != tc.wantMaturity {
+			t.Fatalf("%s Maturity = %q, want %q", tc.pack, pack.Maturity, tc.wantMaturity)
+		}
+		if !strings.Contains(pack.Error, tc.wantError) {
+			t.Fatalf("%s Error = %q, want contains %q", tc.pack, pack.Error, tc.wantError)
+		}
+	}
+}
+
 func TestListPackSummaries(t *testing.T) {
 	packs, err := List(repoRoot(t))
 	if err != nil {
@@ -95,7 +169,7 @@ func TestValidateSchemaRequiresExplicitManagedBlock(t *testing.T) {
 	if err := os.MkdirAll(packRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifestText := "schemaVersion: 1\nname: missing-block\nversion: 0.1.0\ndescription: test pack skeleton\n\nmanagedFiles:\n  - references/test/README.md\n"
+	manifestText := "schemaVersion: 1\nname: missing-block\nversion: 0.1.0\ndescription: test pack skeleton\nmaturity: skeleton\n\nmanagedFiles:\n  - references/test/README.md\n"
 	if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
 		t.Fatal(err)
 	}

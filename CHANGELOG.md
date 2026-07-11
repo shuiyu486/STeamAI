@@ -73,6 +73,7 @@
 - Batch 60 完成：`packs/_template` 新增 managed `agent-team.md` 与两条 pack-neutral `subagentRoutes`，让新安全领域 pack 复制模板后即可通过 `plan-subagents` 生成 bounded review packet；Go manifest schema 与 PowerShell doctor 增加 subagent route 必填字段、正整数分片、reference 边界和 route id 唯一性校验，smoke 覆盖 Go 与 PowerShell fallback 的 `_template` route packet。
 - Batch 61 完成：新增首个非 RE pack 骨架 `packs/web-security`，覆盖 Web/API 安全评估的 scope、Agent Team routes、toolchain router、tooling catalog、passive triage 与 bounded request replay recipe，并补 smoke 验证 Go/PowerShell doctor、init 与 `plan-subagents` route packet。
 - Batch 62 完成：新增只读 `/rekit packs` pack inventory 矩阵，Go 与 PowerShell 均可列出 `_template`、`vmp-re`、`web-security` 的成熟度、schema、route、managed/tooling、authority lane 与版本信息；显式 `REKIT_GO_ENABLE=1` 时 façade 可委托该只读命令，并补 schema parity 与委托 sentinel smoke。
+- Batch 63 完成：pack `manifest.yml` 新增显式 `maturity` 字段（`mature` / `template` / `skeleton` / `experimental`），`/rekit packs` 的成熟度优先读取 manifest，Go 与 PowerShell schema 校验均拒绝缺失或不支持的 maturity，避免后续多安全领域 pack 依赖描述启发式推断。
 
 ### Fixed
 

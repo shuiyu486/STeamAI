@@ -3,6 +3,7 @@
 required:
   - name
   - version
+  - maturity
   - managedFiles
   - templateFiles
   - localNeverOverwrite
@@ -17,6 +18,7 @@ fields:
   name: pack 名称，例如 vmp-re
   version: pack 版本；review packet 会记录此值作为 manifestVersion
   description: 一行用途说明
+  maturity: pack 成熟度，取值为 mature、template、skeleton 或 experimental；`/rekit packs` 直接显示该显式字段
   managedFiles: 可由 kit 同步到 case、也可按 promotePolicy 反向提升的文件路径列表
   templateFiles: 只在 case 缺失时实例化的模板文件列表
   localNeverOverwrite: 永不被 sync 覆盖、永不被 promote 的 case-local 文件

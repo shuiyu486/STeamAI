@@ -128,11 +128,12 @@ function Resolve-RekitPackId {
 function Get-RekitPackMaturity {
   param(
     [string]$Pack,
+    [string]$Maturity = '',
     [string]$Description = ''
   )
-  if ([string]::Equals($Pack, '_template', [System.StringComparison]::OrdinalIgnoreCase)) { return 'template' }
-  if (([string]$Description).ToLowerInvariant().Contains('skeleton')) { return 'skeleton' }
-  return 'mature'
+  $explicit = ([string]$Maturity).Trim().ToLowerInvariant()
+  if ([string]::IsNullOrWhiteSpace($explicit)) { return 'missing' }
+  return $explicit
 }
 
 function Get-RekitPackManifest {
@@ -150,6 +151,7 @@ function Get-RekitPackManifest {
   $name = Get-RekitYamlScalar -Lines $lines -Key 'name' -Default $packId
   $version = Get-RekitYamlScalar -Lines $lines -Key 'version' -Default '0.0.0'
   $description = Get-RekitYamlScalar -Lines $lines -Key 'description' -Default ''
+  $maturity = Get-RekitYamlScalar -Lines $lines -Key 'maturity' -Default ''
   $managedFiles = @(Get-RekitYamlList -Lines $lines -Key 'managedFiles')
   $templateFiles = @(Get-RekitYamlList -Lines $lines -Key 'templateFiles')
   $localFiles = @(Get-RekitYamlList -Lines $lines -Key 'localNeverOverwrite')
@@ -186,6 +188,7 @@ function Get-RekitPackManifest {
     Name = $name
     Version = $version
     Description = $description
+    Maturity = $maturity
     ManagedFiles = $managedFiles
     TemplateFiles = $templateFiles
     LocalFiles = $localFiles
@@ -253,7 +256,7 @@ function Get-RekitPackInventory {
         ID = [string]$manifest.Pack
         Name = [string]$manifest.Name
         Version = [string]$manifest.Version
-        Maturity = Get-RekitPackMaturity -Pack ([string]$manifest.Pack) -Description ([string]$manifest.Description)
+        Maturity = Get-RekitPackMaturity -Pack ([string]$manifest.Pack) -Maturity ([string]$manifest.Maturity) -Description ([string]$manifest.Description)
         Description = [string]$manifest.Description
         ManifestPath = [string]$manifest.ManifestPath
         SchemaValid = $schemaValid

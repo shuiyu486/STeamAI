@@ -2,6 +2,7 @@ schemaVersion: 1
 name: web-security
 version: 0.1.0
 description: Web and API security assessment Agent Team pack skeleton
+maturity: skeleton
 
 managedFiles:
   - references/web-security/README.md

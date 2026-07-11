@@ -2,6 +2,7 @@ schemaVersion: 1
 name: _template
 version: 0.1.0
 description: Template pack skeleton for authoring new security Agent Team packs
+maturity: template
 
 managedFiles:
   - references/template/README.md

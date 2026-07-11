@@ -2,6 +2,7 @@ schemaVersion: 1
 name: vmp-re
 version: 0.2.0
 description: VMProtect x64 trace-based devirtualization context kit
+maturity: mature
 
 managedFiles:
   - references/vmp-re/README.md
