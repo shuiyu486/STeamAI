@@ -49,6 +49,7 @@ type Options struct {
 	Note             note.Options
 	Start            workstream.StartOptions
 	Handoff          workstream.HandoffOptions
+	Continue         workstream.ContinueOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -132,6 +133,7 @@ func Parse(args []string) (Options, error) {
 			}
 			opt.Gate.Lane = args[i]
 			opt.Note.Lane = args[i]
+			opt.Continue.Selector = args[i]
 		case "-Kind", "--kind":
 			i++
 			if i >= len(args) {
@@ -330,6 +332,12 @@ func Parse(args []string) (Options, error) {
 				} else {
 					opt.Handoff.Selector += "-" + args[i]
 				}
+			} else if strings.EqualFold(opt.Command, "continue") && args[i] != "" && args[i][0] != '-' {
+				if opt.Continue.Selector == "" {
+					opt.Continue.Selector = args[i]
+				} else {
+					opt.Continue.Selector += "-" + args[i]
+				}
 			}
 		}
 	}
@@ -372,6 +380,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runStart(ctx, opt, stdout)
 	case "handoff":
 		return runHandoff(ctx, opt, stdout)
+	case "continue":
+		return runContinue(ctx, opt, stdout)
 	case "plan-subagents":
 		return runPlanSubagents(ctx, opt, stdout)
 	case "gate":
@@ -666,6 +676,31 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 	} else {
 		return fmt.Errorf("handoff write requires -Apply; use -WhatIf for preview")
 	}
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(append(b, '\n'))
+	return err
+}
+
+func runContinue(ctx runtime.Context, opt Options, out io.Writer) error {
+	if !ctx.TargetProvided {
+		return fmt.Errorf("continue requires an explicit -Target attached case")
+	}
+	if opt.Apply || opt.CreateCandidates {
+		return fmt.Errorf("go backend continue currently supports -WhatIf preview only; do not combine it with -Apply or -CreateCandidates")
+	}
+	if wantsReviewArtifacts(opt) {
+		return fmt.Errorf("continue -WhatIf does not support review artifact options")
+	}
+	if !opt.WhatIf {
+		return fmt.Errorf("go backend continue currently supports -WhatIf preview only")
+	}
+	result, err := workstream.ContinuePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
 	if err != nil {
 		return err
 	}

@@ -1711,3 +1711,37 @@ git diff --check
 ```
 
 验证结果：全部通过；`continue-preflight-smoke.ps1`、既有 `continue-digest-smoke.ps1`、PowerShell doctor、全量 Go tests 与 `git diff --check` 均通过（仅出现既有 LF/CRLF warning）。reviewer 复核发现 accepted verifier verdict 缺少独立失败路径断言，已补 `Invoke-RekitAuthorityAppend` 直测：条件均满足但缺 accepted verifier 时必须返回 `missing accepted verifier verdict` 且不追加 CSV。本批只新增临时 case smoke 与文档记录；未实现 Go `continue`，未改变 PowerShell `continue` 行为，未纳入 façade 委托，未启动 subagent，未执行 heavy-tool，未写真实 case confirmed/authority。
+
+### Batch 57：Go continue WhatIf 预览
+
+状态：已完成。
+
+目标：基于 Batch 56 preflight baseline，实现 Go `continue -WhatIf` 非写入预览路径，让维护者能在不触发 PowerShell `continue` 写入副作用的情况下预览 lane outbox/workspace 事件收集、request routing 与 authority candidate 决策。
+
+实施范围：
+
+- 新增 `internal/rekit/workstream/continue.go`，在 Go `workstream` 包内复用 board/lane helper，读取既有 attached case、`.rekit/board.json`、lane `outbox.jsonl`、workspace JSONL、candidate CSV 与 packet markdown。
+- 新增 CLI `-Command continue -WhatIf` 手动路径，支持 positional selector 与 `-Lane` selector；缺 selector 且存在多个 open lane 时拒绝，避免误选工作线。
+- 输出 JSON preview：`isMutation=false`、`applied=false`、`requiresConfirmation=true`，包含 selected lane、inputs、packetRefs、summary、events、wouldWrites、openRisks、blockedActions 与 nextSteps。
+- 预览 request routing：只报告会 append 的 target lane `tasks.jsonl` / `inbox.jsonl`，不实际写入。
+- 预览 authority candidate：按 manifest `authorityFiles` allowlist、policy evidence/verifier/confidence/schema/conflict/max rows 等 gate 生成 accept/defer 决策与 wouldWrites；只报告 authority CSV、run backup/diff、facts decision/publication 等潜在写入，不实际写入。
+- 新增 `rekit/tests/continue-whatif-smoke.ps1`，使用临时 `vmp-re` case 覆盖 Go preview、全树 no-write、unsupported apply guard 与 PowerShell façade fallback。
+- 更新 `docs/go-runtime-migration.md`、CHANGELOG 与本计划。
+
+边界：本批只实现 Go CLI 手动 `continue -WhatIf` preview；不实现 Go `continue -Apply`，不写 facts/run/board/lane/handoff/authority/confirmed，不改变 PowerShell `continue` 行为，不纳入 PowerShell façade 委托，不启动 subagent，不执行 full-trace/debug/inject/patch/dump/network。
+
+停止条件：若后续要实现 Go `continue -Apply`、自动写 authority/confirmed 到真实 case、改变 policy schema、或将 `continue` 纳入 façade 委托，需重新评估并按独立批次推进。
+
+验证：
+
+```powershell
+go test ./internal/rekit/workstream ./internal/rekit/cli
+go test ./...
+.\rekit\tests\continue-whatif-smoke.ps1
+.\rekit\tests\continue-preflight-smoke.ps1
+.\rekit\tests\continue-digest-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过；targeted Go tests、全量 Go tests、`continue-whatif-smoke.ps1`、Batch 56 `continue-preflight-smoke.ps1`、既有 `continue-digest-smoke.ps1`、PowerShell doctor 与 `git diff --check` 均通过（仅出现既有 LF/CRLF warning）。reviewer 复核发现 preview summary 使用 `authorityApplied` 容易误导为已写入 authority，已改为保持 `authorityApplied=0` 并新增 preview-only `authorityWouldAppend` 计数，测试与 smoke 同步断言。本批未实现 Go `continue -Apply`，未改变 PowerShell `continue` 行为，未纳入 façade 委托，未启动 subagent，未执行 heavy-tool，未写 facts/run/board/lane/handoff/authority/confirmed。

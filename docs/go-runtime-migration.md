@@ -189,8 +189,8 @@ git diff --check
 结论：
 
 - `note` 已作为 Go 手动路径落地：`-Command note -List` 读取 `.rekit/facts/*.jsonl`，支持 `-Kind` 与 `-Lane` 过滤，展示 9 类 ledger event 的主要字段；append 模式支持 9 类 kind、PowerShell 对齐的 enum/schema 校验、lane guard、eventId 去重、`-WhatIf` 预览与只写 facts JSONL。该路径不纳入 PowerShell façade 默认或显式安全委托集合。
-- `continue` 暂不迁移：它同时承担 workspace/outbox 收集、request routing、rule verifier、candidate decision、可选 authority append、run digest/status、lane resume/checkpoint 与 board refresh；其中 authority append 涉及 backup/diff/CSV schema/conflict/恢复语义，迁移前必须先补完整 G5 gate tests。
-- Batch E 已把 PowerShell `continue` digest 补齐为 inputs/route/packet refs/outputs/decisions/open risks，降低短期迁移压力；后续 Go `continue` 应以该 digest 结构作为 parity baseline。
+- `continue` apply 仍不迁移：它同时承担 workspace/outbox 收集、request routing、rule verifier、candidate decision、可选 authority append、run digest/status、lane resume/checkpoint 与 board refresh；其中 authority append 涉及 backup/diff/CSV schema/conflict/恢复语义，迁移前必须先补完整 G5 gate tests。
+- Batch E 已把 PowerShell `continue` digest 补齐为 inputs/route/packet refs/outputs/decisions/open risks，降低短期迁移压力；G5 已先落地 Go `continue -WhatIf` 非写入预览，作为后续 apply 迁移前的 preview parity 路径。
 
 `note` 迁移契约：
 
@@ -201,7 +201,7 @@ git diff --check
 
 ### G5：`continue` 与 policy gate 迁移
 
-状态：G5 preflight baseline 已完成；Go `continue` 仍未实现，下一步只允许先做 `continue -WhatIf` 预览路径，apply/authority 写入继续 deferred。
+状态：G5 preflight baseline 与 Go `continue -WhatIf` 非写入预览路径已完成；apply/authority 写入继续 deferred。
 
 已补齐的 preflight gate tests（见 `rekit/tests/continue-preflight-smoke.ps1`）：
 
@@ -219,7 +219,7 @@ git diff --check
 - run digest/status parity（inputs、route、packet refs、outputs、decisions、open risks）；
 - `-WhatIf` 不创建 runRoot、不刷新 board/lane resume、不写 facts。
 
-迁移顺序：先实现 Go `continue -WhatIf` 非写入预览并与上述 baseline 对齐；只有 preview parity 和旧 PowerShell smoke 都稳定后，才重新评估 apply 手动路径。任何自动写 authority/confirmed、policy schema 迁移或 façade 委托变化都必须单独停下确认。
+已完成 Go `continue -WhatIf` 非写入预览：手动 Go CLI 读取既有 board/lane/outbox/workspace，输出 JSON preview（inputs、packet refs、事件收集、routing/authority 决策预览、wouldWrites、blocked actions），并保持不创建 runRoot、不写 facts、不刷新 board/lane resume/checkpoint、不改 authority CSV。只有 preview parity 和旧 PowerShell smoke 都稳定后，才重新评估 apply 手动路径。任何自动写 authority/confirmed、policy schema 迁移或 façade 委托变化都必须单独停下确认。
 
 ### G6：PowerShell 收敛为 wrapper
 
@@ -244,7 +244,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 - `sync/promote` review-only（含 `-ReviewOutputDir` / `-PacketPath` / `-DiffPath` artifact 写入）；
 - `gate -WhatIf` dry-run（仅输出非写入 plan，不执行 heavy-tool、不写 ledger）。
 
-不委托：`attach`、`repair`、`gate -Apply`、`sync -Apply`、`init/bootstrap -Apply`、`promote -Apply/-CreateCandidates`、工作线命令、内部命令、ledger `note`。其中 `overview` 可手动运行 Go CLI 只读验证；`plan-subagents` 可手动运行 Go CLI 生成 review artifact；`start -WhatIf/-Apply`、`handoff -WhatIf/-Apply`、`attach`、`repair`、`sync -Apply`、`init/bootstrap -WhatIf/-Apply`、`promote -CreateCandidates`、`promote -Apply/-Apply -WhatIf`、`note -List` 与 `note` append 可手动运行 Go CLI 验证；公共 `/rekit` 入口继续由 PowerShell 处理工作线命令、内部命令和写入命令。
+不委托：`attach`、`repair`、`gate -Apply`、`sync -Apply`、`init/bootstrap -Apply`、`promote -Apply/-CreateCandidates`、工作线命令、内部命令、ledger `note`。其中 `overview` 可手动运行 Go CLI 只读验证；`plan-subagents` 可手动运行 Go CLI 生成 review artifact；`start -WhatIf/-Apply`、`handoff -WhatIf/-Apply`、`continue -WhatIf`、`attach`、`repair`、`sync -Apply`、`init/bootstrap -WhatIf/-Apply`、`promote -CreateCandidates`、`promote -Apply/-Apply -WhatIf`、`note -List` 与 `note` append 可手动运行 Go CLI 验证；公共 `/rekit` 入口继续由 PowerShell 处理工作线命令、内部命令和写入命令。
 
 ## 验证矩阵
 
@@ -276,6 +276,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Go note list readonly | `go test ./internal/rekit/cli ./internal/rekit/note` | 手动 Go CLI `note -List` 读取 facts JSONL，验证全量展示、`-Kind`/`-Lane` 过滤、invalid kind guard、write flag guard 与只读 snapshot。 |
 | Go note append | `go test ./internal/rekit/cli ./internal/rekit/note` | 手动 Go CLI `note` append 写 facts JSONL，验证 9 类 kind 基础写入、`-WhatIf` 非写入、enum/schema/lane guard、eventId dedupe 与 unsupported write flags。 |
 | Continue preflight baseline | `.\rekit\tests\continue-preflight-smoke.ps1` | 验证 PowerShell `continue` authority append gate matrix、backup/diff、CSV 失败恢复、request routing 幂等、digest/status parity 与 `-WhatIf` no-write，作为 Go `continue` 迁移 baseline。 |
+| Go continue what-if | `.\rekit\tests\continue-whatif-smoke.ps1` | 手动 Go CLI `continue -WhatIf` 输出非写入 preview，验证收集/routing/authority 决策预览、no-write、unsupported apply guard 与 PowerShell façade fallback；不写 facts/run/board/lane/authority。 |
 | Go attach preview | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -WhatIf` | 输出非写入 plan，不创建目录或文件。 |
 | Go attach apply | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -ProjectName <name> -Apply` | 只写 `.rekit/instance.yml` 与 case-local thin shim，不写 managed docs、board/facts/lanes、legacy metadata 或 state。 |
 | Go repair preview | `go run ./cmd/rekit -- -Command repair -Target <movedCase> -Pack vmp-re -WhatIf` | 输出非写入 repair plan，展示 recorded/new projectRoot 与写入计划。 |

@@ -989,6 +989,94 @@ func TestRunHandoffFallsBackToDerivedLaneRoot(t *testing.T) {
 	assertStartWrite(t, result.Writes, ".rekit/lanes/feature-login/prompts/RESUME.md", "refresh")
 }
 
+func TestRunContinueWhatIfDoesNotWrite(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	writeContinueFixture(t, caseRoot)
+	before := snapshotFiles(t, caseRoot)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-WhatIf", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command              string    `json:"command"`
+		IsMutation           bool      `json:"isMutation"`
+		Applied              bool      `json:"applied"`
+		RequiresConfirmation bool      `json:"requiresConfirmation"`
+		Selector             string    `json:"selector"`
+		Lane                 startLane `json:"lane"`
+		Summary              struct {
+			Collected, Observations, Requests, Routed, Candidates, AuthorityApplied, AuthorityWouldAppend, PendingUser int
+		} `json:"summary"`
+		Inputs     []string `json:"inputs"`
+		PacketRefs []string `json:"packetRefs"`
+		Events     []struct {
+			Kind          string       `json:"kind"`
+			Decision      string       `json:"decision"`
+			TargetLane    string       `json:"targetLane"`
+			AuthorityFile string       `json:"authorityFile"`
+			WouldWrites   []startWrite `json:"wouldWrites"`
+		} `json:"events"`
+		WouldWrites []startWrite `json:"wouldWrites"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("continue what-if stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Command != "continue" || result.IsMutation || result.Applied || !result.RequiresConfirmation || result.Selector != "login" || result.Lane.ID != "feature-login" {
+		t.Fatalf("unexpected continue preview result: %+v", result)
+	}
+	if result.Summary.Collected != 3 || result.Summary.Observations != 1 || result.Summary.Requests != 1 || result.Summary.Routed != 1 || result.Summary.Candidates != 1 || result.Summary.AuthorityApplied != 0 || result.Summary.AuthorityWouldAppend != 1 || result.Summary.PendingUser != 0 {
+		t.Fatalf("unexpected continue summary: %+v", result.Summary)
+	}
+	if len(result.Inputs) != 1 || result.Inputs[0] != ".rekit/lanes/feature-login/outbox.jsonl" || len(result.PacketRefs) != 1 || result.PacketRefs[0] != "workspace/features/feature-login/packet.md" {
+		t.Fatalf("unexpected continue refs: inputs=%v packets=%v", result.Inputs, result.PacketRefs)
+	}
+	if len(result.Events) != 3 || len(result.WouldWrites) == 0 {
+		t.Fatalf("unexpected continue events/writes: %+v", result)
+	}
+	assertContinueWrite(t, result.WouldWrites, "captures/vm_opcode_semantics_confirmed.csv", "would-append")
+	assertContinueWrite(t, result.WouldWrites, ".rekit/lanes/devirt-main/tasks.jsonl", "would-append")
+	after := snapshotFiles(t, caseRoot)
+	assertSnapshotEqual(t, before, after)
+}
+
+func TestRunContinueRejectsUnsupportedModes(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	writeContinueFixture(t, caseRoot)
+	var out bytes.Buffer
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"no what-if", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "login"}, "supports -WhatIf preview only"},
+		{"apply", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login"}, "supports -WhatIf preview only"},
+		{"create candidates", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-CreateCandidates", "login"}, "supports -WhatIf preview only"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := Run(tc.args, &out)
+			if err == nil {
+				t.Fatal("Run returned nil error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %q, want %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func TestRunContinueRequiresSelectorForMultipleOpenLanes(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	writeContinueFixture(t, caseRoot)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-WhatIf"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error")
+	}
+	if !strings.Contains(err.Error(), "requires a lane selector") {
+		t.Fatalf("error = %q, want selector guard", err.Error())
+	}
+}
+
 func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	caseRoot := attachedCaseWithPack(t, "vmp-re")
 	var out bytes.Buffer
@@ -1805,6 +1893,16 @@ func assertPromoteApplyWrite(t *testing.T, writes []promoteApplyWrite, path, act
 	return promoteApplyWrite{}
 }
 
+func assertContinueWrite(t *testing.T, writes []startWrite, path, action string) {
+	t.Helper()
+	for _, write := range writes {
+		if write.Path == path && write.Action == action {
+			return
+		}
+	}
+	t.Fatalf("continue write %s with action %q not found in %+v", path, action, writes)
+}
+
 func assertStartWrite(t *testing.T, writes []startWrite, path, action string) startWrite {
 	t.Helper()
 	for _, write := range writes {
@@ -2045,6 +2143,32 @@ func writeHandoffFixture(t *testing.T, caseRoot string) {
 	writeFactFile(t, factsRoot, "decisions.jsonl", []string{`{"kind":"decision","lane":"feature-login","subject":"decision subject","decision":"defer","actor":"runtime-test","reason":"needs review","batchId":"batch-handoff"}`})
 	writeFactFile(t, factsRoot, "interventions.jsonl", []string{`{"kind":"intervention","lane":"feature-login","subject":"manual override","summary":"needs human","action":"override","target":"batch-handoff","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-handoff"}`})
 	writeFactFile(t, factsRoot, "rollbacks.jsonl", []string{`{"kind":"rollback","lane":"feature-login","subject":"rollback item","target":"batch-handoff","status":"resolved","reason":"cleanup","batchId":"batch-handoff"}`})
+}
+
+func writeContinueFixture(t *testing.T, caseRoot string) {
+	t.Helper()
+	for _, dir := range []string{
+		".rekit/facts",
+		".rekit/lanes/devirt-main",
+		".rekit/lanes/feature-login",
+		"captures/devirt_main",
+		"workspace/features/feature-login",
+	} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"vmp-re","automationMode":"assist","defaultAuthorityLane":"devirt-main","lanes":[{"id":"devirt-main","type":"devirt-main","title":"VMProtect 脱壳主线","status":"open","authority":true,"workspace":"captures/devirt_main"},{"id":"feature-login","type":"feature-analysis","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login"}],"factsRoot":".rekit/facts"}`
+	writeCaseFile(t, caseRoot, ".rekit/board.json", board)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/devirt-main/lane.json", `{"schemaVersion":1,"id":"devirt-main","type":"devirt-main","title":"VMProtect 脱壳主线","status":"open","authority":true,"workspace":"captures/devirt_main","laneRoot":".rekit/lanes/devirt-main"}`)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/lane.json", `{"schemaVersion":1,"id":"feature-login","type":"feature-analysis","name":"login","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login","laneRoot":".rekit/lanes/feature-login"}`)
+	writeCaseFile(t, caseRoot, "captures/vm_opcode_semantics_confirmed.csv", "opcode,semantics,status\nOP_EXISTING,known,confirmed\n")
+	writeCaseFile(t, caseRoot, "workspace/features/feature-login/packet.md", "# packet\n")
+	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/outbox.jsonl", strings.Join([]string{
+		`{"eventId":"evt-continue-observation","kind":"observation","subject":"continue observation","summary":"preview observation","evidence":"evidence-observation-token"}`,
+		`{"eventId":"evt-continue-request","kind":"request","subject":"route request","summary":"route to authority lane","requestId":"req-continue","targetLane":"devirt-main","evidence":"evidence-request-token"}`,
+		`{"eventId":"evt-continue-authority","kind":"candidate","subject":"authority candidate","summary":"append opcode row","authorityFile":"captures/vm_opcode_semantics_confirmed.csv","confidence":"0.95","evidence":"evidence-authority-token","row":{"opcode":"OP_CONTINUE","semantics":"continue-preview","status":"confirmed"}}`,
+	}, "\n")+"\n")
 }
 
 func writeFactFile(t *testing.T, root, name string, lines []string) {
