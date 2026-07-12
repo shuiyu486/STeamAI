@@ -170,9 +170,17 @@ function Test-RekitGoDelegationSafe {
       return (Test-RekitLooksLikeCase $caseRoot)
     }
     'promote' {
-      if ($Apply -or $CreateCandidates -or $WhatIf) { return $false }
+      if ($Apply) { return $false }
       $caseRoot = Resolve-RekitTarget $Target
-      return (Test-RekitLooksLikeCase $caseRoot)
+      if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
+      if ($CreateCandidates) {
+        if ((-not $WhatIf) -or $Review) { return $false }
+        if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+        $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+        return ($formatValue -eq 'json')
+      }
+      if ($WhatIf) { return $false }
+      return $true
     }
     'gate' {
       return ($WhatIf -and -not $Apply)
@@ -243,7 +251,7 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-ReviewOutputDir' $ReviewOutputDir
   Add-RekitGoArg ([ref]$goArgs) '-PacketPath' $PacketPath
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' $DiffPath
-  if ($Command -in @('status','packs','doctor','validate','attach','repair','init','bootstrap','overview','note','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
+  if ($Command -in @('status','packs','doctor','validate','attach','repair','init','bootstrap','promote','overview','note','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
   if ($Command -in @('attach','repair','init','bootstrap')) { Add-RekitGoArg ([ref]$goArgs) '-ProjectName' $ProjectName }
   if ($Command -in @('init','bootstrap')) { Add-RekitGoSwitch ([ref]$goArgs) '-Force' $Force.IsPresent }
   if ($Command -eq 'note') {

@@ -2299,3 +2299,30 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/sync`、`init-bootstrap-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 77：promote candidate JSON preview façade 委托
+
+状态：已完成。
+
+目标：继续把非写入机器可读预览收敛到 Go backend：在不扩大 pack candidate 实际写入委托面的前提下，让维护自动化可通过公共 PowerShell façade 消费 `promote -CreateCandidates -WhatIf -Format json` 的候选生成 plan。
+
+实施范围：
+
+- `rekit/rekit.ps1` 放宽 `promote` 显式 Go 安全集合：保留裸 promote review-only 委托；新增仅当 attached case、`-CreateCandidates -WhatIf -Format json`、无 `-Apply`/`-Review`/review artifact flags 时委托 Go。
+- Go argument builder 对 `promote` 转发 `-Format`，让 fake backend sentinel 和真实 Go CLI 都能消费 JSON preview 参数。
+- `promote-candidates-preflight-smoke.ps1` 增加 `REKIT_GO_EXE` fake backend sentinel，证明 `promote -CreateCandidates -WhatIf -Format json` 满足条件时确实经 façade 委托 Go；同时保留文本 `-CreateCandidates -WhatIf` fallback 断言，确保非 JSON 预览仍走 PowerShell。
+- 更新 README、skill、Go runtime migration、promote candidates migration 与 CHANGELOG，说明 promote façade 委托只覆盖 JSON 非写入 candidate preview，不覆盖实际 candidate 写入或 apply 写入。
+
+边界：本批只调整显式 `REKIT_GO_ENABLE=1` 下的 promote create-candidates JSON what-if 委托；不默认启用 Go、不委托 `promote -CreateCandidates` 实际写入、不委托 `promote -Apply`、不写 pack source、不写 `promote-candidates/**` 或 `tooling/candidates/**`、不写 authority/confirmed、不执行 heavy-tool、不改变 sync/promote review-first 语义。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/promote
+.\rekit\tests\promote-candidates-preflight-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/promote`、`promote-candidates-preflight-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

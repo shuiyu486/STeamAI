@@ -243,6 +243,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 - `packs` 只读 pack inventory（支持默认 TSV 和 `-Format json`）；
 - kit-root 与 attached case `doctor` / `validate`（支持默认文本和 `-Format json` 验证 rows envelope）；
 - `sync/promote` review-only（含 `-ReviewOutputDir` / `-PacketPath` / `-DiffPath` artifact 写入）；
+- `promote -CreateCandidates -WhatIf -Format json` 非写入候选生成预览；
 - `gate -WhatIf` dry-run（仅输出非写入 plan，不执行 heavy-tool、不写 ledger）；
 - `attach -WhatIf -Format json` 与 `repair -Format json` 非写入 metadata 预览；
 - `init/bootstrap -WhatIf -Format json` 非写入初始化预览；
@@ -250,7 +251,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 - `note -List -Format json` 只读 ledger 查询；
 - `start` / `handoff` / `continue` 的 `-WhatIf -Format json` 非写入 preview。
 
-不委托：`attach` / `repair` / `init` / `bootstrap` 文本预览与 `-Apply` 写入、`gate -Apply`、`sync -Apply`、`promote -Apply/-CreateCandidates`、工作线文本/apply workflow、内部命令、ledger `note` append / `note -WhatIf` / 文本 `note -List`。其中 `overview` 可手动运行 Go CLI 只读验证；`plan-subagents` 可手动运行 Go CLI 生成 review artifact；`start -WhatIf/-Apply`、`handoff -WhatIf/-Apply`、`continue -WhatIf`、`attach`、`repair`、`sync -Apply`、`init/bootstrap -WhatIf/-Apply`、`promote -CreateCandidates`、`promote -Apply/-Apply -WhatIf`、`note -List` 与 `note` append 可手动运行 Go CLI 验证；公共 `/rekit` 入口继续由 PowerShell 处理 attach/repair/init/bootstrap 文本预览、工作线文本/apply 命令、内部命令和写入命令。
+不委托：`attach` / `repair` / `init` / `bootstrap` 文本预览与 `-Apply` 写入、`gate -Apply`、`sync -Apply`、`promote -CreateCandidates` 实际候选写入、`promote -Apply`、工作线文本/apply workflow、内部命令、ledger `note` append / `note -WhatIf` / 文本 `note -List`。其中 `overview` 可手动运行 Go CLI 只读验证；`plan-subagents` 可手动运行 Go CLI 生成 review artifact；`start -WhatIf/-Apply`、`handoff -WhatIf/-Apply`、`continue -WhatIf`、`attach`、`repair`、`sync -Apply`、`init/bootstrap -WhatIf/-Apply`、`promote -CreateCandidates`、`promote -Apply/-Apply -WhatIf`、`note -List` 与 `note` append 可手动运行 Go CLI 验证；公共 `/rekit` 入口继续由 PowerShell 处理 attach/repair/init/bootstrap 文本预览、promote candidate 实际写入、工作线文本/apply 命令、内部命令和写入命令。
 
 ## 验证矩阵
 
@@ -268,7 +269,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Go init preview | `go run ./cmd/rekit -- -Command init -Target <newCase> -Pack vmp-re -WhatIf` | 输出非写入 JSON plan，`isMutation=false` / `requiresConfirmation=true`，不创建 target。 |
 | Go init/bootstrap apply | `go run ./cmd/rekit -- -Command init -Target <newCase> -Pack vmp-re -Apply` | 手动创建 metadata / shim / legacy metadata / managed docs / managed block / template create-if-missing / sync state，返回 `isMutation=true`；不经 PowerShell façade 委托。 |
 | Go promote review artifacts | `go run ./cmd/rekit -- -Command promote -Target <case> -Pack vmp-re -ReviewOutputDir <dir>` | 写 review packet、bounded diff 和 tooling sanitized preview，不写 pack/candidates。 |
-| Promote candidates preflight | `.\rekit\tests\promote-candidates-preflight-smoke.ps1` | 验证 PowerShell `promote -WhatIf -CreateCandidates` baseline、Go promote review artifact/sanitized preview parity、Go `-CreateCandidates -WhatIf` 非写入与 façade fallback；不写 pack candidates。 |
+| Promote candidates preflight | `.\rekit\tests\promote-candidates-preflight-smoke.ps1` | 验证 PowerShell `promote -WhatIf -CreateCandidates` baseline、Go promote review artifact/sanitized preview parity、Go `-CreateCandidates -WhatIf` 非写入、显式 façade JSON 预览委托与文本 fallback；不写 pack candidates。 |
 | Go promote create candidates | `.\rekit\tests\promote-candidates-apply-smoke.ps1` | 手动 Go CLI 写 candidate/index/tooling candidate，验证 blocked deny、sanitization、pack-root containment 与 cleanup；不经 PowerShell façade 委托。 |
 | Promote apply preflight | `.\rekit\tests\promote-apply-preflight-smoke.ps1` | 验证 PowerShell `promote -Apply` baseline、backup、deny、pack-root cleanup、Go apply what-if 与 façade fallback。 |
 | Go promote apply | `.\rekit\tests\promote-apply-smoke.ps1` | 手动 Go CLI 写 pack managed docs，验证 what-if 非写入、backup、blocked deny、validation rows、pack-root containment、tooling 不写入、cleanup 与 façade fallback；不经 PowerShell façade 委托。 |
@@ -295,6 +296,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Façade Go gate dry-run | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command gate -Target <case> -WhatIf -Action debug -Lane <lane>` | 委托 Go 输出非写入 gate plan；无 ENABLE 时拒绝并提示手动 Go。 |
 | Façade Go attach/repair JSON previews | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command attach -Target <case> -WhatIf -Format json` / `repair -Target <case> -Format json` | 仅 JSON 非写入 metadata 预览委托 Go；attach/repair 文本预览与 `-Apply` 写入路径回退 PowerShell。 |
 | Façade Go init/bootstrap JSON previews | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command init -Target <case> -WhatIf -Format json` / `bootstrap -Target <case> -WhatIf -Format json` | 仅 JSON 非写入初始化预览委托 Go；文本预览与 `-Apply` 写入路径回退 PowerShell。 |
+| Façade Go promote candidate JSON preview | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command promote -Target <case> -CreateCandidates -WhatIf -Format json` | 仅 JSON 非写入 candidate preview 委托 Go；文本 what-if、实际 candidate 写入与 apply 写入回退 PowerShell。 |
 | Façade Go overview JSON | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command overview -Target <case> -Format json` | attached case 已有 `.rekit/board.json` 时委托 Go 输出只读 overview envelope；缺 board 或文本输出回退 PowerShell。 |
 | Façade Go note list JSON | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command note -Target <case> -List -Kind verification -Format json` | 仅 `note -List -Format json` 委托 Go 输出只读 ledger events envelope；append、`-WhatIf` 与文本 list 回退 PowerShell。 |
 | Façade Go workstream JSON previews | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command start|handoff|continue -Target <case> -WhatIf <selector> -Format json` | 仅 `-WhatIf -Format json` 委托 Go 输出非写入机器可读预览；文本预览和 apply/write 路径回退 PowerShell。 |

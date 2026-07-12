@@ -4,11 +4,11 @@
 
 - 只接手实现时，先读“实施摘要”“执行清单”“验证标准”。
 - 需要判断 PowerShell 与 Go 行为差异时，再读“PowerShell 当前语义基线”和“Go 迁移契约”。
-- 本文记录 G3.6 迁移前预研与 G3.7 Go 手动写入路径；公共 `/rekit promote` 仍由 PowerShell façade / fallback 处理写入命令。
+- 本文记录 G3.6 迁移前预研与 G3.7 Go 手动写入路径；公共 `/rekit promote` 仍由 PowerShell façade / fallback 处理写入命令，只有显式 `REKIT_GO_ENABLE=1` 下的 `-CreateCandidates -WhatIf -Format json` 非写入预览可委托 Go。
 
 ## 实施摘要
 
-G3.6 先固化候选生成语义、sanitization 规则、阻断条件和验证资产；G3.7 在 Go backend 中新增显式 `promote -CreateCandidates` 手动路径。`promote -CreateCandidates` 会在 kit pack 内创建 candidate 文件和 `promote-candidates/index.json`，比 review artifact 更接近 pack 写入，因此仍保持手动 Go CLI 使用，不纳入 PowerShell façade 委托安全集合。
+G3.6 先固化候选生成语义、sanitization 规则、阻断条件和验证资产；G3.7 在 Go backend 中新增显式 `promote -CreateCandidates` 手动路径。`promote -CreateCandidates` 会在 kit pack 内创建 candidate 文件和 `promote-candidates/index.json`，比 review artifact 更接近 pack 写入，因此实际写入仍保持手动 Go CLI 使用；Batch 77 起仅 `promote -CreateCandidates -WhatIf -Format json` 这种非写入机器预览纳入显式 PowerShell façade 委托安全集合。
 
 当前 Go backend 已具备 promote review-only plan、bounded diff、tooling sanitized preview，以及 `promote.CreateCandidates` helper。裸 `promote` 继续 review-only；`-CreateCandidates -WhatIf` 输出非写入 JSON preview；无 `-WhatIf` 时显式写 candidate/index/tooling candidate，仍不实现 `promote -Apply`。
 
@@ -44,7 +44,7 @@ git diff --check
 - Go `promote -CreateCandidates` 实际写入后，smoke 清理本次新增 candidates 与 `index.json`，不提交临时 candidates。
 - Go promote review artifact 仍返回 `isMutation=false` / `writesArtifacts=true`，只写 `.rekit/reviews/**` 或显式 review output。
 - tooling sanitized candidate 不残留 case root、绝对路径、trace/dump 文件名、address、ctx/round/task 等 deny 信息。
-- PowerShell façade 仍不委托 `promote -CreateCandidates`，即使 `REKIT_GO_ENABLE=1` 也 fallback 到 PowerShell。
+- PowerShell façade 只在显式 `REKIT_GO_ENABLE=1` 且同时带 `-CreateCandidates -WhatIf -Format json` 时委托 Go；文本 what-if 与实际 candidate 写入继续 fallback 到 PowerShell。
 
 ## 风险与注意事项
 
@@ -52,7 +52,7 @@ git diff --check
 - candidate 内容来自 case managed docs，必须先过 deny pattern；不能把 case-specific 进度、绝对路径、trace、dump、capture、artifact 或真实样本信息写入 pack。
 - tooling candidate 需要 sanitization 后再次过 deny pattern；sanitization 失败时必须 blocked，不得生成 candidate。
 - G3.7 仍不实现 `promote -Apply`，不覆盖 pack managed docs，不写 authority/confirmed，不执行 heavy-tool。
-- PowerShell façade 仍不委托 `promote -CreateCandidates`；公共 `/rekit` 入口继续走 PowerShell。
+- PowerShell façade 仍不委托 `promote -CreateCandidates` 实际写入；公共 `/rekit` 文本入口继续走 PowerShell。
 
 ## PowerShell 当前语义基线
 
@@ -88,7 +88,7 @@ internal/rekit/promote
 必须保持：
 
 - 裸 `promote` 默认 review-only。
-- `promote -CreateCandidates` 只能作为显式手动 Go CLI 写入路径，暂不经 PowerShell façade 委托。
+- `promote -CreateCandidates` 实际写入只能作为显式手动 Go CLI 路径；公共 façade 只允许 `-WhatIf -Format json` 非写入预览委托。
 - `-CreateCandidates` 不得与 `-Apply` 混用。
 - `-WhatIf` 只能输出非写入 JSON preview。
 - candidate root 必须固定在 pack root 下的 `promote-candidates/**` 或 manifest 认可位置；禁止越出 pack root。
@@ -108,5 +108,5 @@ internal/rekit/promote
 | P7 | tooling sanitization 后仍命中 deny | blocked-after-sanitization。 |
 | P8 | PowerShell `-WhatIf -CreateCandidates` | 不写 pack candidates。 |
 | P9 | Go promote review artifacts | 只写 review artifacts，不写 candidates，`isMutation=false`。 |
-| P10 | façade explicit Go enable + `promote -CreateCandidates` | 不委托 Go，继续走 PowerShell fallback。 |
+| P10 | façade explicit Go enable + `promote -CreateCandidates -WhatIf -Format json` | 委托 Go 输出非写入 JSON preview；文本 what-if 与实际写入继续走 PowerShell fallback。 |
 | P11 | Go `promote -CreateCandidates` apply | 写 managed candidate、`index.json` 与 sanitized tooling candidate；blocked deny 不写 candidate；smoke 清理新增文件。 |
