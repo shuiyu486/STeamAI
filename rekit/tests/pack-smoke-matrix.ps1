@@ -2,12 +2,15 @@ param(
   [string]$WorkRoot = 'C:\AI\m_projects\RE\_dryrun_cases',
   [string[]]$Packs = @('web-security','malware-analysis','vuln-research','ctf','unpack-pe','ollvm','android-native','generic-binary-re'),
   [switch]$FailFast,
-  [ValidateSet('text','json')][string]$Format = 'text'
+  [ValidateSet('text','json')][string]$Format = 'text',
+  [switch]$DiscoveryOnly
 )
 
 $ErrorActionPreference = 'Stop'
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$RekitRoot = Split-Path -Parent $ScriptDir
+$Rekit = Join-Path $RekitRoot 'rekit.ps1'
 $PackSmokeScripts = [ordered]@{
   'web-security' = 'web-security-pack-smoke.ps1'
   'malware-analysis' = 'malware-analysis-pack-smoke.ps1'
@@ -48,6 +51,20 @@ function Expand-PackSmokeSelection {
     $deduped.Add($pack)
   }
   return @($deduped)
+}
+
+function Invoke-PackInventoryJson {
+  $oldEap = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $global:LASTEXITCODE = 0
+    $output = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Rekit -Command packs -Format json 2>&1 | Out-String
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+  } finally {
+    $ErrorActionPreference = $oldEap
+  }
+  if ($exitCode -ne 0) { throw "packs inventory unexpected exit code $exitCode; output:`n$output" }
+  return ($output | ConvertFrom-Json)
 }
 
 function Invoke-PackSmokeScript {
@@ -97,6 +114,87 @@ function New-PackSmokeMatrixEnvelope {
     packs = @($selected)
     results = @($resultItems)
   }
+}
+
+function New-PackSmokeDiscoveryEnvelope {
+  $inventory = Invoke-PackInventoryJson
+  $inventoryRows = @($inventory.packs)
+  $matrixPacks = @($PackSmokeScripts.Keys | ForEach-Object { [string]$_ })
+  $wrapperPacks = @(Get-ChildItem -LiteralPath $ScriptDir -Filter '*-pack-smoke.ps1' -File | ForEach-Object { $_.BaseName -replace '-pack-smoke$','' } | Sort-Object)
+
+  $expectedSkeletonPacks = @($inventoryRows | Where-Object { [bool]$_.schemaValid -and [string]$_.maturity -eq 'skeleton' } | ForEach-Object { [string]$_.id } | Sort-Object)
+  $excludedPacks = @($inventoryRows | Where-Object { -not ([bool]$_.schemaValid -and [string]$_.maturity -eq 'skeleton') } | ForEach-Object {
+    $reason = 'non-skeleton'
+    if (-not [bool]$_.schemaValid) { $reason = 'schema-invalid' }
+    [pscustomobject]@{
+      pack = [string]$_.id
+      maturity = [string]$_.maturity
+      schemaValid = [bool]$_.schemaValid
+      reason = $reason
+    }
+  } | Sort-Object pack)
+
+  $matrixSet = @{}
+  foreach ($pack in $matrixPacks) { $matrixSet[$pack] = $true }
+  $expectedSet = @{}
+  foreach ($pack in $expectedSkeletonPacks) { $expectedSet[$pack] = $true }
+
+  $missingSmokePacks = @($expectedSkeletonPacks | Where-Object { -not $matrixSet.ContainsKey($_) } | Sort-Object)
+  $extraMatrixPacks = @($matrixPacks | Where-Object { -not $expectedSet.ContainsKey($_) } | Sort-Object)
+  $orphanWrapperPacks = @($wrapperPacks | Where-Object { -not $matrixSet.ContainsKey($_) } | Sort-Object)
+  $missingScriptPacks = @($matrixPacks | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ScriptDir ([string]$PackSmokeScripts[$_])) -PathType Leaf) } | Sort-Object)
+
+  $ok = ($missingSmokePacks.Count -eq 0 -and $extraMatrixPacks.Count -eq 0 -and $orphanWrapperPacks.Count -eq 0 -and $missingScriptPacks.Count -eq 0)
+
+  [pscustomobject]@{
+    schemaVersion = 1
+    command = 'pack-smoke-discovery'
+    isMutation = $false
+    ok = $ok
+    inventoryPackCount = [int]$inventoryRows.Count
+    expectedSkeletonPackCount = [int]$expectedSkeletonPacks.Count
+    matrixPackCount = [int]$matrixPacks.Count
+    wrapperPackCount = [int]$wrapperPacks.Count
+    expectedSkeletonPacks = @($expectedSkeletonPacks)
+    matrixPacks = @($matrixPacks)
+    wrapperPacks = @($wrapperPacks)
+    excludedPacks = @($excludedPacks)
+    missingSmokePacks = @($missingSmokePacks)
+    extraMatrixPacks = @($extraMatrixPacks)
+    orphanWrapperPacks = @($orphanWrapperPacks)
+    missingScriptPacks = @($missingScriptPacks)
+  }
+}
+
+function Write-PackSmokeDiscoveryText {
+  param([Parameter(Mandatory=$true)]$Discovery)
+
+  if ([bool]$Discovery.ok) {
+    "pack smoke discovery ok ($($Discovery.expectedSkeletonPackCount) skeleton packs)"
+  } else {
+    "pack smoke discovery failed"
+  }
+
+  if (@($Discovery.missingSmokePacks).Count -gt 0) { "missing skeleton pack smoke: $(@($Discovery.missingSmokePacks) -join ', ')" }
+  if (@($Discovery.extraMatrixPacks).Count -gt 0) { "extra matrix pack smoke: $(@($Discovery.extraMatrixPacks) -join ', ')" }
+  if (@($Discovery.orphanWrapperPacks).Count -gt 0) { "orphan pack smoke wrapper: $(@($Discovery.orphanWrapperPacks) -join ', ')" }
+  if (@($Discovery.missingScriptPacks).Count -gt 0) { "missing matrix script: $(@($Discovery.missingScriptPacks) -join ', ')" }
+
+  $excluded = @($Discovery.excludedPacks | ForEach-Object { "$($_.pack):$($_.maturity):$($_.reason)" })
+  if ($excluded.Count -gt 0) { "excluded from skeleton smoke matrix: $($excluded -join ', ')" }
+}
+
+if ($DiscoveryOnly) {
+  $discovery = New-PackSmokeDiscoveryEnvelope
+  if ($Format -eq 'json') {
+    $discovery | ConvertTo-Json -Depth 20
+    if (-not [bool]$discovery.ok) { exit 1 }
+    exit 0
+  }
+
+  Write-PackSmokeDiscoveryText -Discovery $discovery
+  if (-not [bool]$discovery.ok) { throw 'pack smoke discovery failed' }
+  exit 0
 }
 
 if (-not (Test-Path -LiteralPath $WorkRoot -PathType Container)) { throw "missing WorkRoot: $WorkRoot" }

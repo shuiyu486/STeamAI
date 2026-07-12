@@ -2859,3 +2859,37 @@ git diff --check
 ```
 
 验证结果：全部通过。matrix JSON 子集结构断言、matrix 文本子集、matrix JSON 全量 8 个 pack、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 95：pack smoke discovery guard
+
+状态：已完成。
+
+目标：让 pack smoke matrix 与 `/rekit packs` inventory 保持可检查的一致性，在新增 skeleton pack 后能及时发现缺少 smoke wrapper、matrix 清单遗漏、孤儿 wrapper 或脚本路径缺失，同时不改成自动发现并运行未知脚本。
+
+实施范围：
+
+- 扩展 `rekit/tests/pack-smoke-matrix.ps1`，新增 `-DiscoveryOnly` 模式。
+- discovery 通过 PowerShell `/rekit packs -Format json` 读取 inventory，只把 `maturity=skeleton` 且 schema valid 的 pack 视为必须纳入 smoke matrix。
+- 输出 `pack-smoke-discovery` envelope，包含 `expectedSkeletonPacks`、`matrixPacks`、`wrapperPacks`、`excludedPacks`、`missingSmokePacks`、`extraMatrixPacks`、`orphanWrapperPacks` 与 `missingScriptPacks`。
+- 文本模式显示 ok/failure、缺失/多余/孤儿/脚本缺失项和显式排除项；JSON 模式可供 CI 或后续编排消费。
+- 保持默认 matrix 运行、`-Packs`、`-Format json`、`-FailFast` 与各 pack smoke wrapper 行为不变。
+- 更新 README、Go runtime migration、pack authoring、CHANGELOG 与本计划文档，记录 discovery guard 的用途和边界。
+
+边界：本批只新增 matrix 清单与 inventory 的只读一致性检查；不自动发现并运行未知 pack smoke、不改变 pack inventory、runtime、manifest schema、Go backend 或 PowerShell façade 委托集合；不创建真实 case state；不执行样本、网络、debug、dump、patch、hook、fuzz、exploit replay 或任何外部副作用；不写 authority/confirmed。
+
+停止条件：若后续要将 discovery guard 接入 CI 必跑、动态生成 matrix、自动创建缺失 wrapper、并行运行所有 pack 或根据 inventory 运行未知脚本，应作为独立批次评估安全边界、失败定位、日志体积和对临时环境的依赖。
+
+验证：
+
+```powershell
+.\rekit\tests\pack-smoke-matrix.ps1 -DiscoveryOnly
+$json = .\rekit\tests\pack-smoke-matrix.ps1 -DiscoveryOnly -Format json | ConvertFrom-Json
+.\rekit\tests\pack-smoke-matrix.ps1 -Packs web-security,generic-binary-re -Format json
+.\rekit\tests\pack-smoke-matrix.ps1 -Packs web-security,generic-binary-re
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。discovery 文本与 JSON 断言、matrix JSON 子集、matrix 文本子集、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

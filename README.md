@@ -392,7 +392,7 @@ rekit/rekit.ps1
 cmd/rekit/main.go                  # Go backend CLI，默认不直接作为用户入口
 rekit/tests/facade-smoke.ps1       # façade 委托回归 smoke
 rekit/tests/pack-smoke-lib.ps1     # 多安全领域 pack smoke 共享 helper
-rekit/tests/pack-smoke-matrix.ps1  # 多安全领域 pack smoke 串行矩阵 runner，支持 -Format json
+rekit/tests/pack-smoke-matrix.ps1  # 多安全领域 pack smoke 串行矩阵 runner，支持 -Format json 与 -DiscoveryOnly
 packs/vmp-re/scripts/bootstrap.ps1
 packs/vmp-re/scripts/update.ps1
 packs/vmp-re/scripts/validate.ps1
