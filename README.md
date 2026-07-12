@@ -391,6 +391,7 @@ references/vmp-re/task-handoff.md
 rekit/rekit.ps1
 cmd/rekit/main.go                  # Go backend CLI，默认不直接作为用户入口
 rekit/tests/README.md              # smoke 维护指南与验证选择表
+rekit/tests/catalog.json            # smoke 机器可读导航目录（非自动执行器）
 rekit/tests/facade-smoke.ps1       # façade 委托回归 smoke
 rekit/tests/pack-smoke-lib.ps1     # 多安全领域 pack smoke 共享 helper
 rekit/tests/pack-smoke-matrix.ps1  # 多安全领域 pack smoke 串行矩阵 runner，支持 -Format json 与 -DiscoveryOnly

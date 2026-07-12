@@ -2987,3 +2987,35 @@ git diff --check
 ```
 
 验证结果：全部通过。`pack-smoke-matrix-selftest.ps1`、discovery guard、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 99：test catalog JSON
+
+状态：已完成。
+
+目标：在 `rekit/tests/README.md` 的人工维护指南之外，新增机器可读测试目录，为后续自动测试选择器、CI 或新会话快速筛选 smoke 提供稳定导航，同时明确它不是自动执行器。
+
+实施范围：
+
+- 新增 `rekit/tests/catalog.json`，声明 `schemaVersion`、说明、默认 `WorkRoot`、全局安全边界和推荐最小回归组合。
+- 为主要 smoke 记录 `id`、`script`、`category`、`purpose`、`recommendedFor`、`supportsWorkRoot`、`supportsCaseRoot`、`riskBoundary` 与 `relatedDocs`。
+- 覆盖 façade、inventory、pack matrix/helper、8 个 skeleton pack smoke、`plan-subagents`、sync/promote、Agent Team review loop、gate parity 和 continue preflight 等代表入口。
+- 更新 `rekit/tests/README.md`，说明 `catalog.json` 是机器可读导航，不替代 README，也不自动运行测试。
+- 更新 README、CHANGELOG 与本计划文档，记录 catalog 的用途和边界。
+
+边界：本批只新增机器可读测试导航文件和说明，不改变 runtime、test scripts、pack manifest、Go backend、PowerShell façade 委托集合或验证语义；catalog 不自动执行任何命令；不创建 case state；不执行样本、网络、debug、dump、patch、hook、fuzz、exploit replay 或任何外部副作用；不写 authority/confirmed。
+
+停止条件：若后续要让 catalog 驱动自动运行、CI matrix、依赖图、并行执行或测试报告生成，应作为独立批次评估 schema 稳定性、执行时间、失败定位和安全边界。
+
+验证：
+
+```powershell
+$catalog = Get-Content -LiteralPath .\rekit\tests\catalog.json -Raw | ConvertFrom-Json
+.\rekit\tests\pack-smoke-matrix-selftest.ps1
+.\rekit\tests\pack-smoke-matrix.ps1 -DiscoveryOnly
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`catalog.json` 解析断言、`pack-smoke-matrix-selftest.ps1`、discovery guard、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

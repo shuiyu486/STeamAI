@@ -109,6 +109,7 @@
 - Batch 96 完成：新增 `rekit/tests/pack-smoke-matrix-selftest.ps1`，覆盖 matrix discovery 文本/JSON、matrix JSON envelope、重复 pack 去重、文本输出和 unknown pack guard，锁定 pack smoke matrix 自身的输出契约与错误边界。
 - Batch 97 完成：新增 `rekit/tests/README.md` 测试维护指南，按 façade/inventory/pack matrix、pack skeleton、sync/promote/init/attach、workstream/ledger/gate/Agent Team 分类梳理 smoke 入口、适用场景、默认 WorkRoot、安全边界和推荐验证组合。
 - Batch 98 完成：补齐 `rekit/tests/README.md` 在 `CLAUDE.md`、`docs/pack-authoring.md`、`docs/go-runtime-migration.md` 与 `docs/agent-team-usage.md` 中的维护入口和验证选择说明，让测试指南成为 smoke 选择的单一导航入口。
+- Batch 99 完成：新增 `rekit/tests/catalog.json` 机器可读测试导航目录，记录主要 smoke 的 category、purpose、recommendedFor、WorkRoot/CaseRoot 支持、安全边界和相关文档；该 catalog 只供选择测试或后续 CI/自动化消费，不自动执行命令。
 
 ### Fixed
 

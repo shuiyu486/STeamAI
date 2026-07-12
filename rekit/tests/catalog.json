@@ -1,0 +1,250 @@
+{
+  "schemaVersion": 1,
+  "description": "Machine-readable smoke test catalog for rekit maintainers. This file is a navigation aid, not an automatic test runner.",
+  "defaultWorkRoot": "C:\\AI\\m_projects\\RE\\_dryrun_cases",
+  "globalBoundaries": [
+    "Use temporary cases unless a script explicitly supports a known dryrun case.",
+    "Do not point smoke tests at real case data.",
+    "Do not execute samples, network requests, scans, fuzzing, exploit replay, debug, dump, patch, hooks, device connections, or external side effects.",
+    "Do not write authority or confirmed artifacts outside scripts that explicitly validate a temporary-case gate."
+  ],
+  "recommendedMinimum": [
+    "facade-smoke.ps1",
+    "pack-smoke-matrix-selftest.ps1",
+    "pack-smoke-matrix.ps1 -DiscoveryOnly",
+    "pack-inventory-smoke.ps1",
+    "go test ./...",
+    "rekit/rekit.ps1 -Command doctor",
+    "git diff --check"
+  ],
+  "tests": [
+    {
+      "id": "facade-smoke",
+      "script": "facade-smoke.ps1",
+      "category": "facade",
+      "purpose": "Validate PowerShell facade delegation and fallback boundaries.",
+      "recommendedFor": ["rekit.ps1", "Go facade delegation", "JSON preview delegation", "write fallback"],
+      "supportsWorkRoot": false,
+      "supportsCaseRoot": true,
+      "riskBoundary": "Default fixture is self-contained; explicit CaseRoot must be a known dryrun case.",
+      "relatedDocs": ["README.md", "docs/go-runtime-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "pack-inventory-smoke",
+      "script": "pack-inventory-smoke.ps1",
+      "category": "inventory",
+      "purpose": "Validate packs/status/doctor/validate text and JSON parity across Go, PowerShell, and facade delegation.",
+      "recommendedFor": ["pack manifest", "maturity", "inventory", "status JSON", "doctor JSON"],
+      "supportsWorkRoot": false,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Read-only except transient invalid pack fixtures that are created and removed inside packs/.",
+      "relatedDocs": ["docs/pack-authoring.md", "docs/go-runtime-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "pack-smoke-matrix-selftest",
+      "script": "pack-smoke-matrix-selftest.ps1",
+      "category": "pack-matrix",
+      "purpose": "Validate pack smoke matrix discovery, JSON envelope, deduplication, text output, and unknown pack guard.",
+      "recommendedFor": ["pack-smoke-matrix.ps1", "pack smoke output contract", "matrix discovery"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Runs a small self-contained pack smoke subset under WorkRoot; no real case data.",
+      "relatedDocs": ["rekit/tests/README.md"]
+    },
+    {
+      "id": "pack-smoke-matrix-discovery",
+      "script": "pack-smoke-matrix.ps1 -DiscoveryOnly",
+      "category": "pack-matrix",
+      "purpose": "Compare schema-valid skeleton packs from inventory with matrix entries and pack smoke wrappers.",
+      "recommendedFor": ["new skeleton pack", "removed skeleton pack", "pack smoke wrapper changes"],
+      "supportsWorkRoot": false,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Read-only inventory and filesystem consistency check; does not run pack smoke wrappers.",
+      "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "pack-smoke-matrix",
+      "script": "pack-smoke-matrix.ps1",
+      "category": "pack-matrix",
+      "purpose": "Run all or selected skeleton pack smoke wrappers serially, with text or JSON output.",
+      "recommendedFor": ["cross-pack smoke regression", "pack smoke helper changes", "pack route behavior"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Runs self-contained temporary case smoke only; does not auto-discover unknown scripts.",
+      "relatedDocs": ["docs/go-runtime-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "pack-smoke-lib",
+      "script": "pack-smoke-lib.ps1",
+      "category": "pack-helper",
+      "purpose": "Shared helper used by skeleton pack smoke wrappers; not intended to be run directly.",
+      "recommendedFor": ["pack smoke helper changes"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Library only; callers enforce temporary case and no-write checks.",
+      "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "web-security-pack-smoke",
+      "script": "web-security-pack-smoke.ps1",
+      "category": "pack-smoke",
+      "pack": "web-security",
+      "purpose": "Validate web-security skeleton doctor/init/plan-subagents/promote review/no-write coverage.",
+      "recommendedFor": ["web-security pack", "web/API routes"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "No real network requests, scans, logins, exploit replay, or authority writes.",
+      "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "malware-analysis-pack-smoke",
+      "script": "malware-analysis-pack-smoke.ps1",
+      "category": "pack-smoke",
+      "pack": "malware-analysis",
+      "purpose": "Validate malware-analysis skeleton doctor/init/plan-subagents/promote review/no-write coverage.",
+      "recommendedFor": ["malware-analysis pack", "sample analysis routes"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "No sample execution, networking, sandbox detonation, debug, dump, patch, or authority writes.",
+      "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "vuln-research-pack-smoke",
+      "script": "vuln-research-pack-smoke.ps1",
+      "category": "pack-smoke",
+      "pack": "vuln-research",
+      "purpose": "Validate vuln-research skeleton doctor/init/plan-subagents/promote review/no-write coverage.",
+      "recommendedFor": ["vuln-research pack", "crash/repro routes"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "No active scanning, fuzzing, exploit replay, live target reproduction, or authority writes.",
+      "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "ctf-pack-smoke",
+      "script": "ctf-pack-smoke.ps1",
+      "category": "pack-smoke",
+      "pack": "ctf",
+      "purpose": "Validate ctf skeleton doctor/init/plan-subagents/promote review/no-write coverage.",
+      "recommendedFor": ["ctf pack", "challenge routes"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "No remote connection, brute force, fuzzing, exploit replay, flag writeback, or authority writes.",
+      "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "unpack-pe-pack-smoke",
+      "script": "unpack-pe-pack-smoke.ps1",
+      "category": "pack-smoke",
+      "pack": "unpack-pe",
+      "purpose": "Validate unpack-pe skeleton doctor/init/plan-subagents/promote review/no-write coverage.",
+      "recommendedFor": ["unpack-pe pack", "loader triage routes"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "No sample execution, debug, dump, patch, unpacked binary writeback, or authority writes.",
+      "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "ollvm-pack-smoke",
+      "script": "ollvm-pack-smoke.ps1",
+      "category": "pack-smoke",
+      "pack": "ollvm",
+      "purpose": "Validate ollvm skeleton doctor/init/plan-subagents/promote review/no-write coverage.",
+      "recommendedFor": ["ollvm pack", "obfuscation routes"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "No sample execution, trace, dump, patch, deobfuscated binary writeback, or authority writes.",
+      "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "android-native-pack-smoke",
+      "script": "android-native-pack-smoke.ps1",
+      "category": "pack-smoke",
+      "pack": "android-native",
+      "purpose": "Validate android-native skeleton doctor/init/plan-subagents/promote review/no-write coverage.",
+      "recommendedFor": ["android-native pack", "JNI/native routes"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "No device connection, Frida attach, hook execution, packet capture, install, or authority writes.",
+      "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "generic-binary-re-pack-smoke",
+      "script": "generic-binary-re-pack-smoke.ps1",
+      "category": "pack-smoke",
+      "pack": "generic-binary-re",
+      "purpose": "Validate generic-binary-re skeleton doctor/init/plan-subagents/promote review/no-write coverage.",
+      "recommendedFor": ["generic-binary-re pack", "binary/function routes"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "No sample execution, debug, trace, dump, patch, database writeback, or authority writes.",
+      "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "plan-subagents-smoke",
+      "script": "plan-subagents-smoke.ps1",
+      "category": "subagents",
+      "purpose": "Validate plan-subagents route selection, sharding, review artifact, observability, out-of-case guard, and facade fallback.",
+      "recommendedFor": ["plan-subagents", "subagent routes", "review packet"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Does not spawn agents and does not write board/facts/lanes/handoff/authority.",
+      "relatedDocs": ["docs/go-runtime-migration.md", "docs/orchestration-plan.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "sync-apply-parity-smoke",
+      "script": "sync-apply-parity-smoke.ps1",
+      "category": "sync-promote",
+      "purpose": "Compare PowerShell and Go sync apply/force semantics across managed docs, metadata/shim, and state.",
+      "recommendedFor": ["sync apply", "force sync", "managed docs parity"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Uses paired temporary cases; does not target real case data.",
+      "relatedDocs": ["docs/sync-apply-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "promote-apply-smoke",
+      "script": "promote-apply-smoke.ps1",
+      "category": "sync-promote",
+      "purpose": "Validate Go promote apply writeback, backup, blocked deny, validation rows, pack-root containment, and cleanup.",
+      "recommendedFor": ["promote apply", "pack managed docs writeback", "deny patterns"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Uses safe temporary case and pack-safe fixture; no authority/confirmed writeback.",
+      "relatedDocs": ["docs/promote-apply-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "agent-team-review-loop-smoke",
+      "script": "agent-team-review-loop-smoke.ps1",
+      "category": "agent-team",
+      "purpose": "Validate review packet to verification/decision/note-list/overview/handoff visibility loop.",
+      "recommendedFor": ["review loop", "verification display", "decision display"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Temporary case only; no subagent spawn, heavy-tool execution, or authority/confirmed write.",
+      "relatedDocs": ["docs/agent-team-usage.md", "docs/evidence-ledger.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "gate-parity-smoke",
+      "script": "gate-parity-smoke.ps1",
+      "category": "gate-ledger",
+      "purpose": "Validate Go gate request write and PowerShell overview/note/handoff display parity.",
+      "recommendedFor": ["gate request", "pending-gate display", "ledger parity"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Writes only pending-gate request in a temporary case; does not execute heavy tools.",
+      "relatedDocs": ["docs/evidence-ledger.md", "docs/go-runtime-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "continue-preflight-smoke",
+      "script": "continue-preflight-smoke.ps1",
+      "category": "workstream",
+      "purpose": "Validate PowerShell continue authority append gate matrix, backup/diff, CSV recovery, routing, digest/status, and WhatIf no-write.",
+      "recommendedFor": ["continue", "authority gate", "digest/status"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Temporary case only; authority gate fixture is controlled and cleaned up.",
+      "relatedDocs": ["docs/go-runtime-migration.md", "rekit/tests/README.md"]
+    }
+  ]
+}

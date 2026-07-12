@@ -2,11 +2,11 @@
 
 ## 读取指南
 
-本文件给维护者选择 `rekit/tests/*.ps1` smoke 时使用。日常使用 `/rekit` 不需要阅读本文件；只有维护 runtime、pack、Go façade、sync/promote 或 Agent Team ledger/workstream 行为时再按需查阅。
+本文件给维护者选择 `rekit/tests/*.ps1` smoke 时使用。日常使用 `/rekit` 不需要阅读本文件；只有维护 runtime、pack、Go façade、sync/promote 或 Agent Team ledger/workstream 行为时再按需查阅。机器可读导航见 `rekit/tests/catalog.json`，它不是自动执行器。
 
 ## 实施摘要
 
-`rekit/tests` 里的脚本都是仓库维护验证入口，默认使用临时 case 或只读仓库状态，目标是锁定 review-first、no-write、Go/PowerShell parity 和 pack skeleton 边界。
+`rekit/tests` 里的脚本都是仓库维护验证入口，默认使用临时 case 或只读仓库状态，目标是锁定 review-first、no-write、Go/PowerShell parity 和 pack skeleton 边界。`catalog.json` 用相同分类记录常用 smoke 的 `category`、`purpose`、`recommendedFor`、`supportsWorkRoot` 和 `riskBoundary`，供后续自动测试选择器或 CI 读取。
 
 推荐最小回归组合：
 
