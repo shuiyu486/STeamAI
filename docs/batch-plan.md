@@ -2826,3 +2826,36 @@ git diff --check
 ```
 
 验证结果：全部通过。matrix 子集、matrix 全量 8 个 pack、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 94：pack smoke matrix JSON output
+
+状态：已完成。
+
+目标：给 Batch 93 的 pack smoke matrix 增加机器可读输出，让维护者、CI 或后续编排能稳定消费 pack smoke 结果，而不需要解析文本日志；同时保持默认文本输出和失败定位体验不变。
+
+实施范围：
+
+- 扩展 `rekit/tests/pack-smoke-matrix.ps1`，新增 `-Format text|json` 参数，默认保持 `text`。
+- JSON envelope 固定输出 `schemaVersion`、`command`、`isMutation`、`workRoot`、`failFast`、`packCount`、`failedCount`、`ok`、`packs[]` 与 `results[]`。
+- `results[]` 为每个 pack 提供 `pack`、`script`、`success`、`exitCode`、`elapsedMs` 与原始 `output`，便于失败时直接定位 wrapper 和输出。
+- `-Format json` 不输出 running/passed 文本；失败时仍先输出 JSON，再用非零 exit code 标记失败。
+- 保持默认文本输出、`-Packs` 子集、`all`、去重、未知 pack guard、`-FailFast` 和共享 `-WorkRoot` 行为不变。
+- 更新 README、Go runtime migration、pack authoring、CHANGELOG 与本计划文档，记录 JSON 输出用途和验证入口。
+
+边界：本批只增强测试脚本输出格式，不改变 pack smoke wrapper、shared helper、runtime、pack manifest、Go backend、PowerShell façade 委托集合或验证语义；不创建真实 case state；不执行样本、网络、debug、dump、patch、hook、fuzz、exploit replay 或任何外部副作用；不写 authority/confirmed。
+
+停止条件：若后续要把 JSON 输出接入 CI artifact、引入 JUnit/SARIF、并行化 matrix、自动发现 packs 或长期保存 smoke 结果，应作为独立批次评估报告格式、日志体积、稳定字段、执行时间和失败重试策略。
+
+验证：
+
+```powershell
+$json = .\rekit\tests\pack-smoke-matrix.ps1 -Packs web-security,generic-binary-re -Format json | ConvertFrom-Json
+.\rekit\tests\pack-smoke-matrix.ps1 -Packs web-security,generic-binary-re
+.\rekit\tests\pack-smoke-matrix.ps1 -Format json
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。matrix JSON 子集结构断言、matrix 文本子集、matrix JSON 全量 8 个 pack、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
