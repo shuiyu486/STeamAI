@@ -758,6 +758,90 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 	assertSnapshotEqual(t, before, after)
 }
 
+func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeOverviewFixture(t, caseRoot)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		Command       string `json:"command"`
+		CaseRoot      string `json:"caseRoot"`
+		Pack          string `json:"pack"`
+		IsMutation    bool   `json:"isMutation"`
+		Lanes         []struct {
+			ID        string `json:"id"`
+			Label     string `json:"label"`
+			Kind      string `json:"kind"`
+			Authority bool   `json:"authority"`
+		} `json:"lanes"`
+		Counts struct {
+			Observations     int `json:"observations"`
+			Requests         int `json:"requests"`
+			Candidates       int `json:"candidates"`
+			Publications     int `json:"publications"`
+			PendingDecisions int `json:"pendingDecisions"`
+		} `json:"counts"`
+		Sections struct {
+			OpenCandidates struct {
+				Total  int              `json:"total"`
+				Shown  int              `json:"shown"`
+				Events []map[string]any `json:"events"`
+			} `json:"openCandidates"`
+			PendingGates struct {
+				Total  int              `json:"total"`
+				Events []map[string]any `json:"events"`
+			} `json:"pendingGates"`
+			Verifications struct {
+				Total  int              `json:"total"`
+				Events []map[string]any `json:"events"`
+			} `json:"verifications"`
+			Batches struct {
+				Total   int `json:"total"`
+				Batches []struct {
+					ID     string         `json:"id"`
+					Events int            `json:"events"`
+					Kinds  map[string]int `json:"kinds"`
+				} `json:"batches"`
+			} `json:"batches"`
+		} `json:"sections"`
+		NextSteps []string `json:"nextSteps"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("overview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if result.SchemaVersion != 1 || result.Command != "overview" || result.CaseRoot != caseRoot || result.Pack != "_template" || result.IsMutation || len(result.Lanes) != 1 || len(result.NextSteps) == 0 {
+		t.Fatalf("unexpected overview JSON envelope: %+v", result)
+	}
+	if result.Lanes[0].ID != "main" || result.Lanes[0].Label != "main" || result.Lanes[0].Kind != "main" || !result.Lanes[0].Authority {
+		t.Fatalf("unexpected overview lanes: %+v", result.Lanes)
+	}
+	if result.Counts.Observations != 1 || result.Counts.Requests != 1 || result.Counts.Candidates != 2 || result.Counts.Publications != 1 || result.Counts.PendingDecisions != 1 {
+		t.Fatalf("unexpected overview counts: %+v", result.Counts)
+	}
+	if result.Sections.OpenCandidates.Total != 2 || result.Sections.OpenCandidates.Shown != 2 || result.Sections.PendingGates.Total != 1 || result.Sections.Verifications.Total != 1 || result.Sections.Batches.Total != 1 {
+		t.Fatalf("unexpected overview sections: %+v", result.Sections)
+	}
+	if result.Sections.PendingGates.Events[0]["actor"] != "runtime-test" || result.Sections.Verifications.Events[0]["verdict"] != "accepted" || result.Sections.Batches.Batches[0].ID != "batch-overview" || result.Sections.Batches.Batches[0].Events != 5 || result.Sections.Batches.Batches[0].Kinds["request"] != 1 {
+		t.Fatalf("unexpected overview section details: %+v", result.Sections)
+	}
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
+}
+
+func TestRunOverviewRejectsUnsupportedFormat(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeOverviewFixture(t, caseRoot)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "yaml"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "unsupported overview format") {
+		t.Fatalf("error = %v, want unsupported overview format", err)
+	}
+}
+
 func TestRunNoteListEmitsReadOnlySummary(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeOverviewFixture(t, caseRoot)

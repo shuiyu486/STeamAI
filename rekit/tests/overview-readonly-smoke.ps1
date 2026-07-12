@@ -187,6 +187,15 @@ try {
   }
   Assert-TreeUnchanged -Root $rekitRoot -BeforeSnapshot $beforeFiles -BeforeDirectories $beforeDirs
 
+  $overviewJson = Invoke-GoRekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack,'-Format','json') | ConvertFrom-Json
+  if ([string]$overviewJson.command -ne 'overview' -or [bool]$overviewJson.isMutation -or [string]$overviewJson.pack -ne $Pack -or [int]$overviewJson.counts.candidates -ne 2 -or [int]$overviewJson.sections.pendingGates.total -ne 1) { throw "unexpected Go overview JSON: $($overviewJson | ConvertTo-Json -Depth 20)" }
+  if (@($overviewJson.lanes).Count -lt 1 -or [string]@($overviewJson.lanes)[0].label -ne 'main' -or @($overviewJson.nextSteps).Count -lt 1) { throw "unexpected Go overview JSON lanes/nextSteps: $($overviewJson | ConvertTo-Json -Depth 20)" }
+  Assert-TreeUnchanged -Root $rekitRoot -BeforeSnapshot $beforeFiles -BeforeDirectories $beforeDirs
+
+  $facadeJson = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack,'-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
+  if ([string]$facadeJson.command -ne 'overview' -or [bool]$facadeJson.isMutation -or [string]$facadeJson.pack -ne $Pack -or [int]$facadeJson.counts.candidates -ne 2 -or [int]$facadeJson.sections.verifications.total -ne 1) { throw "unexpected facade overview JSON: $($facadeJson | ConvertTo-Json -Depth 20)" }
+  Assert-TreeUnchanged -Root $rekitRoot -BeforeSnapshot $beforeFiles -BeforeDirectories $beforeDirs
+
   'overview readonly smoke ok'
 } finally {
   if (Test-Path -LiteralPath $caseRoot) { Remove-Item -LiteralPath $caseRoot -Recurse -Force -Confirm:$false }

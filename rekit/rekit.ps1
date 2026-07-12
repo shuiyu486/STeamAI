@@ -270,7 +270,7 @@ switch ($Command) {
   }
   'overview' {
     $caseRoot = Resolve-RekitTarget $Target
-    Show-RekitOverview -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack
+    Show-RekitOverview -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -Format $Format
   }
   'continue' {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs

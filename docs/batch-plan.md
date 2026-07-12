@@ -2050,3 +2050,30 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/note`、`go test ./...`、`agent-team-review-loop-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 68：overview JSON 输出
+
+状态：已完成。
+
+目标：延续 Batch 64-67 的机器可读 envelope 模式，为 `/rekit overview` 增加 `-Format json`，让新会话接手、CI、smoke 和后续 orchestration 可直接消费 case 的工作线、共享事实计数、review-loop 摘要与建议下一步，而不需要解析人类文本。
+
+实施范围：
+
+- Go `overview` 增加 `BuildInventory` 与 typed envelope，`overview -Format json` 输出 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/automationMode/lanes/counts/sections/nextSteps`，默认文本输出保持兼容且继续只读。
+- PowerShell `Show-RekitOverview` 同步支持 `-Format json`，顶层 `rekit.ps1` 透传 `-Format`；显式 `REKIT_GO_ENABLE=1` 时仍不把 `overview` 纳入 Go façade 委托集合。
+- Go CLI tests 覆盖 overview JSON 只读、counts/sections/lanes/nextSteps 与 unsupported format guard；overview readonly smoke 增加 Go CLI 与 PowerShell fallback JSON 验证。
+- 更新 README、skill、Go runtime migration 与 CHANGELOG，说明 overview JSON 是机器可读项目总览输出。
+
+边界：本批只增强 overview 输出形态；不改变 case 初始化语义、不新增 façade Go 委托、不写 facts/lanes/handoff/authority/confirmed、不启动 subagent、不执行 heavy-tool、不改变 sync/promote review-first 语义。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/overview
+go test ./...
+.\rekit\tests\overview-readonly-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/overview`、`go test ./...`、`overview-readonly-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

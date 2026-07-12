@@ -78,6 +78,7 @@
 - Batch 65 完成：`/rekit status` 新增 `-Format json` 机器可读输出，Go backend、PowerShell fallback 与显式 Go façade 委托均支持同一只读 envelope（`command/schemaVersion/isMutation/runtimeRoot/templateRoot/pack/target/mode/case/manifest`），让 kit/case 绑定状态可被 CI、smoke 和后续编排直接消费。
 - Batch 66 完成：`/rekit doctor` / `validate` 新增 `-Format json` 机器可读验证输出，Go backend、PowerShell fallback 与显式 Go façade 委托均支持 `command/schemaVersion/isMutation/pack/target/mode/valid/summary/rows[]` envelope，方便自动化消费 pack/case 验证 rows。
 - Batch 67 完成：`/rekit note -List` 新增 `-Format json` 机器可读 ledger event 查询输出，Go backend 与 PowerShell fallback 均支持按 kind/lane 过滤后返回 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/kind/lane/eventCount/groups[]`，便于 review loop、handoff 和后续编排直接消费 facts JSONL。
+- Batch 68 完成：`/rekit overview` 新增 `-Format json` 机器可读项目总览输出，Go backend 与 PowerShell fallback 均返回 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/automationMode/lanes/counts/sections/nextSteps` envelope，方便新会话接手、CI 和后续 orchestration 直接消费工作线与 review-loop 摘要。
 
 ### Fixed
 

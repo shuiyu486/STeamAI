@@ -384,7 +384,7 @@ func Run(args []string, stdout io.Writer) error {
 	case "promote":
 		return runPromoteReview(ctx, opt, stdout)
 	case "overview":
-		return runOverview(ctx, stdout)
+		return runOverview(ctx, opt, stdout)
 	case "start":
 		return runStart(ctx, opt, stdout)
 	case "handoff":
@@ -762,16 +762,33 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 	return writeReviewPlan(out, plan)
 }
 
-func runOverview(ctx runtime.Context, out io.Writer) error {
+func runOverview(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !ctx.TargetProvided {
 		return fmt.Errorf("overview requires an explicit -Target attached case")
 	}
-	text, err := overview.Render(ctx.RepoRoot, ctx.Target, ctx.Pack)
-	if err != nil {
-		return err
+	format := strings.ToLower(strings.TrimSpace(opt.Format))
+	if format == "" {
+		format = "table"
 	}
-	_, err = io.WriteString(out, text)
-	return err
+	switch format {
+	case "table", "text", "tsv":
+		text, err := overview.Render(ctx.RepoRoot, ctx.Target, ctx.Pack)
+		if err != nil {
+			return err
+		}
+		_, err = io.WriteString(out, text)
+		return err
+	case "json":
+		result, err := overview.BuildInventory(ctx.RepoRoot, ctx.Target, ctx.Pack)
+		if err != nil {
+			return err
+		}
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	default:
+		return fmt.Errorf("unsupported overview format: %s", opt.Format)
+	}
 }
 
 func runNote(ctx runtime.Context, opt Options, out io.Writer) error {

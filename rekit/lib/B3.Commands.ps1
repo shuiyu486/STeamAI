@@ -65,11 +65,101 @@ function Show-RekitOverview {
   param(
     [Parameter(Mandatory=$true)][string]$Target,
     [Parameter(Mandatory=$true)][string]$RepoRoot,
-    [string]$Pack = 'vmp-re'
+    [string]$Pack = 'vmp-re',
+    [string]$Format = ''
   )
   $caseRoot = [System.IO.Path]::GetFullPath($Target)
-  $board = Ensure-RekitBoard -CaseRoot $caseRoot -RepoRoot $RepoRoot -Pack $Pack -CreateDefaultLane
+  $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+  if ([string]::IsNullOrWhiteSpace($formatValue)) { $formatValue = 'table' }
+  if (@('table','text','tsv','json') -notcontains $formatValue) { throw "unsupported overview format: $Format" }
   $paths = Get-RekitBoardPaths -CaseRoot $caseRoot
+  $wasMissingBoard = -not (Test-Path -LiteralPath $paths.Board)
+  if ($formatValue -eq 'json' -and -not $wasMissingBoard) {
+    [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
+    $board = Read-RekitJsonFile -Path $paths.Board
+  } else {
+    $board = Ensure-RekitBoard -CaseRoot $caseRoot -RepoRoot $RepoRoot -Pack $Pack -CreateDefaultLane
+  }
+  if ($formatValue -eq 'json') {
+    $maxRows = 10
+    function New-RekitOverviewEventSection {
+      param([object[]]$Items, [int]$MaxRows)
+      $itemsArray = @($Items)
+      $shown = @($itemsArray | Select-Object -Last $MaxRows)
+      return [ordered]@{ total = [int]$itemsArray.Count; shown = [int]$shown.Count; events = @($shown) }
+    }
+    $terminalStatus = @('confirmed','accepted','rejected','superseded','resolved')
+    $observations = @(Read-RekitJsonLines -Path $paths.Observations)
+    $requests = @(Read-RekitJsonLines -Path $paths.Requests)
+    $candidates = @(Read-RekitJsonLines -Path $paths.Candidates)
+    $publications = @(Read-RekitJsonLines -Path $paths.Publications)
+    $decisions = @(Read-RekitJsonLines -Path $paths.Decisions)
+    $hypotheses = @(Read-RekitJsonLines -Path $paths.Hypotheses)
+    $verifications = @(Read-RekitJsonLines -Path $paths.Verifications)
+    $interventions = @(Read-RekitJsonLines -Path $paths.Interventions)
+    $rollbacks = @(Read-RekitJsonLines -Path $paths.Rollbacks)
+    $pendingDecisionTerminalStatus = @('confirmed','accepted','rejected','resolved','deferred','superseded')
+    $pending = @($decisions | Where-Object {
+      $d = [string]$_.decision
+      $s = [string]$_.status
+      $a = [string]$_.action
+      $a -eq 'pending-user' -or ([string]::IsNullOrWhiteSpace($s) -and $d -eq 'defer') -or ($s -ne '' -and $pendingDecisionTerminalStatus -notcontains $s)
+    }).Count
+    $openCands = @($candidates | Where-Object { $s = [string]$_.status; $s -eq '' -or $terminalStatus -notcontains $s })
+    $pendingGates = @($requests | Where-Object { [string]$_.status -eq 'pending-gate' })
+    $openInterventions = @($interventions | Where-Object { $s = [string]$_.status; $s -eq '' -or $terminalStatus -notcontains $s })
+    $allBatchEvents = @($observations + $hypotheses + $candidates + $verifications + $decisions + $interventions + $rollbacks + $publications + $requests | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.batchId) })
+    $batchGroups = @($allBatchEvents | Group-Object -Property batchId | Sort-Object {
+      $last = @($_.Group | Select-Object -Last 1)[0]
+      $lastTime = [string]$last.time
+      if ([string]::IsNullOrWhiteSpace($lastTime)) { $lastTime = [string]$last.createdAt }
+      $lastTime
+    })
+    $shownBatchGroups = @($batchGroups | Select-Object -Last $maxRows)
+    $batchRows = @($shownBatchGroups | ForEach-Object {
+      $kindCounts = [ordered]@{}
+      foreach ($kg in @($_.Group | Group-Object -Property kind | Sort-Object Name)) {
+        $name = [string]$kg.Name
+        if ([string]::IsNullOrWhiteSpace($name)) { $name = 'unknown' }
+        $kindCounts[$name] = [int]$kg.Count
+      }
+      $last = @($_.Group | Select-Object -Last 1)[0]
+      $lastTime = [string]$last.time
+      if ([string]::IsNullOrWhiteSpace($lastTime)) { $lastTime = [string]$last.createdAt }
+      [ordered]@{ id = [string]$_.Name; events = [int]$_.Count; kinds = $kindCounts; last = $lastTime }
+    })
+    $openLanes = @(Get-RekitOpenBoardLanes -Board $board)
+    $nextSteps = @()
+    if ($openLanes.Count -eq 1) {
+      $nextSteps += ('/rekit continue {0}' -f (Get-RekitWorkstreamLabel -Lane $openLanes[0]))
+    } else {
+      foreach ($lane in $openLanes) { $nextSteps += ('/rekit continue {0}' -f (Get-RekitWorkstreamLabel -Lane $lane)) }
+    }
+    $nextSteps += @('/rekit start <name>','/rekit handoff','/rekit handoff main 或 /rekit handoff <name>')
+    [ordered]@{
+      schemaVersion = 1
+      command = 'overview'
+      caseRoot = $caseRoot
+      repoRoot = $RepoRoot
+      pack = $Pack
+      isMutation = [bool]$wasMissingBoard
+      automationMode = [string]$board.automationMode
+      lanes = @($board.lanes | ForEach-Object { [ordered]@{ id = [string]$_.id; label = (Get-RekitWorkstreamLabel -Lane $_); kind = $(if ([bool]$_.authority) { 'main' } else { 'feature' }); status = [string]$_.status; workspace = [string]$_.workspace; authority = [bool]$_.authority } })
+      counts = [ordered]@{ observations = [int]$observations.Count; requests = [int]$requests.Count; candidates = [int]$candidates.Count; publications = [int]$publications.Count; pendingDecisions = [int]$pending }
+      sections = [ordered]@{
+        openCandidates = (New-RekitOverviewEventSection -Items $openCands -MaxRows $maxRows)
+        pendingGates = (New-RekitOverviewEventSection -Items $pendingGates -MaxRows $maxRows)
+        verifications = (New-RekitOverviewEventSection -Items $verifications -MaxRows $maxRows)
+        decisions = (New-RekitOverviewEventSection -Items $decisions -MaxRows $maxRows)
+        batches = [ordered]@{ total = [int]$batchGroups.Count; shown = [int]$batchRows.Count; batches = @($batchRows) }
+        openInterventions = (New-RekitOverviewEventSection -Items $openInterventions -MaxRows $maxRows)
+        interventions = (New-RekitOverviewEventSection -Items $interventions -MaxRows $maxRows)
+        rollbacks = (New-RekitOverviewEventSection -Items $rollbacks -MaxRows $maxRows)
+      }
+      nextSteps = @($nextSteps)
+    } | ConvertTo-Json -Depth 20
+    return
+  }
   Write-Host "项目概览：$caseRoot"
   Write-Host "自动化模式：$($board.automationMode)"
   Write-Host '当前是项目总览，还没有为本会话选择具体工作线。'
