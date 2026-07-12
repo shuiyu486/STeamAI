@@ -194,6 +194,7 @@ try {
   $beforeFacadeDirs = Save-TreeDirectories -Path $facadeRekitRoot
   $facadePreviewJson = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','facade','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
   if ([string]$facadePreviewJson.command -ne 'start' -or [bool]$facadePreviewJson.isMutation -or [bool]$facadePreviewJson.applied -or -not [bool]$facadePreviewJson.requiresConfirmation -or [string]$facadePreviewJson.lane.id -ne 'feature-facade') { throw "unexpected facade start JSON preview: $($facadePreviewJson | ConvertTo-Json -Depth 20)" }
+  Assert-ContainsText -Text ([string]::Join("`n", @($facadePreviewJson.nextSteps))) -Expected 'manual Go CLI path' -Label 'facade start JSON delegated to Go'
   Assert-WriteAction -Result $facadePreviewJson -Path '.rekit/lanes/feature-facade/lane.json' -Action 'would-create-lane' | Out-Null
   Assert-TreeUnchanged -Root $facadeRekitRoot -BeforeSnapshot $beforeFacadeFiles -BeforeDirectories $beforeFacadeDirs
 

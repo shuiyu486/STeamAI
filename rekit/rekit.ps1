@@ -113,6 +113,10 @@ function Test-RekitGoDelegationSafe {
     'gate' {
       return ($WhatIf -and -not $Apply)
     }
+    { $_ -in @('start','handoff','continue') } {
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      return ($WhatIf -and -not $Apply -and -not $CreateCandidates -and $formatValue -eq 'json')
+    }
     default { return $false }
   }
 }
@@ -164,7 +168,7 @@ function Get-RekitGoTarget {
 function Get-RekitGoArgs {
   $goArgs = @('-Command', $Command, '-Pack', $Pack)
   $goTarget = Get-RekitGoTarget
-  Add-RekitGoArg ([ref]$goArgs) '-Target' $goTarget
+  if ($Command -notin @('start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Target' $goTarget }
   $goReview = $Review.IsPresent
   if ($Command -in @('sync','update') -and (-not $Apply) -and (-not $WhatIf)) { $goReview = $true }
   if ($Command -eq 'promote' -and (-not $Apply) -and (-not $CreateCandidates) -and (-not $WhatIf)) { $goReview = $true }
@@ -175,7 +179,17 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-ReviewOutputDir' $ReviewOutputDir
   Add-RekitGoArg ([ref]$goArgs) '-PacketPath' $PacketPath
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' $DiffPath
-  if ($Command -in @('status','packs','doctor','validate')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
+  if ($Command -in @('status','packs','doctor','validate','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
+  if ($Command -in @('start','handoff','continue')) {
+    $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
+    Add-RekitGoArg ([ref]$goArgs) '-Target' ([string]$resolved.Target)
+    foreach ($arg in @($resolved.Args)) {
+      if (-not [string]::IsNullOrWhiteSpace([string]$arg)) {
+        $goArgs = @($goArgs) + @([string]$arg)
+      }
+    }
+    if ($Command -eq 'start') { Add-RekitGoSwitch ([ref]$goArgs) '-Force' $Force.IsPresent }
+  }
   if ($Command -eq 'gate') {
     Add-RekitGoArg ([ref]$goArgs) '-Action' $Action
     Add-RekitGoArg ([ref]$goArgs) '-Lane' $Lane

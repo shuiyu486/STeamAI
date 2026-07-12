@@ -171,16 +171,16 @@ git diff --check
 
 ### G4：工作线只读/低风险命令迁移
 
-状态：G4.1 已完成 `overview` 只读手动路径；G4.2 已完成 `start -WhatIf/-Apply` 手动路径；G4.3 已完成 `handoff -WhatIf/-Apply` 手动路径；G4.4 已完成 `plan-subagents` review artifact 手动路径；Batch F 已完成 `note` / `continue` 迁移再评估。已迁移工作线命令仍不纳入 PowerShell façade 委托，公共 `/rekit overview/start/handoff/plan-subagents` 继续走 PowerShell 语义。
+状态：G4.1 已完成 `overview` 只读手动路径；G4.2 已完成 `start -WhatIf/-Apply` 手动路径；G4.3 已完成 `handoff -WhatIf/-Apply` 手动路径；G4.4 已完成 `plan-subagents` review artifact 手动路径；Batch F 已完成 `note` / `continue` 迁移再评估。Batch 72 已允许显式 `REKIT_GO_ENABLE=1` 时将 `start`、`handoff`、`continue` 的 `-WhatIf -Format json` 非写入预览委托 Go；文本预览、apply/write 路径、`overview` 与 `plan-subagents` 仍走既有 PowerShell/手动 Go 边界。
 
 顺序：
 
 1. `overview`（G4.1 已完成 Go CLI 只读 renderer：读取既有 board/facts，展示最近 verification/decision，支持 `-Format json` 机器可读 envelope，不创建 board/facts/lanes，不写 handoff/ledger/metadata）；
-2. `start`（G4.2 已完成 Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式创建/进入 feature lane 并初始化 board/facts/policy/default authority lane；PowerShell fallback 支持 `-WhatIf -Format json` 机器可读非写入预览）；
-3. `handoff`（G4.3 已完成 Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式写项目级/工作线级 handoff、展示最近 verification/decision 并刷新 lane resume/checkpoint；PowerShell fallback 支持 `-WhatIf -Format json` 机器可读预览）；
+2. `start`（G4.2 已完成 Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式创建/进入 feature lane 并初始化 board/facts/policy/default authority lane；PowerShell fallback 支持 `-WhatIf -Format json` 机器可读非写入预览，显式 `REKIT_GO_ENABLE=1` 时该 JSON preview 可委托 Go）；
+3. `handoff`（G4.3 已完成 Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式写项目级/工作线级 handoff、展示最近 verification/decision 并刷新 lane resume/checkpoint；PowerShell fallback 支持 `-WhatIf -Format json` 机器可读预览，显式 `REKIT_GO_ENABLE=1` 时该 JSON preview 可委托 Go）；
 4. `plan-subagents`（G4.4 已完成 Go CLI review artifact 手动路径：按 manifest `subagentRoutes` 选择 route、拆分 Items/ItemsFile、写 packet/summary review artifact；Batch 58 已补 route/shard/review-loop observability；不启动 agent、不写 board/facts/lanes/handoff/authority）。
 
-`continue` 仍保留 PowerShell，直到 authority gate 测试完善。
+`continue` 的 apply/text workflow 仍保留 PowerShell，直到 authority gate 测试完善；仅 `-WhatIf -Format json` 可在显式 Go façade 下委托非写入预览。
 
 ### G4.5：`note` / `continue` 迁移再评估（Batch F）
 
@@ -201,7 +201,7 @@ git diff --check
 
 ### G5：`continue` 与 policy gate 迁移
 
-状态：G5 preflight baseline、Go `continue -WhatIf` 非写入预览路径与 PowerShell fallback `continue -WhatIf -Format json` 机器可读预览已完成；apply/authority 写入继续 deferred。
+状态：G5 preflight baseline、Go `continue -WhatIf` 非写入预览路径与 PowerShell fallback `continue -WhatIf -Format json` 机器可读预览已完成；显式 `REKIT_GO_ENABLE=1` 时 `continue -WhatIf -Format json` 可经 PowerShell façade 委托 Go；apply/authority 写入继续 deferred。
 
 已补齐的 preflight gate tests（见 `rekit/tests/continue-preflight-smoke.ps1`）：
 
@@ -272,13 +272,13 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Go gate apply | `go run ./cmd/rekit -- -Command gate -Target <case> -Pack vmp-re -Apply -Action debug -Lane <lane> -Actor <user>` | 只 append `.rekit/facts/requests.jsonl` pending-gate request，返回 `isMutation=true`，不执行工具。 |
 | Gate request display parity | `.\rekit\tests\gate-parity-smoke.ps1` | Go `gate -Apply` 写入的 pending-gate request 在 PowerShell `overview`、`note -List`、lane `handoff` 中展示 actor/risk/target/batch/gate 详情。 |
 | Go overview readonly | `.\rekit\tests\overview-readonly-smoke.ps1` | 手动 Go CLI 读取既有 board/facts 输出项目总览，含最近 verification/decision；支持 `-Format json` overview envelope；缺 board 时拒绝，不创建 board/facts/lanes；PowerShell façade 即使显式 Go enable 仍不委托 `overview`。 |
-| Go start apply | `.\rekit\tests\start-apply-smoke.ps1` | 手动 Go CLI `start -WhatIf/-Apply` 预览或创建 feature lane，验证 board/facts/policy/lane/workspace scaffold、PowerShell `-WhatIf -Format json` preview fallback、apply JSON guard、doctor 与 façade fallback；不经 PowerShell façade 委托。 |
-| Go handoff apply | `.\rekit\tests\handoff-apply-smoke.ps1` | 手动 Go CLI `handoff -WhatIf/-Apply` 预览或写项目级/工作线级 handoff，验证 lane resume/checkpoint、verification/decision 等 ledger 展示区段、PowerShell `-WhatIf -Format json` preview fallback、doctor 与 façade fallback；不经 PowerShell façade 委托。 |
+| Go start apply | `.\rekit\tests\start-apply-smoke.ps1` | 手动 Go CLI `start -WhatIf/-Apply` 预览或创建 feature lane，验证 board/facts/policy/lane/workspace scaffold、PowerShell text preview fallback、`-WhatIf -Format json` façade 委托、apply JSON guard 与 doctor；写入路径不经 PowerShell façade 委托。 |
+| Go handoff apply | `.\rekit\tests\handoff-apply-smoke.ps1` | 手动 Go CLI `handoff -WhatIf/-Apply` 预览或写项目级/工作线级 handoff，验证 lane resume/checkpoint、verification/decision 等 ledger 展示区段、PowerShell text preview fallback、`-WhatIf -Format json` façade 委托、doctor 与 apply guard；写入路径不经 PowerShell façade 委托。 |
 | Go plan-subagents artifacts | `.\rekit\tests\plan-subagents-smoke.ps1` | 手动 Go CLI `plan-subagents` 写 review packet/summary，验证 route/taskType 选择、Items/ItemsFile 分片、route/shard/review-loop observability、out-of-case guard、missing routes、doctor 与 façade fallback；不写 board/facts/lanes/handoff/authority，不启动 agent。 |
 | Go note list readonly | `go test ./internal/rekit/cli ./internal/rekit/note` | 手动 Go CLI `note -List` 读取 facts JSONL，验证全量展示、`-Kind`/`-Lane` 过滤、`-Format json` events envelope、invalid kind/format guard、write flag guard 与只读 snapshot。 |
 | Go note append | `go test ./internal/rekit/cli ./internal/rekit/note` | 手动 Go CLI `note` append 写 facts JSONL，验证 9 类 kind 基础写入、`-WhatIf` 非写入、enum/schema/lane guard、eventId dedupe 与 unsupported write flags。 |
 | Continue preflight baseline | `.\rekit\tests\continue-preflight-smoke.ps1` | 验证 PowerShell `continue` authority append gate matrix、backup/diff、CSV 失败恢复、request routing 幂等、digest/status parity 与 `-WhatIf` no-write，作为 Go `continue` 迁移 baseline。 |
-| Go continue what-if | `.\rekit\tests\continue-whatif-smoke.ps1` | 手动 Go CLI `continue -WhatIf` 输出非写入 preview，并覆盖 PowerShell fallback `continue -WhatIf -Format json` envelope、no-write、apply JSON guard 与 façade fallback；不写 facts/run/board/lane/authority。 |
+| Go continue what-if | `.\rekit\tests\continue-whatif-smoke.ps1` | 手动 Go CLI `continue -WhatIf` 输出非写入 preview，并覆盖 PowerShell text preview fallback、`continue -WhatIf -Format json` façade 委托、no-write 与 apply JSON guard；不写 facts/run/board/lane/authority。 |
 | Go attach preview | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -WhatIf` | 输出非写入 plan，不创建目录或文件。 |
 | Go attach apply | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -ProjectName <name> -Apply` | 只写 `.rekit/instance.yml` 与 case-local thin shim，不写 managed docs、board/facts/lanes、legacy metadata 或 state。 |
 | Go repair preview | `go run ./cmd/rekit -- -Command repair -Target <movedCase> -Pack vmp-re -WhatIf` | 输出非写入 repair plan，展示 recorded/new projectRoot 与写入计划。 |
@@ -288,6 +288,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Façade Go doctor/validate | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command doctor -Format json` | 通过显式开关委托 Go，输出与 PowerShell fallback 对齐的验证 rows envelope。 |
 | Façade Go sync review artifacts | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command sync -Target <case> -ReviewOutputDir <dir>` | 委托 Go 写 review artifacts，不写 managed docs。 |
 | Façade Go gate dry-run | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command gate -Target <case> -WhatIf -Action debug -Lane <lane>` | 委托 Go 输出非写入 gate plan；无 ENABLE 时拒绝并提示手动 Go。 |
+| Façade Go workstream JSON previews | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command start|handoff|continue -Target <case> -WhatIf <selector> -Format json` | 仅 `-WhatIf -Format json` 委托 Go 输出非写入机器可读预览；文本预览和 apply/write 路径回退 PowerShell。 |
 | Façade smoke | `.\rekit\tests\facade-smoke.ps1 -CaseRoot <case> -Pack vmp-re` | 覆盖默认不委托、显式安全集合、disable 优先级和写入 flags fallback。 |
 | PowerShell status | `.\rekit\rekit.ps1 status` | 现有入口不回归。 |
 | PowerShell doctor | `.\rekit\rekit.ps1 doctor` | 现有 doctor 不回归。 |
@@ -321,12 +322,12 @@ go vet ./...
 - G3.5 已完成 `init/bootstrap -WhatIf/-Apply` Go CLI 手动路径：见 `docs/init-bootstrap-migration.md`。
 - G3.6/G3.7 已完成 `promote -CreateCandidates` 迁移预研、preflight smoke 与 Go CLI 手动写入路径：见 `docs/promote-candidates-migration.md`；公共 PowerShell façade 仍不委托该写入命令。
 - G3.8/G3.9 已完成 `promote -Apply` 迁移预研、preflight smoke 与 Go CLI 手动写入路径：见 `docs/promote-apply-migration.md`；公共 PowerShell façade 仍不委托该写入命令，不迁移 authority/confirmed 写入。
-- G4.1 已完成 `overview` Go CLI 只读路径：读取既有 `.rekit/board.json` 与 9 类 facts JSONL，输出项目总览；不创建 board/facts/lanes，不写 handoff/ledger/metadata，公共 PowerShell façade 仍不委托工作线命令。
-- G4.2 已完成 `start` Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式初始化 board/facts/policy/default authority lane 并创建或进入 feature lane；PowerShell fallback 支持 `start -WhatIf -Format json` 非写入预览；公共 PowerShell façade 仍不委托工作线命令。
-- G4.3 已完成 `handoff` Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式写项目级/工作线级 handoff 并刷新 lane resume/checkpoint；公共 PowerShell façade 仍不委托工作线命令。
+- G4.1 已完成 `overview` Go CLI 只读路径：读取既有 `.rekit/board.json` 与 9 类 facts JSONL，输出项目总览；不创建 board/facts/lanes，不写 handoff/ledger/metadata，PowerShell façade 仍不委托 `overview`。
+- G4.2 已完成 `start` Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式初始化 board/facts/policy/default authority lane 并创建或进入 feature lane；PowerShell fallback 支持 `start -WhatIf -Format json` 非写入预览，显式 `REKIT_GO_ENABLE=1` 时该 JSON preview 可委托 Go；写入路径仍不委托。
+- G4.3 已完成 `handoff` Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式写项目级/工作线级 handoff 并刷新 lane resume/checkpoint；显式 `REKIT_GO_ENABLE=1` 时 `handoff -WhatIf -Format json` 可委托 Go；写入路径仍不委托。
 - G4.4 已完成 `plan-subagents` Go CLI review artifact 手动路径：按 manifest `subagentRoutes` 生成分片 packet/summary；Batch 58 已补 route/shard/review-loop observability；公共 PowerShell façade 仍不委托内部命令，不启动 agent、不写 board/facts/lanes/handoff/authority/confirmed。
 - Batch 62-64 已新增只读 `packs` inventory，并将 pack maturity 固化为 manifest 显式字段：Go CLI 与 PowerShell fallback 均可列出全部 pack 的 maturity/schema/routes/managed/tooling/authority；`-Format json` 提供机器可读 envelope；显式 `REKIT_GO_ENABLE=1` 时可委托 Go。
-- 在 PowerShell façade 默认委托前，继续用手动 Go CLI smoke 验证；写入命令、工作线命令、内部命令、authority/confirmed 更新和 schema 迁移仍需单独确认。
+- 在 PowerShell façade 默认委托前，继续用手动 Go CLI smoke 验证；写入命令、工作线文本 workflow、内部命令、authority/confirmed 更新和 schema 迁移仍需单独确认；当前 façade 只允许工作线 `-WhatIf -Format json` 非写入预览委托。
 
 ## 风险与止损
 

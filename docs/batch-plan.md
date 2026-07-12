@@ -2159,3 +2159,33 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/workstream`、`go test ./...`、`continue-whatif-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 72：工作线 JSON preview façade 委托
+
+状态：已完成。
+
+目标：在 Batch 69-71 已补齐工作线 `-WhatIf -Format json` 机器可读预览后，缩小 PowerShell preview 复制逻辑的长期压力：显式启用 Go backend 时，让 `start`、`handoff`、`continue` 的 JSON preview 从公共 PowerShell façade 直接委托到 Go backend，同时保留文本预览和写入路径的 PowerShell fallback。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 `start`、`handoff`、`continue` 纳入显式 Go 安全集合，但只允许 `-WhatIf -Format json` 且未带 `-Apply` / `-CreateCandidates` 时委托。
+- Go façade argument builder 对工作线命令复用 PowerShell action target/args 解析，将 case target、selector/name、`-Format json`、`-WhatIf` 和 start `-Force` 转发给 Go backend。
+- 文本预览（如 `start -WhatIf login`、`handoff -WhatIf login`、`continue -WhatIf`）仍回退 PowerShell，避免改变用户可读输出；apply/write 路径仍按既有 PowerShell 或手动 Go CLI 边界执行。
+- start / handoff / continue smoke 增加 JSON preview 委托断言：`nextSteps` 中可见 Go backend marker，并继续验证 no-write snapshot、fallback 文本预览与 apply JSON guard。
+- 更新 README、skill、Go runtime migration 与 CHANGELOG，说明该委托只覆盖非写入 JSON preview，不代表工作线写入命令默认迁入 Go。
+
+边界：本批只调整显式 `REKIT_GO_ENABLE=1` 下的非写入 JSON preview 委托；不默认启用 Go、不委托 overview/plan-subagents/note、不委托任何 start/handoff/continue 写入路径、不写 facts/run/lanes/board/handoff/authority/confirmed、不启动 subagent、不执行 heavy-tool、不改变 sync/promote review-first 语义。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/workstream
+go test ./...
+.\rekit\tests\start-apply-smoke.ps1
+.\rekit\tests\handoff-apply-smoke.ps1
+.\rekit\tests\continue-whatif-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/workstream`、`go test ./...`、`start-apply-smoke.ps1`、`handoff-apply-smoke.ps1`、`continue-whatif-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

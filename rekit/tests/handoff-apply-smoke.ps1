@@ -179,6 +179,7 @@ try {
 
   $facadePreviewJson = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','login','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
   if ([string]$facadePreviewJson.command -ne 'handoff' -or [bool]$facadePreviewJson.isMutation -or [bool]$facadePreviewJson.applied -or [bool]$facadePreviewJson.project -or [string]$facadePreviewJson.lane.id -ne 'feature-login') { throw "unexpected facade handoff JSON preview: $($facadePreviewJson | ConvertTo-Json -Depth 20)" }
+  Assert-ContainsText -Text ([string]::Join("`n", @($facadePreviewJson.nextSteps))) -Expected 'manual Go CLI path' -Label 'facade handoff JSON delegated to Go'
   Assert-WriteAction -Result $facadePreviewJson -Path '.rekit/handovers/feature-login-latest.md' -Action 'would-write-latest-lane-handoff' | Out-Null
   Assert-TreeUnchanged -Root $rekitRoot -BeforeSnapshot $beforeFiles -BeforeDirectories $beforeDirs
 

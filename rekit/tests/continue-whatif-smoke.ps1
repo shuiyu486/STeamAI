@@ -192,6 +192,7 @@ try {
   if ([string]$facadePreviewJson.command -ne 'continue' -or [bool]$facadePreviewJson.isMutation -or [bool]$facadePreviewJson.applied -or -not [bool]$facadePreviewJson.requiresConfirmation -or [string]$facadePreviewJson.lane.id -ne 'feature-login') {
     throw "unexpected facade continue JSON preview: $($facadePreviewJson | ConvertTo-Json -Depth 20)"
   }
+  Assert-ContainsText -Text ([string]::Join("`n", @($facadePreviewJson.nextSteps))) -Expected 'Go continue currently supports -WhatIf only' -Label 'facade continue JSON delegated to Go'
   if ([int]$facadePreviewJson.summary.collected -ne 3 -or [int]$facadePreviewJson.summary.observations -ne 1 -or [int]$facadePreviewJson.summary.requests -ne 1 -or [int]$facadePreviewJson.summary.routed -ne 1 -or [int]$facadePreviewJson.summary.candidates -ne 1 -or [int]$facadePreviewJson.summary.authorityWouldAppend -ne 1 -or [int]$facadePreviewJson.summary.pendingUser -ne 0) {
     throw "unexpected facade continue JSON summary: $($facadePreviewJson | ConvertTo-Json -Depth 20)"
   }
