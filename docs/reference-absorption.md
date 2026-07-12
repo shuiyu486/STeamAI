@@ -23,7 +23,7 @@
 2. **工具 adapter 策略**：IDA/调试器/trace 等工具先 recipe 化、candidate 化，再逐步 adapter 化，避免成为硬依赖或大输出源。
 3. **证据与门禁模型**：evidence ledger、batch/intervention、heavy-tool gate、人工确认和可回滚的审查流程。
 
-当前已经落地的是安全 Agent Team 框架底座、文档契约、`/rekit` 工作线 runtime、review-first sync/promote、首个成熟 pack `vmp-re` 扩展、首个非 RE pack 骨架 `web-security`、tooling candidate，以及 evidence ledger runtime（`/rekit note` 手动 append 9 种 kind 事件 + overview/handoff/note-List 读层 + auto 流程 decision 字段对齐 `docs/evidence-ledger.md` 草案）；尚未落地的是 runtime 强制 heavy-tool gate、真实工具 bridge adapter、自动多 Agent dispatch（R5 判定 runtime 不自动 spawn，由主会话用 Agent 工具完成），也不能宣称已具备自动脱壳/逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
+当前已经落地的是安全 Agent Team 框架底座、文档契约、`/rekit` 工作线 runtime、review-first sync/promote、首个成熟 pack `vmp-re` 扩展、首个非 RE pack 骨架 `web-security`、tooling candidate、`ida-agent-bridge` 只读 packet contract，以及 evidence ledger runtime（`/rekit note` 手动 append 9 种 kind 事件 + overview/handoff/note-List 读层 + auto 流程 decision 字段对齐 `docs/evidence-ledger.md` 草案）；尚未落地的是 runtime 强制 heavy-tool 执行闭环、真实工具 bridge adapter 实现、自动多 Agent dispatch（R5 判定 runtime 不自动 spawn，由主会话用 Agent 工具完成），也不能宣称已具备自动脱壳/逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
 
 ## 执行清单
 
@@ -36,7 +36,7 @@
 - [x] 增加 orchestration 计划和 pack authoring template。
 - [x] 将 evidence ledger 从文档推进为 runtime append-only JSONL（`/rekit note` + `Add-RekitFactEvent` 9 种 kind + overview/handoff/note-List 读层 + auto 流程 decision 字段对齐 `docs/evidence-ledger.md`，见 `docs/agent-team-rollout-plan.md` §4-§5）。
 - [ ] 将 heavy-tool gate 从文档推进为 runtime packet / confirmation flow（R6 已落 `packs/vmp-re/policies/verification.overlay.md` 用 `note -Kind request -Status pending-gate` 登记 gate 事件，runtime 不强制 gate，属 Phase 6 后段）。
-- [ ] 将 `ida-agent-bridge` 从 candidate tooling 推进为可选 adapter。
+- [x] 将 `ida-agent-bridge` 从 candidate tooling 推进到只读 packet contract / capability card（仍不安装、不连接、不实现 runtime-level adapter）。
 - [ ] 将 bounded dispatch 从计划推进为可验证 runtime 功能（R5 已判定 runtime 不扩，spawn 是主会话职责；`plan-subagents` + `note -Kind decision` 构成支撑）。
 - [ ] 扩展 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 等安全领域 pack（`web-security` 已有最小骨架，其它仍待推进）。
 
@@ -75,7 +75,7 @@ git diff --check
 | 参考来源 | 吸收的核心思想 | 当前落地文件 | 当前状态 |
 |---|---|---|---|
 | 微信文章：Agent 化逆向经验 | 多 Agent 分工、上下文管理、人工确认、handoff、证据先行 | `docs/vision.md`、`docs/agent-team-usage.md`、`common/policies/agent-team.md`、`packs/vmp-re/references/vmp-re/agent-driven-re.md` | 已落地为工作方式和 policy；自动编排仍在计划中 |
-| `TsingShui/ida-agent-bridge` | IDA sidecar/bridge、短连接查询、function index、strings/imports/xref、避免全量输出 | `packs/vmp-re/tooling/catalog.yml`、`packs/vmp-re/tooling/recipes/ida-x64dbg-mcp.md`、`common/policies/tool-adapters.md` | 已作为 candidate tooling；未成为硬依赖 |
+| `TsingShui/ida-agent-bridge` | IDA sidecar/bridge、短连接查询、function index、strings/imports/xref、避免全量输出 | `packs/vmp-re/tooling/catalog.yml`、`packs/vmp-re/tooling/recipes/ida-x64dbg-mcp.md`、`packs/vmp-re/tooling/recipes/ida-agent-bridge-readonly.md`、`common/policies/tool-adapters.md` | 已作为 candidate tooling，并补只读 packet contract；未成为硬依赖 |
 | `clarkluoluo/clark-utov` | batch/ledger/intervention、agent-as-judge、轻到重门禁、可回滚记录 | `docs/evidence-ledger.md`、`docs/orchestration-plan.md`、`packs/vmp-re/references/vmp-re/toolchain-router.md`、`workflow-template.md`、`rekit/lib/B3.State.ps1`（`Add-RekitFactEvent`）、`rekit/lib/B3.Auto.ps1`（`New-RekitDecision`） | 设计契约已落地；runtime ledger 9 种 kind + decision 字段已对齐草案，batch 模型与 intervention 强制门禁待实现 |
 
 ## 2. 微信文章方向：Agent 化逆向工作流
@@ -126,13 +126,14 @@ git diff --check
 |---|---|---|
 | candidate tooling | `packs/vmp-re/tooling/catalog.yml` | 新增 `ida-agent-bridge`，状态为 `candidate` |
 | recipe | `packs/vmp-re/tooling/recipes/ida-x64dbg-mcp.md` | 说明 function index、strings、imports、窄范围查询、stoploss |
+| read-only packet contract | `packs/vmp-re/tooling/recipes/ida-agent-bridge-readonly.md` | 定义只读 index adapter capability card、packet schema、sidecar/evidence refs、limits/truncation 与禁止项 |
 | adapter 契约 | `common/policies/tool-adapters.md` | 定义 capability card、输出契约、side effects、stop conditions |
 | 重型工具门禁 | `packs/vmp-re/references/vmp-re/toolchain-router.md` | full trace/debug/inject/patch/dump/symex 需要 reason、budget、outputs、stop conditions、confirmation |
 
 ### 3.3 当前还没落地
 
 - 没有把 `ida-agent-bridge` 安装或绑定成硬依赖。
-- 没有实现 runtime-level IDA adapter。
+- 没有实现 runtime-level IDA adapter（当前只定义只读 packet contract / recipe）。
 - 没有在 `/rekit` 中直接调用 IDA bridge。
 - 没有允许自动 rename/comment/patch。
 
@@ -180,7 +181,7 @@ git diff --check
 | VMP Agent Team reference | `packs/vmp-re/references/vmp-re/agent-driven-re.md` | case 内可同步的 VMP Agent Team 工作方式 |
 | 轻到重 VMP 路线 | `workflow-template.md` | 限制先重型 trace/debug 的冲动 |
 | heavy-tool gate | `toolchain-router.md` | 重型动作需要确认和止损 |
-| `ida-agent-bridge` candidate | `tooling/catalog.yml`、recipe | 外部工具候选，不是硬依赖 |
+| `ida-agent-bridge` candidate | `tooling/catalog.yml`、`ida-x64dbg-mcp.md`、`ida-agent-bridge-readonly.md` | 外部工具候选，不是硬依赖；已定义只读 index packet contract |
 | pack 作者骨架 | `packs/_template/` | 后续创建新 pack 的最小模板 |
 | case smoke 验证过的 runtime | `rekit/rekit.ps1`、`rekit/lib/*.ps1` | `init/attach/sync/promote` 边界已验证 |
 
@@ -191,7 +192,7 @@ git diff --check
 | evidence ledger | runtime 已落地（`/rekit note` 9 种 kind + overview/handoff/note-List 读层 + auto decision 字段对齐草案） | 索引优化（SQLite 仅在查询压垮 runtime 时） |
 | orchestration | `plan-subagents` 只读计划器 + route/shard/review-loop observability + `note -Kind decision` verdict 写回（R5 判定 runtime 不自动 spawn） | 跨工具 adapter 实际调用属 Phase 6 后段 |
 | heavy-tool gate runtime | overlay 契约 + PowerShell `note -Kind request -Status pending-gate` + Go `gate -WhatIf/-Apply` preview/request；PowerShell `overview`/`handoff`/`note -List` 已展示 Go request 的 actor/risk/target/batch/gate 详情；不执行 heavy-tool、不写 confirmed/authority、不默认接入 façade | Phase 6 后段 runtime 强制 gate 与受控执行闭环 |
-| tool adapter | policy + candidate | 为 `ida-agent-bridge` 做只读 index adapter |
+| tool adapter | policy + candidate + `ida-agent-bridge` 只读 packet contract | 后续多个真实 case 验证后，再考虑 runtime-level adapter 或其它工具 adapter |
 | 多 pack 扩展 | `_template` | 新增 `web-security` / `malware-analysis` / `vuln-research` / `ctf` / `unpack-pe` / `ollvm` / `android-native` pack |
 
 ### 5.3 尚未实现，不能对外宣称
@@ -285,9 +286,9 @@ claude
    - 增加只读命令或 helper，生成 heavy action request packet。
    - 不直接运行工具，只把确认材料标准化。
 
-4. **`ida-agent-bridge` 只读 adapter 草案**
-   - 先支持 function index、strings、imports sidecar 的读取规范。
-   - 不做 rename/comment/patch。
+4. **`ida-agent-bridge` 只读 adapter 草案**（已完成 contract）
+   - 已定义 function index、strings、imports、xrefs、selected snippet 的只读 packet schema 与 sidecar/evidence ref 规则。
+   - 不做 rename/comment/patch；后续实现 runtime-level adapter 前先用多个真实 case 验证 contract。
 
 5. **新 pack 试点**
    - 从 `packs/_template/` 派生一个低风险 pack，例如 `web-security`、`ctf` 或 `generic-binary-re`。

@@ -81,8 +81,9 @@ tools:
     reusableNotes:
       - 适合 Agent 先读 function_index.tsv / strings.tsv / imports.tsv，再窄范围查询 pseudocode、xref、hexdump。
       - 默认不要求全量导出；需要批量索引时先确认导出成本。
+      - D6 只定义只读 index adapter contract；见 tooling/recipes/ida-agent-bridge-readonly.md。
       - rename/comment/patch 会修改共享 IDB 状态，多 Agent 不并发写。
-      - 不把完整 decompile/disasm 输出写入 Markdown，只记录摘要和 sidecar 路径。
+      - 不把完整 decompile/disasm 输出写入 Markdown，只记录摘要、packet 和 sidecar 路径。
 
   - id: x64dbg-mcp
     status: cautious

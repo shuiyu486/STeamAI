@@ -17,7 +17,7 @@
 
 ## ida-agent-bridge 候选用法
 
-`ida-agent-bridge` 可作为 headless IDA / 文件系统索引候选工具，当前状态是 `candidate`，不是本 pack 的硬依赖。
+`ida-agent-bridge` 可作为 headless IDA / 文件系统索引候选工具，当前状态是 `candidate`，不是本 pack 的硬依赖。只读 index adapter 的 packet schema、capability card、sidecar/evidence ref 规则见 `ida-agent-bridge-readonly.md`。
 
 适用：
 

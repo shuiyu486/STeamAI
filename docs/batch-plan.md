@@ -2500,3 +2500,30 @@ git diff --check
 ```
 
 验证结果：全部通过。`agent-team-d5-dryrun-smoke.ps1`、`agent-team-review-loop-smoke.ps1`、`gate-parity-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 84：IDA bridge read-only adapter contract
+
+状态：已完成。
+
+目标：承接 `docs/agent-team-rollout-plan.md` D6，把 `ida-agent-bridge` 从 candidate tooling 推进到只读 index packet contract / capability card；明确 Agent 如何消费已有 IDA sidecar/export 的 function/string/import/xref 小索引，同时不安装、不连接、不驱动 IDA，也不接 runtime 强依赖。
+
+实施范围：
+
+- 新增 `packs/vmp-re/tooling/recipes/ida-agent-bridge-readonly.md`，包含读取指南、实施摘要、执行清单、验证标准、风险、capability card、packet schema、使用流程和明确禁止项。
+- packet schema 覆盖 `mode: read-only-index`、`sideEffects: ["filesystem-read"]`、source/limits/functions/strings/imports/xrefs/snippets/evidenceRefs/warnings/errors/nextActions。
+- `packs/vmp-re/manifest.yml` 将该 recipe 纳入 `toolingFiles`。
+- `tooling/catalog.yml`、`tooling/README.md`、`ida-x64dbg-mcp.md` 链接只读 contract。
+- `docs/agent-team-rollout-plan.md` 将 D6 标为完成，`docs/reference-absorption.md` 更新 `ida-agent-bridge` 吸收状态，`CHANGELOG.md` 记录 Batch 84。
+
+边界：本批只写文档和 manifest tooling file 列表；不安装、下载、打开或连接 IDA / bridge，不生成全量导出，不实现 runtime-level adapter，不执行 rename/comment/patch/debug/dump/network，不写真实样本路径、绝对路径、完整 decompile/disasm/hexdump/trace 到模板。
+
+验证：
+
+```powershell
+.\packs\vmp-re\scripts\validate.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。首次 `go test ./...` 暴露 pack inventory fixture 仍预期 vmp-re `toolingFiles=11`；新增 recipe 后已同步更新 `internal/rekit/cli/cli_test.go` 为 `toolingFiles=12`，随后 `validate.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

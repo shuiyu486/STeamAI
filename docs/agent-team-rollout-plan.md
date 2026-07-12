@@ -607,9 +607,9 @@ C8：
 
 ### 实施摘要
 
-C 系列已经完成 9 种 ledger kind、基础字段、展示层、policy 去重与 handoff 模块拆分。D1-D5 已继续补齐 post-merge sanity、`batchId` 批次摘要、intervention/rollback 展示闭环、Go gate dry-run 预览，以及 mock/非敏感 case 的 candidate → verification → decision → batch → intervention/rollback → handoff 闭环 smoke。
+C 系列已经完成 9 种 ledger kind、基础字段、展示层、policy 去重与 handoff 模块拆分。D1-D6 已继续补齐 post-merge sanity、`batchId` 批次摘要、intervention/rollback 展示闭环、Go gate dry-run 预览、mock/非敏感 case 的 candidate → verification → decision → batch → intervention/rollback → handoff 闭环 smoke，以及 `ida-agent-bridge` 只读 index packet contract。
 
-当前剩余缺口：IDA bridge adapter 仍是 candidate tooling，未接只读 packet contract。D 系列后续应先做 D6 的只读 contract / recipe / capability card，不要求安装或连接 IDA，也不让 runtime 直接控制 IDA。
+D 系列 D1-D6 已完成：ledger 已具备 batch / intervention / rollback / gate dry-run 的闭环验证，`ida-agent-bridge` 也已补只读 index adapter contract / recipe / capability card。后续若继续推进，应基于多个真实 case 的反馈再考虑 adapter 实现或受控执行闭环；当前仍不要求安装或连接 IDA，也不让 runtime 直接控制 IDA。
 
 ### 执行清单
 
@@ -618,7 +618,7 @@ C 系列已经完成 9 种 ledger kind、基础字段、展示层、policy 去�
 - [x] D3：intervention / rollback 展示闭环（overview/handoff/note-List）
 - [x] D4：heavy-tool gate runtime 强制化 dry-run 方案（Go backend 非写入 plan）
 - [x] D5：真实 case dry-run 试用（mock/非敏感 case）
-- [ ] D6：IDA bridge adapter 预研（只读 packet contract，不接 runtime 强依赖）
+- [x] D6：IDA bridge adapter 预研（只读 packet contract，不接 runtime 强依赖）
 
 ### 验证标准
 
@@ -733,11 +733,9 @@ D6：
 
 **目标：** 只定义只读 adapter contract，不接 runtime 强依赖。
 
-**切片：**
+**结果：** 已完成。新增 `packs/vmp-re/tooling/recipes/ida-agent-bridge-readonly.md`，定义 capability card、只读 packet schema、sidecar/evidence ref 规则、limits/truncation、失败结构和明确禁止项；`tooling/catalog.yml`、`tooling/README.md`、`ida-x64dbg-mcp.md` 已链接该 contract，`manifest.yml` 已纳入 tooling files。
 
-1. 新增/扩展 recipe：`ida-agent-bridge` 只读 index adapter。
-2. 定义 packet schema：functions/strings/imports/xrefs/selected decompile summary。
-3. 保持 candidate tooling，不要求安装，不自动连接 IDA。
+**边界：** 保持 `ida-agent-bridge` 为 candidate tooling；不安装、不下载、不打开 IDA、不连接 bridge、不生成全量导出、不 rename/comment/patch、不调试/dump/network，不把完整 decompile/disasm/hexdump/trace 写入 Markdown 或模板。
 
 ## 7. 与现有文档的关系
 

@@ -19,6 +19,7 @@
 - 通用 trace pipeline、context probe、focused trace、value-flow、routine IR 的流程。
 - 公开工具短测方法、timeout、日志静音、失败特征、止损条件。
 - 调试工具组合的边界，例如 ScyllaHide + 管理员 x64dbg attach。
+- `ida-agent-bridge` 这类外部 bridge 的只读 packet contract、sidecar/evidence ref 规则和写入禁区。
 - 可参数化脚本的接口设计、输入输出、模板化 TODO。
 
 ## 什么不应该进 tooling

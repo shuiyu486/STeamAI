@@ -257,7 +257,7 @@ func TestRunPacksListsPackMatrix(t *testing.T) {
 	for _, expected := range []string{
 		"pack\tmaturity\tschema\troutes\tmanaged\ttooling\tauthority\tversion\tdescription",
 		"_template\ttemplate\tok\t2\t4\t2\tmain\t0.1.0",
-		"vmp-re\tmature\tok\t2\t7\t11\tdevirt-main\t0.2.0",
+		"vmp-re\tmature\tok\t2\t7\t12\tdevirt-main\t0.2.0",
 		"web-security\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
 	} {
 		if !strings.Contains(text, expected) {
@@ -306,7 +306,7 @@ func TestRunPacksJsonInventory(t *testing.T) {
 	for _, pack := range inventory.Packs {
 		byID[pack.ID] = pack
 	}
-	if pack := byID["vmp-re"]; pack.Maturity != "mature" || !pack.SchemaValid || pack.Error != "" || pack.ManagedFiles != 7 || pack.ToolingFiles != 11 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "devirt-main" {
+	if pack := byID["vmp-re"]; pack.Maturity != "mature" || !pack.SchemaValid || pack.Error != "" || pack.ManagedFiles != 7 || pack.ToolingFiles != 12 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "devirt-main" {
 		t.Fatalf("unexpected vmp-re JSON row: %+v", pack)
 	}
 	if pack := byID["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.DefaultAuthorityLane != "main" {
