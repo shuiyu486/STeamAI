@@ -86,6 +86,7 @@
 - Batch 73 完成：显式 `REKIT_GO_ENABLE=1` 且 attached case 已有 `.rekit/board.json` 时，PowerShell façade 可将 `overview -Format json` 只读机器可读项目总览委托给 Go backend；文本 overview 与缺 board 初始化继续走 PowerShell fallback，保留首次 overview 初始化语义。
 - Batch 74 完成：显式 `REKIT_GO_ENABLE=1` 且目标为 attached case 时，PowerShell façade 可将 `note -List -Format json` 只读 ledger 查询委托给 Go backend；note append、`-WhatIf`、文本 `note -List` 继续走 PowerShell fallback，避免扩大 facts 写入委托面。
 - Batch 75 完成：显式 `REKIT_GO_ENABLE=1` 时，PowerShell façade 可将 `attach -WhatIf -Format json` 与 `repair -Format json` 非写入 metadata 预览委托给 Go backend；attach/repair 文本预览和 `-Apply` 写入路径继续走 PowerShell fallback，保留确认后写入边界。
+- Batch 76 完成：显式 `REKIT_GO_ENABLE=1` 时，PowerShell façade 可将 `init/bootstrap -WhatIf -Format json` 非写入初始化预览委托给 Go backend；init/bootstrap 文本预览与 `-Apply` 写入路径继续走 PowerShell fallback，避免扩大 case scaffold 写入委托面。
 
 ### Fixed
 

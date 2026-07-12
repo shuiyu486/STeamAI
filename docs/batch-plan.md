@@ -2272,3 +2272,30 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/attach ./internal/rekit/repair`、`init-bootstrap-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 76：init/bootstrap JSON preview façade 委托
+
+状态：已完成。
+
+目标：继续把 case 初始化的非写入机器可读预览收敛到 Go backend：在不扩大 init/bootstrap 写入委托面的前提下，让维护自动化可通过公共 PowerShell façade 消费 `init/bootstrap -WhatIf -Format json` 的初始化 plan。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 `init` 与 `bootstrap` 纳入显式 Go 安全集合，但仅允许显式 `-Target`、`-WhatIf`、`-Format json` 且不带 `-Apply`/`-CreateCandidates`/review artifact flags 时委托。
+- Go argument builder 对 `init`/`bootstrap` 转发 resolved target、`-Format`、`-ProjectName`、`-Force` 和 mode flags；写入路径仍由安全集合拒绝委托。
+- `init-bootstrap-smoke.ps1` 增加 `REKIT_GO_EXE` fake backend sentinel，证明 `init -WhatIf -Format json` 与 `bootstrap -WhatIf -Format json` 满足条件时确实经 façade 委托 Go；同时保留 init 文本 preview fallback 断言，确保文本预览不被 fake backend 截获。
+- 更新 README、skill、Go runtime migration 与 CHANGELOG，说明 init/bootstrap façade 委托只覆盖 JSON 非写入初始化预览，不覆盖文本预览或 `-Apply` 写入。
+
+边界：本批只调整显式 `REKIT_GO_ENABLE=1` 下的 init/bootstrap JSON 预览委托；不默认启用 Go、不委托 init/bootstrap `-Apply`、不委托 sync apply、promote apply/candidates、工作线 apply、note append、authority/confirmed 更新，不写 case metadata/shim/managed docs/board/facts/lanes/handoff，不执行 heavy-tool，不改变 sync/promote review-first 语义。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/sync
+.\rekit\tests\init-bootstrap-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/sync`、`init-bootstrap-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
