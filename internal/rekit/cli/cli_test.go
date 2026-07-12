@@ -261,6 +261,7 @@ func TestRunPacksListsPackMatrix(t *testing.T) {
 		"web-security\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
 		"malware-analysis\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
 		"vuln-research\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
+		"ctf\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("packs output missing %q:\n%s", expected, text)
@@ -319,6 +320,9 @@ func TestRunPacksJsonInventory(t *testing.T) {
 	}
 	if pack := byID["vuln-research"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected vuln-research JSON row: %+v", pack)
+	}
+	if pack := byID["ctf"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "main" {
+		t.Fatalf("unexpected ctf JSON row: %+v", pack)
 	}
 }
 

@@ -1,0 +1,35 @@
+schemaVersion: 1
+pack: ctf
+purpose: CTF tooling catalog
+
+paths:
+  caseRoot: <caseRoot>
+  toolsRoot: <toolsRoot>
+  challengeRef: <challengeRef>
+  sidecar: <caseRoot>/evidence/sidecars
+
+tools:
+  - id: challenge-triage-sidecar
+    status: mainline-template
+    entry: case-local challenge description / artifact / hint summary
+    purpose: Build challenge inventory and category hypotheses without touching remote services.
+    sideEffects: none
+    reusableNotes:
+      - Store challenge metadata, hints, artifact summaries, category notes, and primitive hypotheses as case-local sidecar, then cite only summaries in Markdown.
+      - Use challenge aliases or sidecar row ids instead of flags, remote endpoints, payloads, or absolute paths in pack-promotable notes.
+  - id: local-repro-review
+    status: auxiliary
+    entry: local solver or repro summary sidecar
+    purpose: Review saved local solver/repro summaries without connecting to remote services or replaying exploit traffic.
+    sideEffects: none when reviewing saved summaries
+    reusableNotes:
+      - Sanitize flags, remote endpoints, payloads, solver scripts, challenge files, tokens, and competition identifiers before promoting any recipe.
+      - Treat raw challenge output as case-local evidence, not pack content.
+  - id: remote-or-heavy-action
+    status: cautious
+    entry: <caseRoot>/tools/remote-or-heavy-action
+    purpose: Execute a bounded remote connection, fuzz, bruteforce, or exploit replay step for authorized CTF/lab verification.
+    sideEffects: network requests, service load, target state changes, process execution, filesystem writes depending on harness
+    reusableNotes:
+      - Requires explicit scope, request/input/runtime budget, rate limit, remote target policy, output limits, and stop conditions before use.
+      - Never store flags, payloads, solver scripts, raw responses, challenge files, or remote credentials in pack docs.
