@@ -120,7 +120,7 @@ function Test-RekitEnvTruthy {
 
 function Test-RekitGoDefaultDelegationCommand {
   param([string]$Name)
-  return (@('status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate') -contains $Name)
+  return (@('status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff') -contains $Name)
 }
 
 function Test-RekitGoDelegationEnabled {
@@ -225,7 +225,33 @@ function Test-RekitGoDelegationSafe {
       $caseRoot = Resolve-RekitTarget $Target
       return (Test-RekitLooksLikeCase $caseRoot)
     }
-    { $_ -in @('start','handoff','continue') } {
+    'start' {
+      if ($CreateCandidates -or $Review) { return $false }
+      if ($WhatIf -and $Apply) { return $false }
+      if ((-not $WhatIf) -and (-not $Apply)) { return $false }
+      if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+      $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
+      if (-not (Test-RekitLooksLikeCase ([string]$resolved.Target))) { return $false }
+      $selector = ((@($resolved.Args) | ForEach-Object { [string]$_ }) -join '-').Trim('-')
+      if ([string]::IsNullOrWhiteSpace($selector)) { return $false }
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      if ($WhatIf) { return ($formatValue -eq 'json') }
+      return ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json')
+    }
+    'handoff' {
+      if ($CreateCandidates -or $Review -or $Force) { return $false }
+      if ($WhatIf -and $Apply) { return $false }
+      if ((-not $WhatIf) -and (-not $Apply)) { return $false }
+      if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+      $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
+      $caseRoot = [string]$resolved.Target
+      if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
+      if (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json'))) { return $false }
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      if ($WhatIf) { return ($formatValue -eq 'json') }
+      return ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json')
+    }
+    'continue' {
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
       return ($WhatIf -and -not $Apply -and -not $CreateCandidates -and $formatValue -eq 'json')
     }

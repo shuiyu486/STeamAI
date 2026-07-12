@@ -192,15 +192,15 @@ try {
   $facadeRekitRoot = Join-Path $facadeRoot '.rekit'
   $beforeFacadeFiles = Save-TreeSnapshot -Path $facadeRekitRoot
   $beforeFacadeDirs = Save-TreeDirectories -Path $facadeRekitRoot
-  $facadePreviewJson = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','facade','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
+  $facadePreviewJson = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','facade','-Format','json') | ConvertFrom-Json
   if ([string]$facadePreviewJson.command -ne 'start' -or [bool]$facadePreviewJson.isMutation -or [bool]$facadePreviewJson.applied -or -not [bool]$facadePreviewJson.requiresConfirmation -or [string]$facadePreviewJson.lane.id -ne 'feature-facade') { throw "unexpected facade start JSON preview: $($facadePreviewJson | ConvertTo-Json -Depth 20)" }
-  Assert-ContainsText -Text ([string]::Join("`n", @($facadePreviewJson.nextSteps))) -Expected 'manual Go CLI path' -Label 'facade start JSON delegated to Go'
+  Assert-ContainsText -Text ([string]::Join("`n", @($facadePreviewJson.nextSteps))) -Expected 'JSON preview/apply is Go-owned by default' -Label 'facade start JSON delegated to Go by default'
   Assert-WriteAction -Result $facadePreviewJson -Path '.rekit/lanes/feature-facade/lane.json' -Action 'would-create-lane' | Out-Null
   Assert-TreeUnchanged -Root $facadeRekitRoot -BeforeSnapshot $beforeFacadeFiles -BeforeDirectories $beforeFacadeDirs
 
-  $facadeApplyJsonError = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$facadeRoot,'-Pack',$Pack,'-Format','json','facade') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
-  Assert-ContainsText -Text $facadeApplyJsonError -Expected 'start -Format json currently supports -WhatIf preview only' -Label 'start json apply guard'
-  $global:LASTEXITCODE = 0
+  $facadeApplyJson = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$facadeRoot,'-Pack',$Pack,'-Apply','-Format','json','facade') | ConvertFrom-Json
+  if ([string]$facadeApplyJson.command -ne 'start' -or -not [bool]$facadeApplyJson.isMutation -or -not [bool]$facadeApplyJson.applied -or [string]$facadeApplyJson.lane.id -ne 'feature-facade') { throw "unexpected facade start JSON apply: $($facadeApplyJson | ConvertTo-Json -Depth 20)" }
+  Assert-WriteAction -Result $facadeApplyJson -Path '.rekit/lanes/feature-facade/lane.json' -Action 'create-lane' | Out-Null
 
   'start apply smoke ok'
 } finally {

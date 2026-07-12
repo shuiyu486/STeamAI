@@ -114,12 +114,12 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		copyLane := *ctx.lane
 		lane = &copyLane
 	}
-	next := []string{"PowerShell /rekit remains the public entrypoint; this is a manual Go CLI path"}
+	next := []string{"PowerShell /rekit remains the public entrypoint; JSON preview/apply is Go-owned by default"}
 	if applied {
 		if ctx.project {
 			next = append(next, "open .rekit/handovers/latest.md in the case to continue")
 		} else if lane != nil {
-			next = append(next, "use /rekit continue "+workstreamLabel(*lane)+" through the PowerShell runtime")
+			next = append(next, "use /rekit continue "+workstreamLabel(*lane)+" to enter the lane workflow")
 		}
 	} else {
 		next = append(next, "review this plan, then re-run handoff with -Apply to write case-local handoff files")

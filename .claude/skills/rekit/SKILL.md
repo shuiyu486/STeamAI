@@ -48,9 +48,9 @@ disable-model-invocation: true
 | `/rekit overview` | 显示项目概览、主线/支线、共享事实统计、最近 verification/decision 和下一步建议；`-Format json` 输出机器可读 overview envelope；只表示总览，不代表当前会话已选择工作线。 |
 | `/rekit continue main` | 明确接手主线并整理相关状态；多工作线时无参数 `continue` 只列选择，不盲猜；`-WhatIf -Format json` 输出机器可读非写入 continue preview；每轮 digest 记录 inputs/route/packet refs/outputs/decisions/open risks。 |
 | `/rekit continue <name>` | 明确接手某条功能支线，只整理该支线的 workspace/outbox、路由 request、刷新接续提示；`-WhatIf -Format json` 预览收集、路由和 authority append 计划；每轮 digest 记录 inputs/route/packet refs/outputs/decisions/open risks。 |
-| `/rekit start <name>` | 创建或进入功能支线，例如 `login`；`-WhatIf -Format json` 输出机器可读非写入 start preview；支线写自己的 workspace，第二天可用 `/rekit continue <name>` 或接续提示继续。 |
-| `/rekit handoff` | 生成项目级接手索引 `.rekit/handovers/latest.md`；`-WhatIf -Format json` 输出机器可读 preview envelope；不代表某个会话。 |
-| `/rekit handoff <name>` | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；`-WhatIf -Format json` 输出指定工作线 preview；包含该工作线最近 verification/decision 等轻量 ledger 摘要。 |
+| `/rekit start <name>` | 创建或进入功能支线，例如 `login`；`-WhatIf -Format json` 输出机器可读非写入 start preview，显式 `-Apply` 输出 Go JSON envelope；支线写自己的 workspace，第二天可用 `/rekit continue <name>` 或接续提示继续。 |
+| `/rekit handoff` | 生成项目级接手索引 `.rekit/handovers/latest.md`；`-WhatIf -Format json` 输出机器可读 preview envelope，显式 `-Apply` 输出 Go JSON envelope；不代表某个会话。 |
+| `/rekit handoff <name>` | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；`-WhatIf -Format json` 输出指定工作线 preview，显式 `-Apply` 输出 Go JSON envelope；包含该工作线最近 verification/decision 等轻量 ledger 摘要。 |
 | `/rekit sync` | 默认先生成 LLM 审查包；用户确认具体范围后才执行写入型 sync。 |
 | `/rekit promote` | 默认先生成回流审查包；用户确认后才生成候选或写回 pack。 |
 | `/rekit doctor` | 验证 kit / case 结构、文档预算和 policy registry；`-Format json` 输出机器可读验证 rows。 |
@@ -84,7 +84,7 @@ disable-model-invocation: true
 10. 覆盖/删除 authority、冲突、schema change、changesProjectBaseline、externalSideEffect、destructiveAction 必须停下来问用户；不要自动执行。
 11. 新功能分析使用 `/rekit start <name>`；不要再建议用户使用旧的底层工作线命令。
 12. `plan-subagents` 只作为内部只读计划器，不是日常用户入口；能由主 agent 或自动流程判断时，不要求用户手动调用。
-13. Go façade 默认接管低风险只读命令：`status`、`packs`、kit/case `doctor/validate`，已初始化 case 的 `overview -Format json` 与 `note -List -Format json` 只读查询，attached case 的 `note` append 与 `note -WhatIf` facts JSONL 写入/预览，`gate -WhatIf` 非写入 heavy-tool gate preview，`gate -Apply` pending-gate request ledger 写入，边界清晰的 case lifecycle `attach`、`repair`、`init/bootstrap` 预览与显式 `-Apply`，`/rekit sync` review、`sync -Apply` 实际写入和 `sync -Apply -WhatIf -Format json` 非写入预览，以及 `/rekit promote` review、review artifact 写入、`promote -CreateCandidates` 实际候选写入、`promote -CreateCandidates -WhatIf -Format json` 非写入预览、`promote -Apply` 实际 pack source 写入和 `promote -Apply -WhatIf -Format json` 非写入预览。`REKIT_GO_DISABLE=1` 强制禁用 Go façade 委托。只有维护者显式设置 `REKIT_GO_ENABLE=1` 时，扩展 preview/review 安全集合（`start`/`handoff`/`continue` 的 `-WhatIf -Format json` 非写入预览）才委托 Go；文本 `sync -Apply -WhatIf`、文本 `promote -CreateCandidates/-Apply -WhatIf`、overview 文本/缺 board 初始化、文本工作线预览、文本 `note -List`、实际 heavy-tool 执行和其它写入路径继续走 PowerShell fallback 或手动 Go CLI。
+13. Go façade 默认接管低风险只读命令：`status`、`packs`、kit/case `doctor/validate`，已初始化 case 的 `overview -Format json` 与 `note -List -Format json` 只读查询，attached case 的 `note` append 与 `note -WhatIf` facts JSONL 写入/预览，`gate -WhatIf` 非写入 heavy-tool gate preview，`gate -Apply` pending-gate request ledger 写入，attached case 的 `start -WhatIf -Format json`、`start -Apply`、`handoff -WhatIf -Format json` 与 `handoff -Apply`，边界清晰的 case lifecycle `attach`、`repair`、`init/bootstrap` 预览与显式 `-Apply`，`/rekit sync` review、`sync -Apply` 实际写入和 `sync -Apply -WhatIf -Format json` 非写入预览，以及 `/rekit promote` review、review artifact 写入、`promote -CreateCandidates` 实际候选写入、`promote -CreateCandidates -WhatIf -Format json` 非写入预览、`promote -Apply` 实际 pack source 写入和 `promote -Apply -WhatIf -Format json` 非写入预览。`REKIT_GO_DISABLE=1` 强制禁用 Go façade 委托。只有维护者显式设置 `REKIT_GO_ENABLE=1` 时，`continue -WhatIf -Format json` 非写入预览才委托 Go；文本 `sync -Apply -WhatIf`、文本 `promote -CreateCandidates/-Apply -WhatIf`、overview 文本/缺 board 初始化、无 `-Apply` 的文本工作线命令、`continue` apply/text flow、文本 `note -List`、实际 heavy-tool 执行和其它写入路径继续走 PowerShell fallback 或手动 Go CLI。
 14. manifest 中所有文件路径必须是相对路径，并且不能越出 case root 或 pack root。
 15. 所有写操作后都运行对应 doctor；失败时如实报告错误与下一步。
 

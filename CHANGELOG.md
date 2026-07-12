@@ -4,6 +4,7 @@
 
 ### Added
 
+- Batch 117 / Stage 5 完成 start/handoff apply default façade：attached case 的 `/rekit start -WhatIf -Format json`、`start -Apply`、`handoff -WhatIf -Format json` 与 `handoff -Apply` 默认委托 Go，输出 JSON envelope；文本 preview/无 `-Apply` 文本工作线 flow、`continue` apply/text flow 与 `REKIT_GO_DISABLE=1` 继续回退 PowerShell；不写 authority/confirmed、不执行 heavy-tool，并由 façade smoke、start/handoff smoke 与 Go CLI tests 覆盖默认委托、fallback、no-write preview 和工作线/handoff 写入边界。
 - Batch 116 / Stage 5 完成 note append default façade：attached case 的 `/rekit note` append 与 `note -WhatIf` 默认委托 Go，输出 JSON envelope，仍只 append `.rekit/facts/*.jsonl` 或预览、不写 authority/confirmed、不执行 heavy-tool，并由 `internal/rekit/note` package tests、façade smoke 与 Agent Team review-loop smoke 覆盖 no-write、schema/lane guard、eventId 幂等、默认委托和展示闭环。
 - Batch 115 / Stage 5 完成 gate apply default façade：attached case 的 `/rekit gate -Apply` pending-gate request ledger 写入默认委托 Go，仍只 append `.rekit/facts/requests.jsonl`、要求 `-Actor`、不执行 heavy-tool、不写 confirmed/authority，并由 `internal/rekit/gate` package tests、façade smoke 与 gate parity smoke 覆盖 no-write、actor guard、幂等、默认委托和展示闭环。
 - Batch 114 / Stage 5 完成 gate what-if default façade：attached case 的 `/rekit gate -WhatIf` 非写入 heavy-tool gate preview 默认委托 Go，输出 pending-gate request plan 但不写 ledger、不执行 heavy-tool，保留 `gate -Apply`、实际工具执行和 start/handoff/continue preview 的既有边界，并由 façade与 gate parity smoke 覆盖默认委托、no-write 和 fallback。

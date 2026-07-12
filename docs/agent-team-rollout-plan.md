@@ -6,7 +6,7 @@
 - 维护者开始新批次前先读本文件顶部：读取指南、实施摘要、执行清单、验证标准、风险与注意事项，再按批次读细节。
 - 本文件只写计划与契约压测方法，不替代 `common/policies/agent-team.md` 和 `common/policies/subagents.md` 的契约定义。
 - 推进姿态为 **选项 C：契约 dry-run + 临时 case 验证优先**。先压测契约，再按真实缺口决定 ledger runtime（Phase 5）与 bounded dispatch（Phase 6）的顺序。
-- 当前状态：PowerShell `/rekit` 仍是公共入口；R0-R7、B/C 系列、D2-D4、Go G1-G5 已完成。Ledger runtime 支持 9 种 kind、`batchId`、overview/handoff/note-List 读层和 intervention/rollback 展示闭环；`continue` auto 流程写 `.rekit/runs/<run-id>/digest.md`，Go backend 可手动输出 `continue -WhatIf` 非写入 preview；`plan-subagents` 仍是只读计划器，已输出 route/shard/review-loop observability，但不自动 spawn reviewer。Go backend 可手动输出 `sync/promote` review plan/artifacts 和 gate preview/request，但工作线命令未默认接入 façade。Batch 101 后的新阶段导航见 `docs/go-first-convergence-plan.md`；后续优先 Go deterministic runtime 收口、release readiness、Agent Team 真实 dry-run 闭环与 PowerShell 收缩。
+- 当前状态：PowerShell `/rekit` 仍是公共入口；R0-R7、B/C 系列、D2-D4、Go G1-G5 已完成。Ledger runtime 支持 9 种 kind、`batchId`、overview/handoff/note-List 读层和 intervention/rollback 展示闭环；`continue` auto 流程写 `.rekit/runs/<run-id>/digest.md`，Go backend 可手动输出 `continue -WhatIf` 非写入 preview；`plan-subagents` 仍是只读计划器，已输出 route/shard/review-loop observability，但不自动 spawn reviewer。Go backend 已默认接管 `sync/promote` review/apply、gate preview/request、note append/list JSON，以及 start/handoff JSON preview 与显式 apply；`continue` apply/text flow 仍由 PowerShell fallback 承担。Batch 101 后的新阶段导航见 `docs/go-first-convergence-plan.md`；后续优先 Go deterministic runtime 收口、release readiness、Agent Team 真实 dry-run 闭环与 PowerShell 收缩。
 
 ## 实施摘要
 
@@ -54,7 +54,7 @@ R4-R6（runtime 切片阶段，按 R3 决定激活）：
 - **dry-run 不执行真实 heavy-tool 动作**：full trace、动态调试、注入、patch、dump、网络、外部副作用一律 dry-run 或 mock，不碰真实样本。
 - **不绕过 review-first**：sync/promote 仍默认 review；confirmed/authority 写入仍需人工确认；dry-run 中的 "confirmed" 只写临时 case workspace，不写 kit 模板。
 - **不复制 runtime 逻辑到 case shim**：case-local `/rekit` 保持 thin shim。
-- **Go runtime 不强行接入**：R4-R6 仍以 PowerShell runtime 为准；G2.1 artifact parity 已完成，但 Go façade 委托仍需显式开关和 smoke test，不默认启用。
+- **Go runtime 渐进接入**：R4-R6 初期以 PowerShell runtime 为准；当前 Go façade 已按低风险 read-only、case lifecycle、sync/promote、ledger/gate 与 start/handoff 显式 apply 切片逐步默认启用。新增默认委托前必须有 smoke/package test 覆盖，`REKIT_GO_DISABLE=1` 继续作为 fallback。
 - **R3 是决策门，不是自动推进**：dry-run 结果可能指向 ledger 优先、dispatch 优先、或两者并行；必须显式记录决策理由，不能默认全做。
 - **schema 改动走文档先**：packet schema 缺口先回写 policy 文档，再考虑 runtime 校验；不在 dry-run 阶段做 schema 迁移。
 - **批次写回**：每批完成后回写本文件、`docs/batch-plan.md`、`CHANGELOG.md` 与 `docs/vision.md` 执行清单；后续所有实施计划必须先落到文档，并随代码提交推送到远程 `main`，不能只留在聊天上下文。
@@ -70,7 +70,7 @@ R4-R6（runtime 切片阶段，按 R3 决定激活）：
 | 工作线 runtime | `rekit/lib/B3.*.ps1` | manifest 驱动主线/支线/authorityFiles/handoff；`status`/`doctor`/`overview`/`continue`/`start`/`handoff` 可跑 |
 | pack 领域层 | `packs/vmp-re/**`、`packs/_template/**` | workflow-template、toolchain-router、tooling recipes、policy overlay 齐全且通过 budget 校验 |
 | sync/promote review-first | `rekit/lib/Sync.ps1`、`Promote.ps1`、`Review.ps1` | review packet + bounded diff + sanitized preview；写入需确认 |
-| Go runtime backend | `internal/rekit/**`、`cmd/rekit/main.go` | G1/G2.5 只读 status/doctor/manifest/case doctor + G2 sync/promote review/apply、G2.2/G2.3 gate preview/request 与 Stage 5 read/ledger layer 已逐步接入 façade；Batch 114 起 `gate -WhatIf` 默认委托 Go，Batch 115 起 `gate -Apply` pending-gate request 写入默认委托 Go，Batch 116 起 `note` append / `note -WhatIf` facts JSONL 写入/预览默认委托 Go，workstream preview 仍需显式开关 |
+| Go runtime backend | `internal/rekit/**`、`cmd/rekit/main.go` | G1/G2.5 只读 status/doctor/manifest/case doctor + G2 sync/promote review/apply、G2.2/G2.3 gate preview/request 与 Stage 5 read/ledger/workstream layer 已逐步接入 façade；Batch 114 起 `gate -WhatIf` 默认委托 Go，Batch 115 起 `gate -Apply` pending-gate request 写入默认委托 Go，Batch 116 起 `note` append / `note -WhatIf` facts JSONL 写入/预览默认委托 Go，Batch 117 起 `start`/`handoff` JSON preview 与显式 apply 默认委托 Go，`continue` preview 仍需显式开关 |
 
 ### 1.2 未落地
 

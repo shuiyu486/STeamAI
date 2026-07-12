@@ -3546,3 +3546,38 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/note ./internal/rekit/cli`、`facade-smoke.ps1`、`agent-team-review-loop-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 117：start/handoff apply default Go façade
+
+状态：已完成。
+
+目标：承接 Stage 5 的 workstream runtime 收口，在 Go `start`/`handoff` 手动路径与 smoke 已覆盖 preview/apply 的基础上，将 attached case 的 `/rekit start` 与 `/rekit handoff` JSON preview 及显式 `-Apply` 路径升级为默认 Go façade，同时保留日常无 `-Apply` 文本工作线 flow、文本 preview 和 `REKIT_GO_DISABLE=1` PowerShell fallback。
+
+实施范围：
+
+- 扩展 `rekit/rekit.ps1` 默认委托集合，将 `start` 与 `handoff` 纳入 default delegation command set。
+- 新增 `start` safe-set：attached case、显式 feature selector、无 review/candidate artifact options、`-WhatIf -Format json` 或显式 `-Apply`（`Format` 为空或 `json`）时默认委托 Go；文本 `-WhatIf` 与无 `-Apply` 文本 flow 继续 PowerShell fallback。
+- 新增 `handoff` safe-set：attached case 且已有 `.rekit/board.json`、无 review/candidate/force artifact options、`-WhatIf -Format json` 或显式 `-Apply`（`Format` 为空或 `json`）时默认委托 Go；文本 `-WhatIf` 与无 `-Apply` 文本 flow 继续 PowerShell fallback。
+- 保留 `continue -WhatIf -Format json` 仍需显式 `REKIT_GO_ENABLE=1`；`continue` apply/text flow 不在本批迁移。
+- 更新 `facade-smoke.ps1`，用 fake `REKIT_GO_EXE` 锁定 `start`/`handoff` 默认 JSON preview 与 apply 委托，并保留文本 fallback 与 `REKIT_GO_DISABLE=1` fallback 检查。
+- 更新 `start-apply-smoke.ps1` 与 `handoff-apply-smoke.ps1`，通过公共 façade 验证默认 JSON preview/apply 委托，同时继续验证 Go CLI preview/apply、no-write preview、doctor、resume/checkpoint 与 handoff 内容。
+- 更新 Go workstream JSON `nextSteps` 文案，移除“manual Go CLI path”措辞，反映 JSON preview/apply 已由默认 façade 接管。
+- 更新 README、CLAUDE、`/rekit` skill、Go runtime migration、Go-first convergence、Agent Team rollout、tests guide、catalog metadata 与 changelog，记录 Batch 117 后 start/handoff 默认委托边界。
+
+边界：本批只切换 `start`/`handoff` JSON preview 与显式 apply 的 façade owner；`start -Apply` 只写 case-local board/facts/policy/lane/workspace scaffold，`handoff -Apply` 只写 case-local handoff/resume/checkpoint；不写 authority/confirmed，不执行 full-trace/debug/inject/patch/dump/network/fuzz/exploit replay，不改变 overview 文本/缺 board 初始化、文本 `note -List`、文本工作线 preview、无 `-Apply` 文本 flow、`continue` preview/apply 或其它 ledger 写入命令。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/workstream
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\start-apply-smoke.ps1
+.\rekit\tests\handoff-apply-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/workstream`、`facade-smoke.ps1`、`start-apply-smoke.ps1`、`handoff-apply-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

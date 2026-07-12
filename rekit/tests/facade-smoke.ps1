@@ -117,7 +117,7 @@ try {
     $gateLane = 'feature-handler-0x40a010'
   }
 
-  # Low-risk read-only commands, overview/note JSON reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, and promote JSON previews default to Go; broader workstream preview expansions still require explicit enable.
+  # Low-risk read-only commands, overview/note JSON reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, promote JSON previews, and start/handoff JSON preview/apply paths default to Go; continue preview still requires explicit enable.
   $out = Invoke-RekitSmoke -Arguments @('-Command','status')
   Assert-ContainsText -Text $out -Expected 'rekit go backend:' -Label 'default go status'
 
@@ -151,6 +151,10 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','default note what-if','-Summary','fake default note what-if','-WhatIf') -CommandName 'note' -Label 'default note what-if fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane) -CommandName 'gate' -Label 'default gate what-if fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane',$gateLane,'-Actor','facade-smoke') -CommandName 'gate' -Label 'default gate apply fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'default-start-preview','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'start' -Label 'default start JSON preview fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'default-start-apply','-Pack',$Pack,'-Apply') -CommandName 'start' -Label 'default start apply fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'handoff' -Label 'default handoff JSON preview fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -CommandName 'handoff' -Label 'default handoff apply fake delegation'
 
   $gateOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane,'-Subject','facade smoke default gate')
   Assert-ContainsText -Text $gateOut -Expected '"isMutation": false' -Label 'default go gate dry-run'
@@ -209,12 +213,19 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','verification','-Lane','main','-Subject','matrix note what-if','-Summary','fake default note what-if','-WhatIf') -CommandName 'note' -Label 'default note what-if delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane) -CommandName 'gate' -Label 'default gate what-if delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane',$gateLane,'-Actor','facade-smoke') -CommandName 'gate' -Label 'default gate apply delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'start' -Label 'default start JSON preview delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-apply','-Pack',$Pack,'-Apply') -CommandName 'start' -Label 'default start apply delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-json-apply','-Pack',$Pack,'-Apply','-Format','json') -CommandName 'start' -Label 'default start JSON apply delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'handoff' -Label 'default handoff JSON preview delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply') -CommandName 'handoff' -Label 'default handoff apply delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply','-Format','json') -CommandName 'handoff' -Label 'default handoff JSON apply delegation'
   Assert-FakeFallback -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List') -Expected '[observation]' -Label 'note text list fallback'
-
-  Assert-FakeDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'start' -Label 'start JSON preview delegation'
-  Assert-FakeDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'handoff' -Label 'handoff JSON preview delegation'
-  Assert-FakeDelegation -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'continue' -Label 'continue JSON preview delegation'
   Assert-FakeFallback -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf') -Expected 'would create or enter feature workstream:' -Label 'start text preview fallback'
+  Assert-FakeFallback -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack) -Expected 'feature-' -Label 'start bare text fallback'
+  Assert-FakeFallback -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf') -Expected 'would write workstream handoff:' -Label 'handoff text preview fallback'
+  Assert-FakeFallback -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack) -Expected 'main-latest.md' -Label 'handoff bare text fallback'
+
+  Assert-FakeDelegation -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'continue' -Label 'continue JSON preview delegation'
 
   # Disable wins over default and explicit enable.
   $disabledOut = Invoke-RekitSmoke -Arguments @('-Command','status') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1' }
@@ -236,6 +247,12 @@ try {
   $disabledNoteAppendOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','disabled note append','-Summary','fallback note append','-Actor','facade-smoke') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledNoteAppendOut -Unexpected 'delegatedByFake' -Label 'go disabled note append fallback'
   Assert-ContainsText -Text $disabledNoteAppendOut -Expected 'observation' -Label 'go disabled note append fallback'
+  $disabledStartApplyOut = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$CaseRoot,'disabled-start','-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledStartApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled start apply fallback'
+  Assert-ContainsText -Text $disabledStartApplyOut -Expected 'feature-' -Label 'go disabled start apply fallback'
+  $disabledHandoffApplyOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledHandoffApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled handoff apply fallback'
+  Assert-ContainsText -Text $disabledHandoffApplyOut -Expected 'main-latest.md' -Label 'go disabled handoff apply fallback'
 
   'facade smoke ok'
 } finally {

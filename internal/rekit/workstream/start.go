@@ -148,7 +148,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 		BlockedActions: []string{"authority/confirmed writes", "heavy-tool execution", "handoff writes", "continue auto-apply"},
 		NextSteps: []string{
 			"review this plan, then re-run start with -Apply to create or enter the workstream",
-			"PowerShell /rekit remains the public entrypoint; this is a manual Go CLI path",
+			"PowerShell /rekit remains the public entrypoint; JSON preview/apply is Go-owned by default",
 		},
 	}, nil
 }
@@ -186,7 +186,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution", "handoff writes", "continue auto-apply"},
 		NextSteps: []string{
 			"run doctor after apply",
-			"use /rekit continue " + workstreamLabel(lane) + " through the PowerShell runtime to enter the lane workflow",
+			"use /rekit continue " + workstreamLabel(lane) + " to enter the lane workflow",
 		},
 	}, nil
 }

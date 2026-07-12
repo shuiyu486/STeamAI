@@ -177,9 +177,9 @@ try {
   Assert-WriteAction -Result $preview -Path '.rekit/handovers/latest.md' -Action 'would-write-latest-project-handoff' | Out-Null
   Assert-TreeUnchanged -Root $rekitRoot -BeforeSnapshot $beforeFiles -BeforeDirectories $beforeDirs
 
-  $facadePreviewJson = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','login','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
+  $facadePreviewJson = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','login','-Format','json') | ConvertFrom-Json
   if ([string]$facadePreviewJson.command -ne 'handoff' -or [bool]$facadePreviewJson.isMutation -or [bool]$facadePreviewJson.applied -or [bool]$facadePreviewJson.project -or [string]$facadePreviewJson.lane.id -ne 'feature-login') { throw "unexpected facade handoff JSON preview: $($facadePreviewJson | ConvertTo-Json -Depth 20)" }
-  Assert-ContainsText -Text ([string]::Join("`n", @($facadePreviewJson.nextSteps))) -Expected 'manual Go CLI path' -Label 'facade handoff JSON delegated to Go'
+  Assert-ContainsText -Text ([string]::Join("`n", @($facadePreviewJson.nextSteps))) -Expected 'JSON preview/apply is Go-owned by default' -Label 'facade handoff JSON delegated to Go by default'
   Assert-WriteAction -Result $facadePreviewJson -Path '.rekit/handovers/feature-login-latest.md' -Action 'would-write-latest-lane-handoff' | Out-Null
   Assert-TreeUnchanged -Root $rekitRoot -BeforeSnapshot $beforeFiles -BeforeDirectories $beforeDirs
 
@@ -206,12 +206,13 @@ try {
   Invoke-RekitSmoke -Arguments @('-Command','doctor','-Target',$caseRoot,'-Pack',$Pack) | Out-Null
 
   Invoke-GoRekitSmoke -Arguments @('-Command','init','-Target',$facadeRoot,'-Pack',$Pack,'-ProjectName',"handoff-facade-$suffix",'-Apply') | Out-Null
-  $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','login') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
-  Assert-ContainsText -Text $facadeOut -Expected 'would write workstream handoff: login' -Label 'facade handoff fallback'
+  Invoke-GoRekitSmoke -Arguments @('-Command','start','-Target',$facadeRoot,'-Pack',$Pack,'-Name','facade','-Apply') | Out-Null
+  $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','facade') -Env @{ REKIT_GO_DISABLE = '1' }
+  Assert-ContainsText -Text $facadeOut -Expected 'would write workstream handoff: facade' -Label 'facade handoff fallback'
   Assert-NotContainsText -Text $facadeOut -Unexpected 'schemaVersion' -Label 'facade handoff fallback'
-  $facadeApplyJsonError = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-Format','json','login') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
-  Assert-ContainsText -Text $facadeApplyJsonError -Expected 'handoff -Format json currently supports -WhatIf preview only' -Label 'handoff json apply guard'
-  $global:LASTEXITCODE = 0
+  $facadeApplyJson = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Format','json','login') | ConvertFrom-Json
+  if ([string]$facadeApplyJson.command -ne 'handoff' -or -not [bool]$facadeApplyJson.isMutation -or -not [bool]$facadeApplyJson.applied -or [bool]$facadeApplyJson.project -or [string]$facadeApplyJson.lane.id -ne 'feature-login') { throw "unexpected facade handoff JSON apply: $($facadeApplyJson | ConvertTo-Json -Depth 20)" }
+  Assert-WriteAction -Result $facadeApplyJson -Path '.rekit/handovers/feature-login-latest.md' -Action 'write-latest-lane-handoff' | Out-Null
 
   'handoff apply smoke ok'
 } finally {
