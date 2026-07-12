@@ -3052,3 +3052,32 @@ git diff --check
 ```
 
 验证结果：全部通过。`catalog-smoke.ps1`、`pack-smoke-matrix-selftest.ps1`、discovery guard、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 101：test catalog full script coverage
+
+状态：已完成。
+
+目标：把 `rekit/tests/catalog.json` 从“主要 smoke 导航”提升为覆盖全部 `rekit/tests/*.ps1` 的测试目录，并让 `catalog-smoke.ps1` 在新增脚本未登记时失败，避免后续测试入口悄悄脱离机器可读导航。
+
+实施范围：
+
+- 扩展 `catalog.json` 覆盖当前全部 32 个 `rekit/tests/*.ps1` 文件，包括 init/bootstrap、sync/promote preflight/apply、workstream、Agent Team dry-run、overview、handoff 与 continue smoke；`pack-smoke-lib.ps1` 保持 `pack-helper` 类别，`pack-smoke-matrix.ps1 -DiscoveryOnly` 作为同脚本的 discovery 命令 entry 保留。
+- 新增 `case-scaffold` catalog category，用于区分 init/bootstrap scaffold smoke 与 sync/promote、workstream、pack smoke。
+- 增强 `catalog-smoke.ps1`：枚举 `rekit/tests/*.ps1` 并断言每个脚本至少有一个 catalog entry，同时继续校验 id、category、字段完整性、脚本/文档路径、pack smoke 与 discovery guard 一致性。
+- 更新 `rekit/tests/README.md`、CHANGELOG 与本计划文档，说明 catalog 现在覆盖全部脚本而非仅常用 smoke。
+
+边界：本批只更新测试导航 metadata、自测校验和文档，不改变任何 smoke 的执行语义、runtime、pack manifest、Go backend、PowerShell façade 委托集合或写入路径；`catalog-smoke.ps1` 仍只运行 discovery guard，不执行 case smoke；不接触真实 case，不执行样本、网络、debug、dump、patch、hook、fuzz、exploit replay，不写 authority/confirmed。
+
+停止条件：若后续要让 catalog 自动执行测试、按 category 生成 CI matrix、引入 JSON Schema 文件或拆分 helper/command 多 entry 的 schema version，应作为独立批次评估执行时间、失败定位和安全边界。
+
+验证：
+
+```powershell
+.\rekit\tests\catalog-smoke.ps1
+.\rekit\tests\pack-smoke-matrix-selftest.ps1
+.\rekit\tests\pack-smoke-matrix.ps1 -DiscoveryOnly
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```

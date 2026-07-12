@@ -61,6 +61,7 @@ $validCategories = @(
   'pack-matrix',
   'pack-helper',
   'pack-smoke',
+  'case-scaffold',
   'subagents',
   'sync-promote',
   'agent-team',
@@ -70,7 +71,12 @@ $validCategories = @(
 $categorySet = @{}
 foreach ($category in $validCategories) { $categorySet[$category] = $true }
 
+$scriptFiles = Get-ChildItem -LiteralPath $ScriptDir -Filter '*.ps1' -File | ForEach-Object { $_.Name }
+$scriptFileSet = @{}
+foreach ($scriptFile in @($scriptFiles)) { $scriptFileSet[[string]$scriptFile] = $true }
+
 $ids = @{}
+$catalogScriptSet = @{}
 foreach ($test in $tests) {
   $id = [string]$test.id
   Assert-NonEmptyString -Value $id -Label 'test.id'
@@ -93,6 +99,7 @@ foreach ($test in $tests) {
   $scriptLeaf = Get-ScriptLeafFromCatalogCommand -Command $script
   if ($scriptLeaf -like '*.ps1') {
     Assert-True -Condition (Test-Path -LiteralPath (Join-Path $ScriptDir $scriptLeaf) -PathType Leaf) -Message "$id script does not exist: $scriptLeaf"
+    $catalogScriptSet[$scriptLeaf] = $true
   }
 
   foreach ($doc in @($test.relatedDocs)) {
@@ -110,6 +117,13 @@ foreach ($test in $tests) {
 
 foreach ($requiredId in @('facade-smoke','pack-inventory-smoke','catalog-smoke','pack-smoke-matrix-selftest','pack-smoke-matrix-discovery','pack-smoke-matrix','pack-smoke-lib')) {
   Assert-True -Condition $ids.ContainsKey($requiredId) -Message "catalog missing required test id: $requiredId"
+}
+
+foreach ($scriptFile in $scriptFileSet.Keys) {
+  Assert-True -Condition $catalogScriptSet.ContainsKey($scriptFile) -Message "catalog missing script entry: $scriptFile"
+}
+foreach ($scriptLeaf in $catalogScriptSet.Keys) {
+  Assert-True -Condition $scriptFileSet.ContainsKey($scriptLeaf) -Message "catalog references unknown script: $scriptLeaf"
 }
 
 $discovery = Invoke-DiscoveryJson

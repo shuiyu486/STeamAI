@@ -111,6 +111,7 @@
 - Batch 98 完成：补齐 `rekit/tests/README.md` 在 `CLAUDE.md`、`docs/pack-authoring.md`、`docs/go-runtime-migration.md` 与 `docs/agent-team-usage.md` 中的维护入口和验证选择说明，让测试指南成为 smoke 选择的单一导航入口。
 - Batch 99 完成：新增 `rekit/tests/catalog.json` 机器可读测试导航目录，记录主要 smoke 的 category、purpose、recommendedFor、WorkRoot/CaseRoot 支持、安全边界和相关文档；该 catalog 只供选择测试或后续 CI/自动化消费，不自动执行命令。
 - Batch 100 完成：新增 `rekit/tests/catalog-smoke.ps1`，校验 `catalog.json` schema、唯一 id、字段完整性、脚本/文档路径、pack smoke entry 与 discovery guard 一致性，并将 catalog 自测纳入 tests README 和 README 维护入口。
+- Batch 101 完成：扩展 `rekit/tests/catalog.json` 覆盖全部 `rekit/tests/*.ps1` smoke/helper，新增 `case-scaffold` 分类，并增强 `catalog-smoke.ps1` 枚举脚本目录、在新增脚本未登记时失败，保持机器可读测试导航与实际维护入口同步。
 
 ### Fixed
 

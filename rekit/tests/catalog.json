@@ -45,7 +45,7 @@
       "id": "catalog-smoke",
       "script": "catalog-smoke.ps1",
       "category": "catalog",
-      "purpose": "Validate catalog.json schema, unique ids, script/doc paths, field completeness, and pack smoke discovery alignment.",
+      "purpose": "Validate catalog.json schema, unique ids, script/doc paths, field completeness, all script coverage, and pack smoke discovery alignment.",
       "recommendedFor": ["catalog.json", "test navigation", "smoke metadata"],
       "supportsWorkRoot": false,
       "supportsCaseRoot": false,
@@ -193,15 +193,37 @@
       "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
     },
     {
-      "id": "plan-subagents-smoke",
-      "script": "plan-subagents-smoke.ps1",
-      "category": "subagents",
-      "purpose": "Validate plan-subagents route selection, sharding, review artifact, observability, out-of-case guard, and facade fallback.",
-      "recommendedFor": ["plan-subagents", "subagent routes", "review packet"],
+      "id": "init-bootstrap-smoke",
+      "script": "init-bootstrap-smoke.ps1",
+      "category": "case-scaffold",
+      "purpose": "Validate Go init/bootstrap preview and apply case scaffold behavior.",
+      "recommendedFor": ["init", "bootstrap", "case scaffold", "managed docs"],
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
-      "riskBoundary": "Does not spawn agents and does not write board/facts/lanes/handoff/authority.",
-      "relatedDocs": ["docs/go-runtime-migration.md", "docs/orchestration-plan.md", "rekit/tests/README.md"]
+      "riskBoundary": "Uses temporary case roots only; does not target real case data.",
+      "relatedDocs": ["docs/init-bootstrap-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "sync-review-parity-smoke",
+      "script": "sync-review-parity-smoke.ps1",
+      "category": "sync-promote",
+      "purpose": "Validate PowerShell and Go sync review action and bounded diff parity.",
+      "recommendedFor": ["sync review", "bounded diff", "review artifact"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Uses temporary cases and review artifacts; does not apply managed docs.",
+      "relatedDocs": ["docs/sync-apply-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "sync-apply-smoke",
+      "script": "sync-apply-smoke.ps1",
+      "category": "sync-promote",
+      "purpose": "Validate Go sync apply with managed docs, managed block, templates, state, backup, and doctor.",
+      "recommendedFor": ["sync apply", "managed docs", "case state"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Uses temporary case only; actual public facade write path remains fallback unless explicitly changed.",
+      "relatedDocs": ["docs/sync-apply-migration.md", "rekit/tests/README.md"]
     },
     {
       "id": "sync-apply-parity-smoke",
@@ -215,6 +237,39 @@
       "relatedDocs": ["docs/sync-apply-migration.md", "rekit/tests/README.md"]
     },
     {
+      "id": "promote-candidates-preflight-smoke",
+      "script": "promote-candidates-preflight-smoke.ps1",
+      "category": "sync-promote",
+      "purpose": "Validate promote candidate preview/review parity, sanitized preview, write guard, and facade fallback.",
+      "recommendedFor": ["promote candidates", "preflight", "sanitization"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Does not write pack candidates; uses temporary case and review artifacts.",
+      "relatedDocs": ["docs/promote-candidates-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "promote-candidates-apply-smoke",
+      "script": "promote-candidates-apply-smoke.ps1",
+      "category": "sync-promote",
+      "purpose": "Validate Go promote candidate/index/tooling candidate writes, deny handling, sanitization, containment, and cleanup.",
+      "recommendedFor": ["promote candidates", "candidate index", "tooling sanitization"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Uses safe fixtures and cleanup; does not write authority or confirmed artifacts.",
+      "relatedDocs": ["docs/promote-candidates-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "promote-apply-preflight-smoke",
+      "script": "promote-apply-preflight-smoke.ps1",
+      "category": "sync-promote",
+      "purpose": "Validate promote apply preflight baseline, backup, deny, Go apply what-if, and facade fallback.",
+      "recommendedFor": ["promote apply", "preflight", "backup", "deny patterns"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Uses temporary case and preflight previews; does not write pack source via public facade.",
+      "relatedDocs": ["docs/promote-apply-migration.md", "rekit/tests/README.md"]
+    },
+    {
       "id": "promote-apply-smoke",
       "script": "promote-apply-smoke.ps1",
       "category": "sync-promote",
@@ -226,6 +281,17 @@
       "relatedDocs": ["docs/promote-apply-migration.md", "rekit/tests/README.md"]
     },
     {
+      "id": "plan-subagents-smoke",
+      "script": "plan-subagents-smoke.ps1",
+      "category": "subagents",
+      "purpose": "Validate plan-subagents route selection, sharding, review artifact, observability, out-of-case guard, and facade fallback.",
+      "recommendedFor": ["plan-subagents", "subagent routes", "review packet"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Does not spawn agents and does not write board/facts/lanes/handoff/authority.",
+      "relatedDocs": ["docs/go-runtime-migration.md", "docs/orchestration-plan.md", "rekit/tests/README.md"]
+    },
+    {
       "id": "agent-team-review-loop-smoke",
       "script": "agent-team-review-loop-smoke.ps1",
       "category": "agent-team",
@@ -234,6 +300,17 @@
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
       "riskBoundary": "Temporary case only; no subagent spawn, heavy-tool execution, or authority/confirmed write.",
+      "relatedDocs": ["docs/agent-team-usage.md", "docs/evidence-ledger.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "agent-team-d5-dryrun-smoke",
+      "script": "agent-team-d5-dryrun-smoke.ps1",
+      "category": "agent-team",
+      "purpose": "Validate candidate, verification, decision, batch, intervention/rollback, note-list, overview, handoff, and doctor dry-run flow.",
+      "recommendedFor": ["Agent Team dry-run", "batch display", "intervention rollback display"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Temporary mock case only; no heavy-tool execution or authority/confirmed write.",
       "relatedDocs": ["docs/agent-team-usage.md", "docs/evidence-ledger.md", "rekit/tests/README.md"]
     },
     {
@@ -248,6 +325,39 @@
       "relatedDocs": ["docs/evidence-ledger.md", "docs/go-runtime-migration.md", "rekit/tests/README.md"]
     },
     {
+      "id": "overview-readonly-smoke",
+      "script": "overview-readonly-smoke.ps1",
+      "category": "workstream",
+      "purpose": "Validate Go overview readonly output, JSON envelope, missing board guard, gate request display, and facade fallback.",
+      "recommendedFor": ["overview", "readonly workstream display", "facade overview JSON"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Temporary case only; readonly path must not create board/facts/lanes.",
+      "relatedDocs": ["docs/go-runtime-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "start-apply-smoke",
+      "script": "start-apply-smoke.ps1",
+      "category": "workstream",
+      "purpose": "Validate Go start preview/apply scaffold, board/facts/policy/lane/workspace, doctor, and facade fallback.",
+      "recommendedFor": ["start", "lane scaffold", "workstream apply"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Temporary case only; public facade write path remains fallback unless explicitly changed.",
+      "relatedDocs": ["docs/go-runtime-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "handoff-apply-smoke",
+      "script": "handoff-apply-smoke.ps1",
+      "category": "workstream",
+      "purpose": "Validate Go handoff preview/apply, lane resume/checkpoint, ledger display sections, doctor, and facade fallback.",
+      "recommendedFor": ["handoff", "workstream handoff", "ledger display"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Temporary case only; no authority/confirmed or heavy-tool execution.",
+      "relatedDocs": ["docs/go-runtime-migration.md", "rekit/tests/README.md"]
+    },
+    {
       "id": "continue-preflight-smoke",
       "script": "continue-preflight-smoke.ps1",
       "category": "workstream",
@@ -256,6 +366,28 @@
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
       "riskBoundary": "Temporary case only; authority gate fixture is controlled and cleaned up.",
+      "relatedDocs": ["docs/go-runtime-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "continue-whatif-smoke",
+      "script": "continue-whatif-smoke.ps1",
+      "category": "workstream",
+      "purpose": "Validate Go continue non-write preview, wouldWrites, blocked actions, facade fallback, and apply guard.",
+      "recommendedFor": ["continue what-if", "workstream preview", "Go continue"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Preview only; must not write facts/run/board/lane/authority.",
+      "relatedDocs": ["docs/go-runtime-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "continue-digest-smoke",
+      "script": "continue-digest-smoke.ps1",
+      "category": "workstream",
+      "purpose": "Validate structured continue digest and status fields including inputs, route, packet refs, outputs, decisions, and open risks.",
+      "recommendedFor": ["continue digest", "status digest", "run summary"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Temporary case only; no external side effects.",
       "relatedDocs": ["docs/go-runtime-migration.md", "rekit/tests/README.md"]
     }
   ]

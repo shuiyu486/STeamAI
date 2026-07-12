@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-`rekit/tests` 里的脚本都是仓库维护验证入口，默认使用临时 case 或只读仓库状态，目标是锁定 review-first、no-write、Go/PowerShell parity 和 pack skeleton 边界。`catalog.json` 用相同分类记录常用 smoke 的 `category`、`purpose`、`recommendedFor`、`supportsWorkRoot` 和 `riskBoundary`，供后续自动测试选择器或 CI 读取。
+`rekit/tests` 里的脚本都是仓库维护验证入口，默认使用临时 case 或只读仓库状态，目标是锁定 review-first、no-write、Go/PowerShell parity 和 pack skeleton 边界。`catalog.json` 用相同分类记录全部 `*.ps1` smoke/helper 的 `category`、`purpose`、`recommendedFor`、`supportsWorkRoot` 和 `riskBoundary`，供后续自动测试选择器或 CI 读取。
 
 推荐最小回归组合：
 
@@ -52,7 +52,7 @@ git diff --check
 |---|---|---|
 | `facade-smoke.ps1` | 改 `rekit.ps1`、Go façade 委托集合或 JSON preview/read-only 委托 | 默认不委托、显式 Go 安全集合、disable 优先级、文本/write fallback。 |
 | `pack-inventory-smoke.ps1` | 改 pack manifest、maturity、inventory、status/doctor JSON | `/rekit packs/status/doctor/validate` text+JSON parity、Go/PowerShell/facade 委托。 |
-| `catalog-smoke.ps1` | 改 `catalog.json` 或测试导航字段 | catalog schema、唯一 id、脚本/文档存在性、pack smoke 与 discovery 对齐。 |
+| `catalog-smoke.ps1` | 改 `catalog.json` 或测试导航字段 | catalog schema、唯一 id、全部 `*.ps1` 覆盖、脚本/文档存在性、pack smoke 与 discovery 对齐。 |
 | `pack-smoke-matrix.ps1 -DiscoveryOnly` | 新增/删除 skeleton pack 或 pack smoke wrapper | inventory 中 schema-valid skeleton pack 与 matrix 清单/wrapper 一致性。 |
 | `pack-smoke-matrix.ps1` | 需要全量 pack skeleton smoke 回归 | 串行运行全部安全领域 skeleton pack smoke。 |
 | `pack-smoke-matrix.ps1 -Packs web-security,generic-binary-re -Format json` | 需要快速子集或机器可读结果 | 子集 pack smoke + JSON envelope。 |
