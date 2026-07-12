@@ -76,6 +76,7 @@
 - Batch 63 完成：pack `manifest.yml` 新增显式 `maturity` 字段（`mature` / `template` / `skeleton` / `experimental`），`/rekit packs` 的成熟度优先读取 manifest，Go 与 PowerShell schema 校验均拒绝缺失或不支持的 maturity，避免后续多安全领域 pack 依赖描述启发式推断。
 - Batch 64 完成：`/rekit packs` 新增 `-Format json` 机器可读输出，Go backend、PowerShell fallback 与显式 Go façade 委托均支持同一 envelope（`command/schemaVersion/isMutation/packCount/packs[]`），便于后续 pack-neutral 编排、CI 和新会话接手直接消费 pack inventory。
 - Batch 65 完成：`/rekit status` 新增 `-Format json` 机器可读输出，Go backend、PowerShell fallback 与显式 Go façade 委托均支持同一只读 envelope（`command/schemaVersion/isMutation/runtimeRoot/templateRoot/pack/target/mode/case/manifest`），让 kit/case 绑定状态可被 CI、smoke 和后续编排直接消费。
+- Batch 66 完成：`/rekit doctor` / `validate` 新增 `-Format json` 机器可读验证输出，Go backend、PowerShell fallback 与显式 Go façade 委托均支持 `command/schemaVersion/isMutation/pack/target/mode/valid/summary/rows[]` envelope，方便自动化消费 pack/case 验证 rows。
 
 ### Fixed
 

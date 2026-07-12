@@ -139,6 +139,20 @@ function Assert-StatusJson {
   }
 }
 
+function Assert-DoctorJson {
+  param(
+    [Parameter(Mandatory=$true)]$Doctor,
+    [Parameter(Mandatory=$true)][string]$Command
+  )
+  if ([string]$Doctor.command -ne $Command -or [int]$Doctor.schemaVersion -ne 1 -or [bool]$Doctor.isMutation -or [string]$Doctor.mode -ne 'pack' -or -not [bool]$Doctor.valid -or [string]$Doctor.summary -ne 'pack validation ok') {
+    throw "unexpected $Command JSON envelope: $($Doctor | ConvertTo-Json -Depth 20)"
+  }
+  $rows = @($Doctor.rows)
+  if ($rows.Count -lt 1 -or [string]::IsNullOrWhiteSpace([string]$rows[0].file) -or [int64]$rows[0].bytes -le 0 -or [int64]$rows[0].limit -le 0) {
+    throw "unexpected $Command JSON rows: $($Doctor | ConvertTo-Json -Depth 20)"
+  }
+}
+
 function New-TransientPackManifest {
   param(
     [Parameter(Mandatory=$true)][string]$Pack,
@@ -167,6 +181,20 @@ $psStatusJson = Invoke-RekitSmoke -Arguments @('-Command','status','-Format','js
 $facadeStatusJson = Invoke-RekitSmoke -Arguments @('-Command','status','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
 foreach ($json in @($goStatusJson,$psStatusJson,$facadeStatusJson)) {
   Assert-StatusJson -Status $json -Mode 'kit'
+}
+
+$goDoctorJson = Invoke-GoRekitSmoke -Arguments @('-Command','doctor','-Format','json') | ConvertFrom-Json
+$psDoctorJson = Invoke-RekitSmoke -Arguments @('-Command','doctor','-Format','json') | ConvertFrom-Json
+$facadeDoctorJson = Invoke-RekitSmoke -Arguments @('-Command','doctor','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
+foreach ($json in @($goDoctorJson,$psDoctorJson,$facadeDoctorJson)) {
+  Assert-DoctorJson -Doctor $json -Command 'doctor'
+}
+
+$goValidateJson = Invoke-GoRekitSmoke -Arguments @('-Command','validate','-Format','json') | ConvertFrom-Json
+$psValidateJson = Invoke-RekitSmoke -Arguments @('-Command','validate','-Format','json') | ConvertFrom-Json
+$facadeValidateJson = Invoke-RekitSmoke -Arguments @('-Command','validate','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
+foreach ($json in @($goValidateJson,$psValidateJson,$facadeValidateJson)) {
+  Assert-DoctorJson -Doctor $json -Command 'validate'
 }
 
 $goOut = Invoke-GoRekitSmoke -Arguments @('-Command','packs')
@@ -229,6 +257,12 @@ try {
 
   $sentinelStatusJsonOut = Invoke-RekitSmoke -Arguments @('-Command','status','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
   Assert-ContainsText -Text $sentinelStatusJsonOut -Expected '-Format json' -Label 'facade status format delegation args'
+
+  $sentinelDoctorJsonOut = Invoke-RekitSmoke -Arguments @('-Command','doctor','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
+  Assert-ContainsText -Text $sentinelDoctorJsonOut -Expected '-Format json' -Label 'facade doctor format delegation args'
+
+  $sentinelValidateJsonOut = Invoke-RekitSmoke -Arguments @('-Command','validate','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
+  Assert-ContainsText -Text $sentinelValidateJsonOut -Expected '-Format json' -Label 'facade validate format delegation args'
 
   $disabledOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $sentinel }
   Assert-NotContainsText -Text $disabledOut -Unexpected 'sentinel-go-packs' -Label 'facade packs disable fallback'

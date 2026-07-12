@@ -53,7 +53,7 @@ disable-model-invocation: true
 | `/rekit handoff <name>` | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；包含该工作线最近 verification/decision 等轻量 ledger 摘要。 |
 | `/rekit sync` | 默认先生成 LLM 审查包；用户确认具体范围后才执行写入型 sync。 |
 | `/rekit promote` | 默认先生成回流审查包；用户确认后才生成候选或写回 pack。 |
-| `/rekit doctor` | 验证 kit / case 结构、文档预算和 policy registry。 |
+| `/rekit doctor` | 验证 kit / case 结构、文档预算和 policy registry；`-Format json` 输出机器可读验证 rows。 |
 | `/rekit gate -WhatIf` | Go backend 的 heavy-tool gate 预览入口；只输出 pending-gate request plan，不写 ledger、不执行 full-trace/debug/inject/patch/dump。默认不启用 façade 委托，维护者显式设置 `REKIT_GO_ENABLE=1` 后才可经 `/rekit` 调用。 |
 | `/rekit plan-subagents` | 内部只读计划器：根据 pack manifest 的 `subagentRoutes` 生成子 agent 分片计划；不启动 agent，不修改 managed/project source files；会写 `.rekit/reviews/...` 审查产物。日常不要主动推荐给用户。 |
 | `/rekit note` | 账本写入/查询入口：手动向 `.rekit/facts/*.jsonl` append observation/hypothesis/candidate/verification/decision/intervention/rollback/publication/request 事件，用于 heavy-tool gate 登记、decision/observation 手动落账。`-List` 进入查询模式，按 `-Kind`/`-Lane` 过滤列出事件。写入受 schema 校验（confidence/decision/status 枚举、evidenceRefs 非空、lane 存在性）。 |

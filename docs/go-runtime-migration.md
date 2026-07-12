@@ -241,7 +241,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 
 - `status`（支持默认文本和 `-Format json` 机器可读 envelope）；
 - `packs` 只读 pack inventory（支持默认 TSV 和 `-Format json`）；
-- kit-root 与 attached case `doctor` / `validate`；
+- kit-root 与 attached case `doctor` / `validate`（支持默认文本和 `-Format json` 验证 rows envelope）；
 - `sync/promote` review-only（含 `-ReviewOutputDir` / `-PacketPath` / `-DiffPath` artifact 写入）；
 - `gate -WhatIf` dry-run（仅输出非写入 plan，不执行 heavy-tool、不写 ledger）。
 
@@ -253,9 +253,9 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 |---|---|---|
 | Go status | `go run ./cmd/rekit -- -Command status` / `-Format json` | 默认输出 runtime root、template root、pack、manifest counts；JSON 输出 `command/schemaVersion/isMutation/runtimeRoot/templateRoot/pack/target/mode/case/manifest` envelope。 |
 | Go packs inventory | `go run ./cmd/rekit -- -Command packs` / `-Format json` | 只读列出所有 `packs/*/manifest.yml`，显示成熟度、schema、route、managed/tooling、authority lane、version 与 description；JSON 输出同一 inventory envelope。 |
-| Go vmp doctor | `go run ./cmd/rekit -- -Command doctor` | pack validation ok。 |
-| Go explicit root doctor | `go run ./cmd/rekit -- -Command doctor -Target .` | pack validation ok。 |
-| Go case doctor | `go run ./cmd/rekit -- -Command doctor -Target <case> -Pack vmp-re` | attached case 结构只读验证，输出 `instance validation ok`。 |
+| Go vmp doctor | `go run ./cmd/rekit -- -Command doctor` / `-Format json` | 默认输出 `pack validation ok`；JSON 输出 `command/schemaVersion/isMutation/pack/target/mode/valid/summary/rows[]` envelope。 |
+| Go explicit root doctor | `go run ./cmd/rekit -- -Command doctor -Target .` / `-Format json` | pack validation ok；JSON mode 为 `pack`。 |
+| Go case doctor | `go run ./cmd/rekit -- -Command doctor -Target <case> -Pack vmp-re` / `-Format json` | attached case 结构只读验证，默认输出 `instance validation ok`；JSON mode 为 `case`。 |
 | Go non-case target doctor | `go run ./cmd/rekit -- -Command doctor -Target .\does-not-exist` | 报错，不得误报 pack validation ok。 |
 | Go template doctor | `go run ./cmd/rekit -- -Command doctor -Pack _template` | pack validation ok，模板 pack 自带 pack-neutral subagent routes。 |
 | Go sync review artifacts | `go run ./cmd/rekit -- -Command sync -Target <case> -Pack vmp-re -ReviewOutputDir <dir>` | 写 `packet.json`、`summary.md`、`diffs/combined.diff`，返回 `isMutation=false` / `writesArtifacts=true`。 |
@@ -285,6 +285,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Go repair apply | `go run ./cmd/rekit -- -Command repair -Target <movedCase> -Pack vmp-re -Apply` | 只刷新 `.rekit/instance.yml`、`.re-template.yml` 与 case-local thin shim，不写 managed docs、board/facts/lanes 或 authority。 |
 | Façade Go status | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command status` / `-Format json` | 通过显式开关委托 Go，默认输出 `rekit go backend`；JSON 输出与 PowerShell fallback 对齐的 status envelope。 |
 | Façade Go packs inventory | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command packs` / `-Format json` | 通过显式开关委托 Go，输出与 PowerShell fallback 对齐的 pack inventory 表或 JSON envelope。 |
+| Façade Go doctor/validate | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command doctor -Format json` | 通过显式开关委托 Go，输出与 PowerShell fallback 对齐的验证 rows envelope。 |
 | Façade Go sync review artifacts | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command sync -Target <case> -ReviewOutputDir <dir>` | 委托 Go 写 review artifacts，不写 managed docs。 |
 | Façade Go gate dry-run | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command gate -Target <case> -WhatIf -Action debug -Lane <lane>` | 委托 Go 输出非写入 gate plan；无 ENABLE 时拒绝并提示手动 Go。 |
 | Façade smoke | `.\rekit\tests\facade-smoke.ps1 -CaseRoot <case> -Pack vmp-re` | 覆盖默认不委托、显式安全集合、disable 优先级和写入 flags fallback。 |

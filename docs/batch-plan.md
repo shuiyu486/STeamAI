@@ -1993,3 +1993,33 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli`、`go test ./...`、`pack-inventory-smoke.ps1`、`/rekit status`、`/rekit status -Format json`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 66：doctor / validate JSON 输出
+
+状态：已完成。
+
+目标：延续 Batch 64-65 的机器可读 envelope 模式，为只读 `/rekit doctor` / `validate` 增加 `-Format json`，让 pack/case 验证 rows、mode、summary 与 valid 状态可被 CI、新会话接手和后续编排直接消费，而不需要解析人类文本。
+
+实施范围：
+
+- Go CLI `doctor` / `validate` 接收 `-Format json` / `--format json`，默认文本输出保持兼容；JSON 输出 envelope 包含 `command`、`schemaVersion`、`isMutation`、pack、target、`mode`、`valid`、`summary` 与 `rows[]`。
+- Go `doctor.Row` 增加稳定 JSON tags；`doctor` 与 `validate` 共享同一只读验证输出路径。
+- PowerShell façade / fallback 的 `doctor` / `validate` 同步支持 `-Format json`，显式 `REKIT_GO_ENABLE=1` 时将 `-Format` 透传给 Go backend。
+- `rekit/tests/pack-inventory-smoke.ps1` 扩展为覆盖 Go、PowerShell fallback 和 Go façade 的 kit-mode doctor / validate JSON，并用 sentinel 验证 façade format 参数透传。
+- 更新 README、skill、Go runtime migration 与 CHANGELOG，说明 doctor / validate JSON 是只读机器可读验证输出。
+
+边界：本批只增强只读验证输出；不创建/修改 case，不写 board/facts/lanes/handoff/authority/confirmed，不改变 sync/promote review-first 语义，不新增写入型 façade 委托。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/doctor
+go test ./...
+.\rekit\tests\pack-inventory-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor -Format json
+.\rekit\rekit.ps1 -Command validate -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/doctor`、`go test ./...`、`pack-inventory-smoke.ps1`、`/rekit validate -Format json`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

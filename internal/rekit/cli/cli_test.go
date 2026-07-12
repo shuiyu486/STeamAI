@@ -78,6 +78,54 @@ func TestRunDoctorRejectsNonCaseTarget(t *testing.T) {
 	}
 }
 
+func TestRunDoctorJsonPack(t *testing.T) {
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "doctor", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command       string `json:"command"`
+		SchemaVersion int    `json:"schemaVersion"`
+		IsMutation    bool   `json:"isMutation"`
+		Pack          string `json:"pack"`
+		Mode          string `json:"mode"`
+		Valid         bool   `json:"valid"`
+		Summary       string `json:"summary"`
+		Rows          []struct {
+			File  string `json:"file"`
+			Bytes int64  `json:"bytes"`
+			Limit int64  `json:"limit"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("doctor JSON did not decode: %v\n%s", err, out.String())
+	}
+	if result.Command != "doctor" || result.SchemaVersion != 1 || result.IsMutation || result.Pack != "_template" || result.Mode != "pack" || !result.Valid || result.Summary != "pack validation ok" || len(result.Rows) == 0 {
+		t.Fatalf("unexpected doctor JSON: %+v", result)
+	}
+	if result.Rows[0].File == "" || result.Rows[0].Bytes <= 0 || result.Rows[0].Limit <= 0 {
+		t.Fatalf("unexpected doctor row: %+v", result.Rows[0])
+	}
+}
+
+func TestRunValidateJsonUsesValidateCommand(t *testing.T) {
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "validate", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command string `json:"command"`
+		Mode    string `json:"mode"`
+		Valid   bool   `json:"valid"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("validate JSON did not decode: %v\n%s", err, out.String())
+	}
+	if result.Command != "validate" || result.Mode != "pack" || !result.Valid {
+		t.Fatalf("unexpected validate JSON: %+v", result)
+	}
+}
+
 func TestRunCaseDoctorValidatesAttachedCase(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
@@ -86,6 +134,39 @@ func TestRunCaseDoctorValidatesAttachedCase(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "instance validation ok") || !strings.Contains(out.String(), ".rekit") {
 		t.Fatalf("unexpected case doctor output: %s", out.String())
+	}
+}
+
+func TestRunCaseDoctorJson(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "doctor", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command string `json:"command"`
+		Pack    string `json:"pack"`
+		Target  string `json:"target"`
+		Mode    string `json:"mode"`
+		Valid   bool   `json:"valid"`
+		Summary string `json:"summary"`
+		Rows    []struct {
+			File string `json:"file"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("case doctor JSON did not decode: %v\n%s", err, out.String())
+	}
+	if result.Command != "doctor" || result.Pack != "_template" || result.Target != caseRoot || result.Mode != "case" || !result.Valid || result.Summary != "instance validation ok" || len(result.Rows) == 0 {
+		t.Fatalf("unexpected case doctor JSON: %+v", result)
+	}
+}
+
+func TestRunDoctorRejectsUnsupportedFormat(t *testing.T) {
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "doctor", "-Format", "yaml"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "unsupported doctor format") {
+		t.Fatalf("error = %v, want unsupported doctor format", err)
 	}
 }
 

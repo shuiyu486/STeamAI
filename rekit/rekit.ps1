@@ -175,7 +175,7 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-ReviewOutputDir' $ReviewOutputDir
   Add-RekitGoArg ([ref]$goArgs) '-PacketPath' $PacketPath
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' $DiffPath
-  if ($Command -in @('status','packs')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
+  if ($Command -in @('status','packs','doctor','validate')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
   if ($Command -eq 'gate') {
     Add-RekitGoArg ([ref]$goArgs) '-Action' $Action
     Add-RekitGoArg ([ref]$goArgs) '-Lane' $Lane
@@ -430,36 +430,65 @@ switch ($Command) {
     Write-RekitSubagentPlan -Target $planRoot -RepoRoot $RepoRoot -Pack $Pack -Route $Route -TaskType $TaskType -Items $Items -ItemsFile $ItemsFile -ItemsPerAgent $ItemsPerAgent -MaxParallel $MaxParallel -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
   }
   { $_ -in @('validate','doctor') } {
+    $mode = 'pack'
+    $doctorTarget = $RepoRoot
+    $rows = @()
+    $summary = 'pack validation ok'
     if ([string]::IsNullOrWhiteSpace($Target)) {
       $cwd = Resolve-RekitTarget ''
       if (Test-RekitLooksLikeCase $cwd -and (-not [string]::Equals($cwd, $RepoRoot, [System.StringComparison]::OrdinalIgnoreCase))) {
         [void](Assert-RekitAttachedCase -Target $cwd -RepoRoot $RepoRoot -Pack $Pack)
-        Test-RekitInstance -Target $cwd -RepoRoot $RepoRoot -Pack $Pack | ForEach-Object {
-          Write-Host ("{0}`t{1}/{2}" -f $_.File, $_.Bytes, $_.Limit)
-        }
-        Write-Host 'instance validation ok'
+        $mode = 'case'
+        $doctorTarget = $cwd
+        $rows = @(Test-RekitInstance -Target $cwd -RepoRoot $RepoRoot -Pack $Pack)
+        $summary = 'instance validation ok'
       } else {
-        Test-RekitPack -RepoRoot $RepoRoot -Pack $Pack | ForEach-Object {
-          Write-Host ("{0}`t{1}/{2}" -f $_.File, $_.Bytes, $_.Limit)
-        }
-        Write-Host 'pack validation ok'
+        $rows = @(Test-RekitPack -RepoRoot $RepoRoot -Pack $Pack)
       }
     } else {
       $resolvedTarget = Resolve-RekitTarget $Target
+      $doctorTarget = $resolvedTarget
       if ([string]::Equals($resolvedTarget, $RepoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-        Test-RekitPack -RepoRoot $RepoRoot -Pack $Pack | ForEach-Object {
-          Write-Host ("{0}`t{1}/{2}" -f $_.File, $_.Bytes, $_.Limit)
-        }
-        Write-Host 'pack validation ok'
+        $rows = @(Test-RekitPack -RepoRoot $RepoRoot -Pack $Pack)
       } elseif (Test-RekitLooksLikeCase $resolvedTarget) {
         [void](Assert-RekitAttachedCase -Target $resolvedTarget -RepoRoot $RepoRoot -Pack $Pack)
-        Test-RekitInstance -Target $resolvedTarget -RepoRoot $RepoRoot -Pack $Pack | ForEach-Object {
-          Write-Host ("{0}`t{1}/{2}" -f $_.File, $_.Bytes, $_.Limit)
-        }
-        Write-Host 'instance validation ok'
+        $mode = 'case'
+        $rows = @(Test-RekitInstance -Target $resolvedTarget -RepoRoot $RepoRoot -Pack $Pack)
+        $summary = 'instance validation ok'
       } else {
         throw "target is neither this kit root nor an attached rekit case: $resolvedTarget"
       }
+    }
+    $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($formatValue)) { $formatValue = 'table' }
+    switch ($formatValue) {
+      { $_ -in @('table','text','tsv') } {
+        $rows | ForEach-Object {
+          Write-Host ("{0}`t{1}/{2}" -f $_.File, $_.Bytes, $_.Limit)
+        }
+        Write-Host $summary
+      }
+      'json' {
+        $jsonRows = @($rows | ForEach-Object {
+          [ordered]@{
+            file = [string]$_.File
+            bytes = [int64]$_.Bytes
+            limit = [int64]$_.Limit
+          }
+        })
+        [ordered]@{
+          command = $Command
+          schemaVersion = 1
+          isMutation = $false
+          pack = $Pack
+          target = $doctorTarget
+          mode = $mode
+          valid = $true
+          summary = $summary
+          rows = $jsonRows
+        } | ConvertTo-Json -Depth 8
+      }
+      default { throw "unsupported $Command format: $Format" }
     }
   }
 }

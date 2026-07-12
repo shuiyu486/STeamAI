@@ -10,9 +10,9 @@ import (
 )
 
 type Row struct {
-	File  string
-	Bytes int64
-	Limit int64
+	File  string `json:"file"`
+	Bytes int64  `json:"bytes"`
+	Limit int64  `json:"limit"`
 }
 
 func Pack(repoRoot, pack string) ([]Row, error) {

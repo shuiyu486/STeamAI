@@ -372,7 +372,7 @@ func Run(args []string, stdout io.Writer) error {
 	case "packs":
 		return runPacks(ctx, opt, stdout)
 	case "doctor", "validate":
-		return runDoctor(ctx, stdout)
+		return runDoctor(ctx, opt, stdout)
 	case "attach":
 		return runAttach(ctx, opt, stdout)
 	case "repair":
@@ -575,40 +575,68 @@ func buildStatusInventory(ctx runtime.Context) (statusInventory, error) {
 	return status, nil
 }
 
-func runDoctor(ctx runtime.Context, out io.Writer) error {
+type doctorInventory struct {
+	Command       string       `json:"command"`
+	SchemaVersion int          `json:"schemaVersion"`
+	IsMutation    bool         `json:"isMutation"`
+	Pack          string       `json:"pack"`
+	Target        string       `json:"target"`
+	Mode          string       `json:"mode"`
+	Valid         bool         `json:"valid"`
+	Summary       string       `json:"summary"`
+	Rows          []doctor.Row `json:"rows"`
+}
+
+func runDoctor(ctx runtime.Context, opt Options, out io.Writer) error {
+	mode, target, err := doctorModeAndTarget(ctx)
+	if err != nil {
+		return err
+	}
+	format := strings.ToLower(strings.TrimSpace(opt.Format))
+	if format == "" {
+		format = "table"
+	}
+	var rows []doctor.Row
+	if mode == "case" {
+		rows, err = doctor.Case(ctx.RepoRoot, target, ctx.Pack)
+	} else {
+		rows, err = doctor.Pack(ctx.RepoRoot, ctx.Pack)
+	}
+	if err != nil {
+		return err
+	}
+	statusLine := "pack validation ok"
+	if mode == "case" {
+		statusLine = "instance validation ok"
+	}
+	switch format {
+	case "table", "text", "tsv":
+		printRows(out, rows)
+		fmt.Fprintln(out, statusLine)
+	case "json":
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(doctorInventory{Command: opt.Command, SchemaVersion: 1, IsMutation: false, Pack: ctx.Pack, Target: target, Mode: mode, Valid: true, Summary: statusLine, Rows: rows})
+	default:
+		return fmt.Errorf("unsupported %s format: %s", opt.Command, opt.Format)
+	}
+	return nil
+}
+
+func doctorModeAndTarget(ctx runtime.Context) (string, string, error) {
 	if !ctx.TargetProvided {
 		if instance.LooksLikeCase(ctx.Cwd) && !samePath(ctx.Cwd, ctx.RepoRoot) {
-			return runCaseDoctor(ctx, ctx.Cwd, out)
+			return "case", ctx.Cwd, nil
 		}
-		return runPackDoctor(ctx, out)
+		return "pack", ctx.RepoRoot, nil
 	}
 	if samePath(ctx.Target, ctx.RepoRoot) {
-		return runPackDoctor(ctx, out)
+		return "pack", ctx.Target, nil
 	}
 	if instance.LooksLikeCase(ctx.Target) {
-		return runCaseDoctor(ctx, ctx.Target, out)
+		return "case", ctx.Target, nil
 	}
-	return fmt.Errorf("target is neither this kit root nor an attached rekit case: %s", ctx.Target)
-}
-
-func runPackDoctor(ctx runtime.Context, out io.Writer) error {
-	rows, err := doctor.Pack(ctx.RepoRoot, ctx.Pack)
-	if err != nil {
-		return err
-	}
-	printRows(out, rows)
-	fmt.Fprintln(out, "pack validation ok")
-	return nil
-}
-
-func runCaseDoctor(ctx runtime.Context, target string, out io.Writer) error {
-	rows, err := doctor.Case(ctx.RepoRoot, target, ctx.Pack)
-	if err != nil {
-		return err
-	}
-	printRows(out, rows)
-	fmt.Fprintln(out, "instance validation ok")
-	return nil
+	return "", "", fmt.Errorf("target is neither this kit root nor an attached rekit case: %s", ctx.Target)
 }
 
 func runAttach(ctx runtime.Context, opt Options, out io.Writer) error {
