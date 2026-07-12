@@ -369,6 +369,7 @@ function Invoke-RekitNote {
     [string]$Scope = '',
     [string]$Expires = '',
     [string]$EvidenceRefs = '',
+    [string]$Format = '',
     [switch]$List,
     [switch]$WhatIf
   )
@@ -376,35 +377,62 @@ function Invoke-RekitNote {
   [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
   $validKinds = @('observation','candidate','request','publication','decision','hypothesis','verification','intervention','rollback')
   if ($List) {
+    $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($formatValue)) { $formatValue = 'table' }
     $paths = Get-RekitBoardPaths -CaseRoot $caseRoot
     $kindsToList = if ([string]::IsNullOrWhiteSpace($Kind)) { $validKinds } else { @($Kind) }
-    $hasFilter = $false
     foreach ($k in $kindsToList) { if ($validKinds -notcontains $k) { throw "invalid note kind: $k" } }
     $maxRows = 20
+    $groups = @()
+    $eventCount = 0
     foreach ($k in $kindsToList) {
       $file = Get-RekitFactFilePath -Paths $paths -Kind $k
       $items = @(Read-RekitJsonLines -Path $file)
-      if (-not [string]::IsNullOrWhiteSpace($Lane)) { $items = @($items | Where-Object { [string]$_.lane -eq $Lane }); $hasFilter = $true }
+      if (-not [string]::IsNullOrWhiteSpace($Lane)) { $items = @($items | Where-Object { [string]$_.lane -eq $Lane }) }
       if ($items.Count -eq 0) { continue }
-      Write-Host "[$k] ($($items.Count) 条)"
       $shown = @($items | Select-Object -Last $maxRows)
-      foreach ($it in $shown) {
-        $subj = [string]$it.subject; if ([string]::IsNullOrWhiteSpace($subj)) { $subj = [string]$it.kind }
-        $ln = [string]$it.lane
-        $extra = ''
-        if ($k -eq 'candidate') { $extra = " | confidence=$([string]$it.confidence) | status=$([string]$it.status) | risk=$([string]$it.risk)" }
-        if ($k -eq 'decision') { $dec = [string]$it.decision; if ([string]::IsNullOrWhiteSpace($dec)) { $dec = [string]$it.action }; $by = [string]$it.confirmedBy; if ([string]::IsNullOrWhiteSpace($by)) { $by = [string]$it.actor }; $extra = " | decision=$dec | by=$by" }
-        if ($k -eq 'request') { $extra = Format-RekitGateRequestDetail -Event $it -OmitBatch }
-        if ($k -eq 'verification') { $extra = " | verifier=$([string]$it.verifier) | verdict=$([string]$it.verdict) | target=$([string]$it.target)" }
-        if ($k -eq 'intervention') { $extra = " | action=$([string]$it.action) | target=$([string]$it.target) | approvedBy=$([string]$it.approvedBy) | scope=$([string]$it.scope) | status=$([string]$it.status) | reason=$([string]$it.reason)" }
-        if ($k -eq 'rollback') { $extra = " | target=$([string]$it.target) | status=$([string]$it.status) | reason=$([string]$it.reason)" }
-        $batch = [string]$it.batchId
-        if (-not [string]::IsNullOrWhiteSpace($batch)) { $extra += " | batch=$batch" }
-        Write-Host ("- {0} | lane={1}{2}" -f $subj, $ln, $extra)
+      $eventCount += $items.Count
+      $groups += [ordered]@{ kind = $k; total = [int]$items.Count; shown = [int]$shown.Count; events = @($shown) }
+    }
+    switch ($formatValue) {
+      { $_ -in @('table','text','tsv') } {
+        foreach ($group in $groups) {
+          $k = [string]$group.kind
+          Write-Host "[$k] ($($group.total) 条)"
+          foreach ($it in @($group.events)) {
+            $subj = [string]$it.subject; if ([string]::IsNullOrWhiteSpace($subj)) { $subj = [string]$it.kind }
+            $ln = [string]$it.lane
+            $extra = ''
+            if ($k -eq 'candidate') { $extra = " | confidence=$([string]$it.confidence) | status=$([string]$it.status) | risk=$([string]$it.risk)" }
+            if ($k -eq 'decision') { $dec = [string]$it.decision; if ([string]::IsNullOrWhiteSpace($dec)) { $dec = [string]$it.action }; $by = [string]$it.confirmedBy; if ([string]::IsNullOrWhiteSpace($by)) { $by = [string]$it.actor }; $extra = " | decision=$dec | by=$by" }
+            if ($k -eq 'request') { $extra = Format-RekitGateRequestDetail -Event $it -OmitBatch }
+            if ($k -eq 'verification') { $extra = " | verifier=$([string]$it.verifier) | verdict=$([string]$it.verdict) | target=$([string]$it.target)" }
+            if ($k -eq 'intervention') { $extra = " | action=$([string]$it.action) | target=$([string]$it.target) | approvedBy=$([string]$it.approvedBy) | scope=$([string]$it.scope) | status=$([string]$it.status) | reason=$([string]$it.reason)" }
+            if ($k -eq 'rollback') { $extra = " | target=$([string]$it.target) | status=$([string]$it.status) | reason=$([string]$it.reason)" }
+            $batch = [string]$it.batchId
+            if (-not [string]::IsNullOrWhiteSpace($batch)) { $extra += " | batch=$batch" }
+            Write-Host ("- {0} | lane={1}{2}" -f $subj, $ln, $extra)
+          }
+          $rest = [int]$group.total - [int]$group.shown
+          if ($rest -gt 0) { Write-Host "- 另有 $rest 条 $k" }
+          Write-Host ''
+        }
       }
-      $rest = $items.Count - $shown.Count
-      if ($rest -gt 0) { Write-Host "- 另有 $rest 条 $k" }
-      Write-Host ''
+      'json' {
+        [ordered]@{
+          schemaVersion = 1
+          command = 'note'
+          caseRoot = $caseRoot
+          repoRoot = $RepoRoot
+          pack = $Pack
+          isMutation = $false
+          kind = ([string]$Kind).Trim().ToLowerInvariant()
+          lane = ([string]$Lane).Trim()
+          eventCount = [int]$eventCount
+          groups = $groups
+        } | ConvertTo-Json -Depth 20
+      }
+      default { throw "unsupported note list format: $Format" }
     }
     return
   }

@@ -300,6 +300,7 @@ switch ($Command) {
       BatchId = $BatchId
       Action = $Action
       Scope = $Scope
+      Format = $Format
     }
     $noteArgs = @($RemainingArgs)
     for ($i = 0; $i -lt $noteArgs.Count; $i++) {

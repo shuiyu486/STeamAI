@@ -188,7 +188,7 @@ git diff --check
 
 结论：
 
-- `note` 已作为 Go 手动路径落地：`-Command note -List` 读取 `.rekit/facts/*.jsonl`，支持 `-Kind` 与 `-Lane` 过滤，展示 9 类 ledger event 的主要字段；append 模式支持 9 类 kind、PowerShell 对齐的 enum/schema 校验、lane guard、eventId 去重、`-WhatIf` 预览与只写 facts JSONL。该路径不纳入 PowerShell façade 默认或显式安全委托集合。
+- `note` 已作为 Go 手动路径落地：`-Command note -List` 读取 `.rekit/facts/*.jsonl`，支持 `-Kind` 与 `-Lane` 过滤，展示 9 类 ledger event 的主要字段，并支持 `-Format json` 输出机器可读 `groups[]`；append 模式支持 9 类 kind、PowerShell 对齐的 enum/schema 校验、lane guard、eventId 去重、`-WhatIf` 预览与只写 facts JSONL。该路径不纳入 PowerShell façade 默认或显式安全委托集合。
 - `continue` apply 仍不迁移：它同时承担 workspace/outbox 收集、request routing、rule verifier、candidate decision、可选 authority append、run digest/status、lane resume/checkpoint 与 board refresh；其中 authority append 涉及 backup/diff/CSV schema/conflict/恢复语义，迁移前必须先补完整 G5 gate tests。
 - Batch E 已把 PowerShell `continue` digest 补齐为 inputs/route/packet refs/outputs/decisions/open risks，降低短期迁移压力；G5 已先落地 Go `continue -WhatIf` 非写入预览，作为后续 apply 迁移前的 preview parity 路径。
 
@@ -275,7 +275,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Go start apply | `.\rekit\tests\start-apply-smoke.ps1` | 手动 Go CLI `start -WhatIf/-Apply` 预览或创建 feature lane，验证 board/facts/policy/lane/workspace scaffold、doctor 与 façade fallback；不经 PowerShell façade 委托。 |
 | Go handoff apply | `.\rekit\tests\handoff-apply-smoke.ps1` | 手动 Go CLI `handoff -WhatIf/-Apply` 预览或写项目级/工作线级 handoff，验证 lane resume/checkpoint、verification/decision 等 ledger 展示区段、doctor 与 façade fallback；不经 PowerShell façade 委托。 |
 | Go plan-subagents artifacts | `.\rekit\tests\plan-subagents-smoke.ps1` | 手动 Go CLI `plan-subagents` 写 review packet/summary，验证 route/taskType 选择、Items/ItemsFile 分片、route/shard/review-loop observability、out-of-case guard、missing routes、doctor 与 façade fallback；不写 board/facts/lanes/handoff/authority，不启动 agent。 |
-| Go note list readonly | `go test ./internal/rekit/cli ./internal/rekit/note` | 手动 Go CLI `note -List` 读取 facts JSONL，验证全量展示、`-Kind`/`-Lane` 过滤、invalid kind guard、write flag guard 与只读 snapshot。 |
+| Go note list readonly | `go test ./internal/rekit/cli ./internal/rekit/note` | 手动 Go CLI `note -List` 读取 facts JSONL，验证全量展示、`-Kind`/`-Lane` 过滤、`-Format json` events envelope、invalid kind/format guard、write flag guard 与只读 snapshot。 |
 | Go note append | `go test ./internal/rekit/cli ./internal/rekit/note` | 手动 Go CLI `note` append 写 facts JSONL，验证 9 类 kind 基础写入、`-WhatIf` 非写入、enum/schema/lane guard、eventId dedupe 与 unsupported write flags。 |
 | Continue preflight baseline | `.\rekit\tests\continue-preflight-smoke.ps1` | 验证 PowerShell `continue` authority append gate matrix、backup/diff、CSV 失败恢复、request routing 幂等、digest/status parity 与 `-WhatIf` no-write，作为 Go `continue` 迁移 baseline。 |
 | Go continue what-if | `.\rekit\tests\continue-whatif-smoke.ps1` | 手动 Go CLI `continue -WhatIf` 输出非写入 preview，验证收集/routing/authority 决策预览、no-write、unsupported apply guard 与 PowerShell façade fallback；不写 facts/run/board/lane/authority。 |

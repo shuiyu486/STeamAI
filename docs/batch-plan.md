@@ -2023,3 +2023,30 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/doctor`、`go test ./...`、`pack-inventory-smoke.ps1`、`/rekit validate -Format json`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 67：note list JSON 输出
+
+状态：已完成。
+
+目标：延续 Batch 64-66 的机器可读 envelope 模式，为只读 `/rekit note -List` 增加 `-Format json`，让 ledger events 可按 kind/lane 被 CI、新会话接手、review loop smoke 和后续编排直接消费，而不需要解析人类文本。
+
+实施范围：
+
+- Go `note` 增加 `ListResult` / `ListGroup`，`note -List -Format json` 输出 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/kind/lane/eventCount/groups[]`，默认文本输出保持兼容。
+- PowerShell `Invoke-RekitNote -List` 同步支持 `-Format json`，复用同一过滤和 maxRows 语义；顶层 `rekit.ps1` 将 `-Format` 透传给 note 命令。
+- Go CLI tests 覆盖 note list JSON 只读、kind/lane 过滤与 unsupported format guard；review-loop smoke 增加 PowerShell `note -List -Format json` 验证。
+- 更新 README、skill、Go runtime migration 与 CHANGELOG，说明 note list JSON 是只读机器可读 ledger event 输出。
+
+边界：本批只增强只读 ledger 查询输出；不改变 note append schema、不写 board/facts/lanes/handoff/authority/confirmed、不启动 subagent、不执行 heavy-tool、不改变 sync/promote review-first 语义，不新增 façade 委托集合。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/note
+go test ./...
+.\rekit\tests\agent-team-review-loop-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/note`、`go test ./...`、`agent-team-review-loop-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

@@ -776,6 +776,43 @@ func TestRunNoteListEmitsReadOnlySummary(t *testing.T) {
 	assertSnapshotEqual(t, before, after)
 }
 
+func TestRunNoteListJsonEmitsReadOnlyEvents(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeOverviewFixture(t, caseRoot)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-List", "-Kind", "verification", "-Lane", "main", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		Command       string `json:"command"`
+		IsMutation    bool   `json:"isMutation"`
+		Pack          string `json:"pack"`
+		Kind          string `json:"kind"`
+		Lane          string `json:"lane"`
+		EventCount    int    `json:"eventCount"`
+		Groups        []struct {
+			Kind   string           `json:"kind"`
+			Total  int              `json:"total"`
+			Shown  int              `json:"shown"`
+			Events []map[string]any `json:"events"`
+		} `json:"groups"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("note list JSON did not decode: %v\n%s", err, out.String())
+	}
+	if result.SchemaVersion != 1 || result.Command != "note" || result.IsMutation || result.Pack != "_template" || result.Kind != "verification" || result.Lane != "main" || result.EventCount != 1 || len(result.Groups) != 1 {
+		t.Fatalf("unexpected note list JSON envelope: %+v", result)
+	}
+	group := result.Groups[0]
+	if group.Kind != "verification" || group.Total != 1 || group.Shown != 1 || len(group.Events) != 1 || group.Events[0]["verifier"] != "manual-review" || group.Events[0]["verdict"] != "accepted" {
+		t.Fatalf("unexpected note list JSON group: %+v", group)
+	}
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
+}
+
 func TestRunNoteListFiltersKindAndLane(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeOverviewFixture(t, caseRoot)
@@ -812,6 +849,15 @@ func TestRunNoteListRejectsInvalidKind(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid note kind") {
 		t.Fatalf("error = %q, want invalid kind guard", err.Error())
+	}
+}
+
+func TestRunNoteListRejectsUnsupportedFormat(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-List", "-Format", "yaml"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "unsupported note list format") {
+		t.Fatalf("error = %v, want unsupported note list format", err)
 	}
 }
 

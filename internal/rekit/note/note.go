@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -68,16 +69,56 @@ type AppendResult struct {
 	Event         map[string]any `json:"event"`
 }
 
+type ListResult struct {
+	SchemaVersion int         `json:"schemaVersion"`
+	Command       string      `json:"command"`
+	CaseRoot      string      `json:"caseRoot"`
+	RepoRoot      string      `json:"repoRoot"`
+	Pack          string      `json:"pack"`
+	IsMutation    bool        `json:"isMutation"`
+	Kind          string      `json:"kind"`
+	Lane          string      `json:"lane"`
+	EventCount    int         `json:"eventCount"`
+	Groups        []ListGroup `json:"groups"`
+}
+
+type ListGroup struct {
+	Kind   string           `json:"kind"`
+	Total  int              `json:"total"`
+	Shown  int              `json:"shown"`
+	Events []map[string]any `json:"events"`
+}
+
 type event map[string]any
 
 func List(repoRoot, caseRoot, pack string, opt Options) (string, error) {
-	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
+	result, err := ListEvents(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return "", err
 	}
+	var out bytes.Buffer
+	for _, group := range result.Groups {
+		fmt.Fprintf(&out, "[%s] (%d 条)\n", group.Kind, group.Total)
+		for _, item := range group.Events {
+			subject := firstText(stringValue(item, "subject"), stringValue(item, "kind"))
+			fmt.Fprintf(&out, "- %s | lane=%s%s\n", subject, stringValue(item, "lane"), noteExtra(group.Kind, item))
+		}
+		if rest := group.Total - group.Shown; rest > 0 {
+			fmt.Fprintf(&out, "- 另有 %d 条 %s\n", rest, group.Kind)
+		}
+		fmt.Fprintln(&out)
+	}
+	return out.String(), nil
+}
+
+func ListEvents(repoRoot, caseRoot, pack string, opt Options) (ListResult, error) {
+	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
+	if err != nil {
+		return ListResult{}, err
+	}
 	kind := strings.ToLower(strings.TrimSpace(opt.Kind))
 	if kind != "" && !isValidKind(kind) {
-		return "", fmt.Errorf("invalid note kind: %s", opt.Kind)
+		return ListResult{}, fmt.Errorf("invalid note kind: %s", opt.Kind)
 	}
 	kinds := validKinds
 	if kind != "" {
@@ -85,11 +126,21 @@ func List(repoRoot, caseRoot, pack string, opt Options) (string, error) {
 	}
 	laneFilter := strings.TrimSpace(opt.Lane)
 	factsRoot := filepath.Join(inst.CaseRoot, ".rekit", "facts")
-	var out bytes.Buffer
+	result := ListResult{
+		SchemaVersion: 1,
+		Command:       "note",
+		CaseRoot:      inst.CaseRoot,
+		RepoRoot:      repoRoot,
+		Pack:          pack,
+		IsMutation:    false,
+		Kind:          kind,
+		Lane:          laneFilter,
+		Groups:        []ListGroup{},
+	}
 	for _, k := range kinds {
 		items, err := readJSONLines(filepath.Join(factsRoot, factFile(k)))
 		if err != nil {
-			return "", err
+			return ListResult{}, err
 		}
 		if laneFilter != "" {
 			filtered := []event{}
@@ -103,18 +154,11 @@ func List(repoRoot, caseRoot, pack string, opt Options) (string, error) {
 		if len(items) == 0 {
 			continue
 		}
-		fmt.Fprintf(&out, "[%s] (%d 条)\n", k, len(items))
 		shown := lastEvents(items, maxListRows)
-		for _, item := range shown {
-			subject := firstText(stringValue(item, "subject"), stringValue(item, "kind"))
-			fmt.Fprintf(&out, "- %s | lane=%s%s\n", subject, stringValue(item, "lane"), noteExtra(k, item))
-		}
-		if rest := len(items) - len(shown); rest > 0 {
-			fmt.Fprintf(&out, "- 另有 %d 条 %s\n", rest, k)
-		}
-		fmt.Fprintln(&out)
+		result.EventCount += len(items)
+		result.Groups = append(result.Groups, ListGroup{Kind: k, Total: len(items), Shown: len(shown), Events: cloneEvents(shown)})
 	}
-	return out.String(), nil
+	return result, nil
 }
 
 func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendResult, error) {
@@ -375,6 +419,14 @@ func lastEvents(items []event, n int) []event {
 		return items
 	}
 	return items[len(items)-n:]
+}
+
+func cloneEvents(items []event) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, maps.Clone(map[string]any(item)))
+	}
+	return out
 }
 
 func firstText(values ...string) string {

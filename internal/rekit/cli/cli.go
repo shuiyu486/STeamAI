@@ -785,12 +785,32 @@ func runNote(ctx runtime.Context, opt Options, out io.Writer) error {
 		if opt.WhatIf {
 			return fmt.Errorf("note -List cannot be combined with -WhatIf")
 		}
-		text, err := note.List(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Note)
-		if err != nil {
-			return err
+		format := strings.ToLower(strings.TrimSpace(opt.Format))
+		if format == "" {
+			format = "table"
 		}
-		_, err = io.WriteString(out, text)
-		return err
+		switch format {
+		case "table", "text", "tsv":
+			text, err := note.List(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Note)
+			if err != nil {
+				return err
+			}
+			_, err = io.WriteString(out, text)
+			return err
+		case "json":
+			result, err := note.ListEvents(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Note)
+			if err != nil {
+				return err
+			}
+			b, err := json.MarshalIndent(result, "", "  ")
+			if err != nil {
+				return err
+			}
+			_, err = out.Write(append(b, '\n'))
+			return err
+		default:
+			return fmt.Errorf("unsupported note list format: %s", opt.Format)
+		}
 	}
 	result, err := note.Append(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Note, opt.WhatIf)
 	if err != nil {

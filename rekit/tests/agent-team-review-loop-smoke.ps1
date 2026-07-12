@@ -78,6 +78,10 @@ try {
   foreach ($expected in @($candidate,'verifier=manual-review','verdict=accepted',"target=$candidate")) {
     Assert-ContainsText -Text $verificationList -Expected $expected -Label 'note verification list'
   }
+  $verificationJson = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane,'-Format','json') | ConvertFrom-Json
+  if ([string]$verificationJson.command -ne 'note' -or [bool]$verificationJson.isMutation -or [string]$verificationJson.kind -ne 'verification' -or [string]$verificationJson.lane -ne $lane -or [int]$verificationJson.eventCount -ne 1) { throw "unexpected note verification JSON: $($verificationJson | ConvertTo-Json -Depth 20)" }
+  $verificationGroup = @($verificationJson.groups)[0]
+  if ([string]$verificationGroup.kind -ne 'verification' -or [int]$verificationGroup.total -ne 1 -or [string]@($verificationGroup.events)[0].verifier -ne 'manual-review' -or [string]@($verificationGroup.events)[0].verdict -ne 'accepted') { throw "unexpected note verification JSON group: $($verificationGroup | ConvertTo-Json -Depth 20)" }
 
   $decisionList = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','decision','-Lane',$lane)
   foreach ($expected in @($candidate,'decision=accept','by=main-smoke')) {

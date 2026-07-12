@@ -56,7 +56,7 @@ disable-model-invocation: true
 | `/rekit doctor` | 验证 kit / case 结构、文档预算和 policy registry；`-Format json` 输出机器可读验证 rows。 |
 | `/rekit gate -WhatIf` | Go backend 的 heavy-tool gate 预览入口；只输出 pending-gate request plan，不写 ledger、不执行 full-trace/debug/inject/patch/dump。默认不启用 façade 委托，维护者显式设置 `REKIT_GO_ENABLE=1` 后才可经 `/rekit` 调用。 |
 | `/rekit plan-subagents` | 内部只读计划器：根据 pack manifest 的 `subagentRoutes` 生成子 agent 分片计划；不启动 agent，不修改 managed/project source files；会写 `.rekit/reviews/...` 审查产物。日常不要主动推荐给用户。 |
-| `/rekit note` | 账本写入/查询入口：手动向 `.rekit/facts/*.jsonl` append observation/hypothesis/candidate/verification/decision/intervention/rollback/publication/request 事件，用于 heavy-tool gate 登记、decision/observation 手动落账。`-List` 进入查询模式，按 `-Kind`/`-Lane` 过滤列出事件。写入受 schema 校验（confidence/decision/status 枚举、evidenceRefs 非空、lane 存在性）。 |
+| `/rekit note` | 账本写入/查询入口：手动向 `.rekit/facts/*.jsonl` append observation/hypothesis/candidate/verification/decision/intervention/rollback/publication/request 事件，用于 heavy-tool gate 登记、decision/observation 手动落账。`-List` 进入查询模式，按 `-Kind`/`-Lane` 过滤列出事件；`-List -Format json` 输出机器可读 ledger events。写入受 schema 校验（confidence/decision/status 枚举、evidenceRefs 非空、lane 存在性）。 |
 
 如果用户没有显式给 `Target`，在 case 模式下使用当前工作目录；在 kit 模式下 `doctor/status` 作用于 kit 本身。`status` 只读检测迁移，不静默修复；`repair` 写入前必须得到用户确认。
 
