@@ -2217,3 +2217,31 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/overview`、`go test ./...`、`overview-readonly-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 74：note list JSON façade 委托
+
+状态：已完成。
+
+目标：继续收敛只读机器可读路径到 Go backend：在保持 `/rekit note` append 写入仍由 PowerShell fallback 控制的前提下，让已 attach case 的 `note -List -Format json` 经显式 Go façade 委托，减少 PowerShell ledger JSON 查询复制面。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 `note` 纳入显式 Go 安全集合，但只允许 `-List -Format json`、未带 `-WhatIf`/`-Apply`/`-CreateCandidates` 且目标看起来是 attached case 时委托。
+- 新增 façade 层 `RemainingArgs` 轻量解析 helper，用于识别 `note` 的 `-List`、`-Kind`、`-Lane` 和 `-Format`；保留顶层命名参数与旧 RemainingArgs 兼容。
+- Go argument builder 对 `note` 转发 resolved target、`-Format json`、`-List`、`-Kind` 和 `-Lane`。
+- `agent-team-review-loop-smoke.ps1` 增加 `REKIT_GO_EXE` fake backend sentinel，证明 `note -List -Format json` 满足条件时确实经 façade 委托 Go；同时断言文本 `note -List` 即使显式 Go enable 仍 fallback PowerShell。
+- 更新 README、skill、Go runtime migration 与 CHANGELOG，说明 note list JSON 委托只覆盖只读查询，不覆盖 append 写入。
+
+边界：本批只调整显式 `REKIT_GO_ENABLE=1` 下的 `note -List -Format json` 只读委托；不默认启用 Go、不委托 note append、不委托 `note -WhatIf`、不改变 ledger schema、不写 board/facts/lanes/handoff/authority/confirmed、不启动 subagent、不执行 heavy-tool、不改变 sync/promote review-first 语义。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/note
+go test ./...
+.\rekit\tests\agent-team-review-loop-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/note`、`go test ./...`、`agent-team-review-loop-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

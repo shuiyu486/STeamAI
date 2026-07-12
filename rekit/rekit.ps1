@@ -83,6 +83,33 @@ function Resolve-RekitActionTargetAndArgs {
   return [pscustomobject]@{ Target = (Resolve-RekitTarget $actionTarget); Args = $actionArgs }
 }
 
+function Get-RekitRemainingArgMap {
+  param([string[]]$Tokens = @())
+  $map = @{}
+  for ($i = 0; $i -lt $Tokens.Count; $i++) {
+    $token = [string]$Tokens[$i]
+    if ($token -like '-*=*') {
+      $eq = $token.IndexOf('=')
+      $name = $token.Substring(1, $eq - 1)
+      $map[$name] = $token.Substring($eq + 1)
+    } elseif ($token.StartsWith('-')) {
+      $name = $token.Substring(1)
+      if (($i + 1) -lt $Tokens.Count -and -not ([string]$Tokens[$i+1]).StartsWith('-')) {
+        $map[$name] = [string]$Tokens[$i+1]
+        $i++
+      } else {
+        $map[$name] = $true
+      }
+    }
+  }
+  return $map
+}
+
+function Test-RekitRemainingSwitch {
+  param([hashtable]$Map, [string]$Name)
+  return ($Map.ContainsKey($Name) -and [bool]$Map[$Name])
+}
+
 function Test-RekitEnvTruthy {
   param([string]$Name)
   $value = [Environment]::GetEnvironmentVariable($Name)
@@ -106,6 +133,16 @@ function Test-RekitGoDelegationSafe {
       if ($formatValue -ne 'json') { return $false }
       $caseRoot = Resolve-RekitTarget $Target
       return ((Test-RekitLooksLikeCase $caseRoot) -and (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json')))
+    }
+    'note' {
+      $noteArgs = Get-RekitRemainingArgMap -Tokens $RemainingArgs
+      $listRequested = $List -or (Test-RekitRemainingSwitch -Map $noteArgs -Name 'List')
+      if (-not $listRequested -or $Apply -or $CreateCandidates -or $WhatIf) { return $false }
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      if ([string]::IsNullOrWhiteSpace($formatValue) -and $noteArgs.ContainsKey('Format')) { $formatValue = ([string]$noteArgs['Format']).Trim().ToLowerInvariant() }
+      if ($formatValue -ne 'json') { return $false }
+      $caseRoot = Resolve-RekitTarget $Target
+      return (Test-RekitLooksLikeCase $caseRoot)
     }
     { $_ -in @('sync','update') } {
       if ($Apply -or $WhatIf) { return $false }
@@ -161,7 +198,7 @@ function Add-RekitGoSwitch {
 function Get-RekitGoTarget {
   switch ($Command) {
     { $_ -in @('status','packs') } { return (Resolve-RekitTarget $Target) }
-    { $_ -in @('overview','sync','update','promote','gate') } { return (Resolve-RekitTarget $Target) }
+    { $_ -in @('overview','note','sync','update','promote','gate') } { return (Resolve-RekitTarget $Target) }
     { $_ -in @('doctor','validate') } {
       if (-not [string]::IsNullOrWhiteSpace($Target)) { return (Resolve-RekitTarget $Target) }
       $cwd = Resolve-RekitTarget ''
@@ -186,7 +223,18 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-ReviewOutputDir' $ReviewOutputDir
   Add-RekitGoArg ([ref]$goArgs) '-PacketPath' $PacketPath
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' $DiffPath
-  if ($Command -in @('status','packs','doctor','validate','overview','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
+  if ($Command -in @('status','packs','doctor','validate','overview','note','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
+  if ($Command -eq 'note') {
+    $noteArgs = Get-RekitRemainingArgMap -Tokens $RemainingArgs
+    $noteList = $List.IsPresent -or (Test-RekitRemainingSwitch -Map $noteArgs -Name 'List')
+    $noteKind = $Kind
+    if ([string]::IsNullOrWhiteSpace($noteKind) -and $noteArgs.ContainsKey('Kind')) { $noteKind = [string]$noteArgs['Kind'] }
+    $noteLane = $Lane
+    if ([string]::IsNullOrWhiteSpace($noteLane) -and $noteArgs.ContainsKey('Lane')) { $noteLane = [string]$noteArgs['Lane'] }
+    Add-RekitGoSwitch ([ref]$goArgs) '-List' $noteList
+    Add-RekitGoArg ([ref]$goArgs) '-Kind' $noteKind
+    Add-RekitGoArg ([ref]$goArgs) '-Lane' $noteLane
+  }
   if ($Command -in @('start','handoff','continue')) {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
     Add-RekitGoArg ([ref]$goArgs) '-Target' ([string]$resolved.Target)

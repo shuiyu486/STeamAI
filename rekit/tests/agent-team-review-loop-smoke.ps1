@@ -13,8 +13,14 @@ $Rekit = Join-Path $RekitRoot 'rekit.ps1'
 function Invoke-RekitSmoke {
   param(
     [Parameter(Mandatory=$true)][string[]]$Arguments,
-    [int[]]$AllowedExitCodes = @(0)
+    [int[]]$AllowedExitCodes = @(0),
+    [hashtable]$Env = @{}
   )
+  $oldValues = @{}
+  foreach ($key in $Env.Keys) {
+    $oldValues[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
+    [Environment]::SetEnvironmentVariable($key, [string]$Env[$key], 'Process')
+  }
   $oldEap = $ErrorActionPreference
   try {
     $ErrorActionPreference = 'Continue'
@@ -23,6 +29,7 @@ function Invoke-RekitSmoke {
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
   } finally {
     $ErrorActionPreference = $oldEap
+    foreach ($key in $Env.Keys) { [Environment]::SetEnvironmentVariable($key, $oldValues[$key], 'Process') }
   }
   if ($AllowedExitCodes -notcontains $exitCode) {
     throw "unexpected exit code $exitCode; output:`n$output"
@@ -78,7 +85,14 @@ try {
   foreach ($expected in @($candidate,'verifier=manual-review','verdict=accepted',"target=$candidate")) {
     Assert-ContainsText -Text $verificationList -Expected $expected -Label 'note verification list'
   }
-  $verificationJson = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane,'-Format','json') | ConvertFrom-Json
+  $fakeGo = Join-Path $caseRoot 'fake-rekit-go.cmd'
+  [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"note","delegatedByFake":true}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
+  $delegatedNoteJson = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane,'-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$delegatedNoteJson.delegatedByFake) { throw "facade note list JSON did not use REKIT_GO_EXE delegation: $($delegatedNoteJson | ConvertTo-Json -Depth 20)" }
+  $textFallback = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $textFallback -Expected 'verifier=manual-review' -Label 'note text list fallback'
+
+  $verificationJson = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane,'-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
   if ([string]$verificationJson.command -ne 'note' -or [bool]$verificationJson.isMutation -or [string]$verificationJson.kind -ne 'verification' -or [string]$verificationJson.lane -ne $lane -or [int]$verificationJson.eventCount -ne 1) { throw "unexpected note verification JSON: $($verificationJson | ConvertTo-Json -Depth 20)" }
   $verificationGroup = @($verificationJson.groups)[0]
   if ([string]$verificationGroup.kind -ne 'verification' -or [int]$verificationGroup.total -ne 1 -or [string]@($verificationGroup.events)[0].verifier -ne 'manual-review' -or [string]@($verificationGroup.events)[0].verdict -ne 'accepted') { throw "unexpected note verification JSON group: $($verificationGroup | ConvertTo-Json -Depth 20)" }
