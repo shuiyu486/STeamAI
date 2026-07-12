@@ -140,12 +140,22 @@ Context: ctx123 round7 Task #99
 
   $fakeGo = Join-Path $caseRoot 'fake-rekit-go.cmd'
   [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"promote","delegatedByFake":true}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
-  $facadeJsonPreview = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
-  if (-not [bool]$facadeJsonPreview.delegatedByFake) { throw "facade promote create-candidates JSON preview did not use REKIT_GO_EXE delegation: $($facadeJsonPreview | ConvertTo-Json -Depth 8)" }
+  $facadeJsonPreview = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeJsonPreview.delegatedByFake) { throw "facade promote create-candidates JSON preview did not use default REKIT_GO_EXE delegation: $($facadeJsonPreview | ConvertTo-Json -Depth 8)" }
 
-  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $facadeWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote write fallback'
-  Assert-ContainsText -Text $facadeWhatIf -Expected 'would write tooling candidate:' -Label 'facade tooling candidate fallback'
+  $facadeCreateCandidates = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeCreateCandidates.delegatedByFake) { throw "facade promote create-candidates did not use default REKIT_GO_EXE delegation: $($facadeCreateCandidates | ConvertTo-Json -Depth 8)" }
+
+  $facadeReview = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-ReviewOutputDir',$reviewRoot) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeReview.delegatedByFake) { throw "facade promote review did not use default REKIT_GO_EXE delegation: $($facadeReview | ConvertTo-Json -Depth 8)" }
+
+  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $facadeWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote text candidate fallback'
+  Assert-ContainsText -Text $facadeWhatIf -Expected 'would write tooling candidate:' -Label 'facade tooling text candidate fallback'
+
+  $disabledJsonPreview = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledJsonPreview -Unexpected 'delegatedByFake' -Label 'facade promote candidate JSON preview disabled fallback'
+  Assert-ContainsText -Text $disabledJsonPreview -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote candidate JSON preview disabled fallback'
 
   $goWhatIf = Invoke-GoRekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') | ConvertFrom-Json
   if ([bool]$goWhatIf.isMutation -or [bool]$goWhatIf.applied) { throw "Go promote create-candidates what-if reported mutation: $($goWhatIf | ConvertTo-Json -Depth 8)" }

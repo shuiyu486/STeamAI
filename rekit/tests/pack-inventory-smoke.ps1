@@ -262,21 +262,21 @@ try {
 $sentinel = Join-Path ([System.IO.Path]::GetTempPath()) ("rekit-pack-inventory-sentinel-$([Guid]::NewGuid().ToString('N')).cmd")
 try {
   [System.IO.File]::WriteAllText($sentinel, "@echo off`r`necho sentinel-go-packs %*`r`n", [System.Text.Encoding]::ASCII)
-  $sentinelOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
-  Assert-ContainsText -Text $sentinelOut -Expected 'sentinel-go-packs' -Label 'facade packs go delegation sentinel'
-  Assert-ContainsText -Text $sentinelOut -Expected '-Command packs' -Label 'facade packs delegated command args'
+  $sentinelOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
+  Assert-ContainsText -Text $sentinelOut -Expected 'sentinel-go-packs' -Label 'facade packs default go delegation sentinel'
+  Assert-ContainsText -Text $sentinelOut -Expected '-Command packs' -Label 'facade packs default delegated command args'
 
-  $sentinelJsonOut = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
-  Assert-ContainsText -Text $sentinelJsonOut -Expected '-Format json' -Label 'facade packs format delegation args'
+  $sentinelJsonOut = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
+  Assert-ContainsText -Text $sentinelJsonOut -Expected '-Format json' -Label 'facade packs default format delegation args'
 
-  $sentinelStatusJsonOut = Invoke-RekitSmoke -Arguments @('-Command','status','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
-  Assert-ContainsText -Text $sentinelStatusJsonOut -Expected '-Format json' -Label 'facade status format delegation args'
+  $sentinelStatusJsonOut = Invoke-RekitSmoke -Arguments @('-Command','status','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
+  Assert-ContainsText -Text $sentinelStatusJsonOut -Expected '-Format json' -Label 'facade status default format delegation args'
 
-  $sentinelDoctorJsonOut = Invoke-RekitSmoke -Arguments @('-Command','doctor','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
-  Assert-ContainsText -Text $sentinelDoctorJsonOut -Expected '-Format json' -Label 'facade doctor format delegation args'
+  $sentinelDoctorJsonOut = Invoke-RekitSmoke -Arguments @('-Command','doctor','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
+  Assert-ContainsText -Text $sentinelDoctorJsonOut -Expected '-Format json' -Label 'facade doctor default format delegation args'
 
-  $sentinelValidateJsonOut = Invoke-RekitSmoke -Arguments @('-Command','validate','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
-  Assert-ContainsText -Text $sentinelValidateJsonOut -Expected '-Format json' -Label 'facade validate format delegation args'
+  $sentinelValidateJsonOut = Invoke-RekitSmoke -Arguments @('-Command','validate','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
+  Assert-ContainsText -Text $sentinelValidateJsonOut -Expected '-Format json' -Label 'facade validate default format delegation args'
 
   $disabledOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $sentinel }
   Assert-NotContainsText -Text $disabledOut -Unexpected 'sentinel-go-packs' -Label 'facade packs disable fallback'

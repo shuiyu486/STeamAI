@@ -31,6 +31,7 @@
 - [ ] Phase 5：证据账本与 intervention 模型增强。
 - [ ] Phase 6：半自动 Agent Team runtime / orchestration。
 - [ ] Agent Team rollout（选项 C：契约 dry-run 优先）：见 `docs/agent-team-rollout-plan.md`，先压测契约再按真实缺口决定 Phase 5/6 顺序。
+- [ ] Go-first 收束 / release readiness：见 `docs/go-first-convergence-plan.md`，Batch 101 后优先让 Go backend 成为 deterministic runtime owner，收缩 PowerShell 编排扩张，并建立 Agent Team 真实 dry-run 闭环。
 
 每个阶段都应按“小步可验证”落地：先文档契约，再 case-local 试用，再 runtime 自动化，最后才抽象为跨 pack 能力。
 

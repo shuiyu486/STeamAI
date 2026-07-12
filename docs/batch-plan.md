@@ -3081,3 +3081,468 @@ go test ./...
 .\rekit\rekit.ps1 -Command doctor
 git diff --check
 ```
+### Batch 102：Go-first convergence planning
+
+状态：已完成。
+
+目标：在 Batch 92-101 连续收束 PowerShell smoke/matrix/catalog/test metadata 后，建立新的阶段导航，避免后续几十到上百轮自主实施继续沿 PowerShell 编排扩张惯性推进；明确下一阶段以 Go deterministic runtime owner、release readiness、Agent Team 真实 dry-run 闭环、PowerShell 收缩、pack-neutral hardening 和新会话接手质量为主线。
+
+实施范围：
+
+- 新增 `docs/go-first-convergence-plan.md`，包含读取指南、实施摘要、执行清单、验证标准、风险与注意事项、Batch 101 后状态基线和 Stage 1-8 阶段方向。
+- 在 `README.md` 与根 `CLAUDE.md` 的维护入口中链接该阶段计划，方便新会话接手。
+- 在 `CHANGELOG.md` 记录该阶段导航文档。
+
+边界：本批只做阶段性规划与接手导航，不修改 runtime、pack manifest、PowerShell façade 委托集合、Go backend 行为、case schema、sync/promote 语义或测试执行语义；不新增 PowerShell 编排能力；不创建真实 case state；不执行样本、网络、debug、dump、patch、hook、fuzz、exploit replay 或任何外部副作用；不写 authority/confirmed。
+
+下一阶段优先级：按 `docs/go-first-convergence-plan.md` 推进，优先 Stage 1 Go-first release gate 与 invariant migration，然后 Stage 2 低风险 Go default façade，再逐步推进 case lifecycle、sync/promote、workstream/ledger/gate/continue、Agent Team dry-run、pack-neutral hardening 与 CI/release readiness。
+
+验证：本批为文档/规划批次，至少执行 `git diff --check`；后续实施批次按 `docs/go-first-convergence-plan.md` 的验证标准选择 Go tests、doctor、façade smoke 与临时 case smoke。
+
+### Batch 103：Go-first release invariant tests
+
+状态：已完成。
+
+目标：承接 `docs/go-first-convergence-plan.md` Stage 1，把 release readiness 中依赖 PowerShell catalog/matrix/discovery 的确定性 invariant 迁入 Go tests，让 Go tests 成为后续 release gate 的主要信号之一。
+
+实施范围：
+
+- 新增 `internal/rekit/manifest/release_invariants_test.go`，读取 `rekit/tests/catalog.json` 并校验 schema version、recommended minimum、全量脚本覆盖、related docs 存在性和字段完整性。
+- 增加 skeleton pack smoke discovery invariant，确保 `/rekit packs`、pack smoke matrix、wrapper 和 catalog 中的安全领域 skeleton pack 覆盖一致。
+- 在 Go CLI tests 中补默认 pack status JSON contract，锁定默认 pack 与机器可读输出契约。
+- 将 `go vet ./...` 纳入 release readiness recommended minimum，推动 release gate 从 PowerShell smoke/catalog 扩张转向 Go-first checks。
+
+边界：本批只迁移 release invariant 与测试契约；不改变 runtime 行为、PowerShell façade 委托集合、pack manifest 语义、case schema 或 sync/promote 写入路径；不创建真实 case state，不执行样本、网络、debug、dump、patch、hook、fuzz、exploit replay 或任何外部副作用。
+
+验证：
+
+```powershell
+go test ./internal/rekit/manifest
+go test ./internal/rekit/cli
+go test ./...
+go vet ./...
+.\rekit\tests\catalog-smoke.ps1
+.\rekit\tests\pack-smoke-matrix.ps1 -DiscoveryOnly
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。实施中曾发现 `catalog.json` 被误写入无关文本导致 JSON 解析失败，已清理；最终 `go test`、`go vet`、catalog smoke、pack smoke discovery、doctor 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 104：read-only Go default façade
+
+状态：已完成。
+
+目标：承接 Stage 2，让低风险 read-only 命令默认由 Go backend 作为 deterministic runtime owner，PowerShell 收缩为 façade / fallback / legacy compatibility，同时保留 `REKIT_GO_DISABLE=1` 作为快速止损。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 `status`、`packs`、kit/case `doctor` / `validate` 加入默认 Go delegation command 集合；`REKIT_GO_DISABLE=1` 优先级最高，可强制回退 PowerShell。
+- `REKIT_GO_ENABLE=1` 保留给扩展 preview/review 安全集合，不因 read-only 默认委托而扩大写入面。
+- `facade-smoke.ps1` 增加默认 read-only Go 委托与 fake `REKIT_GO_EXE` sentinel 覆盖，证明未设置 `REKIT_GO_ENABLE` 时也会经 façade 委托 Go，并保留 disable fallback、gate 默认拒绝和文本/write fallback 覆盖。
+- `pack-inventory-smoke.ps1` 的 façade sentinel 改为默认委托断言，继续覆盖 packs/status/doctor/validate 参数透传与 disable fallback。
+- README、canonical `/rekit` skill、根 `CLAUDE.md`、`rekit/tests/README.md`、`docs/go-runtime-migration.md` 与 `docs/go-first-convergence-plan.md` 同步说明 read-only Go runtime 已成为默认路径。
+
+边界：本批只调整低风险 read-only façade 默认委托；不委托 attach/repair/init/bootstrap 写入，不委托 sync/promote actual apply/candidates 写入，不委托 note append、工作线文本/apply workflow、内部命令、authority/confirmed 更新或 heavy-tool 执行；不修改 pack manifest、case schema、sync/promote 写入语义或 Go backend 命令行为。
+
+验证：
+
+```powershell
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 105：case lifecycle Go default façade
+
+状态：已完成。
+
+目标：承接 Stage 3，把边界清晰的新 case 创建、绑定和 metadata 修复路径从 PowerShell fallback 推进到 Go deterministic runtime owner；公共 `/rekit` 入口稳定不变，但 `attach`、`repair`、`init/bootstrap` 的预览与显式写入默认经 Go backend 执行。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 `attach`、`repair`、`init`、`bootstrap` 加入默认 Go delegation command 集合；`REKIT_GO_DISABLE=1` 仍可强制回退 PowerShell。
+- lifecycle 安全集合保持明确边界：`attach` 只在 `-WhatIf` 或显式 `-Apply` 时委托；`repair` 默认/`-WhatIf` 为非写入预览，显式 `-Apply` 才写；`init/bootstrap` 只在 `-WhatIf` 或显式 `-Apply` 时委托，裸命令继续走 legacy fallback。
+- Go `casebind.WriteInstance` 补齐 PowerShell binding baseline：写 `.rekit/instance.yml` 后同步创建/刷新 legacy `.re-template.yml`，并在缺失时创建初始 `.rekit/state.json`（含空 `managed` 与 `promote.candidates`）。
+- Go `attach` / `repair` preview 与 apply 的 writes 列表同步报告 legacy metadata 与 initial state；相关 Go tests 更新为锁定 4 项 binding writes，并验证 state / legacy metadata 内容。
+- `facade-smoke.ps1` 与 `init-bootstrap-smoke.ps1` 增加 fake `REKIT_GO_EXE` sentinel，证明 case lifecycle 预览/显式 apply 在未设置 `REKIT_GO_ENABLE` 时也默认委托 Go，同时保留 `REKIT_GO_DISABLE=1` fallback 覆盖。
+- README、canonical `/rekit` skill、根 `CLAUDE.md`、`docs/go-runtime-migration.md`、`docs/go-first-convergence-plan.md`、`docs/init-bootstrap-migration.md`、`docs/case-migration.md`、`rekit/tests/README.md` 与 CHANGELOG 同步记录 Stage 3 当前进度、边界和验证入口。
+
+边界：本批只迁移 case lifecycle 中可界定的 metadata/thin-shim/case scaffold 写入；不委托裸 `init/bootstrap` 到 Go，不迁移 sync/promote 实际 apply/candidates，不改变 review-first 语义，不写 pack source、authority/confirmed、board/facts/lanes/handoff/runs，不执行样本、网络、debug、dump、patch、hook、fuzz、exploit replay 或任何外部副作用；case-local shim 仍只复制 canonical thin shim，不复制 runtime 逻辑。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/attach ./internal/rekit/repair ./internal/rekit/sync
+go test ./...
+go vet ./...
+.\rekit\tests\init-bootstrap-smoke.ps1
+.\rekit\tests\facade-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。最终验证中 `go test ./...`、`go vet ./...`、`init-bootstrap-smoke.ps1`、`facade-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 106：sync Go default façade
+
+状态：已完成。
+
+目标：承接 Stage 4 的第一组 vertical slice，将 `/rekit sync` review、`sync -Apply` 实际写入和 `sync -Apply -WhatIf -Format json` 非写入 preview 收口为默认 Go façade 委托；PowerShell 保留为 `REKIT_GO_DISABLE=1` fallback 与文本 dry-run compatibility。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 `sync` / `update` 加入默认 Go delegation command 集合。
+- `Test-RekitGoDelegationSafe` 对 sync/update 增加边界：目标必须是 attached case；review/default sync、actual `-Apply` 和 `-Apply -WhatIf -Format json` 可委托；文本 `sync -Apply -WhatIf` 继续走 PowerShell dry-run fallback；`-Review` 与 review artifact options 和 `-Apply` 不混用；`REKIT_GO_DISABLE=1` 仍最高优先级回退 PowerShell。
+- `facade-smoke.ps1` 增加 default sync review/apply fake backend sentinel，并把 sync apply JSON preview 从显式 enable 委托提升为默认委托断言，同时保留文本 what-if fallback。
+- `sync-apply-smoke.ps1` 将 façade preview/apply sentinel 改为默认委托，增加 disable fallback 覆盖；实际 apply 路径通过公共 façade 执行。
+- `sync-apply-parity-smoke.ps1` 将 PowerShell 侧改为 `REKIT_GO_DISABLE=1` fallback，将 Go 侧改为默认 façade apply/force，继续比对 managed docs、template target、managed block、metadata/shim 和 `.rekit/state.json` parity，并增加 fake backend sentinel 证明 default apply 委托与 disable fallback。
+- Go CLI tests 增加 `sync -Apply` 写入 managed content、backup、managed block 与 state refresh 的契约覆盖。
+- `internal/rekit/sync.ApplyPreview` nextSteps 更新，不再声称 actual writes 不经 façade 委托。
+- README、canonical `/rekit` skill、根 `CLAUDE.md`、`docs/go-runtime-migration.md`、`docs/go-first-convergence-plan.md`、`docs/sync-apply-migration.md`、`docs/case-migration.md`、`docs/agent-team-usage.md`、`rekit/tests/README.md` 与 CHANGELOG 同步记录 sync 默认 Go 委托边界。
+
+边界：本批只收口 sync 侧 `kit -> case` 路径；仍保持 review-first，即 `/rekit sync` 默认只写 review artifacts，不写 managed docs，写入 managed docs / managed block / template create-if-missing / sync state 仍要求显式 `-Apply`；不迁移 promote review/candidates/apply，不写 pack source、promote candidates、tooling candidates、authority/confirmed，不执行 heavy-tool、网络、debug、dump、patch、hook、fuzz、exploit replay；不创建真实 case state，验证仅使用临时 case。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/sync
+.\rekit\tests\sync-apply-smoke.ps1
+.\rekit\tests\sync-apply-parity-smoke.ps1
+.\rekit\tests\sync-review-parity-smoke.ps1
+.\rekit\tests\facade-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。targeted `go test ./internal/rekit/cli ./internal/rekit/sync` 与 `sync-apply-smoke.ps1` 已先行通过；最终收尾验证中 `sync-apply-parity-smoke.ps1`、`sync-review-parity-smoke.ps1`、`facade-smoke.ps1`、`go test ./...`、`go vet ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 107：promote non-writing Go default façade
+
+状态：已完成。
+
+目标：承接 Stage 4 的第二组 vertical slice，将 `/rekit promote` review、review artifact 写入、`promote -CreateCandidates -WhatIf -Format json` 与 `promote -Apply -WhatIf -Format json` 非写入 preview 收口为默认 Go façade 委托；保留 promote candidate/apply 实际写入为 PowerShell fallback 或手动 Go CLI。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 `promote` 加入默认 Go delegation command 集合。
+- `Test-RekitGoDelegationSafe` 对 promote 增加边界：目标必须是 attached case；默认 review、review artifact 写入、candidate JSON what-if preview 与 apply JSON what-if preview 可委托；文本 promote what-if 与实际 candidate/apply 写入继续 fallback；`REKIT_GO_DISABLE=1` 仍最高优先级回退 PowerShell。
+- `facade-smoke.ps1` 增加 default promote review/artifacts/candidate JSON preview/apply JSON preview fake backend sentinel，并保留文本 what-if 与 invalid write combination fallback 覆盖。
+- `promote-candidates-preflight-smoke.ps1` 与 `promote-apply-preflight-smoke.ps1` 将 façade JSON preview sentinel 改为默认委托，并增加 disable fallback 覆盖。
+- `promote-candidates-apply-smoke.ps1` 与 `promote-apply-smoke.ps1` 保留文本 what-if fallback 覆盖，继续证明实际写入路径不经 default façade 委托。
+- README、canonical `/rekit` skill、根 `CLAUDE.md`、`docs/go-runtime-migration.md`、`docs/go-first-convergence-plan.md`、`docs/promote-candidates-migration.md`、`docs/promote-apply-migration.md`、`docs/promote-sync.md`、`rekit/tests/README.md` 与 CHANGELOG 同步记录 promote 非写入默认 Go 委托边界。
+
+边界：本批只收口 promote 侧非写入 review/preview 路径；review artifact 写入仍只代表 `.rekit/reviews/**` 或显式 artifact path，不写 pack source、promote candidates、tooling candidates、authority/confirmed；`promote -CreateCandidates` 实际候选写入与 `promote -Apply` 实际 pack source 写入仍不默认委托 Go；不执行 heavy-tool、网络、debug、dump、patch、hook、fuzz、exploit replay；验证仅使用临时 case。
+
+验证计划：
+
+```powershell
+.\rekit\tests\promote-candidates-preflight-smoke.ps1
+.\rekit\tests\promote-apply-preflight-smoke.ps1
+.\rekit\tests\promote-candidates-apply-smoke.ps1
+.\rekit\tests\promote-apply-smoke.ps1
+.\rekit\tests\facade-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`promote-candidates-preflight-smoke.ps1`、`promote-apply-preflight-smoke.ps1`、`promote-candidates-apply-smoke.ps1`、`promote-apply-smoke.ps1`、`facade-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 108：promote candidate write Go default façade
+
+状态：已完成。
+
+目标：承接 Stage 4 的第三组 vertical slice，将 `/rekit promote -CreateCandidates` 实际 candidate/index/tooling candidate 写入纳入默认 Go façade 委托；保留 review-first 用户确认边界、文本 what-if fallback、`REKIT_GO_DISABLE=1` fallback 与 `promote -Apply` 实际 pack source 写入 fallback/manual 边界。
+
+实施范围：
+
+- `rekit/rekit.ps1` 扩展 promote 默认委托 safe set：attached case 且非 `-Force`、非 review artifact 混用时，`promote -CreateCandidates` 实际候选写入默认委托 Go；`-CreateCandidates -WhatIf -Format json` 与 `-Apply -WhatIf -Format json` 继续默认委托 Go；文本 promote what-if 继续走 PowerShell fallback；`promote -Apply` 实际 pack source 写入仍不默认委托。
+- `facade-smoke.ps1` 增加 default `promote -CreateCandidates` fake backend sentinel，证明实际 candidate 写入组合确实经默认 Go façade 委托，同时保留文本 what-if fallback 与 invalid apply/create combination fallback。
+- `promote-candidates-preflight-smoke.ps1` 增加默认 façade actual create-candidates fake backend sentinel，并保留 PowerShell 文本 what-if baseline、Go review artifact/sanitized preview、JSON preview delegation、disable fallback 与 no-write guard。
+- `promote-candidates-apply-smoke.ps1` 将实际 candidate 写入入口从手动 Go CLI 改为公共 PowerShell façade，继续验证 managed candidate、`index.json`、tooling candidate、blocked deny、sanitization、pack-root containment 与 cleanup。
+- README、canonical `/rekit` skill、根 `CLAUDE.md`、`docs/go-runtime-migration.md`、`docs/go-first-convergence-plan.md`、`docs/promote-candidates-migration.md`、`docs/promote-sync.md`、`rekit/tests/README.md` 与 CHANGELOG 同步记录 Batch 108 默认委托边界。
+
+边界：本批只把 candidate 目录写入从 PowerShell fallback/手动 Go CLI 收口到默认 Go façade；`promote -CreateCandidates` 仍只写 `packs/<pack>/promote-candidates/**` 与 `packs/<pack>/tooling/candidates/**` 候选，不覆盖正式 pack source，不写 authority/confirmed，不执行 heavy-tool、网络、debug、dump、patch、hook、fuzz、exploit replay；`promote -Apply` 实际 pack source 写入继续 fallback/manual；验证仅使用临时 case，smoke 必须恢复 candidate/tooling candidate tree。
+
+验证计划：
+
+```powershell
+.\rekit\tests\promote-candidates-preflight-smoke.ps1
+.\rekit\tests\promote-candidates-apply-smoke.ps1
+.\rekit\tests\facade-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`promote-candidates-preflight-smoke.ps1`、`promote-candidates-apply-smoke.ps1`、`promote-apply-preflight-smoke.ps1`、`promote-apply-smoke.ps1`、`facade-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 109：promote package test hardening
+
+状态：已完成。
+
+目标：承接 Stage 4 后续收敛，把 promote candidates/apply 中可单元化的 deny、sanitize、candidate index、containment/no-write 与 restore helper 行为迁入 Go package tests，减少仅依赖 PowerShell smoke 才能发现 promote 写入边界回归的风险。
+
+实施范围：
+
+- 新增 `internal/rekit/promote/promote_test.go`，构造自包含临时 repo、unit pack 与 attached case，不依赖真实 case、不写真实 pack。
+- 覆盖 `CreateCandidates(..., WhatIf:true)` 的 no-write 契约：返回 candidate/index/tooling 预览但不创建 `promote-candidates/**`、`tooling/candidates/**` 或 `index.json`。
+- 覆盖 `CreateCandidates(..., WhatIf:false)` 的实际 candidate/index/tooling candidate 写入：managed candidate 写入 candidate root，blocked deny 只记录 pack source target，不写 candidate；tooling candidate 写入 tooling candidate root；`index.json` 指向 managed candidate。
+- 覆盖 tooling sanitization：case root、绝对路径、artifacts/captures path、trace/dump 文件名、address、ctx/round/task 等 case-specific 信息替换为占位符。
+- 覆盖 `uniqueCandidatePath` collision handling 与 `restorePromoteBackups` 只恢复 action=`promote` 的 backup helper 行为。
+
+边界：本批只增加 Go package tests，不改变 runtime 行为、不扩大 façade 委托集合、不写真实 pack candidate、pack source、authority/confirmed，不执行 heavy-tool、网络、debug、dump、patch、hook、fuzz、exploit replay；所有测试数据使用 `t.TempDir()` 自包含 repo/case/pack。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/promote
+go test ./internal/rekit/cli ./internal/rekit/promote
+.\rekit\tests\promote-candidates-preflight-smoke.ps1
+.\rekit\tests\promote-candidates-apply-smoke.ps1
+.\rekit\tests\promote-apply-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/promote`、`go test ./internal/rekit/cli ./internal/rekit/promote`、`promote-candidates-preflight-smoke.ps1`、`promote-candidates-apply-smoke.ps1`、`promote-apply-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 110：sync package test hardening
+
+状态：已完成。
+
+目标：承接 Stage 4 后续收敛，把 sync apply/preview 中可单元化的 backup、managed block、template create/force、state refresh 与 backup escape guard 行为迁入 Go package tests，减少仅依赖 PowerShell smoke 才能发现 sync 写入边界回归的风险。
+
+实施范围：
+
+- 新增 `internal/rekit/sync/sync_test.go`，构造自包含临时 repo、unit pack 与 attached case，不依赖真实 case、不写真实 pack。
+- 覆盖 `ApplyPreview` no-write 契约：返回 backupRoot 和 planned writes，但不创建 backup 目录，不刷新 metadata/shim/state，不修改 managed docs、template target 或 managed block host。
+- 覆盖 `Apply` 实际写入：刷新 instance/legacy metadata/thin shim，覆盖 managed file 并创建 backup，跳过既有 local template，替换 managed block 并备份 host，刷新 `.rekit/state.json` managed hashes。
+- 覆盖 `ForceLocalTemplates`：显式 force 时覆盖 template target、替换 `<PROJECT_NAME>` / `<PROJECT_ROOT>` 占位符，并备份原本地模板。
+- 覆盖 `backupCaseFile` 越界 guard：拒绝备份 case root 外路径，防止 backup helper 被误用时越界读取。
+
+边界：本批只增加 Go package tests，不改变 runtime 行为、不扩大 façade 委托集合、不写真实 case、pack source、promote candidates、authority/confirmed，不执行 heavy-tool、网络、debug、dump、patch、hook、fuzz、exploit replay；所有测试数据使用 `t.TempDir()` 自包含 repo/case/pack。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/sync
+go test ./internal/rekit/cli ./internal/rekit/sync
+.\rekit\tests\sync-apply-smoke.ps1
+.\rekit\tests\sync-apply-parity-smoke.ps1
+.\rekit\tests\sync-review-parity-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/sync`、`go test ./internal/rekit/cli ./internal/rekit/sync`、`sync-apply-smoke.ps1`、`sync-apply-parity-smoke.ps1`、`sync-review-parity-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 111：promote apply restore test hardening
+
+状态：已完成。
+
+目标：承接 Stage 4 后续收敛，把 promote apply 中可单元化的 what-if no-write、backup/validation rows、blocked deny 与 validation failure restore 行为迁入 Go package tests，减少 `promote -Apply` 实际 pack source 写入边界只靠 PowerShell smoke 才能发现回归的风险。
+
+实施范围：
+
+- 扩展 `internal/rekit/promote/promote_test.go`，在自包含临时 repo、unit pack 与 attached case 中覆盖 `promote.Apply`。
+- 覆盖 `Apply(..., WhatIf:true)`：输出 `would-promote` 与 backup preview path，但不写 pack source、不创建 backup。
+- 覆盖 `Apply(..., WhatIf:false)` 成功路径：safe managed doc 写回 pack source，写入前创建 backup，blocked deny 文件不写，写入后返回 pack validation rows。
+- 覆盖 validation failure restore：写入后 doctor/pack validation 失败时返回 restore 提示，并用 backup 恢复已写 pack source。
+- 复用自包含 fixture 构造最小 policy registry、manifest、laneTypes、authorityFiles 和 budget，避免触碰真实 pack source 或真实 case。
+
+边界：本批只增加 Go package tests，不改变 runtime 行为、不扩大 façade 委托集合；`promote -Apply` 实际 pack source 写入仍不默认委托 PowerShell façade，不写 authority/confirmed，不执行 heavy-tool、网络、debug、dump、patch、hook、fuzz、exploit replay；所有测试数据使用 `t.TempDir()` 自包含 repo/case/pack。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/promote
+go test ./internal/rekit/cli ./internal/rekit/promote
+.\rekit\tests\promote-apply-preflight-smoke.ps1
+.\rekit\tests\promote-apply-smoke.ps1
+.\rekit\tests\promote-candidates-apply-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/promote`、`go test ./internal/rekit/cli ./internal/rekit/promote`、`promote-apply-preflight-smoke.ps1`、`promote-apply-smoke.ps1`、`promote-candidates-apply-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 112：promote apply actual write default Go façade
+
+状态：已完成。
+
+目标：在 Batch 111 已把 `promote.Apply` 的 what-if no-write、backup/validation rows、blocked deny 与 validation failure restore 收进 Go package tests 后，将公共 `/rekit promote -Apply` 实际 pack source 写入纳入默认 Go façade，推进 Stage 4 的 sync/promote ownership 收口，减少 PowerShell promote apply 继续作为默认 runtime owner 的漂移风险。
+
+实施范围：
+
+- 放宽 `rekit/rekit.ps1` 的 promote delegation safe-set：`-Apply` 不再只允许 `-WhatIf -Format json`，实际 `-Apply` 在 attached case、非 `-Force`、无 review artifacts、未混用 `-CreateCandidates`/`-Review` 且 `Format` 为空或 `json` 时默认委托 Go。
+- 保留 `promote -Apply -WhatIf -Format json` 非写入预览委托；文本 `promote -Apply -WhatIf` 继续 PowerShell dry-run fallback。
+- 保留 `REKIT_GO_DISABLE=1` 强制回退 PowerShell，作为 baseline/parity/escape hatch。
+- 更新 `facade-smoke.ps1`，用 fake `REKIT_GO_EXE` 锁定 actual `promote -Apply` 默认委托与非法 `-Apply -CreateCandidates` fallback。
+- 更新 `promote-apply-preflight-smoke.ps1`，显式验证 actual apply 默认委托 Go；PowerShell actual apply baseline 改为 `REKIT_GO_DISABLE=1` fallback。
+- 更新 `promote-apply-smoke.ps1`，通过公共 façade 执行 actual apply，继续验证 backup、blocked deny、validation rows、pack-root containment、tooling 不写入和 cleanup。
+
+边界：仍必须先经 `/rekit promote` review 与用户确认具体范围后才能运行 `-Apply`；本批只切换明确 `-Apply` 的 runtime owner，不改变 review-first 语义，不允许裸 `promote` 写入，不写 authority/confirmed，不执行 heavy-tool、网络、debug、dump、patch、hook、fuzz、exploit replay。`promote -Apply` 仍只处理 manifest 中 safe managed promote files，依赖 deny/case-specific pattern、pack-root containment、backup、doctor validation 与 validation failure restore；文本 what-if 与 `REKIT_GO_DISABLE=1` fallback 保留 PowerShell。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/promote
+go test ./internal/rekit/cli ./internal/rekit/promote
+.\rekit\tests\promote-apply-preflight-smoke.ps1
+.\rekit\tests\promote-apply-smoke.ps1
+.\rekit\tests\promote-candidates-apply-smoke.ps1
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/promote`、`go test ./internal/rekit/cli ./internal/rekit/promote`、`promote-apply-preflight-smoke.ps1`、`promote-apply-smoke.ps1`、`promote-candidates-apply-smoke.ps1`、`facade-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 113：overview / note JSON readonly default Go façade
+
+状态：已完成。
+
+目标：承接 Stage 5 的 workstream / ledger / gate / continue Go 化，在不新增写入面的前提下，将已初始化 case 的 `/rekit overview -Format json` 与 `/rekit note -List -Format json` 只读查询从显式 `REKIT_GO_ENABLE=1` 扩展集合升级为默认 Go façade，推进 Agent Team 状态读取路径收口，减少 PowerShell 继续作为机器可读 read layer owner 的漂移风险。
+
+实施范围：
+
+- 扩展 `rekit/rekit.ps1` 默认委托集合，将 `overview` 与 `note` 纳入默认 Go delegation command set，但仍复用原 safe-set guard：`overview` 只在 attached case 且 `.rekit/board.json` 已存在、`Format=json`、无写入 flags 时委托；`note` 只在 attached case、`-List`、`Format=json`、无 `-WhatIf`/写入 flags 时委托。
+- 保留 overview 文本输出与缺 board 初始化走 PowerShell fallback，避免改变首次 overview 初始化语义。
+- 保留 `note` append、`note -WhatIf` 与文本 `note -List` 走 PowerShell fallback，避免扩大 facts JSONL 写入委托面。
+- 保留 `REKIT_GO_DISABLE=1` 强制回退 PowerShell，并在 façade smoke 中增加 overview/note JSON readonly disable fallback 检查。
+- 更新 `facade-smoke.ps1`、`overview-readonly-smoke.ps1` 与 `agent-team-review-loop-smoke.ps1`，用 fake `REKIT_GO_EXE` 锁定 overview/note JSON readonly 默认委托，并保留文本 fallback 检查。
+- 更新 `CLAUDE.md`、README、`/rekit` skill、Go runtime migration、Go-first convergence、tests guide、catalog metadata 与 changelog，记录 Batch 113 后默认委托边界。
+
+边界：本批只切换两个机器可读只读查询的 façade owner，不写 board/facts/lanes/handoff/authority/confirmed，不执行 heavy-tool、网络、debug、dump、patch、hook、fuzz、exploit replay；不委托 overview 文本/缺 board 初始化、不委托 note append/text list、不改变 gate/workstream preview 仍需显式 `REKIT_GO_ENABLE=1` 的边界。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/overview ./internal/rekit/note
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\overview-readonly-smoke.ps1
+.\rekit\tests\agent-team-review-loop-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/overview ./internal/rekit/note`、`facade-smoke.ps1`、`overview-readonly-smoke.ps1`、`agent-team-review-loop-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 114：gate what-if default Go façade
+
+状态：已完成。
+
+目标：承接 Stage 5 的 workstream / ledger / gate / continue Go 化，在不新增实际 heavy-tool 执行或 ledger 写入面的前提下，将 attached case 的 `/rekit gate -WhatIf` 非写入 pending-gate request preview 从显式 `REKIT_GO_ENABLE=1` 扩展集合升级为默认 Go façade，进一步收口 gate preview 的 deterministic runtime owner。
+
+实施范围：
+
+- 扩展 `rekit/rekit.ps1` 默认委托集合，将 `gate` 纳入 default delegation command set，但 safe-set 只允许 attached case、显式 `-WhatIf`、无 `-Apply`/review/candidate/force flags、无 review artifact options，且 `-Format` 为空或 `json` 的非写入 preview。
+- 保留 `gate -Apply` 不经默认 façade 委托；该路径仍只能手动运行 Go CLI，且只写 pending-gate request，不执行 heavy-tool、不写 confirmed/authority。
+- 保留 actual full-trace/debug/inject/patch/dump/network/fuzz/exploit replay 等 heavy-tool 执行完全不由本批迁移或授权。
+- 更新 `facade-smoke.ps1`，用 fake `REKIT_GO_EXE` 锁定默认 gate what-if 委托，并用真实默认 façade dry-run 检查 `isMutation=false` 与 `pending-gate`；同时确认 `gate -Apply` 仍不经默认 façade。
+- 更新 `gate-parity-smoke.ps1`，在 Go `gate -Apply` 落账前增加默认 façade `gate -WhatIf` no-write 检查，比较 `.rekit/facts/requests.jsonl` 前后内容不变。
+- 更新 README、CLAUDE、`/rekit` skill、Go runtime migration、Go-first convergence、tests guide、catalog metadata 与 changelog，记录 Batch 114 后 gate what-if 默认委托、workstream preview 仍需显式 enable 的边界。
+
+边界：本批只切换 `gate -WhatIf` preview 的 façade owner，不写 board/facts/lanes/handoff/authority/confirmed，不执行 heavy-tool、网络、debug、dump、patch、hook、fuzz、exploit replay；不委托 `gate -Apply`、start/handoff/continue workstream preview/apply、note append、overview 文本/缺 board 初始化或任何文本工作线命令。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/gate
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\gate-parity-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/gate`、`facade-smoke.ps1`、`gate-parity-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 115：gate apply default Go façade
+
+状态：已完成。
+
+目标：承接 Stage 5 的 gate request 收口，在 Batch 114 已将 `/rekit gate -WhatIf` 默认委托 Go 后，将 attached case 的 `/rekit gate -Apply` pending-gate request ledger 写入也升级为默认 Go façade，同时保持 gate apply 只登记请求、不执行 heavy-tool、不写 confirmed/authority 的边界。
+
+实施范围：
+
+- 扩展 `rekit/rekit.ps1` gate safe-set：`gate` 默认委托允许 attached case 的显式 `-WhatIf` 或显式 `-Apply`，禁止二者混用，继续拒绝 `-CreateCandidates`/`-Review`/`-Force`、review artifact options，以及非空非 `json` format。
+- 保留 `gate -Apply` 的 Go backend actor guard：缺少 `-Actor` 时拒绝写入；成功时只 append `.rekit/facts/requests.jsonl` 的 `pending-gate` request。
+- 新增 `internal/rekit/gate/gate_test.go` package tests，覆盖 dry-run no-write、apply actor guard、pending-gate request 写入、duplicate eventId 幂等，以及不写 authority/confirmed/captures/artifacts。
+- 更新 `facade-smoke.ps1`，用 fake `REKIT_GO_EXE` 锁定默认 `gate -Apply` 委托，并保留 missing actor guard 走 Go backend 的检查。
+- 更新 `gate-parity-smoke.ps1`，将 request 写入路径改为默认 façade `gate -Apply`，继续验证 façade `gate -WhatIf` no-write 以及 overview/note/handoff 展示 parity。
+- 更新 README、CLAUDE、`/rekit` skill、Go runtime migration、Go-first convergence、Agent Team rollout、tests guide、catalog metadata 与 changelog，记录 Batch 115 后 gate apply 默认委托边界。
+
+边界：本批只把 pending-gate request ledger 写入的 façade owner 切到 Go，不执行 full-trace/debug/inject/patch/dump/network/fuzz/exploit replay，不写 confirmed/authority，不改变 note append、overview 文本/缺 board 初始化、start/handoff/continue workstream preview/apply 或其它文本工作线命令。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/gate ./internal/rekit/cli
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\gate-parity-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/gate ./internal/rekit/cli`、`facade-smoke.ps1`、`gate-parity-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 116：note append default Go façade
+
+状态：已完成。
+
+目标：承接 Stage 5 的 ledger runtime 收口，在 Batch 113 已将 `note -List -Format json` 默认委托 Go 后，将 attached case 的 `/rekit note` append 与 `/rekit note -WhatIf` preview 升级为默认 Go façade，同时保持只写 facts JSONL、schema/lane guard、eventId 去重、不写 authority/confirmed、不执行 heavy-tool 的边界。
+
+实施范围：
+
+- 扩展 `rekit/rekit.ps1` 的 `note` safe-set：attached case、非 `-Apply`/`-CreateCandidates`/`-Review`/`-Force`、无 review artifact options 时，`note -List -Format json` 继续默认委托 Go；非 list 的 append 与 append `-WhatIf` 在 `Format` 为空或 `json` 时默认委托 Go；文本 `note -List` 继续 PowerShell fallback。
+- 扩展 `Get-RekitGoArgs` 的 note 参数转发，将 append 所需的 `Kind`、`Lane`、`Subject`、`Summary`、`Actor`、`Risk`、`Related`、`Confidence`、`Decision`、`Reason`、`Status`、`BatchId`、`TargetRef`、`Verifier`、`Verdict`、`Action`、`ApprovedBy`、`Scope`、`Expires`、`EvidenceRefs` 与 `EventId` 转给 Go backend。
+- 新增 `internal/rekit/note/note_test.go` package tests，覆盖 append what-if no-write、append + list、duplicate explicit eventId 幂等、invalid kind / unknown lane guard，以及不写 authority/confirmed。
+- 更新 `facade-smoke.ps1`，用 fake `REKIT_GO_EXE` 锁定默认 `note` append 与 `note -WhatIf` 委托，并补 `REKIT_GO_DISABLE=1` 下 note append fallback 检查。
+- 更新 `agent-team-review-loop-smoke.ps1`，通过公共 façade 验证 note what-if 不写 observations ledger、verification append 与 decision append JSON envelope，并继续验证 note/list、overview、handoff 展示闭环。
+- 更新 README、CLAUDE、`/rekit` skill、Go runtime migration、Go-first convergence、Agent Team rollout、tests guide、catalog metadata 与 changelog，记录 Batch 116 后 note append 默认委托边界。
+
+边界：本批只切换 facts JSONL append/preview 的 façade owner；append 输出从 PowerShell 文本变成 Go JSON envelope 是预期机器可读行为；不写 board/lane/handoff/authority/confirmed，不执行 full-trace/debug/inject/patch/dump/network/fuzz/exploit replay，不改变 overview 文本/缺 board 初始化、文本 `note -List`、start/handoff/continue workstream preview/apply 或其它文本工作线命令。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/note ./internal/rekit/cli
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\agent-team-review-loop-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/note ./internal/rekit/cli`、`facade-smoke.ps1`、`agent-team-review-loop-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

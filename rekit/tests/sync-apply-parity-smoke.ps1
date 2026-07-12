@@ -13,8 +13,14 @@ $Rekit = Join-Path $RekitRoot 'rekit.ps1'
 function Invoke-RekitSmoke {
   param(
     [Parameter(Mandatory=$true)][string[]]$Arguments,
-    [int[]]$AllowedExitCodes = @(0)
+    [int[]]$AllowedExitCodes = @(0),
+    [hashtable]$Env = @{}
   )
+  $oldValues = @{}
+  foreach ($key in $Env.Keys) {
+    $oldValues[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
+    [Environment]::SetEnvironmentVariable($key, [string]$Env[$key], 'Process')
+  }
   $oldEap = $ErrorActionPreference
   try {
     $ErrorActionPreference = 'Continue'
@@ -23,6 +29,7 @@ function Invoke-RekitSmoke {
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
   } finally {
     $ErrorActionPreference = $oldEap
+    foreach ($key in $Env.Keys) { [Environment]::SetEnvironmentVariable($key, $oldValues[$key], 'Process') }
   }
   if ($AllowedExitCodes -notcontains $exitCode) {
     throw "unexpected exit code $exitCode; output:`n$output"
@@ -166,8 +173,8 @@ try {
   Seed-CaseDrift -Root $psCase
   Seed-CaseDrift -Root $goCase
 
-  Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$psCase,'-Pack',$Pack,'-Apply','-ProjectName',"sync-parity-$suffix") | Out-Null
-  $goApply = Invoke-GoRekitSmoke -Arguments @('-Command','sync','-Target',$goCase,'-Pack',$Pack,'-Apply','-ProjectName',"sync-parity-$suffix") | ConvertFrom-Json
+  Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$psCase,'-Pack',$Pack,'-Apply','-ProjectName',"sync-parity-$suffix") -Env @{ REKIT_GO_DISABLE = '1' } | Out-Null
+  $goApply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$goCase,'-Pack',$Pack,'-Apply','-ProjectName',"sync-parity-$suffix") | ConvertFrom-Json
   if (-not [bool]$goApply.applied -or [bool]$goApply.isMutation -ne $true) { throw "unexpected Go apply result: $($goApply | ConvertTo-Json -Depth 8)" }
 
   Assert-CaseParity -PowerShellRoot $psCase -GoRoot $goCase
@@ -176,8 +183,8 @@ try {
   Assert-BackupExists -Root $psCase -Leaf 'CLAUDE.local.md' -Label 'PowerShell sync apply'
   Assert-BackupExists -Root $goCase -Leaf 'CLAUDE.local.md' -Label 'Go sync apply'
 
-  Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$psCase,'-Pack',$Pack,'-Apply','-Force','-ProjectName',"sync-force-$suffix") | Out-Null
-  $goForce = Invoke-GoRekitSmoke -Arguments @('-Command','sync','-Target',$goCase,'-Pack',$Pack,'-Apply','-Force','-ProjectName',"sync-force-$suffix") | ConvertFrom-Json
+  Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$psCase,'-Pack',$Pack,'-Apply','-Force','-ProjectName',"sync-force-$suffix") -Env @{ REKIT_GO_DISABLE = '1' } | Out-Null
+  $goForce = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$goCase,'-Pack',$Pack,'-Apply','-Force','-ProjectName',"sync-force-$suffix") | ConvertFrom-Json
   if (-not [bool]$goForce.applied -or [bool]$goForce.isMutation -ne $true) { throw "unexpected Go force apply result: $($goForce | ConvertTo-Json -Depth 8)" }
 
   Assert-CaseParity -PowerShellRoot $psCase -GoRoot $goCase
@@ -190,6 +197,14 @@ try {
   Invoke-RekitSmoke -Arguments @('-Command','doctor','-Target',$goCase,'-Pack',$Pack) | Out-Null
   Invoke-GoRekitSmoke -Arguments @('-Command','doctor','-Target',$psCase,'-Pack',$Pack) | Out-Null
   Invoke-GoRekitSmoke -Arguments @('-Command','doctor','-Target',$goCase,'-Pack',$Pack) | Out-Null
+
+  $fakeGo = Join-Path $goCase 'fake-rekit-go.cmd'
+  [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"sync","delegatedByFake":true,"isMutation":true,"applied":true}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
+  $facadeDefaultApply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$goCase,'-Pack',$Pack,'-Apply','-Format','json') -Env @{ REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeDefaultApply.delegatedByFake) { throw "facade sync apply did not use default delegation: $($facadeDefaultApply | ConvertTo-Json -Depth 8)" }
+  $facadeDisabledApply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$goCase,'-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  if ($facadeDisabledApply -like '*delegatedByFake*') { throw "disabled sync apply unexpectedly used fake Go delegation: $facadeDisabledApply" }
+  Assert-ContainsText -Text $facadeDisabledApply -Expected 'sync ok' -Label 'disabled sync apply fallback'
 
   'sync apply parity smoke ok'
 } finally {

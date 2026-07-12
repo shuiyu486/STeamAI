@@ -137,7 +137,7 @@ func buildPlan(repoRoot, target, pack string, opt Options) (Plan, error) {
 		projectName = casebind.ProjectNameFromRoot(caseRoot)
 	}
 	writes := append([]casebind.WritePlan{}, casebind.BindingWrites(caseRoot)...)
-	writes = append(writes, casebind.LegacyWrite(caseRoot))
+	writes = append(writes, casebind.LegacyWrite(caseRoot), casebind.InitialStateWrite(caseRoot))
 	return Plan{
 		SchemaVersion:       1,
 		Command:             "repair",

@@ -30,10 +30,10 @@
 1. **绑定 metadata 和 thin shim**：
 
 ```text
-/rekit attach -Target <caseRoot> -Pack vmp-re
+/rekit attach -Target <caseRoot> -Pack vmp-re -Apply
 ```
 
-PowerShell `/rekit attach` 只写 `.rekit/instance.yml`、`.rekit/state.json`、`.re-template.yml` 和 case-local `/rekit` shim，不覆盖已有 reference、handoff 或工具链文档。维护者手动验证用的 Go `attach -Apply` 当前只写 `.rekit/instance.yml` 与 thin shim；不替代日常 `/rekit attach`。
+`/rekit attach -Apply` 默认由 Go backend 处理，只写 `.rekit/instance.yml`、初始 `.rekit/state.json`、`.re-template.yml` 和 case-local `/rekit` shim，不覆盖已有 reference、handoff 或工具链文档。`/rekit attach -WhatIf` 只预览；`REKIT_GO_DISABLE=1` 可强制回退 PowerShell fallback。
 
 2. **同步 managed docs 前先 review**：
 
@@ -41,7 +41,7 @@ PowerShell `/rekit attach` 只写 `.rekit/instance.yml`、`.rekit/state.json`、
 /rekit sync
 ```
 
-默认只生成 `.rekit/reviews/<timestamp>-sync/packet.json`、`summary.md` 和 bounded diff。确认具体范围后，才执行写入型 `sync -Apply`。
+默认只生成 `.rekit/reviews/<timestamp>-sync/packet.json`、`summary.md` 和 bounded diff。确认具体范围后，才执行写入型 `sync -Apply`；Batch 106 起该写入默认由 Go backend 处理，`REKIT_GO_DISABLE=1` 可回退 PowerShell fallback。
 
 接入后仍然可以继续使用主线/功能支线：
 
@@ -83,8 +83,8 @@ Path(r'<oldCaseRoot>')
 2. 复制 case 到新目录，例如：`robocopy <oldCaseRoot> <newCaseRoot> /E`。
 3. 在新目录启动 Claude Code，执行 `/rekit status`。
 4. 如果 status 提示 `projectRoot` 与当前目录不一致，先确认这是预期迁移。
-5. 执行 `/rekit repair` 预览 metadata 变更。维护者也可手动用 Go `repair -WhatIf` 对比 JSON preview，但日常入口仍是 `/rekit`。
-6. 确认无误后，直接告诉 Claude：`确认修复，执行 repair -Apply`。Go `repair -Apply` 目前只作为维护者验证路径，不经 PowerShell façade 委托。
+5. 执行 `/rekit repair` 预览 metadata 变更；该预览默认由 Go backend 处理，`REKIT_GO_DISABLE=1` 可回退 PowerShell。
+6. 确认无误后，直接告诉 Claude：`确认修复，执行 repair -Apply`。该写入默认由 Go backend 刷新 metadata、legacy metadata、初始 state 与 thin shim。
 7. 执行 `/rekit doctor` 验证 case 绑定。
 8. 必要时执行 `/rekit sync` 同步最新 managed docs。
 9. 搜索并更新只属于旧 case 根目录的绝对路径。

@@ -8,6 +8,8 @@
 
 `rekit/tests` 里的脚本都是仓库维护验证入口，默认使用临时 case 或只读仓库状态，目标是锁定 review-first、no-write、Go/PowerShell parity 和 pack skeleton 边界。`catalog.json` 用相同分类记录全部 `*.ps1` smoke/helper 的 `category`、`purpose`、`recommendedFor`、`supportsWorkRoot` 和 `riskBoundary`，供后续自动测试选择器或 CI 读取。
 
+Go-first release gate 优先由 `go test ./...` / `go vet ./...` / `doctor` 捕获确定性 invariant；`catalog-smoke.ps1`、`pack-smoke-matrix-selftest.ps1` 与 pack matrix 保留为 PowerShell compatibility / parity 层，不继续扩张成新的 runtime owner。
+
 推荐最小回归组合：
 
 ```powershell
@@ -17,6 +19,7 @@
 .\rekit\tests\pack-smoke-matrix.ps1 -DiscoveryOnly
 .\rekit\tests\pack-inventory-smoke.ps1
 go test ./...
+go vet ./...
 .\rekit\rekit.ps1 -Command doctor
 git diff --check
 ```
@@ -50,7 +53,7 @@ git diff --check
 
 | 脚本 | 什么时候跑 | 覆盖重点 |
 |---|---|---|
-| `facade-smoke.ps1` | 改 `rekit.ps1`、Go façade 委托集合或 JSON preview/read-only 委托 | 默认不委托、显式 Go 安全集合、disable 优先级、文本/write fallback。 |
+| `facade-smoke.ps1` | 改 `rekit.ps1`、Go façade 委托集合或 JSON preview/read-only 委托 | 只读命令、overview/note JSON 只读默认委托、note append/what-if 默认委托、gate what-if/apply 默认委托、case lifecycle、sync 与 promote review/candidate/apply 默认 Go 委托、显式 workstream preview 安全集合、disable 优先级、文本/write fallback。 |
 | `pack-inventory-smoke.ps1` | 改 pack manifest、maturity、inventory、status/doctor JSON | `/rekit packs/status/doctor/validate` text+JSON parity、Go/PowerShell/facade 委托。 |
 | `catalog-smoke.ps1` | 改 `catalog.json` 或测试导航字段 | catalog schema、唯一 id、全部 `*.ps1` 覆盖、脚本/文档存在性、pack smoke 与 discovery 对齐。 |
 | `pack-smoke-matrix.ps1 -DiscoveryOnly` | 新增/删除 skeleton pack 或 pack smoke wrapper | inventory 中 schema-valid skeleton pack 与 matrix 清单/wrapper 一致性。 |
@@ -79,24 +82,24 @@ generic-binary-re-pack-smoke.ps1
 
 | 脚本 | 什么时候跑 | 覆盖重点 |
 |---|---|---|
-| `init-bootstrap-smoke.ps1` | 改 Go init/bootstrap 或 case scaffold | preview/apply、managed docs、template、managed block、state、doctor。 |
+| `init-bootstrap-smoke.ps1` | 改 Go init/bootstrap、case scaffold 或 lifecycle façade 委托 | preview/apply、managed docs、template、managed block、state、doctor、默认 façade 委托。 |
 | `sync-review-parity-smoke.ps1` | 改 sync review 或 bounded diff | PowerShell/Go sync review action 和 diff parity。 |
-| `sync-apply-smoke.ps1` | 改 Go sync apply | 临时 case apply、backup、state、Go/PowerShell doctor。 |
-| `sync-apply-parity-smoke.ps1` | 改 sync apply force/parity | PowerShell 与 Go apply/force 后 managed docs、metadata/shim、state 对比。 |
-| `promote-candidates-preflight-smoke.ps1` | 改 promote candidates preview/review | PowerShell baseline、Go review artifact/sanitized preview、write guard、façade fallback。 |
-| `promote-candidates-apply-smoke.ps1` | 改 Go candidate 写入 | candidate/index/tooling candidate、deny、sanitization、pack-root containment、cleanup。 |
-| `promote-apply-preflight-smoke.ps1` | 改 promote apply preview/baseline | PowerShell baseline、backup、deny、Go apply what-if、façade fallback。 |
-| `promote-apply-smoke.ps1` | 改 Go promote apply | pack managed docs writeback、backup、blocked deny、validation、cleanup。 |
+| `sync-apply-smoke.ps1` / `go test ./internal/rekit/sync` | 改 Go sync apply、sync package helper 或 façade sync 默认委托 | 临时 case apply、backup、managed block、template force、state、backup escape guard、默认 façade 委托、disable fallback、Go/PowerShell doctor。 |
+| `sync-apply-parity-smoke.ps1` | 改 sync apply force/parity | PowerShell fallback 与默认 Go façade apply/force 后 managed docs、metadata/shim、state 对比。 |
+| `promote-candidates-preflight-smoke.ps1` | 改 promote candidates preview/review 或 façade promote 默认委托 | PowerShell baseline、Go review artifact/sanitized preview、default JSON preview/review/create-candidates delegation、write guard、façade fallback。 |
+| `promote-candidates-apply-smoke.ps1` / `go test ./internal/rekit/promote` | 改 Go candidate 写入、façade candidate 写入委托或 promote package helper | 默认 façade candidate 写入、candidate/index/tooling candidate、deny、sanitization、unique candidate path、restore helper、pack-root containment、cleanup。 |
+| `promote-apply-preflight-smoke.ps1` | 改 promote apply preview/baseline 或 façade promote 默认委托 | PowerShell disabled fallback baseline、backup、deny、Go apply what-if、default JSON preview delegation、actual apply default delegation、façade fallback。 |
+| `promote-apply-smoke.ps1` / `go test ./internal/rekit/promote` | 改 Go promote apply、façade promote apply 委托或 promote apply package helper | 默认 façade pack managed docs writeback、what-if no-write、backup、blocked deny、validation rows、validation failure restore、cleanup。 |
 
 ### Workstream / ledger / gate / Agent Team
 
 | 脚本 | 什么时候跑 | 覆盖重点 |
 |---|---|---|
 | `plan-subagents-smoke.ps1` | 改 `plan-subagents`、subagent routes、review packet | route/taskType、Items/ItemsFile、observability、out-of-case guard、fallback。 |
-| `agent-team-review-loop-smoke.ps1` | 改 review loop、verification/decision 展示 | packet -> verification -> decision -> note/list -> overview/handoff 最小闭环。 |
+| `agent-team-review-loop-smoke.ps1` | 改 review loop、verification/decision 展示、note list JSON 委托或 note append façade | packet -> note what-if no-write -> verification append -> decision append -> note/list -> overview/handoff 最小闭环，含默认 façade note append/what-if、note list JSON 委托与文本 fallback。 |
 | `agent-team-d5-dryrun-smoke.ps1` | 改 batch/intervention/rollback 展示 | candidate、verification、decision、batch、intervention/rollback、handoff。 |
-| `gate-parity-smoke.ps1` | 改 heavy-tool gate request schema 或 PowerShell 读层 | Go gate request 写入 + overview/note/handoff 展示 parity。 |
-| `overview-readonly-smoke.ps1` | 改 Go overview 或 façade overview JSON | 只读 overview、缺 board guard、Go gate request 展示、fallback。 |
+| `gate-parity-smoke.ps1` | 改 heavy-tool gate request schema、gate façade 委托或 PowerShell 读层 | 默认 façade gate what-if no-write、默认 façade gate apply request 写入 + overview/note/handoff 展示 parity。 |
+| `overview-readonly-smoke.ps1` | 改 Go overview 或 façade overview JSON | 只读 overview、缺 board guard、Go gate request 展示、默认 façade JSON 委托、fallback。 |
 | `start-apply-smoke.ps1` | 改 Go start | preview/apply scaffold、board/facts/policy/lane/workspace、doctor、fallback。 |
 | `handoff-apply-smoke.ps1` | 改 Go handoff | project/lane handoff preview/apply、resume/checkpoint、ledger 区段、fallback。 |
 | `continue-preflight-smoke.ps1` | 改 PowerShell continue authority gate | authority append gate matrix、backup/diff、CSV recovery、routing、digest/status、WhatIf no-write。 |

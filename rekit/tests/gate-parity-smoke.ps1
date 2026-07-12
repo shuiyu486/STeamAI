@@ -30,18 +30,6 @@ function Invoke-RekitSmoke {
   return $output
 }
 
-function Invoke-GoRekitSmoke {
-  param([Parameter(Mandatory=$true)][string[]]$Arguments)
-  Push-Location $RepoRoot
-  try {
-    $output = & go run ./cmd/rekit -- @Arguments | Out-String
-    if ($LASTEXITCODE -ne 0) { throw "go rekit failed; output:`n$output" }
-    return $output
-  } finally {
-    Pop-Location
-  }
-}
-
 function Assert-ContainsText {
   param(
     [Parameter(Mandatory=$true)][AllowEmptyString()][string]$Text,
@@ -63,7 +51,29 @@ try {
 
   $subject = "gate parity smoke $suffix"
   $batch = "batch-gate-parity-$suffix"
-  Invoke-GoRekitSmoke -Arguments @(
+  $requestsPath = Join-Path $caseRoot '.rekit\facts\requests.jsonl'
+  $beforeRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
+  $facadePreview = Invoke-RekitSmoke -Arguments @(
+    '-Command','gate',
+    '-Target',$caseRoot,
+    '-Pack',$Pack,
+    '-WhatIf',
+    '-Action','debug',
+    '-Lane',$lane,
+    '-Subject',$subject,
+    '-Summary','preview gate request display parity',
+    '-TargetRef',$batch,
+    '-BatchId',$batch,
+    '-Scope','handler only',
+    '-Budget','30s'
+  ) | ConvertFrom-Json
+  if ([string]$facadePreview.command -ne 'gate' -or [bool]$facadePreview.isMutation -or -not [bool]$facadePreview.requiresConfirmation -or [string]$facadePreview.eventPreview.status -ne 'pending-gate') {
+    throw "unexpected facade gate preview: $($facadePreview | ConvertTo-Json -Depth 20)"
+  }
+  $afterRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
+  if ($beforeRequests -ne $afterRequests) { throw 'facade gate what-if changed requests ledger' }
+
+  $facadeApply = Invoke-RekitSmoke -Arguments @(
     '-Command','gate',
     '-Target',$caseRoot,
     '-Pack',$Pack,
@@ -80,7 +90,10 @@ try {
     '-Budget','30s',
     '-TriedLightSteps','overview,static review',
     '-StopConditions','timeout,unexpected side effect'
-  ) | Out-Null
+  ) | ConvertFrom-Json
+  if ([string]$facadeApply.command -ne 'gate' -or -not [bool]$facadeApply.isMutation -or -not [bool]$facadeApply.applied -or [string]$facadeApply.event.status -ne 'pending-gate' -or [string]$facadeApply.event.actor -ne 'gate-parity-smoke') {
+    throw "unexpected facade gate apply: $($facadeApply | ConvertTo-Json -Depth 20)"
+  }
 
   $overview = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack)
   foreach ($expected in @($subject,'by=gate-parity-smoke','risk=high',"target=$batch","batch=$batch",'action=debug','scope=handler only','budget=30s','tried=overview,static review','stop=timeout,unexpected side effect')) {

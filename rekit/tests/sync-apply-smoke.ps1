@@ -149,14 +149,20 @@ try {
   $fakeGo = Join-Path $caseRoot 'fake-rekit-go.cmd'
   [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"sync","delegatedByFake":true,"isMutation":false,"applied":false}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
   $beforeFacadePreview = Get-TreeSnapshot -Root $caseRoot
-  $facadePreview = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
-  if (-not [bool]$facadePreview.delegatedByFake) { throw "facade sync apply JSON preview did not use REKIT_GO_EXE delegation: $($facadePreview | ConvertTo-Json -Depth 8)" }
+  $facadePreview = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadePreview.delegatedByFake) { throw "facade sync apply JSON preview did not use default REKIT_GO_EXE delegation: $($facadePreview | ConvertTo-Json -Depth 8)" }
   Assert-SnapshotEquals -Before $beforeFacadePreview -After (Get-TreeSnapshot -Root $caseRoot) -Label 'facade sync apply JSON preview'
 
-  $facadeTextPreview = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  $facadeApply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeApply.delegatedByFake) { throw "facade sync apply did not use default REKIT_GO_EXE delegation: $($facadeApply | ConvertTo-Json -Depth 8)" }
+
+  $facadeTextPreview = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
   Assert-ContainsText -Text $facadeTextPreview -Expected 'would attach case' -Label 'facade sync apply text fallback'
 
-  $apply = Invoke-GoRekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-ProjectName',"sync-apply-$suffix") | ConvertFrom-Json
+  $disabledFacadeApply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $disabledFacadeApply -Expected 'would attach case' -Label 'facade sync apply disabled fallback'
+
+  $apply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-ProjectName',"sync-apply-$suffix") | ConvertFrom-Json
   if (-not [bool]$apply.applied -or [bool]$apply.isMutation -ne $true) { throw "unexpected sync apply result: $($apply | ConvertTo-Json -Depth 8)" }
   Assert-WriteAction -Result $apply -Path 'references/template/README.md' -Action 'overwrite-with-backup' -RequireBackup | Out-Null
   Assert-WriteAction -Result $apply -Path 'references/template/workflow-template.md' -Action 'create-managed-file' | Out-Null

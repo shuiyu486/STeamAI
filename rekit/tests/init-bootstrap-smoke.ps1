@@ -144,32 +144,36 @@ try {
   Invoke-RekitSmoke -Arguments @('-Command','doctor','-Target',$bootstrapRoot,'-Pack',$Pack) | Out-Null
 
   [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"attach","delegatedByFake":true}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
-  $facadeAttachJson = Invoke-RekitSmoke -Arguments @('-Command','attach','-Target',$facadeAttachRoot,'-Pack',$Pack,'-ProjectName',"facade-attach-$suffix",'-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
-  if (-not [bool]$facadeAttachJson.delegatedByFake) { throw "facade attach JSON preview did not use REKIT_GO_EXE delegation: $($facadeAttachJson | ConvertTo-Json -Depth 8)" }
+  $facadeAttachJson = Invoke-RekitSmoke -Arguments @('-Command','attach','-Target',$facadeAttachRoot,'-Pack',$Pack,'-ProjectName',"facade-attach-$suffix",'-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeAttachJson.delegatedByFake) { throw "facade attach JSON preview did not use default REKIT_GO_EXE delegation: $($facadeAttachJson | ConvertTo-Json -Depth 8)" }
   if (Test-Path -LiteralPath $facadeAttachRoot) { throw 'facade attach JSON preview created the target directory' }
 
-  $facadeAttachText = Invoke-RekitSmoke -Arguments @('-Command','attach','-Target',$facadeAttachRoot,'-Pack',$Pack,'-ProjectName',"facade-attach-$suffix",'-WhatIf') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $facadeAttachText -Expected 'would attach case' -Label 'facade attach text fallback'
+  $facadeAttachText = Invoke-RekitSmoke -Arguments @('-Command','attach','-Target',$facadeAttachRoot,'-Pack',$Pack,'-ProjectName',"facade-attach-$suffix",'-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeAttachText.delegatedByFake) { throw "facade attach text preview did not use default REKIT_GO_EXE delegation: $($facadeAttachText | ConvertTo-Json -Depth 8)" }
   if (Test-Path -LiteralPath $facadeAttachRoot) { throw 'facade attach text preview created the target directory' }
 
   [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"repair","delegatedByFake":true}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
-  $facadeRepairJson = Invoke-RekitSmoke -Arguments @('-Command','repair','-Target',$caseRoot,'-Pack',$Pack,'-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
-  if (-not [bool]$facadeRepairJson.delegatedByFake) { throw "facade repair JSON preview did not use REKIT_GO_EXE delegation: $($facadeRepairJson | ConvertTo-Json -Depth 8)" }
-  $facadeRepairText = Invoke-RekitSmoke -Arguments @('-Command','repair','-Target',$caseRoot,'-Pack',$Pack) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $facadeRepairText -Expected 'No files were changed' -Label 'facade repair text fallback'
+  $facadeRepairJson = Invoke-RekitSmoke -Arguments @('-Command','repair','-Target',$caseRoot,'-Pack',$Pack,'-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeRepairJson.delegatedByFake) { throw "facade repair JSON preview did not use default REKIT_GO_EXE delegation: $($facadeRepairJson | ConvertTo-Json -Depth 8)" }
+  $facadeRepairText = Invoke-RekitSmoke -Arguments @('-Command','repair','-Target',$caseRoot,'-Pack',$Pack) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeRepairText.delegatedByFake) { throw "facade repair text preview did not use default REKIT_GO_EXE delegation: $($facadeRepairText | ConvertTo-Json -Depth 8)" }
 
   [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"init","delegatedByFake":true}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
-  $facadeInitJson = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$facadeInitRoot,'-Pack',$Pack,'-ProjectName',"facade-init-$suffix",'-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
-  if (-not [bool]$facadeInitJson.delegatedByFake) { throw "facade init JSON preview did not use REKIT_GO_EXE delegation: $($facadeInitJson | ConvertTo-Json -Depth 8)" }
+  $facadeInitJson = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$facadeInitRoot,'-Pack',$Pack,'-ProjectName',"facade-init-$suffix",'-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeInitJson.delegatedByFake) { throw "facade init JSON preview did not use default REKIT_GO_EXE delegation: $($facadeInitJson | ConvertTo-Json -Depth 8)" }
   if (Test-Path -LiteralPath $facadeInitRoot) { throw 'facade init JSON preview created the target directory' }
 
   [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"bootstrap","delegatedByFake":true}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
-  $facadeBootstrapJson = Invoke-RekitSmoke -Arguments @('-Command','bootstrap','-Target',$facadeBootstrapRoot,'-Pack',$Pack,'-ProjectName',"facade-bootstrap-$suffix",'-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
-  if (-not [bool]$facadeBootstrapJson.delegatedByFake) { throw "facade bootstrap JSON preview did not use REKIT_GO_EXE delegation: $($facadeBootstrapJson | ConvertTo-Json -Depth 8)" }
+  $facadeBootstrapJson = Invoke-RekitSmoke -Arguments @('-Command','bootstrap','-Target',$facadeBootstrapRoot,'-Pack',$Pack,'-ProjectName',"facade-bootstrap-$suffix",'-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeBootstrapJson.delegatedByFake) { throw "facade bootstrap JSON preview did not use default REKIT_GO_EXE delegation: $($facadeBootstrapJson | ConvertTo-Json -Depth 8)" }
   if (Test-Path -LiteralPath $facadeBootstrapRoot) { throw 'facade bootstrap JSON preview created the target directory' }
 
-  $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$facadeInitRoot,'-Pack',$Pack,'-ProjectName',"facade-init-$suffix",'-WhatIf') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $facadeOut -Expected 'would attach case' -Label 'facade init fallback'
+  $facadeInitApply = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$facadeInitRoot,'-Pack',$Pack,'-ProjectName',"facade-init-$suffix",'-Apply') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeInitApply.delegatedByFake) { throw "facade init apply did not use default REKIT_GO_EXE delegation: $($facadeInitApply | ConvertTo-Json -Depth 8)" }
+  if (Test-Path -LiteralPath $facadeInitRoot) { throw 'facade init apply fake delegation created the target directory' }
+
+  $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$facadeInitRoot,'-Pack',$Pack,'-ProjectName',"facade-init-$suffix",'-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeOut.delegatedByFake) { throw "facade init text preview did not use default REKIT_GO_EXE delegation: $($facadeOut | ConvertTo-Json -Depth 8)" }
 
   'init/bootstrap smoke ok'
 } finally {

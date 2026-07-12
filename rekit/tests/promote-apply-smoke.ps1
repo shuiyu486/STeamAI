@@ -206,17 +206,17 @@ try {
   if ($beforePromoteTree -ne (Get-TreeSnapshot -Path $promoteCandidateRoot)) { throw 'Go promote -Apply -WhatIf changed promote-candidates tree' }
   if ($beforeToolingTree -ne (Get-TreeSnapshot -Path $toolingCandidateRoot)) { throw 'Go promote -Apply -WhatIf changed tooling candidates tree' }
 
-  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
-  Assert-ContainsText -Text $facadeWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote apply fallback'
-  Assert-NotContainsText -Text $facadeWhatIf -Unexpected 'validationRows' -Label 'facade promote apply fallback'
+  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '' }
+  Assert-ContainsText -Text $facadeWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote apply text fallback'
+  Assert-NotContainsText -Text $facadeWhatIf -Unexpected 'validationRows' -Label 'facade promote apply text fallback'
 
-  $goApply = Invoke-GoRekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply') | ConvertFrom-Json
-  if (-not [bool]$goApply.isMutation -or -not [bool]$goApply.applied) { throw "unexpected Go apply result flags: $($goApply | ConvertTo-Json -Depth 10)" }
-  if ([int]$goApply.changed -lt 1 -or [int]$goApply.blocked -lt 1 -or -not [bool]$goApply.requiresCleanup) { throw "unexpected Go apply counts: $($goApply | ConvertTo-Json -Depth 10)" }
-  if (@($goApply.validationRows).Count -lt 1) { throw "Go apply did not return validation rows: $($goApply | ConvertTo-Json -Depth 10)" }
-  Assert-InsideRoot -Root (Join-Path $promoteCandidateRoot '.backup') -Path ([string]$goApply.backupRoot) -Label 'promote apply backup root'
-  $readmeWrite = Assert-WriteAction -Result $goApply -Path 'references/template/README.md' -Action 'promote'
-  $workflowWrite = Assert-WriteAction -Result $goApply -Path 'references/template/workflow-template.md' -Action 'blocked-deny-pattern'
+  $facadeApply = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
+  if (-not [bool]$facadeApply.isMutation -or -not [bool]$facadeApply.applied) { throw "unexpected facade apply result flags: $($facadeApply | ConvertTo-Json -Depth 10)" }
+  if ([int]$facadeApply.changed -lt 1 -or [int]$facadeApply.blocked -lt 1 -or -not [bool]$facadeApply.requiresCleanup) { throw "unexpected facade apply counts: $($facadeApply | ConvertTo-Json -Depth 10)" }
+  if (@($facadeApply.validationRows).Count -lt 1) { throw "facade apply did not return validation rows: $($facadeApply | ConvertTo-Json -Depth 10)" }
+  Assert-InsideRoot -Root (Join-Path $promoteCandidateRoot '.backup') -Path ([string]$facadeApply.backupRoot) -Label 'promote apply backup root'
+  $readmeWrite = Assert-WriteAction -Result $facadeApply -Path 'references/template/README.md' -Action 'promote'
+  $workflowWrite = Assert-WriteAction -Result $facadeApply -Path 'references/template/workflow-template.md' -Action 'blocked-deny-pattern'
   Assert-InsideRoot -Root $promoteCandidateRoot -Path ([string]$readmeWrite.backupPath) -Label 'promote apply backup'
   Assert-InsideRoot -Root $packRoot -Path ([string]$readmeWrite.targetPath) -Label 'promote apply target'
   if (-not (Test-Path -LiteralPath ([string]$readmeWrite.backupPath))) { throw "missing Go promote backup: $($readmeWrite.backupPath)" }

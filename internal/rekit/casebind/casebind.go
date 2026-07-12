@@ -1,6 +1,7 @@
 package casebind
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,18 @@ type WritePlan struct {
 	Path   string `json:"path"`
 	Kind   string `json:"kind"`
 	Action string `json:"action"`
+}
+
+type InitialState struct {
+	SchemaVersion int                 `json:"schemaVersion"`
+	TemplateRoot  string              `json:"templateRoot"`
+	TemplatePack  string              `json:"templatePack"`
+	Managed       map[string]struct{} `json:"managed"`
+	Promote       InitialPromoteState `json:"promote"`
+}
+
+type InitialPromoteState struct {
+	Candidates []string `json:"candidates"`
 }
 
 func BindingWrites(caseRoot string) []WritePlan {
@@ -29,12 +42,27 @@ func LegacyWrite(caseRoot string) WritePlan {
 	return WritePlan{Path: path, Kind: "legacy-metadata", Action: ActionFor(path)}
 }
 
+func InitialStateWrite(caseRoot string) WritePlan {
+	path := filepath.Join(caseRoot, ".rekit", "state.json")
+	action := "create"
+	if refsf.Exists(path) {
+		action = "unchanged"
+	}
+	return WritePlan{Path: path, Kind: "initial-state", Action: action}
+}
+
 func WriteInstance(caseRoot, repoRoot, pack, projectName string) (string, error) {
 	instancePath := filepath.Join(caseRoot, ".rekit", "instance.yml")
 	if err := os.MkdirAll(filepath.Dir(instancePath), 0o755); err != nil {
 		return "", err
 	}
 	if err := os.WriteFile(instancePath, []byte(InstanceText(caseRoot, repoRoot, pack, projectName)), 0o644); err != nil {
+		return "", err
+	}
+	if _, err := WriteLegacyMetadataForAttach(caseRoot, repoRoot, pack); err != nil {
+		return "", err
+	}
+	if _, err := WriteInitialState(caseRoot, repoRoot, pack); err != nil {
 		return "", err
 	}
 	return instancePath, nil
@@ -94,6 +122,31 @@ func WriteLegacyMetadataForAttach(caseRoot, repoRoot, pack string) (string, erro
 		}
 	}
 	return legacyPath, nil
+}
+
+func WriteInitialState(caseRoot, repoRoot, pack string) (string, error) {
+	statePath := filepath.Join(caseRoot, ".rekit", "state.json")
+	if refsf.Exists(statePath) {
+		return statePath, nil
+	}
+	state := InitialState{
+		SchemaVersion: 1,
+		TemplateRoot:  repoRoot,
+		TemplatePack:  pack,
+		Managed:       map[string]struct{}{},
+		Promote:       InitialPromoteState{Candidates: []string{}},
+	}
+	b, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(statePath, append(b, '\n'), 0o644); err != nil {
+		return "", err
+	}
+	return statePath, nil
 }
 
 func SetYAMLScalar(path, key, value string) error {

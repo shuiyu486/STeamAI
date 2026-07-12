@@ -118,34 +118,44 @@ function Test-RekitEnvTruthy {
   return @('1','true','yes','on') -contains $normalized
 }
 
+function Test-RekitGoDefaultDelegationCommand {
+  param([string]$Name)
+  return (@('status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate') -contains $Name)
+}
+
 function Test-RekitGoDelegationEnabled {
   if (Test-RekitEnvTruthy 'REKIT_GO_DISABLE') { return $false }
-  return (Test-RekitEnvTruthy 'REKIT_GO_ENABLE')
+  if (Test-RekitEnvTruthy 'REKIT_GO_ENABLE') { return $true }
+  return (Test-RekitGoDefaultDelegationCommand -Name $Command)
 }
 
 function Test-RekitGoDelegationSafe {
   switch ($Command) {
-    { $_ -in @('status','packs') } { return $true }
-    { $_ -in @('doctor','validate') } { return $true }
-    'attach' {
-      if ([string]::IsNullOrWhiteSpace($Target) -or (-not $WhatIf) -or $Apply -or $CreateCandidates -or $Review) { return $false }
+    { $_ -in @('status','packs','doctor','validate') } {
+      if ($Apply -or $CreateCandidates -or $Review -or $WhatIf) { return $false }
       if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
-      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
-      return ($formatValue -eq 'json')
+      return $true
+    }
+    'attach' {
+      if ([string]::IsNullOrWhiteSpace($Target) -or $CreateCandidates -or $Review) { return $false }
+      if ($WhatIf -and $Apply) { return $false }
+      if ((-not $WhatIf) -and (-not $Apply)) { return $false }
+      if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+      return $true
     }
     'repair' {
-      if ([string]::IsNullOrWhiteSpace($Target) -or $Apply -or $CreateCandidates -or $Review) { return $false }
+      if ([string]::IsNullOrWhiteSpace($Target) -or $CreateCandidates -or $Review) { return $false }
+      if ($WhatIf -and $Apply) { return $false }
       if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
-      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
-      if ($formatValue -ne 'json') { return $false }
       $caseRoot = Resolve-RekitTarget $Target
       return (Test-RekitLooksLikeCase $caseRoot)
     }
     { $_ -in @('init','bootstrap') } {
-      if ([string]::IsNullOrWhiteSpace($Target) -or (-not $WhatIf) -or $Apply -or $CreateCandidates -or $Review) { return $false }
+      if ([string]::IsNullOrWhiteSpace($Target) -or $CreateCandidates -or $Review) { return $false }
+      if ($WhatIf -and $Apply) { return $false }
+      if ((-not $WhatIf) -and (-not $Apply)) { return $false }
       if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
-      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
-      return ($formatValue -eq 'json')
+      return $true
     }
     'overview' {
       if ($Apply -or $CreateCandidates -or $WhatIf) { return $false }
@@ -157,45 +167,63 @@ function Test-RekitGoDelegationSafe {
     'note' {
       $noteArgs = Get-RekitRemainingArgMap -Tokens $RemainingArgs
       $listRequested = $List -or (Test-RekitRemainingSwitch -Map $noteArgs -Name 'List')
-      if (-not $listRequested -or $Apply -or $CreateCandidates -or $WhatIf) { return $false }
+      if ($Apply -or $CreateCandidates -or $Review -or $Force) { return $false }
+      if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
       if ([string]::IsNullOrWhiteSpace($formatValue) -and $noteArgs.ContainsKey('Format')) { $formatValue = ([string]$noteArgs['Format']).Trim().ToLowerInvariant() }
-      if ($formatValue -ne 'json') { return $false }
       $caseRoot = Resolve-RekitTarget $Target
-      return (Test-RekitLooksLikeCase $caseRoot)
+      if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
+      if ($listRequested) {
+        if ($WhatIf) { return $false }
+        return ($formatValue -eq 'json')
+      }
+      return ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json')
     }
     { $_ -in @('sync','update') } {
       $caseRoot = Resolve-RekitTarget $Target
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
       if ($Apply) {
-        if ((-not $WhatIf) -or $CreateCandidates -or $Review) { return $false }
+        if ($CreateCandidates -or $Review) { return $false }
         if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
         $formatValue = ([string]$Format).Trim().ToLowerInvariant()
-        return ($formatValue -eq 'json')
+        if ($WhatIf) { return ($formatValue -eq 'json') }
+        return ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json')
       }
-      if ($WhatIf) { return $false }
-      return $true
+      if ($WhatIf -or $CreateCandidates -or $Force) { return $false }
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      return ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json')
     }
     'promote' {
       $caseRoot = Resolve-RekitTarget $Target
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
+      if ($Force) { return $false }
       if ($Apply) {
-        if ((-not $WhatIf) -or $CreateCandidates -or $Review) { return $false }
+        if ($CreateCandidates -or $Review) { return $false }
         if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
         $formatValue = ([string]$Format).Trim().ToLowerInvariant()
-        return ($formatValue -eq 'json')
+        if ($WhatIf) { return ($formatValue -eq 'json') }
+        return ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json')
       }
       if ($CreateCandidates) {
-        if ((-not $WhatIf) -or $Review) { return $false }
+        if ($Review) { return $false }
         if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
         $formatValue = ([string]$Format).Trim().ToLowerInvariant()
-        return ($formatValue -eq 'json')
+        if ($WhatIf) { return ($formatValue -eq 'json') }
+        return ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json')
       }
       if ($WhatIf) { return $false }
-      return $true
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      return ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json')
     }
     'gate' {
-      return ($WhatIf -and -not $Apply)
+      if ($CreateCandidates -or $Review -or $Force) { return $false }
+      if ($WhatIf -and $Apply) { return $false }
+      if ((-not $WhatIf) -and (-not $Apply)) { return $false }
+      if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      if ((-not [string]::IsNullOrWhiteSpace($formatValue)) -and $formatValue -ne 'json') { return $false }
+      $caseRoot = Resolve-RekitTarget $Target
+      return (Test-RekitLooksLikeCase $caseRoot)
     }
     { $_ -in @('start','handoff','continue') } {
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
@@ -269,13 +297,36 @@ function Get-RekitGoArgs {
   if ($Command -eq 'note') {
     $noteArgs = Get-RekitRemainingArgMap -Tokens $RemainingArgs
     $noteList = $List.IsPresent -or (Test-RekitRemainingSwitch -Map $noteArgs -Name 'List')
-    $noteKind = $Kind
-    if ([string]::IsNullOrWhiteSpace($noteKind) -and $noteArgs.ContainsKey('Kind')) { $noteKind = [string]$noteArgs['Kind'] }
-    $noteLane = $Lane
-    if ([string]::IsNullOrWhiteSpace($noteLane) -and $noteArgs.ContainsKey('Lane')) { $noteLane = [string]$noteArgs['Lane'] }
     Add-RekitGoSwitch ([ref]$goArgs) '-List' $noteList
-    Add-RekitGoArg ([ref]$goArgs) '-Kind' $noteKind
-    Add-RekitGoArg ([ref]$goArgs) '-Lane' $noteLane
+    $noteValues = [ordered]@{
+      Kind = ''
+      Lane = $Lane
+      Subject = $Subject
+      Summary = $Summary
+      Actor = $Actor
+      Risk = $Risk
+      Related = ''
+      Confidence = ''
+      Decision = ''
+      Reason = ''
+      Status = ''
+      BatchId = $BatchId
+      TargetRef = $TargetRef
+      Verifier = ''
+      Verdict = ''
+      Action = $Action
+      ApprovedBy = ''
+      Scope = $Scope
+      Expires = ''
+      EvidenceRefs = ''
+      EventId = ''
+    }
+    foreach ($name in @($noteValues.Keys)) {
+      if ([string]::IsNullOrWhiteSpace([string]$noteValues[$name]) -and $noteArgs.ContainsKey($name)) { $noteValues[$name] = [string]$noteArgs[$name] }
+    }
+    foreach ($name in @($noteValues.Keys)) {
+      Add-RekitGoArg ([ref]$goArgs) ('-' + $name) ([string]$noteValues[$name])
+    }
   }
   if ($Command -in @('start','handoff','continue')) {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
@@ -328,7 +379,7 @@ if (Test-RekitGoDelegationEnabled) {
 }
 
 if ($Command -eq 'gate') {
-  throw 'gate is implemented by the Go backend only; set REKIT_GO_ENABLE=1 and use -WhatIf for facade delegation, or run go run ./cmd/rekit -- -Command gate manually.'
+  throw 'gate is implemented by the Go backend only; /rekit gate -WhatIf and -Apply default to Go for attached cases; use go run ./cmd/rekit -- -Command gate manually for unsupported gate modes.'
 }
 
 switch ($Command) {

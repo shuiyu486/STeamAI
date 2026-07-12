@@ -207,12 +207,12 @@ Context: ctx123 round7 Task #99
   if ($beforePromoteTree -ne (Get-TreeSnapshot -Path $promoteCandidateRoot)) { throw 'Go promote what-if changed promote-candidates tree' }
   if ($beforeToolingTree -ne (Get-TreeSnapshot -Path $toolingCandidateRoot)) { throw 'Go promote what-if changed tooling candidates tree' }
 
-  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
-  Assert-ContainsText -Text $facadeWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote write fallback'
-  Assert-ContainsText -Text $facadeWhatIf -Expected 'would write tooling candidate:' -Label 'facade tooling candidate fallback'
+  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '' }
+  Assert-ContainsText -Text $facadeWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote text candidate fallback'
+  Assert-ContainsText -Text $facadeWhatIf -Expected 'would write tooling candidate:' -Label 'facade tooling text candidate fallback'
 
-  $result = Invoke-GoRekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates') | ConvertFrom-Json
-  if (-not [bool]$result.applied -or [bool]$result.isMutation -ne $true) { throw "unexpected apply result: $($result | ConvertTo-Json -Depth 10)" }
+  $result = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates') | ConvertFrom-Json
+  if (-not [bool]$result.applied -or [bool]$result.isMutation -ne $true) { throw "unexpected façade apply result: $($result | ConvertTo-Json -Depth 10)" }
   if ([int]$result.created -ne 2 -or [int]$result.blocked -lt 1 -or -not [bool]$result.requiresCleanup) { throw "unexpected counts: $($result | ConvertTo-Json -Depth 10)" }
   Assert-InsideRoot -Root $promoteCandidateRoot -Path ([string]$result.indexPath) -Label 'candidate index'
   if (-not (Test-Path -LiteralPath ([string]$result.indexPath))) { throw "missing candidate index: $($result.indexPath)" }

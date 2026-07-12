@@ -32,7 +32,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 ### 新安全 case（当前以 `vmp-re` 为例）
 
 1. 在 kit 仓库启动 Claude Code。
-2. 使用 `/rekit init -Target <caseRoot> -Pack vmp-re -ProjectName <caseName>`。
+2. 使用 `/rekit init -Target <caseRoot> -Pack vmp-re -ProjectName <caseName> -Apply`。
 3. 进入 case 目录启动 Claude Code。
 4. 执行 `/rekit status` 和 `/rekit overview`。
 5. 用 `/rekit continue main` 接手主线。
@@ -42,7 +42,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 ### 旧 case
 
 1. 在 kit 仓库或 case 目录确认当前绑定：`/rekit status`。
-2. 如果还没有 `.rekit/instance.yml`，用 `/rekit attach -Target <caseRoot> -Pack vmp-re` 补齐 metadata 和 case-local shim。
+2. 如果还没有 `.rekit/instance.yml`，用 `/rekit attach -Target <caseRoot> -Pack vmp-re -Apply` 补齐 metadata 和 case-local shim。
 3. 执行 `/rekit sync` 生成同步审查包。
 4. Claude 复核冲突、收益和覆盖范围后，再由用户确认是否执行写入型 `sync -Apply`。
 5. 执行 `/rekit doctor` 验证结构。
@@ -103,7 +103,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 从 kit 仓库启动 Claude Code，然后：
 
 ```text
-/rekit init -Target <workspaceRoot>\cases\<caseName> -Pack vmp-re -ProjectName <caseName>
+/rekit init -Target <workspaceRoot>\cases\<caseName> -Pack vmp-re -ProjectName <caseName> -Apply
 ```
 
 `init` 会创建：
@@ -130,14 +130,15 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 已有 case 不建议直接 `init` 覆盖。先用：
 
 ```text
-/rekit attach -Target <caseRoot> -Pack vmp-re
+/rekit attach -Target <caseRoot> -Pack vmp-re -Apply
 ```
 
-`attach` 只做三件事：
+`attach -Apply` 只做四件事：
 
 1. 写 `.rekit/instance.yml`。
-2. 写/更新 `.rekit/state.json`。
-3. 写 case-local `/rekit` thin shim。
+2. 写 legacy `.re-template.yml`。
+3. 写/更新 `.rekit/state.json`。
+4. 写 case-local `/rekit` thin shim。
 
 它不会覆盖已有 references、handoff 或工具链文档。随后用：
 
@@ -145,7 +146,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 /rekit sync
 ```
 
-生成 review 包。确认无误后，再让 Claude 执行写入型 sync。
+生成 review 包。确认无误后，再让 Claude 执行写入型 sync；Batch 106 起 `sync -Apply` 默认由 Go backend 处理，`REKIT_GO_DISABLE=1` 可回退 PowerShell fallback。
 
 ## 2. 主线和功能支线是否还能用
 
@@ -183,7 +184,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 
 ```text
 /rekit status
-/rekit attach -Target <caseRoot> -Pack vmp-re
+/rekit attach -Target <caseRoot> -Pack vmp-re -Apply
 /rekit sync
 /rekit doctor
 ```
@@ -244,7 +245,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 | 你现在的情况 | 推荐动作 |
 |---|---|
 | 只维护本仓库 | 读 `CLAUDE.md`、`docs/vision.md`、本文件；不要 init case |
-| 新建安全 case（当前成熟示例：`vmp-re` RE case） | 在 kit 仓库用 `/rekit init -Target ... -Pack vmp-re` |
+| 新建安全 case（当前成熟示例：`vmp-re` RE case） | 在 kit 仓库用 `/rekit init -Target ... -Pack vmp-re -Apply` |
 | 已有 case 接入新架构 | 用 `/rekit attach`，再 `/rekit sync` review |
 | 旧 case 移动了目录 | `/rekit status` -> `/rekit repair` -> 确认后 `repair -Apply` -> `/rekit doctor` |
 | 想看项目全局状态 | `/rekit overview` |

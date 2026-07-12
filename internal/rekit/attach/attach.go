@@ -82,7 +82,7 @@ func Apply(repoRoot, target, pack string, opt Options) (ApplyResult, error) {
 		IsMutation:    true,
 		Applied:       true,
 		Writes:        p.Writes,
-		NextSteps:     []string{"attach wrote only .rekit/instance.yml and the case-local thin shim", "run sync/init separately before expecting full case doctor validation to pass"},
+		NextSteps:     []string{"attach wrote only case binding metadata, initial state, and the case-local thin shim", "run sync/init separately before expecting full case doctor validation to pass"},
 	}, nil
 }
 
@@ -120,7 +120,8 @@ func buildPlan(repoRoot, target, pack string, opt Options) (PreviewPlan, error) 
 	if projectName == "" {
 		projectName = projectNameFromRoot(caseRoot)
 	}
-	writes := casebind.BindingWrites(caseRoot)
+	writes := append([]casebind.WritePlan{}, casebind.BindingWrites(caseRoot)...)
+	writes = append(writes, casebind.LegacyWrite(caseRoot), casebind.InitialStateWrite(caseRoot))
 	return PreviewPlan{
 		SchemaVersion:  1,
 		Command:        "attach",

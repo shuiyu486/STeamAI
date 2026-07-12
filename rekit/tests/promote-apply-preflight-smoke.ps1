@@ -194,22 +194,28 @@ try {
 
   $fakeGo = Join-Path $caseRoot 'fake-rekit-go.cmd'
   [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"promote","delegatedByFake":true}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
-  $facadeJsonPreview = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
-  if (-not [bool]$facadeJsonPreview.delegatedByFake) { throw "facade promote apply JSON preview did not use REKIT_GO_EXE delegation: $($facadeJsonPreview | ConvertTo-Json -Depth 8)" }
+  $facadeJsonPreview = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeJsonPreview.delegatedByFake) { throw "facade promote apply JSON preview did not use default REKIT_GO_EXE delegation: $($facadeJsonPreview | ConvertTo-Json -Depth 8)" }
+  $facadeActualApply = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadeActualApply.delegatedByFake) { throw "facade promote apply did not use default REKIT_GO_EXE delegation: $($facadeActualApply | ConvertTo-Json -Depth 8)" }
 
-  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $facadeWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote apply fallback'
-  Assert-NotContainsText -Text $facadeWhatIf -Unexpected 'go backend' -Label 'facade promote apply fallback'
+  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $facadeWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote apply text fallback'
+  Assert-NotContainsText -Text $facadeWhatIf -Unexpected 'go backend' -Label 'facade promote apply text fallback'
+
+  $disabledJsonPreview = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledJsonPreview -Unexpected 'delegatedByFake' -Label 'facade promote apply JSON preview disabled fallback'
+  Assert-ContainsText -Text $disabledJsonPreview -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote apply JSON preview disabled fallback'
 
   $goWhatIf = Invoke-GoRekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') | ConvertFrom-Json
   if ([bool]$goWhatIf.isMutation -or [bool]$goWhatIf.applied) { throw "unexpected Go apply what-if mutation: $($goWhatIf | ConvertTo-Json -Depth 10)" }
   if ([int]$goWhatIf.changed -lt 1 -or [int]$goWhatIf.blocked -lt 1) { throw "unexpected Go apply what-if counts: $($goWhatIf | ConvertTo-Json -Depth 10)" }
   if (-not [string]::IsNullOrWhiteSpace([string]$goWhatIf.backupRoot)) { throw "Go promote apply what-if returned backupRoot: $($goWhatIf.backupRoot)" }
 
-  $apply = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply')
-  Assert-ContainsText -Text $apply -Expected 'backup pack file:' -Label 'PowerShell promote apply backup'
-  Assert-ContainsText -Text $apply -Expected 'promoted:' -Label 'PowerShell promote apply write'
-  Assert-ContainsText -Text $apply -Expected 'promote summary:' -Label 'PowerShell promote apply summary'
+  $apply = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1' }
+  Assert-ContainsText -Text $apply -Expected 'backup pack file:' -Label 'PowerShell disabled promote apply backup'
+  Assert-ContainsText -Text $apply -Expected 'promoted:' -Label 'PowerShell disabled promote apply write'
+  Assert-ContainsText -Text $apply -Expected 'promote summary:' -Label 'PowerShell disabled promote apply summary'
   $packReadmeAfterApply = [System.IO.File]::ReadAllText($packReadme, [System.Text.Encoding]::UTF8)
   if ($packReadmeAfterApply -ne $safeReadme) { throw 'promote -Apply did not update pack README to safe case content' }
   $packWorkflowAfterApply = [System.IO.File]::ReadAllText($packWorkflow, [System.Text.Encoding]::UTF8)

@@ -18,7 +18,7 @@
 /rekit promote
 ```
 
-Claude 会先使用内部 runtime 生成只读 review 包。用户不需要手动执行底层脚本。
+Claude 会先使用内部 runtime 生成只读 review 包。用户不需要手动执行底层脚本；Batch 107 起 `/rekit promote` review 与 JSON what-if preview 默认由 Go backend 处理；Batch 108 起 `promote -CreateCandidates` 实际候选写入也默认由 Go backend 处理；Batch 112 起 `promote -Apply` 实际 pack source 写入也默认由 Go backend 处理，`REKIT_GO_DISABLE=1` 可回退 PowerShell。
 
 review 包写入 case-local 目录：
 
@@ -57,7 +57,7 @@ review 包写入 case-local 目录：
 - review 扫描 `manifest.yml` 的 `promoteFiles`，处理 managed docs 的 case -> pack 差异。
 - review 同时扫描 `toolingCandidateSources`，生成脱敏 preview 供 Claude 判断是否值得吸收。
 - 命中 `promoteDenyPatterns` 的 managed docs 只在 packet 中记录 metadata 和 deny pattern；不要输出 raw diff，避免把 case-specific 信息带回模板审查材料。
-- 用户确认后，才生成 `packs/<pack>/promote-candidates/` 或 `packs/<pack>/tooling/candidates/`，或由 Claude 改写正式 pack 文档。
+- 用户确认后，才生成 `packs/<pack>/promote-candidates/` / `packs/<pack>/tooling/candidates/`，或显式 `-Apply` 写回正式 pack managed docs；Batch 108 起候选生成的公共 façade 默认委托 Go，Batch 112 起 actual apply 写回 pack source 也默认委托 Go。
 - 直接整文件写回 pack managed docs 不作为默认推荐路径；优先让 Claude 提炼经验片段。
 - tooling 候选不直接覆盖正式 recipe；需要人工审查后合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
 

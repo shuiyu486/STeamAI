@@ -75,6 +75,17 @@ function Assert-FakeDelegation {
   Assert-ContainsText -Text $out -Expected '"delegatedByFake":true' -Label $Label
 }
 
+function Assert-FakeDefaultDelegation {
+  param(
+    [Parameter(Mandatory=$true)][string[]]$Arguments,
+    [Parameter(Mandatory=$true)][string]$CommandName,
+    [Parameter(Mandatory=$true)][string]$Label
+  )
+  Write-FakeGoBackend -Path $fakeGo -CommandName $CommandName
+  $out = Invoke-RekitSmoke -Arguments $Arguments -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $out -Expected '"delegatedByFake":true' -Label $Label
+}
+
 function Assert-FakeFallback {
   param(
     [Parameter(Mandatory=$true)][string[]]$Arguments,
@@ -99,27 +110,59 @@ $gateLane = 'main'
 try {
   if ($usingSelfContainedCase) {
     $CaseRoot = Join-Path $matrixRoot 'case'
-    Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$CaseRoot,'-Pack',$Pack,'-ProjectName',"facade-smoke-$suffix") | Out-Null
+    Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$CaseRoot,'-Pack',$Pack,'-ProjectName',"facade-smoke-$suffix",'-Apply') | Out-Null
     Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack) | Out-Null
     Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject',"facade-smoke-$suffix",'-Summary','seed observation for facade smoke','-Actor','facade-smoke') | Out-Null
   } elseif ([string]::Equals($Pack, 'vmp-re', [System.StringComparison]::OrdinalIgnoreCase)) {
     $gateLane = 'feature-handler-0x40a010'
   }
 
-  # Default path stays PowerShell and does not expose gate through the facade.
+  # Low-risk read-only commands, overview/note JSON reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, and promote JSON previews default to Go; broader workstream preview expansions still require explicit enable.
   $out = Invoke-RekitSmoke -Arguments @('-Command','status')
-  Assert-ContainsText -Text $out -Expected 'rekit runtime:' -Label 'default status'
+  Assert-ContainsText -Text $out -Expected 'rekit go backend:' -Label 'default go status'
 
-  $gateOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane) -AllowedExitCodes @(1)
-  Assert-ContainsText -Text $gateOut -Expected 'gate is implemented by the Go backend only' -Label 'default gate guard'
+  $packsOut = Invoke-RekitSmoke -Arguments @('-Command','packs')
+  Assert-ContainsText -Text $packsOut -Expected "pack`t" -Label 'default go packs'
+  Assert-ContainsText -Text $packsOut -Expected "vmp-re`t" -Label 'default go packs'
 
-  # Explicit enable delegates only the safe set.
+  $caseDoctor = Invoke-RekitSmoke -Arguments @('-Command','doctor','-Target',$CaseRoot,'-Pack',$Pack)
+  Assert-ContainsText -Text $caseDoctor -Expected 'instance validation ok' -Label 'default go case doctor'
+
+  Assert-FakeDefaultDelegation -Arguments @('-Command','status') -CommandName 'status' -Label 'default status fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','packs') -CommandName 'packs' -Label 'default packs fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','doctor','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'doctor' -Label 'default doctor fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','validate','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'validate' -Label 'default validate fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','attach','-Target',(Join-Path $matrixRoot 'default-attach'),'-Pack',$Pack,'-Apply') -CommandName 'attach' -Label 'default attach apply fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','repair','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -CommandName 'repair' -Label 'default repair apply fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','init','-Target',(Join-Path $matrixRoot 'default-init'),'-Pack',$Pack,'-ProjectName',"default-init-$suffix",'-Apply') -CommandName 'init' -Label 'default init apply fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','bootstrap','-Target',(Join-Path $matrixRoot 'default-bootstrap'),'-Pack',$Pack,'-ProjectName',"default-bootstrap-$suffix",'-Apply') -CommandName 'bootstrap' -Label 'default bootstrap apply fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'sync' -Label 'default sync review fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -CommandName 'sync' -Label 'default sync apply fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','update','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Format','json') -CommandName 'update' -Label 'default update apply fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'promote' -Label 'default promote review fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-ReviewOutputDir',(Join-Path $matrixRoot 'promote-review-default')) -CommandName 'promote' -Label 'default promote review artifacts fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf','-Format','json') -CommandName 'promote' -Label 'default promote candidate JSON preview fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-CreateCandidates') -CommandName 'promote' -Label 'default promote create-candidates fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -CommandName 'promote' -Label 'default promote apply JSON preview fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -CommandName 'promote' -Label 'default promote apply fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -CommandName 'overview' -Label 'default overview JSON fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List','-Format','json') -CommandName 'note' -Label 'default note list JSON fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','default note append','-Summary','fake default note append') -CommandName 'note' -Label 'default note append fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','default note what-if','-Summary','fake default note what-if','-WhatIf') -CommandName 'note' -Label 'default note what-if fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane) -CommandName 'gate' -Label 'default gate what-if fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane',$gateLane,'-Actor','facade-smoke') -CommandName 'gate' -Label 'default gate apply fake delegation'
+
+  $gateOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane,'-Subject','facade smoke default gate')
+  Assert-ContainsText -Text $gateOut -Expected '"isMutation": false' -Label 'default go gate dry-run'
+  Assert-ContainsText -Text $gateOut -Expected '"status": "pending-gate"' -Label 'default go gate dry-run'
+
+  # Explicit enable delegates the remaining expanded preview/review safe set.
   $goEnv = @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
   $out = Invoke-RekitSmoke -Arguments @('-Command','status') -Env $goEnv
-  Assert-ContainsText -Text $out -Expected 'rekit go backend:' -Label 'go status'
+  Assert-ContainsText -Text $out -Expected 'rekit go backend:' -Label 'explicit go status'
 
   $caseDoctor = Invoke-RekitSmoke -Arguments @('-Command','doctor','-Target',$CaseRoot,'-Pack',$Pack) -Env $goEnv
-  Assert-ContainsText -Text $caseDoctor -Expected 'instance validation ok' -Label 'go case doctor'
+  Assert-ContainsText -Text $caseDoctor -Expected 'instance validation ok' -Label 'explicit go case doctor'
 
   $reviewRoot = Join-Path $matrixRoot 'sync-review'
   $syncOut = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-ReviewOutputDir',$reviewRoot) -Env $goEnv
@@ -127,41 +170,45 @@ try {
   if (-not (Test-Path -LiteralPath (Join-Path $reviewRoot 'packet.json'))) { throw 'sync review packet was not written' }
   if (-not (Test-Path -LiteralPath (Join-Path $reviewRoot 'diffs\combined.diff'))) { throw 'sync review combined diff was not written' }
 
-  $gateOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane,'-Subject','facade smoke gate') -Env $goEnv
-  Assert-ContainsText -Text $gateOut -Expected '"isMutation": false' -Label 'go gate dry-run'
-  Assert-ContainsText -Text $gateOut -Expected '"status": "pending-gate"' -Label 'go gate dry-run'
+  $gateApplyMissingActorOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane',$gateLane) -AllowedExitCodes @(1) -Env $goEnv
+  Assert-ContainsText -Text $gateApplyMissingActorOut -Expected 'gate -Apply requires -Actor' -Label 'gate apply actor guard'
 
-  # Only JSON sync apply preview is delegated; text preview still emits PowerShell would-* text.
+  # JSON sync apply preview remains delegated; default actual sync apply delegation is covered by the fake backend matrix below.
   $syncApplyJson = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -Env $goEnv
   Assert-ContainsText -Text $syncApplyJson -Expected '"isMutation": false' -Label 'go sync apply JSON preview'
   Assert-ContainsText -Text $syncApplyJson -Expected '"applied": false' -Label 'go sync apply JSON preview'
 
-  $syncApplyOut = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Env $goEnv
-  Assert-ContainsText -Text $syncApplyOut -Expected 'would attach case' -Label 'sync write fallback'
-
-  # Fake backend matrix proves the JSON preview/read-only safe set is delegated and write/text paths are not.
+  # Fake backend matrix proves the default sync/case lifecycle/promote/readonly workstream set is delegated and unrelated preview/text paths are not.
   $attachRoot = Join-Path $matrixRoot 'attach-preview-case'
-  Assert-FakeDelegation -Arguments @('-Command','attach','-Target',$attachRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'attach' -Label 'attach JSON preview delegation'
-  Assert-FakeFallback -Arguments @('-Command','attach','-Target',$attachRoot,'-Pack',$Pack,'-WhatIf') -Expected 'would attach case' -Label 'attach text preview fallback'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','attach','-Target',$attachRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'attach' -Label 'default attach JSON preview delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','attach','-Target',$attachRoot,'-Pack',$Pack,'-WhatIf') -CommandName 'attach' -Label 'default attach text preview delegation'
 
-  Assert-FakeDelegation -Arguments @('-Command','repair','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -CommandName 'repair' -Label 'repair JSON preview delegation'
-  Assert-FakeFallback -Arguments @('-Command','repair','-Target',$CaseRoot,'-Pack',$Pack) -Expected 'repair target:' -Label 'repair text preview fallback'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','repair','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -CommandName 'repair' -Label 'default repair JSON preview delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','repair','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'repair' -Label 'default repair text preview delegation'
 
   $initRoot = Join-Path $matrixRoot 'init-preview-case'
   $bootstrapRoot = Join-Path $matrixRoot 'bootstrap-preview-case'
-  Assert-FakeDelegation -Arguments @('-Command','init','-Target',$initRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'init' -Label 'init JSON preview delegation'
-  Assert-FakeDelegation -Arguments @('-Command','bootstrap','-Target',$bootstrapRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'bootstrap' -Label 'bootstrap JSON preview delegation'
-  Assert-FakeFallback -Arguments @('-Command','init','-Target',$initRoot,'-Pack',$Pack,'-WhatIf') -Expected 'would attach case' -Label 'init text preview fallback'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','init','-Target',$initRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'init' -Label 'default init JSON preview delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','bootstrap','-Target',$bootstrapRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'bootstrap' -Label 'default bootstrap JSON preview delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','init','-Target',$initRoot,'-Pack',$Pack,'-WhatIf') -CommandName 'init' -Label 'default init text preview delegation'
 
-  Assert-FakeDelegation -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -CommandName 'sync' -Label 'sync apply JSON preview delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -CommandName 'sync' -Label 'default sync apply JSON preview delegation'
   Assert-FakeFallback -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Expected 'would attach case' -Label 'sync apply text preview fallback'
 
-  Assert-FakeDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf','-Format','json') -CommandName 'promote' -Label 'promote candidate JSON preview delegation'
-  Assert-FakeDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -CommandName 'promote' -Label 'promote apply JSON preview delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf','-Format','json') -CommandName 'promote' -Label 'default promote candidate JSON preview delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-CreateCandidates') -CommandName 'promote' -Label 'default promote create-candidates delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -CommandName 'promote' -Label 'default promote apply JSON preview delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -CommandName 'promote' -Label 'default promote apply delegation'
+  Assert-FakeFallback -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') -Expected 'promote summary:' -Label 'promote create-candidates text preview fallback'
   Assert-FakeFallback -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Expected 'promote summary:' -Label 'promote apply text preview fallback'
+  Assert-FakeFallback -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-CreateCandidates') -Expected 'promote -Apply cannot be combined with -CreateCandidates' -Label 'promote actual write combination fallback' -AllowedExitCodes @(1)
 
-  Assert-FakeDelegation -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -CommandName 'overview' -Label 'overview JSON delegation'
-  Assert-FakeDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List','-Format','json') -CommandName 'note' -Label 'note list JSON delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -CommandName 'overview' -Label 'default overview JSON delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List','-Format','json') -CommandName 'note' -Label 'default note list JSON delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','verification','-Lane','main','-Subject','matrix note append','-Summary','fake default note append') -CommandName 'note' -Label 'default note append delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','verification','-Lane','main','-Subject','matrix note what-if','-Summary','fake default note what-if','-WhatIf') -CommandName 'note' -Label 'default note what-if delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane) -CommandName 'gate' -Label 'default gate what-if delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane',$gateLane,'-Actor','facade-smoke') -CommandName 'gate' -Label 'default gate apply delegation'
   Assert-FakeFallback -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List') -Expected '[observation]' -Label 'note text list fallback'
 
   Assert-FakeDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'start' -Label 'start JSON preview delegation'
@@ -169,9 +216,26 @@ try {
   Assert-FakeDelegation -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'continue' -Label 'continue JSON preview delegation'
   Assert-FakeFallback -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf') -Expected 'would create or enter feature workstream:' -Label 'start text preview fallback'
 
-  # Disable wins over enable.
+  # Disable wins over default and explicit enable.
   $disabledOut = Invoke-RekitSmoke -Arguments @('-Command','status') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1' }
   Assert-ContainsText -Text $disabledOut -Expected 'rekit runtime:' -Label 'go disabled status fallback'
+  $disabledDefaultOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledDefaultOut -Unexpected 'delegatedByFake' -Label 'go disabled default packs fallback'
+  Assert-ContainsText -Text $disabledDefaultOut -Expected "pack`t" -Label 'go disabled default packs fallback'
+  $disabledAttachOut = Invoke-RekitSmoke -Arguments @('-Command','attach','-Target',(Join-Path $matrixRoot 'disabled-attach'),'-Pack',$Pack,'-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledAttachOut -Unexpected 'delegatedByFake' -Label 'go disabled attach fallback'
+  Assert-ContainsText -Text $disabledAttachOut -Expected 'would attach case' -Label 'go disabled attach fallback'
+  $disabledOverviewOut = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledOverviewOut -Unexpected 'delegatedByFake' -Label 'go disabled overview JSON fallback'
+  Assert-ContainsText -Text $disabledOverviewOut -Expected '"command"' -Label 'go disabled overview JSON fallback'
+  Assert-ContainsText -Text $disabledOverviewOut -Expected 'overview' -Label 'go disabled overview JSON fallback'
+  $disabledNoteOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledNoteOut -Unexpected 'delegatedByFake' -Label 'go disabled note JSON fallback'
+  Assert-ContainsText -Text $disabledNoteOut -Expected '"command"' -Label 'go disabled note JSON fallback'
+  Assert-ContainsText -Text $disabledNoteOut -Expected 'note' -Label 'go disabled note JSON fallback'
+  $disabledNoteAppendOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','disabled note append','-Summary','fallback note append','-Actor','facade-smoke') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledNoteAppendOut -Unexpected 'delegatedByFake' -Label 'go disabled note append fallback'
+  Assert-ContainsText -Text $disabledNoteAppendOut -Expected 'observation' -Label 'go disabled note append fallback'
 
   'facade smoke ok'
 } finally {

@@ -350,7 +350,7 @@ func ApplyPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (ApplyResul
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	return ApplyResult{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, IsMutation: false, Applied: false, BackupRoot: backupRoot, Writes: writes, NextSteps: []string{"review this non-writing preview, then re-run sync with -Apply after confirming the exact scope", "PowerShell /rekit remains the public entrypoint; sync -Apply actual writes are not delegated through the facade"}}, nil
+	return ApplyResult{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, IsMutation: false, Applied: false, BackupRoot: backupRoot, Writes: writes, NextSteps: []string{"review this non-writing preview, then re-run sync with -Apply after confirming the exact scope", "PowerShell /rekit remains the public entrypoint; REKIT_GO_DISABLE=1 can force the legacy fallback"}}, nil
 }
 
 func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (ApplyResult, error) {

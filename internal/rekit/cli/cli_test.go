@@ -207,6 +207,36 @@ func TestRunStatusJsonKit(t *testing.T) {
 	}
 }
 
+func TestRunStatusJsonDefaultPackContract(t *testing.T) {
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Command       string `json:"command"`
+		SchemaVersion int    `json:"schemaVersion"`
+		IsMutation    bool   `json:"isMutation"`
+		Pack          string `json:"pack"`
+		Mode          string `json:"mode"`
+		Case          any    `json:"case"`
+		Manifest      struct {
+			ManifestPath string `json:"manifestPath"`
+			ManagedFiles int    `json:"managedFiles"`
+			PromoteFiles int    `json:"promoteFiles"`
+			ToolingFiles int    `json:"toolingFiles"`
+		} `json:"manifest"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Mode != "kit" || status.Pack != "vmp-re" || status.Case != nil {
+		t.Fatalf("unexpected default status JSON envelope: %+v", status)
+	}
+	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/vmp-re/manifest.yml") || status.Manifest.ManagedFiles != 7 || status.Manifest.PromoteFiles != 7 || status.Manifest.ToolingFiles != 12 {
+		t.Fatalf("unexpected default manifest summary: %+v", status.Manifest)
+	}
+}
+
 func TestRunStatusJsonCase(t *testing.T) {
 	caseRoot := attachedCase(t)
 	var out bytes.Buffer
@@ -399,7 +429,7 @@ func TestRunAttachPreviewDoesNotCreateFiles(t *testing.T) {
 	if plan.Command != "attach" || plan.IsMutation || !plan.ReviewRequired || !plan.RequiresConfirmation {
 		t.Fatalf("unexpected attach preview flags: %+v", plan)
 	}
-	if plan.CaseRoot != caseRoot || plan.ProjectName != "demo-case" || len(plan.Writes) != 2 {
+	if plan.CaseRoot != caseRoot || plan.ProjectName != "demo-case" || len(plan.Writes) != 4 {
 		t.Fatalf("unexpected attach preview: %+v", plan)
 	}
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "instance.yml")); !os.IsNotExist(err) {
@@ -407,7 +437,7 @@ func TestRunAttachPreviewDoesNotCreateFiles(t *testing.T) {
 	}
 }
 
-func TestRunAttachApplyWritesOnlyMetadataAndShim(t *testing.T) {
+func TestRunAttachApplyWritesBindingMetadataStateAndShim(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "attach", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "demo-case", "-Apply"}, &out); err != nil {
@@ -425,7 +455,7 @@ func TestRunAttachApplyWritesOnlyMetadataAndShim(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("attach apply stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if result.Command != "attach" || !result.IsMutation || !result.Applied || len(result.Writes) != 2 {
+	if result.Command != "attach" || !result.IsMutation || !result.Applied || len(result.Writes) != 4 {
 		t.Fatalf("unexpected attach apply result: %+v", result)
 	}
 	metadata, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "instance.yml"))
@@ -447,11 +477,21 @@ func TestRunAttachApplyWritesOnlyMetadataAndShim(t *testing.T) {
 	if !bytes.Equal(shim, canonical) {
 		t.Fatal("case shim does not match canonical thin shim")
 	}
-	if _, err := os.Stat(filepath.Join(caseRoot, ".re-template.yml")); !os.IsNotExist(err) {
-		t.Fatalf("attach -Apply wrote legacy metadata unexpectedly, err=%v", err)
+	legacy, err := os.ReadFile(filepath.Join(caseRoot, ".re-template.yml"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "state.json")); !os.IsNotExist(err) {
-		t.Fatalf("attach -Apply wrote state unexpectedly, err=%v", err)
+	legacyText := string(legacy)
+	if !strings.Contains(legacyText, "templateRoot: "+repoRoot(t)) || !strings.Contains(legacyText, "templatePack: _template") || !strings.Contains(legacyText, "rekitMode: case-local-shim") {
+		t.Fatalf("attach legacy metadata missing expected values: %s", legacyText)
+	}
+	state, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateText := string(state)
+	if !strings.Contains(stateText, `"templatePack": "_template"`) || !strings.Contains(stateText, `"candidates": []`) {
+		t.Fatalf("attach state missing expected values: %s", stateText)
 	}
 }
 
@@ -492,7 +532,7 @@ func TestRunRepairPreviewDoesNotWrite(t *testing.T) {
 	if plan.Command != "repair" || plan.IsMutation || !plan.ReviewRequired || !plan.RequiresConfirmation || !plan.Moved {
 		t.Fatalf("unexpected repair preview flags: %+v", plan)
 	}
-	if plan.RecordedProjectRoot == plan.NewProjectRoot || len(plan.Writes) != 3 {
+	if plan.RecordedProjectRoot == plan.NewProjectRoot || len(plan.Writes) != 4 {
 		t.Fatalf("unexpected repair preview: %+v", plan)
 	}
 	metadata, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "instance.yml"))
@@ -526,7 +566,7 @@ func TestRunRepairApplyRefreshesMetadataShimAndLegacy(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("repair apply stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if result.Command != "repair" || !result.IsMutation || !result.Applied || !result.Moved || len(result.Writes) != 3 {
+	if result.Command != "repair" || !result.IsMutation || !result.Applied || !result.Moved || len(result.Writes) != 4 {
 		t.Fatalf("unexpected repair apply result: %+v", result)
 	}
 	metadata, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "instance.yml"))
@@ -555,6 +595,13 @@ func TestRunRepairApplyRefreshesMetadataShimAndLegacy(t *testing.T) {
 	legacyText := string(legacy)
 	if !strings.Contains(legacyText, "currentProjectPath: "+caseRoot) || !strings.Contains(legacyText, "templatePack: _template") {
 		t.Fatalf("legacy metadata not refreshed: %s", legacyText)
+	}
+	state, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(state), `"templatePack": "_template"`) {
+		t.Fatalf("repair state missing expected values: %s", string(state))
 	}
 }
 
@@ -717,6 +764,48 @@ func TestRunSyncRejectsWhatIfWithoutApply(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "only supported with -Apply") {
 		t.Fatalf("error = %q, want what-if/apply guard", err.Error())
+	}
+}
+
+func TestRunSyncApplyWritesManagedContent(t *testing.T) {
+	caseRoot := attachedCase(t)
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Local drift\n\nchanged before sync apply\n")
+	writeCaseFile(t, caseRoot, "references/template/task-handoff.md", "# Local handoff\n\nkeep this file on first apply\n")
+	writeCaseFile(t, caseRoot, "CLAUDE.local.md", "prefix\n\n<!-- BEGIN template-pack:router -->\nold managed block\n<!-- END template-pack:router -->\n\nsuffix\n")
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-ProjectName", "sync-cli"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command    string      `json:"command"`
+		IsMutation bool        `json:"isMutation"`
+		Applied    bool        `json:"applied"`
+		BackupRoot string      `json:"backupRoot"`
+		Writes     []syncWrite `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("sync apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Command != "sync" || !result.IsMutation || !result.Applied || strings.TrimSpace(result.BackupRoot) == "" {
+		t.Fatalf("unexpected sync apply result: %+v", result)
+	}
+	assertSyncWrite(t, result.Writes, "references/template/README.md", "overwrite-with-backup", true)
+	assertSyncWrite(t, result.Writes, "references/template/task-handoff.md", "skip-existing-local-file", false)
+	assertSyncWrite(t, result.Writes, "CLAUDE.local.md", "replace-managed-block", true)
+	readme, err := os.ReadFile(filepath.Join(caseRoot, "references", "template", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(readme), "Local drift") {
+		t.Fatalf("sync apply did not overwrite managed README: %s", string(readme))
+	}
+	state, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(state), "targetHashAtSync") {
+		t.Fatalf("sync apply did not refresh state: %s", string(state))
 	}
 }
 
