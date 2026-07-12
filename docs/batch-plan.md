@@ -2077,3 +2077,30 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/overview`、`go test ./...`、`overview-readonly-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 69：handoff preview JSON 输出
+
+状态：已完成。
+
+目标：延续 Batch 64-68 的机器可读 envelope 模式，为 PowerShell fallback 的 `/rekit handoff -WhatIf` 增加 `-Format json`，让接手自动化和审查流程可在不写 handoff 文件的情况下消费项目级/工作线级 handoff 写入计划。
+
+实施范围：
+
+- PowerShell `Write-RekitHandoff` 支持 `-WhatIf -Format json`，输出 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/applied/requiresConfirmation/selector/project/lane/writes/blockedActions/nextSteps` envelope。
+- 顶层 `rekit.ps1` 将 `-Format` 透传给 handoff；显式 `REKIT_GO_ENABLE=1` 时仍不把 handoff 纳入 Go façade 委托集合。
+- handoff apply smoke 覆盖 façade fallback JSON preview、lane selector resolve、no-write snapshot 与 apply JSON format guard。
+- 更新 README、skill、Go runtime migration 与 CHANGELOG，说明 handoff JSON preview 是只读/非写入预览输出。
+
+边界：本批只增强 PowerShell fallback 的 `handoff -WhatIf` 预览输出；不改变 Go handoff apply/preview schema、不新增 façade Go 委托、不写 facts/lanes/handoff/authority/confirmed、不启动 subagent、不执行 heavy-tool、不改变 sync/promote review-first 语义。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/workstream
+go test ./...
+.\rekit\tests\handoff-apply-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/workstream`、`go test ./...`、`handoff-apply-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

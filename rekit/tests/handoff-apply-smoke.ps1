@@ -177,6 +177,11 @@ try {
   Assert-WriteAction -Result $preview -Path '.rekit/handovers/latest.md' -Action 'would-write-latest-project-handoff' | Out-Null
   Assert-TreeUnchanged -Root $rekitRoot -BeforeSnapshot $beforeFiles -BeforeDirectories $beforeDirs
 
+  $facadePreviewJson = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','login','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
+  if ([string]$facadePreviewJson.command -ne 'handoff' -or [bool]$facadePreviewJson.isMutation -or [bool]$facadePreviewJson.applied -or [bool]$facadePreviewJson.project -or [string]$facadePreviewJson.lane.id -ne 'feature-login') { throw "unexpected facade handoff JSON preview: $($facadePreviewJson | ConvertTo-Json -Depth 20)" }
+  Assert-WriteAction -Result $facadePreviewJson -Path '.rekit/handovers/feature-login-latest.md' -Action 'would-write-latest-lane-handoff' | Out-Null
+  Assert-TreeUnchanged -Root $rekitRoot -BeforeSnapshot $beforeFiles -BeforeDirectories $beforeDirs
+
   $project = Invoke-GoRekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-Apply') | ConvertFrom-Json
   if (-not [bool]$project.isMutation -or -not [bool]$project.applied -or -not [bool]$project.project) { throw "unexpected project handoff result: $($project | ConvertTo-Json -Depth 10)" }
   Assert-WriteAction -Result $project -Path '.rekit/handovers/latest.md' -Action 'write-latest-project-handoff' | Out-Null
@@ -203,6 +208,9 @@ try {
   $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','login') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
   Assert-ContainsText -Text $facadeOut -Expected 'would write workstream handoff: login' -Label 'facade handoff fallback'
   Assert-NotContainsText -Text $facadeOut -Unexpected 'schemaVersion' -Label 'facade handoff fallback'
+  $facadeApplyJsonError = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-Format','json','login') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
+  Assert-ContainsText -Text $facadeApplyJsonError -Expected 'handoff -Format json currently supports -WhatIf preview only' -Label 'handoff json apply guard'
+  $global:LASTEXITCODE = 0
 
   'handoff apply smoke ok'
 } finally {

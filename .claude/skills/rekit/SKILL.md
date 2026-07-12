@@ -49,8 +49,8 @@ disable-model-invocation: true
 | `/rekit continue main` | 明确接手主线并整理相关状态；多工作线时无参数 `continue` 只列选择，不盲猜；每轮 digest 记录 inputs/route/packet refs/outputs/decisions/open risks。 |
 | `/rekit continue <name>` | 明确接手某条功能支线，只整理该支线的 workspace/outbox、路由 request、刷新接续提示；每轮 digest 记录 inputs/route/packet refs/outputs/decisions/open risks。 |
 | `/rekit start <name>` | 创建或进入功能支线，例如 `login`；支线写自己的 workspace，第二天可用 `/rekit continue <name>` 或接续提示继续。 |
-| `/rekit handoff` | 生成项目级接手索引 `.rekit/handovers/latest.md`；不代表某个会话。 |
-| `/rekit handoff <name>` | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；包含该工作线最近 verification/decision 等轻量 ledger 摘要。 |
+| `/rekit handoff` | 生成项目级接手索引 `.rekit/handovers/latest.md`；`-WhatIf -Format json` 输出机器可读 preview envelope；不代表某个会话。 |
+| `/rekit handoff <name>` | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；`-WhatIf -Format json` 输出指定工作线 preview；包含该工作线最近 verification/decision 等轻量 ledger 摘要。 |
 | `/rekit sync` | 默认先生成 LLM 审查包；用户确认具体范围后才执行写入型 sync。 |
 | `/rekit promote` | 默认先生成回流审查包；用户确认后才生成候选或写回 pack。 |
 | `/rekit doctor` | 验证 kit / case 结构、文档预算和 policy registry；`-Format json` 输出机器可读验证 rows。 |

@@ -282,7 +282,7 @@ switch ($Command) {
   }
   'handoff' {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
-    Write-RekitHandoff -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -WhatIf:$WhatIf
+    Write-RekitHandoff -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -Format $Format -WhatIf:$WhatIf
   }
   'note' {
     $caseRoot = Resolve-RekitTarget $Target

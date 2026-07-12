@@ -208,15 +208,64 @@ function Write-RekitHandoff {
     [Parameter(Mandatory=$true)][string]$RepoRoot,
     [string]$Pack = 'vmp-re',
     [string[]]$ActionArgs = @(),
+    [string]$Format = '',
     [switch]$WhatIf
   )
   $caseRoot = [System.IO.Path]::GetFullPath($Target)
   $selector = Get-RekitActionSelector -ActionArgs $ActionArgs
+  $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+  if ([string]::IsNullOrWhiteSpace($formatValue)) { $formatValue = 'table' }
+  if (@('table','text','tsv','json') -notcontains $formatValue) { throw "unsupported handoff format: $Format" }
   if ($WhatIf) {
     [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
-    if ([string]::IsNullOrWhiteSpace($selector)) { Write-Host 'would write project handoff index: .rekit/handovers/latest.md' } else { Write-Host "would write workstream handoff: $selector" }
+    if ($formatValue -eq 'json') {
+      $paths = Get-RekitBoardPaths -CaseRoot $caseRoot
+      $handovers = Join-Path $paths.Root 'handovers'
+      $stamp = New-RekitBoardTimestamp
+      $isProject = [string]::IsNullOrWhiteSpace($selector)
+      $laneSummary = $null
+      $writes = @()
+      if ($isProject) {
+        $writes += [ordered]@{ path = ".rekit/handovers/$stamp.md"; kind = 'handoff'; action = 'would-write-project-handoff'; targetPath = (Join-Path $handovers ($stamp + '.md')) }
+        $writes += [ordered]@{ path = '.rekit/handovers/latest.md'; kind = 'handoff'; action = 'would-write-latest-project-handoff'; targetPath = (Join-Path $handovers 'latest.md') }
+      } else {
+        $boardPath = $paths.Board
+        if (-not (Test-Path -LiteralPath $boardPath)) { throw 'handoff -WhatIf -Format json requires existing .rekit/board.json to resolve workstream selector' }
+        $board = Read-RekitJsonFile -Path $boardPath
+        $lane = Resolve-RekitWorkstreamSelector -CaseRoot $caseRoot -Board $board -Selector $selector
+        if ($null -eq $lane) {
+          Write-RekitWorkstreamChoices -Board $board -Prefix "找不到工作线：$selector"
+          throw "unknown workstream selector: $selector"
+        }
+        $laneId = [string]$lane.id
+        $laneSummary = [ordered]@{ id = $laneId; label = (Get-RekitWorkstreamLabel -Lane $lane); status = [string]$lane.status; workspace = [string]$lane.workspace; authority = [bool]$lane.authority }
+        $writes += [ordered]@{ path = ".rekit/handovers/$laneId-$stamp.md"; kind = 'handoff'; action = 'would-write-lane-handoff'; targetPath = (Join-Path $handovers ($laneId + '-' + $stamp + '.md')) }
+        $writes += [ordered]@{ path = ".rekit/handovers/$laneId-latest.md"; kind = 'handoff'; action = 'would-write-latest-lane-handoff'; targetPath = (Join-Path $handovers ($laneId + '-latest.md')) }
+      }
+      [ordered]@{
+        schemaVersion = 1
+        command = 'handoff'
+        caseRoot = $caseRoot
+        repoRoot = $RepoRoot
+        pack = $Pack
+        isMutation = $false
+        applied = $false
+        requiresConfirmation = $true
+        selector = $selector
+        project = $isProject
+        lane = $laneSummary
+        writes = @($writes)
+        blockedActions = @('authority/confirmed writes','heavy-tool execution','continue auto-apply','board/facts/lane creation')
+        nextSteps = @('review this plan, then re-run handoff without -WhatIf to write case-local handoff files')
+      } | ConvertTo-Json -Depth 12
+    } elseif ([string]::IsNullOrWhiteSpace($selector)) {
+      Write-Host 'would write project handoff index: .rekit/handovers/latest.md'
+    } else {
+      Write-Host "would write workstream handoff: $selector"
+    }
     return
   }
+  if ($formatValue -eq 'json') { throw 'handoff -Format json currently supports -WhatIf preview only; omit -Format for apply' }
   $board = Ensure-RekitBoard -CaseRoot $caseRoot -RepoRoot $RepoRoot -Pack $Pack -CreateDefaultLane
   $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
   $paths = Get-RekitBoardPaths -CaseRoot $caseRoot
