@@ -234,7 +234,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 
 ### 4.3 长期优化
 
-- 拆出更多安全领域 pack；`web-security`、`malware-analysis`、`vuln-research` 与 `ctf` 已有 skeleton，后续继续推进 `unpack-pe`、`ollvm`、`android-native`、`generic-binary-re`。
+- 拆出更多安全领域 pack；`web-security`、`malware-analysis`、`vuln-research`、`ctf` 与 `unpack-pe` 已有 skeleton，后续继续推进 `ollvm`、`android-native`、`generic-binary-re`。
 - 引入工具 adapter 层，把 IDA/x64dbg/trace/unicorn/symex、Web/API 测试、样本分析等能力先 recipe 化，再稳定成 adapter。
 - 建立 candidate -> review -> confirmed 的机器可验证 gate。
 - 将多 Agent 编排与证据账本结合，支持可回放、可审计、可回滚的安全研究工作流。

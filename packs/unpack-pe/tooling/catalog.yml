@@ -1,0 +1,35 @@
+schemaVersion: 1
+pack: unpack-pe
+purpose: PE unpacking and loader triage tooling catalog
+
+paths:
+  caseRoot: <caseRoot>
+  toolsRoot: <toolsRoot>
+  sampleRef: <sampleRef>
+  sidecar: <caseRoot>/evidence/sidecars
+
+tools:
+  - id: pe-static-triage-sidecar
+    status: mainline-template
+    entry: case-local PE metadata / section / import / string summary
+    purpose: Build PE static inventory and loader hypotheses without executing samples.
+    sideEffects: none
+    reusableNotes:
+      - Store headers, section summaries, import/resource notes, string clusters, entropy hints, and packer hypotheses as case-local sidecar, then cite only summaries in Markdown.
+      - Use sample aliases or sidecar row ids instead of hashes, sample paths, section bytes, dumps, traces, or absolute paths in pack-promotable notes.
+  - id: loader-unpack-review
+    status: auxiliary
+    entry: saved loader trace, unpack candidate, or import recovery summary sidecar
+    purpose: Review saved unpacking summaries without running samples, dumping memory, patching binaries, or rebuilding imports.
+    sideEffects: none when reviewing saved summaries
+    reusableNotes:
+      - Sanitize hashes, IOCs, dump paths, trace paths, patch bytes, import tables, unpacked file names, and customer identifiers before promoting any recipe.
+      - Treat raw tool output and unpacked artifacts as case-local evidence, not pack content.
+  - id: dynamic-debug-or-dump-action
+    status: cautious
+    entry: <caseRoot>/tools/dynamic-debug-or-dump-action
+    purpose: Execute a bounded dynamic debug, sandbox run, dump, patch, payload decode, or import rebuild step for authorized PE unpacking verification.
+    sideEffects: process execution, filesystem writes, memory dumps, binary patches, possible network events depending on isolation
+    reusableNotes:
+      - Requires explicit sample scope, isolation, network policy, runtime budget, output size limit, rollback notes, and stop conditions before use.
+      - Never store raw samples, hashes, dumps, traces, unpacked binaries, patch bytes, import tables, IOCs, customer context, or absolute paths in pack docs.

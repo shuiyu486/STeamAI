@@ -1,0 +1,9 @@
+schemaVersion: 1
+name: unpack-pe-policy-overlays
+version: 0.1.0
+description: Empty policy overlay registry for the unpack-pe pack skeleton
+
+overlays: []
+
+budgets:
+  defaultMarkdown: 16384

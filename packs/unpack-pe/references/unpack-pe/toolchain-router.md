@@ -1,0 +1,51 @@
+# Unpack PE toolchain router
+
+## 工具状态
+
+| 状态 | 含义 |
+|---|---|
+| `mainline-template` | 多个授权 case 验证有效，可作为推荐主线模板。 |
+| `auxiliary` | 可用但只适合特定阶段或辅助查询。 |
+| `candidate` | 值得短测，尚未充分验证。 |
+| `cautious` | 有明显执行、写入、外联或数据风险，需要确认、预算、隔离和止损。 |
+| `short-test-stoploss` | 只能短测，失败即止损。 |
+| `deprecated` | 不再推荐，保留历史说明。 |
+
+## 按任务路由
+
+| 任务 | 首选工具/方式 | 备用/辅助 | 注意事项 |
+|---|---|---|---|
+| scope / sample inventory | case-local aliases、授权摘要 | sample metadata sidecar | 不把样本名、hash、客户上下文或绝对路径写入 pack。 |
+| PE static triage | header / section / import / resource / entropy summary sidecar | strings / signature summary | 原始样本、完整 section bytes 和工具 raw output 留 case-local。 |
+| loader hypothesis | packer hint、stub pattern、entry transition note | saved debugger/sandbox summary | 不执行样本；只引用脱敏 stage 和 sidecar id。 |
+| import recovery review | import state summary、IAT hypothesis | diff / rebuild summary sidecar | 不写完整 import table、patch bytes 或 unpacked binary。 |
+| dynamic/gated action | pending-gate request | static sidecar first | debug、dump、patch、执行、外联、import rebuild 必须 gate。 |
+| tooling adapter | capability card + dry-run | candidate recipe | 工具先 recipe 化，不做硬依赖。 |
+
+## 重型工具门禁
+
+```yaml
+heavy_action: debug | execute-sample | dump | patch | import-rebuild | decrypt-payload | network | sandbox-run
+scope: <sample aliases and authorization summary>
+isolation: <vm/sandbox/offline/network policy>
+decision_reason: <why static/passive path failed>
+tried_light_steps:
+  - <step>
+budget:
+  runtime_s: <estimate>
+  samples: <max sample aliases>
+  output_mb: <max output size>
+  network: <disabled | sinkholed | explicit allowlist>
+outputs:
+  - <case-local sidecar path>
+stop_conditions:
+  - <stop condition>
+requires_user_confirmation: true
+```
+
+## 维护规则
+
+- 新工具先进入 `candidate` 或 `cautious`。
+- 短测必须有 timeout、样本数量上限、输出大小上限、网络策略和止损条件。
+- 不保存样本、hash、unpacked binary、dump、trace、memory snapshot、patch、完整 import table、section bytes、IOC、客户上下文或绝对路径到 pack。
+- 工具成为 mainline-template 前至少经过多个授权 case 或稳定 lab 复现验证。
