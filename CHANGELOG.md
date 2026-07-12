@@ -93,6 +93,7 @@
 - Batch 80 完成：扩展 `facade-smoke.ps1` 为 Go façade 安全集合矩阵，使用 fake `REKIT_GO_EXE` sentinel 覆盖 attach/repair/init/bootstrap/sync/promote/overview/note/workstream JSON preview/read-only 委托与文本/write fallback，锁定近期开放的公共入口边界。
 - Batch 81 完成：`facade-smoke.ps1` 默认改为自包含临时 case fixture，并将 review artifact、fake backend 与测试 case 统一放入 per-run matrix root 清理；仍支持显式 `-CaseRoot` 验证长期 dryrun case，降低 façade 安全集合矩阵对外部状态、硬编码 lane 和固定 temp 路径的依赖。
 - Batch 82 完成：新增 `sync-apply-parity-smoke.ps1`，用双临时 case 对比 PowerShell 与 Go `sync -Apply` / `-Force` 后的 managed docs、template、managed block、metadata/shim 与 sync state；同时修复 PowerShell façade `sync/update -Force` 未转发到 `Sync-RekitPack` 的问题，使文本入口与 Go apply force 语义对齐。收尾补充 README、仓库 CLAUDE.md 与 `/rekit` skill 中的 `sync -Force` / 自包含 `facade-smoke.ps1` 维护说明。
+- Batch 83 完成：新增 `agent-team-d5-dryrun-smoke.ps1`，用 `_template` 自包含 mock/非敏感临时 case 跑通 candidate → verification → decision → batch → intervention/rollback → handoff；验证 `note -List` 文本/JSON、overview 最近 batch 与 intervention/rollback 展示、lane handoff 区段和 doctor，同时保持 authority/confirmed、heavy-tool、pack source 与外部动作零写入。
 
 ### Fixed
 

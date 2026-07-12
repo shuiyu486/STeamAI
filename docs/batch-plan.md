@@ -2469,3 +2469,34 @@ git diff --check
 验证结果：全部通过。`sync-apply-parity-smoke.ps1`、`sync-apply-smoke.ps1`、默认自包含 `facade-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 `_template` pack 文档 LF/CRLF warning，无 whitespace error。
 
 收尾：Stop hook 后补查 README、仓库 CLAUDE.md、canonical `/rekit` skill、Go runtime migration 与 sync apply migration。Go runtime migration 和 sync apply migration 已覆盖 S18 parity、实际 `sync -Apply` 不经 façade 委托和默认自包含 façade smoke；额外补充 README 的 `sync -Force` 本地模板覆盖语义、仓库 CLAUDE.md 的默认自包含 `facade-smoke.ps1` 验证入口，以及 `/rekit` skill 中 template files 默认 create-if-missing / `-Force` overwrite-with-backup 规则。补充后再次验证 `sync-apply-parity-smoke.ps1`、默认自包含 `facade-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 全部通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 83：Agent Team D5 mock/non-sensitive dry-run smoke
+
+状态：已完成。
+
+目标：承接 `docs/agent-team-rollout-plan.md` D5，用 mock/非敏感自包含临时 case 跑通 candidate → verification → decision → batch → intervention/rollback → handoff，验证 ledger/read-layer 闭环真实可用，同时不触发 heavy-tool、authority/confirmed 或外部副作用。
+
+实施范围：
+
+- 新增 `rekit/tests/agent-team-d5-dryrun-smoke.ps1`，默认使用 `_template` pack 在 `C:\AI\m_projects\RE\_dryrun_cases` 下创建 GUID 后缀临时 case。
+- smoke 执行 `init -> overview -> start` 后，写入同一 `batchId` 下的 candidate、verification、decision、intervention 与 rollback 事件。
+- 覆盖 `note -List` 文本输出：candidate confidence/status/risk/batch，verification verifier/verdict/target/batch，decision decision/by/batch，intervention action/target/approvedBy/scope/status/reason/batch，rollback target/status/reason/batch。
+- 覆盖 `note -List -Format json`，确认 5 类事件分组和 `eventCount=5`。
+- 覆盖 overview 展示：未决 candidate、最近 verification、最近 decision、最近 batch、未解决 intervention、最近 intervention、最近 rollback。
+- 覆盖 lane handoff 展示：`## verification`、`## decision`、`## intervention`、`## rollback` 区段。
+- 更新 `docs/agent-team-rollout-plan.md` 将 D5 标为完成；更新 `docs/go-runtime-migration.md` 验证矩阵和 `CHANGELOG.md`。
+
+边界：本批只新增 smoke 与文档；测试写入仅限临时 case `.rekit/facts/**`、`.rekit/board.json`、lane/handoff 等 case-local 状态，并在 `finally` 清理。不写 kit 模板、pack source、promote candidates、tooling candidates、authority/confirmed，不执行 full-trace/debug/inject/patch/dump/network 或外部动作。
+
+验证：
+
+```powershell
+.\rekit\tests\agent-team-d5-dryrun-smoke.ps1
+.\rekit\tests\agent-team-review-loop-smoke.ps1
+.\rekit\tests\gate-parity-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`agent-team-d5-dryrun-smoke.ps1`、`agent-team-review-loop-smoke.ps1`、`gate-parity-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

@@ -607,14 +607,9 @@ C8：
 
 ### 实施摘要
 
-C 系列已经完成 9 种 ledger kind、基础字段、展示层、policy 去重与 handoff 模块拆分。当前最大缺口不是"再加更多 kind"，而是：
+C 系列已经完成 9 种 ledger kind、基础字段、展示层、policy 去重与 handoff 模块拆分。D1-D5 已继续补齐 post-merge sanity、`batchId` 批次摘要、intervention/rollback 展示闭环、Go gate dry-run 预览，以及 mock/非敏感 case 的 candidate → verification → decision → batch → intervention/rollback → handoff 闭环 smoke。
 
-1. batch 模型还没有 runtime 字段（`batchId`、整体接受/回滚、批次摘要）。
-2. intervention/rollback 可手动写，但未形成 overview/handoff 闭环。
-3. heavy-tool gate 目前是 policy + `pending-gate` 事件登记，runtime 不强制。
-4. IDA bridge adapter 仍是 candidate tooling，未接只读 packet contract。
-
-D 系列推荐先完成 Phase 5 闭环，再考虑 Phase 6 后段 adapter/dispatch。
+当前剩余缺口：IDA bridge adapter 仍是 candidate tooling，未接只读 packet contract。D 系列后续应先做 D6 的只读 contract / recipe / capability card，不要求安装或连接 IDA，也不让 runtime 直接控制 IDA。
 
 ### 执行清单
 
@@ -622,7 +617,7 @@ D 系列推荐先完成 Phase 5 闭环，再考虑 Phase 6 后段 adapter/dispat
 - [x] D2：batch 模型最小实现（`batchId` + batch 摘要 + rollback 引用）
 - [x] D3：intervention / rollback 展示闭环（overview/handoff/note-List）
 - [x] D4：heavy-tool gate runtime 强制化 dry-run 方案（Go backend 非写入 plan）
-- [ ] D5：真实 case dry-run 试用（mock/非敏感 case）
+- [x] D5：真实 case dry-run 试用（mock/非敏感 case）
 - [ ] D6：IDA bridge adapter 预研（只读 packet contract，不接 runtime 强依赖）
 
 ### 验证标准
@@ -730,7 +725,9 @@ D6：
 
 **目标：** 用 mock/非敏感 case 跑完整闭环。
 
-**切片：** candidate → verification → decision → batch → intervention/rollback → handoff。
+**结果：** 已完成。新增 `rekit/tests/agent-team-d5-dryrun-smoke.ps1`，默认创建 `_template` 自包含临时 case，初始化 overview/start 后用 `/rekit note` 写入同一 `batchId` 下的 candidate、verification、decision、intervention 与 rollback；随后验证 `note -List` 文本/JSON、overview 最近 batch / intervention / rollback 展示、lane handoff 的 verification/decision/intervention/rollback 区段，以及 case doctor。
+
+**边界：** 只写临时 case `.rekit/facts/**` 与 handoff；finally 清理临时 case。不写 kit 模板、pack source、promote candidates、tooling candidates、authority/confirmed，不执行 heavy-tool 或外部动作。
 
 ### 6.D6：IDA bridge adapter 预研
 
