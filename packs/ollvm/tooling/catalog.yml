@@ -1,0 +1,36 @@
+schemaVersion: 1
+pack: ollvm
+purpose: OLLVM and native obfuscation analysis tooling catalog
+
+paths:
+  caseRoot: <caseRoot>
+  toolsRoot: <toolsRoot>
+  binaryRef: <binaryRef>
+  functionRef: <functionRef>
+  sidecar: <caseRoot>/evidence/sidecars
+
+tools:
+  - id: control-flow-triage-sidecar
+    status: mainline-template
+    entry: case-local function inventory / CFG summary / obfuscation hint sidecar
+    purpose: Build function-level CFG and obfuscation hypotheses without executing samples or writing IDB/binary state.
+    sideEffects: none
+    reusableNotes:
+      - Store function aliases, basic block counts, dispatcher hints, branch shape, opaque predicate notes, and transform hypotheses as case-local sidecar, then cite only summaries in Markdown.
+      - Use binary/function aliases or sidecar row ids instead of hashes, sample paths, raw function bodies, full CFG exports, traces, dumps, or absolute paths in pack-promotable notes.
+  - id: mba-simplification-review
+    status: auxiliary
+    entry: saved expression summary, simplification candidate, or decompiler note sidecar
+    purpose: Review saved MBA/string/opaque predicate simplification summaries without executing binaries, patching, renaming, commenting, or exporting deobfuscated artifacts.
+    sideEffects: none when reviewing saved summaries
+    reusableNotes:
+      - Sanitize hashes, IOCs, raw expressions, full function bodies, CFG exports, trace paths, patch bytes, rename/comment diffs, and customer identifiers before promoting any recipe.
+      - Treat raw tool output and deobfuscated artifacts as case-local evidence, not pack content.
+  - id: dynamic-trace-or-patch-action
+    status: cautious
+    entry: <caseRoot>/tools/dynamic-trace-or-patch-action
+    purpose: Execute a bounded dynamic trace, debugger check, patch, rename/comment, bulk decompile, or deobfuscated export step for authorized OLLVM verification.
+    sideEffects: process execution, debugger state, trace files, IDB writes, binary patches, filesystem writes, possible network events depending on isolation
+    reusableNotes:
+      - Requires explicit binary/function scope, isolation, network policy, runtime budget, output size limit, rollback notes, and stop conditions before use.
+      - Never store raw binaries, hashes, traces, dumps, deobfuscated binaries, patch bytes, full CFGs, function bodies, symbol tables, IOCs, customer context, or absolute paths in pack docs.

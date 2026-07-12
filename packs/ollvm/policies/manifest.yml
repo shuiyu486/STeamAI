@@ -1,0 +1,9 @@
+schemaVersion: 1
+name: ollvm-policy-overlays
+version: 0.1.0
+description: Empty policy overlay registry for the ollvm pack skeleton
+
+overlays: []
+
+budgets:
+  defaultMarkdown: 16384

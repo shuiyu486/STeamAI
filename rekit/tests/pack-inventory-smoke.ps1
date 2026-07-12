@@ -210,6 +210,7 @@ foreach ($out in @($goOut,$psOut,$facadeOut)) {
   Assert-PackRow -Text $out -Pack 'vuln-research' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
   Assert-PackRow -Text $out -Pack 'ctf' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
   Assert-PackRow -Text $out -Pack 'unpack-pe' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
+  Assert-PackRow -Text $out -Pack 'ollvm' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
 }
 
 $goJson = Invoke-GoRekitSmoke -Arguments @('-Command','packs','-Format','json') | ConvertFrom-Json
@@ -223,6 +224,7 @@ foreach ($json in @($goJson,$psJson,$facadeJson)) {
   Assert-PackJson -Inventory $json -Pack 'vuln-research' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
   Assert-PackJson -Inventory $json -Pack 'ctf' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
   Assert-PackJson -Inventory $json -Pack 'unpack-pe' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
+  Assert-PackJson -Inventory $json -Pack 'ollvm' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
 }
 
 $transientPacks = @()
@@ -279,6 +281,7 @@ try {
   Assert-PackRow -Text $disabledOut -Pack 'vuln-research' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
   Assert-PackRow -Text $disabledOut -Pack 'ctf' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
   Assert-PackRow -Text $disabledOut -Pack 'unpack-pe' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
+  Assert-PackRow -Text $disabledOut -Pack 'ollvm' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
 } finally {
   if (Test-Path -LiteralPath $sentinel) { Remove-Item -LiteralPath $sentinel -Force -Confirm:$false }
 }

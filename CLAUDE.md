@@ -51,6 +51,7 @@ BEGIN.
 - vuln-research pack 骨架：`packs/vuln-research/**`
 - ctf pack 骨架：`packs/ctf/**`
 - unpack-pe pack 骨架：`packs/unpack-pe/**`
+- ollvm pack 骨架：`packs/ollvm/**`
 - pack manifest：`packs/<pack>/manifest.yml`
 - 通用策略：`common/policies/**`
 - 通用 prompts：`common/prompts/**`
@@ -72,7 +73,7 @@ BEGIN.
 
 1. Skill UI：改 `.claude/skills/rekit/SKILL.md`
 2. Runtime：改 `rekit/rekit.ps1`、`rekit/lib/*.ps1`、`cmd/rekit/**` 或 `internal/rekit/**`
-3. Pack：改 `packs/<pack>/**`；当前首个成熟 pack 是 `packs/vmp-re/**`，首批安全领域 pack 骨架是 `packs/web-security/**`、`packs/malware-analysis/**`、`packs/vuln-research/**`、`packs/ctf/**` 与 `packs/unpack-pe/**`
+3. Pack：改 `packs/<pack>/**`；当前首个成熟 pack 是 `packs/vmp-re/**`，首批安全领域 pack 骨架是 `packs/web-security/**`、`packs/malware-analysis/**`、`packs/vuln-research/**`、`packs/ctf/**`、`packs/unpack-pe/**` 与 `packs/ollvm/**`
 4. Common policies/prompts：改 `common/**`
 5. 用户文档：改 `README.md` 或 `docs/**`
 
