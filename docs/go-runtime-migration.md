@@ -305,7 +305,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | Façade Go overview JSON | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command overview -Target <case> -Format json` | attached case 已有 `.rekit/board.json` 时委托 Go 输出只读 overview envelope；缺 board 或文本输出回退 PowerShell。 |
 | Façade Go note list JSON | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command note -Target <case> -List -Kind verification -Format json` | 仅 `note -List -Format json` 委托 Go 输出只读 ledger events envelope；append、`-WhatIf` 与文本 list 回退 PowerShell。 |
 | Façade Go workstream JSON previews | `$env:REKIT_GO_ENABLE='1'; .\rekit\rekit.ps1 -Command start|handoff|continue -Target <case> -WhatIf <selector> -Format json` | 仅 `-WhatIf -Format json` 委托 Go 输出非写入机器可读预览；文本预览和 apply/write 路径回退 PowerShell。 |
-| Façade smoke | `.\rekit\tests\facade-smoke.ps1 -CaseRoot <case> -Pack vmp-re` | 覆盖默认不委托、显式安全集合、disable 优先级、attach/repair/init/bootstrap/sync/promote/overview/note/workstream JSON preview/read-only 委托，以及文本/write flags fallback；fake `REKIT_GO_EXE` sentinel 证明应委托组合确实经 Go façade。 |
+| Façade smoke | `.\rekit\tests\facade-smoke.ps1` / `-CaseRoot <case> -Pack vmp-re` | 默认创建自包含临时 case，也可显式验证长期 case；覆盖默认不委托、显式安全集合、disable 优先级、attach/repair/init/bootstrap/sync/promote/overview/note/workstream JSON preview/read-only 委托，以及文本/write flags fallback；fake `REKIT_GO_EXE` sentinel 证明应委托组合确实经 Go façade。 |
 | PowerShell status | `.\rekit\rekit.ps1 status` | 现有入口不回归。 |
 | PowerShell doctor | `.\rekit\rekit.ps1 doctor` | 现有 doctor 不回归。 |
 | Wrapper validate | `.\packs\vmp-re\scripts\validate.ps1` | 旧 wrapper 不回归。 |

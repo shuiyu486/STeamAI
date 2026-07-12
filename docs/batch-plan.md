@@ -2410,3 +2410,31 @@ git diff --check
 ```
 
 验证结果：全部通过。`facade-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 `_template` pack 文档 LF/CRLF warning，无 whitespace error。
+
+### Batch 81：façade smoke 自包含化与清理加固
+
+状态：已完成。
+
+目标：承接 Batch 80 的 façade 安全集合矩阵，把它从依赖长期 dryrun case 的回归脚本加固为默认自包含、可重复、少受外部状态影响的 smoke。
+
+实施范围：
+
+- `facade-smoke.ps1` 的默认 `-CaseRoot` 改为空；未显式传入 case 时，脚本在 per-run matrix root 下创建 `_template` 临时 case，运行 `init`、`overview` 和一条 observation note seed，再执行完整 façade 矩阵。
+- 保留显式 `-CaseRoot/-Pack` 模式，用于继续验证长期 dryrun case；vmp-re 显式 case 仍使用既有 `feature-handler-0x40a010` gate lane，自包含临时 case 使用 `main` lane。
+- 将 sync review artifact、fake `REKIT_GO_EXE` 和临时 case 统一放入 GUID 命名的 matrix root，并在 `finally` 中清理，避免固定 temp 路径与中断残留污染后续运行。
+- 保留 Batch 80 的 fake backend sentinel 矩阵与真实 Go status/case doctor/sync review/gate/sync apply preview 覆盖；不改变 runtime 委托逻辑。
+- 更新 Go runtime migration 验证矩阵与 CHANGELOG，记录 façade smoke 默认可自包含运行，同时仍支持显式长期 case 验证。
+
+边界：本批只增强测试与文档，不修改 runtime 委托逻辑；不新增任何写入委托，不默认启用 Go。测试写入仅限临时 case fixture，并在 finally 清理；不写 pack source/promote candidates/tooling candidates/authority/confirmed，不执行 heavy-tool，不改变 sync/promote review-first 语义。
+
+验证：
+
+```powershell
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。默认自包含 `facade-smoke.ps1`、显式 dryrun case `facade-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 `_template` pack 文档及 `facade-smoke.ps1` 的 LF/CRLF warning，无 whitespace error。
