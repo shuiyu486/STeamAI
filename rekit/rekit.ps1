@@ -127,6 +127,20 @@ function Test-RekitGoDelegationSafe {
   switch ($Command) {
     { $_ -in @('status','packs') } { return $true }
     { $_ -in @('doctor','validate') } { return $true }
+    'attach' {
+      if ([string]::IsNullOrWhiteSpace($Target) -or (-not $WhatIf) -or $Apply -or $CreateCandidates -or $Review) { return $false }
+      if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      return ($formatValue -eq 'json')
+    }
+    'repair' {
+      if ([string]::IsNullOrWhiteSpace($Target) -or $Apply -or $CreateCandidates -or $Review) { return $false }
+      if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      if ($formatValue -ne 'json') { return $false }
+      $caseRoot = Resolve-RekitTarget $Target
+      return (Test-RekitLooksLikeCase $caseRoot)
+    }
     'overview' {
       if ($Apply -or $CreateCandidates -or $WhatIf) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
@@ -198,7 +212,7 @@ function Add-RekitGoSwitch {
 function Get-RekitGoTarget {
   switch ($Command) {
     { $_ -in @('status','packs') } { return (Resolve-RekitTarget $Target) }
-    { $_ -in @('overview','note','sync','update','promote','gate') } { return (Resolve-RekitTarget $Target) }
+    { $_ -in @('attach','repair','overview','note','sync','update','promote','gate') } { return (Resolve-RekitTarget $Target) }
     { $_ -in @('doctor','validate') } {
       if (-not [string]::IsNullOrWhiteSpace($Target)) { return (Resolve-RekitTarget $Target) }
       $cwd = Resolve-RekitTarget ''
@@ -223,7 +237,8 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-ReviewOutputDir' $ReviewOutputDir
   Add-RekitGoArg ([ref]$goArgs) '-PacketPath' $PacketPath
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' $DiffPath
-  if ($Command -in @('status','packs','doctor','validate','overview','note','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
+  if ($Command -in @('status','packs','doctor','validate','attach','repair','overview','note','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
+  if ($Command -in @('attach','repair')) { Add-RekitGoArg ([ref]$goArgs) '-ProjectName' $ProjectName }
   if ($Command -eq 'note') {
     $noteArgs = Get-RekitRemainingArgMap -Tokens $RemainingArgs
     $noteList = $List.IsPresent -or (Test-RekitRemainingSwitch -Map $noteArgs -Name 'List')

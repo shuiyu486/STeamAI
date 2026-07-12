@@ -401,7 +401,7 @@ packs/vmp-re/scripts/promote.ps1
 
 - `/rekit` 是用户入口。
 - `rekit/rekit.ps1` 是稳定 PowerShell façade / fallback，只是 backend。
-- Go backend 位于 `cmd/rekit/**` 与 `internal/rekit/**`；默认不启用，维护者显式设置 `REKIT_GO_ENABLE=1` 后才委托安全集合（status、doctor/validate、sync/promote review-only、gate -WhatIf、已初始化 case 的 overview `-Format json`、note `-List -Format json`，以及 start/handoff/continue 的 `-WhatIf -Format json` 非写入预览）。Go CLI 另有手动验证路径，例如 `overview` 只读、`start -WhatIf/-Apply`、`handoff -WhatIf/-Apply`、`plan-subagents` review artifact、`attach -WhatIf/-Apply`、`repair -WhatIf/-Apply`、`sync -Apply`、`init/bootstrap -WhatIf/-Apply`、`promote -CreateCandidates`（可配 `-WhatIf` 预览）和 `promote -Apply/-Apply -WhatIf`；文本工作线命令、内部命令、note append 和写入命令暂不经 façade 委托。
+- Go backend 位于 `cmd/rekit/**` 与 `internal/rekit/**`；默认不启用，维护者显式设置 `REKIT_GO_ENABLE=1` 后才委托安全集合（status、doctor/validate、sync/promote review-only、gate -WhatIf、attach `-WhatIf -Format json`、repair `-Format json`、已初始化 case 的 overview `-Format json`、note `-List -Format json`，以及 start/handoff/continue 的 `-WhatIf -Format json` 非写入预览）。Go CLI 另有手动验证路径，例如 `overview` 只读、`start -WhatIf/-Apply`、`handoff -WhatIf/-Apply`、`plan-subagents` review artifact、`attach -WhatIf/-Apply`、`repair -WhatIf/-Apply`、`sync -Apply`、`init/bootstrap -WhatIf/-Apply`、`promote -CreateCandidates`（可配 `-WhatIf` 预览）和 `promote -Apply/-Apply -WhatIf`；文本工作线命令、内部命令、attach/repair 文本预览、note append 和写入命令暂不经 façade 委托。
 - 工作流 runtime 已拆为 `rekit/lib/B3.*.ps1`，按 Core / State / Policy / Lane / Auto / Commands 分层。
 - `packs/<pack>/manifest.yml` 是 managed/local/tooling/budget/promote 规则的单一事实源。
 - case-local `.claude/skills/rekit/SKILL.md` 只是 thin shim，不维护业务逻辑。

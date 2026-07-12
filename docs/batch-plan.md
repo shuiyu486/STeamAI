@@ -2245,3 +2245,30 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/note`、`go test ./...`、`agent-team-review-loop-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 75：attach/repair JSON preview façade 委托
+
+状态：已完成。
+
+目标：继续把低风险 metadata 预览收敛到 Go backend：在不扩大 attach/repair 写入委托面的前提下，让维护自动化可通过公共 PowerShell façade 消费 `attach -WhatIf -Format json` 与 `repair -Format json` 的非写入 JSON plan。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 `attach` 与 `repair` 纳入显式 Go 安全集合，但仅允许 JSON 非写入预览委托：`attach` 必须显式 `-Target`、`-WhatIf`、`-Format json` 且不带 `-Apply`/`-CreateCandidates`/review artifact flags；`repair` 必须显式 `-Target`、`-Format json`、目标看起来是 attached case 且不带 `-Apply`/`-CreateCandidates`/review artifact flags。
+- Go argument builder 对 `attach`/`repair` 转发 resolved target、`-Format`、`-ProjectName` 和 mode flags；写入路径仍由安全集合拒绝委托。
+- `init-bootstrap-smoke.ps1` 增加 `REKIT_GO_EXE` fake backend sentinel，证明 `attach -WhatIf -Format json` 与 `repair -Format json` 满足条件时确实经 façade 委托 Go；同时断言 attach/repair 文本预览即使显式 Go enable 仍 fallback PowerShell。
+- 更新 README、skill、Go runtime migration 与 CHANGELOG，说明 attach/repair façade 委托只覆盖 JSON 非写入 metadata 预览，不覆盖文本预览或 `-Apply` 写入。
+
+边界：本批只调整显式 `REKIT_GO_ENABLE=1` 下的 attach/repair JSON 预览委托；不默认启用 Go、不委托 attach/repair `-Apply`、不委托 init/bootstrap、sync apply、promote apply/candidates、工作线 apply、note append、authority/confirmed 更新，不写 board/facts/lanes/handoff/managed docs，不执行 heavy-tool，不改变 sync/promote review-first 语义。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/attach ./internal/rekit/repair
+.\rekit\tests\init-bootstrap-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/attach ./internal/rekit/repair`、`init-bootstrap-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
