@@ -90,6 +90,12 @@ go test ./...
 涉及 PowerShell façade / Go backend 委托时额外检查：
 
 ```powershell
+.\rekit\tests\facade-smoke.ps1
+```
+
+需要对长期 dryrun case 做兼容验证时，可额外传入显式 case：
+
+```powershell
 .\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
 ```
 

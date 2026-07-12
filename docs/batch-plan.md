@@ -2467,3 +2467,5 @@ git diff --check
 ```
 
 验证结果：全部通过。`sync-apply-parity-smoke.ps1`、`sync-apply-smoke.ps1`、默认自包含 `facade-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 `_template` pack 文档 LF/CRLF warning，无 whitespace error。
+
+收尾：Stop hook 后补查 README、仓库 CLAUDE.md、canonical `/rekit` skill、Go runtime migration 与 sync apply migration。Go runtime migration 和 sync apply migration 已覆盖 S18 parity、实际 `sync -Apply` 不经 façade 委托和默认自包含 façade smoke；额外补充 README 的 `sync -Force` 本地模板覆盖语义、仓库 CLAUDE.md 的默认自包含 `facade-smoke.ps1` 验证入口，以及 `/rekit` skill 中 template files 默认 create-if-missing / `-Force` overwrite-with-backup 规则。补充后再次验证 `sync-apply-parity-smoke.ps1`、默认自包含 `facade-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 全部通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

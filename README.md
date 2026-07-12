@@ -245,6 +245,8 @@ artifacts/**
 CLAUDE.local.md 中 block 外的 case 私有内容
 ```
 
+默认 `sync -Apply` 不会覆盖已存在的本地 template files；只有显式 `-Force` 才会在写入前备份并覆盖 manifest 声明的本地模板目标。
+
 `sync` 只允许作用于已经 `attach/init` 的 case。若目标目录拼错或还未绑定，会直接失败，不会静默创建假 case。
 
 ### 6. 回流可复用经验
