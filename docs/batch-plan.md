@@ -2382,3 +2382,31 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/sync`、`sync-apply-smoke.ps1`、`go test ./...`、`facade-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过。`facade-smoke.ps1` 初次因保留的 dryrun case shim 落后于 canonical thin shim 被 case doctor 拒绝；执行 `repair -Apply` 刷新该临时 dryrun case metadata/shim 后，`facade-smoke.ps1` 通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 80：Go façade 安全集合 smoke 矩阵补强
+
+状态：已完成。
+
+目标：在 Batch 75-79 连续扩大显式 Go façade JSON preview/read-only 安全集合后，先补强公共入口回归矩阵，避免后续改动误把文本预览或实际写入路径委托给 Go。
+
+实施范围：
+
+- 扩展 `rekit/tests/facade-smoke.ps1`，新增 fake `REKIT_GO_EXE` sentinel helper，黑盒验证应委托组合确实经 Go façade，而不是 PowerShell fallback 生成相似输出。
+- 覆盖 attach/repair/init/bootstrap 的 JSON 非写入 preview 委托，以及对应文本 preview fallback。
+- 覆盖 `sync -Apply -WhatIf -Format json`、`promote -CreateCandidates -WhatIf -Format json`、`promote -Apply -WhatIf -Format json` 的 JSON 非写入 preview 委托，以及 sync/promote 文本 what-if fallback。
+- 覆盖 `overview -Format json`、`note -List -Format json`、`start/handoff/continue -WhatIf -Format json` 的 read-only/preview 委托，以及 note/start 文本 fallback。
+- 保留真实 Go status/case doctor/sync review artifact/gate dry-run/sync apply JSON preview 与 `REKIT_GO_DISABLE=1` 优先级覆盖。
+- 更新 Go runtime migration 验证矩阵与 CHANGELOG，记录 façade smoke 已作为安全集合矩阵。
+
+边界：本批只增强测试与文档，不修改 runtime 委托逻辑；不新增任何写入委托，不默认启用 Go，不写 case managed docs/pack source/candidate/tooling candidate，不写 authority/confirmed，不执行 heavy-tool，不改变 sync/promote review-first 语义。
+
+验证：
+
+```powershell
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`facade-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 `_template` pack 文档 LF/CRLF warning，无 whitespace error。
