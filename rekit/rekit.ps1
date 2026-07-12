@@ -278,7 +278,7 @@ switch ($Command) {
   }
   'start' {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
-    Invoke-RekitStart -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -WhatIf:$WhatIf -Force:$Force
+    Invoke-RekitStart -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -Format $Format -WhatIf:$WhatIf -Force:$Force
   }
   'handoff' {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs

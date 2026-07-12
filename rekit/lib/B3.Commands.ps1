@@ -400,6 +400,7 @@ function Invoke-RekitStart {
     [Parameter(Mandatory=$true)][string]$RepoRoot,
     [string]$Pack = 'vmp-re',
     [string[]]$ActionArgs = @(),
+    [string]$Format = '',
     [switch]$WhatIf,
     [switch]$Force
   )
@@ -409,13 +410,61 @@ function Invoke-RekitStart {
   $caseRoot = [System.IO.Path]::GetFullPath($Target)
   $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
   $startLaneType = Get-RekitDefaultStartLaneTypeId -Manifest $manifest
+  $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+  if ([string]::IsNullOrWhiteSpace($formatValue)) { $formatValue = 'table' }
+  if (@('table','text','tsv','json') -notcontains $formatValue) { throw "unsupported start format: $Format" }
   if ($WhatIf) {
     [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
-    [void](Get-RekitLaneType -Manifest $manifest -Type $startLaneType)
-    $id = ConvertTo-RekitLaneId -Type $startLaneType -Name $name
+    $laneType = Get-RekitLaneType -Manifest $manifest -Type $startLaneType
+    $id = ConvertTo-RekitLaneId -Type $laneType.Id -Name $name
+    if ([string]::IsNullOrWhiteSpace($id)) { throw "start produced an empty lane id for '$name'" }
+    if ($formatValue -eq 'json') {
+      $laneRoot = Get-RekitLanePath -CaseRoot $caseRoot -LaneId $id
+      $laneFile = Join-Path $laneRoot 'lane.json'
+      $workspace = Join-RekitPath -Root $caseRoot -RelativePath (Join-Path $laneType.WorkspaceRoot $id)
+      $action = 'would-create-lane'
+      if (Test-Path -LiteralPath $laneFile) {
+        $action = if ($Force) { 'would-refresh-lane-with-force' } else { 'would-enter-existing-lane' }
+      }
+      [ordered]@{
+        schemaVersion = 1
+        command = 'start'
+        caseRoot = $caseRoot
+        repoRoot = $RepoRoot
+        pack = $Pack
+        isMutation = $false
+        applied = $false
+        requiresConfirmation = $true
+        lane = [ordered]@{
+          schemaVersion = 1
+          id = $id
+          type = [string]$laneType.Id
+          name = $name
+          title = if ([string]::IsNullOrWhiteSpace($name)) { [string]$laneType.Title } else { [string]$laneType.Title + ': ' + $name }
+          status = 'open'
+          authority = [bool]$laneType.Authority
+          workspace = (Join-RekitRelativePath -Root $caseRoot -Path $workspace)
+          laneRoot = (Join-RekitRelativePath -Root $caseRoot -Path $laneRoot)
+          canWrite = @($laneType.CanWrite)
+          readOnly = @($laneType.ReadOnly)
+          outputs = @($laneType.Outputs)
+          counters = [ordered]@{ observations = 0; requests = 0; candidates = 0; publications = 0; pendingUser = 0 }
+          createdAt = ''
+          updatedAt = ''
+        }
+        writes = @([ordered]@{ path = ".rekit/lanes/$id/lane.json"; kind = 'lane'; action = $action; targetPath = $laneFile })
+        blockedActions = @('authority/confirmed writes','heavy-tool execution','handoff writes','continue auto-apply')
+        nextSteps = @(
+          'review this plan, then re-run start without -WhatIf to create or enter the workstream',
+          'PowerShell /rekit remains the public entrypoint; start preview stays read-only'
+        )
+      } | ConvertTo-Json -Depth 12
+      return
+    }
     Write-Host "would create or enter feature workstream: $id"
     return
   }
+  if ($formatValue -eq 'json') { throw 'start -Format json currently supports -WhatIf preview only; omit -Format for apply' }
   [void](Ensure-RekitBoard -CaseRoot $caseRoot -RepoRoot $RepoRoot -Pack $Pack -CreateDefaultLane)
   $lane = New-RekitLane -CaseRoot $caseRoot -RepoRoot $RepoRoot -Manifest $manifest -Type $startLaneType -Name $name -Force:$Force
   [void](Save-RekitBoard -CaseRoot $caseRoot -RepoRoot $RepoRoot -Manifest $manifest)

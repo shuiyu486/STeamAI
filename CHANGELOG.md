@@ -80,6 +80,7 @@
 - Batch 67 完成：`/rekit note -List` 新增 `-Format json` 机器可读 ledger event 查询输出，Go backend 与 PowerShell fallback 均支持按 kind/lane 过滤后返回 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/kind/lane/eventCount/groups[]`，便于 review loop、handoff 和后续编排直接消费 facts JSONL。
 - Batch 68 完成：`/rekit overview` 新增 `-Format json` 机器可读项目总览输出，Go backend 与 PowerShell fallback 均返回 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/automationMode/lanes/counts/sections/nextSteps` envelope，方便新会话接手、CI 和后续 orchestration 直接消费工作线与 review-loop 摘要。
 - Batch 69 完成：`/rekit handoff -WhatIf` 新增 `-Format json` 机器可读写入预览，PowerShell fallback 在不委托 Go 的前提下返回 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/applied/requiresConfirmation/selector/project/lane/writes/blockedActions/nextSteps` envelope，便于接手自动化和审查流程安全消费 handoff 计划。
+- Batch 70 完成：`/rekit start -WhatIf` 新增 `-Format json` 机器可读非写入预览，PowerShell fallback 在不委托 Go 的前提下返回 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/applied/requiresConfirmation/lane/writes/blockedActions/nextSteps` envelope，并拒绝 apply + JSON，便于自动化安全消费 start 工作线计划。
 
 ### Fixed
 
