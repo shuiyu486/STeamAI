@@ -2527,3 +2527,36 @@ git diff --check
 ```
 
 验证结果：全部通过。首次 `go test ./...` 暴露 pack inventory fixture 仍预期 vmp-re `toolingFiles=11`；新增 recipe 后已同步更新 `internal/rekit/cli/cli_test.go` 为 `toolingFiles=12`，随后 `validate.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 85：malware-analysis pack skeleton
+
+状态：已完成。
+
+目标：承接 Phase 3 多安全领域 pack 扩展，在 `web-security` 之后新增防御性恶意样本分析 pack skeleton，用最小可验证骨架覆盖授权样本分析、事件响应辅助、检测工程与防御性安全研究场景，同时不把项目误导成自动恶意软件执行平台或样本库。
+
+实施范围：
+
+- 新增 `packs/malware-analysis/manifest.yml`、`CLAUDE.local.snippet.md`、policy overlay 空 registry、managed reference docs、task handoff template、tooling catalog 与两条 recipes。
+- reference docs 覆盖 scope baseline、静态优先轻到重路线、sample/behavior/IOC bounded review、dynamic/sandbox/network/debug/dump gate、sidecar 与敏感信息留在 case-local 的规则。
+- manifest 声明 `malware-analysis:bounded-review` 与 `malware-analysis:sample-analysis` 两条 route，默认 start lane type 为 `sample-analysis`，tooling files 为 `static-triage.md` 与 `sandbox-sidecar-review.md`。
+- 新增 `rekit/tests/malware-analysis-pack-smoke.ps1`，覆盖 Go/PowerShell doctor、Go init、case doctor、Go/PowerShell `plan-subagents`、promote review 不被 deny pattern 误阻断和 no-write 边界。
+- 更新 pack inventory fixtures，将 `malware-analysis` 纳入 Go CLI 与 PowerShell smoke，同时修正 vmp-re tooling count 为 12。
+- 更新 README、CLAUDE.md、vision、reference absorption、pack authoring、agent-team usage、Go migration 与 CHANGELOG，记录 `malware-analysis` 是 skeleton，不是自动恶意样本分析平台。
+
+边界：本批只新增最小 pack 骨架和验证；不执行样本、不上传 sandbox、不联网、不 debug/inject/patch/dump、不接入外部情报服务、不写真实 hash/IOC/样本路径/customer artifact；不写真实 case confirmed/authority；不改变 PowerShell façade 委托集合。
+
+停止条件：若后续要把 `malware-analysis` 扩展成真实 sandbox adapter、动态执行 runner、外部情报查询、检测规则 authority schema 或自动 IOC 发布流程，应作为独立批次评估 gate、隔离和授权边界。
+
+验证：
+
+```powershell
+.\rekit\tests\malware-analysis-pack-smoke.ps1
+.\rekit\tests\web-security-pack-smoke.ps1
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Pack malware-analysis
+git diff --check
+```
+
+验证结果：全部通过。`malware-analysis-pack-smoke.ps1`、`web-security-pack-smoke.ps1`、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor`、`/rekit doctor -Pack malware-analysis` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

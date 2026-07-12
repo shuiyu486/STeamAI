@@ -133,7 +133,7 @@ function Assert-StatusJson {
     throw "status JSON roots are incomplete: $($Status | ConvertTo-Json -Depth 20)"
   }
   if ($Mode -eq 'kit') {
-    if ($null -ne $Status.case -or $null -eq $Status.manifest -or [string]$Status.pack -ne 'vmp-re' -or [int]$Status.manifest.managedFiles -ne 7 -or [int]$Status.manifest.promoteFiles -ne 7 -or [int]$Status.manifest.toolingFiles -ne 11) {
+    if ($null -ne $Status.case -or $null -eq $Status.manifest -or [string]$Status.pack -ne 'vmp-re' -or [int]$Status.manifest.managedFiles -ne 7 -or [int]$Status.manifest.promoteFiles -ne 7 -or [int]$Status.manifest.toolingFiles -ne 12) {
       throw "unexpected kit status JSON: $($Status | ConvertTo-Json -Depth 20)"
     }
   }
@@ -204,8 +204,9 @@ $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO
 foreach ($out in @($goOut,$psOut,$facadeOut)) {
   if ($out -notlike "pack`t*") { throw "packs output missing header:`n$out" }
   Assert-PackRow -Text $out -Pack '_template' -Maturity 'template' -Authority 'main' -Managed '4' -Tooling '2'
-  Assert-PackRow -Text $out -Pack 'vmp-re' -Maturity 'mature' -Authority 'devirt-main' -Managed '7' -Tooling '11'
+  Assert-PackRow -Text $out -Pack 'vmp-re' -Maturity 'mature' -Authority 'devirt-main' -Managed '7' -Tooling '12'
   Assert-PackRow -Text $out -Pack 'web-security' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
+  Assert-PackRow -Text $out -Pack 'malware-analysis' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
 }
 
 $goJson = Invoke-GoRekitSmoke -Arguments @('-Command','packs','-Format','json') | ConvertFrom-Json
@@ -213,8 +214,9 @@ $psJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') | 
 $facadeJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
 foreach ($json in @($goJson,$psJson,$facadeJson)) {
   Assert-PackJson -Inventory $json -Pack '_template' -Maturity 'template' -Authority 'main' -Managed 4 -Tooling 2
-  Assert-PackJson -Inventory $json -Pack 'vmp-re' -Maturity 'mature' -Authority 'devirt-main' -Managed 7 -Tooling 11
+  Assert-PackJson -Inventory $json -Pack 'vmp-re' -Maturity 'mature' -Authority 'devirt-main' -Managed 7 -Tooling 12
   Assert-PackJson -Inventory $json -Pack 'web-security' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
+  Assert-PackJson -Inventory $json -Pack 'malware-analysis' -Maturity 'skeleton' -Authority 'main' -Managed 4 -Tooling 4
 }
 
 $transientPacks = @()
@@ -267,6 +269,7 @@ try {
   $disabledOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $sentinel }
   Assert-NotContainsText -Text $disabledOut -Unexpected 'sentinel-go-packs' -Label 'facade packs disable fallback'
   Assert-PackRow -Text $disabledOut -Pack 'web-security' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
+  Assert-PackRow -Text $disabledOut -Pack 'malware-analysis' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
 } finally {
   if (Test-Path -LiteralPath $sentinel) { Remove-Item -LiteralPath $sentinel -Force -Confirm:$false }
 }

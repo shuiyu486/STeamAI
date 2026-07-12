@@ -259,6 +259,7 @@ func TestRunPacksListsPackMatrix(t *testing.T) {
 		"_template\ttemplate\tok\t2\t4\t2\tmain\t0.1.0",
 		"vmp-re\tmature\tok\t2\t7\t12\tdevirt-main\t0.2.0",
 		"web-security\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
+		"malware-analysis\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("packs output missing %q:\n%s", expected, text)
@@ -311,6 +312,9 @@ func TestRunPacksJsonInventory(t *testing.T) {
 	}
 	if pack := byID["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected web-security JSON row: %+v", pack)
+	}
+	if pack := byID["malware-analysis"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "main" {
+		t.Fatalf("unexpected malware-analysis JSON row: %+v", pack)
 	}
 }
 
