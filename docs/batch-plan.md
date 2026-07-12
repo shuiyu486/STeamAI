@@ -2795,3 +2795,34 @@ git diff --check
 ```
 
 验证结果：全部通过。8 个迁移后的 pack smoke、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 93：pack smoke matrix
+
+状态：已完成。
+
+目标：在 Batch 92 的共享 helper 之上新增显式 pack smoke matrix runner，让维护者可一键运行全部安全领域 skeleton pack smoke，也可选择 pack 子集，减少手动串联多个 smoke 命令时的遗漏和失败定位成本。
+
+实施范围：
+
+- 新增 `rekit/tests/pack-smoke-matrix.ps1`，按显式 pack 清单调用现有 `*-pack-smoke.ps1` wrapper。
+- 支持默认全量 pack、`-Packs` 子集、逗号分隔选择、`all` 别名、去重、未知 pack guard、`-FailFast` 与共享 `-WorkRoot` 参数。
+- matrix 逐个子进程执行 wrapper，输出每个 pack 的 running/passed/failed、elapsedMs 和原始 smoke 输出，失败时汇总 pack 与 exit code。
+- 保持各 pack smoke 的验证语义不变：仍由 wrapper + `pack-smoke-lib.ps1` 覆盖 doctor、init、case doctor、`plan-subagents`、promote review 和 no-write 边界。
+- 更新 README、Go runtime migration、CHANGELOG 与本计划文档，记录 matrix 用途和维护入口。
+
+边界：本批只新增测试编排脚本，不自动发现 pack、不改变 pack inventory、runtime、manifest schema、Go backend 或 PowerShell façade 委托集合；matrix 只运行已有自包含 smoke，不创建真实 case state；不执行样本、网络、debug、dump、patch、hook、fuzz、exploit replay 或任何外部副作用；不写 authority/confirmed。
+
+停止条件：若后续要把 matrix 接入 CI、按 `/rekit packs` 动态发现 pack、并行化运行、写测试报告 artifact 或跨机器运行，应作为独立批次评估执行时间、日志可读性、临时目录隔离、PowerShell 版本兼容和失败重试策略。
+
+验证：
+
+```powershell
+.\rekit\tests\pack-smoke-matrix.ps1 -Packs web-security,generic-binary-re
+.\rekit\tests\pack-smoke-matrix.ps1
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。matrix 子集、matrix 全量 8 个 pack、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

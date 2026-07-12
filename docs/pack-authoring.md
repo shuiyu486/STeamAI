@@ -161,5 +161,5 @@ budgets:
 - managed/template/local 边界清晰。
 - `subagentRoutes.reference` 指向 managed/template/local 文件，route id 唯一，`taskTypes`、`shardBasis`、`targetItemsPerAgent`、`maxParallel`、`subagentPermissions`、`mainAgentOwns`、`outputContract` 齐全。
 - 新 pack 初始化不会覆盖 case-local 文件。
-- skeleton pack smoke 通过 `rekit/tests/pack-smoke-lib.ps1` 或等价验证覆盖 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review managed-doc candidate 和 no-write 边界；临时 case prefix 不能让 pack 名中的通用词触发 case-specific deny pattern 误拦截。
+- skeleton pack smoke 通过 `rekit/tests/pack-smoke-lib.ps1` 或等价验证覆盖 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review managed-doc candidate 和 no-write 边界；临时 case prefix 不能让 pack 名中的通用词触发 case-specific deny pattern 误拦截；需要全量或子集回归时使用 `rekit/tests/pack-smoke-matrix.ps1`。
 - promote deny patterns 覆盖绝对路径、artifact/capture/trace/dump、地址快照和 case 状态。

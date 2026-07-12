@@ -103,6 +103,7 @@
 - Batch 90 完成：新增 `packs/android-native` 授权 Android native / JNI / NDK 分析 pack skeleton，覆盖 manifest、managed docs、task handoff template、policy overlay 空 registry、tooling catalog、APK native triage 与 emulator hook review recipe；新增 `android-native-pack-smoke.ps1` 与 pack inventory fixtures，验证 Go/PowerShell doctor、Go init/case doctor、`plan-subagents` route packet、promote review 和 no-write 边界，同时保持设备连接、Frida attach、hook 执行、抓包、authority/confirmed 与真实 artifact 零写入。
 - Batch 91 完成：新增 `packs/generic-binary-re` 授权通用二进制逆向 pack skeleton，覆盖 manifest、managed docs、task handoff template、policy overlay 空 registry、tooling catalog、static binary triage 与 function behavior review recipe；新增 `generic-binary-re-pack-smoke.ps1` 与 pack inventory fixtures，验证 Go/PowerShell doctor、Go init/case doctor、`plan-subagents` route packet、promote review 和 no-write 边界，同时保持样本执行、debug/trace/dump/patch、authority/confirmed 与真实 artifact 零写入。
 - Batch 92 完成：新增 `rekit/tests/pack-smoke-lib.ps1`，将 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` pack smoke 迁移为 thin configuration wrapper，复用 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review managed-doc candidate 与 no-write 边界检查，降低后续安全领域 pack smoke 的重复维护成本。
+- Batch 93 完成：新增 `rekit/tests/pack-smoke-matrix.ps1`，可默认运行 8 个安全领域 skeleton pack smoke，也支持 `-Packs` 子集、逗号分隔、`all`、去重、未知 pack guard 与 `-FailFast`，在不改变各 pack smoke 语义的前提下降低手动串联验证的遗漏和失败定位成本。
 
 ### Fixed
 
