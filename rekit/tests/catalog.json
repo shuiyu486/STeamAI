@@ -10,6 +10,7 @@
   ],
   "recommendedMinimum": [
     "facade-smoke.ps1",
+    "catalog-smoke.ps1",
     "pack-smoke-matrix-selftest.ps1",
     "pack-smoke-matrix.ps1 -DiscoveryOnly",
     "pack-inventory-smoke.ps1",
@@ -39,6 +40,17 @@
       "supportsCaseRoot": false,
       "riskBoundary": "Read-only except transient invalid pack fixtures that are created and removed inside packs/.",
       "relatedDocs": ["docs/pack-authoring.md", "docs/go-runtime-migration.md", "rekit/tests/README.md"]
+    },
+    {
+      "id": "catalog-smoke",
+      "script": "catalog-smoke.ps1",
+      "category": "catalog",
+      "purpose": "Validate catalog.json schema, unique ids, script/doc paths, field completeness, and pack smoke discovery alignment.",
+      "recommendedFor": ["catalog.json", "test navigation", "smoke metadata"],
+      "supportsWorkRoot": false,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Read-only catalog and filesystem consistency check; does not run case smoke scripts except pack matrix discovery.",
+      "relatedDocs": ["rekit/tests/README.md"]
     },
     {
       "id": "pack-smoke-matrix-selftest",

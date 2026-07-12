@@ -3019,3 +3019,36 @@ git diff --check
 ```
 
 验证结果：全部通过。`catalog.json` 解析断言、`pack-smoke-matrix-selftest.ps1`、discovery guard、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 100：test catalog selftest
+
+状态：已完成。
+
+目标：给 `rekit/tests/catalog.json` 增加自测脚本，锁定 catalog schema、字段完整性、脚本/文档路径、唯一 id 和 pack smoke 与 discovery guard 的一致性，避免机器可读测试导航在后续维护中悄悄漂移。
+
+实施范围：
+
+- 新增 `rekit/tests/catalog-smoke.ps1`，只读解析 `catalog.json` 并校验 `schemaVersion`、说明、默认 `WorkRoot`、全局边界、推荐最小回归组合和 tests 列表。
+- 校验每个 test entry 的 `id` 唯一且格式稳定，`category` 在允许集合内，`script`、`purpose`、`recommendedFor`、`supportsWorkRoot`、`supportsCaseRoot`、`riskBoundary` 与 `relatedDocs` 齐全。
+- 对 `.ps1` 脚本路径和 related docs 做存在性检查；对 `pack-smoke` entries 校验 pack 名与脚本名匹配、支持 `WorkRoot` 且不支持真实 `CaseRoot`。
+- 调用 `pack-smoke-matrix.ps1 -DiscoveryOnly -Format json`，确保 catalog 中的 pack smoke entries 与 schema-valid skeleton packs 完全一致。
+- 将 `catalog-smoke.ps1` 写入 `catalog.json`，并更新 `rekit/tests/README.md` 与 README 入口。
+- 更新 CHANGELOG 与本计划文档，记录 selftest 的用途和边界。
+
+边界：本批只新增只读 catalog 自测和文档链接，不改变 runtime、test scripts 的执行语义、pack manifest、Go backend、PowerShell façade 委托集合或验证语义；`catalog-smoke.ps1` 不运行 case smoke，只运行 discovery guard；不创建 case state；不执行样本、网络、debug、dump、patch、hook、fuzz、exploit replay 或任何外部副作用；不写 authority/confirmed。
+
+停止条件：若后续要把 catalog selftest 扩展为 JSON Schema 文件、Pester suite、CI 必跑 gate 或自动执行 catalog 中的测试，应作为独立批次评估 schema 版本、执行时间、失败定位和安全边界。
+
+验证：
+
+```powershell
+.\rekit\tests\catalog-smoke.ps1
+.\rekit\tests\pack-smoke-matrix-selftest.ps1
+.\rekit\tests\pack-smoke-matrix.ps1 -DiscoveryOnly
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`catalog-smoke.ps1`、`pack-smoke-matrix-selftest.ps1`、discovery guard、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

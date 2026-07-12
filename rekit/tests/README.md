@@ -12,6 +12,7 @@
 
 ```powershell
 .\rekit\tests\facade-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
 .\rekit\tests\pack-smoke-matrix-selftest.ps1
 .\rekit\tests\pack-smoke-matrix.ps1 -DiscoveryOnly
 .\rekit\tests\pack-inventory-smoke.ps1
@@ -51,6 +52,7 @@ git diff --check
 |---|---|---|
 | `facade-smoke.ps1` | 改 `rekit.ps1`、Go façade 委托集合或 JSON preview/read-only 委托 | 默认不委托、显式 Go 安全集合、disable 优先级、文本/write fallback。 |
 | `pack-inventory-smoke.ps1` | 改 pack manifest、maturity、inventory、status/doctor JSON | `/rekit packs/status/doctor/validate` text+JSON parity、Go/PowerShell/facade 委托。 |
+| `catalog-smoke.ps1` | 改 `catalog.json` 或测试导航字段 | catalog schema、唯一 id、脚本/文档存在性、pack smoke 与 discovery 对齐。 |
 | `pack-smoke-matrix.ps1 -DiscoveryOnly` | 新增/删除 skeleton pack 或 pack smoke wrapper | inventory 中 schema-valid skeleton pack 与 matrix 清单/wrapper 一致性。 |
 | `pack-smoke-matrix.ps1` | 需要全量 pack skeleton smoke 回归 | 串行运行全部安全领域 skeleton pack smoke。 |
 | `pack-smoke-matrix.ps1 -Packs web-security,generic-binary-re -Format json` | 需要快速子集或机器可读结果 | 子集 pack smoke + JSON envelope。 |
@@ -116,6 +118,7 @@ C:\AI\m_projects\RE\_dryrun_cases
 | 改动类型 | 推荐验证 |
 |---|---|
 | 新增 skeleton pack | 单 pack smoke -> `pack-smoke-matrix.ps1 -DiscoveryOnly` -> `pack-inventory-smoke.ps1` -> `go test ./...` -> `doctor`。 |
+| 改测试导航 catalog | `catalog-smoke.ps1` -> `pack-smoke-matrix.ps1 -DiscoveryOnly` -> `pack-inventory-smoke.ps1`。 |
 | 改 pack smoke helper/matrix | `pack-smoke-matrix-selftest.ps1` -> `pack-smoke-matrix.ps1 -DiscoveryOnly` -> 1-2 个代表 pack smoke -> `pack-inventory-smoke.ps1`。 |
 | 改 Go façade 委托 | `facade-smoke.ps1` -> 相关命令 smoke -> `go test ./...`。 |
 | 改 sync/promote 写入 | 对应 preflight/apply smoke -> `doctor` -> `git diff --check`。 |
