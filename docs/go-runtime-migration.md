@@ -257,6 +257,8 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 
 ## 验证矩阵
 
+本节记录 Go runtime 迁移相关验证项；跨类别 smoke 的选择指南见 `rekit/tests/README.md`。
+
 | 场景 | 命令 | 预期 |
 |---|---|---|
 | Go status | `go run ./cmd/rekit -- -Command status` / `-Format json` | 默认输出 runtime root、template root、pack、manifest counts；JSON 输出 `command/schemaVersion/isMutation/runtimeRoot/templateRoot/pack/target/mode/case/manifest` envelope。 |

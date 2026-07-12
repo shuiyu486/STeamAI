@@ -155,6 +155,8 @@ budgets:
 
 ## 验证标准
 
+更完整的 smoke 选择表见 `rekit/tests/README.md`；本节只列新增/维护 pack 的最低标准。
+
 - `git diff --check` 通过。
 - `/rekit packs` 能列出新 pack，且该行 `maturity` 来自 manifest 显式字段，`schema=ok`、route / managed / tooling / authority 计数符合预期；自动化检查可用 `/rekit packs -Format json` 消费同一 inventory。
 - `manifest.yml` 路径均为相对路径。

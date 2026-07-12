@@ -223,7 +223,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 - 补 `docs/agent-team-usage.md` 到 case managed docs 或 reference 路由中，让 case 内也能直接看到本指南。
 - 让 `/rekit overview` 更清楚地区分“未接手工作线”和“已接手工作线”。
 - 增加旧 case 检测摘要：缺 `.rekit/instance.yml`、只有 `.re-template.yml`、缺 managed docs、缺 handoff 索引时给出明确下一步。
-- 为 smoke test 固化脚本或 CI 检查，避免只靠人工临时命令。
+- smoke test 已有维护指南 `rekit/tests/README.md` 和 pack smoke matrix；后续可继续推进 CI 检查，避免只靠人工临时命令。
 
 ### 4.2 中期优化
 

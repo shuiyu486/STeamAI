@@ -67,6 +67,7 @@ BEGIN.
 - orchestration 计划：`docs/orchestration-plan.md`
 - Agent Team rollout 计划：`docs/agent-team-rollout-plan.md`
 - sync/promote 说明：`docs/promote-sync.md`
+- smoke 维护指南：`rekit/tests/README.md`
 - 变更记录：`CHANGELOG.md`
 
 ## 维护者工作流
@@ -84,6 +85,8 @@ BEGIN.
 不要复制 runtime 逻辑到 case shim；case-local `/rekit` 应保持 thin shim，并回到 kit 仓库中的 canonical runtime。
 
 ## 验证命令
+
+选择 smoke 前先看 `rekit/tests/README.md`；它按 façade、pack、sync/promote、workstream/ledger/gate 分类给出推荐验证组合。
 
 仓库级只读检查：
 

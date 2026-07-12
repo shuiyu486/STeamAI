@@ -2956,3 +2956,34 @@ git diff --check
 ```
 
 验证结果：全部通过。`pack-smoke-matrix-selftest.ps1`、discovery guard、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 98：verification guide cross-links
+
+状态：已完成。
+
+目标：补齐测试维护指南的跨文档入口，让维护者从根 `CLAUDE.md`、pack authoring、Go runtime migration 和 Agent Team usage 文档都能发现 `rekit/tests/README.md`，同时避免各文档重复维护完整 smoke 表。
+
+实施范围：
+
+- `CLAUDE.md` 常用维护入口新增 `rekit/tests/README.md`，验证命令章节提示先按 tests guide 选择 smoke。
+- `docs/pack-authoring.md` 验证标准章节标明完整 smoke 选择表在 `rekit/tests/README.md`，本节只保留 pack 最低标准。
+- `docs/go-runtime-migration.md` 验证矩阵章节标明该矩阵专注 Go runtime 迁移，跨类别 smoke 选择见 tests guide。
+- `docs/agent-team-usage.md` 短期优化项从“固化 smoke test”更新为已有 tests guide 和 pack smoke matrix，后续可继续推进 CI。
+- 更新 CHANGELOG 与本计划文档，记录 tests guide cross-link 范围。
+
+边界：本批只补文档链接和说明，不改变 runtime、test scripts、pack manifest、Go backend、PowerShell façade 委托集合或验证语义；不创建 case state；不执行样本、网络、debug、dump、patch、hook、fuzz、exploit replay 或任何外部副作用；不写 authority/confirmed。
+
+停止条件：若后续要把 tests guide 进一步改造成自动测试选择器、CI pipeline 或机器可读 test catalog，应作为独立批次评估格式、依赖、执行时间和失败定位。
+
+验证：
+
+```powershell
+.\rekit\tests\pack-smoke-matrix-selftest.ps1
+.\rekit\tests\pack-smoke-matrix.ps1 -DiscoveryOnly
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`pack-smoke-matrix-selftest.ps1`、discovery guard、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
