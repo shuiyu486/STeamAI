@@ -125,7 +125,7 @@ budgets:
 
 ## `_template` 骨架
 
-本仓库提供 `packs/_template/` 作为新 pack 的起点；已落地的 `packs/web-security/` 与 `packs/malware-analysis/` 可作为非 RE 领域 skeleton 参考。创建真实 pack 时复制该目录并替换：
+本仓库提供 `packs/_template/` 作为新 pack 的起点；已落地的 `packs/web-security/`、`packs/malware-analysis/` 与 `packs/vuln-research/` 可作为非 RE 领域 skeleton 参考。创建真实 pack 时复制该目录并替换：
 
 - `name`、`description`、`maturity`、`blockId`。
 - `references/template/**` 路径和目录名。

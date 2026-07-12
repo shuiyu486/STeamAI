@@ -2,7 +2,7 @@
 
 `re-context-kits` 是面向网络安全研究与安全工程任务的 Claude Code Agent Team 框架，用于把多 Agent 协作、领域工具链、证据账本、工作线管理、验证门禁和可复用安全领域 pack 组织成可持续迭代的 case workspace。
 
-当前阶段，它已经提供 `/rekit` case 管理、首个成熟 pack `vmp-re`、非 RE pack 骨架 `web-security` 与 `malware-analysis`、工作线协同、handoff、sync/promote 和 tooling 经验沉淀；`vmp-re` 是验证框架的第一个重点领域，不是最终边界。长期目标是逐步扩展到逆向工程、恶意样本分析、漏洞研究、Web/API 安全评估、授权测试/靶场/CTF、Android native、OLLVM 等多类安全任务。
+当前阶段，它已经提供 `/rekit` case 管理、首个成熟 pack `vmp-re`、非 RE pack 骨架 `web-security`、`malware-analysis` 与 `vuln-research`、工作线协同、handoff、sync/promote 和 tooling 经验沉淀；`vmp-re` 是验证框架的第一个重点领域，不是最终边界。长期目标是逐步扩展到逆向工程、恶意样本分析、漏洞研究、Web/API 安全评估、授权测试/靶场/CTF、Android native、OLLVM 等多类安全任务。
 
 当前项目不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。
 
@@ -15,7 +15,7 @@
 - 长期愿景与阶段实施方案：`docs/vision.md`
 - 当前架构说明：`docs/design.md`
 - 后续批次计划：`docs/batch-plan.md`
-- pack 编写指南：`docs/pack-authoring.md`（新 pack 可从 `packs/_template/` 复制；`packs/web-security/` 与 `packs/malware-analysis/` 是首批非 RE pack 骨架）
+- pack 编写指南：`docs/pack-authoring.md`（新 pack 可从 `packs/_template/` 复制；`packs/web-security/`、`packs/malware-analysis/` 与 `packs/vuln-research/` 是首批非 RE pack 骨架）
 - evidence / intervention 账本草案：`docs/evidence-ledger.md`
 - 半自动 orchestration 计划：`docs/orchestration-plan.md`
 - Agent Team rollout 计划：`docs/agent-team-rollout-plan.md`

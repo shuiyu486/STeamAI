@@ -26,7 +26,7 @@
 - [ ] Phase 0：定位与文档收敛。
 - [ ] Phase 1：Agent Team 工作流固化。
 - [ ] Phase 2：`vmp-re` 专项能力深化。
-- [ ] Phase 3：网络安全多领域 pack 扩展（Web/API 安全、恶意样本分析、漏洞研究、CTF/靶场、Android native、OLLVM 等；`web-security` 与 `malware-analysis` 已作为首批非 RE pack 骨架启动）。
+- [ ] Phase 3：网络安全多领域 pack 扩展（Web/API 安全、恶意样本分析、漏洞研究、CTF/靶场、Android native、OLLVM 等；`web-security`、`malware-analysis` 与 `vuln-research` 已作为首批非 RE pack 骨架启动）。
 - [ ] Phase 4：工具适配与候选工具路由。
 - [ ] Phase 5：证据账本与 intervention 模型增强。
 - [ ] Phase 6：半自动 Agent Team runtime / orchestration。

@@ -2560,3 +2560,36 @@ git diff --check
 ```
 
 验证结果：全部通过。`malware-analysis-pack-smoke.ps1`、`web-security-pack-smoke.ps1`、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor`、`/rekit doctor -Pack malware-analysis` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 86：vuln-research pack skeleton
+
+状态：已完成。
+
+目标：承接 Phase 3 多安全领域 pack 扩展，在 `web-security` 与 `malware-analysis` 之后新增授权漏洞研究 pack skeleton，用最小可验证骨架覆盖防御性复现、补丁/崩溃分析、root-cause review 与安全工程验证场景，同时不把项目误导成自动漏洞挖掘器、利用链生成器或攻击执行平台。
+
+实施范围：
+
+- 新增 `packs/vuln-research/manifest.yml`、`CLAUDE.local.snippet.md`、policy overlay 空 registry、managed reference docs、task handoff template、tooling catalog 与两条 recipes。
+- reference docs 覆盖 scope baseline、crash/patch/repro 轻到重路线、finding/repro/patch bounded review、active scan/fuzz/exploit replay/live target gate、sidecar 与敏感信息留在 case-local 的规则。
+- manifest 声明 `vuln-research:bounded-review` 与 `vuln-research:vuln-analysis` 两条 route，默认 start lane type 为 `vuln-analysis`，tooling files 为 `crash-triage.md` 与 `repro-sidecar-review.md`。
+- 新增 `rekit/tests/vuln-research-pack-smoke.ps1`，覆盖 Go/PowerShell doctor、Go init、case doctor、Go/PowerShell `plan-subagents`、promote review 不被 deny pattern 误阻断和 no-write 边界。
+- 更新 pack inventory fixtures，将 `vuln-research` 纳入 Go CLI 与 PowerShell smoke。
+- 更新 README、CLAUDE.md、vision、reference absorption、pack authoring、agent-team usage、Go migration 与 CHANGELOG，记录 `vuln-research` 是 skeleton，不是自动漏洞挖掘或 exploit replay 平台。
+
+边界：本批只新增最小 pack 骨架和验证；不主动扫描、不 fuzz、不 replay exploit、不访问真实目标、不 debug/dump/patch、不导出数据、不写真实 target/request/response/payload/crash/core/minidump/customer artifact；不写真实 case confirmed/authority；不改变 PowerShell façade 委托集合。
+
+停止条件：若后续要把 `vuln-research` 扩展成真实 fuzz/replay adapter、漏洞报告 authority schema、补丁 diff 自动结论、真实目标验证或自动 disclosure/report 发布流程，应作为独立批次评估 gate、隔离和授权边界。
+
+验证：
+
+```powershell
+.\rekit\tests\vuln-research-pack-smoke.ps1
+.\rekit\tests\malware-analysis-pack-smoke.ps1
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Pack vuln-research
+git diff --check
+```
+
+验证结果：全部通过。`vuln-research-pack-smoke.ps1`、`malware-analysis-pack-smoke.ps1`、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor`、`/rekit doctor -Pack vuln-research` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

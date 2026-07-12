@@ -1,0 +1,35 @@
+schemaVersion: 1
+pack: vuln-research
+purpose: Vulnerability research tooling catalog
+
+paths:
+  caseRoot: <caseRoot>
+  toolsRoot: <toolsRoot>
+  targetRef: <targetRef>
+  sidecar: <caseRoot>/evidence/sidecars
+
+tools:
+  - id: crash-triage-sidecar
+    status: mainline-template
+    entry: case-local crash / stack / version summary
+    purpose: Build crash and candidate root-cause inventory without executing exploit replay or fuzzing.
+    sideEffects: none
+    reusableNotes:
+      - Store stack frames, register summary, version/build metadata, and suspected bug class as case-local sidecar, then cite only summaries in Markdown.
+      - Use target aliases, crash ids, or sidecar row ids instead of real target names, payloads, or absolute paths in pack-promotable notes.
+  - id: repro-sidecar-review
+    status: auxiliary
+    entry: local repro summary sidecar
+    purpose: Review saved local repro summaries without replaying exploit traffic or touching live targets.
+    sideEffects: none when reviewing saved reports
+    reusableNotes:
+      - Sanitize target names, request bodies, payloads, internal paths, tokens, and customer identifiers before promoting any recipe.
+      - Treat raw repro output as case-local evidence, not pack content.
+  - id: fuzz-or-replay-harness
+    status: cautious
+    entry: <caseRoot>/tools/fuzz-or-replay
+    purpose: Execute a bounded set of authorized fuzz inputs or replay steps for verification.
+    sideEffects: process execution, filesystem writes, network requests or target state changes depending on harness
+    reusableNotes:
+      - Requires explicit scope, runtime/request/input budget, rate limit, isolation plan, output limits, and stop conditions before use.
+      - Never store raw corpus, payloads, request/response bodies, crash dumps, exploit details, or customer paths in pack docs.
