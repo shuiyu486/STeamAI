@@ -1,0 +1,9 @@
+schemaVersion: 1
+name: android-native-policy-overlays
+version: 0.1.0
+description: Empty policy overlay registry for the android-native pack skeleton
+
+overlays: []
+
+budgets:
+  defaultMarkdown: 16384

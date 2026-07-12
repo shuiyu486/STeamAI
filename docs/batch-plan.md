@@ -2692,3 +2692,36 @@ git diff --check
 ```
 
 验证结果：全部通过。`ollvm-pack-smoke.ps1`、`unpack-pe-pack-smoke.ps1`、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor`、`/rekit doctor -Pack ollvm` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 90：android-native pack skeleton
+
+状态：已完成。
+
+目标：承接 Phase 3 多安全领域 pack 扩展，在 `ollvm` 之后新增授权 Android native / JNI / NDK 分析 pack skeleton，用最小可验证骨架覆盖 APK native triage、JNI bridge 分析、native library/SO review、Frida hook candidate review、emulator sidecar review 与设备/动态动作 gate，同时不把项目误导成 APK 自动逆向平台、设备操控器、hook 执行器或移动端动态测试平台。
+
+实施范围：
+
+- 新增 `packs/android-native/manifest.yml`、`CLAUDE.local.snippet.md`、policy overlay 空 registry、managed reference docs、task handoff template、tooling catalog 与两条 recipes。
+- reference docs 覆盖 scope baseline、APK/native/JNI static triage 到 emulator/hook review 的轻到重路线、bounded review、device/emulator/Frida/network/dump/patch/install gate、sidecar 与 APK/package/hash/device/hook/traffic 留在 case-local 的规则。
+- manifest 声明 `android-native:bounded-review` 与 `android-native:native-analysis` 两条 route，默认 start lane type 为 `native-analysis`，tooling files 为 `apk-native-triage.md` 与 `emulator-hook-review.md`。
+- 新增 `rekit/tests/android-native-pack-smoke.ps1`，覆盖 Go/PowerShell doctor、Go init、case doctor、Go/PowerShell `plan-subagents`、promote review 不被 deny pattern 误阻断和 no-write 边界。
+- 更新 pack inventory fixtures，将 `android-native` 纳入 Go CLI 与 PowerShell smoke。
+- 更新 README、CLAUDE.md、vision、reference absorption、pack authoring、agent-team usage、Go migration 与 CHANGELOG，记录 `android-native` 是 skeleton，不是 APK 自动逆向平台、设备操控器、hook 执行器或移动端动态测试平台。
+
+边界：本批只新增最小 pack 骨架和验证；不连接设备、不运行 emulator、不 attach Frida、不执行 hook、不抓包、不 dump、不 patch、不重签名、不安装/卸载应用、不联网、不写 APK/package/hash/device id/token/traffic/customer artifact；不写真实 case confirmed/authority；不改变 PowerShell façade 委托集合。
+
+停止条件：若后续要把 `android-native` 扩展成真实 emulator/device adapter、Frida/hook 执行器、traffic capture adapter、APK patch/resign 执行器、mobile authority schema 或动态测试流程，应作为独立批次评估 gate、隔离、授权和回滚边界。
+
+验证：
+
+```powershell
+.\rekit\tests\android-native-pack-smoke.ps1
+.\rekit\tests\ollvm-pack-smoke.ps1
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\rekit.ps1 -Command doctor -Pack android-native
+git diff --check
+```
+
+验证结果：全部通过。`android-native-pack-smoke.ps1`、`ollvm-pack-smoke.ps1`、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor`、`/rekit doctor -Pack android-native` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

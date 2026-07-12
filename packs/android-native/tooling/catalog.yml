@@ -1,0 +1,36 @@
+schemaVersion: 1
+pack: android-native
+purpose: Android native and JNI analysis tooling catalog
+
+paths:
+  caseRoot: <caseRoot>
+  toolsRoot: <toolsRoot>
+  appRef: <appRef>
+  libraryRef: <libraryRef>
+  sidecar: <caseRoot>/evidence/sidecars
+
+tools:
+  - id: apk-native-triage-sidecar
+    status: mainline-template
+    entry: case-local APK metadata / native library / JNI symbol summary
+    purpose: Build Android native inventory and JNI hypotheses without installing or executing apps.
+    sideEffects: none
+    reusableNotes:
+      - Store manifest summaries, ABI/library inventory, exported components, JNI symbol mappings, string clusters, and native bridge hypotheses as case-local sidecar, then cite only summaries in Markdown.
+      - Use app/library/symbol aliases or sidecar row ids instead of package names, hashes, APK paths, device ids, endpoints, traffic captures, hooks, dumps, traces, or absolute paths in pack-promotable notes.
+  - id: emulator-hook-review
+    status: auxiliary
+    entry: saved emulator, logcat, Frida, or hook candidate summary sidecar
+    purpose: Review saved dynamic summaries without connecting devices, attaching Frida, executing hooks, capturing traffic, dumping memory, or patching apps.
+    sideEffects: none when reviewing saved summaries
+    reusableNotes:
+      - Sanitize package names, hashes, endpoints, tokens, device ids, hook scripts, traffic captures, dump paths, trace paths, patch bytes, keystores, and customer identifiers before promoting any recipe.
+      - Treat raw app artifacts, logs, captures, and hook scripts as case-local evidence, not pack content.
+  - id: device-emulator-or-hook-action
+    status: cautious
+    entry: <caseRoot>/tools/device-emulator-or-hook-action
+    purpose: Execute a bounded emulator run, device connection, Frida attach, hook execution, network capture, dump, patch, resign, or install/uninstall step for authorized Android native verification.
+    sideEffects: app/device state changes, process execution, network requests, filesystem writes, captures, dumps, binary patches depending on harness
+    reusableNotes:
+      - Requires explicit app/library/symbol scope, device/emulator isolation, network policy, runtime budget, request/output limits, rollback notes, and stop conditions before use.
+      - Never store raw APK/AAB/DEX/SO, hashes, package names, endpoints, device ids, hook scripts, captures, dumps, traces, patches, keystores, tokens, credentials, customer context, or absolute paths in pack docs.

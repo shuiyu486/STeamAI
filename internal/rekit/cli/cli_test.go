@@ -264,6 +264,7 @@ func TestRunPacksListsPackMatrix(t *testing.T) {
 		"ctf\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
 		"unpack-pe\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
 		"ollvm\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
+		"android-native\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("packs output missing %q:\n%s", expected, text)
@@ -331,6 +332,9 @@ func TestRunPacksJsonInventory(t *testing.T) {
 	}
 	if pack := byID["ollvm"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected ollvm JSON row: %+v", pack)
+	}
+	if pack := byID["android-native"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "main" {
+		t.Fatalf("unexpected android-native JSON row: %+v", pack)
 	}
 }
 
