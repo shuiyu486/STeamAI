@@ -2758,3 +2758,40 @@ git diff --check
 ```
 
 验证结果：全部通过。`generic-binary-re-pack-smoke.ps1`、`android-native-pack-smoke.ps1`、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor`、`/rekit doctor -Pack generic-binary-re` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 92：pack smoke helper
+
+状态：已完成。
+
+目标：降低多安全领域 skeleton pack smoke 的重复维护成本，把 Batch 85-91 中反复出现的 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review 与 no-write 边界检查抽成最小 PowerShell helper，同时保持每个 pack 的 task type、route、output contract 和安全临时目录前缀显式配置。
+
+实施范围：
+
+- 新增 `rekit/tests/pack-smoke-lib.ps1`，集中提供 `Invoke-RekitSmoke`、`Invoke-GoRekitSmoke`、文本断言和 `Invoke-RekitPackSmoke`。
+- 将 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 的 pack smoke 迁移为 thin configuration wrapper。
+- helper 保留原有验证覆盖：pack doctor、case init、case doctor、managed block、expected case files、Go `plan-subagents` JSON packet、PowerShell façade fallback packet、promote review managed-doc candidate 和 `.rekit/board.json|facts|lanes` no-write checks。
+- 每个 wrapper 仍显式声明 safe case prefix，避免把 pack 名中的通用词拆入 case-specific promote deny pattern。
+- 更新 pack authoring、Go runtime migration、README、CHANGELOG 与本计划文档，记录 helper 用途和验证入口。
+
+边界：本批只抽取测试辅助逻辑，不改变 runtime、pack manifest、PowerShell façade 委托集合、Go backend 行为、case schema 或 promote/sync 语义；不创建真实 case state；不执行样本、网络、debug、dump、patch、hook、fuzz、exploit replay 或任何外部副作用；不写 authority/confirmed。
+
+停止条件：若后续要把 helper 扩展成自动发现并执行所有 pack smoke、CI matrix、真实 case migration 或 runtime-level pack validation，应作为独立批次评估执行时间、失败定位、临时目录隔离和对外部环境的依赖。
+
+验证：
+
+```powershell
+.\rekit\tests\web-security-pack-smoke.ps1
+.\rekit\tests\malware-analysis-pack-smoke.ps1
+.\rekit\tests\vuln-research-pack-smoke.ps1
+.\rekit\tests\ctf-pack-smoke.ps1
+.\rekit\tests\unpack-pe-pack-smoke.ps1
+.\rekit\tests\ollvm-pack-smoke.ps1
+.\rekit\tests\android-native-pack-smoke.ps1
+.\rekit\tests\generic-binary-re-pack-smoke.ps1
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。8 个迁移后的 pack smoke、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

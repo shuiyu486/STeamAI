@@ -142,8 +142,8 @@ budgets:
 3. 写 `references/<pack>/README.md`、`agent-team.md`、`workflow-template.md`、`toolchain-router.md`。
 4. 写 `CLAUDE.local.snippet.md`，只放短 router block。
 5. 补 tooling catalog 和至少一个 recipe。
-6. 用 `plan-subagents` 验证 route packet / summary，再用临时 case 验证 `init/attach/sync/promote`。
-7. 只有两个以上 pack 重复出现相同规则时，才抽到 `common/` 或 runtime。
+6. 用 `plan-subagents` 验证 route packet / summary，再用临时 case 验证 `init/attach/sync/promote`；新增 skeleton pack smoke 时优先复用 `rekit/tests/pack-smoke-lib.ps1`，让 wrapper 只声明 pack id、safe case prefix、route task type、expected route 和 output contract 字段。
+7. 只有两个以上 pack 重复出现相同规则时，才抽到 `common/`、runtime 或测试 helper。
 
 ## 禁止
 
@@ -161,4 +161,5 @@ budgets:
 - managed/template/local 边界清晰。
 - `subagentRoutes.reference` 指向 managed/template/local 文件，route id 唯一，`taskTypes`、`shardBasis`、`targetItemsPerAgent`、`maxParallel`、`subagentPermissions`、`mainAgentOwns`、`outputContract` 齐全。
 - 新 pack 初始化不会覆盖 case-local 文件。
+- skeleton pack smoke 通过 `rekit/tests/pack-smoke-lib.ps1` 或等价验证覆盖 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review managed-doc candidate 和 no-write 边界；临时 case prefix 不能让 pack 名中的通用词触发 case-specific deny pattern 误拦截。
 - promote deny patterns 覆盖绝对路径、artifact/capture/trace/dump、地址快照和 case 状态。
