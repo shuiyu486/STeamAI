@@ -89,6 +89,7 @@
 - Batch 76 完成：显式 `REKIT_GO_ENABLE=1` 时，PowerShell façade 可将 `init/bootstrap -WhatIf -Format json` 非写入初始化预览委托给 Go backend；init/bootstrap 文本预览与 `-Apply` 写入路径继续走 PowerShell fallback，避免扩大 case scaffold 写入委托面。
 - Batch 77 完成：显式 `REKIT_GO_ENABLE=1` 时，PowerShell façade 可将 `promote -CreateCandidates -WhatIf -Format json` 非写入候选生成预览委托给 Go backend；promote 文本 what-if、实际 candidate 写入和 apply 写入路径继续走 PowerShell fallback，避免扩大 pack 写入委托面。
 - Batch 78 完成：显式 `REKIT_GO_ENABLE=1` 时，PowerShell façade 可将 `promote -Apply -WhatIf -Format json` 非写入 pack apply 预览委托给 Go backend；promote 文本 apply what-if 与实际 apply 写入路径继续走 PowerShell fallback，避免扩大 pack source 写入委托面。
+- Batch 79 完成：Go backend 增加 `sync -Apply -WhatIf` 非写入 JSON preview，显式 `REKIT_GO_ENABLE=1` 时 PowerShell façade 仅将 `sync -Apply -WhatIf -Format json` 委托给 Go；文本 sync apply what-if 与实际 `sync -Apply` 写入继续走 PowerShell fallback，避免扩大 case managed docs 写入委托面。
 
 ### Fixed
 

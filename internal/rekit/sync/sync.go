@@ -337,41 +337,30 @@ func readApplyInstance(caseRoot, repoRoot, pack string, createLocalFiles bool) (
 	return inst, nil
 }
 
-func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (ApplyResult, error) {
-	caseFull, err := filepath.Abs(caseRoot)
+func ApplyPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (ApplyResult, error) {
+	caseFull, repoFull, command, m, _, err := prepareApply(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	repoFull, err := filepath.Abs(repoRoot)
+	backupRoot, err := syncBackupRoot(caseFull, m)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	writes, err := planApplyWrites(caseFull, m, opt, backupRoot)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	return ApplyResult{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, IsMutation: false, Applied: false, BackupRoot: backupRoot, Writes: writes, NextSteps: []string{"review this non-writing preview, then re-run sync with -Apply after confirming the exact scope", "PowerShell /rekit remains the public entrypoint; sync -Apply actual writes are not delegated through the facade"}}, nil
+}
+
+func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (ApplyResult, error) {
+	caseFull, repoFull, command, m, inst, err := prepareApply(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return ApplyResult{}, err
 	}
 	caseRoot = caseFull
 	repoRoot = repoFull
-	command := strings.TrimSpace(opt.Command)
-	if command == "" {
-		command = "sync"
-	}
-	if opt.CreateLocalFiles {
-		if casebind.SamePath(caseFull, repoFull) {
-			return ApplyResult{}, fmt.Errorf("%s target must be an external case directory, not the kit repo root: %s", command, caseFull)
-		}
-	}
-	inst, err := readApplyInstance(caseFull, repoFull, pack, opt.CreateLocalFiles)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	m, err := manifest.Load(repoFull, pack)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	projectName := strings.TrimSpace(opt.ProjectName)
-	if projectName == "" {
-		projectName = strings.TrimSpace(inst.ProjectName)
-	}
-	if projectName == "" {
-		projectName = casebind.ProjectNameFromRoot(caseFull)
-	}
+	projectName := applyProjectName(caseFull, inst, opt)
 	backupRoot, err := syncBackupRoot(caseFull, m)
 	if err != nil {
 		return ApplyResult{}, err
@@ -529,6 +518,159 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (ApplyResult, erro
 	writes = append(writes, WriteResult{Path: ".rekit/state.json", Kind: "sync-state", Action: "refresh", TargetPath: statePath})
 
 	return ApplyResult{SchemaVersion: 1, Command: command, CaseRoot: caseRoot, RepoRoot: repoRoot, Pack: pack, IsMutation: true, Applied: true, BackupRoot: backupRoot, Writes: writes, NextSteps: []string{"run doctor after apply", "review backupRoot if any overwritten file must be restored"}}, nil
+}
+
+func prepareApply(repoRoot, caseRoot, pack string, opt ApplyOptions) (string, string, string, *manifest.Manifest, instance.Instance, error) {
+	caseFull, err := filepath.Abs(caseRoot)
+	if err != nil {
+		return "", "", "", nil, instance.Instance{}, err
+	}
+	repoFull, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return "", "", "", nil, instance.Instance{}, err
+	}
+	command := strings.TrimSpace(opt.Command)
+	if command == "" {
+		command = "sync"
+	}
+	if opt.CreateLocalFiles && casebind.SamePath(caseFull, repoFull) {
+		return "", "", "", nil, instance.Instance{}, fmt.Errorf("%s target must be an external case directory, not the kit repo root: %s", command, caseFull)
+	}
+	inst, err := readApplyInstance(caseFull, repoFull, pack, opt.CreateLocalFiles)
+	if err != nil {
+		return "", "", "", nil, instance.Instance{}, err
+	}
+	m, err := manifest.Load(repoFull, pack)
+	if err != nil {
+		return "", "", "", nil, instance.Instance{}, err
+	}
+	return caseFull, repoFull, command, m, inst, nil
+}
+
+func applyProjectName(caseRoot string, inst instance.Instance, opt ApplyOptions) string {
+	projectName := strings.TrimSpace(opt.ProjectName)
+	if projectName == "" {
+		projectName = strings.TrimSpace(inst.ProjectName)
+	}
+	if projectName == "" {
+		projectName = casebind.ProjectNameFromRoot(caseRoot)
+	}
+	return projectName
+}
+
+func planApplyWrites(caseRoot string, m *manifest.Manifest, opt ApplyOptions, backupRoot string) ([]WriteResult, error) {
+	writes := []WriteResult{
+		{Path: ".rekit/instance.yml", Kind: "instance-metadata", Action: "refresh", TargetPath: filepath.Join(caseRoot, ".rekit", "instance.yml")},
+		{Path: ".claude/skills/rekit/SKILL.md", Kind: "case-local-thin-shim", Action: "refresh", TargetPath: filepath.Join(caseRoot, ".claude", "skills", "rekit", "SKILL.md")},
+		{Path: ".re-template.yml", Kind: "legacy-metadata", Action: "refresh", TargetPath: filepath.Join(caseRoot, ".re-template.yml")},
+	}
+	for _, rel := range m.ManagedFiles {
+		source, err := m.SourcePath(rel)
+		if err != nil {
+			return nil, err
+		}
+		dest, err := refsf.SafeJoin(caseRoot, rel)
+		if err != nil {
+			return nil, err
+		}
+		sourceText, err := readRequiredText(source)
+		if err != nil {
+			return nil, err
+		}
+		destText, destExists, err := review.ReadTextIfExists(dest)
+		if err != nil {
+			return nil, err
+		}
+		action := "create-managed-file"
+		backupPath := ""
+		if destExists {
+			if destText == sourceText {
+				action = "unchanged"
+			} else {
+				action = "overwrite-with-backup"
+				backupPath = previewBackupPath(dest, caseRoot, backupRoot)
+			}
+		}
+		writes = append(writes, WriteResult{Path: rel, Kind: "managed-file", Action: action, SourcePath: source, TargetPath: dest, BackupPath: backupPath})
+	}
+	for _, rel := range m.TemplateFiles {
+		source, err := m.SourcePath(rel)
+		if err != nil {
+			return nil, err
+		}
+		targetRel := strings.TrimSuffix(rel, ".template.md") + ".md"
+		dest, err := refsf.SafeJoin(caseRoot, targetRel)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := readRequiredText(source); err != nil {
+			return nil, err
+		}
+		destExists := refsf.Exists(dest)
+		if destExists && !opt.ForceLocalTemplates {
+			writes = append(writes, WriteResult{Path: targetRel, Kind: "template-file", Action: "skip-existing-local-file", SourcePath: source, TargetPath: dest})
+			continue
+		}
+		action := "create-local-template-file"
+		backupPath := ""
+		if destExists && opt.ForceLocalTemplates {
+			action = "overwrite-local-template-file-with-force"
+			backupPath = previewBackupPath(dest, caseRoot, backupRoot)
+		}
+		writes = append(writes, WriteResult{Path: targetRel, Kind: "template-file", Action: action, SourcePath: source, TargetPath: dest, BackupPath: backupPath})
+	}
+	blockSource, err := m.SourcePath(m.ManagedBlock["source"])
+	if err != nil {
+		return nil, err
+	}
+	blockHost, err := refsf.SafeJoin(caseRoot, m.ManagedBlock["file"])
+	if err != nil {
+		return nil, err
+	}
+	hostText, hostExists, err := review.ReadTextIfExists(blockHost)
+	if err != nil {
+		return nil, err
+	}
+	blockText, err := readRequiredText(blockSource)
+	if err != nil {
+		return nil, err
+	}
+	nextHostText := review.ApplyManagedBlock(hostText, m.ManagedBlock["blockId"], blockText)
+	blockBackup := ""
+	if hostExists {
+		blockBackup = previewBackupPath(blockHost, caseRoot, backupRoot)
+	}
+	writes = append(writes, WriteResult{Path: m.ManagedBlock["file"], Kind: "managed-block", Action: managedBlockAction(hostText, nextHostText, m.ManagedBlock["blockId"]), SourcePath: blockSource, TargetPath: blockHost, BackupPath: blockBackup})
+	gitignoreSource, err := m.SourcePath("examples/gitignore.example")
+	if err == nil && refsf.Exists(gitignoreSource) {
+		gitignoreTarget, err := refsf.SafeJoin(caseRoot, ".gitignore")
+		if err != nil {
+			return nil, err
+		}
+		action := "create-support-file"
+		if refsf.Exists(gitignoreTarget) {
+			action = "skip-existing-support-file"
+		}
+		writes = append(writes, WriteResult{Path: ".gitignore", Kind: "support-file", Action: action, SourcePath: gitignoreSource, TargetPath: gitignoreTarget})
+	}
+	writes = append(writes, WriteResult{Path: ".rekit/state.json", Kind: "sync-state", Action: "refresh", TargetPath: filepath.Join(caseRoot, ".rekit", "state.json")})
+	return writes, nil
+}
+
+func previewBackupPath(path, caseRoot, backupRoot string) string {
+	caseFull, err := filepath.Abs(caseRoot)
+	if err != nil {
+		return ""
+	}
+	pathFull, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	rel, err := filepath.Rel(caseFull, pathFull)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return ""
+	}
+	return filepath.Join(backupRoot, rel)
 }
 
 func readRequiredText(path string) (string, error) {

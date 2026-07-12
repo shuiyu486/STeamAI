@@ -4,13 +4,13 @@
 
 - 只接手实现时，先读“实施摘要”“执行清单”“验证标准”。
 - 需要判断语义差异时，再读“PowerShell 当前语义基线”和“Go 迁移契约”。
-- G3.3 时本文是迁移前预研；G3.4 已补 Go `sync -Apply` 手动路径，但当前用户入口仍以 PowerShell façade / fallback 为准，Go 写入命令不经 façade 委托。
+- G3.3 时本文是迁移前预研；G3.4 已补 Go `sync -Apply` 手动路径，Batch 79 已补 `sync -Apply -WhatIf` 非写入 JSON preview，并且公共 façade 仅允许显式 `sync -Apply -WhatIf -Format json` 委托 Go；实际写入仍不经 façade 委托。
 
 ## 实施摘要
 
 G3.3 的目标不是直接迁移 `sync -Apply`，而是先把未来迁移必须保持的写入语义、风险点和验证矩阵固化下来。`sync -Apply` 会覆盖 managed docs、写 managed block、创建本地模板文件、刷新 metadata/shim 和更新 state，因此必须比 `attach`/`repair` 更谨慎。
 
-结论：G3.4 已实现 Go `sync -Apply` 内部 helper 与临时 case smoke，仍不纳入 PowerShell façade 委托；后续只有在 Go/PowerShell apply 输出进一步扩展为双临时 case parity，并持续证明 backup/state/doctor 不回归后，才考虑显式委托。
+结论：G3.4 已实现 Go `sync -Apply` 内部 helper 与临时 case smoke。Batch 79 起 Go backend 支持 `sync -Apply -WhatIf` 非写入 JSON preview，且仅该 preview 的 `-Format json` 形态可在显式 `REKIT_GO_ENABLE=1` 下经 PowerShell façade 委托；实际 `sync -Apply` 写入仍不纳入 façade 委托。
 
 ## 执行清单
 
@@ -20,7 +20,7 @@ G3.3 的目标不是直接迁移 `sync -Apply`，而是先把未来迁移必须�
 - [x] 增加 review-only parity smoke：`rekit/tests/sync-review-parity-smoke.ps1`。
 - [x] G3.4 实现 Go `sync -Apply` 内部 helper。
 - [x] G3.4 增加临时 case smoke，验证 Go apply 写入、backup、state、doctor；双实现内容 parity 后续继续扩展。
-- [ ] 后续批次评估是否把 `sync -Apply` 加入显式 Go façade 安全集合；默认仍不委托。
+- [x] Batch 79 增加 Go `sync -Apply -WhatIf` 非写入 preview，并将 `sync -Apply -WhatIf -Format json` 纳入显式 Go façade 安全集合；实际 `sync -Apply` 默认仍不委托。
 
 ## 验证标准
 
@@ -35,18 +35,20 @@ go test ./...
 git diff --check
 ```
 
-Go `sync -Apply` 实现完成标准：
+Go `sync -Apply` / preview 实现完成标准：
 
 - Go CLI `sync -Apply` 只接受显式 `-Target` attached case。
 - 默认 `sync` 仍是 review-only；无 `-Apply` 不写 managed docs。
+- Go `sync -Apply -WhatIf` 只输出非写入 JSON preview，`isMutation=false`、`applied=false`，不创建 backup/state/review artifact，不修改 managed docs/metadata/shim。
+- PowerShell façade 只在显式 `REKIT_GO_ENABLE=1` 且同时带 `-Apply -WhatIf -Format json` 时委托 Go；文本 `sync -Apply -WhatIf` 与实际 `sync -Apply` 写入继续 fallback 到 PowerShell。
 - Go `sync -Apply` 不执行 promote、不写 pack、不写 authority/confirmed、不执行 heavy-tool。
-- 临时 case 中 PowerShell apply 与 Go apply 后的 managed files、template targets、managed block host、metadata/shim、state hash 内容一致；允许 backup 目录时间戳不同。
+- 临时 case中 PowerShell apply 与 Go apply 后的 managed files、template targets、managed block host、metadata/shim、state hash 内容一致；允许 backup 目录时间戳不同。
 - apply 后 Go doctor 与 PowerShell doctor 均通过。
 - 失败注入时不静默吞错；已备份文件可用于人工恢复。
 
 ## 风险与注意事项
 
-- `sync -Apply` 是实质 case 写入命令；不能因为 Go review plan 已存在就直接接管。
+- `sync -Apply` 是实质 case 写入命令；不能因为 Go review plan 或 preview 已存在就直接接管实际写入 façade 委托。
 - PowerShell 当前没有事务性 rollback；未来 Go 不应声称具备自动回滚，除非先实现并验证。
 - `managedBlock` 的 PowerShell apply 会在 host 存在时先备份再写入；review 可能显示 `unchanged`，这是一个需要迁移时明确处理的历史语义。
 - `templateFiles` 默认只 create-if-missing；只有显式 force 路径才允许覆盖本地模板文件。
@@ -119,8 +121,8 @@ internal/rekit/sync
 必须保持：
 
 - `sync` 默认 review-only。
-- `sync -Apply` 显式写入，但暂不经 PowerShell façade 委托。
-- `-WhatIf` 不与 `-Apply` 混用；如果实现 Go dry-run，也必须保持不写文件。
+- `sync -Apply` 显式写入，但实际写入暂不经 PowerShell façade 委托。
+- `sync -Apply -WhatIf` 是非写入 JSON preview；不与 review artifact options 混用，不创建 backup/state/review artifact，不修改 metadata/shim/managed docs。
 - 所有 target path 通过 safe join，禁止越出 case root。
 - backup root 来自 manifest，且必须在 case root 下。
 - 写入 `.rekit/state.json` 前应基于实际写入后的 target hash 计算。
@@ -147,6 +149,8 @@ internal/rekit/sync
 | S16 | apply 中途源文件缺失/读写失败 | 返回错误；已写入部分不隐瞒；已有 backup 可人工恢复。 |
 | S17 | apply 后 doctor | Go doctor 与 PowerShell doctor 均通过。 |
 | S18 | PowerShell/Go apply parity | 两个临时 case 对比内容 hash；排除 review artifact 与 backup timestamp 差异。 |
+| S19 | Go `sync -Apply -WhatIf` | 输出非写入 JSON preview，`isMutation=false`、`applied=false`，preview 后 case tree/hash 不变，不创建 backup/state/review artifact。 |
+| S20 | façade explicit Go enable + `sync -Apply -WhatIf -Format json` | 委托 Go 输出非写入 JSON preview；文本 `sync -Apply -WhatIf` 与实际写入继续走 PowerShell fallback。 |
 
 ## 当前预研 smoke
 

@@ -680,15 +680,15 @@ func TestRunSyncApplyRequiresAttachedCase(t *testing.T) {
 	}
 }
 
-func TestRunSyncRejectsWhatIf(t *testing.T) {
+func TestRunSyncRejectsWhatIfWithoutApply(t *testing.T) {
 	caseRoot := attachedCase(t)
 	var out bytes.Buffer
 	err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-WhatIf"}, &out)
 	if err == nil {
 		t.Fatal("Run returned nil error for sync -WhatIf")
 	}
-	if !strings.Contains(err.Error(), "does not implement -WhatIf") {
-		t.Fatalf("error = %q, want what-if guard", err.Error())
+	if !strings.Contains(err.Error(), "only supported with -Apply") {
+		t.Fatalf("error = %q, want what-if/apply guard", err.Error())
 	}
 }
 
@@ -1778,6 +1778,38 @@ func TestRunSyncReviewWritesArtifacts(t *testing.T) {
 	}
 }
 
+func TestRunSyncApplyPreviewDoesNotWrite(t *testing.T) {
+	caseRoot := attachedCase(t)
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Local drift\n\nchanged\n")
+	writeCaseFile(t, caseRoot, "references/template/task-handoff.md", "# Local handoff\n\nkeep\n")
+	writeCaseFile(t, caseRoot, "CLAUDE.local.md", "prefix\n\n<!-- BEGIN template-pack:router -->\nold block\n<!-- END template-pack:router -->\n\nsuffix\n")
+	before := snapshotFiles(t, caseRoot)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-WhatIf", "-ProjectName", "demo-sync-preview"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command    string      `json:"command"`
+		IsMutation bool        `json:"isMutation"`
+		Applied    bool        `json:"applied"`
+		BackupRoot string      `json:"backupRoot"`
+		Writes     []syncWrite `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("sync apply preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Command != "sync" || result.IsMutation || result.Applied || result.BackupRoot == "" {
+		t.Fatalf("unexpected sync apply preview result: %+v", result)
+	}
+	assertSyncPreviewWrite(t, result.Writes, "references/template/README.md", "overwrite-with-backup", true)
+	assertSyncPreviewWrite(t, result.Writes, "references/template/task-handoff.md", "skip-existing-local-file", false)
+	assertSyncPreviewWrite(t, result.Writes, "CLAUDE.local.md", "replace-managed-block", true)
+	if _, err := os.Stat(result.BackupRoot); !os.IsNotExist(err) {
+		t.Fatalf("sync apply preview created backup root or returned stat error: %s err=%v", result.BackupRoot, err)
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
+}
+
 func TestRunSyncApplyWritesManagedFilesBackupAndState(t *testing.T) {
 	caseRoot := attachedCase(t)
 	writeCaseFile(t, caseRoot, "references/template/README.md", "# Local drift\n\nchanged\n")
@@ -2363,6 +2395,31 @@ func assertSyncWrite(t *testing.T, writes []syncWrite, path, action string, want
 		return
 	}
 	t.Fatalf("sync write %s not found in %+v", path, writes)
+}
+
+func assertSyncPreviewWrite(t *testing.T, writes []syncWrite, path, action string, wantBackup bool) {
+	t.Helper()
+	for _, write := range writes {
+		if write.Path != path {
+			continue
+		}
+		if write.Action != action {
+			t.Fatalf("sync preview write %s action = %q, want %q", path, write.Action, action)
+		}
+		if wantBackup && write.BackupPath == "" {
+			t.Fatalf("sync preview write %s missing backup path", path)
+		}
+		if !wantBackup && write.BackupPath != "" {
+			t.Fatalf("sync preview write %s backup path = %q, want empty", path, write.BackupPath)
+		}
+		if write.BackupPath != "" {
+			if _, err := os.Stat(write.BackupPath); !os.IsNotExist(err) {
+				t.Fatalf("sync preview write %s created backup path or returned stat error: %s err=%v", path, write.BackupPath, err)
+			}
+		}
+		return
+	}
+	t.Fatalf("sync preview write %s not found in %+v", path, writes)
 }
 
 func writeCaseFile(t *testing.T, caseRoot, rel, text string) {

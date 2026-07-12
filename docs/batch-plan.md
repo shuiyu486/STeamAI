@@ -2352,3 +2352,33 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/promote`、`promote-apply-preflight-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 79：sync apply JSON preview façade 委托
+
+状态：已完成。
+
+目标：继续把非写入机器可读预览收敛到 Go backend：在不扩大 case managed docs 实际写入委托面的前提下，让维护自动化可通过公共 PowerShell façade 消费 `sync -Apply -WhatIf -Format json` 的 case apply plan。
+
+实施范围：
+
+- `internal/rekit/sync` 增加 `ApplyPreview`，复用 apply guard、manifest、backup root 与 action 计算，返回 `isMutation=false` / `applied=false` 的 JSON preview；不写 metadata/shim/managed docs/template file/managed block/support file/state，不创建 backup 或 review artifact。
+- `internal/rekit/cli` 允许且仅允许 `sync -Apply -WhatIf` 进入非写入 preview；裸 `sync -WhatIf` 继续拒绝，`sync -Apply` 实际写入路径保持不变。
+- `rekit/rekit.ps1` 放宽 `sync/update` 显式 Go 安全集合：保留 review-only 委托；新增仅当 attached case、`-Apply -WhatIf -Format json`、无 `-CreateCandidates`/`-Review`/review artifact flags 时委托 Go。
+- `sync-apply-smoke.ps1` 增加 Go preview no-write 断言与 `REKIT_GO_EXE` fake backend sentinel，证明 façade JSON preview 委托；同时保留文本 `sync -Apply -WhatIf` fallback 断言。
+- `facade-smoke.ps1` 增加真实 Go `sync -Apply -WhatIf -Format json` 委托覆盖，并保留文本 fallback。
+- 更新 README、skill、Go runtime migration、sync apply migration 与 CHANGELOG，说明 sync façade 委托只覆盖 JSON 非写入 apply preview，不覆盖实际 apply 写入。
+
+边界：本批只调整显式 `REKIT_GO_ENABLE=1` 下的 sync apply JSON what-if 委托；不默认启用 Go、不委托 `sync -Apply` 实际写入、不写 case metadata/shim/managed docs/template file/managed block/support file/state、不创建 backup/review artifact、不写 pack/promote candidate/tooling candidate、不写 authority/confirmed、不执行 heavy-tool、不改变 sync review-first 语义。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/sync
+.\rekit\tests\sync-apply-smoke.ps1
+go test ./...
+.\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/sync`、`sync-apply-smoke.ps1`、`go test ./...`、`facade-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过。`facade-smoke.ps1` 初次因保留的 dryrun case shim 落后于 canonical thin shim 被 case doctor 拒绝；执行 `repair -Apply` 刷新该临时 dryrun case metadata/shim 后，`facade-smoke.ps1` 通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

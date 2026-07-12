@@ -13,8 +13,14 @@ $Rekit = Join-Path $RekitRoot 'rekit.ps1'
 function Invoke-RekitSmoke {
   param(
     [Parameter(Mandatory=$true)][string[]]$Arguments,
-    [int[]]$AllowedExitCodes = @(0)
+    [int[]]$AllowedExitCodes = @(0),
+    [hashtable]$Env = @{}
   )
+  $oldValues = @{}
+  foreach ($key in $Env.Keys) {
+    $oldValues[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
+    [Environment]::SetEnvironmentVariable($key, [string]$Env[$key], 'Process')
+  }
   $oldEap = $ErrorActionPreference
   try {
     $ErrorActionPreference = 'Continue'
@@ -23,6 +29,7 @@ function Invoke-RekitSmoke {
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
   } finally {
     $ErrorActionPreference = $oldEap
+    foreach ($key in $Env.Keys) { [Environment]::SetEnvironmentVariable($key, $oldValues[$key], 'Process') }
   }
   if ($AllowedExitCodes -notcontains $exitCode) {
     throw "unexpected exit code $exitCode; output:`n$output"
@@ -60,6 +67,32 @@ function Assert-FileEquals {
   $leftHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Left).Hash
   $rightHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Right).Hash
   if ($leftHash -ne $rightHash) { throw "$Label hash mismatch: $Left != $Right" }
+}
+
+function Get-TreeSnapshot {
+  param([Parameter(Mandatory=$true)][string]$Root)
+  $snapshot = @{}
+  if (-not (Test-Path -LiteralPath $Root)) { return $snapshot }
+  $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+  Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object {
+    $full = [System.IO.Path]::GetFullPath($_.FullName)
+    $rel = $full.Substring($rootFull.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $snapshot[$rel] = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash
+  }
+  return $snapshot
+}
+
+function Assert-SnapshotEquals {
+  param(
+    [Parameter(Mandatory=$true)][hashtable]$Before,
+    [Parameter(Mandatory=$true)][hashtable]$After,
+    [Parameter(Mandatory=$true)][string]$Label
+  )
+  if ($Before.Count -ne $After.Count) { throw "$Label file count changed: before=$($Before.Count) after=$($After.Count)" }
+  foreach ($key in $Before.Keys) {
+    if (-not $After.ContainsKey($key)) { throw "$Label missing file after preview: $key" }
+    if ([string]$Before[$key] -ne [string]$After[$key]) { throw "$Label changed file after preview: $key" }
+  }
 }
 
 function Get-WriteItem {
@@ -102,6 +135,26 @@ try {
   [System.IO.File]::WriteAllText($handoff, "# Local handoff`r`n`r`nkeep this file on first apply`r`n", [System.Text.UTF8Encoding]::new($false))
   $oldBlock = "prefix`r`n`r`n<!-- BEGIN template-pack:router -->`r`nold managed block`r`n<!-- END template-pack:router -->`r`n`r`nsuffix`r`n"
   [System.IO.File]::WriteAllText($blockHost, $oldBlock, [System.Text.UTF8Encoding]::new($false))
+
+  $beforePreview = Get-TreeSnapshot -Root $caseRoot
+  $preview = Invoke-GoRekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-ProjectName',"sync-preview-$suffix") | ConvertFrom-Json
+  if ([bool]$preview.applied -or [bool]$preview.isMutation) { throw "unexpected sync apply preview result: $($preview | ConvertTo-Json -Depth 8)" }
+  Assert-WriteAction -Result $preview -Path 'references/template/README.md' -Action 'overwrite-with-backup' | Out-Null
+  Assert-WriteAction -Result $preview -Path 'references/template/workflow-template.md' -Action 'create-managed-file' | Out-Null
+  Assert-WriteAction -Result $preview -Path 'references/template/task-handoff.md' -Action 'skip-existing-local-file' | Out-Null
+  Assert-WriteAction -Result $preview -Path 'CLAUDE.local.md' -Action 'replace-managed-block' | Out-Null
+  if (Test-Path -LiteralPath ([string]$preview.backupRoot)) { throw "sync apply preview created backup root: $($preview.backupRoot)" }
+  Assert-SnapshotEquals -Before $beforePreview -After (Get-TreeSnapshot -Root $caseRoot) -Label 'Go sync apply preview'
+
+  $fakeGo = Join-Path $caseRoot 'fake-rekit-go.cmd'
+  [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"sync","delegatedByFake":true,"isMutation":false,"applied":false}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
+  $beforeFacadePreview = Get-TreeSnapshot -Root $caseRoot
+  $facadePreview = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$facadePreview.delegatedByFake) { throw "facade sync apply JSON preview did not use REKIT_GO_EXE delegation: $($facadePreview | ConvertTo-Json -Depth 8)" }
+  Assert-SnapshotEquals -Before $beforeFacadePreview -After (Get-TreeSnapshot -Root $caseRoot) -Label 'facade sync apply JSON preview'
+
+  $facadeTextPreview = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $facadeTextPreview -Expected 'would attach case' -Label 'facade sync apply text fallback'
 
   $apply = Invoke-GoRekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-ProjectName',"sync-apply-$suffix") | ConvertFrom-Json
   if (-not [bool]$apply.applied -or [bool]$apply.isMutation -ne $true) { throw "unexpected sync apply result: $($apply | ConvertTo-Json -Depth 8)" }

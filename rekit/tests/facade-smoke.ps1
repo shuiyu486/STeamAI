@@ -71,7 +71,11 @@ $gateOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,
 Assert-ContainsText -Text $gateOut -Expected '"isMutation": false' -Label 'go gate dry-run'
 Assert-ContainsText -Text $gateOut -Expected '"status": "pending-gate"' -Label 'go gate dry-run'
 
-# Write flags are not delegated; this PowerShell dry-run emits would-* text.
+# Only JSON sync apply preview is delegated; text preview still emits PowerShell would-* text.
+$syncApplyJson = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -Env $goEnv
+Assert-ContainsText -Text $syncApplyJson -Expected '"isMutation": false' -Label 'go sync apply JSON preview'
+Assert-ContainsText -Text $syncApplyJson -Expected '"applied": false' -Label 'go sync apply JSON preview'
+
 $syncApplyOut = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Env $goEnv
 Assert-ContainsText -Text $syncApplyOut -Expected 'would attach case' -Label 'sync write fallback'
 

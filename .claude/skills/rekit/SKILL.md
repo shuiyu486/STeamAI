@@ -84,7 +84,7 @@ disable-model-invocation: true
 10. 覆盖/删除 authority、冲突、schema change、changesProjectBaseline、externalSideEffect、destructiveAction 必须停下来问用户；不要自动执行。
 11. 新功能分析使用 `/rekit start <name>`；不要再建议用户使用旧的底层工作线命令。
 12. `plan-subagents` 只作为内部只读计划器，不是日常用户入口；能由主 agent 或自动流程判断时，不要求用户手动调用。
-13. Go façade 默认关闭；只有维护者显式设置 `REKIT_GO_ENABLE=1` 时，`status`、`packs`、kit/case `doctor/validate`、`sync/promote` review-only、`promote -CreateCandidates -WhatIf -Format json`、`promote -Apply -WhatIf -Format json`、`gate -WhatIf`、`attach -WhatIf -Format json`、`repair -Format json`、`init/bootstrap -WhatIf -Format json`、已初始化 case 的 `overview -Format json`、`note -List -Format json`，以及 `start`/`handoff`/`continue` 的 `-WhatIf -Format json` 非写入预览才可委托 Go。`REKIT_GO_DISABLE=1` 强制回退 PowerShell；attach/repair/init/bootstrap 文本预览、overview 文本/缺 board 初始化、文本工作线预览、promote candidate/apply 实际写入、note append 和所有写入路径继续走 PowerShell fallback 或手动 Go CLI。
+13. Go façade 默认关闭；只有维护者显式设置 `REKIT_GO_ENABLE=1` 时，`status`、`packs`、kit/case `doctor/validate`、`sync/promote` review-only、`sync -Apply -WhatIf -Format json`、`promote -CreateCandidates -WhatIf -Format json`、`promote -Apply -WhatIf -Format json`、`gate -WhatIf`、`attach -WhatIf -Format json`、`repair -Format json`、`init/bootstrap -WhatIf -Format json`、已初始化 case 的 `overview -Format json`、`note -List -Format json`，以及 `start`/`handoff`/`continue` 的 `-WhatIf -Format json` 非写入预览才可委托 Go。`REKIT_GO_DISABLE=1` 强制回退 PowerShell；attach/repair/init/bootstrap 文本预览、overview 文本/缺 board 初始化、文本工作线预览、sync/promote candidate/apply 实际写入、note append 和所有写入路径继续走 PowerShell fallback 或手动 Go CLI。
 14. manifest 中所有文件路径必须是相对路径，并且不能越出 case root 或 pack root。
 15. 所有写操作后都运行对应 doctor；失败时如实报告错误与下一步。
 

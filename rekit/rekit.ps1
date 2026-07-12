@@ -165,9 +165,16 @@ function Test-RekitGoDelegationSafe {
       return (Test-RekitLooksLikeCase $caseRoot)
     }
     { $_ -in @('sync','update') } {
-      if ($Apply -or $WhatIf) { return $false }
       $caseRoot = Resolve-RekitTarget $Target
-      return (Test-RekitLooksLikeCase $caseRoot)
+      if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
+      if ($Apply) {
+        if ((-not $WhatIf) -or $CreateCandidates -or $Review) { return $false }
+        if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+        $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+        return ($formatValue -eq 'json')
+      }
+      if ($WhatIf) { return $false }
+      return $true
     }
     'promote' {
       $caseRoot = Resolve-RekitTarget $Target
@@ -256,9 +263,9 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-ReviewOutputDir' $ReviewOutputDir
   Add-RekitGoArg ([ref]$goArgs) '-PacketPath' $PacketPath
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' $DiffPath
-  if ($Command -in @('status','packs','doctor','validate','attach','repair','init','bootstrap','promote','overview','note','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
-  if ($Command -in @('attach','repair','init','bootstrap')) { Add-RekitGoArg ([ref]$goArgs) '-ProjectName' $ProjectName }
-  if ($Command -in @('init','bootstrap')) { Add-RekitGoSwitch ([ref]$goArgs) '-Force' $Force.IsPresent }
+  if ($Command -in @('status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
+  if ($Command -in @('attach','repair','init','bootstrap','sync','update')) { Add-RekitGoArg ([ref]$goArgs) '-ProjectName' $ProjectName }
+  if ($Command -in @('init','bootstrap','sync','update')) { Add-RekitGoSwitch ([ref]$goArgs) '-Force' $Force.IsPresent }
   if ($Command -eq 'note') {
     $noteArgs = Get-RekitRemainingArgMap -Tokens $RemainingArgs
     $noteList = $List.IsPresent -or (Test-RekitRemainingSwitch -Map $noteArgs -Name 'List')

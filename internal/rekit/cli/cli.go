@@ -728,8 +728,8 @@ func runInitBootstrap(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
-	if opt.WhatIf {
-		return fmt.Errorf("go backend sync does not implement -WhatIf; run review-only sync without -Apply, or use -Apply for explicit write")
+	if opt.WhatIf && !opt.Apply {
+		return fmt.Errorf("sync -WhatIf is only supported with -Apply for non-writing preview")
 	}
 	if opt.Force && !opt.Apply {
 		return fmt.Errorf("sync -Force is only supported with -Apply")
@@ -741,7 +741,14 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		if wantsReviewArtifacts(opt) {
 			return fmt.Errorf("sync -Apply cannot be combined with review artifact options")
 		}
-		result, err := syncreview.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, syncreview.ApplyOptions{ProjectName: opt.ProjectName, ForceLocalTemplates: opt.Force})
+		applyOpt := syncreview.ApplyOptions{ProjectName: opt.ProjectName, ForceLocalTemplates: opt.Force}
+		var result syncreview.ApplyResult
+		var err error
+		if opt.WhatIf {
+			result, err = syncreview.ApplyPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
+		} else {
+			result, err = syncreview.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
+		}
 		if err != nil {
 			return err
 		}
