@@ -2925,3 +2925,34 @@ git diff --check
 ```
 
 验证结果：全部通过。`pack-smoke-matrix-selftest.ps1`、discovery guard、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 97：rekit tests guide
+
+状态：已完成。
+
+目标：把 `rekit/tests` 中持续增长的 smoke 入口整理成维护指南，降低新会话或后续批次选择验证脚本的成本，并把 pack smoke helper/matrix/selftest 的定位和安全边界写入仓库文件，而不是只留在聊天上下文中。
+
+实施范围：
+
+- 新增 `rekit/tests/README.md`，包含读取指南、实施摘要、执行清单、验证标准、风险与注意事项。
+- 按 façade/inventory/pack matrix、pack skeleton smoke、sync/promote/init/attach、workstream/ledger/gate/Agent Team 分类梳理常用 smoke。
+- 记录 `pack-smoke-lib.ps1`、`pack-smoke-matrix.ps1`、`pack-smoke-matrix-selftest.ps1` 的用途、何时运行和覆盖重点。
+- 记录默认 `WorkRoot`、真实 case 禁忌、no-real-artifact/no-external-side-effect 边界，以及按改动类型选择验证组合的决策表。
+- 更新 README、CHANGELOG 与本计划文档，链接 tests guide。
+
+边界：本批只新增测试维护文档，不改变 runtime、test scripts、pack manifest、Go backend、PowerShell façade 委托集合或验证语义；不创建 case state；不执行样本、网络、debug、dump、patch、hook、fuzz、exploit replay 或任何外部副作用；不写 authority/confirmed。
+
+停止条件：若后续要将 tests guide 扩展成 CI pipeline、自动测试选择器、Pester suite 或跨机器测试规范，应作为独立批次评估依赖、执行时间、日志格式和失败定位。
+
+验证：
+
+```powershell
+.\rekit\tests\pack-smoke-matrix-selftest.ps1
+.\rekit\tests\pack-smoke-matrix.ps1 -DiscoveryOnly
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`pack-smoke-matrix-selftest.ps1`、discovery guard、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

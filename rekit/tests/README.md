@@ -1,0 +1,122 @@
+# rekit tests 维护指南
+
+## 读取指南
+
+本文件给维护者选择 `rekit/tests/*.ps1` smoke 时使用。日常使用 `/rekit` 不需要阅读本文件；只有维护 runtime、pack、Go façade、sync/promote 或 Agent Team ledger/workstream 行为时再按需查阅。
+
+## 实施摘要
+
+`rekit/tests` 里的脚本都是仓库维护验证入口，默认使用临时 case 或只读仓库状态，目标是锁定 review-first、no-write、Go/PowerShell parity 和 pack skeleton 边界。
+
+推荐最小回归组合：
+
+```powershell
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\pack-smoke-matrix-selftest.ps1
+.\rekit\tests\pack-smoke-matrix.ps1 -DiscoveryOnly
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+## 执行清单
+
+1. 先判断改动层：façade、Go backend、sync/promote、workstream/ledger、pack skeleton 或文档。
+2. 选择下面对应 smoke；不要无脑跑真实 case。
+3. 需要 case 行为时使用默认 `WorkRoot` 下的临时 case，或显式传入确认过的 dryrun case。
+4. 验证后确认临时目录已清理，kit 仓库没有真实 sample、trace、dump、capture、artifact 或 case-specific state。
+5. 提交前跑 `git diff --check`；Windows 上 LF/CRLF warning 可记录，不能有 whitespace error。
+
+## 验证标准
+
+- smoke 失败时先修 root cause，不跳过验证。
+- pack smoke 必须覆盖 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review managed-doc candidate 和 no-write 边界。
+- façade smoke 必须证明默认 fallback、显式 Go enable、Go disable 优先级和 write/text fallback 不回归。
+- sync/promote apply smoke 只能使用临时 case / pack-safe fixture，并验证 backup、deny、pack-root containment 和 cleanup。
+- workstream / ledger smoke 不写 confirmed/authority，除非脚本专门验证 gate 且使用临时 case。
+
+## 风险与注意事项
+
+- 不要在 kit 仓库内伪造真实 case state。
+- 不要把真实样本、目标、hash、IOC、flag、payload、trace、dump、pcap、crash、客户信息或绝对 case 路径写入测试 fixture。
+- 不要让 smoke 执行网络请求、扫描、fuzz、exploit replay、debug、dump、patch、hook、设备连接或外部副作用。
+- `sync -Apply`、`promote -Apply`、candidate 写入、authority/confirmed 写入相关测试必须保持临时目录、backup 和 cleanup 边界。
+
+## 常用 smoke 分组
+
+### Façade / inventory / pack matrix
+
+| 脚本 | 什么时候跑 | 覆盖重点 |
+|---|---|---|
+| `facade-smoke.ps1` | 改 `rekit.ps1`、Go façade 委托集合或 JSON preview/read-only 委托 | 默认不委托、显式 Go 安全集合、disable 优先级、文本/write fallback。 |
+| `pack-inventory-smoke.ps1` | 改 pack manifest、maturity、inventory、status/doctor JSON | `/rekit packs/status/doctor/validate` text+JSON parity、Go/PowerShell/facade 委托。 |
+| `pack-smoke-matrix.ps1 -DiscoveryOnly` | 新增/删除 skeleton pack 或 pack smoke wrapper | inventory 中 schema-valid skeleton pack 与 matrix 清单/wrapper 一致性。 |
+| `pack-smoke-matrix.ps1` | 需要全量 pack skeleton smoke 回归 | 串行运行全部安全领域 skeleton pack smoke。 |
+| `pack-smoke-matrix.ps1 -Packs web-security,generic-binary-re -Format json` | 需要快速子集或机器可读结果 | 子集 pack smoke + JSON envelope。 |
+| `pack-smoke-matrix-selftest.ps1` | 改 matrix 输出、discovery、参数或 guard | discovery text/JSON、matrix JSON、去重、文本输出、unknown pack guard。 |
+
+### Pack skeleton smoke
+
+这些脚本是 thin wrapper，复用 `pack-smoke-lib.ps1`：
+
+```text
+web-security-pack-smoke.ps1
+malware-analysis-pack-smoke.ps1
+vuln-research-pack-smoke.ps1
+ctf-pack-smoke.ps1
+unpack-pe-pack-smoke.ps1
+ollvm-pack-smoke.ps1
+android-native-pack-smoke.ps1
+generic-binary-re-pack-smoke.ps1
+```
+
+单个 pack 修改时先跑对应脚本；跨 pack helper 或 route 逻辑修改时跑 matrix。
+
+### Sync / promote / init / attach
+
+| 脚本 | 什么时候跑 | 覆盖重点 |
+|---|---|---|
+| `init-bootstrap-smoke.ps1` | 改 Go init/bootstrap 或 case scaffold | preview/apply、managed docs、template、managed block、state、doctor。 |
+| `sync-review-parity-smoke.ps1` | 改 sync review 或 bounded diff | PowerShell/Go sync review action 和 diff parity。 |
+| `sync-apply-smoke.ps1` | 改 Go sync apply | 临时 case apply、backup、state、Go/PowerShell doctor。 |
+| `sync-apply-parity-smoke.ps1` | 改 sync apply force/parity | PowerShell 与 Go apply/force 后 managed docs、metadata/shim、state 对比。 |
+| `promote-candidates-preflight-smoke.ps1` | 改 promote candidates preview/review | PowerShell baseline、Go review artifact/sanitized preview、write guard、façade fallback。 |
+| `promote-candidates-apply-smoke.ps1` | 改 Go candidate 写入 | candidate/index/tooling candidate、deny、sanitization、pack-root containment、cleanup。 |
+| `promote-apply-preflight-smoke.ps1` | 改 promote apply preview/baseline | PowerShell baseline、backup、deny、Go apply what-if、façade fallback。 |
+| `promote-apply-smoke.ps1` | 改 Go promote apply | pack managed docs writeback、backup、blocked deny、validation、cleanup。 |
+
+### Workstream / ledger / gate / Agent Team
+
+| 脚本 | 什么时候跑 | 覆盖重点 |
+|---|---|---|
+| `plan-subagents-smoke.ps1` | 改 `plan-subagents`、subagent routes、review packet | route/taskType、Items/ItemsFile、observability、out-of-case guard、fallback。 |
+| `agent-team-review-loop-smoke.ps1` | 改 review loop、verification/decision 展示 | packet -> verification -> decision -> note/list -> overview/handoff 最小闭环。 |
+| `agent-team-d5-dryrun-smoke.ps1` | 改 batch/intervention/rollback 展示 | candidate、verification、decision、batch、intervention/rollback、handoff。 |
+| `gate-parity-smoke.ps1` | 改 heavy-tool gate request schema 或 PowerShell 读层 | Go gate request 写入 + overview/note/handoff 展示 parity。 |
+| `overview-readonly-smoke.ps1` | 改 Go overview 或 façade overview JSON | 只读 overview、缺 board guard、Go gate request 展示、fallback。 |
+| `start-apply-smoke.ps1` | 改 Go start | preview/apply scaffold、board/facts/policy/lane/workspace、doctor、fallback。 |
+| `handoff-apply-smoke.ps1` | 改 Go handoff | project/lane handoff preview/apply、resume/checkpoint、ledger 区段、fallback。 |
+| `continue-preflight-smoke.ps1` | 改 PowerShell continue authority gate | authority append gate matrix、backup/diff、CSV recovery、routing、digest/status、WhatIf no-write。 |
+| `continue-whatif-smoke.ps1` | 改 Go continue preview | non-write preview、wouldWrites、blocked actions、fallback、apply guard。 |
+| `continue-digest-smoke.ps1` | 改 continue digest/status | structured digest inputs/route/packet refs/outputs/decisions/open risks。 |
+
+## WorkRoot 约定
+
+多数 case smoke 默认使用：
+
+```powershell
+C:\AI\m_projects\RE\_dryrun_cases
+```
+
+可以用 `-WorkRoot <path>` 指定临时工作根。除非脚本明确支持 `-CaseRoot` 并且你确认目标是长期 dryrun case，否则不要指向真实 case。
+
+## 推荐组合
+
+| 改动类型 | 推荐验证 |
+|---|---|
+| 新增 skeleton pack | 单 pack smoke -> `pack-smoke-matrix.ps1 -DiscoveryOnly` -> `pack-inventory-smoke.ps1` -> `go test ./...` -> `doctor`。 |
+| 改 pack smoke helper/matrix | `pack-smoke-matrix-selftest.ps1` -> `pack-smoke-matrix.ps1 -DiscoveryOnly` -> 1-2 个代表 pack smoke -> `pack-inventory-smoke.ps1`。 |
+| 改 Go façade 委托 | `facade-smoke.ps1` -> 相关命令 smoke -> `go test ./...`。 |
+| 改 sync/promote 写入 | 对应 preflight/apply smoke -> `doctor` -> `git diff --check`。 |
+| 改 workstream/ledger/gate | 对应 workstream/ledger smoke -> `go test ./...` -> `doctor`。 |
