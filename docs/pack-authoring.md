@@ -125,7 +125,7 @@ budgets:
 
 ## `_template` 骨架
 
-本仓库提供 `packs/_template/` 作为新 pack 的起点；已落地的 `packs/web-security/`、`packs/malware-analysis/`、`packs/vuln-research/`、`packs/ctf/`、`packs/unpack-pe/`、`packs/ollvm/` 与 `packs/android-native/` 可作为安全领域 skeleton 参考。创建真实 pack 时复制该目录并替换：
+本仓库提供 `packs/_template/` 作为新 pack 的起点；已落地的 `packs/web-security/`、`packs/malware-analysis/`、`packs/vuln-research/`、`packs/ctf/`、`packs/unpack-pe/`、`packs/ollvm/`、`packs/android-native/` 与 `packs/generic-binary-re/` 可作为安全领域 skeleton 参考。创建真实 pack 时复制该目录并替换：
 
 - `name`、`description`、`maturity`、`blockId`。
 - `references/template/**` 路径和目录名。

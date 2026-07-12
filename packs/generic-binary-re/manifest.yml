@@ -1,0 +1,147 @@
+schemaVersion: 1
+name: generic-binary-re
+version: 0.1.0
+description: Authorized generic binary reverse engineering Agent Team pack skeleton
+maturity: skeleton
+
+managedFiles:
+  - references/generic-binary-re/README.md
+  - references/generic-binary-re/agent-team.md
+  - references/generic-binary-re/workflow-template.md
+  - references/generic-binary-re/toolchain-router.md
+
+templateFiles:
+  - references/generic-binary-re/task-handoff.template.md
+
+localNeverOverwrite:
+  - CLAUDE.local.md
+  - references/generic-binary-re/task-handoff.md
+  - tools.local.yml
+
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: generic-binary-re:router
+  source: CLAUDE.local.snippet.md
+
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: binary-analysis
+  handoffPath: references/generic-binary-re/task-handoff.md
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+
+authorityFiles:
+  - references/generic-binary-re/task-handoff.md
+
+commonPolicies:
+  - agent-team
+  - tool-adapters
+  - context-budget
+  - subagents
+  - lane-collaboration
+  - review-first
+  - write-boundaries
+  - verification
+  - evidence
+  - tool-output
+  - handoff
+
+policyOverlays: []
+
+subagentRoutes:
+  - id: generic-binary-re:bounded-review
+    taskTypes: finding-review,evidence-review,function-review,api-review,tooling-review
+    trigger: fixed-boundary read-only review for binary RE findings, function hypotheses, API behavior notes, or tooling notes
+    shardBasis: function-or-finding
+    targetItemsPerAgent: 4
+    maxParallel: 3
+    reference: references/generic-binary-re/agent-team.md
+    policyOverlay:
+    subagentPermissions: read-only
+    mainAgentOwns: ledger-writeback,validation,handoff-update,authority-confirmation
+    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,binary_ref,function_ref,artifact_ref,behavior_hint,candidate_path,defer_reason
+  - id: generic-binary-re:binary-analysis
+    taskTypes: binary-analysis,static-triage,function-analysis,api-behavior-review,string-analysis,format-analysis
+    trigger: binary RE workspace has binary aliases, function groups, API hypotheses, behavior candidates, or needs bounded analysis before main merge
+    shardBasis: binary-function-or-behavior
+    targetItemsPerAgent: 2
+    maxParallel: 2
+    reference: references/generic-binary-re/agent-team.md
+    policyOverlay:
+    subagentPermissions: read-only-or-workspace-only
+    mainAgentOwns: canonical-write,ledger-writeback,validation,handoff-update,authority-confirmation
+    outputContract: item,decision,confidence,evidence,risk,next_action,tier_used,tool_scope,binary_ref,function_ref,artifact_ref,behavior_hint,api_ref,candidate_path,defer_reason
+
+promoteFiles:
+  - references/generic-binary-re/README.md
+  - references/generic-binary-re/agent-team.md
+  - references/generic-binary-re/workflow-template.md
+  - references/generic-binary-re/toolchain-router.md
+
+toolingFiles:
+  - tooling/README.md
+  - tooling/catalog.yml
+  - tooling/recipes/static-binary-triage.md
+  - tooling/recipes/function-behavior-review.md
+
+promptFiles: []
+
+laneTypes:
+  - id: main
+    title: Generic binary RE mainline
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/generic-binary-re/task-handoff.md
+    readOnly: .rekit/facts/**
+    outputs: publication,decision,observation
+  - id: binary-analysis
+    title: Binary / function analysis
+    authority: false
+    workspaceRoot: workspace/binary
+    canWrite: own-workspace
+    readOnly: references/generic-binary-re/**,.rekit/facts/**
+    outputs: observation,request,candidate,summary
+  - id: tooling
+    title: Tooling and adapter evaluation
+    authority: false
+    workspaceRoot: workspace/tooling
+    canWrite: own-workspace
+    readOnly: references/generic-binary-re/**,.rekit/facts/**
+    outputs: observation,request,candidate,tooling-change
+
+toolingCandidateSources:
+  - references/generic-binary-re/toolchain-router.md
+
+promoteDenyPatterns:
+  - "C:\\"
+  - "samples[\\/]"
+  - "artifacts[\\/]"
+  - "captures[\\/]"
+  - "dumps?[\\/]"
+  - "traces?[\\/]"
+  - "evidence[\/]raw[\\/]"
+  - "binaries[\\/]"
+  - "memory[\\/]"
+  - "patched[\\/]"
+  - "[A-Za-z0-9_.-]*(sample|malware|payload|binary|patched|dump|trace|pcap|capture|memory)[A-Za-z0-9_.-]*\.(exe|dll|sys|so|dylib|elf|macho|bin|dat|raw|dmp|mem|pcap|pcapng|zip|7z|rar|log|json)"
+  - "(?i)sha256\s*[:=]\s*[0-9a-f]{64}"
+  - "(?i)sha1\s*[:=]\s*[0-9a-f]{40}"
+  - "(?i)md5\s*[:=]\s*[0-9a-f]{32}"
+  - "(?i)(authorization|cookie|set-cookie)\s*[:=]"
+  - "(?i)(api[_-]?key|token|secret|password|credential)\s*[:=]"
+  - "(?i)bearer\s+[A-Za-z0-9._~+\/-]+"
+  - "\b(10|172\.(1[6-9]|2[0-9]|3[0-1])|192\.168)\."
+  - "0x[0-9A-Fa-f]{6,}"
+  - "ctx[0-9]+"
+  - "round[0-9]+"
+  - "Task #[0-9]+"
+
+budgets:
+  CLAUDE.local.md: 8192
+  references/generic-binary-re/task-handoff.md: 12288
+  defaultMarkdown: 16384
