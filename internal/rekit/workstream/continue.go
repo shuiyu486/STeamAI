@@ -141,7 +141,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		BlockedActions:       []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution"},
 		NextSteps: []string{
 			"review this preview against PowerShell continue digest/status behavior",
-			"PowerShell /rekit remains the public entrypoint; Go continue currently supports -WhatIf only",
+			"PowerShell /rekit remains the public entrypoint; JSON preview is Go-owned by default and continue currently supports -WhatIf only",
 		},
 	}
 	for _, raw := range rawEvents {

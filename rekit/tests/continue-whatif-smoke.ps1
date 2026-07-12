@@ -182,17 +182,17 @@ try {
 
   $facadeBeforeFiles = Save-TreeSnapshot -Path $caseRoot
   $facadeBeforeDirs = Save-TreeDirectories -Path $caseRoot
-  $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
+  $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf')
   Assert-NotContainsText -Text $facadeOut -Unexpected '"command": "continue"' -Label 'facade continue fallback'
   Assert-TreeUnchanged -Root $caseRoot -BeforeSnapshot $facadeBeforeFiles -BeforeDirectories $facadeBeforeDirs -Label 'facade continue what-if fallback'
 
   $facadeJsonBeforeFiles = Save-TreeSnapshot -Path $caseRoot
   $facadeJsonBeforeDirs = Save-TreeDirectories -Path $caseRoot
-  $facadePreviewJson = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','login','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
+  $facadePreviewJson = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','login','-Format','json') | ConvertFrom-Json
   if ([string]$facadePreviewJson.command -ne 'continue' -or [bool]$facadePreviewJson.isMutation -or [bool]$facadePreviewJson.applied -or -not [bool]$facadePreviewJson.requiresConfirmation -or [string]$facadePreviewJson.lane.id -ne 'feature-login') {
     throw "unexpected facade continue JSON preview: $($facadePreviewJson | ConvertTo-Json -Depth 20)"
   }
-  Assert-ContainsText -Text ([string]::Join("`n", @($facadePreviewJson.nextSteps))) -Expected 'Go continue currently supports -WhatIf only' -Label 'facade continue JSON delegated to Go'
+  Assert-ContainsText -Text ([string]::Join("`n", @($facadePreviewJson.nextSteps))) -Expected 'JSON preview is Go-owned by default' -Label 'facade continue JSON delegated to Go'
   if ([int]$facadePreviewJson.summary.collected -ne 3 -or [int]$facadePreviewJson.summary.observations -ne 1 -or [int]$facadePreviewJson.summary.requests -ne 1 -or [int]$facadePreviewJson.summary.routed -ne 1 -or [int]$facadePreviewJson.summary.candidates -ne 1 -or [int]$facadePreviewJson.summary.authorityWouldAppend -ne 1 -or [int]$facadePreviewJson.summary.pendingUser -ne 0) {
     throw "unexpected facade continue JSON summary: $($facadePreviewJson | ConvertTo-Json -Depth 20)"
   }
@@ -200,8 +200,14 @@ try {
   Assert-WriteAction -Result $facadePreviewJson -Path '.rekit/lanes/devirt-main/tasks.jsonl' -Action 'would-append'
   Assert-TreeUnchanged -Root $caseRoot -BeforeSnapshot $facadeJsonBeforeFiles -BeforeDirectories $facadeJsonBeforeDirs -Label 'facade continue json preview'
 
-  $facadeApplyJsonError = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-Format','json','login') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
+  $facadeApplyJsonError = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-Format','json','login') -AllowedExitCodes @(1)
   Assert-ContainsText -Text $facadeApplyJsonError -Expected 'continue -Format json currently supports -WhatIf preview only' -Label 'continue json apply guard'
+  $disabledPreviewJson = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','login','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1' } | ConvertFrom-Json
+  if ([string]$disabledPreviewJson.command -ne 'continue' -or [string]$disabledPreviewJson.lane.id -ne 'feature-login') {
+    throw "unexpected disabled fallback continue JSON preview: $($disabledPreviewJson | ConvertTo-Json -Depth 20)"
+  }
+  Assert-ContainsText -Text ([string]::Join("`n", @($disabledPreviewJson.nextSteps))) -Expected 'PowerShell workflow after review' -Label 'go disabled continue JSON fallback'
+  Assert-TreeUnchanged -Root $caseRoot -BeforeSnapshot $facadeJsonBeforeFiles -BeforeDirectories $facadeJsonBeforeDirs -Label 'go disabled continue json preview fallback'
   $global:LASTEXITCODE = 0
 
   'continue what-if smoke ok'

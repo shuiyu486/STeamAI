@@ -3581,3 +3581,36 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/workstream`、`facade-smoke.ps1`、`start-apply-smoke.ps1`、`handoff-apply-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 118：continue JSON preview default Go façade
+
+状态：已完成。
+
+目标：承接 Stage 5 的 continue Go 化，在 Go `continue -WhatIf` 非写入 preview、PowerShell fallback JSON preview 与 preflight smoke 已稳定的基础上，将 attached case 的 `/rekit continue -WhatIf -Format json` 从显式 `REKIT_GO_ENABLE=1` 扩展集合升级为默认 Go façade，继续保持 `continue` apply/text workflow、authority append、run digest 写入和工作线文本入口由 PowerShell fallback 管理。
+
+实施范围：
+
+- 扩展 `rekit/rekit.ps1` 默认委托集合，将 `continue` 纳入 default delegation command set。
+- 收紧 `continue` safe-set：仅 attached case 且已有 `.rekit/board.json`、显式 `-WhatIf`、无 `-Apply`/`-CreateCandidates`/`-Review`/`-Force`、无 review artifact options、`-Format json` 时默认委托 Go。
+- 保持 `continue -WhatIf` 文本 preview、无 `-WhatIf` 的 JSON 调用、`continue` apply/text flow 与 `REKIT_GO_DISABLE=1` 回退 PowerShell。
+- 更新 Go `continue` preview 的 `nextSteps` 文案，反映 JSON preview 已由默认 façade 接管但 continue 仍只支持 `-WhatIf`。
+- 更新 `facade-smoke.ps1`，用 fake `REKIT_GO_EXE` 锁定 `continue -WhatIf -Format json` 默认委托，并保留文本 preview fallback。
+- 更新 `continue-whatif-smoke.ps1`，通过公共 façade 验证默认 JSON preview 委托、no-write、`REKIT_GO_DISABLE=1` PowerShell JSON fallback 与 apply JSON guard。
+- 更新 README、CLAUDE、`/rekit` skill、Go runtime migration、Go-first convergence、Agent Team rollout、tests guide、catalog metadata 与 changelog，记录 Batch 118 后 continue JSON preview 默认委托边界。
+
+边界：本批只切换 `continue -WhatIf -Format json` 的 façade owner；该路径只读取既有 board/lane/outbox/workspace 并输出 preview，不写 facts/run/board/lane/handoff/authority/confirmed，不创建 run directory，不刷新 resume/checkpoint，不执行 full-trace/debug/inject/patch/dump/network/fuzz/exploit replay，不迁移 `continue` apply/text workflow，不改变 authority append policy gate、sync/promote review-first 或其它 ledger 写入命令。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/workstream
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\continue-whatif-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/workstream`、`facade-smoke.ps1`、`continue-whatif-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

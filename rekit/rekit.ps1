@@ -120,7 +120,7 @@ function Test-RekitEnvTruthy {
 
 function Test-RekitGoDefaultDelegationCommand {
   param([string]$Name)
-  return (@('status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff') -contains $Name)
+  return (@('status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue') -contains $Name)
 }
 
 function Test-RekitGoDelegationEnabled {
@@ -252,8 +252,15 @@ function Test-RekitGoDelegationSafe {
       return ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json')
     }
     'continue' {
+      if ($Apply -or $CreateCandidates -or $Review -or $Force) { return $false }
+      if (-not $WhatIf) { return $false }
+      if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+      $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
+      $caseRoot = [string]$resolved.Target
+      if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
+      if (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json'))) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
-      return ($WhatIf -and -not $Apply -and -not $CreateCandidates -and $formatValue -eq 'json')
+      return ($formatValue -eq 'json')
     }
     default { return $false }
   }
