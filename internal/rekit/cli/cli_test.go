@@ -89,6 +89,84 @@ func TestRunCaseDoctorValidatesAttachedCase(t *testing.T) {
 	}
 }
 
+func TestRunStatusJsonKit(t *testing.T) {
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Command        string `json:"command"`
+		SchemaVersion  int    `json:"schemaVersion"`
+		IsMutation     bool   `json:"isMutation"`
+		RuntimeRoot    string `json:"runtimeRoot"`
+		TemplateRoot   string `json:"templateRoot"`
+		Pack           string `json:"pack"`
+		Target         string `json:"target"`
+		TargetProvided bool   `json:"targetProvided"`
+		Mode           string `json:"mode"`
+		Case           any    `json:"case"`
+		Manifest       struct {
+			ManifestPath string `json:"manifestPath"`
+			ManagedFiles int    `json:"managedFiles"`
+			PromoteFiles int    `json:"promoteFiles"`
+			ToolingFiles int    `json:"toolingFiles"`
+		} `json:"manifest"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Mode != "kit" || status.Pack != "_template" || status.TargetProvided {
+		t.Fatalf("unexpected status JSON envelope: %+v", status)
+	}
+	if status.RuntimeRoot == "" || status.TemplateRoot == "" || status.Target == "" || status.Case != nil {
+		t.Fatalf("unexpected status JSON roots/case: %+v", status)
+	}
+	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/_template/manifest.yml") || status.Manifest.ManagedFiles != 4 || status.Manifest.PromoteFiles != 4 || status.Manifest.ToolingFiles != 2 {
+		t.Fatalf("unexpected manifest summary: %+v", status.Manifest)
+	}
+}
+
+func TestRunStatusJsonCase(t *testing.T) {
+	caseRoot := attachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Command        string `json:"command"`
+		SchemaVersion  int    `json:"schemaVersion"`
+		IsMutation     bool   `json:"isMutation"`
+		Pack           string `json:"pack"`
+		TargetProvided bool   `json:"targetProvided"`
+		Mode           string `json:"mode"`
+		Case           struct {
+			CaseRoot       string `json:"caseRoot"`
+			MetadataSource string `json:"metadataSource"`
+			TemplatePack   string `json:"templatePack"`
+			ProjectName    string `json:"projectName"`
+			Moved          bool   `json:"moved"`
+		} `json:"case"`
+		Manifest any `json:"manifest"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Pack != "_template" || !status.TargetProvided || status.Mode != "case" || status.Manifest != nil {
+		t.Fatalf("unexpected case status JSON envelope: %+v", status)
+	}
+	if status.Case.CaseRoot != caseRoot || status.Case.MetadataSource != "instance" || status.Case.TemplatePack != "_template" || status.Case.ProjectName != "demo" || status.Case.Moved {
+		t.Fatalf("unexpected case status JSON: %+v", status.Case)
+	}
+}
+
+func TestRunStatusRejectsUnsupportedFormat(t *testing.T) {
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "status", "-Format", "yaml"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "unsupported status format") {
+		t.Fatalf("error = %v, want unsupported status format", err)
+	}
+}
+
 func TestRunPacksListsPackMatrix(t *testing.T) {
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "packs"}, &out); err != nil {

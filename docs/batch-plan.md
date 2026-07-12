@@ -1964,3 +1964,32 @@ git diff --check
 ```
 
 验证结果：全部通过。首次验证中 `pack-inventory-smoke.ps1` 暴露 PowerShell 字符串中 `$Pack:` 被解析为变量作用域的问题，已改为 `${Pack}:` 后重跑通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 65：status JSON 输出
+
+状态：已完成。
+
+目标：延续 Batch 64 的机器可读 envelope 模式，为只读 `/rekit status` 增加 `-Format json`，让 kit/case 绑定状态、manifest counts 与 moved-case 信号可被 CI、新会话接手和后续 Go-first orchestration 直接消费，而不需要解析人类文本。
+
+实施范围：
+
+- Go CLI `status` 接收 `-Format json` / `--format json`，默认文本输出保持兼容；JSON 输出 envelope 包含 `command`、`schemaVersion`、`isMutation`、runtime/template root、pack、target、`targetProvided`、`mode`，并按 kit/case 模式填充 `manifest` 或 `case`。
+- PowerShell façade / fallback 的 `status` 同步支持 `-Format json`，显式 `REKIT_GO_ENABLE=1` 时将 `-Format` 透传给 Go backend。
+- `rekit/tests/pack-inventory-smoke.ps1` 扩展为覆盖 Go、PowerShell fallback 和 Go façade 的 kit-mode status JSON，并用 sentinel 验证 façade status format 参数透传。
+- 更新 README、skill、Go runtime migration 与 CHANGELOG，说明 status JSON 是只读机器可读状态输出。
+
+边界：本批只增强只读 status 输出；不创建/修改 case，不写 board/facts/lanes/handoff/authority/confirmed，不改变 sync/promote review-first 语义，不新增写入型 façade 委托。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli
+go test ./...
+.\rekit\tests\pack-inventory-smoke.ps1
+.\rekit\rekit.ps1 -Command status
+.\rekit\rekit.ps1 -Command status -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli`、`go test ./...`、`pack-inventory-smoke.ps1`、`/rekit status`、`/rekit status -Format json`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

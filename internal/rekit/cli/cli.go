@@ -368,7 +368,7 @@ func Run(args []string, stdout io.Writer) error {
 	}
 	switch opt.Command {
 	case "status":
-		return runStatus(ctx, stdout)
+		return runStatus(ctx, opt, stdout)
 	case "packs":
 		return runPacks(ctx, opt, stdout)
 	case "doctor", "validate":
@@ -450,7 +450,60 @@ func runPacks(ctx runtime.Context, opt Options, out io.Writer) error {
 	return nil
 }
 
-func runStatus(ctx runtime.Context, out io.Writer) error {
+type statusInventory struct {
+	Command        string                 `json:"command"`
+	SchemaVersion  int                    `json:"schemaVersion"`
+	IsMutation     bool                   `json:"isMutation"`
+	RuntimeRoot    string                 `json:"runtimeRoot"`
+	TemplateRoot   string                 `json:"templateRoot"`
+	Pack           string                 `json:"pack"`
+	Target         string                 `json:"target"`
+	TargetProvided bool                   `json:"targetProvided"`
+	Mode           string                 `json:"mode"`
+	Case           *statusCase            `json:"case"`
+	Manifest       *statusManifestSummary `json:"manifest"`
+}
+
+type statusCase struct {
+	CaseRoot       string `json:"caseRoot"`
+	MetadataSource string `json:"metadataSource"`
+	InstancePath   string `json:"instancePath"`
+	TemplateRoot   string `json:"templateRoot"`
+	TemplatePack   string `json:"templatePack"`
+	ProjectName    string `json:"projectName"`
+	ProjectRoot    string `json:"projectRoot"`
+	Moved          bool   `json:"moved"`
+}
+
+type statusManifestSummary struct {
+	ManifestPath string `json:"manifestPath"`
+	ManagedFiles int    `json:"managedFiles"`
+	PromoteFiles int    `json:"promoteFiles"`
+	ToolingFiles int    `json:"toolingFiles"`
+}
+
+func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
+	format := strings.ToLower(strings.TrimSpace(opt.Format))
+	if format == "" {
+		format = "table"
+	}
+	switch format {
+	case "table", "text", "tsv":
+		return runStatusText(ctx, out)
+	case "json":
+		status, err := buildStatusInventory(ctx)
+		if err != nil {
+			return err
+		}
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(status)
+	default:
+		return fmt.Errorf("unsupported status format: %s", opt.Format)
+	}
+}
+
+func runStatusText(ctx runtime.Context, out io.Writer) error {
 	fmt.Fprintf(out, "rekit go backend: %s\n", ctx.RuntimeRoot)
 	fmt.Fprintf(out, "template root: %s\n", ctx.RepoRoot)
 	fmt.Fprintf(out, "pack: %s\n", ctx.Pack)
@@ -477,6 +530,49 @@ func runStatus(ctx runtime.Context, out io.Writer) error {
 	fmt.Fprintf(out, "promote files: %d\n", len(m.PromoteFiles))
 	fmt.Fprintf(out, "tooling files: %d\n", len(m.ToolingFiles))
 	return nil
+}
+
+func buildStatusInventory(ctx runtime.Context) (statusInventory, error) {
+	status := statusInventory{
+		Command:        "status",
+		SchemaVersion:  1,
+		IsMutation:     false,
+		RuntimeRoot:    ctx.RuntimeRoot,
+		TemplateRoot:   ctx.RepoRoot,
+		Pack:           ctx.Pack,
+		Target:         ctx.Target,
+		TargetProvided: ctx.TargetProvided,
+		Mode:           "kit",
+	}
+	if instance.LooksLikeCase(ctx.Target) {
+		inst, err := instance.Read(ctx.Target)
+		if err != nil {
+			return statusInventory{}, err
+		}
+		status.Mode = "case"
+		status.Case = &statusCase{
+			CaseRoot:       inst.CaseRoot,
+			MetadataSource: inst.Source,
+			InstancePath:   inst.InstancePath,
+			TemplateRoot:   inst.TemplateRoot,
+			TemplatePack:   inst.TemplatePack,
+			ProjectName:    inst.ProjectName,
+			ProjectRoot:    inst.ProjectRoot,
+			Moved:          inst.Moved(),
+		}
+		return status, nil
+	}
+	m, err := manifest.Load(ctx.RepoRoot, ctx.Pack)
+	if err != nil {
+		return statusInventory{}, err
+	}
+	status.Manifest = &statusManifestSummary{
+		ManifestPath: m.ManifestPath,
+		ManagedFiles: len(m.ManagedFiles),
+		PromoteFiles: len(m.PromoteFiles),
+		ToolingFiles: len(m.ToolingFiles),
+	}
+	return status, nil
 }
 
 func runDoctor(ctx runtime.Context, out io.Writer) error {

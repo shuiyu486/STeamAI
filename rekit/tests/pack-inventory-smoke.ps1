@@ -121,6 +121,24 @@ function Assert-PackJson {
   }
 }
 
+function Assert-StatusJson {
+  param(
+    [Parameter(Mandatory=$true)]$Status,
+    [Parameter(Mandatory=$true)][string]$Mode
+  )
+  if ([string]$Status.command -ne 'status' -or [int]$Status.schemaVersion -ne 1 -or [bool]$Status.isMutation -or [string]$Status.mode -ne $Mode) {
+    throw "unexpected status JSON envelope: $($Status | ConvertTo-Json -Depth 20)"
+  }
+  if ([string]::IsNullOrWhiteSpace([string]$Status.runtimeRoot) -or [string]::IsNullOrWhiteSpace([string]$Status.templateRoot) -or [string]::IsNullOrWhiteSpace([string]$Status.target)) {
+    throw "status JSON roots are incomplete: $($Status | ConvertTo-Json -Depth 20)"
+  }
+  if ($Mode -eq 'kit') {
+    if ($null -ne $Status.case -or $null -eq $Status.manifest -or [string]$Status.pack -ne 'vmp-re' -or [int]$Status.manifest.managedFiles -ne 7 -or [int]$Status.manifest.promoteFiles -ne 7 -or [int]$Status.manifest.toolingFiles -ne 11) {
+      throw "unexpected kit status JSON: $($Status | ConvertTo-Json -Depth 20)"
+    }
+  }
+}
+
 function New-TransientPackManifest {
   param(
     [Parameter(Mandatory=$true)][string]$Pack,
@@ -142,6 +160,13 @@ function New-TransientPackManifest {
   )
   [System.IO.File]::WriteAllText((Join-Path $packRoot 'manifest.yml'), (($lines -join "`n") + "`n"), [System.Text.Encoding]::UTF8)
   return $packRoot
+}
+
+$goStatusJson = Invoke-GoRekitSmoke -Arguments @('-Command','status','-Format','json') | ConvertFrom-Json
+$psStatusJson = Invoke-RekitSmoke -Arguments @('-Command','status','-Format','json') | ConvertFrom-Json
+$facadeStatusJson = Invoke-RekitSmoke -Arguments @('-Command','status','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
+foreach ($json in @($goStatusJson,$psStatusJson,$facadeStatusJson)) {
+  Assert-StatusJson -Status $json -Mode 'kit'
 }
 
 $goOut = Invoke-GoRekitSmoke -Arguments @('-Command','packs')
@@ -201,6 +226,9 @@ try {
 
   $sentinelJsonOut = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
   Assert-ContainsText -Text $sentinelJsonOut -Expected '-Format json' -Label 'facade packs format delegation args'
+
+  $sentinelStatusJsonOut = Invoke-RekitSmoke -Arguments @('-Command','status','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
+  Assert-ContainsText -Text $sentinelStatusJsonOut -Expected '-Format json' -Label 'facade status format delegation args'
 
   $disabledOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $sentinel }
   Assert-NotContainsText -Text $disabledOut -Unexpected 'sentinel-go-packs' -Label 'facade packs disable fallback'

@@ -175,7 +175,7 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-ReviewOutputDir' $ReviewOutputDir
   Add-RekitGoArg ([ref]$goArgs) '-PacketPath' $PacketPath
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' $DiffPath
-  if ($Command -eq 'packs') { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
+  if ($Command -in @('status','packs')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
   if ($Command -eq 'gate') {
     Add-RekitGoArg ([ref]$goArgs) '-Action' $Action
     Add-RekitGoArg ([ref]$goArgs) '-Lane' $Lane
@@ -322,22 +322,69 @@ switch ($Command) {
   }
   'status' {
     $cwd = Resolve-RekitTarget $Target
-    Write-Host "rekit runtime: $RuntimeRoot"
-    Write-Host "template root: $RepoRoot"
-    Write-Host "pack: $Pack"
-    if (Test-RekitLooksLikeCase $cwd) {
-      $inst = Get-RekitInstance -Target $cwd
-      Write-Host "case: $($inst.CaseRoot)"
-      Write-Host "case metadata: $($inst.Source) $($inst.InstancePath)"
-      Write-Host "case templateRoot: $($inst.TemplateRoot)"
-      Write-Host "case templatePack: $($inst.TemplatePack)"
-      if (Test-RekitInstanceMoved -Instance $inst) { Write-RekitMoveWarning -Instance $inst }
-    } else {
-      $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
-      Write-Host "manifest: $($manifest.ManifestPath)"
-      Write-Host "managed files: $($manifest.ManagedFiles.Count)"
-      Write-Host "promote files: $($manifest.PromoteFiles.Count)"
-      Write-Host "tooling files: $($manifest.ToolingFiles.Count)"
+    $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($formatValue)) { $formatValue = 'table' }
+    switch ($formatValue) {
+      { $_ -in @('table','text','tsv') } {
+        Write-Host "rekit runtime: $RuntimeRoot"
+        Write-Host "template root: $RepoRoot"
+        Write-Host "pack: $Pack"
+        if (Test-RekitLooksLikeCase $cwd) {
+          $inst = Get-RekitInstance -Target $cwd
+          Write-Host "case: $($inst.CaseRoot)"
+          Write-Host "case metadata: $($inst.Source) $($inst.InstancePath)"
+          Write-Host "case templateRoot: $($inst.TemplateRoot)"
+          Write-Host "case templatePack: $($inst.TemplatePack)"
+          if (Test-RekitInstanceMoved -Instance $inst) { Write-RekitMoveWarning -Instance $inst }
+        } else {
+          $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
+          Write-Host "manifest: $($manifest.ManifestPath)"
+          Write-Host "managed files: $($manifest.ManagedFiles.Count)"
+          Write-Host "promote files: $($manifest.PromoteFiles.Count)"
+          Write-Host "tooling files: $($manifest.ToolingFiles.Count)"
+        }
+      }
+      'json' {
+        $caseInfo = $null
+        $manifestInfo = $null
+        $mode = 'kit'
+        if (Test-RekitLooksLikeCase $cwd) {
+          $inst = Get-RekitInstance -Target $cwd
+          $mode = 'case'
+          $caseInfo = [ordered]@{
+            caseRoot = [string]$inst.CaseRoot
+            metadataSource = [string]$inst.Source
+            instancePath = [string]$inst.InstancePath
+            templateRoot = [string]$inst.TemplateRoot
+            templatePack = [string]$inst.TemplatePack
+            projectName = [string]$inst.ProjectName
+            projectRoot = [string]$inst.ProjectRoot
+            moved = [bool](Test-RekitInstanceMoved -Instance $inst)
+          }
+        } else {
+          $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
+          $manifestInfo = [ordered]@{
+            manifestPath = [string]$manifest.ManifestPath
+            managedFiles = [int]$manifest.ManagedFiles.Count
+            promoteFiles = [int]$manifest.PromoteFiles.Count
+            toolingFiles = [int]$manifest.ToolingFiles.Count
+          }
+        }
+        [ordered]@{
+          command = 'status'
+          schemaVersion = 1
+          isMutation = $false
+          runtimeRoot = $RuntimeRoot
+          templateRoot = $RepoRoot
+          pack = $Pack
+          target = $cwd
+          targetProvided = -not [string]::IsNullOrWhiteSpace($Target)
+          mode = $mode
+          case = $caseInfo
+          manifest = $manifestInfo
+        } | ConvertTo-Json -Depth 8
+      }
+      default { throw "unsupported status format: $Format" }
     }
   }
   'attach' {
