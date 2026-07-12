@@ -145,6 +145,7 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-CreateCandidates') -CommandName 'promote' -Label 'default promote create-candidates fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -CommandName 'promote' -Label 'default promote apply JSON preview fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -CommandName 'promote' -Label 'default promote apply fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'overview' -Label 'default overview fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -CommandName 'overview' -Label 'default overview JSON fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List','-Format','json') -CommandName 'note' -Label 'default note list JSON fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','default note append','-Summary','fake default note append') -CommandName 'note' -Label 'default note append fake delegation'
@@ -208,6 +209,7 @@ try {
   Assert-FakeFallback -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Expected 'promote summary:' -Label 'promote apply text preview fallback'
   Assert-FakeFallback -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-CreateCandidates') -Expected 'promote -Apply cannot be combined with -CreateCandidates' -Label 'promote actual write combination fallback' -AllowedExitCodes @(1)
 
+  Assert-FakeDefaultDelegation -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'overview' -Label 'default overview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -CommandName 'overview' -Label 'default overview JSON delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List','-Format','json') -CommandName 'note' -Label 'default note list JSON delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','verification','-Lane','main','-Subject','matrix note append','-Summary','fake default note append') -CommandName 'note' -Label 'default note append delegation'

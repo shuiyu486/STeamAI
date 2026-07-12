@@ -6,7 +6,7 @@
 - 维护者开始新批次前先读本文件顶部：读取指南、实施摘要、执行清单、验证标准、风险与注意事项，再按批次读细节。
 - 本文件只写计划与契约压测方法，不替代 `common/policies/agent-team.md` 和 `common/policies/subagents.md` 的契约定义。
 - 推进姿态为 **选项 C：契约 dry-run + 临时 case 验证优先**。先压测契约，再按真实缺口决定 ledger runtime（Phase 5）与 bounded dispatch（Phase 6）的顺序。
-- 当前状态：PowerShell `/rekit` 仍是公共入口；R0-R7、B/C 系列、D2-D4、Go G1-G5 已完成。Ledger runtime 支持 9 种 kind、`batchId`、overview/handoff/note-List 读层和 intervention/rollback 展示闭环；`continue` auto 流程写 `.rekit/runs/<run-id>/digest.md`，Go backend 可手动输出 `continue -WhatIf` 非写入 preview；`plan-subagents` 仍是只读计划器，已输出 route/shard/review-loop observability，但不自动 spawn reviewer。Go backend 已默认接管 `sync/promote` review/apply、gate preview/request、note append/list JSON，以及 start/handoff JSON preview 与显式 apply；`continue` apply/text flow 仍由 PowerShell fallback 承担。Batch 101 后的新阶段导航见 `docs/go-first-convergence-plan.md`；后续优先 Go deterministic runtime 收口、release readiness、Agent Team 真实 dry-run 闭环与 PowerShell 收缩。
+- 当前状态：PowerShell `/rekit` 仍是公共入口；R0-R7、B/C 系列、D2-D4、Go G1-G5 已完成。Ledger runtime 支持 9 种 kind、`batchId`、overview/handoff/note-List 读层和 intervention/rollback 展示闭环；`continue` auto 流程写 `.rekit/runs/<run-id>/digest.md`，Go backend 可手动输出 `continue -WhatIf` 非写入 preview；`plan-subagents` 仍是只读计划器，已输出 route/shard/review-loop observability，但不自动 spawn reviewer。Go backend 已默认接管 `sync/promote` review/apply、gate preview/request、note append/list JSON、overview 文本/JSON 与缺 board 初始化，以及 start/handoff JSON preview 与显式 apply；`continue` apply/text flow 仍由 PowerShell fallback 承担。Batch 101 后的新阶段导航见 `docs/go-first-convergence-plan.md`；后续优先 Go deterministic runtime 收口、release readiness、Agent Team 真实 dry-run 闭环与 PowerShell 收缩。
 
 ## 实施摘要
 

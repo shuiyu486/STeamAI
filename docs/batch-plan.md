@@ -3614,3 +3614,36 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/workstream`、`facade-smoke.ps1`、`continue-whatif-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 119：overview board initialization default Go façade
+
+状态：已完成。
+
+目标：承接 Stage 5 的 workstream runtime 收口，把 attached case 缺 `.rekit/board.json` 时的 overview case-local board/facts/policy/default authority lane 初始化迁到 Go，并让 `/rekit overview` 文本输出与 `overview -Format json` 都默认经 PowerShell façade 委托 Go，消除“首次 overview 必须先由 PowerShell 初始化”的语义分裂。
+
+实施范围：
+
+- 新增 Go workstream helper，复用既有 start scaffold 初始化 `.rekit/lanes`、`.rekit/facts`、`.rekit/runs`、`.rekit/reviews`、`.rekit/backups`、`.rekit/policy.yml`、默认 authority lane 与 `.rekit/board.json`。
+- 调整 Go overview data loader：缺 `.rekit/board.json` 时先执行 case-local scaffold 初始化，再读取 board/facts；JSON envelope 仅在本次初始化时标记 `isMutation=true`，后续 overview 仍为只读 `isMutation=false`。
+- 放宽 `rekit/rekit.ps1` overview safe-set：attached case、无 write/review flags、无 review artifact options、`Format` 为空或 `json` 时默认委托 Go；不再要求 board 已存在。
+- 更新 `cli_test.go`，覆盖 Go overview 缺 board 初始化会创建 board、policy、9 类 facts JSONL 与默认 authority lane。
+- 更新 `overview-readonly-smoke.ps1`，覆盖 Go 初始化、façade 默认文本初始化、后续 Go/ façade JSON 只读 snapshot 与 fake/default delegation。
+- 更新 `facade-smoke.ps1`，锁定 overview 文本和 JSON 默认 fake delegation。
+- 更新 README、CLAUDE、`/rekit` skill、Go runtime migration、Go-first convergence、Agent Team rollout、tests guide、catalog metadata 与 changelog，记录 Batch 119 后 overview 初始化与默认委托边界。
+
+边界：本批只写 attached case 的 `.rekit` workstream scaffold（board/facts/policy/default lane 等 case-local state）；不 append facts event，不写 handoff、authority、confirmed、managed docs、pack source 或 review artifacts，不执行 full-trace/debug/inject/patch/dump/network/fuzz/exploit replay，不迁移 `continue` apply/text workflow，不改变 sync/promote review-first 与 heavy-tool/authority gate。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/overview ./internal/rekit/workstream
+.\rekit\tests\overview-readonly-smoke.ps1
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/overview ./internal/rekit/workstream`、`overview-readonly-smoke.ps1`、`facade-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

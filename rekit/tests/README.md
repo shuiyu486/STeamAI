@@ -99,7 +99,7 @@ generic-binary-re-pack-smoke.ps1
 | `agent-team-review-loop-smoke.ps1` | 改 review loop、verification/decision 展示、note list JSON 委托或 note append façade | packet -> note what-if no-write -> verification append -> decision append -> note/list -> overview/handoff 最小闭环，含默认 façade note append/what-if、note list JSON 委托与文本 fallback。 |
 | `agent-team-d5-dryrun-smoke.ps1` | 改 batch/intervention/rollback 展示 | candidate、verification、decision、batch、intervention/rollback、handoff。 |
 | `gate-parity-smoke.ps1` | 改 heavy-tool gate request schema、gate façade 委托或 PowerShell 读层 | 默认 façade gate what-if no-write、默认 façade gate apply request 写入 + overview/note/handoff 展示 parity。 |
-| `overview-readonly-smoke.ps1` | 改 Go overview 或 façade overview JSON | 只读 overview、缺 board guard、Go gate request 展示、默认 façade JSON 委托、fallback。 |
+| `overview-readonly-smoke.ps1` | 改 Go overview 或 façade overview 文本/JSON | 缺 board 初始化、后续只读 overview、Go gate request 展示、默认 façade 文本/JSON 委托、fallback。 |
 | `start-apply-smoke.ps1` | 改 Go start 或 start façade 委托 | preview/apply scaffold、board/facts/policy/lane/workspace、默认 façade JSON preview/apply 委托、doctor、fallback。 |
 | `handoff-apply-smoke.ps1` | 改 Go handoff 或 handoff façade 委托 | project/lane handoff preview/apply、resume/checkpoint、ledger 区段、默认 façade JSON preview/apply 委托、fallback。 |
 | `continue-preflight-smoke.ps1` | 改 PowerShell continue authority gate | authority append gate matrix、backup/diff、CSV recovery、routing、digest/status、WhatIf no-write。 |

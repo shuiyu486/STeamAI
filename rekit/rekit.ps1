@@ -158,11 +158,12 @@ function Test-RekitGoDelegationSafe {
       return $true
     }
     'overview' {
-      if ($Apply -or $CreateCandidates -or $WhatIf) { return $false }
+      if ($Apply -or $CreateCandidates -or $WhatIf -or $Review) { return $false }
+      if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
-      if ($formatValue -ne 'json') { return $false }
+      if ((-not [string]::IsNullOrWhiteSpace($formatValue)) -and $formatValue -ne 'json') { return $false }
       $caseRoot = Resolve-RekitTarget $Target
-      return ((Test-RekitLooksLikeCase $caseRoot) -and (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json')))
+      return (Test-RekitLooksLikeCase $caseRoot)
     }
     'note' {
       $noteArgs = Get-RekitRemainingArgMap -Tokens $RemainingArgs

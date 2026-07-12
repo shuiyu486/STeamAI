@@ -845,15 +845,45 @@ func TestRunPromoteReviewRequiresAttachedCase(t *testing.T) {
 	}
 }
 
-func TestRunOverviewRequiresExistingBoard(t *testing.T) {
+func TestRunOverviewInitializesMissingBoard(t *testing.T) {
 	caseRoot := attachedCase(t)
 	var out bytes.Buffer
-	err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template"}, &out)
-	if err == nil {
-		t.Fatal("Run returned nil error for overview without board")
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "board.json") {
-		t.Fatalf("error = %q, want board initialization guard", err.Error())
+	var result struct {
+		Command    string `json:"command"`
+		IsMutation bool   `json:"isMutation"`
+		Lanes      []struct {
+			ID        string `json:"id"`
+			Label     string `json:"label"`
+			Kind      string `json:"kind"`
+			Authority bool   `json:"authority"`
+		} `json:"lanes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("overview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if result.Command != "overview" || !result.IsMutation || len(result.Lanes) != 1 || result.Lanes[0].ID != "main" || result.Lanes[0].Label != "main" || result.Lanes[0].Kind != "main" || !result.Lanes[0].Authority {
+		t.Fatalf("unexpected initialized overview result: %+v", result)
+	}
+	for _, rel := range []string{
+		".rekit/board.json",
+		".rekit/policy.yml",
+		".rekit/facts/observations.jsonl",
+		".rekit/facts/candidates.jsonl",
+		".rekit/facts/requests.jsonl",
+		".rekit/facts/publications.jsonl",
+		".rekit/facts/decisions.jsonl",
+		".rekit/facts/hypotheses.jsonl",
+		".rekit/facts/verifications.jsonl",
+		".rekit/facts/interventions.jsonl",
+		".rekit/facts/rollbacks.jsonl",
+		".rekit/lanes/main/lane.json",
+	} {
+		if _, err := os.Stat(filepath.Join(caseRoot, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("overview initialization missing %s: %v", rel, err)
+		}
 	}
 }
 

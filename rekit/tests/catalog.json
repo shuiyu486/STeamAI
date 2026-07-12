@@ -329,11 +329,11 @@
       "id": "overview-readonly-smoke",
       "script": "overview-readonly-smoke.ps1",
       "category": "workstream",
-      "purpose": "Validate Go overview readonly output, JSON envelope, missing board guard, gate request display, default facade JSON delegation, and fallback.",
-      "recommendedFor": ["overview", "readonly workstream display", "facade overview JSON", "overview JSON default delegation"],
+      "purpose": "Validate Go overview missing board initialization, readonly output, JSON envelope, gate request display, default facade text/JSON delegation, and fallback.",
+      "recommendedFor": ["overview", "overview initialization", "readonly workstream display", "facade overview text", "facade overview JSON", "overview default delegation"],
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
-      "riskBoundary": "Temporary case only; readonly path must not create board/facts/lanes.",
+      "riskBoundary": "Temporary case only; initialization writes only case-local board/facts/policy/lane scaffold; later readonly snapshots must not change state.",
       "relatedDocs": ["docs/go-runtime-migration.md", "rekit/tests/README.md"]
     },
     {

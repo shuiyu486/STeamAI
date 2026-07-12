@@ -140,14 +140,13 @@ $caseRoot = Join-Path $WorkRoot "overview-readonly-$suffix"
 try {
   Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$caseRoot,'-Pack',$Pack,'-ProjectName',"overview-readonly-$suffix") | Out-Null
 
-  $missingBoard = Invoke-GoRekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack) -AllowedExitCodes @(1)
-  Assert-ContainsText -Text $missingBoard -Expected 'board.json' -Label 'go overview missing board guard'
-  if (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json')) { throw 'Go overview missing-board guard created board.json' }
-
-  $facadeInit = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
+  $goInitJson = Invoke-GoRekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack,'-Format','json') | ConvertFrom-Json
+  if ([string]$goInitJson.command -ne 'overview' -or -not [bool]$goInitJson.isMutation -or @($goInitJson.lanes).Count -lt 1) { throw "unexpected Go overview initialization JSON: $($goInitJson | ConvertTo-Json -Depth 20)" }
+  Remove-Item -LiteralPath (Join-Path $caseRoot '.rekit\board.json') -Force -Confirm:$false
+  $facadeInit = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '' }
   $sectionProject = TextFromCodes @(39033,30446,27010,35272,65306)
-  Assert-ContainsText -Text $facadeInit -Expected $sectionProject -Label 'facade overview fallback'
-  if (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json'))) { throw 'facade overview fallback did not initialize board.json' }
+  Assert-ContainsText -Text $facadeInit -Expected $sectionProject -Label 'facade overview default initialization'
+  if (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json'))) { throw 'facade overview default delegation did not initialize board.json' }
 
   $board = Get-Content -LiteralPath (Join-Path $caseRoot '.rekit\board.json') -Raw | ConvertFrom-Json
   $lane = [string]@($board.lanes)[0].id

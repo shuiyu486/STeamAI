@@ -191,6 +191,23 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 	}, nil
 }
 
+func EnsureBoard(repoRoot, caseRoot, pack string) error {
+	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
+	if err != nil {
+		return err
+	}
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return err
+	}
+	writes := []StartWrite{}
+	if err := ensureWorkstreamState(inst.CaseRoot, m, &writes); err != nil {
+		return err
+	}
+	_, err = saveBoard(inst.CaseRoot, m)
+	return err
+}
+
 func startContext(repoRoot, caseRoot, pack string, opt StartOptions) (instance.Instance, *manifest.Manifest, manifest.LaneType, string, string, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {

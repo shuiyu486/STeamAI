@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
 const maxRows = 10
@@ -80,12 +81,13 @@ type BatchSummary struct {
 }
 
 type overviewData struct {
-	inst     instance.Instance
-	board    event
-	facts    factSet
-	lanes    []event
-	pending  int
-	sections OverviewSections
+	inst        instance.Instance
+	board       event
+	facts       factSet
+	lanes       []event
+	pending     int
+	sections    OverviewSections
+	initialized bool
 }
 
 type batchSummary struct {
@@ -175,7 +177,7 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 		CaseRoot:       data.inst.CaseRoot,
 		RepoRoot:       repoRoot,
 		Pack:           pack,
-		IsMutation:     false,
+		IsMutation:     data.initialized,
 		AutomationMode: stringValue(data.board, "automationMode"),
 		Lanes:          lanes,
 		Counts: FactCounts{
@@ -197,8 +199,13 @@ func loadOverviewData(repoRoot, caseRoot, pack string) (overviewData, error) {
 	}
 	boardPath := filepath.Join(inst.CaseRoot, ".rekit", "board.json")
 	board, err := readJSONObject(boardPath)
+	initialized := false
 	if os.IsNotExist(err) {
-		return overviewData{}, fmt.Errorf("overview requires existing .rekit/board.json; run PowerShell /rekit overview once to initialize the case-local board")
+		if err := workstream.EnsureBoard(repoRoot, inst.CaseRoot, pack); err != nil {
+			return overviewData{}, err
+		}
+		initialized = true
+		board, err = readJSONObject(boardPath)
 	}
 	if err != nil {
 		return overviewData{}, err
@@ -209,12 +216,13 @@ func loadOverviewData(repoRoot, caseRoot, pack string) (overviewData, error) {
 	}
 	lanes := laneList(board["lanes"])
 	return overviewData{
-		inst:     inst,
-		board:    board,
-		facts:    facts,
-		lanes:    lanes,
-		pending:  pendingDecisions(facts.Decisions),
-		sections: buildOverviewSections(facts),
+		inst:        inst,
+		board:       board,
+		facts:       facts,
+		lanes:       lanes,
+		pending:     pendingDecisions(facts.Decisions),
+		sections:    buildOverviewSections(facts),
+		initialized: initialized,
 	}, nil
 }
 
