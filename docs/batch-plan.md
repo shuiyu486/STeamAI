@@ -2893,3 +2893,35 @@ git diff --check
 ```
 
 验证结果：全部通过。discovery 文本与 JSON 断言、matrix JSON 子集、matrix 文本子集、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 96：pack smoke matrix selftest
+
+状态：已完成。
+
+目标：给 `pack-smoke-matrix.ps1` 自身增加回归测试，覆盖 discovery、JSON envelope、子集去重、unknown pack guard 和文本输出，避免 matrix 脚本演进后只能靠人工命令发现输出格式或 guard 回归。
+
+实施范围：
+
+- 新增 `rekit/tests/pack-smoke-matrix-selftest.ps1`，以子进程方式调用 `pack-smoke-matrix.ps1`。
+- 覆盖 `-DiscoveryOnly` 文本输出、`-DiscoveryOnly -Format json` envelope 和 missing/extra/orphan/missing-script 空集合断言。
+- 覆盖 `-Packs web-security,generic-binary-re -Format json` 的 `pack-smoke-matrix` envelope、result success/exitCode/output 字段。
+- 覆盖重复 pack 选择去重、文本模式 running/summary/原始 smoke 输出，以及 unknown pack 非零退出 guard。
+- 保持 matrix、shared helper 和单 pack smoke 验证语义不变。
+- 更新 README、Go runtime migration、CHANGELOG 与本计划文档，记录 selftest 用途和验证入口。
+
+边界：本批只新增测试脚本，不改变 runtime、pack manifest、Go backend、PowerShell façade 委托集合、matrix 执行语义或单 pack smoke 覆盖；selftest 使用既有自包含临时 case smoke 子集，不创建真实 case state；不执行样本、网络、debug、dump、patch、hook、fuzz、exploit replay 或任何外部副作用；不写 authority/confirmed。
+
+停止条件：若后续要为 matrix 引入 Pester、JUnit/SARIF、mock backend、并行 failure fixture 或 CI artifact，应作为独立批次评估依赖、输出稳定性和执行时间。
+
+验证：
+
+```powershell
+.\rekit\tests\pack-smoke-matrix-selftest.ps1
+.\rekit\tests\pack-smoke-matrix.ps1 -DiscoveryOnly
+.\rekit\tests\pack-inventory-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`pack-smoke-matrix-selftest.ps1`、discovery guard、`pack-inventory-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

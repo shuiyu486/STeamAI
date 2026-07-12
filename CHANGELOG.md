@@ -106,6 +106,7 @@
 - Batch 93 完成：新增 `rekit/tests/pack-smoke-matrix.ps1`，可默认运行 8 个安全领域 skeleton pack smoke，也支持 `-Packs` 子集、逗号分隔、`all`、去重、未知 pack guard 与 `-FailFast`，在不改变各 pack smoke 语义的前提下降低手动串联验证的遗漏和失败定位成本。
 - Batch 94 完成：`pack-smoke-matrix.ps1` 新增 `-Format text|json`，默认保持文本输出，JSON envelope 提供 `schemaVersion/command/isMutation/workRoot/failFast/packCount/failedCount/ok/packs/results[]`，每个 result 含 pack、script、success、exitCode、elapsedMs 与原始 output，便于 CI 或后续编排稳定消费 pack smoke 结果。
 - Batch 95 完成：`pack-smoke-matrix.ps1` 新增 `-DiscoveryOnly` 只读一致性检查，对比 `/rekit packs -Format json` 中 schema-valid skeleton packs、matrix 显式清单和 `*-pack-smoke.ps1` wrappers，报告 missing/extra/orphan/missing-script 与显式 excluded packs，避免新增 skeleton pack 后遗漏 smoke 或 matrix 清单。
+- Batch 96 完成：新增 `rekit/tests/pack-smoke-matrix-selftest.ps1`，覆盖 matrix discovery 文本/JSON、matrix JSON envelope、重复 pack 去重、文本输出和 unknown pack guard，锁定 pack smoke matrix 自身的输出契约与错误边界。
 
 ### Fixed
 
