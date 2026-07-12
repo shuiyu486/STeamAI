@@ -274,7 +274,7 @@ switch ($Command) {
   }
   'continue' {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
-    Invoke-RekitContinue -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -WhatIf:$WhatIf
+    Invoke-RekitContinue -Target $resolved.Target -RepoRoot $RepoRoot -Pack $Pack -ActionArgs $resolved.Args -Format $Format -WhatIf:$WhatIf
   }
   'start' {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs

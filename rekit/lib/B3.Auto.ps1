@@ -501,6 +501,314 @@ function Add-RekitTaskIfMissing {
   return $true
 }
 
+function New-RekitAutoWouldWrite {
+  param(
+    [Parameter(Mandatory=$true)][string]$Path,
+    [Parameter(Mandatory=$true)][string]$Kind,
+    [Parameter(Mandatory=$true)][string]$Action,
+    [string]$TargetPath = ''
+  )
+  $row = [ordered]@{ path = $Path; kind = $Kind; action = $Action }
+  if (-not [string]::IsNullOrWhiteSpace($TargetPath)) { $row['targetPath'] = $TargetPath }
+  return $row
+}
+
+function New-RekitAutoFactWritePreview {
+  param(
+    [Parameter(Mandatory=$true)][string]$CaseRoot,
+    [Parameter(Mandatory=$true)][string]$RelativePath
+  )
+  return New-RekitAutoWouldWrite -Path $RelativePath -Kind 'fact-jsonl' -Action 'would-append' -TargetPath (Join-RekitPath -Root $CaseRoot -RelativePath $RelativePath)
+}
+
+function New-RekitAutoLaneWritePreview {
+  param(
+    [Parameter(Mandatory=$true)][string]$CaseRoot,
+    [Parameter(Mandatory=$true)][string]$LaneId,
+    [Parameter(Mandatory=$true)][string]$FileName
+  )
+  $relative = ".rekit/lanes/$LaneId/$FileName"
+  return New-RekitAutoWouldWrite -Path $relative -Kind 'lane-jsonl' -Action 'would-append' -TargetPath (Join-RekitPath -Root $CaseRoot -RelativePath $relative)
+}
+
+function New-RekitAutoAuthorityWritePreview {
+  param(
+    [Parameter(Mandatory=$true)][string]$CaseRoot,
+    [Parameter(Mandatory=$true)][string]$AuthorityFile
+  )
+  return New-RekitAutoWouldWrite -Path $AuthorityFile -Kind 'authority' -Action 'would-append' -TargetPath (Join-RekitPath -Root $CaseRoot -RelativePath $AuthorityFile)
+}
+
+function New-RekitAutoRunArtifactWritePreview {
+  param(
+    [Parameter(Mandatory=$true)][string]$CaseRoot,
+    [Parameter(Mandatory=$true)][string]$RunId,
+    [Parameter(Mandatory=$true)][string]$Folder,
+    [Parameter(Mandatory=$true)][string]$Name
+  )
+  $relative = ".rekit/runs/$RunId/$Folder/$Name"
+  return New-RekitAutoWouldWrite -Path $relative -Kind 'run-artifact' -Action 'would-write' -TargetPath (Join-RekitPath -Root $CaseRoot -RelativePath $relative)
+}
+
+function Test-RekitRequestAlreadyRouted {
+  param(
+    [Parameter(Mandatory=$true)][string]$CaseRoot,
+    [Parameter(Mandatory=$true)][string]$LaneId,
+    [Parameter(Mandatory=$true)]$Event
+  )
+  $tasksPath = Join-Path (Get-RekitLanePath -CaseRoot $CaseRoot -LaneId $LaneId) 'tasks.jsonl'
+  $tasks = @(Read-RekitJsonLines -Path $tasksPath)
+  $sourceLane = [string]$Event.lane
+  $requestId = if ($Event.PSObject.Properties['requestId']) { [string]$Event.requestId } else { '' }
+  if (-not [string]::IsNullOrWhiteSpace($requestId)) {
+    return (@($tasks | Where-Object { $_.requestId -eq $requestId -and $_.sourceLane -eq $sourceLane }).Count -gt 0)
+  }
+  return (@($tasks | Where-Object { $_.eventId -eq $Event.eventId }).Count -gt 0)
+}
+
+function Test-RekitRouteTargetPreview {
+  param(
+    [Parameter(Mandatory=$true)][string]$CaseRoot,
+    [Parameter(Mandatory=$true)][string]$LaneId
+  )
+  $laneFile = Join-Path (Get-RekitLanePath -CaseRoot $CaseRoot -LaneId $LaneId) 'lane.json'
+  if (-not (Test-Path -LiteralPath $laneFile)) { return "target lane does not exist: $LaneId" }
+  $lane = Read-RekitJsonFile -Path $laneFile
+  if ($null -eq $lane) { return "target lane does not exist: $LaneId" }
+  $status = ([string]$lane.status).Trim().ToLowerInvariant()
+  if (@('archived','paused','closed') -contains $status) { return "target lane is not open: $LaneId" }
+  return ''
+}
+
+function Test-RekitAuthorityAppendPreview {
+  param(
+    [Parameter(Mandatory=$true)][string]$CaseRoot,
+    [Parameter(Mandatory=$true)]$Manifest,
+    [Parameter(Mandatory=$true)]$Policy,
+    [Parameter(Mandatory=$true)]$Event
+  )
+  $authorityFile = Get-RekitCandidateAuthorityFile $Event
+  if ([string]::IsNullOrWhiteSpace($authorityFile)) { return [pscustomobject]@{ Applied = $false; Reason = 'no authority file'; Rows = 0 } }
+  $allowed = @(Get-RekitAuthorityFiles -CaseRoot $CaseRoot -Manifest $Manifest)
+  if ($allowed -notcontains $authorityFile) { return [pscustomobject]@{ Applied = $false; Reason = "authority file is not allowed: $authorityFile"; Rows = 0 } }
+  if ([string]$Policy.authorityAutoAppend -eq 'never') { return [pscustomobject]@{ Applied = $false; Reason = 'authority auto append disabled'; Rows = 0 } }
+  $confidence = Get-RekitEventConfidence $Event
+  $minConfidence = Get-RekitPolicyNumber -Policy $Policy -Name 'minConfidence' -Default 0.90
+  if ($confidence -lt $minConfidence) { return [pscustomobject]@{ Applied = $false; Reason = "confidence below threshold: $confidence < $minConfidence"; Rows = 0 } }
+  if ((Test-RekitPolicyBool -Policy $Policy -Name 'requireEvidence' -Default $true) -and -not (Test-RekitEventEvidence -CaseRoot $CaseRoot -Event $Event)) { return [pscustomobject]@{ Applied = $false; Reason = 'missing evidence'; Rows = 0 } }
+  if (-not (Test-RekitEventVerified -Policy $Policy -Event $Event)) { return [pscustomobject]@{ Applied = $false; Reason = 'missing accepted verifier verdict'; Rows = 0 } }
+  $target = Join-RekitPath -Root $CaseRoot -RelativePath $authorityFile
+  if (-not (Test-Path -LiteralPath $target)) { return [pscustomobject]@{ Applied = $false; Reason = "missing authority file: $authorityFile"; Rows = 0 } }
+  if (-not $authorityFile.ToLowerInvariant().EndsWith('.csv')) { return [pscustomobject]@{ Applied = $false; Reason = 'only csv authority append is automated'; Rows = 0 } }
+  if ((Test-RekitPolicyBool -Policy $Policy -Name 'requireSchemaValid' -Default $true) -and -not (Test-RekitCandidateCsvSchema -CaseRoot $CaseRoot -Event $Event -AuthorityFile $authorityFile)) { return [pscustomobject]@{ Applied = $false; Reason = 'candidate row does not match authority csv schema'; Rows = 0 } }
+  if ((Test-RekitPolicyBool -Policy $Policy -Name 'requireNoConflict' -Default $true) -and (Test-RekitEventConflict -CaseRoot $CaseRoot -Event $Event -AuthorityFile $authorityFile)) { return [pscustomobject]@{ Applied = $false; Reason = 'authority key conflict'; Rows = 0 } }
+  $rows = @(Get-RekitCandidateRows $Event)
+  if ($rows.Count -eq 0) { return [pscustomobject]@{ Applied = $false; Reason = 'no candidate rows'; Rows = 0 } }
+  foreach ($row in $rows) {
+    if ($row -is [string] -and ($row.Contains("`r") -or $row.Contains("`n"))) { return [pscustomobject]@{ Applied = $false; Reason = 'candidate row contains newline'; Rows = 0 } }
+  }
+  $maxRows = [int](Get-RekitPolicyNumber -Policy $Policy -Name 'maxAuthorityRowsPerRun' -Default 10)
+  if ($rows.Count -gt $maxRows) { return [pscustomobject]@{ Applied = $false; Reason = "too many rows: $($rows.Count) > $maxRows"; Rows = $rows.Count } }
+  return [pscustomobject]@{ Applied = $true; Reason = 'passed authority append policy'; AuthorityFile = $authorityFile; Rows = $rows.Count }
+}
+
+function ConvertTo-RekitAutoPreviewEvent {
+  param(
+    [Parameter(Mandatory=$true)][string]$CaseRoot,
+    [Parameter(Mandatory=$true)]$Manifest,
+    [Parameter(Mandatory=$true)]$Policy,
+    [Parameter(Mandatory=$true)]$Event,
+    [Parameter(Mandatory=$true)][string]$RunId
+  )
+  $kind = ([string]$Event.kind).Trim().ToLowerInvariant()
+  if ([string]::IsNullOrWhiteSpace($kind)) { $kind = 'observation' }
+  $preview = [ordered]@{
+    eventId = [string]$Event.eventId
+    kind = $kind
+    lane = [string]$Event.lane
+    subject = [string]$Event.subject
+    summary = [string]$Event.summary
+    decision = ''
+    reason = ''
+    wouldWrites = @()
+  }
+  switch ($kind) {
+    'observation' {
+      if (Test-RekitPolicyBool -Policy $Policy -Name 'autoPublishSharedFacts' -Default $true) {
+        $preview.decision = 'accept'
+        $preview.reason = 'shared observation'
+        $preview.wouldWrites = @(
+          (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/observations.jsonl'),
+          (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/decisions.jsonl')
+        )
+      } else {
+        $preview.decision = 'defer'
+        $preview.reason = 'autoPublishSharedFacts disabled'
+      }
+    }
+    'request' {
+      $preview.decision = 'accept'
+      $preview.reason = 'would route request'
+      $preview.wouldWrites = @(
+        (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/requests.jsonl'),
+        (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/decisions.jsonl')
+      )
+      if (Test-RekitPolicyBool -Policy $Policy -Name 'autoRouteRequests' -Default $true) {
+        $targetLane = if ($Event.PSObject.Properties['targetLane'] -and -not [string]::IsNullOrWhiteSpace([string]$Event.targetLane)) { [string]$Event.targetLane } else { Get-RekitRequestDefaultTargetLane -Manifest $Manifest }
+        $routeReason = Test-RekitRouteTargetPreview -CaseRoot $CaseRoot -LaneId $targetLane
+        if (-not [string]::IsNullOrWhiteSpace($routeReason)) {
+          $preview.decision = 'defer'
+          $preview.reason = $routeReason
+        } elseif (-not (Test-RekitRequestAlreadyRouted -CaseRoot $CaseRoot -LaneId $targetLane -Event $Event)) {
+          $preview['targetLane'] = $targetLane
+          $preview.wouldWrites = @($preview.wouldWrites) + @(
+            (New-RekitAutoLaneWritePreview -CaseRoot $CaseRoot -LaneId $targetLane -FileName 'tasks.jsonl'),
+            (New-RekitAutoLaneWritePreview -CaseRoot $CaseRoot -LaneId $targetLane -FileName 'inbox.jsonl')
+          )
+        }
+      } else {
+        $preview.decision = 'defer'
+        $preview.reason = 'autoRouteRequests disabled'
+      }
+    }
+    'candidate' {
+      if (Test-RekitPolicyBool -Policy $Policy -Name 'autoVerify' -Default $true) {
+        $verification = Invoke-RekitRuleVerifier -CaseRoot $CaseRoot -Manifest $Manifest -Policy $Policy -Event $Event
+      } else {
+        $verification = [pscustomobject]@{ verifier = 'policy-disabled'; verdict = 'skipped'; confidence = (Get-RekitEventConfidence $Event); hasEvidence = (Test-RekitEventEvidence -CaseRoot $CaseRoot -Event $Event); schemaValid = $true; conflict = $false; reasons = @('autoVerify disabled'); time = New-RekitIsoTime }
+      }
+      $Event = Set-RekitEventVerification -Event $Event -Verification $verification
+      $preview['verification'] = $verification
+      $authority = Get-RekitCandidateAuthorityFile $Event
+      if (-not [string]::IsNullOrWhiteSpace($authority)) {
+        $preview['authorityFile'] = $authority
+        $rows = @(Get-RekitCandidateRows $Event)
+        $preview['rows'] = [int]$rows.Count
+        $result = Test-RekitAuthorityAppendPreview -CaseRoot $CaseRoot -Manifest $Manifest -Policy $Policy -Event $Event
+        if ($result.Applied) {
+          $diffName = (($authority -replace '[\\/:*?"<>|]', '_') + '.diff')
+          $preview.decision = 'accept'
+          $preview.reason = 'passed authority append policy'
+          $preview.wouldWrites = @(
+            (New-RekitAutoAuthorityWritePreview -CaseRoot $CaseRoot -AuthorityFile $authority),
+            (New-RekitAutoRunArtifactWritePreview -CaseRoot $CaseRoot -RunId $RunId -Folder 'backups' -Name $authority),
+            (New-RekitAutoRunArtifactWritePreview -CaseRoot $CaseRoot -RunId $RunId -Folder 'diffs' -Name $diffName),
+            (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/publications.jsonl'),
+            (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/decisions.jsonl')
+          )
+        } else {
+          $preview.decision = 'defer'
+          $preview.reason = [string]$result.Reason
+          $preview.wouldWrites = @(
+            (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/candidates.jsonl'),
+            (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/decisions.jsonl')
+          )
+        }
+      } elseif ((Test-RekitPolicyBool -Policy $Policy -Name 'autoAcceptLowRiskCandidates' -Default $true) -and [bool]$verification.hasEvidence -and (Test-RekitEventVerified -Policy $Policy -Event $Event)) {
+        $preview.decision = 'accept'
+        $preview.reason = 'candidate has evidence, verifier accepted, and does not touch authority'
+        $preview.wouldWrites = @(
+          (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/candidates.jsonl'),
+          (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/decisions.jsonl')
+        )
+      } else {
+        $preview.decision = 'defer'
+        $preview.reason = 'candidate lacks evidence or policy disabled'
+        $preview.wouldWrites = @(
+          (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/candidates.jsonl'),
+          (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/decisions.jsonl')
+        )
+      }
+    }
+    'publication' {
+      $preview.decision = 'accept'
+      $preview.reason = 'publication event'
+      $preview.wouldWrites = @(
+        (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/publications.jsonl'),
+        (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/decisions.jsonl')
+      )
+    }
+    default {
+      $preview.decision = 'accept'
+      $preview.reason = "unknown kind treated as observation: $kind"
+      $preview.wouldWrites = @(
+        (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/observations.jsonl'),
+        (New-RekitAutoFactWritePreview -CaseRoot $CaseRoot -RelativePath '.rekit/facts/decisions.jsonl')
+      )
+    }
+  }
+  return [pscustomobject]$preview
+}
+
+function New-RekitContinuePreview {
+  param(
+    [Parameter(Mandatory=$true)][string]$CaseRoot,
+    [Parameter(Mandatory=$true)][string]$RepoRoot,
+    [Parameter(Mandatory=$true)][string]$Pack,
+    [Parameter(Mandatory=$true)]$Manifest,
+    [Parameter(Mandatory=$true)][string]$Selector,
+    [Parameter(Mandatory=$true)]$Lane
+  )
+  $policy = Get-RekitPolicy -CaseRoot $CaseRoot -NoCreate
+  $known = Get-RekitKnownEventIds -CaseRoot $CaseRoot
+  $runId = 'run-preview'
+  $batchId = 'batch-' + $runId
+  $summary = [ordered]@{ collected = 0; observations = 0; requests = 0; routed = 0; candidates = 0; acceptedCandidates = 0; publications = 0; authorityApplied = 0; authorityWouldAppend = 0; pendingUser = 0; skipped = 0 }
+  $events = New-Object System.Collections.Generic.List[object]
+  $wouldWrites = New-Object System.Collections.Generic.List[object]
+  $openRisks = New-Object System.Collections.Generic.List[string]
+  foreach ($event in (Get-RekitLaneOutputEvents -CaseRoot $CaseRoot -Lane $Lane -Manifest $Manifest)) {
+    if ($known.ContainsKey([string]$event.eventId)) { $summary.skipped++; continue }
+    $summary.collected++
+    $event | Add-Member -NotePropertyName lane -NotePropertyValue ([string]$Lane.id) -Force
+    if (-not $event.PSObject.Properties['batchId'] -or [string]::IsNullOrWhiteSpace([string]$event.batchId)) { $event | Add-Member -NotePropertyName batchId -NotePropertyValue $batchId -Force }
+    $preview = ConvertTo-RekitAutoPreviewEvent -CaseRoot $CaseRoot -Manifest $Manifest -Policy $policy -Event $event -RunId $runId
+    $events.Add($preview)
+    foreach ($write in @($preview.wouldWrites)) { $wouldWrites.Add($write) }
+    if ($preview.decision -eq 'defer' -or $preview.decision -eq 'pending-user') {
+      $openRisks.Add((Format-RekitAutoRiskLine -Kind ([string]$preview.kind) -Event $preview -Reason ([string]$preview.reason)))
+    }
+    switch ([string]$preview.kind) {
+      'observation' { if ($preview.decision -eq 'accept') { $summary.observations++ } }
+      'request' {
+        $summary.requests++
+        if ($preview.decision -eq 'accept' -and $preview.PSObject.Properties['targetLane'] -and -not [string]::IsNullOrWhiteSpace([string]$preview.targetLane)) { $summary.routed++ }
+      }
+      'candidate' {
+        $summary.candidates++
+        if ($preview.decision -eq 'accept') {
+          if ($preview.PSObject.Properties['authorityFile'] -and -not [string]::IsNullOrWhiteSpace([string]$preview.authorityFile)) { $summary.authorityWouldAppend += [int]$preview.rows } else { $summary.acceptedCandidates++ }
+        } else { $summary.pendingUser++ }
+      }
+      'publication' { if ($preview.decision -eq 'accept') { $summary.publications++ } }
+    }
+  }
+  $inputRefs = @((Get-RekitAutoInputRefs -CaseRoot $CaseRoot -Lane $Lane) | Select-Object -Unique)
+  $packetRefs = @((Get-RekitAutoPacketRefs -CaseRoot $CaseRoot -Lane $Lane) | Select-Object -Unique)
+  $result = [ordered]@{}
+  $result['schemaVersion'] = 1
+  $result['command'] = 'continue'
+  $result['caseRoot'] = $CaseRoot
+  $result['repoRoot'] = $RepoRoot
+  $result['pack'] = $Pack
+  $result['isMutation'] = $false
+  $result['applied'] = $false
+  $result['requiresConfirmation'] = $true
+  $result['selector'] = $Selector
+  $result['lane'] = $Lane
+  $result['runId'] = $runId
+  $result['batchId'] = $batchId
+  $result['summary'] = $summary
+  $result['inputs'] = $inputRefs
+  $result['packetRefs'] = $packetRefs
+  $result['events'] = $events.ToArray()
+  $result['openRisks'] = $openRisks.ToArray()
+  $result['wouldWrites'] = $wouldWrites.ToArray()
+  $result['blockedActions'] = @('run directory creation','facts JSONL writes','lane resume/checkpoint refresh','board refresh','authority/confirmed writes','heavy-tool execution')
+  $result['nextSteps'] = @('review this preview against PowerShell continue digest/status behavior','re-run continue without -WhatIf to apply the PowerShell workflow after review')
+  return $result
+}
+
 function Invoke-RekitAuto {
   param(
     [Parameter(Mandatory=$true)][string]$Target,

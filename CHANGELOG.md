@@ -81,6 +81,7 @@
 - Batch 68 完成：`/rekit overview` 新增 `-Format json` 机器可读项目总览输出，Go backend 与 PowerShell fallback 均返回 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/automationMode/lanes/counts/sections/nextSteps` envelope，方便新会话接手、CI 和后续 orchestration 直接消费工作线与 review-loop 摘要。
 - Batch 69 完成：`/rekit handoff -WhatIf` 新增 `-Format json` 机器可读写入预览，PowerShell fallback 在不委托 Go 的前提下返回 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/applied/requiresConfirmation/selector/project/lane/writes/blockedActions/nextSteps` envelope，便于接手自动化和审查流程安全消费 handoff 计划。
 - Batch 70 完成：`/rekit start -WhatIf` 新增 `-Format json` 机器可读非写入预览，PowerShell fallback 在不委托 Go 的前提下返回 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/applied/requiresConfirmation/lane/writes/blockedActions/nextSteps` envelope，并拒绝 apply + JSON，便于自动化安全消费 start 工作线计划。
+- Batch 71 完成：`/rekit continue -WhatIf` 新增 `-Format json` 机器可读非写入预览，PowerShell fallback 在不委托 Go 的前提下返回 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/applied/requiresConfirmation/selector/lane/runId/batchId/summary/inputs/packetRefs/events/openRisks/wouldWrites/blockedActions/nextSteps` envelope，并拒绝 apply + JSON，便于自动化预审 continue 收集、路由和 authority append 计划。
 
 ### Fixed
 

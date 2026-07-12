@@ -2131,3 +2131,31 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/workstream`、`go test ./...`、`start-apply-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 71：continue preview JSON 输出
+
+状态：已完成。
+
+目标：延续 Batch 64-70 的机器可读 envelope 模式，为 PowerShell fallback 的 `/rekit continue -WhatIf` 增加 `-Format json`，让自动化和新会话接手可在不创建 run、facts、lane resume/checkpoint、board 或 authority 写入的情况下消费 continue 收集、路由、candidate verification 与 authority append 计划。
+
+实施范围：
+
+- PowerShell `Invoke-RekitContinue` 支持 `-WhatIf -Format json`，输出 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/applied/requiresConfirmation/selector/lane/runId/batchId/summary/inputs/packetRefs/events/openRisks/wouldWrites/blockedActions/nextSteps` envelope。
+- 新增 PowerShell preview helper，复用既有 policy、lane output、rule verifier、route target、authority append preflight 逻辑，生成只读 `wouldWrites` 与 per-event decisions；apply + JSON 明确拒绝。
+- 顶层 `rekit.ps1` 将 `-Format` 透传给 continue；显式 `REKIT_GO_ENABLE=1` 时仍不把 continue 纳入 Go façade 委托集合。
+- `continue-whatif-smoke.ps1` 覆盖 Go continue preview、PowerShell façade fallback text no-write、PowerShell fallback JSON preview、route/authority wouldWrites、no-write snapshot 与 apply JSON format guard。
+- 更新 README、skill、Go runtime migration 与 CHANGELOG，说明 continue JSON preview 是只读/非写入预览输出。
+
+边界：本批只增强 PowerShell fallback 的 `continue -WhatIf` 预览输出；不改变 Go continue preview schema、不新增 façade Go 委托、不写 run/facts/lanes/board/handoff/authority/confirmed、不启动 subagent、不执行 heavy-tool、不改变 sync/promote review-first 语义。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/workstream
+go test ./...
+.\rekit\tests\continue-whatif-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/workstream`、`go test ./...`、`continue-whatif-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

@@ -125,8 +125,8 @@ claude
 | `/rekit status` | 只读 | 看当前 case 绑定状态；若目录被移动，只提示，不修复；`-Format json` 输出机器可读 status envelope。 |
 | `/rekit packs` | 只读 | 维护者查看当前 kit 内所有 pack 的成熟度、schema、route、managed/tooling 和 authority lane 概览；`-Format json` 输出机器可读 inventory。 |
 | `/rekit overview` | case-local 状态 | 显示项目概览、主线/支线、共享事实统计和下一步建议；维护自动化可用 `-Format json` 消费 overview envelope；只表示总览，不代表当前会话已选择工作线。 |
-| `/rekit continue main` | case-local 自动整理 | 明确接手主线并整理相关状态；多工作线时不要用无参数 `continue` 盲猜。 |
-| `/rekit continue <name>` | case-local 自动整理 | 明确接手某条功能支线，只整理该支线的 workspace/outbox 并刷新接续提示。 |
+| `/rekit continue main` | case-local 自动整理 | 明确接手主线并整理相关状态；多工作线时不要用无参数 `continue` 盲猜；维护自动化可用 `-WhatIf -Format json` 消费非写入 continue 计划。 |
+| `/rekit continue <name>` | case-local 自动整理 | 明确接手某条功能支线，只整理该支线的 workspace/outbox 并刷新接续提示；`-WhatIf -Format json` 可预览收集、路由和 authority append 计划。 |
 | `/rekit start <name>` | case-local 状态 | 创建或进入一个功能支线，例如 `/rekit start login`；支线只写自己的工作区；维护自动化可用 `-WhatIf -Format json` 消费非写入 start 计划。 |
 | `/rekit handoff` | case-local 状态 | 生成项目级接手索引 `.rekit/handovers/latest.md`；维护自动化可用 `-WhatIf -Format json` 消费写入预览；不代表某个会话。 |
 | `/rekit handoff <name>` | case-local 状态 | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；`-WhatIf -Format json` 可预览目标工作线 handoff 写入计划。 |
@@ -160,7 +160,7 @@ claude
 /rekit continue login
 ```
 
-`overview` 只是项目总览，不代表当前会话已经选择主线或支线。多条 open 工作线时，无参数 `/rekit continue` 只会列出选择，不会盲目推进。明确选择后，它会自动整理对应工作线的 case-local 状态：收集 outbox/workspace 事件、发布低风险共享事实、路由 request、验证候选并刷新接续提示。
+`overview` 只是项目总览，不代表当前会话已经选择主线或支线。多条 open 工作线时，无参数 `/rekit continue` 只会列出选择，不会盲目推进。需要自动化预览时可先运行 `/rekit continue login -WhatIf -Format json` 获取只读计划。明确选择后，它会自动整理对应工作线的 case-local 状态：收集 outbox/workspace 事件、发布低风险共享事实、路由 request、验证候选并刷新接续提示。
 
 安全边界：只有 candidate 同时满足 evidence、accepted verifier、confidence 阈值、CSV schema、无冲突、backup、diff、max rows 时，才允许自动 append authority CSV；覆盖/删除 authority、冲突、schema change、外部副作用或破坏性动作仍必须问用户。
 

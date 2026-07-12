@@ -352,9 +352,14 @@ function Invoke-RekitContinue {
     [Parameter(Mandatory=$true)][string]$RepoRoot,
     [string]$Pack = 'vmp-re',
     [string[]]$ActionArgs = @(),
+    [string]$Format = '',
     [switch]$WhatIf
   )
   $caseRoot = [System.IO.Path]::GetFullPath($Target)
+  $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+  if ([string]::IsNullOrWhiteSpace($formatValue)) { $formatValue = 'table' }
+  if (@('table','text','tsv','json') -notcontains $formatValue) { throw "unsupported continue format: $Format" }
+  if (-not $WhatIf -and $formatValue -eq 'json') { throw 'continue -Format json currently supports -WhatIf preview only; omit -Format for apply' }
   if ($WhatIf) {
     [void](Assert-RekitAttachedCase -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack)
     $boardPath = (Get-RekitBoardPaths -CaseRoot $caseRoot).Board
@@ -369,6 +374,7 @@ function Invoke-RekitContinue {
     if ($open.Count -eq 1) {
       $selector = Get-RekitWorkstreamLabel -Lane $open[0]
     } else {
+      if ($formatValue -eq 'json') { throw 'continue -WhatIf -Format json requires exactly one open workstream or an explicit selector' }
       Write-RekitWorkstreamChoices -Board $board -Prefix '检测到多条 open 工作线；/rekit continue 不会猜测当前会话身份。'
       Write-Host '请使用 /rekit continue main 或 /rekit continue <name>。'
       return
@@ -378,6 +384,11 @@ function Invoke-RekitContinue {
   if ($null -eq $lane) {
     Write-RekitWorkstreamChoices -Board $board -Prefix "找不到工作线：$selector"
     throw "unknown workstream selector: $selector"
+  }
+  if ($WhatIf -and $formatValue -eq 'json') {
+    $manifest = Get-RekitPackManifest -RepoRoot $RepoRoot -Pack $Pack
+    New-RekitContinuePreview -CaseRoot $caseRoot -RepoRoot $RepoRoot -Pack $Pack -Manifest $manifest -Selector $selector -Lane $lane | ConvertTo-Json -Depth 20
+    return
   }
   Invoke-RekitAuto -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ActionArgs @($selector) -FocusLaneId ([string]$lane.id) -WhatIf:$WhatIf
   $resume = if ($WhatIf) { Join-RekitPath -Root (Join-RekitPath -Root $caseRoot -RelativePath ([string]$lane.laneRoot)) -RelativePath 'prompts/RESUME.md' } else { Write-RekitLaneResume -CaseRoot $caseRoot -LaneId ([string]$lane.id) }

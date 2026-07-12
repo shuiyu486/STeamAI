@@ -186,6 +186,23 @@ try {
   Assert-NotContainsText -Text $facadeOut -Unexpected '"command": "continue"' -Label 'facade continue fallback'
   Assert-TreeUnchanged -Root $caseRoot -BeforeSnapshot $facadeBeforeFiles -BeforeDirectories $facadeBeforeDirs -Label 'facade continue what-if fallback'
 
+  $facadeJsonBeforeFiles = Save-TreeSnapshot -Path $caseRoot
+  $facadeJsonBeforeDirs = Save-TreeDirectories -Path $caseRoot
+  $facadePreviewJson = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','login','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
+  if ([string]$facadePreviewJson.command -ne 'continue' -or [bool]$facadePreviewJson.isMutation -or [bool]$facadePreviewJson.applied -or -not [bool]$facadePreviewJson.requiresConfirmation -or [string]$facadePreviewJson.lane.id -ne 'feature-login') {
+    throw "unexpected facade continue JSON preview: $($facadePreviewJson | ConvertTo-Json -Depth 20)"
+  }
+  if ([int]$facadePreviewJson.summary.collected -ne 3 -or [int]$facadePreviewJson.summary.observations -ne 1 -or [int]$facadePreviewJson.summary.requests -ne 1 -or [int]$facadePreviewJson.summary.routed -ne 1 -or [int]$facadePreviewJson.summary.candidates -ne 1 -or [int]$facadePreviewJson.summary.authorityWouldAppend -ne 1 -or [int]$facadePreviewJson.summary.pendingUser -ne 0) {
+    throw "unexpected facade continue JSON summary: $($facadePreviewJson | ConvertTo-Json -Depth 20)"
+  }
+  Assert-WriteAction -Result $facadePreviewJson -Path 'captures/vm_opcode_semantics_confirmed.csv' -Action 'would-append'
+  Assert-WriteAction -Result $facadePreviewJson -Path '.rekit/lanes/devirt-main/tasks.jsonl' -Action 'would-append'
+  Assert-TreeUnchanged -Root $caseRoot -BeforeSnapshot $facadeJsonBeforeFiles -BeforeDirectories $facadeJsonBeforeDirs -Label 'facade continue json preview'
+
+  $facadeApplyJsonError = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-Format','json','login') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
+  Assert-ContainsText -Text $facadeApplyJsonError -Expected 'continue -Format json currently supports -WhatIf preview only' -Label 'continue json apply guard'
+  $global:LASTEXITCODE = 0
+
   'continue what-if smoke ok'
 } finally {
   if (Test-Path -LiteralPath $caseRoot) { Remove-Item -LiteralPath $caseRoot -Recurse -Force -Confirm:$false }
