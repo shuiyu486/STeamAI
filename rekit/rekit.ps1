@@ -518,7 +518,7 @@ switch ($Command) {
     $syncReview = (-not $Apply -and -not $WhatIf)
     if ($Review) { $syncReview = $true }
     if ($Review -and $WhatIf) { throw 'sync -Review cannot be combined with -WhatIf. Choose review artifacts or a PowerShell dry run.' }
-    Sync-RekitPack -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf -Apply:$Apply -Review:$syncReview -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath
+    Sync-RekitPack -Target $caseRoot -RepoRoot $RepoRoot -Pack $Pack -ProjectName $ProjectName -WhatIf:$WhatIf -Apply:$Apply -Review:$syncReview -ReviewOutputDir $ReviewOutputDir -PacketPath $PacketPath -DiffPath $DiffPath -ForceLocalTemplates:$Force
   }
   'promote' {
     $caseRoot = Resolve-RekitTarget $Target

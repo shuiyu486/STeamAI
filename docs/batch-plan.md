@@ -2438,3 +2438,32 @@ git diff --check
 ```
 
 验证结果：全部通过。默认自包含 `facade-smoke.ps1`、显式 dryrun case `facade-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 `_template` pack 文档及 `facade-smoke.ps1` 的 LF/CRLF warning，无 whitespace error。
+
+### Batch 82：sync apply PowerShell/Go parity smoke
+
+状态：已完成。
+
+目标：补齐 `docs/sync-apply-migration.md` 中 S18 apply parity 验证缺口，用双临时 case 证明 PowerShell 与 Go `sync -Apply` 在 managed docs、template、managed block、metadata/shim 和 sync state 上保持对齐；同时不扩大 façade 写入委托面。
+
+实施范围：
+
+- 新增 `rekit/tests/sync-apply-parity-smoke.ps1`：创建两份 `_template` 临时 case，构造相同 README drift、task-handoff local template、managed block drift；一份走 PowerShell `/rekit sync -Apply`，一份走 Go CLI `sync -Apply`。
+- parity smoke 归一化比较 managed docs、template target、managed block host、case-local thin shim、`.rekit/instance.yml`、legacy `.re-template.yml` 与 `.rekit/state.json` managed hashes；case root 与行尾差异做归一化，backup timestamp/path 不做 byte-level 相等。
+- parity smoke 覆盖 `sync -Apply -Force`：验证 PowerShell 与 Go 均 overwrite local template、替换 project placeholder，并在两侧创建 backup。
+- 发现并修复 PowerShell façade `sync/update -Force` 未传给 `Sync-RekitPack -ForceLocalTemplates` 的问题；该修复只让既有 `-Force` 参数生效，不新增命令或委托面。
+- 更新 sync apply migration、Go runtime migration 与 CHANGELOG，记录 S18 已由 parity smoke 覆盖。
+
+边界：本批只补验证与一个参数透传修复；不委托 `sync -Apply` 实际写入到 Go façade，不写 pack source/promote candidates/tooling candidates/authority/confirmed，不执行 heavy-tool。测试写入仅限临时 case，并在 finally 清理。
+
+验证：
+
+```powershell
+.\rekit\tests\sync-apply-parity-smoke.ps1
+.\rekit\tests\sync-apply-smoke.ps1
+.\rekit\tests\facade-smoke.ps1
+go test ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`sync-apply-parity-smoke.ps1`、`sync-apply-smoke.ps1`、默认自包含 `facade-smoke.ps1`、`go test ./...`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 `_template` pack 文档 LF/CRLF warning，无 whitespace error。

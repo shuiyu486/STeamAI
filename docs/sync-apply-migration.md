@@ -148,7 +148,7 @@ internal/rekit/sync
 | S15 | `.gitignore` support source 存在且 target 缺失 | 创建 support file；target 已存在则 skip。 |
 | S16 | apply 中途源文件缺失/读写失败 | 返回错误；已写入部分不隐瞒；已有 backup 可人工恢复。 |
 | S17 | apply 后 doctor | Go doctor 与 PowerShell doctor 均通过。 |
-| S18 | PowerShell/Go apply parity | 两个临时 case 对比内容 hash；排除 review artifact 与 backup timestamp 差异。 |
+| S18 | PowerShell/Go apply parity | `sync-apply-parity-smoke.ps1` 用两个临时 case 对比 PowerShell/Go apply 与 force apply 后的 managed docs、template、managed block、metadata/shim、sync state；排除 backup timestamp/path 差异，仅验证 backup 存在与 containment。 |
 | S19 | Go `sync -Apply -WhatIf` | 输出非写入 JSON preview，`isMutation=false`、`applied=false`，preview 后 case tree/hash 不变，不创建 backup/state/review artifact。 |
 | S20 | façade explicit Go enable + `sync -Apply -WhatIf -Format json` | 委托 Go 输出非写入 JSON preview；文本 `sync -Apply -WhatIf` 与实际写入继续走 PowerShell fallback。 |
 
@@ -162,4 +162,4 @@ internal/rekit/sync
 4. 验证两边关键 action 一致、bounded diff 存在、review 不改 case 目标文件。
 5. 删除临时 case。
 
-它不执行 `sync -Apply`，也不替代未来 apply parity tests。
+`rekit/tests/sync-apply-parity-smoke.ps1` 已补 S18 apply parity：创建两份 `_template` 临时 case，构造相同 managed/template/block drift，分别执行 PowerShell 与 Go `sync -Apply` 以及 `-Force` apply，归一化比较 managed docs、template target、managed block、metadata/shim 和 `.rekit/state.json`，并验证两侧 backup 存在、Go/PowerShell doctor 均通过。
