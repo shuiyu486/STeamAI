@@ -10,13 +10,13 @@
 
 G3.8 先固化 PowerShell baseline、Go 迁移契约和 preflight smoke。G3.9 在 Go backend 中新增显式 `promote -Apply` 手动路径：`-Apply -WhatIf` 输出非写入 JSON preview，`-Apply` 对 safe managed docs 先 backup 再写 pack source，并在写入后运行 pack validation。
 
-当前 Go backend 已支持 `promote` review-only artifact、G3.7 `promote -CreateCandidates` 手动路径，以及 G3.9 `promote -Apply` 手动路径。该路径仍不纳入 PowerShell façade 委托安全集合，不写 authority/confirmed，不执行 heavy-tool，不写 tooling candidates。
+当前 Go backend 已支持 `promote` review-only artifact、G3.7 `promote -CreateCandidates` 手动路径，以及 G3.9 `promote -Apply` 手动路径。Batch 78 起仅 `promote -Apply -WhatIf -Format json` 非写入预览纳入显式 PowerShell façade 委托安全集合；实际 `promote -Apply` 写入仍不委托，不写 authority/confirmed，不执行 heavy-tool，不写 tooling candidates。
 
 ## 执行清单
 
 - [x] 固化 PowerShell `promote -Apply` 与 `-Apply -WhatIf` 当前语义基线。
 - [x] 固化 Go `promote -Apply` 迁移契约、边界和不迁移项。
-- [x] 增加 `rekit/tests/promote-apply-preflight-smoke.ps1`，验证 PowerShell apply baseline、Go apply what-if、façade fallback 与 cleanup。
+- [x] 增加 `rekit/tests/promote-apply-preflight-smoke.ps1`，验证 PowerShell apply baseline、Go apply what-if、显式 façade JSON preview 委托、文本 fallback 与 cleanup。
 - [x] G3.9 新增 Go `promote.Apply` helper 与 CLI `-Apply/-Apply -WhatIf` JSON result。
 - [x] G3.9 新增 `rekit/tests/promote-apply-smoke.ps1`，验证 Go apply backup、deny、validation、cleanup 与 façade fallback。
 - [x] 更新 `docs/batch-plan.md`、`docs/go-runtime-migration.md` 与 `CHANGELOG.md`。
@@ -42,7 +42,7 @@ git diff --check
 - Go `promote -Apply -WhatIf` 只输出 JSON preview，不写 pack source/backups/candidates。
 - Go `promote -Apply` 只写 safe managed docs，blocked deny 不写；写入前备份 pack source，写入后运行 pack validation。
 - PowerShell baseline 或 Go apply 若写入 `_template` pack source，smoke 必须在 `finally` 中恢复原文并清理新增 backup/candidate 文件和目录。
-- façade 即使 `REKIT_GO_ENABLE=1` 也不得委托 `promote -Apply` 到 Go。
+- PowerShell façade 只在显式 `REKIT_GO_ENABLE=1` 且同时带 `-Apply -WhatIf -Format json` 时委托 Go；文本 apply what-if 与实际 apply 写入继续 fallback 到 PowerShell。
 
 ## 风险与注意事项
 
@@ -51,7 +51,7 @@ git diff --check
 - candidate 内容来自 case managed docs，必须先过 deny pattern；不能把 case-specific 进度、绝对路径、trace、dump、capture、artifact 或真实样本信息写入 pack。
 - G3.9 Go `promote -Apply` 会覆盖 pack managed docs；必须依赖 backup、deny pattern、pack-root containment、validation 和 smoke cleanup 约束风险。
 - 不写 authority/confirmed，不执行 heavy-tool/debug/inject/patch/dump/network。
-- PowerShell façade 仍不委托 `promote -Apply`；公共 `/rekit` 入口继续走 PowerShell。
+- PowerShell façade 仍不委托 `promote -Apply` 实际写入；公共 `/rekit` 文本入口继续走 PowerShell。
 
 ## PowerShell 当前语义基线
 
@@ -84,7 +84,7 @@ internal/rekit/promote
 必须保持：
 
 - 裸 `promote` 默认 review-only。
-- `promote -Apply` 只能作为显式手动 Go CLI 写入路径，暂不经 PowerShell façade 委托。
+- `promote -Apply` 实际写入只能作为显式手动 Go CLI 路径；公共 façade 只允许 `-Apply -WhatIf -Format json` 非写入预览委托。
 - `-Apply` 不得与 `-CreateCandidates`、review artifact options 混用。
 - `-Apply -WhatIf` 只输出非写入 JSON preview。
 - 写入前必须复用 `Plan` 的 action、deny pattern 与 case-specific pattern 结果；只有 `candidate-after-llm-review` 可进入 apply 写入。
@@ -106,4 +106,4 @@ internal/rekit/promote
 | A8 | PowerShell `-Apply` validation | 写入后运行 pack validation；smoke 最终恢复原文并清理 backup。 |
 | A9 | Go `promote -Apply -WhatIf` | 输出非写入 JSON preview，`isMutation=false`，不创建 backup/candidate，不改 pack source。 |
 | A10 | Go `promote -Apply` | safe managed doc backup 后写 pack source，blocked deny 不写，写入后返回 validation rows。 |
-| A11 | façade explicit Go enable + `promote -Apply` | 不委托 Go，继续走 PowerShell fallback。 |
+| A11 | façade explicit Go enable + `promote -Apply -WhatIf -Format json` | 委托 Go 输出非写入 JSON preview；文本 what-if 与实际写入继续走 PowerShell fallback。 |

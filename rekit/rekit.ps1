@@ -170,9 +170,14 @@ function Test-RekitGoDelegationSafe {
       return (Test-RekitLooksLikeCase $caseRoot)
     }
     'promote' {
-      if ($Apply) { return $false }
       $caseRoot = Resolve-RekitTarget $Target
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
+      if ($Apply) {
+        if ((-not $WhatIf) -or $CreateCandidates -or $Review) { return $false }
+        if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+        $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+        return ($formatValue -eq 'json')
+      }
       if ($CreateCandidates) {
         if ((-not $WhatIf) -or $Review) { return $false }
         if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
