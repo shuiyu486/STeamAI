@@ -192,6 +192,11 @@ try {
   if (@($overviewJson.lanes).Count -lt 1 -or [string]@($overviewJson.lanes)[0].label -ne 'main' -or @($overviewJson.nextSteps).Count -lt 1) { throw "unexpected Go overview JSON lanes/nextSteps: $($overviewJson | ConvertTo-Json -Depth 20)" }
   Assert-TreeUnchanged -Root $rekitRoot -BeforeSnapshot $beforeFiles -BeforeDirectories $beforeDirs
 
+  $fakeGo = Join-Path $caseRoot 'fake-rekit-go.cmd'
+  [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"overview","delegatedByFake":true}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
+  $delegatedJson = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack,'-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$delegatedJson.delegatedByFake) { throw "facade overview JSON did not use REKIT_GO_EXE delegation: $($delegatedJson | ConvertTo-Json -Depth 20)" }
+
   $facadeJson = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack,'-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
   if ([string]$facadeJson.command -ne 'overview' -or [bool]$facadeJson.isMutation -or [string]$facadeJson.pack -ne $Pack -or [int]$facadeJson.counts.candidates -ne 2 -or [int]$facadeJson.sections.verifications.total -ne 1) { throw "unexpected facade overview JSON: $($facadeJson | ConvertTo-Json -Depth 20)" }
   Assert-TreeUnchanged -Root $rekitRoot -BeforeSnapshot $beforeFiles -BeforeDirectories $beforeDirs

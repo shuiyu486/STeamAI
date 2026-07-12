@@ -2189,3 +2189,31 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/workstream`、`go test ./...`、`start-apply-smoke.ps1`、`handoff-apply-smoke.ps1`、`continue-whatif-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 73：overview JSON façade 委托
+
+状态：已完成。
+
+目标：继 Batch 72 将工作线 JSON preview 纳入显式 Go façade 后，继续减少 PowerShell JSON 渲染复制面：在不破坏 `/rekit overview` 首次初始化 board 的前提下，让已初始化 case 的 `overview -Format json` 经 PowerShell façade 委托 Go backend。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 `overview` 纳入显式 Go 安全集合，但只允许 `-Format json`、未带 `-WhatIf`/`-Apply`/`-CreateCandidates`、目标看起来是 attached case 且 `.rekit/board.json` 已存在时委托。
+- `Get-RekitGoTarget` 与 argument builder 对 `overview` 转发 resolved target 与 `-Format json`。
+- 缺 board 或文本 overview 继续走 PowerShell fallback：缺 board 时仍可由 PowerShell `overview` 初始化 `.rekit/board.json`，文本输出保持用户可读兼容。
+- `overview-readonly-smoke.ps1` 增加 `REKIT_GO_EXE` fake backend sentinel，证明 `overview -Format json` 在满足条件时确实经 façade 委托 Go；同时保留 Go CLI JSON、PowerShell fallback 初始化和 no-write snapshot 验证。
+- 更新 README、skill、Go runtime migration 与 CHANGELOG，说明 overview JSON 委托只覆盖已初始化 case 的只读机器输出。
+
+边界：本批只调整显式 `REKIT_GO_ENABLE=1` 下的 `overview -Format json` 只读委托；不默认启用 Go、不改变缺 board 初始化语义、不委托 overview 文本输出、不写 facts/lanes/handoff/authority/confirmed、不启动 subagent、不执行 heavy-tool、不改变 sync/promote review-first 语义。
+
+验证：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/overview
+go test ./...
+.\rekit\tests\overview-readonly-smoke.ps1
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/overview`、`go test ./...`、`overview-readonly-smoke.ps1`、`/rekit doctor` 与 `git diff --check` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

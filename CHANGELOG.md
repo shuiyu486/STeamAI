@@ -83,6 +83,7 @@
 - Batch 70 完成：`/rekit start -WhatIf` 新增 `-Format json` 机器可读非写入预览，PowerShell fallback 在不委托 Go 的前提下返回 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/applied/requiresConfirmation/lane/writes/blockedActions/nextSteps` envelope，并拒绝 apply + JSON，便于自动化安全消费 start 工作线计划。
 - Batch 71 完成：`/rekit continue -WhatIf` 新增 `-Format json` 机器可读非写入预览，PowerShell fallback 在不委托 Go 的前提下返回 `schemaVersion/command/caseRoot/repoRoot/pack/isMutation/applied/requiresConfirmation/selector/lane/runId/batchId/summary/inputs/packetRefs/events/openRisks/wouldWrites/blockedActions/nextSteps` envelope，并拒绝 apply + JSON，便于自动化预审 continue 收集、路由和 authority append 计划。
 - Batch 72 完成：显式 `REKIT_GO_ENABLE=1` 时，PowerShell façade 可将 `start`、`handoff`、`continue` 的 `-WhatIf -Format json` 非写入机器可读预览委托给 Go backend；文本预览、apply/write 路径和非 JSON 工作线命令继续走 PowerShell fallback，保持 `/rekit` 公共入口稳定且不扩大写入委托面。
+- Batch 73 完成：显式 `REKIT_GO_ENABLE=1` 且 attached case 已有 `.rekit/board.json` 时，PowerShell façade 可将 `overview -Format json` 只读机器可读项目总览委托给 Go backend；文本 overview 与缺 board 初始化继续走 PowerShell fallback，保留首次 overview 初始化语义。
 
 ### Fixed
 
