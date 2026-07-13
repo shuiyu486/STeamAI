@@ -128,7 +128,7 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 	}
 	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
 	explicitManagedBlock := yamlMap(lines, "managedBlock")
-	explicitLists := yamlListPresence(lines, "managedFiles", "templateFiles", "localNeverOverwrite")
+	explicitLists := yamlListPresence(lines, "managedFiles", "templateFiles", "localNeverOverwrite", "promoteFiles", "toolingCandidateSources", "authorityFiles", "promoteDenyPatterns", "heavyToolGates", "laneTypes")
 	explicitMaps := yamlMapPresence(lines, "syncPolicy", "workstreamDefaults", "budgets")
 	m := &Manifest{
 		RepoRoot:                repo,
@@ -350,7 +350,7 @@ func (m *Manifest) ValidateSchema() error {
 	if strings.TrimSpace(m.Description) == "" {
 		return fmt.Errorf("description is missing")
 	}
-	for _, key := range []string{"managedFiles", "templateFiles", "localNeverOverwrite"} {
+	for _, key := range []string{"managedFiles", "templateFiles", "localNeverOverwrite", "promoteFiles", "toolingCandidateSources", "authorityFiles", "promoteDenyPatterns", "heavyToolGates", "laneTypes"} {
 		if !m.explicitLists[key] {
 			return fmt.Errorf("manifest must explicitly declare %s", key)
 		}
@@ -383,7 +383,7 @@ func (m *Manifest) ValidateSchema() error {
 		managedTargets[rel] = true
 	}
 	if len(m.PromoteFiles) == 0 {
-		return fmt.Errorf("manifest must explicitly declare promoteFiles")
+		return fmt.Errorf("promoteFiles must include at least one managed file")
 	}
 	for _, rel := range m.PromoteFiles {
 		if !managed[rel] {
@@ -398,7 +398,7 @@ func (m *Manifest) ValidateSchema() error {
 		return err
 	}
 	if len(m.ToolingCandidateSources) == 0 {
-		return fmt.Errorf("manifest must explicitly declare toolingCandidateSources; implicit vmp-re fallback is not allowed")
+		return fmt.Errorf("toolingCandidateSources must include at least one source; implicit vmp-re fallback is not allowed")
 	}
 	for _, rel := range m.ToolingCandidateSources {
 		if _, err := m.SourcePath(rel); err != nil {
@@ -425,7 +425,7 @@ func (m *Manifest) ValidateSchema() error {
 		}
 	}
 	if len(m.AuthorityFiles) == 0 {
-		return fmt.Errorf("manifest must explicitly declare authorityFiles, even if the list is intentionally minimal")
+		return fmt.Errorf("authorityFiles must include at least one authority file")
 	}
 	if err := m.validateSyncPolicy(); err != nil {
 		return err
@@ -434,7 +434,7 @@ func (m *Manifest) ValidateSchema() error {
 		return err
 	}
 	if len(m.PromoteDenyPatterns) == 0 {
-		return fmt.Errorf("manifest must explicitly declare promoteDenyPatterns")
+		return fmt.Errorf("promoteDenyPatterns must include at least one pattern")
 	}
 	for _, pattern := range m.PromoteDenyPatterns {
 		if strings.TrimSpace(pattern) == "" {
@@ -559,7 +559,7 @@ func (m *Manifest) HeavyToolGateIDs() []string {
 
 func (m *Manifest) validateHeavyToolGates() error {
 	if len(m.HeavyToolGates) == 0 {
-		return fmt.Errorf("manifest must explicitly declare heavyToolGates")
+		return fmt.Errorf("heavyToolGates must include at least one gate")
 	}
 	seen := map[string]bool{}
 	idPattern := regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -642,7 +642,7 @@ func optionPositiveInt(value string) int {
 
 func (m *Manifest) validateLaneTypes() error {
 	if len(m.LaneTypes) == 0 {
-		return fmt.Errorf("manifest must explicitly declare laneTypes")
+		return fmt.Errorf("laneTypes must include at least one lane type")
 	}
 	seen := map[string]bool{}
 	for _, lane := range m.LaneTypes {

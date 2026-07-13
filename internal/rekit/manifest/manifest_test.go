@@ -95,9 +95,15 @@ func validManifestFixture() Manifest {
 		ManagedBlock:         map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
 		explicitManagedBlock: map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
 		explicitLists: map[string]bool{
-			"managedFiles":        true,
-			"templateFiles":       true,
-			"localNeverOverwrite": true,
+			"managedFiles":            true,
+			"templateFiles":           true,
+			"localNeverOverwrite":     true,
+			"promoteFiles":            true,
+			"toolingCandidateSources": true,
+			"authorityFiles":          true,
+			"promoteDenyPatterns":     true,
+			"heavyToolGates":          true,
+			"laneTypes":               true,
 		},
 		ToolingCandidateSources: []string{"references/template/toolchain-router.md"},
 		WorkstreamDefaults:      map[string]string{"defaultAuthorityLane": "main", "defaultStartLaneType": "feature", "backupRoot": ".rekit/backups/sync", "requestDefaultTargetLane": "main"},
@@ -284,7 +290,7 @@ func TestValidateSchemaRejectsInvalidHeavyToolGates(t *testing.T) {
 }
 
 func TestValidateSchemaRequiresExplicitRequiredLists(t *testing.T) {
-	for _, key := range []string{"managedFiles", "templateFiles", "localNeverOverwrite"} {
+	for _, key := range []string{"managedFiles", "templateFiles", "localNeverOverwrite", "promoteFiles", "toolingCandidateSources", "authorityFiles", "promoteDenyPatterns", "heavyToolGates", "laneTypes"} {
 		m := validManifestFixture()
 		m.explicitLists[key] = false
 		if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare "+key) {
@@ -293,11 +299,45 @@ func TestValidateSchemaRequiresExplicitRequiredLists(t *testing.T) {
 	}
 }
 
-func TestValidateSchemaRequiresExplicitPromoteFiles(t *testing.T) {
-	m := validManifestFixture()
-	m.PromoteFiles = nil
-	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare promoteFiles") {
-		t.Fatalf("ValidateSchema error = %v, want explicit promoteFiles error", err)
+func TestValidateSchemaRequiresNonEmptyContractLists(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		want   string
+		mutate func(*Manifest)
+	}{
+		{
+			name:   "promoteFiles",
+			want:   "promoteFiles must include at least one managed file",
+			mutate: func(m *Manifest) { m.PromoteFiles = nil },
+		},
+		{
+			name:   "toolingCandidateSources",
+			want:   "toolingCandidateSources must include at least one source; implicit vmp-re fallback is not allowed",
+			mutate: func(m *Manifest) { m.ToolingCandidateSources = nil },
+		},
+		{
+			name:   "authorityFiles",
+			want:   "authorityFiles must include at least one authority file",
+			mutate: func(m *Manifest) { m.AuthorityFiles = nil },
+		},
+		{
+			name:   "heavyToolGates",
+			want:   "heavyToolGates must include at least one gate",
+			mutate: func(m *Manifest) { m.HeavyToolGates = nil },
+		},
+		{
+			name:   "laneTypes",
+			want:   "laneTypes must include at least one lane type",
+			mutate: func(m *Manifest) { m.LaneTypes = nil },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := validManifestFixture()
+			tc.mutate(&m)
+			if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ValidateSchema error = %v, want %s", err, tc.want)
+			}
+		})
 	}
 }
 
@@ -539,11 +579,11 @@ laneTypes:
 	}
 }
 
-func TestValidateSchemaRequiresExplicitPromoteDenyPatterns(t *testing.T) {
+func TestValidateSchemaRequiresNonEmptyPromoteDenyPatterns(t *testing.T) {
 	m := validManifestFixture()
 	m.PromoteDenyPatterns = nil
-	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare promoteDenyPatterns") {
-		t.Fatalf("ValidateSchema error = %v, want explicit promoteDenyPatterns error", err)
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "promoteDenyPatterns must include at least one pattern") {
+		t.Fatalf("ValidateSchema error = %v, want non-empty promoteDenyPatterns error", err)
 	}
 }
 
