@@ -3,6 +3,7 @@
 required:
   - name
   - version
+  - description
   - maturity
   - managedFiles
   - templateFiles
@@ -20,7 +21,7 @@ required:
 fields:
   name: pack 名称，例如 vmp-re；必须显式声明，runtime 不再用 pack id 隐式补齐
   version: pack 版本；review packet 会记录此值作为 manifestVersion；必须显式声明，runtime 不再注入 0.0.0
-  description: 一行用途说明
+  description: 一行用途说明；必须显式声明，schema-valid pack 不允许缺用途摘要
   maturity: pack 成熟度，取值为 mature、template、skeleton 或 experimental；`/rekit packs` 直接显示该显式字段
   managedFiles: 可由 kit 同步到 case、也可按 promotePolicy 反向提升的文件路径列表
   templateFiles: 只在 case 缺失时实例化的模板文件列表

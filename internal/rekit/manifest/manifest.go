@@ -306,6 +306,9 @@ func (m *Manifest) ValidateSchema() error {
 	if strings.TrimSpace(m.Version) == "" {
 		return fmt.Errorf("version is missing")
 	}
+	if strings.TrimSpace(m.Description) == "" {
+		return fmt.Errorf("description is missing")
+	}
 	for _, key := range []string{"file", "blockId", "source"} {
 		if strings.TrimSpace(m.explicitManagedBlock[key]) == "" {
 			return fmt.Errorf("managedBlock is missing required key: %s", key)

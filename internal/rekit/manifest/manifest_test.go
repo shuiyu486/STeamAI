@@ -87,6 +87,7 @@ func validManifestFixture() Manifest {
 		ManifestPath:            "unit-manifest.yml",
 		Name:                    "unit-pack",
 		Version:                 "0.1.0",
+		Description:             "Unit test pack",
 		Maturity:                "template",
 		ManagedFiles:            []string{"references/template/README.md"},
 		PromoteFiles:            []string{"references/template/README.md"},
@@ -116,6 +117,14 @@ func TestValidateSchemaRequiresExplicitIdentity(t *testing.T) {
 	m.Version = ""
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "version is missing") {
 		t.Fatalf("ValidateSchema error = %v, want missing version error", err)
+	}
+}
+
+func TestValidateSchemaRequiresExplicitDescription(t *testing.T) {
+	m := validManifestFixture()
+	m.Description = ""
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "description is missing") {
+		t.Fatalf("ValidateSchema error = %v, want missing description error", err)
 	}
 }
 
@@ -587,6 +596,80 @@ laneTypes:
 	}
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "name is missing") {
 		t.Fatalf("ValidateSchema error = %v, want missing name error", err)
+	}
+}
+
+func TestLoadKeepsMissingDescriptionEmpty(t *testing.T) {
+	repo := t.TempDir()
+	packRoot := filepath.Join(repo, "packs", "missing-description")
+	if err := os.MkdirAll(packRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestText := `schemaVersion: 1
+name: missing-description
+version: 0.1.0
+maturity: skeleton
+
+managedFiles:
+  - references/test/README.md
+promoteFiles:
+  - references/test/README.md
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: rekit:test
+  source: CLAUDE.local.snippet.md
+toolingCandidateSources:
+  - references/test/toolchain-router.md
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+authorityFiles:
+  - references/test/README.md
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+promoteDenyPatterns:
+  - "artifacts[\\/]"
+budgets:
+  defaultMarkdown: 16384
+heavyToolGates:
+  - id: debug
+    title: Debug
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout
+laneTypes:
+  - id: main
+    title: Main
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/test/README.md
+    readOnly: .rekit/facts/**
+    outputs: publication
+  - id: feature
+    title: Feature
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/test/**
+    outputs: observation
+`
+	if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(repo, "missing-description")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(m.Description) != "" {
+		t.Fatalf("Description = %q, want no implicit fallback", m.Description)
+	}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "description is missing") {
+		t.Fatalf("ValidateSchema error = %v, want missing description error", err)
 	}
 }
 
