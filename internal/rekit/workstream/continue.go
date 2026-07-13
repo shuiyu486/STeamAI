@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
@@ -44,6 +45,7 @@ type ContinueResult struct {
 	Events               []ContinueEventPreview `json:"events"`
 	OpenRisks            []string               `json:"openRisks"`
 	WouldWrites          []StartWrite           `json:"wouldWrites"`
+	Writes               []StartWrite           `json:"writes,omitempty"`
 	BlockedActions       []string               `json:"blockedActions"`
 	NextSteps            []string               `json:"nextSteps"`
 }
@@ -140,8 +142,8 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		PacketRefs:           uniqueStrings(packets),
 		BlockedActions:       []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution"},
 		NextSteps: []string{
-			"review this preview against PowerShell continue digest/status behavior",
-			"PowerShell /rekit remains the public entrypoint; JSON preview is Go-owned by default and continue currently supports -WhatIf only",
+			"review this preview, then re-run continue with -Apply when the case-local facts/route/digest writes are acceptable",
+			"PowerShell /rekit remains the public entrypoint; JSON preview and explicit apply are Go-owned by default",
 		},
 	}
 	for _, raw := range rawEvents {
@@ -193,6 +195,123 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	return result, nil
 }
 
+func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (ContinueResult, error) {
+	ctx, err := newContinueContext(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	known, err := knownEventIDs(ctx.inst.CaseRoot)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	inputs, err := continueInputRefs(ctx.inst.CaseRoot, ctx.lane)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	packets, err := continuePacketRefs(ctx.inst.CaseRoot, ctx.lane)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	rawEvents, err := laneOutputEvents(ctx.inst.CaseRoot, ctx.lane, ctx.manifest)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	stamp := time.Now().UTC().Format("20060102-150405000")
+	runID := "run-" + stamp
+	batchID := "batch-" + runID
+	runRoot, err := refsf.SafeJoin(ctx.inst.CaseRoot, relJoin(".rekit", "runs", runID))
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	if err := os.MkdirAll(runRoot, 0o755); err != nil {
+		return ContinueResult{}, err
+	}
+	result := ContinueResult{
+		SchemaVersion:        1,
+		Command:              "continue",
+		CaseRoot:             ctx.inst.CaseRoot,
+		RepoRoot:             ctx.manifest.RepoRoot,
+		Pack:                 ctx.manifest.Pack,
+		IsMutation:           true,
+		Applied:              true,
+		RequiresConfirmation: false,
+		Selector:             ctx.selector,
+		Lane:                 ctx.lane,
+		RunID:                runID,
+		BatchID:              batchID,
+		Inputs:               uniqueStrings(inputs),
+		PacketRefs:           uniqueStrings(packets),
+		Events:               []ContinueEventPreview{},
+		OpenRisks:            []string{},
+		WouldWrites:          []StartWrite{},
+		Writes:               []StartWrite{},
+		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution"},
+		NextSteps: []string{
+			"run doctor after apply",
+			"use /rekit handoff " + workstreamLabel(ctx.lane) + " to refresh case-local handoff when needed",
+		},
+	}
+	for _, raw := range rawEvents {
+		event := copyEvent(raw)
+		event["lane"] = ctx.lane.ID
+		id := strings.TrimSpace(stringFrom(event, "eventId"))
+		if id == "" {
+			id = generatedEventID(ctx.lane.ID, event)
+			event["eventId"] = id
+		}
+		if known[id] {
+			result.Summary.Skipped++
+			continue
+		}
+		if strings.TrimSpace(stringFrom(event, "time")) == "" {
+			event["time"] = isoNow()
+		}
+		if strings.TrimSpace(stringFrom(event, "batchId")) == "" {
+			event["batchId"] = batchID
+		}
+		preview := ctx.previewEvent(event)
+		if preview.AuthorityFile != "" && preview.Decision == "accept" {
+			preview.Decision = "defer"
+			preview.Reason = "authority append requires explicit user confirmation; Go continue -Apply does not write authority/confirmed"
+			preview.WouldWrites = []StartWrite{wouldFact(".rekit/facts/candidates.jsonl"), wouldFact(".rekit/facts/decisions.jsonl")}
+		}
+		writes, err := ctx.applyContinueEvent(event, preview, runID, batchID)
+		if err != nil {
+			return ContinueResult{}, err
+		}
+		result.Summary.Collected++
+		result.Events = append(result.Events, preview)
+		result.Writes = append(result.Writes, writes...)
+		if preview.Decision == "defer" || preview.Decision == "pending-user" {
+			result.OpenRisks = append(result.OpenRisks, riskLine(preview))
+		}
+		result.updateApplySummary(preview)
+		known[id] = true
+	}
+	resumePath, checkpointPath, err := writeLaneResume(ctx.inst.CaseRoot, ctx.lane)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	result.Writes = append(result.Writes,
+		StartWrite{Path: relativePath(ctx.inst.CaseRoot, resumePath), Kind: "lane-resume", Action: "refresh", TargetPath: resumePath},
+		StartWrite{Path: relativePath(ctx.inst.CaseRoot, checkpointPath), Kind: "lane-checkpoint", Action: "refresh", TargetPath: checkpointPath},
+	)
+	boardPath, err := saveBoard(ctx.inst.CaseRoot, ctx.manifest)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	result.Writes = append(result.Writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
+	statusPath, digestPath, err := writeContinueRunArtifacts(runRoot, result)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	result.Writes = append(result.Writes,
+		StartWrite{Path: relativePath(ctx.inst.CaseRoot, statusPath), Kind: "run-status", Action: "write", TargetPath: statusPath},
+		StartWrite{Path: relativePath(ctx.inst.CaseRoot, digestPath), Kind: "run-digest", Action: "write", TargetPath: digestPath},
+	)
+	return result, nil
+}
+
 func newContinueContext(repoRoot, caseRoot, pack string, opt ContinueOptions) (continueContext, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
@@ -204,7 +323,7 @@ func newContinueContext(repoRoot, caseRoot, pack string, opt ContinueOptions) (c
 	}
 	b, err := readBoard(inst.CaseRoot)
 	if os.IsNotExist(err) {
-		return continueContext{}, fmt.Errorf("continue -WhatIf requires existing .rekit/board.json; run PowerShell /rekit overview once to initialize the case-local board")
+		return continueContext{}, fmt.Errorf("continue requires existing .rekit/board.json; run /rekit overview once to initialize the case-local board")
 	}
 	if err != nil {
 		return continueContext{}, err
@@ -317,6 +436,259 @@ func (ctx continueContext) previewEvent(event map[string]any) ContinueEventPrevi
 		preview.WouldWrites = []StartWrite{wouldFact(".rekit/facts/observations.jsonl"), wouldFact(".rekit/facts/decisions.jsonl")}
 	}
 	return preview
+}
+
+func (ctx continueContext) applyContinueEvent(event map[string]any, preview ContinueEventPreview, runID, batchID string) ([]StartWrite, error) {
+	writes := []StartWrite{}
+	appendFact := func(rel string, value map[string]any) error {
+		path, err := refsf.SafeJoin(ctx.inst.CaseRoot, rel)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := appendJSONLine(path, value); err != nil {
+			return err
+		}
+		writes = append(writes, StartWrite{Path: rel, Kind: "fact-jsonl", Action: "append", TargetPath: path})
+		return nil
+	}
+	kind := preview.Kind
+	switch kind {
+	case "observation":
+		if preview.Decision == "accept" {
+			if err := appendFact(".rekit/facts/observations.jsonl", event); err != nil {
+				return nil, err
+			}
+			if err := appendFact(".rekit/facts/decisions.jsonl", continueDecision(event, preview, runID, batchID)); err != nil {
+				return nil, err
+			}
+		}
+	case "request":
+		if err := appendFact(".rekit/facts/requests.jsonl", event); err != nil {
+			return nil, err
+		}
+		if preview.Decision == "accept" && preview.TargetLane != "" {
+			routeWrites, err := routeContinueRequest(ctx.inst.CaseRoot, preview.TargetLane, event)
+			if err != nil {
+				return nil, err
+			}
+			writes = append(writes, routeWrites...)
+		}
+		if err := appendFact(".rekit/facts/decisions.jsonl", continueDecision(event, preview, runID, batchID)); err != nil {
+			return nil, err
+		}
+	case "candidate":
+		if preview.Verification != nil {
+			event["verification"] = preview.Verification
+			event["verifier"] = stringFrom(preview.Verification, "verifier")
+			event["verifierVerdict"] = stringFrom(preview.Verification, "verdict")
+			event["verifierConfidence"] = preview.Verification["confidence"]
+		}
+		if preview.Decision == "accept" {
+			event["decision"] = "accepted-shared"
+		} else {
+			event["decision"] = "pending-user"
+		}
+		event["decisionReason"] = preview.Reason
+		if err := appendFact(".rekit/facts/candidates.jsonl", event); err != nil {
+			return nil, err
+		}
+		if err := appendFact(".rekit/facts/decisions.jsonl", continueDecision(event, preview, runID, batchID)); err != nil {
+			return nil, err
+		}
+	case "publication":
+		if preview.Decision == "accept" {
+			if err := appendFact(".rekit/facts/publications.jsonl", event); err != nil {
+				return nil, err
+			}
+			if err := appendFact(".rekit/facts/decisions.jsonl", continueDecision(event, preview, runID, batchID)); err != nil {
+				return nil, err
+			}
+		}
+	default:
+		if err := appendFact(".rekit/facts/observations.jsonl", event); err != nil {
+			return nil, err
+		}
+		if err := appendFact(".rekit/facts/decisions.jsonl", continueDecision(event, preview, runID, batchID)); err != nil {
+			return nil, err
+		}
+	}
+	return writes, nil
+}
+
+func (result *ContinueResult) updateApplySummary(preview ContinueEventPreview) {
+	switch preview.Kind {
+	case "observation":
+		if preview.Decision == "accept" {
+			result.Summary.Observations++
+		}
+	case "request":
+		result.Summary.Requests++
+		if preview.TargetLane != "" && preview.Decision == "accept" {
+			result.Summary.Routed++
+		}
+		if preview.Decision == "defer" || preview.Decision == "pending-user" {
+			result.Summary.PendingUser++
+		}
+	case "candidate":
+		result.Summary.Candidates++
+		if preview.Decision == "accept" {
+			if preview.AuthorityFile == "" {
+				result.Summary.AcceptedCandidates++
+			}
+		} else {
+			result.Summary.PendingUser++
+		}
+	case "publication":
+		if preview.Decision == "accept" {
+			result.Summary.Publications++
+		}
+	}
+}
+
+func continueDecision(event map[string]any, preview ContinueEventPreview, runID, batchID string) map[string]any {
+	decision := "defer"
+	if preview.Decision == "accept" {
+		decision = "accept"
+	}
+	out := map[string]any{
+		"schemaVersion": 1,
+		"eventId":       stringFrom(event, "eventId"),
+		"kind":          "decision",
+		"lane":          stringFrom(event, "lane"),
+		"subject":       firstText(stringFrom(event, "subject"), stringFrom(event, "summary"), preview.Kind),
+		"summary":       stringFrom(event, "summary"),
+		"decision":      decision,
+		"confirmedBy":   "runtime",
+		"reason":        preview.Reason,
+		"runId":         runID,
+		"batchId":       batchID,
+		"time":          isoNow(),
+	}
+	if preview.AuthorityFile != "" {
+		out["authorityFile"] = preview.AuthorityFile
+	}
+	return out
+}
+
+func routeContinueRequest(caseRoot, targetLane string, event map[string]any) ([]StartWrite, error) {
+	if requestAlreadyRouted(caseRoot, targetLane, event) {
+		return nil, nil
+	}
+	lane, err := readLaneByID(caseRoot, targetLane)
+	if err != nil {
+		return nil, err
+	}
+	laneRoot, err := laneRootPath(caseRoot, lane)
+	if err != nil {
+		return nil, err
+	}
+	now := isoNow()
+	taskPath := filepath.Join(laneRoot, "tasks.jsonl")
+	inboxPath := filepath.Join(laneRoot, "inbox.jsonl")
+	sourceLane := stringFrom(event, "lane")
+	requestID := stringFrom(event, "requestId")
+	summary := firstText(stringFrom(event, "summary"), stringFrom(event, "subject"), stringFrom(event, "eventId"))
+	task := map[string]any{"taskId": "task-" + strings.TrimPrefix(stringFrom(event, "eventId"), "evt-"), "eventId": stringFrom(event, "eventId"), "requestId": requestID, "kind": stringFrom(event, "kind"), "sourceLane": sourceLane, "summary": summary, "status": "open", "createdAt": now}
+	inbox := map[string]any{"eventId": stringFrom(event, "eventId"), "requestId": requestID, "kind": "routed-request", "sourceLane": sourceLane, "summary": summary, "time": now}
+	if err := appendJSONLine(taskPath, task); err != nil {
+		return nil, err
+	}
+	if err := appendJSONLine(inboxPath, inbox); err != nil {
+		return nil, err
+	}
+	return []StartWrite{
+		{Path: relativePath(caseRoot, taskPath), Kind: "lane-jsonl", Action: "append", TargetPath: taskPath},
+		{Path: relativePath(caseRoot, inboxPath), Kind: "lane-jsonl", Action: "append", TargetPath: inboxPath},
+	}, nil
+}
+
+func writeContinueRunArtifacts(runRoot string, result ContinueResult) (string, string, error) {
+	if err := os.MkdirAll(runRoot, 0o755); err != nil {
+		return "", "", err
+	}
+	statusPath := filepath.Join(runRoot, "status.json")
+	status := map[string]any{"schemaVersion": 1, "runId": result.RunID, "batchId": result.BatchID, "summary": result.Summary, "inputs": result.Inputs, "packetRefs": result.PacketRefs, "openRisks": result.OpenRisks, "time": isoNow()}
+	if err := writeJSON(statusPath, status); err != nil {
+		return "", "", err
+	}
+	digestPath := filepath.Join(runRoot, "digest.md")
+	if err := writeText(digestPath, continueDigestText(result)); err != nil {
+		return "", "", err
+	}
+	return statusPath, digestPath, nil
+}
+
+func continueDigestText(result ContinueResult) string {
+	lines := []string{
+		"# rekit continue digest：" + result.RunID,
+		"",
+		"## 输入",
+		"",
+		"case: `" + result.CaseRoot + "`",
+		"pack: `" + result.Pack + "`",
+		"runId: `" + result.RunID + "`",
+		"batchId: `" + result.BatchID + "`",
+		"focus lane: `" + result.Lane.ID + "`",
+		"",
+		"## packet refs",
+		"",
+	}
+	if len(result.PacketRefs) == 0 {
+		lines = append(lines, "- 无。")
+	} else {
+		for _, ref := range result.PacketRefs {
+			lines = append(lines, "- `"+ref+"`")
+		}
+	}
+	lines = append(lines, "", "## inputs", "")
+	if len(result.Inputs) == 0 {
+		lines = append(lines, "- 无。")
+	} else {
+		for _, ref := range result.Inputs {
+			lines = append(lines, "- `"+ref+"`")
+		}
+	}
+	lines = append(lines, "", "## outputs", "")
+	lines = append(lines,
+		fmt.Sprintf("- collected: %d", result.Summary.Collected),
+		fmt.Sprintf("- observations: %d", result.Summary.Observations),
+		fmt.Sprintf("- requests: %d", result.Summary.Requests),
+		fmt.Sprintf("- routed: %d", result.Summary.Routed),
+		fmt.Sprintf("- candidates: %d", result.Summary.Candidates),
+		fmt.Sprintf("- acceptedCandidates: %d", result.Summary.AcceptedCandidates),
+		fmt.Sprintf("- publications: %d", result.Summary.Publications),
+		fmt.Sprintf("- authorityApplied: %d", result.Summary.AuthorityApplied),
+		fmt.Sprintf("- pendingUser: %d", result.Summary.PendingUser),
+		fmt.Sprintf("- skipped: %d", result.Summary.Skipped),
+	)
+	lines = append(lines, "", "## decisions", "")
+	if len(result.Events) == 0 {
+		lines = append(lines, "- 无。")
+	} else {
+		for _, event := range result.Events {
+			lines = append(lines, fmt.Sprintf("- %s | lane=%s | decision=%s | reason=%s", firstText(event.Subject, event.Summary, event.EventID), event.Lane, event.Decision, event.Reason))
+		}
+	}
+	lines = append(lines, "", "## open risks", "")
+	if len(result.OpenRisks) == 0 {
+		lines = append(lines, "- 无。")
+	} else {
+		lines = append(lines, result.OpenRisks...)
+	}
+	lines = append(lines, "")
+	return strings.Join(lines, "\r\n")
+}
+
+func firstText(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (ctx continueContext) authorityAppendReason(event map[string]any, verification map[string]any, authorityFile string, rows []any) string {

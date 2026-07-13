@@ -908,16 +908,25 @@ func runContinue(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !ctx.TargetProvided {
 		return fmt.Errorf("continue requires an explicit -Target attached case")
 	}
-	if opt.Apply || opt.CreateCandidates {
-		return fmt.Errorf("go backend continue currently supports -WhatIf preview only; do not combine it with -Apply or -CreateCandidates")
+	if opt.CreateCandidates {
+		return fmt.Errorf("continue does not support -CreateCandidates")
+	}
+	if opt.WhatIf && opt.Apply {
+		return fmt.Errorf("continue cannot combine -WhatIf and -Apply")
 	}
 	if wantsReviewArtifacts(opt) {
-		return fmt.Errorf("continue -WhatIf does not support review artifact options")
+		return fmt.Errorf("continue does not support review artifact options")
 	}
-	if !opt.WhatIf {
-		return fmt.Errorf("go backend continue currently supports -WhatIf preview only")
+	if !opt.WhatIf && !opt.Apply {
+		return fmt.Errorf("go backend continue requires -WhatIf or -Apply")
 	}
-	result, err := workstream.ContinuePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
+	var result workstream.ContinueResult
+	var err error
+	if opt.Apply {
+		result, err = workstream.ContinueApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
+	} else {
+		result, err = workstream.ContinuePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
+	}
 	if err != nil {
 		return err
 	}

@@ -53,7 +53,7 @@ git diff --check
 
 | 脚本 | 什么时候跑 | 覆盖重点 |
 |---|---|---|
-| `facade-smoke.ps1` | 改 `rekit.ps1`、Go façade 委托集合或 JSON preview/read-only 委托 | 只读命令、overview 文本/JSON 与 note 文本/JSON 只读默认委托、note append/what-if 默认委托、gate what-if/apply 默认委托、start/handoff JSON preview/apply 默认委托、continue JSON preview 默认委托、case lifecycle、sync 与 promote review/candidate/apply 默认 Go 委托、disable 优先级、文本/write fallback。 |
+| `facade-smoke.ps1` | 改 `rekit.ps1`、Go façade 委托集合或 JSON preview/read-only 委托 | 只读命令、overview 文本/JSON 与 note 文本/JSON 只读默认委托、note append/what-if 默认委托、gate what-if/apply 默认委托、start/handoff JSON preview/apply 默认委托、continue JSON preview/apply 默认委托、case lifecycle、sync 与 promote review/candidate/apply 默认 Go 委托、disable 优先级、文本/write fallback。 |
 | `pack-inventory-smoke.ps1` | 改 pack manifest、maturity、inventory、status/doctor JSON | `/rekit packs/status/doctor/validate` text+JSON parity、Go/PowerShell/facade 委托。 |
 | `catalog-smoke.ps1` | 改 `catalog.json` 或测试导航字段 | catalog schema、唯一 id、全部 `*.ps1` 覆盖、脚本/文档存在性、pack smoke 与 discovery 对齐。 |
 | `pack-smoke-matrix.ps1 -DiscoveryOnly` | 新增/删除 skeleton pack 或 pack smoke wrapper | inventory 中 schema-valid skeleton pack 与 matrix 清单/wrapper 一致性。 |
@@ -103,7 +103,7 @@ generic-binary-re-pack-smoke.ps1
 | `start-apply-smoke.ps1` | 改 Go start 或 start façade 委托 | preview/apply scaffold、board/facts/policy/lane/workspace、默认 façade JSON preview/apply 委托、doctor、fallback。 |
 | `handoff-apply-smoke.ps1` | 改 Go handoff 或 handoff façade 委托 | project/lane handoff preview/apply、resume/checkpoint、ledger 区段、默认 façade JSON preview/apply 委托、fallback。 |
 | `continue-preflight-smoke.ps1` | 改 PowerShell continue authority gate | authority append gate matrix、backup/diff、CSV recovery、routing、digest/status、WhatIf no-write。 |
-| `continue-whatif-smoke.ps1` | 改 Go continue preview 或 continue JSON preview façade 委托 | non-write preview、default façade JSON preview delegation、wouldWrites、blocked actions、fallback、apply guard。 |
+| `continue-whatif-smoke.ps1` | 改 Go continue preview/apply 或 continue JSON preview/apply façade 委托 | non-write preview、case-local apply writes、default façade JSON preview/apply delegation、wouldWrites/writes、blocked actions、fallback、authority guard。 |
 | `continue-digest-smoke.ps1` | 改 continue digest/status | structured digest inputs/route/packet refs/outputs/decisions/open risks。 |
 
 ## WorkRoot 约定

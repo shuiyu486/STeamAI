@@ -1550,20 +1550,94 @@ func TestRunContinueWhatIfDoesNotWrite(t *testing.T) {
 	assertSnapshotEqual(t, before, after)
 }
 
-func TestRunContinueRejectsUnsupportedModes(t *testing.T) {
+func TestRunContinueApplyWritesDigestAndFacts(t *testing.T) {
 	caseRoot := attachedCaseWithPack(t, "vmp-re")
 	writeContinueFixture(t, caseRoot)
 	var out bytes.Buffer
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command              string                                                                                                                                                              `json:"command"`
+		IsMutation           bool                                                                                                                                                                `json:"isMutation"`
+		Applied              bool                                                                                                                                                                `json:"applied"`
+		RequiresConfirmation bool                                                                                                                                                                `json:"requiresConfirmation"`
+		RunID                string                                                                                                                                                              `json:"runId"`
+		BatchID              string                                                                                                                                                              `json:"batchId"`
+		Lane                 startLane                                                                                                                                                           `json:"lane"`
+		Summary              struct{ Collected, Observations, Requests, Routed, Candidates, AcceptedCandidates, Publications, AuthorityApplied, AuthorityWouldAppend, PendingUser, Skipped int } `json:"summary"`
+		OpenRisks            []string                                                                                                                                                            `json:"openRisks"`
+		Writes               []startWrite                                                                                                                                                        `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("continue apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Command != "continue" || !result.IsMutation || !result.Applied || result.RequiresConfirmation || result.Lane.ID != "feature-login" || !strings.HasPrefix(result.RunID, "run-") || result.BatchID != "batch-"+result.RunID {
+		t.Fatalf("unexpected continue apply result: %+v", result)
+	}
+	if result.Summary.Collected != 3 || result.Summary.Observations != 1 || result.Summary.Requests != 1 || result.Summary.Routed != 1 || result.Summary.Candidates != 1 || result.Summary.AuthorityApplied != 0 || result.Summary.AuthorityWouldAppend != 0 || result.Summary.PendingUser != 1 || result.Summary.Skipped != 0 {
+		t.Fatalf("unexpected continue apply summary: %+v", result.Summary)
+	}
+	assertContinueWrite(t, result.Writes, ".rekit/facts/observations.jsonl", "append")
+	assertContinueWrite(t, result.Writes, ".rekit/facts/requests.jsonl", "append")
+	assertContinueWrite(t, result.Writes, ".rekit/facts/candidates.jsonl", "append")
+	assertContinueWrite(t, result.Writes, ".rekit/facts/decisions.jsonl", "append")
+	assertContinueWrite(t, result.Writes, ".rekit/lanes/devirt-main/tasks.jsonl", "append")
+	assertContinueWrite(t, result.Writes, ".rekit/lanes/devirt-main/inbox.jsonl", "append")
+	assertContinueWrite(t, result.Writes, ".rekit/board.json", "refresh")
+	var digestPath string
+	for _, write := range result.Writes {
+		if write.Kind == "run-digest" && write.Action == "write" {
+			digestPath = write.TargetPath
+		}
+	}
+	if digestPath == "" {
+		t.Fatalf("continue apply did not report run digest write: %+v", result.Writes)
+	}
+	digest, err := os.ReadFile(digestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(digest), "# rekit continue digest") || !strings.Contains(string(digest), "pendingUser: 1") {
+		t.Fatalf("unexpected continue digest:\n%s", string(digest))
+	}
+	decisions, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(decisions), "evt-continue-") != 3 || !strings.Contains(string(decisions), "authority append requires explicit user confirmation") {
+		t.Fatalf("unexpected continue decisions:\n%s", string(decisions))
+	}
+	tasks, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "devirt-main", "tasks.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(tasks), "req-continue") {
+		t.Fatalf("continue apply did not route request:\n%s", string(tasks))
+	}
+	authority, err := os.ReadFile(filepath.Join(caseRoot, "captures", "vm_opcode_semantics_confirmed.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(authority), "OP_CONTINUE") {
+		t.Fatalf("continue apply wrote authority csv without confirmation:\n%s", string(authority))
+	}
+}
+
+func TestRunContinueRejectsUnsupportedModes(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	writeContinueFixture(t, caseRoot)
 	for _, tc := range []struct {
 		name string
 		args []string
 		want string
 	}{
-		{"no what-if", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "login"}, "supports -WhatIf preview only"},
-		{"apply", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login"}, "supports -WhatIf preview only"},
-		{"create candidates", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-CreateCandidates", "login"}, "supports -WhatIf preview only"},
+		{"no mode", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "login"}, "requires -WhatIf or -Apply"},
+		{"what-if apply", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-WhatIf", "-Apply", "login"}, "cannot combine"},
+		{"create candidates", []string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-CreateCandidates", "login"}, "does not support -CreateCandidates"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
 			err := Run(tc.args, &out)
 			if err == nil {
 				t.Fatal("Run returned nil error")

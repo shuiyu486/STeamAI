@@ -146,6 +146,16 @@ function Assert-WriteAction {
   if ($writes.Count -lt 1) { throw "expected write for $Path/$Action, got: $($Result | ConvertTo-Json -Depth 20)" }
 }
 
+function Assert-ApplyWriteAction {
+  param(
+    [Parameter(Mandatory=$true)]$Result,
+    [Parameter(Mandatory=$true)][string]$Path,
+    [Parameter(Mandatory=$true)][string]$Action
+  )
+  $writes = @($Result.writes | Where-Object { [string]$_.path -eq $Path -and [string]$_.action -eq $Action })
+  if ($writes.Count -lt 1) { throw "expected apply write for $Path/$Action, got: $($Result | ConvertTo-Json -Depth 20)" }
+}
+
 Get-ChildItem -LiteralPath $WorkRoot | Select-Object -First 1 | Out-Null
 $suffix = [Guid]::NewGuid().ToString('N').Substring(0,8)
 $caseRoot = Join-Path $WorkRoot "continue-whatif-$suffix"
@@ -177,8 +187,23 @@ try {
   Assert-WriteAction -Result $preview -Path '.rekit/lanes/devirt-main/tasks.jsonl' -Action 'would-append'
   Assert-TreeUnchanged -Root $caseRoot -BeforeSnapshot $beforeFiles -BeforeDirectories $beforeDirs -Label 'go continue what-if'
 
-  $applyGuard = Invoke-GoRekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-Apply','login') -AllowedExitCodes @(1)
-  Assert-ContainsText -Text $applyGuard -Expected 'supports -WhatIf preview only' -Label 'go continue apply guard'
+  $apply = Invoke-GoRekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-Apply','login') | ConvertFrom-Json
+  if ([string]$apply.command -ne 'continue' -or -not [bool]$apply.isMutation -or -not [bool]$apply.applied -or [bool]$apply.requiresConfirmation -or [string]$apply.lane.id -ne 'feature-login') {
+    throw "unexpected continue apply flags: $($apply | ConvertTo-Json -Depth 20)"
+  }
+  if ([int]$apply.summary.collected -ne 3 -or [int]$apply.summary.observations -ne 1 -or [int]$apply.summary.requests -ne 1 -or [int]$apply.summary.routed -ne 1 -or [int]$apply.summary.candidates -ne 1 -or [int]$apply.summary.authorityApplied -ne 0 -or [int]$apply.summary.authorityWouldAppend -ne 0 -or [int]$apply.summary.pendingUser -ne 1) {
+    throw "unexpected continue apply summary: $($apply | ConvertTo-Json -Depth 20)"
+  }
+  Assert-ApplyWriteAction -Result $apply -Path '.rekit/facts/observations.jsonl' -Action 'append'
+  Assert-ApplyWriteAction -Result $apply -Path '.rekit/facts/requests.jsonl' -Action 'append'
+  Assert-ApplyWriteAction -Result $apply -Path '.rekit/facts/candidates.jsonl' -Action 'append'
+  Assert-ApplyWriteAction -Result $apply -Path '.rekit/facts/decisions.jsonl' -Action 'append'
+  Assert-ApplyWriteAction -Result $apply -Path '.rekit/lanes/devirt-main/tasks.jsonl' -Action 'append'
+  Assert-ApplyWriteAction -Result $apply -Path '.rekit/board.json' -Action 'refresh'
+  $authorityAfterApply = [System.IO.File]::ReadAllText($authorityPath, [System.Text.Encoding]::UTF8)
+  Assert-NotContainsText -Text $authorityAfterApply -Unexpected 'OP_GO_CONTINUE' -Label 'go continue apply authority guard'
+  $decisionText = [System.IO.File]::ReadAllText((Join-Path $caseRoot '.rekit\facts\decisions.jsonl'), [System.Text.Encoding]::UTF8)
+  Assert-ContainsText -Text $decisionText -Expected 'authority append requires explicit user confirmation' -Label 'go continue apply authority decision'
 
   $facadeBeforeFiles = Save-TreeSnapshot -Path $caseRoot
   $facadeBeforeDirs = Save-TreeDirectories -Path $caseRoot
@@ -192,22 +217,27 @@ try {
   if ([string]$facadePreviewJson.command -ne 'continue' -or [bool]$facadePreviewJson.isMutation -or [bool]$facadePreviewJson.applied -or -not [bool]$facadePreviewJson.requiresConfirmation -or [string]$facadePreviewJson.lane.id -ne 'feature-login') {
     throw "unexpected facade continue JSON preview: $($facadePreviewJson | ConvertTo-Json -Depth 20)"
   }
-  Assert-ContainsText -Text ([string]::Join("`n", @($facadePreviewJson.nextSteps))) -Expected 'JSON preview is Go-owned by default' -Label 'facade continue JSON delegated to Go'
-  if ([int]$facadePreviewJson.summary.collected -ne 3 -or [int]$facadePreviewJson.summary.observations -ne 1 -or [int]$facadePreviewJson.summary.requests -ne 1 -or [int]$facadePreviewJson.summary.routed -ne 1 -or [int]$facadePreviewJson.summary.candidates -ne 1 -or [int]$facadePreviewJson.summary.authorityWouldAppend -ne 1 -or [int]$facadePreviewJson.summary.pendingUser -ne 0) {
-    throw "unexpected facade continue JSON summary: $($facadePreviewJson | ConvertTo-Json -Depth 20)"
+  Assert-ContainsText -Text ([string]::Join("`n", @($facadePreviewJson.nextSteps))) -Expected 'JSON preview and explicit apply are Go-owned by default' -Label 'facade continue JSON delegated to Go'
+  if ([int]$facadePreviewJson.summary.collected -ne 0 -or [int]$facadePreviewJson.summary.skipped -ne 3) {
+    throw "unexpected facade continue JSON summary after apply: $($facadePreviewJson | ConvertTo-Json -Depth 20)"
   }
-  Assert-WriteAction -Result $facadePreviewJson -Path 'captures/vm_opcode_semantics_confirmed.csv' -Action 'would-append'
-  Assert-WriteAction -Result $facadePreviewJson -Path '.rekit/lanes/devirt-main/tasks.jsonl' -Action 'would-append'
   Assert-TreeUnchanged -Root $caseRoot -BeforeSnapshot $facadeJsonBeforeFiles -BeforeDirectories $facadeJsonBeforeDirs -Label 'facade continue json preview'
 
-  $facadeApplyJsonError = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-Format','json','login') -AllowedExitCodes @(1)
-  Assert-ContainsText -Text $facadeApplyJsonError -Expected 'continue -Format json currently supports -WhatIf preview only' -Label 'continue json apply guard'
+  $facadeApplyJson = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-Apply','login','-Format','json') | ConvertFrom-Json
+  if ([string]$facadeApplyJson.command -ne 'continue' -or -not [bool]$facadeApplyJson.isMutation -or -not [bool]$facadeApplyJson.applied -or [string]$facadeApplyJson.lane.id -ne 'feature-login') {
+    throw "unexpected facade continue JSON apply: $($facadeApplyJson | ConvertTo-Json -Depth 20)"
+  }
+  if ([int]$facadeApplyJson.summary.collected -ne 0 -or [int]$facadeApplyJson.summary.skipped -ne 3) {
+    throw "unexpected facade continue JSON apply duplicate summary: $($facadeApplyJson | ConvertTo-Json -Depth 20)"
+  }
+  $disabledBeforeFiles = Save-TreeSnapshot -Path $caseRoot
+  $disabledBeforeDirs = Save-TreeDirectories -Path $caseRoot
   $disabledPreviewJson = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','login','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1' } | ConvertFrom-Json
   if ([string]$disabledPreviewJson.command -ne 'continue' -or [string]$disabledPreviewJson.lane.id -ne 'feature-login') {
     throw "unexpected disabled fallback continue JSON preview: $($disabledPreviewJson | ConvertTo-Json -Depth 20)"
   }
   Assert-ContainsText -Text ([string]::Join("`n", @($disabledPreviewJson.nextSteps))) -Expected 'PowerShell workflow after review' -Label 'go disabled continue JSON fallback'
-  Assert-TreeUnchanged -Root $caseRoot -BeforeSnapshot $facadeJsonBeforeFiles -BeforeDirectories $facadeJsonBeforeDirs -Label 'go disabled continue json preview fallback'
+  Assert-TreeUnchanged -Root $caseRoot -BeforeSnapshot $disabledBeforeFiles -BeforeDirectories $disabledBeforeDirs -Label 'go disabled continue json preview fallback'
   $global:LASTEXITCODE = 0
 
   'continue what-if smoke ok'

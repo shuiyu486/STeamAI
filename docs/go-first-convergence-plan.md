@@ -83,7 +83,7 @@ git diff --check
 
 - 多领域 skeleton pack 已建立，`vmp-re` 是首个 mature pack，其它安全领域 pack 主要为 skeleton。
 - Go backend 已覆盖大量命令面，包括 `status`、`packs`、`doctor/validate`、`attach`、`repair`、`init/bootstrap`、`sync/update`、`promote`、`overview`、`start`、`handoff`、`continue`、`plan-subagents`、`gate`、`note`。
-- PowerShell façade 仍是公共入口；低风险只读、case lifecycle、sync/promote、overview 文本/JSON 与缺 board 初始化、note 文本/JSON 只读查询、note append/what-if、gate what-if/apply request、start/handoff JSON preview 与显式 apply 路径已逐步默认委托 Go，continue preview 与大量文本工作流仍按边界显式开启或回落 PowerShell。
+- PowerShell façade 仍是公共入口；低风险只读、case lifecycle、sync/promote、overview 文本/JSON 与缺 board 初始化、note 文本/JSON 只读查询、note append/what-if、gate what-if/apply request、start/handoff JSON preview 与显式 apply、continue JSON preview 与 explicit apply 路径已逐步默认委托 Go；无 `-Apply` 的文本工作流仍按边界回落 PowerShell。
 - Batch 92-101 已把 pack smoke helper/matrix/discovery/tests guide/catalog metadata 收束成维护体系。
 - Agent Team 契约、ledger 基础、review-first sync/promote、Go review artifacts、Go gate preview/request、Go `plan-subagents` 只读计划器已经存在。
 
@@ -91,7 +91,7 @@ git diff --check
 
 - Go 还不是默认 runtime owner。
 - PowerShell 与 Go 在 manifest、sync/promote、workstream/ledger 等领域存在双实现漂移风险。
-- `continue` apply、无 `-Apply` 的文本工作线 flow 等仍有 Go/PowerShell 语义分裂或 façade 暴露不足。
+- 无 `-Apply` 的文本工作线 flow、authority/confirmed gate、batch-level replay/resume 等仍有 Go/PowerShell 语义分裂或 façade 暴露不足。
 - Release gate 仍偏人工 PowerShell smoke 组合，缺少 Go-first invariant tests / CI。
 - `vmp-re` 默认仍散落在 runtime 和文档中，pack-neutral 收口未完成。
 
@@ -113,7 +113,7 @@ git diff --check
 - `go test ./...` 能捕获新增 smoke 未登记、skeleton pack wrapper/catalog 不一致等核心漂移。
 - tests guide 明确 PowerShell smoke 是 compatibility/parity 层，不是未来扩张方向。
 
-当前进度：Batch 103 已迁入第一组 Go release invariant tests：`catalog.json` schema/全部 `.ps1` 覆盖/recommended minimum/related docs，以及 schema-valid skeleton pack 与 catalog、wrapper、matrix 的一致性；`go vet ./...` 已纳入 tests guide 和 catalog recommended minimum。Stage 1 仍可继续补更深的 Go invariant（例如把 `pack-inventory-smoke.ps1` 的更多 CLI 层 invalid manifest / default pack contract 迁入 Go tests，或将代表性 skeleton pack no-write smoke Go 化），但不再扩张 PowerShell catalog/matrix 功能。
+当前进度：Batch 103 已迁入第一组 Go release invariant tests：`catalog.json` schema/全部 `.ps1` 覆盖/recommended minimum/related docs，以及 schema-valid skeleton pack 与 catalog、wrapper、matrix 的一致性；`go vet ./...` 已纳入 tests guide 和 catalog recommended minimum。Stage 1 仍可继续补更深的 Go invariant（例如把 `pack-inventory-smoke.ps1`、continue apply smoke metadata 或代表性 skeleton pack no-write smoke Go 化），但不再扩张 PowerShell catalog/matrix 功能。
 
 ### Stage 2：低风险 Go default façade
 
@@ -130,7 +130,7 @@ git diff --check
 - 用户不设置 `REKIT_GO_ENABLE` 也走 Go read-only runtime。
 - PowerShell 对这些命令不再作为业务逻辑 owner。
 
-当前进度：Batch 104 已完成低风险 read-only default façade：`status`、`packs`、kit/case `doctor/validate` 默认委托 Go；Batch 113 将已初始化 case 的 `overview -Format json` 与 `note -List -Format json` 只读查询也纳入默认 Go façade；Batch 114 将 `gate -WhatIf` 非写入 heavy-tool gate preview纳入默认 Go façade；Batch 115 将 `gate -Apply` pending-gate request ledger 写入纳入默认 Go façade；Batch 117 将 attached case 的 `start`/`handoff` JSON preview 与显式 `-Apply` 纳入默认 Go façade；Batch 118 将 attached case 的 `continue -WhatIf -Format json` 非写入 preview 纳入默认 Go façade；Batch 119 将 attached case 的 `overview` 文本/JSON 与缺 board 初始化纳入默认 Go façade；Batch 120 将 attached case 的 `note -List` 文本/table/tsv 查询也纳入默认 Go façade；`REKIT_GO_DISABLE=1` 强制禁用 Go façade 委托。Stage 2 的核心完成信号已达成，后续可在进入 Stage 5 更深写入路径前继续观察 façade smoke 与真实 dry-run case，或补充错误 fallback 文档/测试。
+当前进度：Batch 104 已完成低风险 read-only default façade：`status`、`packs`、kit/case `doctor/validate` 默认委托 Go；Batch 113 将已初始化 case 的 `overview -Format json` 与 `note -List -Format json` 只读查询也纳入默认 Go façade；Batch 114 将 `gate -WhatIf` 非写入 heavy-tool gate preview纳入默认 Go façade；Batch 115 将 `gate -Apply` pending-gate request ledger 写入纳入默认 Go façade；Batch 117 将 attached case 的 `start`/`handoff` JSON preview 与显式 `-Apply` 纳入默认 Go façade；Batch 118 将 attached case 的 `continue -WhatIf -Format json` 非写入 preview 纳入默认 Go façade；Batch 119 将 attached case 的 `overview` 文本/JSON 与缺 board 初始化纳入默认 Go façade；Batch 120 将 attached case 的 `note -List` 文本/table/tsv 查询也纳入默认 Go façade；Batch 121 将 explicit `continue -Apply` 的 case-local facts/routing/run digest/resume/board 写入纳入默认 Go façade；`REKIT_GO_DISABLE=1` 强制禁用 Go façade 委托。Stage 2 的核心完成信号已达成，后续可继续观察 façade smoke 与真实 dry-run case，或补充错误 fallback 文档/测试。
 
 ### Stage 3：case lifecycle 写入路径 Go 化
 
@@ -172,7 +172,7 @@ git diff --check
 
 目标：让 Agent Team 日常状态流从 PowerShell runtime 收口到 Go。
 
-当前进度：Batch 113 先把无需新增写入面的 `overview -Format json` 与 `note -List -Format json` 只读查询升级为默认 Go façade 委托；Batch 114 将 `gate -WhatIf` 非写入 heavy-tool gate preview 升级为默认 Go façade；Batch 115 将 `gate -Apply` pending-gate request ledger 写入升级为默认 Go façade，并补 `internal/rekit/gate` package tests 覆盖 no-write、actor guard、幂等和 no authority/confirmed/artifacts；Batch 116 将 attached case 的 `note` append 与 `note -WhatIf` facts JSONL 写入/预览升级为默认 Go façade，并补 `internal/rekit/note` package tests 覆盖 no-write、schema/lane guard、幂等和 no authority/confirmed；Batch 117 将 attached case 的 `start`/`handoff` JSON preview 与显式 `-Apply` 升级为默认 Go façade；Batch 118 将 attached case 的 `continue -WhatIf -Format json` 非写入 preview 升级为默认 Go façade；Batch 119 将 attached case 缺 board 时的 overview case-local board/facts/policy/default authority lane 初始化迁入 Go，并让 overview 文本/JSON 默认经 façade 委托 Go；Batch 120 将 attached case 的 `note -List` 文本/table/tsv 只读查询也纳入默认 Go façade。实际 heavy-tool 执行、无 `-Apply` 的文本工作线 flow 与 `continue` apply 的既有边界不变。后续 Stage 5 仍需处理 continue apply。
+当前进度：Batch 113 先把无需新增写入面的 `overview -Format json` 与 `note -List -Format json` 只读查询升级为默认 Go façade 委托；Batch 114 将 `gate -WhatIf` 非写入 heavy-tool gate preview 升级为默认 Go façade；Batch 115 将 `gate -Apply` pending-gate request ledger 写入升级为默认 Go façade，并补 `internal/rekit/gate` package tests 覆盖 no-write、actor guard、幂等和 no authority/confirmed/artifacts；Batch 116 将 attached case 的 `note` append 与 `note -WhatIf` facts JSONL 写入/预览升级为默认 Go façade，并补 `internal/rekit/note` package tests 覆盖 no-write、schema/lane guard、幂等和 no authority/confirmed；Batch 117 将 attached case 的 `start`/`handoff` JSON preview 与显式 `-Apply` 升级为默认 Go façade；Batch 118 将 attached case 的 `continue -WhatIf -Format json` 非写入 preview 升级为默认 Go façade；Batch 119 将 attached case 缺 board 时的 overview case-local board/facts/policy/default authority lane 初始化迁入 Go，并让 overview 文本/JSON 默认经 façade 委托 Go；Batch 120 将 attached case 的 `note -List` 文本/table/tsv 只读查询也纳入默认 Go façade；Batch 121 将 explicit `continue -Apply` 纳入默认 Go façade，写 case-local facts/routing/run digest/lane resume/checkpoint 与 board refresh，同时将 authority/confirmed 写入强制 defer。实际 heavy-tool 执行、无 `-Apply` 的文本工作线 flow、authority/confirmed 写入与 policy schema 迁移仍需单独 gate。
 
 推荐批次形态：
 

@@ -3679,3 +3679,36 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/note`、`facade-smoke.ps1`、`agent-team-review-loop-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 121：continue apply default Go façade
+
+状态：已完成。
+
+目标：承接 Stage 5 的 continue Go 化，在 Batch 118 已将 `continue -WhatIf -Format json` 非写入 preview 纳入默认 Go façade 后，将 explicit `continue -Apply [selector]` 的 safe subset 收口到 Go backend 与公共 façade，使 start → note/outbox → continue apply → handoff 的 case-local deterministic 状态流主要由 Go runtime 负责，同时保持 authority/confirmed 与 heavy-tool gate 不自动执行。
+
+实施范围：
+
+- 在 Go workstream runtime 中新增 `ContinueApply`，复用 continue context、lane selector、known event 去重与 preview decision 逻辑，写入 `.rekit/facts/*.jsonl`、request routing、run status/digest、lane resume/checkpoint 与 `.rekit/board.json` refresh。
+- 扩展 Go CLI `continue`：要求显式 `-WhatIf` 或 `-Apply`，拒绝二者混用与 review artifact flags；`-WhatIf` 输出非写入 preview，`-Apply` 输出 applied JSON envelope。
+- 扩展 PowerShell façade safe-set：attached case、已有 board、explicit `-Apply` 且无 review/candidates/force/what-if 混用时，默认委托 Go；无 `-Apply` 的文本工作线 flow 与 `REKIT_GO_DISABLE=1` 继续回退 PowerShell。
+- 对 authority candidate 做保守处理：preview 仍显示 would-append；apply 不 append authority/confirmed，而是写 candidate + decision，并将 decision reason 标记为 `authority append requires explicit user confirmation; Go continue -Apply does not write authority/confirmed`。
+- 更新 `continue-whatif-smoke.ps1` 覆盖 Go preview no-write、Go apply case-local writes、authority guard、facade JSON preview/apply 默认委托、duplicate skipped 与 disable fallback。
+- 更新 `facade-smoke.ps1` 与 Go CLI tests，锁定 `continue -Apply` 默认委托、apply JSON envelope、facts/routing/digest/resume/board 写入和 unsupported mode guard。
+- 更新 README、CLAUDE、`/rekit` skill、Go runtime migration、Go-first convergence、Agent Team rollout、tests guide、catalog metadata 与 changelog，记录 Batch 121 后 continue explicit apply 默认委托边界。
+
+边界：本批只迁移 explicit `continue -Apply` 的 case-local deterministic 写入；不写 authority/confirmed，不执行 full-trace/debug/inject/patch/dump/network/fuzz/exploit replay，不迁移无 `-Apply` 的文本工作线 flow，不改变 sync/promote review-first、不改变 policy schema、不自动执行 heavy-tool gate。authority/confirmed 写入仍必须显式用户确认。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/workstream ./internal/rekit/cli
+.\rekit\tests\continue-whatif-smoke.ps1
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/workstream ./internal/rekit/cli`、`continue-whatif-smoke.ps1`、`facade-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

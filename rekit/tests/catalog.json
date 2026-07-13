@@ -24,7 +24,7 @@
       "id": "facade-smoke",
       "script": "facade-smoke.ps1",
       "category": "facade",
-      "purpose": "Validate PowerShell facade default delegation and fallback boundaries, including overview/note text and JSON readonly, note append/what-if, gate what-if/apply, start/handoff JSON preview/apply, and continue JSON preview delegation.",
+      "purpose": "Validate PowerShell facade default delegation and fallback boundaries, including overview/note text and JSON readonly, note append/what-if, gate what-if/apply, start/handoff JSON preview/apply, and continue JSON preview/apply delegation.",
       "recommendedFor": ["rekit.ps1", "Go facade delegation", "JSON preview delegation", "readonly text delegation", "readonly JSON delegation", "note list delegation", "note append delegation", "note what-if delegation", "gate what-if delegation", "gate apply delegation", "start delegation", "handoff delegation", "continue delegation", "write fallback"],
       "supportsWorkRoot": false,
       "supportsCaseRoot": true,
@@ -373,11 +373,11 @@
       "id": "continue-whatif-smoke",
       "script": "continue-whatif-smoke.ps1",
       "category": "workstream",
-      "purpose": "Validate Go continue non-write preview, default facade JSON preview delegation, fallback, wouldWrites, blocked actions, and apply guard.",
-      "recommendedFor": ["continue what-if", "workstream preview", "Go continue", "continue delegation"],
+      "purpose": "Validate Go continue non-write preview, explicit case-local apply, default facade JSON preview/apply delegation, fallback, writes/wouldWrites, blocked actions, and authority guard.",
+      "recommendedFor": ["continue what-if", "continue apply", "workstream preview", "Go continue", "continue delegation"],
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
-      "riskBoundary": "Preview only; must not write facts/run/board/lane/authority.",
+      "riskBoundary": "Temporary case only; apply may write case-local facts/runs/board/lane resume/routing, but must not write authority/confirmed or execute heavy tools.",
       "relatedDocs": ["docs/go-runtime-migration.md", "rekit/tests/README.md"]
     },
     {
