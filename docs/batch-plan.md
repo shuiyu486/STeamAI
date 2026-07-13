@@ -4198,3 +4198,35 @@ git diff --check
 ```
 
 验证结果：全部通过。`ollvm-agent-team-dryrun-smoke.ps1`、`catalog-smoke.ps1`、`ollvm-pack-smoke.ps1`、`go test ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 138：android-native Agent Team real dry-run smoke
+
+状态：已完成。
+
+目标：收束 Stage 6/7 中安全领域 skeleton pack 真实临时 case dry-run 覆盖的最后缺口，在 Batch 127、132-137 已覆盖 `web-security`、`generic-binary-re`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe` 与 `ollvm` 后，新增 `android-native` 公共 `/rekit` façade 下的真实临时 case dry-run，验证 native-analysis lane、inject/hook pending-gate、candidate/verification/decision ledger、overview、handoff 和 doctor 的端到端闭环。
+
+实施范围：
+
+- 新增 `rekit/tests/android-native-agent-team-dryrun-smoke.ps1`，使用临时 case 运行 `init -Apply`、`start -Apply`、`plan-subagents`、candidate `note`、`gate -WhatIf/-Apply -Action inject`、verification `note`、decision `note`、`note -List`、`overview` text/JSON、lane `handoff -Apply` 与 `doctor`。
+- 验证 `gate -WhatIf` 不写 `.rekit/facts/requests.jsonl`，`gate -Apply` 只写 pending-gate request，不连接设备、不 attach Frida、不执行 hook/inject/dump/patch/heavy-tool、不写 authority/confirmed。
+- 验证 `plan-subagents` 选择 `android-native:native-analysis` route、`manual-main-agent` dispatch、`runtime does not spawn subagents` blocked action 与 `canonical-write` 主 agent 写入边界。
+- 验证 handoff 包含 `workspace/native/native-analysis-jni/packet.md`、verification/decision/pending-gate 区段，并不泄漏 `web-security`、`workspace/features`、`endpoint-login`、`generic-binary-re`、`workspace/binary`、`binary-analysis-sample`、`malware-analysis`、`workspace/samples`、`sample-alpha`、`vuln-research`、`workspace/vulns`、`ctf`、`workspace/challenges`、`unpack-pe`、`workspace/unpack`、`ollvm`、`workspace/obfuscation`、`references/template` 或 `vmp-re` 语义。
+- 更新 `rekit/tests/catalog.json`、`rekit/tests/README.md`、`docs/go-first-convergence-plan.md`、`docs/release-readiness.md`、CHANGELOG 与 batch-plan，记录 `android-native` 真实 dry-run 覆盖，并把后续 Stage 6/7 缺口转向 release readiness/CI 或新 pack 引入。
+
+边界：本批只使用临时 case 和 review artifact；不连接设备、不 attach Frida、不执行 hook/inject/dump/patch/heavy-tool、不自动 spawn subagent、不写 authority/confirmed、不改变 runtime 写入面、不新增 CI workflow。
+
+验证计划：
+
+```powershell
+.\rekit\tests\android-native-agent-team-dryrun-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+.\rekit\tests\android-native-pack-smoke.ps1
+go test ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`android-native-agent-team-dryrun-smoke.ps1`、`catalog-smoke.ps1`、`android-native-pack-smoke.ps1`、`go test ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

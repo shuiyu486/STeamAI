@@ -393,6 +393,17 @@
       "relatedDocs": ["docs/agent-team-rollout-plan.md", "docs/evidence-ledger.md", "rekit/tests/README.md"]
     },
     {
+      "id": "android-native-agent-team-dryrun-smoke",
+      "script": "android-native-agent-team-dryrun-smoke.ps1",
+      "category": "agent-team",
+      "purpose": "Validate a real temporary-case android-native Agent Team dry-run through facade init/start/plan-subagents/candidate/inject-gate/verification/decision/overview/handoff/doctor.",
+      "recommendedFor": ["android-native dry-run", "Agent Team real dry-run", "inject gate display", "pack-neutral E2E", "facade workstream flow"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Temporary case only; no subagent spawn, device connection, Frida attach, hook execution, injection, dump, patch, heavy-tool execution, or authority/confirmed write.",
+      "relatedDocs": ["docs/agent-team-rollout-plan.md", "docs/evidence-ledger.md", "rekit/tests/README.md"]
+    },
+    {
       "id": "gate-parity-smoke",
       "script": "gate-parity-smoke.ps1",
       "category": "gate-ledger",
