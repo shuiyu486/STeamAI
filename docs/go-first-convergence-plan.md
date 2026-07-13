@@ -232,7 +232,7 @@ git diff --check
 
 - 新会话能通过一页 current-state/release checklist 了解项目状态；Batch 128 已新增 `docs/release-readiness.md` 并用 Go release invariant 锁定核心章节、命令、pack matrix 和 known gaps。
 - release gate 可在本机和 CI 中稳定执行；Batch 130 新增 Go-owned `release-check` inventory，用 JSON envelope 汇总 recommended minimum、文档入口、pack schema、边界与 known gaps，作为本机/CI release gate 的确定性前置检查。
-- PowerShell runtime deprecation strategy 有明确文档入口、模块归属和 freeze/removal gates；Batch 129 已新增 `docs/powershell-deprecation.md`，但实际删除或冻结仍需单独批次验证。
+- PowerShell runtime deprecation strategy 有明确文档入口、模块归属和 freeze/removal gates；Batch 129 已新增 `docs/powershell-deprecation.md`，Batch 131 已新增 Go release invariant 锁定默认 façade 委托集合、legacy/internal 边界与 blocked heavy-tool/authority/confirmed 不进入默认委托；实际删除仍需单独批次验证。
 
 ## 自主推进优先级建议
 

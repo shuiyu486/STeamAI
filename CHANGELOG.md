@@ -4,6 +4,7 @@
 
 ### Added
 
+- Batch 131 / Stage 8 新增 PowerShell façade freeze invariant：扩展 `internal/rekit/manifest` release invariants，静态锁定 `rekit/rekit.ps1` 默认 Go façade 委托集合、`ValidateSet` 覆盖、`release-check` Go-only/no-target guard、`plan-subagents` legacy/internal 边界、blocked heavy-tool/authority/confirmed 不得进入默认委托，以及 `facade-smoke.ps1` 中的 release-check fake delegation / `REKIT_GO_DISABLE` 回归信号；该批不删除 PowerShell 代码、不改变 runtime 写入面，仅把 Batch 129 deprecation strategy 的 freeze guard 固化为 Go test。
 - Batch 130 / Stage 8 新增 Go-owned release-check inventory：新增 `internal/rekit/releasecheck` 与 `/rekit release-check`，以只读 JSON/text envelope 汇总 recommended minimum、必备文档入口、pack schema 状态、安全边界与 known gaps，并把该命令接入 release readiness、test catalog、smoke guide、PowerShell deprecation matrix 和 façade 默认 Go 委托；该命令只做确定性 inventory，不执行测试、不写 case/pack 状态、不新增大型 PowerShell 编排或外部 CI 副作用。
 - Batch 129 / Stage 8 新增 PowerShell runtime deprecation strategy：新增 `docs/powershell-deprecation.md`，明确 Go-owned、façade-only、legacy-only、blocked 命令归属，列出 `rekit/lib/*.ps1` 模块冻结/保留状态、fallback retirement gates 与禁止迁移清单，并用 release invariant 锁定 deprecation 文档、README/CLAUDE/release readiness/go-first 入口，避免后续继续扩张 PowerShell runtime 语义。
 - Batch 128 / Stage 8 新增 release readiness checklist 与 Go invariant：新增 `docs/release-readiness.md`，集中记录本机 release gate、recommended minimum、发布前人工检查、pack maturity matrix、Go-owned/PowerShell legacy 状态与 known gaps，并新增 manifest release invariant 测试防止 checklist 漏掉核心命令、边界和接手章节；同时在 README、CLAUDE 与 Go-first convergence 入口中接入该 checklist。

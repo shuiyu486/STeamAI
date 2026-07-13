@@ -313,6 +313,109 @@ func TestPowerShellDeprecationStrategyInvariants(t *testing.T) {
 	}
 }
 
+func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
+	repo := repoRoot(t)
+	facade := readRepoText(t, repo, "rekit/rekit.ps1")
+	strategy := readRepoText(t, repo, "docs/powershell-deprecation.md")
+	smoke := readRepoText(t, repo, "rekit/tests/facade-smoke.ps1")
+
+	defaultCommands := powerShellSingleQuotedArrayInFunction(t, facade, "Test-RekitGoDefaultDelegationCommand")
+	expectedDefaultCommands := stringSet([]string{
+		"status",
+		"packs",
+		"release-check",
+		"doctor",
+		"validate",
+		"attach",
+		"repair",
+		"init",
+		"bootstrap",
+		"sync",
+		"update",
+		"promote",
+		"overview",
+		"note",
+		"gate",
+		"start",
+		"handoff",
+		"continue",
+	})
+	assertSameStringSet(t, "documented Go-default facade commands", expectedDefaultCommands, "Test-RekitGoDefaultDelegationCommand", defaultCommands)
+
+	validateSet := powerShellValidateSet(t, facade)
+	for command := range expectedDefaultCommands {
+		if !validateSet[command] {
+			t.Fatalf("ValidateSet missing Go-default command %q", command)
+		}
+	}
+	for _, legacyOrBlocked := range []string{"plan-subagents", "full-trace", "debug", "inject", "patch", "dump", "network", "heavy-tool", "authority", "confirmed"} {
+		if defaultCommands[legacyOrBlocked] {
+			t.Fatalf("legacy/blocked command %q must not default to Go facade", legacyOrBlocked)
+		}
+	}
+	if !validateSet["plan-subagents"] {
+		t.Fatal("ValidateSet must keep plan-subagents as a supported PowerShell internal command")
+	}
+
+	for _, required := range []string{
+		"if ($Command -eq 'release-check' -and -not [string]::IsNullOrWhiteSpace($Target)) { return $false }",
+		"if ($Command -notin @('start','handoff','continue','release-check'))",
+		"release-check is implemented by the Go backend only",
+		"gate is implemented by the Go backend only",
+	} {
+		assertTextContains(t, facade, required, "PowerShell facade freeze guard")
+	}
+	for _, required := range []string{
+		"| `release-check` | Go default | façade delegate + no PowerShell fallback |",
+		"Legacy freeze",
+		"PowerShell 只允许 bug fix / compatibility / safety boundary 修复",
+		"actual full-trace/debug/inject/patch/dump/network/heavy-tool",
+		"authority/confirmed 自动写入",
+		"policy schema 迁移",
+		"case-local shim",
+	} {
+		assertTextContains(t, strategy, required, "PowerShell facade freeze strategy")
+	}
+	for _, required := range []string{
+		"default release-check fake delegation",
+		"REKIT_GO_DISABLE",
+		"must-not-run",
+	} {
+		assertTextContains(t, smoke, required, "PowerShell facade freeze smoke")
+	}
+}
+
+func powerShellValidateSet(t *testing.T, text string) map[string]bool {
+	t.Helper()
+	match := regexp.MustCompile(`(?s)\[ValidateSet\((.*?)\)\]`).FindStringSubmatch(text)
+	if len(match) != 2 {
+		t.Fatal("PowerShell ValidateSet not found")
+	}
+	return powerShellSingleQuotedItems(match[1])
+}
+
+func powerShellSingleQuotedArrayInFunction(t *testing.T, text, functionName string) map[string]bool {
+	t.Helper()
+	functionPattern := regexp.MustCompile(`(?s)function\s+` + regexp.QuoteMeta(functionName) + `\s*\{(.*?)\n\}`)
+	functionMatch := functionPattern.FindStringSubmatch(text)
+	if len(functionMatch) != 2 {
+		t.Fatalf("PowerShell function %s not found", functionName)
+	}
+	arrayMatch := regexp.MustCompile(`@\((.*?)\)`).FindStringSubmatch(functionMatch[1])
+	if len(arrayMatch) != 2 {
+		t.Fatalf("PowerShell function %s does not contain a single-quoted array", functionName)
+	}
+	return powerShellSingleQuotedItems(arrayMatch[1])
+}
+
+func powerShellSingleQuotedItems(text string) map[string]bool {
+	items := map[string]bool{}
+	for _, match := range regexp.MustCompile(`'([^']+)'`).FindAllStringSubmatch(text, -1) {
+		items[match[1]] = true
+	}
+	return items
+}
+
 func loadTestCatalog(t *testing.T, repo string) testCatalog {
 	t.Helper()
 	data := []byte(readRepoText(t, repo, "rekit/tests/catalog.json"))

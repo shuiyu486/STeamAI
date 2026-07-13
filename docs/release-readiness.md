@@ -123,5 +123,5 @@ PowerShell legacy / fallback 路径（详细冻结/删除策略见 `docs/powersh
 - bounded dispatch 仍不自动 spawn reviewer；runtime 只生成 review packet 和 observability。
 - actual heavy-tool 执行未迁入 deterministic runtime；full-trace/debug/inject/patch/dump/network 仍必须显式 gate。
 - authority/confirmed 写入仍需人工确认，不由 Go `continue -Apply` 自动执行。
-- policy schema 迁移、PowerShell runtime deprecation 的实际冻结/删除批次和 CI workflow 尚未进入默认发布路径；Batch 129 已新增 `docs/powershell-deprecation.md` 作为策略入口，Batch 130 已新增 Go-owned `release-check` inventory 作为本机/CI release gate 前置检查。
+- policy schema 迁移、PowerShell runtime deprecation 的实际删除批次和 CI workflow 尚未进入默认发布路径；Batch 129 已新增 `docs/powershell-deprecation.md` 作为策略入口，Batch 130 已新增 Go-owned `release-check` inventory 作为本机/CI release gate 前置检查，Batch 131 已新增 façade freeze invariant 防止默认委托集合和 blocked 边界漂移。
 - 目前只有 `web-security` 有非 RE-only 真实临时 case dry-run；其它 skeleton pack 仍主要依赖 pack smoke 和 package/route 覆盖。

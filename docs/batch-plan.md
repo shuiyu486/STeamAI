@@ -3980,3 +3980,31 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli -run TestRunReleaseCheck -count=1`、`go test ./internal/rekit/cli`、`go test ./internal/rekit/manifest -run TestReleaseCatalogInvariants -count=1`、`go test ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit release-check -Format json`、`catalog-smoke.ps1`、`facade-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 131：PowerShell façade freeze invariant
+
+状态：已完成。
+
+目标：承接 Stage 8 中 PowerShell deprecation 的“freeze/removal gates”未完成项，在 Batch 129 deprecation strategy 和 Batch 130 `release-check` inventory 之后，用 Go release invariant 静态锁定 `rekit/rekit.ps1` 默认 Go façade 委托集合、Go-only guard、legacy/internal command 边界与 blocked heavy-tool/authority/confirmed 边界，避免后续无意扩大 PowerShell runtime owner 或默认委托面。
+
+实施范围：
+
+- 扩展 `internal/rekit/manifest/release_invariants_test.go`，新增 `TestPowerShellFacadeFreezeInvariants`，解析 `rekit/rekit.ps1` 中 `Test-RekitGoDefaultDelegationCommand` 的单引号数组和 top-level `ValidateSet`。
+- 锁定默认 Go façade 委托集合必须等于当前 Go-owned safe set：`release-check/status/packs/doctor/validate/case lifecycle/sync/promote/overview/note/gate/start/handoff/continue`，并确认 `plan-subagents` 仍只是 ValidateSet 支持的 legacy/internal command，不进入默认 Go 委托集合。
+- 锁定 `release-check` 的 no-target safe guard、Go-only fallback message、`gate` Go-only fallback message，以及 `facade-smoke.ps1` 对 `release-check` fake delegation、`REKIT_GO_DISABLE` 与 must-not-run guard 的覆盖信号。
+- 更新 `docs/powershell-deprecation.md`、`docs/release-readiness.md`、`docs/go-first-convergence-plan.md`、CHANGELOG 与 batch-plan，记录 Batch 131 将 freeze guard 固化为 Go invariant。
+
+边界：本批只新增/扩展 release invariant 与文档，不改 `rekit/rekit.ps1` 行为、不删除 PowerShell 代码、不改变 façade safe-set、不写 case/pack/runtime state、不新增 CI workflow、不执行 heavy-tool、不写 authority/confirmed、不迁移 policy schema。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest -run TestPowerShellFacadeFreezeInvariants -count=1
+go test ./internal/rekit/manifest
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/manifest -run TestPowerShellFacadeFreezeInvariants -count=1`、`go test ./internal/rekit/manifest`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

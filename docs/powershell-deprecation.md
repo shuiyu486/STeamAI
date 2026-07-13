@@ -90,7 +90,7 @@ PowerShell deprecation 相关变更至少满足：
 1. **Documented**：本文件列出命令和模块状态。
 2. **Go-owned**：Go package tests 和 CLI tests 覆盖 deterministic 行为。
 3. **Façade default**：公共 `/rekit` 默认委托 Go，并保留 `REKIT_GO_DISABLE=1` fallback。
-4. **Release invariant**：Go release invariant 锁定 checklist、边界、known gaps 或 deprecation 状态。
+4. **Release invariant**：Go release invariant 锁定 checklist、边界、known gaps、deprecation 状态或 façade freeze guard；Batch 131 已新增 `TestPowerShellFacadeFreezeInvariants` 锁定默认 Go 委托集合、`release-check` Go-only guard、legacy/internal `plan-subagents` 边界和 blocked heavy-tool/authority/confirmed 不进入默认委托。
 5. **Legacy freeze**：PowerShell 只允许 bug fix / compatibility / safety boundary 修复。
 6. **Fallback retirement candidate**：至少一个 release cycle 无 fallback 需求，且旧 case smoke、doctor、facade smoke 通过。
 7. **Removal batch**：删除必须是单独批次，含恢复计划、diff review、CHANGELOG、docs、tests 和用户明确授权。
