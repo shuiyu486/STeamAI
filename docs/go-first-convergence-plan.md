@@ -185,7 +185,7 @@ git diff --check
 
 完成信号：
 
-- 临时 case 的 start → note → continue → handoff 可主要通过 Go runtime 完成；Batch 122 已用 `_template` pack 的 Go package test 锁定最小闭环，Batch 123 已补 `_template` pack 的 plan-subagents → gate request → overview/handoff 可见性闭环，Batch 124 已补 reviewer verification → main decision → overview/handoff 可见性闭环，Batch 125 已补 `generic-binary-re` 非 feature lane / pack-specific route 的 pack-neutral 可见性闭环，Batch 126 已补 `web-security` 非 RE-only route / network gate 的 pack-neutral 可见性闭环，Batch 127 已把该闭环提升为公共 façade 下的真实临时 case dry-run smoke。
+- 临时 case 的 start → note → continue → handoff 可主要通过 Go runtime 完成；Batch 122 已用 `_template` pack 的 Go package test 锁定最小闭环，Batch 123 已补 `_template` pack 的 plan-subagents → gate request → overview/handoff 可见性闭环，Batch 124 已补 reviewer verification → main decision → overview/handoff 可见性闭环，Batch 125 已补 `generic-binary-re` 非 feature lane / pack-specific route 的 pack-neutral 可见性闭环，Batch 126 已补 `web-security` 非 RE-only route / network gate 的 pack-neutral 可见性闭环，Batch 127 已把 `web-security` 闭环提升为公共 façade 下的真实临时 case dry-run smoke，Batch 132 已将 `generic-binary-re` binary-analysis/debug gate 闭环也提升为公共 façade 下的真实临时 case dry-run smoke。
 - heavy-tool / authority / confirmed 仍有明确 gate 和用户确认边界。
 
 ### Stage 6：Agent Team 真实 dry-run 闭环
@@ -194,7 +194,7 @@ git diff --check
 
 推荐批次形态：
 
-- 建立一个临时 case dry-run 脚本或 Go-driven test harness，覆盖 main lane、feature lane、reviewer verification、candidate status、gate request、handoff；Batch 122 已先用 `_template` pack 的 Go package test 覆盖 start/note/continue/handoff 最小闭环，Batch 123 已继续覆盖 plan-subagents review artifact、gate request、overview 与 handoff 展示，Batch 124 已继续覆盖 reviewer verification、candidate/decision note list、overview 与 handoff 展示，Batch 125 已继续覆盖 `generic-binary-re` 的 `binary-analysis` lane、`workspace/binary/**`、pack-specific route、candidate/gate/verification/decision 与 handoff 展示；Batch 126 已继续覆盖 `web-security` 的 endpoint/feature route、network pending-gate、candidate/verification/decision 与 handoff 展示，Batch 127 已新增 `web-security` 真实临时 case smoke 覆盖公共 façade 下的 init/start/plan-subagents/gate/note/overview/handoff/doctor dry-run。
+- 建立一个临时 case dry-run 脚本或 Go-driven test harness，覆盖 main lane、feature lane、reviewer verification、candidate status、gate request、handoff；Batch 122 已先用 `_template` pack 的 Go package test 覆盖 start/note/continue/handoff 最小闭环，Batch 123 已继续覆盖 plan-subagents review artifact、gate request、overview 与 handoff 展示，Batch 124 已继续覆盖 reviewer verification、candidate/decision note list、overview 与 handoff 展示，Batch 125 已继续覆盖 `generic-binary-re` 的 `binary-analysis` lane、`workspace/binary/**`、pack-specific route、candidate/gate/verification/decision 与 handoff 展示；Batch 126 已继续覆盖 `web-security` 的 endpoint/feature route、network pending-gate、candidate/verification/decision 与 handoff 展示，Batch 127 已新增 `web-security` 真实临时 case smoke 覆盖公共 façade 下的 init/start/plan-subagents/gate/note/overview/handoff/doctor dry-run，Batch 132 已新增 `generic-binary-re` 真实临时 case smoke 覆盖 binary-analysis lane、debug pending-gate、candidate/verification/decision 与 handoff leakage guard。
 - 不需要自动 spawn reviewer；重点验证 packet、ledger、handoff、gate、continue digest 是否足够完整。
 - 继续扩展更多非 `_template` / 非 `vmp-re` pack 的真实 dry-run 脚本或中型闭环，尤其是从 package E2E 走向真实临时 case dry-run。
 
@@ -211,7 +211,7 @@ git diff --check
 
 - 抽出单一 default pack 决策点，减少 Go/PowerShell 中散落的 `vmp-re` 字符串。
 - 将 fallback deny baseline generic 化，pack-specific deny patterns 仅由 manifest 声明。
-- Batch 125 已先选 `generic-binary-re` 作为 pack-neutral Go package E2E 试点，Batch 126 已继续选 `web-security` 验证非 RE-only pack，Batch 127 已将 `web-security` 转向真实临时 case dry-run 工作线；后续可扩展另一个非 RE-only pack 的真实 dry-run，或转向 release readiness/CI 门禁。
+- Batch 125 已先选 `generic-binary-re` 作为 pack-neutral Go package E2E 试点，Batch 126 已继续选 `web-security` 验证非 RE-only pack，Batch 127 已将 `web-security` 转向真实临时 case dry-run 工作线，Batch 132 已将 `generic-binary-re` 转向真实临时 case dry-run 工作线；后续可扩展其它 skeleton pack 的真实 dry-run，或转向 release readiness/CI 门禁。
 
 完成信号：
 

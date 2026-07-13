@@ -88,7 +88,7 @@ Release gate 通过的最低标准：
 | `_template` | template | main | pack authoring template，不作为 skeleton matrix 成员。 |
 | `android-native` | skeleton | main | 不连接设备、不 attach Frida、不执行 hook。 |
 | `ctf` | skeleton | main | 不远程连接、不 brute force、不写 flag/authority/confirmed。 |
-| `generic-binary-re` | skeleton | main | 已有 pack-neutral package E2E；不执行样本/debug/trace/dump/patch。 |
+| `generic-binary-re` | skeleton | main | 已有 package E2E 与真实临时 case dry-run；不执行样本/debug/trace/dump/patch。 |
 | `malware-analysis` | skeleton | main | 不执行样本、不联网、不 sandbox detonation。 |
 | `ollvm` | skeleton | main | 不执行样本、不 trace/dump/patch。 |
 | `unpack-pe` | skeleton | main | 不执行样本、不 debug/dump/patch、不写 unpacked binary。 |
@@ -124,4 +124,4 @@ PowerShell legacy / fallback 路径（详细冻结/删除策略见 `docs/powersh
 - actual heavy-tool 执行未迁入 deterministic runtime；full-trace/debug/inject/patch/dump/network 仍必须显式 gate。
 - authority/confirmed 写入仍需人工确认，不由 Go `continue -Apply` 自动执行。
 - policy schema 迁移、PowerShell runtime deprecation 的实际删除批次和 CI workflow 尚未进入默认发布路径；Batch 129 已新增 `docs/powershell-deprecation.md` 作为策略入口，Batch 130 已新增 Go-owned `release-check` inventory 作为本机/CI release gate 前置检查，Batch 131 已新增 façade freeze invariant 防止默认委托集合和 blocked 边界漂移。
-- 目前只有 `web-security` 有非 RE-only 真实临时 case dry-run；其它 skeleton pack 仍主要依赖 pack smoke 和 package/route 覆盖。
+- 目前 `generic-binary-re` 与 `web-security` 已有真实临时 case dry-run；其它 skeleton pack 仍主要依赖 pack smoke 和 package/route 覆盖。
