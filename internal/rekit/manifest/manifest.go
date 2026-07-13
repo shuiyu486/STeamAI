@@ -542,11 +542,11 @@ func (m *Manifest) validateSubagentRoutes(managedTargets, policyOverlays map[str
 		if err := validateSubagentShardBasis(id, route.ShardBasis); err != nil {
 			return err
 		}
-		if n := optionPositiveInt(route.TargetItemsPerAgent); n < 1 {
-			return fmt.Errorf("subagent route %s has invalid targetItemsPerAgent: %s", id, route.TargetItemsPerAgent)
+		if err := validateSubagentRoutePositiveInt(id, "targetItemsPerAgent", route.TargetItemsPerAgent, subagentRouteMaxItemsPerAgent); err != nil {
+			return err
 		}
-		if n := optionPositiveInt(route.MaxParallel); n < 1 {
-			return fmt.Errorf("subagent route %s has invalid maxParallel: %s", id, route.MaxParallel)
+		if err := validateSubagentRoutePositiveInt(id, "maxParallel", route.MaxParallel, subagentRouteMaxParallel); err != nil {
+			return err
 		}
 		if strings.TrimSpace(route.Reference) == "" {
 			return fmt.Errorf("subagent route %s is missing reference document", id)
@@ -603,6 +603,22 @@ func validateSubagentPermissions(routeID, value string) error {
 	default:
 		return fmt.Errorf("subagent route %s has unsupported subagentPermissions: %s", routeID, permissions)
 	}
+}
+
+const (
+	subagentRouteMaxItemsPerAgent = 64
+	subagentRouteMaxParallel      = 16
+)
+
+func validateSubagentRoutePositiveInt(routeID, field, value string, max int) error {
+	n := optionPositiveInt(value)
+	if n < 1 {
+		return fmt.Errorf("subagent route %s has invalid %s: %s", routeID, field, value)
+	}
+	if n > max {
+		return fmt.Errorf("subagent route %s has %s above supported maximum %d: %s", routeID, field, max, strings.TrimSpace(value))
+	}
+	return nil
 }
 
 var subagentRouteListTokenPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$`)

@@ -378,6 +378,45 @@ func TestValidateSchemaRequiresSubagentRouteTrigger(t *testing.T) {
 	}
 }
 
+func TestValidateSchemaBoundsSubagentRouteNumericOptions(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		want   string
+		mutate func(*SubagentRoute)
+	}{
+		{
+			name:   "targetItemsPerAgent",
+			want:   "subagent route unit:bounded-review has targetItemsPerAgent above supported maximum 64: 65",
+			mutate: func(route *SubagentRoute) { route.TargetItemsPerAgent = "65" },
+		},
+		{
+			name:   "maxParallel",
+			want:   "subagent route unit:bounded-review has maxParallel above supported maximum 16: 17",
+			mutate: func(route *SubagentRoute) { route.MaxParallel = "17" },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := validManifestFixture()
+			m.SubagentRoutes = []SubagentRoute{{
+				ID:                  "unit:bounded-review",
+				TaskTypes:           "candidate-review",
+				Trigger:             "fixed-boundary read-only review",
+				ShardBasis:          "item",
+				TargetItemsPerAgent: "64",
+				MaxParallel:         "16",
+				Reference:           "references/template/README.md",
+				SubagentPermissions: "read-only",
+				MainAgentOwns:       "validation",
+				OutputContract:      "item,decision",
+			}}
+			tc.mutate(&m.SubagentRoutes[0])
+			if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ValidateSchema error = %v, want %s", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidateSchemaRequiresValidSubagentRouteShardBasis(t *testing.T) {
 	m := validManifestFixture()
 	m.SubagentRoutes = []SubagentRoute{{
