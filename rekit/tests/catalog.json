@@ -315,6 +315,17 @@
       "relatedDocs": ["docs/agent-team-usage.md", "docs/evidence-ledger.md", "rekit/tests/README.md"]
     },
     {
+      "id": "web-security-agent-team-dryrun-smoke",
+      "script": "web-security-agent-team-dryrun-smoke.ps1",
+      "category": "agent-team",
+      "purpose": "Validate a real temporary-case web-security Agent Team dry-run through facade init/start/plan-subagents/candidate/gate/verification/decision/overview/handoff/doctor.",
+      "recommendedFor": ["web-security dry-run", "Agent Team real dry-run", "network gate display", "pack-neutral E2E", "facade workstream flow"],
+      "supportsWorkRoot": true,
+      "supportsCaseRoot": false,
+      "riskBoundary": "Temporary case only; no subagent spawn, real network requests, scans, fuzzing, exploit replay, heavy-tool execution, or authority/confirmed write.",
+      "relatedDocs": ["docs/agent-team-rollout-plan.md", "docs/evidence-ledger.md", "rekit/tests/README.md"]
+    },
+    {
       "id": "gate-parity-smoke",
       "script": "gate-parity-smoke.ps1",
       "category": "gate-ledger",

@@ -3859,3 +3859,33 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli -run TestRunGoWebSecurityPackNeutralE2EStartPlanGateOverviewHandoff -count=1`、`go test ./internal/rekit/cli`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 127：web-security Agent Team real dry-run smoke
+
+状态：已完成。
+
+目标：承接 Batch 126 的 `web-security` Go package E2E，把非 RE-only pack-neutral 覆盖推进到真实临时 case smoke，使用公共 `/rekit` façade 跑通 Web/API Agent Team dry-run，验证新会话可从 overview、ledger 与 lane handoff 接手，并继续保持 no spawn、no authority/confirmed、no network/heavy-tool 边界。
+
+实施范围：
+
+- 新增 `rekit/tests/web-security-agent-team-dryrun-smoke.ps1`，默认使用 `C:\AI\m_projects\RE\_dryrun_cases` 下的临时 case，结束时清理 case 与 review artifact。
+- 脚本通过公共 `/rekit` façade 覆盖 `init -Apply`、`start -Apply -Format json` 创建 `feature-authz` lane、写入非敏感 workspace packet、`plan-subagents` 选择 `web-security:feature-analysis` route 并生成 review packet、candidate `note` append、`gate -WhatIf -Action network` no-write 预览、`gate -Apply -Action network` pending-gate request、reviewer `verification` append、main `decision` append、`note -List` request/verification、`overview` text/JSON、lane `handoff -Apply -Format json` 与 case `doctor`。
+- 断言 review packet 保持 `manual-main-agent`、`runtime does not spawn subagents` 与 main-agent canonical-write contract；断言 gate what-if 不改 requests ledger；断言 overview/handoff 展示 candidate、network pending-gate、verification、decision 与 batch；断言 handoff 不泄漏 `generic-binary-re`、`workspace/binary`、`binary-analysis-sample`、`references/template` 或 `vmp-re`。
+- 更新 CHANGELOG、Go-first convergence、Go runtime migration、Agent Team rollout、tests guide、catalog metadata 与 batch-plan，记录 Batch 127 从 package E2E 走向真实临时 case dry-run 的边界和后续缺口。
+
+边界：本批只新增 smoke 与文档，不新增 runtime 写入面、不改变 façade safe-set、不自动 spawn reviewer/subagent；smoke 只写并清理临时 case-local `.rekit/**`、`workspace/features/**` 与 review artifact，不写 authority/confirmed，不执行真实网络请求、请求回放、扫描、fuzz、exploit replay、debug、dump、patch、hook 或外部副作用，不写真实 case 或 kit 模板 case state。
+
+验证计划：
+
+```powershell
+.\rekit\tests\web-security-agent-team-dryrun-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+go test ./internal/rekit/cli -run TestRunGoWebSecurityPackNeutralE2EStartPlanGateOverviewHandoff -count=1
+go test ./internal/rekit/cli
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`web-security-agent-team-dryrun-smoke.ps1`、`catalog-smoke.ps1`、`go test ./internal/rekit/cli -run TestRunGoWebSecurityPackNeutralE2EStartPlanGateOverviewHandoff -count=1`、`go test ./internal/rekit/cli`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
