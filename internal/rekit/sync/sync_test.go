@@ -131,13 +131,60 @@ managedFiles:
 templateFiles:
   - references/template/task-handoff.template.md
 
+promoteFiles:
+  - references/template/README.md
+
 managedBlock:
   file: CLAUDE.local.md
   blockId: unit:router
   source: CLAUDE.local.snippet.md
 
+toolingCandidateSources:
+  - references/template/README.md
+
 workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
   backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+
+authorityFiles:
+  - references/template/README.md
+
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+
+promoteDenyPatterns:
+  - "artifacts[\\/]"
+
+budgets:
+  defaultMarkdown: 16384
+
+heavyToolGates:
+  - id: debug
+    title: Debug
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout
+
+laneTypes:
+  - id: main
+    title: Main
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/template/README.md
+    readOnly: .rekit/facts/**
+    outputs: publication,decision,observation
+  - id: feature
+    title: Feature
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/template/**,.rekit/facts/**
+    outputs: observation,request,candidate,summary
 `
 	writeText(t, filepath.Join(packRoot, "manifest.yml"), manifest)
 	writeText(t, filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md"), "# thin shim\n")

@@ -137,7 +137,7 @@ budgets:
 
 本仓库提供 `packs/_template/` 作为新 pack 的起点；已落地的 `packs/web-security/`、`packs/malware-analysis/`、`packs/vuln-research/`、`packs/ctf/`、`packs/unpack-pe/`、`packs/ollvm/`、`packs/android-native/` 与 `packs/generic-binary-re/` 可作为安全领域 skeleton 参考。创建真实 pack 时复制该目录并替换：
 
-- `name`、`description`、`maturity`、`blockId`。
+- `name`、`description`、`maturity` 与 `managedBlock.file/blockId/source`；managed block 三个字段必须显式声明，不能依赖 runtime 注入默认 host、blockId 或 source。
 - `references/template/**` 路径和目录名。
 - `subagentRoutes` 的 route id、taskTypes、trigger、shardBasis 和 outputContract。
 - `tooling/catalog.yml` 的工具条目。

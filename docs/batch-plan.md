@@ -4721,3 +4721,36 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/workstream ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 155：Manifest managedBlock 三要素显式化
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，将 Go manifest loader 中对缺失 `managedBlock.file`、`blockId` 与 `source` 的隐式默认值注入移出 runtime，避免新增 pack 静默继承 `CLAUDE.local.md`、`rekit:router` 或 `CLAUDE.local.snippet.md`；本批不改既有 pack manifest 内容，只让 manifest contract 更显式。
+
+实施范围：
+
+- 移除 `manifest.Load` 对缺失 `ManagedBlock["file"]`、`ManagedBlock["blockId"]` 与 `ManagedBlock["source"]` 的默认值注入。
+- 保留并强化 `ValidateSchema` 的 `managedBlock is missing required key` 显式检查，确保 schema-valid pack 必须声明 managed block host、block id 与 source。
+- 在 Go sync review、init preview 与 apply/preview 入口使用 managed block 前补 `ValidateSchema`，让缺失 managedBlock 的 manifest 返回 schema 诊断而不是空路径错误。
+- 更新 sync tests fixture，使其满足当前显式 manifest contract，并覆盖 sync apply/preview 仍按 managed block 边界运行。
+- `rekit/schemas/pack-manifest.schema.yml` 说明 managedBlock 必须显式声明 file/blockId/source，runtime 不再注入默认值。
+- `docs/pack-authoring.md` 明确新增 pack 不能依赖 managedBlock 默认 host、blockId 或 source。
+- manifest tests 新增 load/no-fallback drift test，确认缺失 `managedBlock.source` 时 loader 不再补 `CLAUDE.local.snippet.md`。
+- 更新 `CHANGELOG.md`、`docs/go-first-convergence-plan.md` 与本 batch-plan。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 sync/promote apply 行为、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/sync ./internal/rekit/doctor ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/sync ./internal/rekit/doctor ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

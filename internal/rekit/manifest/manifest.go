@@ -154,15 +154,6 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 	if len(m.ManagedFiles) == 0 {
 		return nil, fmt.Errorf("manifest managedFiles is empty: %s", manifestPath)
 	}
-	if _, ok := m.ManagedBlock["file"]; !ok {
-		m.ManagedBlock["file"] = "CLAUDE.local.md"
-	}
-	if _, ok := m.ManagedBlock["blockId"]; !ok {
-		m.ManagedBlock["blockId"] = "rekit:router"
-	}
-	if _, ok := m.ManagedBlock["source"]; !ok {
-		m.ManagedBlock["source"] = "CLAUDE.local.snippet.md"
-	}
 	return m, nil
 }
 

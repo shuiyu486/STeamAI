@@ -495,21 +495,85 @@ func TestListPackSummaries(t *testing.T) {
 }
 
 func TestValidateSchemaRequiresExplicitManagedBlock(t *testing.T) {
+	m := validManifestFixture()
+	delete(m.explicitManagedBlock, "source")
+	delete(m.ManagedBlock, "source")
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "managedBlock is missing required key: source") {
+		t.Fatalf("ValidateSchema error = %v, want explicit managedBlock source error", err)
+	}
+}
+
+func TestLoadDoesNotInferManagedBlockDefaults(t *testing.T) {
 	repo := t.TempDir()
-	packRoot := filepath.Join(repo, "packs", "missing-block")
+	packRoot := filepath.Join(repo, "packs", "missing-managed-block-source")
 	if err := os.MkdirAll(packRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifestText := "schemaVersion: 1\nname: missing-block\nversion: 0.1.0\ndescription: test pack skeleton\nmaturity: skeleton\n\nmanagedFiles:\n  - references/test/README.md\n"
+	manifestText := `schemaVersion: 1
+name: missing-managed-block-source
+version: 0.1.0
+description: test pack skeleton
+maturity: skeleton
+
+managedFiles:
+  - references/test/README.md
+promoteFiles:
+  - references/test/README.md
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: rekit:test
+toolingCandidateSources:
+  - references/test/toolchain-router.md
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+authorityFiles:
+  - references/test/README.md
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+promoteDenyPatterns:
+  - "artifacts[\\/]"
+budgets:
+  defaultMarkdown: 16384
+heavyToolGates:
+  - id: debug
+    title: Debug
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout
+laneTypes:
+  - id: main
+    title: Main
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/test/README.md
+    readOnly: .rekit/facts/**
+    outputs: publication
+  - id: feature
+    title: Feature
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/test/**
+    outputs: observation
+`
 	if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m, err := Load(repo, "missing-block")
+	m, err := Load(repo, "missing-managed-block-source")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "managedBlock is missing required key") {
-		t.Fatalf("ValidateSchema error = %v, want explicit managedBlock error", err)
+	if got := strings.TrimSpace(m.ManagedBlock["source"]); got != "" {
+		t.Fatalf("ManagedBlock[source] = %q, want no implicit fallback", got)
+	}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "managedBlock is missing required key: source") {
+		t.Fatalf("ValidateSchema error = %v, want explicit managedBlock source error", err)
 	}
 }
 

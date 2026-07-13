@@ -25,7 +25,7 @@ fields:
   managedFiles: 可由 kit 同步到 case、也可按 promotePolicy 反向提升的文件路径列表
   templateFiles: 只在 case 缺失时实例化的模板文件列表
   localNeverOverwrite: 永不被 sync 覆盖、永不被 promote 的 case-local 文件
-  managedBlock: 单个 managed block 定义，包含 file/blockId/source
+  managedBlock: 单个 managed block 定义，必须显式声明 file/blockId/source；runtime 不再注入默认 managed block host、blockId 或 source
   syncPolicy: sync 默认策略；当前 runtime 支持 managedFiles=overwrite-with-backup、templateFiles=create-if-missing、localFiles=never-overwrite
   workstreamDefaults: 工作线 runtime 默认值，包含 defaultAuthorityLane、defaultStartLaneType、handoffPath、backupRoot、requestDefaultTargetLane
   authorityFiles: 允许 authority auto-append 的文件 allowlist；必须由 defaultAuthorityLane 的 canWrite 覆盖

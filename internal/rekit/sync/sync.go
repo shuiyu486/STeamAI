@@ -69,6 +69,9 @@ func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
 	if err != nil {
 		return review.Plan{}, err
 	}
+	if err := m.ValidateSchema(); err != nil {
+		return review.Plan{}, err
+	}
 	projectName := inst.ProjectName
 	if strings.TrimSpace(projectName) == "" {
 		projectName = filepath.Base(filepath.Clean(caseRoot))
@@ -205,6 +208,9 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 	}
 	m, err := manifest.Load(repoFull, pack)
 	if err != nil {
+		return InitPlan{}, err
+	}
+	if err := m.ValidateSchema(); err != nil {
 		return InitPlan{}, err
 	}
 	projectName := strings.TrimSpace(opt.ProjectName)
@@ -542,6 +548,9 @@ func prepareApply(repoRoot, caseRoot, pack string, opt ApplyOptions) (string, st
 	}
 	m, err := manifest.Load(repoFull, pack)
 	if err != nil {
+		return "", "", "", nil, instance.Instance{}, err
+	}
+	if err := m.ValidateSchema(); err != nil {
 		return "", "", "", nil, instance.Instance{}, err
 	}
 	return caseFull, repoFull, command, m, inst, nil
