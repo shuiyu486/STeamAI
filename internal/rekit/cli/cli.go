@@ -436,6 +436,23 @@ func runReleaseCheck(ctx runtime.Context, opt Options, out io.Writer) error {
 	if format == "" {
 		format = "table"
 	}
+	return writeReleaseCheckResult(out, result, format)
+}
+
+func writeReleaseCheckResult(out io.Writer, result releasecheck.Result, format string) error {
+	if err := emitReleaseCheckResult(out, result, format); err != nil {
+		return err
+	}
+	if result.Ready {
+		return nil
+	}
+	if len(result.Warnings) == 0 {
+		return fmt.Errorf("release-check not ready")
+	}
+	return fmt.Errorf("release-check not ready: %s", strings.Join(result.Warnings, "; "))
+}
+
+func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format string) error {
 	switch format {
 	case "table", "text", "tsv":
 		fmt.Fprintf(out, "release-check: %s\n", result.Summary)
@@ -496,7 +513,7 @@ func runReleaseCheck(ctx runtime.Context, opt Options, out io.Writer) error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(result)
 	default:
-		return fmt.Errorf("unsupported release-check format: %s", opt.Format)
+		return fmt.Errorf("unsupported release-check format: %s", format)
 	}
 	return nil
 }

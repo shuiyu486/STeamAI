@@ -4415,3 +4415,31 @@ git diff --check
 ```
 
 验证结果：已通过 `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` JSON 已包含 `ciReleaseGate.ready=true`、2 个 required jobs、6 条 required commands 与 10 条 forbidden broad/heavy step checks；text 输出显示 `CI release gate: .github/workflows/release-gate.yml ready=true jobs=2 commands=6 forbidden=10`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 145：Release-check failure semantics
+
+状态：已完成。
+
+目标：承接 Stage 8 release readiness 方向，修复 `release-check` 作为 CI 前置 inventory 时的退出语义：当 inventory 已经判断 `ready=false` 时，CLI 必须仍输出完整 JSON/text 诊断，但最终返回非零，避免本机/CI 只记录 warning 却错误通过。
+
+实施范围：
+
+- 将 `/rekit release-check` 的输出与 readiness 退出语义拆分为 `emitReleaseCheckResult` 与 `writeReleaseCheckResult`：先输出完整 inventory，再在 `ready=false` 时返回包含 warnings 的错误。
+- 扩展 CLI tests，覆盖 JSON 和 text 两种 not-ready 输出均先写诊断再返回错误。
+- 更新 `docs/release-readiness.md`、CHANGELOG 与本 batch-plan，记录 `ready=false` 必须非零退出的 release gate 语义。
+
+边界：本批只改变 Go `release-check` 的失败退出语义、测试和文档；不改变 inventory 规则、不执行 CI、不新增 PowerShell runtime/fallback 能力、不运行大型 PowerShell matrix、不执行 heavy-tool、不写 case/pack runtime state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 `go test ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（ready path 仍零退出）、`go test ./...`、`go vet ./...`、`/rekit doctor` 与 `facade-smoke.ps1`；新增 CLI tests 覆盖 JSON/text not-ready inventory 均先输出诊断再返回 `release-check not ready` 错误。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

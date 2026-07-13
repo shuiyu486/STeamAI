@@ -75,7 +75,7 @@ git diff --check
 
 Release gate 通过的最低标准：
 
-- `go run ./cmd/rekit -- -Command release-check -Format json` 输出 `ready=true`，且 `gateProfile.ready=true`、`ciReleaseGate.ready=true`、`powerShellDeprecation.ready=true`、`heavyToolGateActions[]` 非空，required commands、必备文档、pack schema、CI release gate inventory、PowerShell deprecation inventory、manifest heavy-tool gate action、边界与 known gaps 清单完整。
+- `go run ./cmd/rekit -- -Command release-check -Format json` 输出 `ready=true`，且 `gateProfile.ready=true`、`ciReleaseGate.ready=true`、`powerShellDeprecation.ready=true`、`heavyToolGateActions[]` 非空，required commands、必备文档、pack schema、CI release gate inventory、PowerShell deprecation inventory、manifest heavy-tool gate action、边界与 known gaps 清单完整；若 inventory `ready=false`，命令必须仍输出完整 JSON/text 诊断并以非零退出，避免 CI 只看日志不失败。
 - `go test ./...` 通过，包含 `internal/rekit/manifest` release invariants。
 - `go vet ./...` 无输出或无错误退出。
 - `./rekit/rekit.ps1 -Command doctor` 输出 pack validation ok。

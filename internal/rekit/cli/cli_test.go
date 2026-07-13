@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 )
 
@@ -589,6 +590,40 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("release-check text missing %q:\n%s", expected, text)
+		}
+	}
+}
+
+func TestWriteReleaseCheckReturnsErrorAfterJsonInventoryWhenNotReady(t *testing.T) {
+	result := releasecheck.Result{Command: "release-check", SchemaVersion: 1, Ready: false, Summary: "release gate inventory has warnings", Warnings: []string{"missing required document"}}
+	var out bytes.Buffer
+	err := writeReleaseCheckResult(&out, result, "json")
+	if err == nil || !strings.Contains(err.Error(), "release-check not ready") || !strings.Contains(err.Error(), "missing required document") {
+		t.Fatalf("error = %v, want not-ready error with warning", err)
+	}
+	var decoded struct {
+		Ready    bool     `json:"ready"`
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("not-ready JSON was not emitted before error: %v\n%s", err, out.String())
+	}
+	if decoded.Ready || strings.Join(decoded.Warnings, ",") != "missing required document" {
+		t.Fatalf("unexpected not-ready JSON: %+v", decoded)
+	}
+}
+
+func TestWriteReleaseCheckReturnsErrorAfterTextInventoryWhenNotReady(t *testing.T) {
+	result := releasecheck.Result{Command: "release-check", Ready: false, Summary: "release gate inventory has warnings", Warnings: []string{"CI workflow missing required command"}}
+	var out bytes.Buffer
+	err := writeReleaseCheckResult(&out, result, "text")
+	if err == nil || !strings.Contains(err.Error(), "release-check not ready") {
+		t.Fatalf("error = %v, want not-ready error", err)
+	}
+	text := out.String()
+	for _, expected := range []string{"ready: false", "warnings:", "CI workflow missing required command"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("not-ready text missing %q:\n%s", expected, text)
 		}
 	}
 }
