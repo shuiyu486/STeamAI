@@ -36,7 +36,7 @@ fields:
   promptFiles: 可选的 common/pack prompt 文档列表，用于 doctor 校验与人工查阅
   laneTypes: 内部工作线类型列表；定义 authority、workspaceRoot、canWrite/readOnly/outputs，供 `/rekit overview/continue/start/handoff` 使用；至少应有一个 authority lane
   b3PolicyFile: case-local `.rekit/policy.yml`，由 runtime 初始化，不写在 manifest 中；此 schema 只说明相关字段
-  budgets: Markdown/文本预算，defaultMarkdown 为默认值
+  budgets: Markdown/文本预算；必须显式声明 defaultMarkdown 正整数，runtime 不再在 manifest load 时注入默认预算
 
 workstreamDefaults:
   defaultAuthorityLane: 默认主线 lane type id，必须存在且 authority=true

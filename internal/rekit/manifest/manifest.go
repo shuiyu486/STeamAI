@@ -163,9 +163,6 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 	if _, ok := m.ManagedBlock["source"]; !ok {
 		m.ManagedBlock["source"] = "CLAUDE.local.snippet.md"
 	}
-	if _, ok := m.Budgets["defaultMarkdown"]; !ok {
-		m.Budgets["defaultMarkdown"] = "16384"
-	}
 	return m, nil
 }
 
@@ -274,17 +271,34 @@ func cloneStringMap(in map[string]string) map[string]string {
 }
 
 func (m *Manifest) BudgetLimit(rel string) int64 {
-	if v, ok := m.Budgets[rel]; ok {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-			return n
-		}
+	if n, ok := parsePositiveBudgetLimit(m.Budgets[rel]); ok {
+		return n
 	}
-	if v, ok := m.Budgets["defaultMarkdown"]; ok {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-			return n
-		}
+	if n, ok := parsePositiveBudgetLimit(m.Budgets["defaultMarkdown"]); ok {
+		return n
 	}
 	return 16384
+}
+
+func parsePositiveBudgetLimit(value string) (int64, bool) {
+	n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	return n, err == nil && n > 0
+}
+
+func (m *Manifest) validateBudgets() error {
+	if strings.TrimSpace(m.Budgets["defaultMarkdown"]) == "" {
+		return fmt.Errorf("manifest must explicitly declare budgets.defaultMarkdown")
+	}
+	for key, value := range m.Budgets {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return fmt.Errorf("budgets contains an empty key")
+		}
+		if _, ok := parsePositiveBudgetLimit(value); !ok {
+			return fmt.Errorf("budgets.%s has invalid positive integer limit: %s", key, strings.TrimSpace(value))
+		}
+	}
+	return nil
 }
 
 func (m *Manifest) ValidateSchema() error {
@@ -371,6 +385,9 @@ func (m *Manifest) ValidateSchema() error {
 	}
 	if m.SyncPolicy["managedFiles"] != "overwrite-with-backup" || m.SyncPolicy["templateFiles"] != "create-if-missing" || m.SyncPolicy["localFiles"] != "never-overwrite" {
 		return fmt.Errorf("syncPolicy has unsupported value")
+	}
+	if err := m.validateBudgets(); err != nil {
+		return err
 	}
 	if len(m.PromoteDenyPatterns) == 0 {
 		return fmt.Errorf("manifest must explicitly declare promoteDenyPatterns")

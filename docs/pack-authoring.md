@@ -141,7 +141,7 @@ budgets:
 - `references/template/**` 路径和目录名。
 - `subagentRoutes` 的 route id、taskTypes、trigger、shardBasis 和 outputContract。
 - `tooling/catalog.yml` 的工具条目。
-- `commonPolicies`、`policyOverlays`、`promoteFiles`、`promoteDenyPatterns` 和 budgets；`promoteFiles` 必须显式声明允许 case → kit 回流的 managed 文件子集，不能依赖 `managedFiles` fallback；`promoteDenyPatterns` 必须显式声明，不能依赖 runtime fallback，新增 pack 应从 `_template` 的通用 baseline 开始再按领域补充。
+- `commonPolicies`、`policyOverlays`、`promoteFiles`、`promoteDenyPatterns` 和 budgets；`promoteFiles` 必须显式声明允许 case → kit 回流的 managed 文件子集，不能依赖 `managedFiles` fallback；`promoteDenyPatterns` 必须显式声明，不能依赖 runtime fallback；budgets 必须显式声明 `defaultMarkdown` 正整数，不能依赖 runtime 注入默认预算；新增 pack 应从 `_template` 的通用 baseline 开始再按领域补充。
 
 `_template` 只作为作者模板，不代表可直接用于真实 case 的领域 pack。
 

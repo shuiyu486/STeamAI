@@ -4656,3 +4656,36 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 153：Manifest budgets 默认预算显式化
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，将 Go manifest loader 中对缺失 `budgets.defaultMarkdown` 的 `16384` 隐式注入移出 manifest load，避免新增 pack 静默继承 runtime 默认 Markdown/text 预算；本批不改既有 pack manifest 内容，只让 manifest contract 更显式。
+
+实施范围：
+
+- 移除 `manifest.Load` 对缺失 `Budgets["defaultMarkdown"]` 的 `16384` 隐式注入。
+- `ValidateSchema` 新增 `manifest must explicitly declare budgets.defaultMarkdown` 检查，并要求所有 budgets value 是正整数。
+- 保留 `BudgetLimit` 的运行时安全 fallback：当调用方在 schema validation 外直接查询预算时仍返回 `16384`，但 schema-valid pack 必须显式声明默认预算。
+- `doctor.Case` 在使用 manifest budgets 前补 `ValidateSchema`，与 pack doctor/list/release inventory 的 schema gate 对齐。
+- `rekit/schemas/pack-manifest.schema.yml` 说明 budgets 必须显式声明 `defaultMarkdown` 正整数，runtime 不再在 manifest load 时注入默认预算。
+- `docs/pack-authoring.md` 明确新增 pack 的 budgets 不能依赖 runtime 默认注入。
+- manifest tests 新增缺失/非法 `budgets.defaultMarkdown` 与 load/no-fallback drift test。
+- 更新 `CHANGELOG.md`、`docs/go-first-convergence-plan.md` 与本 batch-plan。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 sync/promote apply 行为、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

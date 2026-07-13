@@ -23,6 +23,9 @@ func Case(repoRoot, caseRoot, pack string) ([]Row, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := m.ValidateSchema(); err != nil {
+		return nil, err
+	}
 	rows := []Row{}
 	addRequired := func(path string, limit int64) error {
 		size, err := refsf.IsTextNonEmptyUnder(path, limit)
