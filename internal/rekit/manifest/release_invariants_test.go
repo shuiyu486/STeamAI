@@ -231,6 +231,51 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 	}
 }
 
+func TestReleaseGateWorkflowInvariants(t *testing.T) {
+	repo := repoRoot(t)
+	workflow := readRepoText(t, repo, ".github/workflows/release-gate.yml")
+	checklist := readRepoText(t, repo, "docs/release-readiness.md")
+
+	for _, required := range []string{
+		"name: release-gate",
+		"runs-on: ubuntu-latest",
+		"runs-on: windows-latest",
+		"uses: actions/checkout@v4",
+		"uses: actions/setup-go@v5",
+		"go-version: '1.26.x'",
+		"go run ./cmd/rekit -- -Command release-check -Format json",
+		"go test ./...",
+		"go vet ./...",
+		".\\rekit\\rekit.ps1 -Command doctor",
+		".\\rekit\\tests\\facade-smoke.ps1",
+	} {
+		assertTextContains(t, workflow, required, "release gate workflow")
+	}
+	for _, forbidden := range []string{
+		"pack-smoke-matrix.ps1",
+		"pack-inventory-smoke.ps1",
+		"agent-team-dryrun-smoke.ps1",
+		"full-trace",
+		"debug",
+		"inject",
+		"patch",
+		"dump",
+		"network",
+	} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("release gate workflow must not run broad matrix or heavy-tool step %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		".github/workflows/release-gate.yml",
+		"Go release checks",
+		"Windows facade smoke",
+		"不默认运行大型 PowerShell matrix",
+	} {
+		assertTextContains(t, checklist, required, "release readiness CI workflow")
+	}
+}
+
 func TestPowerShellDeprecationStrategyInvariants(t *testing.T) {
 	repo := repoRoot(t)
 	strategy := readRepoText(t, repo, "docs/powershell-deprecation.md")

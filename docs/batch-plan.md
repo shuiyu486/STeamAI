@@ -4262,3 +4262,32 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli -run TestRunReleaseCheck -count=1`、`go test ./internal/rekit/cli`、`go test ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit release-check -Format json`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 140：轻量 CI release gate
+
+状态：已完成。
+
+目标：承接 Stage 8 中“建立轻量 CI：Go checks + doctor + 少量 Windows façade smoke；不要把大型 PowerShell matrix 作为默认必跑”的未完成项，在 Batch 139 `release-check` gate profile 之后，新增最小 GitHub Actions release gate，让远程 CI 默认覆盖 Go release inventory、Go tests/vet、Windows doctor 与 façade smoke，同时不执行大型 pack matrix、真实临时 case smoke 或 heavy-tool 相关步骤。
+
+实施范围：
+
+- 新增 `.github/workflows/release-gate.yml`，包含 `Go release checks` job：Ubuntu 上运行 `go run ./cmd/rekit -- -Command release-check -Format json`、`go test ./...` 与 `go vet ./...`。
+- 新增 `Windows facade smoke` job：Windows 上运行 `go run ./cmd/rekit -- -Command release-check -Format json`、`.\rekit\rekit.ps1 -Command doctor` 与 `.\rekit\tests\facade-smoke.ps1`。
+- 扩展 `internal/rekit/manifest/release_invariants_test.go`，锁定 CI workflow 必含 release-check、Go tests/vet、Windows doctor/façade smoke，并禁止默认运行 `pack-smoke-matrix.ps1`、真实 case smoke 或 heavy-tool 相关步骤。
+- 更新 `docs/release-readiness.md`、`docs/go-first-convergence-plan.md`、CHANGELOG 与 batch-plan，记录轻量 CI gate 已进入默认发布路径。
+
+边界：本批只新增轻量 CI gate 与静态 invariant；不运行大型 PowerShell matrix、不运行真实临时 case smoke、不执行 samples/network/scans/fuzzing/exploit replay/debug/dump/patch/hook/device/heavy-tool、不写 authority/confirmed、不迁移 policy schema、不删除 PowerShell runtime、不改变 runtime 写入面。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest -run TestReleaseGateWorkflowInvariants -count=1
+go test ./internal/rekit/manifest
+go run ./cmd/rekit -- -Command release-check -Format json
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/manifest -run TestReleaseGateWorkflowInvariants -count=1`、`go test ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

@@ -224,14 +224,14 @@ git diff --check
 
 推荐批次形态：
 
-- 建立轻量 CI：Go checks + doctor + 少量 Windows façade smoke；不要把大型 PowerShell matrix 作为默认必跑。
+- 建立轻量 CI：Go checks + doctor + 少量 Windows façade smoke；Batch 140 已新增 `.github/workflows/release-gate.yml`，运行 `release-check`、`go test`、`go vet`、Windows doctor 与 façade smoke；不要把大型 PowerShell matrix 作为默认必跑。
 - 编写 release checklist：versioning、CHANGELOG、known gaps、PowerShell legacy status、pack maturity matrix；Batch 128 已新增 `docs/release-readiness.md` 作为一页 release gate / known gaps 入口。
 - 明确 PowerShell runtime deprecation strategy：哪些模块 legacy-only、哪些命令 Go-owned、何时删除或冻结；Batch 129 已新增 `docs/powershell-deprecation.md` 记录命令归属、模块状态、freeze gates 与禁止迁移清单。
 
 完成信号：
 
 - 新会话能通过一页 current-state/release checklist 了解项目状态；Batch 128 已新增 `docs/release-readiness.md` 并用 Go release invariant 锁定核心章节、命令、pack matrix 和 known gaps。
-- release gate 可在本机和 CI 中稳定执行；Batch 130 新增 Go-owned `release-check` inventory，用 JSON envelope 汇总 recommended minimum、文档入口、pack schema、边界与 known gaps，作为本机/CI release gate 的确定性前置检查；Batch 139 已进一步输出 `gateProfile`，把 recommended minimum 解析为 step kind、repo-local path、present/resolved 状态，供本机/CI 在执行前消费。
+- release gate 可在本机和 CI 中稳定执行；Batch 130 新增 Go-owned `release-check` inventory，用 JSON envelope 汇总 recommended minimum、文档入口、pack schema、边界与 known gaps，作为本机/CI release gate 的确定性前置检查；Batch 139 已进一步输出 `gateProfile`，把 recommended minimum 解析为 step kind、repo-local path、present/resolved 状态，供本机/CI 在执行前消费；Batch 140 已新增轻量 GitHub Actions release gate。
 - PowerShell runtime deprecation strategy 有明确文档入口、模块归属和 freeze/removal gates；Batch 129 已新增 `docs/powershell-deprecation.md`，Batch 131 已新增 Go release invariant 锁定默认 façade 委托集合、legacy/internal 边界与 blocked heavy-tool/authority/confirmed 不进入默认委托；实际删除仍需单独批次验证。
 
 ## 自主推进优先级建议
