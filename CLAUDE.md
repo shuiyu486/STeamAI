@@ -63,6 +63,7 @@ BEGIN.
 - 后续批次计划：`docs/batch-plan.md`
 - Go-first 收束与 release readiness 阶段计划：`docs/go-first-convergence-plan.md`
 - 发布门禁与当前 release readiness checklist：`docs/release-readiness.md`
+- 轻量 CI release gate：`.github/workflows/release-gate.yml`
 - PowerShell runtime deprecation strategy：`docs/powershell-deprecation.md`
 - 设计文档：`docs/design.md`
 - pack 编写指南：`docs/pack-authoring.md`
@@ -100,6 +101,8 @@ BEGIN.
 .\rekit\rekit.ps1 doctor
 go test ./...
 ```
+
+默认远程 CI 入口是 `.github/workflows/release-gate.yml`，仅运行 Go release checks 与 Windows façade smoke；大型 pack matrix、真实临时 case smoke 和 heavy-tool gate 不进入默认 CI。
 
 涉及 PowerShell façade / Go backend 委托时额外检查：
 

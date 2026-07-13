@@ -13,7 +13,7 @@
 - **Go-owned**：确定性状态、结构化输出、低风险写入、`release-check` inventory 和 release invariant 优先由 `cmd/rekit/**` 与 `internal/rekit/**` 维护。
 - **PowerShell façade**：`rekit/rekit.ps1` 保持公共入口与兼容层，负责 Go binary 查找、参数兼容、fallback、环境变量开关和旧 case 用户体验。
 - **Legacy-only**：无 `-Apply` 的文本工作线 flow、文本 sync/promote what-if、内部命令和非 Go-owned 写入路径暂时保留，禁止扩展新能力。
-- **Parity smoke**：少量 PowerShell smoke 保留为 Windows façade / fallback 回归；大型 pack matrix 不作为默认 release gate。
+- **Parity smoke**：少量 PowerShell smoke 保留为 Windows façade / fallback 回归；`.github/workflows/release-gate.yml` 默认只运行 Windows façade smoke，不运行大型 pack matrix。
 - **删除前置条件**：只有当对应命令已有 Go owner、文档入口、release invariant、fallback 替代和临时 case验证后，才能考虑冻结或删除 PowerShell 实现。
 
 ## 执行清单

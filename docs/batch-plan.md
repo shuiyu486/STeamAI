@@ -4274,7 +4274,7 @@ git diff --check
 - 新增 `.github/workflows/release-gate.yml`，包含 `Go release checks` job：Ubuntu 上运行 `go run ./cmd/rekit -- -Command release-check -Format json`、`go test ./...` 与 `go vet ./...`。
 - 新增 `Windows facade smoke` job：Windows 上运行 `go run ./cmd/rekit -- -Command release-check -Format json`、`.\rekit\rekit.ps1 -Command doctor` 与 `.\rekit\tests\facade-smoke.ps1`。
 - 扩展 `internal/rekit/manifest/release_invariants_test.go`，锁定 CI workflow 必含 release-check、Go tests/vet、Windows doctor/façade smoke，并禁止默认运行 `pack-smoke-matrix.ps1`、真实 case smoke 或 heavy-tool 相关步骤。
-- 更新 `docs/release-readiness.md`、`docs/go-first-convergence-plan.md`、CHANGELOG 与 batch-plan，记录轻量 CI gate 已进入默认发布路径。
+- 更新 README、CLAUDE.md、`rekit/tests/README.md`、`docs/powershell-deprecation.md`、`docs/release-readiness.md`、`docs/go-first-convergence-plan.md`、CHANGELOG 与 batch-plan，记录轻量 CI gate 已进入默认发布路径，并明确大型 pack matrix / 真实临时 case smoke 不属于默认 CI。
 
 边界：本批只新增轻量 CI gate 与静态 invariant；不运行大型 PowerShell matrix、不运行真实临时 case smoke、不执行 samples/network/scans/fuzzing/exploit replay/debug/dump/patch/hook/device/heavy-tool、不写 authority/confirmed、不迁移 policy schema、不删除 PowerShell runtime、不改变 runtime 写入面。
 
@@ -4290,4 +4290,4 @@ go vet ./...
 git diff --check
 ```
 
-验证结果：全部通过。`go test ./internal/rekit/manifest -run TestReleaseGateWorkflowInvariants -count=1`、`go test ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+验证结果：全部通过。`go test ./internal/rekit/manifest -run TestReleaseGateWorkflowInvariants -count=1`、`go test ./internal/rekit/manifest`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。文档收尾已检查并更新 README、CLAUDE.md、`rekit/tests/README.md` 与 `docs/powershell-deprecation.md`。
