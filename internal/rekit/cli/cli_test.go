@@ -379,6 +379,22 @@ type releaseCheckHandoff struct {
 		Category string `json:"category"`
 		Summary  string `json:"summary"`
 	} `json:"knownGaps"`
+	PackMaturity struct {
+		Total                int                 `json:"total"`
+		MaturityCounts       map[string]int      `json:"maturityCounts"`
+		PacksByMaturity      map[string][]string `json:"packsByMaturity"`
+		SchemaValid          bool                `json:"schemaValid"`
+		HeavyToolGateReady   bool                `json:"heavyToolGateReady"`
+		HeavyToolGateActions []string            `json:"heavyToolGateActions"`
+		HeavyToolGatesByPack []struct {
+			ID             string   `json:"id"`
+			Maturity       string   `json:"maturity"`
+			SchemaValid    bool     `json:"schemaValid"`
+			HeavyToolGates int      `json:"heavyToolGates"`
+			Actions        []string `json:"actions"`
+		} `json:"heavyToolGatesByPack"`
+		Summary string `json:"summary"`
+	} `json:"packMaturity"`
 	Validation  []releaseCheckStep `json:"validation"`
 	NextActions []string           `json:"nextActions"`
 	Warnings    []string           `json:"warnings"`
@@ -570,7 +586,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff summary: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 6 || len(handoff.Signals) != 7 || len(handoff.KnownGaps) == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 6 || len(handoff.Signals) != 8 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertReleaseHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -583,6 +599,8 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignal(t, handoff, "CI release gate")
 	assertReleaseHandoffSignal(t, handoff, "PowerShell deprecation")
 	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
+	assertReleaseHandoffSignal(t, handoff, "pack maturity summary")
+	assertReleaseHandoffPackMaturity(t, handoff)
 	assertReleaseHandoffSignal(t, handoff, "latest batch documentation")
 	assertReleaseHandoffSignal(t, handoff, "release notes freshness")
 	assertReleaseHandoffSignal(t, handoff, "known gaps summary")
@@ -623,6 +641,39 @@ func assertReleaseHandoffSignal(t *testing.T, handoff releaseCheckHandoff, name 
 		}
 	}
 	t.Fatalf("release handoff missing signal %s: %+v", name, handoff.Signals)
+}
+
+func assertReleaseHandoffPackMaturity(t *testing.T, handoff releaseCheckHandoff) {
+	t.Helper()
+	inventory := handoff.PackMaturity
+	if inventory.Total != 10 || !inventory.SchemaValid || !inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory ok" {
+		t.Fatalf("unexpected release handoff pack maturity inventory: %+v", inventory)
+	}
+	if inventory.MaturityCounts["template"] != 1 || inventory.MaturityCounts["mature"] != 1 || inventory.MaturityCounts["skeleton"] != 8 {
+		t.Fatalf("unexpected release handoff maturity counts: %+v", inventory.MaturityCounts)
+	}
+	if strings.Join(inventory.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,network,patch,symex" {
+		t.Fatalf("unexpected release handoff heavy-tool gate actions: %v", inventory.HeavyToolGateActions)
+	}
+	assertReleaseHandoffMaturityPack(t, inventory.PacksByMaturity, "template", "_template")
+	assertReleaseHandoffMaturityPack(t, inventory.PacksByMaturity, "mature", "vmp-re")
+	assertReleaseHandoffMaturityPack(t, inventory.PacksByMaturity, "skeleton", "web-security")
+	if len(inventory.HeavyToolGatesByPack) != inventory.Total {
+		t.Fatalf("release handoff pack gate rows = %d, want total %d", len(inventory.HeavyToolGatesByPack), inventory.Total)
+	}
+	for _, pack := range inventory.HeavyToolGatesByPack {
+		if strings.TrimSpace(pack.ID) == "" || strings.TrimSpace(pack.Maturity) == "" || !pack.SchemaValid || pack.HeavyToolGates == 0 || len(pack.Actions) == 0 {
+			t.Fatalf("unexpected release handoff pack gate row: %+v", pack)
+		}
+	}
+}
+
+func assertReleaseHandoffMaturityPack(t *testing.T, packsByMaturity map[string][]string, maturity, packID string) {
+	t.Helper()
+	if slices.Contains(packsByMaturity[maturity], packID) {
+		return
+	}
+	t.Fatalf("release handoff pack maturity %s missing %s: %+v", maturity, packID, packsByMaturity)
 }
 
 func assertReleaseHandoffKnownGap(t *testing.T, handoff releaseCheckHandoff, category string) {
@@ -702,7 +753,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
 		"commands=14 modules=14 freezeGates=8 blocked=5",
-		"release handoff: release handoff summary ok ready=true readFirst=6 signals=7 knownGaps=5",
+		"release handoff: release handoff summary ok ready=true readFirst=6 signals=8 knownGaps=5 packMaturity=10",
 		"releaseNotes=true",
 		"latest=Batch ",
 		"known gaps:",

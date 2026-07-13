@@ -223,6 +223,7 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 		"latestBatch",
 		"releaseNotes.covered",
 		"knownGaps[]",
+		"packMaturity",
 		"validation[]",
 		"nextActions[]",
 	} {

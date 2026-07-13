@@ -4534,3 +4534,33 @@ git diff --check
 ```
 
 验证结果：已通过 `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` JSON/text 已包含 `releaseHandoff.knownGaps[]`、`known gaps summary` signal 与 `knownGaps=5` handoff summary，缺失 known gaps fixture 会让 `release-check.ready=false`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 149：Release handoff pack maturity summary
+
+状态：已完成。
+
+目标：继续 Stage 8 release readiness / 新会话接手质量方向，把 pack maturity matrix 与 manifest heavy-tool gate 覆盖状态纳入 Go-owned `releaseHandoff`，让 release maintainer 和后续 AI 不必遍历完整 `packs[]` 就能先看到 mature/template/skeleton 覆盖、schema validity 和每 pack gate readiness。
+
+实施范围：
+
+- `ReleaseHandoff` 新增 `packMaturity` inventory，记录 pack 总数、`maturityCounts`、`packsByMaturity`、schema validity、manifest heavy-tool gate readiness、全局 gate actions 与每 pack gate status。
+- `releaseHandoff.signals[]` 新增 `pack maturity summary` signal；若 pack 缺失、schema invalid 或任一 pack 未声明 heavy-tool gates，则 signal not ready 并让 `release-check.ready=false`。
+- text `release-check` handoff summary 新增 `packMaturity=<n>`，便于人工快速看到接手 pack 覆盖数量。
+- 扩展 releasecheck / CLI / release invariant tests，覆盖 repo pack maturity inventory、缺失 heavy-tool gate drift detection、JSON/text envelope 与 release readiness 文档锚点。
+- 更新 `CHANGELOG.md`、`docs/release-readiness.md`、`docs/go-first-convergence-plan.md` 与本 batch-plan。
+
+边界：本批只做确定性 release inventory、测试和文档；不执行 CI、不新增外部服务调用、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不写 case/pack runtime state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` JSON/text 已包含 `releaseHandoff.packMaturity`、`pack maturity summary` signal 与 `packMaturity=10` handoff summary，缺失 heavy-tool gate 的 pack maturity fixture 会把 pack maturity inventory 标记为 warnings。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

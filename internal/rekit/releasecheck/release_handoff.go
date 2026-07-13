@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 )
 
 type ReleaseHandoff struct {
@@ -15,6 +18,7 @@ type ReleaseHandoff struct {
 	LatestBatch  ReleaseHandoffLatestBatch  `json:"latestBatch"`
 	ReleaseNotes ReleaseHandoffReleaseNotes `json:"releaseNotes"`
 	KnownGaps    []ReleaseHandoffKnownGap   `json:"knownGaps"`
+	PackMaturity ReleaseHandoffPackMaturity `json:"packMaturity"`
 	Validation   []ReleaseHandoffValidation `json:"validation"`
 	NextActions  []string                   `json:"nextActions"`
 	Warnings     []string                   `json:"warnings"`
@@ -58,6 +62,25 @@ type ReleaseHandoffKnownGap struct {
 	Summary  string `json:"summary"`
 }
 
+type ReleaseHandoffPackMaturity struct {
+	Total                int                            `json:"total"`
+	MaturityCounts       map[string]int                 `json:"maturityCounts"`
+	PacksByMaturity      map[string][]string            `json:"packsByMaturity"`
+	SchemaValid          bool                           `json:"schemaValid"`
+	HeavyToolGateReady   bool                           `json:"heavyToolGateReady"`
+	HeavyToolGateActions []string                       `json:"heavyToolGateActions"`
+	HeavyToolGatesByPack []ReleaseHandoffPackGateStatus `json:"heavyToolGatesByPack"`
+	Summary              string                         `json:"summary"`
+}
+
+type ReleaseHandoffPackGateStatus struct {
+	ID             string   `json:"id"`
+	Maturity       string   `json:"maturity"`
+	SchemaValid    bool     `json:"schemaValid"`
+	HeavyToolGates int      `json:"heavyToolGates"`
+	Actions        []string `json:"actions"`
+}
+
 type ReleaseHandoffValidation struct {
 	Command  string `json:"command"`
 	Kind     string `json:"kind"`
@@ -88,7 +111,8 @@ func releaseHandoff(repo string, check Result) ReleaseHandoff {
 	}
 	handoff.ReleaseNotes = latestReleaseNotes(repo, handoff.LatestBatch)
 	handoff.KnownGaps = releaseHandoffKnownGaps(check.KnownGaps)
-	handoff.Signals = releaseHandoffSignals(check, handoff.LatestBatch, handoff.ReleaseNotes, handoff.KnownGaps)
+	handoff.PackMaturity = releaseHandoffPackMaturity(check.Packs, check.HeavyToolGateActions)
+	handoff.Signals = releaseHandoffSignals(check, handoff.LatestBatch, handoff.ReleaseNotes, handoff.KnownGaps, handoff.PackMaturity)
 	handoff.Warnings = releaseHandoffWarnings(handoff)
 	if len(handoff.Warnings) > 0 {
 		handoff.Ready = false
@@ -107,7 +131,7 @@ func releaseHandoffDocuments(repo string) []ReleaseHandoffDocument {
 	return docs
 }
 
-func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes ReleaseHandoffReleaseNotes, gaps []ReleaseHandoffKnownGap) []ReleaseHandoffSignal {
+func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes ReleaseHandoffReleaseNotes, gaps []ReleaseHandoffKnownGap, packMaturity ReleaseHandoffPackMaturity) []ReleaseHandoffSignal {
 	return []ReleaseHandoffSignal{
 		{
 			Name:    "release-check inventory",
@@ -146,6 +170,12 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			},
 		},
 		{
+			Name:    "pack maturity summary",
+			Ready:   packMaturity.Total > 0 && packMaturity.SchemaValid && packMaturity.HeavyToolGateReady,
+			Summary: packMaturity.Summary,
+			Details: releaseHandoffPackMaturityDetails(packMaturity),
+		},
+		{
 			Name:    "latest batch documentation",
 			Ready:   latest.Present && strings.Contains(latest.Status, "已完成") && strings.TrimSpace(latest.Goal) != "" && strings.TrimSpace(latest.ValidationResult) != "",
 			Summary: latest.Title,
@@ -172,6 +202,75 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			Details: releaseHandoffKnownGapDetails(gaps),
 		},
 	}
+}
+
+func releaseHandoffPackMaturity(packs []manifest.PackSummary, actions []string) ReleaseHandoffPackMaturity {
+	inventory := ReleaseHandoffPackMaturity{
+		Total:                len(packs),
+		MaturityCounts:       map[string]int{},
+		PacksByMaturity:      map[string][]string{},
+		SchemaValid:          true,
+		HeavyToolGateReady:   len(actions) > 0,
+		HeavyToolGateActions: append([]string{}, actions...),
+		HeavyToolGatesByPack: []ReleaseHandoffPackGateStatus{},
+		Summary:              "pack maturity inventory ok",
+	}
+	if len(packs) == 0 {
+		inventory.SchemaValid = false
+		inventory.HeavyToolGateReady = false
+		inventory.Summary = "pack maturity inventory has warnings"
+		return inventory
+	}
+	sort.Strings(inventory.HeavyToolGateActions)
+	for _, pack := range packs {
+		maturity := strings.TrimSpace(pack.Maturity)
+		if maturity == "" {
+			maturity = "unknown"
+		}
+		inventory.MaturityCounts[maturity]++
+		inventory.PacksByMaturity[maturity] = append(inventory.PacksByMaturity[maturity], pack.ID)
+		if !pack.SchemaValid || strings.TrimSpace(pack.ID) == "" {
+			inventory.SchemaValid = false
+		}
+		actions := append([]string{}, pack.HeavyToolGateActions...)
+		if pack.HeavyToolGates == 0 || len(actions) == 0 {
+			inventory.HeavyToolGateReady = false
+		}
+		sort.Strings(actions)
+		inventory.HeavyToolGatesByPack = append(inventory.HeavyToolGatesByPack, ReleaseHandoffPackGateStatus{
+			ID:             pack.ID,
+			Maturity:       maturity,
+			SchemaValid:    pack.SchemaValid,
+			HeavyToolGates: pack.HeavyToolGates,
+			Actions:        actions,
+		})
+	}
+	for maturity := range inventory.PacksByMaturity {
+		sort.Strings(inventory.PacksByMaturity[maturity])
+	}
+	sort.Slice(inventory.HeavyToolGatesByPack, func(i, j int) bool {
+		return strings.ToLower(inventory.HeavyToolGatesByPack[i].ID) < strings.ToLower(inventory.HeavyToolGatesByPack[j].ID)
+	})
+	if !inventory.SchemaValid || !inventory.HeavyToolGateReady {
+		inventory.Summary = "pack maturity inventory has warnings"
+	}
+	return inventory
+}
+
+func releaseHandoffPackMaturityDetails(inventory ReleaseHandoffPackMaturity) []string {
+	details := []string{
+		fmt.Sprintf("total=%d schemaValid=%t heavyToolGateReady=%t", inventory.Total, inventory.SchemaValid, inventory.HeavyToolGateReady),
+		fmt.Sprintf("heavyToolGateActions=%s", strings.Join(inventory.HeavyToolGateActions, ",")),
+	}
+	maturities := make([]string, 0, len(inventory.MaturityCounts))
+	for maturity := range inventory.MaturityCounts {
+		maturities = append(maturities, maturity)
+	}
+	sort.Strings(maturities)
+	for _, maturity := range maturities {
+		details = append(details, fmt.Sprintf("%s=%d:%s", maturity, inventory.MaturityCounts[maturity], strings.Join(inventory.PacksByMaturity[maturity], ",")))
+	}
+	return details
 }
 
 func releaseHandoffKnownGaps(gaps []string) []ReleaseHandoffKnownGap {
