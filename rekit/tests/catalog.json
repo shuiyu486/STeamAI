@@ -186,11 +186,11 @@
       "script": "generic-binary-re-pack-smoke.ps1",
       "category": "pack-smoke",
       "pack": "generic-binary-re",
-      "purpose": "Validate generic-binary-re skeleton doctor/init/plan-subagents/promote review/no-write coverage.",
-      "recommendedFor": ["generic-binary-re pack", "binary/function routes"],
+      "purpose": "Validate generic-binary-re skeleton doctor/init/plan-subagents/promote review/no-write coverage, plus Go package pack-neutral binary-analysis E2E coverage.",
+      "recommendedFor": ["generic-binary-re pack", "binary/function routes", "pack-neutral E2E", "non-feature lane"],
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
-      "riskBoundary": "No sample execution, debug, trace, dump, patch, database writeback, or authority writes.",
+      "riskBoundary": "No sample execution, debug, trace, dump, patch, database writeback, or authority writes; package E2E uses only temporary case-local .rekit/workspace/review/handoff state.",
       "relatedDocs": ["docs/pack-authoring.md", "rekit/tests/README.md"]
     },
     {
@@ -285,22 +285,22 @@
       "id": "plan-subagents-smoke",
       "script": "plan-subagents-smoke.ps1",
       "category": "subagents",
-      "purpose": "Validate plan-subagents route selection, sharding, review artifact, observability, out-of-case guard, facade fallback, and Go package gate/dispatch E2E coverage.",
-      "recommendedFor": ["plan-subagents", "subagent routes", "review packet", "gate dispatch E2E", "Go package E2E"],
+      "purpose": "Validate plan-subagents route selection, sharding, review artifact, observability, out-of-case guard, facade fallback, Go package gate/dispatch E2E coverage, and generic-binary-re pack-neutral route E2E coverage.",
+      "recommendedFor": ["plan-subagents", "subagent routes", "review packet", "gate dispatch E2E", "pack-neutral E2E", "Go package E2E"],
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
-      "riskBoundary": "Smoke does not spawn agents and does not write board/facts/lanes/handoff/authority; package E2E uses a temporary fixture and writes only review artifacts plus case-local pending-gate/handoff state, without authority/confirmed or heavy-tool execution.",
+      "riskBoundary": "Smoke does not spawn agents and does not write board/facts/lanes/handoff/authority; package E2E uses temporary fixtures and writes only review artifacts plus case-local facts/workspace/pending-gate/handoff state, without authority/confirmed or heavy-tool execution.",
       "relatedDocs": ["docs/go-runtime-migration.md", "docs/orchestration-plan.md", "rekit/tests/README.md"]
     },
     {
       "id": "agent-team-review-loop-smoke",
       "script": "agent-team-review-loop-smoke.ps1",
       "category": "agent-team",
-      "purpose": "Validate review packet to default note what-if/append, verification/decision/note-list/overview/handoff visibility loop, default note list text/JSON delegation, and Go package reviewer/decision E2E coverage.",
-      "recommendedFor": ["review loop", "verification display", "decision display", "note append delegation", "note what-if delegation", "note list text delegation", "note list JSON delegation", "reviewer decision E2E", "Go package E2E"],
+      "purpose": "Validate review packet to default note what-if/append, verification/decision/note-list/overview/handoff visibility loop, default note list text/JSON delegation, Go package reviewer/decision E2E coverage, and generic-binary-re pack-neutral ledger E2E coverage.",
+      "recommendedFor": ["review loop", "verification display", "decision display", "note append delegation", "note what-if delegation", "note list text delegation", "note list JSON delegation", "reviewer decision E2E", "pack-neutral E2E", "Go package E2E"],
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
-      "riskBoundary": "Temporary case only; package E2E writes only case-local facts/handoff in a temporary fixture; no subagent spawn, heavy-tool execution, or authority/confirmed write.",
+      "riskBoundary": "Temporary case only; package E2E writes only case-local facts/workspace/review/handoff in temporary fixtures; no subagent spawn, heavy-tool execution, or authority/confirmed write.",
       "relatedDocs": ["docs/agent-team-usage.md", "docs/evidence-ledger.md", "rekit/tests/README.md"]
     },
     {
@@ -318,11 +318,11 @@
       "id": "gate-parity-smoke",
       "script": "gate-parity-smoke.ps1",
       "category": "gate-ledger",
-      "purpose": "Validate default facade gate what-if no-write, default facade gate request write, overview/note/handoff display parity, and Go package gate/dispatch E2E coverage.",
-      "recommendedFor": ["gate request", "gate what-if delegation", "gate apply delegation", "pending-gate display", "ledger parity", "gate dispatch E2E", "Go package E2E"],
+      "purpose": "Validate default facade gate what-if no-write, default facade gate request write, overview/note/handoff display parity, Go package gate/dispatch E2E coverage, and generic-binary-re pack-neutral pending-gate E2E coverage.",
+      "recommendedFor": ["gate request", "gate what-if delegation", "gate apply delegation", "pending-gate display", "ledger parity", "gate dispatch E2E", "pack-neutral E2E", "Go package E2E"],
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
-      "riskBoundary": "Facade what-if is no-write; apply writes only pending-gate request in a temporary case; package E2E also writes only temporary review artifacts and case-local pending-gate/handoff state; neither path executes heavy tools or writes authority/confirmed.",
+      "riskBoundary": "Facade what-if is no-write; apply writes only pending-gate request in a temporary case; package E2E also writes only temporary review artifacts and case-local facts/workspace/pending-gate/handoff state; neither path executes heavy tools or writes authority/confirmed.",
       "relatedDocs": ["docs/evidence-ledger.md", "docs/go-runtime-migration.md", "rekit/tests/README.md"]
     },
     {

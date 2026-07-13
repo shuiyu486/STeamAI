@@ -3744,7 +3744,7 @@ git diff --check
 
 ### Batch 123：Go gate/dispatch E2E package test
 
-状态：验证中。
+状态：已完成。
 
 目标：承接 Stage 6 Agent Team dry-run harness，在 Batch 122 已锁定 `_template` pack start/note/continue/handoff 最小闭环后，继续扩展同一 Go CLI package fixture 到 bounded dispatch 与 heavy-tool gate 可见性链路，验证 `plan-subagents` review artifact、`gate -Apply` pending-gate ledger、`overview` text/JSON 与 lane `handoff -Apply` 能组成可接手闭环。
 
@@ -3773,7 +3773,7 @@ git diff --check
 
 ### Batch 124：Go reviewer/decision E2E package test
 
-状态：验证中。
+状态：已完成。
 
 目标：承接 Stage 6 Agent Team dry-run harness，在 Batch 122/123 已锁定 `_template` pack 的 workstream 与 gate/dispatch 可见性链路后，继续扩展 Go CLI package fixture 到 reviewer verdict 与 main merge decision 可见性链路，验证 candidate、verification、decision、batch 聚合、note list、overview 与 handoff 能组成可接手闭环。
 
@@ -3799,3 +3799,33 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli -run TestRunGoReviewerDecisionE2ENoteOverviewHandoff -count=1`、`go test ./internal/rekit/cli`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 125：Go generic-binary-re pack-neutral E2E package test
+
+状态：已完成。
+
+目标：承接 Stage 6 Agent Team dry-run harness 与 Stage 7 pack-neutral hardening，在 Batch 122-124 已锁定 `_template` pack 的 workstream、gate/dispatch 与 reviewer/decision 可见性链路后，扩展 Go CLI package fixture 到非 `_template` / 非 `vmp-re` 的 `generic-binary-re` skeleton pack，验证非 feature lane、`workspace/binary/**`、pack-specific route、gate、overview 与 handoff 不泄漏 `_template`/feature/vmp 语义。
+
+实施范围：
+
+- 在 `internal/rekit/cli` package tests 中新增 `TestRunGoGenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff`，使用 `generic-binary-re` attached case fixture。
+- 测试顺序覆盖 `start -Apply` 创建 `binary-analysis-sample` lane、`plan-subagents` 选择 `generic-binary-re:binary-analysis` route、candidate `note` append、`gate -Apply` 写 pending-gate request、reviewer `verification` append、main `decision` append、`overview -Format json` 与文本 overview 展示 candidate/gate/verification/decision/batch，再执行 lane `handoff -Apply` 验证 non-feature handoff。
+- 断言 `defaultStartLaneType: binary-analysis` 产生 `binary-analysis-sample`、workspace 为 `workspace/binary/binary-analysis-sample`、review-loop `canonical-write` contract、`tool-review` verification、pending-gate request 与 handoff 文本关键字段。
+- 增加 handoff 泄漏断言，确保 `feature-login`、`workspace/features`、`references/template` 不出现在 `generic-binary-re` lane handoff 中。
+- 更新 CHANGELOG、Go-first convergence、Go runtime migration、Agent Team rollout、tests guide、catalog metadata 与 batch-plan，记录 Batch 125 的 pack-neutral test harness 边界和后续缺口。
+
+边界：本批只新增 Go package test 与文档，不新增 runtime 写入面、不改变 façade safe-set、不新增 PowerShell 编排；测试只写临时 package fixture 的 case-local `.rekit/**`、`workspace/binary/**`、review artifact 与 handoff，不自动 spawn reviewer/subagent、不写 authority/confirmed、不执行样本、不 debug/trace/dump/patch、不联网、不写真实 case 或外部副作用。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/cli -run TestRunGoGenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff -count=1
+go test ./internal/rekit/cli
+.\rekit\tests\catalog-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli -run TestRunGoGenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff -count=1`、`go test ./internal/rekit/cli`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`catalog-smoke.ps1` 与 `go test ./...` 曾因 `catalog.json` 新增 metadata 后漏逗号失败，已修复并复跑通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
