@@ -1624,6 +1624,128 @@ func TestRunContinueApplyWritesDigestAndFacts(t *testing.T) {
 	}
 }
 
+func TestRunGoWorkstreamE2EStartNoteContinueHandoff(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	start := decodeStartResult(t, out.Bytes())
+	if !start.IsMutation || !start.Applied || start.Lane.ID != "feature-login" || start.Lane.Workspace != "workspace/features/feature-login" {
+		t.Fatalf("unexpected start result: %+v", start)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "observation", "-Lane", "feature-login", "-Subject", "review note", "-Summary", "manual review accepted", "-Actor", "runtime-test", "-EventId", "evt-e2e-note"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	observations, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(observations), "evt-e2e-note") {
+		t.Fatalf("note append did not write observation:\n%s", string(observations))
+	}
+
+	writeCaseFile(t, caseRoot, "workspace/features/feature-login/packet.md", "# packet\n\nfeature login packet\n")
+	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/outbox.jsonl", strings.Join([]string{
+		`{"eventId":"evt-e2e-observation","kind":"observation","subject":"workspace observation","summary":"feature login branch observed","evidence":"evidence-observation-token"}`,
+		`{"eventId":"evt-e2e-request","kind":"request","subject":"main review request","summary":"route accepted candidate to main","requestId":"req-e2e-main","targetLane":"main","evidence":"evidence-request-token","status":"open"}`,
+		`{"eventId":"evt-e2e-candidate","kind":"candidate","subject":"candidate login flow","summary":"candidate from feature lane","confidence":"0.95","evidence":"evidence-candidate-token","status":"open"}`,
+		`{"eventId":"evt-e2e-publication","kind":"publication","subject":"publication summary","summary":"share feature summary","evidence":"evidence-publication-token"}`,
+	}, "\n")+"\n")
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var cont struct {
+		Command    string                                                                                                                      `json:"command"`
+		IsMutation bool                                                                                                                        `json:"isMutation"`
+		Applied    bool                                                                                                                        `json:"applied"`
+		RunID      string                                                                                                                      `json:"runId"`
+		Lane       startLane                                                                                                                   `json:"lane"`
+		Summary    struct{ Collected, Observations, Requests, Routed, Candidates, AcceptedCandidates, Publications, PendingUser, Skipped int } `json:"summary"`
+		Writes     []startWrite                                                                                                                `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &cont); err != nil {
+		t.Fatalf("continue apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if cont.Command != "continue" || !cont.IsMutation || !cont.Applied || cont.Lane.ID != "feature-login" || !strings.HasPrefix(cont.RunID, "run-") {
+		t.Fatalf("unexpected continue result: %+v", cont)
+	}
+	if cont.Summary.Collected != 4 || cont.Summary.Observations != 1 || cont.Summary.Requests != 1 || cont.Summary.Routed != 1 || cont.Summary.Candidates != 1 || cont.Summary.AcceptedCandidates != 1 || cont.Summary.Publications != 1 || cont.Summary.PendingUser != 0 || cont.Summary.Skipped != 0 {
+		t.Fatalf("unexpected continue summary: %+v", cont.Summary)
+	}
+	assertContinueWrite(t, cont.Writes, ".rekit/facts/observations.jsonl", "append")
+	assertContinueWrite(t, cont.Writes, ".rekit/facts/requests.jsonl", "append")
+	assertContinueWrite(t, cont.Writes, ".rekit/facts/candidates.jsonl", "append")
+	assertContinueWrite(t, cont.Writes, ".rekit/facts/publications.jsonl", "append")
+	assertContinueWrite(t, cont.Writes, ".rekit/facts/decisions.jsonl", "append")
+	assertContinueWrite(t, cont.Writes, ".rekit/lanes/main/tasks.jsonl", "append")
+	assertContinueWrite(t, cont.Writes, ".rekit/board.json", "refresh")
+
+	mainTasks, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "tasks.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mainTasks), "req-e2e-main") || !strings.Contains(string(mainTasks), "feature-login") {
+		t.Fatalf("continue did not route request to main tasks:\n%s", string(mainTasks))
+	}
+	candidates, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "candidates.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(candidates), "evt-e2e-candidate") || !strings.Contains(string(candidates), "accepted-shared") {
+		t.Fatalf("continue did not accept non-authority candidate:\n%s", string(candidates))
+	}
+	decisions, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(decisions), "evt-e2e-candidate") || !strings.Contains(string(decisions), "candidate has evidence") {
+		t.Fatalf("continue decisions missing accepted candidate reason:\n%s", string(decisions))
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	laneHandoff := decodeHandoffResult(t, out.Bytes())
+	if !laneHandoff.IsMutation || !laneHandoff.Applied || laneHandoff.Project || laneHandoff.Lane == nil || laneHandoff.Lane.ID != "feature-login" {
+		t.Fatalf("unexpected lane handoff result: %+v", laneHandoff)
+	}
+	laneLatest := assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/feature-login-latest.md", "write-latest-lane-handoff")
+	laneText, err := os.ReadFile(laneLatest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "## decision", "candidate has evidence", "digest.md"} {
+		if !strings.Contains(string(laneText), expected) {
+			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	projectHandoff := decodeHandoffResult(t, out.Bytes())
+	if !projectHandoff.IsMutation || !projectHandoff.Applied || !projectHandoff.Project {
+		t.Fatalf("unexpected project handoff result: %+v", projectHandoff)
+	}
+	projectLatest := assertStartWrite(t, projectHandoff.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
+	projectText, err := os.ReadFile(projectLatest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"# rekit 项目接手索引", "/rekit continue login", "/rekit handoff login", "digest.md"} {
+		if !strings.Contains(string(projectText), expected) {
+			t.Fatalf("project handoff missing %q:\n%s", expected, string(projectText))
+		}
+	}
+}
+
 func TestRunContinueRejectsUnsupportedModes(t *testing.T) {
 	caseRoot := attachedCaseWithPack(t, "vmp-re")
 	writeContinueFixture(t, caseRoot)

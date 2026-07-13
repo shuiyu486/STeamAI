@@ -373,11 +373,11 @@
       "id": "continue-whatif-smoke",
       "script": "continue-whatif-smoke.ps1",
       "category": "workstream",
-      "purpose": "Validate Go continue non-write preview, explicit case-local apply, default facade JSON preview/apply delegation, fallback, writes/wouldWrites, blocked actions, and authority guard.",
-      "recommendedFor": ["continue what-if", "continue apply", "workstream preview", "Go continue", "continue delegation"],
+      "purpose": "Validate Go continue non-write preview, explicit case-local apply, default facade JSON preview/apply delegation, fallback, writes/wouldWrites, blocked actions, authority guard, and the Go CLI package workstream E2E path.",
+      "recommendedFor": ["continue what-if", "continue apply", "workstream preview", "workstream E2E", "Go continue", "continue delegation"],
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
-      "riskBoundary": "Temporary case only; apply may write case-local facts/runs/board/lane resume/routing, but must not write authority/confirmed or execute heavy tools.",
+      "riskBoundary": "Temporary case/package fixtures only; apply may write case-local facts/runs/board/lane resume/routing/handoff, but must not write authority/confirmed or execute heavy tools.",
       "relatedDocs": ["docs/go-runtime-migration.md", "rekit/tests/README.md"]
     },
     {

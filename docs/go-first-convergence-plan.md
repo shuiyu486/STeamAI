@@ -172,7 +172,7 @@ git diff --check
 
 目标：让 Agent Team 日常状态流从 PowerShell runtime 收口到 Go。
 
-当前进度：Batch 113 先把无需新增写入面的 `overview -Format json` 与 `note -List -Format json` 只读查询升级为默认 Go façade 委托；Batch 114 将 `gate -WhatIf` 非写入 heavy-tool gate preview 升级为默认 Go façade；Batch 115 将 `gate -Apply` pending-gate request ledger 写入升级为默认 Go façade，并补 `internal/rekit/gate` package tests 覆盖 no-write、actor guard、幂等和 no authority/confirmed/artifacts；Batch 116 将 attached case 的 `note` append 与 `note -WhatIf` facts JSONL 写入/预览升级为默认 Go façade，并补 `internal/rekit/note` package tests 覆盖 no-write、schema/lane guard、幂等和 no authority/confirmed；Batch 117 将 attached case 的 `start`/`handoff` JSON preview 与显式 `-Apply` 升级为默认 Go façade；Batch 118 将 attached case 的 `continue -WhatIf -Format json` 非写入 preview 升级为默认 Go façade；Batch 119 将 attached case 缺 board 时的 overview case-local board/facts/policy/default authority lane 初始化迁入 Go，并让 overview 文本/JSON 默认经 façade 委托 Go；Batch 120 将 attached case 的 `note -List` 文本/table/tsv 只读查询也纳入默认 Go façade；Batch 121 将 explicit `continue -Apply` 纳入默认 Go façade，写 case-local facts/routing/run digest/lane resume/checkpoint 与 board refresh，同时将 authority/confirmed 写入强制 defer。实际 heavy-tool 执行、无 `-Apply` 的文本工作线 flow、authority/confirmed 写入与 policy schema 迁移仍需单独 gate。
+当前进度：Batch 113 先把无需新增写入面的 `overview -Format json` 与 `note -List -Format json` 只读查询升级为默认 Go façade 委托；Batch 114 将 `gate -WhatIf` 非写入 heavy-tool gate preview 升级为默认 Go façade；Batch 115 将 `gate -Apply` pending-gate request ledger 写入升级为默认 Go façade，并补 `internal/rekit/gate` package tests 覆盖 no-write、actor guard、幂等和 no authority/confirmed/artifacts；Batch 116 将 attached case 的 `note` append 与 `note -WhatIf` facts JSONL 写入/预览升级为默认 Go façade，并补 `internal/rekit/note` package tests 覆盖 no-write、schema/lane guard、幂等和 no authority/confirmed；Batch 117 将 attached case 的 `start`/`handoff` JSON preview 与显式 `-Apply` 升级为默认 Go façade；Batch 118 将 attached case 的 `continue -WhatIf -Format json` 非写入 preview 升级为默认 Go façade；Batch 119 将 attached case 缺 board 时的 overview case-local board/facts/policy/default authority lane 初始化迁入 Go，并让 overview 文本/JSON 默认经 façade 委托 Go；Batch 120 将 attached case 的 `note -List` 文本/table/tsv 只读查询也纳入默认 Go façade；Batch 121 将 explicit `continue -Apply` 纳入默认 Go façade，写 case-local facts/routing/run digest/lane resume/checkpoint 与 board refresh，同时将 authority/confirmed 写入强制 defer；Batch 122 新增 `_template` pack 的 Go CLI package E2E 测试，覆盖 start → note → continue apply → lane/project handoff 的 case-local 闭环。实际 heavy-tool 执行、无 `-Apply` 的文本工作线 flow、authority/confirmed 写入与 policy schema 迁移仍需单独 gate。
 
 推荐批次形态：
 
@@ -183,7 +183,7 @@ git diff --check
 
 完成信号：
 
-- 临时 case 的 start → note → continue → handoff 可主要通过 Go runtime 完成。
+- 临时 case 的 start → note → continue → handoff 可主要通过 Go runtime 完成；Batch 122 已用 `_template` pack 的 Go package test 锁定最小闭环。
 - heavy-tool / authority / confirmed 仍有明确 gate 和用户确认边界。
 
 ### Stage 6：Agent Team 真实 dry-run 闭环
@@ -192,9 +192,9 @@ git diff --check
 
 推荐批次形态：
 
-- 建立一个临时 case dry-run 脚本或 Go-driven test harness，覆盖 main lane、feature lane、reviewer verification、candidate status、gate request、handoff。
+- 建立一个临时 case dry-run 脚本或 Go-driven test harness，覆盖 main lane、feature lane、reviewer verification、candidate status、gate request、handoff；Batch 122 已先用 `_template` pack 的 Go package test 覆盖 start/note/continue/handoff 最小闭环。
 - 不需要自动 spawn reviewer；重点验证 packet、ledger、handoff、gate、continue digest 是否足够完整。
-- 选至少一个非 `vmp-re` pack 做闭环验证，暴露 pack-neutral 缺口。
+- 继续扩展至少一个非 `vmp-re` pack 的闭环验证到 gate request、plan-subagents 或真实 dry-run 脚本，暴露 pack-neutral 缺口。
 
 完成信号：
 

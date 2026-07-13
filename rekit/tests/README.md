@@ -103,7 +103,7 @@ generic-binary-re-pack-smoke.ps1
 | `start-apply-smoke.ps1` | 改 Go start 或 start façade 委托 | preview/apply scaffold、board/facts/policy/lane/workspace、默认 façade JSON preview/apply 委托、doctor、fallback。 |
 | `handoff-apply-smoke.ps1` | 改 Go handoff 或 handoff façade 委托 | project/lane handoff preview/apply、resume/checkpoint、ledger 区段、默认 façade JSON preview/apply 委托、fallback。 |
 | `continue-preflight-smoke.ps1` | 改 PowerShell continue authority gate | authority append gate matrix、backup/diff、CSV recovery、routing、digest/status、WhatIf no-write。 |
-| `continue-whatif-smoke.ps1` | 改 Go continue preview/apply 或 continue JSON preview/apply façade 委托 | non-write preview、case-local apply writes、default façade JSON preview/apply delegation、wouldWrites/writes、blocked actions、fallback、authority guard。 |
+| `continue-whatif-smoke.ps1` / `go test ./internal/rekit/cli -run TestRunGoWorkstreamE2EStartNoteContinueHandoff` | 改 Go continue preview/apply、continue JSON preview/apply façade 委托或 Go workstream 闭环 | non-write preview、case-local apply writes、default façade JSON preview/apply delegation、wouldWrites/writes、blocked actions、fallback、authority guard；Go package E2E 额外覆盖 `_template` pack start → note → continue apply → handoff 闭环。 |
 | `continue-digest-smoke.ps1` | 改 continue digest/status | structured digest inputs/route/packet refs/outputs/decisions/open risks。 |
 
 ## WorkRoot 约定

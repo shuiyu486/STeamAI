@@ -3712,3 +3712,32 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/workstream ./internal/rekit/cli`、`continue-whatif-smoke.ps1`、`facade-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 122：Go workstream E2E package test
+
+状态：已完成。
+
+目标：承接 Stage 5 完成信号与 Stage 6 Go-driven dry-run harness 方向，在 Batch 121 已将 explicit `continue -Apply` 纳入 Go façade 后，用 `_template` pack 的 Go CLI package test 锁定 start → note → lane outbox → continue apply → handoff 的 case-local deterministic 闭环，减少只靠 PowerShell smoke 验证工作线闭环的漂移风险，并验证非 `vmp-re` pack 的 pack-neutral 路径。
+
+实施范围：
+
+- 在 `internal/rekit/cli` package tests 中新增 `TestRunGoWorkstreamE2EStartNoteContinueHandoff`，使用 `_template` pack attached case fixture。
+- 测试顺序覆盖 `start -Apply` 创建 feature lane、`note` append 写 observation、写入 feature lane outbox、`continue -Apply` 收集 observation/request/candidate/publication 并写 facts、route request 到 main lane、写 run digest/resume/board，再执行 lane/project `handoff -Apply`。
+- 断言 continue 输出的 summary、writes、accepted non-authority candidate、request routing、decision reason、run digest 被 handoff 引用，以及 project/lane handoff 含接续命令。
+- 更新 CHANGELOG、Go-first convergence、Go runtime migration、Agent Team rollout、tests guide、catalog metadata 与 batch-plan，记录 Batch 122 的 test harness 边界和后续缺口。
+
+边界：本批只新增 Go package test 与文档，不新增 runtime 写入面、不改变 façade safe-set、不新增 PowerShell 编排；测试使用临时 package fixture，只写 case-local `.rekit/**`、workspace 与 handoff，不写 authority/confirmed，不执行 heavy-tool，不创建真实 case 或外部副作用。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/cli -run TestRunGoWorkstreamE2EStartNoteContinueHandoff -count=1
+go test ./internal/rekit/cli
+.\rekit\tests\catalog-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli -run TestRunGoWorkstreamE2EStartNoteContinueHandoff -count=1`、`go test ./internal/rekit/cli`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
