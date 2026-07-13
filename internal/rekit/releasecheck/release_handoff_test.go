@@ -52,13 +52,25 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 
 func TestReleaseHandoffPackMaturityDetectsMissingHeavyToolGates(t *testing.T) {
 	inventory := releaseHandoffPackMaturity([]manifest.PackSummary{
-		{ID: "fixture", Maturity: "skeleton", SchemaValid: true},
+		{ID: "fixture", Maturity: "skeleton", SchemaValid: true, SchemaVersion: "1"},
 	}, nil)
-	if inventory.Total != 1 || inventory.MaturityCounts["skeleton"] != 1 || inventory.SchemaValid != true || inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory has warnings" {
+	if inventory.Total != 1 || inventory.MaturityCounts["skeleton"] != 1 || inventory.SchemaValid != true || !inventory.SchemaVersionReady || inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory has warnings" {
 		t.Fatalf("unexpected drifted pack maturity inventory: %+v", inventory)
 	}
 	if len(inventory.HeavyToolGatesByPack) != 1 || inventory.HeavyToolGatesByPack[0].ID != "fixture" || inventory.HeavyToolGatesByPack[0].HeavyToolGates != 0 {
 		t.Fatalf("unexpected drifted pack gate status: %+v", inventory.HeavyToolGatesByPack)
+	}
+}
+
+func TestReleaseHandoffPackMaturityDetectsMissingSchemaVersion(t *testing.T) {
+	inventory := releaseHandoffPackMaturity([]manifest.PackSummary{
+		{ID: "fixture", Maturity: "skeleton", SchemaValid: true, HeavyToolGates: 1, HeavyToolGateActions: []string{"debug"}},
+	}, []string{"debug"})
+	if inventory.Total != 1 || inventory.SchemaValid != true || inventory.SchemaVersionReady || !inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory has warnings" {
+		t.Fatalf("unexpected schema-version drifted pack maturity inventory: %+v", inventory)
+	}
+	if len(inventory.HeavyToolGatesByPack) != 1 || inventory.HeavyToolGatesByPack[0].ID != "fixture" || inventory.HeavyToolGatesByPack[0].SchemaVersion != "" {
+		t.Fatalf("unexpected schema-version drifted pack gate status: %+v", inventory.HeavyToolGatesByPack)
 	}
 }
 
@@ -143,7 +155,7 @@ func assertHandoffSignal(t *testing.T, handoff ReleaseHandoff, name string) {
 func assertHandoffPackMaturity(t *testing.T, handoff ReleaseHandoff) {
 	t.Helper()
 	inventory := handoff.PackMaturity
-	if inventory.Total != 10 || !inventory.SchemaValid || !inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory ok" {
+	if inventory.Total != 10 || !inventory.SchemaValid || !inventory.SchemaVersionReady || !inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory ok" {
 		t.Fatalf("unexpected pack maturity inventory: %+v", inventory)
 	}
 	if inventory.MaturityCounts["template"] != 1 || inventory.MaturityCounts["mature"] != 1 || inventory.MaturityCounts["skeleton"] != 8 {
@@ -159,7 +171,7 @@ func assertHandoffPackMaturity(t *testing.T, handoff ReleaseHandoff) {
 		t.Fatalf("heavy-tool gate rows = %d, want total %d", len(inventory.HeavyToolGatesByPack), inventory.Total)
 	}
 	for _, pack := range inventory.HeavyToolGatesByPack {
-		if strings.TrimSpace(pack.ID) == "" || strings.TrimSpace(pack.Maturity) == "" || !pack.SchemaValid || pack.HeavyToolGates == 0 || len(pack.Actions) == 0 {
+		if strings.TrimSpace(pack.ID) == "" || strings.TrimSpace(pack.Maturity) == "" || !pack.SchemaValid || pack.SchemaVersion != "1" || pack.HeavyToolGates == 0 || len(pack.Actions) == 0 {
 			t.Fatalf("unexpected pack gate row: %+v", pack)
 		}
 	}

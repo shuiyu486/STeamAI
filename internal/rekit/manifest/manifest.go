@@ -86,6 +86,7 @@ type Manifest struct {
 type PackSummary struct {
 	ID                   string   `json:"id"`
 	Name                 string   `json:"name"`
+	SchemaVersion        string   `json:"schemaVersion"`
 	Version              string   `json:"version"`
 	Maturity             string   `json:"maturity"`
 	Description          string   `json:"description"`
@@ -204,6 +205,7 @@ func (m *Manifest) Summary() PackSummary {
 	return PackSummary{
 		ID:                   m.Pack,
 		Name:                 m.Name,
+		SchemaVersion:        m.SchemaVersion,
 		Version:              m.Version,
 		Maturity:             packMaturity(m.Maturity),
 		Description:          m.Description,

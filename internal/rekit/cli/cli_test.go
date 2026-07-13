@@ -189,10 +189,11 @@ func TestRunStatusJsonKit(t *testing.T) {
 		Mode           string `json:"mode"`
 		Case           any    `json:"case"`
 		Manifest       struct {
-			ManifestPath string `json:"manifestPath"`
-			ManagedFiles int    `json:"managedFiles"`
-			PromoteFiles int    `json:"promoteFiles"`
-			ToolingFiles int    `json:"toolingFiles"`
+			ManifestPath  string `json:"manifestPath"`
+			SchemaVersion string `json:"schemaVersion"`
+			ManagedFiles  int    `json:"managedFiles"`
+			PromoteFiles  int    `json:"promoteFiles"`
+			ToolingFiles  int    `json:"toolingFiles"`
 		} `json:"manifest"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
@@ -204,7 +205,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 	if status.RuntimeRoot == "" || status.TemplateRoot == "" || status.Target == "" || status.Case != nil {
 		t.Fatalf("unexpected status JSON roots/case: %+v", status)
 	}
-	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/_template/manifest.yml") || status.Manifest.ManagedFiles != 4 || status.Manifest.PromoteFiles != 4 || status.Manifest.ToolingFiles != 2 {
+	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/_template/manifest.yml") || status.Manifest.SchemaVersion != "1" || status.Manifest.ManagedFiles != 4 || status.Manifest.PromoteFiles != 4 || status.Manifest.ToolingFiles != 2 {
 		t.Fatalf("unexpected manifest summary: %+v", status.Manifest)
 	}
 }
@@ -222,10 +223,11 @@ func TestRunStatusJsonDefaultPackContract(t *testing.T) {
 		Mode          string `json:"mode"`
 		Case          any    `json:"case"`
 		Manifest      struct {
-			ManifestPath string `json:"manifestPath"`
-			ManagedFiles int    `json:"managedFiles"`
-			PromoteFiles int    `json:"promoteFiles"`
-			ToolingFiles int    `json:"toolingFiles"`
+			ManifestPath  string `json:"manifestPath"`
+			SchemaVersion string `json:"schemaVersion"`
+			ManagedFiles  int    `json:"managedFiles"`
+			PromoteFiles  int    `json:"promoteFiles"`
+			ToolingFiles  int    `json:"toolingFiles"`
 		} `json:"manifest"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
@@ -234,7 +236,7 @@ func TestRunStatusJsonDefaultPackContract(t *testing.T) {
 	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Mode != "kit" || status.Pack != defaults.DefaultPack || status.Case != nil {
 		t.Fatalf("unexpected default status JSON envelope: %+v", status)
 	}
-	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/"+defaults.DefaultPack+"/manifest.yml") || status.Manifest.ManagedFiles != 7 || status.Manifest.PromoteFiles != 7 || status.Manifest.ToolingFiles != 12 {
+	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/"+defaults.DefaultPack+"/manifest.yml") || status.Manifest.SchemaVersion != "1" || status.Manifest.ManagedFiles != 7 || status.Manifest.PromoteFiles != 7 || status.Manifest.ToolingFiles != 12 {
 		t.Fatalf("unexpected default manifest summary: %+v", status.Manifest)
 	}
 }
@@ -385,12 +387,14 @@ type releaseCheckHandoff struct {
 		MaturityCounts       map[string]int      `json:"maturityCounts"`
 		PacksByMaturity      map[string][]string `json:"packsByMaturity"`
 		SchemaValid          bool                `json:"schemaValid"`
+		SchemaVersionReady   bool                `json:"schemaVersionReady"`
 		HeavyToolGateReady   bool                `json:"heavyToolGateReady"`
 		HeavyToolGateActions []string            `json:"heavyToolGateActions"`
 		HeavyToolGatesByPack []struct {
 			ID             string   `json:"id"`
 			Maturity       string   `json:"maturity"`
 			SchemaValid    bool     `json:"schemaValid"`
+			SchemaVersion  string   `json:"schemaVersion"`
 			HeavyToolGates int      `json:"heavyToolGates"`
 			Actions        []string `json:"actions"`
 		} `json:"heavyToolGatesByPack"`
@@ -426,6 +430,7 @@ type releaseCheckResult struct {
 		ID             string `json:"id"`
 		Maturity       string `json:"maturity"`
 		SchemaValid    bool   `json:"schemaValid"`
+		SchemaVersion  string `json:"schemaVersion"`
 		HeavyToolGates int    `json:"heavyToolGates"`
 	} `json:"packs"`
 	PowerShellDeprecation releaseCheckPowerShellDeprecation `json:"powerShellDeprecation"`
@@ -477,15 +482,16 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		ID             string `json:"id"`
 		Maturity       string `json:"maturity"`
 		SchemaValid    bool   `json:"schemaValid"`
+		SchemaVersion  string `json:"schemaVersion"`
 		HeavyToolGates int    `json:"heavyToolGates"`
 	}{}
 	for _, pack := range result.Packs {
 		packs[pack.ID] = pack
 	}
-	if pack := packs[defaults.DefaultPack]; pack.Maturity != "mature" || !pack.SchemaValid || pack.HeavyToolGates != 7 {
+	if pack := packs[defaults.DefaultPack]; pack.Maturity != "mature" || !pack.SchemaValid || pack.SchemaVersion != "1" || pack.HeavyToolGates != 7 {
 		t.Fatalf("unexpected default pack release-check row: %+v", pack)
 	}
-	if pack := packs["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.HeavyToolGates != 7 {
+	if pack := packs["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.SchemaVersion != "1" || pack.HeavyToolGates != 7 {
 		t.Fatalf("unexpected web-security release-check row: %+v", pack)
 	}
 }
@@ -647,7 +653,7 @@ func assertReleaseHandoffSignal(t *testing.T, handoff releaseCheckHandoff, name 
 func assertReleaseHandoffPackMaturity(t *testing.T, handoff releaseCheckHandoff) {
 	t.Helper()
 	inventory := handoff.PackMaturity
-	if inventory.Total != 10 || !inventory.SchemaValid || !inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory ok" {
+	if inventory.Total != 10 || !inventory.SchemaValid || !inventory.SchemaVersionReady || !inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory ok" {
 		t.Fatalf("unexpected release handoff pack maturity inventory: %+v", inventory)
 	}
 	if inventory.MaturityCounts["template"] != 1 || inventory.MaturityCounts["mature"] != 1 || inventory.MaturityCounts["skeleton"] != 8 {
@@ -663,7 +669,7 @@ func assertReleaseHandoffPackMaturity(t *testing.T, handoff releaseCheckHandoff)
 		t.Fatalf("release handoff pack gate rows = %d, want total %d", len(inventory.HeavyToolGatesByPack), inventory.Total)
 	}
 	for _, pack := range inventory.HeavyToolGatesByPack {
-		if strings.TrimSpace(pack.ID) == "" || strings.TrimSpace(pack.Maturity) == "" || !pack.SchemaValid || pack.HeavyToolGates == 0 || len(pack.Actions) == 0 {
+		if strings.TrimSpace(pack.ID) == "" || strings.TrimSpace(pack.Maturity) == "" || !pack.SchemaValid || pack.SchemaVersion != "1" || pack.HeavyToolGates == 0 || len(pack.Actions) == 0 {
 			t.Fatalf("unexpected release handoff pack gate row: %+v", pack)
 		}
 	}
@@ -826,17 +832,17 @@ func TestRunPacksListsPackMatrix(t *testing.T) {
 	}
 	text := out.String()
 	for _, expected := range []string{
-		"pack\tmaturity\tschema\troutes\tmanaged\ttooling\tauthority\tversion\tdescription",
-		"_template\ttemplate\tok\t2\t4\t2\tmain\t0.1.0",
-		"vmp-re\tmature\tok\t2\t7\t12\tdevirt-main\t0.2.0",
-		"web-security\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
-		"malware-analysis\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
-		"vuln-research\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
-		"ctf\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
-		"unpack-pe\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
-		"ollvm\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
-		"android-native\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
-		"generic-binary-re\tskeleton\tok\t2\t4\t4\tmain\t0.1.0",
+		"pack\tmaturity\tschema\tmanifestSchema\troutes\tmanaged\ttooling\tauthority\tversion\tdescription",
+		"_template\ttemplate\tok\t1\t2\t4\t2\tmain\t0.1.0",
+		"vmp-re\tmature\tok\t1\t2\t7\t12\tdevirt-main\t0.2.0",
+		"web-security\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
+		"malware-analysis\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
+		"vuln-research\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
+		"ctf\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
+		"unpack-pe\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
+		"ollvm\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
+		"android-native\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
+		"generic-binary-re\tskeleton\tok\t1\t2\t4\t4\tmain\t0.1.0",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("packs output missing %q:\n%s", expected, text)
@@ -858,6 +864,7 @@ func TestRunPacksJsonInventory(t *testing.T) {
 			ID                   string   `json:"id"`
 			Maturity             string   `json:"maturity"`
 			SchemaValid          bool     `json:"schemaValid"`
+			SchemaVersion        string   `json:"schemaVersion"`
 			Error                string   `json:"error"`
 			ManagedFiles         int      `json:"managedFiles"`
 			ToolingFiles         int      `json:"toolingFiles"`
@@ -877,6 +884,7 @@ func TestRunPacksJsonInventory(t *testing.T) {
 		ID                   string   `json:"id"`
 		Maturity             string   `json:"maturity"`
 		SchemaValid          bool     `json:"schemaValid"`
+		SchemaVersion        string   `json:"schemaVersion"`
 		Error                string   `json:"error"`
 		ManagedFiles         int      `json:"managedFiles"`
 		ToolingFiles         int      `json:"toolingFiles"`
@@ -888,10 +896,10 @@ func TestRunPacksJsonInventory(t *testing.T) {
 	for _, pack := range inventory.Packs {
 		byID[pack.ID] = pack
 	}
-	if pack := byID[defaults.DefaultPack]; pack.Maturity != "mature" || !pack.SchemaValid || pack.Error != "" || pack.ManagedFiles != 7 || pack.ToolingFiles != 12 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || strings.Join(pack.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,network,patch,symex" || pack.DefaultAuthorityLane != "devirt-main" {
+	if pack := byID[defaults.DefaultPack]; pack.Maturity != "mature" || !pack.SchemaValid || pack.SchemaVersion != "1" || pack.Error != "" || pack.ManagedFiles != 7 || pack.ToolingFiles != 12 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || strings.Join(pack.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,network,patch,symex" || pack.DefaultAuthorityLane != "devirt-main" {
 		t.Fatalf("unexpected default pack JSON row: %+v", pack)
 	}
-	if pack := byID["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
+	if pack := byID["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.SchemaVersion != "1" || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected web-security JSON row: %+v", pack)
 	}
 	if pack := byID["malware-analysis"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {

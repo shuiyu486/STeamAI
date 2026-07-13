@@ -226,9 +226,13 @@ func TestValidateSchemaRequiresExplicitDescription(t *testing.T) {
 func TestPackSummaryUsesExplicitMaturity(t *testing.T) {
 	m := &Manifest{
 		Pack:               "plain-pack",
+		SchemaVersion:      "1",
 		Maturity:           "experimental",
 		Description:        "plain security pack",
 		WorkstreamDefaults: map[string]string{},
+	}
+	if got := m.Summary().SchemaVersion; got != "1" {
+		t.Fatalf("Summary().SchemaVersion = %q, want 1", got)
 	}
 	if got := m.Summary().Maturity; got != "experimental" {
 		t.Fatalf("Summary().Maturity = %q, want experimental", got)
@@ -801,13 +805,13 @@ func TestListPackSummaries(t *testing.T) {
 			t.Fatalf("pack summary schema invalid: %+v", pack)
 		}
 	}
-	if byID["_template"].Maturity != "template" || byID["_template"].SubagentRoutes != 2 || byID["_template"].HeavyToolGates != 7 {
+	if byID["_template"].Maturity != "template" || byID["_template"].SchemaVersion != "1" || byID["_template"].SubagentRoutes != 2 || byID["_template"].HeavyToolGates != 7 {
 		t.Fatalf("unexpected template summary: %+v", byID["_template"])
 	}
-	if byID["vmp-re"].Maturity != "mature" || byID["vmp-re"].DefaultAuthorityLane != "devirt-main" || byID["vmp-re"].HeavyToolGates != 7 {
+	if byID["vmp-re"].Maturity != "mature" || byID["vmp-re"].SchemaVersion != "1" || byID["vmp-re"].DefaultAuthorityLane != "devirt-main" || byID["vmp-re"].HeavyToolGates != 7 {
 		t.Fatalf("unexpected vmp summary: %+v", byID["vmp-re"])
 	}
-	if byID["web-security"].Maturity != "skeleton" || byID["web-security"].DefaultAuthorityLane != "main" || byID["web-security"].HeavyToolGates != 7 {
+	if byID["web-security"].Maturity != "skeleton" || byID["web-security"].SchemaVersion != "1" || byID["web-security"].DefaultAuthorityLane != "main" || byID["web-security"].HeavyToolGates != 7 {
 		t.Fatalf("unexpected web-security summary: %+v", byID["web-security"])
 	}
 }

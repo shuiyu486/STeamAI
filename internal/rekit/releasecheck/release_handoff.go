@@ -67,6 +67,7 @@ type ReleaseHandoffPackMaturity struct {
 	MaturityCounts       map[string]int                 `json:"maturityCounts"`
 	PacksByMaturity      map[string][]string            `json:"packsByMaturity"`
 	SchemaValid          bool                           `json:"schemaValid"`
+	SchemaVersionReady   bool                           `json:"schemaVersionReady"`
 	HeavyToolGateReady   bool                           `json:"heavyToolGateReady"`
 	HeavyToolGateActions []string                       `json:"heavyToolGateActions"`
 	HeavyToolGatesByPack []ReleaseHandoffPackGateStatus `json:"heavyToolGatesByPack"`
@@ -77,6 +78,7 @@ type ReleaseHandoffPackGateStatus struct {
 	ID             string   `json:"id"`
 	Maturity       string   `json:"maturity"`
 	SchemaValid    bool     `json:"schemaValid"`
+	SchemaVersion  string   `json:"schemaVersion"`
 	HeavyToolGates int      `json:"heavyToolGates"`
 	Actions        []string `json:"actions"`
 }
@@ -171,7 +173,7 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 		},
 		{
 			Name:    "pack maturity summary",
-			Ready:   packMaturity.Total > 0 && packMaturity.SchemaValid && packMaturity.HeavyToolGateReady,
+			Ready:   packMaturity.Total > 0 && packMaturity.SchemaValid && packMaturity.SchemaVersionReady && packMaturity.HeavyToolGateReady,
 			Summary: packMaturity.Summary,
 			Details: releaseHandoffPackMaturityDetails(packMaturity),
 		},
@@ -210,6 +212,7 @@ func releaseHandoffPackMaturity(packs []manifest.PackSummary, actions []string) 
 		MaturityCounts:       map[string]int{},
 		PacksByMaturity:      map[string][]string{},
 		SchemaValid:          true,
+		SchemaVersionReady:   true,
 		HeavyToolGateReady:   len(actions) > 0,
 		HeavyToolGateActions: append([]string{}, actions...),
 		HeavyToolGatesByPack: []ReleaseHandoffPackGateStatus{},
@@ -217,6 +220,7 @@ func releaseHandoffPackMaturity(packs []manifest.PackSummary, actions []string) 
 	}
 	if len(packs) == 0 {
 		inventory.SchemaValid = false
+		inventory.SchemaVersionReady = false
 		inventory.HeavyToolGateReady = false
 		inventory.Summary = "pack maturity inventory has warnings"
 		return inventory
@@ -232,6 +236,9 @@ func releaseHandoffPackMaturity(packs []manifest.PackSummary, actions []string) 
 		if !pack.SchemaValid || strings.TrimSpace(pack.ID) == "" {
 			inventory.SchemaValid = false
 		}
+		if strings.TrimSpace(pack.SchemaVersion) != "1" {
+			inventory.SchemaVersionReady = false
+		}
 		actions := append([]string{}, pack.HeavyToolGateActions...)
 		if pack.HeavyToolGates == 0 || len(actions) == 0 {
 			inventory.HeavyToolGateReady = false
@@ -241,6 +248,7 @@ func releaseHandoffPackMaturity(packs []manifest.PackSummary, actions []string) 
 			ID:             pack.ID,
 			Maturity:       maturity,
 			SchemaValid:    pack.SchemaValid,
+			SchemaVersion:  pack.SchemaVersion,
 			HeavyToolGates: pack.HeavyToolGates,
 			Actions:        actions,
 		})
@@ -251,7 +259,7 @@ func releaseHandoffPackMaturity(packs []manifest.PackSummary, actions []string) 
 	sort.Slice(inventory.HeavyToolGatesByPack, func(i, j int) bool {
 		return strings.ToLower(inventory.HeavyToolGatesByPack[i].ID) < strings.ToLower(inventory.HeavyToolGatesByPack[j].ID)
 	})
-	if !inventory.SchemaValid || !inventory.HeavyToolGateReady {
+	if !inventory.SchemaValid || !inventory.SchemaVersionReady || !inventory.HeavyToolGateReady {
 		inventory.Summary = "pack maturity inventory has warnings"
 	}
 	return inventory
@@ -259,7 +267,7 @@ func releaseHandoffPackMaturity(packs []manifest.PackSummary, actions []string) 
 
 func releaseHandoffPackMaturityDetails(inventory ReleaseHandoffPackMaturity) []string {
 	details := []string{
-		fmt.Sprintf("total=%d schemaValid=%t heavyToolGateReady=%t", inventory.Total, inventory.SchemaValid, inventory.HeavyToolGateReady),
+		fmt.Sprintf("total=%d schemaValid=%t schemaVersionReady=%t heavyToolGateReady=%t", inventory.Total, inventory.SchemaValid, inventory.SchemaVersionReady, inventory.HeavyToolGateReady),
 		fmt.Sprintf("heavyToolGateActions=%s", strings.Join(inventory.HeavyToolGateActions, ",")),
 	}
 	maturities := make([]string, 0, len(inventory.MaturityCounts))

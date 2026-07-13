@@ -4938,3 +4938,33 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/gate ./internal/rekit/promote ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 162：Manifest schemaVersion inventory
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，将 Batch 161 的 manifest `schemaVersion` contract 暴露到 machine-readable inventory 与 release handoff，使 release gate 不只验证 schema，也能审计 pack manifest schema version readiness。
+
+实施范围：
+
+- `manifest.PackSummary` 增加 `schemaVersion`，`Summary()` 保留 manifest 原始 schema version，`/rekit packs -Format json` 与 `release-check -Format json` 的 `packs[]` 继承该字段。
+- `/rekit packs` table 增加 `manifestSchema` 列，`/rekit status -Format json` 的 manifest summary 增加 `schemaVersion`，便于本机和 CI 直接检查当前 pack manifest schema contract。
+- `releaseHandoff.packMaturity` 增加 `schemaVersionReady`，每 pack gate status 增加 `schemaVersion`；`pack maturity summary` signal 将 schema version readiness 纳入 ready 条件和 details。
+- CLI / manifest / releasecheck tests 覆盖 schemaVersion inventory、table/JSON 输出、release handoff drift detection 与 missing schema version warning。
+- `docs/go-first-convergence-plan.md`、`docs/release-readiness.md` 与 `CHANGELOG.md` 同步记录 machine-readable readiness 扩展。
+
+边界：本批只做 pack-neutral manifest inventory、release handoff gate、测试和文档；不改变既有 pack manifest 内容、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

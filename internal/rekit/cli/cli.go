@@ -537,13 +537,13 @@ func runPacks(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	switch format {
 	case "table", "tsv":
-		fmt.Fprintln(out, "pack\tmaturity\tschema\troutes\tmanaged\ttooling\tauthority\tversion\tdescription")
+		fmt.Fprintln(out, "pack\tmaturity\tschema\tmanifestSchema\troutes\tmanaged\ttooling\tauthority\tversion\tdescription")
 		for _, pack := range packs {
 			schema := "ok"
 			if !pack.SchemaValid {
 				schema = "error"
 			}
-			fmt.Fprintf(out, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\n", pack.ID, pack.Maturity, schema, pack.SubagentRoutes, pack.ManagedFiles, pack.ToolingFiles, pack.DefaultAuthorityLane, pack.Version, pack.Description)
+			fmt.Fprintf(out, "%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\n", pack.ID, pack.Maturity, schema, pack.SchemaVersion, pack.SubagentRoutes, pack.ManagedFiles, pack.ToolingFiles, pack.DefaultAuthorityLane, pack.Version, pack.Description)
 			if pack.Error != "" {
 				fmt.Fprintf(out, "  error: %s\n", pack.Error)
 			}
@@ -584,10 +584,11 @@ type statusCase struct {
 }
 
 type statusManifestSummary struct {
-	ManifestPath string `json:"manifestPath"`
-	ManagedFiles int    `json:"managedFiles"`
-	PromoteFiles int    `json:"promoteFiles"`
-	ToolingFiles int    `json:"toolingFiles"`
+	ManifestPath  string `json:"manifestPath"`
+	SchemaVersion string `json:"schemaVersion"`
+	ManagedFiles  int    `json:"managedFiles"`
+	PromoteFiles  int    `json:"promoteFiles"`
+	ToolingFiles  int    `json:"toolingFiles"`
 }
 
 func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -675,10 +676,11 @@ func buildStatusInventory(ctx runtime.Context) (statusInventory, error) {
 		return statusInventory{}, err
 	}
 	status.Manifest = &statusManifestSummary{
-		ManifestPath: m.ManifestPath,
-		ManagedFiles: len(m.ManagedFiles),
-		PromoteFiles: len(m.PromoteFiles),
-		ToolingFiles: len(m.ToolingFiles),
+		ManifestPath:  m.ManifestPath,
+		SchemaVersion: m.SchemaVersion,
+		ManagedFiles:  len(m.ManagedFiles),
+		PromoteFiles:  len(m.PromoteFiles),
+		ToolingFiles:  len(m.ToolingFiles),
 	}
 	return status, nil
 }
