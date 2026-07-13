@@ -98,8 +98,8 @@ func validManifestFixture() Manifest {
 		PromoteDenyPatterns:     []string{"artifacts[\\/]"},
 		HeavyToolGates:          []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, StopConditions: []string{"timeout"}}},
 		LaneTypes: []LaneType{
-			{ID: "main", Authority: true, CanWrite: []string{"references/template/task-handoff.md"}},
-			{ID: "feature"},
+			{ID: "main", Title: "Main", Authority: true, WorkspaceRoot: "workspace/main", CanWrite: []string{"references/template/task-handoff.md"}, ReadOnly: []string{".rekit/facts/**"}, Outputs: []string{"publication"}},
+			{ID: "feature", Title: "Feature", WorkspaceRoot: "workspace/features", CanWrite: []string{"own-workspace"}, ReadOnly: []string{"references/template/**", ".rekit/facts/**"}, Outputs: []string{"observation"}},
 		},
 	}
 }
@@ -312,6 +312,101 @@ laneTypes:
 	}
 	if got := m.BudgetLimit("references/test/README.md"); got != 16384 {
 		t.Fatalf("BudgetLimit fallback = %d, want runtime safety fallback 16384", got)
+	}
+}
+
+func TestValidateSchemaRequiresExplicitLaneTypeFields(t *testing.T) {
+	m := validManifestFixture()
+	m.LaneTypes[0].Title = ""
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "laneTypes entry main is missing title") {
+		t.Fatalf("ValidateSchema error = %v, want explicit lane title error", err)
+	}
+	m = validManifestFixture()
+	m.LaneTypes[0].WorkspaceRoot = ""
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "laneTypes entry main is missing workspaceRoot") {
+		t.Fatalf("ValidateSchema error = %v, want explicit lane workspaceRoot error", err)
+	}
+	m = validManifestFixture()
+	m.LaneTypes[0].CanWrite = nil
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "laneTypes entry main is missing canWrite") {
+		t.Fatalf("ValidateSchema error = %v, want explicit lane canWrite error", err)
+	}
+}
+
+func TestLoadDoesNotInferLaneTypeDefaults(t *testing.T) {
+	repo := t.TempDir()
+	packRoot := filepath.Join(repo, "packs", "missing-lane-defaults")
+	if err := os.MkdirAll(packRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestText := `schemaVersion: 1
+name: missing-lane-defaults
+version: 0.1.0
+description: test pack skeleton
+maturity: skeleton
+
+managedFiles:
+  - references/test/README.md
+promoteFiles:
+  - references/test/README.md
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: rekit:test
+  source: CLAUDE.local.snippet.md
+toolingCandidateSources:
+  - references/test/toolchain-router.md
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+authorityFiles:
+  - references/test/README.md
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+promoteDenyPatterns:
+  - "artifacts[\\/]"
+budgets:
+  defaultMarkdown: 16384
+heavyToolGates:
+  - id: debug
+    title: Debug
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout
+laneTypes:
+  - id: main
+    authority: true
+    canWrite: references/test/README.md
+    readOnly: .rekit/facts/**
+    outputs: publication
+  - id: feature
+    title: Feature
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/test/**
+    outputs: observation
+`
+	if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(repo, "missing-lane-defaults")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane, err := m.LaneType("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lane.Title != "" || lane.WorkspaceRoot != "" {
+		t.Fatalf("lane defaults = title %q workspaceRoot %q, want no implicit fallback", lane.Title, lane.WorkspaceRoot)
+	}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "laneTypes entry main is missing title") {
+		t.Fatalf("ValidateSchema error = %v, want explicit lane title error", err)
 	}
 }
 

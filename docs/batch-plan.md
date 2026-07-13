@@ -4689,3 +4689,35 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 154：Manifest laneTypes 工作线边界显式化
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，将 Go manifest parser 中对缺失 `laneTypes.title` 与 `workspaceRoot` 的隐式默认值移出 runtime，并要求 pack 显式声明 lane title、workspaceRoot 与 canWrite/readOnly/outputs 边界，避免新增 pack 静默继承 runtime 的 lane 展示名或 workspace 默认路径；本批不改既有 pack manifest 内容，只让 manifest contract 更显式。
+
+实施范围：
+
+- 移除 `yamlLaneTypes` 对缺失 `title` 的 `id` fallback 与缺失 `workspaceRoot` 的 `captures/lanes` fallback。
+- `ValidateSchema` 新增 `validateLaneTypes`，要求 pack 显式声明 `laneTypes`，每个 lane 必须有 id、title、workspaceRoot、canWrite、readOnly 与 outputs，且 lane id 不重复。
+- 保持 `defaultAuthorityLane`、`defaultStartLaneType` 与 `requestDefaultTargetLane` 必须引用已声明 lane，并保持 default authority lane 必须 `authority=true`。
+- `rekit/schemas/pack-manifest.schema.yml` 说明 `laneTypes` 不再由 runtime 注入 title/workspaceRoot 默认值。
+- `docs/pack-authoring.md` 明确新增 pack 的 `laneTypes` 必须显式声明工作线显示名、workspace 和读写/输出边界。
+- manifest tests 新增缺失 lane title/workspaceRoot/canWrite 与 load/no-fallback drift test。
+- 更新 `CHANGELOG.md`、`docs/go-first-convergence-plan.md` 与本 batch-plan。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 sync/promote apply 行为、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/workstream ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/workstream ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

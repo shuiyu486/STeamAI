@@ -406,6 +406,9 @@ func (m *Manifest) ValidateSchema() error {
 	if err := m.validateHeavyToolGates(); err != nil {
 		return err
 	}
+	if err := m.validateLaneTypes(); err != nil {
+		return err
+	}
 	if _, err := m.LaneType(m.WorkstreamDefaults["defaultAuthorityLane"]); err != nil {
 		return err
 	}
@@ -583,6 +586,67 @@ func optionPositiveInt(value string) int {
 	return n
 }
 
+func (m *Manifest) validateLaneTypes() error {
+	if len(m.LaneTypes) == 0 {
+		return fmt.Errorf("manifest must explicitly declare laneTypes")
+	}
+	seen := map[string]bool{}
+	for _, lane := range m.LaneTypes {
+		id := strings.TrimSpace(lane.ID)
+		if id == "" {
+			return fmt.Errorf("laneTypes entry is missing id")
+		}
+		if seen[strings.ToLower(id)] {
+			return fmt.Errorf("duplicate laneTypes id: %s", id)
+		}
+		seen[strings.ToLower(id)] = true
+		if strings.TrimSpace(lane.Title) == "" {
+			return fmt.Errorf("laneTypes entry %s is missing title", id)
+		}
+		if strings.TrimSpace(lane.WorkspaceRoot) == "" {
+			return fmt.Errorf("laneTypes entry %s is missing workspaceRoot", id)
+		}
+		if _, err := m.SourcePath(lane.WorkspaceRoot); err != nil {
+			return err
+		}
+		if len(lane.CanWrite) == 0 {
+			return fmt.Errorf("laneTypes entry %s is missing canWrite", id)
+		}
+		if len(lane.ReadOnly) == 0 {
+			return fmt.Errorf("laneTypes entry %s is missing readOnly", id)
+		}
+		if len(lane.Outputs) == 0 {
+			return fmt.Errorf("laneTypes entry %s is missing outputs", id)
+		}
+		for _, rel := range lane.CanWrite {
+			if strings.TrimSpace(rel) == "" {
+				return fmt.Errorf("laneTypes entry %s contains an empty canWrite item", id)
+			}
+			if rel != "own-workspace" {
+				if _, err := m.SourcePath(rel); err != nil {
+					return err
+				}
+			}
+		}
+		for _, rel := range lane.ReadOnly {
+			if strings.TrimSpace(rel) == "" {
+				return fmt.Errorf("laneTypes entry %s contains an empty readOnly item", id)
+			}
+			if !strings.ContainsAny(rel, "*") {
+				if _, err := m.SourcePath(rel); err != nil {
+					return err
+				}
+			}
+		}
+		for _, output := range lane.Outputs {
+			if strings.TrimSpace(output) == "" {
+				return fmt.Errorf("laneTypes entry %s contains an empty outputs item", id)
+			}
+		}
+	}
+	return nil
+}
+
 func (m *Manifest) LaneType(id string) (LaneType, error) {
 	for _, lane := range m.LaneTypes {
 		if strings.EqualFold(lane.ID, id) {
@@ -743,14 +807,11 @@ func yamlLaneTypes(lines []string, key string) []LaneType {
 	rows := yamlObjectList(lines, key)
 	lanes := make([]LaneType, 0, len(rows))
 	for _, row := range rows {
-		if strings.TrimSpace(row["id"]) == "" {
-			continue
-		}
 		lanes = append(lanes, LaneType{
 			ID:            row["id"],
-			Title:         valueOr(row["title"], row["id"]),
+			Title:         row["title"],
 			Authority:     parseBool(row["authority"]),
-			WorkspaceRoot: valueOr(row["workspaceRoot"], "captures/lanes"),
+			WorkspaceRoot: row["workspaceRoot"],
 			CanWrite:      splitScalarList(row["canWrite"]),
 			ReadOnly:      splitScalarList(row["readOnly"]),
 			Outputs:       splitScalarList(row["outputs"]),
@@ -815,13 +876,6 @@ func parseBool(v string) bool {
 	default:
 		return false
 	}
-}
-
-func valueOr(v, def string) string {
-	if strings.TrimSpace(v) == "" {
-		return def
-	}
-	return v
 }
 
 func contains(items []string, value string) bool {
