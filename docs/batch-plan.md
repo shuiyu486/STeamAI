@@ -5086,3 +5086,31 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck ./internal/rekit/promote`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 167：Manifest subagent route trigger contract
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，收紧 `subagentRoutes` item-level contract，要求每个 route 显式说明触发条件，避免新增 pack 只声明任务类型与 shard 维度但缺少触发语义仍进入 schema-valid inventory。
+
+实施范围：
+
+- `ValidateSchema` 在校验 `subagentRoutes` 时要求 `trigger` 显式非空，并对缺失项返回 `subagent route <id> is missing trigger`。
+- manifest tests 新增 route trigger 缺失/有效场景，确保 trigger 缺失被 schema validation 捕获。
+- `docs/pack-authoring.md`、`rekit/schemas/pack-manifest.schema.yml`、`docs/go-first-convergence-plan.md` 与 `CHANGELOG.md` 同步记录 route trigger contract。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

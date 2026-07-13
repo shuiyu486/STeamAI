@@ -43,7 +43,7 @@ fields:
   promoteDenyPatterns: promote 安全阻断正则或字符串模式；必须由 pack 显式声明且至少包含一个模式，runtime 不提供隐式 deny baseline
   commonPolicies: common policy id 列表；必须显式声明，允许空列表但不能由 runtime 隐式推断
   policyOverlays: pack policy overlay 文件列表；必须显式声明，允许空列表但不能由 runtime 隐式推断
-  subagentRoutes: 子 agent / 工作线 review 分流 route 列表；必须显式声明，允许空列表；每项可包含 id、taskTypes、trigger、shardBasis、targetItemsPerAgent、maxParallel、reference、policyOverlay、subagentPermissions、mainAgentOwns、outputContract
+  subagentRoutes: 子 agent / 工作线 review 分流 route 列表；必须显式声明，允许空列表；每项必须显式声明 id、taskTypes、trigger、shardBasis、targetItemsPerAgent、maxParallel、reference、subagentPermissions、mainAgentOwns、outputContract，policyOverlay 可为空
   toolingFiles: pack tooling 文档与 catalog 文件列表；必须显式声明，允许空列表但不能由 runtime 隐式推断
   heavyToolGates: pack 声明的重型工具门禁动作列表；必须显式声明且至少包含一个 gate，Go gate runtime 只接受这里声明的 id，并使用 defaultRisk、requiresConfirmation 与 stopConditions 生成 pending-gate preview/request
   promptFiles: common/pack prompt 文档列表；必须显式声明，允许空列表；用于 doctor 校验与人工查阅

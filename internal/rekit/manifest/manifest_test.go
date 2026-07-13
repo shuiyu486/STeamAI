@@ -309,6 +309,28 @@ func TestValidateSchemaRequiresExplicitListPresence(t *testing.T) {
 	}
 }
 
+func TestValidateSchemaRequiresSubagentRouteTrigger(t *testing.T) {
+	m := validManifestFixture()
+	m.SubagentRoutes = []SubagentRoute{{
+		ID:                  "unit:bounded-review",
+		TaskTypes:           "candidate-review",
+		ShardBasis:          "item",
+		TargetItemsPerAgent: "1",
+		MaxParallel:         "1",
+		Reference:           "references/template/README.md",
+		SubagentPermissions: "read-only",
+		MainAgentOwns:       "validation",
+		OutputContract:      "item,decision",
+	}}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "subagent route unit:bounded-review is missing trigger") {
+		t.Fatalf("ValidateSchema error = %v, want missing route trigger error", err)
+	}
+	m.SubagentRoutes[0].Trigger = "fixed-boundary read-only review"
+	if err := m.ValidateSchema(); err != nil {
+		t.Fatalf("ValidateSchema valid subagent route error = %v", err)
+	}
+}
+
 func TestValidateSchemaRequiresNonEmptyContractLists(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

@@ -513,6 +513,9 @@ func (m *Manifest) validateSubagentRoutes(managedTargets map[string]bool) error 
 		if strings.TrimSpace(route.TaskTypes) == "" {
 			return fmt.Errorf("subagent route %s is missing taskTypes", id)
 		}
+		if strings.TrimSpace(route.Trigger) == "" {
+			return fmt.Errorf("subagent route %s is missing trigger", id)
+		}
 		if strings.TrimSpace(route.ShardBasis) == "" {
 			return fmt.Errorf("subagent route %s is missing shardBasis", id)
 		}
