@@ -337,6 +337,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckCommand(t, result.RequiredCommands, "facade-smoke.ps1")
 	assertReleaseCheckCommand(t, result.RequiredCommands, "git diff --check")
 	assertReleaseCheckDocument(t, result.Documents, "docs/release-readiness.md")
+	assertReleaseCheckDocument(t, result.Documents, "docs/autonomous-goal.md")
 	assertReleaseCheckDocument(t, result.Documents, "docs/go-first-convergence-plan.md")
 	assertReleaseCheckDocument(t, result.Documents, "docs/powershell-deprecation.md")
 	if !result.GateProfile.Ready || result.GateProfile.Name != "local-ci-minimum" || result.GateProfile.StepCount != len(result.RecommendedMinimum) || result.GateProfile.LargeMatrixDefault || len(result.GateProfile.Steps) != len(result.RecommendedMinimum) {
@@ -423,6 +424,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"facade-smoke.ps1 kind=powershell-smoke path=rekit/tests/facade-smoke.ps1",
 		"documents:",
 		"docs/release-readiness.md",
+		"docs/autonomous-goal.md",
 		"packs:",
 		"known gaps:",
 	} {

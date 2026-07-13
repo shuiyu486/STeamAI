@@ -3,7 +3,7 @@
 ## 读取指南
 
 - 如果你只想使用当前仓库初始化一个安全 case（当前成熟示例是 `vmp-re` RE case），先读 `README.md` 的使用方式；本文件用于理解长期方向与阶段路线。
-- 如果你要维护或迭代本仓库，先读本文件顶部的实施摘要、执行清单、验证标准，再按阶段读取细节。
+- 如果你要维护或迭代本仓库，先读本文件顶部的实施摘要、执行清单、验证标准；若要让新会话长期自主推进几十轮，先读 `docs/autonomous-goal.md`，再按阶段读取细节。
 - 本文件是路线图，不代表所有能力已经实现；当前已经落地的是 `/rekit`、case 绑定、工作线、handoff、sync/promote、首个成熟领域 pack `vmp-re` 和 tooling 文档底座。
 - 需要具体执行时，优先选择当前阶段的最小可验证切片，不跨阶段提前重构 runtime。
 
@@ -31,7 +31,7 @@
 - [ ] Phase 5：证据账本与 intervention 模型增强。
 - [ ] Phase 6：半自动 Agent Team runtime / orchestration。
 - [ ] Agent Team rollout（选项 C：契约 dry-run 优先）：见 `docs/agent-team-rollout-plan.md`，先压测契约再按真实缺口决定 Phase 5/6 顺序。
-- [ ] Go-first 收束 / release readiness：见 `docs/go-first-convergence-plan.md`，Batch 101 后优先让 Go backend 成为 deterministic runtime owner，收缩 PowerShell 编排扩张，并建立 Agent Team 真实 dry-run 闭环。
+- [ ] Go-first 收束 / release readiness：见 `docs/go-first-convergence-plan.md` 与 `docs/autonomous-goal.md`，Batch 101 后优先让 Go backend 成为 deterministic runtime owner，收缩 PowerShell 编排扩张，建立 Agent Team 真实 dry-run 闭环，并把长期自主推进约束写成可复制 goal。
 
 每个阶段都应按“小步可验证”落地：先文档契约，再 case-local 试用，再 runtime 自动化，最后才抽象为跨 pack 能力。
 

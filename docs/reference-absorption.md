@@ -8,10 +8,11 @@
 
 1. `CLAUDE.md`
 2. `README.md`
-3. `docs/agent-team-usage.md`
-4. 本文件
-5. `docs/vision.md`
-6. `docs/batch-plan.md`
+3. `docs/autonomous-goal.md`
+4. `docs/agent-team-usage.md`
+5. 本文件
+6. `docs/vision.md`
+7. `docs/batch-plan.md`
 
 本文件只记录可复用设计和落地映射，不记录真实样本名、RVA/VA、trace/dump、artifact 路径、客户信息或 case-specific 进度。
 

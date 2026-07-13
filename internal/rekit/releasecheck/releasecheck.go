@@ -73,6 +73,7 @@ var requiredCommands = []string{
 
 var requiredDocuments = []DocumentCheck{
 	{Path: "docs/release-readiness.md", Purpose: "release gate and known gaps"},
+	{Path: "docs/autonomous-goal.md", Purpose: "long-term autonomous goal and handoff guide"},
 	{Path: "docs/go-first-convergence-plan.md", Purpose: "Go-first stage completion signals"},
 	{Path: "docs/powershell-deprecation.md", Purpose: "PowerShell owner and freeze strategy"},
 	{Path: "rekit/tests/catalog.json", Purpose: "machine-readable smoke catalog"},

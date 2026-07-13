@@ -286,45 +286,32 @@ func TestAutonomousGoalGuideInvariants(t *testing.T) {
 		"## 执行清单",
 		"## 验证标准",
 		"## 风险与注意事项",
-		"## 大方向与阶段性实施小方向",
-		"## 推荐执行顺序",
-		"## 新会话接手开场白",
-		"## 可直接复制的长期 goal 语句",
+		"## 给新会话的 goal 语句",
 	} {
 		assertTextContains(t, guide, section, "autonomous goal guide section")
 	}
 
 	for _, direction := range []string{
-		"PowerShell deprecation 准备与 fallback 收口",
-		"Policy / ledger schema append-only hardening",
-		"Pack-neutral invariant hardening",
-		"Release gate / CI maturity",
-		"新会话接手质量与 goal governance",
+		"Go-first release readiness",
+		"PowerShell deprecation readiness",
+		"Pack-neutral hardening",
+		"Policy / ledger hardening",
+		"接手质量与持续推进治理",
 	} {
 		assertTextContains(t, guide, direction, "autonomous goal guide direction")
 	}
-	for _, boundary := range []string{
-		"不要做只改一两行的微批次",
-		"不执行真实网络请求",
-		"不写 authority/confirmed",
-		"不自动迁移历史 case state",
-		"不要直接删除 PowerShell runtime",
-		"不把大型 PowerShell matrix",
-		"保持 append-only",
+	for _, required := range []string{
+		"简短接手锚点",
+		"不是新的限制清单",
+		"中大型 vertical slice",
+		"完成后自审、评估、必要时自行低风险调整",
+		"默认继续自主推进",
+		"不要机械堆 PowerShell smoke/catalog",
 	} {
-		assertTextContains(t, guide, boundary, "autonomous goal guide boundary")
-	}
-	for _, snippet := range []string{
-		"推荐总 goal（中大型自主推进）",
-		"保守版 goal",
-		"PowerShell deprecation readiness 专项 goal",
-		"Policy / ledger schema 专项 goal",
-		"Pack-neutral invariant 专项目标",
-	} {
-		assertTextContains(t, guide, snippet, "autonomous goal prompt snippet")
+		assertTextContains(t, guide, required, "autonomous goal guide autonomy guard")
 	}
 
-	for _, doc := range []string{"README.md", "CLAUDE.md", "docs/go-first-convergence-plan.md"} {
+	for _, doc := range []string{"README.md", "CLAUDE.md", "docs/go-first-convergence-plan.md", "docs/release-readiness.md", "docs/vision.md", "docs/reference-absorption.md"} {
 		assertTextContains(t, readRepoText(t, repo, doc), "docs/autonomous-goal.md", doc+" autonomous goal link")
 	}
 }

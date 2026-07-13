@@ -2,7 +2,7 @@
 
 ## 读取指南
 
-本文件是发布前和新会话接手时的一页门禁说明，配合 `docs/go-first-convergence-plan.md` 与 `docs/powershell-deprecation.md` 使用。维护者在准备 release、合并大型批次、或需要判断当前 runtime owner 时先读本文件顶部区域；需要历史路线时再读 go-first convergence、runtime migration 和 batch-plan。
+本文件是发布前和新会话接手时的一页门禁说明，配合 `docs/autonomous-goal.md`、`docs/go-first-convergence-plan.md` 与 `docs/powershell-deprecation.md` 使用。维护者在准备 release、合并大型批次、或需要判断当前 runtime owner 时先读本文件顶部区域；需要长期自主推进 goal 时读 `docs/autonomous-goal.md`，需要历史路线时再读 go-first convergence、runtime migration 和 batch-plan。
 
 本文件不替代 `rekit/tests/README.md` 的 smoke 选择指南，也不是要求每次改动都运行全量 PowerShell matrix。它定义轻量、可重复的 release gate 和当前 known gaps。
 
@@ -14,6 +14,7 @@
 - PowerShell `rekit/rekit.ps1` 仍是公共 façade：负责参数兼容、旧文本 flow、fallback、少量 parity smoke 和 `REKIT_GO_DISABLE=1` 回退。
 - Agent Team dry-run 已从 `_template` package E2E 扩展到 `generic-binary-re`、`web-security` package E2E，并新增 `web-security`、`generic-binary-re`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 真实临时 case smoke。
 - 发布门禁应优先依赖 Go-owned `release-check` inventory、Go tests / `go vet` / doctor / 少量 Windows façade smoke；Batch 139 已让 `release-check` 输出 `gateProfile`，将 recommended minimum 解析为本机/CI 可消费的 step kind、repo-local path、present/resolved 状态；Batch 140 已新增 `.github/workflows/release-gate.yml`，只运行 Go release checks 与 Windows facade smoke，不把大型 pack matrix 作为默认必跑。
+- 长期自主推进和新会话接手 guidance 已集中到 `docs/autonomous-goal.md`；它只保留大方向、自主推进循环和可复制 goal 语句，避免 release readiness 批次退回微批次或 PowerShell smoke/catalog 扩张，也避免用过长约束束缚模型发挥。
 
 ## 执行清单
 
@@ -66,8 +67,9 @@ git diff --check
 1. `CHANGELOG.md` 顶部 `Unreleased` 已描述本轮用户可见变化、边界和验证结果。
 2. `docs/batch-plan.md` 最新 batch 状态为已完成，并列出实际执行过的验证。
 3. `docs/go-first-convergence-plan.md` 未把阶段性进展误写成全局完成；Stage 1-8 未完成项仍保留。
-4. `rekit/tests/catalog.json` 与 `rekit/tests/README.md` 一致；新增 `*.ps1` 已被 catalog 收录。
-5. `git status --short` 干净后再打 tag 或发 release。
+4. `docs/autonomous-goal.md` 的长期 goal、停止条件和中大型 vertical slice guidance 与本文件、go-first convergence 计划一致。
+5. `rekit/tests/catalog.json` 与 `rekit/tests/README.md` 一致；新增 `*.ps1` 已被 catalog 收录。
+6. `git status --short` 干净后再打 tag 或发 release。
 
 ## 验证标准
 
