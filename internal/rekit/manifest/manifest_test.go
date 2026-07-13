@@ -378,6 +378,29 @@ func TestValidateSchemaRequiresSubagentRouteTrigger(t *testing.T) {
 	}
 }
 
+func TestValidateSchemaRequiresSupportedSubagentPermissions(t *testing.T) {
+	m := validManifestFixture()
+	m.SubagentRoutes = []SubagentRoute{{
+		ID:                  "unit:bounded-review",
+		TaskTypes:           "candidate-review",
+		Trigger:             "fixed-boundary read-only review",
+		ShardBasis:          "item",
+		TargetItemsPerAgent: "1",
+		MaxParallel:         "1",
+		Reference:           "references/template/README.md",
+		SubagentPermissions: "workspace-write",
+		MainAgentOwns:       "validation",
+		OutputContract:      "item,decision",
+	}}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "subagent route unit:bounded-review has unsupported subagentPermissions: workspace-write") {
+		t.Fatalf("ValidateSchema error = %v, want unsupported subagentPermissions error", err)
+	}
+	m.SubagentRoutes[0].SubagentPermissions = "read-only-or-workspace-only"
+	if err := m.ValidateSchema(); err != nil {
+		t.Fatalf("ValidateSchema valid subagentPermissions error = %v", err)
+	}
+}
+
 func TestValidateSchemaRejectsEmptySubagentRouteListItems(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

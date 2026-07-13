@@ -551,8 +551,8 @@ func (m *Manifest) validateSubagentRoutes(managedTargets map[string]bool) error 
 				return err
 			}
 		}
-		if strings.TrimSpace(route.SubagentPermissions) == "" {
-			return fmt.Errorf("subagent route %s is missing subagentPermissions", id)
+		if err := validateSubagentPermissions(id, route.SubagentPermissions); err != nil {
+			return err
 		}
 		if err := validateSubagentRouteListField(id, "mainAgentOwns", route.MainAgentOwns); err != nil {
 			return err
@@ -562,6 +562,18 @@ func (m *Manifest) validateSubagentRoutes(managedTargets map[string]bool) error 
 		}
 	}
 	return nil
+}
+
+func validateSubagentPermissions(routeID, value string) error {
+	permissions := strings.TrimSpace(value)
+	switch permissions {
+	case "":
+		return fmt.Errorf("subagent route %s is missing subagentPermissions", routeID)
+	case "read-only", "read-only-or-workspace-only":
+		return nil
+	default:
+		return fmt.Errorf("subagent route %s has unsupported subagentPermissions: %s", routeID, permissions)
+	}
 }
 
 func validateSubagentRouteListField(routeID, field, value string) error {
