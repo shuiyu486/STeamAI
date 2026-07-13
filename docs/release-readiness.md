@@ -37,7 +37,7 @@ go vet ./...
 git diff --check
 ```
 
-`release-check -Format json` 会同时输出 `gateProfile.name=local-ci-minimum`、`defaultFor=[local,ci]`、`stepCount`、`largeMatrixDefault=false` 和每个 step 的 `kind` / `repoPath` / `present` / `resolved`，供本机脚本或 CI 在真正执行命令前先做确定性 inventory 检查；同时输出 `powerShellDeprecation.ready`、`commandOwnership[]`、`moduleStatus[]`、`freezeGates[]` 与 `blockedMigrations[]`，在 PowerShell façade / fallback 收缩前验证 deprecation 文档、实际 façade 默认委托和 `rekit/lib/*.ps1` 模块清单没有漂移。
+`release-check -Format json` 会同时输出 `gateProfile.name=local-ci-minimum`、`defaultFor=[local,ci]`、`stepCount`、`largeMatrixDefault=false` 和每个 step 的 `kind` / `repoPath` / `present` / `resolved`，供本机脚本或 CI 在真正执行命令前先做确定性 inventory 检查；同时输出 `powerShellDeprecation.ready`、`commandOwnership[]`、`moduleStatus[]`、`freezeGates[]`、`blockedMigrations[]` 与 `heavyToolGateActions[]`，在 PowerShell façade / fallback 收缩前验证 deprecation 文档、实际 façade 默认委托和 `rekit/lib/*.ps1` 模块清单没有漂移，也能看到当前 pack manifest 声明的 heavy-tool gate action 集合。
 
 机器可读 smoke catalog 的 `recommendedMinimum` 当前为：
 
@@ -75,7 +75,7 @@ git diff --check
 
 Release gate 通过的最低标准：
 
-- `go run ./cmd/rekit -- -Command release-check -Format json` 输出 `ready=true`，且 `gateProfile.ready=true`、`powerShellDeprecation.ready=true`、required commands、必备文档、pack schema、PowerShell deprecation inventory、边界与 known gaps 清单完整。
+- `go run ./cmd/rekit -- -Command release-check -Format json` 输出 `ready=true`，且 `gateProfile.ready=true`、`powerShellDeprecation.ready=true`、`heavyToolGateActions[]` 非空，required commands、必备文档、pack schema、PowerShell deprecation inventory、manifest heavy-tool gate action、边界与 known gaps 清单完整。
 - `go test ./...` 通过，包含 `internal/rekit/manifest` release invariants。
 - `go vet ./...` 无输出或无错误退出。
 - `./rekit/rekit.ps1 -Command doctor` 输出 pack validation ok。
@@ -133,7 +133,7 @@ PowerShell legacy / fallback 路径（详细冻结/删除策略见 `docs/powersh
 ## Known gaps
 
 - bounded dispatch 仍不自动 spawn reviewer；runtime 只生成 review packet 和 observability。
-- actual heavy-tool 执行未迁入 deterministic runtime；full-trace/debug/inject/patch/dump/network 仍必须显式 gate。
+- actual heavy-tool 执行未迁入 deterministic runtime；full-trace/debug/inject/patch/dump/network/symex 仍必须显式 gate，且 `gate` 只接受 pack manifest `heavyToolGates` 声明的 action。
 - authority/confirmed 写入仍需人工确认，不由 Go `continue -Apply` 自动执行。
 - policy schema 迁移与 PowerShell runtime deprecation 的实际删除批次尚未进入默认发布路径；Batch 129 已新增 `docs/powershell-deprecation.md` 作为策略入口，Batch 130 已新增 Go-owned `release-check` inventory 作为本机/CI release gate 前置检查，Batch 131 已新增 façade freeze invariant 防止默认委托集合和 blocked 边界漂移，Batch 139 已新增 `release-check` gate profile 以便 CI/本机在执行前解析 recommended minimum，Batch 140 已新增轻量 CI workflow，Batch 142 已新增 `powerShellDeprecation` inventory 用于在删除前发现命令归属/模块清单漂移。
 - 目前安全领域 skeleton pack 均已有真实临时 case dry-run；后续缺口转向 release readiness/CI 门禁、policy schema migration 和 PowerShell runtime deprecation。

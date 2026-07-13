@@ -255,6 +255,14 @@ promoteFiles:
 toolingCandidateSources:
   - references/template/toolchain-router.md
 
+heavyToolGates:
+  - id: debug
+    title: Dynamic debug or attach
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout,unexpected side effect,scope drift
+
 promoteDenyPatterns:
   - "C:\\"
   - "artifacts[\\/]"
@@ -343,6 +351,14 @@ commonPolicies:
 
 toolingCandidateSources:
   - references/template/README.md
+
+heavyToolGates:
+  - id: debug
+    title: Dynamic debug or attach
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout,unexpected side effect,scope drift
 
 promoteDenyPatterns:
   - "C:\\"

@@ -4353,3 +4353,36 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go test ./internal/rekit/cli -run TestRunReleaseCheck -count=1`、`go test ./internal/rekit/manifest -run TestPowerShell -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`release-check` JSON 已包含 `powerShellDeprecation.ready=true`、14 条命令归属、14 个 PowerShell 模块、8 个 freeze gate 与 5 条 blocked migration；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 143：Manifest-driven heavy-tool gate readiness
+
+状态：已完成。
+
+目标：承接 Stage 7 / Stage 8 的 pack-neutral 与 release readiness 方向，把 Go gate runtime 中硬编码的 heavy-tool action 清单推进为 pack manifest 驱动的可审计契约，并让 release inventory 暴露当前 pack 声明的 gate action 集合；保持 `gate -WhatIf/-Apply` 只做 preview / pending-gate request，不执行 heavy-tool。
+
+实施范围：
+
+- 扩展 `internal/rekit/manifest`：新增 `HeavyToolGate` / `heavyToolGates` 解析、schema 校验、summary 计数与 `heavyToolGateActions[]`，要求每个 pack 显式声明 action id、sideEffects、defaultRisk、requiresConfirmation 与 stopConditions。
+- 所有 pack manifest（`_template`、`vmp-re` 与安全领域 skeleton packs）新增 `heavyToolGates`，统一声明 `debug`、`dump`、`full-trace`、`inject`、`network`、`patch`、`symex` 的 review-first gate contract。
+- `internal/rekit/gate` 改为从 pack manifest 读取允许 action；未声明 action 直接拒绝，默认 `Risk` 与默认 `StopConditions` 来自 manifest，且仍只生成 preview 或 append pending-gate request。
+- `release-check -Format json` 新增 `heavyToolGateActions[]`，`/rekit packs -Format json` 暴露每个 pack 的 `heavyToolGates` 与 `heavyToolGateActions[]`；文本 `packs` 保持既有列兼容，避免破坏 PowerShell inventory smoke。
+- PowerShell fallback 同步解析、校验和输出 `heavyToolGates` / `heavyToolGateActions[]`，确保 `REKIT_GO_DISABLE=1` 下的 `/rekit packs -Format json` 与 Go inventory 保持契约一致。
+- 扩展 Go tests 与 PowerShell smoke 覆盖 manifest gate schema、gate manifest-declared action / undeclared action、release-check gate action inventory、packs JSON inventory、fallback invalid heavyToolGates 与 promote fixture schema 兼容。
+- 更新 `rekit/schemas/pack-manifest.schema.yml`、`common/policies/tool-adapters.md`、`docs/release-readiness.md`、`docs/powershell-deprecation.md`、`docs/go-first-convergence-plan.md` 与 CHANGELOG，记录 manifest-driven heavy-tool gate readiness 与 `symex` gate。
+
+边界：本批只做 pack manifest contract、Go preview/ledger 语义、只读 release inventory、PowerShell fallback 兼容修复、测试和文档；不执行 full-trace/debug/inject/patch/dump/network/symex/heavy-tool，不新增外部 adapter，不连接设备或网络，不写 authority/confirmed，不扩大 PowerShell façade 委托集合，不迁移 policy schema，不改变 `gate -Apply` 只写 pending-gate request 的边界。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/gate ./internal/rekit/releasecheck ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\pack-inventory-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过定向 Go package tests、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor`、默认自包含 `facade-smoke.ps1` 与 `pack-inventory-smoke.ps1`；`pack-inventory-smoke.ps1` 已覆盖 Go / façade / `REKIT_GO_DISABLE=1` fallback JSON 中的 `heavyToolGates=7` 与 `heavyToolGateActions=[debug,dump,full-trace,inject,network,patch,symex]`，并验证 invalid `heavyToolGates` 在 Go 与 PowerShell fallback 下均标记 schema error。`release-check` JSON 已包含 `heavyToolGateActions=[debug,dump,full-trace,inject,network,patch,symex]`，所有 pack summary 均显示 `heavyToolGates=7`。`git diff --check` 仍仅报告既有 LF/CRLF warning，无 whitespace error。

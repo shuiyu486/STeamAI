@@ -101,7 +101,7 @@ PowerShell deprecation 相关变更至少满足：
 
 以下内容不得作为普通 Go-first 收口批次顺手迁移：
 
-- actual full-trace/debug/inject/patch/dump/network/heavy-tool 执行。
+- actual full-trace/debug/inject/patch/dump/network/symex/heavy-tool 执行。
 - authority/confirmed 自动写入。
 - policy schema 迁移或历史 case state 自动改写。
 - 外部服务发布、真实扫描、fuzz、exploit replay、设备连接、hook。

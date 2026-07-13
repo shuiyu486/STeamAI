@@ -334,11 +334,13 @@ type releaseCheckResult struct {
 		Purpose string `json:"purpose"`
 	} `json:"documents"`
 	Packs []struct {
-		ID          string `json:"id"`
-		Maturity    string `json:"maturity"`
-		SchemaValid bool   `json:"schemaValid"`
+		ID             string `json:"id"`
+		Maturity       string `json:"maturity"`
+		SchemaValid    bool   `json:"schemaValid"`
+		HeavyToolGates int    `json:"heavyToolGates"`
 	} `json:"packs"`
 	PowerShellDeprecation releaseCheckPowerShellDeprecation `json:"powerShellDeprecation"`
+	HeavyToolGateActions  []string                          `json:"heavyToolGateActions"`
 	Boundaries            []string                          `json:"boundaries"`
 	KnownGaps             []string                          `json:"knownGaps"`
 	Warnings              []string                          `json:"warnings"`
@@ -373,21 +375,25 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckStep(t, result.RecommendedMinimum, "facade-smoke.ps1", "powershell-smoke", "rekit/tests/facade-smoke.ps1")
 	assertReleaseCheckStep(t, result.RecommendedMinimum, "rekit/rekit.ps1 -Command doctor", "powershell-facade", "rekit/rekit.ps1")
 	assertReleaseCheckPowerShellDeprecation(t, result.PowerShellDeprecation)
-	if len(result.RecommendedMinimum) == 0 || len(result.Boundaries) == 0 || len(result.KnownGaps) == 0 || len(result.Packs) == 0 {
+	if len(result.RecommendedMinimum) == 0 || len(result.Boundaries) == 0 || len(result.KnownGaps) == 0 || len(result.Packs) == 0 || len(result.HeavyToolGateActions) == 0 {
 		t.Fatalf("release-check omitted required inventory: %+v", result)
 	}
+	if strings.Join(result.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,network,patch,symex" {
+		t.Fatalf("unexpected heavy-tool gate actions: %v", result.HeavyToolGateActions)
+	}
 	packs := map[string]struct {
-		ID          string `json:"id"`
-		Maturity    string `json:"maturity"`
-		SchemaValid bool   `json:"schemaValid"`
+		ID             string `json:"id"`
+		Maturity       string `json:"maturity"`
+		SchemaValid    bool   `json:"schemaValid"`
+		HeavyToolGates int    `json:"heavyToolGates"`
 	}{}
 	for _, pack := range result.Packs {
 		packs[pack.ID] = pack
 	}
-	if pack := packs["vmp-re"]; pack.Maturity != "mature" || !pack.SchemaValid {
+	if pack := packs["vmp-re"]; pack.Maturity != "mature" || !pack.SchemaValid || pack.HeavyToolGates != 7 {
 		t.Fatalf("unexpected vmp-re release-check row: %+v", pack)
 	}
-	if pack := packs["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid {
+	if pack := packs["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.HeavyToolGates != 7 {
 		t.Fatalf("unexpected web-security release-check row: %+v", pack)
 	}
 }
@@ -495,6 +501,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"docs/release-readiness.md",
 		"docs/autonomous-goal.md",
 		"packs:",
+		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
 		"commands=14 modules=14 freezeGates=8 blocked=5",
 		"known gaps:",
@@ -561,14 +568,16 @@ func TestRunPacksJsonInventory(t *testing.T) {
 		IsMutation    bool   `json:"isMutation"`
 		PackCount     int    `json:"packCount"`
 		Packs         []struct {
-			ID                   string `json:"id"`
-			Maturity             string `json:"maturity"`
-			SchemaValid          bool   `json:"schemaValid"`
-			Error                string `json:"error"`
-			ManagedFiles         int    `json:"managedFiles"`
-			ToolingFiles         int    `json:"toolingFiles"`
-			SubagentRoutes       int    `json:"subagentRoutes"`
-			DefaultAuthorityLane string `json:"defaultAuthorityLane"`
+			ID                   string   `json:"id"`
+			Maturity             string   `json:"maturity"`
+			SchemaValid          bool     `json:"schemaValid"`
+			Error                string   `json:"error"`
+			ManagedFiles         int      `json:"managedFiles"`
+			ToolingFiles         int      `json:"toolingFiles"`
+			SubagentRoutes       int      `json:"subagentRoutes"`
+			HeavyToolGates       int      `json:"heavyToolGates"`
+			HeavyToolGateActions []string `json:"heavyToolGateActions"`
+			DefaultAuthorityLane string   `json:"defaultAuthorityLane"`
 		} `json:"packs"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &inventory); err != nil {
@@ -578,43 +587,45 @@ func TestRunPacksJsonInventory(t *testing.T) {
 		t.Fatalf("unexpected packs JSON envelope: %+v", inventory)
 	}
 	byID := map[string]struct {
-		ID                   string `json:"id"`
-		Maturity             string `json:"maturity"`
-		SchemaValid          bool   `json:"schemaValid"`
-		Error                string `json:"error"`
-		ManagedFiles         int    `json:"managedFiles"`
-		ToolingFiles         int    `json:"toolingFiles"`
-		SubagentRoutes       int    `json:"subagentRoutes"`
-		DefaultAuthorityLane string `json:"defaultAuthorityLane"`
+		ID                   string   `json:"id"`
+		Maturity             string   `json:"maturity"`
+		SchemaValid          bool     `json:"schemaValid"`
+		Error                string   `json:"error"`
+		ManagedFiles         int      `json:"managedFiles"`
+		ToolingFiles         int      `json:"toolingFiles"`
+		SubagentRoutes       int      `json:"subagentRoutes"`
+		HeavyToolGates       int      `json:"heavyToolGates"`
+		HeavyToolGateActions []string `json:"heavyToolGateActions"`
+		DefaultAuthorityLane string   `json:"defaultAuthorityLane"`
 	}{}
 	for _, pack := range inventory.Packs {
 		byID[pack.ID] = pack
 	}
-	if pack := byID["vmp-re"]; pack.Maturity != "mature" || !pack.SchemaValid || pack.Error != "" || pack.ManagedFiles != 7 || pack.ToolingFiles != 12 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "devirt-main" {
+	if pack := byID["vmp-re"]; pack.Maturity != "mature" || !pack.SchemaValid || pack.Error != "" || pack.ManagedFiles != 7 || pack.ToolingFiles != 12 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || strings.Join(pack.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,network,patch,symex" || pack.DefaultAuthorityLane != "devirt-main" {
 		t.Fatalf("unexpected vmp-re JSON row: %+v", pack)
 	}
-	if pack := byID["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.DefaultAuthorityLane != "main" {
+	if pack := byID["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected web-security JSON row: %+v", pack)
 	}
-	if pack := byID["malware-analysis"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "main" {
+	if pack := byID["malware-analysis"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected malware-analysis JSON row: %+v", pack)
 	}
-	if pack := byID["vuln-research"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "main" {
+	if pack := byID["vuln-research"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected vuln-research JSON row: %+v", pack)
 	}
-	if pack := byID["ctf"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "main" {
+	if pack := byID["ctf"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected ctf JSON row: %+v", pack)
 	}
-	if pack := byID["unpack-pe"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "main" {
+	if pack := byID["unpack-pe"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected unpack-pe JSON row: %+v", pack)
 	}
-	if pack := byID["ollvm"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "main" {
+	if pack := byID["ollvm"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected ollvm JSON row: %+v", pack)
 	}
-	if pack := byID["android-native"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "main" {
+	if pack := byID["android-native"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected android-native JSON row: %+v", pack)
 	}
-	if pack := byID["generic-binary-re"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.DefaultAuthorityLane != "main" {
+	if pack := byID["generic-binary-re"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.ManagedFiles != 4 || pack.ToolingFiles != 4 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected generic-binary-re JSON row: %+v", pack)
 	}
 }

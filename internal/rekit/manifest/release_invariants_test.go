@@ -261,6 +261,7 @@ func TestReleaseGateWorkflowInvariants(t *testing.T) {
 		"patch",
 		"dump",
 		"network",
+		"symex",
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Fatalf("release gate workflow must not run broad matrix or heavy-tool step %q", forbidden)
@@ -385,7 +386,7 @@ func TestPowerShellDeprecationStrategyInvariants(t *testing.T) {
 	}
 
 	for _, blocked := range []string{
-		"full-trace/debug/inject/patch/dump/network/heavy-tool",
+		"full-trace/debug/inject/patch/dump/network/symex/heavy-tool",
 		"authority/confirmed 自动写入",
 		"policy schema 迁移",
 		"外部服务发布",
@@ -454,7 +455,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"| `release-check` | Go default | façade delegate + no PowerShell fallback |",
 		"Legacy freeze",
 		"PowerShell 只允许 bug fix / compatibility / safety boundary 修复",
-		"actual full-trace/debug/inject/patch/dump/network/heavy-tool",
+		"actual full-trace/debug/inject/patch/dump/network/symex/heavy-tool",
 		"authority/confirmed 自动写入",
 		"policy schema 迁移",
 		"case-local shim",

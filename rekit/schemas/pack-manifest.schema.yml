@@ -12,6 +12,7 @@ required:
   - workstreamDefaults
   - authorityFiles
   - toolingCandidateSources
+  - heavyToolGates
   - budgets
 
 fields:
@@ -29,6 +30,7 @@ fields:
   promoteFiles: 允许进入 promote 候选的 managed 文件列表，必须是 managedFiles 子集
   promoteDenyPatterns: promote 安全阻断正则或字符串模式
   subagentRoutes: 可选的子 agent / 工作线 review 分流 route 列表；每项可包含 id、taskTypes、trigger、shardBasis、targetItemsPerAgent、maxParallel、reference、policyOverlay、subagentPermissions、mainAgentOwns、outputContract
+  heavyToolGates: pack 声明的重型工具门禁动作列表；Go gate runtime 只接受这里声明的 id，并使用 defaultRisk、requiresConfirmation 与 stopConditions 生成 pending-gate preview/request
   promptFiles: 可选的 common/pack prompt 文档列表，用于 doctor 校验与人工查阅
   laneTypes: 内部工作线类型列表；定义 authority、workspaceRoot、canWrite/readOnly/outputs，供 `/rekit overview/continue/start/handoff` 使用；至少应有一个 authority lane
   b3PolicyFile: case-local `.rekit/policy.yml`，由 runtime 初始化，不写在 manifest 中；此 schema 只说明相关字段
@@ -40,6 +42,14 @@ workstreamDefaults:
   handoffPath: 可选的长期 handoff 文件路径；为空时项目/工作线 handoff 不引用长期 handoff
   backupRoot: sync 覆盖 managed files 前的 case-local backup 根路径
   requestDefaultTargetLane: request 未声明 targetLane 时默认路由到的 lane type id，必须存在
+
+heavyToolGates:
+  id: gate action slug，例如 debug、dump、full-trace、inject、network、patch、symex；必须唯一，并与 sideEffects 中的同名动作对应
+  title: 给用户看的门禁标题
+  sideEffects: 逗号分隔的副作用标签；必须包含 action id，可追加 filesystem-write、external-service、device 等描述性标签
+  defaultRisk: 默认风险等级，当前支持 medium、high、critical
+  requiresConfirmation: 必须为 true；`gate -WhatIf/-Apply` 只预览或记录 pending-gate request，不授权实际执行
+  stopConditions: 逗号分隔的止损条件；当用户未传 `-StopConditions` 时由 Go gate 写入预览/ledger
 
 laneTypes:
   id: 内部工作线类型 slug，例如 devirt-main、feature-analysis、tooling

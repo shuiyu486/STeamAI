@@ -452,6 +452,8 @@ switch ($Command) {
             toolingFiles = [int]$_.ToolingFiles
             promptFiles = [int]$_.PromptFiles
             subagentRoutes = [int]$_.SubagentRoutes
+            heavyToolGates = [int]$_.HeavyToolGates
+            heavyToolGateActions = @($_.HeavyToolGateActions)
             laneTypes = [int]$_.LaneTypes
             authorityFiles = [int]$_.AuthorityFiles
             defaultAuthorityLane = [string]$_.DefaultAuthorityLane

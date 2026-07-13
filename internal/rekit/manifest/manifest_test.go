@@ -26,6 +26,7 @@ func TestLoadVMPManifestSchema(t *testing.T) {
 	if len(m.PromoteDenyPatterns) == 0 {
 		t.Fatal("PromoteDenyPatterns is empty")
 	}
+	assertHeavyToolGateSet(t, m)
 	if _, err := regexp.Compile(m.PromoteDenyPatterns[0]); err != nil {
 		t.Fatalf("first deny pattern does not compile: %v", err)
 	}
@@ -42,6 +43,7 @@ func TestLoadTemplateManifestSchema(t *testing.T) {
 	if m.WorkstreamDefaults["defaultAuthorityLane"] != "main" {
 		t.Fatalf("defaultAuthorityLane = %q, want main", m.WorkstreamDefaults["defaultAuthorityLane"])
 	}
+	assertHeavyToolGateSet(t, m)
 }
 
 func TestLoadWebSecurityManifestSchema(t *testing.T) {
@@ -61,6 +63,21 @@ func TestLoadWebSecurityManifestSchema(t *testing.T) {
 	if m.SubagentRoutes[0].ID != "web-security:bounded-review" || m.SubagentRoutes[1].ID != "web-security:feature-analysis" {
 		t.Fatalf("unexpected web-security routes: %+v", m.SubagentRoutes)
 	}
+	assertHeavyToolGateSet(t, m)
+}
+
+func assertHeavyToolGateSet(t *testing.T, m *Manifest) {
+	t.Helper()
+	want := "debug,dump,full-trace,inject,network,patch,symex"
+	if got := strings.Join(m.HeavyToolGateIDs(), ","); got != want {
+		t.Fatalf("HeavyToolGateIDs() = %q, want %q", got, want)
+	}
+	for _, action := range m.HeavyToolGateIDs() {
+		gate, ok := m.HeavyToolGate(action)
+		if !ok || !gate.RequiresConfirmation || len(gate.SideEffects) == 0 || len(gate.StopConditions) == 0 || strings.TrimSpace(gate.DefaultRisk) == "" {
+			t.Fatalf("invalid heavyToolGate %q: ok=%t gate=%+v", action, ok, gate)
+		}
+	}
 }
 
 func TestPackSummaryUsesExplicitMaturity(t *testing.T) {
@@ -76,6 +93,39 @@ func TestPackSummaryUsesExplicitMaturity(t *testing.T) {
 	m.Maturity = ""
 	if got := m.Summary().Maturity; got != "missing" {
 		t.Fatalf("Summary().Maturity = %q, want missing", got)
+	}
+}
+
+func TestValidateSchemaRejectsInvalidHeavyToolGates(t *testing.T) {
+	base := Manifest{
+		ManifestPath:            "unit-manifest.yml",
+		Maturity:                "template",
+		ManagedFiles:            []string{"references/template/README.md"},
+		ManagedBlock:            map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
+		explicitManagedBlock:    map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
+		ToolingCandidateSources: []string{"references/template/toolchain-router.md"},
+		WorkstreamDefaults:      map[string]string{"defaultAuthorityLane": "main", "defaultStartLaneType": "feature", "backupRoot": ".rekit/backups/sync", "requestDefaultTargetLane": "main"},
+		AuthorityFiles:          []string{"references/template/task-handoff.md"},
+		SyncPolicy:              map[string]string{"managedFiles": "overwrite-with-backup", "templateFiles": "create-if-missing", "localFiles": "never-overwrite"},
+		PromoteDenyPatterns:     []string{"artifacts[\\/]"},
+		LaneTypes: []LaneType{
+			{ID: "main", Authority: true, CanWrite: []string{"references/template/task-handoff.md"}},
+			{ID: "feature"},
+		},
+	}
+	withoutGates := base
+	if err := withoutGates.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates") {
+		t.Fatalf("ValidateSchema error = %v, want heavyToolGates error", err)
+	}
+	invalid := base
+	invalid.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, StopConditions: []string{"timeout"}}}
+	if err := invalid.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "sideEffects must include") {
+		t.Fatalf("ValidateSchema error = %v, want sideEffects include id error", err)
+	}
+	valid := base
+	valid.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, StopConditions: []string{"timeout"}}}
+	if err := valid.ValidateSchema(); err != nil {
+		t.Fatalf("ValidateSchema valid heavyToolGates error = %v", err)
 	}
 }
 
@@ -152,13 +202,13 @@ func TestListPackSummaries(t *testing.T) {
 			t.Fatalf("pack summary schema invalid: %+v", pack)
 		}
 	}
-	if byID["_template"].Maturity != "template" || byID["_template"].SubagentRoutes != 2 {
+	if byID["_template"].Maturity != "template" || byID["_template"].SubagentRoutes != 2 || byID["_template"].HeavyToolGates != 7 {
 		t.Fatalf("unexpected template summary: %+v", byID["_template"])
 	}
-	if byID["vmp-re"].Maturity != "mature" || byID["vmp-re"].DefaultAuthorityLane != "devirt-main" {
+	if byID["vmp-re"].Maturity != "mature" || byID["vmp-re"].DefaultAuthorityLane != "devirt-main" || byID["vmp-re"].HeavyToolGates != 7 {
 		t.Fatalf("unexpected vmp summary: %+v", byID["vmp-re"])
 	}
-	if byID["web-security"].Maturity != "skeleton" || byID["web-security"].DefaultAuthorityLane != "main" {
+	if byID["web-security"].Maturity != "skeleton" || byID["web-security"].DefaultAuthorityLane != "main" || byID["web-security"].HeavyToolGates != 7 {
 		t.Fatalf("unexpected web-security summary: %+v", byID["web-security"])
 	}
 }

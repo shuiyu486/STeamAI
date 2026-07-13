@@ -162,6 +162,7 @@ function Get-RekitPackManifest {
   $promptFiles = @(Get-RekitYamlList -Lines $lines -Key 'promptFiles')
   $laneTypes = @(Get-RekitYamlObjectList -Lines $lines -Key 'laneTypes')
   $toolingCandidateSources = @(Get-RekitYamlList -Lines $lines -Key 'toolingCandidateSources')
+  $heavyToolGates = @(Get-RekitYamlObjectList -Lines $lines -Key 'heavyToolGates')
   $subagentRoutes = @(Get-RekitYamlObjectList -Lines $lines -Key 'subagentRoutes')
   $promoteDenyPatterns = @(Get-RekitYamlList -Lines $lines -Key 'promoteDenyPatterns')
   $authorityFiles = @(Get-RekitYamlList -Lines $lines -Key 'authorityFiles')
@@ -201,6 +202,7 @@ function Get-RekitPackManifest {
     WorkstreamDefaults = $workstreamDefaults
     AuthorityFiles = $authorityFiles
     ToolingCandidateSources = $toolingCandidateSources
+    HeavyToolGates = $heavyToolGates
     SubagentRoutes = $subagentRoutes
     PromoteDenyPatterns = $promoteDenyPatterns
     Budgets = $budgets
@@ -268,6 +270,8 @@ function Get-RekitPackInventory {
         ToolingFiles = @($manifest.ToolingFiles).Count
         PromptFiles = @($manifest.PromptFiles).Count
         SubagentRoutes = @($manifest.SubagentRoutes).Count
+        HeavyToolGates = @($manifest.HeavyToolGates).Count
+        HeavyToolGateActions = @(@($manifest.HeavyToolGates | ForEach-Object { ([string]$_.id).Trim().ToLowerInvariant() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) | Sort-Object -Unique)
         LaneTypes = @($manifest.LaneTypes).Count
         AuthorityFiles = @($manifest.AuthorityFiles).Count
         DefaultAuthorityLane = [string]$manifest.WorkstreamDefaults['defaultAuthorityLane']
@@ -289,6 +293,8 @@ function Get-RekitPackInventory {
         ToolingFiles = 0
         PromptFiles = 0
         SubagentRoutes = 0
+        HeavyToolGates = 0
+        HeavyToolGateActions = @()
         LaneTypes = 0
         AuthorityFiles = 0
         DefaultAuthorityLane = ''

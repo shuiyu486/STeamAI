@@ -211,13 +211,13 @@ git diff --check
 推荐批次形态：
 
 - 抽出单一 default pack 决策点，减少 Go/PowerShell 中散落的 `vmp-re` 字符串。
-- 将 fallback deny baseline generic 化，pack-specific deny patterns 仅由 manifest 声明。
-- Batch 125 已先选 `generic-binary-re` 作为 pack-neutral Go package E2E 试点，Batch 126 已继续选 `web-security` 验证非 RE-only pack，Batch 127 已将 `web-security` 转向真实临时 case dry-run 工作线，Batch 132 已将 `generic-binary-re` 转向真实临时 case dry-run 工作线，Batch 133 已将 `malware-analysis` 转向真实临时 case dry-run 工作线，Batch 134 已将 `vuln-research` 转向真实临时 case dry-run 工作线，Batch 135 已将 `ctf` 转向真实临时 case dry-run 工作线，Batch 136 已将 `unpack-pe` 转向真实临时 case dry-run 工作线，Batch 137 已将 `ollvm` 转向真实临时 case dry-run 工作线，Batch 138 已将 `android-native` 转向真实临时 case dry-run 工作线；后续转向 release readiness/CI 门禁、跨 pack 抽样强化或新 pack 引入时的真实 dry-run。
+- 将 fallback deny baseline generic 化，pack-specific deny patterns 与 heavy-tool gate action 仅由 manifest 声明。
+- Batch 125 已先选 `generic-binary-re` 作为 pack-neutral Go package E2E 试点，Batch 126 已继续选 `web-security` 验证非 RE-only pack，Batch 127 已将 `web-security` 转向真实临时 case dry-run 工作线，Batch 132 已将 `generic-binary-re` 转向真实临时 case dry-run 工作线，Batch 133 已将 `malware-analysis` 转向真实临时 case dry-run 工作线，Batch 134 已将 `vuln-research` 转向真实临时 case dry-run 工作线，Batch 135 已将 `ctf` 转向真实临时 case dry-run 工作线，Batch 136 已将 `unpack-pe` 转向真实临时 case dry-run 工作线，Batch 137 已将 `ollvm` 转向真实临时 case dry-run 工作线，Batch 138 已将 `android-native` 转向真实临时 case dry-run 工作线；Batch 143 将 heavy-tool gate action 清单纳入 pack manifest 与 Go gate runtime，后续转向 release readiness/CI 门禁、跨 pack 抽样强化或新 pack 引入时的真实 dry-run。
 
 完成信号：
 
 - 非 vmp pack 的 init/doctor/plan-subagents/workstream dry-run 不泄漏 vmp 路径、lane 或 authority 语义。
-- runtime 不含领域业务逻辑。
+- runtime 不含领域业务逻辑；gate action、default risk 与默认 stop conditions 来自 pack manifest，而不是 Go runtime 硬编码。
 
 ### Stage 8：CI / release readiness / deprecation plan
 
@@ -232,7 +232,7 @@ git diff --check
 完成信号：
 
 - 新会话能通过一页 current-state/release checklist 了解项目状态；Batch 128 已新增 `docs/release-readiness.md` 并用 Go release invariant 锁定核心章节、命令、pack matrix 和 known gaps；Batch 141 已新增 `docs/autonomous-goal.md`，把未来几十到上百轮的中大型 autonomous goal、停止条件、执行顺序和可复制 prompt 固化为接手指南。
-- release gate 可在本机和 CI 中稳定执行；Batch 130 新增 Go-owned `release-check` inventory，用 JSON envelope 汇总 recommended minimum、文档入口、pack schema、边界与 known gaps，作为本机/CI release gate 的确定性前置检查；Batch 139 已进一步输出 `gateProfile`，把 recommended minimum 解析为 step kind、repo-local path、present/resolved 状态，供本机/CI 在执行前消费；Batch 140 已新增轻量 GitHub Actions release gate。
+- release gate 可在本机和 CI 中稳定执行；Batch 130 新增 Go-owned `release-check` inventory，用 JSON envelope 汇总 recommended minimum、文档入口、pack schema、边界与 known gaps，作为本机/CI release gate 的确定性前置检查；Batch 139 已进一步输出 `gateProfile`，把 recommended minimum 解析为 step kind、repo-local path、present/resolved 状态，供本机/CI 在执行前消费；Batch 140 已新增轻量 GitHub Actions release gate；Batch 143 新增 `heavyToolGateActions[]`，让 release inventory 暴露当前 pack manifest 声明的 heavy-tool gate action 集合。
 - PowerShell runtime deprecation strategy 有明确文档入口、模块归属和 freeze/removal gates；Batch 129 已新增 `docs/powershell-deprecation.md`，Batch 131 已新增 Go release invariant 锁定默认 façade 委托集合、legacy/internal 边界与 blocked heavy-tool/authority/confirmed 不进入默认委托；Batch 142 已将 PowerShell deprecation inventory 纳入 Go-owned `release-check`，对照 `rekit/rekit.ps1` 默认委托集合、命令归属矩阵、`rekit/lib/*.ps1` 模块清单、freeze gates 与 blocked migrations 输出 `powerShellDeprecation.ready`；实际删除仍需单独批次验证。
 
 ## 自主推进优先级建议

@@ -117,6 +117,50 @@ laneTypes:
 toolingCandidateSources:
   - references/vuln-research/toolchain-router.md
 
+heavyToolGates:
+  - id: full-trace
+    title: Full trace capture
+    sideEffects: full-trace,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: budget exhausted,scope drift,output exceeds bounded evidence packet
+  - id: debug
+    title: Dynamic debug or attach
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout,unexpected side effect,scope drift
+  - id: inject
+    title: Runtime injection or hook
+    sideEffects: inject,filesystem-write
+    defaultRisk: critical
+    requiresConfirmation: true
+    stopConditions: unexpected mutation,scope drift,budget exhausted
+  - id: patch
+    title: Binary or project patch
+    sideEffects: patch,filesystem-write
+    defaultRisk: critical
+    requiresConfirmation: true
+    stopConditions: overwrite risk,scope drift,no rollback path
+  - id: dump
+    title: Memory or artifact dump
+    sideEffects: dump,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: output exceeds bounded evidence packet,sensitive artifact detected,scope drift
+  - id: network
+    title: Network access or replay
+    sideEffects: network,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: live target ambiguity,unexpected outbound request,scope drift
+  - id: symex
+    title: Long symbolic execution
+    sideEffects: symex,filesystem-write
+    defaultRisk: medium
+    requiresConfirmation: true
+    stopConditions: path explosion,budget exhausted,output exceeds bounded evidence packet
+
 promoteDenyPatterns:
   - "C:\\"
   - "artifacts[\\/]"

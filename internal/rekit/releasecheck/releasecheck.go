@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
@@ -26,6 +27,7 @@ type Result struct {
 	Documents             []DocumentCheck        `json:"documents"`
 	Packs                 []manifest.PackSummary `json:"packs"`
 	PowerShellDeprecation PowerShellDeprecation  `json:"powerShellDeprecation"`
+	HeavyToolGateActions  []string               `json:"heavyToolGateActions"`
 	Boundaries            []string               `json:"boundaries"`
 	KnownGaps             []string               `json:"knownGaps"`
 	Warnings              []string               `json:"warnings"`
@@ -107,6 +109,7 @@ func Build(repoRoot string) (Result, error) {
 		Documents:             documentChecks(repo, requiredDocuments),
 		Packs:                 packs,
 		PowerShellDeprecation: powerShellDeprecation(repo),
+		HeavyToolGateActions:  heavyToolGateActions(packs),
 		Boundaries:            append([]string{}, cat.GlobalBoundaries...),
 		KnownGaps:             knownGaps(repo),
 		Warnings:              []string{},
@@ -134,6 +137,10 @@ func Build(repoRoot string) (Result, error) {
 			check.Warnings = append(check.Warnings, fmt.Sprintf("pack manifest invalid: %s: %s", pack.ID, pack.Error))
 		}
 	}
+	if len(check.HeavyToolGateActions) == 0 {
+		check.Ready = false
+		check.Warnings = append(check.Warnings, "no heavy-tool gate actions declared by pack manifests")
+	}
 	if !check.PowerShellDeprecation.Ready {
 		check.Ready = false
 		check.Warnings = append(check.Warnings, check.PowerShellDeprecation.Warnings...)
@@ -154,6 +161,24 @@ func loadCatalog(repo string) (catalog, error) {
 		return catalog{}, err
 	}
 	return cat, nil
+}
+
+func heavyToolGateActions(packs []manifest.PackSummary) []string {
+	seen := map[string]bool{}
+	for _, pack := range packs {
+		for _, action := range pack.HeavyToolGateActions {
+			action = strings.ToLower(strings.TrimSpace(action))
+			if action != "" {
+				seen[action] = true
+			}
+		}
+	}
+	actions := make([]string, 0, len(seen))
+	for action := range seen {
+		actions = append(actions, action)
+	}
+	sort.Strings(actions)
+	return actions
 }
 
 func catalogGateSteps(repo string, commands []string) []GateStep {

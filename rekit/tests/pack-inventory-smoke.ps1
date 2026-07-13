@@ -116,7 +116,8 @@ function Assert-PackJson {
   $rows = @($Inventory.packs | Where-Object { [string]$_.id -eq $Pack })
   if ($rows.Count -ne 1) { throw "expected one JSON row for ${Pack}: $($Inventory | ConvertTo-Json -Depth 20)" }
   $row = $rows[0]
-  if ([string]$row.maturity -ne $Maturity -or -not [bool]$row.schemaValid -or [string]$row.defaultAuthorityLane -ne $Authority -or [int]$row.managedFiles -ne $Managed -or [int]$row.toolingFiles -ne $Tooling) {
+  $gateActions = @($row.heavyToolGateActions | ForEach-Object { [string]$_ }) -join ','
+  if ([string]$row.maturity -ne $Maturity -or -not [bool]$row.schemaValid -or [string]$row.defaultAuthorityLane -ne $Authority -or [int]$row.managedFiles -ne $Managed -or [int]$row.toolingFiles -ne $Tooling -or [int]$row.heavyToolGates -ne 7 -or $gateActions -ne 'debug,dump,full-trace,inject,network,patch,symex') {
     throw "unexpected JSON row for ${Pack}: $($row | ConvertTo-Json -Depth 20)"
   }
 }
@@ -171,6 +172,73 @@ function New-TransientPackManifest {
     '',
     'managedFiles:',
     '  - references/test/README.md'
+  )
+  [System.IO.File]::WriteAllText((Join-Path $packRoot 'manifest.yml'), (($lines -join "`n") + "`n"), [System.Text.Encoding]::UTF8)
+  return $packRoot
+}
+
+function New-TransientInvalidHeavyToolGateManifest {
+  param([Parameter(Mandatory=$true)][string]$Pack)
+  $packRoot = Join-Path $RepoRoot ("packs\" + $Pack)
+  [System.IO.Directory]::CreateDirectory($packRoot) | Out-Null
+  $lines = @(
+    'schemaVersion: 1',
+    "name: $Pack",
+    'version: 0.1.0',
+    'description: invalid heavy-tool gate inventory smoke pack',
+    'maturity: skeleton',
+    '',
+    'managedFiles:',
+    '  - references/test/README.md',
+    '',
+    'managedBlock:',
+    '  file: CLAUDE.local.md',
+    '  blockId: smoke:router',
+    '  source: CLAUDE.local.snippet.md',
+    '',
+    'syncPolicy:',
+    '  managedFiles: overwrite-with-backup',
+    '  templateFiles: create-if-missing',
+    '  localFiles: never-overwrite',
+    '',
+    'workstreamDefaults:',
+    '  defaultAuthorityLane: main',
+    '  defaultStartLaneType: feature',
+    '  backupRoot: .rekit/backups/sync',
+    '  requestDefaultTargetLane: main',
+    '',
+    'authorityFiles:',
+    '  - references/test/task-handoff.md',
+    '',
+    'laneTypes:',
+    '  - id: main',
+    '    title: Main',
+    '    authority: true',
+    '    workspaceRoot: workspace/main',
+    '    canWrite: references/test/task-handoff.md',
+    '    readOnly: .rekit/facts/**',
+    '    outputs: publication,decision,observation',
+    '  - id: feature',
+    '    title: Feature',
+    '    authority: false',
+    '    workspaceRoot: workspace/features',
+    '    canWrite: own-workspace',
+    '    readOnly: references/test/**,.rekit/facts/**',
+    '    outputs: observation,request,candidate,summary',
+    '',
+    'toolingCandidateSources:',
+    '  - references/test/tooling.md',
+    '',
+    'promoteDenyPatterns:',
+    '  - case-specific-do-not-promote',
+    '',
+    'heavyToolGates:',
+    '  - id: debug',
+    '    title: Dynamic debug or attach',
+    '    sideEffects: filesystem-write',
+    '    defaultRisk: high',
+    '    requiresConfirmation: true',
+    '    stopConditions: timeout'
   )
   [System.IO.File]::WriteAllText((Join-Path $packRoot 'manifest.yml'), (($lines -join "`n") + "`n"), [System.Text.Encoding]::UTF8)
   return $packRoot
@@ -259,6 +327,22 @@ try {
   }
 }
 
+$invalidGatePacks = @()
+try {
+  $invalidGatePack = "_invalid_heavy_gate_$([Guid]::NewGuid().ToString('N'))"
+  $invalidGatePacks += (New-TransientInvalidHeavyToolGateManifest -Pack $invalidGatePack)
+  $goInvalidGateJson = Invoke-GoRekitSmoke -Arguments @('-Command','packs','-Format','json') | ConvertFrom-Json
+  $psInvalidGateJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1' } | ConvertFrom-Json
+  foreach ($json in @($goInvalidGateJson,$psInvalidGateJson)) {
+    $row = @($json.packs | Where-Object { [string]$_.id -eq $invalidGatePack })[0]
+    if ([bool]$row.schemaValid -or [string]$row.error -notlike '*sideEffects must include*') { throw "unexpected invalid heavyToolGates JSON row: $($row | ConvertTo-Json -Depth 20)" }
+  }
+} finally {
+  foreach ($packRoot in $invalidGatePacks) {
+    if (Test-Path -LiteralPath $packRoot) { Remove-Item -LiteralPath $packRoot -Recurse -Force -Confirm:$false }
+  }
+}
+
 $sentinel = Join-Path ([System.IO.Path]::GetTempPath()) ("rekit-pack-inventory-sentinel-$([Guid]::NewGuid().ToString('N')).cmd")
 try {
   [System.IO.File]::WriteAllText($sentinel, "@echo off`r`necho sentinel-go-packs %*`r`n", [System.Text.Encoding]::ASCII)
@@ -288,6 +372,9 @@ try {
   Assert-PackRow -Text $disabledOut -Pack 'ollvm' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
   Assert-PackRow -Text $disabledOut -Pack 'android-native' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
   Assert-PackRow -Text $disabledOut -Pack 'generic-binary-re' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
+
+  $disabledJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $sentinel } | ConvertFrom-Json
+  Assert-PackJson -Inventory $disabledJson -Pack 'vmp-re' -Maturity 'mature' -Authority 'devirt-main' -Managed 7 -Tooling 12
 } finally {
   if (Test-Path -LiteralPath $sentinel) { Remove-Item -LiteralPath $sentinel -Force -Confirm:$false }
 }

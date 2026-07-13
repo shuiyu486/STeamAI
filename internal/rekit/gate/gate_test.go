@@ -21,6 +21,28 @@ func TestPlanDryRunDoesNotWriteRequestLedger(t *testing.T) {
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 }
 
+func TestPlanDryRunAcceptsManifestDeclaredAction(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+
+	plan, err := PlanDryRun(repoRoot, caseRoot, pack, Options{Action: "symex", Lane: "main", Subject: "symbolic execution gate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.EventPreview.Risk != "medium" || plan.EventPreview.Gate.Action != "symex" || len(plan.EventPreview.Gate.StopConditions) != 3 || plan.EventPreview.Gate.StopConditions[0] != "path explosion" {
+		t.Fatalf("unexpected manifest-driven symex gate plan: %+v", plan.EventPreview)
+	}
+}
+
+func TestPlanDryRunRejectsUndeclaredAction(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+
+	_, err := PlanDryRun(repoRoot, caseRoot, pack, Options{Action: "network", Lane: "main", Subject: "undeclared gate"})
+	if err == nil || !strings.Contains(err.Error(), "invalid gate action") || !strings.Contains(err.Error(), "debug,symex") {
+		t.Fatalf("PlanDryRun error = %v, want manifest allowed action list", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
+}
+
 func TestApplyRequiresActorAndDoesNotWrite(t *testing.T) {
 	repoRoot, caseRoot, pack := gateFixture(t)
 
@@ -104,7 +126,23 @@ func gateFixture(t *testing.T) (repoRoot, caseRoot, pack string) {
 	repoRoot = filepath.Join(root, "repo")
 	caseRoot = filepath.Join(root, "case")
 	pack = "vmp-re"
-	writeGateText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), "id: vmp-re\n")
+	writeGateText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), `name: vmp-re
+managedFiles:
+  - references/vmp-re/README.md
+heavyToolGates:
+  - id: debug
+    title: Dynamic debug or attach
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout,unexpected side effect,scope drift
+  - id: symex
+    title: Long symbolic execution
+    sideEffects: symex,filesystem-write
+    defaultRisk: medium
+    requiresConfirmation: true
+    stopConditions: path explosion,budget exhausted,output exceeds bounded evidence packet
+`)
 	writeGateText(t, filepath.Join(caseRoot, ".rekit", "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \""+pack+"\"\nprojectName: \"gate-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
 	writeGateText(t, filepath.Join(caseRoot, ".rekit", "board.json"), `{"lanes":[{"id":"main"}]}`)
 	return repoRoot, caseRoot, pack

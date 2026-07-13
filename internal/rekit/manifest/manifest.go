@@ -38,6 +38,15 @@ type SubagentRoute struct {
 	OutputContract      string
 }
 
+type HeavyToolGate struct {
+	ID                   string
+	Title                string
+	SideEffects          []string
+	DefaultRisk          string
+	RequiresConfirmation bool
+	StopConditions       []string
+}
+
 type Manifest struct {
 	RepoRoot                string
 	Pack                    string
@@ -60,6 +69,7 @@ type Manifest struct {
 	AuthorityFiles          []string
 	ToolingCandidateSources []string
 	SubagentRoutes          []SubagentRoute
+	HeavyToolGates          []HeavyToolGate
 	PromoteDenyPatterns     []string
 	Budgets                 map[string]string
 	ManagedBlock            map[string]string
@@ -69,24 +79,26 @@ type Manifest struct {
 }
 
 type PackSummary struct {
-	ID                   string `json:"id"`
-	Name                 string `json:"name"`
-	Version              string `json:"version"`
-	Maturity             string `json:"maturity"`
-	Description          string `json:"description"`
-	ManifestPath         string `json:"manifestPath"`
-	SchemaValid          bool   `json:"schemaValid"`
-	Error                string `json:"error"`
-	ManagedFiles         int    `json:"managedFiles"`
-	TemplateFiles        int    `json:"templateFiles"`
-	LocalFiles           int    `json:"localFiles"`
-	PromoteFiles         int    `json:"promoteFiles"`
-	ToolingFiles         int    `json:"toolingFiles"`
-	PromptFiles          int    `json:"promptFiles"`
-	SubagentRoutes       int    `json:"subagentRoutes"`
-	LaneTypes            int    `json:"laneTypes"`
-	AuthorityFiles       int    `json:"authorityFiles"`
-	DefaultAuthorityLane string `json:"defaultAuthorityLane"`
+	ID                   string   `json:"id"`
+	Name                 string   `json:"name"`
+	Version              string   `json:"version"`
+	Maturity             string   `json:"maturity"`
+	Description          string   `json:"description"`
+	ManifestPath         string   `json:"manifestPath"`
+	SchemaValid          bool     `json:"schemaValid"`
+	Error                string   `json:"error"`
+	ManagedFiles         int      `json:"managedFiles"`
+	TemplateFiles        int      `json:"templateFiles"`
+	LocalFiles           int      `json:"localFiles"`
+	PromoteFiles         int      `json:"promoteFiles"`
+	ToolingFiles         int      `json:"toolingFiles"`
+	PromptFiles          int      `json:"promptFiles"`
+	SubagentRoutes       int      `json:"subagentRoutes"`
+	HeavyToolGates       int      `json:"heavyToolGates"`
+	HeavyToolGateActions []string `json:"heavyToolGateActions"`
+	LaneTypes            int      `json:"laneTypes"`
+	AuthorityFiles       int      `json:"authorityFiles"`
+	DefaultAuthorityLane string   `json:"defaultAuthorityLane"`
 }
 
 func Load(repoRoot, pack string) (*Manifest, error) {
@@ -131,6 +143,7 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 		AuthorityFiles:          yamlList(lines, "authorityFiles"),
 		ToolingCandidateSources: yamlList(lines, "toolingCandidateSources"),
 		SubagentRoutes:          yamlSubagentRoutes(lines, "subagentRoutes"),
+		HeavyToolGates:          yamlHeavyToolGates(lines, "heavyToolGates"),
 		PromoteDenyPatterns:     yamlList(lines, "promoteDenyPatterns"),
 		Budgets:                 yamlMap(lines, "budgets"),
 		ManagedBlock:            cloneStringMap(explicitManagedBlock),
@@ -216,6 +229,8 @@ func (m *Manifest) Summary() PackSummary {
 		ToolingFiles:         len(m.ToolingFiles),
 		PromptFiles:          len(m.PromptFiles),
 		SubagentRoutes:       len(m.SubagentRoutes),
+		HeavyToolGates:       len(m.HeavyToolGates),
+		HeavyToolGateActions: m.HeavyToolGateIDs(),
 		LaneTypes:            len(m.LaneTypes),
 		AuthorityFiles:       len(m.AuthorityFiles),
 		DefaultAuthorityLane: m.WorkstreamDefaults["defaultAuthorityLane"],
@@ -370,6 +385,9 @@ func (m *Manifest) ValidateSchema() error {
 	if err := m.validateSubagentRoutes(managedTargets); err != nil {
 		return err
 	}
+	if err := m.validateHeavyToolGates(); err != nil {
+		return err
+	}
 	if _, err := m.LaneType(m.WorkstreamDefaults["defaultAuthorityLane"]); err != nil {
 		return err
 	}
@@ -447,6 +465,96 @@ func (m *Manifest) validateSubagentRoutes(managedTargets map[string]bool) error 
 		}
 	}
 	return nil
+}
+
+func (m *Manifest) HeavyToolGate(action string) (HeavyToolGate, bool) {
+	action = strings.ToLower(strings.TrimSpace(action))
+	for _, gate := range m.HeavyToolGates {
+		if strings.EqualFold(gate.ID, action) {
+			return gate, true
+		}
+	}
+	return HeavyToolGate{}, false
+}
+
+func (m *Manifest) HeavyToolGateIDs() []string {
+	ids := make([]string, 0, len(m.HeavyToolGates))
+	seen := map[string]bool{}
+	for _, gate := range m.HeavyToolGates {
+		id := strings.ToLower(strings.TrimSpace(gate.ID))
+		if id == "" || seen[id] {
+			continue
+		}
+		ids = append(ids, id)
+		seen[id] = true
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func (m *Manifest) validateHeavyToolGates() error {
+	if len(m.HeavyToolGates) == 0 {
+		return fmt.Errorf("manifest must explicitly declare heavyToolGates")
+	}
+	seen := map[string]bool{}
+	idPattern := regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	for _, gate := range m.HeavyToolGates {
+		id := strings.ToLower(strings.TrimSpace(gate.ID))
+		if id == "" {
+			return fmt.Errorf("heavyToolGates entry is missing id")
+		}
+		if !idPattern.MatchString(id) {
+			return fmt.Errorf("heavyToolGates entry has invalid id: %s", gate.ID)
+		}
+		if seen[id] {
+			return fmt.Errorf("duplicate heavyToolGates id: %s", gate.ID)
+		}
+		seen[id] = true
+		if strings.TrimSpace(gate.Title) == "" {
+			return fmt.Errorf("heavyToolGates entry %s is missing title", id)
+		}
+		if len(gate.SideEffects) == 0 {
+			return fmt.Errorf("heavyToolGates entry %s is missing sideEffects", id)
+		}
+		effects := map[string]bool{}
+		for _, effect := range gate.SideEffects {
+			effect = strings.ToLower(strings.TrimSpace(effect))
+			if effect == "" {
+				return fmt.Errorf("heavyToolGates entry %s contains an empty sideEffects item", id)
+			}
+			if !idPattern.MatchString(effect) {
+				return fmt.Errorf("heavyToolGates entry %s has invalid sideEffects item: %s", id, effect)
+			}
+			effects[effect] = true
+		}
+		if !effects[id] {
+			return fmt.Errorf("heavyToolGates entry %s sideEffects must include the action id", id)
+		}
+		if !gate.RequiresConfirmation {
+			return fmt.Errorf("heavyToolGates entry %s must set requiresConfirmation: true", id)
+		}
+		if !supportedHeavyToolRisk(gate.DefaultRisk) {
+			return fmt.Errorf("heavyToolGates entry %s has unsupported defaultRisk: %s", id, gate.DefaultRisk)
+		}
+		if len(gate.StopConditions) == 0 {
+			return fmt.Errorf("heavyToolGates entry %s is missing stopConditions", id)
+		}
+		for _, condition := range gate.StopConditions {
+			if strings.TrimSpace(condition) == "" {
+				return fmt.Errorf("heavyToolGates entry %s contains an empty stopConditions item", id)
+			}
+		}
+	}
+	return nil
+}
+
+func supportedHeavyToolRisk(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "medium", "high", "critical":
+		return true
+	default:
+		return false
+	}
 }
 
 func optionPositiveInt(value string) int {
@@ -649,6 +757,22 @@ func yamlSubagentRoutes(lines []string, key string) []SubagentRoute {
 		routes = append(routes, SubagentRoute{ID: row["id"], TaskTypes: row["taskTypes"], Trigger: row["trigger"], ShardBasis: row["shardBasis"], TargetItemsPerAgent: row["targetItemsPerAgent"], MaxParallel: row["maxParallel"], Reference: row["reference"], PolicyOverlay: row["policyOverlay"], SubagentPermissions: row["subagentPermissions"], MainAgentOwns: row["mainAgentOwns"], OutputContract: row["outputContract"]})
 	}
 	return routes
+}
+
+func yamlHeavyToolGates(lines []string, key string) []HeavyToolGate {
+	rows := yamlObjectList(lines, key)
+	gates := make([]HeavyToolGate, 0, len(rows))
+	for _, row := range rows {
+		gates = append(gates, HeavyToolGate{
+			ID:                   strings.ToLower(strings.TrimSpace(row["id"])),
+			Title:                row["title"],
+			SideEffects:          splitScalarList(row["sideEffects"]),
+			DefaultRisk:          strings.ToLower(strings.TrimSpace(row["defaultRisk"])),
+			RequiresConfirmation: parseBool(row["requiresConfirmation"]),
+			StopConditions:       splitScalarList(row["stopConditions"]),
+		})
+	}
+	return gates
 }
 
 func splitScalarList(v string) []string {

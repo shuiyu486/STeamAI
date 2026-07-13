@@ -73,6 +73,8 @@ next_action:
 - full trace、长时间符号执行、大规模反编译导出。
 - 网络访问、上传、发布或安装外部组件。
 
+每个 pack 必须在 `manifest.yml` 的 `heavyToolGates` 中声明可申请的 heavy action。Go `gate -WhatIf/-Apply` 只接受该清单里的 action，并把 manifest 的 `defaultRisk`、`requiresConfirmation` 和 `stopConditions` 写入 preview / pending-gate request；这仍然不是实际执行授权。
+
 门禁记录建议：
 
 ```yaml

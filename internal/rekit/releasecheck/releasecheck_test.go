@@ -7,6 +7,24 @@ import (
 	"testing"
 )
 
+func TestReleaseCheckIncludesManifestHeavyToolGateActions(t *testing.T) {
+	result, err := Build(repoRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Ready || len(result.Warnings) != 0 {
+		t.Fatalf("release-check unexpectedly not ready: %+v", result)
+	}
+	if got := strings.Join(result.HeavyToolGateActions, ","); got != "debug,dump,full-trace,inject,network,patch,symex" {
+		t.Fatalf("HeavyToolGateActions = %q", got)
+	}
+	for _, pack := range result.Packs {
+		if pack.HeavyToolGates != 7 {
+			t.Fatalf("pack %s HeavyToolGates = %d, want 7", pack.ID, pack.HeavyToolGates)
+		}
+	}
+}
+
 func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {
 	repo := repoRoot(t)
 	inventory := powerShellDeprecation(repo)

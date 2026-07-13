@@ -58,6 +58,7 @@ function Test-RekitManifestSchema {
   $lines = [System.IO.File]::ReadAllLines($Manifest.ManifestPath, [System.Text.Encoding]::UTF8)
   $explicitManagedBlock = Get-RekitYamlMap -Lines $lines -Key 'managedBlock'
   $explicitToolingCandidateSources = @(Get-RekitYamlList -Lines $lines -Key 'toolingCandidateSources')
+  $explicitHeavyToolGates = @(Get-RekitYamlObjectList -Lines $lines -Key 'heavyToolGates')
   $maturity = ([string]$Manifest.Maturity).Trim().ToLowerInvariant()
   if ([string]::IsNullOrWhiteSpace($maturity)) { throw 'maturity is missing' }
   if (@('mature','skeleton','template','experimental') -notcontains $maturity) { throw "maturity has unsupported value: $($Manifest.Maturity)" }
@@ -79,6 +80,8 @@ function Test-RekitManifestSchema {
 
   if ($explicitToolingCandidateSources.Count -eq 0) { throw 'manifest must explicitly declare toolingCandidateSources; implicit vmp-re fallback is not allowed' }
   foreach ($rel in $Manifest.ToolingCandidateSources) { [void](Join-RekitPath -Root $Manifest.PackRoot -RelativePath $rel) }
+
+  Assert-RekitHeavyToolGates -Gates $explicitHeavyToolGates -ManifestPath $Manifest.ManifestPath
 
   Assert-RekitManifestMapValue -Map $Manifest.WorkstreamDefaults -Key 'defaultAuthorityLane' -Context 'workstreamDefaults'
   Assert-RekitManifestMapValue -Map $Manifest.WorkstreamDefaults -Key 'defaultStartLaneType' -Context 'workstreamDefaults'
@@ -344,6 +347,34 @@ function Split-RekitManifestScalarList {
   param([string]$Value)
   if ([string]::IsNullOrWhiteSpace($Value)) { return @() }
   return @($Value -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+}
+
+function Assert-RekitHeavyToolGates {
+  param(
+    [Parameter(Mandatory=$true)][object[]]$Gates,
+    [Parameter(Mandatory=$true)][string]$ManifestPath
+  )
+  if ($Gates.Count -eq 0) { throw 'manifest must explicitly declare heavyToolGates' }
+  $seen = @{}
+  foreach ($gate in @($Gates)) {
+    $id = ([string]$gate.id).Trim().ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($id)) { throw "heavyToolGates entry is missing id in $ManifestPath" }
+    if ($id -notmatch '^[a-z][a-z0-9-]*$') { throw "heavyToolGates id must be lowercase action slug: $id" }
+    if ($seen.ContainsKey($id)) { throw "duplicate heavyToolGates id: $id" }
+    $seen[$id] = $true
+    if ([string]::IsNullOrWhiteSpace([string]$gate.title)) { throw "heavyToolGates.$id title is empty" }
+    $sideEffects = @(Split-RekitManifestScalarList ([string]$gate.sideEffects))
+    if ($sideEffects.Count -eq 0) { throw "heavyToolGates.$id sideEffects is empty" }
+    foreach ($sideEffect in $sideEffects) {
+      if ($sideEffect -notmatch '^[a-z][a-z0-9-]*$') { throw "heavyToolGates.$id sideEffects contains invalid slug: $sideEffect" }
+    }
+    if ($sideEffects -notcontains $id) { throw "heavyToolGates.$id sideEffects must include the action id" }
+    $risk = ([string]$gate.defaultRisk).Trim().ToLowerInvariant()
+    if (@('medium','high','critical') -notcontains $risk) { throw "heavyToolGates.$id defaultRisk has unsupported value: $($gate.defaultRisk)" }
+    if (-not (Convert-RekitYamlBool $gate.requiresConfirmation)) { throw "heavyToolGates.$id requiresConfirmation must be true" }
+    $stopConditions = @(Split-RekitManifestScalarList ([string]$gate.stopConditions))
+    if ($stopConditions.Count -eq 0) { throw "heavyToolGates.$id stopConditions is empty" }
+  }
 }
 
 function Assert-RekitCaseRelativePattern {

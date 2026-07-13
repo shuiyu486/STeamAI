@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 )
 
 type Options struct {
@@ -169,12 +170,30 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 	if err != nil {
 		return instance.Instance{}, EventPreview{}, nil, err
 	}
-	action := strings.ToLower(strings.TrimSpace(opt.Action))
-	if action == "" {
-		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("gate requires -Action full-trace|debug|inject|patch|dump|network")
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return instance.Instance{}, EventPreview{}, nil, err
 	}
-	if !allowedAction(action) {
-		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("invalid gate action %q; allowed: full-trace,debug,inject,patch,dump,network", action)
+	action := strings.ToLower(strings.TrimSpace(opt.Action))
+	allowed := m.HeavyToolGateIDs()
+	if len(allowed) == 0 {
+		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("pack manifest must declare heavyToolGates before gate can accept heavy-tool actions")
+	}
+	if action == "" {
+		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("gate requires -Action %s", strings.Join(allowed, "|"))
+	}
+	gate, ok := m.HeavyToolGate(action)
+	if !ok {
+		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("invalid gate action %q; allowed: %s", action, strings.Join(allowed, ","))
+	}
+	if !gate.RequiresConfirmation {
+		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("gate action %q must require user confirmation in pack manifest", action)
+	}
+	if strings.TrimSpace(gate.DefaultRisk) == "" {
+		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("gate action %q is missing defaultRisk in pack manifest", action)
+	}
+	if len(gate.StopConditions) == 0 {
+		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("gate action %q is missing stopConditions in pack manifest", action)
 	}
 	lane := strings.TrimSpace(opt.Lane)
 	if lane == "" {
@@ -193,7 +212,11 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 	}
 	risk := strings.TrimSpace(opt.Risk)
 	if risk == "" {
-		risk = "high"
+		risk = gate.DefaultRisk
+	}
+	stopConditions := splitList(opt.StopConditions)
+	if len(stopConditions) == 0 {
+		stopConditions = append([]string{}, gate.StopConditions...)
 	}
 	blocked := []string{action}
 	preview := EventPreview{
@@ -212,21 +235,12 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 			Scope:                       strings.TrimSpace(opt.Scope),
 			Budget:                      strings.TrimSpace(opt.Budget),
 			TriedLightSteps:             splitList(opt.TriedLightSteps),
-			StopConditions:              defaultStopConditions(splitList(opt.StopConditions)),
-			RequiresConfirmation:        true,
+			StopConditions:              stopConditions,
+			RequiresConfirmation:        gate.RequiresConfirmation,
 			DeniedUntilUserConfirmation: blocked,
 		},
 	}
 	return inst, preview, blocked, nil
-}
-
-func allowedAction(action string) bool {
-	switch action {
-	case "full-trace", "debug", "inject", "patch", "dump", "network":
-		return true
-	default:
-		return false
-	}
 }
 
 type boardFile struct {
@@ -275,17 +289,6 @@ func splitList(value string) []string {
 		}
 	}
 	return out
-}
-
-func defaultStopConditions(items []string) []string {
-	if len(items) > 0 {
-		return items
-	}
-	return []string{
-		"budget exhausted",
-		"scope no longer matches the approved question",
-		"tool output becomes too large for a bounded evidence packet",
-	}
 }
 
 func eventID(event EventPreview) string {
