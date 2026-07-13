@@ -87,6 +87,7 @@ func validManifestFixture() Manifest {
 		ManifestPath:            "unit-manifest.yml",
 		Maturity:                "template",
 		ManagedFiles:            []string{"references/template/README.md"},
+		PromoteFiles:            []string{"references/template/README.md"},
 		ManagedBlock:            map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
 		explicitManagedBlock:    map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
 		ToolingCandidateSources: []string{"references/template/toolchain-router.md"},
@@ -134,6 +135,85 @@ func TestValidateSchemaRejectsInvalidHeavyToolGates(t *testing.T) {
 	valid.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, StopConditions: []string{"timeout"}}}
 	if err := valid.ValidateSchema(); err != nil {
 		t.Fatalf("ValidateSchema valid heavyToolGates error = %v", err)
+	}
+}
+
+func TestValidateSchemaRequiresExplicitPromoteFiles(t *testing.T) {
+	m := validManifestFixture()
+	m.PromoteFiles = nil
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare promoteFiles") {
+		t.Fatalf("ValidateSchema error = %v, want explicit promoteFiles error", err)
+	}
+}
+
+func TestLoadDoesNotInferPromoteFilesFromManagedFiles(t *testing.T) {
+	repo := t.TempDir()
+	packRoot := filepath.Join(repo, "packs", "missing-promote-files")
+	if err := os.MkdirAll(packRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestText := `schemaVersion: 1
+name: missing-promote-files
+version: 0.1.0
+description: test pack skeleton
+maturity: skeleton
+
+managedFiles:
+  - references/test/README.md
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: rekit:test
+  source: CLAUDE.local.snippet.md
+toolingCandidateSources:
+  - references/test/toolchain-router.md
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+authorityFiles:
+  - references/test/README.md
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+promoteDenyPatterns:
+  - "artifacts[\\/]"
+heavyToolGates:
+  - id: debug
+    title: Debug
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout
+laneTypes:
+  - id: main
+    title: Main
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/test/README.md
+    readOnly: .rekit/facts/**
+    outputs: publication
+  - id: feature
+    title: Feature
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/test/**
+    outputs: observation
+`
+	if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(repo, "missing-promote-files")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.PromoteFiles) != 0 {
+		t.Fatalf("PromoteFiles = %v, want no implicit fallback", m.PromoteFiles)
+	}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare promoteFiles") {
+		t.Fatalf("ValidateSchema error = %v, want explicit promoteFiles error", err)
 	}
 }
 

@@ -154,9 +154,6 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 	if len(m.ManagedFiles) == 0 {
 		return nil, fmt.Errorf("manifest managedFiles is empty: %s", manifestPath)
 	}
-	if len(m.PromoteFiles) == 0 {
-		m.PromoteFiles = append([]string{}, m.ManagedFiles...)
-	}
 	if _, ok := m.ManagedBlock["file"]; !ok {
 		m.ManagedBlock["file"] = "CLAUDE.local.md"
 	}
@@ -324,6 +321,9 @@ func (m *Manifest) ValidateSchema() error {
 			return fmt.Errorf("localNeverOverwrite entry also appears in templateFiles: %s", rel)
 		}
 		managedTargets[rel] = true
+	}
+	if len(m.PromoteFiles) == 0 {
+		return fmt.Errorf("manifest must explicitly declare promoteFiles")
 	}
 	for _, rel := range m.PromoteFiles {
 		if !managed[rel] {
