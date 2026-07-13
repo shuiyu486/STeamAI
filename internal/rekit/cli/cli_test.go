@@ -1746,6 +1746,149 @@ func TestRunGoWorkstreamE2EStartNoteContinueHandoff(t *testing.T) {
 	}
 }
 
+func TestRunGoGateDispatchE2EPlanGateOverviewHandoff(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	start := decodeStartResult(t, out.Bytes())
+	if !start.IsMutation || !start.Applied || start.Lane.ID != "feature-login" {
+		t.Fatalf("unexpected start result: %+v", start)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "request-review", "-Items", "req-debug,candidate-login", "-ItemsPerAgent", "1", "-MaxParallel", "2"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	if plan.Command != "plan-subagents" || plan.IsMutation || !plan.WritesReviewArtifacts || !plan.ReviewRequired || plan.ItemCount != 2 || plan.ShardCount != 2 {
+		t.Fatalf("unexpected plan-subagents result: %+v", plan)
+	}
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
+	if packet.Route.ID != "_template:lane-feature-analysis" || packet.Observability.RouteDebug.SelectedBy != "taskType" || packet.ShardPolicy.TargetItemsPerAgent != 1 || packet.ShardPolicy.MaxParallel != 2 {
+		t.Fatalf("unexpected dispatch packet: %+v", packet)
+	}
+	if packet.Observability.DispatchMode != "manual-main-agent" || len(packet.Observability.ShardStatuses) != 2 || packet.Observability.ShardStatuses[0].Status != "planned" || packet.ReviewLoop.SpawnOwner != "main-agent" || !slices.Contains(packet.Observability.BlockedActions, "runtime does not spawn subagents") {
+		t.Fatalf("unexpected dispatch observability: %+v", packet)
+	}
+	summary, err := os.ReadFile(plan.SummaryPath)
+	if err != nil {
+		t.Fatalf("missing plan summary: %v", err)
+	}
+	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback"} {
+		if !strings.Contains(string(summary), expected) {
+			t.Fatalf("plan summary missing %q:\n%s", expected, string(summary))
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{
+		"-Command", "gate",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Apply",
+		"-Action", "debug",
+		"-Lane", "feature-login",
+		"-Actor", "runtime-test",
+		"-Subject", "debug gate",
+		"-Summary", "needs user confirmation before debug",
+		"-TargetRef", "dispatch-review",
+		"-BatchId", "batch-gate-dispatch",
+		"-Scope", "handler only",
+		"-Budget", "30s",
+		"-TriedLightSteps", "plan-subagents,static review",
+		"-StopConditions", "timeout",
+	}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var gateResult struct {
+		Command    string `json:"command"`
+		IsMutation bool   `json:"isMutation"`
+		Applied    bool   `json:"applied"`
+		EventID    string `json:"eventId"`
+		Path       string `json:"path"`
+		Event      struct {
+			Kind    string `json:"kind"`
+			Lane    string `json:"lane"`
+			Subject string `json:"subject"`
+			Status  string `json:"status"`
+			Gate    struct {
+				Action          string   `json:"action"`
+				Scope           string   `json:"scope"`
+				Budget          string   `json:"budget"`
+				TriedLightSteps []string `json:"triedLightSteps"`
+				StopConditions  []string `json:"stopConditions"`
+			} `json:"gate"`
+		} `json:"event"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &gateResult); err != nil {
+		t.Fatalf("gate apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if gateResult.Command != "gate" || !gateResult.IsMutation || !gateResult.Applied || gateResult.EventID == "" || gateResult.Path != ".rekit/facts/requests.jsonl" {
+		t.Fatalf("unexpected gate apply result: %+v", gateResult)
+	}
+	if gateResult.Event.Kind != "request" || gateResult.Event.Lane != "feature-login" || gateResult.Event.Subject != "debug gate" || gateResult.Event.Status != "pending-gate" || gateResult.Event.Gate.Action != "debug" || gateResult.Event.Gate.Scope != "handler only" || gateResult.Event.Gate.Budget != "30s" || !slices.Contains(gateResult.Event.Gate.TriedLightSteps, "plan-subagents") || !slices.Contains(gateResult.Event.Gate.StopConditions, "timeout") {
+		t.Fatalf("unexpected gate event: %+v", gateResult.Event)
+	}
+	requests, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(requests), gateResult.EventID) || !strings.Contains(string(requests), `"pending-gate"`) || !strings.Contains(string(requests), `"debug"`) {
+		t.Fatalf("gate ledger missing pending request:\n%s", string(requests))
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var overviewResult struct {
+		Counts struct {
+			Requests int `json:"requests"`
+		} `json:"counts"`
+		Sections struct {
+			PendingGates struct {
+				Total  int              `json:"total"`
+				Events []map[string]any `json:"events"`
+			} `json:"pendingGates"`
+		} `json:"sections"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &overviewResult); err != nil {
+		t.Fatalf("overview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if overviewResult.Counts.Requests != 1 || overviewResult.Sections.PendingGates.Total != 1 || len(overviewResult.Sections.PendingGates.Events) != 1 || overviewResult.Sections.PendingGates.Events[0]["subject"] != "debug gate" || overviewResult.Sections.PendingGates.Events[0]["lane"] != "feature-login" {
+		t.Fatalf("overview did not expose pending gate: %+v", overviewResult)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if text := out.String(); !strings.Contains(text, "pending-gate（heavy-tool 待确认）") || !strings.Contains(text, "debug gate") || !strings.Contains(text, "action=debug") {
+		t.Fatalf("overview text missing pending gate:\n%s", text)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	handoff := decodeHandoffResult(t, out.Bytes())
+	if !handoff.IsMutation || !handoff.Applied || handoff.Project || handoff.Lane == nil || handoff.Lane.ID != "feature-login" {
+		t.Fatalf("unexpected handoff result: %+v", handoff)
+	}
+	latest := assertStartWrite(t, handoff.Writes, ".rekit/handovers/feature-login-latest.md", "write-latest-lane-handoff")
+	handoffText, err := os.ReadFile(latest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"# rekit 工作线接手：feature-login", "## pending-gate", "debug gate", "action=debug", "scope=handler only", "budget=30s"} {
+		if !strings.Contains(string(handoffText), expected) {
+			t.Fatalf("handoff missing %q:\n%s", expected, string(handoffText))
+		}
+	}
+}
+
 func TestRunContinueRejectsUnsupportedModes(t *testing.T) {
 	caseRoot := attachedCaseWithPack(t, "vmp-re")
 	writeContinueFixture(t, caseRoot)
