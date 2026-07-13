@@ -448,6 +448,50 @@ func TestValidateSchemaRequiresDeclaredSubagentRoutePolicyOverlay(t *testing.T) 
 	}
 }
 
+func TestValidateSchemaRejectsInvalidSubagentRouteListItems(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		want   string
+		mutate func(*SubagentRoute)
+	}{
+		{
+			name:   "taskTypes",
+			want:   "subagent route unit:bounded-review has invalid taskTypes item: candidate review",
+			mutate: func(route *SubagentRoute) { route.TaskTypes = "candidate review" },
+		},
+		{
+			name:   "mainAgentOwns",
+			want:   "subagent route unit:bounded-review has invalid mainAgentOwns item: AuthoritySync",
+			mutate: func(route *SubagentRoute) { route.MainAgentOwns = "validation,AuthoritySync" },
+		},
+		{
+			name:   "outputContract",
+			want:   "subagent route unit:bounded-review has invalid outputContract item: next.action",
+			mutate: func(route *SubagentRoute) { route.OutputContract = "item,next.action" },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := validManifestFixture()
+			m.SubagentRoutes = []SubagentRoute{{
+				ID:                  "unit:bounded-review",
+				TaskTypes:           "candidate-review",
+				Trigger:             "fixed-boundary read-only review",
+				ShardBasis:          "item",
+				TargetItemsPerAgent: "1",
+				MaxParallel:         "1",
+				Reference:           "references/template/README.md",
+				SubagentPermissions: "read-only",
+				MainAgentOwns:       "validation",
+				OutputContract:      "item,decision",
+			}}
+			tc.mutate(&m.SubagentRoutes[0])
+			if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ValidateSchema error = %v, want %s", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidateSchemaRejectsEmptySubagentRouteListItems(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

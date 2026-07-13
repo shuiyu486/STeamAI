@@ -605,13 +605,19 @@ func validateSubagentPermissions(routeID, value string) error {
 	}
 }
 
+var subagentRouteListTokenPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$`)
+
 func validateSubagentRouteListField(routeID, field, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("subagent route %s is missing %s", routeID, field)
 	}
 	for item := range strings.SplitSeq(strings.NewReplacer(";", ",").Replace(value), ",") {
-		if strings.TrimSpace(item) == "" {
+		token := strings.TrimSpace(item)
+		if token == "" {
 			return fmt.Errorf("subagent route %s contains an empty %s item", routeID, field)
+		}
+		if !subagentRouteListTokenPattern.MatchString(token) {
+			return fmt.Errorf("subagent route %s has invalid %s item: %s", routeID, field, token)
 		}
 	}
 	return nil
