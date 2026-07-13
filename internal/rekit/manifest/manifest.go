@@ -55,6 +55,7 @@ type Manifest struct {
 	Pack                    string
 	PackRoot                string
 	ManifestPath            string
+	SchemaVersion           string
 	Name                    string
 	Version                 string
 	Description             string
@@ -131,6 +132,7 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 		Pack:                    pack,
 		PackRoot:                packRoot,
 		ManifestPath:            manifestPath,
+		SchemaVersion:           yamlScalar(lines, "schemaVersion", ""),
 		Name:                    yamlScalar(lines, "name", ""),
 		Version:                 yamlScalar(lines, "version", ""),
 		Description:             yamlScalar(lines, "description", ""),
@@ -295,6 +297,12 @@ func (m *Manifest) validateBudgets() error {
 }
 
 func (m *Manifest) ValidateSchema() error {
+	if strings.TrimSpace(m.SchemaVersion) == "" {
+		return fmt.Errorf("schemaVersion is missing")
+	}
+	if strings.TrimSpace(m.SchemaVersion) != "1" {
+		return fmt.Errorf("schemaVersion has unsupported value: %s", m.SchemaVersion)
+	}
 	maturity := normalizePackMaturity(m.Maturity)
 	if maturity == "" {
 		return fmt.Errorf("maturity is missing")

@@ -85,6 +85,7 @@ func assertHeavyToolGateSet(t *testing.T, m *Manifest) {
 func validManifestFixture() Manifest {
 	return Manifest{
 		ManifestPath:         "unit-manifest.yml",
+		SchemaVersion:        "1",
 		Name:                 "unit-pack",
 		Version:              "0.1.0",
 		Description:          "Unit test pack",
@@ -109,6 +110,95 @@ func validManifestFixture() Manifest {
 			{ID: "main", Title: "Main", Authority: true, explicitAuthority: "true", WorkspaceRoot: "workspace/main", CanWrite: []string{"references/template/task-handoff.md"}, ReadOnly: []string{".rekit/facts/**"}, Outputs: []string{"publication"}},
 			{ID: "feature", Title: "Feature", explicitAuthority: "false", WorkspaceRoot: "workspace/features", CanWrite: []string{"own-workspace"}, ReadOnly: []string{"references/template/**", ".rekit/facts/**"}, Outputs: []string{"observation"}},
 		},
+	}
+}
+
+func TestValidateSchemaRequiresExplicitSchemaVersion(t *testing.T) {
+	m := validManifestFixture()
+	m.SchemaVersion = ""
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "schemaVersion is missing") {
+		t.Fatalf("ValidateSchema error = %v, want missing schemaVersion error", err)
+	}
+	m = validManifestFixture()
+	m.SchemaVersion = "2"
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "schemaVersion has unsupported value: 2") {
+		t.Fatalf("ValidateSchema error = %v, want unsupported schemaVersion error", err)
+	}
+}
+
+func TestLoadDoesNotInferSchemaVersionDefault(t *testing.T) {
+	repo := t.TempDir()
+	packRoot := filepath.Join(repo, "packs", "missing-schema-version")
+	if err := os.MkdirAll(packRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestText := `name: missing-schema-version
+version: 0.1.0
+description: test pack skeleton
+maturity: skeleton
+
+managedFiles:
+  - references/test/README.md
+templateFiles: []
+localNeverOverwrite: []
+promoteFiles:
+  - references/test/README.md
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: rekit:test
+  source: CLAUDE.local.snippet.md
+toolingCandidateSources:
+  - references/test/toolchain-router.md
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+authorityFiles:
+  - references/test/README.md
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+promoteDenyPatterns:
+  - "artifacts[\\/]"
+budgets:
+  defaultMarkdown: 16384
+heavyToolGates:
+  - id: debug
+    title: Debug
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout
+laneTypes:
+  - id: main
+    title: Main
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/test/README.md
+    readOnly: .rekit/facts/**
+    outputs: publication
+  - id: feature
+    title: Feature
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/test/**
+    outputs: observation
+`
+	if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(repo, "missing-schema-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(m.SchemaVersion) != "" {
+		t.Fatalf("SchemaVersion = %q, want no implicit fallback", m.SchemaVersion)
+	}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "schemaVersion is missing") {
+		t.Fatalf("ValidateSchema error = %v, want missing schemaVersion error", err)
 	}
 }
 
@@ -637,10 +727,12 @@ laneTypes:
 }
 
 func TestValidateSchemaRequiresSupportedMaturity(t *testing.T) {
-	m := &Manifest{Maturity: "preview"}
+	m := validManifestFixture()
+	m.Maturity = "preview"
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "maturity has unsupported value") {
 		t.Fatalf("ValidateSchema error = %v, want unsupported maturity error", err)
 	}
+	m = validManifestFixture()
 	m.Maturity = ""
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "maturity is missing") {
 		t.Fatalf("ValidateSchema error = %v, want missing maturity error", err)

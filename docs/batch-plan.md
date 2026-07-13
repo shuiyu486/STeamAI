@@ -4908,3 +4908,33 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 161：Manifest schemaVersion 显式化
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，将 `schemaVersion` 纳入 Go manifest schema validation 的显式 contract，要求 schema-valid pack 必须声明 `schemaVersion: 1`，避免缺失或未支持版本的 manifest 被 runtime 当作默认版本静默接受。
+
+实施范围：
+
+- Go manifest parser 保留 `schemaVersion` 字段原始文本，不在 loader 阶段注入默认版本。
+- `ValidateSchema` 要求 `schemaVersion` 显式声明且当前必须等于 `1`；缺失和未支持版本分别给出明确错误。
+- manifest tests 补 schema validation 与 load/no-fallback drift test，确认缺失 `schemaVersion` 不再静默进入 schema-valid manifest。
+- `rekit/schemas/pack-manifest.schema.yml` 将 `schemaVersion` 加入 required，并说明仅支持显式 `1`。
+- `docs/pack-authoring.md`、`docs/go-first-convergence-plan.md` 与 `CHANGELOG.md` 同步记录新 pack authoring contract。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/gate ./internal/rekit/promote ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/gate ./internal/rekit/promote ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
