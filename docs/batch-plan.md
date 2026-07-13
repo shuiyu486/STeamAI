@@ -4230,3 +4230,35 @@ git diff --check
 ```
 
 验证结果：全部通过。`android-native-agent-team-dryrun-smoke.ps1`、`catalog-smoke.ps1`、`android-native-pack-smoke.ps1`、`go test ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 139：Go release-check gate profile
+
+状态：已完成。
+
+目标：承接 Stage 8 中 release gate 可在本机和 CI 稳定执行的未完成项，在 Batch 130 Go-owned `release-check` inventory 和 Batch 131 façade freeze invariant 后，增强 `release-check` 的机器可读 gate profile，让 CI/本机脚本可在真正执行命令前解析 recommended minimum 的 step 类型、repo-local path 和 present/resolved 状态，而不是继续扩张 PowerShell 编排或直接新增外部 CI workflow。
+
+实施范围：
+
+- 扩展 `internal/rekit/releasecheck` 的 JSON envelope，新增 `gateProfile`，包含 `name=local-ci-minimum`、`defaultFor=[local,ci]`、`stepCount`、`largeMatrixDefault=false` 和逐 step 的 `kind`、`repoPath`、`present`、`resolved`。
+- 将 catalog `recommendedMinimum` 和 release-check `requiredCommands` 统一解析为 `GateStep`，识别 `go-run`、`go-check`、`powershell-smoke`、`powershell-facade` 与 `git-check`；对 repo-local 脚本和入口做存在性检查。
+- 扩展 `/rekit release-check` text 输出，展示 gate profile summary、命令 kind 和 repo-local path；JSON 输出保持只读 inventory，不执行任何验证命令。
+- 扩展 `internal/rekit/cli` 测试，覆盖 gate profile JSON/text、step kind/path、present/resolved、required command/catalog 对齐与既有文档/pack/known gaps 清单。
+- 更新 `docs/release-readiness.md`、`docs/go-first-convergence-plan.md`、CHANGELOG 与 batch-plan，记录 Batch 139 的本机/CI gate profile 定位。
+
+边界：本批不新增 `.github/workflows` 或其它外部 CI workflow，不执行 recommended minimum 编排，不写 case/pack/runtime state，不改变 façade safe-set，不迁移 policy schema，不删除 PowerShell runtime，不执行网络/扫描/fuzz/exploit replay/debug/dump/patch/hook/device/heavy-tool，不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/cli -run TestRunReleaseCheck -count=1
+go test ./internal/rekit/cli
+go test ./internal/rekit/manifest
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command release-check -Format json
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli -run TestRunReleaseCheck -count=1`、`go test ./internal/rekit/cli`、`go test ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit release-check -Format json`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

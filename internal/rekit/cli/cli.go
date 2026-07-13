@@ -440,13 +440,20 @@ func runReleaseCheck(ctx runtime.Context, opt Options, out io.Writer) error {
 	case "table", "text", "tsv":
 		fmt.Fprintf(out, "release-check: %s\n", result.Summary)
 		fmt.Fprintf(out, "ready: %t\n", result.Ready)
+		fmt.Fprintf(out, "gate profile: %s ready=%t steps=%d largeMatrixDefault=%t\n", result.GateProfile.Name, result.GateProfile.Ready, result.GateProfile.StepCount, result.GateProfile.LargeMatrixDefault)
 		fmt.Fprintln(out, "required commands:")
 		for _, step := range result.RequiredCommands {
 			status := "catalog"
 			if !step.InCatalog {
 				status = "missing-from-catalog"
+			} else if !step.Present {
+				status = "missing-path"
 			}
-			fmt.Fprintf(out, "- [%s] %s\n", status, step.Command)
+			pathSuffix := ""
+			if step.RepoPath != "" {
+				pathSuffix = fmt.Sprintf(" path=%s", step.RepoPath)
+			}
+			fmt.Fprintf(out, "- [%s] %s kind=%s%s\n", status, step.Command, step.Kind, pathSuffix)
 		}
 		fmt.Fprintln(out, "documents:")
 		for _, doc := range result.Documents {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -19,6 +20,7 @@ type Result struct {
 	RepoRoot           string                 `json:"repoRoot"`
 	Ready              bool                   `json:"ready"`
 	Summary            string                 `json:"summary"`
+	GateProfile        GateProfile            `json:"gateProfile"`
 	RecommendedMinimum []GateStep             `json:"recommendedMinimum"`
 	RequiredCommands   []GateStep             `json:"requiredCommands"`
 	Documents          []DocumentCheck        `json:"documents"`
@@ -28,11 +30,25 @@ type Result struct {
 	Warnings           []string               `json:"warnings"`
 }
 
+type GateProfile struct {
+	Name               string     `json:"name"`
+	Description        string     `json:"description"`
+	DefaultFor         []string   `json:"defaultFor"`
+	Ready              bool       `json:"ready"`
+	StepCount          int        `json:"stepCount"`
+	LargeMatrixDefault bool       `json:"largeMatrixDefault"`
+	Steps              []GateStep `json:"steps"`
+}
+
 type GateStep struct {
 	Command   string `json:"command"`
 	Source    string `json:"source"`
+	Kind      string `json:"kind"`
+	RepoPath  string `json:"repoPath,omitempty"`
+	Present   bool   `json:"present"`
 	Required  bool   `json:"required"`
 	InCatalog bool   `json:"inCatalog"`
+	Resolved  bool   `json:"resolved"`
 }
 
 type DocumentCheck struct {
@@ -84,13 +100,18 @@ func Build(repoRoot string) (Result, error) {
 		RepoRoot:           repo,
 		Ready:              true,
 		Summary:            "release gate inventory ok",
-		RecommendedMinimum: catalogGateSteps(cat.RecommendedMinimum),
-		RequiredCommands:   requiredGateSteps(requiredCommands, cat.RecommendedMinimum),
+		RecommendedMinimum: catalogGateSteps(repo, cat.RecommendedMinimum),
+		RequiredCommands:   requiredGateSteps(repo, requiredCommands, cat.RecommendedMinimum),
 		Documents:          documentChecks(repo, requiredDocuments),
 		Packs:              packs,
 		Boundaries:         append([]string{}, cat.GlobalBoundaries...),
 		KnownGaps:          knownGaps(repo),
 		Warnings:           []string{},
+	}
+	check.GateProfile = gateProfile(check.RecommendedMinimum)
+	if !check.GateProfile.Ready {
+		check.Ready = false
+		check.Warnings = append(check.Warnings, "release gate profile has unresolved commands or missing repo-local scripts")
 	}
 	for _, step := range check.RequiredCommands {
 		if !step.InCatalog {
@@ -128,24 +149,92 @@ func loadCatalog(repo string) (catalog, error) {
 	return cat, nil
 }
 
-func catalogGateSteps(commands []string) []GateStep {
+func catalogGateSteps(repo string, commands []string) []GateStep {
 	steps := make([]GateStep, 0, len(commands))
 	for _, command := range commands {
-		steps = append(steps, GateStep{Command: command, Source: "catalog", Required: true, InCatalog: true})
+		steps = append(steps, gateStep(repo, command, "catalog", true, true))
 	}
 	return steps
 }
 
-func requiredGateSteps(commands, catalogCommands []string) []GateStep {
+func requiredGateSteps(repo string, commands, catalogCommands []string) []GateStep {
 	catalogSet := map[string]bool{}
 	for _, command := range catalogCommands {
 		catalogSet[normalizeCommand(command)] = true
 	}
 	steps := make([]GateStep, 0, len(commands))
 	for _, command := range commands {
-		steps = append(steps, GateStep{Command: command, Source: "release-check", Required: true, InCatalog: catalogSet[normalizeCommand(command)]})
+		inCatalog := catalogSet[normalizeCommand(command)]
+		steps = append(steps, gateStep(repo, command, "release-check", true, inCatalog))
 	}
 	return steps
+}
+
+func gateProfile(steps []GateStep) GateProfile {
+	profile := GateProfile{
+		Name:               "local-ci-minimum",
+		Description:        "Go-owned local/CI release gate profile; enumerates required checks and resolves repo-local scripts without executing them.",
+		DefaultFor:         []string{"local", "ci"},
+		Ready:              true,
+		StepCount:          len(steps),
+		LargeMatrixDefault: false,
+		Steps:              append([]GateStep{}, steps...),
+	}
+	for _, step := range steps {
+		if !step.Resolved {
+			profile.Ready = false
+			break
+		}
+	}
+	return profile
+}
+
+func gateStep(repo, command, source string, required, inCatalog bool) GateStep {
+	kind, repoPath := resolveGateCommand(command)
+	present := true
+	if repoPath != "" {
+		_, err := os.Stat(filepath.Join(repo, filepath.FromSlash(repoPath)))
+		present = err == nil
+	}
+	return GateStep{
+		Command:   command,
+		Source:    source,
+		Kind:      kind,
+		RepoPath:  repoPath,
+		Present:   present,
+		Required:  required,
+		InCatalog: inCatalog,
+		Resolved:  inCatalog && present,
+	}
+}
+
+func resolveGateCommand(command string) (string, string) {
+	normalized := normalizeCommand(command)
+	fields := strings.Fields(normalized)
+	if len(fields) == 0 {
+		return "unknown", ""
+	}
+	first := strings.TrimPrefix(strings.ReplaceAll(fields[0], "\\", "/"), "./")
+	if strings.EqualFold(first, "go") {
+		if len(fields) >= 3 && strings.EqualFold(fields[1], "run") && strings.HasPrefix(fields[2], "./") {
+			return "go-run", strings.TrimPrefix(strings.ReplaceAll(fields[2], "\\", "/"), "./")
+		}
+		return "go-check", ""
+	}
+	if strings.EqualFold(first, "git") {
+		return "git-check", ""
+	}
+	if strings.HasSuffix(strings.ToLower(first), ".ps1") {
+		repoPath := first
+		if !strings.Contains(repoPath, "/") {
+			repoPath = path.Join("rekit", "tests", repoPath)
+		}
+		if strings.EqualFold(repoPath, "rekit/rekit.ps1") {
+			return "powershell-facade", repoPath
+		}
+		return "powershell-smoke", repoPath
+	}
+	return "external", ""
 }
 
 func documentChecks(repo string, docs []DocumentCheck) []DocumentCheck {

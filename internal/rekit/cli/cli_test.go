@@ -278,40 +278,52 @@ func TestRunStatusRejectsUnsupportedFormat(t *testing.T) {
 	}
 }
 
+type releaseCheckStep struct {
+	Command   string `json:"command"`
+	Kind      string `json:"kind"`
+	RepoPath  string `json:"repoPath"`
+	Present   bool   `json:"present"`
+	Required  bool   `json:"required"`
+	InCatalog bool   `json:"inCatalog"`
+	Resolved  bool   `json:"resolved"`
+}
+
+type releaseCheckResult struct {
+	Command       string `json:"command"`
+	SchemaVersion int    `json:"schemaVersion"`
+	IsMutation    bool   `json:"isMutation"`
+	Ready         bool   `json:"ready"`
+	Summary       string `json:"summary"`
+	GateProfile   struct {
+		Name               string             `json:"name"`
+		Ready              bool               `json:"ready"`
+		StepCount          int                `json:"stepCount"`
+		LargeMatrixDefault bool               `json:"largeMatrixDefault"`
+		Steps              []releaseCheckStep `json:"steps"`
+	} `json:"gateProfile"`
+	RecommendedMinimum []releaseCheckStep `json:"recommendedMinimum"`
+	RequiredCommands   []releaseCheckStep `json:"requiredCommands"`
+	Documents          []struct {
+		Path    string `json:"path"`
+		Present bool   `json:"present"`
+		Purpose string `json:"purpose"`
+	} `json:"documents"`
+	Packs []struct {
+		ID          string `json:"id"`
+		Maturity    string `json:"maturity"`
+		SchemaValid bool   `json:"schemaValid"`
+	} `json:"packs"`
+	Boundaries []string `json:"boundaries"`
+	KnownGaps  []string `json:"knownGaps"`
+	Warnings   []string `json:"warnings"`
+}
+
 func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "release-check", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	var result struct {
-		Command            string `json:"command"`
-		SchemaVersion      int    `json:"schemaVersion"`
-		IsMutation         bool   `json:"isMutation"`
-		Ready              bool   `json:"ready"`
-		Summary            string `json:"summary"`
-		RecommendedMinimum []struct {
-			Command   string `json:"command"`
-			InCatalog bool   `json:"inCatalog"`
-		} `json:"recommendedMinimum"`
-		RequiredCommands []struct {
-			Command   string `json:"command"`
-			Required  bool   `json:"required"`
-			InCatalog bool   `json:"inCatalog"`
-		} `json:"requiredCommands"`
-		Documents []struct {
-			Path    string `json:"path"`
-			Present bool   `json:"present"`
-			Purpose string `json:"purpose"`
-		} `json:"documents"`
-		Packs []struct {
-			ID          string `json:"id"`
-			Maturity    string `json:"maturity"`
-			SchemaValid bool   `json:"schemaValid"`
-		} `json:"packs"`
-		Boundaries []string `json:"boundaries"`
-		KnownGaps  []string `json:"knownGaps"`
-		Warnings   []string `json:"warnings"`
-	}
+	var result releaseCheckResult
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("release-check JSON did not decode: %v\n%s", err, out.String())
 	}
@@ -327,6 +339,12 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckDocument(t, result.Documents, "docs/release-readiness.md")
 	assertReleaseCheckDocument(t, result.Documents, "docs/go-first-convergence-plan.md")
 	assertReleaseCheckDocument(t, result.Documents, "docs/powershell-deprecation.md")
+	if !result.GateProfile.Ready || result.GateProfile.Name != "local-ci-minimum" || result.GateProfile.StepCount != len(result.RecommendedMinimum) || result.GateProfile.LargeMatrixDefault || len(result.GateProfile.Steps) != len(result.RecommendedMinimum) {
+		t.Fatalf("unexpected release-check gate profile: %+v", result.GateProfile)
+	}
+	assertReleaseCheckStep(t, result.RecommendedMinimum, "go run ./cmd/rekit -- -Command release-check -Format json", "go-run", "cmd/rekit")
+	assertReleaseCheckStep(t, result.RecommendedMinimum, "facade-smoke.ps1", "powershell-smoke", "rekit/tests/facade-smoke.ps1")
+	assertReleaseCheckStep(t, result.RecommendedMinimum, "rekit/rekit.ps1 -Command doctor", "powershell-facade", "rekit/rekit.ps1")
 	if len(result.RecommendedMinimum) == 0 || len(result.Boundaries) == 0 || len(result.KnownGaps) == 0 || len(result.Packs) == 0 {
 		t.Fatalf("release-check omitted required inventory: %+v", result)
 	}
@@ -346,21 +364,30 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	}
 }
 
-func assertReleaseCheckCommand(t *testing.T, steps []struct {
-	Command   string `json:"command"`
-	Required  bool   `json:"required"`
-	InCatalog bool   `json:"inCatalog"`
-}, want string) {
+func assertReleaseCheckCommand(t *testing.T, steps []releaseCheckStep, want string) {
 	t.Helper()
 	for _, step := range steps {
 		if step.Command == want {
-			if !step.Required || !step.InCatalog {
-				t.Fatalf("release-check command %q flags = required:%t inCatalog:%t", want, step.Required, step.InCatalog)
+			if !step.Required || !step.InCatalog || !step.Present || !step.Resolved || strings.TrimSpace(step.Kind) == "" {
+				t.Fatalf("release-check command %q flags = required:%t inCatalog:%t present:%t resolved:%t kind:%q", want, step.Required, step.InCatalog, step.Present, step.Resolved, step.Kind)
 			}
 			return
 		}
 	}
 	t.Fatalf("release-check missing command %q: %+v", want, steps)
+}
+
+func assertReleaseCheckStep(t *testing.T, steps []releaseCheckStep, wantCommand, wantKind, wantRepoPath string) {
+	t.Helper()
+	for _, step := range steps {
+		if step.Command == wantCommand {
+			if step.Kind != wantKind || step.RepoPath != wantRepoPath || !step.Present || !step.Resolved {
+				t.Fatalf("release-check step %q = kind:%q repoPath:%q present:%t resolved:%t, want kind:%q repoPath:%q present/resolved", wantCommand, step.Kind, step.RepoPath, step.Present, step.Resolved, wantKind, wantRepoPath)
+			}
+			return
+		}
+	}
+	t.Fatalf("release-check missing step %q: %+v", wantCommand, steps)
 }
 
 func assertReleaseCheckDocument(t *testing.T, docs []struct {
@@ -389,9 +416,11 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 	for _, expected := range []string{
 		"release-check: release gate inventory ok",
 		"ready: true",
+		"gate profile: local-ci-minimum ready=true",
 		"required commands:",
-		"go run ./cmd/rekit -- -Command release-check -Format json",
-		"go test ./...",
+		"go run ./cmd/rekit -- -Command release-check -Format json kind=go-run path=cmd/rekit",
+		"go test ./... kind=go-check",
+		"facade-smoke.ps1 kind=powershell-smoke path=rekit/tests/facade-smoke.ps1",
 		"documents:",
 		"docs/release-readiness.md",
 		"packs:",
