@@ -229,6 +229,87 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 	}
 }
 
+func TestPowerShellDeprecationStrategyInvariants(t *testing.T) {
+	repo := repoRoot(t)
+	strategy := readRepoText(t, repo, "docs/powershell-deprecation.md")
+
+	for _, section := range []string{
+		"## 读取指南",
+		"## 实施摘要",
+		"## 执行清单",
+		"## 验证标准",
+		"## 风险与注意事项",
+		"## 命令归属矩阵",
+		"## PowerShell 模块状态",
+		"## Freeze / deprecation gates",
+		"## 禁止迁移清单",
+	} {
+		assertTextContains(t, strategy, section, "PowerShell deprecation section")
+	}
+
+	for _, term := range []string{
+		"Go-owned",
+		"PowerShell façade",
+		"Legacy-only",
+		"Parity smoke",
+		"删除前置条件",
+		"REKIT_GO_DISABLE=1",
+		"legacy-only",
+		"blocked",
+		"Removal batch",
+	} {
+		assertTextContains(t, strategy, term, "PowerShell deprecation status")
+	}
+	for _, command := range []string{
+		"status",
+		"packs",
+		"doctor",
+		"validate",
+		"attach",
+		"repair",
+		"init",
+		"bootstrap",
+		"sync",
+		"promote",
+		"overview",
+		"note -List",
+		"gate -WhatIf",
+		"start",
+		"handoff",
+		"continue -WhatIf -Format json",
+		"plan-subagents",
+		"actual heavy-tool",
+		"authority/confirmed",
+	} {
+		assertTextContains(t, strategy, command, "PowerShell deprecation command matrix")
+	}
+
+	assertTextContains(t, strategy, "`rekit/rekit.ps1`", "PowerShell deprecation facade module")
+	libModules, err := filepath.Glob(filepath.Join(repo, "rekit", "lib", "*.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(libModules) == 0 {
+		t.Fatal("no PowerShell lib modules found")
+	}
+	for _, module := range libModules {
+		assertTextContains(t, strategy, "`rekit/lib/"+filepath.Base(module)+"`", "PowerShell deprecation module matrix")
+	}
+
+	for _, blocked := range []string{
+		"full-trace/debug/inject/patch/dump/network/heavy-tool",
+		"authority/confirmed 自动写入",
+		"policy schema 迁移",
+		"外部服务发布",
+		"case-local shim",
+	} {
+		assertTextContains(t, strategy, blocked, "PowerShell deprecation forbidden migration")
+	}
+	for _, doc := range []string{"README.md", "CLAUDE.md", "docs/go-first-convergence-plan.md", "docs/release-readiness.md"} {
+		assertTextContains(t, readRepoText(t, repo, doc), "docs/powershell-deprecation.md", doc+" PowerShell deprecation link")
+	}
+}
+
 func loadTestCatalog(t *testing.T, repo string) testCatalog {
 	t.Helper()
 	data := []byte(readRepoText(t, repo, "rekit/tests/catalog.json"))

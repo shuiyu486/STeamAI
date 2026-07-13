@@ -2,7 +2,7 @@
 
 ## 读取指南
 
-本文件是发布前和新会话接手时的一页门禁说明，配合 `docs/go-first-convergence-plan.md` 使用。维护者在准备 release、合并大型批次、或需要判断当前 runtime owner 时先读本文件顶部区域；需要历史路线时再读 go-first convergence、runtime migration 和 batch-plan。
+本文件是发布前和新会话接手时的一页门禁说明，配合 `docs/go-first-convergence-plan.md` 与 `docs/powershell-deprecation.md` 使用。维护者在准备 release、合并大型批次、或需要判断当前 runtime owner 时先读本文件顶部区域；需要历史路线时再读 go-first convergence、runtime migration 和 batch-plan。
 
 本文件不替代 `rekit/tests/README.md` 的 smoke 选择指南，也不是要求每次改动都运行全量 PowerShell matrix。它定义轻量、可重复的 release gate 和当前 known gaps。
 
@@ -106,7 +106,7 @@ Go-owned / Go-default 路径：
 - case lifecycle `attach`、`repair`、`init/bootstrap` preview/apply。
 - `sync` review/apply/JSON preview 与 `promote` review/artifacts/candidates/apply/JSON preview。
 
-PowerShell legacy / fallback 路径：
+PowerShell legacy / fallback 路径（详细冻结/删除策略见 `docs/powershell-deprecation.md`）：
 
 - 无 `-Apply` 的文本工作线 flow。
 - 文本 `sync -Apply -WhatIf` 与文本 promote what-if。
@@ -119,5 +119,5 @@ PowerShell legacy / fallback 路径：
 - bounded dispatch 仍不自动 spawn reviewer；runtime 只生成 review packet 和 observability。
 - actual heavy-tool 执行未迁入 deterministic runtime；full-trace/debug/inject/patch/dump/network 仍必须显式 gate。
 - authority/confirmed 写入仍需人工确认，不由 Go `continue -Apply` 自动执行。
-- policy schema 迁移、PowerShell runtime deprecation 和 CI workflow 尚未进入默认发布路径。
+- policy schema 迁移、PowerShell runtime deprecation 的实际冻结/删除批次和 CI workflow 尚未进入默认发布路径；Batch 129 已新增 `docs/powershell-deprecation.md` 作为策略入口。
 - 目前只有 `web-security` 有非 RE-only 真实临时 case dry-run；其它 skeleton pack 仍主要依赖 pack smoke 和 package/route 覆盖。

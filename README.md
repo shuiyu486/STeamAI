@@ -25,6 +25,7 @@
 - Go backend 渐进迁移：`docs/go-runtime-migration.md`
 - Go-first 收束与 release readiness 阶段计划：`docs/go-first-convergence-plan.md`
 - 发布门禁与当前 release readiness checklist：`docs/release-readiness.md`
+- PowerShell runtime deprecation strategy：`docs/powershell-deprecation.md`
 
 ## 如果你在维护本仓库
 

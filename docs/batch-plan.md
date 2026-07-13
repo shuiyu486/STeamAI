@@ -3918,3 +3918,31 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/manifest -run TestReleaseReadinessChecklistInvariants -count=1`、`go test ./internal/rekit/manifest`、`facade-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 129：PowerShell runtime deprecation strategy
+
+状态：已完成。
+
+目标：承接 Stage 8 中“明确 PowerShell runtime deprecation strategy”的未完成项，在 Batch 128 release readiness checklist 之后，新增 PowerShell runtime 冻结/保留/迁移/删除策略，明确哪些命令 Go-owned、哪些路径 legacy-only、哪些动作 blocked，以及 `rekit/lib/*.ps1` 模块状态和 removal gates，防止后续继续扩张 PowerShell runtime 语义。
+
+实施范围：
+
+- 新增 `docs/powershell-deprecation.md`，包含读取指南、实施摘要、执行清单、验证标准、风险与注意事项、命令归属矩阵、PowerShell 模块状态、freeze/deprecation gates 与禁止迁移清单。
+- 在 README、仓库 `CLAUDE.md`、`docs/release-readiness.md` 与 `docs/go-first-convergence-plan.md` 中接入 deprecation strategy 入口；Stage 8 推荐批次和完成信号记录 Batch 129 已新增策略文档，但实际删除/冻结仍需单独批次验证。
+- 扩展 `internal/rekit/manifest/release_invariants_test.go`，新增 `TestPowerShellDeprecationStrategyInvariants`，锁定 deprecation 文档必备章节、命令归属、全部 `rekit/lib/*.ps1` 模块、禁止迁移清单，以及 README/CLAUDE/go-first/release-readiness 入口链接。
+- 更新 CHANGELOG 与 batch-plan，记录 Batch 129 的 deprecation strategy 收口边界。
+
+边界：本批只新增 deprecation strategy 文档与 Go invariant test，不删除 PowerShell 代码、不改变 runtime 写入面、不改变 façade safe-set、不新增 PowerShell 编排、不新增 CI workflow；actual heavy-tool、authority/confirmed、policy schema migration、外部副作用和 case-local shim 逻辑复制仍列为禁止迁移项。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest -run TestPowerShellDeprecationStrategyInvariants -count=1
+go test ./internal/rekit/manifest
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/manifest -run TestPowerShellDeprecationStrategyInvariants -count=1`、`go test ./internal/rekit/manifest`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
