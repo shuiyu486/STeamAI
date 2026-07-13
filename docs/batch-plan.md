@@ -4504,3 +4504,33 @@ git diff --check
 ```
 
 验证结果：已通过 `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` JSON/text 已包含 `releaseHandoff.releaseNotes.covered=true` 与 `release notes freshness` signal，stale release notes fixture 会让 `release-check.ready=false`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 148：Release handoff known gaps inventory
+
+状态：已完成。
+
+目标：继续 Stage 8 release readiness / 新会话接手质量方向，把 `docs/release-readiness.md` `Known gaps` 纳入 Go-owned `releaseHandoff`，让 release maintainer 和后续 AI 能从 `release-check -Format json` 先看到当前缺口的机器可读 category/summary，而不必只依赖长文档或聊天上下文。
+
+实施范围：
+
+- `ReleaseHandoff` 新增 `knownGaps[]` inventory，按 `docs/release-readiness.md` `Known gaps` 条目生成 `index`、`category` 与 compact `summary`。
+- `releaseHandoff.signals[]` 新增 `known gaps summary` signal；若 release readiness 没有可解析 known gaps，则 `releaseHandoff.ready=false` 并让 `release-check.ready=false`。
+- text `release-check` handoff summary 新增 `knownGaps=<n>`，便于人工快速看到接手缺口数量。
+- 扩展 releasecheck / CLI / release invariant tests，覆盖 repo known gaps inventory、缺失 known gaps drift detection、JSON/text envelope 与 release readiness 文档锚点。
+- 更新 `CHANGELOG.md`、`docs/release-readiness.md`、`docs/go-first-convergence-plan.md` 与本 batch-plan。
+
+边界：本批只做确定性 release inventory、测试和文档；不执行 CI、不新增外部服务调用、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不写 case/pack runtime state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` JSON/text 已包含 `releaseHandoff.knownGaps[]`、`known gaps summary` signal 与 `knownGaps=5` handoff summary，缺失 known gaps fixture 会让 `release-check.ready=false`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

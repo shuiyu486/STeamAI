@@ -374,6 +374,11 @@ type releaseCheckHandoff struct {
 		Covered       bool   `json:"covered"`
 		Summary       string `json:"summary"`
 	} `json:"releaseNotes"`
+	KnownGaps []struct {
+		Index    int    `json:"index"`
+		Category string `json:"category"`
+		Summary  string `json:"summary"`
+	} `json:"knownGaps"`
 	Validation  []releaseCheckStep `json:"validation"`
 	NextActions []string           `json:"nextActions"`
 	Warnings    []string           `json:"warnings"`
@@ -565,7 +570,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff summary: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 6 || len(handoff.Signals) != 6 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 6 || len(handoff.Signals) != 7 || len(handoff.KnownGaps) == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertReleaseHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -580,6 +585,12 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
 	assertReleaseHandoffSignal(t, handoff, "latest batch documentation")
 	assertReleaseHandoffSignal(t, handoff, "release notes freshness")
+	assertReleaseHandoffSignal(t, handoff, "known gaps summary")
+	assertReleaseHandoffKnownGap(t, handoff, "dispatch")
+	assertReleaseHandoffKnownGap(t, handoff, "heavy-tool")
+	assertReleaseHandoffKnownGap(t, handoff, "authority")
+	assertReleaseHandoffKnownGap(t, handoff, "policy-schema")
+	assertReleaseHandoffKnownGap(t, handoff, "powershell-deprecation")
 	if handoff.ReleaseNotes.Path != "CHANGELOG.md" || !handoff.ReleaseNotes.Present || handoff.ReleaseNotes.Section != "Unreleased" || handoff.ReleaseNotes.LatestBatchID != handoff.LatestBatch.BatchID || !handoff.ReleaseNotes.Covered || handoff.ReleaseNotes.Summary != "release notes cover latest batch" {
 		t.Fatalf("unexpected release handoff release notes: %+v", handoff.ReleaseNotes)
 	}
@@ -612,6 +623,19 @@ func assertReleaseHandoffSignal(t *testing.T, handoff releaseCheckHandoff, name 
 		}
 	}
 	t.Fatalf("release handoff missing signal %s: %+v", name, handoff.Signals)
+}
+
+func assertReleaseHandoffKnownGap(t *testing.T, handoff releaseCheckHandoff, category string) {
+	t.Helper()
+	for _, gap := range handoff.KnownGaps {
+		if strings.Contains(gap.Category, category) {
+			if gap.Index <= 0 || strings.TrimSpace(gap.Summary) == "" {
+				t.Fatalf("release handoff known gap %s = %+v, want index and summary", category, gap)
+			}
+			return
+		}
+	}
+	t.Fatalf("release handoff missing known gap category %s: %+v", category, handoff.KnownGaps)
 }
 
 func assertReleaseCheckPowerShellDeprecation(t *testing.T, inventory releaseCheckPowerShellDeprecation) {
@@ -678,7 +702,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
 		"commands=14 modules=14 freezeGates=8 blocked=5",
-		"release handoff: release handoff summary ok ready=true readFirst=6 signals=6",
+		"release handoff: release handoff summary ok ready=true readFirst=6 signals=7 knownGaps=5",
 		"releaseNotes=true",
 		"latest=Batch ",
 		"known gaps:",

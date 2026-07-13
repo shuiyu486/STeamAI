@@ -14,6 +14,7 @@ type ReleaseHandoff struct {
 	Signals      []ReleaseHandoffSignal     `json:"signals"`
 	LatestBatch  ReleaseHandoffLatestBatch  `json:"latestBatch"`
 	ReleaseNotes ReleaseHandoffReleaseNotes `json:"releaseNotes"`
+	KnownGaps    []ReleaseHandoffKnownGap   `json:"knownGaps"`
 	Validation   []ReleaseHandoffValidation `json:"validation"`
 	NextActions  []string                   `json:"nextActions"`
 	Warnings     []string                   `json:"warnings"`
@@ -51,6 +52,12 @@ type ReleaseHandoffReleaseNotes struct {
 	Summary       string `json:"summary"`
 }
 
+type ReleaseHandoffKnownGap struct {
+	Index    int    `json:"index"`
+	Category string `json:"category"`
+	Summary  string `json:"summary"`
+}
+
 type ReleaseHandoffValidation struct {
 	Command  string `json:"command"`
 	Kind     string `json:"kind"`
@@ -80,7 +87,8 @@ func releaseHandoff(repo string, check Result) ReleaseHandoff {
 		Warnings:    []string{},
 	}
 	handoff.ReleaseNotes = latestReleaseNotes(repo, handoff.LatestBatch)
-	handoff.Signals = releaseHandoffSignals(check, handoff.LatestBatch, handoff.ReleaseNotes)
+	handoff.KnownGaps = releaseHandoffKnownGaps(check.KnownGaps)
+	handoff.Signals = releaseHandoffSignals(check, handoff.LatestBatch, handoff.ReleaseNotes, handoff.KnownGaps)
 	handoff.Warnings = releaseHandoffWarnings(handoff)
 	if len(handoff.Warnings) > 0 {
 		handoff.Ready = false
@@ -99,7 +107,7 @@ func releaseHandoffDocuments(repo string) []ReleaseHandoffDocument {
 	return docs
 }
 
-func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes ReleaseHandoffReleaseNotes) []ReleaseHandoffSignal {
+func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes ReleaseHandoffReleaseNotes, gaps []ReleaseHandoffKnownGap) []ReleaseHandoffSignal {
 	return []ReleaseHandoffSignal{
 		{
 			Name:    "release-check inventory",
@@ -157,7 +165,61 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 				fmt.Sprintf("latestBatch=%s covered=%t", notes.LatestBatchID, notes.Covered),
 			},
 		},
+		{
+			Name:    "known gaps summary",
+			Ready:   len(gaps) > 0,
+			Summary: fmt.Sprintf("%d known gaps tracked", len(gaps)),
+			Details: releaseHandoffKnownGapDetails(gaps),
+		},
 	}
+}
+
+func releaseHandoffKnownGaps(gaps []string) []ReleaseHandoffKnownGap {
+	out := make([]ReleaseHandoffKnownGap, 0, len(gaps))
+	for i, gap := range gaps {
+		gap = compactHandoffText(gap, 220)
+		if strings.TrimSpace(gap) == "" {
+			continue
+		}
+		out = append(out, ReleaseHandoffKnownGap{
+			Index:    i + 1,
+			Category: knownGapCategory(gap),
+			Summary:  gap,
+		})
+	}
+	return out
+}
+
+func releaseHandoffKnownGapDetails(gaps []ReleaseHandoffKnownGap) []string {
+	details := make([]string, 0, len(gaps))
+	for _, gap := range gaps {
+		details = append(details, fmt.Sprintf("%d:%s:%s", gap.Index, gap.Category, gap.Summary))
+	}
+	return details
+}
+
+func knownGapCategory(gap string) string {
+	lower := strings.ToLower(gap)
+	categories := []string{}
+	if strings.Contains(lower, "bounded dispatch") {
+		categories = append(categories, "dispatch")
+	}
+	if strings.Contains(lower, "heavy-tool") {
+		categories = append(categories, "heavy-tool")
+	}
+	if strings.Contains(lower, "authority/confirmed") {
+		categories = append(categories, "authority")
+	}
+	if strings.Contains(lower, "policy schema") {
+		categories = append(categories, "policy-schema")
+	}
+	if strings.Contains(lower, "powershell") {
+		categories = append(categories, "powershell-deprecation")
+	}
+	if len(categories) == 0 {
+		return "general"
+	}
+	return strings.Join(categories, ",")
 }
 
 func releaseHandoffValidation(steps []GateStep) []ReleaseHandoffValidation {

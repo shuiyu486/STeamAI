@@ -15,7 +15,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff inventory: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 6 || len(handoff.Signals) != 6 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 6 || len(handoff.Signals) != 7 || len(handoff.KnownGaps) == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -30,12 +30,34 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignal(t, handoff, "heavy-tool gate manifests")
 	assertHandoffSignal(t, handoff, "latest batch documentation")
 	assertHandoffSignal(t, handoff, "release notes freshness")
+	assertHandoffSignal(t, handoff, "known gaps summary")
+	assertHandoffKnownGap(t, handoff, "dispatch")
+	assertHandoffKnownGap(t, handoff, "heavy-tool")
+	assertHandoffKnownGap(t, handoff, "authority")
+	assertHandoffKnownGap(t, handoff, "policy-schema")
+	assertHandoffKnownGap(t, handoff, "powershell-deprecation")
 	if handoff.ReleaseNotes.Path != "CHANGELOG.md" || !handoff.ReleaseNotes.Present || handoff.ReleaseNotes.LatestBatchID != handoff.LatestBatch.BatchID || !handoff.ReleaseNotes.Covered || handoff.ReleaseNotes.Summary != "release notes cover latest batch" {
 		t.Fatalf("unexpected release notes freshness: %+v", handoff.ReleaseNotes)
 	}
 	if handoff.LatestBatch.PlanPath != "docs/batch-plan.md" || !handoff.LatestBatch.Present || !strings.Contains(handoff.LatestBatch.Title, "Batch ") || !strings.Contains(handoff.LatestBatch.Status, "已完成") || strings.TrimSpace(handoff.LatestBatch.Goal) == "" || strings.TrimSpace(handoff.LatestBatch.ValidationResult) == "" {
 		t.Fatalf("unexpected latest batch summary: %+v", handoff.LatestBatch)
 	}
+}
+
+func TestReleaseHandoffDetectsMissingKnownGaps(t *testing.T) {
+	repo := t.TempDir()
+	writeReleaseHandoffFixture(t, repo, "Batch 999：Fixture", "Batch 999 fixture note")
+	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), "# Release readiness\n\n## Known gaps\n\n")
+
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.ReleaseHandoff.KnownGaps) != 0 || result.ReleaseHandoff.Ready || result.Ready {
+		t.Fatalf("release handoff unexpectedly ready despite missing known gaps: %+v", result.ReleaseHandoff)
+	}
+	assertWarningContains(t, result.ReleaseHandoff.Warnings, "known gaps summary")
+	assertWarningContains(t, result.Warnings, "known gaps summary")
 }
 
 func TestReleaseHandoffDetectsMissingHandoffDocs(t *testing.T) {
@@ -98,4 +120,17 @@ func assertHandoffSignal(t *testing.T, handoff ReleaseHandoff, name string) {
 		}
 	}
 	t.Fatalf("missing signal %s: %+v", name, handoff.Signals)
+}
+
+func assertHandoffKnownGap(t *testing.T, handoff ReleaseHandoff, category string) {
+	t.Helper()
+	for _, gap := range handoff.KnownGaps {
+		if strings.Contains(gap.Category, category) {
+			if gap.Index <= 0 || strings.TrimSpace(gap.Summary) == "" {
+				t.Fatalf("known gap %s = %+v, want index and summary", category, gap)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing known gap category %s: %+v", category, handoff.KnownGaps)
 }
