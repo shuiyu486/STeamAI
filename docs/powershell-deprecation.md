@@ -10,7 +10,7 @@
 
 当前策略：
 
-- **Go-owned**：确定性状态、结构化输出、低风险写入和 release invariant 优先由 `cmd/rekit/**` 与 `internal/rekit/**` 维护。
+- **Go-owned**：确定性状态、结构化输出、低风险写入、`release-check` inventory 和 release invariant 优先由 `cmd/rekit/**` 与 `internal/rekit/**` 维护。
 - **PowerShell façade**：`rekit/rekit.ps1` 保持公共入口与兼容层，负责 Go binary 查找、参数兼容、fallback、环境变量开关和旧 case 用户体验。
 - **Legacy-only**：无 `-Apply` 的文本工作线 flow、文本 sync/promote what-if、内部命令和非 Go-owned 写入路径暂时保留，禁止扩展新能力。
 - **Parity smoke**：少量 PowerShell smoke 保留为 Windows façade / fallback 回归；大型 pack matrix 不作为默认 release gate。
@@ -51,6 +51,7 @@ PowerShell deprecation 相关变更至少满足：
 
 | 区域 | 当前 owner | PowerShell 状态 | 冻结/删除策略 |
 |---|---|---|---|
+| `release-check` | Go default | façade delegate + no PowerShell fallback | 只输出 release gate inventory，不执行测试、不写状态；保持 Go-owned。 |
 | `status` / `packs` / `doctor` / `validate` | Go default | façade + fallback | 保留 façade；PowerShell 实现只做兼容修复。 |
 | case lifecycle `attach` / `repair` / `init` / `bootstrap` preview/apply | Go default | façade + fallback | 保留 `REKIT_GO_DISABLE=1` fallback；删除需旧 case smoke 通过。 |
 | `sync` review/apply/JSON preview | Go default | façade + text dry-run fallback | 文本 `sync -Apply -WhatIf` 维持 legacy-only；不扩功能。 |

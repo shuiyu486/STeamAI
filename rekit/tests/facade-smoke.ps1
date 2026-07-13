@@ -130,6 +130,7 @@ try {
 
   Assert-FakeDefaultDelegation -Arguments @('-Command','status') -CommandName 'status' -Label 'default status fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','packs') -CommandName 'packs' -Label 'default packs fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','release-check','-Format','json') -CommandName 'release-check' -Label 'default release-check fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','doctor','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'doctor' -Label 'default doctor fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','validate','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'validate' -Label 'default validate fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','attach','-Target',(Join-Path $matrixRoot 'default-attach'),'-Pack',$Pack,'-Apply') -CommandName 'attach' -Label 'default attach apply fake delegation'

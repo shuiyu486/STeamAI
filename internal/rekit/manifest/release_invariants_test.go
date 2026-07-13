@@ -52,6 +52,7 @@ func TestReleaseCatalogInvariants(t *testing.T) {
 		"pack-smoke-matrix-selftest.ps1",
 		"pack-smoke-matrix.ps1 -DiscoveryOnly",
 		"pack-inventory-smoke.ps1",
+		"go run ./cmd/rekit -- -Command release-check -Format json",
 		"go test ./...",
 		"go vet ./...",
 		"rekit/rekit.ps1 -Command doctor",
@@ -186,6 +187,7 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 		assertTextContains(t, checklist, command, "release readiness recommended minimum")
 	}
 	for _, command := range []string{
+		"go run ./cmd/rekit -- -Command release-check -Format json",
 		"go test ./...",
 		"go vet ./...",
 		"./rekit/rekit.ps1 -Command doctor",
@@ -261,6 +263,7 @@ func TestPowerShellDeprecationStrategyInvariants(t *testing.T) {
 		assertTextContains(t, strategy, term, "PowerShell deprecation status")
 	}
 	for _, command := range []string{
+		"release-check",
 		"status",
 		"packs",
 		"doctor",

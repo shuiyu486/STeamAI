@@ -8,11 +8,12 @@
 
 `rekit/tests` 里的脚本都是仓库维护验证入口，默认使用临时 case 或只读仓库状态，目标是锁定 review-first、no-write、Go/PowerShell parity 和 pack skeleton 边界。`catalog.json` 用相同分类记录全部 `*.ps1` smoke/helper 的 `category`、`purpose`、`recommendedFor`、`supportsWorkRoot` 和 `riskBoundary`，供后续自动测试选择器或 CI 读取。
 
-Go-first release gate 优先由 `go test ./...` / `go vet ./...` / `doctor` 捕获确定性 invariant；`catalog-smoke.ps1`、`pack-smoke-matrix-selftest.ps1` 与 pack matrix 保留为 PowerShell compatibility / parity 层，不继续扩张成新的 runtime owner。
+Go-first release gate 优先由 Go-owned `release-check` inventory、`go test ./...` / `go vet ./...` / `doctor` 捕获确定性 invariant；`catalog-smoke.ps1`、`pack-smoke-matrix-selftest.ps1` 与 pack matrix 保留为 PowerShell compatibility / parity 层，不继续扩张成新的 runtime owner。
 
 推荐最小回归组合：
 
 ```powershell
+go run ./cmd/rekit -- -Command release-check -Format json
 .\rekit\tests\facade-smoke.ps1
 .\rekit\tests\catalog-smoke.ps1
 .\rekit\tests\pack-smoke-matrix-selftest.ps1
@@ -53,7 +54,7 @@ git diff --check
 
 | 脚本 | 什么时候跑 | 覆盖重点 |
 |---|---|---|
-| `facade-smoke.ps1` | 改 `rekit.ps1`、Go façade 委托集合或 JSON preview/read-only 委托 | 只读命令、overview 文本/JSON 与 note 文本/JSON 只读默认委托、note append/what-if 默认委托、gate what-if/apply 默认委托、start/handoff JSON preview/apply 默认委托、continue JSON preview/apply 默认委托、case lifecycle、sync 与 promote review/candidate/apply 默认 Go 委托、disable 优先级、文本/write fallback。 |
+| `facade-smoke.ps1` | 改 `rekit.ps1`、Go façade 委托集合或 JSON preview/read-only 委托 | 只读命令、release-check inventory 默认委托、overview 文本/JSON 与 note 文本/JSON 只读默认委托、note append/what-if 默认委托、gate what-if/apply 默认委托、start/handoff JSON preview/apply 默认委托、continue JSON preview/apply 默认委托、case lifecycle、sync 与 promote review/candidate/apply 默认 Go 委托、disable 优先级、文本/write fallback。 |
 | `pack-inventory-smoke.ps1` | 改 pack manifest、maturity、inventory、status/doctor JSON | `/rekit packs/status/doctor/validate` text+JSON parity、Go/PowerShell/facade 委托。 |
 | `catalog-smoke.ps1` | 改 `catalog.json` 或测试导航字段 | catalog schema、唯一 id、全部 `*.ps1` 覆盖、脚本/文档存在性、pack smoke 与 discovery 对齐。 |
 | `pack-smoke-matrix.ps1 -DiscoveryOnly` | 新增/删除 skeleton pack 或 pack smoke wrapper | inventory 中 schema-valid skeleton pack 与 matrix 清单/wrapper 一致性。 |

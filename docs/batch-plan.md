@@ -3946,3 +3946,37 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/manifest -run TestPowerShellDeprecationStrategyInvariants -count=1`、`go test ./internal/rekit/manifest`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 130：Go release-check inventory
+
+状态：已完成。
+
+目标：承接 Stage 8 中“release gate 可在本机和 CI 中稳定执行”的未完成项，在 Batch 128 release readiness checklist 与 Batch 129 PowerShell deprecation strategy 之后，新增 Go-owned、只读、机器可读的 release gate inventory，让本机/CI 在执行耗时验证前先用确定性 JSON envelope 检查 recommended minimum、文档入口、pack schema、安全边界与 known gaps 是否齐备。
+
+实施范围：
+
+- 新增 `internal/rekit/releasecheck` package，读取 `rekit/tests/catalog.json`、`docs/release-readiness.md` 与 pack manifest inventory，输出 `release-check` JSON/text result；字段包含 `recommendedMinimum`、`requiredCommands`、`documents`、`packs`、`boundaries`、`knownGaps` 与 `warnings`。
+- 在 Go CLI 新增 `-Command release-check`，默认只读，拒绝 `-Target`、`-Apply`、`-WhatIf`、review artifact 和 list/mutation flags；支持 text/table 与 `-Format json`。
+- 在 `rekit/rekit.ps1` 中把 `release-check` 纳入默认 Go façade 委托与 ValidateSet；该命令无 PowerShell fallback，仅透传到 Go backend，避免新增 PowerShell release orchestrator。
+- 更新 `rekit/tests/catalog.json` recommendedMinimum、`docs/release-readiness.md`、`rekit/tests/README.md`、`docs/powershell-deprecation.md`、README、CLAUDE、go-first convergence plan 与 CHANGELOG，记录 `release-check` 的 release gate 定位和只读边界。
+- 扩展 `internal/rekit/cli/cli_test.go`，覆盖 release-check JSON/text envelope、required command/catalog 对齐、必备文档、pack schema rows、known gaps，以及 target/mutation/format guard；扩展 release invariant 使 catalog 与 checklist 都包含 release-check 命令。
+
+边界：本批不新增 CI workflow、不执行 `go test`/`go vet`/smoke 编排、不写 case/pack/runtime state、不改变 sync/promote/gate/continue 写入面、不自动运行 heavy-tool、不写 authority/confirmed、不删除 PowerShell runtime；`release-check` 只是确定性 inventory 和 release gate 前置检查。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/cli -run TestRunReleaseCheck -count=1
+go test ./internal/rekit/cli
+go test ./internal/rekit/manifest -run TestReleaseCatalogInvariants -count=1
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command release-check -Format json
+.\rekit\tests\catalog-smoke.ps1
+.\rekit\tests\facade-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli -run TestRunReleaseCheck -count=1`、`go test ./internal/rekit/cli`、`go test ./internal/rekit/manifest -run TestReleaseCatalogInvariants -count=1`、`go test ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit release-check -Format json`、`catalog-smoke.ps1`、`facade-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

@@ -278,6 +278,151 @@ func TestRunStatusRejectsUnsupportedFormat(t *testing.T) {
 	}
 }
 
+func TestRunReleaseCheckJsonInventory(t *testing.T) {
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "release-check", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command            string `json:"command"`
+		SchemaVersion      int    `json:"schemaVersion"`
+		IsMutation         bool   `json:"isMutation"`
+		Ready              bool   `json:"ready"`
+		Summary            string `json:"summary"`
+		RecommendedMinimum []struct {
+			Command   string `json:"command"`
+			InCatalog bool   `json:"inCatalog"`
+		} `json:"recommendedMinimum"`
+		RequiredCommands []struct {
+			Command   string `json:"command"`
+			Required  bool   `json:"required"`
+			InCatalog bool   `json:"inCatalog"`
+		} `json:"requiredCommands"`
+		Documents []struct {
+			Path    string `json:"path"`
+			Present bool   `json:"present"`
+			Purpose string `json:"purpose"`
+		} `json:"documents"`
+		Packs []struct {
+			ID          string `json:"id"`
+			Maturity    string `json:"maturity"`
+			SchemaValid bool   `json:"schemaValid"`
+		} `json:"packs"`
+		Boundaries []string `json:"boundaries"`
+		KnownGaps  []string `json:"knownGaps"`
+		Warnings   []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("release-check JSON did not decode: %v\n%s", err, out.String())
+	}
+	if result.Command != "release-check" || result.SchemaVersion != 1 || result.IsMutation || !result.Ready || result.Summary != "release gate inventory ok" || len(result.Warnings) != 0 {
+		t.Fatalf("unexpected release-check JSON envelope: %+v", result)
+	}
+	assertReleaseCheckCommand(t, result.RequiredCommands, "go run ./cmd/rekit -- -Command release-check -Format json")
+	assertReleaseCheckCommand(t, result.RequiredCommands, "go test ./...")
+	assertReleaseCheckCommand(t, result.RequiredCommands, "go vet ./...")
+	assertReleaseCheckCommand(t, result.RequiredCommands, "rekit/rekit.ps1 -Command doctor")
+	assertReleaseCheckCommand(t, result.RequiredCommands, "facade-smoke.ps1")
+	assertReleaseCheckCommand(t, result.RequiredCommands, "git diff --check")
+	assertReleaseCheckDocument(t, result.Documents, "docs/release-readiness.md")
+	assertReleaseCheckDocument(t, result.Documents, "docs/go-first-convergence-plan.md")
+	assertReleaseCheckDocument(t, result.Documents, "docs/powershell-deprecation.md")
+	if len(result.RecommendedMinimum) == 0 || len(result.Boundaries) == 0 || len(result.KnownGaps) == 0 || len(result.Packs) == 0 {
+		t.Fatalf("release-check omitted required inventory: %+v", result)
+	}
+	packs := map[string]struct {
+		ID          string `json:"id"`
+		Maturity    string `json:"maturity"`
+		SchemaValid bool   `json:"schemaValid"`
+	}{}
+	for _, pack := range result.Packs {
+		packs[pack.ID] = pack
+	}
+	if pack := packs["vmp-re"]; pack.Maturity != "mature" || !pack.SchemaValid {
+		t.Fatalf("unexpected vmp-re release-check row: %+v", pack)
+	}
+	if pack := packs["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid {
+		t.Fatalf("unexpected web-security release-check row: %+v", pack)
+	}
+}
+
+func assertReleaseCheckCommand(t *testing.T, steps []struct {
+	Command   string `json:"command"`
+	Required  bool   `json:"required"`
+	InCatalog bool   `json:"inCatalog"`
+}, want string) {
+	t.Helper()
+	for _, step := range steps {
+		if step.Command == want {
+			if !step.Required || !step.InCatalog {
+				t.Fatalf("release-check command %q flags = required:%t inCatalog:%t", want, step.Required, step.InCatalog)
+			}
+			return
+		}
+	}
+	t.Fatalf("release-check missing command %q: %+v", want, steps)
+}
+
+func assertReleaseCheckDocument(t *testing.T, docs []struct {
+	Path    string `json:"path"`
+	Present bool   `json:"present"`
+	Purpose string `json:"purpose"`
+}, want string) {
+	t.Helper()
+	for _, doc := range docs {
+		if doc.Path == want {
+			if !doc.Present || strings.TrimSpace(doc.Purpose) == "" {
+				t.Fatalf("release-check document %q flags = present:%t purpose:%q", want, doc.Present, doc.Purpose)
+			}
+			return
+		}
+	}
+	t.Fatalf("release-check missing document %q: %+v", want, docs)
+}
+
+func TestRunReleaseCheckTextInventory(t *testing.T) {
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "release-check"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{
+		"release-check: release gate inventory ok",
+		"ready: true",
+		"required commands:",
+		"go run ./cmd/rekit -- -Command release-check -Format json",
+		"go test ./...",
+		"documents:",
+		"docs/release-readiness.md",
+		"packs:",
+		"known gaps:",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("release-check text missing %q:\n%s", expected, text)
+		}
+	}
+}
+
+func TestRunReleaseCheckRejectsTargetAndMutationFlags(t *testing.T) {
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "release-check", "-Target", repoRoot(t)}, &out)
+	if err == nil || !strings.Contains(err.Error(), "omit -Target") {
+		t.Fatalf("error = %v, want target guard", err)
+	}
+	err = Run([]string{"-Command", "release-check", "-Apply"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("error = %v, want read-only guard", err)
+	}
+}
+
+func TestRunReleaseCheckRejectsUnsupportedFormat(t *testing.T) {
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "release-check", "-Format", "yaml"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "unsupported release-check format") {
+		t.Fatalf("error = %v, want unsupported release-check format", err)
+	}
+}
+
 func TestRunPacksListsPackMatrix(t *testing.T) {
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "packs"}, &out); err != nil {

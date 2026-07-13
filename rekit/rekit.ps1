@@ -1,7 +1,7 @@
 [CmdletBinding(PositionalBinding=$false)]
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','packs','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','start','handoff','note','gate')]
+  [ValidateSet('status','packs','release-check','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','start','handoff','note','gate')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -120,7 +120,7 @@ function Test-RekitEnvTruthy {
 
 function Test-RekitGoDefaultDelegationCommand {
   param([string]$Name)
-  return (@('status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue') -contains $Name)
+  return (@('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue') -contains $Name)
 }
 
 function Test-RekitGoDelegationEnabled {
@@ -131,8 +131,9 @@ function Test-RekitGoDelegationEnabled {
 
 function Test-RekitGoDelegationSafe {
   switch ($Command) {
-    { $_ -in @('status','packs','doctor','validate') } {
+    { $_ -in @('status','packs','release-check','doctor','validate') } {
       if ($Apply -or $CreateCandidates -or $Review -or $WhatIf) { return $false }
+      if ($Command -eq 'release-check' -and -not [string]::IsNullOrWhiteSpace($Target)) { return $false }
       if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
       return $true
     }
@@ -301,7 +302,7 @@ function Add-RekitGoSwitch {
 
 function Get-RekitGoTarget {
   switch ($Command) {
-    { $_ -in @('status','packs') } { return (Resolve-RekitTarget $Target) }
+    { $_ -in @('status','packs','release-check') } { return (Resolve-RekitTarget $Target) }
     { $_ -in @('attach','repair','init','bootstrap','overview','note','sync','update','promote','gate') } { return (Resolve-RekitTarget $Target) }
     { $_ -in @('doctor','validate') } {
       if (-not [string]::IsNullOrWhiteSpace($Target)) { return (Resolve-RekitTarget $Target) }
@@ -316,7 +317,7 @@ function Get-RekitGoTarget {
 function Get-RekitGoArgs {
   $goArgs = @('-Command', $Command, '-Pack', $Pack)
   $goTarget = Get-RekitGoTarget
-  if ($Command -notin @('start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Target' $goTarget }
+  if ($Command -notin @('start','handoff','continue','release-check')) { Add-RekitGoArg ([ref]$goArgs) '-Target' $goTarget }
   $goReview = $Review.IsPresent
   if ($Command -in @('sync','update') -and (-not $Apply) -and (-not $WhatIf)) { $goReview = $true }
   if ($Command -eq 'promote' -and (-not $Apply) -and (-not $CreateCandidates) -and (-not $WhatIf)) { $goReview = $true }
@@ -327,7 +328,7 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-ReviewOutputDir' $ReviewOutputDir
   Add-RekitGoArg ([ref]$goArgs) '-PacketPath' $PacketPath
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' $DiffPath
-  if ($Command -in @('status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
+  if ($Command -in @('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
   if ($Command -in @('attach','repair','init','bootstrap','sync','update')) { Add-RekitGoArg ([ref]$goArgs) '-ProjectName' $ProjectName }
   if ($Command -in @('init','bootstrap','sync','update')) { Add-RekitGoSwitch ([ref]$goArgs) '-Force' $Force.IsPresent }
   if ($Command -eq 'note') {
@@ -466,6 +467,9 @@ switch ($Command) {
       }
       default { throw "unsupported packs format: $Format" }
     }
+  }
+  'release-check' {
+    throw 'release-check is implemented by the Go backend only; use /rekit release-check or go run ./cmd/rekit -- -Command release-check.'
   }
   'overview' {
     $caseRoot = Resolve-RekitTarget $Target

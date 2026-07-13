@@ -17,6 +17,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/overview"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/repair"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -371,6 +372,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runStatus(ctx, opt, stdout)
 	case "packs":
 		return runPacks(ctx, opt, stdout)
+	case "release-check":
+		return runReleaseCheck(ctx, opt, stdout)
 	case "doctor", "validate":
 		return runDoctor(ctx, opt, stdout)
 	case "attach":
@@ -416,6 +419,64 @@ type packsInventory struct {
 	IsMutation    bool                   `json:"isMutation"`
 	PackCount     int                    `json:"packCount"`
 	Packs         []manifest.PackSummary `json:"packs"`
+}
+
+func runReleaseCheck(ctx runtime.Context, opt Options, out io.Writer) error {
+	if ctx.TargetProvided {
+		return fmt.Errorf("release-check runs against the kit repo; omit -Target")
+	}
+	if opt.Apply || opt.WhatIf || opt.CreateCandidates || opt.Review || opt.Force || opt.List || wantsReviewArtifacts(opt) {
+		return fmt.Errorf("release-check is read-only and does not accept mutation, review artifact, or list flags")
+	}
+	result, err := releasecheck.Build(ctx.RepoRoot)
+	if err != nil {
+		return err
+	}
+	format := strings.ToLower(strings.TrimSpace(opt.Format))
+	if format == "" {
+		format = "table"
+	}
+	switch format {
+	case "table", "text", "tsv":
+		fmt.Fprintf(out, "release-check: %s\n", result.Summary)
+		fmt.Fprintf(out, "ready: %t\n", result.Ready)
+		fmt.Fprintln(out, "required commands:")
+		for _, step := range result.RequiredCommands {
+			status := "catalog"
+			if !step.InCatalog {
+				status = "missing-from-catalog"
+			}
+			fmt.Fprintf(out, "- [%s] %s\n", status, step.Command)
+		}
+		fmt.Fprintln(out, "documents:")
+		for _, doc := range result.Documents {
+			status := "ok"
+			if !doc.Present {
+				status = "missing"
+			}
+			fmt.Fprintf(out, "- [%s] %s (%s)\n", status, doc.Path, doc.Purpose)
+		}
+		fmt.Fprintf(out, "packs: %d\n", len(result.Packs))
+		if len(result.KnownGaps) > 0 {
+			fmt.Fprintln(out, "known gaps:")
+			for _, gap := range result.KnownGaps {
+				fmt.Fprintf(out, "- %s\n", gap)
+			}
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintln(out, "warnings:")
+			for _, warning := range result.Warnings {
+				fmt.Fprintf(out, "- %s\n", warning)
+			}
+		}
+	case "json":
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	default:
+		return fmt.Errorf("unsupported release-check format: %s", opt.Format)
+	}
+	return nil
 }
 
 func runPacks(ctx runtime.Context, opt Options, out io.Writer) error {

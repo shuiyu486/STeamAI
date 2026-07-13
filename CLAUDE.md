@@ -94,6 +94,7 @@ BEGIN.
 仓库级只读检查：
 
 ```powershell
+.\rekit\rekit.ps1 release-check -Format json
 .\rekit\rekit.ps1 status
 .\rekit\rekit.ps1 packs
 .\rekit\rekit.ps1 doctor
@@ -126,6 +127,6 @@ go test ./...
 - `packs/<pack>/manifest.yml` 是 managed files、template files、promote files、tooling files、budgets 和 subagent routes 的单一事实源。
 - `sync` 是 kit -> case；`promote` 是 case -> kit。
 - `sync` / `promote` 默认 review-first，写入前需要用户确认具体范围。
-- Go backend 默认接管低风险只读 `/rekit status`、`packs`、`doctor/validate`，attached case 的 `overview` 文本/JSON 与缺 board 时的 case-local board/facts/policy/default authority lane 初始化，`note -List` 文本/table/tsv/JSON 只读查询，attached case 的 `note` append 与 `note -WhatIf` facts JSONL 写入/预览，`gate -WhatIf` 非写入 heavy-tool gate preview，`gate -Apply` pending-gate request ledger 写入，attached case 的 `start -WhatIf -Format json`、`start -Apply`、`handoff -WhatIf -Format json`、`handoff -Apply`、`continue -WhatIf -Format json` 非写入 preview 与 explicit `continue -Apply` case-local facts/routing/run digest/lane resume/checkpoint/board 写入，边界清晰的 case lifecycle `attach`、`repair`、`init/bootstrap` 预览与显式 `-Apply`，`/rekit sync` review、`sync -Apply`、`sync -Apply -WhatIf -Format json`，以及 `/rekit promote` review、review artifact 写入、`promote -CreateCandidates`、`promote -CreateCandidates -WhatIf -Format json`、`promote -Apply` 实际 pack source 写入和 `promote -Apply -WhatIf -Format json` 非写入预览；`continue -Apply` 不写 authority/confirmed、不执行 heavy-tool，`REKIT_GO_DISABLE=1` 可强制禁用 Go façade 委托。
+- Go backend 默认接管只读 `release-check` inventory、低风险只读 `/rekit status`、`packs`、`doctor/validate`，attached case 的 `overview` 文本/JSON 与缺 board 时的 case-local board/facts/policy/default authority lane 初始化，`note -List` 文本/table/tsv/JSON 只读查询，attached case 的 `note` append 与 `note -WhatIf` facts JSONL 写入/预览，`gate -WhatIf` 非写入 heavy-tool gate preview，`gate -Apply` pending-gate request ledger 写入，attached case 的 `start -WhatIf -Format json`、`start -Apply`、`handoff -WhatIf -Format json`、`handoff -Apply`、`continue -WhatIf -Format json` 非写入 preview 与 explicit `continue -Apply` case-local facts/routing/run digest/lane resume/checkpoint/board 写入，边界清晰的 case lifecycle `attach`、`repair`、`init/bootstrap` 预览与显式 `-Apply`，`/rekit sync` review、`sync -Apply`、`sync -Apply -WhatIf -Format json`，以及 `/rekit promote` review、review artifact 写入、`promote -CreateCandidates`、`promote -CreateCandidates -WhatIf -Format json`、`promote -Apply` 实际 pack source 写入和 `promote -Apply -WhatIf -Format json` 非写入预览；`continue -Apply` 不写 authority/confirmed、不执行 heavy-tool，`REKIT_GO_DISABLE=1` 可强制禁用 Go façade 委托。
 - 不要把真实样本、trace、dump、capture、artifact、绝对路径或 case-specific 进度写入本仓库模板。
 - `.gitignore` 已排除常见 RE artifacts；新增产物类型时先确认是否应继续排除。

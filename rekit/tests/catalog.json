@@ -9,6 +9,7 @@
     "Do not write authority or confirmed artifacts outside scripts that explicitly validate a temporary-case gate."
   ],
   "recommendedMinimum": [
+    "go run ./cmd/rekit -- -Command release-check -Format json",
     "facade-smoke.ps1",
     "catalog-smoke.ps1",
     "pack-smoke-matrix-selftest.ps1",
@@ -24,8 +25,8 @@
       "id": "facade-smoke",
       "script": "facade-smoke.ps1",
       "category": "facade",
-      "purpose": "Validate PowerShell facade default delegation and fallback boundaries, including overview/note text and JSON readonly, note append/what-if, gate what-if/apply, start/handoff JSON preview/apply, and continue JSON preview/apply delegation.",
-      "recommendedFor": ["rekit.ps1", "Go facade delegation", "JSON preview delegation", "readonly text delegation", "readonly JSON delegation", "note list delegation", "note append delegation", "note what-if delegation", "gate what-if delegation", "gate apply delegation", "start delegation", "handoff delegation", "continue delegation", "write fallback"],
+      "purpose": "Validate PowerShell facade default delegation and fallback boundaries, including release-check inventory, overview/note text and JSON readonly, note append/what-if, gate what-if/apply, start/handoff JSON preview/apply, and continue JSON preview/apply delegation.",
+      "recommendedFor": ["rekit.ps1", "release-check", "Go facade delegation", "JSON preview delegation", "readonly text delegation", "readonly JSON delegation", "note list delegation", "note append delegation", "note what-if delegation", "gate what-if delegation", "gate apply delegation", "start delegation", "handoff delegation", "continue delegation", "write fallback"],
       "supportsWorkRoot": false,
       "supportsCaseRoot": true,
       "riskBoundary": "Default fixture is self-contained; explicit CaseRoot must be a known dryrun case.",
