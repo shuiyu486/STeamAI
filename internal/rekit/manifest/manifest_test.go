@@ -85,6 +85,8 @@ func assertHeavyToolGateSet(t *testing.T, m *Manifest) {
 func validManifestFixture() Manifest {
 	return Manifest{
 		ManifestPath:            "unit-manifest.yml",
+		Name:                    "unit-pack",
+		Version:                 "0.1.0",
 		Maturity:                "template",
 		ManagedFiles:            []string{"references/template/README.md"},
 		PromoteFiles:            []string{"references/template/README.md"},
@@ -101,6 +103,19 @@ func validManifestFixture() Manifest {
 			{ID: "main", Title: "Main", Authority: true, WorkspaceRoot: "workspace/main", CanWrite: []string{"references/template/task-handoff.md"}, ReadOnly: []string{".rekit/facts/**"}, Outputs: []string{"publication"}},
 			{ID: "feature", Title: "Feature", WorkspaceRoot: "workspace/features", CanWrite: []string{"own-workspace"}, ReadOnly: []string{"references/template/**", ".rekit/facts/**"}, Outputs: []string{"observation"}},
 		},
+	}
+}
+
+func TestValidateSchemaRequiresExplicitIdentity(t *testing.T) {
+	m := validManifestFixture()
+	m.Name = ""
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "name is missing") {
+		t.Fatalf("ValidateSchema error = %v, want missing name error", err)
+	}
+	m = validManifestFixture()
+	m.Version = ""
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "version is missing") {
+		t.Fatalf("ValidateSchema error = %v, want missing version error", err)
 	}
 }
 
@@ -500,6 +515,78 @@ func TestValidateSchemaRequiresExplicitManagedBlock(t *testing.T) {
 	delete(m.ManagedBlock, "source")
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "managedBlock is missing required key: source") {
 		t.Fatalf("ValidateSchema error = %v, want explicit managedBlock source error", err)
+	}
+}
+
+func TestLoadDoesNotInferManifestIdentityDefaults(t *testing.T) {
+	repo := t.TempDir()
+	packRoot := filepath.Join(repo, "packs", "missing-identity")
+	if err := os.MkdirAll(packRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestText := `schemaVersion: 1
+maturity: skeleton
+
+managedFiles:
+  - references/test/README.md
+promoteFiles:
+  - references/test/README.md
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: rekit:test
+  source: CLAUDE.local.snippet.md
+toolingCandidateSources:
+  - references/test/toolchain-router.md
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+authorityFiles:
+  - references/test/README.md
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+promoteDenyPatterns:
+  - "artifacts[\\/]"
+budgets:
+  defaultMarkdown: 16384
+heavyToolGates:
+  - id: debug
+    title: Debug
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout
+laneTypes:
+  - id: main
+    title: Main
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/test/README.md
+    readOnly: .rekit/facts/**
+    outputs: publication
+  - id: feature
+    title: Feature
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/test/**
+    outputs: observation
+`
+	if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(repo, "missing-identity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(m.Name) != "" || strings.TrimSpace(m.Version) != "" {
+		t.Fatalf("identity defaults = name %q version %q, want no implicit fallback", m.Name, m.Version)
+	}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "name is missing") {
+		t.Fatalf("ValidateSchema error = %v, want missing name error", err)
 	}
 }
 

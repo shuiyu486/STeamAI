@@ -127,8 +127,8 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 		Pack:                    pack,
 		PackRoot:                packRoot,
 		ManifestPath:            manifestPath,
-		Name:                    yamlScalar(lines, "name", pack),
-		Version:                 yamlScalar(lines, "version", "0.0.0"),
+		Name:                    yamlScalar(lines, "name", ""),
+		Version:                 yamlScalar(lines, "version", ""),
 		Description:             yamlScalar(lines, "description", ""),
 		Maturity:                yamlScalar(lines, "maturity", ""),
 		ManagedFiles:            yamlList(lines, "managedFiles"),
@@ -299,6 +299,12 @@ func (m *Manifest) ValidateSchema() error {
 	}
 	if !isSupportedPackMaturity(maturity) {
 		return fmt.Errorf("maturity has unsupported value: %s", m.Maturity)
+	}
+	if strings.TrimSpace(m.Name) == "" {
+		return fmt.Errorf("name is missing")
+	}
+	if strings.TrimSpace(m.Version) == "" {
+		return fmt.Errorf("version is missing")
 	}
 	for _, key := range []string{"file", "blockId", "source"} {
 		if strings.TrimSpace(m.explicitManagedBlock[key]) == "" {

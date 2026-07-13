@@ -211,13 +211,13 @@ git diff --check
 推荐批次形态：
 
 - 抽出单一 default pack 决策点，减少 Go/PowerShell 中散落的 `vmp-re` 字符串；Batch 150 已新增 Go `internal/rekit/defaults.DefaultPack`，并用 release invariant 防止 production Go runtime 重新散落 default pack literal。
-- 将 fallback deny baseline generic 化，pack-specific deny patterns 与 heavy-tool gate action 仅由 manifest 声明；Batch 151 已移除 Go manifest 对 `promoteDenyPatterns` 的隐式 fallback，schema / pack authoring 文档要求 pack 显式声明 deny baseline；Batch 152 已移除 Go manifest 对 `promoteFiles` 的 `managedFiles` 隐式 fallback，要求 pack 显式声明允许回流的 managed 文件子集；Batch 153 已移除 Go manifest 对 `budgets.defaultMarkdown` 的隐式注入，要求 pack 显式声明默认 Markdown/text 预算；Batch 154 已移除 Go manifest 对 `laneTypes.title/workspaceRoot` 的隐式默认值，要求 pack 显式声明工作线展示名、workspace 与边界字段；Batch 155 已移除 Go manifest 对 `managedBlock.file/blockId/source` 的隐式默认值，要求 pack 显式声明 managed block 三要素。
+- 将 fallback deny baseline generic 化，pack-specific deny patterns 与 heavy-tool gate action 仅由 manifest 声明；Batch 151 已移除 Go manifest 对 `promoteDenyPatterns` 的隐式 fallback，schema / pack authoring 文档要求 pack 显式声明 deny baseline；Batch 152 已移除 Go manifest 对 `promoteFiles` 的 `managedFiles` 隐式 fallback，要求 pack 显式声明允许回流的 managed 文件子集；Batch 153 已移除 Go manifest 对 `budgets.defaultMarkdown` 的隐式注入，要求 pack 显式声明默认 Markdown/text 预算；Batch 154 已移除 Go manifest 对 `laneTypes.title/workspaceRoot` 的隐式默认值，要求 pack 显式声明工作线展示名、workspace 与边界字段；Batch 155 已移除 Go manifest 对 `managedBlock.file/blockId/source` 的隐式默认值，要求 pack 显式声明 managed block 三要素；Batch 156 已移除 Go manifest 对 `name` / `version` 的隐式默认值，要求 pack 显式声明 identity 字段。
 - Batch 125 已先选 `generic-binary-re` 作为 pack-neutral Go package E2E 试点，Batch 126 已继续选 `web-security` 验证非 RE-only pack，Batch 127 已将 `web-security` 转向真实临时 case dry-run 工作线，Batch 132 已将 `generic-binary-re` 转向真实临时 case dry-run 工作线，Batch 133 已将 `malware-analysis` 转向真实临时 case dry-run 工作线，Batch 134 已将 `vuln-research` 转向真实临时 case dry-run 工作线，Batch 135 已将 `ctf` 转向真实临时 case dry-run 工作线，Batch 136 已将 `unpack-pe` 转向真实临时 case dry-run 工作线，Batch 137 已将 `ollvm` 转向真实临时 case dry-run 工作线，Batch 138 已将 `android-native` 转向真实临时 case dry-run 工作线；Batch 143 将 heavy-tool gate action 清单纳入 pack manifest 与 Go gate runtime，后续转向 release readiness/CI 门禁、跨 pack 抽样强化或新 pack 引入时的真实 dry-run。
 
 完成信号：
 
 - 非 vmp pack 的 init/doctor/plan-subagents/workstream dry-run 不泄漏 vmp 路径、lane 或 authority 语义。
-- runtime 不含领域业务逻辑；default pack 决策点已在 Batch 150 收口到 Go `defaults.DefaultPack`，Batch 151/152/153/154/155 已取消 Go manifest 的 deny baseline、promoteFiles、defaultMarkdown、laneTypes title/workspaceRoot 与 managedBlock fallback，gate action、default risk、默认 stop conditions、promote deny baseline、回流文件范围、默认文档预算、工作线 workspace/display 边界与 managed block 三要素来自 pack manifest，而不是 Go runtime 硬编码。
+- runtime 不含领域业务逻辑；default pack 决策点已在 Batch 150 收口到 Go `defaults.DefaultPack`，Batch 151/152/153/154/155/156 已取消 Go manifest 的 deny baseline、promoteFiles、defaultMarkdown、laneTypes title/workspaceRoot、managedBlock 与 identity fallback，gate action、default risk、默认 stop conditions、promote deny baseline、回流文件范围、默认文档预算、工作线 workspace/display 边界、managed block 三要素与 pack identity 来自 pack manifest，而不是 Go runtime 硬编码。
 
 ### Stage 8：CI / release readiness / deprecation plan
 
