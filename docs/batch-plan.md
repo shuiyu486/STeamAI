@@ -4594,3 +4594,34 @@ git diff --check
 ```
 
 验证结果：初次 `go test ./...` 在本批仍标记“进行中”且缺验证结果时，按预期触发既有 release handoff freshness guard（`release-check` 不允许最新 batch 未完成）；补齐本批完成状态后，已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/runtime ./internal/rekit/instance ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 151：Manifest promote deny baseline 显式化
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，将 Go manifest loader 中对空 `promoteDenyPatterns` 的隐式 deny baseline 移出 runtime，避免新增 pack 未声明 deny baseline 时静默继承带 RE/VMP 倾向的 artifact/trace/dump 规则；本批不改既有 pack manifest 内容，只让 manifest contract 更显式。
+
+实施范围：
+
+- 移除 `manifest.Load` 对空 `PromoteDenyPatterns` 的隐式 fallback 注入。
+- `ValidateSchema` 新增 `manifest must explicitly declare promoteDenyPatterns` 检查，保持正则有效性与空 pattern 检查。
+- `rekit/schemas/pack-manifest.schema.yml` 将 `promoteDenyPatterns` 列入 required，并说明 runtime 不提供隐式 deny baseline。
+- `docs/pack-authoring.md` 的新 pack 示例改为显式列出 `_template` 通用 baseline，并提醒新增 pack 从该 baseline 开始按领域补充。
+- 重构 manifest tests 的 valid fixture，并新增缺失 `promoteDenyPatterns` 的 drift test。
+- 更新 `CHANGELOG.md`、`docs/go-first-convergence-plan.md` 与本 batch-plan。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 sync/promote apply 行为、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

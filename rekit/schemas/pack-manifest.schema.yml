@@ -13,6 +13,7 @@ required:
   - authorityFiles
   - toolingCandidateSources
   - heavyToolGates
+  - promoteDenyPatterns
   - budgets
 
 fields:
@@ -28,7 +29,7 @@ fields:
   workstreamDefaults: 工作线 runtime 默认值，包含 defaultAuthorityLane、defaultStartLaneType、handoffPath、backupRoot、requestDefaultTargetLane
   authorityFiles: 允许 authority auto-append 的文件 allowlist；必须由 defaultAuthorityLane 的 canWrite 覆盖
   promoteFiles: 允许进入 promote 候选的 managed 文件列表，必须是 managedFiles 子集
-  promoteDenyPatterns: promote 安全阻断正则或字符串模式
+  promoteDenyPatterns: promote 安全阻断正则或字符串模式；必须由 pack 显式声明，runtime 不提供隐式 deny baseline
   subagentRoutes: 可选的子 agent / 工作线 review 分流 route 列表；每项可包含 id、taskTypes、trigger、shardBasis、targetItemsPerAgent、maxParallel、reference、policyOverlay、subagentPermissions、mainAgentOwns、outputContract
   heavyToolGates: pack 声明的重型工具门禁动作列表；Go gate runtime 只接受这里声明的 id，并使用 defaultRisk、requiresConfirmation 与 stopConditions 生成 pending-gate preview/request
   promptFiles: 可选的 common/pack prompt 文档列表，用于 doctor 校验与人工查阅

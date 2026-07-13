@@ -82,6 +82,26 @@ func assertHeavyToolGateSet(t *testing.T, m *Manifest) {
 	}
 }
 
+func validManifestFixture() Manifest {
+	return Manifest{
+		ManifestPath:            "unit-manifest.yml",
+		Maturity:                "template",
+		ManagedFiles:            []string{"references/template/README.md"},
+		ManagedBlock:            map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
+		explicitManagedBlock:    map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
+		ToolingCandidateSources: []string{"references/template/toolchain-router.md"},
+		WorkstreamDefaults:      map[string]string{"defaultAuthorityLane": "main", "defaultStartLaneType": "feature", "backupRoot": ".rekit/backups/sync", "requestDefaultTargetLane": "main"},
+		AuthorityFiles:          []string{"references/template/task-handoff.md"},
+		SyncPolicy:              map[string]string{"managedFiles": "overwrite-with-backup", "templateFiles": "create-if-missing", "localFiles": "never-overwrite"},
+		PromoteDenyPatterns:     []string{"artifacts[\\/]"},
+		HeavyToolGates:          []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, StopConditions: []string{"timeout"}}},
+		LaneTypes: []LaneType{
+			{ID: "main", Authority: true, CanWrite: []string{"references/template/task-handoff.md"}},
+			{ID: "feature"},
+		},
+	}
+}
+
 func TestPackSummaryUsesExplicitMaturity(t *testing.T) {
 	m := &Manifest{
 		Pack:               "plain-pack",
@@ -99,23 +119,9 @@ func TestPackSummaryUsesExplicitMaturity(t *testing.T) {
 }
 
 func TestValidateSchemaRejectsInvalidHeavyToolGates(t *testing.T) {
-	base := Manifest{
-		ManifestPath:            "unit-manifest.yml",
-		Maturity:                "template",
-		ManagedFiles:            []string{"references/template/README.md"},
-		ManagedBlock:            map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
-		explicitManagedBlock:    map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
-		ToolingCandidateSources: []string{"references/template/toolchain-router.md"},
-		WorkstreamDefaults:      map[string]string{"defaultAuthorityLane": "main", "defaultStartLaneType": "feature", "backupRoot": ".rekit/backups/sync", "requestDefaultTargetLane": "main"},
-		AuthorityFiles:          []string{"references/template/task-handoff.md"},
-		SyncPolicy:              map[string]string{"managedFiles": "overwrite-with-backup", "templateFiles": "create-if-missing", "localFiles": "never-overwrite"},
-		PromoteDenyPatterns:     []string{"artifacts[\\/]"},
-		LaneTypes: []LaneType{
-			{ID: "main", Authority: true, CanWrite: []string{"references/template/task-handoff.md"}},
-			{ID: "feature"},
-		},
-	}
+	base := validManifestFixture()
 	withoutGates := base
+	withoutGates.HeavyToolGates = nil
 	if err := withoutGates.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates") {
 		t.Fatalf("ValidateSchema error = %v, want heavyToolGates error", err)
 	}
@@ -128,6 +134,14 @@ func TestValidateSchemaRejectsInvalidHeavyToolGates(t *testing.T) {
 	valid.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, StopConditions: []string{"timeout"}}}
 	if err := valid.ValidateSchema(); err != nil {
 		t.Fatalf("ValidateSchema valid heavyToolGates error = %v", err)
+	}
+}
+
+func TestValidateSchemaRequiresExplicitPromoteDenyPatterns(t *testing.T) {
+	m := validManifestFixture()
+	m.PromoteDenyPatterns = nil
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare promoteDenyPatterns") {
+		t.Fatalf("ValidateSchema error = %v, want explicit promoteDenyPatterns error", err)
 	}
 }
 

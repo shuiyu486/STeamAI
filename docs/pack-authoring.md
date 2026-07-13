@@ -102,7 +102,17 @@ laneTypes:
     outputs: observation,request,candidate,summary
 toolingCandidateSources:
   - references/<pack>/toolchain-router.md
-promoteDenyPatterns: []
+promoteDenyPatterns:
+  - "C:\\"
+  - "artifacts[\\/]"
+  - "captures[\\/]"
+  - "[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\\.(csv|jsonl|log|txt|bin)"
+  - "[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\\.(dmp|bin|raw|exe|dll)"
+  - "\\.dmp\\b"
+  - "0x[0-9A-Fa-f]{6,}"
+  - "ctx[0-9]+"
+  - "round[0-9]+"
+  - "Task #[0-9]+"
 budgets:
   defaultMarkdown: 16384
 ```
@@ -131,7 +141,7 @@ budgets:
 - `references/template/**` 路径和目录名。
 - `subagentRoutes` 的 route id、taskTypes、trigger、shardBasis 和 outputContract。
 - `tooling/catalog.yml` 的工具条目。
-- `commonPolicies`、`policyOverlays`、`promoteDenyPatterns` 和 budgets。
+- `commonPolicies`、`policyOverlays`、`promoteDenyPatterns` 和 budgets；`promoteDenyPatterns` 必须显式声明，不能依赖 runtime fallback，新增 pack 应从 `_template` 的通用 baseline 开始再按领域补充。
 
 `_template` 只作为作者模板，不代表可直接用于真实 case 的领域 pack。
 

@@ -169,9 +169,6 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 	if _, ok := m.Budgets["defaultMarkdown"]; !ok {
 		m.Budgets["defaultMarkdown"] = "16384"
 	}
-	if len(m.PromoteDenyPatterns) == 0 {
-		m.PromoteDenyPatterns = []string{`C:\`, `artifacts[\\/]`, `captures[\\/]`, `[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\.(csv|jsonl|log|txt|bin)`, `[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\.(dmp|bin|raw|exe|dll)`, `\.dmp\b`, `0x[0-9A-Fa-f]{6,}`, `ctx[0-9]+`, `round[0-9]+`, `Task #[0-9]+`}
-	}
 	return m, nil
 }
 
@@ -374,6 +371,9 @@ func (m *Manifest) ValidateSchema() error {
 	}
 	if m.SyncPolicy["managedFiles"] != "overwrite-with-backup" || m.SyncPolicy["templateFiles"] != "create-if-missing" || m.SyncPolicy["localFiles"] != "never-overwrite" {
 		return fmt.Errorf("syncPolicy has unsupported value")
+	}
+	if len(m.PromoteDenyPatterns) == 0 {
+		return fmt.Errorf("manifest must explicitly declare promoteDenyPatterns")
 	}
 	for _, pattern := range m.PromoteDenyPatterns {
 		if strings.TrimSpace(pattern) == "" {
