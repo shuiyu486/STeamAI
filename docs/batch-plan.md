@@ -4039,3 +4039,34 @@ git diff --check
 ```
 
 验证结果：全部通过。`generic-binary-agent-team-dryrun-smoke.ps1`、`catalog-smoke.ps1`、`go test ./internal/rekit/cli -run TestRunGoGenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff -count=1`、`go test ./internal/rekit/cli`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 133：malware-analysis Agent Team real dry-run smoke
+
+状态：已完成。
+
+目标：继续承接 Stage 6/7 中“更多非 `_template` / 非 `vmp-re` pack 从 package E2E 走向真实临时 case dry-run”的未完成项，在 Batch 127、132 已覆盖 `web-security` 与 `generic-binary-re` 后，新增 `malware-analysis` 公共 `/rekit` façade 下的真实临时 case dry-run，验证 sample-analysis lane、network/sandbox pending-gate、candidate/verification/decision ledger、overview、handoff 和 doctor 的端到端闭环。
+
+实施范围：
+
+- 新增 `rekit/tests/malware-analysis-agent-team-dryrun-smoke.ps1`，使用临时 case 运行 `init -Apply`、`start -Apply`、`plan-subagents`、candidate `note`、`gate -WhatIf/-Apply -Action network`、verification `note`、decision `note`、`note -List`、`overview` text/JSON、lane `handoff -Apply` 与 `doctor`。
+- 验证 `gate -WhatIf` 不写 `.rekit/facts/requests.jsonl`，`gate -Apply` 只写 pending-gate request，不执行 sandbox/network detonation/heavy-tool、不写 authority/confirmed。
+- 验证 `plan-subagents` 选择 `malware-analysis:sample-analysis` route、`manual-main-agent` dispatch、`runtime does not spawn subagents` blocked action 与 `canonical-write` 主 agent 写入边界。
+- 验证 handoff 包含 `workspace/samples/sample-analysis-triage/packet.md`、verification/decision/pending-gate 区段，并不泄漏 `web-security`、`workspace/features`、`endpoint-login`、`generic-binary-re`、`workspace/binary`、`binary-analysis-sample`、`references/template` 或 `vmp-re` 语义。
+- 更新 `rekit/tests/catalog.json`、`rekit/tests/README.md`、`docs/go-first-convergence-plan.md`、`docs/release-readiness.md`、CHANGELOG 与 batch-plan，记录 `malware-analysis` 真实 dry-run 覆盖。
+
+边界：本批只使用临时 case 和 review artifact；不执行样本、不 sandbox detonation、不联网、不 debug/dump/patch、不运行 heavy-tool、不自动 spawn subagent、不写 authority/confirmed、不改变 runtime 写入面、不新增 CI workflow。
+
+验证计划：
+
+```powershell
+.\rekit\tests\malware-analysis-agent-team-dryrun-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+.\rekit\tests\malware-analysis-pack-smoke.ps1
+go test ./internal/rekit/cli
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`malware-analysis-agent-team-dryrun-smoke.ps1`、`catalog-smoke.ps1`、`malware-analysis-pack-smoke.ps1`、`go test ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。初次验证发现 `rekit/tests/catalog.json` 的新增条目后缺少分隔逗号，已修复并重跑 catalog smoke 与 Go CLI tests。
