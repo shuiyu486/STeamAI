@@ -4564,3 +4564,33 @@ git diff --check
 ```
 
 验证结果：已通过 `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` JSON/text 已包含 `releaseHandoff.packMaturity`、`pack maturity summary` signal 与 `packMaturity=10` handoff summary，缺失 heavy-tool gate 的 pack maturity fixture 会把 pack maturity inventory 标记为 warnings。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 150：Go runtime default pack 收口
+
+状态：已完成。
+
+目标：回到 Stage 7 pack-neutral hardening，先把 Go runtime 中散落的默认 pack `vmp-re` 决策收口到单一 Go package，避免后续继续在 CLI parse、runtime context、manifest load/normalize 与 legacy instance metadata fallback 中复制 default pack literal；本批不改变默认 pack 值，只降低 pack-neutral 漂移风险。
+
+实施范围：
+
+- 新增 `internal/rekit/defaults.DefaultPack` 作为 Go runtime 的单一默认 pack 决策点。
+- `cli.Parse`、`runtime.New`、`manifest.Load` / `normalizePackID` 与 `instance.Read` 的空 pack / legacy fallback 改为引用 `defaults.DefaultPack`。
+- 更新 runtime / instance / manifest / CLI / release handoff 相关 tests，避免默认 pack 断言继续复制 literal。
+- 新增 release invariant：扫描 `internal/rekit/**`，只允许 production Go default pack literal 出现在 `internal/rekit/defaults/defaults.go` 与 manifest 非 vmp path guard 文案/检测中；显式 pack fixture test 文件保留 allowlist。
+- 更新 `CHANGELOG.md`、`docs/go-first-convergence-plan.md` 与本 batch-plan。
+
+边界：本批只做 Go pack-neutral hardening、测试和文档；不改变默认 pack 值、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/runtime ./internal/rekit/instance ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：初次 `go test ./...` 在本批仍标记“进行中”且缺验证结果时，按预期触发既有 release handoff freshness guard（`release-check` 不允许最新 batch 未完成）；补齐本批完成状态后，已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/runtime ./internal/rekit/instance ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

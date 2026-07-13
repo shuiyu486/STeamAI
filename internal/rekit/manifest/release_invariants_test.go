@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -144,6 +145,75 @@ func TestReleaseCatalogInvariants(t *testing.T) {
 			t.Fatalf("catalog references unknown script %s", script)
 		}
 	}
+}
+
+func TestGoRuntimeDefaultPackInvariants(t *testing.T) {
+	repo := repoRoot(t)
+	defaultPackPackage := "internal/rekit/defaults"
+	defaultPackFile := filepath.ToSlash(filepath.Join(repo, defaultPackPackage, "defaults.go"))
+	manifestFile := filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "manifest", "manifest.go"))
+	allowedLiteralTestFiles := map[string]bool{
+		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "gate", "gate_test.go")):                    true,
+		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "instance", "instance_test.go")):            true,
+		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "note", "note_test.go")):                    true,
+		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "manifest", "manifest_test.go")):            true,
+		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "manifest", "release_invariants_test.go")):  true,
+		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "releasecheck", "release_handoff_test.go")): true,
+		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "cli", "cli_test.go")):                      true,
+	}
+	goFiles := listGoFiles(t, filepath.Join(repo, "internal", "rekit"))
+	for _, path := range goFiles {
+		text := string(readFile(t, path))
+		if !strings.Contains(text, "vmp-re") {
+			continue
+		}
+		slash := filepath.ToSlash(path)
+		if strings.HasSuffix(path, "_test.go") {
+			if !allowedLiteralTestFiles[slash] {
+				t.Fatalf("unexpected test literal vmp-re outside explicit pack fixtures: %s", slash)
+			}
+			continue
+		}
+		switch slash {
+		case defaultPackFile:
+			if !strings.Contains(text, `const DefaultPack = "vmp-re"`) || strings.Count(text, `"vmp-re"`) != 1 {
+				t.Fatalf("%s must define exactly one default pack literal", slash)
+			}
+		case manifestFile:
+			for i, line := range strings.Split(text, "\n") {
+				if strings.Contains(line, "vmp-re") && !manifestNonVMPGuardLiteral(line) {
+					t.Fatalf("manifest guard file has unexpected vmp-re literal at line %d: %s", i+1, line)
+				}
+			}
+		default:
+			t.Fatalf("Go runtime default pack literal must stay centralized in %s: %s", defaultPackPackage, slash)
+		}
+	}
+	for _, productionFile := range []string{
+		"internal/rekit/cli/cli.go",
+		"internal/rekit/instance/instance.go",
+		"internal/rekit/manifest/manifest.go",
+		"internal/rekit/runtime/runtime.go",
+	} {
+		text := readRepoText(t, repo, productionFile)
+		assertTextContains(t, text, `internal/rekit/defaults`, productionFile+" default pack import")
+		assertTextContains(t, text, `defaults.DefaultPack`, productionFile+" default pack reference")
+	}
+}
+
+func manifestNonVMPGuardLiteral(line string) bool {
+	for _, allowed := range []string{
+		"implicit vmp-re fallback is not allowed",
+		"non-vmp pack declares vmp-re path",
+		"non-vmp pack declares vmp-re authority path",
+		"non-vmp pack declares vmp-re workstream default",
+		`(^|/)vmp-re(/|$)`,
+	} {
+		if strings.Contains(line, allowed) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestReleaseSkeletonPackSmokeDiscoveryInvariants(t *testing.T) {
@@ -531,11 +601,37 @@ func loadTestCatalog(t *testing.T, repo string) testCatalog {
 
 func readRepoText(t *testing.T, repo, rel string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(rel)))
+	return string(readFile(t, filepath.Join(repo, filepath.FromSlash(rel))))
+}
+
+func readFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(data)
+	return data
+}
+
+func listGoFiles(t *testing.T, root string) []string {
+	t.Helper()
+	files := []string{}
+	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(strings.ToLower(entry.Name()), ".go") {
+			files = append(files, path)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(files)
+	return files
 }
 
 func assertTextContains(t *testing.T, text, want, label string) {

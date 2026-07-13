@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 )
 
 func TestReadScalarFileStripsSimpleQuotes(t *testing.T) {
@@ -22,7 +24,7 @@ func TestReadScalarFileStripsSimpleQuotes(t *testing.T) {
 	if inst.TemplateRoot != `C:\kit` {
 		t.Fatalf("TemplateRoot = %q, want C:\\kit", inst.TemplateRoot)
 	}
-	if inst.TemplatePack != "vmp-re" {
-		t.Fatalf("TemplatePack = %q, want vmp-re", inst.TemplatePack)
+	if inst.TemplatePack != defaults.DefaultPack {
+		t.Fatalf("TemplatePack = %q, want %s", inst.TemplatePack, defaults.DefaultPack)
 	}
 }

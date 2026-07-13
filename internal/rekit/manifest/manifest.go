@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 )
 
@@ -107,7 +108,7 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 		return nil, err
 	}
 	if strings.TrimSpace(pack) == "" {
-		pack = "vmp-re"
+		pack = defaults.DefaultPack
 	}
 	pack, err = normalizePackID(pack)
 	if err != nil {
@@ -240,7 +241,7 @@ func (m *Manifest) Summary() PackSummary {
 func normalizePackID(pack string) (string, error) {
 	id := strings.TrimSpace(pack)
 	if id == "" {
-		return "vmp-re", nil
+		return defaults.DefaultPack, nil
 	}
 	if filepath.IsAbs(id) || strings.ContainsAny(id, `/\\`) || id == "." || id == ".." || strings.Contains(id, "..") {
 		return "", fmt.Errorf("invalid pack id: %s", pack)
@@ -409,7 +410,7 @@ func (m *Manifest) ValidateSchema() error {
 			return fmt.Errorf("authorityFiles entry is not writable by default authority lane %s: %s", authority.ID, rel)
 		}
 	}
-	if !strings.EqualFold(m.Pack, "vmp-re") {
+	if !strings.EqualFold(m.Pack, defaults.DefaultPack) {
 		if err := m.validateNonVMPPaths(); err != nil {
 			return err
 		}

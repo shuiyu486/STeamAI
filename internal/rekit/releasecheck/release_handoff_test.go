@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 )
 
@@ -152,7 +153,7 @@ func assertHandoffPackMaturity(t *testing.T, handoff ReleaseHandoff) {
 		t.Fatalf("unexpected heavy-tool gate actions: %v", inventory.HeavyToolGateActions)
 	}
 	assertHandoffMaturityPack(t, inventory, "template", "_template")
-	assertHandoffMaturityPack(t, inventory, "mature", "vmp-re")
+	assertHandoffMaturityPack(t, inventory, "mature", defaults.DefaultPack)
 	assertHandoffMaturityPack(t, inventory, "skeleton", "web-security")
 	if len(inventory.HeavyToolGatesByPack) != inventory.Total {
 		t.Fatalf("heavy-tool gate rows = %d, want total %d", len(inventory.HeavyToolGatesByPack), inventory.Total)

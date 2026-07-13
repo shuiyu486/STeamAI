@@ -1,6 +1,10 @@
 package runtime
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+)
 
 func TestNewDiscoversRepoRoot(t *testing.T) {
 	ctx, err := New("", "")
@@ -13,8 +17,8 @@ func TestNewDiscoversRepoRoot(t *testing.T) {
 	if ctx.RuntimeRoot == "" {
 		t.Fatal("RuntimeRoot is empty")
 	}
-	if ctx.Pack != "vmp-re" {
-		t.Fatalf("Pack = %q, want vmp-re", ctx.Pack)
+	if ctx.Pack != defaults.DefaultPack {
+		t.Fatalf("Pack = %q, want %s", ctx.Pack, defaults.DefaultPack)
 	}
 	if ctx.TargetProvided {
 		t.Fatal("TargetProvided = true, want false")

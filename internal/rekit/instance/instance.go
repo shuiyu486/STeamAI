@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 )
 
@@ -35,16 +36,16 @@ func Read(target string) (Instance, error) {
 		if err != nil {
 			return Instance{}, err
 		}
-		return Instance{CaseRoot: caseRoot, InstancePath: instancePath, Source: "instance", TemplateRoot: values["templateRoot"], TemplatePack: valueOr(values["templatePack"], "vmp-re"), ProjectName: valueOr(values["projectName"], projectName(caseRoot)), ProjectRoot: valueOr(values["projectRoot"], caseRoot)}, nil
+		return Instance{CaseRoot: caseRoot, InstancePath: instancePath, Source: "instance", TemplateRoot: values["templateRoot"], TemplatePack: valueOr(values["templatePack"], defaults.DefaultPack), ProjectName: valueOr(values["projectName"], projectName(caseRoot)), ProjectRoot: valueOr(values["projectRoot"], caseRoot)}, nil
 	}
 	if refsf.Exists(legacyPath) {
 		values, err := readScalarFile(legacyPath)
 		if err != nil {
 			return Instance{}, err
 		}
-		return Instance{CaseRoot: caseRoot, InstancePath: legacyPath, Source: "legacy", TemplateRoot: values["templateRoot"], TemplatePack: valueOr(values["templatePack"], "vmp-re"), ProjectName: projectName(caseRoot), ProjectRoot: valueOr(values["currentProjectPath"], caseRoot)}, nil
+		return Instance{CaseRoot: caseRoot, InstancePath: legacyPath, Source: "legacy", TemplateRoot: values["templateRoot"], TemplatePack: valueOr(values["templatePack"], defaults.DefaultPack), ProjectName: projectName(caseRoot), ProjectRoot: valueOr(values["currentProjectPath"], caseRoot)}, nil
 	}
-	return Instance{CaseRoot: caseRoot, InstancePath: instancePath, Source: "missing", TemplatePack: "vmp-re", ProjectName: projectName(caseRoot), ProjectRoot: caseRoot}, nil
+	return Instance{CaseRoot: caseRoot, InstancePath: instancePath, Source: "missing", TemplatePack: defaults.DefaultPack, ProjectName: projectName(caseRoot), ProjectRoot: caseRoot}, nil
 }
 
 func (i Instance) Moved() bool {

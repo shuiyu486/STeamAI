@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 )
@@ -48,8 +49,8 @@ func TestParseDefaults(t *testing.T) {
 	if opt.Command != "status" {
 		t.Fatalf("Command = %q, want status", opt.Command)
 	}
-	if opt.Pack != "vmp-re" {
-		t.Fatalf("Pack = %q, want vmp-re", opt.Pack)
+	if opt.Pack != defaults.DefaultPack {
+		t.Fatalf("Pack = %q, want %s", opt.Pack, defaults.DefaultPack)
 	}
 }
 
@@ -230,10 +231,10 @@ func TestRunStatusJsonDefaultPackContract(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("status JSON did not decode: %v\n%s", err, out.String())
 	}
-	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Mode != "kit" || status.Pack != "vmp-re" || status.Case != nil {
+	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Mode != "kit" || status.Pack != defaults.DefaultPack || status.Case != nil {
 		t.Fatalf("unexpected default status JSON envelope: %+v", status)
 	}
-	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/vmp-re/manifest.yml") || status.Manifest.ManagedFiles != 7 || status.Manifest.PromoteFiles != 7 || status.Manifest.ToolingFiles != 12 {
+	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/"+defaults.DefaultPack+"/manifest.yml") || status.Manifest.ManagedFiles != 7 || status.Manifest.PromoteFiles != 7 || status.Manifest.ToolingFiles != 12 {
 		t.Fatalf("unexpected default manifest summary: %+v", status.Manifest)
 	}
 }
@@ -481,8 +482,8 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	for _, pack := range result.Packs {
 		packs[pack.ID] = pack
 	}
-	if pack := packs["vmp-re"]; pack.Maturity != "mature" || !pack.SchemaValid || pack.HeavyToolGates != 7 {
-		t.Fatalf("unexpected vmp-re release-check row: %+v", pack)
+	if pack := packs[defaults.DefaultPack]; pack.Maturity != "mature" || !pack.SchemaValid || pack.HeavyToolGates != 7 {
+		t.Fatalf("unexpected default pack release-check row: %+v", pack)
 	}
 	if pack := packs["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.HeavyToolGates != 7 {
 		t.Fatalf("unexpected web-security release-check row: %+v", pack)
@@ -656,7 +657,7 @@ func assertReleaseHandoffPackMaturity(t *testing.T, handoff releaseCheckHandoff)
 		t.Fatalf("unexpected release handoff heavy-tool gate actions: %v", inventory.HeavyToolGateActions)
 	}
 	assertReleaseHandoffMaturityPack(t, inventory.PacksByMaturity, "template", "_template")
-	assertReleaseHandoffMaturityPack(t, inventory.PacksByMaturity, "mature", "vmp-re")
+	assertReleaseHandoffMaturityPack(t, inventory.PacksByMaturity, "mature", defaults.DefaultPack)
 	assertReleaseHandoffMaturityPack(t, inventory.PacksByMaturity, "skeleton", "web-security")
 	if len(inventory.HeavyToolGatesByPack) != inventory.Total {
 		t.Fatalf("release handoff pack gate rows = %d, want total %d", len(inventory.HeavyToolGatesByPack), inventory.Total)
@@ -887,8 +888,8 @@ func TestRunPacksJsonInventory(t *testing.T) {
 	for _, pack := range inventory.Packs {
 		byID[pack.ID] = pack
 	}
-	if pack := byID["vmp-re"]; pack.Maturity != "mature" || !pack.SchemaValid || pack.Error != "" || pack.ManagedFiles != 7 || pack.ToolingFiles != 12 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || strings.Join(pack.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,network,patch,symex" || pack.DefaultAuthorityLane != "devirt-main" {
-		t.Fatalf("unexpected vmp-re JSON row: %+v", pack)
+	if pack := byID[defaults.DefaultPack]; pack.Maturity != "mature" || !pack.SchemaValid || pack.Error != "" || pack.ManagedFiles != 7 || pack.ToolingFiles != 12 || pack.SubagentRoutes != 2 || pack.HeavyToolGates != 7 || strings.Join(pack.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,network,patch,symex" || pack.DefaultAuthorityLane != "devirt-main" {
+		t.Fatalf("unexpected default pack JSON row: %+v", pack)
 	}
 	if pack := byID["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.HeavyToolGates != 7 || pack.DefaultAuthorityLane != "main" {
 		t.Fatalf("unexpected web-security JSON row: %+v", pack)

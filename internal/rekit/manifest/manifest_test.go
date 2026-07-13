@@ -7,10 +7,12 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 )
 
-func TestLoadVMPManifestSchema(t *testing.T) {
-	m, err := Load(repoRoot(t), "vmp-re")
+func TestLoadDefaultManifestSchema(t *testing.T) {
+	m, err := Load(repoRoot(t), defaults.DefaultPack)
 	if err != nil {
 		t.Fatal(err)
 	}

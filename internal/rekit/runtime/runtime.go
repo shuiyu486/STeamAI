@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 )
 
@@ -28,7 +29,7 @@ func New(target, pack string) (Context, error) {
 		return Context{}, err
 	}
 	if pack == "" {
-		pack = "vmp-re"
+		pack = defaults.DefaultPack
 	}
 	targetProvided := strings.TrimSpace(target) != ""
 	resolvedTarget := cwd

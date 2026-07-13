@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/attach"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
@@ -55,7 +56,7 @@ type Options struct {
 }
 
 func Parse(args []string) (Options, error) {
-	opt := Options{Command: "status", Pack: "vmp-re"}
+	opt := Options{Command: "status", Pack: defaults.DefaultPack}
 	for i := 0; i < len(args); i++ {
 		if strings.EqualFold(args[i], "--") {
 			continue
@@ -353,7 +354,7 @@ func Parse(args []string) (Options, error) {
 		opt.Command = "status"
 	}
 	if opt.Pack == "" {
-		opt.Pack = "vmp-re"
+		opt.Pack = defaults.DefaultPack
 	}
 	return opt, nil
 }
