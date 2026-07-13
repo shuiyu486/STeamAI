@@ -501,10 +501,14 @@ func (m *Manifest) ValidateSchema() error {
 
 func (m *Manifest) validateSubagentRoutes(managedTargets map[string]bool) error {
 	seen := map[string]bool{}
+	idPattern := regexp.MustCompile(`^[A-Za-z0-9_.-]+:[A-Za-z][A-Za-z0-9_.-]*$`)
 	for _, route := range m.SubagentRoutes {
 		id := strings.TrimSpace(route.ID)
 		if id == "" {
 			return fmt.Errorf("subagent route is missing id in %s", m.ManifestPath)
+		}
+		if !idPattern.MatchString(id) {
+			return fmt.Errorf("subagent route has invalid id: %s", route.ID)
 		}
 		if seen[strings.ToLower(id)] {
 			return fmt.Errorf("duplicate subagent route id: %s", id)

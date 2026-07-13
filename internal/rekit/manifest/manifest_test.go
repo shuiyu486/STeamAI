@@ -309,6 +309,29 @@ func TestValidateSchemaRequiresExplicitListPresence(t *testing.T) {
 	}
 }
 
+func TestValidateSchemaRequiresSubagentRouteNamespacedID(t *testing.T) {
+	m := validManifestFixture()
+	m.SubagentRoutes = []SubagentRoute{{
+		ID:                  "bounded-review",
+		TaskTypes:           "candidate-review",
+		Trigger:             "fixed-boundary read-only review",
+		ShardBasis:          "item",
+		TargetItemsPerAgent: "1",
+		MaxParallel:         "1",
+		Reference:           "references/template/README.md",
+		SubagentPermissions: "read-only",
+		MainAgentOwns:       "validation",
+		OutputContract:      "item,decision",
+	}}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "subagent route has invalid id: bounded-review") {
+		t.Fatalf("ValidateSchema error = %v, want invalid route id error", err)
+	}
+	m.SubagentRoutes[0].ID = "unit:bounded-review"
+	if err := m.ValidateSchema(); err != nil {
+		t.Fatalf("ValidateSchema valid subagent route id error = %v", err)
+	}
+}
+
 func TestValidateSchemaRequiresSubagentRouteTrigger(t *testing.T) {
 	m := validManifestFixture()
 	m.SubagentRoutes = []SubagentRoute{{
