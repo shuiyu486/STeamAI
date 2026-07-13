@@ -35,7 +35,7 @@ fields:
   subagentRoutes: 可选的子 agent / 工作线 review 分流 route 列表；每项可包含 id、taskTypes、trigger、shardBasis、targetItemsPerAgent、maxParallel、reference、policyOverlay、subagentPermissions、mainAgentOwns、outputContract
   heavyToolGates: pack 声明的重型工具门禁动作列表；Go gate runtime 只接受这里声明的 id，并使用 defaultRisk、requiresConfirmation 与 stopConditions 生成 pending-gate preview/request
   promptFiles: 可选的 common/pack prompt 文档列表，用于 doctor 校验与人工查阅
-  laneTypes: 内部工作线类型列表；必须显式声明 title、workspaceRoot、canWrite、readOnly、outputs，并定义 authority，供 `/rekit overview/continue/start/handoff` 使用；runtime 不再为 title/workspaceRoot 注入默认值，且至少应有一个 authority lane
+  laneTypes: 内部工作线类型列表；必须显式声明 title、workspaceRoot、authority、canWrite、readOnly、outputs，并定义 authority true/false，供 `/rekit overview/continue/start/handoff` 使用；runtime 不再为 title/workspaceRoot 注入默认值，也不再把缺失或非法 authority 静默当作 false，且至少应有一个 authority lane
   b3PolicyFile: case-local `.rekit/policy.yml`，由 runtime 初始化，不写在 manifest 中；此 schema 只说明相关字段
   budgets: Markdown/文本预算；必须显式声明 defaultMarkdown 正整数，runtime 不再在 manifest load 时注入默认预算
 
@@ -57,7 +57,7 @@ heavyToolGates:
 laneTypes:
   id: 内部工作线类型 slug，例如 devirt-main、feature-analysis、tooling
   title: 给用户看的名称
-  authority: true 表示此工作线可作为主线 owner；至少应有一个主线工作线
+  authority: 必须显式声明为 true 或 false；true 表示此工作线可作为主线 owner；至少应有一个主线工作线
   workspaceRoot: case 内 workspace 根路径，必须是相对路径且不越出 case
   canWrite: 逗号分隔的可写边界；`own-workspace` 表示只写自己的 workspace
   readOnly: 逗号分隔的只读输入边界，例如 `.rekit/facts/**` 或 confirmed CSV

@@ -16,13 +16,14 @@ import (
 )
 
 type LaneType struct {
-	ID            string
-	Title         string
-	Authority     bool
-	WorkspaceRoot string
-	CanWrite      []string
-	ReadOnly      []string
-	Outputs       []string
+	ID                string
+	Title             string
+	Authority         bool
+	explicitAuthority string
+	WorkspaceRoot     string
+	CanWrite          []string
+	ReadOnly          []string
+	Outputs           []string
 }
 
 type SubagentRoute struct {
@@ -606,6 +607,12 @@ func (m *Manifest) validateLaneTypes() error {
 		if strings.TrimSpace(lane.WorkspaceRoot) == "" {
 			return fmt.Errorf("laneTypes entry %s is missing workspaceRoot", id)
 		}
+		if strings.TrimSpace(lane.explicitAuthority) == "" {
+			return fmt.Errorf("laneTypes entry %s is missing authority", id)
+		}
+		if _, ok := parseStrictBool(lane.explicitAuthority); !ok {
+			return fmt.Errorf("laneTypes entry %s has invalid authority: %s", id, lane.explicitAuthority)
+		}
 		if _, err := m.SourcePath(lane.WorkspaceRoot); err != nil {
 			return err
 		}
@@ -808,13 +815,14 @@ func yamlLaneTypes(lines []string, key string) []LaneType {
 	lanes := make([]LaneType, 0, len(rows))
 	for _, row := range rows {
 		lanes = append(lanes, LaneType{
-			ID:            row["id"],
-			Title:         row["title"],
-			Authority:     parseBool(row["authority"]),
-			WorkspaceRoot: row["workspaceRoot"],
-			CanWrite:      splitScalarList(row["canWrite"]),
-			ReadOnly:      splitScalarList(row["readOnly"]),
-			Outputs:       splitScalarList(row["outputs"]),
+			ID:                row["id"],
+			Title:             row["title"],
+			Authority:         parseBool(row["authority"]),
+			explicitAuthority: row["authority"],
+			WorkspaceRoot:     row["workspaceRoot"],
+			CanWrite:          splitScalarList(row["canWrite"]),
+			ReadOnly:          splitScalarList(row["readOnly"]),
+			Outputs:           splitScalarList(row["outputs"]),
 		})
 	}
 	return lanes
@@ -875,6 +883,17 @@ func parseBool(v string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func parseStrictBool(v string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	default:
+		return false, false
 	}
 }
 
