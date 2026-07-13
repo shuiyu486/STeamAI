@@ -5057,3 +5057,32 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 166：Manifest optional route/tooling list presence
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，将可为空但影响 doctor、route inventory、tooling/prompt 校验的 optional list 字段纳入 manifest presence contract，避免新增 pack 通过 loader 空 slice 隐式省略边界。
+
+实施范围：
+
+- Go manifest parser 将 `commonPolicies`、`policyOverlays`、`subagentRoutes`、`toolingFiles` 与 `promptFiles` 加入统一 `manifestListPresenceKeys`，和既有 required/contract list 一起记录显式 presence。
+- `ValidateSchema` 使用同一 key 集合检查 list presence；可为空 list 仍允许 `[]`，但缺 key 会报告 `manifest must explicitly declare <key>`。
+- manifest tests 用统一 key 集合覆盖 list presence，并新增 optional list no-fallback drift test，确认缺失 `commonPolicies` 不会被空 slice 视作显式声明。
+- `docs/pack-authoring.md`、`rekit/schemas/pack-manifest.schema.yml`、`docs/go-first-convergence-plan.md` 与 `CHANGELOG.md` 同步记录 optional route/tooling list presence contract。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck ./internal/rekit/promote`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

@@ -254,6 +254,12 @@ promoteFiles:
   - references/template/workflow-template.md
   - references/template/toolchain-router.md
 
+commonPolicies: []
+policyOverlays: []
+subagentRoutes: []
+toolingFiles: []
+promptFiles: []
+
 toolingCandidateSources:
   - references/template/toolchain-router.md
 
@@ -352,6 +358,10 @@ laneTypes:
 
 commonPolicies:
   - agent-team
+policyOverlays: []
+subagentRoutes: []
+toolingFiles: []
+promptFiles: []
 
 toolingCandidateSources:
   - references/template/README.md

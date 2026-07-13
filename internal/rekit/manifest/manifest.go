@@ -108,6 +108,23 @@ type PackSummary struct {
 	DefaultAuthorityLane string   `json:"defaultAuthorityLane"`
 }
 
+var manifestListPresenceKeys = []string{
+	"managedFiles",
+	"templateFiles",
+	"localNeverOverwrite",
+	"promoteFiles",
+	"commonPolicies",
+	"policyOverlays",
+	"subagentRoutes",
+	"toolingFiles",
+	"promptFiles",
+	"toolingCandidateSources",
+	"authorityFiles",
+	"promoteDenyPatterns",
+	"heavyToolGates",
+	"laneTypes",
+}
+
 func Load(repoRoot, pack string) (*Manifest, error) {
 	repo, err := filepath.Abs(repoRoot)
 	if err != nil {
@@ -128,7 +145,7 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 	}
 	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
 	explicitManagedBlock := yamlMap(lines, "managedBlock")
-	explicitLists := yamlListPresence(lines, "managedFiles", "templateFiles", "localNeverOverwrite", "promoteFiles", "toolingCandidateSources", "authorityFiles", "promoteDenyPatterns", "heavyToolGates", "laneTypes")
+	explicitLists := yamlListPresence(lines, manifestListPresenceKeys...)
 	explicitMaps := yamlMapPresence(lines, "syncPolicy", "workstreamDefaults", "budgets")
 	m := &Manifest{
 		RepoRoot:                repo,
@@ -350,7 +367,7 @@ func (m *Manifest) ValidateSchema() error {
 	if strings.TrimSpace(m.Description) == "" {
 		return fmt.Errorf("description is missing")
 	}
-	for _, key := range []string{"managedFiles", "templateFiles", "localNeverOverwrite", "promoteFiles", "toolingCandidateSources", "authorityFiles", "promoteDenyPatterns", "heavyToolGates", "laneTypes"} {
+	for _, key := range manifestListPresenceKeys {
 		if !m.explicitLists[key] {
 			return fmt.Errorf("manifest must explicitly declare %s", key)
 		}

@@ -154,6 +154,12 @@ workstreamDefaults:
 authorityFiles:
   - references/template/README.md
 
+commonPolicies: []
+policyOverlays: []
+subagentRoutes: []
+toolingFiles: []
+promptFiles: []
+
 syncPolicy:
   managedFiles: overwrite-with-backup
   templateFiles: create-if-missing
