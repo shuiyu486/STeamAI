@@ -4846,3 +4846,34 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 159：Manifest heavyToolGates requiresConfirmation 字段显式化
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，将 `heavyToolGates.requiresConfirmation` 从宽松 bool 解析收紧为 schema-valid pack 必须显式声明 `true` 的 heavy-tool 确认门禁，避免新增 pack 缺失或拼错 confirmation gate 时被 Go parser 静默当作 false；本批不改既有 pack manifest 内容。
+
+实施范围：
+
+- Go manifest parser 为 `HeavyToolGate` 保留原始 `requiresConfirmation` 文本，供 schema validation 区分“显式 true”和“缺失/非法/false”。
+- `ValidateSchema` 要求每个 heavy-tool gate 显式声明 `requiresConfirmation`，且值必须为 `true`。
+- manifest tests 补 schema validation 与 load/no-fallback drift test，确认缺失 requiresConfirmation 不再静默成为 schema-valid gate。
+- `rekit/schemas/pack-manifest.schema.yml` 说明 `requiresConfirmation` 必须显式声明 true，runtime 不再把缺失或非法值当作 false。
+- `docs/pack-authoring.md` 明确新增 pack 的每个 heavy tool gate 必须显式声明 `requiresConfirmation: true`。
+- 更新 `CHANGELOG.md`、`docs/go-first-convergence-plan.md` 与本 batch-plan。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

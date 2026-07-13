@@ -41,12 +41,13 @@ type SubagentRoute struct {
 }
 
 type HeavyToolGate struct {
-	ID                   string
-	Title                string
-	SideEffects          []string
-	DefaultRisk          string
-	RequiresConfirmation bool
-	StopConditions       []string
+	ID                           string
+	Title                        string
+	SideEffects                  []string
+	DefaultRisk                  string
+	RequiresConfirmation         bool
+	explicitRequiresConfirmation string
+	StopConditions               []string
 }
 
 type Manifest struct {
@@ -552,6 +553,16 @@ func (m *Manifest) validateHeavyToolGates() error {
 		if !effects[id] {
 			return fmt.Errorf("heavyToolGates entry %s sideEffects must include the action id", id)
 		}
+		if strings.TrimSpace(gate.explicitRequiresConfirmation) == "" {
+			return fmt.Errorf("heavyToolGates entry %s is missing requiresConfirmation", id)
+		}
+		requiresConfirmation, ok := parseStrictBool(gate.explicitRequiresConfirmation)
+		if !ok {
+			return fmt.Errorf("heavyToolGates entry %s has invalid requiresConfirmation: %s", id, gate.explicitRequiresConfirmation)
+		}
+		if !requiresConfirmation {
+			return fmt.Errorf("heavyToolGates entry %s must set requiresConfirmation: true", id)
+		}
 		if !gate.RequiresConfirmation {
 			return fmt.Errorf("heavyToolGates entry %s must set requiresConfirmation: true", id)
 		}
@@ -851,12 +862,13 @@ func yamlHeavyToolGates(lines []string, key string) []HeavyToolGate {
 	gates := make([]HeavyToolGate, 0, len(rows))
 	for _, row := range rows {
 		gates = append(gates, HeavyToolGate{
-			ID:                   strings.ToLower(strings.TrimSpace(row["id"])),
-			Title:                row["title"],
-			SideEffects:          splitScalarList(row["sideEffects"]),
-			DefaultRisk:          strings.ToLower(strings.TrimSpace(row["defaultRisk"])),
-			RequiresConfirmation: parseBool(row["requiresConfirmation"]),
-			StopConditions:       splitScalarList(row["stopConditions"]),
+			ID:                           strings.ToLower(strings.TrimSpace(row["id"])),
+			Title:                        row["title"],
+			SideEffects:                  splitScalarList(row["sideEffects"]),
+			DefaultRisk:                  strings.ToLower(strings.TrimSpace(row["defaultRisk"])),
+			RequiresConfirmation:         parseBool(row["requiresConfirmation"]),
+			explicitRequiresConfirmation: row["requiresConfirmation"],
+			StopConditions:               splitScalarList(row["stopConditions"]),
 		})
 	}
 	return gates

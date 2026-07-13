@@ -51,7 +51,7 @@ heavyToolGates:
   title: 给用户看的门禁标题
   sideEffects: 逗号分隔的副作用标签；必须包含 action id，可追加 filesystem-write、external-service、device 等描述性标签
   defaultRisk: 默认风险等级，当前支持 medium、high、critical
-  requiresConfirmation: 必须为 true；`gate -WhatIf/-Apply` 只预览或记录 pending-gate request，不授权实际执行
+  requiresConfirmation: 必须显式声明为 true；`gate -WhatIf/-Apply` 只预览或记录 pending-gate request，不授权实际执行；runtime 不再把缺失或非法 requiresConfirmation 静默当作 false
   stopConditions: 逗号分隔的止损条件；当用户未传 `-StopConditions` 时由 Go gate 写入预览/ledger
 
 laneTypes:

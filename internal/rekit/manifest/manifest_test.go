@@ -99,7 +99,7 @@ func validManifestFixture() Manifest {
 		SyncPolicy:              map[string]string{"managedFiles": "overwrite-with-backup", "templateFiles": "create-if-missing", "localFiles": "never-overwrite"},
 		Budgets:                 map[string]string{"defaultMarkdown": "16384"},
 		PromoteDenyPatterns:     []string{"artifacts[\\/]"},
-		HeavyToolGates:          []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, StopConditions: []string{"timeout"}}},
+		HeavyToolGates:          []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"timeout"}}},
 		LaneTypes: []LaneType{
 			{ID: "main", Title: "Main", Authority: true, explicitAuthority: "true", WorkspaceRoot: "workspace/main", CanWrite: []string{"references/template/task-handoff.md"}, ReadOnly: []string{".rekit/facts/**"}, Outputs: []string{"publication"}},
 			{ID: "feature", Title: "Feature", explicitAuthority: "false", WorkspaceRoot: "workspace/features", CanWrite: []string{"own-workspace"}, ReadOnly: []string{"references/template/**", ".rekit/facts/**"}, Outputs: []string{"observation"}},
@@ -151,13 +151,29 @@ func TestValidateSchemaRejectsInvalidHeavyToolGates(t *testing.T) {
 	if err := withoutGates.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates") {
 		t.Fatalf("ValidateSchema error = %v, want heavyToolGates error", err)
 	}
+	missingConfirmation := base
+	missingConfirmation.HeavyToolGates[0].explicitRequiresConfirmation = ""
+	if err := missingConfirmation.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry debug is missing requiresConfirmation") {
+		t.Fatalf("ValidateSchema error = %v, want missing requiresConfirmation error", err)
+	}
+	invalidConfirmation := base
+	invalidConfirmation.HeavyToolGates[0].explicitRequiresConfirmation = "yes"
+	if err := invalidConfirmation.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry debug has invalid requiresConfirmation") {
+		t.Fatalf("ValidateSchema error = %v, want invalid requiresConfirmation error", err)
+	}
+	falseConfirmation := base
+	falseConfirmation.HeavyToolGates[0].RequiresConfirmation = false
+	falseConfirmation.HeavyToolGates[0].explicitRequiresConfirmation = "false"
+	if err := falseConfirmation.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry debug must set requiresConfirmation: true") {
+		t.Fatalf("ValidateSchema error = %v, want false requiresConfirmation error", err)
+	}
 	invalid := base
-	invalid.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, StopConditions: []string{"timeout"}}}
+	invalid.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"timeout"}}}
 	if err := invalid.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "sideEffects must include") {
 		t.Fatalf("ValidateSchema error = %v, want sideEffects include id error", err)
 	}
 	valid := base
-	valid.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, StopConditions: []string{"timeout"}}}
+	valid.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"timeout"}}}
 	if err := valid.ValidateSchema(); err != nil {
 		t.Fatalf("ValidateSchema valid heavyToolGates error = %v", err)
 	}
@@ -758,6 +774,84 @@ laneTypes:
 	}
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "description is missing") {
 		t.Fatalf("ValidateSchema error = %v, want missing description error", err)
+	}
+}
+
+func TestLoadDoesNotInferHeavyToolRequiresConfirmationDefault(t *testing.T) {
+	repo := t.TempDir()
+	packRoot := filepath.Join(repo, "packs", "missing-gate-confirmation")
+	if err := os.MkdirAll(packRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestText := `schemaVersion: 1
+name: missing-gate-confirmation
+version: 0.1.0
+description: test pack skeleton
+maturity: skeleton
+
+managedFiles:
+  - references/test/README.md
+promoteFiles:
+  - references/test/README.md
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: rekit:test
+  source: CLAUDE.local.snippet.md
+toolingCandidateSources:
+  - references/test/toolchain-router.md
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+authorityFiles:
+  - references/test/README.md
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+promoteDenyPatterns:
+  - "artifacts[\\/]"
+budgets:
+  defaultMarkdown: 16384
+heavyToolGates:
+  - id: debug
+    title: Debug
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    stopConditions: timeout
+laneTypes:
+  - id: main
+    title: Main
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/test/README.md
+    readOnly: .rekit/facts/**
+    outputs: publication
+  - id: feature
+    title: Feature
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/test/**
+    outputs: observation
+`
+	if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(repo, "missing-gate-confirmation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate, ok := m.HeavyToolGate("debug")
+	if !ok {
+		t.Fatal("missing debug gate")
+	}
+	if gate.RequiresConfirmation || strings.TrimSpace(gate.explicitRequiresConfirmation) != "" {
+		t.Fatalf("requiresConfirmation = %t explicit %q, want no implicit fallback", gate.RequiresConfirmation, gate.explicitRequiresConfirmation)
+	}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry debug is missing requiresConfirmation") {
+		t.Fatalf("ValidateSchema error = %v, want explicit requiresConfirmation error", err)
 	}
 }
 
