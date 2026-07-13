@@ -343,6 +343,33 @@ type releaseCheckPowerShellDeprecation struct {
 	Warnings          []string `json:"warnings"`
 }
 
+type releaseCheckHandoff struct {
+	Ready     bool   `json:"ready"`
+	Summary   string `json:"summary"`
+	ReadFirst []struct {
+		Path    string `json:"path"`
+		Present bool   `json:"present"`
+		Purpose string `json:"purpose"`
+	} `json:"readFirst"`
+	Signals []struct {
+		Name    string   `json:"name"`
+		Ready   bool     `json:"ready"`
+		Summary string   `json:"summary"`
+		Details []string `json:"details"`
+	} `json:"signals"`
+	LatestBatch struct {
+		PlanPath         string `json:"planPath"`
+		Present          bool   `json:"present"`
+		Title            string `json:"title"`
+		Status           string `json:"status"`
+		Goal             string `json:"goal"`
+		ValidationResult string `json:"validationResult"`
+	} `json:"latestBatch"`
+	Validation  []releaseCheckStep `json:"validation"`
+	NextActions []string           `json:"nextActions"`
+	Warnings    []string           `json:"warnings"`
+}
+
 type releaseCheckResult struct {
 	Command       string `json:"command"`
 	SchemaVersion int    `json:"schemaVersion"`
@@ -371,6 +398,7 @@ type releaseCheckResult struct {
 		HeavyToolGates int    `json:"heavyToolGates"`
 	} `json:"packs"`
 	PowerShellDeprecation releaseCheckPowerShellDeprecation `json:"powerShellDeprecation"`
+	ReleaseHandoff        releaseCheckHandoff               `json:"releaseHandoff"`
 	HeavyToolGateActions  []string                          `json:"heavyToolGateActions"`
 	Boundaries            []string                          `json:"boundaries"`
 	KnownGaps             []string                          `json:"knownGaps"`
@@ -407,6 +435,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckStep(t, result.RecommendedMinimum, "rekit/rekit.ps1 -Command doctor", "powershell-facade", "rekit/rekit.ps1")
 	assertReleaseCheckCIReleaseGate(t, result.CIReleaseGate)
 	assertReleaseCheckPowerShellDeprecation(t, result.PowerShellDeprecation)
+	assertReleaseCheckHandoff(t, result.ReleaseHandoff)
 	if len(result.RecommendedMinimum) == 0 || len(result.Boundaries) == 0 || len(result.KnownGaps) == 0 || len(result.Packs) == 0 || len(result.HeavyToolGateActions) == 0 {
 		t.Fatalf("release-check omitted required inventory: %+v", result)
 	}
@@ -522,6 +551,56 @@ func assertCIReleaseCommand(t *testing.T, gate releaseCheckCIReleaseGate, jobID,
 	t.Fatalf("CI release gate missing command %s/%s: %+v", jobID, command, gate.RequiredCommands)
 }
 
+func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
+	t.Helper()
+	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
+		t.Fatalf("unexpected release handoff summary: %+v", handoff)
+	}
+	if len(handoff.ReadFirst) != 6 || len(handoff.Signals) != 5 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+		t.Fatalf("release handoff omitted required sections: %+v", handoff)
+	}
+	assertReleaseHandoffReadFirst(t, handoff, "docs/release-readiness.md")
+	assertReleaseHandoffReadFirst(t, handoff, "docs/autonomous-goal.md")
+	assertReleaseHandoffReadFirst(t, handoff, "docs/go-first-convergence-plan.md")
+	assertReleaseHandoffReadFirst(t, handoff, "docs/powershell-deprecation.md")
+	assertReleaseHandoffReadFirst(t, handoff, "docs/batch-plan.md")
+	assertReleaseHandoffReadFirst(t, handoff, "CHANGELOG.md")
+	assertReleaseHandoffSignal(t, handoff, "release-check inventory")
+	assertReleaseHandoffSignal(t, handoff, "CI release gate")
+	assertReleaseHandoffSignal(t, handoff, "PowerShell deprecation")
+	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
+	assertReleaseHandoffSignal(t, handoff, "latest batch documentation")
+	if handoff.LatestBatch.PlanPath != "docs/batch-plan.md" || !handoff.LatestBatch.Present || !strings.Contains(handoff.LatestBatch.Title, "Batch ") || !strings.Contains(handoff.LatestBatch.Status, "已完成") || strings.TrimSpace(handoff.LatestBatch.Goal) == "" || strings.TrimSpace(handoff.LatestBatch.ValidationResult) == "" {
+		t.Fatalf("unexpected release handoff latest batch: %+v", handoff.LatestBatch)
+	}
+}
+
+func assertReleaseHandoffReadFirst(t *testing.T, handoff releaseCheckHandoff, path string) {
+	t.Helper()
+	for _, doc := range handoff.ReadFirst {
+		if doc.Path == path {
+			if !doc.Present || strings.TrimSpace(doc.Purpose) == "" {
+				t.Fatalf("release handoff read-first doc %s = %+v, want present with purpose", path, doc)
+			}
+			return
+		}
+	}
+	t.Fatalf("release handoff missing read-first doc %s: %+v", path, handoff.ReadFirst)
+}
+
+func assertReleaseHandoffSignal(t *testing.T, handoff releaseCheckHandoff, name string) {
+	t.Helper()
+	for _, signal := range handoff.Signals {
+		if signal.Name == name {
+			if !signal.Ready || strings.TrimSpace(signal.Summary) == "" || len(signal.Details) == 0 {
+				t.Fatalf("release handoff signal %s = %+v, want ready with summary/details", name, signal)
+			}
+			return
+		}
+	}
+	t.Fatalf("release handoff missing signal %s: %+v", name, handoff.Signals)
+}
+
 func assertReleaseCheckPowerShellDeprecation(t *testing.T, inventory releaseCheckPowerShellDeprecation) {
 	t.Helper()
 	if !inventory.Ready || inventory.StrategyDocument != "docs/powershell-deprecation.md" || inventory.Summary != "PowerShell deprecation inventory ok" || len(inventory.Warnings) != 0 {
@@ -586,6 +665,8 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
 		"commands=14 modules=14 freezeGates=8 blocked=5",
+		"release handoff: release handoff summary ok ready=true readFirst=6 signals=5",
+		"latest=Batch ",
 		"known gaps:",
 	} {
 		if !strings.Contains(text, expected) {

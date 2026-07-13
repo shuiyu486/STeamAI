@@ -216,6 +216,17 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 	} {
 		assertTextContains(t, checklist, boundary, "release readiness boundary")
 	}
+	for _, releaseHandoff := range []string{
+		"releaseHandoff.ready",
+		"readFirst[]",
+		"signals[]",
+		"latestBatch",
+		"validation[]",
+		"nextActions[]",
+	} {
+		assertTextContains(t, checklist, releaseHandoff, "release readiness handoff inventory")
+	}
+
 	for _, gap := range []string{
 		"bounded dispatch",
 		"actual heavy-tool",

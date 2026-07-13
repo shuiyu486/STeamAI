@@ -4443,3 +4443,33 @@ git diff --check
 ```
 
 验证结果：已通过 `go test ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（ready path 仍零退出）、`go test ./...`、`go vet ./...`、`/rekit doctor` 与 `facade-smoke.ps1`；新增 CLI tests 覆盖 JSON/text not-ready inventory 均先输出诊断再返回 `release-check not ready` 错误。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 146：Release handoff summary inventory
+
+状态：已完成。
+
+目标：承接 Stage 8 release readiness / 新会话接手质量方向，把 release maintainer 和后续 AI 最先需要的 read-first 文档、关键 readiness signal、latest batch 摘要、最小验证命令与 next actions 纳入 Go-owned `release-check` envelope，避免接手时必须先通读多个长文档或只依赖聊天上下文。
+
+实施范围：
+
+- 新增 `internal/rekit/releasecheck/release_handoff.go`，构建 `ReleaseHandoff` inventory：`readFirst[]`、`signals[]`、`latestBatch`、`validation[]`、`nextActions[]` 与 warnings。
+- `release-check -Format json` 新增 `releaseHandoff`；text 输出新增 release handoff summary，展示 handoff readiness、read-first 数量、signal 数量、validation 数量与 latest batch。
+- `releaseHandoff` 对照必读文档存在性、关键 readiness signal、latest `docs/batch-plan.md` 批次状态/目标/验证结果和 gate profile validation commands；缺失时让 `release-check.ready=false` 并输出诊断。
+- 扩展 releasecheck / CLI / release invariant tests，覆盖 repo handoff inventory、缺失接手文档 drift detection、JSON/text envelope 与 release readiness 文档锚点。
+- 更新 README、`docs/release-readiness.md`、`docs/go-first-convergence-plan.md`、CHANGELOG 与本 batch-plan，记录 `releaseHandoff.ready`、`readFirst[]`、`signals[]`、`latestBatch`、`validation[]` 与 `nextActions[]` 的接手语义。
+
+边界：本批只做确定性 release inventory、测试和文档；不执行 CI、不新增外部服务调用、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不写 case/pack runtime state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` JSON 已包含 `releaseHandoff.ready=true`、6 个 `readFirst[]`、5 个 `signals[]`、latest batch 摘要、10 条 validation command 与 next actions。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

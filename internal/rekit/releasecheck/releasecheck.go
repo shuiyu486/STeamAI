@@ -28,6 +28,7 @@ type Result struct {
 	Documents             []DocumentCheck        `json:"documents"`
 	Packs                 []manifest.PackSummary `json:"packs"`
 	PowerShellDeprecation PowerShellDeprecation  `json:"powerShellDeprecation"`
+	ReleaseHandoff        ReleaseHandoff         `json:"releaseHandoff"`
 	HeavyToolGateActions  []string               `json:"heavyToolGateActions"`
 	Boundaries            []string               `json:"boundaries"`
 	KnownGaps             []string               `json:"knownGaps"`
@@ -150,6 +151,14 @@ func Build(repoRoot string) (Result, error) {
 	if !check.PowerShellDeprecation.Ready {
 		check.Ready = false
 		check.Warnings = append(check.Warnings, check.PowerShellDeprecation.Warnings...)
+	}
+	if !check.Ready {
+		check.Summary = "release gate inventory has warnings"
+	}
+	check.ReleaseHandoff = releaseHandoff(repo, check)
+	if !check.ReleaseHandoff.Ready {
+		check.Ready = false
+		check.Warnings = append(check.Warnings, check.ReleaseHandoff.Warnings...)
 	}
 	if !check.Ready {
 		check.Summary = "release gate inventory has warnings"
