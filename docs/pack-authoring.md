@@ -142,7 +142,7 @@ budgets:
 - `references/template/**` 路径和目录名。
 - `subagentRoutes` 的 route id、taskTypes、trigger、shardBasis 和 outputContract。
 - `tooling/catalog.yml` 的工具条目。
-- `commonPolicies`、`policyOverlays`、`promoteFiles`、`promoteDenyPatterns`、budgets、`heavyToolGates.requiresConfirmation` 和 `laneTypes`；`promoteFiles` 必须显式声明允许 case → kit 回流的 managed 文件子集，不能依赖 `managedFiles` fallback；`promoteDenyPatterns` 必须显式声明，不能依赖 runtime fallback；budgets 必须显式声明 `defaultMarkdown` 正整数，不能依赖 runtime 注入默认预算；每个 heavy tool gate 必须显式声明 `requiresConfirmation: true`；`laneTypes` 必须显式声明 title、workspaceRoot、authority true/false、canWrite/readOnly/outputs，不能依赖 runtime 注入 lane 名称、workspace 默认值或把缺失 authority 当作 false；新增 pack 应从 `_template` 的通用 baseline 开始再按领域补充。
+- `commonPolicies`、`policyOverlays`、`promoteFiles`、`syncPolicy`、`promoteDenyPatterns`、budgets、`heavyToolGates.requiresConfirmation` 和 `laneTypes`；`promoteFiles` 必须显式声明允许 case → kit 回流的 managed 文件子集，不能依赖 `managedFiles` fallback；`syncPolicy` 必须显式声明当前 runtime 支持的 managed/template/local 三项策略，不能缺 key 或使用未支持值；`promoteDenyPatterns` 必须显式声明，不能依赖 runtime fallback；budgets 必须显式声明 `defaultMarkdown` 正整数，不能依赖 runtime 注入默认预算；每个 heavy tool gate 必须显式声明 `requiresConfirmation: true`；`laneTypes` 必须显式声明 title、workspaceRoot、authority true/false、canWrite/readOnly/outputs，不能依赖 runtime 注入 lane 名称、workspace 默认值或把缺失 authority 当作 false；新增 pack 应从 `_template` 的通用 baseline 开始再按领域补充。
 
 `_template` 只作为作者模板，不代表可直接用于真实 case 的领域 pack。
 

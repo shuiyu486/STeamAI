@@ -81,6 +81,7 @@ type Manifest struct {
 
 	explicitManagedBlock map[string]string
 	explicitLists        map[string]bool
+	explicitMaps         map[string]bool
 }
 
 type PackSummary struct {
@@ -128,6 +129,7 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
 	explicitManagedBlock := yamlMap(lines, "managedBlock")
 	explicitLists := yamlListPresence(lines, "managedFiles", "templateFiles", "localNeverOverwrite")
+	explicitMaps := yamlMapPresence(lines, "syncPolicy")
 	m := &Manifest{
 		RepoRoot:                repo,
 		Pack:                    pack,
@@ -158,6 +160,7 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 		SyncPolicy:              yamlMap(lines, "syncPolicy"),
 		explicitManagedBlock:    explicitManagedBlock,
 		explicitLists:           explicitLists,
+		explicitMaps:            explicitMaps,
 	}
 	return m, nil
 }
@@ -298,6 +301,29 @@ func (m *Manifest) validateBudgets() error {
 	return nil
 }
 
+func (m *Manifest) validateSyncPolicy() error {
+	if !m.explicitMaps["syncPolicy"] {
+		return fmt.Errorf("manifest must explicitly declare syncPolicy")
+	}
+	for _, entry := range []struct {
+		key  string
+		want string
+	}{
+		{key: "managedFiles", want: "overwrite-with-backup"},
+		{key: "templateFiles", want: "create-if-missing"},
+		{key: "localFiles", want: "never-overwrite"},
+	} {
+		value := strings.TrimSpace(m.SyncPolicy[entry.key])
+		if value == "" {
+			return fmt.Errorf("syncPolicy is missing required key: %s", entry.key)
+		}
+		if value != entry.want {
+			return fmt.Errorf("syncPolicy.%s has unsupported value: %s", entry.key, value)
+		}
+	}
+	return nil
+}
+
 func (m *Manifest) ValidateSchema() error {
 	if strings.TrimSpace(m.SchemaVersion) == "" {
 		return fmt.Errorf("schemaVersion is missing")
@@ -395,13 +421,8 @@ func (m *Manifest) ValidateSchema() error {
 	if len(m.AuthorityFiles) == 0 {
 		return fmt.Errorf("manifest must explicitly declare authorityFiles, even if the list is intentionally minimal")
 	}
-	for _, key := range []string{"managedFiles", "templateFiles", "localFiles"} {
-		if strings.TrimSpace(m.SyncPolicy[key]) == "" {
-			return fmt.Errorf("syncPolicy is missing required key: %s", key)
-		}
-	}
-	if m.SyncPolicy["managedFiles"] != "overwrite-with-backup" || m.SyncPolicy["templateFiles"] != "create-if-missing" || m.SyncPolicy["localFiles"] != "never-overwrite" {
-		return fmt.Errorf("syncPolicy has unsupported value")
+	if err := m.validateSyncPolicy(); err != nil {
+		return err
 	}
 	if err := m.validateBudgets(); err != nil {
 		return err
@@ -753,6 +774,10 @@ func yamlListPresence(lines []string, keys ...string) map[string]bool {
 		out[key] = slices.ContainsFunc(lines, re.MatchString)
 	}
 	return out
+}
+
+func yamlMapPresence(lines []string, keys ...string) map[string]bool {
+	return yamlListPresence(lines, keys...)
 }
 
 func yamlList(lines []string, key string) []string {

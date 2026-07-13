@@ -4968,3 +4968,33 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 163：Manifest syncPolicy 显式化
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，将 `syncPolicy` 从只检查当前 map 值收紧为显式 manifest contract，避免新增 pack 缺失 sync 写入策略时被 Go loader 的空 map 状态或泛化 unsupported-value 诊断掩盖。
+
+实施范围：
+
+- Go manifest parser 记录 `syncPolicy` map key 是否在 manifest 中显式声明，不在 loader 阶段补默认策略。
+- `ValidateSchema` 新增 `validateSyncPolicy`，要求 `syncPolicy` 显式存在，且 `managedFiles=overwrite-with-backup`、`templateFiles=create-if-missing`、`localFiles=never-overwrite` 三项都必须显式声明。
+- unsupported value 诊断从泛化 `syncPolicy has unsupported value` 收紧为 `syncPolicy.<key> has unsupported value: <value>`，便于新增 pack authoring 定位具体策略漂移。
+- manifest tests 覆盖缺失 map、缺失 key、未支持值与 load/no-fallback drift，确认缺失 `syncPolicy` 不会被 runtime 补默认策略。
+- `docs/pack-authoring.md`、`rekit/schemas/pack-manifest.schema.yml`、`docs/go-first-convergence-plan.md` 与 `CHANGELOG.md` 同步记录 syncPolicy contract。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

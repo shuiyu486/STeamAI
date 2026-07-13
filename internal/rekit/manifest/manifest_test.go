@@ -102,6 +102,7 @@ func validManifestFixture() Manifest {
 		ToolingCandidateSources: []string{"references/template/toolchain-router.md"},
 		WorkstreamDefaults:      map[string]string{"defaultAuthorityLane": "main", "defaultStartLaneType": "feature", "backupRoot": ".rekit/backups/sync", "requestDefaultTargetLane": "main"},
 		AuthorityFiles:          []string{"references/template/task-handoff.md"},
+		explicitMaps:            map[string]bool{"syncPolicy": true},
 		SyncPolicy:              map[string]string{"managedFiles": "overwrite-with-backup", "templateFiles": "create-if-missing", "localFiles": "never-overwrite"},
 		Budgets:                 map[string]string{"defaultMarkdown": "16384"},
 		PromoteDenyPatterns:     []string{"artifacts[\\/]"},
@@ -293,6 +294,96 @@ func TestValidateSchemaRequiresExplicitPromoteFiles(t *testing.T) {
 	m.PromoteFiles = nil
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare promoteFiles") {
 		t.Fatalf("ValidateSchema error = %v, want explicit promoteFiles error", err)
+	}
+}
+
+func TestValidateSchemaRequiresExplicitSyncPolicy(t *testing.T) {
+	m := validManifestFixture()
+	m.explicitMaps["syncPolicy"] = false
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare syncPolicy") {
+		t.Fatalf("ValidateSchema error = %v, want explicit syncPolicy error", err)
+	}
+	m = validManifestFixture()
+	delete(m.SyncPolicy, "templateFiles")
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "syncPolicy is missing required key: templateFiles") {
+		t.Fatalf("ValidateSchema error = %v, want missing syncPolicy key error", err)
+	}
+	m = validManifestFixture()
+	m.SyncPolicy["managedFiles"] = "overwrite"
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "syncPolicy.managedFiles has unsupported value: overwrite") {
+		t.Fatalf("ValidateSchema error = %v, want unsupported syncPolicy value error", err)
+	}
+}
+
+func TestLoadDoesNotInferSyncPolicyDefault(t *testing.T) {
+	repo := t.TempDir()
+	packRoot := filepath.Join(repo, "packs", "missing-sync-policy")
+	if err := os.MkdirAll(packRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestText := `schemaVersion: 1
+name: missing-sync-policy
+version: 0.1.0
+description: test pack skeleton
+maturity: skeleton
+managedFiles:
+  - references/test/README.md
+templateFiles: []
+localNeverOverwrite: []
+promoteFiles:
+  - references/test/README.md
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: rekit:test
+  source: CLAUDE.local.snippet.md
+toolingCandidateSources:
+  - references/test/toolchain-router.md
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+authorityFiles:
+  - references/test/README.md
+promoteDenyPatterns:
+  - "artifacts[\\/]"
+budgets:
+  defaultMarkdown: 16384
+heavyToolGates:
+  - id: debug
+    title: Debug
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout
+laneTypes:
+  - id: main
+    title: Main
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/test/README.md
+    readOnly: .rekit/facts/**
+    outputs: publication
+  - id: feature
+    title: Feature
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/test/**
+    outputs: observation
+`
+	if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(repo, "missing-sync-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.SyncPolicy) != 0 || m.explicitMaps["syncPolicy"] {
+		t.Fatalf("SyncPolicy defaults = %v explicitMaps = %v, want no implicit syncPolicy", m.SyncPolicy, m.explicitMaps)
+	}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare syncPolicy") {
+		t.Fatalf("ValidateSchema error = %v, want explicit syncPolicy error", err)
 	}
 }
 

@@ -29,7 +29,7 @@ fields:
   templateFiles: 只在 case 缺失时实例化的模板文件列表；必须显式声明，允许空列表但不能由 runtime 隐式推断
   localNeverOverwrite: 永不被 sync 覆盖、永不被 promote 的 case-local 文件；必须显式声明，允许空列表但不能由 runtime 隐式推断
   managedBlock: 单个 managed block 定义，必须显式声明 file/blockId/source；runtime 不再注入默认 managed block host、blockId 或 source
-  syncPolicy: sync 默认策略；当前 runtime 支持 managedFiles=overwrite-with-backup、templateFiles=create-if-missing、localFiles=never-overwrite
+  syncPolicy: sync 默认策略；必须显式声明 managedFiles=overwrite-with-backup、templateFiles=create-if-missing、localFiles=never-overwrite，不能缺 key 或依赖 runtime fallback
   workstreamDefaults: 工作线 runtime 默认值，包含 defaultAuthorityLane、defaultStartLaneType、handoffPath、backupRoot、requestDefaultTargetLane
   authorityFiles: 允许 authority auto-append 的文件 allowlist；必须由 defaultAuthorityLane 的 canWrite 覆盖
   promoteFiles: 允许进入 promote 候选的 managed 文件列表，必须显式声明且必须是 managedFiles 子集；runtime 不再把 managedFiles 隐式作为 promoteFiles
