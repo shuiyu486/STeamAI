@@ -12,7 +12,7 @@
 
 - Go backend 已是多数确定性 runtime 路径的 owner：`status`、`packs`、`doctor/validate`、case lifecycle、sync/promote、overview、note、gate、start/handoff、continue preview/apply safe subset。
 - PowerShell `rekit/rekit.ps1` 仍是公共 façade：负责参数兼容、旧文本 flow、fallback、少量 parity smoke 和 `REKIT_GO_DISABLE=1` 回退。
-- Agent Team dry-run 已从 `_template` package E2E 扩展到 `generic-binary-re`、`web-security` package E2E，并新增 `web-security`、`generic-binary-re`、`malware-analysis`、`vuln-research`、`ctf` 真实临时 case smoke。
+- Agent Team dry-run 已从 `_template` package E2E 扩展到 `generic-binary-re`、`web-security` package E2E，并新增 `web-security`、`generic-binary-re`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe` 真实临时 case smoke。
 - 发布门禁应优先依赖 Go-owned `release-check` inventory、Go tests / `go vet` / doctor / 少量 Windows façade smoke；不要把大型 pack matrix 作为默认必跑。
 
 ## 执行清单
@@ -49,7 +49,7 @@ git diff --check
 - 改 façade 委托：追加 `facade-smoke.ps1`。
 - 改某个 pack skeleton：运行对应 `*-pack-smoke.ps1`；跨 pack helper 改动才运行 matrix 子集或 discovery。
 - 改 sync/promote 写入：运行对应 preflight/apply smoke，并确认 backup、deny、restore 与 pack-root containment。
-- 改 Agent Team / workstream / ledger / gate：运行对应临时 case smoke，例如 `agent-team-review-loop-smoke.ps1`、`gate-parity-smoke.ps1`、`web-security-agent-team-dryrun-smoke.ps1`、`vuln-research-agent-team-dryrun-smoke.ps1`。
+- 改 Agent Team / workstream / ledger / gate：运行对应临时 case smoke，例如 `agent-team-review-loop-smoke.ps1`、`gate-parity-smoke.ps1`、`web-security-agent-team-dryrun-smoke.ps1`、`vuln-research-agent-team-dryrun-smoke.ps1`、`unpack-pe-agent-team-dryrun-smoke.ps1`。
 
 ### 发布前人工检查
 
@@ -91,7 +91,7 @@ Release gate 通过的最低标准：
 | `generic-binary-re` | skeleton | main | 已有 package E2E 与真实临时 case dry-run；不执行样本/debug/trace/dump/patch。 |
 | `malware-analysis` | skeleton | main | 已有真实临时 case dry-run；不执行样本、不联网、不 sandbox detonation。 |
 | `ollvm` | skeleton | main | 不执行样本、不 trace/dump/patch。 |
-| `unpack-pe` | skeleton | main | 不执行样本、不 debug/dump/patch、不写 unpacked binary。 |
+| `unpack-pe` | skeleton | main | 已有真实临时 case dry-run；不执行样本、不 debug/dump/patch、不写 unpacked binary。 |
 | `vmp-re` | mature | devirt-main | 首个 mature pack；仍需 heavy-tool/authority/confirmed 人工 gate。 |
 | `vuln-research` | skeleton | main | 已有真实临时 case dry-run；不连接 live target、不主动扫描、不 fuzz、不 replay exploit。 |
 | `web-security` | skeleton | main | 已有 package E2E 与真实临时 case dry-run；不发真实网络请求。 |
@@ -124,4 +124,4 @@ PowerShell legacy / fallback 路径（详细冻结/删除策略见 `docs/powersh
 - actual heavy-tool 执行未迁入 deterministic runtime；full-trace/debug/inject/patch/dump/network 仍必须显式 gate。
 - authority/confirmed 写入仍需人工确认，不由 Go `continue -Apply` 自动执行。
 - policy schema 迁移、PowerShell runtime deprecation 的实际删除批次和 CI workflow 尚未进入默认发布路径；Batch 129 已新增 `docs/powershell-deprecation.md` 作为策略入口，Batch 130 已新增 Go-owned `release-check` inventory 作为本机/CI release gate 前置检查，Batch 131 已新增 façade freeze invariant 防止默认委托集合和 blocked 边界漂移。
-- 目前 `generic-binary-re`、`web-security`、`malware-analysis`、`vuln-research` 与 `ctf` 已有真实临时 case dry-run；其它 skeleton pack 仍主要依赖 pack smoke 和 package/route 覆盖。
+- 目前 `generic-binary-re`、`web-security`、`malware-analysis`、`vuln-research`、`ctf` 与 `unpack-pe` 已有真实临时 case dry-run；其它 skeleton pack 仍主要依赖 pack smoke 和 package/route 覆盖。
