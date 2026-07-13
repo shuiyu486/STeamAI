@@ -131,6 +131,9 @@ managedFiles:
 templateFiles:
   - references/template/task-handoff.template.md
 
+localNeverOverwrite:
+  - references/template/task-handoff.md
+
 promoteFiles:
   - references/template/README.md
 

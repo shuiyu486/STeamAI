@@ -4877,3 +4877,34 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 160：Manifest required list presence 显式化
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，将 `managedFiles`、`templateFiles` 与 `localNeverOverwrite` 从 loader 默认空 slice / 非空检查收紧为 schema-valid pack 必须显式声明的 required list key；允许空列表，但不能缺 key，避免新增 pack 的 sync/promote/local 边界被 runtime 隐式推断。
+
+实施范围：
+
+- Go manifest parser 记录 required list key 的显式 presence，并移除 load 阶段对空 `managedFiles` 的 hard error，让缺 key 统一由 `ValidateSchema` 诊断。
+- `ValidateSchema` 要求 `managedFiles`、`templateFiles` 与 `localNeverOverwrite` 都显式声明；空列表保持合法输入，只表示 pack 有意不声明该类文件。
+- manifest tests 补 required-list schema validation、load/no-fallback drift test，并对既有 text fixtures 补显式空列表，避免遮挡原有 fallback 断言。
+- promote package tests 的临时 manifest fixture 补齐 required list key，保持 promote apply validation 仍覆盖 pack source 写入/restore 边界。
+- `rekit/schemas/pack-manifest.schema.yml`、`docs/pack-authoring.md` 与 `docs/go-first-convergence-plan.md` 明确 required list 必须显式声明。
+- 更新 `CHANGELOG.md` 与本 batch-plan。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

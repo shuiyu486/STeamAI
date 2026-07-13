@@ -246,6 +246,8 @@ managedFiles:
   - references/template/README.md
   - references/template/workflow-template.md
   - references/template/toolchain-router.md
+templateFiles: []
+localNeverOverwrite: []
 
 promoteFiles:
   - references/template/README.md
@@ -306,6 +308,8 @@ maturity: template
 managedFiles:
   - references/template/README.md
   - references/template/workflow-template.md
+templateFiles: []
+localNeverOverwrite: []
 
 promoteFiles:
   - references/template/README.md

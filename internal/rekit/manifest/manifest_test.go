@@ -84,15 +84,20 @@ func assertHeavyToolGateSet(t *testing.T, m *Manifest) {
 
 func validManifestFixture() Manifest {
 	return Manifest{
-		ManifestPath:            "unit-manifest.yml",
-		Name:                    "unit-pack",
-		Version:                 "0.1.0",
-		Description:             "Unit test pack",
-		Maturity:                "template",
-		ManagedFiles:            []string{"references/template/README.md"},
-		PromoteFiles:            []string{"references/template/README.md"},
-		ManagedBlock:            map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
-		explicitManagedBlock:    map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
+		ManifestPath:         "unit-manifest.yml",
+		Name:                 "unit-pack",
+		Version:              "0.1.0",
+		Description:          "Unit test pack",
+		Maturity:             "template",
+		ManagedFiles:         []string{"references/template/README.md"},
+		PromoteFiles:         []string{"references/template/README.md"},
+		ManagedBlock:         map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
+		explicitManagedBlock: map[string]string{"file": "CLAUDE.local.md", "blockId": "rekit:router", "source": "CLAUDE.local.snippet.md"},
+		explicitLists: map[string]bool{
+			"managedFiles":        true,
+			"templateFiles":       true,
+			"localNeverOverwrite": true,
+		},
 		ToolingCandidateSources: []string{"references/template/toolchain-router.md"},
 		WorkstreamDefaults:      map[string]string{"defaultAuthorityLane": "main", "defaultStartLaneType": "feature", "backupRoot": ".rekit/backups/sync", "requestDefaultTargetLane": "main"},
 		AuthorityFiles:          []string{"references/template/task-handoff.md"},
@@ -179,11 +184,96 @@ func TestValidateSchemaRejectsInvalidHeavyToolGates(t *testing.T) {
 	}
 }
 
+func TestValidateSchemaRequiresExplicitRequiredLists(t *testing.T) {
+	for _, key := range []string{"managedFiles", "templateFiles", "localNeverOverwrite"} {
+		m := validManifestFixture()
+		m.explicitLists[key] = false
+		if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare "+key) {
+			t.Fatalf("ValidateSchema error = %v, want explicit %s error", err, key)
+		}
+	}
+}
+
 func TestValidateSchemaRequiresExplicitPromoteFiles(t *testing.T) {
 	m := validManifestFixture()
 	m.PromoteFiles = nil
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare promoteFiles") {
 		t.Fatalf("ValidateSchema error = %v, want explicit promoteFiles error", err)
+	}
+}
+
+func TestLoadDoesNotInferRequiredListPresence(t *testing.T) {
+	repo := t.TempDir()
+	packRoot := filepath.Join(repo, "packs", "missing-required-lists")
+	if err := os.MkdirAll(packRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestText := `schemaVersion: 1
+name: missing-required-lists
+version: 0.1.0
+description: test pack skeleton
+maturity: skeleton
+
+managedFiles:
+  - references/test/README.md
+promoteFiles:
+  - references/test/README.md
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: rekit:test
+  source: CLAUDE.local.snippet.md
+toolingCandidateSources:
+  - references/test/toolchain-router.md
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+authorityFiles:
+  - references/test/README.md
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+promoteDenyPatterns:
+  - "artifacts[\\/]"
+budgets:
+  defaultMarkdown: 16384
+heavyToolGates:
+  - id: debug
+    title: Debug
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout
+laneTypes:
+  - id: main
+    title: Main
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/test/README.md
+    readOnly: .rekit/facts/**
+    outputs: publication
+  - id: feature
+    title: Feature
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/test/**
+    outputs: observation
+`
+	if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(repo, "missing-required-lists")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.TemplateFiles) != 0 || len(m.LocalFiles) != 0 || m.explicitLists["templateFiles"] || m.explicitLists["localNeverOverwrite"] {
+		t.Fatalf("required list defaults = templateFiles %v localNeverOverwrite %v explicit %v, want no implicit presence", m.TemplateFiles, m.LocalFiles, m.explicitLists)
+	}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare templateFiles") {
+		t.Fatalf("ValidateSchema error = %v, want explicit templateFiles error", err)
 	}
 }
 
@@ -201,6 +291,8 @@ maturity: skeleton
 
 managedFiles:
   - references/test/README.md
+templateFiles: []
+localNeverOverwrite: []
 managedBlock:
   file: CLAUDE.local.md
   blockId: rekit:test
@@ -293,6 +385,8 @@ maturity: skeleton
 
 managedFiles:
   - references/test/README.md
+templateFiles: []
+localNeverOverwrite: []
 promoteFiles:
   - references/test/README.md
 managedBlock:
@@ -397,6 +491,8 @@ maturity: skeleton
 
 managedFiles:
   - references/test/README.md
+templateFiles: []
+localNeverOverwrite: []
 promoteFiles:
   - references/test/README.md
 managedBlock:
@@ -474,6 +570,8 @@ maturity: skeleton
 
 managedFiles:
   - references/test/README.md
+templateFiles: []
+localNeverOverwrite: []
 promoteFiles:
   - references/test/README.md
 managedBlock:
@@ -569,7 +667,7 @@ func TestListMarksMissingAndInvalidMaturity(t *testing.T) {
 		if tc.maturityLine != "" {
 			manifestText += tc.maturityLine + "\n"
 		}
-		manifestText += "\nmanagedFiles:\n  - references/test/README.md\n"
+		manifestText += "\nmanagedFiles:\n  - references/test/README.md\ntemplateFiles: []\nlocalNeverOverwrite: []\n"
 		if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -642,6 +740,8 @@ maturity: skeleton
 
 managedFiles:
   - references/test/README.md
+templateFiles: []
+localNeverOverwrite: []
 promoteFiles:
   - references/test/README.md
 managedBlock:
@@ -716,6 +816,8 @@ maturity: skeleton
 
 managedFiles:
   - references/test/README.md
+templateFiles: []
+localNeverOverwrite: []
 promoteFiles:
   - references/test/README.md
 managedBlock:
@@ -791,6 +893,8 @@ maturity: skeleton
 
 managedFiles:
   - references/test/README.md
+templateFiles: []
+localNeverOverwrite: []
 promoteFiles:
   - references/test/README.md
 managedBlock:
@@ -869,6 +973,8 @@ maturity: skeleton
 
 managedFiles:
   - references/test/README.md
+templateFiles: []
+localNeverOverwrite: []
 promoteFiles:
   - references/test/README.md
 managedBlock:

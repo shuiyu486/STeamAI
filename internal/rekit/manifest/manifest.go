@@ -79,6 +79,7 @@ type Manifest struct {
 	SyncPolicy              map[string]string
 
 	explicitManagedBlock map[string]string
+	explicitLists        map[string]bool
 }
 
 type PackSummary struct {
@@ -124,6 +125,7 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 	}
 	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
 	explicitManagedBlock := yamlMap(lines, "managedBlock")
+	explicitLists := yamlListPresence(lines, "managedFiles", "templateFiles", "localNeverOverwrite")
 	m := &Manifest{
 		RepoRoot:                repo,
 		Pack:                    pack,
@@ -152,9 +154,7 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 		ManagedBlock:            cloneStringMap(explicitManagedBlock),
 		SyncPolicy:              yamlMap(lines, "syncPolicy"),
 		explicitManagedBlock:    explicitManagedBlock,
-	}
-	if len(m.ManagedFiles) == 0 {
-		return nil, fmt.Errorf("manifest managedFiles is empty: %s", manifestPath)
+		explicitLists:           explicitLists,
 	}
 	return m, nil
 }
@@ -310,6 +310,11 @@ func (m *Manifest) ValidateSchema() error {
 	}
 	if strings.TrimSpace(m.Description) == "" {
 		return fmt.Errorf("description is missing")
+	}
+	for _, key := range []string{"managedFiles", "templateFiles", "localNeverOverwrite"} {
+		if !m.explicitLists[key] {
+			return fmt.Errorf("manifest must explicitly declare %s", key)
+		}
 	}
 	for _, key := range []string{"file", "blockId", "source"} {
 		if strings.TrimSpace(m.explicitManagedBlock[key]) == "" {
@@ -729,6 +734,15 @@ func yamlScalar(lines []string, key, def string) string {
 		}
 	}
 	return def
+}
+
+func yamlListPresence(lines []string, keys ...string) map[string]bool {
+	out := map[string]bool{}
+	for _, key := range keys {
+		re := regexp.MustCompile(`^` + regexp.QuoteMeta(key) + `\s*:`)
+		out[key] = slices.ContainsFunc(lines, re.MatchString)
+	}
+	return out
 }
 
 func yamlList(lines []string, key string) []string {
