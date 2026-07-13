@@ -5142,3 +5142,31 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 169：Manifest subagent route list-field contract
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，收紧 `subagentRoutes` 中逗号/分号分隔字段的可消费性，避免空 token、尾随分隔符或仅分隔符内容进入 schema-valid route contract。
+
+实施范围：
+
+- `ValidateSchema` 新增 `validateSubagentRouteListField`，校验 `taskTypes`、`mainAgentOwns` 与 `outputContract` 非空且不含空列表项。
+- manifest tests 覆盖 `taskTypes`、`mainAgentOwns` 与 `outputContract` 的空项、尾随分隔符和分号分隔空项场景。
+- `docs/pack-authoring.md`、`rekit/schemas/pack-manifest.schema.yml`、`docs/go-first-convergence-plan.md` 与 `CHANGELOG.md` 同步记录 route list-field contract。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

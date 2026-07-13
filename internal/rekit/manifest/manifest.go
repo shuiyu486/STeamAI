@@ -514,8 +514,8 @@ func (m *Manifest) validateSubagentRoutes(managedTargets map[string]bool) error 
 			return fmt.Errorf("duplicate subagent route id: %s", id)
 		}
 		seen[strings.ToLower(id)] = true
-		if strings.TrimSpace(route.TaskTypes) == "" {
-			return fmt.Errorf("subagent route %s is missing taskTypes", id)
+		if err := validateSubagentRouteListField(id, "taskTypes", route.TaskTypes); err != nil {
+			return err
 		}
 		if strings.TrimSpace(route.Trigger) == "" {
 			return fmt.Errorf("subagent route %s is missing trigger", id)
@@ -546,11 +546,23 @@ func (m *Manifest) validateSubagentRoutes(managedTargets map[string]bool) error 
 		if strings.TrimSpace(route.SubagentPermissions) == "" {
 			return fmt.Errorf("subagent route %s is missing subagentPermissions", id)
 		}
-		if strings.TrimSpace(route.MainAgentOwns) == "" {
-			return fmt.Errorf("subagent route %s is missing mainAgentOwns", id)
+		if err := validateSubagentRouteListField(id, "mainAgentOwns", route.MainAgentOwns); err != nil {
+			return err
 		}
-		if strings.TrimSpace(route.OutputContract) == "" {
-			return fmt.Errorf("subagent route %s is missing outputContract", id)
+		if err := validateSubagentRouteListField(id, "outputContract", route.OutputContract); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSubagentRouteListField(routeID, field, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("subagent route %s is missing %s", routeID, field)
+	}
+	for item := range strings.SplitSeq(strings.NewReplacer(";", ",").Replace(value), ",") {
+		if strings.TrimSpace(item) == "" {
+			return fmt.Errorf("subagent route %s contains an empty %s item", routeID, field)
 		}
 	}
 	return nil
