@@ -3889,3 +3889,32 @@ git diff --check
 ```
 
 验证结果：全部通过。`web-security-agent-team-dryrun-smoke.ps1`、`catalog-smoke.ps1`、`go test ./internal/rekit/cli -run TestRunGoWebSecurityPackNeutralE2EStartPlanGateOverviewHandoff -count=1`、`go test ./internal/rekit/cli`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 128：release readiness checklist and invariant
+
+状态：已完成。
+
+目标：承接 Stage 8 CI / release readiness / deprecation plan，在 Batch 127 已补 `web-security` 真实临时 case dry-run 后，新增一页 release readiness checklist，明确本机 release gate、recommended minimum、发布前人工检查、pack maturity matrix、Go-owned/PowerShell legacy 状态与 known gaps，降低新会话接手和 release 前门禁漂移风险。
+
+实施范围：
+
+- 新增 `docs/release-readiness.md`，顶部包含读取指南、实施摘要、执行清单、验证标准、风险与注意事项，并补当前 pack maturity matrix、Go-owned / PowerShell legacy 状态与 known gaps。
+- 在 README、仓库 `CLAUDE.md` 与 `docs/go-first-convergence-plan.md` 中接入 `docs/release-readiness.md` 入口；Stage 8 推荐批次与完成信号记录 Batch 128 已新增 checklist。
+- 扩展 `internal/rekit/manifest/release_invariants_test.go`，新增 `TestReleaseReadinessChecklistInvariants`，锁定 release checklist 必备章节、catalog recommended minimum、本机 release gate 命令、全部 pack matrix、关键安全边界、known gaps，以及 README/CLAUDE/go-first 入口链接。
+- 更新 CHANGELOG 与 batch-plan，记录 Batch 128 的 release readiness 收口边界。
+
+边界：本批只新增 release readiness 文档与 Go invariant test，不新增 CI workflow、不改变 runtime 写入面、不改变 façade safe-set、不新增 PowerShell 编排、不运行大型 matrix；release gate 仍以 Go tests、go vet、doctor、少量 Windows façade smoke 和按改动类型选择的临时 case smoke 为主。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest -run TestReleaseReadinessChecklistInvariants -count=1
+go test ./internal/rekit/manifest
+.\rekit\tests\facade-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/manifest -run TestReleaseReadinessChecklistInvariants -count=1`、`go test ./internal/rekit/manifest`、`facade-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

@@ -9,7 +9,8 @@
 1. 根目录 `CLAUDE.md` 的项目定位、维护入口、关键边界。
 2. 本文件顶部的读取指南、实施摘要、执行清单、验证标准、风险与注意事项。
 3. `docs/batch-plan.md` 最新阶段记录。
-4. 具体动手前再按需读取 `docs/go-runtime-migration.md`、`docs/agent-team-rollout-plan.md`、`rekit/tests/README.md`、相关 Go/PowerShell runtime 文件。
+4. 发布或收口前读取 `docs/release-readiness.md` 的一页门禁和 known gaps。
+5. 具体动手前再按需读取 `docs/go-runtime-migration.md`、`docs/agent-team-rollout-plan.md`、`rekit/tests/README.md`、相关 Go/PowerShell runtime 文件。
 
 本文件不是要求一次性完成所有事项；它定义未来几十轮自主推进的方向、阶段切片和停止条件。每轮应选择一个中型到大型、可验证的垂直切片实施，不要把目标拆成只改一两行的微批次。
 
@@ -223,12 +224,12 @@ git diff --check
 推荐批次形态：
 
 - 建立轻量 CI：Go checks + doctor + 少量 Windows façade smoke；不要把大型 PowerShell matrix 作为默认必跑。
-- 编写 release checklist：versioning、CHANGELOG、known gaps、PowerShell legacy status、pack maturity matrix。
+- 编写 release checklist：versioning、CHANGELOG、known gaps、PowerShell legacy status、pack maturity matrix；Batch 128 已新增 `docs/release-readiness.md` 作为一页 release gate / known gaps 入口。
 - 明确 PowerShell runtime deprecation strategy：哪些模块 legacy-only、哪些命令 Go-owned、何时删除或冻结。
 
 完成信号：
 
-- 新会话能通过一页 current-state/release checklist 了解项目状态。
+- 新会话能通过一页 current-state/release checklist 了解项目状态；Batch 128 已新增 `docs/release-readiness.md` 并用 Go release invariant 锁定核心章节、命令、pack matrix 和 known gaps。
 - release gate 可在本机和 CI 中稳定执行。
 
 ## 自主推进优先级建议

@@ -164,18 +164,95 @@ func TestReleaseSkeletonPackSmokeDiscoveryInvariants(t *testing.T) {
 	}
 }
 
-func loadTestCatalog(t *testing.T, repo string) testCatalog {
-	t.Helper()
-	path := filepath.Join(repo, "rekit", "tests", "catalog.json")
-	data, err := os.ReadFile(path)
+func TestReleaseReadinessChecklistInvariants(t *testing.T) {
+	repo := repoRoot(t)
+	checklist := readRepoText(t, repo, "docs/release-readiness.md")
+	catalog := loadTestCatalog(t, repo)
+
+	for _, section := range []string{
+		"## 读取指南",
+		"## 实施摘要",
+		"## 执行清单",
+		"## 验证标准",
+		"## 风险与注意事项",
+		"## 当前 pack maturity matrix",
+		"## Go-owned 与 PowerShell legacy 状态",
+		"## Known gaps",
+	} {
+		assertTextContains(t, checklist, section, "release readiness section")
+	}
+
+	for _, command := range catalog.RecommendedMinimum {
+		assertTextContains(t, checklist, command, "release readiness recommended minimum")
+	}
+	for _, command := range []string{
+		"go test ./...",
+		"go vet ./...",
+		"./rekit/rekit.ps1 -Command doctor",
+		"./rekit/tests/facade-smoke.ps1",
+		"git diff --check",
+	} {
+		assertTextContains(t, checklist, command, "release readiness local gate")
+	}
+
+	packs, err := List(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, pack := range packs {
+		assertTextContains(t, checklist, "`"+pack.ID+"`", "release readiness pack matrix")
+	}
+
+	for _, boundary := range []string{
+		"不默认运行大型 PowerShell matrix",
+		"不执行真实网络请求",
+		"不写 authority/confirmed",
+		"gate -Apply",
+		"continue -Apply",
+		"sync/promote",
+		"REKIT_GO_DISABLE=1",
+	} {
+		assertTextContains(t, checklist, boundary, "release readiness boundary")
+	}
+	for _, gap := range []string{
+		"bounded dispatch",
+		"actual heavy-tool",
+		"authority/confirmed",
+		"policy schema 迁移",
+		"PowerShell runtime deprecation",
+	} {
+		assertTextContains(t, checklist, gap, "release readiness known gap")
+	}
+
+	for _, doc := range []string{"README.md", "CLAUDE.md", "docs/go-first-convergence-plan.md"} {
+		assertTextContains(t, readRepoText(t, repo, doc), "docs/release-readiness.md", doc+" release readiness link")
+	}
+}
+
+func loadTestCatalog(t *testing.T, repo string) testCatalog {
+	t.Helper()
+	data := []byte(readRepoText(t, repo, "rekit/tests/catalog.json"))
 	var catalog testCatalog
 	if err := json.Unmarshal(data, &catalog); err != nil {
 		t.Fatalf("catalog.json did not decode: %v", err)
 	}
 	return catalog
+}
+
+func readRepoText(t *testing.T, repo, rel string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func assertTextContains(t *testing.T, text, want, label string) {
+	t.Helper()
+	if !strings.Contains(text, want) {
+		t.Fatalf("%s missing %q", label, want)
+	}
 }
 
 func listPowerShellScripts(t *testing.T, dir string) map[string]bool {

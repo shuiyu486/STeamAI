@@ -62,6 +62,7 @@ BEGIN.
 - 长期愿景与阶段路线：`docs/vision.md`
 - 后续批次计划：`docs/batch-plan.md`
 - Go-first 收束与 release readiness 阶段计划：`docs/go-first-convergence-plan.md`
+- 发布门禁与当前 release readiness checklist：`docs/release-readiness.md`
 - 设计文档：`docs/design.md`
 - pack 编写指南：`docs/pack-authoring.md`
 - evidence / intervention 账本草案：`docs/evidence-ledger.md`
