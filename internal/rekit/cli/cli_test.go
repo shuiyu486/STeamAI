@@ -1889,6 +1889,162 @@ func TestRunGoGateDispatchE2EPlanGateOverviewHandoff(t *testing.T) {
 	}
 }
 
+func TestRunGoReviewerDecisionE2ENoteOverviewHandoff(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	start := decodeStartResult(t, out.Bytes())
+	if !start.IsMutation || !start.Applied || start.Lane.ID != "feature-login" {
+		t.Fatalf("unexpected start result: %+v", start)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "candidate", "-Lane", "feature-login", "-Subject", "candidate login flow", "-Summary", "candidate awaiting reviewer verdict", "-Actor", "feature-agent", "-Confidence", "high", "-Status", "open", "-Risk", "medium", "-TargetRef", "candidate-login", "-BatchId", "batch-review", "-EvidenceRefs", "workspace/features/feature-login/packet.md"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var candidate struct {
+		Applied bool           `json:"applied"`
+		EventID string         `json:"eventId"`
+		Path    string         `json:"path"`
+		Event   map[string]any `json:"event"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &candidate); err != nil {
+		t.Fatalf("candidate note stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !candidate.Applied || candidate.EventID == "" || candidate.Path != ".rekit/facts/candidates.jsonl" || candidate.Event["kind"] != "candidate" || candidate.Event["status"] != "open" || candidate.Event["confidence"] != "high" {
+		t.Fatalf("unexpected candidate append result: %+v", candidate)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "verification", "-Lane", "feature-login", "-Subject", "review target", "-Summary", "reviewer accepted candidate evidence", "-Actor", "reviewer-smoke", "-Verifier", "manual-review", "-Verdict", "accepted", "-TargetRef", "candidate-login", "-BatchId", "batch-review", "-EvidenceRefs", "workspace/features/feature-login/packet.md"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var verification struct {
+		Applied bool           `json:"applied"`
+		Event   map[string]any `json:"event"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &verification); err != nil {
+		t.Fatalf("verification note stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !verification.Applied || verification.Event["kind"] != "verification" || verification.Event["verifier"] != "manual-review" || verification.Event["verdict"] != "accepted" || verification.Event["target"] != "candidate-login" {
+		t.Fatalf("unexpected verification append result: %+v", verification)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "decision", "-Lane", "feature-login", "-Subject", "merge decision", "-Summary", "main accepted reviewed candidate", "-Actor", "runtime-test", "-Decision", "accept", "-Reason", "reviewer accepted evidence", "-TargetRef", "candidate-login", "-BatchId", "batch-review"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var decision struct {
+		Applied bool           `json:"applied"`
+		Event   map[string]any `json:"event"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decision); err != nil {
+		t.Fatalf("decision note stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !decision.Applied || decision.Event["kind"] != "decision" || decision.Event["decision"] != "accept" || decision.Event["actor"] != "runtime-test" || decision.Event["reason"] != "reviewer accepted evidence" {
+		t.Fatalf("unexpected decision append result: %+v", decision)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-List", "-Kind", "verification", "-Lane", "feature-login", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var list struct {
+		EventCount int `json:"eventCount"`
+		Groups     []struct {
+			Kind   string           `json:"kind"`
+			Events []map[string]any `json:"events"`
+		} `json:"groups"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &list); err != nil {
+		t.Fatalf("verification list stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if list.EventCount != 1 || len(list.Groups) != 1 || list.Groups[0].Kind != "verification" || len(list.Groups[0].Events) != 1 || list.Groups[0].Events[0]["verdict"] != "accepted" {
+		t.Fatalf("unexpected verification list: %+v", list)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-List", "-Kind", "decision", "-Lane", "feature-login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if text := out.String(); !strings.Contains(text, "[decision] (1 条)") || !strings.Contains(text, "merge decision") || !strings.Contains(text, "decision=accept") || !strings.Contains(text, "by=runtime-test") || !strings.Contains(text, "batch=batch-review") {
+		t.Fatalf("decision note list missing expected fields:\n%s", text)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var overviewResult struct {
+		Counts struct {
+			Candidates       int `json:"candidates"`
+			PendingDecisions int `json:"pendingDecisions"`
+		} `json:"counts"`
+		Sections struct {
+			OpenCandidates struct {
+				Total  int              `json:"total"`
+				Events []map[string]any `json:"events"`
+			} `json:"openCandidates"`
+			Verifications struct {
+				Total  int              `json:"total"`
+				Events []map[string]any `json:"events"`
+			} `json:"verifications"`
+			Decisions struct {
+				Total  int              `json:"total"`
+				Events []map[string]any `json:"events"`
+			} `json:"decisions"`
+			Batches struct {
+				Total   int `json:"total"`
+				Batches []struct {
+					ID     string         `json:"id"`
+					Events int            `json:"events"`
+					Kinds  map[string]int `json:"kinds"`
+				} `json:"batches"`
+			} `json:"batches"`
+		} `json:"sections"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &overviewResult); err != nil {
+		t.Fatalf("overview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if overviewResult.Counts.Candidates != 1 || overviewResult.Counts.PendingDecisions != 0 || overviewResult.Sections.OpenCandidates.Total != 1 || overviewResult.Sections.Verifications.Total != 1 || overviewResult.Sections.Decisions.Total != 1 || overviewResult.Sections.Batches.Total != 1 {
+		t.Fatalf("unexpected overview reviewer/decision counts: %+v", overviewResult)
+	}
+	if overviewResult.Sections.OpenCandidates.Events[0]["subject"] != "candidate login flow" || overviewResult.Sections.Verifications.Events[0]["verdict"] != "accepted" || overviewResult.Sections.Decisions.Events[0]["decision"] != "accept" || overviewResult.Sections.Batches.Batches[0].ID != "batch-review" || overviewResult.Sections.Batches.Batches[0].Events != 3 || overviewResult.Sections.Batches.Batches[0].Kinds["verification"] != 1 {
+		t.Fatalf("unexpected overview reviewer/decision details: %+v", overviewResult.Sections)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"未决 candidate：", "candidate login flow", "最近 verification：", "verifier=manual-review", "verdict=accepted", "最近 decision：", "decision=accept", "by=runtime-test", "reviewer accepted evidence"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("overview text missing %q:\n%s", expected, out.String())
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	handoff := decodeHandoffResult(t, out.Bytes())
+	if !handoff.IsMutation || !handoff.Applied || handoff.Project || handoff.Lane == nil || handoff.Lane.ID != "feature-login" {
+		t.Fatalf("unexpected handoff result: %+v", handoff)
+	}
+	latest := assertStartWrite(t, handoff.Writes, ".rekit/handovers/feature-login-latest.md", "write-latest-lane-handoff")
+	handoffText, err := os.ReadFile(latest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"# rekit 工作线接手：feature-login", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-login", "by=reviewer-smoke", "## decision", "decision=accept", "by=runtime-test", "reviewer accepted evidence"} {
+		if !strings.Contains(string(handoffText), expected) {
+			t.Fatalf("handoff missing %q:\n%s", expected, string(handoffText))
+		}
+	}
+}
+
 func TestRunContinueRejectsUnsupportedModes(t *testing.T) {
 	caseRoot := attachedCaseWithPack(t, "vmp-re")
 	writeContinueFixture(t, caseRoot)

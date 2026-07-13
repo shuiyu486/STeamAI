@@ -296,11 +296,11 @@
       "id": "agent-team-review-loop-smoke",
       "script": "agent-team-review-loop-smoke.ps1",
       "category": "agent-team",
-      "purpose": "Validate review packet to default note what-if/append, verification/decision/note-list/overview/handoff visibility loop, and default note list text/JSON delegation.",
-      "recommendedFor": ["review loop", "verification display", "decision display", "note append delegation", "note what-if delegation", "note list text delegation", "note list JSON delegation"],
+      "purpose": "Validate review packet to default note what-if/append, verification/decision/note-list/overview/handoff visibility loop, default note list text/JSON delegation, and Go package reviewer/decision E2E coverage.",
+      "recommendedFor": ["review loop", "verification display", "decision display", "note append delegation", "note what-if delegation", "note list text delegation", "note list JSON delegation", "reviewer decision E2E", "Go package E2E"],
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
-      "riskBoundary": "Temporary case only; no subagent spawn, heavy-tool execution, or authority/confirmed write.",
+      "riskBoundary": "Temporary case only; package E2E writes only case-local facts/handoff in a temporary fixture; no subagent spawn, heavy-tool execution, or authority/confirmed write.",
       "relatedDocs": ["docs/agent-team-usage.md", "docs/evidence-ledger.md", "rekit/tests/README.md"]
     },
     {
