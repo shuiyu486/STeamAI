@@ -4291,3 +4291,32 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/manifest -run TestReleaseGateWorkflowInvariants -count=1`、`go test ./internal/rekit/manifest`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。文档收尾已检查并更新 README、CLAUDE.md、`rekit/tests/README.md` 与 `docs/powershell-deprecation.md`。
+
+### Batch 141：长期自主 goal 与新会话接手指南
+
+状态：已完成。
+
+目标：回应维护者希望“给出后续优化大方向、写入文档、防止上下文压缩后方向偏移、提供可复制 goal 语句、避免每轮改动过小”的要求，把未来几十到上百轮自主推进的北极星、阶段性大方向、停止条件、验证标准和新会话接手 prompt 固化为仓库文档，并用 Go release invariant 锁定入口。
+
+实施范围：
+
+- 新增 `docs/autonomous-goal.md`，包含读取指南、实施摘要、执行清单、验证标准、风险与注意事项、五个长期大方向、推荐执行顺序、新会话接手开场白和可直接复制的长期 goal 语句。
+- 在 README、CLAUDE.md 与 `docs/go-first-convergence-plan.md` 顶部导航中接入 `docs/autonomous-goal.md`，让新会话优先读取该文档。
+- 扩展 `internal/rekit/manifest/release_invariants_test.go`，新增 `TestAutonomousGoalGuideInvariants`，锁定文档必备章节、五个大方向、关键边界和入口链接。
+- 更新 CHANGELOG 与 batch-plan，记录 Batch 141 作为 Stage 8 的新会话接手质量/governance 收口批次。
+
+边界：本批只新增长期 goal / 接手指南文档与静态 invariant；不改变 runtime、PowerShell façade、CI workflow、pack manifest、case state 或 smoke 行为；不执行真实 case、网络、扫描、fuzz、exploit replay、debug、dump、patch、hook、设备连接或 heavy-tool；不写 authority/confirmed；不迁移 policy schema；不删除 PowerShell runtime。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest -run TestAutonomousGoalGuideInvariants -count=1
+go test ./internal/rekit/manifest
+go run ./cmd/rekit -- -Command release-check -Format json
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/manifest -run TestAutonomousGoalGuideInvariants -count=1`、`go test ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

@@ -15,6 +15,7 @@
 - 长期愿景与阶段实施方案：`docs/vision.md`
 - 当前架构说明：`docs/design.md`
 - 后续批次计划：`docs/batch-plan.md`
+- 长期自主 goal 与新会话接手指南：`docs/autonomous-goal.md`
 - pack 编写指南：`docs/pack-authoring.md`（新 pack 可从 `packs/_template/` 复制；`packs/web-security/`、`packs/malware-analysis/`、`packs/vuln-research/`、`packs/ctf/`、`packs/unpack-pe/`、`packs/ollvm/`、`packs/android-native/` 与 `packs/generic-binary-re/` 是首批安全领域 pack 骨架）
 - evidence / intervention 账本草案：`docs/evidence-ledger.md`
 - 半自动 orchestration 计划：`docs/orchestration-plan.md`

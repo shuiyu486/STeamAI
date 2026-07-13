@@ -61,6 +61,7 @@ BEGIN.
 - 参考资料吸收映射：`docs/reference-absorption.md`
 - 长期愿景与阶段路线：`docs/vision.md`
 - 后续批次计划：`docs/batch-plan.md`
+- 长期自主 goal 与新会话接手指南：`docs/autonomous-goal.md`
 - Go-first 收束与 release readiness 阶段计划：`docs/go-first-convergence-plan.md`
 - 发布门禁与当前 release readiness checklist：`docs/release-readiness.md`
 - 轻量 CI release gate：`.github/workflows/release-gate.yml`

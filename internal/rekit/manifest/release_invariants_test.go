@@ -276,6 +276,59 @@ func TestReleaseGateWorkflowInvariants(t *testing.T) {
 	}
 }
 
+func TestAutonomousGoalGuideInvariants(t *testing.T) {
+	repo := repoRoot(t)
+	guide := readRepoText(t, repo, "docs/autonomous-goal.md")
+
+	for _, section := range []string{
+		"## 读取指南",
+		"## 实施摘要",
+		"## 执行清单",
+		"## 验证标准",
+		"## 风险与注意事项",
+		"## 大方向与阶段性实施小方向",
+		"## 推荐执行顺序",
+		"## 新会话接手开场白",
+		"## 可直接复制的长期 goal 语句",
+	} {
+		assertTextContains(t, guide, section, "autonomous goal guide section")
+	}
+
+	for _, direction := range []string{
+		"PowerShell deprecation 准备与 fallback 收口",
+		"Policy / ledger schema append-only hardening",
+		"Pack-neutral invariant hardening",
+		"Release gate / CI maturity",
+		"新会话接手质量与 goal governance",
+	} {
+		assertTextContains(t, guide, direction, "autonomous goal guide direction")
+	}
+	for _, boundary := range []string{
+		"不要做只改一两行的微批次",
+		"不执行真实网络请求",
+		"不写 authority/confirmed",
+		"不自动迁移历史 case state",
+		"不要直接删除 PowerShell runtime",
+		"不把大型 PowerShell matrix",
+		"保持 append-only",
+	} {
+		assertTextContains(t, guide, boundary, "autonomous goal guide boundary")
+	}
+	for _, snippet := range []string{
+		"推荐总 goal（中大型自主推进）",
+		"保守版 goal",
+		"PowerShell deprecation readiness 专项 goal",
+		"Policy / ledger schema 专项 goal",
+		"Pack-neutral invariant 专项目标",
+	} {
+		assertTextContains(t, guide, snippet, "autonomous goal prompt snippet")
+	}
+
+	for _, doc := range []string{"README.md", "CLAUDE.md", "docs/go-first-convergence-plan.md"} {
+		assertTextContains(t, readRepoText(t, repo, doc), "docs/autonomous-goal.md", doc+" autonomous goal link")
+	}
+}
+
 func TestPowerShellDeprecationStrategyInvariants(t *testing.T) {
 	repo := repoRoot(t)
 	strategy := readRepoText(t, repo, "docs/powershell-deprecation.md")
