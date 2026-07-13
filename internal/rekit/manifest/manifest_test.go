@@ -378,6 +378,29 @@ func TestValidateSchemaRequiresSubagentRouteTrigger(t *testing.T) {
 	}
 }
 
+func TestValidateSchemaRequiresValidSubagentRouteShardBasis(t *testing.T) {
+	m := validManifestFixture()
+	m.SubagentRoutes = []SubagentRoute{{
+		ID:                  "unit:bounded-review",
+		TaskTypes:           "candidate-review",
+		Trigger:             "fixed-boundary read-only review",
+		ShardBasis:          "function-or-",
+		TargetItemsPerAgent: "1",
+		MaxParallel:         "1",
+		Reference:           "references/template/README.md",
+		SubagentPermissions: "read-only",
+		MainAgentOwns:       "validation",
+		OutputContract:      "item,decision",
+	}}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "subagent route unit:bounded-review has invalid shardBasis: function-or-") {
+		t.Fatalf("ValidateSchema error = %v, want invalid shardBasis error", err)
+	}
+	m.SubagentRoutes[0].ShardBasis = "function-or-handler"
+	if err := m.ValidateSchema(); err != nil {
+		t.Fatalf("ValidateSchema valid shardBasis error = %v", err)
+	}
+}
+
 func TestValidateSchemaRequiresSupportedSubagentPermissions(t *testing.T) {
 	m := validManifestFixture()
 	m.SubagentRoutes = []SubagentRoute{{

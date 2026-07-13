@@ -539,8 +539,8 @@ func (m *Manifest) validateSubagentRoutes(managedTargets, policyOverlays map[str
 		if strings.TrimSpace(route.Trigger) == "" {
 			return fmt.Errorf("subagent route %s is missing trigger", id)
 		}
-		if strings.TrimSpace(route.ShardBasis) == "" {
-			return fmt.Errorf("subagent route %s is missing shardBasis", id)
+		if err := validateSubagentShardBasis(id, route.ShardBasis); err != nil {
+			return err
 		}
 		if n := optionPositiveInt(route.TargetItemsPerAgent); n < 1 {
 			return fmt.Errorf("subagent route %s has invalid targetItemsPerAgent: %s", id, route.TargetItemsPerAgent)
@@ -573,6 +573,21 @@ func (m *Manifest) validateSubagentRoutes(managedTargets, policyOverlays map[str
 		}
 		if err := validateSubagentRouteListField(id, "outputContract", route.OutputContract); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+var subagentShardBasisSegmentPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
+
+func validateSubagentShardBasis(routeID, value string) error {
+	basis := strings.TrimSpace(value)
+	if basis == "" {
+		return fmt.Errorf("subagent route %s is missing shardBasis", routeID)
+	}
+	for segment := range strings.SplitSeq(basis, "-or-") {
+		if !subagentShardBasisSegmentPattern.MatchString(segment) {
+			return fmt.Errorf("subagent route %s has invalid shardBasis: %s", routeID, basis)
 		}
 	}
 	return nil
