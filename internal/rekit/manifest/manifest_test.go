@@ -102,11 +102,15 @@ func validManifestFixture() Manifest {
 		ToolingCandidateSources: []string{"references/template/toolchain-router.md"},
 		WorkstreamDefaults:      map[string]string{"defaultAuthorityLane": "main", "defaultStartLaneType": "feature", "backupRoot": ".rekit/backups/sync", "requestDefaultTargetLane": "main"},
 		AuthorityFiles:          []string{"references/template/task-handoff.md"},
-		explicitMaps:            map[string]bool{"syncPolicy": true},
-		SyncPolicy:              map[string]string{"managedFiles": "overwrite-with-backup", "templateFiles": "create-if-missing", "localFiles": "never-overwrite"},
-		Budgets:                 map[string]string{"defaultMarkdown": "16384"},
-		PromoteDenyPatterns:     []string{"artifacts[\\/]"},
-		HeavyToolGates:          []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"timeout"}}},
+		explicitMaps: map[string]bool{
+			"syncPolicy":         true,
+			"workstreamDefaults": true,
+			"budgets":            true,
+		},
+		SyncPolicy:          map[string]string{"managedFiles": "overwrite-with-backup", "templateFiles": "create-if-missing", "localFiles": "never-overwrite"},
+		Budgets:             map[string]string{"defaultMarkdown": "16384"},
+		PromoteDenyPatterns: []string{"artifacts[\\/]"},
+		HeavyToolGates:      []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"timeout"}}},
 		LaneTypes: []LaneType{
 			{ID: "main", Title: "Main", Authority: true, explicitAuthority: "true", WorkspaceRoot: "workspace/main", CanWrite: []string{"references/template/task-handoff.md"}, ReadOnly: []string{".rekit/facts/**"}, Outputs: []string{"publication"}},
 			{ID: "feature", Title: "Feature", explicitAuthority: "false", WorkspaceRoot: "workspace/features", CanWrite: []string{"own-workspace"}, ReadOnly: []string{"references/template/**", ".rekit/facts/**"}, Outputs: []string{"observation"}},
@@ -545,6 +549,11 @@ func TestValidateSchemaRequiresExplicitPromoteDenyPatterns(t *testing.T) {
 
 func TestValidateSchemaRequiresExplicitDefaultBudget(t *testing.T) {
 	m := validManifestFixture()
+	m.explicitMaps["budgets"] = false
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare budgets") {
+		t.Fatalf("ValidateSchema error = %v, want explicit budgets map error", err)
+	}
+	m = validManifestFixture()
 	m.Budgets = nil
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare budgets.defaultMarkdown") {
 		t.Fatalf("ValidateSchema error = %v, want explicit default budget error", err)
@@ -626,11 +635,27 @@ laneTypes:
 	if got := strings.TrimSpace(m.Budgets["defaultMarkdown"]); got != "" {
 		t.Fatalf("Budgets[defaultMarkdown] = %q, want no implicit fallback", got)
 	}
-	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare budgets.defaultMarkdown") {
-		t.Fatalf("ValidateSchema error = %v, want explicit default budget error", err)
+	if m.explicitMaps["budgets"] {
+		t.Fatalf("explicitMaps[budgets] = true, want no implicit budgets map presence")
+	}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare budgets") {
+		t.Fatalf("ValidateSchema error = %v, want explicit budgets map error", err)
 	}
 	if got := m.BudgetLimit("references/test/README.md"); got != 16384 {
 		t.Fatalf("BudgetLimit fallback = %d, want runtime safety fallback 16384", got)
+	}
+}
+
+func TestValidateSchemaRequiresExplicitWorkstreamDefaults(t *testing.T) {
+	m := validManifestFixture()
+	m.explicitMaps["workstreamDefaults"] = false
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare workstreamDefaults") {
+		t.Fatalf("ValidateSchema error = %v, want explicit workstreamDefaults error", err)
+	}
+	m = validManifestFixture()
+	delete(m.WorkstreamDefaults, "backupRoot")
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "workstreamDefaults is missing required key: backupRoot") {
+		t.Fatalf("ValidateSchema error = %v, want missing workstreamDefaults key error", err)
 	}
 }
 
@@ -659,6 +684,77 @@ func TestValidateSchemaRequiresExplicitLaneTypeFields(t *testing.T) {
 	m.LaneTypes[0].explicitAuthority = "yes"
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "laneTypes entry main has invalid authority") {
 		t.Fatalf("ValidateSchema error = %v, want invalid lane authority error", err)
+	}
+}
+
+func TestLoadDoesNotInferWorkstreamDefaultsMap(t *testing.T) {
+	repo := t.TempDir()
+	packRoot := filepath.Join(repo, "packs", "missing-workstream-defaults")
+	if err := os.MkdirAll(packRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestText := `schemaVersion: 1
+name: missing-workstream-defaults
+version: 0.1.0
+description: test pack skeleton
+maturity: skeleton
+managedFiles:
+  - references/test/README.md
+templateFiles: []
+localNeverOverwrite: []
+promoteFiles:
+  - references/test/README.md
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: rekit:test
+  source: CLAUDE.local.snippet.md
+toolingCandidateSources:
+  - references/test/toolchain-router.md
+authorityFiles:
+  - references/test/README.md
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+promoteDenyPatterns:
+  - "artifacts[\\/]"
+budgets:
+  defaultMarkdown: 16384
+heavyToolGates:
+  - id: debug
+    title: Debug
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout
+laneTypes:
+  - id: main
+    title: Main
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/test/README.md
+    readOnly: .rekit/facts/**
+    outputs: publication
+  - id: feature
+    title: Feature
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/test/**
+    outputs: observation
+`
+	if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(repo, "missing-workstream-defaults")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.WorkstreamDefaults) != 0 || m.explicitMaps["workstreamDefaults"] {
+		t.Fatalf("WorkstreamDefaults defaults = %v explicitMaps = %v, want no implicit map presence", m.WorkstreamDefaults, m.explicitMaps)
+	}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "manifest must explicitly declare workstreamDefaults") {
+		t.Fatalf("ValidateSchema error = %v, want explicit workstreamDefaults map error", err)
 	}
 }
 

@@ -129,7 +129,7 @@ func Load(repoRoot, pack string) (*Manifest, error) {
 	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
 	explicitManagedBlock := yamlMap(lines, "managedBlock")
 	explicitLists := yamlListPresence(lines, "managedFiles", "templateFiles", "localNeverOverwrite")
-	explicitMaps := yamlMapPresence(lines, "syncPolicy")
+	explicitMaps := yamlMapPresence(lines, "syncPolicy", "workstreamDefaults", "budgets")
 	m := &Manifest{
 		RepoRoot:                repo,
 		Pack:                    pack,
@@ -286,6 +286,9 @@ func parsePositiveBudgetLimit(value string) (int64, bool) {
 }
 
 func (m *Manifest) validateBudgets() error {
+	if !m.explicitMaps["budgets"] {
+		return fmt.Errorf("manifest must explicitly declare budgets")
+	}
 	if strings.TrimSpace(m.Budgets["defaultMarkdown"]) == "" {
 		return fmt.Errorf("manifest must explicitly declare budgets.defaultMarkdown")
 	}
@@ -401,6 +404,9 @@ func (m *Manifest) ValidateSchema() error {
 		if _, err := m.SourcePath(rel); err != nil {
 			return err
 		}
+	}
+	if !m.explicitMaps["workstreamDefaults"] {
+		return fmt.Errorf("manifest must explicitly declare workstreamDefaults")
 	}
 	for _, key := range []string{"defaultAuthorityLane", "defaultStartLaneType", "backupRoot", "requestDefaultTargetLane"} {
 		if strings.TrimSpace(m.WorkstreamDefaults[key]) == "" {
