@@ -4473,3 +4473,34 @@ git diff --check
 ```
 
 验证结果：已通过 `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` JSON 已包含 `releaseHandoff.ready=true`、6 个 `readFirst[]`、5 个 `signals[]`、latest batch 摘要、10 条 validation command 与 next actions。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 147：Release notes freshness gate
+
+状态：已完成。
+
+目标：继续 Stage 8 release readiness / 新会话接手质量方向，把最新完成批次是否已经写入 `CHANGELOG.md` `Unreleased` 纳入 Go-owned `releaseHandoff`，避免 batch-plan 已记录完成但 release notes 漏写，导致发布维护者或后续 AI 只能从聊天上下文补齐用户可见变化。
+
+实施范围：
+
+- `ReleaseHandoff` 新增 `releaseNotes` inventory，记录 `CHANGELOG.md` 路径、`Unreleased` section、latest batch id、covered 状态与 summary。
+- `latestBatch` 新增 `batchId`，从 `docs/batch-plan.md` 最新 `### Batch N` 标题解析，用于 release notes freshness 对照。
+- `releaseHandoff.signals[]` 新增 `release notes freshness` signal；若 `CHANGELOG.md` 缺失或 `Unreleased` 未覆盖最新 batch id，则 `releaseHandoff.ready=false` 并让 `release-check.ready=false`。
+- text `release-check` handoff summary 新增 `releaseNotes=true/false`，便于人工快速看到 freshness 状态。
+- 扩展 releasecheck / CLI / release invariant tests，覆盖 repo freshness、stale release notes drift detection、batch id parsing、JSON/text envelope 与 release readiness 文档锚点。
+- 更新 `CHANGELOG.md`、`docs/release-readiness.md`、`docs/go-first-convergence-plan.md` 与本 batch-plan。
+
+边界：本批只做确定性 release inventory、测试和文档；不执行 CI、不新增外部服务调用、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不写 case/pack runtime state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` JSON/text 已包含 `releaseHandoff.releaseNotes.covered=true` 与 `release notes freshness` signal，stale release notes fixture 会让 `release-check.ready=false`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

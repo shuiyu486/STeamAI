@@ -8,14 +8,15 @@ import (
 )
 
 type ReleaseHandoff struct {
-	Ready       bool                       `json:"ready"`
-	Summary     string                     `json:"summary"`
-	ReadFirst   []ReleaseHandoffDocument   `json:"readFirst"`
-	Signals     []ReleaseHandoffSignal     `json:"signals"`
-	LatestBatch ReleaseHandoffLatestBatch  `json:"latestBatch"`
-	Validation  []ReleaseHandoffValidation `json:"validation"`
-	NextActions []string                   `json:"nextActions"`
-	Warnings    []string                   `json:"warnings"`
+	Ready        bool                       `json:"ready"`
+	Summary      string                     `json:"summary"`
+	ReadFirst    []ReleaseHandoffDocument   `json:"readFirst"`
+	Signals      []ReleaseHandoffSignal     `json:"signals"`
+	LatestBatch  ReleaseHandoffLatestBatch  `json:"latestBatch"`
+	ReleaseNotes ReleaseHandoffReleaseNotes `json:"releaseNotes"`
+	Validation   []ReleaseHandoffValidation `json:"validation"`
+	NextActions  []string                   `json:"nextActions"`
+	Warnings     []string                   `json:"warnings"`
 }
 
 type ReleaseHandoffDocument struct {
@@ -35,9 +36,19 @@ type ReleaseHandoffLatestBatch struct {
 	PlanPath         string `json:"planPath"`
 	Present          bool   `json:"present"`
 	Title            string `json:"title"`
+	BatchID          string `json:"batchId"`
 	Status           string `json:"status"`
 	Goal             string `json:"goal"`
 	ValidationResult string `json:"validationResult"`
+}
+
+type ReleaseHandoffReleaseNotes struct {
+	Path          string `json:"path"`
+	Present       bool   `json:"present"`
+	Section       string `json:"section"`
+	LatestBatchID string `json:"latestBatchId"`
+	Covered       bool   `json:"covered"`
+	Summary       string `json:"summary"`
 }
 
 type ReleaseHandoffValidation struct {
@@ -68,7 +79,8 @@ func releaseHandoff(repo string, check Result) ReleaseHandoff {
 		NextActions: releaseHandoffNextActions(),
 		Warnings:    []string{},
 	}
-	handoff.Signals = releaseHandoffSignals(check, handoff.LatestBatch)
+	handoff.ReleaseNotes = latestReleaseNotes(repo, handoff.LatestBatch)
+	handoff.Signals = releaseHandoffSignals(check, handoff.LatestBatch, handoff.ReleaseNotes)
 	handoff.Warnings = releaseHandoffWarnings(handoff)
 	if len(handoff.Warnings) > 0 {
 		handoff.Ready = false
@@ -87,7 +99,7 @@ func releaseHandoffDocuments(repo string) []ReleaseHandoffDocument {
 	return docs
 }
 
-func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch) []ReleaseHandoffSignal {
+func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes ReleaseHandoffReleaseNotes) []ReleaseHandoffSignal {
 	return []ReleaseHandoffSignal{
 		{
 			Name:    "release-check inventory",
@@ -130,8 +142,19 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch) []Rel
 			Ready:   latest.Present && strings.Contains(latest.Status, "已完成") && strings.TrimSpace(latest.Goal) != "" && strings.TrimSpace(latest.ValidationResult) != "",
 			Summary: latest.Title,
 			Details: []string{
+				fmt.Sprintf("batch=%s", latest.BatchID),
 				fmt.Sprintf("status=%s", latest.Status),
 				fmt.Sprintf("plan=%s", latest.PlanPath),
+			},
+		},
+		{
+			Name:    "release notes freshness",
+			Ready:   notes.Present && notes.Covered,
+			Summary: notes.Summary,
+			Details: []string{
+				fmt.Sprintf("path=%s", notes.Path),
+				fmt.Sprintf("section=%s", notes.Section),
+				fmt.Sprintf("latestBatch=%s covered=%t", notes.LatestBatchID, notes.Covered),
 			},
 		},
 	}
@@ -156,6 +179,7 @@ func releaseHandoffNextActions() []string {
 	return []string{
 		"Read releaseHandoff.signals[] first, then docs/release-readiness.md for the detailed gate and known gaps.",
 		"Use releaseHandoff.validation[] or gateProfile.steps[] as the local/CI minimum before tagging or handing off.",
+		"Keep CHANGELOG.md Unreleased aligned with the latest completed docs/batch-plan.md batch before handing off.",
 		"Continue the autonomous loop from docs/autonomous-goal.md and append the next completed batch to docs/batch-plan.md.",
 	}
 }
@@ -183,6 +207,13 @@ func releaseHandoffWarnings(handoff ReleaseHandoff) []string {
 			warnings = append(warnings, "release handoff latest batch validation result is empty")
 		}
 	}
+	if !handoff.ReleaseNotes.Present {
+		warnings = append(warnings, fmt.Sprintf("release handoff release notes missing: %s", handoff.ReleaseNotes.Path))
+	} else if strings.TrimSpace(handoff.ReleaseNotes.LatestBatchID) == "" {
+		warnings = append(warnings, "release handoff release notes latest batch id is empty")
+	} else if !handoff.ReleaseNotes.Covered {
+		warnings = append(warnings, fmt.Sprintf("release handoff release notes missing latest batch: %s", handoff.ReleaseNotes.LatestBatchID))
+	}
 	if len(handoff.Validation) == 0 {
 		warnings = append(warnings, "release handoff validation command list is empty")
 	}
@@ -209,6 +240,7 @@ func latestBatchSummary(repo string) ReleaseHandoffLatestBatch {
 		if strings.HasPrefix(trimmed, "### Batch ") {
 			start = i
 			latest.Title = strings.TrimSpace(strings.TrimPrefix(trimmed, "### "))
+			latest.BatchID = batchIDFromTitle(latest.Title)
 		}
 	}
 	if start < 0 {
@@ -234,6 +266,73 @@ func latestBatchSummary(repo string) ReleaseHandoffLatestBatch {
 		}
 	}
 	return latest
+}
+
+func latestReleaseNotes(repo string, latest ReleaseHandoffLatestBatch) ReleaseHandoffReleaseNotes {
+	const changelogPath = "CHANGELOG.md"
+	notes := ReleaseHandoffReleaseNotes{
+		Path:          changelogPath,
+		Section:       "Unreleased",
+		LatestBatchID: latest.BatchID,
+		Summary:       "release notes freshness has warnings",
+	}
+	data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(changelogPath)))
+	if err != nil {
+		return notes
+	}
+	notes.Present = true
+	section := markdownSectionText(string(data), "## Unreleased")
+	if strings.TrimSpace(section) == "" {
+		section = string(data)
+	}
+	if strings.TrimSpace(notes.LatestBatchID) != "" {
+		notes.Covered = strings.Contains(section, notes.LatestBatchID)
+	}
+	if notes.Covered {
+		notes.Summary = "release notes cover latest batch"
+	}
+	return notes
+}
+
+func markdownSectionText(text, heading string) string {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	inSection := false
+	section := []string{}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == heading {
+			inSection = true
+			continue
+		}
+		if inSection && strings.HasPrefix(trimmed, "## ") {
+			break
+		}
+		if inSection {
+			section = append(section, line)
+		}
+	}
+	return strings.Join(section, "\n")
+}
+
+func batchIDFromTitle(title string) string {
+	title = strings.TrimSpace(title)
+	rest, ok := strings.CutPrefix(title, "Batch")
+	if !ok {
+		return ""
+	}
+	rest = strings.TrimSpace(rest)
+	if rest == "" {
+		return ""
+	}
+	for i, r := range rest {
+		if r == '：' || r == ':' || r == ' ' || r == '\t' {
+			if i == 0 {
+				return ""
+			}
+			return "Batch " + rest[:i]
+		}
+	}
+	return "Batch " + rest
 }
 
 func markdownFieldValue(line, key string) (string, bool) {

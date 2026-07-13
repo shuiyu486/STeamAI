@@ -221,6 +221,7 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 		"readFirst[]",
 		"signals[]",
 		"latestBatch",
+		"releaseNotes.covered",
 		"validation[]",
 		"nextActions[]",
 	} {

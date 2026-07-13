@@ -490,7 +490,7 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 		fmt.Fprintf(out, "packs: %d\n", len(result.Packs))
 		fmt.Fprintf(out, "heavy-tool gate actions: %s\n", strings.Join(result.HeavyToolGateActions, ","))
 		fmt.Fprintf(out, "PowerShell deprecation: %s ready=%t commands=%d modules=%d freezeGates=%d blocked=%d\n", result.PowerShellDeprecation.Summary, result.PowerShellDeprecation.Ready, len(result.PowerShellDeprecation.CommandOwnership), len(result.PowerShellDeprecation.ModuleStatus), len(result.PowerShellDeprecation.FreezeGates), len(result.PowerShellDeprecation.BlockedMigrations))
-		fmt.Fprintf(out, "release handoff: %s ready=%t readFirst=%d signals=%d validation=%d latest=%s\n", result.ReleaseHandoff.Summary, result.ReleaseHandoff.Ready, len(result.ReleaseHandoff.ReadFirst), len(result.ReleaseHandoff.Signals), len(result.ReleaseHandoff.Validation), result.ReleaseHandoff.LatestBatch.Title)
+		fmt.Fprintf(out, "release handoff: %s ready=%t readFirst=%d signals=%d validation=%d releaseNotes=%t latest=%s\n", result.ReleaseHandoff.Summary, result.ReleaseHandoff.Ready, len(result.ReleaseHandoff.ReadFirst), len(result.ReleaseHandoff.Signals), len(result.ReleaseHandoff.Validation), result.ReleaseHandoff.ReleaseNotes.Covered, result.ReleaseHandoff.LatestBatch.Title)
 		if len(result.ReleaseHandoff.Warnings) > 0 {
 			fmt.Fprintln(out, "release handoff warnings:")
 			for _, warning := range result.ReleaseHandoff.Warnings {

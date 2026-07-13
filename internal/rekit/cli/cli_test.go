@@ -361,10 +361,19 @@ type releaseCheckHandoff struct {
 		PlanPath         string `json:"planPath"`
 		Present          bool   `json:"present"`
 		Title            string `json:"title"`
+		BatchID          string `json:"batchId"`
 		Status           string `json:"status"`
 		Goal             string `json:"goal"`
 		ValidationResult string `json:"validationResult"`
 	} `json:"latestBatch"`
+	ReleaseNotes struct {
+		Path          string `json:"path"`
+		Present       bool   `json:"present"`
+		Section       string `json:"section"`
+		LatestBatchID string `json:"latestBatchId"`
+		Covered       bool   `json:"covered"`
+		Summary       string `json:"summary"`
+	} `json:"releaseNotes"`
 	Validation  []releaseCheckStep `json:"validation"`
 	NextActions []string           `json:"nextActions"`
 	Warnings    []string           `json:"warnings"`
@@ -556,7 +565,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff summary: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 6 || len(handoff.Signals) != 5 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 6 || len(handoff.Signals) != 6 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertReleaseHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -570,6 +579,10 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignal(t, handoff, "PowerShell deprecation")
 	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
 	assertReleaseHandoffSignal(t, handoff, "latest batch documentation")
+	assertReleaseHandoffSignal(t, handoff, "release notes freshness")
+	if handoff.ReleaseNotes.Path != "CHANGELOG.md" || !handoff.ReleaseNotes.Present || handoff.ReleaseNotes.Section != "Unreleased" || handoff.ReleaseNotes.LatestBatchID != handoff.LatestBatch.BatchID || !handoff.ReleaseNotes.Covered || handoff.ReleaseNotes.Summary != "release notes cover latest batch" {
+		t.Fatalf("unexpected release handoff release notes: %+v", handoff.ReleaseNotes)
+	}
 	if handoff.LatestBatch.PlanPath != "docs/batch-plan.md" || !handoff.LatestBatch.Present || !strings.Contains(handoff.LatestBatch.Title, "Batch ") || !strings.Contains(handoff.LatestBatch.Status, "已完成") || strings.TrimSpace(handoff.LatestBatch.Goal) == "" || strings.TrimSpace(handoff.LatestBatch.ValidationResult) == "" {
 		t.Fatalf("unexpected release handoff latest batch: %+v", handoff.LatestBatch)
 	}
@@ -665,7 +678,8 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
 		"commands=14 modules=14 freezeGates=8 blocked=5",
-		"release handoff: release handoff summary ok ready=true readFirst=6 signals=5",
+		"release handoff: release handoff summary ok ready=true readFirst=6 signals=6",
+		"releaseNotes=true",
 		"latest=Batch ",
 		"known gaps:",
 	} {
