@@ -2215,6 +2215,176 @@ func TestRunGoGenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff(t *testing
 	}
 }
 
+func TestRunGoWebSecurityPackNeutralE2EStartPlanGateOverviewHandoff(t *testing.T) {
+	const pack = "web-security"
+	caseRoot := attachedCaseWithPack(t, pack)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", pack, "-Name", "authz", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	start := decodeStartResult(t, out.Bytes())
+	if !start.IsMutation || !start.Applied || start.Lane.ID != "feature-authz" || start.Lane.Type != "feature" || start.Lane.Workspace != "workspace/features/feature-authz" {
+		t.Fatalf("unexpected web-security start result: %+v", start)
+	}
+	assertStartWrite(t, start.Writes, ".rekit/lanes/main/lane.json", "create-lane")
+	assertStartWrite(t, start.Writes, ".rekit/lanes/feature-authz/lane.json", "create-lane")
+
+	writeCaseFile(t, caseRoot, "workspace/features/feature-authz/packet.md", "# packet\n\nweb endpoint authorization packet\n")
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", pack, "-TaskType", "endpoint-analysis", "-Items", "endpoint-login,api-flow-authz", "-ItemsPerAgent", "1", "-MaxParallel", "2"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	if plan.Command != "plan-subagents" || plan.IsMutation || !plan.WritesReviewArtifacts || !plan.ReviewRequired || plan.ItemCount != 2 || plan.ShardCount != 2 {
+		t.Fatalf("unexpected web-security plan result: %+v", plan)
+	}
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
+	if packet.Route.ID != "web-security:feature-analysis" || packet.Observability.RouteDebug.SelectedBy != "taskType" || packet.ShardPolicy.TargetItemsPerAgent != 1 || packet.ShardPolicy.MaxParallel != 2 {
+		t.Fatalf("unexpected web-security dispatch packet: %+v", packet)
+	}
+	if packet.Observability.DispatchMode != "manual-main-agent" || len(packet.Observability.ShardStatuses) != 2 || packet.Observability.ShardStatuses[0].Status != "planned" || packet.ReviewLoop.SpawnOwner != "main-agent" || !slices.Contains(packet.ReviewLoop.MainAgentOwns, "canonical-write") || !slices.Contains(packet.Observability.BlockedActions, "runtime does not spawn subagents") {
+		t.Fatalf("unexpected web-security dispatch observability: %+v", packet)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", pack, "-Kind", "candidate", "-Lane", "feature-authz", "-Subject", "endpoint authz candidate", "-Summary", "candidate awaiting bounded web review", "-Actor", "web-agent", "-Confidence", "high", "-Status", "open", "-Risk", "high", "-TargetRef", "endpoint-login", "-BatchId", "batch-web-neutral", "-EvidenceRefs", "workspace/features/feature-authz/packet.md"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var candidate struct {
+		Applied bool           `json:"applied"`
+		Path    string         `json:"path"`
+		Event   map[string]any `json:"event"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &candidate); err != nil {
+		t.Fatalf("web-security candidate stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !candidate.Applied || candidate.Path != ".rekit/facts/candidates.jsonl" || candidate.Event["kind"] != "candidate" || candidate.Event["lane"] != "feature-authz" || candidate.Event["status"] != "open" || candidate.Event["target"] != "endpoint-login" || candidate.Event["risk"] != "high" {
+		t.Fatalf("unexpected web-security candidate append result: %+v", candidate)
+	}
+
+	out.Reset()
+	if err := Run([]string{
+		"-Command", "gate",
+		"-Target", caseRoot,
+		"-Pack", pack,
+		"-Apply",
+		"-Action", "network",
+		"-Lane", "feature-authz",
+		"-Actor", "runtime-test",
+		"-Subject", "web request replay gate",
+		"-Summary", "needs user confirmation before request replay",
+		"-TargetRef", "endpoint-login",
+		"-BatchId", "batch-web-neutral",
+		"-Scope", "single endpoint replay",
+		"-Budget", "30s",
+		"-TriedLightSteps", "plan-subagents,passive triage",
+		"-StopConditions", "timeout",
+	}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var gateResult struct {
+		Command    string `json:"command"`
+		IsMutation bool   `json:"isMutation"`
+		Applied    bool   `json:"applied"`
+		Event      struct {
+			Kind    string `json:"kind"`
+			Lane    string `json:"lane"`
+			Subject string `json:"subject"`
+			Status  string `json:"status"`
+			Gate    struct {
+				Action string `json:"action"`
+				Scope  string `json:"scope"`
+				Budget string `json:"budget"`
+			} `json:"gate"`
+		} `json:"event"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &gateResult); err != nil {
+		t.Fatalf("web-security gate stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if gateResult.Command != "gate" || !gateResult.IsMutation || !gateResult.Applied || gateResult.Event.Kind != "request" || gateResult.Event.Lane != "feature-authz" || gateResult.Event.Status != "pending-gate" || gateResult.Event.Gate.Action != "network" || gateResult.Event.Gate.Scope != "single endpoint replay" || gateResult.Event.Gate.Budget != "30s" {
+		t.Fatalf("unexpected web-security gate result: %+v", gateResult)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", pack, "-Kind", "verification", "-Lane", "feature-authz", "-Subject", "bounded endpoint review", "-Summary", "bounded reviewer accepted web endpoint evidence", "-Actor", "reviewer-smoke", "-Verifier", "manual-review", "-Verdict", "accepted", "-TargetRef", "endpoint-login", "-BatchId", "batch-web-neutral", "-EvidenceRefs", "workspace/features/feature-authz/packet.md"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", pack, "-Kind", "decision", "-Lane", "feature-authz", "-Subject", "web merge decision", "-Summary", "main accepted reviewed web endpoint candidate", "-Actor", "runtime-test", "-Decision", "accept", "-Reason", "reviewer accepted web endpoint evidence", "-TargetRef", "endpoint-login", "-BatchId", "batch-web-neutral"}, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", pack, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var overviewResult struct {
+		Counts struct {
+			Candidates       int `json:"candidates"`
+			Requests         int `json:"requests"`
+			PendingDecisions int `json:"pendingDecisions"`
+		} `json:"counts"`
+		Sections struct {
+			OpenCandidates struct {
+				Total int `json:"total"`
+			} `json:"openCandidates"`
+			PendingGates struct {
+				Total int `json:"total"`
+			} `json:"pendingGates"`
+			Verifications struct {
+				Total int `json:"total"`
+			} `json:"verifications"`
+			Decisions struct {
+				Total int `json:"total"`
+			} `json:"decisions"`
+			Batches struct {
+				Total int `json:"total"`
+			} `json:"batches"`
+		} `json:"sections"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &overviewResult); err != nil {
+		t.Fatalf("web-security overview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if overviewResult.Counts.Candidates != 1 || overviewResult.Counts.Requests != 1 || overviewResult.Counts.PendingDecisions != 0 || overviewResult.Sections.OpenCandidates.Total != 1 || overviewResult.Sections.PendingGates.Total != 1 || overviewResult.Sections.Verifications.Total != 1 || overviewResult.Sections.Decisions.Total != 1 || overviewResult.Sections.Batches.Total != 1 {
+		t.Fatalf("unexpected web-security overview counts: %+v", overviewResult)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", pack}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"endpoint authz candidate", "web request replay gate", "action=network", "verifier=manual-review", "verdict=accepted", "decision=accept", "reviewer accepted web endpoint evidence"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("web-security overview text missing %q:\n%s", expected, out.String())
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", pack, "-Apply", "authz"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	handoff := decodeHandoffResult(t, out.Bytes())
+	if !handoff.IsMutation || !handoff.Applied || handoff.Project || handoff.Lane == nil || handoff.Lane.ID != "feature-authz" || handoff.Lane.Workspace != "workspace/features/feature-authz" {
+		t.Fatalf("unexpected web-security handoff result: %+v", handoff)
+	}
+	latest := assertStartWrite(t, handoff.Writes, ".rekit/handovers/feature-authz-latest.md", "write-latest-lane-handoff")
+	handoffText, err := os.ReadFile(latest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"# rekit 工作线接手：feature-authz", "执行 `/rekit continue authz`", "workspace/features/feature-authz/packet.md", "## verification", "verifier=manual-review", "## decision", "decision=accept", "## pending-gate", "action=network", "scope=single endpoint replay"} {
+		if !strings.Contains(string(handoffText), expected) {
+			t.Fatalf("web-security handoff missing %q:\n%s", expected, string(handoffText))
+		}
+	}
+	for _, forbidden := range []string{"generic-binary-re", "workspace/binary", "binary-analysis-sample", "references/template", "vmp-re"} {
+		if strings.Contains(string(handoffText), forbidden) {
+			t.Fatalf("web-security handoff leaked non-web token %q:\n%s", forbidden, string(handoffText))
+		}
+	}
+}
+
 func TestRunContinueRejectsUnsupportedModes(t *testing.T) {
 	caseRoot := attachedCaseWithPack(t, "vmp-re")
 	writeContinueFixture(t, caseRoot)

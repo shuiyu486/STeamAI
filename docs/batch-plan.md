@@ -3829,3 +3829,33 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli -run TestRunGoGenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff -count=1`、`go test ./internal/rekit/cli`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`catalog-smoke.ps1` 与 `go test ./...` 曾因 `catalog.json` 新增 metadata 后漏逗号失败，已修复并复跑通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 126：Go web-security pack-neutral E2E package test
+
+状态：已完成。
+
+目标：承接 Stage 6 Agent Team dry-run harness 与 Stage 7 pack-neutral hardening，在 Batch 125 已用 `generic-binary-re` 验证非 feature/binary RE pack-neutral 路径后，扩展 Go CLI package fixture 到非 RE-only 的 `web-security` skeleton pack，验证 Web/API pack-specific route、endpoint/feature lane、network gate、overview 与 handoff 不泄漏 generic-binary、vmp 或 template 语义。
+
+实施范围：
+
+- 在 `internal/rekit/cli` package tests 中新增 `TestRunGoWebSecurityPackNeutralE2EStartPlanGateOverviewHandoff`，使用 `web-security` attached case fixture。
+- 测试顺序覆盖 `start -Apply` 创建 `feature-authz` lane、`plan-subagents` 选择 `web-security:feature-analysis` route、candidate `note` append、`gate -Apply -Action network` 写 pending-gate request、reviewer `verification` append、main `decision` append、`overview -Format json` 与文本 overview 展示 candidate/gate/verification/decision/batch，再执行 lane `handoff -Apply` 验证 Web/API lane handoff。
+- 断言 `defaultStartLaneType: feature` 产生 `feature-authz`、workspace 为 `workspace/features/feature-authz`、review-loop `canonical-write` contract、`manual-review` verification、network pending-gate request 与 handoff 文本关键字段。
+- 增加 handoff 泄漏断言，确保 `generic-binary-re`、`workspace/binary`、`binary-analysis-sample`、`references/template`、`vmp-re` 不出现在 `web-security` lane handoff 中。
+- 更新 CHANGELOG、Go-first convergence、Go runtime migration、Agent Team rollout、tests guide、catalog metadata 与 batch-plan，记录 Batch 126 的非 RE-only pack-neutral test harness 边界和后续缺口。
+
+边界：本批只新增 Go package test 与文档，不新增 runtime 写入面、不改变 façade safe-set、不新增 PowerShell 编排；测试只写临时 package fixture 的 case-local `.rekit/**`、`workspace/features/**`、review artifact 与 handoff，不自动 spawn reviewer/subagent、不写 authority/confirmed、不执行请求回放/扫描/fuzz/exploit replay/network 操作、不联网、不写真实 case 或外部副作用。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/cli -run TestRunGoWebSecurityPackNeutralE2EStartPlanGateOverviewHandoff -count=1
+go test ./internal/rekit/cli
+.\rekit\tests\catalog-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli -run TestRunGoWebSecurityPackNeutralE2EStartPlanGateOverviewHandoff -count=1`、`go test ./internal/rekit/cli`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
