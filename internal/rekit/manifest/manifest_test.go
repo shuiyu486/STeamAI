@@ -85,6 +85,7 @@ func assertHeavyToolGateSet(t *testing.T, m *Manifest) {
 func validManifestFixture() Manifest {
 	return Manifest{
 		ManifestPath:         "unit-manifest.yml",
+		Pack:                 "unit",
 		SchemaVersion:        "1",
 		Name:                 "unit-pack",
 		Version:              "0.1.0",
@@ -329,6 +330,29 @@ func TestValidateSchemaRequiresSubagentRouteNamespacedID(t *testing.T) {
 	m.SubagentRoutes[0].ID = "unit:bounded-review"
 	if err := m.ValidateSchema(); err != nil {
 		t.Fatalf("ValidateSchema valid subagent route id error = %v", err)
+	}
+}
+
+func TestValidateSchemaRequiresSubagentRoutePackNamespace(t *testing.T) {
+	m := validManifestFixture()
+	m.SubagentRoutes = []SubagentRoute{{
+		ID:                  "other:bounded-review",
+		TaskTypes:           "candidate-review",
+		Trigger:             "fixed-boundary read-only review",
+		ShardBasis:          "item",
+		TargetItemsPerAgent: "1",
+		MaxParallel:         "1",
+		Reference:           "references/template/README.md",
+		SubagentPermissions: "read-only",
+		MainAgentOwns:       "validation",
+		OutputContract:      "item,decision",
+	}}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "subagent route id other:bounded-review must use pack namespace unit") {
+		t.Fatalf("ValidateSchema error = %v, want route namespace ownership error", err)
+	}
+	m.SubagentRoutes[0].ID = "unit:bounded-review"
+	if err := m.ValidateSchema(); err != nil {
+		t.Fatalf("ValidateSchema valid subagent route namespace error = %v", err)
 	}
 }
 

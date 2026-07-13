@@ -510,6 +510,14 @@ func (m *Manifest) validateSubagentRoutes(managedTargets map[string]bool) error 
 		if !idPattern.MatchString(id) {
 			return fmt.Errorf("subagent route has invalid id: %s", route.ID)
 		}
+		namespace, _, _ := strings.Cut(id, ":")
+		packID := strings.TrimSpace(m.Pack)
+		if packID == "" {
+			return fmt.Errorf("subagent route %s cannot be validated without pack id", id)
+		}
+		if !strings.EqualFold(namespace, packID) {
+			return fmt.Errorf("subagent route id %s must use pack namespace %s", id, packID)
+		}
 		if seen[strings.ToLower(id)] {
 			return fmt.Errorf("duplicate subagent route id: %s", id)
 		}

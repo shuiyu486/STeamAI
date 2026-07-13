@@ -5170,3 +5170,31 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 170：Manifest subagent route namespace ownership
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，收紧 `subagentRoutes.id` namespace ownership，要求 route id 前缀匹配当前 pack id，避免复制 `_template` 或其它 pack route id 后仍进入 schema-valid inventory、review packet 或 plan-subagents 输出。
+
+实施范围：
+
+- `ValidateSchema` 在 namespaced route id 格式校验之后检查 route namespace 与当前 pack id 一致，并对跨 pack namespace 返回 `subagent route id <id> must use pack namespace <pack>`。
+- manifest tests 新增 route namespace mismatch / valid namespace 场景，确保 schema validation 能捕获复制模板残留或跨 pack route id。
+- `docs/pack-authoring.md`、`rekit/schemas/pack-manifest.schema.yml`、`docs/go-first-convergence-plan.md` 与 `CHANGELOG.md` 同步记录 route namespace ownership contract。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
