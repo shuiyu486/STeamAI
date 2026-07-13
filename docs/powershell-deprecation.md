@@ -14,6 +14,7 @@
 - **PowerShell façade**：`rekit/rekit.ps1` 保持公共入口与兼容层，负责 Go binary 查找、参数兼容、fallback、环境变量开关和旧 case 用户体验。
 - **Legacy-only**：无 `-Apply` 的文本工作线 flow、文本 sync/promote what-if、内部命令和非 Go-owned 写入路径暂时保留，禁止扩展新能力。
 - **Parity smoke**：少量 PowerShell smoke 保留为 Windows façade / fallback 回归；`.github/workflows/release-gate.yml` 默认只运行 Windows façade smoke，不运行大型 pack matrix。
+- **Release inventory**：Go-owned `release-check -Format json` 输出 `powerShellDeprecation`，解析本文件中的命令归属、模块状态、freeze gates 和 blocked migrations，并对照 `rekit/rekit.ps1` 默认委托集合与 `rekit/lib/*.ps1` 实际模块清单发现漂移。
 - **删除前置条件**：只有当对应命令已有 Go owner、文档入口、release invariant、fallback 替代和临时 case验证后，才能考虑冻结或删除 PowerShell 实现。
 
 ## 执行清单
@@ -54,7 +55,7 @@ PowerShell deprecation 相关变更至少满足：
 | `release-check` | Go default | façade delegate + no PowerShell fallback | 只输出 release gate inventory，不执行测试、不写状态；保持 Go-owned。 |
 | `status` / `packs` / `doctor` / `validate` | Go default | façade + fallback | 保留 façade；PowerShell 实现只做兼容修复。 |
 | case lifecycle `attach` / `repair` / `init` / `bootstrap` preview/apply | Go default | façade + fallback | 保留 `REKIT_GO_DISABLE=1` fallback；删除需旧 case smoke 通过。 |
-| `sync` review/apply/JSON preview | Go default | façade + text dry-run fallback | 文本 `sync -Apply -WhatIf` 维持 legacy-only；不扩功能。 |
+| `sync` / `update` review/apply/JSON preview | Go default | façade + text dry-run fallback | `update` 作为 sync alias 同属 Go-default façade；文本 `sync -Apply -WhatIf` 维持 legacy-only；不扩功能。 |
 | `promote` review/artifacts/candidates/apply/JSON preview | Go default | façade + text what-if fallback | 文本 promote what-if 维持 legacy-only；pack source 写入仍要求 review-first/backup。 |
 | `overview` text/JSON 与缺 board 初始化 | Go default | façade + fallback | PowerShell read layer 只修兼容，不新增展示语义。 |
 | `note -List` text/table/tsv/JSON、`note` append、`note -WhatIf` | Go default | façade + fallback | 新 ledger schema 校验优先 Go；PowerShell 不新增 kind。 |
@@ -90,10 +91,11 @@ PowerShell deprecation 相关变更至少满足：
 1. **Documented**：本文件列出命令和模块状态。
 2. **Go-owned**：Go package tests 和 CLI tests 覆盖 deterministic 行为。
 3. **Façade default**：公共 `/rekit` 默认委托 Go，并保留 `REKIT_GO_DISABLE=1` fallback。
-4. **Release invariant**：Go release invariant 锁定 checklist、边界、known gaps、deprecation 状态或 façade freeze guard；Batch 131 已新增 `TestPowerShellFacadeFreezeInvariants` 锁定默认 Go 委托集合、`release-check` Go-only guard、legacy/internal `plan-subagents` 边界和 blocked heavy-tool/authority/confirmed 不进入默认委托。
-5. **Legacy freeze**：PowerShell 只允许 bug fix / compatibility / safety boundary 修复。
-6. **Fallback retirement candidate**：至少一个 release cycle 无 fallback 需求，且旧 case smoke、doctor、facade smoke 通过。
-7. **Removal batch**：删除必须是单独批次，含恢复计划、diff review、CHANGELOG、docs、tests 和用户明确授权。
+4. **Release inventory**：`release-check` 的 `powerShellDeprecation` inventory 必须 `ready=true`，并能解析命令归属、模块状态、freeze gates、blocked migrations、默认委托和实际 `.ps1` 模块清单。
+5. **Release invariant**：Go release invariant 锁定 checklist、边界、known gaps、deprecation 状态或 façade freeze guard；Batch 131 已新增 `TestPowerShellFacadeFreezeInvariants` 锁定默认 Go 委托集合、`release-check` Go-only guard、legacy/internal `plan-subagents` 边界和 blocked heavy-tool/authority/confirmed 不进入默认委托。
+6. **Legacy freeze**：PowerShell 只允许 bug fix / compatibility / safety boundary 修复。
+7. **Fallback retirement candidate**：至少一个 release cycle 无 fallback 需求，且旧 case smoke、doctor、facade smoke 通过。
+8. **Removal batch**：删除必须是单独批次，含恢复计划、diff review、CHANGELOG、docs、tests 和用户明确授权。
 
 ## 禁止迁移清单
 

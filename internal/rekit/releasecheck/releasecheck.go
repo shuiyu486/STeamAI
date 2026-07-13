@@ -14,20 +14,21 @@ import (
 const commandName = "release-check"
 
 type Result struct {
-	Command            string                 `json:"command"`
-	SchemaVersion      int                    `json:"schemaVersion"`
-	IsMutation         bool                   `json:"isMutation"`
-	RepoRoot           string                 `json:"repoRoot"`
-	Ready              bool                   `json:"ready"`
-	Summary            string                 `json:"summary"`
-	GateProfile        GateProfile            `json:"gateProfile"`
-	RecommendedMinimum []GateStep             `json:"recommendedMinimum"`
-	RequiredCommands   []GateStep             `json:"requiredCommands"`
-	Documents          []DocumentCheck        `json:"documents"`
-	Packs              []manifest.PackSummary `json:"packs"`
-	Boundaries         []string               `json:"boundaries"`
-	KnownGaps          []string               `json:"knownGaps"`
-	Warnings           []string               `json:"warnings"`
+	Command               string                 `json:"command"`
+	SchemaVersion         int                    `json:"schemaVersion"`
+	IsMutation            bool                   `json:"isMutation"`
+	RepoRoot              string                 `json:"repoRoot"`
+	Ready                 bool                   `json:"ready"`
+	Summary               string                 `json:"summary"`
+	GateProfile           GateProfile            `json:"gateProfile"`
+	RecommendedMinimum    []GateStep             `json:"recommendedMinimum"`
+	RequiredCommands      []GateStep             `json:"requiredCommands"`
+	Documents             []DocumentCheck        `json:"documents"`
+	Packs                 []manifest.PackSummary `json:"packs"`
+	PowerShellDeprecation PowerShellDeprecation  `json:"powerShellDeprecation"`
+	Boundaries            []string               `json:"boundaries"`
+	KnownGaps             []string               `json:"knownGaps"`
+	Warnings              []string               `json:"warnings"`
 }
 
 type GateProfile struct {
@@ -95,19 +96,20 @@ func Build(repoRoot string) (Result, error) {
 		return Result{}, err
 	}
 	check := Result{
-		Command:            commandName,
-		SchemaVersion:      1,
-		IsMutation:         false,
-		RepoRoot:           repo,
-		Ready:              true,
-		Summary:            "release gate inventory ok",
-		RecommendedMinimum: catalogGateSteps(repo, cat.RecommendedMinimum),
-		RequiredCommands:   requiredGateSteps(repo, requiredCommands, cat.RecommendedMinimum),
-		Documents:          documentChecks(repo, requiredDocuments),
-		Packs:              packs,
-		Boundaries:         append([]string{}, cat.GlobalBoundaries...),
-		KnownGaps:          knownGaps(repo),
-		Warnings:           []string{},
+		Command:               commandName,
+		SchemaVersion:         1,
+		IsMutation:            false,
+		RepoRoot:              repo,
+		Ready:                 true,
+		Summary:               "release gate inventory ok",
+		RecommendedMinimum:    catalogGateSteps(repo, cat.RecommendedMinimum),
+		RequiredCommands:      requiredGateSteps(repo, requiredCommands, cat.RecommendedMinimum),
+		Documents:             documentChecks(repo, requiredDocuments),
+		Packs:                 packs,
+		PowerShellDeprecation: powerShellDeprecation(repo),
+		Boundaries:            append([]string{}, cat.GlobalBoundaries...),
+		KnownGaps:             knownGaps(repo),
+		Warnings:              []string{},
 	}
 	check.GateProfile = gateProfile(check.RecommendedMinimum)
 	if !check.GateProfile.Ready {
@@ -131,6 +133,10 @@ func Build(repoRoot string) (Result, error) {
 			check.Ready = false
 			check.Warnings = append(check.Warnings, fmt.Sprintf("pack manifest invalid: %s: %s", pack.ID, pack.Error))
 		}
+	}
+	if !check.PowerShellDeprecation.Ready {
+		check.Ready = false
+		check.Warnings = append(check.Warnings, check.PowerShellDeprecation.Warnings...)
 	}
 	if !check.Ready {
 		check.Summary = "release gate inventory has warnings"

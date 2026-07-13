@@ -464,6 +464,13 @@ func runReleaseCheck(ctx runtime.Context, opt Options, out io.Writer) error {
 			fmt.Fprintf(out, "- [%s] %s (%s)\n", status, doc.Path, doc.Purpose)
 		}
 		fmt.Fprintf(out, "packs: %d\n", len(result.Packs))
+		fmt.Fprintf(out, "PowerShell deprecation: %s ready=%t commands=%d modules=%d freezeGates=%d blocked=%d\n", result.PowerShellDeprecation.Summary, result.PowerShellDeprecation.Ready, len(result.PowerShellDeprecation.CommandOwnership), len(result.PowerShellDeprecation.ModuleStatus), len(result.PowerShellDeprecation.FreezeGates), len(result.PowerShellDeprecation.BlockedMigrations))
+		if len(result.PowerShellDeprecation.Warnings) > 0 {
+			fmt.Fprintln(out, "PowerShell deprecation warnings:")
+			for _, warning := range result.PowerShellDeprecation.Warnings {
+				fmt.Fprintf(out, "- %s\n", warning)
+			}
+		}
 		if len(result.KnownGaps) > 0 {
 			fmt.Fprintln(out, "known gaps:")
 			for _, gap := range result.KnownGaps {

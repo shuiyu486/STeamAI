@@ -4,6 +4,7 @@
 
 ### Added
 
+- Batch 142 / Stage 8 增强 Go-owned `release-check` 的 PowerShell deprecation inventory：`release-check -Format json` 新增 `powerShellDeprecation`，从 `docs/powershell-deprecation.md` 解析命令归属矩阵、`rekit/lib/*.ps1` 模块状态、freeze gates 与 blocked migrations，并对照 `rekit/rekit.ps1` 默认 Go façade 委托集合和实际 PowerShell 模块清单发现漂移；text 输出展示 deprecation summary，该批只做确定性 inventory，不删除 PowerShell、不改变 façade 写入面、不执行 smoke 编排或 heavy-tool。
 - Batch 141 / Stage 8 新增长期自主 goal 与新会话接手指南：新增 `docs/autonomous-goal.md`，并按维护者反馈精简为大方向、自主推进循环和可复制 goal 语句；在 README、CLAUDE、release readiness、vision、reference absorption 与 Go-first convergence 入口中接入，并纳入 `release-check` required documents，防止上下文压缩后偏回微批次或 PowerShell smoke/catalog 扩张，同时避免用过长约束束缚模型发挥。
 - Batch 140 / Stage 8 新增轻量 CI release gate：新增 `.github/workflows/release-gate.yml`，在 Ubuntu 上运行 `release-check -Format json`、`go test ./...` 与 `go vet ./...`，在 Windows 上运行 `release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`，并用 release invariant 锁定 workflow 不默认运行大型 pack matrix、真实 case smoke 或 heavy-tool 相关步骤。
 - Batch 139 / Stage 8 增强 Go-owned `release-check` gate profile：`release-check -Format json` 新增 `gateProfile`，把 catalog `recommendedMinimum` 解析为本机/CI 可消费的 step kind、repo-local path、present/resolved 状态，并在 text 输出中展示 gate profile 与命令类型；该批只做确定性 inventory，不执行测试、不新增外部 CI workflow、不写 case/pack/runtime state、不扩大 PowerShell 编排、不执行 heavy-tool、不写 authority/confirmed。

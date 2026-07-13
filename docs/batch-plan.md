@@ -4322,3 +4322,34 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/manifest -run TestAutonomousGoalGuideInvariants -count=1`、`go test ./internal/rekit/cli -run TestRunReleaseCheck -count=1`、`go test ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`release-check` documents 已包含 `docs/autonomous-goal.md`；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 142：PowerShell deprecation release-check inventory
+
+状态：已完成。
+
+目标：承接 Stage 8 / PowerShell 收缩方向，在 Batch 129 deprecation strategy、Batch 131 façade freeze invariant、Batch 139 gate profile 和 Batch 140 轻量 CI 之后，把 PowerShell deprecation readiness 从纯文档/静态 invariant 进一步纳入 Go-owned `release-check` 机器可读 inventory，使本机/CI 和新会话能在真正考虑 fallback freeze/removal 前看到命令归属、模块状态、freeze gates、blocked migrations 与实际 façade/default/module 清单是否漂移。
+
+实施范围：
+
+- 扩展 `internal/rekit/releasecheck` JSON envelope，新增 `powerShellDeprecation`，包含 `strategyDocument`、`ready`、`summary`、`commandOwnership[]`、`moduleStatus[]`、`freezeGates[]`、`blockedMigrations[]` 与 `warnings[]`。
+- 从 `docs/powershell-deprecation.md` 解析命令归属矩阵、`rekit/lib/*.ps1` 模块状态、Freeze / deprecation gates 与禁止迁移清单，并对照 `rekit/rekit.ps1` 的 `ValidateSet` / `Test-RekitGoDefaultDelegationCommand` 与实际 `rekit/lib/*.ps1` 清单发现漂移。
+- 扩展 `/rekit release-check` text 输出，展示 PowerShell deprecation summary、命令/模块/freeze/blocked 计数和 warnings；若 deprecation inventory 发现漂移，则 release-check `ready=false`。
+- 扩展 `internal/rekit/cli` release-check JSON/text 测试，锁定 `powerShellDeprecation.ready=true`、代表性 Go-default/legacy/blocked 命令、代表性模块和 text summary。
+- 更新 `docs/release-readiness.md`、`docs/powershell-deprecation.md`、`docs/go-first-convergence-plan.md`、CHANGELOG 与 batch-plan，记录 Batch 142 的定位和验证边界；补充 `sync / update` alias 的 deprecation 矩阵归属，避免默认 façade 委托集合与文档漂移。
+
+边界：本批只做只读 release inventory、测试和文档；不删除 PowerShell runtime、不改变默认 façade 委托集合、不扩大写入面、不执行大型 PowerShell matrix、不运行真实临时 case、不迁移 policy schema、不执行 samples/network/scans/fuzz/exploit replay/debug/dump/patch/hook/device/heavy-tool、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go test ./internal/rekit/cli -run TestRunReleaseCheck -count=1
+go test ./internal/rekit/manifest -run TestPowerShell -count=1
+go run ./cmd/rekit -- -Command release-check -Format json
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go test ./internal/rekit/cli -run TestRunReleaseCheck -count=1`、`go test ./internal/rekit/manifest -run TestPowerShell -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`release-check` JSON 已包含 `powerShellDeprecation.ready=true`、14 条命令归属、14 个 PowerShell 模块、8 个 freeze gate 与 5 条 blocked migration；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

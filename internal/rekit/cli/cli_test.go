@@ -288,6 +288,31 @@ type releaseCheckStep struct {
 	Resolved  bool   `json:"resolved"`
 }
 
+type releaseCheckPowerShellDeprecation struct {
+	StrategyDocument string `json:"strategyDocument"`
+	Ready            bool   `json:"ready"`
+	Summary          string `json:"summary"`
+	CommandOwnership []struct {
+		Area      string `json:"area"`
+		Owner     string `json:"owner"`
+		Status    string `json:"status"`
+		Strategy  string `json:"strategy"`
+		GoDefault bool   `json:"goDefault"`
+		Blocked   bool   `json:"blocked"`
+	} `json:"commandOwnership"`
+	ModuleStatus []struct {
+		Path   string `json:"path"`
+		Status string `json:"status"`
+		Notes  string `json:"notes"`
+	} `json:"moduleStatus"`
+	FreezeGates []struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	} `json:"freezeGates"`
+	BlockedMigrations []string `json:"blockedMigrations"`
+	Warnings          []string `json:"warnings"`
+}
+
 type releaseCheckResult struct {
 	Command       string `json:"command"`
 	SchemaVersion int    `json:"schemaVersion"`
@@ -313,9 +338,10 @@ type releaseCheckResult struct {
 		Maturity    string `json:"maturity"`
 		SchemaValid bool   `json:"schemaValid"`
 	} `json:"packs"`
-	Boundaries []string `json:"boundaries"`
-	KnownGaps  []string `json:"knownGaps"`
-	Warnings   []string `json:"warnings"`
+	PowerShellDeprecation releaseCheckPowerShellDeprecation `json:"powerShellDeprecation"`
+	Boundaries            []string                          `json:"boundaries"`
+	KnownGaps             []string                          `json:"knownGaps"`
+	Warnings              []string                          `json:"warnings"`
 }
 
 func TestRunReleaseCheckJsonInventory(t *testing.T) {
@@ -346,6 +372,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckStep(t, result.RecommendedMinimum, "go run ./cmd/rekit -- -Command release-check -Format json", "go-run", "cmd/rekit")
 	assertReleaseCheckStep(t, result.RecommendedMinimum, "facade-smoke.ps1", "powershell-smoke", "rekit/tests/facade-smoke.ps1")
 	assertReleaseCheckStep(t, result.RecommendedMinimum, "rekit/rekit.ps1 -Command doctor", "powershell-facade", "rekit/rekit.ps1")
+	assertReleaseCheckPowerShellDeprecation(t, result.PowerShellDeprecation)
 	if len(result.RecommendedMinimum) == 0 || len(result.Boundaries) == 0 || len(result.KnownGaps) == 0 || len(result.Packs) == 0 {
 		t.Fatalf("release-check omitted required inventory: %+v", result)
 	}
@@ -408,6 +435,48 @@ func assertReleaseCheckDocument(t *testing.T, docs []struct {
 	t.Fatalf("release-check missing document %q: %+v", want, docs)
 }
 
+func assertReleaseCheckPowerShellDeprecation(t *testing.T, inventory releaseCheckPowerShellDeprecation) {
+	t.Helper()
+	if !inventory.Ready || inventory.StrategyDocument != "docs/powershell-deprecation.md" || inventory.Summary != "PowerShell deprecation inventory ok" || len(inventory.Warnings) != 0 {
+		t.Fatalf("unexpected PowerShell deprecation inventory: %+v", inventory)
+	}
+	if len(inventory.CommandOwnership) == 0 || len(inventory.ModuleStatus) == 0 || len(inventory.FreezeGates) == 0 || len(inventory.BlockedMigrations) == 0 {
+		t.Fatalf("PowerShell deprecation inventory omitted required sections: %+v", inventory)
+	}
+	assertPowerShellCommandOwner(t, inventory, "release-check", true, false)
+	assertPowerShellCommandOwner(t, inventory, "sync / update", true, false)
+	assertPowerShellCommandOwner(t, inventory, "plan-subagents", false, false)
+	assertPowerShellCommandOwner(t, inventory, "actual heavy-tool", false, true)
+	assertPowerShellModuleStatus(t, inventory, "rekit/rekit.ps1")
+	assertPowerShellModuleStatus(t, inventory, "rekit/lib/B3.Commands.ps1")
+}
+
+func assertPowerShellCommandOwner(t *testing.T, inventory releaseCheckPowerShellDeprecation, areaContains string, wantGoDefault, wantBlocked bool) {
+	t.Helper()
+	for _, row := range inventory.CommandOwnership {
+		if strings.Contains(row.Area, areaContains) {
+			if row.GoDefault != wantGoDefault || row.Blocked != wantBlocked || strings.TrimSpace(row.Owner) == "" || strings.TrimSpace(row.Status) == "" || strings.TrimSpace(row.Strategy) == "" {
+				t.Fatalf("PowerShell command owner row %q = %+v, want goDefault=%t blocked=%t with populated owner/status/strategy", areaContains, row, wantGoDefault, wantBlocked)
+			}
+			return
+		}
+	}
+	t.Fatalf("PowerShell deprecation inventory missing command row containing %q: %+v", areaContains, inventory.CommandOwnership)
+}
+
+func assertPowerShellModuleStatus(t *testing.T, inventory releaseCheckPowerShellDeprecation, path string) {
+	t.Helper()
+	for _, module := range inventory.ModuleStatus {
+		if module.Path == path {
+			if strings.TrimSpace(module.Status) == "" || strings.TrimSpace(module.Notes) == "" {
+				t.Fatalf("PowerShell module %s has empty status/notes: %+v", path, module)
+			}
+			return
+		}
+	}
+	t.Fatalf("PowerShell deprecation inventory missing module %s: %+v", path, inventory.ModuleStatus)
+}
+
 func TestRunReleaseCheckTextInventory(t *testing.T) {
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "release-check"}, &out); err != nil {
@@ -426,6 +495,8 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"docs/release-readiness.md",
 		"docs/autonomous-goal.md",
 		"packs:",
+		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
+		"commands=14 modules=14 freezeGates=8 blocked=5",
 		"known gaps:",
 	} {
 		if !strings.Contains(text, expected) {
