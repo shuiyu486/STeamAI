@@ -414,6 +414,17 @@ func (m *Manifest) ValidateSchema() error {
 	if _, err := m.SourcePath(m.ManagedBlock["source"]); err != nil {
 		return err
 	}
+	policyOverlays := map[string]bool{}
+	for _, rel := range m.PolicyOverlays {
+		rel = strings.TrimSpace(rel)
+		if rel == "" {
+			return fmt.Errorf("policyOverlays contains an empty path")
+		}
+		if _, err := m.SourcePath(rel); err != nil {
+			return err
+		}
+		policyOverlays[rel] = true
+	}
 	if len(m.ToolingCandidateSources) == 0 {
 		return fmt.Errorf("toolingCandidateSources must include at least one source; implicit vmp-re fallback is not allowed")
 	}
@@ -461,7 +472,7 @@ func (m *Manifest) ValidateSchema() error {
 			return fmt.Errorf("invalid promoteDenyPatterns regex %q: %w", pattern, err)
 		}
 	}
-	if err := m.validateSubagentRoutes(managedTargets); err != nil {
+	if err := m.validateSubagentRoutes(managedTargets, policyOverlays); err != nil {
 		return err
 	}
 	if err := m.validateHeavyToolGates(); err != nil {
@@ -499,7 +510,7 @@ func (m *Manifest) ValidateSchema() error {
 	return nil
 }
 
-func (m *Manifest) validateSubagentRoutes(managedTargets map[string]bool) error {
+func (m *Manifest) validateSubagentRoutes(managedTargets, policyOverlays map[string]bool) error {
 	seen := map[string]bool{}
 	idPattern := regexp.MustCompile(`^[A-Za-z0-9_.-]+:[A-Za-z][A-Za-z0-9_.-]*$`)
 	for _, route := range m.SubagentRoutes {
@@ -546,8 +557,11 @@ func (m *Manifest) validateSubagentRoutes(managedTargets map[string]bool) error 
 		if !managedTargets[route.Reference] {
 			return fmt.Errorf("subagent route %s reference is not a managed/template/local file: %s", id, route.Reference)
 		}
-		if strings.TrimSpace(route.PolicyOverlay) != "" {
-			if _, err := m.SourcePath(route.PolicyOverlay); err != nil {
+		if overlay := strings.TrimSpace(route.PolicyOverlay); overlay != "" {
+			if !policyOverlays[overlay] {
+				return fmt.Errorf("subagent route %s policyOverlay is not declared in policyOverlays: %s", id, overlay)
+			}
+			if _, err := m.SourcePath(overlay); err != nil {
 				return err
 			}
 		}

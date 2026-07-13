@@ -401,6 +401,30 @@ func TestValidateSchemaRequiresSupportedSubagentPermissions(t *testing.T) {
 	}
 }
 
+func TestValidateSchemaRequiresDeclaredSubagentRoutePolicyOverlay(t *testing.T) {
+	m := validManifestFixture()
+	m.SubagentRoutes = []SubagentRoute{{
+		ID:                  "unit:bounded-review",
+		TaskTypes:           "candidate-review",
+		Trigger:             "fixed-boundary read-only review",
+		ShardBasis:          "item",
+		TargetItemsPerAgent: "1",
+		MaxParallel:         "1",
+		Reference:           "references/template/README.md",
+		PolicyOverlay:       "policies/reviewer.overlay.md",
+		SubagentPermissions: "read-only",
+		MainAgentOwns:       "validation",
+		OutputContract:      "item,decision",
+	}}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "subagent route unit:bounded-review policyOverlay is not declared in policyOverlays: policies/reviewer.overlay.md") {
+		t.Fatalf("ValidateSchema error = %v, want undeclared policyOverlay error", err)
+	}
+	m.PolicyOverlays = []string{"policies/reviewer.overlay.md"}
+	if err := m.ValidateSchema(); err != nil {
+		t.Fatalf("ValidateSchema valid policyOverlay error = %v", err)
+	}
+}
+
 func TestValidateSchemaRejectsEmptySubagentRouteListItems(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
