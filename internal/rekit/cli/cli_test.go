@@ -288,6 +288,35 @@ type releaseCheckStep struct {
 	Resolved  bool   `json:"resolved"`
 }
 
+type releaseCheckCIReleaseGate struct {
+	WorkflowPath   string `json:"workflowPath"`
+	Ready          bool   `json:"ready"`
+	Summary        string `json:"summary"`
+	WorkflowChecks []struct {
+		Name     string `json:"name"`
+		Expected string `json:"expected"`
+		Present  bool   `json:"present"`
+	} `json:"workflowChecks"`
+	Jobs []struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		RunsOn   string `json:"runsOn"`
+		Present  bool   `json:"present"`
+		Required bool   `json:"required"`
+	} `json:"jobs"`
+	RequiredCommands []struct {
+		Job      string `json:"job"`
+		Command  string `json:"command"`
+		Present  bool   `json:"present"`
+		Required bool   `json:"required"`
+	} `json:"requiredCommands"`
+	ForbiddenStrings []struct {
+		Pattern string `json:"pattern"`
+		Present bool   `json:"present"`
+	} `json:"forbiddenStrings"`
+	Warnings []string `json:"warnings"`
+}
+
 type releaseCheckPowerShellDeprecation struct {
 	StrategyDocument string `json:"strategyDocument"`
 	Ready            bool   `json:"ready"`
@@ -326,8 +355,9 @@ type releaseCheckResult struct {
 		LargeMatrixDefault bool               `json:"largeMatrixDefault"`
 		Steps              []releaseCheckStep `json:"steps"`
 	} `json:"gateProfile"`
-	RecommendedMinimum []releaseCheckStep `json:"recommendedMinimum"`
-	RequiredCommands   []releaseCheckStep `json:"requiredCommands"`
+	CIReleaseGate      releaseCheckCIReleaseGate `json:"ciReleaseGate"`
+	RecommendedMinimum []releaseCheckStep        `json:"recommendedMinimum"`
+	RequiredCommands   []releaseCheckStep        `json:"requiredCommands"`
 	Documents          []struct {
 		Path    string `json:"path"`
 		Present bool   `json:"present"`
@@ -374,6 +404,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckStep(t, result.RecommendedMinimum, "go run ./cmd/rekit -- -Command release-check -Format json", "go-run", "cmd/rekit")
 	assertReleaseCheckStep(t, result.RecommendedMinimum, "facade-smoke.ps1", "powershell-smoke", "rekit/tests/facade-smoke.ps1")
 	assertReleaseCheckStep(t, result.RecommendedMinimum, "rekit/rekit.ps1 -Command doctor", "powershell-facade", "rekit/rekit.ps1")
+	assertReleaseCheckCIReleaseGate(t, result.CIReleaseGate)
 	assertReleaseCheckPowerShellDeprecation(t, result.PowerShellDeprecation)
 	if len(result.RecommendedMinimum) == 0 || len(result.Boundaries) == 0 || len(result.KnownGaps) == 0 || len(result.Packs) == 0 || len(result.HeavyToolGateActions) == 0 {
 		t.Fatalf("release-check omitted required inventory: %+v", result)
@@ -441,6 +472,55 @@ func assertReleaseCheckDocument(t *testing.T, docs []struct {
 	t.Fatalf("release-check missing document %q: %+v", want, docs)
 }
 
+func assertReleaseCheckCIReleaseGate(t *testing.T, gate releaseCheckCIReleaseGate) {
+	t.Helper()
+	if !gate.Ready || gate.WorkflowPath != ".github/workflows/release-gate.yml" || gate.Summary != "CI release gate inventory ok" || len(gate.Warnings) != 0 {
+		t.Fatalf("unexpected CI release gate inventory: %+v", gate)
+	}
+	if len(gate.WorkflowChecks) == 0 || len(gate.Jobs) != 2 || len(gate.RequiredCommands) != 6 || len(gate.ForbiddenStrings) == 0 {
+		t.Fatalf("CI release gate inventory omitted required sections: %+v", gate)
+	}
+	assertCIReleaseJob(t, gate, "go-checks", "Go release checks", "ubuntu-latest")
+	assertCIReleaseJob(t, gate, "windows-facade", "Windows facade smoke", "windows-latest")
+	assertCIReleaseCommand(t, gate, "go-checks", "go run ./cmd/rekit -- -Command release-check -Format json")
+	assertCIReleaseCommand(t, gate, "go-checks", "go test ./...")
+	assertCIReleaseCommand(t, gate, "go-checks", "go vet ./...")
+	assertCIReleaseCommand(t, gate, "windows-facade", "go run ./cmd/rekit -- -Command release-check -Format json")
+	assertCIReleaseCommand(t, gate, "windows-facade", ".\\rekit\\rekit.ps1 -Command doctor")
+	assertCIReleaseCommand(t, gate, "windows-facade", ".\\rekit\\tests\\facade-smoke.ps1")
+	for _, forbidden := range gate.ForbiddenStrings {
+		if forbidden.Present {
+			t.Fatalf("CI release gate forbidden pattern present: %+v", forbidden)
+		}
+	}
+}
+
+func assertCIReleaseJob(t *testing.T, gate releaseCheckCIReleaseGate, id, name, runsOn string) {
+	t.Helper()
+	for _, job := range gate.Jobs {
+		if job.ID == id {
+			if !job.Present || !job.Required || job.Name != name || job.RunsOn != runsOn {
+				t.Fatalf("CI release job %s = %+v, want name=%q runsOn=%q present/required", id, job, name, runsOn)
+			}
+			return
+		}
+	}
+	t.Fatalf("CI release gate missing job %s: %+v", id, gate.Jobs)
+}
+
+func assertCIReleaseCommand(t *testing.T, gate releaseCheckCIReleaseGate, jobID, command string) {
+	t.Helper()
+	for _, item := range gate.RequiredCommands {
+		if item.Job == jobID && item.Command == command {
+			if !item.Present || !item.Required {
+				t.Fatalf("CI release command %s/%s = %+v, want present/required", jobID, command, item)
+			}
+			return
+		}
+	}
+	t.Fatalf("CI release gate missing command %s/%s: %+v", jobID, command, gate.RequiredCommands)
+}
+
 func assertReleaseCheckPowerShellDeprecation(t *testing.T, inventory releaseCheckPowerShellDeprecation) {
 	t.Helper()
 	if !inventory.Ready || inventory.StrategyDocument != "docs/powershell-deprecation.md" || inventory.Summary != "PowerShell deprecation inventory ok" || len(inventory.Warnings) != 0 {
@@ -493,6 +573,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"release-check: release gate inventory ok",
 		"ready: true",
 		"gate profile: local-ci-minimum ready=true",
+		"CI release gate: .github/workflows/release-gate.yml ready=true jobs=2 commands=6 forbidden=10",
 		"required commands:",
 		"go run ./cmd/rekit -- -Command release-check -Format json kind=go-run path=cmd/rekit",
 		"go test ./... kind=go-check",

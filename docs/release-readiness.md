@@ -13,7 +13,7 @@
 - Go backend 已是多数确定性 runtime 路径的 owner：`status`、`packs`、`doctor/validate`、case lifecycle、sync/promote、overview、note、gate、start/handoff、continue preview/apply safe subset。
 - PowerShell `rekit/rekit.ps1` 仍是公共 façade：负责参数兼容、旧文本 flow、fallback、少量 parity smoke 和 `REKIT_GO_DISABLE=1` 回退。
 - Agent Team dry-run 已从 `_template` package E2E 扩展到 `generic-binary-re`、`web-security` package E2E，并新增 `web-security`、`generic-binary-re`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 真实临时 case smoke。
-- 发布门禁应优先依赖 Go-owned `release-check` inventory、Go tests / `go vet` / doctor / 少量 Windows façade smoke；Batch 139 已让 `release-check` 输出 `gateProfile`，将 recommended minimum 解析为本机/CI 可消费的 step kind、repo-local path、present/resolved 状态；Batch 140 已新增 `.github/workflows/release-gate.yml`，只运行 Go release checks 与 Windows facade smoke，不把大型 pack matrix 作为默认必跑；Batch 142 已让 `release-check` 输出 `powerShellDeprecation` inventory，解析 PowerShell 命令归属、模块状态、freeze gates 与 blocked migrations，作为 PowerShell 收缩的确定性前置检查。
+- 发布门禁应优先依赖 Go-owned `release-check` inventory、Go tests / `go vet` / doctor / 少量 Windows façade smoke；Batch 139 已让 `release-check` 输出 `gateProfile`，将 recommended minimum 解析为本机/CI 可消费的 step kind、repo-local path、present/resolved 状态；Batch 140 已新增 `.github/workflows/release-gate.yml`，只运行 Go release checks 与 Windows facade smoke，不把大型 pack matrix 作为默认必跑；Batch 142 已让 `release-check` 输出 `powerShellDeprecation` inventory，解析 PowerShell 命令归属、模块状态、freeze gates 与 blocked migrations，作为 PowerShell 收缩的确定性前置检查；Batch 144 已让 `release-check` 输出 `ciReleaseGate` inventory，对照 GitHub Actions workflow 的 job、required commands 与 forbidden broad/heavy steps 发现漂移。
 - 长期自主推进和新会话接手 guidance 已集中到 `docs/autonomous-goal.md`；它只保留大方向、自主推进循环和可复制 goal 语句，避免 release readiness 批次退回微批次或 PowerShell smoke/catalog 扩张，也避免用过长约束束缚模型发挥。
 
 ## 执行清单
@@ -37,7 +37,7 @@ go vet ./...
 git diff --check
 ```
 
-`release-check -Format json` 会同时输出 `gateProfile.name=local-ci-minimum`、`defaultFor=[local,ci]`、`stepCount`、`largeMatrixDefault=false` 和每个 step 的 `kind` / `repoPath` / `present` / `resolved`，供本机脚本或 CI 在真正执行命令前先做确定性 inventory 检查；同时输出 `powerShellDeprecation.ready`、`commandOwnership[]`、`moduleStatus[]`、`freezeGates[]`、`blockedMigrations[]` 与 `heavyToolGateActions[]`，在 PowerShell façade / fallback 收缩前验证 deprecation 文档、实际 façade 默认委托和 `rekit/lib/*.ps1` 模块清单没有漂移，也能看到当前 pack manifest 声明的 heavy-tool gate action 集合。
+`release-check -Format json` 会同时输出 `gateProfile.name=local-ci-minimum`、`defaultFor=[local,ci]`、`stepCount`、`largeMatrixDefault=false` 和每个 step 的 `kind` / `repoPath` / `present` / `resolved`，供本机脚本或 CI 在真正执行命令前先做确定性 inventory 检查；同时输出 `ciReleaseGate.ready`、`workflowPath`、`jobs[]`、`requiredCommands[]`、`forbiddenStrings[]`，验证 `.github/workflows/release-gate.yml` 仍只包含轻量 Go release checks 与 Windows façade smoke，未漂移到大型 matrix、真实临时 case smoke 或 heavy-tool 相关步骤；同时输出 `powerShellDeprecation.ready`、`commandOwnership[]`、`moduleStatus[]`、`freezeGates[]`、`blockedMigrations[]` 与 `heavyToolGateActions[]`，在 PowerShell façade / fallback 收缩前验证 deprecation 文档、实际 façade 默认委托和 `rekit/lib/*.ps1` 模块清单没有漂移，也能看到当前 pack manifest 声明的 heavy-tool gate action 集合。
 
 机器可读 smoke catalog 的 `recommendedMinimum` 当前为：
 
@@ -75,7 +75,7 @@ git diff --check
 
 Release gate 通过的最低标准：
 
-- `go run ./cmd/rekit -- -Command release-check -Format json` 输出 `ready=true`，且 `gateProfile.ready=true`、`powerShellDeprecation.ready=true`、`heavyToolGateActions[]` 非空，required commands、必备文档、pack schema、PowerShell deprecation inventory、manifest heavy-tool gate action、边界与 known gaps 清单完整。
+- `go run ./cmd/rekit -- -Command release-check -Format json` 输出 `ready=true`，且 `gateProfile.ready=true`、`ciReleaseGate.ready=true`、`powerShellDeprecation.ready=true`、`heavyToolGateActions[]` 非空，required commands、必备文档、pack schema、CI release gate inventory、PowerShell deprecation inventory、manifest heavy-tool gate action、边界与 known gaps 清单完整。
 - `go test ./...` 通过，包含 `internal/rekit/manifest` release invariants。
 - `go vet ./...` 无输出或无错误退出。
 - `./rekit/rekit.ps1 -Command doctor` 输出 pack validation ok。
@@ -135,5 +135,5 @@ PowerShell legacy / fallback 路径（详细冻结/删除策略见 `docs/powersh
 - bounded dispatch 仍不自动 spawn reviewer；runtime 只生成 review packet 和 observability。
 - actual heavy-tool 执行未迁入 deterministic runtime；full-trace/debug/inject/patch/dump/network/symex 仍必须显式 gate，且 `gate` 只接受 pack manifest `heavyToolGates` 声明的 action。
 - authority/confirmed 写入仍需人工确认，不由 Go `continue -Apply` 自动执行。
-- policy schema 迁移与 PowerShell runtime deprecation 的实际删除批次尚未进入默认发布路径；Batch 129 已新增 `docs/powershell-deprecation.md` 作为策略入口，Batch 130 已新增 Go-owned `release-check` inventory 作为本机/CI release gate 前置检查，Batch 131 已新增 façade freeze invariant 防止默认委托集合和 blocked 边界漂移，Batch 139 已新增 `release-check` gate profile 以便 CI/本机在执行前解析 recommended minimum，Batch 140 已新增轻量 CI workflow，Batch 142 已新增 `powerShellDeprecation` inventory 用于在删除前发现命令归属/模块清单漂移。
+- policy schema 迁移与 PowerShell runtime deprecation 的实际删除批次尚未进入默认发布路径；Batch 129 已新增 `docs/powershell-deprecation.md` 作为策略入口，Batch 130 已新增 Go-owned `release-check` inventory 作为本机/CI release gate 前置检查，Batch 131 已新增 façade freeze invariant 防止默认委托集合和 blocked 边界漂移，Batch 139 已新增 `release-check` gate profile 以便 CI/本机在执行前解析 recommended minimum，Batch 140 已新增轻量 CI workflow，Batch 142 已新增 `powerShellDeprecation` inventory 用于在删除前发现命令归属/模块清单漂移，Batch 144 已新增 `ciReleaseGate` inventory 用于发现 GitHub Actions release gate job/command/forbidden step 漂移。
 - 目前安全领域 skeleton pack 均已有真实临时 case dry-run；后续缺口转向 release readiness/CI 门禁、policy schema migration 和 PowerShell runtime deprecation。

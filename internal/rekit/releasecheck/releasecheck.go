@@ -22,6 +22,7 @@ type Result struct {
 	Ready                 bool                   `json:"ready"`
 	Summary               string                 `json:"summary"`
 	GateProfile           GateProfile            `json:"gateProfile"`
+	CIReleaseGate         CIReleaseGate          `json:"ciReleaseGate"`
 	RecommendedMinimum    []GateStep             `json:"recommendedMinimum"`
 	RequiredCommands      []GateStep             `json:"requiredCommands"`
 	Documents             []DocumentCheck        `json:"documents"`
@@ -104,6 +105,7 @@ func Build(repoRoot string) (Result, error) {
 		RepoRoot:              repo,
 		Ready:                 true,
 		Summary:               "release gate inventory ok",
+		CIReleaseGate:         ciReleaseGate(repo),
 		RecommendedMinimum:    catalogGateSteps(repo, cat.RecommendedMinimum),
 		RequiredCommands:      requiredGateSteps(repo, requiredCommands, cat.RecommendedMinimum),
 		Documents:             documentChecks(repo, requiredDocuments),
@@ -140,6 +142,10 @@ func Build(repoRoot string) (Result, error) {
 	if len(check.HeavyToolGateActions) == 0 {
 		check.Ready = false
 		check.Warnings = append(check.Warnings, "no heavy-tool gate actions declared by pack manifests")
+	}
+	if !check.CIReleaseGate.Ready {
+		check.Ready = false
+		check.Warnings = append(check.Warnings, check.CIReleaseGate.Warnings...)
 	}
 	if !check.PowerShellDeprecation.Ready {
 		check.Ready = false

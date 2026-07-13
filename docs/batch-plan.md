@@ -4386,3 +4386,32 @@ git diff --check
 ```
 
 验证结果：已通过定向 Go package tests、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor`、默认自包含 `facade-smoke.ps1` 与 `pack-inventory-smoke.ps1`；`pack-inventory-smoke.ps1` 已覆盖 Go / façade / `REKIT_GO_DISABLE=1` fallback JSON 中的 `heavyToolGates=7` 与 `heavyToolGateActions=[debug,dump,full-trace,inject,network,patch,symex]`，并验证 invalid `heavyToolGates` 在 Go 与 PowerShell fallback 下均标记 schema error。`release-check` JSON 已包含 `heavyToolGateActions=[debug,dump,full-trace,inject,network,patch,symex]`，所有 pack summary 均显示 `heavyToolGates=7`。`git diff --check` 仍仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 144：CI release gate inventory
+
+状态：已完成。
+
+目标：承接 Stage 8 release readiness 方向，把 `.github/workflows/release-gate.yml` 的轻量 CI contract 纳入 Go-owned `release-check` 机器可读 inventory，使本机/CI/新会话能发现 release gate workflow 的 job、required command 或 forbidden broad/heavy step 漂移，而不是只靠静态文档和 manifest invariant。
+
+实施范围：
+
+- 新增 `internal/rekit/releasecheck` 的 `CIReleaseGate` inventory，解析 `.github/workflows/release-gate.yml` 的 workflow checks、required jobs、required commands 与 forbidden broad/heavy steps，并在漂移时让 `release-check.ready=false`。
+- `release-check -Format json` 新增 `ciReleaseGate`；text 输出新增 CI release gate summary 和 warnings。
+- 扩展 releasecheck / CLI / release invariant tests，覆盖 repo workflow inventory、drift detection、JSON/text envelope 与 release readiness 文档锚点。
+- 更新 `docs/release-readiness.md`、`docs/go-first-convergence-plan.md`、CHANGELOG 与本 batch-plan，记录 `ciReleaseGate.ready`、`requiredCommands[]` 和 `forbiddenStrings[]` 的 release readiness 语义。
+
+边界：本批只做确定性 CI workflow inventory、测试和文档；不执行 GitHub Actions、不新增外部服务调用、不改变 CI workflow 本身、不扩大 PowerShell façade、不执行大型 PowerShell matrix、真实临时 case smoke 或 heavy-tool、不写 case/pack runtime state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` JSON 已包含 `ciReleaseGate.ready=true`、2 个 required jobs、6 条 required commands 与 10 条 forbidden broad/heavy step checks；text 输出显示 `CI release gate: .github/workflows/release-gate.yml ready=true jobs=2 commands=6 forbidden=10`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

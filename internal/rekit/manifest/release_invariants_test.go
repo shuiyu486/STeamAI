@@ -271,6 +271,9 @@ func TestReleaseGateWorkflowInvariants(t *testing.T) {
 		".github/workflows/release-gate.yml",
 		"Go release checks",
 		"Windows facade smoke",
+		"ciReleaseGate.ready",
+		"requiredCommands[]",
+		"forbiddenStrings[]",
 		"不默认运行大型 PowerShell matrix",
 	} {
 		assertTextContains(t, checklist, required, "release readiness CI workflow")

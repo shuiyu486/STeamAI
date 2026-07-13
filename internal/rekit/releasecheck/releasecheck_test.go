@@ -25,6 +25,83 @@ func TestReleaseCheckIncludesManifestHeavyToolGateActions(t *testing.T) {
 	}
 }
 
+func TestCIReleaseGateInventoryFromRepo(t *testing.T) {
+	gate := ciReleaseGate(repoRoot(t))
+	if !gate.Ready || gate.WorkflowPath != ".github/workflows/release-gate.yml" || gate.Summary != "CI release gate inventory ok" || len(gate.Warnings) != 0 {
+		t.Fatalf("unexpected CI release gate inventory: %+v", gate)
+	}
+	if len(gate.WorkflowChecks) == 0 || len(gate.Jobs) != 2 || len(gate.RequiredCommands) != 6 || len(gate.ForbiddenStrings) == 0 {
+		t.Fatalf("CI release gate omitted required sections: %+v", gate)
+	}
+	assertCIJob(t, gate, "go-checks", "Go release checks", "ubuntu-latest")
+	assertCIJob(t, gate, "windows-facade", "Windows facade smoke", "windows-latest")
+	assertCICommand(t, gate, "go-checks", "go run ./cmd/rekit -- -Command release-check -Format json")
+	assertCICommand(t, gate, "go-checks", "go test ./...")
+	assertCICommand(t, gate, "go-checks", "go vet ./...")
+	assertCICommand(t, gate, "windows-facade", "go run ./cmd/rekit -- -Command release-check -Format json")
+	assertCICommand(t, gate, "windows-facade", ".\\rekit\\rekit.ps1 -Command doctor")
+	assertCICommand(t, gate, "windows-facade", ".\\rekit\\tests\\facade-smoke.ps1")
+	for _, forbidden := range gate.ForbiddenStrings {
+		if forbidden.Present {
+			t.Fatalf("forbidden CI release gate pattern present: %+v", forbidden)
+		}
+	}
+}
+
+func TestCIReleaseGateInventoryDetectsDrift(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, filepath.Join(repo, ".github", "workflows", "release-gate.yml"), `name: release-gate
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  go-checks:
+    name: Go release checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release inventory
+        run: go run ./cmd/rekit -- -Command release-check -Format json
+      - name: Go tests
+        run: go test ./...
+      - name: Broad matrix
+        run: pack-smoke-matrix.ps1
+`)
+	gate := ciReleaseGate(repo)
+	if gate.Ready {
+		t.Fatalf("CI release gate unexpectedly ready despite drift: %+v", gate)
+	}
+	assertWarningContains(t, gate.Warnings, "windows-facade")
+	assertWarningContains(t, gate.Warnings, "go vet ./...")
+	assertWarningContains(t, gate.Warnings, "pack-smoke-matrix.ps1")
+}
+
+func assertCIJob(t *testing.T, gate CIReleaseGate, id, name, runsOn string) {
+	t.Helper()
+	for _, job := range gate.Jobs {
+		if job.ID == id {
+			if !job.Present || !job.Required || job.Name != name || job.RunsOn != runsOn {
+				t.Fatalf("CI job %s = %+v, want name=%q runsOn=%q present/required", id, job, name, runsOn)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing CI job %s: %+v", id, gate.Jobs)
+}
+
+func assertCICommand(t *testing.T, gate CIReleaseGate, jobID, command string) {
+	t.Helper()
+	for _, item := range gate.RequiredCommands {
+		if item.Job == jobID && item.Command == command {
+			if !item.Present || !item.Required {
+				t.Fatalf("CI command %s/%s = %+v, want present/required", jobID, command, item)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing CI command %s/%s: %+v", jobID, command, gate.RequiredCommands)
+}
+
 func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {
 	repo := repoRoot(t)
 	inventory := powerShellDeprecation(repo)
