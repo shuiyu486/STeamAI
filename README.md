@@ -136,7 +136,7 @@ claude
 | `/rekit doctor` | 只读 | 排障时详细验证结构；日常不必主动运行；维护自动化可用 `-Format json` 消费验证 rows。 |
 | `/rekit repair` | case metadata | 迁移目录后先预览修复；确认后由 Claude 调用 backend `-Apply`。 |
 
-`validate` 和 `plan-subagents` 仍是 backend/内部命令，不是日常主入口；`packs` 是维护者/排障入口，用于多 pack 发现和矩阵验证；`note -List -Format json` 可供维护自动化读取 ledger events，`note` append 与 `note -WhatIf` 输出机器可读 JSON envelope，并只写 facts JSONL 或预览。
+`validate` 和 `plan-subagents` 仍是 backend/内部命令，不是日常主入口；`packs` 是维护者/排障入口，用于多 pack 发现和矩阵验证；`note -List` 文本/table/tsv 与 `note -List -Format json` 默认经 Go façade 只读查询 ledger events，`note` append 与 `note -WhatIf` 输出机器可读 JSON envelope，并只写 facts JSONL 或预览。
 
 ## 日常工作流
 

@@ -96,10 +96,12 @@ try {
   }
   $fakeGo = Join-Path $caseRoot 'fake-rekit-go.cmd'
   [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"note","delegatedByFake":true}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
+  $delegatedNoteText = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
+  if (-not [bool]$delegatedNoteText.delegatedByFake) { throw "facade note list text did not use default REKIT_GO_EXE delegation: $($delegatedNoteText | ConvertTo-Json -Depth 20)" }
   $delegatedNoteJson = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane,'-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
   if (-not [bool]$delegatedNoteJson.delegatedByFake) { throw "facade note list JSON did not use default REKIT_GO_EXE delegation: $($delegatedNoteJson | ConvertTo-Json -Depth 20)" }
-  $textFallback = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $textFallback -Expected 'verifier=manual-review' -Label 'note text list fallback'
+  $textFallback = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $textFallback -Expected 'verifier=manual-review' -Label 'note text list disabled fallback'
 
   $verificationJson = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane,'-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
   if ([string]$verificationJson.command -ne 'note' -or [bool]$verificationJson.isMutation -or [string]$verificationJson.kind -ne 'verification' -or [string]$verificationJson.lane -ne $lane -or [int]$verificationJson.eventCount -ne 1) { throw "unexpected note verification JSON: $($verificationJson | ConvertTo-Json -Depth 20)" }

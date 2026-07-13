@@ -176,7 +176,7 @@ function Test-RekitGoDelegationSafe {
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
       if ($listRequested) {
         if ($WhatIf) { return $false }
-        return ($formatValue -eq 'json')
+        return ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -in @('table','text','tsv','json'))
       }
       return ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json')
     }
@@ -332,6 +332,7 @@ function Get-RekitGoArgs {
     $noteArgs = Get-RekitRemainingArgMap -Tokens $RemainingArgs
     $noteList = $List.IsPresent -or (Test-RekitRemainingSwitch -Map $noteArgs -Name 'List')
     Add-RekitGoSwitch ([ref]$goArgs) '-List' $noteList
+    if ([string]::IsNullOrWhiteSpace([string]$Format) -and $noteArgs.ContainsKey('Format')) { Add-RekitGoArg ([ref]$goArgs) '-Format' ([string]$noteArgs['Format']) }
     $noteValues = [ordered]@{
       Kind = ''
       Lane = $Lane

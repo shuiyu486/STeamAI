@@ -117,7 +117,7 @@ try {
     $gateLane = 'feature-handler-0x40a010'
   }
 
-  # Low-risk read-only commands, overview/note JSON reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, promote JSON previews, start/handoff JSON preview/apply paths, and continue JSON preview default to Go.
+  # Low-risk read-only commands, overview/note reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, promote JSON previews, start/handoff JSON preview/apply paths, and continue JSON preview default to Go.
   $out = Invoke-RekitSmoke -Arguments @('-Command','status')
   Assert-ContainsText -Text $out -Expected 'rekit go backend:' -Label 'default go status'
 
@@ -147,6 +147,7 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -CommandName 'promote' -Label 'default promote apply fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'overview' -Label 'default overview fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -CommandName 'overview' -Label 'default overview JSON fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List') -CommandName 'note' -Label 'default note list text fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List','-Format','json') -CommandName 'note' -Label 'default note list JSON fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','default note append','-Summary','fake default note append') -CommandName 'note' -Label 'default note append fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','default note what-if','-Summary','fake default note what-if','-WhatIf') -CommandName 'note' -Label 'default note what-if fake delegation'
@@ -211,6 +212,7 @@ try {
 
   Assert-FakeDefaultDelegation -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'overview' -Label 'default overview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -CommandName 'overview' -Label 'default overview JSON delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List') -CommandName 'note' -Label 'default note list text delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List','-Format','json') -CommandName 'note' -Label 'default note list JSON delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','verification','-Lane','main','-Subject','matrix note append','-Summary','fake default note append') -CommandName 'note' -Label 'default note append delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','verification','-Lane','main','-Subject','matrix note what-if','-Summary','fake default note what-if','-WhatIf') -CommandName 'note' -Label 'default note what-if delegation'
@@ -223,7 +225,6 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply') -CommandName 'handoff' -Label 'default handoff apply delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply','-Format','json') -CommandName 'handoff' -Label 'default handoff JSON apply delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'continue' -Label 'default continue JSON preview delegation'
-  Assert-FakeFallback -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List') -Expected '[observation]' -Label 'note text list fallback'
   Assert-FakeFallback -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf') -Expected 'would create or enter feature workstream:' -Label 'start text preview fallback'
   Assert-FakeFallback -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack) -Expected 'feature-' -Label 'start bare text fallback'
   Assert-FakeFallback -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf') -Expected 'would write workstream handoff:' -Label 'handoff text preview fallback'
@@ -244,6 +245,9 @@ try {
   Assert-NotContainsText -Text $disabledOverviewOut -Unexpected 'delegatedByFake' -Label 'go disabled overview JSON fallback'
   Assert-ContainsText -Text $disabledOverviewOut -Expected '"command"' -Label 'go disabled overview JSON fallback'
   Assert-ContainsText -Text $disabledOverviewOut -Expected 'overview' -Label 'go disabled overview JSON fallback'
+  $disabledNoteTextOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledNoteTextOut -Unexpected 'delegatedByFake' -Label 'go disabled note text fallback'
+  Assert-ContainsText -Text $disabledNoteTextOut -Expected '[observation]' -Label 'go disabled note text fallback'
   $disabledNoteOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledNoteOut -Unexpected 'delegatedByFake' -Label 'go disabled note JSON fallback'
   Assert-ContainsText -Text $disabledNoteOut -Expected '"command"' -Label 'go disabled note JSON fallback'

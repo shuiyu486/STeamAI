@@ -3647,3 +3647,35 @@ git diff --check
 ```
 
 验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/overview ./internal/rekit/workstream`、`overview-readonly-smoke.ps1`、`facade-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 120：note list text default Go façade
+
+状态：已完成。
+
+目标：承接 Stage 5 的 ledger/read layer 收口，在 Batch 113 已将 `note -List -Format json`、Batch 116 已将 note append / what-if 纳入默认 Go façade 后，把 attached case 的 `/rekit note -List` 文本/table/tsv 只读查询也安全纳入默认 Go façade，减少 PowerShell 继续作为 ledger read layer owner 的漂移风险。
+
+实施范围：
+
+- 扩展 `rekit/rekit.ps1` 的 `note` safe-set：attached case、显式 `-List`、非 `-WhatIf`、无 `-Apply`/`-CreateCandidates`/`-Review`/`-Force`、无 review artifact options 时，允许空 format、`table`、`text`、`tsv` 与 `json` 默认委托 Go。
+- 在 `Get-RekitGoArgs` 的 note 参数转发中补齐 slash-command style `RemainingArgs` 内 `-Format` 的透传，避免 safe-set 识别 `-Format json` 但 Go backend 收到默认文本 format。
+- 保留 note append 与 `note -WhatIf` 既有默认 Go 路径和 JSON envelope；保留 invalid kind/format、write flag、lane/schema guard。
+- 更新 `facade-smoke.ps1`，用 fake `REKIT_GO_EXE` 锁定 text 与 JSON `note -List` 默认委托，并补 `REKIT_GO_DISABLE=1` 下文本 list fallback。
+- 更新 `agent-team-review-loop-smoke.ps1`，覆盖 review loop 中 text/JSON `note -List` 默认委托、disable fallback，以及 note what-if/append/overview/handoff 展示闭环。
+- 更新 README、CLAUDE、`/rekit` skill、Go runtime migration、Go-first convergence、Agent Team rollout、tests guide、catalog metadata 与 changelog，记录 Batch 120 后 note list 文本/table/tsv 与 JSON 查询的默认委托边界。
+
+边界：本批只切换 attached case 的 `note -List` 文本/table/tsv 只读查询 façade owner；不写 facts/board/lane/handoff/authority/confirmed，不执行 full-trace/debug/inject/patch/dump/network/fuzz/exploit replay，不改变 note append/what-if 写入 schema、不迁移 `continue` apply/text workflow、不改变 sync/promote review-first 与 heavy-tool/authority gate。`REKIT_GO_DISABLE=1` 继续作为 PowerShell fallback。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/cli ./internal/rekit/note
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\agent-team-review-loop-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+go test ./...
+go vet ./...
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：全部通过。`go test ./internal/rekit/cli ./internal/rekit/note`、`facade-smoke.ps1`、`agent-team-review-loop-smoke.ps1`、`catalog-smoke.ps1`、`go test ./...`、`go vet ./...` 与 `/rekit doctor` 均通过；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
