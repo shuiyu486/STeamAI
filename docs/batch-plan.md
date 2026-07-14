@@ -5395,3 +5395,32 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/gate`、targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 178：Manifest lane type list-item contract
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，收紧 `laneTypes` 的 id 与 list-item contract，要求工作线类型 id、可写/只读边界和输出事件列表在 schema-valid manifest 中保持可消费、可去重且不会携带空列表项。
+
+实施范围：
+
+- `ValidateSchema` 要求 `laneTypes.id` 使用小写 slug，避免带空格、大写或非法字符的 lane type 进入 `/rekit overview/continue/start/handoff` 可消费 inventory。
+- `ValidateSchema` 对 `laneTypes.canWrite`、`readOnly` 与 `outputs` 增加空项与大小写无关重复项校验，并要求 `outputs` 使用机器可消费的小写 slug/snake token。
+- manifest tests 新增 invalid lane id、重复 canWrite/readOnly、非法 outputs 与重复 outputs 回归；`docs/pack-authoring.md`、`rekit/schemas/pack-manifest.schema.yml`、`docs/go-first-convergence-plan.md` 与 `CHANGELOG.md` 同步记录 lane type list-item contract。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest`、targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

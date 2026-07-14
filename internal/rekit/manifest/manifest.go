@@ -839,6 +839,9 @@ func (m *Manifest) validateLaneTypes() error {
 		if id == "" {
 			return fmt.Errorf("laneTypes entry is missing id")
 		}
+		if !manifestSlugPattern.MatchString(id) {
+			return fmt.Errorf("laneTypes entry has invalid id: %s", lane.ID)
+		}
 		if seen[strings.ToLower(id)] {
 			return fmt.Errorf("duplicate laneTypes id: %s", id)
 		}
@@ -867,30 +870,54 @@ func (m *Manifest) validateLaneTypes() error {
 		if len(lane.Outputs) == 0 {
 			return fmt.Errorf("laneTypes entry %s is missing outputs", id)
 		}
+		canWrite := map[string]bool{}
 		for _, rel := range lane.CanWrite {
-			if strings.TrimSpace(rel) == "" {
+			rel = strings.TrimSpace(rel)
+			if rel == "" {
 				return fmt.Errorf("laneTypes entry %s contains an empty canWrite item", id)
 			}
+			key := strings.ToLower(rel)
+			if canWrite[key] {
+				return fmt.Errorf("laneTypes entry %s contains duplicate canWrite item: %s", id, rel)
+			}
+			canWrite[key] = true
 			if rel != "own-workspace" {
 				if _, err := m.SourcePath(rel); err != nil {
 					return err
 				}
 			}
 		}
+		readOnly := map[string]bool{}
 		for _, rel := range lane.ReadOnly {
-			if strings.TrimSpace(rel) == "" {
+			rel = strings.TrimSpace(rel)
+			if rel == "" {
 				return fmt.Errorf("laneTypes entry %s contains an empty readOnly item", id)
 			}
+			key := strings.ToLower(rel)
+			if readOnly[key] {
+				return fmt.Errorf("laneTypes entry %s contains duplicate readOnly item: %s", id, rel)
+			}
+			readOnly[key] = true
 			if !strings.ContainsAny(rel, "*") {
 				if _, err := m.SourcePath(rel); err != nil {
 					return err
 				}
 			}
 		}
+		outputs := map[string]bool{}
 		for _, output := range lane.Outputs {
-			if strings.TrimSpace(output) == "" {
+			output = strings.TrimSpace(output)
+			if output == "" {
 				return fmt.Errorf("laneTypes entry %s contains an empty outputs item", id)
 			}
+			if !subagentRouteListTokenPattern.MatchString(output) {
+				return fmt.Errorf("laneTypes entry %s has invalid outputs item: %s", id, output)
+			}
+			key := strings.ToLower(output)
+			if outputs[key] {
+				return fmt.Errorf("laneTypes entry %s contains duplicate outputs item: %s", id, output)
+			}
+			outputs[key] = true
 		}
 	}
 	return nil

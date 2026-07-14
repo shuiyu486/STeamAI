@@ -1167,6 +1167,36 @@ func TestValidateSchemaRequiresExplicitLaneTypeFields(t *testing.T) {
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "laneTypes entry main has invalid authority") {
 		t.Fatalf("ValidateSchema error = %v, want invalid lane authority error", err)
 	}
+	m = validManifestFixture()
+	m.LaneTypes[0].ID = "Main Lane"
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "laneTypes entry has invalid id: Main Lane") {
+		t.Fatalf("ValidateSchema error = %v, want invalid lane id error", err)
+	}
+	m = validManifestFixture()
+	m.LaneTypes[0].CanWrite = []string{"references/template/task-handoff.md", "references/template/task-handoff.md"}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "laneTypes entry main contains duplicate canWrite item: references/template/task-handoff.md") {
+		t.Fatalf("ValidateSchema error = %v, want duplicate canWrite error", err)
+	}
+	m = validManifestFixture()
+	m.LaneTypes[0].ReadOnly = []string{".rekit/facts/**", ".REKIT/facts/**"}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "laneTypes entry main contains duplicate readOnly item: .REKIT/facts/**") {
+		t.Fatalf("ValidateSchema error = %v, want duplicate readOnly error", err)
+	}
+	m = validManifestFixture()
+	m.LaneTypes[0].Outputs = []string{"publication", "AuthoritySync"}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "laneTypes entry main has invalid outputs item: AuthoritySync") {
+		t.Fatalf("ValidateSchema error = %v, want invalid outputs error", err)
+	}
+	m = validManifestFixture()
+	m.LaneTypes[0].Outputs = []string{"publication", "Publication"}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "laneTypes entry main has invalid outputs item: Publication") {
+		t.Fatalf("ValidateSchema error = %v, want invalid outputs error", err)
+	}
+	m = validManifestFixture()
+	m.LaneTypes[0].Outputs = []string{"publication", "publication"}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "laneTypes entry main contains duplicate outputs item: publication") {
+		t.Fatalf("ValidateSchema error = %v, want duplicate outputs error", err)
+	}
 }
 
 func TestLoadDoesNotInferWorkstreamDefaultsMap(t *testing.T) {
