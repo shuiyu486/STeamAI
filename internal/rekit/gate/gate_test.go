@@ -53,6 +53,49 @@ func TestApplyRequiresActorAndDoesNotWrite(t *testing.T) {
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 }
 
+func TestPlanDryRunRejectsInvalidStopConditionsOverride(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{
+			name:  "phrase",
+			value: "timeout,unexpected side effect",
+			want:  "gate stopConditions has invalid item: unexpected side effect",
+		},
+		{
+			name:  "empty-item",
+			value: "timeout,",
+			want:  "gate stopConditions contains an empty item",
+		},
+		{
+			name:  "duplicate",
+			value: "timeout,timeout",
+			want:  "gate stopConditions contains duplicate item: timeout",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repoRoot, caseRoot, pack := gateFixture(t)
+			_, err := PlanDryRun(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Subject: "bad stop conditions", StopConditions: tc.value})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("PlanDryRun error = %v, want %s", err, tc.want)
+			}
+			assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
+		})
+	}
+}
+
+func TestApplyRejectsInvalidStopConditionsOverrideDoesNotWrite(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+
+	_, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "bad stop conditions", StopConditions: "timeout,unexpected side effect"})
+	if err == nil || !strings.Contains(err.Error(), "gate stopConditions has invalid item: unexpected side effect") {
+		t.Fatalf("Apply error = %v, want invalid stopConditions item error", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
+}
+
 func TestApplyWritesOnlyPendingGateRequest(t *testing.T) {
 	repoRoot, caseRoot, pack := gateFixture(t)
 

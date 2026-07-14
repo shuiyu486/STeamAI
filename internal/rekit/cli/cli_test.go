@@ -3487,7 +3487,7 @@ func TestRunGateDryRunEmitsNonMutatingPlan(t *testing.T) {
 		"-Scope", "handler only",
 		"-Budget", "60s",
 		"-TriedLightSteps", "static review,focused grep",
-		"-StopConditions", "first crash,timeout",
+		"-StopConditions", "first-crash,timeout",
 	}, &out)
 	if err != nil {
 		t.Fatal(err)

@@ -54,7 +54,7 @@ disable-model-invocation: true
 | `/rekit sync` | 默认先生成 LLM 审查包；用户确认具体范围后才执行写入型 sync。 |
 | `/rekit promote` | 默认先生成回流审查包；用户确认后才生成候选或写回 pack。 |
 | `/rekit doctor` | 验证 kit / case 结构、文档预算和 policy registry；`-Format json` 输出机器可读验证 rows。 |
-| `/rekit gate -WhatIf` / `/rekit gate -Apply` | Go backend 的 heavy-tool gate 入口；`-WhatIf` 默认经 façade 委托 Go，只输出 pending-gate request plan，不写 ledger、不执行 full-trace/debug/inject/patch/dump；`-Apply` 默认经 façade 委托 Go，只 append pending-gate request ledger，仍不执行实际 heavy-tool、不写 confirmed/authority。 |
+| `/rekit gate -WhatIf` / `/rekit gate -Apply` | Go backend 的 heavy-tool gate 入口；`-WhatIf` 默认经 façade 委托 Go，只输出 pending-gate request plan，不写 ledger、不执行 full-trace/debug/inject/patch/dump；`-Apply` 默认经 façade 委托 Go，只 append pending-gate request ledger，仍不执行实际 heavy-tool、不写 confirmed/authority；用户传入的 `-StopConditions` override 必须是逗号/分号/换行分隔的小写 slug/snake token。 |
 | `/rekit plan-subagents` | 内部只读计划器：根据 pack manifest 的 `subagentRoutes` 生成子 agent 分片计划；不启动 agent，不修改 managed/project source files；会写 `.rekit/reviews/...` 审查产物。日常不要主动推荐给用户。 |
 | `/rekit note` | 账本写入/查询入口：向 `.rekit/facts/*.jsonl` append observation/hypothesis/candidate/verification/decision/intervention/rollback/publication/request 事件，用于 heavy-tool gate 登记、decision/observation 手动落账。attached case 的 append 与 `-WhatIf` 默认经 Go façade，输出机器可读 JSON envelope，且只写 facts JSONL 或预览；`-List` 进入只读查询模式，默认经 Go façade 按 `-Kind`/`-Lane` 过滤列出事件；`-List -Format json` 输出机器可读 ledger events。写入受 schema 校验（confidence/decision/status 枚举、evidenceRefs 非空、lane 存在性）。 |
 

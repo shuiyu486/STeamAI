@@ -5627,3 +5627,32 @@ git diff --check
 ```
 
 验证结果：已通过 runtime observation（临时 `_template` case 初始化、overview 初始化 board、`gate -WhatIf -Format json -Action symex` 返回 `path-explosion,budget-exhausted,output-exceeds-bounded-evidence-packet` token 默认止损条件，非法 action probe 返回 allowed action 诊断且不执行 heavy-tool）、`go test ./internal/rekit/manifest`、`go test ./internal/rekit/gate ./internal/rekit/promote`、targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command packs -Format json`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 186：Go gate stop-condition override token contract
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，把 Batch 185 的 stop-condition token contract 从 manifest 默认值延伸到 Go `gate -WhatIf/-Apply` 用户 override，避免 pending-gate preview/request ledger 写入带空格的人类短语、空项或重复项。
+
+实施范围：
+
+- Go gate runtime 新增 `-StopConditions` override token 校验：逗号、分号或换行分隔项必须是小写 slug/snake token，空项、重复项与带空格短语会在 preview/apply 前报错。
+- manifest 默认 stop conditions 在 gate fallback 路径中也会复核 token contract，避免 invalid manifest 绕过 doctor 后进入 pending-gate preview。
+- `gate` package tests 覆盖 invalid phrase / empty / duplicate override 的 no-write 行为，`facade-smoke` 增加 invalid override probe，`/rekit` skill 和阶段文档同步说明 override contract。
+
+边界：本批只做 Go gate preview/request contract、测试和文档；不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/gate
+go test ./internal/rekit/manifest ./internal/rekit/gate ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 runtime observation（临时 `_template` case 初始化与 overview board 初始化后，非法 `gate -WhatIf -StopConditions 'timeout,unexpected side effect'` 返回 `gate stopConditions has invalid item: unexpected side effect` 且 requests ledger 未变化；合法 `gate -WhatIf -StopConditions 'timeout,unexpected-side-effect,budget_exhausted'` 返回 token 化 preview；合法 `gate -Apply -StopConditions 'timeout,unexpected-side-effect'` 只写 pending-gate request，不执行 heavy-tool）、`go test ./internal/rekit/gate`、`go test ./internal/rekit/cli ./internal/rekit/gate`、targeted `go test ./internal/rekit/manifest ./internal/rekit/gate ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

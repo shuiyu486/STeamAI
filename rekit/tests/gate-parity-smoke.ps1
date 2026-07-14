@@ -73,6 +73,20 @@ try {
   $afterRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
   if ($beforeRequests -ne $afterRequests) { throw 'facade gate what-if changed requests ledger' }
 
+  $invalidStop = Invoke-RekitSmoke -Arguments @(
+    '-Command','gate',
+    '-Target',$caseRoot,
+    '-Pack',$Pack,
+    '-WhatIf',
+    '-Action','debug',
+    '-Lane',$lane,
+    '-Subject','invalid stop condition token probe',
+    '-StopConditions','timeout,unexpected side effect'
+  ) -AllowedExitCodes @(1)
+  Assert-ContainsText -Text $invalidStop -Expected 'gate stopConditions has invalid item: unexpected side effect' -Label 'invalid stopConditions override'
+  $afterInvalidRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
+  if ($beforeRequests -ne $afterInvalidRequests) { throw 'facade invalid gate stopConditions changed requests ledger' }
+
   $facadeApply = Invoke-RekitSmoke -Arguments @(
     '-Command','gate',
     '-Target',$caseRoot,

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -214,9 +215,15 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 	if risk == "" {
 		risk = gate.DefaultRisk
 	}
-	stopConditions := splitList(opt.StopConditions)
+	stopConditions, err := parseStopConditions(opt.StopConditions)
+	if err != nil {
+		return instance.Instance{}, EventPreview{}, nil, err
+	}
 	if len(stopConditions) == 0 {
 		stopConditions = append([]string{}, gate.StopConditions...)
+		if err := validateStopConditions("manifest stopConditions", stopConditions); err != nil {
+			return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("gate action %q has invalid %w", action, err)
+		}
 	}
 	blocked := []string{action}
 	preview := EventPreview{
@@ -289,6 +296,41 @@ func splitList(value string) []string {
 		}
 	}
 	return out
+}
+
+var stopConditionTokenPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$`)
+
+func parseStopConditions(value string) ([]string, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	normalized := strings.NewReplacer(";", ",", "\n", ",").Replace(value)
+	conditions := []string{}
+	for item := range strings.SplitSeq(normalized, ",") {
+		conditions = append(conditions, strings.TrimSpace(item))
+	}
+	if err := validateStopConditions("stopConditions", conditions); err != nil {
+		return nil, fmt.Errorf("gate %w", err)
+	}
+	return conditions, nil
+}
+
+func validateStopConditions(field string, conditions []string) error {
+	seen := map[string]bool{}
+	for _, condition := range conditions {
+		if condition == "" {
+			return fmt.Errorf("%s contains an empty item", field)
+		}
+		if !stopConditionTokenPattern.MatchString(condition) {
+			return fmt.Errorf("%s has invalid item: %s", field, condition)
+		}
+		key := strings.ToLower(condition)
+		if seen[key] {
+			return fmt.Errorf("%s contains duplicate item: %s", field, condition)
+		}
+		seen[key] = true
+	}
+	return nil
 }
 
 func eventID(event EventPreview) string {
