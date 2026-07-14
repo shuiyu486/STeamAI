@@ -50,6 +50,18 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 
 ### 日常工作
 
+优先用自然语言让主 Agent 统筹 mission，而不是让用户手动记命令：
+
+```text
+继续推进当前 mission。
+总体怎么样？哪些 lane 卡住了？
+让我进入 verifier lane 帮它纠错。
+这个 lane 上下文污染了，生成接手包，让新会话接手。
+把这次可复用经验整理成 promote 候选。
+```
+
+主 Agent 会按需组合底层 runtime API：
+
 ```text
 /rekit overview              # 看项目总览，不选择工作线
 /rekit continue main         # 接手主线
@@ -70,7 +82,9 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 - `overview` 能显示主线、功能支线、共享事实统计和下一步建议。
 - `continue main` 与 `continue <name>` 明确接手不同工作线；无参数 `continue` 不应在多工作线时盲猜。
 - 功能支线只写自己的 workspace、outbox、candidate/request，不直接写 confirmed CSV、routine IR 或长期 handoff。
-- confirmed / authority 写入、动态调试、注入、patch、dump、full trace、外部副作用仍需要人工确认。
+- 长期成员身份绑定 lane，不绑定旧 session；旧会话上下文污染或用户希望重开时，新会话应读取 handoff / packet / evidence 接手同一 lane。
+- 用户可随时进入 lane 打断、纠错、改向或硬切模型；lane 继续时要 reconcile 干预并写回 durable state。
+- confirmed / authority 写入仍需要更严格 gate；动态调试、注入、patch、dump、hook、full trace、网络、exploit replay 等外部副作用若已在 lane 文档/packet/autonomy profile 预授权，可在 scope、预算、止损和记录要求内自主执行，否则需要人工确认。
 
 ## 风险与注意事项
 
@@ -229,8 +243,8 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 ### 4.2 中期优化
 
 - 将 evidence ledger 从文档草案推进到 runtime 支持的 append-only JSONL。
-- 将 heavy-tool gate 做成可复用 packet 和确认流程。
-- 将 `plan-subagents` 从只读计划器推进到 bounded dispatch，但仍保持主 agent 拥有最终写入权。
+- 将 heavy-tool gate / lane autonomy profile 做成可复用 packet、授权和记录流程，支持预授权范围内自主执行与越界升级。
+- 将 `plan-subagents` 从只读计划器推进到主 Agent 可消费的 tactical subagent 调度辅助，但仍保持主 agent 拥有最终写入权。
 - 为 `packs/_template` 增加最小验证命令，降低新 pack 作者出错概率。
 
 ### 4.3 长期优化

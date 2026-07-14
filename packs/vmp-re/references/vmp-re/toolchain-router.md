@@ -43,14 +43,14 @@ outputs:
   - <sidecar 输出位置>
 stop_conditions:
   - <何时停止>
-requires_user_confirmation: true
+authorization: manual-gate | preauthorized
 ```
 
 规则：
 
 - 没有明确阻塞原因时，不把 full trace / dynamic debug 当默认开局。
 - 工具大输出只保存到 sidecar，Markdown 只写摘要和路径。
-- 会修改 IDB、patch 字节、注入进程、产生 dump 或外部副作用的动作必须确认。
+- 会修改 IDB、patch 字节、注入进程、产生 dump 或外部副作用的动作必须有授权来源；若当前 lane packet / autonomy profile 已预授权，可在 scope、预算、止损和记录要求内自主执行，否则先确认。
 - 多 agent 不并发写同一个 IDB、debug session 或 confirmed 文件。
 
 ## 候选工具进入流程

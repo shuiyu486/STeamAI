@@ -1,18 +1,19 @@
 # re-context-kits
 
-`re-context-kits` 是面向网络安全研究与安全工程任务的 Claude Code Agent Team 框架，用于把多 Agent 协作、领域工具链、证据账本、工作线管理、验证门禁和可复用安全领域 pack 组织成可持续迭代的 case workspace。
+`re-context-kits` 是面向网络安全研究与安全工程任务的 Claude Code **Agent Team Mission Control** 框架，用于把主 Agent 统筹、长期 member lane、可替换 Claude Code session executor、短命 tactical subagent、领域工具链、证据账本、验证门禁和可复用安全领域 pack 组织成可持续迭代的 case workspace。
 
 当前阶段，它已经提供 `/rekit` case 管理、首个成熟 pack `vmp-re`、安全领域 pack 骨架 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re`、工作线协同、handoff、sync/promote 和 tooling 经验沉淀；`vmp-re` 是验证框架的第一个重点领域，不是最终边界。长期目标是逐步扩展到逆向工程、恶意样本分析、漏洞研究、Web/API 安全评估、授权测试/靶场/CTF、Android native、OLLVM 等多类安全任务。
 
-当前项目不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。
+当前项目不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first、可预授权边界内自主推进的 Agent Team 底座。
 
-一句话：**用户日常只用 `/rekit`；维护者迭代 runtime、pack、policy、tooling 和文档。脚本只是 `/rekit` 背后的 backend。**
+一句话：**用户主要指挥主 Agent / Mission Commander；主 Agent 调度 durable member lanes、可替换会话执行体和短命 tactical subagents；`/rekit`、`rekit.ps1` 与 Go backend 是背后的 deterministic runtime/API。**
 
 ## 项目路线
 
 - 新架构使用与旧 case 兼容：`docs/agent-team-usage.md`
 - 参考资料吸收映射：`docs/reference-absorption.md`
 - 长期愿景与阶段实施方案：`docs/vision.md`
+- Mission Control 最终产品方向：`docs/mission-control-product-direction.md`
 - 当前架构说明：`docs/design.md`
 - 后续批次计划：`docs/batch-plan.md`
 - 长期自主 goal 与新会话接手指南：`docs/autonomous-goal.md`
@@ -74,17 +75,18 @@ cd <workspaceRoot>\cases\<caseName>
 claude
 ```
 
-日常只需要记：
+日常优先直接用自然语言指挥主 Agent，例如：
 
 ```text
-/rekit status
-/rekit overview
-/rekit continue
-/rekit start <name>
-/rekit handoff
-/rekit sync
-/rekit promote
+开始这个 case，目标是还原核心逻辑。
+继续推进当前 mission。
+总体怎么样？哪些 lane 卡住了？
+让我进入 verifier lane 帮它纠错。
+这个 lane 上下文污染了，生成接手包，让新会话接手。
+把这次可复用经验整理成 promote 候选。
 ```
+
+主 Agent 会把这些意图翻译成 `/rekit overview`、`continue`、`start`、`handoff`、`gate`、`note`、`sync`、`promote` 等底层 runtime 操作。用户不需要把 `/rekit` 子命令当成主要交互界面；它们主要是主 Agent、维护者、自动化和排障使用的确定性 API。
 
 排障时再用：
 
@@ -122,7 +124,9 @@ claude
 
 完成后，case 里会有 thin shim。以后你在 case 目录启动 Claude Code，也能直接使用 `/rekit`。
 
-## 常用命令
+## Runtime/API 命令参考
+
+这些命令是主 Agent 和维护者使用的确定性 runtime API，不是最终产品的主要 UX。普通日常使用优先通过自然语言让主 Agent 选择和组合这些动作。
 
 | 命令 | 方向 | 什么时候用 |
 |---|---|---|

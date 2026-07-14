@@ -5686,3 +5686,31 @@ git diff --check
 ```
 
 验证结果：已通过 runtime observation（临时 `_template` case 初始化与 overview board 初始化后，非法 `gate -WhatIf -Risk High` 返回 `gate risk has unsupported value: High` 且 requests ledger 未变化；合法 `gate -WhatIf -Risk critical` 返回小写 risk preview；合法 `gate -Apply -Risk medium -StopConditions timeout` 只写 pending-gate request，不执行 heavy-tool）、`go test ./internal/rekit/gate`、`go test ./internal/rekit/cli ./internal/rekit/gate`、targeted `go test ./internal/rekit/manifest ./internal/rekit/gate ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；stop-hook 文档收尾已同步 common tool-adapter policy、evidence ledger 与 `_template` toolchain-router。`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 188：Mission Control product direction anchor
+
+状态：已完成。
+
+目标：把用户已确认的最终产品方向固化为后续自主推进的北极星，避免后续 goal 继续偏回“命令大全”、固定旧会话、短命 subagent-only 或用户手动盯多个会话的路线。
+
+实施范围：
+
+- 新增 `docs/mission-control-product-direction.md`，明确 Lane-centric Agent Team Mission Control：主 Agent / Mission Commander 统筹 durable member lanes，Claude Code session 只是可替换 executor，旧会话可废弃并由新会话接手，主 Agent 也可启动短命 tactical subagents。
+- 将 Human-in-the-Lane 与预授权 lane autonomy 写入产品方向：用户可进入任意 lane 打断、纠错、改向或硬切模型；lane 后续必须 reconcile 干预；在 lane 文档/packet/autonomy profile 明确 target scope、预算、stop conditions、output paths 与记录要求时，成员 lane 可自主执行 heavy-tool、动态调试、patch、dump、hook、网络、exploit replay 等动作，越界或需要 confirmed/authority/promote 时升级。
+- 更新 `README.md`、`CLAUDE.md`、`docs/vision.md`、`docs/design.md`、`docs/agent-team-usage.md`、`docs/agent-team-rollout-plan.md`、`docs/go-first-convergence-plan.md`、`docs/release-readiness.md`、`docs/reference-absorption.md`、common policies、vmp-re toolchain-router 与 `/rekit` skill，使文档入口、风险边界和日常使用模型一致。
+- 重写 `docs/autonomous-goal.md`，提供可复制的新会话接手语句和中大型 vertical slice goal；将 Mission Control 产品方向纳入 Go-owned `release-check` required documents 与 release handoff read-first inventory，并补 release invariant / CLI / releasecheck tests。
+
+边界：本批只固化已确认产品方向、接手 goal、release inventory 与文档/测试 invariant；不实现真实多会话调度、不执行 heavy-tool、不创建真实 case state、不写 authority/confirmed、不改变 PowerShell façade 委托集合。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/releasecheck ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `go test ./internal/rekit/manifest ./internal/rekit/releasecheck ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`，并显示 Mission Control 文档已进入 required documents / release handoff read-first inventory。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

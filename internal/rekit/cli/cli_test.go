@@ -460,6 +460,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckCommand(t, result.RequiredCommands, "facade-smoke.ps1")
 	assertReleaseCheckCommand(t, result.RequiredCommands, "git diff --check")
 	assertReleaseCheckDocument(t, result.Documents, "docs/release-readiness.md")
+	assertReleaseCheckDocument(t, result.Documents, "docs/mission-control-product-direction.md")
 	assertReleaseCheckDocument(t, result.Documents, "docs/autonomous-goal.md")
 	assertReleaseCheckDocument(t, result.Documents, "docs/go-first-convergence-plan.md")
 	assertReleaseCheckDocument(t, result.Documents, "docs/powershell-deprecation.md")
@@ -593,10 +594,11 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff summary: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 6 || len(handoff.Signals) != 8 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 8 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertReleaseHandoffReadFirst(t, handoff, "docs/release-readiness.md")
+	assertReleaseHandoffReadFirst(t, handoff, "docs/mission-control-product-direction.md")
 	assertReleaseHandoffReadFirst(t, handoff, "docs/autonomous-goal.md")
 	assertReleaseHandoffReadFirst(t, handoff, "docs/go-first-convergence-plan.md")
 	assertReleaseHandoffReadFirst(t, handoff, "docs/powershell-deprecation.md")
@@ -755,12 +757,13 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"facade-smoke.ps1 kind=powershell-smoke path=rekit/tests/facade-smoke.ps1",
 		"documents:",
 		"docs/release-readiness.md",
+		"docs/mission-control-product-direction.md",
 		"docs/autonomous-goal.md",
 		"packs:",
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
 		"commands=14 modules=14 freezeGates=8 blocked=5",
-		"release handoff: release handoff summary ok ready=true readFirst=6 signals=8 knownGaps=5 packMaturity=10",
+		"release handoff: release handoff summary ok ready=true readFirst=7 signals=8 knownGaps=5 packMaturity=10",
 		"releaseNotes=true",
 		"latest=Batch ",
 		"known gaps:",

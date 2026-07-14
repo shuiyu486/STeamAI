@@ -19,10 +19,11 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff inventory: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 6 || len(handoff.Signals) != 8 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 8 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertHandoffReadFirst(t, handoff, "docs/release-readiness.md")
+	assertHandoffReadFirst(t, handoff, "docs/mission-control-product-direction.md")
 	assertHandoffReadFirst(t, handoff, "docs/autonomous-goal.md")
 	assertHandoffReadFirst(t, handoff, "docs/go-first-convergence-plan.md")
 	assertHandoffReadFirst(t, handoff, "docs/powershell-deprecation.md")

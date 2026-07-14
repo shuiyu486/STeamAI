@@ -380,27 +380,62 @@ func TestAutonomousGoalGuideInvariants(t *testing.T) {
 	}
 
 	for _, direction := range []string{
-		"Go-first release readiness",
-		"PowerShell deprecation readiness",
-		"Pack-neutral hardening",
-		"Policy / ledger hardening",
-		"接手质量与持续推进治理",
+		"Mission Control UX",
+		"Lane protocol",
+		"Replaceable session executor",
+		"Tactical subagents",
+		"Pre-authorized lane autonomy",
+		"Pack-based team memory",
+		"Go-first deterministic substrate",
 	} {
 		assertTextContains(t, guide, direction, "autonomous goal guide direction")
 	}
 	for _, required := range []string{
 		"简短接手锚点",
 		"不是新的限制清单",
-		"中大型 vertical slice",
-		"完成后自审、评估、必要时自行低风险调整",
+		"Lane-centric Agent Team Mission Control",
+		"中大型",
+		"完成后自审、评估",
 		"默认继续自主推进",
-		"不要机械堆 PowerShell smoke/catalog",
+		"heavy-tool、动态调试、patch、dump、hook、网络、exploit replay",
 	} {
 		assertTextContains(t, guide, required, "autonomous goal guide autonomy guard")
 	}
 
 	for _, doc := range []string{"README.md", "CLAUDE.md", "docs/go-first-convergence-plan.md", "docs/release-readiness.md", "docs/vision.md", "docs/reference-absorption.md"} {
 		assertTextContains(t, readRepoText(t, repo, doc), "docs/autonomous-goal.md", doc+" autonomous goal link")
+		assertTextContains(t, readRepoText(t, repo, doc), "docs/mission-control-product-direction.md", doc+" mission control link")
+	}
+}
+
+func TestMissionControlProductDirectionInvariants(t *testing.T) {
+	repo := repoRoot(t)
+	doc := readRepoText(t, repo, "docs/mission-control-product-direction.md")
+
+	for _, section := range []string{
+		"## 读取指南",
+		"## 实施摘要",
+		"## 执行清单",
+		"## 验证标准",
+		"## 风险与注意事项",
+		"## 10. 推荐给新会话的接手话术",
+		"## 11. 推荐长期 goal 语句",
+	} {
+		assertTextContains(t, doc, section, "mission control product direction section")
+	}
+
+	for _, term := range []string{
+		"Lane-centric Agent Team Mission Control",
+		"主 Agent / Mission Commander",
+		"durable member lane",
+		"可替换 Claude Code session executor",
+		"短命 tactical subagents",
+		"Human-in-the-Lane",
+		"Pre-authorized lane autonomy",
+		"heavy-tool、动态调试、patch、dump、hook、网络、exploit replay",
+		"Pack-based team memory",
+	} {
+		assertTextContains(t, doc, term, "mission control product direction term")
 	}
 }
 

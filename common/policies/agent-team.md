@@ -15,7 +15,7 @@
 | Verifier / gate | 检查 schema、evidence、冲突、备份、diff、预算和确认条件 | 输出 verdict，不创造业务结论 |
 | Human confirmer | 对高风险动作、confirmed/authority、外部副作用和架构取舍做最终授权 | 通过对话授权 |
 
-Agent 可以短命，工作线和账本必须持久。任何 agent 的输出都应能被下一会话通过 packet、facts、handoff 继续消费。
+Agent 可以短命，工作线和账本必须持久。最终产品方向中，长期成员身份绑定 durable member lane，而不是绑定旧 Claude Code session；session 只是当前 executor，可因上下文污染、模型切换或用户要求被新会话接手。任何 agent 的输出都应能被下一会话通过 packet、facts、handoff 继续消费。
 
 ## Packet 类型
 
@@ -146,13 +146,19 @@ created_at: <ISO 时间>
 
 `status=deferred` 的 decision 仍要写入账本，让下一会话知道"为什么不再走旧路"。
 
+## Human-in-the-Lane 与预授权 autonomy
+
+用户可以随时进入任意 member lane 打断、纠错、补充上下文、改向、硬切模型或要求新会话接手。成员 lane 下一次继续时必须先 reconcile：总结用户干预，标记被废弃的假设或 candidate，更新 status / outbox / intervention event，并在影响全局计划时通知 main agent。用户不需要在切模型前手写 checkpoint。
+
+成员 lane 可以在当前 lane 文档、task packet 或 autonomy profile 明确授权的范围内自主执行较重动作，不必每一步都再次询问用户。预授权必须至少明确 target scope、allowed actions、budget、stop conditions、output paths、record_required 和 notify/escalation 条件；超出范围、出现新风险或需要最终发布/authority 时必须升级。
+
 ## 必须询问用户的情况
 
 - confirmed / authority 写入、覆盖或删除。
-- 外部副作用：网络、发布、上传、安装、进程注入、patch、dump、动态调试。
+- 未被当前 lane 文档/packet/autonomy profile 明确预授权的外部副作用：网络、发布、上传、安装、进程注入、patch、dump、hook、动态调试、exploit replay、扫描或 fuzz。
 - runtime schema 迁移或破坏兼容性的 manifest 变更。
 - 需要扩大授权范围的架构取舍。
-- 工具运行成本、输出规模或风险明显超出当前 packet。
+- 工具运行成本、输出规模、目标范围或风险明显超出当前 packet/autonomy profile。
 
 ## packet 文件与 facts event 的关系
 

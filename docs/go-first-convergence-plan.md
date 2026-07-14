@@ -7,12 +7,13 @@
 新会话接手时优先读取：
 
 1. 根目录 `CLAUDE.md` 的项目定位、维护入口、关键边界。
-2. `docs/autonomous-goal.md` 的长期自主 goal、阶段性大方向、停止条件和可复制 prompt。
-3. 本文件顶部的读取指南、实施摘要、执行清单、验证标准、风险与注意事项。
-4. `docs/batch-plan.md` 最新阶段记录。
-5. 发布或收口前读取 `docs/release-readiness.md` 的一页门禁和 known gaps。
-6. 修改 PowerShell façade/runtime 或 fallback 前读取 `docs/powershell-deprecation.md`。
-7. 具体动手前再按需读取 `docs/go-runtime-migration.md`、`docs/agent-team-rollout-plan.md`、`rekit/tests/README.md`、相关 Go/PowerShell runtime 文件。
+2. `docs/mission-control-product-direction.md` 的 Lane-centric Agent Team Mission Control 产品北极星。
+3. `docs/autonomous-goal.md` 的长期自主 goal、阶段性大方向、停止条件和可复制 prompt。
+4. 本文件顶部的读取指南、实施摘要、执行清单、验证标准、风险与注意事项。
+5. `docs/batch-plan.md` 最新阶段记录。
+6. 发布或收口前读取 `docs/release-readiness.md` 的一页门禁和 known gaps。
+7. 修改 PowerShell façade/runtime 或 fallback 前读取 `docs/powershell-deprecation.md`。
+8. 具体动手前再按需读取 `docs/go-runtime-migration.md`、`docs/agent-team-rollout-plan.md`、`rekit/tests/README.md`、相关 Go/PowerShell runtime 文件。
 
 本文件不是要求一次性完成所有事项；它定义未来几十轮自主推进的方向、阶段切片和停止条件。每轮应选择一个中型到大型、可验证的垂直切片实施，不要把目标拆成只改一两行的微批次。
 
@@ -22,13 +23,13 @@
 
 新的北极星：
 
-> Go backend 成为 rekit 的 deterministic runtime owner；PowerShell 逐步降级为 thin shim / legacy compatibility / 少量 façade parity smoke；新的状态、计划、验证、结构化输出和 release gate 优先落在 Go 中；Agent Team 通过真实临时 case dry-run 闭环验证，而不是继续堆叠 smoke catalog。
+> Go backend 成为 rekit 的 deterministic runtime owner；PowerShell 逐步降级为 thin shim / legacy compatibility / 少量 façade parity smoke；新的状态、计划、验证、结构化输出和 release gate 优先落在 Go 中；Agent Team 收敛为 Lane-centric Mission Control，通过真实临时 case dry-run 闭环验证 durable member lane、可替换 session executor、Human-in-the-Lane reconcile、预授权 lane autonomy 和 tactical subagent，而不是继续堆叠 smoke catalog。
 
 核心方向：
 
 1. **Go runtime 收口**：把低风险 read-only 命令、case lifecycle、sync/promote、workstream/ledger/gate/continue 逐步迁移到 Go-first。
 2. **Release readiness**：把核心 invariant 放入 Go tests / go vet / doctor / 少量 Windows façade smoke，而不是依赖不断扩张的 PowerShell matrix。
-3. **Agent Team 真实使用闭环**：用临时 case 验证 start → note → plan-subagents → reviewer verification → continue/gate → handoff 的可接手链路。
+3. **Agent Team 真实使用闭环**：用临时 case 验证主 Agent mission brief → member lane packet/status/outbox → user intervention reconcile → replaceable session handoff → tactical subagent review → preauthorized heavy-action request/record → continue/gate/note/handoff 的可接手链路。
 4. **减少 PowerShell runtime/测试编排扩张**：除修复既有 smoke/parity 外，不新增 PowerShell 编排层或新的 PowerShell runtime 能力。
 5. **Pack-neutral 架构**：减少 `vmp-re` 默认惯性，确保 runtime 行为来自 manifest / policy，而不是领域特判。
 6. **新会话接手质量**：文档要记录当前阶段、已完成切片、下一步候选和验证门禁，避免只依赖聊天历史。
@@ -76,8 +77,8 @@ git diff --check
 - 不要把 `catalog.json`、matrix、tests guide 继续扩展成事实上的 PowerShell test orchestrator；若需要 release gate，优先做 Go tests / CI。
 - 不要把真实样本、trace、dump、capture、payload、flag、客户信息、目标信息、绝对 case 路径或 case-specific 进度写入模板仓库。
 - 不要绕过 review-first / dry-run / packet 化边界直接写 confirmed、authority、pack 文件或外部副作用。
-- 动态调试、注入、patch、dump、脱壳写文件、网络扫描、设备连接、fuzz、exploit replay 等必须显式询问用户。
-- runtime schema 迁移、破坏性删除、外部发布、产品方向变化或难以判断的架构取舍必须停下询问。
+- 动态调试、注入、patch、dump、hook、脱壳写文件、网络扫描、设备连接、fuzz、exploit replay 等若已在当前 lane 文档/packet/autonomy profile 中明确预授权，可在 scope、预算、止损、输出路径和记录要求内自主执行；未授权或越界时必须显式询问用户。
+- runtime schema 迁移、破坏性删除、外部发布、新的产品方向变化或难以判断的架构取舍必须停下询问。
 - 中大型批次不等于混杂批次；每批仍应围绕一个 coherent vertical slice，避免跨太多子系统导致难以验证。
 
 ## 当前状态基线（Batch 101 后）

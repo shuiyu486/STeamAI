@@ -2,7 +2,7 @@
 
 ## 读取指南
 
-- 本文件是 Agent Team 从"契约已固化、编排未落地"推进到"可端到端 dry-run 验证"的实施计划，对应 `docs/vision.md` Phase 5/6 与 `docs/orchestration-plan.md`。
+- 本文件是 Agent Team 从"契约已固化、编排未落地"推进到"可端到端 dry-run 验证"的实施计划，对应 `docs/vision.md` Phase 5/6、`docs/orchestration-plan.md` 与 `docs/mission-control-product-direction.md`。
 - 维护者开始新批次前先读本文件顶部：读取指南、实施摘要、执行清单、验证标准、风险与注意事项，再按批次读细节。
 - 本文件只写计划与契约压测方法，不替代 `common/policies/agent-team.md` 和 `common/policies/subagents.md` 的契约定义。
 - 推进姿态为 **选项 C：契约 dry-run + 临时 case 验证优先**。先压测契约，再按真实缺口决定 ledger runtime（Phase 5）与 bounded dispatch（Phase 6）的顺序。
@@ -10,7 +10,7 @@
 
 ## 实施摘要
 
-Agent Team 当前真实状态是**契约层完整、ledger/runtime 基础已落地、自动编排与强制 gate 仍待推进**：
+Agent Team 当前真实状态是**契约层完整、ledger/runtime 基础已落地、Mission Control 产品方向已确认，自动编排、可替换 session executor、Human-in-the-Lane reconcile、预授权 lane autonomy 与强制 gate 仍待推进**：
 
 - 已固化：`common/policies/agent-team.md`（角色 + packet + 状态流）、`common/policies/subagents.md`（L1/L2/L3 + output contract）、manifest `subagentRoutes`、`B3` 工作线 runtime、vmp-re pack、`_template` pack。
 - 已落地：PowerShell ledger runtime（9 种 kind、batchId、overview/handoff/note-List、run digest）、sync/promote review-first、Go review-only plan/artifacts、Go gate dry-run 与 pending-gate request 写入、Go façade 对 read-only/case lifecycle/sync/promote/ledger/gate/start/handoff/continue preview/apply safe subset 的默认接管，`_template` pack 的 Go package workstream、gate/dispatch 与 reviewer/decision 闭环测试，`generic-binary-re` 的 pack-neutral non-feature lane E2E 测试、`web-security` 的非 RE-only pack-neutral route/network gate E2E 测试，以及 `web-security` 的真实临时 case Agent Team dry-run smoke。

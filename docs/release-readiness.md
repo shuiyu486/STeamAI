@@ -2,7 +2,7 @@
 
 ## 读取指南
 
-本文件是发布前和新会话接手时的一页门禁说明，配合 `docs/autonomous-goal.md`、`docs/go-first-convergence-plan.md` 与 `docs/powershell-deprecation.md` 使用。维护者在准备 release、合并大型批次、或需要判断当前 runtime owner 时先读本文件顶部区域；需要长期自主推进 goal 时读 `docs/autonomous-goal.md`，需要历史路线时再读 go-first convergence、runtime migration 和 batch-plan。
+本文件是发布前和新会话接手时的一页门禁说明，配合 `docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/go-first-convergence-plan.md` 与 `docs/powershell-deprecation.md` 使用。维护者在准备 release、合并大型批次、或需要判断当前 runtime owner 时先读本文件顶部区域；需要产品北极星时读 `docs/mission-control-product-direction.md`，需要长期自主推进 goal 时读 `docs/autonomous-goal.md`，需要历史路线时再读 go-first convergence、runtime migration 和 batch-plan。
 
 本文件不替代 `rekit/tests/README.md` 的 smoke 选择指南，也不是要求每次改动都运行全量 PowerShell matrix。它定义轻量、可重复的 release gate 和当前 known gaps。
 
@@ -14,7 +14,8 @@
 - PowerShell `rekit/rekit.ps1` 仍是公共 façade：负责参数兼容、旧文本 flow、fallback、少量 parity smoke 和 `REKIT_GO_DISABLE=1` 回退。
 - Agent Team dry-run 已从 `_template` package E2E 扩展到 `generic-binary-re`、`web-security` package E2E，并新增 `web-security`、`generic-binary-re`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 真实临时 case smoke。
 - 发布门禁应优先依赖 Go-owned `release-check` inventory、Go tests / `go vet` / doctor / 少量 Windows façade smoke；Batch 139 已让 `release-check` 输出 `gateProfile`，将 recommended minimum 解析为本机/CI 可消费的 step kind、repo-local path、present/resolved 状态；Batch 140 已新增 `.github/workflows/release-gate.yml`，只运行 Go release checks 与 Windows facade smoke，不把大型 pack matrix 作为默认必跑；Batch 142 已让 `release-check` 输出 `powerShellDeprecation` inventory，解析 PowerShell 命令归属、模块状态、freeze gates 与 blocked migrations，作为 PowerShell 收缩的确定性前置检查；Batch 144 已让 `release-check` 输出 `ciReleaseGate` inventory，对照 GitHub Actions workflow 的 job、required commands 与 forbidden broad/heavy steps 发现漂移；Batch 146 已让 `release-check` 输出 `releaseHandoff`，把新会话 read-first 文档、关键 readiness signals、latest batch 摘要、验证命令和下一步接手动作放进同一个 Go-owned envelope；Batch 147 已让 `releaseHandoff.releaseNotes` 对照最新 batch 与 CHANGELOG `Unreleased`，防止完成批次但漏写 release note；Batch 148 已让 `releaseHandoff.knownGaps[]` 汇总 `docs/release-readiness.md` Known gaps 的 category/summary，便于新会话先看机器可读缺口再按需读长文档；Batch 149 已让 `releaseHandoff.packMaturity` 汇总 pack maturity、schema validity 与每 pack heavy-tool gate readiness，Batch 162 已进一步输出 pack manifest `schemaVersion` 与 `schemaVersionReady`，避免接手时必须遍历完整 `packs[]` 或 manifest 才能判断 pack 覆盖和 schema contract 版本状态。
-- 长期自主推进和新会话接手 guidance 已集中到 `docs/autonomous-goal.md`；它只保留大方向、自主推进循环和可复制 goal 语句，避免 release readiness 批次退回微批次或 PowerShell smoke/catalog 扩张，也避免用过长约束束缚模型发挥。
+- Mission Control 产品北极星已集中到 `docs/mission-control-product-direction.md`：后续 release readiness 不应偏回“命令大全”、固定旧会话、短命 subagent-only 或用户盯多个会话的路线。
+- 长期自主推进和新会话接手 guidance 已集中到 `docs/autonomous-goal.md`；它保留 Mission Control 大方向、自主推进循环和可复制 goal 语句，避免 release readiness 批次退回微批次或 PowerShell smoke/catalog 扩张，也避免用过长约束束缚模型发挥。
 
 ## 执行清单
 
@@ -67,7 +68,7 @@ git diff --check
 1. `CHANGELOG.md` 顶部 `Unreleased` 已描述本轮用户可见变化、边界和验证结果。
 2. `docs/batch-plan.md` 最新 batch 状态为已完成，并列出实际执行过的验证。
 3. `docs/go-first-convergence-plan.md` 未把阶段性进展误写成全局完成；Stage 1-8 未完成项仍保留。
-4. `docs/autonomous-goal.md` 的长期 goal、停止条件和中大型 vertical slice guidance 与本文件、go-first convergence 计划一致。
+4. `docs/mission-control-product-direction.md` 的产品北极星与 README、CLAUDE、vision、design 一致；`docs/autonomous-goal.md` 的长期 goal、停止条件和中大型 vertical slice guidance 与本文件、go-first convergence 计划一致。
 5. `rekit/tests/catalog.json` 与 `rekit/tests/README.md` 一致；新增 `*.ps1` 已被 catalog 收录。
 6. `git status --short` 干净后再打 tag 或发 release。
 
@@ -87,8 +88,8 @@ Release gate 通过的最低标准：
 
 - 不默认运行大型 PowerShell matrix；只有改 pack helper、matrix 输出或跨 pack skeleton 时才运行全量或子集 matrix。
 - 不把真实样本、trace、dump、capture、pcap、crash、payload、客户信息、flag、IOC、绝对 case 路径或 case-specific 进度写入本仓库。
-- 不执行真实网络请求、扫描、fuzz、exploit replay、debug、dump、patch、hook、设备连接或其它外部副作用。
-- `gate -WhatIf` 只预览 pending-gate request；`gate -Apply` 只写 pending-gate request，不执行 heavy-tool。
+- release gate / CI / smoke 不执行真实网络请求、扫描、fuzz、exploit replay、debug、dump、patch、hook、设备连接或其它外部副作用；真实 case 的成员 lane 只有在 lane 文档/packet/autonomy profile 预授权范围内才可自主执行这些动作。
+- `gate -WhatIf` 只预览 pending-gate request；`gate -Apply` 只写 pending-gate request，不执行 heavy-tool；实际 heavy action 由 lane executor / tool adapter 在授权 profile 内执行并写回 evidence/ledger。
 - `continue -Apply` 只写 case-local facts/routing/run digest/lane resume/checkpoint/board；不写 authority/confirmed。
 - `sync/promote` 保持 review-first；实际写入前必须确认范围，pack source 写入依赖 backup/deny/restore。
 - PowerShell fallback 仍存在；删除或冻结 PowerShell runtime 前必须有单独 deprecation batch、兼容验证和文档说明。

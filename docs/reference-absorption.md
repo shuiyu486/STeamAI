@@ -8,8 +8,9 @@
 
 1. `CLAUDE.md`
 2. `README.md`
-3. `docs/autonomous-goal.md`
-4. `docs/agent-team-usage.md`
+3. `docs/mission-control-product-direction.md`
+4. `docs/autonomous-goal.md`
+5. `docs/agent-team-usage.md`
 5. 本文件
 6. `docs/vision.md`
 7. `docs/batch-plan.md`
@@ -68,7 +69,7 @@ git diff --check
 - 外部参考只能作为设计来源，不能替代本项目的 manifest、runtime 和 pack 边界。
 - `ida-agent-bridge` 当前是 candidate，不是必装工具。
 - `clark-utov` 风格的 batch/ledger/intervention 已从文档推进到 runtime ledger（`/rekit note` 9 种 kind + auto decision 字段对齐 `docs/evidence-ledger.md`），但 batch 模型（`batchId`/整体接受/回滚）与 intervention runtime 强制门禁仍未实现，不能误导为 runtime 已完整实现。
-- heavy trace、dynamic debug、inject、patch、dump、symex、网络/外部副作用仍必须用户确认。
+- heavy trace、dynamic debug、inject、patch、dump、symex、网络/外部副作用可由 lane 文档/packet/autonomy profile 预授权；未授权、越界、出现新风险或需要 confirmed/authority/promote 时必须升级给用户。
 - confirmed / authority 写入仍必须经 evidence、verifier、schema、backup、diff、无冲突等 gate。
 
 ## 1. 总览表

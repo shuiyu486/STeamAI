@@ -1,11 +1,15 @@
 # re-context-kits design
 
+## 产品北极星
+
+最终产品方向见 `docs/mission-control-product-direction.md`：`re-context-kits` 应收敛为 Lane-centric Agent Team Mission Control。用户主要指挥主 Agent / Mission Commander；长期成员身份绑定 durable member lane，而不是绑定旧聊天窗口；Claude Code session 只是可替换 executor；主 Agent 可按需启动短命 tactical subagents；用户可进入任意 lane 纠错、改向或硬切模型，lane 通过 reconcile 把干预写入 durable state；在 lane 文档/packet/autonomy profile 明确预授权范围内，成员 lane 可自主执行 heavy/debug/patch/dump/hook/network/exploit-replay 等动作，但必须遵守 scope、预算、止损、输出路径、记录和升级边界。
+
 ## 四层模型
 
-1. **Skill UI**：`.claude/skills/rekit/SKILL.md`，clone 后在 kit 仓库内直接提供 `/rekit`。
-2. **Runtime**：`rekit/rekit.ps1` 与 `rekit/lib/*.ps1`，执行 attach/init/sync/promote/validate。
-3. **Pack**：`packs/<pack>`，保存某个安全领域的可复用模板、tooling 资产、示例、snippet 与 `manifest.yml`；当前首个成熟 pack 是 `vmp-re`。
-4. **Instance**：每个 case 的 `.rekit/instance.yml`、`.rekit/state.json`、case-local `.claude/skills/rekit` shim。
+1. **Skill UI**：`.claude/skills/rekit/SKILL.md`，clone 后在 kit 仓库内直接提供 `/rekit`；用户层应优先表现为主 Agent mission control，而不是命令目录。
+2. **Runtime**：`rekit/rekit.ps1` 与 Go backend，执行 attach/init/sync/promote/validate，并维护 board、facts、lanes、runs、handovers、gate request 等 deterministic state。
+3. **Pack**：`packs/<pack>`，保存某个安全领域的可复用模板、tooling 资产、示例、snippet、lane/autonomy policy 与 `manifest.yml`；当前首个成熟 pack 是 `vmp-re`。
+4. **Instance**：每个 case 的 `.rekit/instance.yml`、`.rekit/state.json`、case-local `.claude/skills/rekit` shim，以及 case-local member lane state。
 
 ## managed vs local
 

@@ -94,6 +94,7 @@ type ReleaseHandoffValidation struct {
 
 var releaseHandoffReadFirst = []ReleaseHandoffDocument{
 	{Path: "docs/release-readiness.md", Purpose: "one-page release gate, current state, and known gaps"},
+	{Path: "docs/mission-control-product-direction.md", Purpose: "Lane-centric Mission Control product north star"},
 	{Path: "docs/autonomous-goal.md", Purpose: "long-term autonomous goal and continuation guard"},
 	{Path: "docs/go-first-convergence-plan.md", Purpose: "Go-first convergence stage map"},
 	{Path: "docs/powershell-deprecation.md", Purpose: "PowerShell owner, freeze, and removal gates"},
@@ -347,6 +348,7 @@ func releaseHandoffValidation(steps []GateStep) []ReleaseHandoffValidation {
 func releaseHandoffNextActions() []string {
 	return []string{
 		"Read releaseHandoff.signals[] first, then docs/release-readiness.md for the detailed gate and known gaps.",
+		"Use docs/mission-control-product-direction.md as the product north star before choosing the next autonomous slice.",
 		"Use releaseHandoff.validation[] or gateProfile.steps[] as the local/CI minimum before tagging or handing off.",
 		"Keep CHANGELOG.md Unreleased aligned with the latest completed docs/batch-plan.md batch before handing off.",
 		"Continue the autonomous loop from docs/autonomous-goal.md and append the next completed batch to docs/batch-plan.md.",

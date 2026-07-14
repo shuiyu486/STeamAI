@@ -1,6 +1,6 @@
 # Subagent delegation and bounded parallelism
 
-目标：用子 agent 分担只读分析、复核和摘要，减少主 agent 上下文压力，并在可拆分任务中提高效率。
+目标：用短命 tactical subagent 分担只读分析、复核、反驳、小修和摘要，减少主 agent 上下文压力，并在可拆分任务中提高效率。短命 subagent 不等同于长期 member lane；长期职责线由 durable lane + 可替换 Claude Code session executor 承担。
 
 ## 何时使用
 

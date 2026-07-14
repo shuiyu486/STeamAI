@@ -41,6 +41,7 @@ func writeReleaseHandoffFixture(t *testing.T, repo, batchTitle, changelogLine st
 }`)
 	writeFile(t, filepath.Join(repo, "docs", "batch-plan.md"), "# Batch implementation plan\n\n### "+batchTitle+"\n\n状态：已完成。\n\n目标：fixture goal.\n\n验证结果：fixture validation.\n")
 	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), "## Known gaps\n\n- fixture gap\n")
+	writeFile(t, filepath.Join(repo, "docs", "mission-control-product-direction.md"), "# mission control\n")
 	writeFile(t, filepath.Join(repo, "docs", "autonomous-goal.md"), "# autonomous goal\n")
 	writeFile(t, filepath.Join(repo, "docs", "go-first-convergence-plan.md"), "# go first\n")
 	writeFile(t, filepath.Join(repo, "docs", "powershell-deprecation.md"), "# powershell\n")

@@ -3,15 +3,15 @@
 ## 读取指南
 
 - 如果你只想使用当前仓库初始化一个安全 case（当前成熟示例是 `vmp-re` RE case），先读 `README.md` 的使用方式；本文件用于理解长期方向与阶段路线。
-- 如果你要维护或迭代本仓库，先读本文件顶部的实施摘要、执行清单、验证标准；若要让新会话长期自主推进几十轮，先读 `docs/autonomous-goal.md`，再按阶段读取细节。
+- 如果你要维护或迭代本仓库，先读本文件顶部的实施摘要、执行清单、验证标准；若要让新会话长期自主推进几十轮，先读 `docs/mission-control-product-direction.md` 与 `docs/autonomous-goal.md`，再按阶段读取细节。
 - 本文件是路线图，不代表所有能力已经实现；当前已经落地的是 `/rekit`、case 绑定、工作线、handoff、sync/promote、首个成熟领域 pack `vmp-re` 和 tooling 文档底座。
 - 需要具体执行时，优先选择当前阶段的最小可验证切片，不跨阶段提前重构 runtime。
 
 ## 实施摘要
 
-`re-context-kits` 的长期定位是：**面向网络安全研究与安全工程任务的 Claude Code Agent Team 框架**。
+`re-context-kits` 的长期定位是：**面向网络安全研究与安全工程任务的 Claude Code Agent Team Mission Control 框架**。
 
-它不是单个脱壳工具、IDA 插件、漏洞扫描器或自动化脚本集合，而是把多 Agent 协作、领域工具链、证据账本、工作线管理、验证门禁和可复用安全领域 pack 组织成可持续迭代的 case workspace。`vmp-re` 是当前首个成熟 pack 和验证场，不是最终边界；长期目标是逐步支持逆向工程、恶意样本分析、漏洞研究、Web/API 安全评估、授权测试/靶场/CTF、Android native、OLLVM 等多类安全任务。
+它不是单个脱壳工具、IDA 插件、漏洞扫描器或自动化脚本集合，而是把主 Agent 统筹、durable member lanes、可替换 Claude Code session executors、短命 tactical subagents、领域工具链、证据账本、工作线管理、验证门禁和可复用安全领域 pack 组织成可持续迭代的 case workspace。`vmp-re` 是当前首个成熟 pack 和验证场，不是最终边界；长期目标是逐步支持逆向工程、恶意样本分析、漏洞研究、Web/API 安全评估、授权测试/靶场/CTF、Android native、OLLVM 等多类安全任务。最终产品方向详见 `docs/mission-control-product-direction.md`。
 
 当前项目的合理边界是：
 
@@ -24,6 +24,7 @@
 ## 执行清单
 
 - [ ] Phase 0：定位与文档收敛。
+- [ ] Product north star：Lane-centric Agent Team Mission Control，见 `docs/mission-control-product-direction.md`；后续 UX、lane protocol、session handoff、human-in-the-lane、预授权 lane autonomy、tactical subagents 与 pack memory 都应向该方向收敛。
 - [ ] Phase 1：Agent Team 工作流固化。
 - [ ] Phase 2：`vmp-re` 专项能力深化。
 - [ ] Phase 3：网络安全多领域 pack 扩展（Web/API 安全、恶意样本分析、漏洞研究、CTF/靶场、通用 PE unpacking、Android native、OLLVM、通用二进制分析等；`web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 已作为首批安全领域 pack 骨架启动）。
@@ -43,7 +44,7 @@
 2. **分批实施**：每批只做一个可验证切片，优先保持现有模块化；不跨阶段提前重构 runtime。
 3. **批次自审**：每批完成后主动 review 自己的 diff，评估架构是否清晰、是否保持模块边界、是否引入维护风险或同步副作用。
 4. **可自行调整**：若自审发现低风险文档职责重复、链接缺失、manifest 漏同步、CHANGELOG 漏记录等问题，可直接修正并再次验证。
-5. **必须停下询问**：遇到产品方向变化、破坏性动作、外部副作用、动态调试/注入/patch/dump、写入 confirmed/authority、runtime schema 迁移、难以判断的架构取舍时，先问用户。
+5. **必须停下询问**：遇到新的产品方向变化、破坏性仓库操作、未授权外部副作用、写入 confirmed/authority、runtime schema 迁移、PowerShell 删除或难以判断的架构取舍时，先问用户；动态调试/注入/patch/dump/hook/网络/exploit replay 等动作若已在当前 lane 文档/packet/autonomy profile 中明确预授权，可在 scope、预算、止损、输出路径和记录要求内由成员 lane 自主执行。
 6. **计划写回文档**：后续阶段的具体实施计划应持续沉淀到本文件或相邻设计文档中，不能只留在聊天上下文里。
 7. **每批都验证**：至少运行 `git diff --check`；能运行时再执行 `./rekit/rekit.ps1 status` 和 `./rekit/rekit.ps1 doctor`，失败要区分本批问题和既有阻塞。
 
@@ -70,8 +71,8 @@ runtime 阶段还应增加：
 - 不把真实样本、RVA/VA、trace、dump、artifact、客户信息、目标系统信息或本机绝对路径写入模板仓库。
 - 不把外部工具变成硬依赖；优先以 tooling recipe、capability card、adapter contract 的方式接入。
 - 不让 runtime 直接包含具体工具的业务逻辑；工具细节应留在 pack tooling 或 case-local adapter。
-- 动态调试、注入、patch、dump、脱壳写文件等高风险动作必须有显式用户确认和可回溯记录。
-- 自动化先做 review-first / dry-run / packet 化，再做 apply；不要绕过现有 sync/promote 边界。
+- 动态调试、注入、patch、dump、hook、网络、exploit replay 等高风险动作可以由 lane 文档/packet/autonomy profile 预授权；预授权必须明确 target scope、预算、输出路径、止损条件、记录要求和升级条件，超出范围时必须停下询问。
+- 自动化先做 review-first / dry-run / packet 化，再做 apply；不要绕过现有 sync/promote、confirmed/authority 和 pack promote 边界。
 
 ## 1. 项目定位
 

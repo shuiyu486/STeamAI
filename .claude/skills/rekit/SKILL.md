@@ -16,7 +16,20 @@ disable-model-invocation: true
 
 ## 用户使用方式
 
-默认只给用户展示 `/rekit` 形式，不要让用户手动记或执行底层脚本：
+产品方向是 Mission Control：优先让用户用自然语言指挥主 Agent，而不是手动记 `/rekit` 子命令。`/rekit` 是主 Agent、维护者、自动化和排障使用的 deterministic runtime API；底层 `rekit.ps1` / Go CLI 更不应作为日常入口展示。
+
+可给用户展示的日常表达优先是：
+
+```text
+开始这个 case，目标是还原核心逻辑。
+继续推进当前 mission。
+总体怎么样？哪些 lane 卡住了？
+让我进入 verifier lane 帮它纠错。
+这个 lane 上下文污染了，生成接手包，让新会话接手。
+把这次可复用经验整理成 promote 候选。
+```
+
+需要说明 runtime API 时，再展示 `/rekit` 形式：
 
 ```text
 /rekit init -Target <caseRoot> -Pack vmp-re -ProjectName <caseName> -Apply
@@ -79,8 +92,9 @@ disable-model-invocation: true
 5. `promote` 同时处理 tooling：从 case 的工具链文档抽象候选，供人工合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
 6. 若 promote 命中绝对路径、样本名、trace/dump/artifact/capture 路径或明显地址快照，先阻止或生成候选报告，不要静默写回模板。
 7. `sync` / `promote` 发现 case 路径迁移但 metadata 未修复时必须拒绝执行，提示用户确认后运行 `repair`。
-8. 工作线必须持久、agent 可以短命；跨工作线协同通过 `.rekit/facts/*.jsonl`、inbox/tasks 和 publication 完成，不要求用户手动合并普通事实。
-9. `/rekit continue <name>` 可以写 case-local `.rekit/board.json`、`.rekit/facts/**`、`.rekit/lanes/**`、`.rekit/runs/**`、`.rekit/handovers/**` 和所选支线 workspace；只有 candidate 同时满足 evidence、accepted verifier、confidence、schema、no-conflict、backup、diff、max rows 时，才允许自动 append authority CSV。
+8. 工作线必须持久、agent 可以短命；长期成员身份绑定 durable lane，不绑定旧 Claude Code session。旧会话上下文污染、模型硬切或用户要求重开时，新会话应通过 handoff / packet / evidence 接手同一 lane。跨工作线协同通过 `.rekit/facts/*.jsonl`、inbox/tasks 和 publication 完成，不要求用户手动合并普通事实。
+9. 用户可随时进入任意 lane 打断、纠错、改向或硬切模型；lane 继续时应先 reconcile 用户干预并写入 status/outbox/intervention。当前 lane 文档、task packet 或 autonomy profile 明确预授权的 heavy/debug/patch/dump/hook/network/exploit-replay 等动作，可在 scope、预算、止损、输出路径和记录要求内自主执行；超出范围、出现新风险或需要 confirmed/authority/promote 时必须升级。
+10. `/rekit continue <name>` 可以写 case-local `.rekit/board.json`、`.rekit/facts/**`、`.rekit/lanes/**`、`.rekit/runs/**`、`.rekit/handovers/**` 和所选支线 workspace；只有 candidate 同时满足 evidence、accepted verifier、confidence、schema、no-conflict、backup、diff、max rows 时，才允许自动 append authority CSV。
 10. 覆盖/删除 authority、冲突、schema change、changesProjectBaseline、externalSideEffect、destructiveAction 必须停下来问用户；不要自动执行。
 11. 新功能分析使用 `/rekit start <name>`；不要再建议用户使用旧的底层工作线命令。
 12. `plan-subagents` 只作为内部只读计划器，不是日常用户入口；能由主 agent 或自动流程判断时，不要求用户手动调用。
