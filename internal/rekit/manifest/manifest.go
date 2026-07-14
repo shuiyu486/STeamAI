@@ -281,10 +281,33 @@ func isSupportedPackMaturity(value string) bool {
 	}
 }
 
+var (
+	manifestNamePattern           = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]*$`)
+	manifestVersionPattern        = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?(?:\+[A-Za-z0-9][A-Za-z0-9._-]*)?$`)
+	manifestManagedBlockIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+:[A-Za-z][A-Za-z0-9_.-]*$`)
+)
+
 func cloneStringMap(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	maps.Copy(out, in)
 	return out
+}
+
+func validateSupportedMapKeys(field string, values map[string]string, allowed ...string) error {
+	allowedKeys := map[string]bool{}
+	for _, key := range allowed {
+		allowedKeys[key] = true
+	}
+	for key := range values {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return fmt.Errorf("%s contains an empty key", field)
+		}
+		if !allowedKeys[key] {
+			return fmt.Errorf("%s contains unsupported key: %s", field, key)
+		}
+	}
+	return nil
 }
 
 func (m *Manifest) BudgetLimit(rel string) int64 {
@@ -314,6 +337,11 @@ func (m *Manifest) validateBudgets() error {
 		if key == "" {
 			return fmt.Errorf("budgets contains an empty key")
 		}
+		if key != "defaultMarkdown" {
+			if _, err := m.SourcePath(key); err != nil {
+				return fmt.Errorf("budgets contains unsafe path key %q: %w", key, err)
+			}
+		}
 		if _, ok := parsePositiveBudgetLimit(value); !ok {
 			return fmt.Errorf("budgets.%s has invalid positive integer limit: %s", key, strings.TrimSpace(value))
 		}
@@ -321,9 +349,34 @@ func (m *Manifest) validateBudgets() error {
 	return nil
 }
 
+func (m *Manifest) validateManagedBlock() error {
+	for _, key := range []string{"file", "blockId", "source"} {
+		if strings.TrimSpace(m.explicitManagedBlock[key]) == "" {
+			return fmt.Errorf("managedBlock is missing required key: %s", key)
+		}
+	}
+	if err := validateSupportedMapKeys("managedBlock", m.explicitManagedBlock, "file", "blockId", "source"); err != nil {
+		return err
+	}
+	blockID := strings.TrimSpace(m.ManagedBlock["blockId"])
+	if !manifestManagedBlockIDPattern.MatchString(blockID) {
+		return fmt.Errorf("managedBlock.blockId has invalid value: %s", blockID)
+	}
+	if _, err := m.SourcePath(m.ManagedBlock["file"]); err != nil {
+		return err
+	}
+	if _, err := m.SourcePath(m.ManagedBlock["source"]); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (m *Manifest) validateSyncPolicy() error {
 	if !m.explicitMaps["syncPolicy"] {
 		return fmt.Errorf("manifest must explicitly declare syncPolicy")
+	}
+	if err := validateSupportedMapKeys("syncPolicy", m.SyncPolicy, "managedFiles", "templateFiles", "localFiles"); err != nil {
+		return err
 	}
 	for _, entry := range []struct {
 		key  string
@@ -344,6 +397,32 @@ func (m *Manifest) validateSyncPolicy() error {
 	return nil
 }
 
+func (m *Manifest) validateWorkstreamDefaults(managedTargets map[string]bool) error {
+	if !m.explicitMaps["workstreamDefaults"] {
+		return fmt.Errorf("manifest must explicitly declare workstreamDefaults")
+	}
+	if err := validateSupportedMapKeys("workstreamDefaults", m.WorkstreamDefaults, "defaultAuthorityLane", "defaultStartLaneType", "backupRoot", "requestDefaultTargetLane", "handoffPath"); err != nil {
+		return err
+	}
+	for _, key := range []string{"defaultAuthorityLane", "defaultStartLaneType", "backupRoot", "requestDefaultTargetLane"} {
+		if strings.TrimSpace(m.WorkstreamDefaults[key]) == "" {
+			return fmt.Errorf("workstreamDefaults is missing required key: %s", key)
+		}
+	}
+	if _, err := m.SourcePath(m.WorkstreamDefaults["backupRoot"]); err != nil {
+		return err
+	}
+	if handoff := strings.TrimSpace(m.WorkstreamDefaults["handoffPath"]); handoff != "" {
+		if _, err := m.SourcePath(handoff); err != nil {
+			return err
+		}
+		if !managedTargets[handoff] {
+			return fmt.Errorf("workstreamDefaults.handoffPath is not a managed, template, managed-block, or local file: %s", handoff)
+		}
+	}
+	return nil
+}
+
 func (m *Manifest) ValidateSchema() error {
 	if strings.TrimSpace(m.SchemaVersion) == "" {
 		return fmt.Errorf("schemaVersion is missing")
@@ -358,11 +437,19 @@ func (m *Manifest) ValidateSchema() error {
 	if !isSupportedPackMaturity(maturity) {
 		return fmt.Errorf("maturity has unsupported value: %s", m.Maturity)
 	}
-	if strings.TrimSpace(m.Name) == "" {
+	name := strings.TrimSpace(m.Name)
+	if name == "" {
 		return fmt.Errorf("name is missing")
 	}
-	if strings.TrimSpace(m.Version) == "" {
+	if !manifestNamePattern.MatchString(name) {
+		return fmt.Errorf("name has invalid value: %s", name)
+	}
+	version := strings.TrimSpace(m.Version)
+	if version == "" {
 		return fmt.Errorf("version is missing")
+	}
+	if !manifestVersionPattern.MatchString(version) {
+		return fmt.Errorf("version has invalid value: %s", version)
 	}
 	if strings.TrimSpace(m.Description) == "" {
 		return fmt.Errorf("description is missing")
@@ -372,10 +459,8 @@ func (m *Manifest) ValidateSchema() error {
 			return fmt.Errorf("manifest must explicitly declare %s", key)
 		}
 	}
-	for _, key := range []string{"file", "blockId", "source"} {
-		if strings.TrimSpace(m.explicitManagedBlock[key]) == "" {
-			return fmt.Errorf("managedBlock is missing required key: %s", key)
-		}
+	if err := m.validateManagedBlock(); err != nil {
+		return err
 	}
 	managed, err := m.validatePackFileList("managedFiles", m.ManagedFiles, "", "")
 	if err != nil {
@@ -417,13 +502,7 @@ func (m *Manifest) ValidateSchema() error {
 			return fmt.Errorf("promoteFiles entry is not managed: %s", rel)
 		}
 	}
-	managedTargets[m.ManagedBlock["file"]] = true
-	if _, err := m.SourcePath(m.ManagedBlock["file"]); err != nil {
-		return err
-	}
-	if _, err := m.SourcePath(m.ManagedBlock["source"]); err != nil {
-		return err
-	}
+	managedTargets[strings.TrimSpace(m.ManagedBlock["file"])] = true
 	if err := validateCommonPolicyIDs(m.CommonPolicies); err != nil {
 		return err
 	}
@@ -443,24 +522,8 @@ func (m *Manifest) ValidateSchema() error {
 	if err := m.validateSourcePathList("toolingCandidateSources", m.ToolingCandidateSources); err != nil {
 		return err
 	}
-	if !m.explicitMaps["workstreamDefaults"] {
-		return fmt.Errorf("manifest must explicitly declare workstreamDefaults")
-	}
-	for _, key := range []string{"defaultAuthorityLane", "defaultStartLaneType", "backupRoot", "requestDefaultTargetLane"} {
-		if strings.TrimSpace(m.WorkstreamDefaults[key]) == "" {
-			return fmt.Errorf("workstreamDefaults is missing required key: %s", key)
-		}
-	}
-	if _, err := m.SourcePath(m.WorkstreamDefaults["backupRoot"]); err != nil {
+	if err := m.validateWorkstreamDefaults(managedTargets); err != nil {
 		return err
-	}
-	if handoff := strings.TrimSpace(m.WorkstreamDefaults["handoffPath"]); handoff != "" {
-		if _, err := m.SourcePath(handoff); err != nil {
-			return err
-		}
-		if !managedTargets[handoff] {
-			return fmt.Errorf("workstreamDefaults.handoffPath is not a managed, template, managed-block, or local file: %s", handoff)
-		}
 	}
 	if len(m.AuthorityFiles) == 0 {
 		return fmt.Errorf("authorityFiles must include at least one authority file")

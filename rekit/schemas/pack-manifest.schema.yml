@@ -27,16 +27,16 @@ required:
 
 fields:
   schemaVersion: pack manifest schema 版本；必须显式声明为 1，runtime 不再接受缺失或其它版本作为 schema-valid manifest
-  name: pack 名称，例如 vmp-re；必须显式声明，runtime 不再用 pack id 隐式补齐
-  version: pack 版本；review packet 会记录此值作为 manifestVersion；必须显式声明，runtime 不再注入 0.0.0
+  name: pack 名称，例如 vmp-re；必须显式声明为稳定 machine id，runtime 不再用 pack id 隐式补齐，也不接受空格或不可消费名称
+  version: pack 版本；review packet 会记录此值作为 manifestVersion；必须显式声明为 semver-like 值，runtime 不再注入 0.0.0
   description: 一行用途说明；必须显式声明，schema-valid pack 不允许缺用途摘要
   maturity: pack 成熟度，取值为 mature、template、skeleton 或 experimental；`/rekit packs` 直接显示该显式字段
   managedFiles: 可由 kit 同步到 case、也可按 promotePolicy 反向提升的文件路径列表；必须显式声明，即使暂时为空也不能缺 key；非空项必须是相对安全路径且不能重复
   templateFiles: 只在 case 缺失时实例化的模板文件列表；必须显式声明，允许空列表但不能由 runtime 隐式推断；非空项必须是相对安全的 `.template.md` 路径且不能重复
   localNeverOverwrite: 永不被 sync 覆盖、永不被 promote 的 case-local 文件；必须显式声明，允许空列表但不能由 runtime 隐式推断；非空项必须是相对安全路径、不能重复且不能与 managedFiles/templateFiles 重叠
-  managedBlock: 单个 managed block 定义，必须显式声明 file/blockId/source；runtime 不再注入默认 managed block host、blockId 或 source
-  syncPolicy: sync 默认策略；必须显式声明 managedFiles=overwrite-with-backup、templateFiles=create-if-missing、localFiles=never-overwrite，不能缺 key 或依赖 runtime fallback
-  workstreamDefaults: 工作线 runtime 默认值；必须显式声明 defaultAuthorityLane、defaultStartLaneType、backupRoot、requestDefaultTargetLane，可选 handoffPath，runtime 不提供隐式默认 map
+  managedBlock: 单个 managed block 定义，必须显式声明 file/blockId/source，不能添加未支持 key，blockId 必须是 namespaced id；runtime 不再注入默认 managed block host、blockId 或 source
+  syncPolicy: sync 默认策略；必须显式声明 managedFiles=overwrite-with-backup、templateFiles=create-if-missing、localFiles=never-overwrite，不能缺 key、添加未支持 key 或依赖 runtime fallback
+  workstreamDefaults: 工作线 runtime 默认值；必须显式声明 defaultAuthorityLane、defaultStartLaneType、backupRoot、requestDefaultTargetLane，可选 handoffPath，不能添加未支持 key；runtime 不提供隐式默认 map
   authorityFiles: 允许 authority auto-append 的文件 allowlist；必须显式声明且至少包含一个文件，并必须由 defaultAuthorityLane 的 canWrite 覆盖；每项必须非空、可定位且不能重复
   promoteFiles: 允许进入 promote 候选的 managed 文件列表；必须显式声明、至少包含一个 managed 文件且必须是 managedFiles 子集；runtime 不再把 managedFiles 隐式作为 promoteFiles；每项必须非空、相对安全且不能重复
   toolingCandidateSources: promote 候选生成时可读取的工具说明源文件列表；必须显式声明且至少包含一个 source 文件；每项必须非空、可定位且不能重复
@@ -49,7 +49,7 @@ fields:
   promptFiles: common/pack prompt 文档列表；必须显式声明，允许空列表；用于 doctor 校验与人工查阅；非空项必须是 repo-relative `common/prompts/*.md` 或 `packs/<pack>/prompts/*.md` 文件路径，不能为空或重复
   laneTypes: 内部工作线类型列表；必须显式声明且至少包含一个 lane type；每项必须声明 title、workspaceRoot、authority、canWrite、readOnly、outputs，并定义 authority true/false，供 `/rekit overview/continue/start/handoff` 使用；runtime 不再为 title/workspaceRoot 注入默认值，也不再把缺失或非法 authority 静默当作 false，且至少应有一个 authority lane；id 与 outputs 必须是小写 slug/token，canWrite/readOnly/outputs 列表项不能为空或重复
   b3PolicyFile: case-local `.rekit/policy.yml`，由 runtime 初始化，不写在 manifest 中；此 schema 只说明相关字段
-  budgets: Markdown/文本预算；必须显式声明 map 与 defaultMarkdown 正整数，runtime 不再在 manifest load 时注入默认预算
+  budgets: Markdown/文本预算；必须显式声明 map 与 defaultMarkdown 正整数，非 defaultMarkdown key 必须是相对安全路径；runtime 不再在 manifest load 时注入默认预算
 
 workstreamDefaults:
   defaultAuthorityLane: 默认主线 lane type id，必须存在且 authority=true

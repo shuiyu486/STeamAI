@@ -231,9 +231,19 @@ func TestValidateSchemaRequiresExplicitIdentity(t *testing.T) {
 		t.Fatalf("ValidateSchema error = %v, want missing name error", err)
 	}
 	m = validManifestFixture()
+	m.Name = "unit pack"
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "name has invalid value: unit pack") {
+		t.Fatalf("ValidateSchema error = %v, want invalid name error", err)
+	}
+	m = validManifestFixture()
 	m.Version = ""
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "version is missing") {
 		t.Fatalf("ValidateSchema error = %v, want missing version error", err)
+	}
+	m = validManifestFixture()
+	m.Version = "latest"
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "version has invalid value: latest") {
+		t.Fatalf("ValidateSchema error = %v, want invalid version error", err)
 	}
 }
 
@@ -761,6 +771,11 @@ func TestValidateSchemaRequiresExplicitSyncPolicy(t *testing.T) {
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "syncPolicy.managedFiles has unsupported value: overwrite") {
 		t.Fatalf("ValidateSchema error = %v, want unsupported syncPolicy value error", err)
 	}
+	m = validManifestFixture()
+	m.SyncPolicy["promoteFiles"] = "review-first"
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "syncPolicy contains unsupported key: promoteFiles") {
+		t.Fatalf("ValidateSchema error = %v, want unsupported syncPolicy key error", err)
+	}
 }
 
 func TestLoadDoesNotInferSyncPolicyDefault(t *testing.T) {
@@ -1159,6 +1174,11 @@ func TestValidateSchemaRequiresExplicitDefaultBudget(t *testing.T) {
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "budgets.defaultMarkdown has invalid positive integer limit") {
 		t.Fatalf("ValidateSchema error = %v, want invalid default budget error", err)
 	}
+	m = validManifestFixture()
+	m.Budgets["../outside.md"] = "1024"
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "budgets contains unsafe path key") {
+		t.Fatalf("ValidateSchema error = %v, want unsafe budget key error", err)
+	}
 }
 
 func TestLoadDoesNotInferDefaultBudget(t *testing.T) {
@@ -1257,6 +1277,11 @@ func TestValidateSchemaRequiresExplicitWorkstreamDefaults(t *testing.T) {
 	delete(m.WorkstreamDefaults, "backupRoot")
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "workstreamDefaults is missing required key: backupRoot") {
 		t.Fatalf("ValidateSchema error = %v, want missing workstreamDefaults key error", err)
+	}
+	m = validManifestFixture()
+	m.WorkstreamDefaults["defaultMergeLane"] = "main"
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "workstreamDefaults contains unsupported key: defaultMergeLane") {
+		t.Fatalf("ValidateSchema error = %v, want unsupported workstreamDefaults key error", err)
 	}
 }
 
@@ -1655,6 +1680,18 @@ func TestValidateSchemaRequiresExplicitManagedBlock(t *testing.T) {
 	delete(m.ManagedBlock, "source")
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "managedBlock is missing required key: source") {
 		t.Fatalf("ValidateSchema error = %v, want explicit managedBlock source error", err)
+	}
+	m = validManifestFixture()
+	m.explicitManagedBlock["marker"] = "custom"
+	m.ManagedBlock["marker"] = "custom"
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "managedBlock contains unsupported key: marker") {
+		t.Fatalf("ValidateSchema error = %v, want unsupported managedBlock key error", err)
+	}
+	m = validManifestFixture()
+	m.explicitManagedBlock["blockId"] = "router"
+	m.ManagedBlock["blockId"] = "router"
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "managedBlock.blockId has invalid value: router") {
+		t.Fatalf("ValidateSchema error = %v, want invalid managedBlock blockId error", err)
 	}
 }
 
