@@ -1024,6 +1024,62 @@ func TestValidateSchemaRequiresNonEmptyPromoteDenyPatterns(t *testing.T) {
 	}
 }
 
+func TestValidateSchemaRequiresValidSourceAuthorityAndDenyLists(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		want   string
+		mutate func(*Manifest)
+	}{
+		{
+			name:   "toolingCandidateSources empty path",
+			want:   "toolingCandidateSources contains an empty path",
+			mutate: func(m *Manifest) { m.ToolingCandidateSources = []string{""} },
+		},
+		{
+			name: "toolingCandidateSources duplicate path",
+			want: "toolingCandidateSources contains duplicate path: references/template/toolchain-router.md",
+			mutate: func(m *Manifest) {
+				m.ToolingCandidateSources = []string{"references/template/toolchain-router.md", "references/template/toolchain-router.md"}
+			},
+		},
+		{
+			name:   "authorityFiles empty path",
+			want:   "authorityFiles contains an empty path",
+			mutate: func(m *Manifest) { m.AuthorityFiles = []string{""} },
+		},
+		{
+			name: "authorityFiles duplicate path",
+			want: "authorityFiles contains duplicate path: references/template/task-handoff.md",
+			mutate: func(m *Manifest) {
+				m.AuthorityFiles = []string{"references/template/task-handoff.md", "references/template/task-handoff.md"}
+			},
+		},
+		{
+			name:   "promoteDenyPatterns empty pattern",
+			want:   "promoteDenyPatterns contains an empty pattern",
+			mutate: func(m *Manifest) { m.PromoteDenyPatterns = []string{""} },
+		},
+		{
+			name:   "promoteDenyPatterns duplicate pattern",
+			want:   "promoteDenyPatterns contains duplicate pattern: artifacts[\\/]",
+			mutate: func(m *Manifest) { m.PromoteDenyPatterns = []string{"artifacts[\\/]", "artifacts[\\/]"} },
+		},
+		{
+			name:   "promoteDenyPatterns invalid regex",
+			want:   "invalid promoteDenyPatterns regex",
+			mutate: func(m *Manifest) { m.PromoteDenyPatterns = []string{"["} },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := validManifestFixture()
+			tc.mutate(&m)
+			if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ValidateSchema error = %v, want %s", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidateSchemaRequiresExplicitDefaultBudget(t *testing.T) {
 	m := validManifestFixture()
 	m.explicitMaps["budgets"] = false

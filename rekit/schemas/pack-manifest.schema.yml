@@ -37,10 +37,10 @@ fields:
   managedBlock: 单个 managed block 定义，必须显式声明 file/blockId/source；runtime 不再注入默认 managed block host、blockId 或 source
   syncPolicy: sync 默认策略；必须显式声明 managedFiles=overwrite-with-backup、templateFiles=create-if-missing、localFiles=never-overwrite，不能缺 key 或依赖 runtime fallback
   workstreamDefaults: 工作线 runtime 默认值；必须显式声明 defaultAuthorityLane、defaultStartLaneType、backupRoot、requestDefaultTargetLane，可选 handoffPath，runtime 不提供隐式默认 map
-  authorityFiles: 允许 authority auto-append 的文件 allowlist；必须显式声明且至少包含一个文件，并必须由 defaultAuthorityLane 的 canWrite 覆盖
+  authorityFiles: 允许 authority auto-append 的文件 allowlist；必须显式声明且至少包含一个文件，并必须由 defaultAuthorityLane 的 canWrite 覆盖；每项必须非空、可定位且不能重复
   promoteFiles: 允许进入 promote 候选的 managed 文件列表；必须显式声明、至少包含一个 managed 文件且必须是 managedFiles 子集；runtime 不再把 managedFiles 隐式作为 promoteFiles
-  toolingCandidateSources: promote 候选生成时可读取的工具说明源文件列表；必须显式声明且至少包含一个 source 文件
-  promoteDenyPatterns: promote 安全阻断正则或字符串模式；必须由 pack 显式声明且至少包含一个模式，runtime 不提供隐式 deny baseline
+  toolingCandidateSources: promote 候选生成时可读取的工具说明源文件列表；必须显式声明且至少包含一个 source 文件；每项必须非空、可定位且不能重复
+  promoteDenyPatterns: promote 安全阻断正则或字符串模式；必须由 pack 显式声明且至少包含一个模式，runtime 不提供隐式 deny baseline；每项必须非空、可编译且不能重复
   commonPolicies: common policy id 列表；必须显式声明，允许空列表但不能由 runtime 隐式推断；每项必须是稳定小写 slug，不能为空或重复
   policyOverlays: pack policy overlay 文件列表；必须显式声明，允许空列表但不能由 runtime 隐式推断；非空项必须是 pack-relative `policies/*.overlay.md` 文件路径，不能为空或重复
   subagentRoutes: 子 agent / 工作线 review 分流 route 列表；必须显式声明，允许空列表；每项必须显式声明 namespaced id（例如 pack:route），且 namespace 必须匹配当前 pack id；taskTypes、trigger、shardBasis、targetItemsPerAgent、maxParallel、reference、subagentPermissions、mainAgentOwns、outputContract 必须齐全，policyOverlay 可为空；targetItemsPerAgent 必须是 1-64 的正整数，maxParallel 必须是 1-16 的正整数；shardBasis 必须是小写 slug 或由 -or- 分隔的小写 slug 组合，不能包含空分片项；非空 policyOverlay 必须来自当前 manifest 显式声明的 policyOverlays 列表；subagentPermissions 只能是 read-only 或 read-only-or-workspace-only；taskTypes、mainAgentOwns 与 outputContract 是逗号/分号分隔列表，每个 token 必须是小写 slug/snake token，不能包含空项或非法字符

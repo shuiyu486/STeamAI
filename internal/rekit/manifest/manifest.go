@@ -430,10 +430,8 @@ func (m *Manifest) ValidateSchema() error {
 	if len(m.ToolingCandidateSources) == 0 {
 		return fmt.Errorf("toolingCandidateSources must include at least one source; implicit vmp-re fallback is not allowed")
 	}
-	for _, rel := range m.ToolingCandidateSources {
-		if _, err := m.SourcePath(rel); err != nil {
-			return err
-		}
+	if err := m.validateSourcePathList("toolingCandidateSources", m.ToolingCandidateSources); err != nil {
+		return err
 	}
 	if !m.explicitMaps["workstreamDefaults"] {
 		return fmt.Errorf("manifest must explicitly declare workstreamDefaults")
@@ -457,6 +455,9 @@ func (m *Manifest) ValidateSchema() error {
 	if len(m.AuthorityFiles) == 0 {
 		return fmt.Errorf("authorityFiles must include at least one authority file")
 	}
+	if err := m.validateSourcePathList("authorityFiles", m.AuthorityFiles); err != nil {
+		return err
+	}
 	if err := m.validateSyncPolicy(); err != nil {
 		return err
 	}
@@ -466,10 +467,16 @@ func (m *Manifest) ValidateSchema() error {
 	if len(m.PromoteDenyPatterns) == 0 {
 		return fmt.Errorf("promoteDenyPatterns must include at least one pattern")
 	}
+	denyPatterns := map[string]bool{}
 	for _, pattern := range m.PromoteDenyPatterns {
-		if strings.TrimSpace(pattern) == "" {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
 			return fmt.Errorf("promoteDenyPatterns contains an empty pattern")
 		}
+		if denyPatterns[pattern] {
+			return fmt.Errorf("promoteDenyPatterns contains duplicate pattern: %s", pattern)
+		}
+		denyPatterns[pattern] = true
 		if _, err := regexp.Compile(pattern); err != nil {
 			return fmt.Errorf("invalid promoteDenyPatterns regex %q: %w", pattern, err)
 		}
@@ -497,9 +504,7 @@ func (m *Manifest) ValidateSchema() error {
 		return err
 	}
 	for _, rel := range m.AuthorityFiles {
-		if _, err := m.SourcePath(rel); err != nil {
-			return err
-		}
+		rel = strings.TrimSpace(rel)
 		if !contains(authority.CanWrite, rel) {
 			return fmt.Errorf("authorityFiles entry is not writable by default authority lane %s: %s", authority.ID, rel)
 		}
@@ -554,6 +559,24 @@ func (m *Manifest) validatePackFileList(field string, paths []string, prefix, su
 		seen[rel] = true
 	}
 	return seen, nil
+}
+
+func (m *Manifest) validateSourcePathList(field string, paths []string) error {
+	seen := map[string]bool{}
+	for _, rel := range paths {
+		rel = strings.TrimSpace(rel)
+		if rel == "" {
+			return fmt.Errorf("%s contains an empty path", field)
+		}
+		if _, err := m.SourcePath(rel); err != nil {
+			return err
+		}
+		if seen[rel] {
+			return fmt.Errorf("%s contains duplicate path: %s", field, rel)
+		}
+		seen[rel] = true
+	}
+	return nil
 }
 
 func (m *Manifest) validatePromptFiles() error {
