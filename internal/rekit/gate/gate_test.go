@@ -96,6 +96,46 @@ func TestApplyRejectsInvalidStopConditionsOverrideDoesNotWrite(t *testing.T) {
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 }
 
+func TestPlanDryRunRejectsInvalidRiskOverride(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+	}{
+		{name: "uppercase", value: "High"},
+		{name: "unsupported", value: "low"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repoRoot, caseRoot, pack := gateFixture(t)
+			_, err := PlanDryRun(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Subject: "bad risk", Risk: tc.value})
+			want := "gate risk has unsupported value: " + tc.value
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("PlanDryRun error = %v, want %s", err, want)
+			}
+			assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
+		})
+	}
+}
+
+func TestApplyRejectsInvalidRiskOverrideDoesNotWrite(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+
+	_, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "bad risk", Risk: "High"})
+	if err == nil || !strings.Contains(err.Error(), "gate risk has unsupported value: High") {
+		t.Fatalf("Apply error = %v, want invalid risk error", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
+}
+
+func TestPlanDryRunRejectsInvalidManifestDefaultRisk(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixtureWithDefaultRisk(t, "High")
+
+	_, err := PlanDryRun(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Subject: "bad manifest risk"})
+	if err == nil || !strings.Contains(err.Error(), "gate action \"debug\" has invalid manifest defaultRisk has unsupported value: High") {
+		t.Fatalf("PlanDryRun error = %v, want invalid manifest defaultRisk error", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
+}
+
 func TestApplyWritesOnlyPendingGateRequest(t *testing.T) {
 	repoRoot, caseRoot, pack := gateFixture(t)
 
@@ -165,6 +205,11 @@ func TestApplyDuplicateEventDoesNotAppend(t *testing.T) {
 
 func gateFixture(t *testing.T) (repoRoot, caseRoot, pack string) {
 	t.Helper()
+	return gateFixtureWithDefaultRisk(t, "high")
+}
+
+func gateFixtureWithDefaultRisk(t *testing.T, defaultRisk string) (repoRoot, caseRoot, pack string) {
+	t.Helper()
 	root := t.TempDir()
 	repoRoot = filepath.Join(root, "repo")
 	caseRoot = filepath.Join(root, "case")
@@ -176,7 +221,7 @@ heavyToolGates:
   - id: debug
     title: Dynamic debug or attach
     sideEffects: debug,filesystem-write
-    defaultRisk: high
+    defaultRisk: `+defaultRisk+`
     requiresConfirmation: true
     stopConditions: timeout,unexpected-side-effect,scope-drift
   - id: symex

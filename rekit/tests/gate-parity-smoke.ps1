@@ -87,6 +87,20 @@ try {
   $afterInvalidRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
   if ($beforeRequests -ne $afterInvalidRequests) { throw 'facade invalid gate stopConditions changed requests ledger' }
 
+  $invalidRisk = Invoke-RekitSmoke -Arguments @(
+    '-Command','gate',
+    '-Target',$caseRoot,
+    '-Pack',$Pack,
+    '-WhatIf',
+    '-Action','debug',
+    '-Lane',$lane,
+    '-Subject','invalid risk scalar probe',
+    '-Risk','High'
+  ) -AllowedExitCodes @(1)
+  Assert-ContainsText -Text $invalidRisk -Expected 'gate risk has unsupported value: High' -Label 'invalid risk override'
+  $afterInvalidRiskRequests = if (Test-Path -LiteralPath $requestsPath) { [System.IO.File]::ReadAllText($requestsPath, [System.Text.Encoding]::UTF8) } else { $null }
+  if ($beforeRequests -ne $afterInvalidRiskRequests) { throw 'facade invalid gate risk changed requests ledger' }
+
   $facadeApply = Invoke-RekitSmoke -Arguments @(
     '-Command','gate',
     '-Target',$caseRoot,

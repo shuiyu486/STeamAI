@@ -3538,6 +3538,21 @@ func TestRunGateDryRunRejectsUnknownLane(t *testing.T) {
 	}
 }
 
+func TestRunGateDryRunRejectsInvalidRiskOverride(t *testing.T) {
+	caseRoot := attachedCaseWithBoard(t)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Action", "debug", "-Lane", "main", "-Risk", "High"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for invalid gate risk")
+	}
+	if !strings.Contains(err.Error(), "gate risk has unsupported value: High") {
+		t.Fatalf("error = %q, want invalid risk", err.Error())
+	}
+	if _, statErr := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl")); statErr == nil || !os.IsNotExist(statErr) {
+		t.Fatalf("requests ledger exists or stat failed unexpectedly: %v", statErr)
+	}
+}
+
 func TestRunGateApplyRequiresActor(t *testing.T) {
 	caseRoot := attachedCaseWithBoard(t)
 	var out bytes.Buffer

@@ -5656,3 +5656,33 @@ git diff --check
 ```
 
 验证结果：已通过 runtime observation（临时 `_template` case 初始化与 overview board 初始化后，非法 `gate -WhatIf -StopConditions 'timeout,unexpected side effect'` 返回 `gate stopConditions has invalid item: unexpected side effect` 且 requests ledger 未变化；合法 `gate -WhatIf -StopConditions 'timeout,unexpected-side-effect,budget_exhausted'` 返回 token 化 preview；合法 `gate -Apply -StopConditions 'timeout,unexpected-side-effect'` 只写 pending-gate request，不执行 heavy-tool）、`go test ./internal/rekit/gate`、`go test ./internal/rekit/cli ./internal/rekit/gate`、targeted `go test ./internal/rekit/manifest ./internal/rekit/gate ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 187：Go gate risk override scalar contract
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，把 Batch 184 的 heavy-tool gate risk scalar contract 从 manifest 默认值延伸到 Go `gate -WhatIf/-Apply` 用户 override，避免 pending-gate preview/request ledger 写入 `High`、`low` 或其它不可消费 risk scalar。
+
+实施范围：
+
+- Go gate runtime 新增 `-Risk` override 校验：用户传入值必须是受支持的小写 risk scalar（`medium`、`high`、`critical`），大小写漂移和不支持值会在 preview/apply 前报错。
+- manifest `defaultRisk` 在 gate fallback 路径中也会复核 scalar contract，避免 invalid manifest 绕过 doctor 后进入 pending-gate preview。
+- `gate` package tests 覆盖 invalid override / invalid manifest defaultRisk 的 no-write 行为，CLI tests 和 `facade-smoke` 增加 invalid risk probe，`/rekit` skill 和阶段文档同步说明 risk override contract。
+
+边界：本批只做 Go gate preview/request contract、测试和文档；不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/gate
+go test ./internal/rekit/cli ./internal/rekit/gate
+go test ./internal/rekit/manifest ./internal/rekit/gate ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 runtime observation（临时 `_template` case 初始化与 overview board 初始化后，非法 `gate -WhatIf -Risk High` 返回 `gate risk has unsupported value: High` 且 requests ledger 未变化；合法 `gate -WhatIf -Risk critical` 返回小写 risk preview；合法 `gate -Apply -Risk medium -StopConditions timeout` 只写 pending-gate request，不执行 heavy-tool）、`go test ./internal/rekit/gate`、`go test ./internal/rekit/cli ./internal/rekit/gate`、targeted `go test ./internal/rekit/manifest ./internal/rekit/gate ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

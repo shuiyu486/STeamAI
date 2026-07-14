@@ -193,6 +193,9 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 	if strings.TrimSpace(gate.DefaultRisk) == "" {
 		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("gate action %q is missing defaultRisk in pack manifest", action)
 	}
+	if err := validateGateRisk("manifest defaultRisk", gate.DefaultRisk); err != nil {
+		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("gate action %q has invalid %w", action, err)
+	}
 	if len(gate.StopConditions) == 0 {
 		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("gate action %q is missing stopConditions in pack manifest", action)
 	}
@@ -211,9 +214,12 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 	if summary == "" {
 		summary = "Request user confirmation before running " + action
 	}
-	risk := strings.TrimSpace(opt.Risk)
+	risk, err := parseGateRisk(opt.Risk)
+	if err != nil {
+		return instance.Instance{}, EventPreview{}, nil, err
+	}
 	if risk == "" {
-		risk = gate.DefaultRisk
+		risk = strings.TrimSpace(gate.DefaultRisk)
 	}
 	stopConditions, err := parseStopConditions(opt.StopConditions)
 	if err != nil {
@@ -296,6 +302,26 @@ func splitList(value string) []string {
 		}
 	}
 	return out
+}
+
+func parseGateRisk(value string) (string, error) {
+	risk := strings.TrimSpace(value)
+	if risk == "" {
+		return "", nil
+	}
+	if err := validateGateRisk("risk", risk); err != nil {
+		return "", fmt.Errorf("gate %w", err)
+	}
+	return risk, nil
+}
+
+func validateGateRisk(field, value string) error {
+	switch strings.TrimSpace(value) {
+	case "medium", "high", "critical":
+		return nil
+	default:
+		return fmt.Errorf("%s has unsupported value: %s", field, value)
+	}
 }
 
 var stopConditionTokenPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$`)
