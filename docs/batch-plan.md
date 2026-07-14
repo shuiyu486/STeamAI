@@ -5366,3 +5366,32 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 177：Manifest heavy-tool gate list-item contract
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，收紧 `heavyToolGates.sideEffects` 与 `stopConditions` 的列表项 contract，要求 gate metadata 显式声明后仍保持可消费、去重且不会因空列表项被 YAML loader 静默吞掉。
+
+实施范围：
+
+- `splitScalarList` 保留逗号/分号分隔后的空项，使 `ValidateSchema` 能对 heavy-tool gate、lane 与 route 等 list 字段继续给出空项诊断，而不是在 parse 阶段静默丢弃。
+- `ValidateSchema` 在 `validateHeavyToolGates` 中要求 `sideEffects` 使用小写 action/effect slug、包含 gate action id，并拒绝空项与重复项；`stopConditions` 拒绝空项与大小写无关重复项。
+- manifest tests 新增 sideEffects/stopConditions 空项与重复项回归；`docs/pack-authoring.md`、`rekit/schemas/pack-manifest.schema.yml`、`docs/go-first-convergence-plan.md` 与 `CHANGELOG.md` 同步记录 heavy-tool gate list-item contract。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/gate
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/gate`、targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

@@ -761,14 +761,18 @@ func (m *Manifest) validateHeavyToolGates() error {
 		}
 		effects := map[string]bool{}
 		for _, effect := range gate.SideEffects {
-			effect = strings.ToLower(strings.TrimSpace(effect))
+			effect = strings.TrimSpace(effect)
 			if effect == "" {
 				return fmt.Errorf("heavyToolGates entry %s contains an empty sideEffects item", id)
 			}
 			if !idPattern.MatchString(effect) {
 				return fmt.Errorf("heavyToolGates entry %s has invalid sideEffects item: %s", id, effect)
 			}
-			effects[effect] = true
+			key := strings.ToLower(effect)
+			if effects[key] {
+				return fmt.Errorf("heavyToolGates entry %s contains duplicate sideEffects item: %s", id, effect)
+			}
+			effects[key] = true
 		}
 		if !effects[id] {
 			return fmt.Errorf("heavyToolGates entry %s sideEffects must include the action id", id)
@@ -792,10 +796,17 @@ func (m *Manifest) validateHeavyToolGates() error {
 		if len(gate.StopConditions) == 0 {
 			return fmt.Errorf("heavyToolGates entry %s is missing stopConditions", id)
 		}
+		conditions := map[string]bool{}
 		for _, condition := range gate.StopConditions {
-			if strings.TrimSpace(condition) == "" {
+			condition = strings.TrimSpace(condition)
+			if condition == "" {
 				return fmt.Errorf("heavyToolGates entry %s contains an empty stopConditions item", id)
 			}
+			key := strings.ToLower(condition)
+			if conditions[key] {
+				return fmt.Errorf("heavyToolGates entry %s contains duplicate stopConditions item: %s", id, condition)
+			}
+			conditions[key] = true
 		}
 	}
 	return nil
@@ -1112,12 +1123,9 @@ func splitScalarList(v string) []string {
 		return nil
 	}
 	parts := regexp.MustCompile(`[;,]`).Split(v, -1)
-	out := []string{}
+	out := make([]string, 0, len(parts))
 	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
+		out = append(out, strings.TrimSpace(p))
 	}
 	return out
 }
