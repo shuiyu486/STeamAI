@@ -414,16 +414,18 @@ func (m *Manifest) ValidateSchema() error {
 	if _, err := m.SourcePath(m.ManagedBlock["source"]); err != nil {
 		return err
 	}
-	policyOverlays := map[string]bool{}
-	for _, rel := range m.PolicyOverlays {
-		rel = strings.TrimSpace(rel)
-		if rel == "" {
-			return fmt.Errorf("policyOverlays contains an empty path")
-		}
-		if _, err := m.SourcePath(rel); err != nil {
-			return err
-		}
-		policyOverlays[rel] = true
+	if err := validateCommonPolicyIDs(m.CommonPolicies); err != nil {
+		return err
+	}
+	policyOverlays, err := m.validatePackFileList("policyOverlays", m.PolicyOverlays, "policies/", ".overlay.md")
+	if err != nil {
+		return err
+	}
+	if _, err := m.validatePackFileList("toolingFiles", m.ToolingFiles, "tooling/", ""); err != nil {
+		return err
+	}
+	if err := m.validatePromptFiles(); err != nil {
+		return err
 	}
 	if len(m.ToolingCandidateSources) == 0 {
 		return fmt.Errorf("toolingCandidateSources must include at least one source; implicit vmp-re fallback is not allowed")
@@ -506,6 +508,75 @@ func (m *Manifest) ValidateSchema() error {
 		if err := m.validateNonVMPPaths(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+var manifestSlugPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
+
+func validateCommonPolicyIDs(ids []string) error {
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return fmt.Errorf("commonPolicies contains an empty id")
+		}
+		if !manifestSlugPattern.MatchString(id) {
+			return fmt.Errorf("commonPolicies contains invalid id: %s", id)
+		}
+		if seen[id] {
+			return fmt.Errorf("commonPolicies contains duplicate id: %s", id)
+		}
+		seen[id] = true
+	}
+	return nil
+}
+
+func (m *Manifest) validatePackFileList(field string, paths []string, prefix, suffix string) (map[string]bool, error) {
+	seen := map[string]bool{}
+	for _, rel := range paths {
+		rel = strings.TrimSpace(rel)
+		if rel == "" {
+			return nil, fmt.Errorf("%s contains an empty path", field)
+		}
+		if prefix != "" && !strings.HasPrefix(rel, prefix) {
+			return nil, fmt.Errorf("%s entry must be under %s: %s", field, prefix, rel)
+		}
+		if suffix != "" && !strings.HasSuffix(rel, suffix) {
+			return nil, fmt.Errorf("%s entry must end with %s: %s", field, suffix, rel)
+		}
+		if _, err := m.SourcePath(rel); err != nil {
+			return nil, err
+		}
+		if seen[rel] {
+			return nil, fmt.Errorf("%s contains duplicate path: %s", field, rel)
+		}
+		seen[rel] = true
+	}
+	return seen, nil
+}
+
+func (m *Manifest) validatePromptFiles() error {
+	seen := map[string]bool{}
+	packPromptPrefix := "packs/" + strings.TrimSpace(m.Pack) + "/prompts/"
+	for _, rel := range m.PromptFiles {
+		rel = strings.TrimSpace(rel)
+		if rel == "" {
+			return fmt.Errorf("promptFiles contains an empty path")
+		}
+		if !strings.HasSuffix(rel, ".md") {
+			return fmt.Errorf("promptFiles entry must end with .md: %s", rel)
+		}
+		if !strings.HasPrefix(rel, "common/prompts/") && !strings.HasPrefix(rel, packPromptPrefix) {
+			return fmt.Errorf("promptFiles entry must be under common/prompts/ or %s: %s", packPromptPrefix, rel)
+		}
+		if _, err := m.RepoPath(rel); err != nil {
+			return err
+		}
+		if seen[rel] {
+			return fmt.Errorf("promptFiles contains duplicate path: %s", rel)
+		}
+		seen[rel] = true
 	}
 	return nil
 }

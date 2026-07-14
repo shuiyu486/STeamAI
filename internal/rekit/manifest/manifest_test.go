@@ -310,6 +310,51 @@ func TestValidateSchemaRequiresExplicitListPresence(t *testing.T) {
 	}
 }
 
+func TestValidateSchemaRequiresValidPolicyAndAuxiliaryLists(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		want   string
+		mutate func(*Manifest)
+	}{
+		{
+			name:   "commonPolicies",
+			want:   "commonPolicies contains invalid id: Agent Team",
+			mutate: func(m *Manifest) { m.CommonPolicies = []string{"Agent Team"} },
+		},
+		{
+			name:   "policyOverlays",
+			want:   "policyOverlays entry must be under policies/: references/template/reviewer.overlay.md",
+			mutate: func(m *Manifest) { m.PolicyOverlays = []string{"references/template/reviewer.overlay.md"} },
+		},
+		{
+			name:   "toolingFiles",
+			want:   "toolingFiles entry must be under tooling/: references/template/tooling.md",
+			mutate: func(m *Manifest) { m.ToolingFiles = []string{"references/template/tooling.md"} },
+		},
+		{
+			name:   "promptFiles",
+			want:   "promptFiles entry must be under common/prompts/ or packs/unit/prompts/: prompts/unit.md",
+			mutate: func(m *Manifest) { m.PromptFiles = []string{"prompts/unit.md"} },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := validManifestFixture()
+			tc.mutate(&m)
+			if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ValidateSchema error = %v, want %s", err, tc.want)
+			}
+		})
+	}
+	m := validManifestFixture()
+	m.CommonPolicies = []string{"agent-team"}
+	m.PolicyOverlays = []string{"policies/reviewer.overlay.md"}
+	m.ToolingFiles = []string{"tooling/README.md"}
+	m.PromptFiles = []string{"common/prompts/lane-main-session.md", "packs/unit/prompts/unit.md"}
+	if err := m.ValidateSchema(); err != nil {
+		t.Fatalf("ValidateSchema valid policy/list entries error = %v", err)
+	}
+}
+
 func TestValidateSchemaRequiresSubagentRouteNamespacedID(t *testing.T) {
 	m := validManifestFixture()
 	m.SubagentRoutes = []SubagentRoute{{

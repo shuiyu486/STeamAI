@@ -5338,3 +5338,31 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 176：Manifest policy/tooling/prompt list-item contract
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，收紧 `commonPolicies`、`policyOverlays`、`toolingFiles` 与 `promptFiles` 的列表项 contract，要求 policy id 与辅助文件路径保持机器可消费、可定位且去重，避免可选列表显式存在但携带不可消费 token/path。
+
+实施范围：
+
+- `ValidateSchema` 新增 `validateCommonPolicyIDs`，要求 `commonPolicies` 非空项是稳定小写 slug，且不能为空或重复。
+- `ValidateSchema` 新增 pack/repo path list validation：`policyOverlays` 必须是 pack-relative `policies/*.overlay.md`，`toolingFiles` 必须位于 pack-relative `tooling/` 下，`promptFiles` 必须是 repo-relative `common/prompts/*.md` 或 `packs/<pack>/prompts/*.md`，并继续通过 `SourcePath` / `RepoPath` 保留 containment guard。
+- manifest tests 新增 invalid policy id、overlay/tooling/prompt path 与 valid list entry 场景；`docs/pack-authoring.md`、`rekit/schemas/pack-manifest.schema.yml`、`docs/go-first-convergence-plan.md` 与 `CHANGELOG.md` 同步记录 policy/tooling/prompt list-item contract。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
