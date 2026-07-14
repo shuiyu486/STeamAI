@@ -485,12 +485,39 @@ func TestValidateSchemaRequiresSubagentRoutePackNamespace(t *testing.T) {
 		MainAgentOwns:       "validation",
 		OutputContract:      "item,decision",
 	}}
-	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "subagent route id other:bounded-review must use pack namespace unit") {
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "subagent route id other:bounded-review must use exact pack namespace unit") {
 		t.Fatalf("ValidateSchema error = %v, want route namespace ownership error", err)
+	}
+	m.SubagentRoutes[0].ID = "Unit:bounded-review"
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "subagent route id Unit:bounded-review must use exact pack namespace unit") {
+		t.Fatalf("ValidateSchema error = %v, want exact route namespace error", err)
 	}
 	m.SubagentRoutes[0].ID = "unit:bounded-review"
 	if err := m.ValidateSchema(); err != nil {
 		t.Fatalf("ValidateSchema valid subagent route namespace error = %v", err)
+	}
+}
+
+func TestValidateSchemaRequiresSubagentRouteSlug(t *testing.T) {
+	m := validManifestFixture()
+	m.SubagentRoutes = []SubagentRoute{{
+		ID:                  "unit:BoundedReview",
+		TaskTypes:           "candidate-review",
+		Trigger:             "fixed-boundary read-only review",
+		ShardBasis:          "item",
+		TargetItemsPerAgent: "1",
+		MaxParallel:         "1",
+		Reference:           "references/template/README.md",
+		SubagentPermissions: "read-only",
+		MainAgentOwns:       "validation",
+		OutputContract:      "item,decision",
+	}}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "subagent route id unit:BoundedReview has invalid route slug: BoundedReview") {
+		t.Fatalf("ValidateSchema error = %v, want invalid route slug error", err)
+	}
+	m.SubagentRoutes[0].ID = "unit:bounded-review"
+	if err := m.ValidateSchema(); err != nil {
+		t.Fatalf("ValidateSchema valid subagent route slug error = %v", err)
 	}
 }
 

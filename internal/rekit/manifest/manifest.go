@@ -679,22 +679,24 @@ func (m *Manifest) validatePromptFiles() error {
 
 func (m *Manifest) validateSubagentRoutes(managedTargets, policyOverlays map[string]bool) error {
 	seen := map[string]bool{}
-	idPattern := regexp.MustCompile(`^[A-Za-z0-9_.-]+:[A-Za-z][A-Za-z0-9_.-]*$`)
 	for _, route := range m.SubagentRoutes {
 		id := strings.TrimSpace(route.ID)
 		if id == "" {
 			return fmt.Errorf("subagent route is missing id in %s", m.ManifestPath)
 		}
-		if !idPattern.MatchString(id) {
+		namespace, routeSlug, ok := strings.Cut(id, ":")
+		if !ok || strings.TrimSpace(namespace) == "" || strings.TrimSpace(routeSlug) == "" {
 			return fmt.Errorf("subagent route has invalid id: %s", route.ID)
 		}
-		namespace, _, _ := strings.Cut(id, ":")
 		packID := strings.TrimSpace(m.Pack)
 		if packID == "" {
 			return fmt.Errorf("subagent route %s cannot be validated without pack id", id)
 		}
-		if !strings.EqualFold(namespace, packID) {
-			return fmt.Errorf("subagent route id %s must use pack namespace %s", id, packID)
+		if namespace != packID {
+			return fmt.Errorf("subagent route id %s must use exact pack namespace %s", id, packID)
+		}
+		if !manifestSlugPattern.MatchString(routeSlug) {
+			return fmt.Errorf("subagent route id %s has invalid route slug: %s", id, routeSlug)
 		}
 		if seen[strings.ToLower(id)] {
 			return fmt.Errorf("duplicate subagent route id: %s", id)

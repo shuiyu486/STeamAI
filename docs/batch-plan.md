@@ -5540,3 +5540,32 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest`、targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 183：Manifest subagent route id slug contract
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，收紧 `subagentRoutes.id` 的 machine-consumable contract，要求 route namespace 精确匹配当前 pack id 且 route 名为小写 slug。
+
+实施范围：
+
+- `ValidateSchema` 将 `subagentRoutes.id` 拆分为 namespace 与 route slug，要求 namespace 与当前 pack id 精确匹配，不再接受大小写漂移。
+- route slug 复用小写 slug contract，拒绝大写、空 slug 或不可消费 route 名，避免 review packet / route inventory 出现不可匹配 id。
+- manifest tests 新增 exact namespace 与 invalid route slug 回归；`docs/pack-authoring.md`、`rekit/schemas/pack-manifest.schema.yml`、`docs/go-first-convergence-plan.md` 与 `CHANGELOG.md` 同步记录 route id slug contract。
+
+边界：本批只做 pack-neutral manifest contract、测试和文档；不改变既有 pack manifest 内容、不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 targeted `go test ./internal/rekit/manifest`、targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
