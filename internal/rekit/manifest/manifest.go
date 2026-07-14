@@ -846,7 +846,7 @@ func (m *Manifest) validateHeavyToolGates() error {
 	seen := map[string]bool{}
 	idPattern := regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 	for _, gate := range m.HeavyToolGates {
-		id := strings.ToLower(strings.TrimSpace(gate.ID))
+		id := strings.TrimSpace(gate.ID)
 		if id == "" {
 			return fmt.Errorf("heavyToolGates entry is missing id")
 		}
@@ -917,7 +917,7 @@ func (m *Manifest) validateHeavyToolGates() error {
 }
 
 func supportedHeavyToolRisk(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
+	switch strings.TrimSpace(value) {
 	case "medium", "high", "critical":
 		return true
 	default:
@@ -1237,10 +1237,10 @@ func yamlHeavyToolGates(lines []string, key string) []HeavyToolGate {
 	gates := make([]HeavyToolGate, 0, len(rows))
 	for _, row := range rows {
 		gates = append(gates, HeavyToolGate{
-			ID:                           strings.ToLower(strings.TrimSpace(row["id"])),
+			ID:                           strings.TrimSpace(row["id"]),
 			Title:                        row["title"],
 			SideEffects:                  splitScalarList(row["sideEffects"]),
-			DefaultRisk:                  strings.ToLower(strings.TrimSpace(row["defaultRisk"])),
+			DefaultRisk:                  strings.TrimSpace(row["defaultRisk"]),
 			RequiresConfirmation:         parseBool(row["requiresConfirmation"]),
 			explicitRequiresConfirmation: row["requiresConfirmation"],
 			StopConditions:               splitScalarList(row["stopConditions"]),

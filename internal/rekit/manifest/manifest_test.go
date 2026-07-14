@@ -298,6 +298,16 @@ func TestValidateSchemaRejectsInvalidHeavyToolGates(t *testing.T) {
 	if err := falseConfirmation.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry debug must set requiresConfirmation: true") {
 		t.Fatalf("ValidateSchema error = %v, want false requiresConfirmation error", err)
 	}
+	uppercaseID := base
+	uppercaseID.HeavyToolGates = []HeavyToolGate{{ID: "Debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"timeout"}}}
+	if err := uppercaseID.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry has invalid id: Debug") {
+		t.Fatalf("ValidateSchema error = %v, want invalid id case error", err)
+	}
+	uppercaseRisk := base
+	uppercaseRisk.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "High", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"timeout"}}}
+	if err := uppercaseRisk.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry debug has unsupported defaultRisk: High") {
+		t.Fatalf("ValidateSchema error = %v, want unsupported defaultRisk case error", err)
+	}
 	invalid := base
 	invalid.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"timeout"}}}
 	if err := invalid.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "sideEffects must include") {
@@ -2008,6 +2018,91 @@ laneTypes:
 	}
 	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry debug is missing requiresConfirmation") {
 		t.Fatalf("ValidateSchema error = %v, want explicit requiresConfirmation error", err)
+	}
+}
+
+func TestLoadDoesNotNormalizeHeavyToolGateScalars(t *testing.T) {
+	repo := t.TempDir()
+	packRoot := filepath.Join(repo, "packs", "uppercase-gate-scalars")
+	if err := os.MkdirAll(packRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestText := `schemaVersion: 1
+name: uppercase-gate-scalars
+version: 0.1.0
+description: test pack skeleton
+maturity: skeleton
+
+managedFiles:
+  - references/test/README.md
+templateFiles: []
+localNeverOverwrite: []
+promoteFiles:
+  - references/test/README.md
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: rekit:test
+  source: CLAUDE.local.snippet.md
+toolingCandidateSources:
+  - references/test/toolchain-router.md
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+authorityFiles:
+  - references/test/README.md
+commonPolicies: []
+policyOverlays: []
+subagentRoutes: []
+toolingFiles: []
+promptFiles: []
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+promoteDenyPatterns:
+  - "artifacts[\\/]"
+budgets:
+  defaultMarkdown: 16384
+heavyToolGates:
+  - id: Debug
+    title: Debug
+    sideEffects: debug,filesystem-write
+    defaultRisk: High
+    requiresConfirmation: true
+    stopConditions: timeout
+laneTypes:
+  - id: main
+    title: Main
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/test/README.md
+    readOnly: .rekit/facts/**
+    outputs: publication
+  - id: feature
+    title: Feature
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/test/**
+    outputs: observation
+`
+	if err := os.WriteFile(filepath.Join(packRoot, "manifest.yml"), []byte(manifestText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(repo, "uppercase-gate-scalars")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.HeavyToolGates[0].ID; got != "Debug" {
+		t.Fatalf("HeavyToolGates[0].ID = %q, want case-preserved Debug", got)
+	}
+	if got := m.HeavyToolGates[0].DefaultRisk; got != "High" {
+		t.Fatalf("HeavyToolGates[0].DefaultRisk = %q, want case-preserved High", got)
+	}
+	if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry has invalid id: Debug") {
+		t.Fatalf("ValidateSchema error = %v, want invalid gate id case error", err)
 	}
 }
 
