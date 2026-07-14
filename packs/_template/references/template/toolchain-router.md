@@ -23,6 +23,7 @@
 
 ```yaml
 heavy_action: debug | inject | patch | dump | full-trace | symex | network
+risk: medium | high | critical
 decision_reason: <why light path failed>
 tried_light_steps:
   - <step>
@@ -32,7 +33,7 @@ budget:
 outputs:
   - <sidecar path>
 stop_conditions:
-  - <stop condition>
+  - <lowercase-slug-or_snake-token>
 requires_user_confirmation: true
 ```
 

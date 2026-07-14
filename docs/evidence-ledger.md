@@ -108,17 +108,18 @@ packet / reviewer output 中可使用 `needs_more_evidence` 表达候选仍缺�
   "kind": "request",
   "target": "<event|lane|batch|object>",
   "status": "open|pending-gate|resolved|deferred|rejected",
+  "risk": "medium|high|critical",
   "gate": {
-    "action": "full-trace|debug|inject|patch|dump|network|other",
+    "action": "full-trace|debug|inject|patch|dump|network|symex|other",
     "scope": "<narrow authorized scope>",
     "budget": "<runtime/disk/token budget summary>",
-    "triedLightSteps": "<lighter steps already tried>",
-    "stopConditions": "<when to stop and report>"
+    "triedLightSteps": ["<lighter-step>"],
+    "stopConditions": ["<lowercase-slug-or_snake-token>"]
   }
 }
 ```
 
-`status=pending-gate` 表示需要用户确认；它不是执行授权本身。确认只覆盖 event 中列明的 action/scope/budget/stopConditions，不得扩大到其它 heavy-tool 动作。
+`status=pending-gate` 表示需要用户确认；它不是执行授权本身。确认只覆盖 event 中列明的 action/scope/budget/risk/stopConditions，不得扩大到其它 heavy-tool 动作。Go `gate -WhatIf/-Apply` 使用 manifest `defaultRisk`，用户覆盖 `-Risk` 时必须是小写 `medium|high|critical`；`stopConditions` 在 preview/request ledger 中使用小写 slug/snake token 列表，人类说明应放在 summary 或 decision_reason。
 
 ## Intervention 字段
 

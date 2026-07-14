@@ -73,12 +73,13 @@ next_action:
 - full trace、长时间符号执行、大规模反编译导出。
 - 网络访问、上传、发布或安装外部组件。
 
-每个 pack 必须在 `manifest.yml` 的 `heavyToolGates` 中声明可申请的 heavy action。Go `gate -WhatIf/-Apply` 只接受该清单里的 action，并把 manifest 的 `defaultRisk`、`requiresConfirmation` 和 `stopConditions` 写入 preview / pending-gate request；这仍然不是实际执行授权。
+每个 pack 必须在 `manifest.yml` 的 `heavyToolGates` 中声明可申请的 heavy action。Go `gate -WhatIf/-Apply` 只接受该清单里的 action，并把 manifest 的 `defaultRisk`、`requiresConfirmation` 和 `stopConditions` 写入 preview / pending-gate request；用户覆盖 `-Risk` 时必须使用 `medium`、`high` 或 `critical` 小写 scalar，覆盖 `-StopConditions` 时必须使用小写 slug/snake token 列表。这仍然不是实际执行授权。
 
 门禁记录建议：
 
 ```yaml
 heavy_action: debug | inject | patch | dump | full-trace | symex | network
+risk: medium | high | critical
 decision_reason: <为什么轻路径无法闭合>
 tried_light_steps:
   - <已尝试动作>
@@ -88,7 +89,7 @@ budget:
 outputs:
   - <sidecar path>
 stop_conditions:
-  - <停止条件>
+  - <lowercase-slug-or_snake-token>
 requires_user_confirmation: true
 ```
 
