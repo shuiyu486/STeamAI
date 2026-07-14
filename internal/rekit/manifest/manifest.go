@@ -906,6 +906,9 @@ func (m *Manifest) validateHeavyToolGates() error {
 			if condition == "" {
 				return fmt.Errorf("heavyToolGates entry %s contains an empty stopConditions item", id)
 			}
+			if !subagentRouteListTokenPattern.MatchString(condition) {
+				return fmt.Errorf("heavyToolGates entry %s has invalid stopConditions item: %s", id, condition)
+			}
 			key := strings.ToLower(condition)
 			if conditions[key] {
 				return fmt.Errorf("heavyToolGates entry %s contains duplicate stopConditions item: %s", id, condition)

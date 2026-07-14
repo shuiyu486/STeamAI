@@ -323,18 +323,23 @@ func TestValidateSchemaRejectsInvalidHeavyToolGates(t *testing.T) {
 	if err := emptyStop.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry debug contains an empty stopConditions item") {
 		t.Fatalf("ValidateSchema error = %v, want empty stopConditions item error", err)
 	}
+	invalidStop := base
+	invalidStop.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"unexpected side effect"}}}
+	if err := invalidStop.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry debug has invalid stopConditions item: unexpected side effect") {
+		t.Fatalf("ValidateSchema error = %v, want invalid stopConditions item error", err)
+	}
 	duplicateEffect := base
 	duplicateEffect.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "debug"}, DefaultRisk: "high", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"timeout"}}}
 	if err := duplicateEffect.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry debug contains duplicate sideEffects item: debug") {
 		t.Fatalf("ValidateSchema error = %v, want duplicate sideEffects error", err)
 	}
 	duplicateStop := base
-	duplicateStop.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"timeout", "Timeout"}}}
-	if err := duplicateStop.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry debug contains duplicate stopConditions item: Timeout") {
+	duplicateStop.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"timeout", "timeout"}}}
+	if err := duplicateStop.ValidateSchema(); err == nil || !strings.Contains(err.Error(), "heavyToolGates entry debug contains duplicate stopConditions item: timeout") {
 		t.Fatalf("ValidateSchema error = %v, want duplicate stopConditions error", err)
 	}
 	valid := base
-	valid.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"timeout"}}}
+	valid.HeavyToolGates = []HeavyToolGate{{ID: "debug", Title: "Debug", SideEffects: []string{"debug", "filesystem-write"}, DefaultRisk: "high", RequiresConfirmation: true, explicitRequiresConfirmation: "true", StopConditions: []string{"timeout", "unexpected-side-effect", "budget_exhausted"}}}
 	if err := valid.ValidateSchema(); err != nil {
 		t.Fatalf("ValidateSchema valid heavyToolGates error = %v", err)
 	}

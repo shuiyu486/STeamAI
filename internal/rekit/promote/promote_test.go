@@ -269,7 +269,7 @@ heavyToolGates:
     sideEffects: debug,filesystem-write
     defaultRisk: high
     requiresConfirmation: true
-    stopConditions: timeout,unexpected side effect,scope drift
+    stopConditions: timeout,unexpected-side-effect,scope-drift
 
 promoteDenyPatterns:
   - "C:\\"
@@ -372,7 +372,7 @@ heavyToolGates:
     sideEffects: debug,filesystem-write
     defaultRisk: high
     requiresConfirmation: true
-    stopConditions: timeout,unexpected side effect,scope drift
+    stopConditions: timeout,unexpected-side-effect,scope-drift
 
 promoteDenyPatterns:
   - "C:\\"

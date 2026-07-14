@@ -89,14 +89,14 @@ try {
     '-Scope','handler only',
     '-Budget','30s',
     '-TriedLightSteps','overview,static review',
-    '-StopConditions','timeout,unexpected side effect'
+    '-StopConditions','timeout,unexpected-side-effect'
   ) | ConvertFrom-Json
   if ([string]$facadeApply.command -ne 'gate' -or -not [bool]$facadeApply.isMutation -or -not [bool]$facadeApply.applied -or [string]$facadeApply.event.status -ne 'pending-gate' -or [string]$facadeApply.event.actor -ne 'gate-parity-smoke') {
     throw "unexpected facade gate apply: $($facadeApply | ConvertTo-Json -Depth 20)"
   }
 
   $overview = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack)
-  foreach ($expected in @($subject,'by=gate-parity-smoke','risk=high',"target=$batch","batch=$batch",'action=debug','scope=handler only','budget=30s','tried=overview,static review','stop=timeout,unexpected side effect')) {
+  foreach ($expected in @($subject,'by=gate-parity-smoke','risk=high',"target=$batch","batch=$batch",'action=debug','scope=handler only','budget=30s','tried=overview,static review','stop=timeout,unexpected-side-effect')) {
     Assert-ContainsText -Text $overview -Expected $expected -Label 'overview pending-gate'
   }
 

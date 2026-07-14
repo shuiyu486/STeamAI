@@ -28,7 +28,7 @@ func TestPlanDryRunAcceptsManifestDeclaredAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.EventPreview.Risk != "medium" || plan.EventPreview.Gate.Action != "symex" || len(plan.EventPreview.Gate.StopConditions) != 3 || plan.EventPreview.Gate.StopConditions[0] != "path explosion" {
+	if plan.EventPreview.Risk != "medium" || plan.EventPreview.Gate.Action != "symex" || len(plan.EventPreview.Gate.StopConditions) != 3 || plan.EventPreview.Gate.StopConditions[0] != "path-explosion" {
 		t.Fatalf("unexpected manifest-driven symex gate plan: %+v", plan.EventPreview)
 	}
 }
@@ -68,7 +68,7 @@ func TestApplyWritesOnlyPendingGateRequest(t *testing.T) {
 		Scope:           "handler only",
 		Budget:          "30s",
 		TriedLightSteps: "overview,static review",
-		StopConditions:  "timeout,unexpected side effect",
+		StopConditions:  "timeout,unexpected-side-effect",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestApplyWritesOnlyPendingGateRequest(t *testing.T) {
 	if got := strings.Join(event.Gate.TriedLightSteps, ","); got != "overview,static review" {
 		t.Fatalf("triedLightSteps = %q", got)
 	}
-	if got := strings.Join(event.Gate.StopConditions, ","); got != "timeout,unexpected side effect" {
+	if got := strings.Join(event.Gate.StopConditions, ","); got != "timeout,unexpected-side-effect" {
 		t.Fatalf("stopConditions = %q", got)
 	}
 	if len(event.Gate.DeniedUntilUserConfirmation) != 1 || event.Gate.DeniedUntilUserConfirmation[0] != "debug" {
@@ -135,13 +135,13 @@ heavyToolGates:
     sideEffects: debug,filesystem-write
     defaultRisk: high
     requiresConfirmation: true
-    stopConditions: timeout,unexpected side effect,scope drift
+    stopConditions: timeout,unexpected-side-effect,scope-drift
   - id: symex
     title: Long symbolic execution
     sideEffects: symex,filesystem-write
     defaultRisk: medium
     requiresConfirmation: true
-    stopConditions: path explosion,budget exhausted,output exceeds bounded evidence packet
+    stopConditions: path-explosion,budget-exhausted,output-exceeds-bounded-evidence-packet
 `)
 	writeGateText(t, filepath.Join(caseRoot, ".rekit", "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \""+pack+"\"\nprojectName: \"gate-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
 	writeGateText(t, filepath.Join(caseRoot, ".rekit", "board.json"), `{"lanes":[{"id":"main"}]}`)

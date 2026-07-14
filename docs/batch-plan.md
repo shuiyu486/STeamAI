@@ -797,7 +797,7 @@ git diff --check
 
 ```powershell
 go test ./...
-go run ./cmd/rekit -- -Command gate -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re -WhatIf -Action full-trace -Lane feature-handler-0x40a010 -Subject 'D4 gate dry-run smoke' -Summary 'preview heavy-tool gate only' -TargetRef batch-d4-smoke -BatchId batch-d4-smoke -Scope 'handler only' -Budget '60s' -TriedLightSteps 'static review,overview' -StopConditions 'timeout,unexpected side effect'
+go run ./cmd/rekit -- -Command gate -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re -WhatIf -Action full-trace -Lane feature-handler-0x40a010 -Subject 'D4 gate dry-run smoke' -Summary 'preview heavy-tool gate only' -TargetRef batch-d4-smoke -BatchId batch-d4-smoke -Scope 'handler only' -Budget '60s' -TriedLightSteps 'static review,overview' -StopConditions 'timeout,unexpected-side-effect'
 .\rekit\rekit.ps1 -Command doctor
 .\rekit\rekit.ps1 -Command doctor -Target 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun'
 git diff --check
@@ -5598,3 +5598,32 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `go test ./internal/rekit/manifest`、targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 185：Manifest heavy-tool gate stop-condition token contract
+
+状态：已完成。
+
+目标：继续 Stage 7 pack-neutral hardening，收紧 `heavyToolGates.stopConditions` 的默认止损条件 contract，要求 schema-valid manifest 使用机器可消费的小写 slug/snake token，而不是带空格的人类短语。
+
+实施范围：
+
+- `ValidateSchema` 现在对 `heavyToolGates.stopConditions` 每个列表项执行小写 slug/snake token 校验，继续拒绝空项和重复项，避免默认 pending-gate preview/request 携带不可消费 stop condition。
+- 现有 pack manifest 的默认 stop conditions 已从短语迁移为 token，例如 `budget-exhausted`、`scope-drift`、`output-exceeds-bounded-evidence-packet`、`unexpected-side-effect`、`sensitive-artifact-detected` 与 `live-target-ambiguity`。
+- manifest tests 新增非法 stop condition token 回归，并保留空项/重复项覆盖；`docs/pack-authoring.md`、`rekit/schemas/pack-manifest.schema.yml`、`docs/go-first-convergence-plan.md` 与 `CHANGELOG.md` 同步记录 stop condition token contract；新增 `.claude/skills/verify/SKILL.md` 记录本仓库 CLI runtime observation 验证路径。
+
+边界：本批只做 pack-neutral manifest contract、manifest token 迁移、测试和文档；不改变 PowerShell façade 委托集合、不运行大型 PowerShell matrix、不执行 heavy-tool、不创建或修改真实 case state、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest
+go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 runtime observation（临时 `_template` case 初始化、overview 初始化 board、`gate -WhatIf -Format json -Action symex` 返回 `path-explosion,budget-exhausted,output-exceeds-bounded-evidence-packet` token 默认止损条件，非法 action probe 返回 allowed action 诊断且不执行 heavy-tool）、`go test ./internal/rekit/manifest`、`go test ./internal/rekit/gate ./internal/rekit/promote`、targeted `go test ./internal/rekit/manifest ./internal/rekit/doctor ./internal/rekit/sync ./internal/rekit/cli ./internal/rekit/releasecheck`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command packs -Format json`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
