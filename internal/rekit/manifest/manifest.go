@@ -377,20 +377,26 @@ func (m *Manifest) ValidateSchema() error {
 			return fmt.Errorf("managedBlock is missing required key: %s", key)
 		}
 	}
-	managed := map[string]bool{}
-	for _, rel := range m.ManagedFiles {
-		managed[rel] = true
+	managed, err := m.validatePackFileList("managedFiles", m.ManagedFiles, "", "")
+	if err != nil {
+		return err
 	}
-	template := map[string]bool{}
+	template, err := m.validatePackFileList("templateFiles", m.TemplateFiles, "", ".template.md")
+	if err != nil {
+		return err
+	}
+	local, err := m.validatePackFileList("localNeverOverwrite", m.LocalFiles, "", "")
+	if err != nil {
+		return err
+	}
 	managedTargets := map[string]bool{}
-	for _, rel := range m.ManagedFiles {
+	for rel := range managed {
 		managedTargets[rel] = true
 	}
-	for _, rel := range m.TemplateFiles {
-		template[rel] = true
+	for rel := range template {
 		managedTargets[strings.TrimSuffix(rel, ".template.md")+".md"] = true
 	}
-	for _, rel := range m.LocalFiles {
+	for rel := range local {
 		if managed[rel] {
 			return fmt.Errorf("localNeverOverwrite entry also appears in managedFiles: %s", rel)
 		}
@@ -402,7 +408,11 @@ func (m *Manifest) ValidateSchema() error {
 	if len(m.PromoteFiles) == 0 {
 		return fmt.Errorf("promoteFiles must include at least one managed file")
 	}
-	for _, rel := range m.PromoteFiles {
+	promote, err := m.validatePackFileList("promoteFiles", m.PromoteFiles, "", "")
+	if err != nil {
+		return err
+	}
+	for rel := range promote {
 		if !managed[rel] {
 			return fmt.Errorf("promoteFiles entry is not managed: %s", rel)
 		}

@@ -330,6 +330,69 @@ func TestValidateSchemaRequiresExplicitListPresence(t *testing.T) {
 	}
 }
 
+func TestValidateSchemaRequiresValidManagedFileLists(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		want   string
+		mutate func(*Manifest)
+	}{
+		{
+			name:   "managedFiles empty path",
+			want:   "managedFiles contains an empty path",
+			mutate: func(m *Manifest) { m.ManagedFiles = []string{""} },
+		},
+		{
+			name: "managedFiles duplicate path",
+			want: "managedFiles contains duplicate path: references/template/README.md",
+			mutate: func(m *Manifest) {
+				m.ManagedFiles = []string{"references/template/README.md", "references/template/README.md"}
+			},
+		},
+		{
+			name:   "templateFiles wrong suffix",
+			want:   "templateFiles entry must end with .template.md: references/template/task-handoff.md",
+			mutate: func(m *Manifest) { m.TemplateFiles = []string{"references/template/task-handoff.md"} },
+		},
+		{
+			name: "templateFiles duplicate path",
+			want: "templateFiles contains duplicate path: references/template/task-handoff.template.md",
+			mutate: func(m *Manifest) {
+				m.TemplateFiles = []string{"references/template/task-handoff.template.md", "references/template/task-handoff.template.md"}
+			},
+		},
+		{
+			name:   "localNeverOverwrite duplicate path",
+			want:   "localNeverOverwrite contains duplicate path: CLAUDE.local.md",
+			mutate: func(m *Manifest) { m.LocalFiles = []string{"CLAUDE.local.md", "CLAUDE.local.md"} },
+		},
+		{
+			name:   "localNeverOverwrite overlaps managedFiles",
+			want:   "localNeverOverwrite entry also appears in managedFiles: references/template/README.md",
+			mutate: func(m *Manifest) { m.LocalFiles = []string{"references/template/README.md"} },
+		},
+		{
+			name:   "promoteFiles empty path",
+			want:   "promoteFiles contains an empty path",
+			mutate: func(m *Manifest) { m.PromoteFiles = []string{""} },
+		},
+		{
+			name: "promoteFiles duplicate path",
+			want: "promoteFiles contains duplicate path: references/template/README.md",
+			mutate: func(m *Manifest) {
+				m.PromoteFiles = []string{"references/template/README.md", "references/template/README.md"}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := validManifestFixture()
+			tc.mutate(&m)
+			if err := m.ValidateSchema(); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ValidateSchema error = %v, want %s", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidateSchemaRequiresValidPolicyAndAuxiliaryLists(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
