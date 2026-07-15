@@ -18,6 +18,9 @@ func TestPlanDryRunDoesNotWriteRequestLedger(t *testing.T) {
 	if plan.Command != "gate" || plan.IsMutation || !plan.RequiresConfirmation || plan.EventPreview.Status != "pending-gate" || len(plan.BlockedActions) != 1 || plan.BlockedActions[0] != "debug" {
 		t.Fatalf("unexpected gate dry-run plan: %+v", plan)
 	}
+	if plan.MissionBrief.Summary == "" || len(plan.MissionBrief.ReadyLanes) != 1 || plan.MissionBrief.ReadyLanes[0] != "main" || len(plan.MissionBrief.PendingGates) != 0 {
+		t.Fatalf("gate dry-run missing pre-apply mission brief: %+v", plan.MissionBrief)
+	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 }
 

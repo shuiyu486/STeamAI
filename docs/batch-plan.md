@@ -5942,3 +5942,31 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/workstream/start.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 197：Gate mission brief JSON
+
+状态：已完成。
+
+目标：让维护自动化在预览或记录 heavy-tool gate request 时直接从 Go `gate` JSON envelope 获取 Mission Control brief，避免 gate 写入后必须另跑 `overview` / `handoff` 才能判断 pending-gate 是否让 lane blocked。
+
+实施范围：
+
+- 扩展 `internal/rekit/gate.Plan` 与 `ApplyResult`，新增结构化 `missionBrief` 字段；`gate -WhatIf -Format json` 输出当前 pre-apply project-level brief，`gate -Apply -Format json` 在 pending-gate request ledger 写入或 duplicate eventId 识别后输出 post-apply brief。
+- 在 `internal/rekit/gate` 内复用 `internal/rekit/mission` helper，读取 `.rekit/board.json` 与 facts JSONL，确保 gate JSON brief 与 overview/project handoff/start/continue 使用同一 pending-gate、open intervention、open candidate/open decision blocker 语义。
+- 补 `internal/rekit/gate` package test 与 `internal/rekit/cli` gate tests，覆盖 what-if no-write JSON brief、apply 后 pending-gate blocker brief、duplicate apply 返回已有状态，以及 no-heavy-tool/no-authority 边界。
+- 更新 README、`/rekit` skill、`docs/agent-team-usage.md`、`docs/go-first-convergence-plan.md` 与 CHANGELOG，说明 gate JSON envelope 可直接消费 `missionBrief`。
+
+边界：本批只增强 case-local gate JSON 可消费性、测试和文档；不改变 PowerShell façade 委托集合、不实现真实多会话调度、不自动 spawn tactical subagent、不执行 heavy-tool、不写 authority/confirmed、不改变 sync/promote review-first 语义。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/gate ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/gate/gate.go internal/rekit/gate/gate_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/gate ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

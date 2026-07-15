@@ -138,6 +138,7 @@ claude
 | `/rekit start <name>` | case-local 状态 | 创建或进入一个功能支线，例如 `/rekit start login`；支线只写自己的工作区；维护自动化可用 `-WhatIf -Format json` 消费非写入 start 计划和结构化 `missionBrief`，显式 `-Apply` 输出含 apply 后 `missionBrief` 的 Go JSON envelope。 |
 | `/rekit handoff` | case-local 状态 | 生成项目级接手索引 `.rekit/handovers/latest.md`；索引和 Go JSON envelope 都包含 Mission Control brief，汇总 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations；维护自动化可用 `-WhatIf -Format json` 消费同一结构化 `missionBrief` 与写入预览，显式 `-Apply` 输出 Go JSON envelope；不代表某个会话。 |
 | `/rekit handoff <name>` | case-local 状态 | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；lane handoff 的 Markdown 与 Go JSON `missionBrief` 使用 overview 同一 blocker 语义，pending gate、open intervention、open candidate/decision 都会让该 lane 显示为 blocked；`-WhatIf -Format json` 可预览目标工作线 handoff 写入计划，显式 `-Apply` 输出 Go JSON envelope。 |
+| `/rekit gate -WhatIf` / `/rekit gate -Apply` | case-local gate request | Go backend 的 heavy-tool gate 入口；`-WhatIf -Format json` 输出 pending-gate request plan 和当前 `missionBrief`，不写 ledger、不执行 heavy-tool；`-Apply -Format json` 只 append pending-gate request ledger，并输出 apply 后 `missionBrief`，仍不执行实际 heavy-tool、不写 confirmed/authority。 |
 | `/rekit sync` | kit -> case | 默认生成同步审查包；确认后才用 `-Apply` 写入 managed docs / managed block。 |
 | `/rekit promote` | case -> kit | 默认生成回流审查包；确认后才用 `-CreateCandidates` 生成候选或用 `-Apply` 写回 pack。 |
 | `/rekit doctor` | 只读 | 排障时详细验证结构；日常不必主动运行；维护自动化可用 `-Format json` 消费验证 rows。 |

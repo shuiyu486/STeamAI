@@ -3668,6 +3668,7 @@ func TestRunGateDryRunEmitsNonMutatingPlan(t *testing.T) {
 				DeniedUntilUserConfirmation []string `json:"deniedUntilUserConfirmation"`
 			} `json:"gate"`
 		} `json:"eventPreview"`
+		MissionBrief missionBrief `json:"missionBrief"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
 		t.Fatalf("gate plan stdout is not JSON: %v\n%s", err, out.String())
@@ -3683,6 +3684,9 @@ func TestRunGateDryRunEmitsNonMutatingPlan(t *testing.T) {
 	}
 	if plan.EventPreview.Gate.Action != "full-trace" || len(plan.EventPreview.Gate.DeniedUntilUserConfirmation) != 1 {
 		t.Fatalf("unexpected gate detail: %+v", plan.EventPreview.Gate)
+	}
+	if plan.MissionBrief.Summary == "" || !slices.Contains(plan.MissionBrief.ReadyLanes, "main") || len(plan.MissionBrief.PendingGates) != 0 {
+		t.Fatalf("gate plan missing pre-apply mission brief: %+v", plan.MissionBrief)
 	}
 }
 
@@ -3753,6 +3757,7 @@ func TestRunGateApplyAppendsPendingGateRequest(t *testing.T) {
 			Kind   string `json:"kind"`
 			Status string `json:"status"`
 		} `json:"event"`
+		MissionBrief missionBrief `json:"missionBrief"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("gate apply stdout is not JSON: %v\n%s", err, out.String())
@@ -3762,6 +3767,9 @@ func TestRunGateApplyAppendsPendingGateRequest(t *testing.T) {
 	}
 	if result.Path != ".rekit/facts/requests.jsonl" || result.Event.Kind != "request" || result.Event.Status != "pending-gate" {
 		t.Fatalf("unexpected event result: %+v", result)
+	}
+	if result.MissionBrief.Summary == "" || !slices.Contains(result.MissionBrief.BlockedLanes, "main (pending-gate)") || !containsSubstring(result.MissionBrief.PendingGates, "debug gate") {
+		t.Fatalf("gate apply missing post-apply mission brief: %+v", result.MissionBrief)
 	}
 	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 	if err != nil {

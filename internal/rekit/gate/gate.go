@@ -14,6 +14,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 type Options struct {
@@ -32,32 +33,34 @@ type Options struct {
 }
 
 type Plan struct {
-	SchemaVersion        int          `json:"schemaVersion"`
-	Command              string       `json:"command"`
-	CaseRoot             string       `json:"caseRoot"`
-	RepoRoot             string       `json:"repoRoot"`
-	Pack                 string       `json:"pack"`
-	IsMutation           bool         `json:"isMutation"`
-	ReviewRequired       bool         `json:"reviewRequired"`
-	RequiresConfirmation bool         `json:"requiresConfirmation"`
-	EventPreview         EventPreview `json:"eventPreview"`
-	BlockedActions       []string     `json:"blockedActions"`
-	NextSteps            []string     `json:"nextSteps"`
+	SchemaVersion        int           `json:"schemaVersion"`
+	Command              string        `json:"command"`
+	CaseRoot             string        `json:"caseRoot"`
+	RepoRoot             string        `json:"repoRoot"`
+	Pack                 string        `json:"pack"`
+	IsMutation           bool          `json:"isMutation"`
+	ReviewRequired       bool          `json:"reviewRequired"`
+	RequiresConfirmation bool          `json:"requiresConfirmation"`
+	EventPreview         EventPreview  `json:"eventPreview"`
+	MissionBrief         mission.Brief `json:"missionBrief"`
+	BlockedActions       []string      `json:"blockedActions"`
+	NextSteps            []string      `json:"nextSteps"`
 }
 
 type ApplyResult struct {
-	SchemaVersion int          `json:"schemaVersion"`
-	Command       string       `json:"command"`
-	CaseRoot      string       `json:"caseRoot"`
-	RepoRoot      string       `json:"repoRoot"`
-	Pack          string       `json:"pack"`
-	IsMutation    bool         `json:"isMutation"`
-	Applied       bool         `json:"applied"`
-	EventID       string       `json:"eventId"`
-	Path          string       `json:"path"`
-	Reason        string       `json:"reason,omitempty"`
-	Event         EventPreview `json:"event"`
-	NextSteps     []string     `json:"nextSteps"`
+	SchemaVersion int           `json:"schemaVersion"`
+	Command       string        `json:"command"`
+	CaseRoot      string        `json:"caseRoot"`
+	RepoRoot      string        `json:"repoRoot"`
+	Pack          string        `json:"pack"`
+	IsMutation    bool          `json:"isMutation"`
+	Applied       bool          `json:"applied"`
+	EventID       string        `json:"eventId"`
+	Path          string        `json:"path"`
+	Reason        string        `json:"reason,omitempty"`
+	Event         EventPreview  `json:"event"`
+	MissionBrief  mission.Brief `json:"missionBrief"`
+	NextSteps     []string      `json:"nextSteps"`
 }
 
 type EventPreview struct {
@@ -101,6 +104,7 @@ func PlanDryRun(repoRoot, caseRoot, pack string, opt Options) (Plan, error) {
 		ReviewRequired:       true,
 		RequiresConfirmation: true,
 		EventPreview:         preview,
+		MissionBrief:         gateMissionBrief(inst.CaseRoot),
 		BlockedActions:       blocked,
 		NextSteps: []string{
 			"Record the pending-gate request in the ledger only if this preview is accepted.",
@@ -147,6 +151,7 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 		},
 	}
 	if exists {
+		result.MissionBrief = gateMissionBrief(inst.CaseRoot)
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
@@ -163,7 +168,23 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 		return ApplyResult{}, err
 	}
 	result.Applied = true
+	result.MissionBrief = gateMissionBrief(inst.CaseRoot)
 	return result, nil
+}
+
+func gateMissionBrief(caseRoot string) mission.Brief {
+	b, err := readBoard(caseRoot)
+	if err != nil {
+		return mission.Brief{Summary: "unavailable: " + err.Error()}
+	}
+	facts, err := readMissionFacts(caseRoot)
+	if err != nil {
+		return mission.Brief{Summary: "unavailable: " + err.Error()}
+	}
+	return mission.BuildWithOptions(missionBoardLanes(b.Lanes), facts, mission.BuildOptions{
+		MaxRows:            mission.DefaultMaxRows,
+		OpenDecisionAction: "review open candidate/decision item(s) with evidence and authority boundary",
+	})
 }
 
 func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instance, EventPreview, []string, error) {
@@ -257,23 +278,94 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 }
 
 type boardFile struct {
-	Lanes []struct {
-		ID string `json:"id"`
-	} `json:"lanes"`
+	Lanes []gateBoardLane `json:"lanes"`
 }
 
-func assertLane(caseRoot, lane string) error {
+type gateBoardLane struct {
+	ID        string `json:"id"`
+	Status    string `json:"status"`
+	Authority bool   `json:"authority"`
+}
+
+func readBoard(caseRoot string) (boardFile, error) {
 	path := filepath.Join(caseRoot, ".rekit", "board.json")
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("gate requires .rekit/board.json to validate lane: %s", path)
+			return boardFile{}, fmt.Errorf("gate requires .rekit/board.json to validate lane: %s", path)
 		}
-		return err
+		return boardFile{}, err
 	}
 	var board boardFile
 	if err := json.Unmarshal(b, &board); err != nil {
-		return fmt.Errorf("invalid board json: %w", err)
+		return boardFile{}, fmt.Errorf("invalid board json: %w", err)
+	}
+	return board, nil
+}
+
+func readMissionFacts(caseRoot string) (mission.Facts, error) {
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	read := func(name string) ([]map[string]any, error) {
+		return readJSONLineObjects(filepath.Join(factsRoot, name))
+	}
+	var err error
+	out := mission.Facts{}
+	if out.Candidates, err = read("candidates.jsonl"); err != nil {
+		return out, err
+	}
+	if out.Requests, err = read("requests.jsonl"); err != nil {
+		return out, err
+	}
+	if out.Decisions, err = read("decisions.jsonl"); err != nil {
+		return out, err
+	}
+	if out.Interventions, err = read("interventions.jsonl"); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+func readJSONLineObjects(path string) ([]map[string]any, error) {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return []map[string]any{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	items := []map[string]any{}
+	for line := range strings.SplitSeq(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var item map[string]any
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			continue
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func missionBoardLanes(lanes []gateBoardLane) []mission.Lane {
+	out := make([]mission.Lane, 0, len(lanes))
+	for _, lane := range lanes {
+		label := lane.ID
+		if lane.Authority || lane.ID == "main" {
+			label = "main"
+		} else if name, ok := strings.CutPrefix(lane.ID, "feature-"); ok {
+			label = name
+		}
+		out = append(out, mission.Lane{ID: lane.ID, Label: label, Status: lane.Status})
+	}
+	return out
+}
+
+func assertLane(caseRoot, lane string) error {
+	board, err := readBoard(caseRoot)
+	if err != nil {
+		return err
 	}
 	known := []string{}
 	for _, item := range board.Lanes {
