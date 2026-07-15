@@ -23,20 +23,21 @@ type HandoffOptions struct {
 }
 
 type HandoffResult struct {
-	SchemaVersion        int          `json:"schemaVersion"`
-	Command              string       `json:"command"`
-	CaseRoot             string       `json:"caseRoot"`
-	RepoRoot             string       `json:"repoRoot"`
-	Pack                 string       `json:"pack"`
-	IsMutation           bool         `json:"isMutation"`
-	Applied              bool         `json:"applied"`
-	RequiresConfirmation bool         `json:"requiresConfirmation"`
-	Selector             string       `json:"selector,omitempty"`
-	Project              bool         `json:"project"`
-	Lane                 *Lane        `json:"lane,omitempty"`
-	Writes               []StartWrite `json:"writes"`
-	BlockedActions       []string     `json:"blockedActions"`
-	NextSteps            []string     `json:"nextSteps"`
+	SchemaVersion        int           `json:"schemaVersion"`
+	Command              string        `json:"command"`
+	CaseRoot             string        `json:"caseRoot"`
+	RepoRoot             string        `json:"repoRoot"`
+	Pack                 string        `json:"pack"`
+	IsMutation           bool          `json:"isMutation"`
+	Applied              bool          `json:"applied"`
+	RequiresConfirmation bool          `json:"requiresConfirmation"`
+	Selector             string        `json:"selector,omitempty"`
+	Project              bool          `json:"project"`
+	Lane                 *Lane         `json:"lane,omitempty"`
+	MissionBrief         mission.Brief `json:"missionBrief"`
+	Writes               []StartWrite  `json:"writes"`
+	BlockedActions       []string      `json:"blockedActions"`
+	NextSteps            []string      `json:"nextSteps"`
 }
 
 func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (HandoffResult, error) {
@@ -115,6 +116,10 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		copyLane := *ctx.lane
 		lane = &copyLane
 	}
+	brief, err := ctx.missionBrief()
+	if err != nil {
+		brief = mission.Brief{Summary: "unavailable: " + err.Error()}
+	}
 	next := []string{"PowerShell /rekit remains the public entrypoint; JSON preview/apply is Go-owned by default"}
 	if applied {
 		if ctx.project {
@@ -137,10 +142,25 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		Selector:             ctx.selector,
 		Project:              ctx.project,
 		Lane:                 lane,
+		MissionBrief:         brief,
 		Writes:               writes,
 		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution", "continue auto-apply", "board/facts/lane creation"},
 		NextSteps:            next,
 	}
+}
+
+func (ctx handoffContext) missionBrief() (mission.Brief, error) {
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		return mission.Brief{}, err
+	}
+	if ctx.project {
+		return projectMissionBrief(ctx.board.Lanes, facts), nil
+	}
+	if ctx.lane == nil {
+		return mission.Brief{}, nil
+	}
+	return laneMissionBrief(*ctx.lane, facts), nil
 }
 
 func (ctx handoffContext) plannedWrites(apply bool) ([]StartWrite, error) {
@@ -618,11 +638,15 @@ func readHandoffFacts(caseRoot string) (handoffFacts, error) {
 	return out, nil
 }
 
-func writeProjectMissionBrief(out *bytes.Buffer, lanes []boardLane, facts handoffFacts) {
-	brief := mission.BuildWithOptions(missionBoardLanes(lanes), missionHandoffFacts(facts), mission.BuildOptions{
+func projectMissionBrief(lanes []boardLane, facts handoffFacts) mission.Brief {
+	return mission.BuildWithOptions(missionBoardLanes(lanes), missionHandoffFacts(facts), mission.BuildOptions{
 		MaxRows:            maxHandoffRows,
 		OpenDecisionAction: "review open candidate/decision item(s) with evidence and authority boundary",
 	})
+}
+
+func writeProjectMissionBrief(out *bytes.Buffer, lanes []boardLane, facts handoffFacts) {
+	brief := projectMissionBrief(lanes, facts)
 	fmt.Fprintln(out, "## Mission Control brief")
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "- summary: %s\n", brief.Summary)
@@ -634,6 +658,13 @@ func writeProjectMissionBrief(out *bytes.Buffer, lanes []boardLane, facts handof
 	writeHandoffBriefList(out, "next agent actions", brief.NextAgentActions)
 	writeHandoffBriefList(out, "escalations", brief.Escalations)
 	fmt.Fprintln(out)
+}
+
+func laneMissionBrief(lane Lane, facts handoffFacts) mission.Brief {
+	return mission.BuildWithOptions([]mission.Lane{{ID: lane.ID, Label: workstreamLabel(lane), Status: lane.Status}}, mission.LaneFacts(missionHandoffFacts(facts), lane.ID), mission.BuildOptions{
+		MaxRows:            maxHandoffRows,
+		OpenDecisionAction: "review open candidate/decision item(s) with evidence and authority boundary",
+	})
 }
 
 func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts handoffFacts) {

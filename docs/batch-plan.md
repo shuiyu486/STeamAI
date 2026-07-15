@@ -5857,3 +5857,31 @@ git diff --check
 ```
 
 验证结果：已通过 `go test ./internal/rekit/mission ./internal/rekit/overview ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 194：Structured handoff mission brief JSON
+
+状态：已完成。
+
+目标：让维护自动化和新会话调度器能从 Go `handoff` JSON envelope 直接读取 Mission Control brief，而不是写入/预览后再解析 Markdown handoff，进一步提升 lane 接手状态的机器可消费性。
+
+实施范围：
+
+- 扩展 `internal/rekit/workstream.HandoffResult`，新增结构化 `missionBrief` 字段，项目级 handoff 与指定 lane handoff 的 `-WhatIf` / `-Apply` JSON envelope 均输出 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations。
+- 复用 Batch 193 的 `internal/rekit/mission` helper：project handoff JSON 使用同一 project brief，lane handoff JSON 使用 lane-local facts 与同一 open candidate/decision blocker 语义。
+- 补 `internal/rekit/cli` handoff tests，覆盖 preview no-write 也包含 structured `missionBrief`，project/lane apply envelope 与 Markdown brief 对齐，decision-only/candidate-only blocker 在 lane JSON 中同样可见。
+- 更新 README、`/rekit` skill、`docs/agent-team-usage.md`、`docs/go-first-convergence-plan.md` 与 CHANGELOG，说明 handoff JSON 可直接消费 `missionBrief`。
+
+边界：本批只增强 case-local handoff JSON 可消费性、测试和文档；不改变 PowerShell façade 委托集合、不实现真实多会话调度、不自动 spawn tactical subagent、不执行 heavy-tool、不写 authority/confirmed、不改变 sync/promote review-first 语义。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/workstream ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `go test ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

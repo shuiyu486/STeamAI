@@ -1976,6 +1976,9 @@ func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
 		t.Fatalf("unexpected handoff preview result: %+v", result)
 	}
 	assertStartWrite(t, result.Writes, ".rekit/handovers/latest.md", "would-write-latest-project-handoff")
+	if result.MissionBrief.Summary == "" || !slices.Contains(result.MissionBrief.BlockedLanes, "login (pending-gate,intervention,open-decision)") || len(result.MissionBrief.PendingGates) == 0 || len(result.MissionBrief.OpenDecisions) == 0 || len(result.MissionBrief.Interventions) == 0 {
+		t.Fatalf("handoff preview missing structured mission brief: %+v", result.MissionBrief)
+	}
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, after)
 }
@@ -1990,6 +1993,9 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	project := decodeHandoffResult(t, out.Bytes())
 	if !project.IsMutation || !project.Applied || !project.Project {
 		t.Fatalf("unexpected project handoff result: %+v", project)
+	}
+	if !slices.Contains(project.MissionBrief.ReadyLanes, "main") || !slices.Contains(project.MissionBrief.BlockedLanes, "login (pending-gate,intervention,open-decision)") || !containsSubstring(project.MissionBrief.NextAgentActions, "review open candidate/decision item(s)") {
+		t.Fatalf("project handoff JSON missing structured mission brief: %+v", project.MissionBrief)
 	}
 	latest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
 	text, err := os.ReadFile(latest.TargetPath)
@@ -2009,6 +2015,9 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	lane := decodeHandoffResult(t, out.Bytes())
 	if !lane.IsMutation || !lane.Applied || lane.Project || lane.Lane == nil || lane.Lane.ID != "feature-login" {
 		t.Fatalf("unexpected lane handoff result: %+v", lane)
+	}
+	if !slices.Contains(lane.MissionBrief.BlockedLanes, "login (pending-gate,intervention,open-decision)") || !containsSubstring(lane.MissionBrief.PendingGates, "debug gate") || !containsSubstring(lane.MissionBrief.OpenDecisions, "decision subject") || !containsSubstring(lane.MissionBrief.NextAgentActions, "review open candidate/decision item(s)") {
+		t.Fatalf("lane handoff JSON missing structured mission brief: %+v", lane.MissionBrief)
 	}
 	laneLatest := assertStartWrite(t, lane.Writes, ".rekit/handovers/feature-login-latest.md", "write-latest-lane-handoff")
 	laneText, err := os.ReadFile(laneLatest.TargetPath)
@@ -3822,7 +3831,19 @@ type handoffResult struct {
 	RequiresConfirmation bool         `json:"requiresConfirmation"`
 	Project              bool         `json:"project"`
 	Lane                 *startLane   `json:"lane"`
+	MissionBrief         missionBrief `json:"missionBrief"`
 	Writes               []startWrite `json:"writes"`
+}
+
+type missionBrief struct {
+	Summary          string   `json:"summary"`
+	ReadyLanes       []string `json:"readyLanes"`
+	BlockedLanes     []string `json:"blockedLanes"`
+	PendingGates     []string `json:"pendingGates"`
+	OpenDecisions    []string `json:"openDecisions"`
+	Interventions    []string `json:"interventions"`
+	NextAgentActions []string `json:"nextAgentActions"`
+	Escalations      []string `json:"escalations"`
 }
 
 type planSubagentsResult struct {
@@ -3958,6 +3979,15 @@ func decodeHandoffResult(t *testing.T, b []byte) handoffResult {
 		t.Fatalf("handoff stdout is not JSON: %v\n%s", err, string(b))
 	}
 	return result
+}
+
+func containsSubstring(items []string, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func decodePlanSubagentsResult(t *testing.T, b []byte) planSubagentsResult {
