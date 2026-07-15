@@ -29,6 +29,7 @@ type Inventory struct {
 	AutomationMode string           `json:"automationMode"`
 	Lanes          []LaneSummary    `json:"lanes"`
 	Counts         FactCounts       `json:"counts"`
+	MissionBrief   MissionBrief     `json:"missionBrief"`
 	Sections       OverviewSections `json:"sections"`
 	NextSteps      []string         `json:"nextSteps"`
 }
@@ -40,6 +41,17 @@ type LaneSummary struct {
 	Status    string `json:"status"`
 	Workspace string `json:"workspace"`
 	Authority bool   `json:"authority"`
+}
+
+type MissionBrief struct {
+	Summary          string   `json:"summary"`
+	ReadyLanes       []string `json:"readyLanes"`
+	BlockedLanes     []string `json:"blockedLanes"`
+	PendingGates     []string `json:"pendingGates"`
+	OpenDecisions    []string `json:"openDecisions"`
+	Interventions    []string `json:"interventions"`
+	NextAgentActions []string `json:"nextAgentActions"`
+	Escalations      []string `json:"escalations"`
 }
 
 type FactCounts struct {
@@ -139,6 +151,8 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	fmt.Fprintf(&out, "- 需要确认: %d\n", data.pending)
 	fmt.Fprintln(&out)
 
+	brief := buildMissionBrief(data.lanes, facts, data.sections)
+	writeMissionBrief(&out, brief)
 	writeOpenCandidates(&out, facts.Candidates)
 	writePendingGates(&out, facts.Requests)
 	writeVerifications(&out, facts.Verifications)
@@ -187,8 +201,9 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 			Publications:     len(facts.Publications),
 			PendingDecisions: data.pending,
 		},
-		Sections:  data.sections,
-		NextSteps: nextStepCommands(data.lanes),
+		MissionBrief: buildMissionBrief(data.lanes, facts, data.sections),
+		Sections:     data.sections,
+		NextSteps:    nextStepCommands(data.lanes),
 	}, nil
 }
 
@@ -244,6 +259,235 @@ func buildOverviewSections(facts factSet) OverviewSections {
 		OpenInterventions: newEventSection(openInterventions),
 		Interventions:     newEventSection(facts.Interventions),
 		Rollbacks:         newEventSection(facts.Rollbacks),
+	}
+}
+
+func buildMissionBrief(lanes []event, facts factSet, sections OverviewSections) MissionBrief {
+	open := openLanes(lanes)
+	blocked := map[string][]string{}
+	pendingGateLines := []string{}
+	for _, gate := range facts.Requests {
+		if stringValue(gate, "status") != "pending-gate" {
+			continue
+		}
+		lane := stringValue(gate, "lane")
+		if lane != "" {
+			blocked[lane] = append(blocked[lane], "pending-gate")
+		}
+		pendingGateLines = append(pendingGateLines, briefGateLine(gate))
+	}
+	interventionLines := []string{}
+	for _, item := range openStatusEvents(facts.Interventions) {
+		lane := stringValue(item, "lane")
+		if lane != "" {
+			blocked[lane] = append(blocked[lane], "intervention")
+		}
+		interventionLines = append(interventionLines, briefInterventionLine(item))
+	}
+	openDecisionCount := len(openStatusEvents(facts.Candidates)) + len(openDecisionEvents(facts.Decisions))
+	openDecisions := missionOpenDecisions(facts)
+	for _, lane := range openDecisionLanes(facts) {
+		blocked[lane] = append(blocked[lane], "open-decision")
+	}
+	pendingGateCount := len(pendingGateLines)
+	interventionCount := len(interventionLines)
+	pendingGateLines = limitStrings(pendingGateLines, maxRows)
+	interventionLines = limitStrings(interventionLines, maxRows)
+	readyLanes := []string{}
+	blockedLanes := []string{}
+	for _, lane := range open {
+		id := stringValue(lane, "id")
+		label := workstreamLabel(lane)
+		if reasons := uniqueStrings(blocked[id]); len(reasons) > 0 {
+			blockedLanes = append(blockedLanes, fmt.Sprintf("%s (%s)", label, strings.Join(reasons, ",")))
+		} else {
+			readyLanes = append(readyLanes, label)
+		}
+	}
+	nextActions := missionNextActions(readyLanes, pendingGateLines, interventionLines, openDecisions)
+	escalations := missionEscalations(pendingGateLines, interventionLines, openDecisions)
+	return MissionBrief{
+		Summary:          fmt.Sprintf("openLanes=%d ready=%d blocked=%d pendingGates=%d openDecisions=%d interventions=%d", len(open), len(readyLanes), len(blockedLanes), pendingGateCount, openDecisionCount, interventionCount),
+		ReadyLanes:       readyLanes,
+		BlockedLanes:     blockedLanes,
+		PendingGates:     pendingGateLines,
+		OpenDecisions:    openDecisions,
+		Interventions:    interventionLines,
+		NextAgentActions: nextActions,
+		Escalations:      escalations,
+	}
+}
+
+func writeMissionBrief(out *bytes.Buffer, brief MissionBrief) {
+	fmt.Fprintln(out, "Mission Control brief：")
+	fmt.Fprintf(out, "- summary: %s\n", brief.Summary)
+	writeBriefList(out, "ready lanes", brief.ReadyLanes)
+	writeBriefList(out, "blocked lanes", brief.BlockedLanes)
+	writeBriefList(out, "pending gates", brief.PendingGates)
+	writeBriefList(out, "open decisions", brief.OpenDecisions)
+	writeBriefList(out, "interventions", brief.Interventions)
+	writeBriefList(out, "next agent actions", brief.NextAgentActions)
+	writeBriefList(out, "escalations", brief.Escalations)
+	fmt.Fprintln(out)
+}
+
+func writeBriefList(out *bytes.Buffer, label string, items []string) {
+	if len(items) == 0 {
+		fmt.Fprintf(out, "- %s: none\n", label)
+		return
+	}
+	fmt.Fprintf(out, "- %s:\n", label)
+	for _, item := range items {
+		fmt.Fprintf(out, "  - %s\n", item)
+	}
+}
+
+func missionOpenDecisions(facts factSet) []string {
+	lines := []string{}
+	for _, candidate := range openStatusEvents(facts.Candidates) {
+		lines = append(lines, briefEventLine("candidate", candidate, "status"))
+	}
+	for _, decision := range openDecisionEvents(facts.Decisions) {
+		lines = append(lines, briefDecisionLine(decision))
+	}
+	return limitStrings(lines, maxRows)
+}
+
+func openDecisionLanes(facts factSet) []string {
+	lanes := []string{}
+	for _, candidate := range openStatusEvents(facts.Candidates) {
+		if lane := stringValue(candidate, "lane"); lane != "" {
+			lanes = append(lanes, lane)
+		}
+	}
+	for _, decision := range openDecisionEvents(facts.Decisions) {
+		if lane := stringValue(decision, "lane"); lane != "" {
+			lanes = append(lanes, lane)
+		}
+	}
+	return uniqueStrings(lanes)
+}
+
+func openDecisionEvents(decisions []event) []event {
+	open := []event{}
+	for _, decision := range decisions {
+		status := strings.ToLower(strings.TrimSpace(stringValue(decision, "status")))
+		decisionValue := strings.ToLower(strings.TrimSpace(firstText(stringValue(decision, "decision"), stringValue(decision, "action"))))
+		if (status == "" && decisionValue == "defer") || (status != "" && !isTerminalStatus(status)) || decisionValue == "pending-user" {
+			open = append(open, decision)
+		}
+	}
+	return open
+}
+
+func missionNextActions(ready, gates, interventions, decisions []string) []string {
+	actions := []string{}
+	if len(interventions) > 0 {
+		actions = append(actions, "reconcile open intervention(s) before continuing the affected lane")
+	}
+	if len(gates) > 0 {
+		actions = append(actions, "resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool")
+	}
+	if len(decisions) > 0 {
+		actions = append(actions, "review open candidates/decisions and record accept/reject/defer with evidence")
+	}
+	for _, lane := range ready {
+		actions = append(actions, "/rekit continue "+lane)
+	}
+	if len(actions) == 0 {
+		actions = append(actions, "/rekit start <name>", "/rekit handoff")
+	}
+	return limitStrings(actions, maxRows)
+}
+
+func missionEscalations(gates, interventions, decisions []string) []string {
+	escalations := []string{}
+	if len(gates) > 0 {
+		escalations = append(escalations, "pending-gate requires main-agent/user decision before heavy action")
+	}
+	if len(interventions) > 0 {
+		escalations = append(escalations, "open intervention must be reconciled into durable lane state")
+	}
+	if len(decisions) > 0 {
+		escalations = append(escalations, "authority/confirmed outcome remains deferred until explicitly approved")
+	}
+	return escalations
+}
+
+func briefGateLine(item map[string]any) string {
+	parts := []string{briefSubject(item)}
+	addBriefPart(&parts, "lane", stringValue(item, "lane"))
+	addBriefPart(&parts, "risk", stringValue(item, "risk"))
+	addBriefPart(&parts, "target", stringValue(item, "target"))
+	if gate, ok := item["gate"].(map[string]any); ok {
+		addBriefPart(&parts, "action", stringValue(gate, "action"))
+		addBriefPart(&parts, "scope", stringValue(gate, "scope"))
+	}
+	return strings.Join(parts, " | ")
+}
+
+func briefInterventionLine(item map[string]any) string {
+	parts := []string{briefSubject(item)}
+	addBriefPart(&parts, "lane", stringValue(item, "lane"))
+	addBriefPart(&parts, "action", stringValue(item, "action"))
+	addBriefPart(&parts, "status", firstText(stringValue(item, "status"), "open"))
+	addBriefPart(&parts, "target", stringValue(item, "target"))
+	return strings.Join(parts, " | ")
+}
+
+func briefDecisionLine(item event) string {
+	parts := []string{briefSubject(item)}
+	addBriefPart(&parts, "lane", stringValue(item, "lane"))
+	addBriefPart(&parts, "decision", firstText(stringValue(item, "decision"), stringValue(item, "action")))
+	addBriefPart(&parts, "reason", stringValue(item, "reason"))
+	return strings.Join(parts, " | ")
+}
+
+func briefEventLine(kind string, item event, statusKey string) string {
+	parts := []string{kind + ": " + briefSubject(item)}
+	addBriefPart(&parts, "lane", stringValue(item, "lane"))
+	addBriefPart(&parts, statusKey, stringValue(item, statusKey))
+	addBriefPart(&parts, "summary", stringValue(item, "summary"))
+	return strings.Join(parts, " | ")
+}
+
+func briefSubject(item map[string]any) string {
+	return firstText(stringValue(item, "subject"), stringValue(item, "summary"), stringValue(item, "kind"), "item")
+}
+
+func addBriefPart(parts *[]string, key, value string) {
+	if strings.TrimSpace(value) != "" {
+		*parts = append(*parts, key+"="+strings.TrimSpace(value))
+	}
+}
+
+func limitStrings(items []string, n int) []string {
+	if len(items) <= n {
+		return items
+	}
+	return items[len(items)-n:]
+}
+
+func uniqueStrings(items []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	return out
+}
+
+func isTerminalStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "confirmed", "accepted", "rejected", "resolved", "deferred", "superseded":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -782,6 +1026,15 @@ func workstreamLabel(lane event) string {
 		return name
 	}
 	return id
+}
+
+func firstText(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func stringValue(m map[string]any, key string) string {

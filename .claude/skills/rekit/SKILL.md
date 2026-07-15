@@ -58,7 +58,7 @@ disable-model-invocation: true
 | `/rekit attach` | 将已有 case 绑定到当前 template root 和 pack。 |
 | `/rekit repair` | 预览迁移后的 metadata 修复；用户确认后才写入。 |
 | `/rekit init` / `/rekit bootstrap` | 初始化 case metadata、case-local shim 和模板文件。 |
-| `/rekit overview` | 显示项目概览、主线/支线、共享事实统计、最近 verification/decision 和下一步建议；缺 `.rekit/board.json` 时由 Go 初始化 case-local board/facts/policy/default authority lane；`-Format json` 输出机器可读 overview envelope；只表示总览，不代表当前会话已选择工作线。 |
+| `/rekit overview` | 显示项目概览、主线/支线、共享事实统计、Mission Control brief、最近 verification/decision 和下一步建议；brief 汇总 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations；缺 `.rekit/board.json` 时由 Go 初始化 case-local board/facts/policy/default authority lane；`-Format json` 输出机器可读 overview envelope；只表示总览，不代表当前会话已选择工作线。 |
 | `/rekit continue main` | 明确接手主线并整理相关状态；多工作线时无参数 `continue` 只列选择，不盲猜；`-WhatIf -Format json` 输出机器可读非写入 continue preview；每轮 digest 记录 inputs/route/packet refs/outputs/decisions/open risks。 |
 | `/rekit continue <name>` | 明确接手某条功能支线，只整理该支线的 workspace/outbox、路由 request、刷新接续提示；`-WhatIf -Format json` 预览收集、路由和 authority append 计划；每轮 digest 记录 inputs/route/packet refs/outputs/decisions/open risks。 |
 | `/rekit start <name>` | 创建或进入功能支线，例如 `login`；`-WhatIf -Format json` 输出机器可读非写入 start preview，显式 `-Apply` 输出 Go JSON envelope；支线写自己的 workspace，第二天可用 `/rekit continue <name>` 或接续提示继续。 |

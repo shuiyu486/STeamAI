@@ -1452,7 +1452,7 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "/rekit continue main"} {
+	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "Mission Control brief：", "ready lanes", "blocked lanes", "pending gates", "debug gate", "open decisions", "candidate: handler", "interventions", "manual override", "next agent actions", "escalations", "pending-gate requires main-agent/user decision", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "/rekit continue main"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("overview missing %q:\n%s", expected, text)
 		}
@@ -1488,6 +1488,16 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 			Publications     int `json:"publications"`
 			PendingDecisions int `json:"pendingDecisions"`
 		} `json:"counts"`
+		MissionBrief struct {
+			Summary          string   `json:"summary"`
+			ReadyLanes       []string `json:"readyLanes"`
+			BlockedLanes     []string `json:"blockedLanes"`
+			PendingGates     []string `json:"pendingGates"`
+			OpenDecisions    []string `json:"openDecisions"`
+			Interventions    []string `json:"interventions"`
+			NextAgentActions []string `json:"nextAgentActions"`
+			Escalations      []string `json:"escalations"`
+		} `json:"missionBrief"`
 		Sections struct {
 			OpenCandidates struct {
 				Total  int              `json:"total"`
@@ -1527,6 +1537,12 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	}
 	if result.Sections.OpenCandidates.Total != 2 || result.Sections.OpenCandidates.Shown != 2 || result.Sections.PendingGates.Total != 1 || result.Sections.Verifications.Total != 1 || result.Sections.Batches.Total != 1 {
 		t.Fatalf("unexpected overview sections: %+v", result.Sections)
+	}
+	if result.MissionBrief.Summary == "" || len(result.MissionBrief.ReadyLanes) != 0 || len(result.MissionBrief.BlockedLanes) != 1 || len(result.MissionBrief.PendingGates) != 1 || len(result.MissionBrief.OpenDecisions) != 3 || len(result.MissionBrief.Interventions) != 1 || len(result.MissionBrief.NextAgentActions) == 0 || len(result.MissionBrief.Escalations) != 3 {
+		t.Fatalf("unexpected mission brief: %+v", result.MissionBrief)
+	}
+	if !slices.Contains(result.MissionBrief.BlockedLanes, "main (pending-gate,intervention,open-decision)") || !strings.Contains(result.MissionBrief.PendingGates[0], "action=debug") || !strings.Contains(result.MissionBrief.OpenDecisions[0], "candidate: handler") || !strings.Contains(result.MissionBrief.Interventions[0], "manual override") {
+		t.Fatalf("unexpected mission brief details: %+v", result.MissionBrief)
 	}
 	if result.Sections.PendingGates.Events[0]["actor"] != "runtime-test" || result.Sections.Verifications.Events[0]["verdict"] != "accepted" || result.Sections.Batches.Batches[0].ID != "batch-overview" || result.Sections.Batches.Batches[0].Events != 5 || result.Sections.Batches.Batches[0].Kinds["request"] != 1 {
 		t.Fatalf("unexpected overview section details: %+v", result.Sections)
@@ -1999,7 +2015,7 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
+	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "## Mission Control brief", "blocked: true", "pending-gate:", "open intervention:", "open decision:", "next agent action:", "reconcile user intervention", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
 		if !strings.Contains(string(laneText), expected) {
 			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
 		}
