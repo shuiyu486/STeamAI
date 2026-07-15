@@ -18,6 +18,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 const continuePreviewRunID = "run-preview"
@@ -40,6 +41,7 @@ type ContinueResult struct {
 	RunID                string                 `json:"runId"`
 	BatchID              string                 `json:"batchId"`
 	Summary              ContinueSummary        `json:"summary"`
+	MissionBrief         mission.Brief          `json:"missionBrief"`
 	Inputs               []string               `json:"inputs"`
 	PacketRefs           []string               `json:"packetRefs"`
 	Events               []ContinueEventPreview `json:"events"`
@@ -138,6 +140,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		Lane:                 ctx.lane,
 		RunID:                continuePreviewRunID,
 		BatchID:              "batch-" + continuePreviewRunID,
+		MissionBrief:         ctx.missionBrief(),
 		Inputs:               uniqueStrings(inputs),
 		PacketRefs:           uniqueStrings(packets),
 		BlockedActions:       []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution"},
@@ -301,6 +304,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 		return ContinueResult{}, err
 	}
 	result.Writes = append(result.Writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
+	result.MissionBrief = ctx.missionBrief()
 	statusPath, digestPath, err := writeContinueRunArtifacts(runRoot, result)
 	if err != nil {
 		return ContinueResult{}, err
@@ -356,6 +360,14 @@ func newContinueContext(repoRoot, caseRoot, pack string, opt ContinueOptions) (c
 		return continueContext{}, err
 	}
 	return continueContext{inst: inst, manifest: m, board: b, policy: policy, selector: selector, lane: lane}, nil
+}
+
+func (ctx continueContext) missionBrief() mission.Brief {
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		return mission.Brief{Summary: "unavailable: " + err.Error()}
+	}
+	return projectMissionBrief(ctx.board.Lanes, facts)
 }
 
 func (ctx continueContext) previewEvent(event map[string]any) ContinueEventPreview {
@@ -610,7 +622,7 @@ func writeContinueRunArtifacts(runRoot string, result ContinueResult) (string, s
 		return "", "", err
 	}
 	statusPath := filepath.Join(runRoot, "status.json")
-	status := map[string]any{"schemaVersion": 1, "runId": result.RunID, "batchId": result.BatchID, "summary": result.Summary, "inputs": result.Inputs, "packetRefs": result.PacketRefs, "openRisks": result.OpenRisks, "time": isoNow()}
+	status := map[string]any{"schemaVersion": 1, "runId": result.RunID, "batchId": result.BatchID, "summary": result.Summary, "missionBrief": result.MissionBrief, "inputs": result.Inputs, "packetRefs": result.PacketRefs, "openRisks": result.OpenRisks, "time": isoNow()}
 	if err := writeJSON(statusPath, status); err != nil {
 		return "", "", err
 	}
@@ -633,9 +645,22 @@ func continueDigestText(result ContinueResult) string {
 		"batchId: `" + result.BatchID + "`",
 		"focus lane: `" + result.Lane.ID + "`",
 		"",
+		"## Mission Control brief",
+		"",
+		"- summary: " + result.MissionBrief.Summary,
+	}
+	lines = appendMissionBriefDigestList(lines, "ready lanes", result.MissionBrief.ReadyLanes)
+	lines = appendMissionBriefDigestList(lines, "blocked lanes", result.MissionBrief.BlockedLanes)
+	lines = appendMissionBriefDigestList(lines, "pending gates", result.MissionBrief.PendingGates)
+	lines = appendMissionBriefDigestList(lines, "open decisions", result.MissionBrief.OpenDecisions)
+	lines = appendMissionBriefDigestList(lines, "interventions", result.MissionBrief.Interventions)
+	lines = appendMissionBriefDigestList(lines, "next agent actions", result.MissionBrief.NextAgentActions)
+	lines = appendMissionBriefDigestList(lines, "escalations", result.MissionBrief.Escalations)
+	lines = append(lines,
+		"",
 		"## packet refs",
 		"",
-	}
+	)
 	if len(result.PacketRefs) == 0 {
 		lines = append(lines, "- 无。")
 	} else {
@@ -680,6 +705,17 @@ func continueDigestText(result ContinueResult) string {
 	}
 	lines = append(lines, "")
 	return strings.Join(lines, "\r\n")
+}
+
+func appendMissionBriefDigestList(lines []string, label string, items []string) []string {
+	if len(items) == 0 {
+		return append(lines, "- "+label+": none")
+	}
+	lines = append(lines, "- "+label+":")
+	for _, item := range items {
+		lines = append(lines, "  - "+item)
+	}
+	return lines
 }
 
 func firstText(values ...string) string {

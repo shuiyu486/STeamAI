@@ -2203,9 +2203,10 @@ func TestRunContinueWhatIfDoesNotWrite(t *testing.T) {
 		Summary              struct {
 			Collected, Observations, Requests, Routed, Candidates, AuthorityApplied, AuthorityWouldAppend, PendingUser int
 		} `json:"summary"`
-		Inputs     []string `json:"inputs"`
-		PacketRefs []string `json:"packetRefs"`
-		Events     []struct {
+		MissionBrief missionBrief `json:"missionBrief"`
+		Inputs       []string     `json:"inputs"`
+		PacketRefs   []string     `json:"packetRefs"`
+		Events       []struct {
 			Kind          string       `json:"kind"`
 			Decision      string       `json:"decision"`
 			TargetLane    string       `json:"targetLane"`
@@ -2222,6 +2223,9 @@ func TestRunContinueWhatIfDoesNotWrite(t *testing.T) {
 	}
 	if result.Summary.Collected != 3 || result.Summary.Observations != 1 || result.Summary.Requests != 1 || result.Summary.Routed != 1 || result.Summary.Candidates != 1 || result.Summary.AuthorityApplied != 0 || result.Summary.AuthorityWouldAppend != 1 || result.Summary.PendingUser != 0 {
 		t.Fatalf("unexpected continue summary: %+v", result.Summary)
+	}
+	if result.MissionBrief.Summary == "" || !slices.Contains(result.MissionBrief.ReadyLanes, "main") || !slices.Contains(result.MissionBrief.ReadyLanes, "login") || len(result.MissionBrief.BlockedLanes) != 0 {
+		t.Fatalf("continue what-if JSON missing pre-apply mission brief: %+v", result.MissionBrief)
 	}
 	if len(result.Inputs) != 1 || result.Inputs[0] != ".rekit/lanes/feature-login/outbox.jsonl" || len(result.PacketRefs) != 1 || result.PacketRefs[0] != "workspace/features/feature-login/packet.md" {
 		t.Fatalf("unexpected continue refs: inputs=%v packets=%v", result.Inputs, result.PacketRefs)
@@ -2243,16 +2247,19 @@ func TestRunContinueApplyWritesDigestAndFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	var result struct {
-		Command              string                                                                                                                                                              `json:"command"`
-		IsMutation           bool                                                                                                                                                                `json:"isMutation"`
-		Applied              bool                                                                                                                                                                `json:"applied"`
-		RequiresConfirmation bool                                                                                                                                                                `json:"requiresConfirmation"`
-		RunID                string                                                                                                                                                              `json:"runId"`
-		BatchID              string                                                                                                                                                              `json:"batchId"`
-		Lane                 startLane                                                                                                                                                           `json:"lane"`
-		Summary              struct{ Collected, Observations, Requests, Routed, Candidates, AcceptedCandidates, Publications, AuthorityApplied, AuthorityWouldAppend, PendingUser, Skipped int } `json:"summary"`
-		OpenRisks            []string                                                                                                                                                            `json:"openRisks"`
-		Writes               []startWrite                                                                                                                                                        `json:"writes"`
+		Command              string    `json:"command"`
+		IsMutation           bool      `json:"isMutation"`
+		Applied              bool      `json:"applied"`
+		RequiresConfirmation bool      `json:"requiresConfirmation"`
+		RunID                string    `json:"runId"`
+		BatchID              string    `json:"batchId"`
+		Lane                 startLane `json:"lane"`
+		Summary              struct {
+			Collected, Observations, Requests, Routed, Candidates, AcceptedCandidates, Publications, AuthorityApplied, AuthorityWouldAppend, PendingUser, Skipped int
+		} `json:"summary"`
+		MissionBrief missionBrief `json:"missionBrief"`
+		OpenRisks    []string     `json:"openRisks"`
+		Writes       []startWrite `json:"writes"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("continue apply stdout is not JSON: %v\n%s", err, out.String())
@@ -2263,6 +2270,9 @@ func TestRunContinueApplyWritesDigestAndFacts(t *testing.T) {
 	if result.Summary.Collected != 3 || result.Summary.Observations != 1 || result.Summary.Requests != 1 || result.Summary.Routed != 1 || result.Summary.Candidates != 1 || result.Summary.AuthorityApplied != 0 || result.Summary.AuthorityWouldAppend != 0 || result.Summary.PendingUser != 1 || result.Summary.Skipped != 0 {
 		t.Fatalf("unexpected continue apply summary: %+v", result.Summary)
 	}
+	if result.MissionBrief.Summary == "" || !slices.Contains(result.MissionBrief.ReadyLanes, "main") || !slices.Contains(result.MissionBrief.BlockedLanes, "login (open-decision)") || !containsSubstring(result.MissionBrief.OpenDecisions, "candidate: authority candidate") || !containsSubstring(result.MissionBrief.NextAgentActions, "review open candidate/decision item(s)") {
+		t.Fatalf("continue apply JSON missing post-apply mission brief: %+v", result.MissionBrief)
+	}
 	assertContinueWrite(t, result.Writes, ".rekit/facts/observations.jsonl", "append")
 	assertContinueWrite(t, result.Writes, ".rekit/facts/requests.jsonl", "append")
 	assertContinueWrite(t, result.Writes, ".rekit/facts/candidates.jsonl", "append")
@@ -2270,20 +2280,31 @@ func TestRunContinueApplyWritesDigestAndFacts(t *testing.T) {
 	assertContinueWrite(t, result.Writes, ".rekit/lanes/devirt-main/tasks.jsonl", "append")
 	assertContinueWrite(t, result.Writes, ".rekit/lanes/devirt-main/inbox.jsonl", "append")
 	assertContinueWrite(t, result.Writes, ".rekit/board.json", "refresh")
+	var statusPath string
 	var digestPath string
 	for _, write := range result.Writes {
+		if write.Kind == "run-status" && write.Action == "write" {
+			statusPath = write.TargetPath
+		}
 		if write.Kind == "run-digest" && write.Action == "write" {
 			digestPath = write.TargetPath
 		}
 	}
-	if digestPath == "" {
-		t.Fatalf("continue apply did not report run digest write: %+v", result.Writes)
+	if statusPath == "" || digestPath == "" {
+		t.Fatalf("continue apply did not report run artifact writes: %+v", result.Writes)
+	}
+	status, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(status), "\"missionBrief\"") || !strings.Contains(string(status), "candidate: authority candidate") {
+		t.Fatalf("continue status missing mission brief:\n%s", string(status))
 	}
 	digest, err := os.ReadFile(digestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(digest), "# rekit continue digest") || !strings.Contains(string(digest), "pendingUser: 1") {
+	if !strings.Contains(string(digest), "# rekit continue digest") || !strings.Contains(string(digest), "pendingUser: 1") || !strings.Contains(string(digest), "## Mission Control brief") || !strings.Contains(string(digest), "candidate: authority candidate") {
 		t.Fatalf("unexpected continue digest:\n%s", string(digest))
 	}
 	decisions, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"))
