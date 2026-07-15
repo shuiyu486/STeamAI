@@ -6193,3 +6193,31 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/gate/gate.go internal/rekit/gate/gate_test.go internal/rekit/workstream/start.go internal/rekit/workstream/continue.go`、`go test ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 206：Shared JSONL validation reuse
+
+状态：已完成。
+
+目标：在 Batch 198-205 已将 Mission Control snapshot、facts reader、gate duplicate lookup 与 workstream JSONL 读取逐步收口到 `internal/rekit/mission` 后，继续清理 case doctor 中仍保留的 JSONL validation scanner，让 doctor 的 strict JSONL 校验与 mission reader 共用同一 line iteration / BOM / missing-file 基础。
+
+实施范围：
+
+- `internal/rekit/mission/case.go` 新增 exported `ValidateJSONLines(path string) error`，并抽出内部 `scanJSONLines`，供 non-strict reader、strict reader 与 validation 共用 missing file no-op、BOM trim、空行跳过和 line iteration。
+- `internal/rekit/doctor/case.go` 的 `.rekit/facts/*.jsonl`、lane `events/tasks/inbox/outbox.jsonl` 与 workspace `observations/requests/candidates/publications.jsonl` 校验改为直接调用 `mission.ValidateJSONLines`。
+- 删除 doctor-local `validateJSONLines`、`bufio.Scanner` 和 per-line unmarshal 逻辑；保留 doctor 现有 `malformed jsonl line in <path>:<line> :: <err>` 诊断形式。
+- 扩展 `internal/rekit/mission/case_test.go`，覆盖 shared JSONL validation 对 missing file 的 no-op、UTF-8 BOM trim 和 malformed line 行号诊断。
+
+边界：本批只做 Go runtime 内部复用、测试和文档；不改变 doctor 输出语义、case state 写入语义、Mission Control brief、start/continue/handoff/gate/note JSON envelope、PowerShell façade 委托集合或 sync/promote review-first 语义；不执行 heavy-tool、不自动 spawn tactical subagent、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/mission ./internal/rekit/doctor ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/doctor/case.go`、`go test ./internal/rekit/mission ./internal/rekit/doctor ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

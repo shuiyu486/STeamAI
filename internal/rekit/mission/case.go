@@ -188,32 +188,54 @@ func ReadStrictJSONLineObjects(path string) ([]map[string]any, error) {
 	return readJSONLineObjects(path, true)
 }
 
-func readJSONLineObjects(path string, strict bool) ([]map[string]any, error) {
-	file, err := os.Open(path)
-	if os.IsNotExist(err) {
-		return []map[string]any{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	items := []map[string]any{}
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
+func ValidateJSONLines(path string) error {
+	return scanJSONLines(path, func(line string, lineNo int) error {
+		var item any
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			return fmt.Errorf("malformed jsonl line in %s:%d :: %w", path, lineNo, err)
 		}
+		return nil
+	})
+}
+
+func readJSONLineObjects(path string, strict bool) ([]map[string]any, error) {
+	items := []map[string]any{}
+	err := scanJSONLines(path, func(line string, lineNo int) error {
 		var item map[string]any
 		if err := json.Unmarshal([]byte(line), &item); err != nil {
 			if strict {
-				return nil, fmt.Errorf("invalid JSONL %s: %w", path, err)
+				return fmt.Errorf("invalid JSONL %s: %w", path, err)
 			}
-			continue
+			return nil
 		}
 		items = append(items, item)
+		return nil
+	})
+	return items, err
+}
+
+func scanJSONLines(path string, visit func(line string, lineNo int) error) error {
+	file, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return nil
 	}
-	return items, scanner.Err()
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	lineNo := 0
+	for scanner.Scan() {
+		lineNo++
+		line := strings.TrimSpace(strings.TrimPrefix(scanner.Text(), string(rune(0xFEFF))))
+		if line == "" {
+			continue
+		}
+		if err := visit(line, lineNo); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
 }
 
 func CaseBrief(caseRoot string, opts BuildOptions) (Brief, error) {

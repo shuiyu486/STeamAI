@@ -156,6 +156,25 @@ func TestReadJSONLineObjectsSkipsBlankAndInvalidLines(t *testing.T) {
 	}
 }
 
+func TestValidateJSONLinesReportsLineNumbersAndSkipsMissing(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing.jsonl")
+	if err := ValidateJSONLines(missing); err != nil {
+		t.Fatalf("missing JSONL validation error = %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	content := strings.Join([]string{
+		string(rune(0xFEFF)) + `{"kind":"candidate","subject":"first"}`,
+		``,
+		`not json`,
+	}, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateJSONLines(path); err == nil || !strings.Contains(err.Error(), "malformed jsonl line") || !strings.Contains(err.Error(), ":3") {
+		t.Fatalf("validation error = %v", err)
+	}
+}
+
 func TestReadStrictLedgerFactsSummarizesPendingAndBatches(t *testing.T) {
 	caseRoot := t.TempDir()
 	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")

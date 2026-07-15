@@ -1,7 +1,6 @@
 package doctor
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 func Case(repoRoot, caseRoot, pack string) ([]Row, error) {
@@ -152,7 +152,7 @@ func validateWorkstreamState(caseRoot string) error {
 		filepath.Join(caseRoot, ".rekit", "facts", "rollbacks.jsonl"),
 	}
 	for _, path := range facts {
-		if err := validateJSONLines(path); err != nil {
+		if err := mission.ValidateJSONLines(path); err != nil {
 			return err
 		}
 	}
@@ -211,12 +211,12 @@ func validateWorkstreamState(caseRoot string) error {
 			}
 		}
 		for _, name := range []string{"events.jsonl", "tasks.jsonl", "inbox.jsonl", "outbox.jsonl"} {
-			if err := validateJSONLines(filepath.Join(laneRoot, name)); err != nil {
+			if err := mission.ValidateJSONLines(filepath.Join(laneRoot, name)); err != nil {
 				return err
 			}
 		}
 		for _, name := range []string{"observations.jsonl", "requests.jsonl", "candidates.jsonl", "publications.jsonl"} {
-			if err := validateJSONLines(filepath.Join(workspace, name)); err != nil {
+			if err := mission.ValidateJSONLines(filepath.Join(workspace, name)); err != nil {
 				return err
 			}
 		}
@@ -241,34 +241,6 @@ func readJSONMapIfExists(path string) (map[string]any, bool, error) {
 		return nil, true, fmt.Errorf("malformed json file: %s :: %w", path, err)
 	}
 	return out, true, nil
-}
-
-func validateJSONLines(path string) error {
-	f, err := os.Open(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	lineNo := 0
-	for scanner.Scan() {
-		lineNo++
-		line := strings.TrimSpace(trimUTF8BOM(scanner.Text()))
-		if line == "" {
-			continue
-		}
-		var v any
-		if err := json.Unmarshal([]byte(line), &v); err != nil {
-			return fmt.Errorf("malformed jsonl line in %s:%d :: %w", path, lineNo, err)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-	return nil
 }
 
 func trimUTF8BOM(value string) string {
