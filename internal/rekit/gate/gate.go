@@ -274,28 +274,7 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 }
 
 func assertLane(caseRoot, lane string) error {
-	board, err := mission.ReadBoard(caseRoot)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("gate requires .rekit/board.json to validate lane: %s", filepath.Join(caseRoot, ".rekit", "board.json"))
-		}
-		return err
-	}
-	known := []string{}
-	for _, item := range board.Lanes {
-		id := strings.TrimSpace(item.ID)
-		if id == "" {
-			continue
-		}
-		known = append(known, id)
-		if strings.EqualFold(id, lane) {
-			return nil
-		}
-	}
-	if len(known) == 0 {
-		return fmt.Errorf("gate requires at least one lane in .rekit/board.json")
-	}
-	return fmt.Errorf("unknown lane %q; known: %s", lane, strings.Join(known, ","))
+	return mission.AssertBoardLane(caseRoot, lane, mission.LaneGuardOptions{Command: "gate", CaseInsensitive: true})
 }
 
 func splitList(value string) []string {

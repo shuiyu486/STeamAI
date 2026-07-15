@@ -6052,3 +6052,31 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/note/note.go internal/rekit/note/note_test.go`、`go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 201：Shared lane guard reuse
+
+状态：已完成。
+
+目标：在 Batch 200 已让 Go `note` 复用 mission board/facts reader 后，继续消除 note/gate 对 `.rekit/board.json` lane guard 的并行实现，把 known-lane 列表、missing/empty board 错误和大小写敏感/不敏感 lookup 语义收口到 `internal/rekit/mission`，降低后续 gate/note lane 校验漂移风险。
+
+实施范围：
+
+- `internal/rekit/mission/case.go` 新增 `LaneGuardOptions`、`AssertBoardLane`、`BoardLaneIDs` 与 `BoardHasLane`，由 shared helper 统一读取 board、生成 known lane 列表、报告 missing/empty board，并支持调用方选择大小写敏感或不敏感 lookup。
+- `internal/rekit/note/note.go` 的 lane guard 改为 `mission.AssertBoardLane(..., Command: "note")`，保留 note 既有大小写敏感语义和错误文本边界。
+- `internal/rekit/gate/gate.go` 的 lane guard 改为 `mission.AssertBoardLane(..., Command: "gate", CaseInsensitive: true)`，保留 gate 既有大小写不敏感语义和 heavy-tool gate no-execute 边界。
+- 扩展 `internal/rekit/mission/case_test.go`，覆盖 missing board、empty board、case-sensitive/case-insensitive lookup 与 known lane 诊断。
+
+边界：本批只做 Go runtime 内部复用、测试和文档；不改变 note/gate 文本或 JSON envelope 字段；不改变 note append/list 写入语义、gate pending-gate request 写入语义、gate no-heavy-tool 边界、note no authority/confirmed 边界或 PowerShell façade 委托集合；不执行 heavy-tool、不自动 spawn tactical subagent、不写 authority/confirmed、不改变 sync/promote review-first 语义。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/gate ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/note/note.go internal/rekit/gate/gate.go`、`go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/gate ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

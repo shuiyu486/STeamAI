@@ -204,6 +204,64 @@ func CaseBrief(caseRoot string, opts BuildOptions) (Brief, error) {
 	return BuildWithOptions(BoardLanes(board.Lanes), facts, opts), nil
 }
 
+type LaneGuardOptions struct {
+	Command         string
+	CaseInsensitive bool
+}
+
+func AssertBoardLane(caseRoot, lane string, opts LaneGuardOptions) error {
+	board, err := ReadBoard(caseRoot)
+	command := strings.TrimSpace(opts.Command)
+	if command == "" {
+		command = "command"
+	}
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%s requires .rekit/board.json to validate lane: %s", command, filepath.Join(caseRoot, ".rekit", "board.json"))
+		}
+		return err
+	}
+	known := BoardLaneIDs(board.Lanes)
+	if BoardHasLane(board.Lanes, lane, opts.CaseInsensitive) {
+		return nil
+	}
+	if len(known) == 0 {
+		return fmt.Errorf("%s requires at least one lane in .rekit/board.json", command)
+	}
+	return fmt.Errorf("unknown lane %q; known: %s", lane, strings.Join(known, ","))
+}
+
+func BoardLaneIDs(lanes []BoardLane) []string {
+	known := []string{}
+	for _, item := range lanes {
+		id := strings.TrimSpace(item.ID)
+		if id != "" {
+			known = append(known, id)
+		}
+	}
+	return known
+}
+
+func BoardHasLane(lanes []BoardLane, lane string, caseInsensitive bool) bool {
+	lane = strings.TrimSpace(lane)
+	for _, item := range lanes {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		if caseInsensitive {
+			if strings.EqualFold(id, lane) {
+				return true
+			}
+			continue
+		}
+		if id == lane {
+			return true
+		}
+	}
+	return false
+}
+
 func PendingDecisionCount(decisions []map[string]any) int {
 	pending := 0
 	for _, decision := range decisions {

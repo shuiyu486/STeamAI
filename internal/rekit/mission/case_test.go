@@ -76,6 +76,44 @@ func TestFactFileNameMapsLedgerKinds(t *testing.T) {
 	}
 }
 
+func TestAssertBoardLaneUsesSharedKnownLaneErrors(t *testing.T) {
+	caseRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	board := `{"lanes":[{"id":"main"},{"id":"FEATURE-Debug"},{"id":""}]}`
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), []byte(board), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := AssertBoardLane(caseRoot, "main", LaneGuardOptions{Command: "note"}); err != nil {
+		t.Fatalf("main lane error = %v", err)
+	}
+	if err := AssertBoardLane(caseRoot, "feature-debug", LaneGuardOptions{Command: "gate", CaseInsensitive: true}); err != nil {
+		t.Fatalf("case-insensitive lane error = %v", err)
+	}
+	if err := AssertBoardLane(caseRoot, "feature-debug", LaneGuardOptions{Command: "note"}); err == nil || !strings.Contains(err.Error(), "unknown lane") || !strings.Contains(err.Error(), "FEATURE-Debug") {
+		t.Fatalf("case-sensitive unknown lane error = %v", err)
+	}
+}
+
+func TestAssertBoardLaneReportsMissingAndEmptyBoard(t *testing.T) {
+	missingRoot := t.TempDir()
+	if err := AssertBoardLane(missingRoot, "main", LaneGuardOptions{Command: "note"}); err == nil || !strings.Contains(err.Error(), "note requires .rekit/board.json") {
+		t.Fatalf("missing board error = %v", err)
+	}
+
+	emptyRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(emptyRoot, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(emptyRoot, ".rekit", "board.json"), []byte(`{"lanes":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := AssertBoardLane(emptyRoot, "main", LaneGuardOptions{Command: "gate"}); err == nil || !strings.Contains(err.Error(), "gate requires at least one lane") {
+		t.Fatalf("empty board error = %v", err)
+	}
+}
+
 func TestReadJSONLineObjectsSkipsBlankAndInvalidLines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	content := strings.Join([]string{

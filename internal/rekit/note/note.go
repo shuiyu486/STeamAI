@@ -449,28 +449,7 @@ func splitList(value string) []string {
 }
 
 func assertLane(caseRoot, lane string) error {
-	board, err := mission.ReadBoard(caseRoot)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("note requires .rekit/board.json to validate lane: %s", filepath.Join(caseRoot, ".rekit", "board.json"))
-		}
-		return err
-	}
-	known := []string{}
-	for _, item := range board.Lanes {
-		id := strings.TrimSpace(item.ID)
-		if id == "" {
-			continue
-		}
-		known = append(known, id)
-		if id == lane {
-			return nil
-		}
-	}
-	if len(known) == 0 {
-		return fmt.Errorf("note requires at least one lane in .rekit/board.json")
-	}
-	return fmt.Errorf("unknown lane %q; known: %s", lane, strings.Join(known, ","))
+	return mission.AssertBoardLane(caseRoot, lane, mission.LaneGuardOptions{Command: "note"})
 }
 
 func eventIDFor(event map[string]any) string {
