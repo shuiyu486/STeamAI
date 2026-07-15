@@ -60,6 +60,32 @@ type LedgerFacts struct {
 	PendingDecision int
 }
 
+func FactFileName(kind string) string {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	switch kind {
+	case "observation":
+		return "observations.jsonl"
+	case "candidate":
+		return "candidates.jsonl"
+	case "request":
+		return "requests.jsonl"
+	case "publication":
+		return "publications.jsonl"
+	case "decision":
+		return "decisions.jsonl"
+	case "hypothesis":
+		return "hypotheses.jsonl"
+	case "verification":
+		return "verifications.jsonl"
+	case "intervention":
+		return "interventions.jsonl"
+	case "rollback":
+		return "rollbacks.jsonl"
+	default:
+		return kind + "s.jsonl"
+	}
+}
+
 func ReadFacts(caseRoot string) (Facts, error) {
 	ledger, err := ReadLedgerFacts(caseRoot)
 	if err != nil {
@@ -77,36 +103,36 @@ func ReadStrictLedgerFacts(caseRoot string) (LedgerFacts, error) {
 }
 
 func readLedgerFacts(caseRoot string, readFact func(string, string) ([]map[string]any, error)) (LedgerFacts, error) {
-	read := func(name string) ([]map[string]any, error) {
-		return readFact(caseRoot, name)
+	read := func(kind string) ([]map[string]any, error) {
+		return readFact(caseRoot, FactFileName(kind))
 	}
 	var err error
 	out := LedgerFacts{}
-	if out.Observations, err = read("observations.jsonl"); err != nil {
+	if out.Observations, err = read("observation"); err != nil {
 		return out, err
 	}
-	if out.Candidates, err = read("candidates.jsonl"); err != nil {
+	if out.Candidates, err = read("candidate"); err != nil {
 		return out, err
 	}
-	if out.Requests, err = read("requests.jsonl"); err != nil {
+	if out.Requests, err = read("request"); err != nil {
 		return out, err
 	}
-	if out.Publications, err = read("publications.jsonl"); err != nil {
+	if out.Publications, err = read("publication"); err != nil {
 		return out, err
 	}
-	if out.Decisions, err = read("decisions.jsonl"); err != nil {
+	if out.Decisions, err = read("decision"); err != nil {
 		return out, err
 	}
-	if out.Hypotheses, err = read("hypotheses.jsonl"); err != nil {
+	if out.Hypotheses, err = read("hypothesis"); err != nil {
 		return out, err
 	}
-	if out.Verifications, err = read("verifications.jsonl"); err != nil {
+	if out.Verifications, err = read("verification"); err != nil {
 		return out, err
 	}
-	if out.Interventions, err = read("interventions.jsonl"); err != nil {
+	if out.Interventions, err = read("intervention"); err != nil {
 		return out, err
 	}
-	if out.Rollbacks, err = read("rollbacks.jsonl"); err != nil {
+	if out.Rollbacks, err = read("rollback"); err != nil {
 		return out, err
 	}
 	out.PendingDecision = PendingDecisionCount(out.Decisions)

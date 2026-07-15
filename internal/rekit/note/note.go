@@ -1,7 +1,6 @@
 package note
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 const maxListRows = 20
@@ -125,7 +125,6 @@ func ListEvents(repoRoot, caseRoot, pack string, opt Options) (ListResult, error
 		kinds = []string{kind}
 	}
 	laneFilter := strings.TrimSpace(opt.Lane)
-	factsRoot := filepath.Join(inst.CaseRoot, ".rekit", "facts")
 	result := ListResult{
 		SchemaVersion: 1,
 		Command:       "note",
@@ -138,7 +137,7 @@ func ListEvents(repoRoot, caseRoot, pack string, opt Options) (ListResult, error
 		Groups:        []ListGroup{},
 	}
 	for _, k := range kinds {
-		items, err := readJSONLines(filepath.Join(factsRoot, factFile(k)))
+		items, err := readFactEvents(inst.CaseRoot, k)
 		if err != nil {
 			return ListResult{}, err
 		}
@@ -209,7 +208,7 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return AppendResult{}, err
 	}
-	exists, err := eventIDExists(filepath.Join(inst.CaseRoot, ".rekit", "facts"), eventID)
+	exists, err := eventIDExists(inst.CaseRoot, eventID)
 	if err != nil {
 		return AppendResult{}, err
 	}
@@ -312,28 +311,7 @@ func isValidKind(kind string) bool {
 }
 
 func factFile(kind string) string {
-	switch kind {
-	case "observation":
-		return "observations.jsonl"
-	case "candidate":
-		return "candidates.jsonl"
-	case "request":
-		return "requests.jsonl"
-	case "publication":
-		return "publications.jsonl"
-	case "decision":
-		return "decisions.jsonl"
-	case "hypothesis":
-		return "hypotheses.jsonl"
-	case "verification":
-		return "verifications.jsonl"
-	case "intervention":
-		return "interventions.jsonl"
-	case "rollback":
-		return "rollbacks.jsonl"
-	default:
-		return kind + "s.jsonl"
-	}
+	return mission.FactFileName(kind)
 }
 
 func noteExtra(kind string, item event) string {
@@ -389,29 +367,20 @@ func gateDetail(item event, omitStatus, omitBatch bool) string {
 	return " | " + strings.Join(parts, " | ")
 }
 
-func readJSONLines(path string) ([]event, error) {
-	file, err := os.Open(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
+func readFactEvents(caseRoot, kind string) ([]event, error) {
+	items, err := mission.ReadStrictFactFile(caseRoot, factFile(kind))
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
-	out := []event{}
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		var item event
-		if err := json.Unmarshal([]byte(line), &item); err != nil {
-			return nil, fmt.Errorf("invalid JSONL %s: %w", path, err)
-		}
-		out = append(out, item)
+	return eventMaps(items), nil
+}
+
+func eventMaps(items []map[string]any) []event {
+	out := make([]event, 0, len(items))
+	for _, item := range items {
+		out = append(out, event(item))
 	}
-	return out, scanner.Err()
+	return out
 }
 
 func lastEvents(items []event, n int) []event {
@@ -479,24 +448,13 @@ func splitList(value string) []string {
 	return out
 }
 
-type boardFile struct {
-	Lanes []struct {
-		ID string `json:"id"`
-	} `json:"lanes"`
-}
-
 func assertLane(caseRoot, lane string) error {
-	path := filepath.Join(caseRoot, ".rekit", "board.json")
-	b, err := os.ReadFile(path)
+	board, err := mission.ReadBoard(caseRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("note requires .rekit/board.json to validate lane: %s", path)
+			return fmt.Errorf("note requires .rekit/board.json to validate lane: %s", filepath.Join(caseRoot, ".rekit", "board.json"))
 		}
 		return err
-	}
-	var board boardFile
-	if err := json.Unmarshal(b, &board); err != nil {
-		return fmt.Errorf("invalid board json: %w", err)
 	}
 	known := []string{}
 	for _, item := range board.Lanes {
@@ -543,10 +501,9 @@ func eventIDFor(event map[string]any) string {
 	return "evt-" + hex.EncodeToString(sum[:])[:16]
 }
 
-func eventIDExists(factsRoot, id string) (bool, error) {
+func eventIDExists(caseRoot, id string) (bool, error) {
 	for _, kind := range validKinds {
-		path := filepath.Join(factsRoot, factFile(kind))
-		items, err := readJSONLines(path)
+		items, err := readFactEvents(caseRoot, kind)
 		if err != nil {
 			return false, err
 		}

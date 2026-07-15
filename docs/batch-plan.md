@@ -6025,3 +6025,30 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/overview/overview.go`、`go test ./internal/rekit/mission ./internal/rekit/overview ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 200：Note ledger snapshot reuse
+
+状态：已完成。
+
+目标：在 Batch 198-199 已经把 Mission Control snapshot 的 board/facts 读取收口到 `internal/rekit/mission` 后，继续把 Go `note` 的 facts JSONL、ledger kind → file mapping、duplicate `eventId` 扫描与 board/lane guard 迁到同一 shared helper，避免 note list/append 与 overview/handoff/start/gate 维护并行 JSONL reader、board struct 或 facts 文件名 switch。
+
+实施范围：
+
+- `internal/rekit/mission/case.go` 新增 `FactFileName`，作为 ledger kind 到 `.rekit/facts/*.jsonl` 文件名的 shared 映射；`ReadLedgerFacts` 内部改为复用该映射，避免 mission 与 note 各自维护 facts 文件名表。
+- `internal/rekit/note/note.go` 的 `ListEvents` 与 duplicate `eventId` 检查改为复用 `mission.ReadStrictFactFile`；note lane guard 改为复用 `mission.ReadBoard`；移除 note-local JSONL scanner、board struct 与 fact-file switch 复制逻辑。
+- 扩展 `internal/rekit/mission/case_test.go` 与 `internal/rekit/note/note_test.go`，覆盖 shared fact-file mapping、note list strict JSONL error、hypothesis facts file 映射读取和既有 append/list/duplicate/no authority/confirmed 边界。
+
+边界：本批只做 Go runtime 内部复用、测试和文档；不改变 note append/list 文本或 JSON envelope 字段；不改变 note append 的 CRLF JSONL 写入、eventId 生成、what-if/no-write、duplicate eventId、lane guard 或 no authority/confirmed 语义；不改变 PowerShell façade 委托集合；不执行 heavy-tool、不自动 spawn tactical subagent、不写 authority/confirmed、不改变 sync/promote review-first 语义。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/note/note.go internal/rekit/note/note_test.go`、`go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

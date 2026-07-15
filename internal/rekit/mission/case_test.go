@@ -56,6 +56,26 @@ func TestBoardLaneLabelTreatsMainIDAsMain(t *testing.T) {
 	}
 }
 
+func TestFactFileNameMapsLedgerKinds(t *testing.T) {
+	cases := map[string]string{
+		"observation":  "observations.jsonl",
+		"candidate":    "candidates.jsonl",
+		"request":      "requests.jsonl",
+		"publication":  "publications.jsonl",
+		"decision":     "decisions.jsonl",
+		"hypothesis":   "hypotheses.jsonl",
+		"verification": "verifications.jsonl",
+		"intervention": "interventions.jsonl",
+		"rollback":     "rollbacks.jsonl",
+		"custom":       "customs.jsonl",
+	}
+	for kind, want := range cases {
+		if got := FactFileName(kind); got != want {
+			t.Fatalf("FactFileName(%q) = %q, want %q", kind, got, want)
+		}
+	}
+}
+
 func TestReadJSONLineObjectsSkipsBlankAndInvalidLines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	content := strings.Join([]string{

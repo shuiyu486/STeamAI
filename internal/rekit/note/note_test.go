@@ -72,6 +72,29 @@ func TestAppendWritesAndListsEvent(t *testing.T) {
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }
 
+func TestListRejectsInvalidJSONL(t *testing.T) {
+	repoRoot, caseRoot, pack := noteFixture(t)
+	writeNoteText(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"), "not json\n")
+
+	_, err := ListEvents(repoRoot, caseRoot, pack, Options{Kind: "observation"})
+	if err == nil || !strings.Contains(err.Error(), "invalid JSONL") {
+		t.Fatalf("invalid JSONL error = %v", err)
+	}
+}
+
+func TestListReadsSharedFactFileMapping(t *testing.T) {
+	repoRoot, caseRoot, pack := noteFixture(t)
+	writeNoteText(t, filepath.Join(caseRoot, ".rekit", "facts", "hypotheses.jsonl"), `{"kind":"hypothesis","lane":"main","subject":"shared mapping"}`+"\n")
+
+	listed, err := ListEvents(repoRoot, caseRoot, pack, Options{Kind: "hypothesis", Lane: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed.EventCount != 1 || len(listed.Groups) != 1 || stringValue(listed.Groups[0].Events[0], "subject") != "shared mapping" {
+		t.Fatalf("unexpected mapped list result: %+v", listed)
+	}
+}
+
 func TestAppendDuplicateExplicitEventIDDoesNotAppend(t *testing.T) {
 	repoRoot, caseRoot, pack := noteFixture(t)
 	opt := Options{
