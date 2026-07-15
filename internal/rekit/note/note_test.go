@@ -118,8 +118,9 @@ func TestListUsesSharedLedgerKinds(t *testing.T) {
 	}
 }
 
-func TestAppendDuplicateExplicitEventIDDoesNotAppend(t *testing.T) {
+func TestAppendDuplicateExplicitEventIDUsesSharedLedgerEventIDs(t *testing.T) {
 	repoRoot, caseRoot, pack := noteFixture(t)
+	writeNoteText(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"), `{"kind":"observation","lane":"main","eventId":"evt-note-duplicate"}`+"\n")
 	opt := Options{
 		Kind:     "decision",
 		Lane:     "main",
@@ -132,21 +133,14 @@ func TestAppendDuplicateExplicitEventIDDoesNotAppend(t *testing.T) {
 		EventID:  "evt-note-duplicate",
 	}
 
-	first, err := Append(repoRoot, caseRoot, pack, opt, false)
+	result, err := Append(repoRoot, caseRoot, pack, opt, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := Append(repoRoot, caseRoot, pack, opt, false)
-	if err != nil {
-		t.Fatal(err)
+	if result.Applied || result.Reason != "duplicate eventId" || result.EventID != opt.EventID {
+		t.Fatalf("unexpected duplicate append result: %+v", result)
 	}
-	if !first.Applied || second.Applied || second.EventID != first.EventID || second.Reason != "duplicate eventId" {
-		t.Fatalf("unexpected duplicate append results: first=%+v second=%+v", first, second)
-	}
-	lines := readNoteLines(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"))
-	if len(lines) != 1 {
-		t.Fatalf("duplicate append wrote %d lines, want 1: %q", len(lines), lines)
-	}
+	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"))
 }
 
 func TestAppendRejectsInvalidKindAndUnknownLaneWithoutWrite(t *testing.T) {
@@ -173,19 +167,6 @@ func noteFixture(t *testing.T) (repoRoot, caseRoot, pack string) {
 	writeNoteText(t, filepath.Join(caseRoot, ".rekit", "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \""+pack+"\"\nprojectName: \"note-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
 	writeNoteText(t, filepath.Join(caseRoot, ".rekit", "board.json"), `{"lanes":[{"id":"main"}]}`)
 	return repoRoot, caseRoot, pack
-}
-
-func readNoteLines(t *testing.T, path string) []string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := strings.TrimSpace(strings.ReplaceAll(string(b), "\r\n", "\n"))
-	if text == "" {
-		return nil
-	}
-	return strings.Split(text, "\n")
 }
 
 func writeNoteText(t *testing.T, path, text string) {

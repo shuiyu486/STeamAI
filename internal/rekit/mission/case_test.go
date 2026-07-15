@@ -196,6 +196,21 @@ func TestReadLedgerEventIDsUsesSharedFactsMapping(t *testing.T) {
 	}
 }
 
+func TestReadStrictLedgerEventIDsReturnsMalformedJSONLError(t *testing.T) {
+	caseRoot := t.TempDir()
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	if err := os.MkdirAll(factsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(factsRoot, "observations.jsonl"), []byte("not json\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ReadStrictLedgerEventIDs(caseRoot); err == nil || !strings.Contains(err.Error(), "invalid JSONL") {
+		t.Fatalf("strict ledger event ids error = %v", err)
+	}
+}
+
 func TestReadStrictLedgerFactsSummarizesPendingAndBatches(t *testing.T) {
 	caseRoot := t.TempDir()
 	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")

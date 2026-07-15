@@ -465,18 +465,11 @@ func eventIDFor(event map[string]any) string {
 }
 
 func eventIDExists(caseRoot, id string) (bool, error) {
-	for _, kind := range mission.LedgerKinds() {
-		items, err := readFactEvents(caseRoot, kind)
-		if err != nil {
-			return false, err
-		}
-		for _, item := range items {
-			if stringValue(item, "eventId") == id {
-				return true, nil
-			}
-		}
+	known, err := mission.ReadStrictLedgerEventIDs(caseRoot)
+	if err != nil {
+		return false, err
 	}
-	return false, nil
+	return known[id], nil
 }
 
 func relativeCasePath(caseRoot, path string) string {

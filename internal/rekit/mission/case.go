@@ -181,9 +181,17 @@ func ReadStrictFactFile(caseRoot, name string) ([]map[string]any, error) {
 }
 
 func ReadLedgerEventIDs(caseRoot string) (map[string]bool, error) {
+	return readLedgerEventIDs(caseRoot, ReadFactFile)
+}
+
+func ReadStrictLedgerEventIDs(caseRoot string) (map[string]bool, error) {
+	return readLedgerEventIDs(caseRoot, ReadStrictFactFile)
+}
+
+func readLedgerEventIDs(caseRoot string, readFact func(string, string) ([]map[string]any, error)) (map[string]bool, error) {
 	known := map[string]bool{}
 	for _, name := range FactFileNames() {
-		items, err := ReadFactFile(caseRoot, name)
+		items, err := readFact(caseRoot, name)
 		if err != nil {
 			return nil, err
 		}
