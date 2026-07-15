@@ -143,7 +143,7 @@ claude
 | `/rekit doctor` | 只读 | 排障时详细验证结构；日常不必主动运行；维护自动化可用 `-Format json` 消费验证 rows。 |
 | `/rekit repair` | case metadata | 迁移目录后先预览修复；确认后由 Claude 调用 backend `-Apply`。 |
 
-`validate` 和 `plan-subagents` 仍是 backend/内部命令，不是日常主入口；`packs` 是维护者/排障入口，用于多 pack 发现和矩阵验证；`note -List` 文本/table/tsv 与 `note -List -Format json` 默认经 Go façade 只读查询 ledger events，`note` append 与 `note -WhatIf` 输出机器可读 JSON envelope，并只写 facts JSONL 或预览。
+`validate` 和 `plan-subagents` 仍是 backend/内部命令，不是日常主入口；`plan-subagents` 默认经 Go façade 生成 review artifact，但不自动 spawn agent；`packs` 是维护者/排障入口，用于多 pack 发现和矩阵验证；`note -List` 文本/table/tsv 与 `note -List -Format json` 默认经 Go façade 只读查询 ledger events，`note` append 与 `note -WhatIf` 输出机器可读 JSON envelope，并只写 facts JSONL 或预览。
 
 ## 日常工作流
 
@@ -294,7 +294,7 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 
 ## 高级/内部：子 agent 分片计划
 
-`/rekit plan-subagents` 是内部只读计划器，用于主 agent 或自动流程在批量复核时按 handler、trace、tooling diff 等固定边界生成分片审查产物。它不启动 agent，也不修改 managed docs 或项目源文件；日常不需要用户手动调用。
+`/rekit plan-subagents` 是内部只读计划器，用于主 agent 或自动流程在批量复核时按 handler、trace、tooling diff 等固定边界生成分片审查产物。公共 façade 默认委托 Go backend 写 review artifact，并在 `REKIT_GO_DISABLE=1` 时回退 PowerShell fallback。它不启动 agent，也不修改 managed docs 或项目源文件；日常不需要用户手动调用。
 
 生成的 `packet.json` / `summary.md` 会标出 route 选择原因、每个 shard 的初始 `planned` 状态、spawn/merge 责任、verdict 写回入口和被 runtime 阻止的动作（例如 runtime 不自动 spawn、子 agent 不写文件）。这些字段只帮助主会话审计 bounded dispatch，不代表 runtime 会启动 reviewer。
 
@@ -420,7 +420,7 @@ packs/vmp-re/scripts/promote.ps1
 
 - `/rekit` 是用户入口。
 - `rekit/rekit.ps1` 是稳定 PowerShell façade / fallback，只是 backend。
-- Go backend 位于 `cmd/rekit/**` 与 `internal/rekit/**`；低风险只读命令 `status`、`packs`、`doctor/validate`，attached case 的 `overview` 文本/JSON 与缺 board 时的 case-local board/facts/policy/default authority lane 初始化，`note -List` 文本/table/tsv/JSON 只读查询，attached case 的 note append / `note -WhatIf` facts JSONL 写入或预览，`gate -WhatIf` 非写入 heavy-tool gate preview，`gate -Apply` pending-gate request 写入，attached case 的 `start -WhatIf -Format json` / `start -Apply` / `handoff -WhatIf -Format json` / `handoff -Apply`、`continue -WhatIf -Format json` 非写入 preview 与 explicit `continue -Apply` case-local facts/routing/run digest/lane resume/checkpoint/board 写入，边界清晰的 case lifecycle 命令 `attach`、`repair`、`init/bootstrap` 的预览与显式 `-Apply`，`/rekit sync` review、`sync -Apply` 实际写入和 `sync -Apply -WhatIf -Format json` 非写入预览，以及 `/rekit promote` review、review artifact 写入、promote `-CreateCandidates` 实际候选写入、promote `-CreateCandidates -WhatIf -Format json` 非写入预览、promote `-Apply` 实际 pack source 写入和 promote `-Apply -WhatIf -Format json` 非写入预览默认委托 Go，`REKIT_GO_DISABLE=1` 可强制禁用 Go façade 委托。Go CLI 另有手动验证路径，例如 `overview` 只读和 `plan-subagents` review artifact；actual heavy-tool 执行、文本 `sync -Apply -WhatIf`、文本 promote what-if、无 `-Apply` 的文本工作线命令、内部命令和非 note/gate/continue apply 的其它 ledger 写入命令暂不经 façade 委托；Go `continue -Apply` 不写 authority/confirmed，authority/confirmed 仍需显式用户确认。
+- Go backend 位于 `cmd/rekit/**` 与 `internal/rekit/**`；低风险只读命令 `status`、`packs`、`doctor/validate`，attached case 的 `overview` 文本/JSON 与缺 board 时的 case-local board/facts/policy/default authority lane 初始化，`note -List` 文本/table/tsv/JSON 只读查询，attached case 的 note append / `note -WhatIf` facts JSONL 写入或预览，`gate -WhatIf` 非写入 heavy-tool gate preview，`gate -Apply` pending-gate request 写入，attached case 的 `start -WhatIf -Format json` / `start -Apply` / `handoff -WhatIf -Format json` / `handoff -Apply`、`continue -WhatIf -Format json` 非写入 preview 与 explicit `continue -Apply` case-local facts/routing/run digest/lane resume/checkpoint/board 写入，边界清晰的 case lifecycle 命令 `attach`、`repair`、`init/bootstrap` 的预览与显式 `-Apply`，`/rekit sync` review、`sync -Apply` 实际写入和 `sync -Apply -WhatIf -Format json` 非写入预览，以及 `/rekit promote` review、review artifact 写入、promote `-CreateCandidates` 实际候选写入、promote `-CreateCandidates -WhatIf -Format json` 非写入预览、promote `-Apply` 实际 pack source 写入和 promote `-Apply -WhatIf -Format json` 非写入预览默认委托 Go，`REKIT_GO_DISABLE=1` 可强制禁用 Go façade 委托。`plan-subagents` review artifacts 也默认委托 Go，但只写 review packet/summary/combined diff 路径、不自动 spawn agent；actual heavy-tool 执行、文本 `sync -Apply -WhatIf`、文本 promote what-if、无 `-Apply` 的文本工作线命令和非 note/gate/continue apply 的其它 ledger 写入命令暂不经 façade 委托；Go `continue -Apply` 不写 authority/confirmed，authority/confirmed 仍需显式用户确认。
 - 工作流 runtime 已拆为 `rekit/lib/B3.*.ps1`，按 Core / State / Policy / Lane / Auto / Commands 分层。
 - `packs/<pack>/manifest.yml` 是 managed/local/tooling/budget/promote 规则的单一事实源。
 - case-local `.claude/skills/rekit/SKILL.md` 只是 thin shim，不维护业务逻辑。

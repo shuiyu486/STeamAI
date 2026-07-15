@@ -66,7 +66,7 @@ try {
   if ([string]::IsNullOrWhiteSpace($lane)) { throw 'start did not create a feature lane' }
 
   $planOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-TaskType','feature-analysis','-Items','candidate-alpha','-ReviewOutputDir',$reviewRoot)
-  Assert-ContainsText -Text $planOut -Expected 'review packet:' -Label 'plan-subagents output'
+  Assert-ContainsText -Text $planOut -Expected '"command": "plan-subagents"' -Label 'plan-subagents default Go output'
   $packetPath = Join-Path $reviewRoot 'packet.json'
   if (-not (Test-Path -LiteralPath $packetPath)) { throw "missing review packet: $packetPath" }
   $packet = Get-Content -LiteralPath $packetPath -Raw | ConvertFrom-Json

@@ -86,7 +86,7 @@ try {
   Write-Utf8File -Path (Join-Path $caseRoot $packetRel) -Text "# packet`r`n`r`nOLLVM CFG triage packet for dry-run only; no sample execution, full trace, dump, patch, deobfuscated binary writeback, or network call`r`n"
 
   $planOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-TaskType','control-flow-triage','-Items','function-alpha,cfg-region-entry','-ItemsPerAgent','1','-MaxParallel','2','-ReviewOutputDir',$reviewRoot)
-  Assert-ContainsText -Text $planOut -Expected 'review packet:' -Label 'ollvm plan-subagents output'
+  Assert-ContainsText -Text $planOut -Expected '"command": "plan-subagents"' -Label 'ollvm plan-subagents default Go output'
   $packetPath = Join-Path $reviewRoot 'packet.json'
   if (-not (Test-Path -LiteralPath $packetPath)) { throw "missing ollvm review packet: $packetPath" }
   $packet = Read-JsonFile -Path $packetPath

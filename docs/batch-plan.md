@@ -5742,3 +5742,33 @@ git diff --check
 ```
 
 验证结果：已通过 `go test ./internal/rekit/overview ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 190：plan-subagents Go default façade
+
+状态：已完成。
+
+目标：继续 Stage 8 / PowerShell 逐步剔除，把 `plan-subagents` 从 PowerShell internal/fallback 推进为默认 Go façade 的 review artifact owner，降低 PowerShell runtime 语义面，同时保留 review-only、bounded dispatch 和 `REKIT_GO_DISABLE=1` fallback 边界。
+
+实施范围：
+
+- 扩展 `rekit/rekit.ps1` 默认 Go 委托集合，把 `plan-subagents` 纳入 safe set；新增 safety guard，要求显式 target，拒绝 `-Apply` / `-WhatIf` / `-CreateCandidates` / `-Review` / `-Force` / `-Format` 组合，attached case 或显式 out-of-case `-ReviewOutputDir` 才可默认委托。
+- façade 现在向 Go backend 透传 `-Route`、`-TaskType`、`-Items`、`-ItemsFile`、`-ItemsPerAgent`、`-MaxParallel` 以及已有 review artifact 路径参数；`REKIT_GO_DISABLE=1` 继续使用 PowerShell `Write-RekitSubagentPlan` fallback。
+- 更新 `facade-smoke.ps1` 与 `plan-subagents-smoke.ps1`，覆盖 fake default delegation、真实 façade JSON result、review artifact 写入和 disabled fallback；更新 release invariant 与 releasecheck deprecation inventory，锁定 `plan-subagents` 是 Go-default façade command 且 heavy-tool / authority / confirmed 仍不进入默认委托。
+- 更新 `docs/powershell-deprecation.md`、`docs/release-readiness.md`、`docs/go-runtime-migration.md`、`docs/go-first-convergence-plan.md`、README、CLAUDE、`/rekit` skill 与 CHANGELOG，记录 Batch 190 的 PowerShell 收缩边界。
+
+边界：本批只改变 façade 委托与文档/测试；`plan-subagents` 仍只写 review packet / summary / combined diff artifact，不自动 spawn agent、不写 board/facts/lanes/handoff/authority/confirmed、不执行 heavy-tool、不改变 sync/promote review-first 语义、不删除 PowerShell fallback。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/manifest ./internal/rekit/releasecheck ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+.\rekit\tests\plan-subagents-smoke.ps1
+.\rekit\tests\facade-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 `go test ./internal/rekit/manifest ./internal/rekit/releasecheck ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor`、`plan-subagents-smoke.ps1` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

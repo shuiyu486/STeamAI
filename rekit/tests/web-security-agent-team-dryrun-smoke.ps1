@@ -86,7 +86,7 @@ try {
   Write-Utf8File -Path (Join-Path $caseRoot $packetRel) -Text "# packet`r`n`r`nweb endpoint authorization packet for dry-run only`r`n"
 
   $planOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-TaskType','endpoint-analysis','-Items','endpoint-login,api-flow-authz','-ItemsPerAgent','1','-MaxParallel','2','-ReviewOutputDir',$reviewRoot)
-  Assert-ContainsText -Text $planOut -Expected 'review packet:' -Label 'web-security plan-subagents output'
+  Assert-ContainsText -Text $planOut -Expected '"command": "plan-subagents"' -Label 'web-security plan-subagents default Go output'
   $packetPath = Join-Path $reviewRoot 'packet.json'
   if (-not (Test-Path -LiteralPath $packetPath)) { throw "missing web-security review packet: $packetPath" }
   $packet = Read-JsonFile -Path $packetPath

@@ -86,7 +86,7 @@ try {
   Write-Utf8File -Path (Join-Path $caseRoot $packetRel) -Text "# packet`r`n`r`nAndroid native JNI triage packet for dry-run only; no device connection, Frida attach, hook execution, injection, dump, patch, or network call`r`n"
 
   $planOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-TaskType','jni-triage','-Items','libnative-alpha,jni-symbol-init','-ItemsPerAgent','1','-MaxParallel','2','-ReviewOutputDir',$reviewRoot)
-  Assert-ContainsText -Text $planOut -Expected 'review packet:' -Label 'android-native plan-subagents output'
+  Assert-ContainsText -Text $planOut -Expected '"command": "plan-subagents"' -Label 'android-native plan-subagents default Go output'
   $packetPath = Join-Path $reviewRoot 'packet.json'
   if (-not (Test-Path -LiteralPath $packetPath)) { throw "missing android-native review packet: $packetPath" }
   $packet = Read-JsonFile -Path $packetPath

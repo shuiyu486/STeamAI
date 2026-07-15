@@ -86,7 +86,7 @@ try {
   Write-Utf8File -Path (Join-Path $caseRoot $packetRel) -Text "# packet`r`n`r`ngeneric binary analysis packet for dry-run only; no sample execution, debug, trace, dump, or patch`r`n"
 
   $planOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-TaskType','binary-analysis','-Items','function-init,string-login','-ItemsPerAgent','1','-MaxParallel','2','-ReviewOutputDir',$reviewRoot)
-  Assert-ContainsText -Text $planOut -Expected 'review packet:' -Label 'generic-binary plan-subagents output'
+  Assert-ContainsText -Text $planOut -Expected '"command": "plan-subagents"' -Label 'generic-binary plan-subagents default Go output'
   $packetPath = Join-Path $reviewRoot 'packet.json'
   if (-not (Test-Path -LiteralPath $packetPath)) { throw "missing generic-binary review packet: $packetPath" }
   $packet = Read-JsonFile -Path $packetPath

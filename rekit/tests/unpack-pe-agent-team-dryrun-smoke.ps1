@@ -86,7 +86,7 @@ try {
   Write-Utf8File -Path (Join-Path $caseRoot $packetRel) -Text "# packet`r`n`r`nPE loader triage packet for dry-run only; no sample execution, debug, dump, patch, memory extraction, unpacked binary writeback, or network call`r`n"
 
   $planOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-TaskType','pe-triage','-Items','packed-sample,loader-stage-one','-ItemsPerAgent','1','-MaxParallel','2','-ReviewOutputDir',$reviewRoot)
-  Assert-ContainsText -Text $planOut -Expected 'review packet:' -Label 'unpack-pe plan-subagents output'
+  Assert-ContainsText -Text $planOut -Expected '"command": "plan-subagents"' -Label 'unpack-pe plan-subagents default Go output'
   $packetPath = Join-Path $reviewRoot 'packet.json'
   if (-not (Test-Path -LiteralPath $packetPath)) { throw "missing unpack-pe review packet: $packetPath" }
   $packet = Read-JsonFile -Path $packetPath

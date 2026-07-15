@@ -547,6 +547,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"start",
 		"handoff",
 		"continue",
+		"plan-subagents",
 	})
 	assertSameStringSet(t, "documented Go-default facade commands", expectedDefaultCommands, "Test-RekitGoDefaultDelegationCommand", defaultCommands)
 
@@ -556,13 +557,13 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 			t.Fatalf("ValidateSet missing Go-default command %q", command)
 		}
 	}
-	for _, legacyOrBlocked := range []string{"plan-subagents", "full-trace", "debug", "inject", "patch", "dump", "network", "heavy-tool", "authority", "confirmed"} {
+	for _, legacyOrBlocked := range []string{"full-trace", "debug", "inject", "patch", "dump", "network", "heavy-tool", "authority", "confirmed"} {
 		if defaultCommands[legacyOrBlocked] {
 			t.Fatalf("legacy/blocked command %q must not default to Go facade", legacyOrBlocked)
 		}
 	}
 	if !validateSet["plan-subagents"] {
-		t.Fatal("ValidateSet must keep plan-subagents as a supported PowerShell internal command")
+		t.Fatal("ValidateSet must keep plan-subagents as a supported facade command")
 	}
 
 	for _, required := range []string{
@@ -570,11 +571,14 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"if ($Command -notin @('start','handoff','continue','release-check'))",
 		"release-check is implemented by the Go backend only",
 		"gate is implemented by the Go backend only",
+		"'plan-subagents' {",
+		"Add-RekitGoArg ([ref]$goArgs) '-Route' $Route",
 	} {
 		assertTextContains(t, facade, required, "PowerShell facade freeze guard")
 	}
 	for _, required := range []string{
 		"| `release-check` | Go default | façade delegate + no PowerShell fallback |",
+		"| `plan-subagents` review artifacts | Go default | façade + fallback |",
 		"Legacy freeze",
 		"PowerShell 只允许 bug fix / compatibility / safety boundary 修复",
 		"actual full-trace/debug/inject/patch/dump/network/symex/heavy-tool",

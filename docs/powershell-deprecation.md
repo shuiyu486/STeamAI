@@ -4,7 +4,7 @@
 
 本文件定义 `rekit` PowerShell 层的冻结、保留、迁移与删除策略，配合 `docs/release-readiness.md` 和 `docs/go-first-convergence-plan.md` 使用。维护者在修改 `rekit/rekit.ps1`、`rekit/lib/*.ps1`、Go façade 委托集合、fallback 逻辑或旧文本 flow 前应先读本文件顶部区域。
 
-本文件不是立即删除 PowerShell runtime 的计划。当前用户入口仍是 `/rekit` / `rekit/rekit.ps1`，PowerShell 仍承担 façade、参数兼容、legacy text flow 和 Windows parity smoke 职责；任何删除、冻结或默认委托变化都必须单独批次验证。
+本文件不是立即删除 PowerShell runtime 的计划。当前用户入口仍是 `/rekit` / `rekit/rekit.ps1`，PowerShell 仍承担 façade、参数兼容、legacy text flow 和 Windows parity smoke 职责；任何删除或冻结都必须单独批次验证。默认委托变化必须在对应 batch 中同步更新本矩阵、release invariants 与 façade smoke。
 
 ## 实施摘要
 
@@ -62,7 +62,7 @@ PowerShell deprecation 相关变更至少满足：
 | `gate -WhatIf` / `gate -Apply` pending-gate | Go default | façade + fallback | 只预览或写 pending-gate request；不执行 heavy-tool。 |
 | `start` / `handoff` JSON preview/apply | Go default | façade + text fallback | 文本 preview 可保留 legacy；结构化语义以 Go 为准。 |
 | `continue -WhatIf -Format json` / explicit `continue -Apply` | Go default safe subset | façade + fallback | `continue -Apply` 不写 authority/confirmed；text flow legacy-only。 |
-| `plan-subagents` review artifacts | Go manual path + PowerShell internal flow | internal/fallback | 不自动 spawn agent；默认 façade 委托变化需单独 batch。 |
+| `plan-subagents` review artifacts | Go default | façade + fallback | 只写 review packet / summary / combined diff 路径；不自动 spawn agent，`REKIT_GO_DISABLE=1` 保留 PowerShell fallback。 |
 | 无 `-Apply` 的文本工作线 flow | PowerShell legacy | legacy-only | 冻结语义；只修 bug，不新增状态模型。 |
 | actual heavy-tool 执行 | 未迁移 | blocked / manual gate | 不自动迁移；需要用户确认和单独设计。 |
 | authority/confirmed 写入 | 人工 gate / legacy guarded | blocked | 不由 Go apply 自动执行；删除/迁移需 schema 与恢复策略。 |
@@ -92,7 +92,7 @@ PowerShell deprecation 相关变更至少满足：
 2. **Go-owned**：Go package tests 和 CLI tests 覆盖 deterministic 行为。
 3. **Façade default**：公共 `/rekit` 默认委托 Go，并保留 `REKIT_GO_DISABLE=1` fallback。
 4. **Release inventory**：`release-check` 的 `powerShellDeprecation` inventory 必须 `ready=true`，并能解析命令归属、模块状态、freeze gates、blocked migrations、默认委托和实际 `.ps1` 模块清单。
-5. **Release invariant**：Go release invariant 锁定 checklist、边界、known gaps、deprecation 状态或 façade freeze guard；Batch 131 已新增 `TestPowerShellFacadeFreezeInvariants` 锁定默认 Go 委托集合、`release-check` Go-only guard、legacy/internal `plan-subagents` 边界和 blocked heavy-tool/authority/confirmed 不进入默认委托。
+5. **Release invariant**：Go release invariant 锁定 checklist、边界、known gaps、deprecation 状态或 façade freeze guard；Batch 131 已新增 `TestPowerShellFacadeFreezeInvariants` 锁定默认 Go 委托集合、`release-check` Go-only guard和 blocked heavy-tool/authority/confirmed 不进入默认委托；Batch 190 将 `plan-subagents` review artifacts 纳入默认 Go façade 并继续锁定不自动 spawn agent / 不执行 heavy-tool 边界。
 6. **Legacy freeze**：PowerShell 只允许 bug fix / compatibility / safety boundary 修复。
 7. **Fallback retirement candidate**：至少一个 release cycle 无 fallback 需求，且旧 case smoke、doctor、facade smoke 通过。
 8. **Removal batch**：删除必须是单独批次，含恢复计划、diff review、CHANGELOG、docs、tests 和用户明确授权。

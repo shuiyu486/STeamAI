@@ -708,7 +708,7 @@ func assertReleaseCheckPowerShellDeprecation(t *testing.T, inventory releaseChec
 	}
 	assertPowerShellCommandOwner(t, inventory, "release-check", true, false)
 	assertPowerShellCommandOwner(t, inventory, "sync / update", true, false)
-	assertPowerShellCommandOwner(t, inventory, "plan-subagents", false, false)
+	assertPowerShellCommandOwner(t, inventory, "plan-subagents", true, false)
 	assertPowerShellCommandOwner(t, inventory, "actual heavy-tool", false, true)
 	assertPowerShellModuleStatus(t, inventory, "rekit/rekit.ps1")
 	assertPowerShellModuleStatus(t, inventory, "rekit/lib/B3.Commands.ps1")

@@ -112,7 +112,7 @@ func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {
 		t.Fatalf("PowerShell deprecation inventory omitted required sections: %+v", inventory)
 	}
 	assertCommandOwner(t, inventory, "sync / update", true, false)
-	assertCommandOwner(t, inventory, "plan-subagents", false, false)
+	assertCommandOwner(t, inventory, "plan-subagents", true, false)
 	assertCommandOwner(t, inventory, "actual heavy-tool", false, true)
 	assertModuleStatus(t, inventory, "rekit/rekit.ps1")
 	assertModuleStatus(t, inventory, "rekit/lib/B3.Commands.ps1")
@@ -139,7 +139,7 @@ function Test-RekitGoDefaultDelegationCommand {
 | 区域 | 当前 owner | PowerShell 状态 | 冻结/删除策略 |
 |---|---|---|---|
 | status | Go default | façade + fallback | documented. |
-| plan-subagents review artifacts | Go manual path + PowerShell internal flow | internal/fallback | no default delegation. |
+| plan-subagents review artifacts | Go default | façade + fallback | review artifacts only. |
 | actual heavy-tool 执行 | 未迁移 | blocked / manual gate | requires separate design. |
 
 ## PowerShell 模块状态

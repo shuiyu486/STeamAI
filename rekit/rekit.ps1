@@ -120,7 +120,7 @@ function Test-RekitEnvTruthy {
 
 function Test-RekitGoDefaultDelegationCommand {
   param([string]$Name)
-  return (@('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue') -contains $Name)
+  return (@('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','plan-subagents') -contains $Name)
 }
 
 function Test-RekitGoDelegationEnabled {
@@ -266,6 +266,16 @@ function Test-RekitGoDelegationSafe {
       if ($WhatIf) { return ($formatValue -eq 'json') }
       return ($Apply -and ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json'))
     }
+    'plan-subagents' {
+      if ($Apply -or $WhatIf -or $CreateCandidates -or $Review -or $Force) { return $false }
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      if (-not [string]::IsNullOrWhiteSpace($formatValue)) { return $false }
+      if ([string]::IsNullOrWhiteSpace($Target)) { return $false }
+      $planRoot = Resolve-RekitTarget $Target
+      if (Test-RekitLooksLikeCase $planRoot) { return $true }
+      if ([string]::IsNullOrWhiteSpace($ReviewOutputDir)) { return $false }
+      return (Test-Path -LiteralPath $planRoot)
+    }
     default { return $false }
   }
 }
@@ -303,7 +313,7 @@ function Add-RekitGoSwitch {
 function Get-RekitGoTarget {
   switch ($Command) {
     { $_ -in @('status','packs','release-check') } { return (Resolve-RekitTarget $Target) }
-    { $_ -in @('attach','repair','init','bootstrap','overview','note','sync','update','promote','gate') } { return (Resolve-RekitTarget $Target) }
+    { $_ -in @('attach','repair','init','bootstrap','overview','note','sync','update','promote','gate','plan-subagents') } { return (Resolve-RekitTarget $Target) }
     { $_ -in @('doctor','validate') } {
       if (-not [string]::IsNullOrWhiteSpace($Target)) { return (Resolve-RekitTarget $Target) }
       $cwd = Resolve-RekitTarget ''
@@ -389,6 +399,14 @@ function Get-RekitGoArgs {
     Add-RekitGoArg ([ref]$goArgs) '-Budget' $Budget
     Add-RekitGoArg ([ref]$goArgs) '-TriedLightSteps' $TriedLightSteps
     Add-RekitGoArg ([ref]$goArgs) '-StopConditions' $StopConditions
+  }
+  if ($Command -eq 'plan-subagents') {
+    Add-RekitGoArg ([ref]$goArgs) '-Route' $Route
+    Add-RekitGoArg ([ref]$goArgs) '-TaskType' $TaskType
+    Add-RekitGoArg ([ref]$goArgs) '-Items' $Items
+    Add-RekitGoArg ([ref]$goArgs) '-ItemsFile' $ItemsFile
+    if ($ItemsPerAgent -gt 0) { Add-RekitGoArg ([ref]$goArgs) '-ItemsPerAgent' ([string]$ItemsPerAgent) }
+    if ($MaxParallel -gt 0) { Add-RekitGoArg ([ref]$goArgs) '-MaxParallel' ([string]$MaxParallel) }
   }
   return $goArgs
 }

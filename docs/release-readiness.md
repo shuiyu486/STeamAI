@@ -10,7 +10,7 @@
 
 当前 release readiness 状态：
 
-- Go backend 已是多数确定性 runtime 路径的 owner：`status`、`packs`、`doctor/validate`、case lifecycle、sync/promote、overview、note、gate、start/handoff、continue preview/apply safe subset。
+- Go backend 已是多数确定性 runtime 路径的 owner：`status`、`packs`、`doctor/validate`、case lifecycle、sync/promote、overview、note、gate、start/handoff、continue preview/apply safe subset，以及 `plan-subagents` review artifacts。
 - PowerShell `rekit/rekit.ps1` 仍是公共 façade：负责参数兼容、旧文本 flow、fallback、少量 parity smoke 和 `REKIT_GO_DISABLE=1` 回退。
 - Agent Team dry-run 已从 `_template` package E2E 扩展到 `generic-binary-re`、`web-security` package E2E，并新增 `web-security`、`generic-binary-re`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 真实临时 case smoke。
 - 发布门禁应优先依赖 Go-owned `release-check` inventory、Go tests / `go vet` / doctor / 少量 Windows façade smoke；Batch 139 已让 `release-check` 输出 `gateProfile`，将 recommended minimum 解析为本机/CI 可消费的 step kind、repo-local path、present/resolved 状态；Batch 140 已新增 `.github/workflows/release-gate.yml`，只运行 Go release checks 与 Windows facade smoke，不把大型 pack matrix 作为默认必跑；Batch 142 已让 `release-check` 输出 `powerShellDeprecation` inventory，解析 PowerShell 命令归属、模块状态、freeze gates 与 blocked migrations，作为 PowerShell 收缩的确定性前置检查；Batch 144 已让 `release-check` 输出 `ciReleaseGate` inventory，对照 GitHub Actions workflow 的 job、required commands 与 forbidden broad/heavy steps 发现漂移；Batch 146 已让 `release-check` 输出 `releaseHandoff`，把新会话 read-first 文档、关键 readiness signals、latest batch 摘要、验证命令和下一步接手动作放进同一个 Go-owned envelope；Batch 147 已让 `releaseHandoff.releaseNotes` 对照最新 batch 与 CHANGELOG `Unreleased`，防止完成批次但漏写 release note；Batch 148 已让 `releaseHandoff.knownGaps[]` 汇总 `docs/release-readiness.md` Known gaps 的 category/summary，便于新会话先看机器可读缺口再按需读长文档；Batch 149 已让 `releaseHandoff.packMaturity` 汇总 pack maturity、schema validity 与每 pack heavy-tool gate readiness，Batch 162 已进一步输出 pack manifest `schemaVersion` 与 `schemaVersionReady`，避免接手时必须遍历完整 `packs[]` 或 manifest 才能判断 pack 覆盖和 schema contract 版本状态。
@@ -122,12 +122,13 @@ Go-owned / Go-default 路径：
 - `continue -WhatIf -Format json`、explicit `continue -Apply` safe subset。
 - case lifecycle `attach`、`repair`、`init/bootstrap` preview/apply。
 - `sync` / `update` review/apply/JSON preview 与 `promote` review/artifacts/candidates/apply/JSON preview。
+- `plan-subagents` review artifact 写入：只生成 packet / summary / combined diff 路径，不自动 spawn reviewer。
 
 PowerShell legacy / fallback 路径（详细冻结/删除策略见 `docs/powershell-deprecation.md`）：
 
 - 无 `-Apply` 的文本工作线 flow。
 - 文本 `sync -Apply -WhatIf` 与文本 promote what-if。
-- 内部命令和非 note/gate/continue apply 的其它 ledger 写入命令。
+- 非 note/gate/continue apply 的其它 ledger 写入命令。
 - `REKIT_GO_DISABLE=1` fallback。
 - 少量 Windows façade parity smoke。
 

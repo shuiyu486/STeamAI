@@ -117,7 +117,7 @@ try {
     $gateLane = 'feature-handler-0x40a010'
   }
 
-  # Low-risk read-only commands, overview/note reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, promote JSON previews, start/handoff JSON preview/apply paths, and continue JSON preview/apply default to Go.
+  # Low-risk read-only commands, overview/note reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, promote JSON previews, start/handoff JSON preview/apply paths, continue JSON preview/apply, and plan-subagents review artifacts default to Go.
   $out = Invoke-RekitSmoke -Arguments @('-Command','status')
   Assert-ContainsText -Text $out -Expected 'rekit go backend:' -Label 'default go status'
 
@@ -160,6 +160,7 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -CommandName 'handoff' -Label 'default handoff apply fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'continue' -Label 'default continue JSON preview fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply') -CommandName 'continue' -Label 'default continue apply fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-Items','alpha,beta','-ReviewOutputDir',(Join-Path $matrixRoot 'plan-default')) -CommandName 'plan-subagents' -Label 'default plan-subagents fake delegation'
 
   $gateOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane,'-Subject','facade smoke default gate')
   Assert-ContainsText -Text $gateOut -Expected '"isMutation": false' -Label 'default go gate dry-run'
@@ -228,6 +229,7 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply','-Format','json') -CommandName 'handoff' -Label 'default handoff JSON apply delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'continue' -Label 'default continue JSON preview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply') -CommandName 'continue' -Label 'default continue apply delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-Items','matrix-alpha,matrix-beta','-ReviewOutputDir',(Join-Path $matrixRoot 'plan-matrix')) -CommandName 'plan-subagents' -Label 'default plan-subagents delegation'
   Assert-FakeFallback -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf') -Expected 'would create or enter feature workstream:' -Label 'start text preview fallback'
   Assert-FakeFallback -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack) -Expected 'feature-' -Label 'start bare text fallback'
   Assert-FakeFallback -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf') -Expected 'would write workstream handoff:' -Label 'handoff text preview fallback'
@@ -264,6 +266,9 @@ try {
   $disabledHandoffApplyOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledHandoffApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled handoff apply fallback'
   Assert-ContainsText -Text $disabledHandoffApplyOut -Expected 'main-latest.md' -Label 'go disabled handoff apply fallback'
+  $disabledPlanOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-Items','disabled-alpha,disabled-beta','-ReviewOutputDir',(Join-Path $matrixRoot 'plan-disabled')) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledPlanOut -Unexpected 'delegatedByFake' -Label 'go disabled plan-subagents fallback'
+  Assert-ContainsText -Text $disabledPlanOut -Expected 'review packet:' -Label 'go disabled plan-subagents fallback'
 
   'facade smoke ok'
 } finally {

@@ -124,8 +124,8 @@ function Invoke-RekitPackSmoke {
     if ([string]$packet.route.id -ne $ExpectedPlanRoute -or [string]$packet.observability.routeDebug.selectedBy -ne 'taskType') { throw "unexpected Go $Pack packet: $($packet | ConvertTo-Json -Depth 20)" }
     Assert-PackSmokeContainsText -Text ([string]$packet.outputContract) -Expected $ExpectedOutputContractText -Label "$Pack output contract"
 
-    $facadePlan = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-TaskType',$FacadeTaskType,'-Items',$FacadeItems,'-ReviewOutputDir',$facadeReviewRoot) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
-    Assert-PackSmokeContainsText -Text $facadePlan -Expected 'review packet:' -Label "$Pack facade plan fallback"
+    $facadePlan = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-TaskType',$FacadeTaskType,'-Items',$FacadeItems,'-ReviewOutputDir',$facadeReviewRoot)
+    Assert-PackSmokeContainsText -Text $facadePlan -Expected '"command": "plan-subagents"' -Label "$Pack facade plan default Go"
     $facadePacket = Get-Content -LiteralPath (Join-Path $facadeReviewRoot 'packet.json') -Raw | ConvertFrom-Json
     if ([string]$facadePacket.route.id -ne $ExpectedFacadeRoute) { throw "unexpected facade $Pack route: $($facadePacket | ConvertTo-Json -Depth 20)" }
 

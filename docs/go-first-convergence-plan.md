@@ -87,7 +87,7 @@ git diff --check
 
 - 多领域 skeleton pack 已建立，`vmp-re` 是首个 mature pack，其它安全领域 pack 主要为 skeleton。
 - Go backend 已覆盖大量命令面，包括 `status`、`packs`、`doctor/validate`、`attach`、`repair`、`init/bootstrap`、`sync/update`、`promote`、`overview`、`start`、`handoff`、`continue`、`plan-subagents`、`gate`、`note`。
-- PowerShell façade 仍是公共入口；低风险只读、case lifecycle、sync/promote、overview 文本/JSON 与缺 board 初始化、note 文本/JSON 只读查询、note append/what-if、gate what-if/apply request、start/handoff JSON preview 与显式 apply、continue JSON preview 与 explicit apply 路径已逐步默认委托 Go；无 `-Apply` 的文本工作流仍按边界回落 PowerShell。
+- PowerShell façade 仍是公共入口；低风险只读、case lifecycle、sync/promote、overview 文本/JSON 与缺 board 初始化、note 文本/JSON 只读查询、note append/what-if、gate what-if/apply request、start/handoff JSON preview 与显式 apply、continue JSON preview 与 explicit apply、plan-subagents review artifact 路径已逐步默认委托 Go；无 `-Apply` 的文本工作流仍按边界回落 PowerShell。
 - Batch 92-101 已把 pack smoke helper/matrix/discovery/tests guide/catalog metadata 收束成维护体系。
 - Agent Team 契约、ledger 基础、review-first sync/promote、Go review artifacts、Go gate preview/request、Go `plan-subagents` 只读计划器已经存在。
 
@@ -234,7 +234,7 @@ git diff --check
 
 - 新会话能通过一页 current-state/release checklist 了解项目状态；Batch 128 已新增 `docs/release-readiness.md` 并用 Go release invariant 锁定核心章节、命令、pack matrix 和 known gaps；Batch 141 已新增 `docs/autonomous-goal.md`，把未来几十到上百轮的中大型 autonomous goal、停止条件、执行顺序和可复制 prompt 固化为接手指南。
 - release gate 可在本机和 CI 中稳定执行；Batch 130 新增 Go-owned `release-check` inventory，用 JSON envelope 汇总 recommended minimum、文档入口、pack schema、边界与 known gaps，作为本机/CI release gate 的确定性前置检查；Batch 139 已进一步输出 `gateProfile`，把 recommended minimum 解析为 step kind、repo-local path、present/resolved 状态，供本机/CI 在执行前消费；Batch 140 已新增轻量 GitHub Actions release gate；Batch 143 新增 `heavyToolGateActions[]`，让 release inventory 暴露当前 pack manifest 声明的 heavy-tool gate action 集合；Batch 144 新增 `ciReleaseGate` inventory，对照 `.github/workflows/release-gate.yml` 的 required jobs、commands 与 forbidden broad/heavy steps 发现 CI 漂移；Batch 146 新增 `releaseHandoff` summary，把 read-first docs、readiness signals、latest batch、validation commands 与 next actions 放入 release-check envelope，提升新会话和维护者接手质量；Batch 147 新增 `releaseHandoff.releaseNotes` freshness gate，确保最新完成 batch 已进入 CHANGELOG `Unreleased`；Batch 148 新增 `releaseHandoff.knownGaps[]`，把 release readiness Known gaps 转为机器可读 category/summary 供新会话和 release maintainer 先读；Batch 149 新增 `releaseHandoff.packMaturity`，汇总 pack maturity、schema validity 与每 pack heavy-tool gate readiness。
-- PowerShell runtime deprecation strategy 有明确文档入口、模块归属和 freeze/removal gates；Batch 129 已新增 `docs/powershell-deprecation.md`，Batch 131 已新增 Go release invariant 锁定默认 façade 委托集合、legacy/internal 边界与 blocked heavy-tool/authority/confirmed 不进入默认委托；Batch 142 已将 PowerShell deprecation inventory 纳入 Go-owned `release-check`，对照 `rekit/rekit.ps1` 默认委托集合、命令归属矩阵、`rekit/lib/*.ps1` 模块清单、freeze gates 与 blocked migrations 输出 `powerShellDeprecation.ready`；实际删除仍需单独批次验证。
+- PowerShell runtime deprecation strategy 有明确文档入口、模块归属和 freeze/removal gates；Batch 129 已新增 `docs/powershell-deprecation.md`，Batch 131 已新增 Go release invariant 锁定默认 façade 委托集合、blocked heavy-tool/authority/confirmed 不进入默认委托；Batch 142 已将 PowerShell deprecation inventory 纳入 Go-owned `release-check`，对照 `rekit/rekit.ps1` 默认委托集合、命令归属矩阵、`rekit/lib/*.ps1` 模块清单、freeze gates 与 blocked migrations 输出 `powerShellDeprecation.ready`；Batch 190 已将 `plan-subagents` review artifacts 纳入默认 Go façade 并保留 fallback；实际删除仍需单独批次验证。
 
 ## 自主推进优先级建议
 

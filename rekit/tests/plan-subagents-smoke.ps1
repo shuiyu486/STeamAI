@@ -148,18 +148,18 @@ try {
   $templateSummary = [System.IO.File]::ReadAllText([string]$templatePlan.summaryPath, [System.Text.Encoding]::UTF8)
   Assert-ContainsText -Text $templateSummary -Expected 'bounded dispatch observability' -Label 'template plan summary observability'
 
-  $templateFacadeOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$WorkRoot,'-Pack','_template','-TaskType','feature-analysis','-Items','one,two','-ReviewOutputDir',$templateFacadeRoot) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
-  Assert-ContainsText -Text $templateFacadeOut -Expected 'review packet:' -Label 'template facade plan-subagents fallback'
-  $templateFacadePacket = Get-Content -LiteralPath (Join-Path $templateFacadeRoot 'packet.json') -Raw | ConvertFrom-Json
+  $templateFacadeOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$WorkRoot,'-Pack','_template','-TaskType','feature-analysis','-Items','one,two','-ReviewOutputDir',$templateFacadeRoot)
+  $templateFacadeResult = $templateFacadeOut | ConvertFrom-Json
+  $templateFacadePacket = Get-Content -LiteralPath ([string]$templateFacadeResult.packetPath) -Raw | ConvertFrom-Json
   if ([string]$templateFacadePacket.route.id -ne '_template:lane-feature-analysis' -or [string]$templateFacadePacket.observability.routeDebug.selectedBy -ne 'taskType') { throw "template facade route mismatch: $($templateFacadePacket | ConvertTo-Json -Depth 20)" }
 
   Invoke-GoRekitSmoke -Arguments @('-Command','doctor','-Target',$caseRoot,'-Pack',$Pack) | Out-Null
   Invoke-RekitSmoke -Arguments @('-Command','doctor','-Target',$caseRoot,'-Pack',$Pack) | Out-Null
 
-  $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-Items','alpha,beta','-ReviewOutputDir',$facadeRoot) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
-  Assert-ContainsText -Text $facadeOut -Expected 'review packet:' -Label 'facade plan-subagents fallback'
-  Assert-NotContainsText -Text $facadeOut -Unexpected 'schemaVersion' -Label 'facade plan-subagents fallback'
-  $facadePacketPath = Join-Path $facadeRoot 'packet.json'
+  $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-Items','alpha,beta','-ReviewOutputDir',$facadeRoot)
+  $facadeResult = $facadeOut | ConvertFrom-Json
+  if (-not [bool]$facadeResult.writesReviewArtifacts -or [bool]$facadeResult.isMutation) { throw "facade plan-subagents did not return Go result: $facadeOut" }
+  $facadePacketPath = [string]$facadeResult.packetPath
   if (-not (Test-Path -LiteralPath $facadePacketPath)) { throw 'facade plan-subagents packet was not written' }
   $facadePacket = Get-Content -LiteralPath $facadePacketPath -Raw | ConvertFrom-Json
   if ([string]$facadePacket.observability.dispatchMode -ne 'manual-main-agent' -or [string]$facadePacket.reviewLoop.spawnOwner -ne 'main-agent' -or [string]$facadePacket.reviewLoop.mergeOwner -ne 'main-agent') { throw "facade packet missing observability: $($facadePacket | ConvertTo-Json -Depth 20)" }
@@ -168,7 +168,7 @@ try {
   }
   Assert-ContainsText -Text ([string]$facadePacket.reviewLoop.verdictWriteback) -Expected 'note -Kind verification' -Label 'facade verdict writeback'
   if (@($facadePacket.reviewLoop.completionCriteria).Count -lt 3 -or @($facadePacket.observability.shardStatuses).Count -ne 1 -or [string]@($facadePacket.observability.shardStatuses)[0].status -ne 'planned') { throw "facade packet missing review loop details: $($facadePacket | ConvertTo-Json -Depth 20)" }
-  $facadeSummary = [System.IO.File]::ReadAllText((Join-Path $facadeRoot 'summary.md'), [System.Text.Encoding]::UTF8)
+  $facadeSummary = [System.IO.File]::ReadAllText([string]$facadeResult.summaryPath, [System.Text.Encoding]::UTF8)
   Assert-ContainsText -Text $facadeSummary -Expected 'bounded dispatch observability' -Label 'facade plan summary observability'
   Assert-ContainsText -Text $facadeSummary -Expected 'runtime does not spawn subagents' -Label 'facade plan summary blocked action'
   Assert-ContainsText -Text $facadeSummary -Expected 'completion criteria' -Label 'facade plan summary completion criteria'
@@ -176,9 +176,14 @@ try {
     if (Test-Path -LiteralPath (Join-Path $caseRoot $unexpectedPath)) { throw "facade plan-subagents created unexpected case state: $unexpectedPath" }
   }
 
+  $fallbackRoot = Join-Path $WorkRoot "plan-subagents-fallback-$suffix"
+  $fallbackOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-Items','fallback-alpha,fallback-beta','-ReviewOutputDir',$fallbackRoot) -Env @{ REKIT_GO_DISABLE = '1' }
+  Assert-ContainsText -Text $fallbackOut -Expected 'review packet:' -Label 'facade plan-subagents disabled fallback'
+  if (-not (Test-Path -LiteralPath (Join-Path $fallbackRoot 'packet.json'))) { throw 'fallback plan-subagents packet was not written' }
+
   'plan-subagents smoke ok'
 } finally {
-  foreach ($path in @($caseRoot,$outRoot,$facadeRoot,$templateRoot,$templateFacadeRoot,$itemsFile)) {
+  foreach ($path in @($caseRoot,$outRoot,$facadeRoot,$templateRoot,$templateFacadeRoot,$fallbackRoot,$itemsFile)) {
     if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path -LiteralPath $path)) { Remove-Item -LiteralPath $path -Recurse -Force -Confirm:$false }
   }
 }
