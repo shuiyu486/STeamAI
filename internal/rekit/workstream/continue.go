@@ -784,7 +784,7 @@ func laneOutputEvents(caseRoot string, lane Lane, m *manifest.Manifest) ([]map[s
 		return nil, err
 	}
 	var events []map[string]any
-	for _, path := range []string{filepath.Join(laneRoot, "outbox.jsonl"), filepath.Join(workspace, "observations.jsonl"), filepath.Join(workspace, "requests.jsonl"), filepath.Join(workspace, "candidates.jsonl"), filepath.Join(workspace, "publications.jsonl")} {
+	for _, path := range LaneOutputJSONLPaths(laneRoot, workspace) {
 		items, err := mission.ReadJSONLineObjects(path)
 		if err != nil {
 			return nil, err
@@ -853,7 +853,7 @@ func continueInputRefs(caseRoot string, lane Lane) ([]string, error) {
 		return nil, err
 	}
 	refs := []string{}
-	for _, path := range []string{filepath.Join(laneRoot, "outbox.jsonl"), filepath.Join(workspace, "observations.jsonl"), filepath.Join(workspace, "requests.jsonl"), filepath.Join(workspace, "candidates.jsonl"), filepath.Join(workspace, "publications.jsonl")} {
+	for _, path := range LaneOutputJSONLPaths(laneRoot, workspace) {
 		if refsf.Exists(path) {
 			refs = append(refs, relativePath(caseRoot, path))
 		}

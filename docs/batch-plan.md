@@ -6249,3 +6249,32 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/note/note.go internal/rekit/note/note_test.go internal/rekit/doctor/case.go`、`go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/doctor ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 208：Workstream local JSONL helper
+
+状态：已完成。
+
+目标：在 Batch 203-207 已将 shared facts ledger kind/path、JSONL reader 与 validation 收口后，继续清理 workstream lane-local / workspace-local JSONL 文件集合 duplication；保持 `.rekit/facts/*.jsonl` shared ledger 与 lane/workspace local JSONL 的职责边界清楚，避免把 workspace-local files 误归入 mission facts ledger helper。
+
+实施范围：
+
+- 新增 `internal/rekit/workstream/jsonl_paths.go`，提供 `LaneJSONLFileNames()`、`WorkspaceJSONLFileNames()` 与 `LaneOutputJSONLPaths(laneRoot, workspace)`，作为 workstream-local lane/workspace JSONL 文件集合的单一来源。
+- `internal/rekit/workstream/start.go` 的 lane-local `events/tasks/inbox/outbox` 初始化与 workspace-local `observations/requests/candidates/publications` 初始化改为复用 workstream-local helper，保持 write kind、relative path 和 target path 不变。
+- `internal/rekit/workstream/continue.go` 的 lane output event 读取与 `continueInputRefs` 改为复用 `LaneOutputJSONLPaths`，保持 outbox 优先、workspace observations/requests/candidates/publications 后续的读取与 refs 顺序不变。
+- `internal/rekit/doctor/case.go` 的 lane/workspace JSONL validation 改为复用 `workstream.LaneJSONLFileNames()` 与 `workstream.WorkspaceJSONLFileNames()`，继续使用 `mission.ValidateJSONLines` 做实际 JSONL 校验。
+- 新增 `internal/rekit/workstream/jsonl_paths_test.go`，锁定 lane/workspace local JSONL 文件顺序与 lane output path 顺序。
+
+边界：本批只做 Go runtime 内部复用、测试和文档；不改变 start/continue/doctor JSON 或文本 envelope；不改变 `.rekit/lanes/<lane>/*.jsonl`、lane workspace `*.jsonl` 或 `.rekit/facts/*.jsonl` 的实际文件名/路径；不改变 run artifacts、PowerShell façade 委托集合或 sync/promote review-first 语义；不执行 heavy-tool、不自动 spawn tactical subagent、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/workstream ./internal/rekit/doctor ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/workstream/jsonl_paths.go internal/rekit/workstream/jsonl_paths_test.go internal/rekit/workstream/start.go internal/rekit/workstream/continue.go internal/rekit/doctor/case.go`、`go test ./internal/rekit/workstream ./internal/rekit/doctor ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

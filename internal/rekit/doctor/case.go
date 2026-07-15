@@ -12,6 +12,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
 func Case(repoRoot, caseRoot, pack string) ([]Row, error) {
@@ -200,12 +201,12 @@ func validateWorkstreamState(caseRoot string) error {
 				return err
 			}
 		}
-		for _, name := range []string{"events.jsonl", "tasks.jsonl", "inbox.jsonl", "outbox.jsonl"} {
+		for _, name := range workstream.LaneJSONLFileNames() {
 			if err := mission.ValidateJSONLines(filepath.Join(laneRoot, name)); err != nil {
 				return err
 			}
 		}
-		for _, name := range []string{"observations.jsonl", "requests.jsonl", "candidates.jsonl", "publications.jsonl"} {
+		for _, name := range workstream.WorkspaceJSONLFileNames() {
 			if err := mission.ValidateJSONLines(filepath.Join(workspace, name)); err != nil {
 				return err
 			}

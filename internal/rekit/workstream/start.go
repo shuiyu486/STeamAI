@@ -324,7 +324,7 @@ func writeLane(caseRoot string, laneType manifest.LaneType, id, name string, for
 		}
 	}
 	writes := []StartWrite{}
-	for _, file := range []string{"events.jsonl", "tasks.jsonl", "inbox.jsonl", "outbox.jsonl"} {
+	for _, file := range LaneJSONLFileNames() {
 		path := filepath.Join(laneRoot, file)
 		action, err := ensureEmptyFile(path)
 		if err != nil {
@@ -332,7 +332,7 @@ func writeLane(caseRoot string, laneType manifest.LaneType, id, name string, for
 		}
 		writes = append(writes, StartWrite{Path: relJoin(laneRootRel, file), Kind: "lane-jsonl", Action: action, TargetPath: path})
 	}
-	for _, file := range []string{"observations.jsonl", "requests.jsonl", "candidates.jsonl", "publications.jsonl"} {
+	for _, file := range WorkspaceJSONLFileNames() {
 		path := filepath.Join(workspace, file)
 		action, err := ensureEmptyFile(path)
 		if err != nil {
