@@ -13,6 +13,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 const maxHandoffRows = 5
@@ -618,177 +619,35 @@ func readHandoffFacts(caseRoot string) (handoffFacts, error) {
 }
 
 func writeProjectMissionBrief(out *bytes.Buffer, lanes []boardLane, facts handoffFacts) {
-	open := openHandoffLanes(lanes)
-	blocked := map[string][]string{}
-	pendingGates := []map[string]any{}
-	for _, gate := range facts.Requests {
-		if firstObjectText(gate, "status") != "pending-gate" {
-			continue
-		}
-		pendingGates = append(pendingGates, gate)
-		if lane := firstObjectText(gate, "lane"); lane != "" {
-			blocked[lane] = append(blocked[lane], "pending-gate")
-		}
-	}
-	interventions := openHandoffEvents(facts.Interventions)
-	for _, intervention := range interventions {
-		if lane := firstObjectText(intervention, "lane"); lane != "" {
-			blocked[lane] = append(blocked[lane], "intervention")
-		}
-	}
-	openDecisions := projectOpenDecisionItems(facts)
-	for _, decision := range openDecisions {
-		if lane := firstObjectText(decision, "lane"); lane != "" {
-			blocked[lane] = append(blocked[lane], "open-decision")
-		}
-	}
-	readyLanes := []string{}
-	blockedLanes := []string{}
-	for _, lane := range open {
-		label := boardLaneLabel(lane)
-		if reasons := uniqueStrings(blocked[lane.ID]); len(reasons) > 0 {
-			blockedLanes = append(blockedLanes, fmt.Sprintf("%s (%s)", label, strings.Join(reasons, ",")))
-		} else {
-			readyLanes = append(readyLanes, label)
-		}
-	}
-
+	brief := mission.BuildWithOptions(missionBoardLanes(lanes), missionHandoffFacts(facts), mission.BuildOptions{
+		MaxRows:            maxHandoffRows,
+		OpenDecisionAction: "review open candidate/decision item(s) with evidence and authority boundary",
+	})
 	fmt.Fprintln(out, "## Mission Control brief")
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "- summary: openLanes=%d ready=%d blocked=%d pendingGates=%d openDecisions=%d interventions=%d\n", len(open), len(readyLanes), len(blockedLanes), len(pendingGates), len(openDecisions), len(interventions))
-	writeHandoffBriefList(out, "ready lanes", readyLanes)
-	writeHandoffBriefList(out, "blocked lanes", blockedLanes)
-	writeHandoffBriefList(out, "pending gates", projectGateLines(pendingGates))
-	writeHandoffBriefList(out, "open decisions", projectOpenDecisionLines(openDecisions))
-	writeHandoffBriefList(out, "interventions", projectInterventionLines(interventions))
-	writeHandoffBriefList(out, "next agent actions", projectNextAgentActions(readyLanes, pendingGates, interventions, openDecisions))
-	writeHandoffBriefList(out, "escalations", projectEscalations(pendingGates, interventions, openDecisions))
+	fmt.Fprintf(out, "- summary: %s\n", brief.Summary)
+	writeHandoffBriefList(out, "ready lanes", brief.ReadyLanes)
+	writeHandoffBriefList(out, "blocked lanes", brief.BlockedLanes)
+	writeHandoffBriefList(out, "pending gates", brief.PendingGates)
+	writeHandoffBriefList(out, "open decisions", brief.OpenDecisions)
+	writeHandoffBriefList(out, "interventions", brief.Interventions)
+	writeHandoffBriefList(out, "next agent actions", brief.NextAgentActions)
+	writeHandoffBriefList(out, "escalations", brief.Escalations)
 	fmt.Fprintln(out)
-}
-
-func openHandoffLanes(lanes []boardLane) []boardLane {
-	open := []boardLane{}
-	for _, lane := range lanes {
-		status := strings.ToLower(strings.TrimSpace(lane.Status))
-		if status != "archived" && status != "paused" && status != "closed" {
-			open = append(open, lane)
-		}
-	}
-	return open
-}
-
-func boardLaneLabel(lane boardLane) string {
-	if lane.Authority {
-		return "main"
-	}
-	if name, ok := strings.CutPrefix(lane.ID, "feature-"); ok {
-		return name
-	}
-	return lane.ID
-}
-
-func projectOpenDecisionItems(facts handoffFacts) []map[string]any {
-	items := []map[string]any{}
-	items = append(items, openHandoffCandidates(facts.Candidates)...)
-	items = append(items, openHandoffDecisions(facts.Decisions)...)
-	return items
-}
-
-func projectGateLines(items []map[string]any) []string {
-	lines := []string{}
-	for _, item := range items {
-		parts := []string{firstObjectText(item, "subject", "summary", "kind")}
-		appendPart(&parts, "lane", firstObjectText(item, "lane"))
-		appendPart(&parts, "risk", firstObjectText(item, "risk"))
-		appendPart(&parts, "target", firstObjectText(item, "target"))
-		if gate, ok := item["gate"].(map[string]any); ok {
-			appendPart(&parts, "action", firstObjectText(gate, "action"))
-			appendPart(&parts, "scope", firstObjectText(gate, "scope"))
-		}
-		lines = append(lines, strings.Join(parts, " | "))
-	}
-	return lines
-}
-
-func projectOpenDecisionLines(items []map[string]any) []string {
-	lines := []string{}
-	for _, item := range items {
-		kind := firstObjectText(item, "kind")
-		if kind == "candidate" {
-			parts := []string{"candidate: " + firstObjectText(item, "subject", "kind")}
-			appendPart(&parts, "lane", firstObjectText(item, "lane"))
-			appendPart(&parts, "status", firstObjectText(item, "status"))
-			appendPart(&parts, "summary", firstObjectText(item, "summary"))
-			lines = append(lines, strings.Join(parts, " | "))
-			continue
-		}
-		parts := []string{firstObjectText(item, "subject", "kind")}
-		appendPart(&parts, "lane", firstObjectText(item, "lane"))
-		appendPart(&parts, "decision", firstObjectText(item, "decision", "action"))
-		appendPart(&parts, "reason", firstObjectText(item, "reason"))
-		lines = append(lines, strings.Join(parts, " | "))
-	}
-	return lines
-}
-
-func projectInterventionLines(items []map[string]any) []string {
-	lines := []string{}
-	for _, item := range items {
-		parts := []string{firstObjectText(item, "subject", "action", "kind")}
-		appendPart(&parts, "lane", firstObjectText(item, "lane"))
-		appendPart(&parts, "action", firstObjectText(item, "action"))
-		appendPart(&parts, "status", fallbackText(firstObjectText(item, "status"), "open"))
-		appendPart(&parts, "target", firstObjectText(item, "target"))
-		lines = append(lines, strings.Join(parts, " | "))
-	}
-	return lines
-}
-
-func projectNextAgentActions(ready []string, gates, interventions, decisions []map[string]any) []string {
-	actions := []string{}
-	if len(interventions) > 0 {
-		actions = append(actions, "reconcile open intervention(s) before continuing the affected lane")
-	}
-	if len(gates) > 0 {
-		actions = append(actions, "resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool")
-	}
-	if len(decisions) > 0 {
-		actions = append(actions, "review open candidate/decision item(s) with evidence and authority boundary")
-	}
-	for _, lane := range ready {
-		actions = append(actions, "/rekit continue "+lane)
-	}
-	if len(actions) == 0 {
-		actions = append(actions, "/rekit start <name>", "/rekit handoff")
-	}
-	return actions
-}
-
-func projectEscalations(gates, interventions, decisions []map[string]any) []string {
-	escalations := []string{}
-	if len(gates) > 0 {
-		escalations = append(escalations, "pending-gate requires main-agent/user decision before heavy action")
-	}
-	if len(interventions) > 0 {
-		escalations = append(escalations, "open intervention must be reconciled into durable lane state")
-	}
-	if len(decisions) > 0 {
-		escalations = append(escalations, "authority/confirmed outcome remains deferred until explicitly approved")
-	}
-	return escalations
 }
 
 func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts handoffFacts) {
-	gates := filterLane(facts.Requests, lane.ID, "pending-gate")
-	interventions := openHandoffEvents(filterLane(facts.Interventions, lane.ID, ""))
-	openDecisions := handoffOpenDecisionItems(facts, lane.ID)
+	laneFacts := mission.LaneFacts(missionHandoffFacts(facts), lane.ID)
+	gates := mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate")
+	interventions := mission.OpenEvents(laneFacts.Interventions)
+	openDecisions := mission.OpenDecisionItems(laneFacts)
 	fmt.Fprintln(out, "## Mission Control brief")
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "- lane: %s status=%s workspace=%s\n", lane.ID, lane.Status, lane.Workspace)
 	fmt.Fprintf(out, "- blocked: %t\n", len(gates) > 0 || len(interventions) > 0 || len(openDecisions) > 0)
-	writeHandoffBriefList(out, "pending-gate", handoffGateLines(gates))
-	writeHandoffBriefList(out, "open intervention", handoffInterventionLines(interventions))
-	writeHandoffBriefList(out, "open decision", handoffOpenDecisionLines(openDecisions))
+	writeHandoffBriefList(out, "pending-gate", missionLines(gates, mission.LaneGateLine))
+	writeHandoffBriefList(out, "open intervention", missionLines(interventions, mission.LaneInterventionLine))
+	writeHandoffBriefList(out, "open decision", missionLines(openDecisions, mission.LaneOpenDecisionLine))
 	actions := []string{}
 	if len(interventions) > 0 {
 		actions = append(actions, "reconcile user intervention before continuing this lane")
@@ -806,133 +665,49 @@ func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts handoffFacts) {
 	fmt.Fprintln(out)
 }
 
+func missionBoardLanes(lanes []boardLane) []mission.Lane {
+	out := make([]mission.Lane, 0, len(lanes))
+	for _, lane := range lanes {
+		out = append(out, mission.Lane{ID: lane.ID, Label: boardLaneLabel(lane), Status: lane.Status})
+	}
+	return out
+}
+
+func boardLaneLabel(lane boardLane) string {
+	if lane.Authority {
+		return "main"
+	}
+	if name, ok := strings.CutPrefix(lane.ID, "feature-"); ok {
+		return name
+	}
+	return lane.ID
+}
+
+func missionHandoffFacts(facts handoffFacts) mission.Facts {
+	return mission.Facts{
+		Candidates:    facts.Candidates,
+		Requests:      facts.Requests,
+		Decisions:     facts.Decisions,
+		Interventions: facts.Interventions,
+	}
+}
+
+func missionLines(items []map[string]any, line func(map[string]any) string) []string {
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		lines = append(lines, line(item))
+	}
+	return lines
+}
+
 func writeHandoffBriefList(out *bytes.Buffer, label string, items []string) {
 	if len(items) == 0 {
 		fmt.Fprintf(out, "- %s: none\n", label)
 		return
 	}
 	fmt.Fprintf(out, "- %s:\n", label)
-	for _, item := range lastStrings(items, maxHandoffRows) {
+	for _, item := range mission.LimitStrings(items, maxHandoffRows) {
 		fmt.Fprintf(out, "  - %s\n", item)
-	}
-}
-
-func handoffGateLines(items []map[string]any) []string {
-	lines := []string{}
-	for _, item := range items {
-		parts := []string{firstObjectText(item, "subject", "summary", "kind")}
-		if gate, ok := item["gate"].(map[string]any); ok {
-			appendPart(&parts, "action", firstObjectText(gate, "action"))
-			appendPart(&parts, "scope", firstObjectText(gate, "scope"))
-		}
-		appendPart(&parts, "risk", firstObjectText(item, "risk"))
-		appendPart(&parts, "target", firstObjectText(item, "target"))
-		lines = append(lines, strings.Join(parts, " | "))
-	}
-	return lines
-}
-
-func handoffInterventionLines(items []map[string]any) []string {
-	lines := []string{}
-	for _, item := range items {
-		parts := []string{firstObjectText(item, "subject", "action", "kind")}
-		appendPart(&parts, "action", firstObjectText(item, "action"))
-		appendPart(&parts, "status", fallbackText(firstObjectText(item, "status"), "open"))
-		appendPart(&parts, "target", firstObjectText(item, "target"))
-		lines = append(lines, strings.Join(parts, " | "))
-	}
-	return lines
-}
-
-func handoffOpenDecisionLines(items []map[string]any) []string {
-	lines := []string{}
-	for _, item := range items {
-		kind := firstObjectText(item, "kind")
-		if kind == "candidate" {
-			parts := []string{"candidate: " + firstObjectText(item, "subject", "kind")}
-			appendPart(&parts, "status", firstObjectText(item, "status"))
-			appendPart(&parts, "summary", firstObjectText(item, "summary"))
-			lines = append(lines, strings.Join(parts, " | "))
-			continue
-		}
-		parts := []string{firstObjectText(item, "subject", "kind")}
-		appendPart(&parts, "decision", firstObjectText(item, "decision", "action"))
-		appendPart(&parts, "reason", firstObjectText(item, "reason"))
-		lines = append(lines, strings.Join(parts, " | "))
-	}
-	return lines
-}
-
-func openHandoffEvents(items []map[string]any) []map[string]any {
-	open := []map[string]any{}
-	for _, item := range items {
-		status := strings.ToLower(strings.TrimSpace(firstObjectText(item, "status")))
-		if status == "" || !handoffTerminalStatus(status) {
-			open = append(open, item)
-		}
-	}
-	return open
-}
-
-func openHandoffDecisions(items []map[string]any) []map[string]any {
-	open := []map[string]any{}
-	for _, item := range items {
-		status := strings.ToLower(strings.TrimSpace(firstObjectText(item, "status")))
-		decision := strings.ToLower(strings.TrimSpace(firstObjectText(item, "decision", "action")))
-		if (status == "" && decision == "defer") || (status != "" && !handoffTerminalStatus(status)) || decision == "pending-user" {
-			open = append(open, item)
-		}
-	}
-	return open
-}
-
-func handoffOpenDecisionItems(facts handoffFacts, laneID string) []map[string]any {
-	items := []map[string]any{}
-	items = append(items, openHandoffCandidates(filterLane(facts.Candidates, laneID, ""))...)
-	items = append(items, openHandoffDecisions(filterLane(facts.Decisions, laneID, ""))...)
-	return items
-}
-
-func openHandoffCandidates(items []map[string]any) []map[string]any {
-	open := []map[string]any{}
-	for _, item := range items {
-		status := strings.ToLower(strings.TrimSpace(firstObjectText(item, "status")))
-		switch status {
-		case "confirmed", "accepted", "rejected", "resolved", "superseded":
-			continue
-		default:
-			open = append(open, item)
-		}
-	}
-	return open
-}
-
-func appendPart(parts *[]string, key, value string) {
-	if strings.TrimSpace(value) != "" {
-		*parts = append(*parts, key+"="+strings.TrimSpace(value))
-	}
-}
-
-func fallbackText(value, fallback string) string {
-	if strings.TrimSpace(value) != "" {
-		return strings.TrimSpace(value)
-	}
-	return fallback
-}
-
-func lastStrings(items []string, limit int) []string {
-	if limit <= 0 || len(items) <= limit {
-		return items
-	}
-	return items[len(items)-limit:]
-}
-
-func handoffTerminalStatus(status string) bool {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "confirmed", "accepted", "rejected", "resolved", "deferred", "superseded":
-		return true
-	default:
-		return false
 	}
 }
 

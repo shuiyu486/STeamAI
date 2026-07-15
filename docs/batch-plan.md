@@ -5829,3 +5829,31 @@ git diff --check
 ```
 
 验证结果：已通过 `go test ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 193：Mission Control brief reuse package
+
+状态：已完成。
+
+目标：收敛 Batch 189-192 后散落在 overview、project handoff 与 lane handoff 里的 Mission Control brief 聚合逻辑，避免 pending-gate、open intervention、open candidate/open decision、next action 与 escalation 语义在后续维护中再次漂移。
+
+实施范围：
+
+- 新增 `internal/rekit/mission` package，集中定义 `Brief`、`Lane`、`Facts`、`Build` / `BuildWithOptions` 以及 open lane、pending-gate、open intervention、open candidate/open decision、line item、next action、escalation 与 lane-local line helpers。
+- `internal/rekit/overview` 将 `MissionBrief` 改为 `mission.Brief` alias，并通过 adapter 把 overview lanes/facts 交给 `mission.Build`；删除 overview-local 的 Mission Control duplicate helpers。
+- `internal/rekit/workstream` 的 project handoff 复用 `mission.BuildWithOptions` 输出 summary/list/action/escalation；lane handoff 复用 `mission.LaneFacts`、`OpenEvents`、`OpenDecisionItems` 与 lane-local line helpers，只保留 lane 展示 wrapper 和 lane-specific next action 文案。
+- 补 `internal/rekit/mission` package tests，锁定 shared blocker 语义、`deferred` decision terminal 处理、custom open-decision action 文案和 lane-local line 不重复显示 lane 字段。
+
+边界：本批只抽取并复用 Go Mission Control brief 聚合逻辑、测试和文档；不改变 PowerShell façade 委托集合、不实现真实多会话调度、不自动 spawn tactical subagent、不执行 heavy-tool、不写 authority/confirmed、不改变 sync/promote review-first 语义。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/mission ./internal/rekit/overview ./internal/rekit/workstream ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `go test ./internal/rekit/mission ./internal/rekit/overview ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

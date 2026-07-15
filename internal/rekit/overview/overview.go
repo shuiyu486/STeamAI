@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
@@ -43,16 +44,7 @@ type LaneSummary struct {
 	Authority bool   `json:"authority"`
 }
 
-type MissionBrief struct {
-	Summary          string   `json:"summary"`
-	ReadyLanes       []string `json:"readyLanes"`
-	BlockedLanes     []string `json:"blockedLanes"`
-	PendingGates     []string `json:"pendingGates"`
-	OpenDecisions    []string `json:"openDecisions"`
-	Interventions    []string `json:"interventions"`
-	NextAgentActions []string `json:"nextAgentActions"`
-	Escalations      []string `json:"escalations"`
-}
+type MissionBrief = mission.Brief
 
 type FactCounts struct {
 	Observations     int `json:"observations"`
@@ -263,59 +255,32 @@ func buildOverviewSections(facts factSet) OverviewSections {
 }
 
 func buildMissionBrief(lanes []event, facts factSet, sections OverviewSections) MissionBrief {
-	open := openLanes(lanes)
-	blocked := map[string][]string{}
-	pendingGateLines := []string{}
-	for _, gate := range facts.Requests {
-		if stringValue(gate, "status") != "pending-gate" {
-			continue
-		}
-		lane := stringValue(gate, "lane")
-		if lane != "" {
-			blocked[lane] = append(blocked[lane], "pending-gate")
-		}
-		pendingGateLines = append(pendingGateLines, briefGateLine(gate))
+	return mission.Build(missionLanes(lanes), missionFacts(facts), maxRows)
+}
+
+func missionLanes(lanes []event) []mission.Lane {
+	out := make([]mission.Lane, 0, len(lanes))
+	for _, lane := range lanes {
+		out = append(out, mission.Lane{ID: stringValue(lane, "id"), Label: workstreamLabel(lane), Status: stringValue(lane, "status")})
 	}
-	interventionLines := []string{}
-	for _, item := range openStatusEvents(facts.Interventions) {
-		lane := stringValue(item, "lane")
-		if lane != "" {
-			blocked[lane] = append(blocked[lane], "intervention")
-		}
-		interventionLines = append(interventionLines, briefInterventionLine(item))
+	return out
+}
+
+func missionFacts(facts factSet) mission.Facts {
+	return mission.Facts{
+		Candidates:    cloneEventMaps(facts.Candidates),
+		Requests:      cloneEventMaps(facts.Requests),
+		Decisions:     cloneEventMaps(facts.Decisions),
+		Interventions: cloneEventMaps(facts.Interventions),
 	}
-	openDecisionCount := len(openStatusEvents(facts.Candidates)) + len(openDecisionEvents(facts.Decisions))
-	openDecisions := missionOpenDecisions(facts)
-	for _, lane := range openDecisionLanes(facts) {
-		blocked[lane] = append(blocked[lane], "open-decision")
+}
+
+func cloneEventMaps(items []event) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, maps.Clone(map[string]any(item)))
 	}
-	pendingGateCount := len(pendingGateLines)
-	interventionCount := len(interventionLines)
-	pendingGateLines = limitStrings(pendingGateLines, maxRows)
-	interventionLines = limitStrings(interventionLines, maxRows)
-	readyLanes := []string{}
-	blockedLanes := []string{}
-	for _, lane := range open {
-		id := stringValue(lane, "id")
-		label := workstreamLabel(lane)
-		if reasons := uniqueStrings(blocked[id]); len(reasons) > 0 {
-			blockedLanes = append(blockedLanes, fmt.Sprintf("%s (%s)", label, strings.Join(reasons, ",")))
-		} else {
-			readyLanes = append(readyLanes, label)
-		}
-	}
-	nextActions := missionNextActions(readyLanes, pendingGateLines, interventionLines, openDecisions)
-	escalations := missionEscalations(pendingGateLines, interventionLines, openDecisions)
-	return MissionBrief{
-		Summary:          fmt.Sprintf("openLanes=%d ready=%d blocked=%d pendingGates=%d openDecisions=%d interventions=%d", len(open), len(readyLanes), len(blockedLanes), pendingGateCount, openDecisionCount, interventionCount),
-		ReadyLanes:       readyLanes,
-		BlockedLanes:     blockedLanes,
-		PendingGates:     pendingGateLines,
-		OpenDecisions:    openDecisions,
-		Interventions:    interventionLines,
-		NextAgentActions: nextActions,
-		Escalations:      escalations,
-	}
+	return out
 }
 
 func writeMissionBrief(out *bytes.Buffer, brief MissionBrief) {
@@ -339,155 +304,6 @@ func writeBriefList(out *bytes.Buffer, label string, items []string) {
 	fmt.Fprintf(out, "- %s:\n", label)
 	for _, item := range items {
 		fmt.Fprintf(out, "  - %s\n", item)
-	}
-}
-
-func missionOpenDecisions(facts factSet) []string {
-	lines := []string{}
-	for _, candidate := range openStatusEvents(facts.Candidates) {
-		lines = append(lines, briefEventLine("candidate", candidate, "status"))
-	}
-	for _, decision := range openDecisionEvents(facts.Decisions) {
-		lines = append(lines, briefDecisionLine(decision))
-	}
-	return limitStrings(lines, maxRows)
-}
-
-func openDecisionLanes(facts factSet) []string {
-	lanes := []string{}
-	for _, candidate := range openStatusEvents(facts.Candidates) {
-		if lane := stringValue(candidate, "lane"); lane != "" {
-			lanes = append(lanes, lane)
-		}
-	}
-	for _, decision := range openDecisionEvents(facts.Decisions) {
-		if lane := stringValue(decision, "lane"); lane != "" {
-			lanes = append(lanes, lane)
-		}
-	}
-	return uniqueStrings(lanes)
-}
-
-func openDecisionEvents(decisions []event) []event {
-	open := []event{}
-	for _, decision := range decisions {
-		status := strings.ToLower(strings.TrimSpace(stringValue(decision, "status")))
-		decisionValue := strings.ToLower(strings.TrimSpace(firstText(stringValue(decision, "decision"), stringValue(decision, "action"))))
-		if (status == "" && decisionValue == "defer") || (status != "" && !isTerminalStatus(status)) || decisionValue == "pending-user" {
-			open = append(open, decision)
-		}
-	}
-	return open
-}
-
-func missionNextActions(ready, gates, interventions, decisions []string) []string {
-	actions := []string{}
-	if len(interventions) > 0 {
-		actions = append(actions, "reconcile open intervention(s) before continuing the affected lane")
-	}
-	if len(gates) > 0 {
-		actions = append(actions, "resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool")
-	}
-	if len(decisions) > 0 {
-		actions = append(actions, "review open candidates/decisions and record accept/reject/defer with evidence")
-	}
-	for _, lane := range ready {
-		actions = append(actions, "/rekit continue "+lane)
-	}
-	if len(actions) == 0 {
-		actions = append(actions, "/rekit start <name>", "/rekit handoff")
-	}
-	return limitStrings(actions, maxRows)
-}
-
-func missionEscalations(gates, interventions, decisions []string) []string {
-	escalations := []string{}
-	if len(gates) > 0 {
-		escalations = append(escalations, "pending-gate requires main-agent/user decision before heavy action")
-	}
-	if len(interventions) > 0 {
-		escalations = append(escalations, "open intervention must be reconciled into durable lane state")
-	}
-	if len(decisions) > 0 {
-		escalations = append(escalations, "authority/confirmed outcome remains deferred until explicitly approved")
-	}
-	return escalations
-}
-
-func briefGateLine(item map[string]any) string {
-	parts := []string{briefSubject(item)}
-	addBriefPart(&parts, "lane", stringValue(item, "lane"))
-	addBriefPart(&parts, "risk", stringValue(item, "risk"))
-	addBriefPart(&parts, "target", stringValue(item, "target"))
-	if gate, ok := item["gate"].(map[string]any); ok {
-		addBriefPart(&parts, "action", stringValue(gate, "action"))
-		addBriefPart(&parts, "scope", stringValue(gate, "scope"))
-	}
-	return strings.Join(parts, " | ")
-}
-
-func briefInterventionLine(item map[string]any) string {
-	parts := []string{briefSubject(item)}
-	addBriefPart(&parts, "lane", stringValue(item, "lane"))
-	addBriefPart(&parts, "action", stringValue(item, "action"))
-	addBriefPart(&parts, "status", firstText(stringValue(item, "status"), "open"))
-	addBriefPart(&parts, "target", stringValue(item, "target"))
-	return strings.Join(parts, " | ")
-}
-
-func briefDecisionLine(item event) string {
-	parts := []string{briefSubject(item)}
-	addBriefPart(&parts, "lane", stringValue(item, "lane"))
-	addBriefPart(&parts, "decision", firstText(stringValue(item, "decision"), stringValue(item, "action")))
-	addBriefPart(&parts, "reason", stringValue(item, "reason"))
-	return strings.Join(parts, " | ")
-}
-
-func briefEventLine(kind string, item event, statusKey string) string {
-	parts := []string{kind + ": " + briefSubject(item)}
-	addBriefPart(&parts, "lane", stringValue(item, "lane"))
-	addBriefPart(&parts, statusKey, stringValue(item, statusKey))
-	addBriefPart(&parts, "summary", stringValue(item, "summary"))
-	return strings.Join(parts, " | ")
-}
-
-func briefSubject(item map[string]any) string {
-	return firstText(stringValue(item, "subject"), stringValue(item, "summary"), stringValue(item, "kind"), "item")
-}
-
-func addBriefPart(parts *[]string, key, value string) {
-	if strings.TrimSpace(value) != "" {
-		*parts = append(*parts, key+"="+strings.TrimSpace(value))
-	}
-}
-
-func limitStrings(items []string, n int) []string {
-	if len(items) <= n {
-		return items
-	}
-	return items[len(items)-n:]
-}
-
-func uniqueStrings(items []string) []string {
-	seen := map[string]bool{}
-	out := []string{}
-	for _, item := range items {
-		item = strings.TrimSpace(item)
-		if item == "" || seen[item] {
-			continue
-		}
-		seen[item] = true
-		out = append(out, item)
-	}
-	return out
-}
-
-func isTerminalStatus(status string) bool {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "confirmed", "accepted", "rejected", "resolved", "deferred", "superseded":
-		return true
-	default:
-		return false
 	}
 }
 
@@ -1026,15 +842,6 @@ func workstreamLabel(lane event) string {
 		return name
 	}
 	return id
-}
-
-func firstText(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
 
 func stringValue(m map[string]any, key string) string {
