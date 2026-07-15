@@ -6307,3 +6307,31 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/workstream/jsonl_paths.go internal/rekit/workstream/jsonl_paths_test.go internal/rekit/workstream/start.go internal/rekit/workstream/continue.go internal/rekit/doctor/case.go`、`go test ./internal/rekit/workstream ./internal/rekit/doctor ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 210：Workstream continue facts promotion helper
+
+状态：已完成。
+
+目标：在 Batch 203-209 已将 shared facts ledger mapping、JSONL reader/validation、workstream local JSONL file/path helper 逐步收口后，继续清理 `continue -Apply` 中 local lane/workspace event 提升为 shared facts ledger 的 would-write 与 append path duplication，让 preview/apply 都通过同一 `mission.FactRelPath(kind)` helper source。
+
+实施范围：
+
+- 新增 `internal/rekit/workstream/continue_facts.go`，提供 `wouldFactKinds(kinds...)` 与 `continueContext.appendContinueFact`，集中生成 facts would-write 与实际 `.rekit/facts/<kind>.jsonl` append write 记录。
+- `internal/rekit/workstream/continue.go` 的 observation/request/candidate/publication/default preview would-writes 改为 `wouldFactKinds`，authority candidate 被 defer 时也复用同一 helper。
+- `applyContinueEvent` 删除 local `appendFact(rel, value)` closure，observation/request/candidate/publication/default 与 decision append 全部改为 `ctx.appendContinueFact(&writes, kind, value)`，保持 shared facts 文件名、append 顺序和 write metadata 不变。
+- 新增 `internal/rekit/workstream/continue_facts_test.go`，覆盖 would-write 使用 `mission.FactRelPath`，以及 append helper 写入对应 facts JSONL 并记录 `fact-jsonl` append write。
+
+边界：本批只做 Go runtime 内部复用、测试和文档；不改变 continue JSON 或文本 envelope；不改变 `.rekit/facts/*.jsonl` 实际文件名/路径、duplicate eventId 判定、run artifacts、lane routing、PowerShell façade 委托集合或 sync/promote review-first 语义；不执行 heavy-tool、不自动 spawn tactical subagent、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/workstream ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/workstream/continue.go internal/rekit/workstream/continue_facts.go internal/rekit/workstream/continue_facts_test.go`、`go test ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

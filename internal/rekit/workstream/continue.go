@@ -276,7 +276,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 		if preview.AuthorityFile != "" && preview.Decision == "accept" {
 			preview.Decision = "defer"
 			preview.Reason = "authority append requires explicit user confirmation; Go continue -Apply does not write authority/confirmed"
-			preview.WouldWrites = []StartWrite{wouldFact(mission.FactRelPath("candidate")), wouldFact(mission.FactRelPath("decision"))}
+			preview.WouldWrites = wouldFactKinds("candidate", "decision")
 		}
 		writes, err := ctx.applyContinueEvent(event, preview, runID, batchID)
 		if err != nil {
@@ -387,7 +387,7 @@ func (ctx continueContext) previewEvent(event map[string]any) ContinueEventPrevi
 		if ctx.policy.AutoPublishSharedFacts {
 			preview.Decision = "accept"
 			preview.Reason = "shared observation"
-			preview.WouldWrites = []StartWrite{wouldFact(mission.FactRelPath("observation")), wouldFact(mission.FactRelPath("decision"))}
+			preview.WouldWrites = wouldFactKinds("observation", "decision")
 		} else {
 			preview.Decision = "defer"
 			preview.Reason = "autoPublishSharedFacts disabled"
@@ -395,7 +395,7 @@ func (ctx continueContext) previewEvent(event map[string]any) ContinueEventPrevi
 	case "request":
 		preview.Decision = "accept"
 		preview.Reason = "would route request"
-		preview.WouldWrites = []StartWrite{wouldFact(mission.FactRelPath("request")), wouldFact(mission.FactRelPath("decision"))}
+		preview.WouldWrites = wouldFactKinds("request", "decision")
 		if ctx.policy.AutoRouteRequests {
 			targetLane := stringFrom(event, "targetLane")
 			if targetLane == "" {
@@ -423,62 +423,48 @@ func (ctx continueContext) previewEvent(event map[string]any) ContinueEventPrevi
 			if reason := ctx.authorityAppendReason(event, verification, authorityFile, rows); reason != "" {
 				preview.Decision = "defer"
 				preview.Reason = reason
-				preview.WouldWrites = []StartWrite{wouldFact(mission.FactRelPath("candidate")), wouldFact(mission.FactRelPath("decision"))}
+				preview.WouldWrites = wouldFactKinds("candidate", "decision")
 			} else {
 				preview.Decision = "accept"
 				preview.Reason = "passed authority append policy"
-				preview.WouldWrites = []StartWrite{wouldAuthority(authorityFile), wouldRunArtifact("backups", authorityFile), wouldRunArtifact("diffs", sanitizedDiffName(authorityFile)), wouldFact(mission.FactRelPath("publication")), wouldFact(mission.FactRelPath("decision"))}
+				preview.WouldWrites = append([]StartWrite{wouldAuthority(authorityFile), wouldRunArtifact("backups", authorityFile), wouldRunArtifact("diffs", sanitizedDiffName(authorityFile))}, wouldFactKinds("publication", "decision")...)
 			}
 		} else if ctx.policy.AutoAcceptLowRiskCandidates && boolFrom(verification, "hasEvidence") && verifierAccepted(ctx.policy, verification) {
 			preview.Decision = "accept"
 			preview.Reason = "candidate has evidence, verifier accepted, and does not touch authority"
-			preview.WouldWrites = []StartWrite{wouldFact(mission.FactRelPath("candidate")), wouldFact(mission.FactRelPath("decision"))}
+			preview.WouldWrites = wouldFactKinds("candidate", "decision")
 		} else {
 			preview.Decision = "defer"
 			preview.Reason = "candidate lacks evidence or policy disabled"
-			preview.WouldWrites = []StartWrite{wouldFact(mission.FactRelPath("candidate")), wouldFact(mission.FactRelPath("decision"))}
+			preview.WouldWrites = wouldFactKinds("candidate", "decision")
 		}
 	case "publication":
 		preview.Decision = "accept"
 		preview.Reason = "publication event"
-		preview.WouldWrites = []StartWrite{wouldFact(mission.FactRelPath("publication")), wouldFact(mission.FactRelPath("decision"))}
+		preview.WouldWrites = wouldFactKinds("publication", "decision")
 	default:
 		preview.Decision = "accept"
 		preview.Reason = "unknown kind treated as observation: " + kind
-		preview.WouldWrites = []StartWrite{wouldFact(mission.FactRelPath("observation")), wouldFact(mission.FactRelPath("decision"))}
+		preview.WouldWrites = wouldFactKinds("observation", "decision")
 	}
 	return preview
 }
 
 func (ctx continueContext) applyContinueEvent(event map[string]any, preview ContinueEventPreview, runID, batchID string) ([]StartWrite, error) {
 	writes := []StartWrite{}
-	appendFact := func(rel string, value map[string]any) error {
-		path, err := refsf.SafeJoin(ctx.inst.CaseRoot, rel)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
-		}
-		if err := appendJSONLine(path, value); err != nil {
-			return err
-		}
-		writes = append(writes, StartWrite{Path: rel, Kind: "fact-jsonl", Action: "append", TargetPath: path})
-		return nil
-	}
 	kind := preview.Kind
 	switch kind {
 	case "observation":
 		if preview.Decision == "accept" {
-			if err := appendFact(mission.FactRelPath("observation"), event); err != nil {
+			if err := ctx.appendContinueFact(&writes, "observation", event); err != nil {
 				return nil, err
 			}
-			if err := appendFact(mission.FactRelPath("decision"), continueDecision(event, preview, runID, batchID)); err != nil {
+			if err := ctx.appendContinueFact(&writes, "decision", continueDecision(event, preview, runID, batchID)); err != nil {
 				return nil, err
 			}
 		}
 	case "request":
-		if err := appendFact(mission.FactRelPath("request"), event); err != nil {
+		if err := ctx.appendContinueFact(&writes, "request", event); err != nil {
 			return nil, err
 		}
 		if preview.Decision == "accept" && preview.TargetLane != "" {
@@ -488,7 +474,7 @@ func (ctx continueContext) applyContinueEvent(event map[string]any, preview Cont
 			}
 			writes = append(writes, routeWrites...)
 		}
-		if err := appendFact(mission.FactRelPath("decision"), continueDecision(event, preview, runID, batchID)); err != nil {
+		if err := ctx.appendContinueFact(&writes, "decision", continueDecision(event, preview, runID, batchID)); err != nil {
 			return nil, err
 		}
 	case "candidate":
@@ -504,26 +490,26 @@ func (ctx continueContext) applyContinueEvent(event map[string]any, preview Cont
 			event["decision"] = "pending-user"
 		}
 		event["decisionReason"] = preview.Reason
-		if err := appendFact(mission.FactRelPath("candidate"), event); err != nil {
+		if err := ctx.appendContinueFact(&writes, "candidate", event); err != nil {
 			return nil, err
 		}
-		if err := appendFact(mission.FactRelPath("decision"), continueDecision(event, preview, runID, batchID)); err != nil {
+		if err := ctx.appendContinueFact(&writes, "decision", continueDecision(event, preview, runID, batchID)); err != nil {
 			return nil, err
 		}
 	case "publication":
 		if preview.Decision == "accept" {
-			if err := appendFact(mission.FactRelPath("publication"), event); err != nil {
+			if err := ctx.appendContinueFact(&writes, "publication", event); err != nil {
 				return nil, err
 			}
-			if err := appendFact(mission.FactRelPath("decision"), continueDecision(event, preview, runID, batchID)); err != nil {
+			if err := ctx.appendContinueFact(&writes, "decision", continueDecision(event, preview, runID, batchID)); err != nil {
 				return nil, err
 			}
 		}
 	default:
-		if err := appendFact(mission.FactRelPath("observation"), event); err != nil {
+		if err := ctx.appendContinueFact(&writes, "observation", event); err != nil {
 			return nil, err
 		}
-		if err := appendFact(mission.FactRelPath("decision"), continueDecision(event, preview, runID, batchID)); err != nil {
+		if err := ctx.appendContinueFact(&writes, "decision", continueDecision(event, preview, runID, batchID)); err != nil {
 			return nil, err
 		}
 	}
@@ -1361,10 +1347,6 @@ func formatFloat(value float64) string {
 func sanitizedDiffName(rel string) string {
 	replacer := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_")
 	return replacer.Replace(rel) + ".diff"
-}
-
-func wouldFact(rel string) StartWrite {
-	return StartWrite{Path: rel, Kind: "fact-jsonl", Action: "would-append"}
 }
 
 func wouldLane(laneID, file string) StartWrite {
