@@ -762,7 +762,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"packs:",
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
-		"commands=14 modules=14 freezeGates=8 blocked=5",
+		"commands=14 modules=14 freezeGates=10 blocked=5",
 		"release handoff: release handoff summary ok ready=true readFirst=7 signals=8 knownGaps=5 packMaturity=10",
 		"releaseNotes=true",
 		"latest=Batch ",

@@ -68,7 +68,7 @@ BEGIN.
 - Go-first 收束与 release readiness 阶段计划：`docs/go-first-convergence-plan.md`
 - 发布门禁与当前 release readiness checklist：`docs/release-readiness.md`
 - 轻量 CI release gate：`.github/workflows/release-gate.yml`
-- PowerShell runtime deprecation strategy：`docs/powershell-deprecation.md`
+- PowerShell-free / Go-native convergence roadmap：`docs/powershell-deprecation.md`
 - 设计文档：`docs/design.md`
 - pack 编写指南：`docs/pack-authoring.md`
 - evidence / intervention 账本草案：`docs/evidence-ledger.md`
@@ -88,7 +88,7 @@ BEGIN.
 4. Common policies/prompts：改 `common/**`
 5. 用户文档：改 `README.md` 或 `docs/**`
 
-后续路线可以按 `docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/vision.md` 与 `docs/go-first-convergence-plan.md` 分批实施。用户已授权：每批完成后自行 review/评估并做低风险调整；只有遇到新的产品方向变化、破坏性仓库操作、未授权外部副作用、confirmed/authority 写入策略变化、runtime schema 迁移、PowerShell 删除或难以判断的架构取舍时，再停下来询问用户。动态调试/注入/patch/dump/hook/网络/exploit replay 等动作若已在当前 lane 文档/packet/autonomy profile 中明确预授权，可在 scope、预算、止损、输出路径和记录要求内由成员 lane 自主执行；超出授权或出现新风险时必须升级。为避免上下文压缩导致偏差，后续所有实施计划必须持续写回 `docs/batch-plan.md` 或相关设计文档，不能只留在聊天上下文中；完成后按用户要求提交并推送到远程 `main`。
+后续路线可以按 `docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/vision.md` 与 `docs/go-first-convergence-plan.md` 分批实施。当前阶段用户已授权优先推进 PowerShell-free / Go-native / 跨平台收敛：PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问，但必须有 Go-native 替代、文档和验证；若要删除公共入口且没有替代路径则仍需升级。每批完成后自行 review/评估并做低风险调整；只有遇到新的产品方向变化、破坏性仓库操作、未授权外部副作用、confirmed/authority 写入策略变化、runtime schema 迁移、删除公共入口但无 Go-native 替代方案或难以判断的架构取舍时，再停下来询问用户。动态调试/注入/patch/dump/hook/网络/exploit replay 等动作若已在当前 lane 文档/packet/autonomy profile 中明确预授权，可在 scope、预算、止损、输出路径和记录要求内由成员 lane 自主执行；超出授权或出现新风险时必须升级。为避免上下文压缩导致偏差，后续所有实施计划必须持续写回 `docs/batch-plan.md` 或相关设计文档，不能只留在聊天上下文中；完成后按用户要求提交并推送到远程 `main`。
 
 不要复制 runtime 逻辑到 case shim；case-local `/rekit` 应保持 thin shim，并回到 kit 仓库中的 canonical runtime。
 

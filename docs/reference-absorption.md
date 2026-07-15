@@ -161,7 +161,7 @@ git diff --check
 | orchestration 计划 | `docs/orchestration-plan.md` | 定义 Planner、Dispatcher、Gate、Digest、Ledger 分阶段实现 |
 | 轻到重路线 | `packs/vmp-re/references/vmp-re/workflow-template.md` | static triage -> I/O shape -> focused trace -> value-flow -> verifier -> confirmed |
 | heavy-tool gate | `toolchain-router.md`、`common/policies/tool-adapters.md` | 重型动作必须记录原因、预算、输出、止损和确认 |
-| batch 计划固化 | `docs/batch-plan.md` | 防止上下文压缩后偏离路线 |
+| batch / goal / PowerShell-free 路线固化 | `docs/batch-plan.md`、`docs/autonomous-goal.md`、`docs/powershell-deprecation.md` | 防止上下文压缩后偏离路线；详细路线、关键决策、验证结果和下一步必须写回 repo docs |
 
 ### 4.3 当前还没落地
 

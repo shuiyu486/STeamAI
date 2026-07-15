@@ -44,9 +44,9 @@
 2. **分批实施**：每批只做一个可验证切片，优先保持现有模块化；不跨阶段提前重构 runtime。
 3. **批次自审**：每批完成后主动 review 自己的 diff，评估架构是否清晰、是否保持模块边界、是否引入维护风险或同步副作用。
 4. **可自行调整**：若自审发现低风险文档职责重复、链接缺失、manifest 漏同步、CHANGELOG 漏记录等问题，可直接修正并再次验证。
-5. **必须停下询问**：遇到新的产品方向变化、破坏性仓库操作、未授权外部副作用、写入 confirmed/authority、runtime schema 迁移、PowerShell 删除或难以判断的架构取舍时，先问用户；动态调试/注入/patch/dump/hook/网络/exploit replay 等动作若已在当前 lane 文档/packet/autonomy profile 中明确预授权，可在 scope、预算、止损、输出路径和记录要求内由成员 lane 自主执行。
+5. **必须停下询问**：遇到新的产品方向变化、破坏性仓库操作、未授权外部副作用、写入 confirmed/authority、runtime schema 迁移、删除公共入口但无 Go-native 替代方案或难以判断的架构取舍时，先问用户；当前阶段 PowerShell replacement/removal 已授权按中大型可验证批次推进，但必须持续写回路线、边界和验证。动态调试、注入、patch、dump、hook、网络、exploit replay 等动作若已在当前 lane 文档/packet/autonomy profile 中明确预授权，可在 scope、预算、止损、输出路径和记录要求内由成员 lane 自主执行。
 6. **计划写回文档**：后续阶段的具体实施计划应持续沉淀到本文件或相邻设计文档中，不能只留在聊天上下文里。
-7. **每批都验证**：至少运行 `git diff --check`；能运行时再执行 `./rekit/rekit.ps1 status` 和 `./rekit/rekit.ps1 doctor`，失败要区分本批问题和既有阻塞。
+7. **每批都验证**：至少运行 `git diff --check`；优先运行 Go-native 检查（如 `go run ./cmd/rekit -- -Command release-check -Format json`、`status`、`doctor` 和 `go test ./...`），涉及迁移期 façade / fallback 时再追加对应 PowerShell smoke；失败要区分本批问题和既有阻塞。
 
 ## 验证标准
 

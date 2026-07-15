@@ -6,7 +6,7 @@
 
 当前项目不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first、可预授权边界内自主推进的 Agent Team 底座。
 
-一句话：**用户主要指挥主 Agent / Mission Commander；主 Agent 调度 durable member lanes、可替换会话执行体和短命 tactical subagents；`/rekit`、`rekit.ps1` 与 Go backend 是背后的 deterministic runtime/API。**
+一句话：**用户主要指挥主 Agent / Mission Commander；主 Agent 调度 durable member lanes、可替换会话执行体和短命 tactical subagents；`/rekit`、Go CLI/backend 是背后的 canonical deterministic runtime/API，`rekit.ps1` 仅作为迁移期 legacy façade，默认路径继续向 PowerShell-free / Go-native / 跨平台收敛。**
 
 ## 项目路线
 
@@ -27,7 +27,7 @@
 - Go backend 渐进迁移：`docs/go-runtime-migration.md`
 - Go-first 收束与 release readiness 阶段计划：`docs/go-first-convergence-plan.md`
 - 发布门禁与当前 release readiness checklist：`docs/release-readiness.md`（机器可读 inventory 与 release handoff：`/rekit release-check -Format json`；轻量 CI：`.github/workflows/release-gate.yml`）
-- PowerShell runtime deprecation strategy：`docs/powershell-deprecation.md`
+- PowerShell-free / Go-native convergence roadmap：`docs/powershell-deprecation.md`
 
 ## 如果你在维护本仓库
 

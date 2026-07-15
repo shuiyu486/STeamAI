@@ -6481,3 +6481,33 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/note/note.go internal/rekit/gate/gate.go`、`go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 216：PowerShell-free Go-native continuation anchor
+
+状态：已完成。
+
+目标：回应维护者要求“详细路线写进 repo docs；每批持续更新 docs；新会话先读 docs”，把聊天中确认的精简 `/goal`、PowerShell-free / Go-native / 跨平台阶段重点、防上下文压缩偏移机制和新会话接手说明写入仓库 durable docs，避免后续新会话只依赖聊天摘要或继续沿 PowerShell-heavy 惯性推进。
+
+实施范围：
+
+- 更新 `docs/autonomous-goal.md`：将当前阶段重点改为 PowerShell-free / Go-native / 跨平台 convergence，写入新会话接手一句话与精简 `/goal`，要求每轮先读 repo docs 校准方向，详细路线、关键决策、验证结果、下一步方向和未完成风险持续写回 `docs/batch-plan.md` 或相关设计文档。
+- 升级 `docs/powershell-deprecation.md` 为 PowerShell-free Go-native convergence roadmap，明确 Go CLI/backend 是 canonical runtime，PowerShell 只作为迁移期 legacy façade/fallback/parity residue；列出 Go-owned、façade-only、legacy-only、removal-candidate 与 blocked 的处置原则。
+- 同步更新 README、CLAUDE.md、`.claude/skills/rekit/SKILL.md`、`docs/vision.md`、`docs/reference-absorption.md`、`docs/go-first-convergence-plan.md` 与 `docs/release-readiness.md`，把入口文案从“PowerShell deprecation”调整为 PowerShell-free / Go-native / 跨平台收敛，并避免继续把 `rekit.ps1` 作为长期默认路径。
+- 更新 `CHANGELOG.md`，记录本批只做接手/路线文档和方向锚点。
+
+边界：本批只做文档和接手 goal anchor；不改变 runtime 写入面、PowerShell façade 委托集合、release-check JSON schema、CI workflow、pack manifest、case state、smoke catalog 或 Go package behavior；不执行 heavy-tool、不写 authority/confirmed、不迁移 policy schema、不删除 PowerShell 文件。
+
+验证计划：
+
+```powershell
+go run ./cmd/rekit -- -Command release-check -Format json
+go test ./internal/rekit/manifest -run TestAutonomousGoalGuideInvariants -count=1
+go test ./internal/rekit/manifest -run TestPowerShell -count=1
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `go run ./cmd/rekit -- -Command release-check -Format json`、`go test ./internal/rekit/manifest -run TestAutonomousGoalGuideInvariants -count=1`、`go test ./internal/rekit/manifest -run TestPowerShell -count=1`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go test ./...`、`go vet ./...` 与 `go run ./cmd/rekit -- -Command doctor`；更新 CLI text inventory test 以匹配 PowerShell-free roadmap 新增的 freeze gate 数量。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

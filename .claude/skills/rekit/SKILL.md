@@ -16,7 +16,7 @@ disable-model-invocation: true
 
 ## 用户使用方式
 
-产品方向是 Mission Control：优先让用户用自然语言指挥主 Agent，而不是手动记 `/rekit` 子命令。`/rekit` 是主 Agent、维护者、自动化和排障使用的 deterministic runtime API；底层 `rekit.ps1` / Go CLI 更不应作为日常入口展示。
+产品方向是 Mission Control：优先让用户用自然语言指挥主 Agent，而不是手动记 `/rekit` 子命令。`/rekit` 是主 Agent、维护者、自动化和排障使用的 deterministic runtime API；底层 Go CLI 是 canonical runtime，`rekit.ps1` 只是迁移期 legacy façade，二者都不应作为日常入口展示。
 
 可给用户展示的日常表达优先是：
 
