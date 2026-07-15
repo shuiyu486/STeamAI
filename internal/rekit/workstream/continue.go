@@ -337,7 +337,7 @@ func newContinueContext(repoRoot, caseRoot, pack string, opt ContinueOptions) (c
 	}
 	selector := strings.TrimSpace(opt.Selector)
 	if selector == "" {
-		open := openBoardLanes(b)
+		open := mission.OpenBoardLanes(b.Lanes)
 		if len(open) != 1 {
 			return continueContext{}, fmt.Errorf("continue requires a lane selector when multiple open lanes exist; use main or a workstream name")
 		}
@@ -1236,17 +1236,6 @@ func knownEventIDs(caseRoot string) (map[string]bool, error) {
 		}
 	}
 	return known, nil
-}
-
-func openBoardLanes(b board) []boardLane {
-	out := []boardLane{}
-	for _, lane := range b.Lanes {
-		status := strings.ToLower(strings.TrimSpace(lane.Status))
-		if status != "archived" && status != "paused" && status != "closed" {
-			out = append(out, lane)
-		}
-	}
-	return out
 }
 
 func readCSVRows(path string) ([]map[string]string, error) {

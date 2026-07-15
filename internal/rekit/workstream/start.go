@@ -89,17 +89,7 @@ type Lane struct {
 	UpdatedAt     string         `json:"updatedAt"`
 }
 
-type board struct {
-	SchemaVersion        int         `json:"schemaVersion"`
-	CaseRoot             string      `json:"caseRoot"`
-	RepoRoot             string      `json:"repoRoot"`
-	Pack                 string      `json:"pack"`
-	AutomationMode       string      `json:"automationMode"`
-	DefaultAuthorityLane string      `json:"defaultAuthorityLane"`
-	Lanes                []boardLane `json:"lanes"`
-	FactsRoot            string      `json:"factsRoot"`
-	UpdatedAt            string      `json:"updatedAt"`
-}
+type board = mission.Board
 
 type boardLane = mission.BoardLane
 

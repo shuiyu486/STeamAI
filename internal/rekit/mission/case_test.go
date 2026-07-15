@@ -114,6 +114,19 @@ func TestAssertBoardLaneReportsMissingAndEmptyBoard(t *testing.T) {
 	}
 }
 
+func TestOpenBoardLanesUsesSharedStatusRules(t *testing.T) {
+	lanes := OpenBoardLanes([]BoardLane{
+		{ID: "main", Status: "active"},
+		{ID: "paused-lane", Status: "paused"},
+		{ID: "archived-lane", Status: "archived"},
+		{ID: "closed-lane", Status: "closed"},
+		{ID: "blank-status"},
+	})
+	if len(lanes) != 2 || lanes[0].ID != "main" || lanes[1].ID != "blank-status" {
+		t.Fatalf("open board lanes = %#v", lanes)
+	}
+}
+
 func TestReadJSONLineObjectsSkipsBlankAndInvalidLines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	content := strings.Join([]string{

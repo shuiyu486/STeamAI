@@ -2,7 +2,6 @@ package workstream
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -447,19 +446,7 @@ func (ctx handoffContext) laneHandoffPaths(laneID string) (string, string, error
 }
 
 func readBoard(caseRoot string) (board, error) {
-	path, err := refsf.SafeJoin(caseRoot, ".rekit/board.json")
-	if err != nil {
-		return board{}, err
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return board{}, err
-	}
-	var out board
-	if err := json.Unmarshal(b, &out); err != nil {
-		return board{}, fmt.Errorf("invalid board json %s: %w", path, err)
-	}
-	return out, nil
+	return mission.ReadBoard(caseRoot)
 }
 
 func resolveHandoffLane(caseRoot string, b board, selector string) (Lane, error) {

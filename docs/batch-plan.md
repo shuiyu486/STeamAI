@@ -6080,3 +6080,31 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/note/note.go internal/rekit/gate/gate.go`、`go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/gate ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 202：Workstream board snapshot reuse
+
+状态：已完成。
+
+目标：在 Batch 198-201 已把 mission/note/gate/overview 的 board/facts 读取和 lane guard 逐步收口后，继续移除 workstream 中仍残留的 board struct、board JSON parser 与 open-lane status filter 复制逻辑，让 start/handoff/continue 共享路径直接复用 `internal/rekit/mission` 的 case snapshot helper。
+
+实施范围：
+
+- `internal/rekit/workstream/start.go` 将 workstream-local `board` struct 改为 `mission.Board` alias，保留 `boardLane = mission.BoardLane`，让 start/continue/handoff 共享同一 board schema 定义。
+- `internal/rekit/workstream/handoff.go` 的 `readBoard` 改为直接调用 `mission.ReadBoard`，删除 workstream-local board JSON parser 和对应 `encoding/json` import，同时保留 handoff/continue 对缺 board 的 command-specific 错误提示。
+- `internal/rekit/mission/case.go` 新增 `OpenBoardLanes`，`continue` 无 selector 时复用该 helper 判断 open lanes，移除 workstream-local open-lane status filter。
+- 扩展 `internal/rekit/mission/case_test.go`，覆盖 shared open board lane status 规则：`archived`、`paused`、`closed` 不进入 open lane，空 status 仍视为 open。
+
+边界：本批只做 Go runtime 内部复用、测试和文档；不改变 start/continue/handoff 文本或 JSON envelope 字段；不改变 `.rekit/board.json` refresh 写入语义、run artifacts、Mission Control brief、lane resolution、缺 board command-specific 提示、PowerShell façade 委托集合或 sync/promote review-first 语义；不执行 heavy-tool、不自动 spawn tactical subagent、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/workstream/start.go internal/rekit/workstream/handoff.go internal/rekit/workstream/continue.go`、`go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

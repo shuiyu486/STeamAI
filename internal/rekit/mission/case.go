@@ -286,6 +286,17 @@ func BatchEvents(facts LedgerFacts) []map[string]any {
 	return out
 }
 
+func OpenBoardLanes(lanes []BoardLane) []BoardLane {
+	out := []BoardLane{}
+	for _, lane := range lanes {
+		status := strings.ToLower(strings.TrimSpace(lane.Status))
+		if status != "archived" && status != "paused" && status != "closed" {
+			out = append(out, lane)
+		}
+	}
+	return out
+}
+
 func BoardLanes(lanes []BoardLane) []Lane {
 	out := make([]Lane, 0, len(lanes))
 	for _, lane := range lanes {
