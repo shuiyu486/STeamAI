@@ -1884,7 +1884,8 @@ func TestRunStartPreviewDoesNotWriteBoard(t *testing.T) {
 			ID        string `json:"id"`
 			Workspace string `json:"workspace"`
 		} `json:"lane"`
-		Writes []struct {
+		MissionBrief missionBrief `json:"missionBrief"`
+		Writes       []struct {
 			Path   string `json:"path"`
 			Action string `json:"action"`
 		} `json:"writes"`
@@ -1894,6 +1895,9 @@ func TestRunStartPreviewDoesNotWriteBoard(t *testing.T) {
 	}
 	if result.IsMutation || result.Applied || result.Lane.ID != "feature-login" || result.Lane.Workspace != "workspace/features/feature-login" {
 		t.Fatalf("unexpected start preview result: %+v", result)
+	}
+	if result.MissionBrief.Summary == "" || result.MissionBrief.Summary != "openLanes=0 ready=0 blocked=0 pendingGates=0 openDecisions=0 interventions=0" {
+		t.Fatalf("start preview missing pre-apply mission brief: %+v", result.MissionBrief)
 	}
 	if len(result.Writes) != 1 || result.Writes[0].Path != ".rekit/lanes/feature-login/lane.json" || result.Writes[0].Action != "would-create-lane" {
 		t.Fatalf("unexpected start preview writes: %+v", result.Writes)
@@ -1911,6 +1915,9 @@ func TestRunStartApplyCreatesFeatureLane(t *testing.T) {
 	result := decodeStartResult(t, out.Bytes())
 	if !result.IsMutation || !result.Applied || result.Lane.ID != "feature-login" {
 		t.Fatalf("unexpected start apply result: %+v", result)
+	}
+	if result.MissionBrief.Summary == "" || !slices.Contains(result.MissionBrief.ReadyLanes, "main") || !slices.Contains(result.MissionBrief.ReadyLanes, "login") || len(result.MissionBrief.BlockedLanes) != 0 {
+		t.Fatalf("start apply JSON missing post-apply mission brief: %+v", result.MissionBrief)
 	}
 	assertStartWrite(t, result.Writes, ".rekit/policy.yml", "create-policy")
 	assertStartWrite(t, result.Writes, ".rekit/lanes/main/lane.json", "create-lane")
@@ -3838,11 +3845,12 @@ type promoteApplyWrite struct {
 }
 
 type startResult struct {
-	Command    string       `json:"command"`
-	IsMutation bool         `json:"isMutation"`
-	Applied    bool         `json:"applied"`
-	Lane       startLane    `json:"lane"`
-	Writes     []startWrite `json:"writes"`
+	Command      string       `json:"command"`
+	IsMutation   bool         `json:"isMutation"`
+	Applied      bool         `json:"applied"`
+	Lane         startLane    `json:"lane"`
+	MissionBrief missionBrief `json:"missionBrief"`
+	Writes       []startWrite `json:"writes"`
 }
 
 type handoffResult struct {

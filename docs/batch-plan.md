@@ -5914,3 +5914,31 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/workstream/continue.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 196：Start mission brief JSON
+
+状态：已完成。
+
+目标：让维护自动化在创建或进入工作线时直接从 Go `start` JSON envelope 获取 Mission Control brief，避免 start 后必须另跑 `overview` / `handoff` 才能判断新 lane 初始化后的全局 ready/blocked 状态。
+
+实施范围：
+
+- 扩展 `internal/rekit/workstream.StartResult`，新增结构化 `missionBrief` 字段；`start -WhatIf -Format json` 输出当前 pre-apply project-level brief，`start -Apply -Format json` 在 workstream state、lane 和 board refresh 后输出 post-apply brief。
+- 复用 Batch 193 的 shared Mission Control helper 与 handoff facts reader，确保 start JSON brief 与 overview/project handoff/continue 使用同一 pending-gate、open intervention、open candidate/open decision blocker 语义。
+- 补 `internal/rekit/cli` start tests，覆盖 what-if no-write JSON brief 与 apply 后新建 main + feature lane 的 ready brief。
+- 更新 README、`/rekit` skill、`docs/agent-team-usage.md`、`docs/go-first-convergence-plan.md` 与 CHANGELOG，说明 start JSON envelope 可直接消费 `missionBrief`。
+
+边界：本批只增强 case-local start JSON 可消费性、测试和文档；不改变 PowerShell façade 委托集合、不实现真实多会话调度、不自动 spawn tactical subagent、不执行 heavy-tool、不写 authority/confirmed、不改变 sync/promote review-first 语义。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/workstream ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/workstream/start.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

@@ -15,6 +15,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 const defaultPolicyText = `schemaVersion: 1
@@ -55,18 +56,19 @@ type StartWrite struct {
 }
 
 type StartResult struct {
-	SchemaVersion        int          `json:"schemaVersion"`
-	Command              string       `json:"command"`
-	CaseRoot             string       `json:"caseRoot"`
-	RepoRoot             string       `json:"repoRoot"`
-	Pack                 string       `json:"pack"`
-	IsMutation           bool         `json:"isMutation"`
-	Applied              bool         `json:"applied"`
-	RequiresConfirmation bool         `json:"requiresConfirmation"`
-	Lane                 Lane         `json:"lane"`
-	Writes               []StartWrite `json:"writes"`
-	BlockedActions       []string     `json:"blockedActions"`
-	NextSteps            []string     `json:"nextSteps"`
+	SchemaVersion        int           `json:"schemaVersion"`
+	Command              string        `json:"command"`
+	CaseRoot             string        `json:"caseRoot"`
+	RepoRoot             string        `json:"repoRoot"`
+	Pack                 string        `json:"pack"`
+	IsMutation           bool          `json:"isMutation"`
+	Applied              bool          `json:"applied"`
+	RequiresConfirmation bool          `json:"requiresConfirmation"`
+	Lane                 Lane          `json:"lane"`
+	MissionBrief         mission.Brief `json:"missionBrief"`
+	Writes               []StartWrite  `json:"writes"`
+	BlockedActions       []string      `json:"blockedActions"`
+	NextSteps            []string      `json:"nextSteps"`
 }
 
 type Lane struct {
@@ -118,6 +120,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 	if err != nil {
 		return StartResult{}, err
 	}
+	brief := startMissionBrief(inst.CaseRoot)
 	laneFile, err := refsf.SafeJoin(inst.CaseRoot, relJoin(".rekit", "lanes", laneID, "lane.json"))
 	if err != nil {
 		return StartResult{}, err
@@ -139,6 +142,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 		Applied:              false,
 		RequiresConfirmation: true,
 		Lane:                 lane,
+		MissionBrief:         brief,
 		Writes: []StartWrite{{
 			Path:       relJoin(".rekit", "lanes", laneID, "lane.json"),
 			Kind:       "lane",
@@ -172,6 +176,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 		return StartResult{}, err
 	}
 	writes = append(writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
+	brief := startMissionBrief(inst.CaseRoot)
 	return StartResult{
 		SchemaVersion:        1,
 		Command:              "start",
@@ -182,6 +187,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 		Applied:              true,
 		RequiresConfirmation: false,
 		Lane:                 lane,
+		MissionBrief:         brief,
 		Writes:               writes,
 		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution", "handoff writes", "continue auto-apply"},
 		NextSteps: []string{
@@ -189,6 +195,21 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 			"use /rekit continue " + workstreamLabel(lane) + " to enter the lane workflow",
 		},
 	}, nil
+}
+
+func startMissionBrief(caseRoot string) mission.Brief {
+	b, err := readBoard(caseRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return mission.Build(nil, mission.Facts{}, maxHandoffRows)
+		}
+		return mission.Brief{Summary: "unavailable: " + err.Error()}
+	}
+	facts, err := readHandoffFacts(caseRoot)
+	if err != nil {
+		return mission.Brief{Summary: "unavailable: " + err.Error()}
+	}
+	return projectMissionBrief(b.Lanes, facts)
 }
 
 func EnsureBoard(repoRoot, caseRoot, pack string) error {

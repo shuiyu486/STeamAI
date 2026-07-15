@@ -135,7 +135,7 @@ claude
 | `/rekit overview` | case-local 状态 | 显示项目概览、主线/支线、共享事实统计、Mission Control brief 和下一步建议；brief 会把 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations 汇总到文本和 `-Format json` envelope；缺 `.rekit/board.json` 时由 Go 初始化 case-local board/facts/policy/default authority lane；只表示总览，不代表当前会话已选择工作线。 |
 | `/rekit continue main` | case-local 自动整理 | 明确接手主线并整理相关状态；多工作线时不要用无参数 `continue` 盲猜；维护自动化可用 `-WhatIf -Format json` 经默认 Go façade 消费非写入 continue 计划，JSON envelope 含结构化 `missionBrief`。 |
 | `/rekit continue <name>` | case-local 自动整理 | 明确接手某条功能支线，只整理该支线的 workspace/outbox 并刷新接续提示；`-WhatIf -Format json` 默认经 Go façade 预览收集、路由和 authority append 计划；显式 `-Apply` 的 JSON envelope、run `status.json` 与 `digest.md` 都包含同一 `missionBrief`。 |
-| `/rekit start <name>` | case-local 状态 | 创建或进入一个功能支线，例如 `/rekit start login`；支线只写自己的工作区；维护自动化可用 `-WhatIf -Format json` 消费非写入 start 计划，显式 `-Apply` 输出 Go JSON envelope。 |
+| `/rekit start <name>` | case-local 状态 | 创建或进入一个功能支线，例如 `/rekit start login`；支线只写自己的工作区；维护自动化可用 `-WhatIf -Format json` 消费非写入 start 计划和结构化 `missionBrief`，显式 `-Apply` 输出含 apply 后 `missionBrief` 的 Go JSON envelope。 |
 | `/rekit handoff` | case-local 状态 | 生成项目级接手索引 `.rekit/handovers/latest.md`；索引和 Go JSON envelope 都包含 Mission Control brief，汇总 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations；维护自动化可用 `-WhatIf -Format json` 消费同一结构化 `missionBrief` 与写入预览，显式 `-Apply` 输出 Go JSON envelope；不代表某个会话。 |
 | `/rekit handoff <name>` | case-local 状态 | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；lane handoff 的 Markdown 与 Go JSON `missionBrief` 使用 overview 同一 blocker 语义，pending gate、open intervention、open candidate/decision 都会让该 lane 显示为 blocked；`-WhatIf -Format json` 可预览目标工作线 handoff 写入计划，显式 `-Apply` 输出 Go JSON envelope。 |
 | `/rekit sync` | kit -> case | 默认生成同步审查包；确认后才用 `-Apply` 写入 managed docs / managed block。 |
@@ -179,7 +179,7 @@ claude
 /rekit start login
 ```
 
-这会创建一个功能支线，例如 `feature-login`。需要自动化预览时可先运行 `/rekit start login -WhatIf -Format json` 获取只读写入计划；显式 `/rekit start login -Apply` 由 Go façade 创建或进入工作线并输出 JSON envelope。功能支线用于专项分析、证据收集、候选结论和 request；它默认不能写 confirmed CSV、`routine_ir.*` 或 `references/vmp-re/task-handoff.md`。
+这会创建一个功能支线，例如 `feature-login`。需要自动化预览时可先运行 `/rekit start login -WhatIf -Format json` 获取只读写入计划和当前 `missionBrief`；显式 `/rekit start login -Apply` 由 Go façade 创建或进入工作线并输出含 apply 后 `missionBrief` 的 JSON envelope。功能支线用于专项分析、证据收集、候选结论和 request；它默认不能写 confirmed CSV、`routine_ir.*` 或 `references/vmp-re/task-handoff.md`。
 
 主线/支线不是级别高低，而是写入权限不同：
 
