@@ -575,6 +575,7 @@ func writeWorkspacePackets(out *bytes.Buffer, caseRoot string, lane Lane) error 
 
 type handoffFacts struct {
 	Verifications []map[string]any
+	Candidates    []map[string]any
 	Decisions     []map[string]any
 	Requests      []map[string]any
 	Interventions []map[string]any
@@ -591,6 +592,9 @@ func readHandoffFacts(caseRoot string) (handoffFacts, error) {
 	}
 	out := handoffFacts{}
 	if out.Verifications, err = read("verifications.jsonl"); err != nil {
+		return out, err
+	}
+	if out.Candidates, err = read("candidates.jsonl"); err != nil {
 		return out, err
 	}
 	if out.Decisions, err = read("decisions.jsonl"); err != nil {
@@ -611,14 +615,14 @@ func readHandoffFacts(caseRoot string) (handoffFacts, error) {
 func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts handoffFacts) {
 	gates := filterLane(facts.Requests, lane.ID, "pending-gate")
 	interventions := openHandoffEvents(filterLane(facts.Interventions, lane.ID, ""))
-	decisions := openHandoffDecisions(filterLane(facts.Decisions, lane.ID, ""))
+	openDecisions := handoffOpenDecisionItems(facts, lane.ID)
 	fmt.Fprintln(out, "## Mission Control brief")
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "- lane: %s status=%s workspace=%s\n", lane.ID, lane.Status, lane.Workspace)
-	fmt.Fprintf(out, "- blocked: %t\n", len(gates) > 0 || len(interventions) > 0)
+	fmt.Fprintf(out, "- blocked: %t\n", len(gates) > 0 || len(interventions) > 0 || len(openDecisions) > 0)
 	writeHandoffBriefList(out, "pending-gate", handoffGateLines(gates))
 	writeHandoffBriefList(out, "open intervention", handoffInterventionLines(interventions))
-	writeHandoffBriefList(out, "open decision", handoffDecisionLines(decisions))
+	writeHandoffBriefList(out, "open decision", handoffOpenDecisionLines(openDecisions))
 	actions := []string{}
 	if len(interventions) > 0 {
 		actions = append(actions, "reconcile user intervention before continuing this lane")
@@ -626,8 +630,8 @@ func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts handoffFacts) {
 	if len(gates) > 0 {
 		actions = append(actions, "resolve or explicitly defer pending gate request(s) before heavy action")
 	}
-	if len(decisions) > 0 {
-		actions = append(actions, "review deferred decision(s) with evidence and authority boundary")
+	if len(openDecisions) > 0 {
+		actions = append(actions, "review open candidate/decision item(s) with evidence and authority boundary")
 	}
 	if len(actions) == 0 {
 		actions = append(actions, "continue lane with /rekit continue "+workstreamLabel(lane))
@@ -674,9 +678,17 @@ func handoffInterventionLines(items []map[string]any) []string {
 	return lines
 }
 
-func handoffDecisionLines(items []map[string]any) []string {
+func handoffOpenDecisionLines(items []map[string]any) []string {
 	lines := []string{}
 	for _, item := range items {
+		kind := firstObjectText(item, "kind")
+		if kind == "candidate" {
+			parts := []string{"candidate: " + firstObjectText(item, "subject", "kind")}
+			appendPart(&parts, "status", firstObjectText(item, "status"))
+			appendPart(&parts, "summary", firstObjectText(item, "summary"))
+			lines = append(lines, strings.Join(parts, " | "))
+			continue
+		}
 		parts := []string{firstObjectText(item, "subject", "kind")}
 		appendPart(&parts, "decision", firstObjectText(item, "decision", "action"))
 		appendPart(&parts, "reason", firstObjectText(item, "reason"))
@@ -702,6 +714,27 @@ func openHandoffDecisions(items []map[string]any) []map[string]any {
 		status := strings.ToLower(strings.TrimSpace(firstObjectText(item, "status")))
 		decision := strings.ToLower(strings.TrimSpace(firstObjectText(item, "decision", "action")))
 		if (status == "" && decision == "defer") || (status != "" && !handoffTerminalStatus(status)) || decision == "pending-user" {
+			open = append(open, item)
+		}
+	}
+	return open
+}
+
+func handoffOpenDecisionItems(facts handoffFacts, laneID string) []map[string]any {
+	items := []map[string]any{}
+	items = append(items, openHandoffCandidates(filterLane(facts.Candidates, laneID, ""))...)
+	items = append(items, openHandoffDecisions(filterLane(facts.Decisions, laneID, ""))...)
+	return items
+}
+
+func openHandoffCandidates(items []map[string]any) []map[string]any {
+	open := []map[string]any{}
+	for _, item := range items {
+		status := strings.ToLower(strings.TrimSpace(firstObjectText(item, "status")))
+		switch status {
+		case "confirmed", "accepted", "rejected", "resolved", "superseded":
+			continue
+		default:
 			open = append(open, item)
 		}
 	}

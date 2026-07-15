@@ -2029,6 +2029,79 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	}
 }
 
+func TestRunHandoffMissionBriefBlocksOpenDecisions(t *testing.T) {
+	cases := []struct {
+		name       string
+		candidates []string
+		decisions  []string
+		wantText   []string
+	}{
+		{
+			name: "candidate only",
+			candidates: []string{
+				`{"kind":"candidate","lane":"feature-login","subject":"unmerged candidate","summary":"awaiting main decision","confidence":"high","status":"open","batchId":"batch-handoff-parity"}`,
+			},
+			wantText: []string{"blocked: true", "pending-gate: none", "open intervention: none", "open decision:", "candidate: unmerged candidate", "review open candidate/decision item(s)"},
+		},
+		{
+			name: "decision only",
+			decisions: []string{
+				`{"kind":"decision","lane":"feature-login","subject":"merge deferred","decision":"defer","actor":"runtime-test","reason":"needs main approval","batchId":"batch-handoff-parity"}`,
+			},
+			wantText: []string{"blocked: true", "pending-gate: none", "open intervention: none", "open decision:", "merge deferred", "decision=defer", "review open candidate/decision item(s)"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			caseRoot := fullAttachedCase(t)
+			writeHandoffFixture(t, caseRoot)
+			factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+			writeFactFile(t, factsRoot, "candidates.jsonl", tc.candidates)
+			writeFactFile(t, factsRoot, "decisions.jsonl", tc.decisions)
+			writeFactFile(t, factsRoot, "requests.jsonl", nil)
+			writeFactFile(t, factsRoot, "interventions.jsonl", nil)
+
+			var out bytes.Buffer
+			if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+				t.Fatal(err)
+			}
+			lane := decodeHandoffResult(t, out.Bytes())
+			laneLatest := assertStartWrite(t, lane.Writes, ".rekit/handovers/feature-login-latest.md", "write-latest-lane-handoff")
+			laneText, err := os.ReadFile(laneLatest.TargetPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, expected := range tc.wantText {
+				if !strings.Contains(string(laneText), expected) {
+					t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
+				}
+			}
+			for _, unexpected := range []string{"## pending-gate", "## intervention", "resolve or explicitly defer pending gate"} {
+				if strings.Contains(string(laneText), unexpected) {
+					t.Fatalf("lane handoff contained unexpected %q:\n%s", unexpected, string(laneText))
+				}
+			}
+
+			out.Reset()
+			if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+				t.Fatal(err)
+			}
+			var overview struct {
+				MissionBrief struct {
+					BlockedLanes  []string `json:"blockedLanes"`
+					OpenDecisions []string `json:"openDecisions"`
+				} `json:"missionBrief"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+				t.Fatalf("overview JSON did not decode: %v\n%s", err, out.String())
+			}
+			if !slices.Contains(overview.MissionBrief.BlockedLanes, "login (open-decision)") || len(overview.MissionBrief.OpenDecisions) == 0 {
+				t.Fatalf("overview mission brief is not decision-blocked: %+v", overview.MissionBrief)
+			}
+		})
+	}
+}
+
 func TestRunHandoffRequiresModeAndBoard(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer

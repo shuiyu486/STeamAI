@@ -137,7 +137,7 @@ claude
 | `/rekit continue <name>` | case-local 自动整理 | 明确接手某条功能支线，只整理该支线的 workspace/outbox 并刷新接续提示；`-WhatIf -Format json` 默认经 Go façade 预览收集、路由和 authority append 计划。 |
 | `/rekit start <name>` | case-local 状态 | 创建或进入一个功能支线，例如 `/rekit start login`；支线只写自己的工作区；维护自动化可用 `-WhatIf -Format json` 消费非写入 start 计划，显式 `-Apply` 输出 Go JSON envelope。 |
 | `/rekit handoff` | case-local 状态 | 生成项目级接手索引 `.rekit/handovers/latest.md`；维护自动化可用 `-WhatIf -Format json` 消费写入预览，显式 `-Apply` 输出 Go JSON envelope；不代表某个会话。 |
-| `/rekit handoff <name>` | case-local 状态 | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；`-WhatIf -Format json` 可预览目标工作线 handoff 写入计划，显式 `-Apply` 输出 Go JSON envelope。 |
+| `/rekit handoff <name>` | case-local 状态 | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；lane handoff 的 Mission Control brief 与 overview 使用同一 blocker 语义，pending gate、open intervention、open candidate/decision 都会让该 lane 显示为 blocked；`-WhatIf -Format json` 可预览目标工作线 handoff 写入计划，显式 `-Apply` 输出 Go JSON envelope。 |
 | `/rekit sync` | kit -> case | 默认生成同步审查包；确认后才用 `-Apply` 写入 managed docs / managed block。 |
 | `/rekit promote` | case -> kit | 默认生成回流审查包；确认后才用 `-CreateCandidates` 生成候选或用 `-Apply` 写回 pack。 |
 | `/rekit doctor` | 只读 | 排障时详细验证结构；日常不必主动运行；维护自动化可用 `-Format json` 消费验证 rows。 |

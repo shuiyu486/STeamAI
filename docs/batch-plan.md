@@ -5772,3 +5772,32 @@ git diff --check
 ```
 
 验证结果：已通过 `go test ./internal/rekit/manifest ./internal/rekit/releasecheck ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`/rekit doctor`、`plan-subagents-smoke.ps1` 与 `facade-smoke.ps1`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 191：Mission Control handoff blocker parity
+
+状态：已完成。
+
+目标：对齐 Go-owned overview 与 lane handoff 的 Mission Control blocker 语义，修复 lane handoff 在 open decision / open candidate 是唯一阻塞项时仍可能显示 `blocked: false` 的可接手性偏差，让主 Agent 与新会话从 overview 和指定 lane handoff 获得一致的 ready/blocked 判断。
+
+实施范围：
+
+- 扩展 `internal/rekit/workstream` lane handoff facts 读取，将本 lane `candidates.jsonl` 纳入 `## Mission Control brief` 的 open decision 列表，并将 open candidate 与 open decision 一起参与 `blocked` 判断。
+- lane handoff 的 blocker 语义与 `internal/rekit/overview` 保持一致：pending-gate、open intervention、open candidate/open decision 都会让对应 lane blocked；accepted/rejected/resolved/superseded candidate 不再作为 handoff blocker。
+- 更新 lane handoff next action 文案，从单纯 deferred decision 扩展为 open candidate/decision review action，避免 candidate-only 场景缺少可执行下一步。
+- 补 `internal/rekit/cli` parity tests，分别覆盖 candidate-only 与 decision-only blocker：lane handoff 应显示 `blocked: true`、无 pending gate/intervention 细节区段，并与 overview JSON `missionBrief.blockedLanes` 的 `open-decision` 结果一致。
+- 更新 README、`/rekit` skill、`docs/agent-team-usage.md`、`docs/go-first-convergence-plan.md` 与 CHANGELOG，说明 lane handoff Mission Control brief 与 overview 共用 blocker 语义。
+
+边界：本批只修正 case-local handoff/overview summarization parity、测试和文档；不改变 PowerShell façade 委托集合、不实现真实多会话调度、不自动 spawn tactical subagent、不执行 heavy-tool、不写 authority/confirmed、不改变 sync/promote review-first 语义。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/workstream ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `go test ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
