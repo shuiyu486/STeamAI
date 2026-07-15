@@ -156,6 +156,31 @@ func TestReadJSONLineObjectsSkipsBlankAndInvalidLines(t *testing.T) {
 	}
 }
 
+func TestAppendJSONLineCreatesAndAppendsCRLFJSONLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	if err := AppendJSONLine(path, map[string]any{"kind": "candidate", "eventId": "evt-one"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendJSONLine(path, map[string]any{"kind": "request", "eventId": "evt-two"}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	if !strings.Contains(text, "\r\n") || !strings.Contains(text, `"evt-one"`) || !strings.Contains(text, `"evt-two"`) {
+		t.Fatalf("appended JSONL = %q", text)
+	}
+	items, err := ReadStrictJSONLineObjects(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || Value(items[0], "eventId") != "evt-one" || Value(items[1], "eventId") != "evt-two" {
+		t.Fatalf("items = %#v", items)
+	}
+}
+
 func TestValidateJSONLinesReportsLineNumbersAndSkipsMissing(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing.jsonl")
 	if err := ValidateJSONLines(missing); err != nil {

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -204,16 +203,7 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
-	line, err := json.Marshal(event)
-	if err != nil {
-		return AppendResult{}, err
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return AppendResult{}, err
-	}
-	defer f.Close()
-	if _, err := f.Write(append(line, '\r', '\n')); err != nil {
+	if err := mission.AppendJSONLine(path, event); err != nil {
 		return AppendResult{}, err
 	}
 	result.Applied = true

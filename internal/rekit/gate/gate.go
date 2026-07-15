@@ -3,7 +3,6 @@ package gate
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -154,16 +153,7 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
-	line, err := json.Marshal(preview)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	defer f.Close()
-	if _, err := f.Write(append(line, '\r', '\n')); err != nil {
+	if err := mission.AppendJSONLine(path, preview); err != nil {
 		return ApplyResult{}, err
 	}
 	result.Applied = true

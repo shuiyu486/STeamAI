@@ -25,7 +25,7 @@ func (ctx continueContext) appendContinueFact(writes *[]StartWrite, kind string,
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	if err := appendJSONLine(path, value); err != nil {
+	if err := mission.AppendJSONLine(path, value); err != nil {
 		return err
 	}
 	*writes = append(*writes, StartWrite{Path: rel, Kind: "fact-jsonl", Action: "append", TargetPath: path})

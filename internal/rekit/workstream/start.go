@@ -383,7 +383,7 @@ func writeLane(caseRoot string, laneType manifest.LaneType, id, name string, for
 	writes = append(writes, StartWrite{Path: relJoin(laneRootRel, "lane.json"), Kind: "lane", Action: action, TargetPath: laneFile})
 	eventPath := LaneEventsJSONLPath(laneRoot)
 	event := map[string]any{"eventId": eventID(id, eventKind, now), "kind": eventKind, "lane": id, "time": now, "summary": eventSummary}
-	if err := appendJSONLine(eventPath, event); err != nil {
+	if err := mission.AppendJSONLine(eventPath, event); err != nil {
 		return Lane{}, nil, err
 	}
 	writes = append(writes, StartWrite{Path: relJoin(laneRootRel, "events.jsonl"), Kind: "lane-event", Action: eventAction, TargetPath: eventPath})
@@ -685,20 +685,6 @@ func writeJSON(path string, v any) error {
 		return err
 	}
 	return os.WriteFile(path, append(b, '\n'), 0o644)
-}
-
-func appendJSONLine(path string, v any) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = f.Write(append(b, '\r', '\n'))
-	return err
 }
 
 func eventID(laneID, kind, createdAt string) string {

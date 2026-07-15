@@ -212,6 +212,20 @@ func ReadStrictJSONLineObjects(path string) ([]map[string]any, error) {
 	return readJSONLineObjects(path, true)
 }
 
+func AppendJSONLine(path string, value any) error {
+	line, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.Write(append(line, '\r', '\n'))
+	return err
+}
+
 func ValidateJSONLines(path string) error {
 	return scanJSONLines(path, func(line string, lineNo int) error {
 		var item any

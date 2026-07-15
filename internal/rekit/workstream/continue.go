@@ -591,10 +591,10 @@ func routeContinueRequest(caseRoot, targetLane string, event map[string]any) ([]
 	summary := firstText(stringFrom(event, "summary"), stringFrom(event, "subject"), stringFrom(event, "eventId"))
 	task := map[string]any{"taskId": "task-" + strings.TrimPrefix(stringFrom(event, "eventId"), "evt-"), "eventId": stringFrom(event, "eventId"), "requestId": requestID, "kind": stringFrom(event, "kind"), "sourceLane": sourceLane, "summary": summary, "status": "open", "createdAt": now}
 	inbox := map[string]any{"eventId": stringFrom(event, "eventId"), "requestId": requestID, "kind": "routed-request", "sourceLane": sourceLane, "summary": summary, "time": now}
-	if err := appendJSONLine(taskPath, task); err != nil {
+	if err := mission.AppendJSONLine(taskPath, task); err != nil {
 		return nil, err
 	}
-	if err := appendJSONLine(inboxPath, inbox); err != nil {
+	if err := mission.AppendJSONLine(inboxPath, inbox); err != nil {
 		return nil, err
 	}
 	return []StartWrite{
