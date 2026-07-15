@@ -492,10 +492,17 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 		fmt.Fprintf(out, "heavy-tool gate actions: %s\n", strings.Join(result.HeavyToolGateActions, ","))
 		fmt.Fprintf(out, "PowerShell deprecation: %s ready=%t commands=%d modules=%d freezeGates=%d blocked=%d\n", result.PowerShellDeprecation.Summary, result.PowerShellDeprecation.Ready, len(result.PowerShellDeprecation.CommandOwnership), len(result.PowerShellDeprecation.ModuleStatus), len(result.PowerShellDeprecation.FreezeGates), len(result.PowerShellDeprecation.BlockedMigrations))
 		fmt.Fprintf(out, "case shim: %s ready=%t required=%d canonical=%d forbidden=%d\n", result.CaseShim.Summary, result.CaseShim.Ready, len(result.CaseShim.RequiredPhrases), len(result.CaseShim.CanonicalSkillPhrases), len(result.CaseShim.ForbiddenStrings))
+		fmt.Fprintf(out, "public default docs: %s ready=%t documents=%d required=%d forbiddenCommands=%d\n", result.PublicDefaultDocs.Summary, result.PublicDefaultDocs.Ready, len(result.PublicDefaultDocs.Documents), len(result.PublicDefaultDocs.RequiredPhrases), len(result.PublicDefaultDocs.ForbiddenCommands))
 		fmt.Fprintf(out, "release handoff: %s ready=%t readFirst=%d signals=%d knownGaps=%d packMaturity=%d validation=%d releaseNotes=%t latest=%s\n", result.ReleaseHandoff.Summary, result.ReleaseHandoff.Ready, len(result.ReleaseHandoff.ReadFirst), len(result.ReleaseHandoff.Signals), len(result.ReleaseHandoff.KnownGaps), result.ReleaseHandoff.PackMaturity.Total, len(result.ReleaseHandoff.Validation), result.ReleaseHandoff.ReleaseNotes.Covered, result.ReleaseHandoff.LatestBatch.Title)
 		if len(result.CaseShim.Warnings) > 0 {
 			fmt.Fprintln(out, "case shim warnings:")
 			for _, warning := range result.CaseShim.Warnings {
+				fmt.Fprintf(out, "- %s\n", warning)
+			}
+		}
+		if len(result.PublicDefaultDocs.Warnings) > 0 {
+			fmt.Fprintln(out, "public default docs warnings:")
+			for _, warning := range result.PublicDefaultDocs.Warnings {
 				fmt.Fprintf(out, "- %s\n", warning)
 			}
 		}

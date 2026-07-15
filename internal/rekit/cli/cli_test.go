@@ -367,6 +367,30 @@ type releaseCheckCaseShim struct {
 	Warnings   []string `json:"warnings"`
 }
 
+type releaseCheckPublicDefaultDocs struct {
+	Ready     bool   `json:"ready"`
+	Summary   string `json:"summary"`
+	Documents []struct {
+		Path    string `json:"path"`
+		Present bool   `json:"present"`
+		Purpose string `json:"purpose"`
+	} `json:"documents"`
+	RequiredPhrases []struct {
+		Path    string `json:"path"`
+		Phrase  string `json:"phrase"`
+		Present bool   `json:"present"`
+	} `json:"requiredPhrases"`
+	ForbiddenCommands []struct {
+		Path    string `json:"path"`
+		Pattern string `json:"pattern"`
+		Line    int    `json:"line"`
+		Snippet string `json:"snippet"`
+		Present bool   `json:"present"`
+	} `json:"forbiddenCommands"`
+	Boundaries []string `json:"boundaries"`
+	Warnings   []string `json:"warnings"`
+}
+
 type releaseCheckHandoff struct {
 	Ready     bool   `json:"ready"`
 	Summary   string `json:"summary"`
@@ -456,6 +480,7 @@ type releaseCheckResult struct {
 	} `json:"packs"`
 	PowerShellDeprecation releaseCheckPowerShellDeprecation `json:"powerShellDeprecation"`
 	CaseShim              releaseCheckCaseShim              `json:"caseShim"`
+	PublicDefaultDocs     releaseCheckPublicDefaultDocs     `json:"publicDefaultDocs"`
 	ReleaseHandoff        releaseCheckHandoff               `json:"releaseHandoff"`
 	HeavyToolGateActions  []string                          `json:"heavyToolGateActions"`
 	Boundaries            []string                          `json:"boundaries"`
@@ -497,6 +522,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckCIReleaseGate(t, result.CIReleaseGate)
 	assertReleaseCheckPowerShellDeprecation(t, result.PowerShellDeprecation)
 	assertReleaseCheckCaseShim(t, result.CaseShim)
+	assertReleaseCheckPublicDefaultDocs(t, result.PublicDefaultDocs)
 	assertReleaseCheckHandoff(t, result.ReleaseHandoff)
 	if len(result.RecommendedMinimum) == 0 || len(result.Boundaries) == 0 || len(result.KnownGaps) == 0 || len(result.Packs) == 0 || len(result.HeavyToolGateActions) == 0 {
 		t.Fatalf("release-check omitted required inventory: %+v", result)
@@ -622,7 +648,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff summary: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 9 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 10 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertReleaseHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -636,6 +662,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignal(t, handoff, "CI release gate")
 	assertReleaseHandoffSignal(t, handoff, "PowerShell deprecation")
 	assertReleaseHandoffSignal(t, handoff, "case shim readiness")
+	assertReleaseHandoffSignal(t, handoff, "public default docs")
 	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
 	assertReleaseHandoffSignal(t, handoff, "pack maturity summary")
 	assertReleaseHandoffPackMaturity(t, handoff)
@@ -760,6 +787,55 @@ func assertCaseShimPhrase(t *testing.T, checks []struct {
 	t.Fatalf("case shim missing phrase check %q: %+v", want, checks)
 }
 
+func assertReleaseCheckPublicDefaultDocs(t *testing.T, docs releaseCheckPublicDefaultDocs) {
+	t.Helper()
+	if !docs.Ready || docs.Summary != "public default docs readiness ok" || len(docs.Warnings) != 0 {
+		t.Fatalf("unexpected public default docs readiness inventory: %+v", docs)
+	}
+	if len(docs.Documents) != 4 || len(docs.RequiredPhrases) == 0 || len(docs.Boundaries) == 0 {
+		t.Fatalf("public default docs readiness omitted required sections: %+v", docs)
+	}
+	assertPublicDefaultDoc(t, docs, "README.md")
+	assertPublicDefaultDoc(t, docs, ".claude/skills/rekit/SKILL.md")
+	assertPublicDefaultDoc(t, docs, "CLAUDE.md")
+	assertPublicDefaultDoc(t, docs, "docs/autonomous-goal.md")
+	assertPublicDefaultPhrase(t, docs, "README.md", "用户主要指挥主 Agent / Mission Commander")
+	assertPublicDefaultPhrase(t, docs, ".claude/skills/rekit/SKILL.md", "底层 Go CLI 是 canonical runtime")
+	assertPublicDefaultPhrase(t, docs, "CLAUDE.md", "PowerShell-free / Go-native / 跨平台收敛")
+	assertPublicDefaultPhrase(t, docs, "docs/autonomous-goal.md", "默认继续自主推进")
+	for _, forbidden := range docs.ForbiddenCommands {
+		if forbidden.Present {
+			t.Fatalf("public default docs forbidden command present: %+v", forbidden)
+		}
+	}
+}
+
+func assertPublicDefaultDoc(t *testing.T, docs releaseCheckPublicDefaultDocs, path string) {
+	t.Helper()
+	for _, doc := range docs.Documents {
+		if doc.Path == path {
+			if !doc.Present || strings.TrimSpace(doc.Purpose) == "" {
+				t.Fatalf("public default doc %s = %+v, want present with purpose", path, doc)
+			}
+			return
+		}
+	}
+	t.Fatalf("public default docs missing document %s: %+v", path, docs.Documents)
+}
+
+func assertPublicDefaultPhrase(t *testing.T, docs releaseCheckPublicDefaultDocs, path, phrase string) {
+	t.Helper()
+	for _, check := range docs.RequiredPhrases {
+		if check.Path == path && check.Phrase == phrase {
+			if !check.Present {
+				t.Fatalf("public default phrase %s/%q present=false", path, phrase)
+			}
+			return
+		}
+	}
+	t.Fatalf("public default docs missing phrase check %s/%q: %+v", path, phrase, docs.RequiredPhrases)
+}
+
 func assertReleaseCheckPowerShellDeprecation(t *testing.T, inventory releaseCheckPowerShellDeprecation) {
 	t.Helper()
 	if !inventory.Ready || inventory.StrategyDocument != "docs/powershell-deprecation.md" || inventory.Summary != "PowerShell deprecation inventory ok" || len(inventory.Warnings) != 0 {
@@ -828,7 +904,8 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
 		"commands=14 modules=14 freezeGates=10 blocked=5",
 		"case shim: case shim readiness ok ready=true",
-		"release handoff: release handoff summary ok ready=true readFirst=7 signals=9 knownGaps=5 packMaturity=10",
+		"public default docs: public default docs readiness ok ready=true documents=4",
+		"release handoff: release handoff summary ok ready=true readFirst=7 signals=10 knownGaps=5 packMaturity=10",
 		"releaseNotes=true",
 		"latest=Batch ",
 		"known gaps:",

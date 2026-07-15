@@ -174,6 +174,16 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			},
 		},
 		{
+			Name:    "public default docs",
+			Ready:   check.PublicDefaultDocs.Ready,
+			Summary: check.PublicDefaultDocs.Summary,
+			Details: []string{
+				fmt.Sprintf("documents=%d requiredPhrases=%d forbiddenCommands=%d", len(check.PublicDefaultDocs.Documents), len(check.PublicDefaultDocs.RequiredPhrases), len(check.PublicDefaultDocs.ForbiddenCommands)),
+				"README, CLAUDE, slash skill, and autonomous goal keep Mission Control / Go-native defaults",
+				"PowerShell façade command snippets are not documented as default user paths",
+			},
+		},
+		{
 			Name:    "heavy-tool gate manifests",
 			Ready:   len(check.HeavyToolGateActions) > 0,
 			Summary: strings.Join(check.HeavyToolGateActions, ","),

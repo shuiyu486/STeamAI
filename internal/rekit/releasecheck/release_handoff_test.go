@@ -19,7 +19,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff inventory: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 9 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 10 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -33,6 +33,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignal(t, handoff, "CI release gate")
 	assertHandoffSignal(t, handoff, "PowerShell deprecation")
 	assertHandoffSignal(t, handoff, "case shim readiness")
+	assertHandoffSignal(t, handoff, "public default docs")
 	assertHandoffSignal(t, handoff, "heavy-tool gate manifests")
 	assertHandoffSignal(t, handoff, "pack maturity summary")
 	assertHandoffPackMaturity(t, handoff)
@@ -109,6 +110,7 @@ func TestReleaseHandoffDetectsMissingHandoffDocs(t *testing.T) {
 验证结果：fixture validation.
 `)
 	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), "## Known gaps\n\n- fixture gap\n")
+	writeFile(t, filepath.Join(repo, "README.md"), "# README\n\n用户主要指挥主 Agent / Mission Commander\nGo CLI/backend 是背后的 canonical deterministic runtime/API\n`rekit.ps1` 仅作为迁移期 legacy façade\n默认路径继续向 PowerShell-free / Go-native / 跨平台收敛\n这里不需要你手动执行底层脚本\n用户不需要把 `/rekit` 子命令当成主要交互界面\n")
 	writeFile(t, filepath.Join(repo, "CHANGELOG.md"), "# Changelog\n\n## Unreleased\n\n- Batch 999 fixture note.\n")
 	writeFile(t, filepath.Join(repo, "packs", "fixture", "manifest.yml"), `id: fixture
 name: Fixture
