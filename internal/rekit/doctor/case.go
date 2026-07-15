@@ -201,13 +201,13 @@ func validateWorkstreamState(caseRoot string) error {
 				return err
 			}
 		}
-		for _, name := range workstream.LaneJSONLFileNames() {
-			if err := mission.ValidateJSONLines(filepath.Join(laneRoot, name)); err != nil {
+		for _, path := range workstream.LaneJSONLPaths(laneRoot) {
+			if err := mission.ValidateJSONLines(path); err != nil {
 				return err
 			}
 		}
-		for _, name := range workstream.WorkspaceJSONLFileNames() {
-			if err := mission.ValidateJSONLines(filepath.Join(workspace, name)); err != nil {
+		for _, path := range workstream.WorkspaceJSONLPaths(workspace) {
+			if err := mission.ValidateJSONLines(path); err != nil {
 				return err
 			}
 		}

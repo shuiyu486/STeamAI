@@ -15,18 +15,42 @@ func TestWorkstreamLocalJSONLHelpers(t *testing.T) {
 	}
 }
 
+func TestLaneLocalJSONLPaths(t *testing.T) {
+	laneRoot := filepath.Join("case", ".rekit", "lanes", "main")
+	want := []string{
+		filepath.Join(laneRoot, "events.jsonl"),
+		filepath.Join(laneRoot, "tasks.jsonl"),
+		filepath.Join(laneRoot, "inbox.jsonl"),
+		filepath.Join(laneRoot, "outbox.jsonl"),
+	}
+	if got := LaneJSONLPaths(laneRoot); !reflect.DeepEqual(got, want) {
+		t.Fatalf("lane local JSONL paths = %v, want %v", got, want)
+	}
+	gotSingles := []string{
+		LaneEventsJSONLPath(laneRoot),
+		LaneTasksJSONLPath(laneRoot),
+		LaneInboxJSONLPath(laneRoot),
+		LaneOutboxJSONLPath(laneRoot),
+	}
+	if !reflect.DeepEqual(gotSingles, want) {
+		t.Fatalf("lane local JSONL single paths = %v, want %v", gotSingles, want)
+	}
+}
+
 func TestLaneOutputJSONLPaths(t *testing.T) {
 	laneRoot := filepath.Join("case", ".rekit", "lanes", "main")
 	workspace := filepath.Join("case", "workstreams", "main")
-	got := LaneOutputJSONLPaths(laneRoot, workspace)
-	want := []string{
-		filepath.Join(laneRoot, "outbox.jsonl"),
+	workspaceWant := []string{
 		filepath.Join(workspace, "observations.jsonl"),
 		filepath.Join(workspace, "requests.jsonl"),
 		filepath.Join(workspace, "candidates.jsonl"),
 		filepath.Join(workspace, "publications.jsonl"),
 	}
-	if !reflect.DeepEqual(got, want) {
+	if got := WorkspaceJSONLPaths(workspace); !reflect.DeepEqual(got, workspaceWant) {
+		t.Fatalf("workspace JSONL paths = %v, want %v", got, workspaceWant)
+	}
+	want := append([]string{filepath.Join(laneRoot, "outbox.jsonl")}, workspaceWant...)
+	if got := LaneOutputJSONLPaths(laneRoot, workspace); !reflect.DeepEqual(got, want) {
 		t.Fatalf("lane output JSONL paths = %v, want %v", got, want)
 	}
 }

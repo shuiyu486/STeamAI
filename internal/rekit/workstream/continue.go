@@ -598,8 +598,8 @@ func routeContinueRequest(caseRoot, targetLane string, event map[string]any) ([]
 		return nil, err
 	}
 	now := isoNow()
-	taskPath := filepath.Join(laneRoot, "tasks.jsonl")
-	inboxPath := filepath.Join(laneRoot, "inbox.jsonl")
+	taskPath := LaneTasksJSONLPath(laneRoot)
+	inboxPath := LaneInboxJSONLPath(laneRoot)
 	sourceLane := stringFrom(event, "lane")
 	requestID := stringFrom(event, "requestId")
 	summary := firstText(stringFrom(event, "summary"), stringFrom(event, "subject"), stringFrom(event, "eventId"))
@@ -1199,7 +1199,7 @@ func requestAlreadyRouted(caseRoot, laneID string, event map[string]any) bool {
 	if err != nil {
 		return false
 	}
-	tasks, err := mission.ReadJSONLineObjects(filepath.Join(laneRoot, "tasks.jsonl"))
+	tasks, err := mission.ReadJSONLineObjects(LaneTasksJSONLPath(laneRoot))
 	if err != nil {
 		return false
 	}

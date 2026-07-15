@@ -324,16 +324,16 @@ func writeLane(caseRoot string, laneType manifest.LaneType, id, name string, for
 		}
 	}
 	writes := []StartWrite{}
-	for _, file := range LaneJSONLFileNames() {
-		path := filepath.Join(laneRoot, file)
+	for i, path := range LaneJSONLPaths(laneRoot) {
+		file := LaneJSONLFileNames()[i]
 		action, err := ensureEmptyFile(path)
 		if err != nil {
 			return Lane{}, nil, err
 		}
 		writes = append(writes, StartWrite{Path: relJoin(laneRootRel, file), Kind: "lane-jsonl", Action: action, TargetPath: path})
 	}
-	for _, file := range WorkspaceJSONLFileNames() {
-		path := filepath.Join(workspace, file)
+	for i, path := range WorkspaceJSONLPaths(workspace) {
+		file := WorkspaceJSONLFileNames()[i]
 		action, err := ensureEmptyFile(path)
 		if err != nil {
 			return Lane{}, nil, err
@@ -381,7 +381,7 @@ func writeLane(caseRoot string, laneType manifest.LaneType, id, name string, for
 		return Lane{}, nil, err
 	}
 	writes = append(writes, StartWrite{Path: relJoin(laneRootRel, "lane.json"), Kind: "lane", Action: action, TargetPath: laneFile})
-	eventPath := filepath.Join(laneRoot, "events.jsonl")
+	eventPath := LaneEventsJSONLPath(laneRoot)
 	event := map[string]any{"eventId": eventID(id, eventKind, now), "kind": eventKind, "lane": id, "time": now, "summary": eventSummary}
 	if err := appendJSONLine(eventPath, event); err != nil {
 		return Lane{}, nil, err
@@ -466,11 +466,11 @@ func writeLaneResume(caseRoot string, lane Lane) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	inbox, err := mission.ReadJSONLineObjects(filepath.Join(laneRoot, "inbox.jsonl"))
+	inbox, err := mission.ReadJSONLineObjects(LaneInboxJSONLPath(laneRoot))
 	if err != nil {
 		return "", "", err
 	}
-	tasks, err := mission.ReadJSONLineObjects(filepath.Join(laneRoot, "tasks.jsonl"))
+	tasks, err := mission.ReadJSONLineObjects(LaneTasksJSONLPath(laneRoot))
 	if err != nil {
 		return "", "", err
 	}
