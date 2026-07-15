@@ -69,10 +69,11 @@ type catalog struct {
 
 var requiredCommands = []string{
 	"go run ./cmd/rekit -- -Command release-check -Format json",
+	"go run ./cmd/rekit -- -Command status",
+	"go run ./cmd/rekit -- -Command packs",
+	"go run ./cmd/rekit -- -Command doctor",
 	"go test ./...",
 	"go vet ./...",
-	"rekit/rekit.ps1 -Command doctor",
-	"facade-smoke.ps1",
 	"git diff --check",
 }
 

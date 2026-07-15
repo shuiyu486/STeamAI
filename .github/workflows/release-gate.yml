@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  go-checks:
-    name: Go release checks
+  go-checks-linux:
+    name: Go release checks (Linux)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,14 +25,23 @@ jobs:
       - name: Release inventory
         run: go run ./cmd/rekit -- -Command release-check -Format json
 
+      - name: Status inventory
+        run: go run ./cmd/rekit -- -Command status
+
+      - name: Pack inventory
+        run: go run ./cmd/rekit -- -Command packs
+
+      - name: Doctor
+        run: go run ./cmd/rekit -- -Command doctor
+
       - name: Go tests
         run: go test ./...
 
       - name: Go vet
         run: go vet ./...
 
-  windows-facade:
-    name: Windows facade smoke
+  go-checks-windows:
+    name: Go release checks (Windows)
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -45,13 +54,50 @@ jobs:
           cache: true
 
       - name: Release inventory
-        shell: pwsh
         run: go run ./cmd/rekit -- -Command release-check -Format json
 
-      - name: Doctor
-        shell: pwsh
-        run: .\rekit\rekit.ps1 -Command doctor
+      - name: Status inventory
+        run: go run ./cmd/rekit -- -Command status
 
-      - name: Facade smoke
-        shell: pwsh
-        run: .\rekit\tests\facade-smoke.ps1
+      - name: Pack inventory
+        run: go run ./cmd/rekit -- -Command packs
+
+      - name: Doctor
+        run: go run ./cmd/rekit -- -Command doctor
+
+      - name: Go tests
+        run: go test ./...
+
+      - name: Go vet
+        run: go vet ./...
+
+  go-checks-macos:
+    name: Go release checks (macOS)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+
+      - name: Release inventory
+        run: go run ./cmd/rekit -- -Command release-check -Format json
+
+      - name: Status inventory
+        run: go run ./cmd/rekit -- -Command status
+
+      - name: Pack inventory
+        run: go run ./cmd/rekit -- -Command packs
+
+      - name: Doctor
+        run: go run ./cmd/rekit -- -Command doctor
+
+      - name: Go tests
+        run: go test ./...
+
+      - name: Go vet
+        run: go vet ./...

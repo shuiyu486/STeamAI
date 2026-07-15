@@ -10,14 +10,11 @@
   ],
   "recommendedMinimum": [
     "go run ./cmd/rekit -- -Command release-check -Format json",
-    "facade-smoke.ps1",
-    "catalog-smoke.ps1",
-    "pack-smoke-matrix-selftest.ps1",
-    "pack-smoke-matrix.ps1 -DiscoveryOnly",
-    "pack-inventory-smoke.ps1",
+    "go run ./cmd/rekit -- -Command status",
+    "go run ./cmd/rekit -- -Command packs",
+    "go run ./cmd/rekit -- -Command doctor",
     "go test ./...",
     "go vet ./...",
-    "rekit/rekit.ps1 -Command doctor",
     "git diff --check"
   ],
   "tests": [

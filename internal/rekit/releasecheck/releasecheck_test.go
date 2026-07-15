@@ -30,17 +30,20 @@ func TestCIReleaseGateInventoryFromRepo(t *testing.T) {
 	if !gate.Ready || gate.WorkflowPath != ".github/workflows/release-gate.yml" || gate.Summary != "CI release gate inventory ok" || len(gate.Warnings) != 0 {
 		t.Fatalf("unexpected CI release gate inventory: %+v", gate)
 	}
-	if len(gate.WorkflowChecks) == 0 || len(gate.Jobs) != 2 || len(gate.RequiredCommands) != 6 || len(gate.ForbiddenStrings) == 0 {
+	if len(gate.WorkflowChecks) == 0 || len(gate.Jobs) != 3 || len(gate.RequiredCommands) != 18 || len(gate.ForbiddenStrings) == 0 {
 		t.Fatalf("CI release gate omitted required sections: %+v", gate)
 	}
-	assertCIJob(t, gate, "go-checks", "Go release checks", "ubuntu-latest")
-	assertCIJob(t, gate, "windows-facade", "Windows facade smoke", "windows-latest")
-	assertCICommand(t, gate, "go-checks", "go run ./cmd/rekit -- -Command release-check -Format json")
-	assertCICommand(t, gate, "go-checks", "go test ./...")
-	assertCICommand(t, gate, "go-checks", "go vet ./...")
-	assertCICommand(t, gate, "windows-facade", "go run ./cmd/rekit -- -Command release-check -Format json")
-	assertCICommand(t, gate, "windows-facade", ".\\rekit\\rekit.ps1 -Command doctor")
-	assertCICommand(t, gate, "windows-facade", ".\\rekit\\tests\\facade-smoke.ps1")
+	assertCIJob(t, gate, "go-checks-linux", "Go release checks (Linux)", "ubuntu-latest")
+	assertCIJob(t, gate, "go-checks-windows", "Go release checks (Windows)", "windows-latest")
+	assertCIJob(t, gate, "go-checks-macos", "Go release checks (macOS)", "macos-latest")
+	for _, job := range []string{"go-checks-linux", "go-checks-windows", "go-checks-macos"} {
+		assertCICommand(t, gate, job, "go run ./cmd/rekit -- -Command release-check -Format json")
+		assertCICommand(t, gate, job, "go run ./cmd/rekit -- -Command status")
+		assertCICommand(t, gate, job, "go run ./cmd/rekit -- -Command packs")
+		assertCICommand(t, gate, job, "go run ./cmd/rekit -- -Command doctor")
+		assertCICommand(t, gate, job, "go test ./...")
+		assertCICommand(t, gate, job, "go vet ./...")
+	}
 	for _, forbidden := range gate.ForbiddenStrings {
 		if forbidden.Present {
 			t.Fatalf("forbidden CI release gate pattern present: %+v", forbidden)
@@ -71,7 +74,9 @@ jobs:
 	if gate.Ready {
 		t.Fatalf("CI release gate unexpectedly ready despite drift: %+v", gate)
 	}
-	assertWarningContains(t, gate.Warnings, "windows-facade")
+	assertWarningContains(t, gate.Warnings, "go-checks-windows")
+	assertWarningContains(t, gate.Warnings, "go-checks-macos")
+	assertWarningContains(t, gate.Warnings, "go run ./cmd/rekit -- -Command status")
 	assertWarningContains(t, gate.Warnings, "go vet ./...")
 	assertWarningContains(t, gate.Warnings, "pack-smoke-matrix.ps1")
 }

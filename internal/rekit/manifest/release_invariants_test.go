@@ -48,15 +48,12 @@ func TestReleaseCatalogInvariants(t *testing.T) {
 
 	minimum := stringSet(catalog.RecommendedMinimum)
 	for _, required := range []string{
-		"facade-smoke.ps1",
-		"catalog-smoke.ps1",
-		"pack-smoke-matrix-selftest.ps1",
-		"pack-smoke-matrix.ps1 -DiscoveryOnly",
-		"pack-inventory-smoke.ps1",
 		"go run ./cmd/rekit -- -Command release-check -Format json",
+		"go run ./cmd/rekit -- -Command status",
+		"go run ./cmd/rekit -- -Command packs",
+		"go run ./cmd/rekit -- -Command doctor",
 		"go test ./...",
 		"go vet ./...",
-		"rekit/rekit.ps1 -Command doctor",
 		"git diff --check",
 	} {
 		if !minimum[required] {
@@ -258,10 +255,11 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 	}
 	for _, command := range []string{
 		"go run ./cmd/rekit -- -Command release-check -Format json",
+		"go run ./cmd/rekit -- -Command status",
+		"go run ./cmd/rekit -- -Command packs",
+		"go run ./cmd/rekit -- -Command doctor",
 		"go test ./...",
 		"go vet ./...",
-		"./rekit/rekit.ps1 -Command doctor",
-		"./rekit/tests/facade-smoke.ps1",
 		"git diff --check",
 	} {
 		assertTextContains(t, checklist, command, "release readiness local gate")
@@ -276,7 +274,7 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 	}
 
 	for _, boundary := range []string{
-		"不默认运行大型 PowerShell matrix",
+		"不默认运行 PowerShell façade smoke 或大型 PowerShell matrix",
 		"不执行真实网络请求",
 		"不写 authority/confirmed",
 		"gate -Apply",
@@ -305,7 +303,7 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 		"actual heavy-tool",
 		"authority/confirmed",
 		"policy schema 迁移",
-		"PowerShell runtime deprecation",
+		"PowerShell-free / Go-native 收敛",
 	} {
 		assertTextContains(t, checklist, gap, "release readiness known gap")
 	}
@@ -324,18 +322,22 @@ func TestReleaseGateWorkflowInvariants(t *testing.T) {
 		"name: release-gate",
 		"runs-on: ubuntu-latest",
 		"runs-on: windows-latest",
+		"runs-on: macos-latest",
 		"uses: actions/checkout@v4",
 		"uses: actions/setup-go@v5",
 		"go-version: '1.26.x'",
 		"go run ./cmd/rekit -- -Command release-check -Format json",
+		"go run ./cmd/rekit -- -Command status",
+		"go run ./cmd/rekit -- -Command packs",
+		"go run ./cmd/rekit -- -Command doctor",
 		"go test ./...",
 		"go vet ./...",
-		".\\rekit\\rekit.ps1 -Command doctor",
-		".\\rekit\\tests\\facade-smoke.ps1",
 	} {
 		assertTextContains(t, workflow, required, "release gate workflow")
 	}
 	for _, forbidden := range []string{
+		"rekit.ps1",
+		"facade-smoke.ps1",
 		"pack-smoke-matrix.ps1",
 		"pack-inventory-smoke.ps1",
 		"agent-team-dryrun-smoke.ps1",
@@ -353,12 +355,13 @@ func TestReleaseGateWorkflowInvariants(t *testing.T) {
 	}
 	for _, required := range []string{
 		".github/workflows/release-gate.yml",
-		"Go release checks",
-		"Windows facade smoke",
+		"Go release checks (Linux)",
+		"Go release checks (Windows)",
+		"Go release checks (macOS)",
 		"ciReleaseGate.ready",
 		"requiredCommands[]",
 		"forbiddenStrings[]",
-		"不默认运行大型 PowerShell matrix",
+		"不默认运行 PowerShell façade smoke 或大型 PowerShell matrix",
 	} {
 		assertTextContains(t, checklist, required, "release readiness CI workflow")
 	}

@@ -454,10 +454,11 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		t.Fatalf("unexpected release-check JSON envelope: %+v", result)
 	}
 	assertReleaseCheckCommand(t, result.RequiredCommands, "go run ./cmd/rekit -- -Command release-check -Format json")
+	assertReleaseCheckCommand(t, result.RequiredCommands, "go run ./cmd/rekit -- -Command status")
+	assertReleaseCheckCommand(t, result.RequiredCommands, "go run ./cmd/rekit -- -Command packs")
+	assertReleaseCheckCommand(t, result.RequiredCommands, "go run ./cmd/rekit -- -Command doctor")
 	assertReleaseCheckCommand(t, result.RequiredCommands, "go test ./...")
 	assertReleaseCheckCommand(t, result.RequiredCommands, "go vet ./...")
-	assertReleaseCheckCommand(t, result.RequiredCommands, "rekit/rekit.ps1 -Command doctor")
-	assertReleaseCheckCommand(t, result.RequiredCommands, "facade-smoke.ps1")
 	assertReleaseCheckCommand(t, result.RequiredCommands, "git diff --check")
 	assertReleaseCheckDocument(t, result.Documents, "docs/release-readiness.md")
 	assertReleaseCheckDocument(t, result.Documents, "docs/mission-control-product-direction.md")
@@ -468,8 +469,9 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		t.Fatalf("unexpected release-check gate profile: %+v", result.GateProfile)
 	}
 	assertReleaseCheckStep(t, result.RecommendedMinimum, "go run ./cmd/rekit -- -Command release-check -Format json", "go-run", "cmd/rekit")
-	assertReleaseCheckStep(t, result.RecommendedMinimum, "facade-smoke.ps1", "powershell-smoke", "rekit/tests/facade-smoke.ps1")
-	assertReleaseCheckStep(t, result.RecommendedMinimum, "rekit/rekit.ps1 -Command doctor", "powershell-facade", "rekit/rekit.ps1")
+	assertReleaseCheckStep(t, result.RecommendedMinimum, "go run ./cmd/rekit -- -Command status", "go-run", "cmd/rekit")
+	assertReleaseCheckStep(t, result.RecommendedMinimum, "go run ./cmd/rekit -- -Command packs", "go-run", "cmd/rekit")
+	assertReleaseCheckStep(t, result.RecommendedMinimum, "go run ./cmd/rekit -- -Command doctor", "go-run", "cmd/rekit")
 	assertReleaseCheckCIReleaseGate(t, result.CIReleaseGate)
 	assertReleaseCheckPowerShellDeprecation(t, result.PowerShellDeprecation)
 	assertReleaseCheckHandoff(t, result.ReleaseHandoff)
@@ -545,17 +547,20 @@ func assertReleaseCheckCIReleaseGate(t *testing.T, gate releaseCheckCIReleaseGat
 	if !gate.Ready || gate.WorkflowPath != ".github/workflows/release-gate.yml" || gate.Summary != "CI release gate inventory ok" || len(gate.Warnings) != 0 {
 		t.Fatalf("unexpected CI release gate inventory: %+v", gate)
 	}
-	if len(gate.WorkflowChecks) == 0 || len(gate.Jobs) != 2 || len(gate.RequiredCommands) != 6 || len(gate.ForbiddenStrings) == 0 {
+	if len(gate.WorkflowChecks) == 0 || len(gate.Jobs) != 3 || len(gate.RequiredCommands) != 18 || len(gate.ForbiddenStrings) == 0 {
 		t.Fatalf("CI release gate inventory omitted required sections: %+v", gate)
 	}
-	assertCIReleaseJob(t, gate, "go-checks", "Go release checks", "ubuntu-latest")
-	assertCIReleaseJob(t, gate, "windows-facade", "Windows facade smoke", "windows-latest")
-	assertCIReleaseCommand(t, gate, "go-checks", "go run ./cmd/rekit -- -Command release-check -Format json")
-	assertCIReleaseCommand(t, gate, "go-checks", "go test ./...")
-	assertCIReleaseCommand(t, gate, "go-checks", "go vet ./...")
-	assertCIReleaseCommand(t, gate, "windows-facade", "go run ./cmd/rekit -- -Command release-check -Format json")
-	assertCIReleaseCommand(t, gate, "windows-facade", ".\\rekit\\rekit.ps1 -Command doctor")
-	assertCIReleaseCommand(t, gate, "windows-facade", ".\\rekit\\tests\\facade-smoke.ps1")
+	assertCIReleaseJob(t, gate, "go-checks-linux", "Go release checks (Linux)", "ubuntu-latest")
+	assertCIReleaseJob(t, gate, "go-checks-windows", "Go release checks (Windows)", "windows-latest")
+	assertCIReleaseJob(t, gate, "go-checks-macos", "Go release checks (macOS)", "macos-latest")
+	for _, job := range []string{"go-checks-linux", "go-checks-windows", "go-checks-macos"} {
+		assertCIReleaseCommand(t, gate, job, "go run ./cmd/rekit -- -Command release-check -Format json")
+		assertCIReleaseCommand(t, gate, job, "go run ./cmd/rekit -- -Command status")
+		assertCIReleaseCommand(t, gate, job, "go run ./cmd/rekit -- -Command packs")
+		assertCIReleaseCommand(t, gate, job, "go run ./cmd/rekit -- -Command doctor")
+		assertCIReleaseCommand(t, gate, job, "go test ./...")
+		assertCIReleaseCommand(t, gate, job, "go vet ./...")
+	}
 	for _, forbidden := range gate.ForbiddenStrings {
 		if forbidden.Present {
 			t.Fatalf("CI release gate forbidden pattern present: %+v", forbidden)
@@ -750,11 +755,13 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"release-check: release gate inventory ok",
 		"ready: true",
 		"gate profile: local-ci-minimum ready=true",
-		"CI release gate: .github/workflows/release-gate.yml ready=true jobs=2 commands=6 forbidden=10",
+		"CI release gate: .github/workflows/release-gate.yml ready=true jobs=3 commands=18 forbidden=12",
 		"required commands:",
 		"go run ./cmd/rekit -- -Command release-check -Format json kind=go-run path=cmd/rekit",
+		"go run ./cmd/rekit -- -Command status kind=go-run path=cmd/rekit",
+		"go run ./cmd/rekit -- -Command packs kind=go-run path=cmd/rekit",
+		"go run ./cmd/rekit -- -Command doctor kind=go-run path=cmd/rekit",
 		"go test ./... kind=go-check",
-		"facade-smoke.ps1 kind=powershell-smoke path=rekit/tests/facade-smoke.ps1",
 		"documents:",
 		"docs/release-readiness.md",
 		"docs/mission-control-product-direction.md",

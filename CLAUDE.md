@@ -99,14 +99,15 @@ BEGIN.
 仓库级只读检查：
 
 ```powershell
-.\rekit\rekit.ps1 release-check -Format json
-.\rekit\rekit.ps1 status
-.\rekit\rekit.ps1 packs
-.\rekit\rekit.ps1 doctor
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
 go test ./...
+go vet ./...
 ```
 
-默认远程 CI 入口是 `.github/workflows/release-gate.yml`，仅运行 Go release checks 与 Windows façade smoke；大型 pack matrix、真实临时 case smoke 和 heavy-tool gate 不进入默认 CI。
+默认远程 CI 入口是 `.github/workflows/release-gate.yml`，在 Linux、Windows、macOS 上运行 Go-native release checks；大型 pack matrix、真实临时 case smoke、PowerShell façade smoke 和 heavy-tool gate 不进入默认 CI。
 
 涉及 PowerShell façade / Go backend 委托时额外检查：
 

@@ -72,20 +72,35 @@ var ciWorkflowChecks = []CIReleaseWorkflowCheck{
 }
 
 var ciRequiredJobs = []ciRequiredJob{
-	{id: "go-checks", name: "Go release checks", runsOn: "ubuntu-latest"},
-	{id: "windows-facade", name: "Windows facade smoke", runsOn: "windows-latest"},
+	{id: "go-checks-linux", name: "Go release checks (Linux)", runsOn: "ubuntu-latest"},
+	{id: "go-checks-windows", name: "Go release checks (Windows)", runsOn: "windows-latest"},
+	{id: "go-checks-macos", name: "Go release checks (macOS)", runsOn: "macos-latest"},
 }
 
 var ciRequiredCommands = []ciRequiredCommand{
-	{job: "go-checks", command: "go run ./cmd/rekit -- -Command release-check -Format json"},
-	{job: "go-checks", command: "go test ./..."},
-	{job: "go-checks", command: "go vet ./..."},
-	{job: "windows-facade", command: "go run ./cmd/rekit -- -Command release-check -Format json"},
-	{job: "windows-facade", command: ".\\rekit\\rekit.ps1 -Command doctor"},
-	{job: "windows-facade", command: ".\\rekit\\tests\\facade-smoke.ps1"},
+	{job: "go-checks-linux", command: "go run ./cmd/rekit -- -Command release-check -Format json"},
+	{job: "go-checks-linux", command: "go run ./cmd/rekit -- -Command status"},
+	{job: "go-checks-linux", command: "go run ./cmd/rekit -- -Command packs"},
+	{job: "go-checks-linux", command: "go run ./cmd/rekit -- -Command doctor"},
+	{job: "go-checks-linux", command: "go test ./..."},
+	{job: "go-checks-linux", command: "go vet ./..."},
+	{job: "go-checks-windows", command: "go run ./cmd/rekit -- -Command release-check -Format json"},
+	{job: "go-checks-windows", command: "go run ./cmd/rekit -- -Command status"},
+	{job: "go-checks-windows", command: "go run ./cmd/rekit -- -Command packs"},
+	{job: "go-checks-windows", command: "go run ./cmd/rekit -- -Command doctor"},
+	{job: "go-checks-windows", command: "go test ./..."},
+	{job: "go-checks-windows", command: "go vet ./..."},
+	{job: "go-checks-macos", command: "go run ./cmd/rekit -- -Command release-check -Format json"},
+	{job: "go-checks-macos", command: "go run ./cmd/rekit -- -Command status"},
+	{job: "go-checks-macos", command: "go run ./cmd/rekit -- -Command packs"},
+	{job: "go-checks-macos", command: "go run ./cmd/rekit -- -Command doctor"},
+	{job: "go-checks-macos", command: "go test ./..."},
+	{job: "go-checks-macos", command: "go vet ./..."},
 }
 
 var ciForbiddenStrings = []string{
+	"rekit.ps1",
+	"facade-smoke.ps1",
 	"pack-smoke-matrix.ps1",
 	"pack-inventory-smoke.ps1",
 	"agent-team-dryrun-smoke.ps1",

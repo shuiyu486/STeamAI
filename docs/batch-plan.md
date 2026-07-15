@@ -6511,3 +6511,35 @@ git diff --check
 ```
 
 验证结果：已通过 `go run ./cmd/rekit -- -Command release-check -Format json`、`go test ./internal/rekit/manifest -run TestAutonomousGoalGuideInvariants -count=1`、`go test ./internal/rekit/manifest -run TestPowerShell -count=1`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go test ./...`、`go vet ./...` 与 `go run ./cmd/rekit -- -Command doctor`；更新 CLI text inventory test 以匹配 PowerShell-free roadmap 新增的 freeze gate 数量。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 217：Go-native cross-platform release gate
+
+状态：已完成。
+
+目标：把默认本机 recommended minimum 与远程 CI release gate 从迁移期 PowerShell façade smoke / `rekit.ps1 doctor` 收敛为 Go-native、跨平台检查，使默认验证路径不再依赖 PowerShell，同时保留 PowerShell smoke 作为按需 compatibility / fallback 验证。
+
+实施范围：
+
+- `rekit/tests/catalog.json` 的 `recommendedMinimum` 改为 Go-native `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`；`facade-smoke.ps1`、catalog/matrix/packs smoke 不再是默认最小 release gate，只在相关改动时按需追加。
+- `.github/workflows/release-gate.yml` 改为 `go-checks-linux`、`go-checks-windows`、`go-checks-macos` 三个平台运行同一组 Go-native release checks：`release-check`、`status`、`packs`、`doctor`、`go test ./...` 与 `go vet ./...`。
+- `internal/rekit/releasecheck` 的 `ciReleaseGate` inventory 同步更新 required jobs / commands，并把 `rekit.ps1` 与 `facade-smoke.ps1` 纳入默认 workflow forbidden strings，防止 CI 默认路径漂移回 PowerShell façade。
+- 更新 release invariants 与 CLI release-check tests，锁定新的 recommended minimum、三平台 CI inventory、text output 和 release readiness 文档关键短语。
+- 更新 README、CLAUDE.md、`docs/release-readiness.md`、`docs/go-first-convergence-plan.md`、`docs/powershell-deprecation.md`、`rekit/tests/README.md` 与 CHANGELOG，明确 PowerShell façade smoke 保留为按需 compatibility 验证，不再属于默认 release gate。
+
+边界：本批不改变 runtime 写入面、PowerShell façade 默认委托集合、`REKIT_GO_DISABLE=1` fallback、pack manifest、case state、sync/promote review-first 语义、workstream/ledger/gate 行为或 release-check JSON schema；不删除 PowerShell 文件；不执行 heavy-tool、不自动 spawn agent、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+gofmt -w internal/rekit/releasecheck/releasecheck.go internal/rekit/releasecheck/ci_release_gate.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/manifest/release_invariants_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/manifest ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/releasecheck.go internal/rekit/releasecheck/ci_release_gate.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/manifest/release_invariants_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/manifest ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...` 与 `go vet ./...`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

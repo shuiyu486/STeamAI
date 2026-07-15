@@ -8,20 +8,17 @@
 
 `rekit/tests` 里的脚本都是仓库维护验证入口，默认使用临时 case 或只读仓库状态，目标是锁定 review-first、no-write、Go/PowerShell parity 和 pack skeleton 边界。`catalog.json` 用相同分类记录全部 `*.ps1` smoke/helper 的 `category`、`purpose`、`recommendedFor`、`supportsWorkRoot` 和 `riskBoundary`，供后续自动测试选择器或 CI 读取。
 
-Go-first release gate 优先由 Go-owned `release-check` inventory、`go test ./...` / `go vet ./...` / `doctor` 捕获确定性 invariant；默认远程 CI 见 `.github/workflows/release-gate.yml`，只运行 Go release checks 与 Windows façade smoke；`catalog-smoke.ps1`、`pack-smoke-matrix-selftest.ps1` 与 pack matrix 保留为 PowerShell compatibility / parity 层，不继续扩张成新的 runtime owner。
+Go-first release gate 优先由 Go-owned `release-check` inventory、Go-native `status` / `packs` / `doctor`、`go test ./...` 与 `go vet ./...` 捕获确定性 invariant；默认远程 CI 见 `.github/workflows/release-gate.yml`，在 Linux、Windows、macOS 上运行同一组 Go-native release checks；`facade-smoke.ps1`、`catalog-smoke.ps1`、`pack-smoke-matrix-selftest.ps1` 与 pack matrix 保留为按需 PowerShell compatibility / parity 层，不继续扩张成新的 runtime owner。
 
 推荐最小回归组合：
 
 ```powershell
 go run ./cmd/rekit -- -Command release-check -Format json
-.\rekit\tests\facade-smoke.ps1
-.\rekit\tests\catalog-smoke.ps1
-.\rekit\tests\pack-smoke-matrix-selftest.ps1
-.\rekit\tests\pack-smoke-matrix.ps1 -DiscoveryOnly
-.\rekit\tests\pack-inventory-smoke.ps1
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
 go test ./...
 go vet ./...
-.\rekit\rekit.ps1 -Command doctor
 git diff --check
 ```
 

@@ -13,8 +13,8 @@
 - **Go-owned**：确定性状态、结构化输出、低风险写入、`release-check` inventory、release invariant、pack-neutral contract 和跨平台路径优先由 `cmd/rekit/**` 与 `internal/rekit/**` 维护。
 - **PowerShell façade**：`rekit/rekit.ps1` 只是迁移期公共兼容入口，负责 Go binary 查找、参数兼容、fallback、环境变量开关和旧 case 用户体验；不承载新的业务语义。
 - **Legacy-only**：无 `-Apply` 的文本工作线 flow、文本 sync/promote what-if、内部命令和非 Go-owned 写入路径暂时保留，禁止扩展新能力。
-- **Parity smoke**：少量 PowerShell smoke 仅保留为 Windows façade / fallback 回归；后续应迁移到 Go CLI E2E、Go package tests 或跨平台测试。
-- **Release inventory**：Go-owned `release-check -Format json` 输出 `powerShellDeprecation`，解析本文件中的命令归属、模块状态、freeze gates 和 blocked migrations，并对照 `rekit/rekit.ps1` 默认委托集合与 `rekit/lib/*.ps1` 实际模块清单发现漂移。
+- **Parity smoke**：少量 PowerShell smoke 仅保留为 Windows façade / fallback 回归，不进入默认 release gate；后续应迁移到 Go CLI E2E、Go package tests 或跨平台测试。
+- **Release inventory**：Go-owned `release-check -Format json` 输出 `powerShellDeprecation` 与 `ciReleaseGate`，解析本文件中的命令归属、模块状态、freeze gates 和 blocked migrations，并对照 `rekit/rekit.ps1` 默认委托集合、`rekit/lib/*.ps1` 实际模块清单和默认 CI workflow 发现漂移。
 - **删除前置条件**：对应命令已有 Go owner、Go-native 文档入口、release invariant、测试覆盖、fallback 替代或明确删除条件后，即可按独立 batch 删除或降级 PowerShell 实现。
 - **最终状态**：PowerShell 不再是默认 runtime、默认 public entrypoint、默认验证路径、release gate 依赖或 case shim 依赖；macOS/Linux/Windows 默认路径均由 Go-native runtime 支撑。
 
@@ -36,8 +36,9 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 
 - Go package tests 覆盖新 owner 的 deterministic 行为。
 - `go run ./cmd/rekit -- -Command release-check -Format json` 输出 `ready=true`。
+- `go run ./cmd/rekit -- -Command status`、`packs` 与 `doctor` 通过。
 - `go test ./...` 与 `go vet ./...` 通过。
-- `go run ./cmd/rekit -- -Command doctor` 或等价 Go-native doctor 路径通过。
+- 默认 CI / recommended minimum 不要求 `rekit.ps1` 或 `facade-smoke.ps1`；PowerShell smoke 仅在改 façade/fallback 时按需追加。
 - 涉及迁移期 façade 委托时运行 `./rekit/tests/facade-smoke.ps1`；涉及 legacy fallback 时显式验证 `REKIT_GO_DISABLE=1`，直到该 fallback 被正式删除。
 - 涉及 workstream / ledger / gate / sync / promote 写入时使用临时 case 验证 containment、backup、review-first 和 no authority/confirmed 边界。
 - `git diff --check` 无 whitespace error。

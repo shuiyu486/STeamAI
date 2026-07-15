@@ -26,7 +26,7 @@
 - case 迁移说明：`docs/case-migration.md`
 - Go backend 渐进迁移：`docs/go-runtime-migration.md`
 - Go-first 收束与 release readiness 阶段计划：`docs/go-first-convergence-plan.md`
-- 发布门禁与当前 release readiness checklist：`docs/release-readiness.md`（机器可读 inventory 与 release handoff：`/rekit release-check -Format json`；轻量 CI：`.github/workflows/release-gate.yml`）
+- 发布门禁与当前 release readiness checklist：`docs/release-readiness.md`（机器可读 inventory 与 release handoff：`go run ./cmd/rekit -- -Command release-check -Format json`；三平台 Go-native 轻量 CI：`.github/workflows/release-gate.yml`）
 - PowerShell-free / Go-native convergence roadmap：`docs/powershell-deprecation.md`
 
 ## 如果你在维护本仓库
@@ -397,11 +397,11 @@ references/vmp-re/task-handoff.md
 
 正常情况下不用。
 
-这些入口只是为了自动化、CI、排障或旧流程兼容：
+这些入口只是为了自动化、按需 CI、排障或旧流程兼容：
 
 ```text
-rekit/rekit.ps1
-cmd/rekit/main.go                  # Go backend CLI，默认不直接作为用户入口
+cmd/rekit/main.go                  # Go-native backend CLI，默认 CI / 维护自动化入口
+rekit/rekit.ps1                    # 迁移期 legacy façade / fallback，默认 CI 不依赖
 rekit/tests/README.md              # smoke 维护指南与验证选择表
 rekit/tests/catalog.json            # smoke 机器可读导航目录（非自动执行器）
 rekit/tests/catalog-smoke.ps1       # smoke catalog 输出契约自测
