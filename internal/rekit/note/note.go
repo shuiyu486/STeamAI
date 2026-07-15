@@ -19,18 +19,6 @@ import (
 
 const maxListRows = 20
 
-var validKinds = []string{
-	"observation",
-	"candidate",
-	"request",
-	"publication",
-	"decision",
-	"hypothesis",
-	"verification",
-	"intervention",
-	"rollback",
-}
-
 type Options struct {
 	Kind         string
 	Lane         string
@@ -120,7 +108,7 @@ func ListEvents(repoRoot, caseRoot, pack string, opt Options) (ListResult, error
 	if kind != "" && !isValidKind(kind) {
 		return ListResult{}, fmt.Errorf("invalid note kind: %s", opt.Kind)
 	}
-	kinds := validKinds
+	kinds := mission.LedgerKinds()
 	if kind != "" {
 		kinds = []string{kind}
 	}
@@ -167,7 +155,7 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 	}
 	kind := strings.ToLower(strings.TrimSpace(opt.Kind))
 	if kind == "" {
-		return AppendResult{}, fmt.Errorf("note requires -Kind observation|candidate|request|publication|decision|hypothesis|verification|intervention|rollback")
+		return AppendResult{}, fmt.Errorf("note requires -Kind %s", strings.Join(mission.LedgerKinds(), "|"))
 	}
 	if !isValidKind(kind) {
 		return AppendResult{}, fmt.Errorf("invalid note kind: %s", opt.Kind)
@@ -188,7 +176,7 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 		eventID = eventIDFor(event)
 	}
 	event["eventId"] = eventID
-	path := filepath.Join(inst.CaseRoot, ".rekit", "facts", factFile(kind))
+	path := filepath.Join(inst.CaseRoot, filepath.FromSlash(mission.FactRelPath(kind)))
 	result := AppendResult{
 		SchemaVersion: 1,
 		Command:       "note",
@@ -307,11 +295,7 @@ func validateAppendOptions(kind string, opt Options) error {
 }
 
 func isValidKind(kind string) bool {
-	return slices.Contains(validKinds, kind)
-}
-
-func factFile(kind string) string {
-	return mission.FactFileName(kind)
+	return slices.Contains(mission.LedgerKinds(), kind)
 }
 
 func noteExtra(kind string, item event) string {
@@ -368,7 +352,7 @@ func gateDetail(item event, omitStatus, omitBatch bool) string {
 }
 
 func readFactEvents(caseRoot, kind string) ([]event, error) {
-	items, err := mission.ReadStrictFactFile(caseRoot, factFile(kind))
+	items, err := mission.ReadStrictFactFile(caseRoot, mission.FactFileName(kind))
 	if err != nil {
 		return nil, err
 	}
@@ -481,7 +465,7 @@ func eventIDFor(event map[string]any) string {
 }
 
 func eventIDExists(caseRoot, id string) (bool, error) {
-	for _, kind := range validKinds {
+	for _, kind := range mission.LedgerKinds() {
 		items, err := readFactEvents(caseRoot, kind)
 		if err != nil {
 			return false, err

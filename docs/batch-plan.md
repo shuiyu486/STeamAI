@@ -6221,3 +6221,31 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/doctor/case.go`、`go test ./internal/rekit/mission ./internal/rekit/doctor ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 207：Ledger kind list reuse
+
+状态：已完成。
+
+目标：在 Batch 203 已新增 shared ledger kind/file/path helpers、Batch 205/206 已将 JSONL reader/validation 收口后，继续清理 Go `note` 与 case doctor 中残留的 ledger kind/facts file list duplication，让 note list/append/duplicate scan 与 doctor facts validation 使用同一 mission ledger kind/path source。
+
+实施范围：
+
+- `internal/rekit/note/note.go` 删除 note-local `validKinds`，`ListEvents` 默认 kind 顺序、`isValidKind` 与 duplicate `eventId` 扫描改为复用 `mission.LedgerKinds()`。
+- `note Append` 的 missing-kind error 使用 shared ledger kind list 生成，append target path 改为通过 `mission.FactRelPath(kind)` 拼装，保持最终 `.rekit/facts/<file>` 路径不变。
+- `internal/rekit/doctor/case.go` 的 facts JSONL validation 改为遍历 `mission.FactRelPaths()`，移除 doctor-local `.rekit/facts/*.jsonl` 文件列表。
+- 扩展 `internal/rekit/note/note_test.go`，覆盖无 kind filter 的 `note -List` 按 shared ledger kind 顺序读取所有 ledger kinds。
+
+边界：本批只做 Go runtime 内部复用、测试和文档；不改变 note/doctor JSON 或文本 envelope；不改变 `.rekit/facts/*.jsonl` 实际文件名、append 路径结果、eventId 生成、PowerShell façade 委托集合或 sync/promote review-first 语义；不执行 heavy-tool、不自动 spawn tactical subagent、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/doctor ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/note/note.go internal/rekit/note/note_test.go internal/rekit/doctor/case.go`、`go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/doctor ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

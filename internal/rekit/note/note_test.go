@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 func TestAppendWhatIfDoesNotWrite(t *testing.T) {
@@ -92,6 +94,27 @@ func TestListReadsSharedFactFileMapping(t *testing.T) {
 	}
 	if listed.EventCount != 1 || len(listed.Groups) != 1 || stringValue(listed.Groups[0].Events[0], "subject") != "shared mapping" {
 		t.Fatalf("unexpected mapped list result: %+v", listed)
+	}
+}
+
+func TestListUsesSharedLedgerKinds(t *testing.T) {
+	repoRoot, caseRoot, pack := noteFixture(t)
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	for _, kind := range mission.LedgerKinds() {
+		writeNoteText(t, filepath.Join(factsRoot, mission.FactFileName(kind)), `{"kind":"`+kind+`","lane":"main","subject":"`+kind+` event"}`+"\n")
+	}
+
+	listed, err := ListEvents(repoRoot, caseRoot, pack, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed.EventCount != len(mission.LedgerKinds()) || len(listed.Groups) != len(mission.LedgerKinds()) {
+		t.Fatalf("list did not use shared ledger kinds: %+v", listed)
+	}
+	for i, kind := range mission.LedgerKinds() {
+		if listed.Groups[i].Kind != kind || stringValue(listed.Groups[i].Events[0], "subject") != kind+" event" {
+			t.Fatalf("group %d = %+v, want kind %s", i, listed.Groups[i], kind)
+		}
 	}
 }
 

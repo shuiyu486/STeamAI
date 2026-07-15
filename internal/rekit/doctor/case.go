@@ -140,18 +140,8 @@ func validateSubagentRoutesInstance(m *manifest.Manifest, caseRoot string) error
 }
 
 func validateWorkstreamState(caseRoot string) error {
-	facts := []string{
-		filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"),
-		filepath.Join(caseRoot, ".rekit", "facts", "candidates.jsonl"),
-		filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"),
-		filepath.Join(caseRoot, ".rekit", "facts", "publications.jsonl"),
-		filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"),
-		filepath.Join(caseRoot, ".rekit", "facts", "hypotheses.jsonl"),
-		filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"),
-		filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl"),
-		filepath.Join(caseRoot, ".rekit", "facts", "rollbacks.jsonl"),
-	}
-	for _, path := range facts {
+	for _, rel := range mission.FactRelPaths() {
+		path := filepath.Join(caseRoot, filepath.FromSlash(rel))
 		if err := mission.ValidateJSONLines(path); err != nil {
 			return err
 		}
