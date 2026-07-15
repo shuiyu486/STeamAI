@@ -181,6 +181,40 @@ func TestAppendJSONLineCreatesAndAppendsCRLFJSONLines(t *testing.T) {
 	}
 }
 
+func TestFactPathUsesSharedMappingAndSafeJoin(t *testing.T) {
+	caseRoot := t.TempDir()
+	rel, path, err := FactPath(caseRoot, "decision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel != ".rekit/facts/decisions.jsonl" || path != filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl") {
+		t.Fatalf("fact path = (%q, %q)", rel, path)
+	}
+	for _, kind := range []string{"../outside", `bad\\kind`} {
+		if _, _, err := FactPath(caseRoot, kind); err == nil {
+			t.Fatalf("unsafe fact kind %q did not error", kind)
+		}
+	}
+}
+
+func TestAppendFactCreatesSharedFactPathAndAppendsJSONLine(t *testing.T) {
+	caseRoot := t.TempDir()
+	rel, path, err := AppendFact(caseRoot, "request", map[string]any{"kind": "request", "eventId": "evt-request"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel != ".rekit/facts/requests.jsonl" || path != filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl") {
+		t.Fatalf("append fact path = (%q, %q)", rel, path)
+	}
+	items, err := ReadStrictFactFile(caseRoot, "requests.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || Value(items[0], "eventId") != "evt-request" {
+		t.Fatalf("request facts = %#v", items)
+	}
+}
+
 func TestValidateJSONLinesReportsLineNumbersAndSkipsMissing(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing.jsonl")
 	if err := ValidateJSONLines(missing); err != nil {

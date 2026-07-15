@@ -6419,3 +6419,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/note/note.go internal/rekit/gate/gate.go internal/rekit/workstream/start.go internal/rekit/workstream/continue.go internal/rekit/workstream/continue_facts.go`、`go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 214：Shared fact path and append helper
+
+状态：已完成。
+
+目标：在 Batch 213 已把底层 JSONL append 行为收口到 `mission.AppendJSONLine` 后，继续清理 shared facts ledger 写入路径中的重复实现，让 note append、gate pending-gate request 与 continue facts promotion 共用同一个 fact kind → path、safe join、parent mkdir 与 append helper，降低 facts path/mkdir/append 漂移风险。
+
+实施范围：
+
+- `internal/rekit/mission/case.go` 新增 `FactPath(caseRoot, kind)`，在 `FactRelPath(kind)` 基础上统一返回 repo-style relative path 与 safe joined absolute path，并拒绝含 `/` 或 `\` 的 unsafe fact kind path segment。
+- `internal/rekit/mission/case.go` 新增 `AppendFact(caseRoot, kind, value)`，统一 `FactPath`、parent directory creation 与 `AppendJSONLine`。
+- `internal/rekit/note/note.go` 的 result path 与 actual append 改为复用 `mission.FactPath` / `mission.AppendFact`，删除 note-local fact path/mkdir/append 与 unused relative path helper。
+- `internal/rekit/gate/gate.go` 的 pending-gate request path、result path 与 actual append 改为复用 `mission.FactPath` / `mission.AppendFact`，删除 gate-local fact path/mkdir/append 与 unused relative path helper。
+- `internal/rekit/workstream/continue_facts.go` 的 continue shared facts promotion 改为复用 `mission.AppendFact`，删除 workstream-local fact safe join、mkdir 与 append 拼装。
+- 扩展 `internal/rekit/mission/case_test.go`，覆盖 shared fact path mapping/safety 与 append fact 后 strict reader 可读性。
+- 文档收尾：更新 README internal state model，明确 `.rekit/facts/*.jsonl` 由 Go shared facts path/append helper 写入；更新 agent-team usage、Go-first convergence 与 CHANGELOG。
+
+边界：本批只做 Go runtime 内部复用、测试和文档；不改变 note/gate/continue JSON 或文本 envelope；不改变 duplicate eventId skip 语义、facts 文件名、lane JSONL 路径、run artifacts、routing、PowerShell façade 委托集合或 sync/promote review-first 语义；不执行 heavy-tool、不自动 spawn tactical subagent、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/note/note.go internal/rekit/gate/gate.go internal/rekit/workstream/continue_facts.go`、`go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

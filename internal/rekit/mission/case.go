@@ -84,6 +84,19 @@ func FactRelPaths() []string {
 	return out
 }
 
+func FactPath(caseRoot, kind string) (string, string, error) {
+	kind = strings.TrimSpace(kind)
+	if strings.ContainsAny(kind, `/\\`) {
+		return "", "", fmt.Errorf("invalid fact kind path segment: %s", kind)
+	}
+	rel := FactRelPath(kind)
+	path, err := refsf.SafeJoin(caseRoot, rel)
+	if err != nil {
+		return "", "", err
+	}
+	return rel, path, nil
+}
+
 func FactFileName(kind string) string {
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	switch kind {
@@ -224,6 +237,20 @@ func AppendJSONLine(path string, value any) error {
 	defer file.Close()
 	_, err = file.Write(append(line, '\r', '\n'))
 	return err
+}
+
+func AppendFact(caseRoot, kind string, value any) (string, string, error) {
+	rel, path, err := FactPath(caseRoot, kind)
+	if err != nil {
+		return "", "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", "", err
+	}
+	if err := AppendJSONLine(path, value); err != nil {
+		return "", "", err
+	}
+	return rel, path, nil
 }
 
 func ValidateJSONLines(path string) error {

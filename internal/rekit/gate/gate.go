@@ -4,8 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -123,8 +121,8 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 	}
 	preview.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	preview.EventID = eventID(preview)
-	path := filepath.Join(inst.CaseRoot, ".rekit", "facts", "requests.jsonl")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	relPath, path, err := mission.FactPath(inst.CaseRoot, "request")
+	if err != nil {
 		return ApplyResult{}, err
 	}
 	exists, err := eventIDExists(path, preview.EventID)
@@ -140,7 +138,7 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 		IsMutation:    true,
 		Applied:       false,
 		EventID:       preview.EventID,
-		Path:          relativeCasePath(inst.CaseRoot, path),
+		Path:          relPath,
 		Event:         preview,
 		NextSteps: []string{
 			"Ask the user to confirm the exact action, target, scope, budget, and stop conditions before running the heavy tool.",
@@ -153,7 +151,7 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
-	if err := mission.AppendJSONLine(path, preview); err != nil {
+	if _, _, err := mission.AppendFact(inst.CaseRoot, "request", preview); err != nil {
 		return ApplyResult{}, err
 	}
 	result.Applied = true
@@ -364,12 +362,4 @@ func eventIDExists(path, id string) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-func relativeCasePath(caseRoot, path string) string {
-	rel, err := filepath.Rel(caseRoot, path)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return filepath.ToSlash(path)
-	}
-	return filepath.ToSlash(rel)
 }

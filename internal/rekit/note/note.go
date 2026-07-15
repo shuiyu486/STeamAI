@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -175,7 +173,10 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 		eventID = eventIDFor(event)
 	}
 	event["eventId"] = eventID
-	path := filepath.Join(inst.CaseRoot, filepath.FromSlash(mission.FactRelPath(kind)))
+	relPath, _, err := mission.FactPath(inst.CaseRoot, kind)
+	if err != nil {
+		return AppendResult{}, err
+	}
 	result := AppendResult{
 		SchemaVersion: 1,
 		Command:       "note",
@@ -185,15 +186,12 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 		IsMutation:    !whatIf,
 		Applied:       false,
 		EventID:       eventID,
-		Path:          relativeCasePath(inst.CaseRoot, path),
+		Path:          relPath,
 		Event:         event,
 	}
 	if whatIf {
 		result.Reason = "what-if"
 		return result, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return AppendResult{}, err
 	}
 	exists, err := eventIDExists(inst.CaseRoot, eventID)
 	if err != nil {
@@ -203,7 +201,7 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
-	if err := mission.AppendJSONLine(path, event); err != nil {
+	if _, _, err := mission.AppendFact(inst.CaseRoot, kind, event); err != nil {
 		return AppendResult{}, err
 	}
 	result.Applied = true
@@ -460,12 +458,4 @@ func eventIDExists(caseRoot, id string) (bool, error) {
 		return false, err
 	}
 	return known[id], nil
-}
-
-func relativeCasePath(caseRoot, path string) string {
-	rel, err := filepath.Rel(caseRoot, path)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return filepath.ToSlash(path)
-	}
-	return filepath.ToSlash(rel)
 }
