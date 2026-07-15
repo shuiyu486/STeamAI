@@ -1,13 +1,10 @@
 package overview
 
 import (
-	"bufio"
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -18,7 +15,7 @@ import (
 
 const maxRows = 10
 
-type event map[string]any
+type event = map[string]any
 
 type Inventory struct {
 	SchemaVersion  int              `json:"schemaVersion"`
@@ -101,18 +98,7 @@ type batchSummary struct {
 	lastIdx  int
 }
 
-type factSet struct {
-	Observations   []event
-	Candidates     []event
-	Requests       []event
-	Publications   []event
-	Decisions      []event
-	Hypotheses     []event
-	Verifications  []event
-	Interventions  []event
-	Rollbacks      []event
-	AllBatchEvents []event
-}
+type factSet = mission.LedgerFacts
 
 func Render(repoRoot, caseRoot, pack string) (string, error) {
 	data, err := loadOverviewData(repoRoot, caseRoot, pack)
@@ -143,7 +129,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	fmt.Fprintf(&out, "- 需要确认: %d\n", data.pending)
 	fmt.Fprintln(&out)
 
-	brief := buildMissionBrief(data.lanes, facts, data.sections)
+	brief := buildMissionBrief(data.lanes, facts)
 	writeMissionBrief(&out, brief)
 	writeOpenCandidates(&out, facts.Candidates)
 	writePendingGates(&out, facts.Requests)
@@ -193,7 +179,7 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 			Publications:     len(facts.Publications),
 			PendingDecisions: data.pending,
 		},
-		MissionBrief: buildMissionBrief(data.lanes, facts, data.sections),
+		MissionBrief: buildMissionBrief(data.lanes, facts),
 		Sections:     data.sections,
 		NextSteps:    nextStepCommands(data.lanes),
 	}, nil
@@ -204,15 +190,14 @@ func loadOverviewData(repoRoot, caseRoot, pack string) (overviewData, error) {
 	if err != nil {
 		return overviewData{}, err
 	}
-	boardPath := filepath.Join(inst.CaseRoot, ".rekit", "board.json")
-	board, err := readJSONObject(boardPath)
+	board, err := mission.ReadBoard(inst.CaseRoot)
 	initialized := false
 	if os.IsNotExist(err) {
 		if err := workstream.EnsureBoard(repoRoot, inst.CaseRoot, pack); err != nil {
 			return overviewData{}, err
 		}
 		initialized = true
-		board, err = readJSONObject(boardPath)
+		board, err = mission.ReadBoard(inst.CaseRoot)
 	}
 	if err != nil {
 		return overviewData{}, err
@@ -221,13 +206,12 @@ func loadOverviewData(repoRoot, caseRoot, pack string) (overviewData, error) {
 	if err != nil {
 		return overviewData{}, err
 	}
-	lanes := laneList(board["lanes"])
 	return overviewData{
 		inst:        inst,
-		board:       board,
+		board:       boardEvent(board),
 		facts:       facts,
-		lanes:       lanes,
-		pending:     pendingDecisions(facts.Decisions),
+		lanes:       boardLaneEvents(board.Lanes),
+		pending:     facts.PendingDecision,
 		sections:    buildOverviewSections(facts),
 		initialized: initialized,
 	}, nil
@@ -254,33 +238,15 @@ func buildOverviewSections(facts factSet) OverviewSections {
 	}
 }
 
-func buildMissionBrief(lanes []event, facts factSet, sections OverviewSections) MissionBrief {
-	return mission.Build(missionLanes(lanes), missionFacts(facts), maxRows)
+func buildMissionBrief(lanes []event, facts factSet) MissionBrief {
+	return mission.Build(missionLanes(lanes), facts.Facts, maxRows)
 }
-
 func missionLanes(lanes []event) []mission.Lane {
-	out := make([]mission.Lane, 0, len(lanes))
+	boardLanes := make([]mission.BoardLane, 0, len(lanes))
 	for _, lane := range lanes {
-		out = append(out, mission.Lane{ID: stringValue(lane, "id"), Label: workstreamLabel(lane), Status: stringValue(lane, "status")})
+		boardLanes = append(boardLanes, mission.BoardLane{ID: stringValue(lane, "id"), Status: stringValue(lane, "status"), Authority: boolValue(lane, "authority")})
 	}
-	return out
-}
-
-func missionFacts(facts factSet) mission.Facts {
-	return mission.Facts{
-		Candidates:    cloneEventMaps(facts.Candidates),
-		Requests:      cloneEventMaps(facts.Requests),
-		Decisions:     cloneEventMaps(facts.Decisions),
-		Interventions: cloneEventMaps(facts.Interventions),
-	}
-}
-
-func cloneEventMaps(items []event) []map[string]any {
-	out := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		out = append(out, maps.Clone(map[string]any(item)))
-	}
-	return out
+	return mission.BoardLanes(boardLanes)
 }
 
 func writeMissionBrief(out *bytes.Buffer, brief MissionBrief) {
@@ -417,45 +383,7 @@ func openLanes(lanes []event) []event {
 }
 
 func readFacts(caseRoot string) (factSet, error) {
-	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
-	read := func(name string) ([]event, error) { return readJSONLines(filepath.Join(factsRoot, name)) }
-	var err error
-	facts := factSet{}
-	if facts.Observations, err = read("observations.jsonl"); err != nil {
-		return facts, err
-	}
-	if facts.Candidates, err = read("candidates.jsonl"); err != nil {
-		return facts, err
-	}
-	if facts.Requests, err = read("requests.jsonl"); err != nil {
-		return facts, err
-	}
-	if facts.Publications, err = read("publications.jsonl"); err != nil {
-		return facts, err
-	}
-	if facts.Decisions, err = read("decisions.jsonl"); err != nil {
-		return facts, err
-	}
-	if facts.Hypotheses, err = read("hypotheses.jsonl"); err != nil {
-		return facts, err
-	}
-	if facts.Verifications, err = read("verifications.jsonl"); err != nil {
-		return facts, err
-	}
-	if facts.Interventions, err = read("interventions.jsonl"); err != nil {
-		return facts, err
-	}
-	if facts.Rollbacks, err = read("rollbacks.jsonl"); err != nil {
-		return facts, err
-	}
-	for _, list := range [][]event{facts.Observations, facts.Hypotheses, facts.Candidates, facts.Verifications, facts.Decisions, facts.Interventions, facts.Rollbacks, facts.Publications, facts.Requests} {
-		for _, e := range list {
-			if strings.TrimSpace(stringValue(e, "batchId")) != "" {
-				facts.AllBatchEvents = append(facts.AllBatchEvents, e)
-			}
-		}
-	}
-	return facts, nil
+	return mission.ReadStrictLedgerFacts(caseRoot)
 }
 
 func writeOpenCandidates(out *bytes.Buffer, candidates []event) {
@@ -703,67 +631,31 @@ func writeNextSteps(out *bytes.Buffer, lanes []event) {
 	fmt.Fprintln(out, "- 生成指定工作线接手文档：/rekit handoff main 或 /rekit handoff <name>")
 }
 
-func pendingDecisions(decisions []event) int {
-	pending := 0
-	terminalStatus := map[string]bool{"confirmed": true, "accepted": true, "rejected": true, "resolved": true, "deferred": true, "superseded": true}
-	for _, d := range decisions {
-		decision := stringValue(d, "decision")
-		status := stringValue(d, "status")
-		action := stringValue(d, "action")
-		if action == "pending-user" || (status == "" && decision == "defer") || (status != "" && !terminalStatus[status]) {
-			pending++
-		}
+func boardEvent(board mission.Board) event {
+	return event{
+		"schemaVersion":        board.SchemaVersion,
+		"caseRoot":             board.CaseRoot,
+		"repoRoot":             board.RepoRoot,
+		"pack":                 board.Pack,
+		"automationMode":       board.AutomationMode,
+		"defaultAuthorityLane": board.DefaultAuthorityLane,
+		"factsRoot":            board.FactsRoot,
+		"updatedAt":            board.UpdatedAt,
 	}
-	return pending
 }
 
-func readJSONObject(path string) (event, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var out event
-	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, fmt.Errorf("invalid JSON %s: %w", path, err)
-	}
-	return out, nil
-}
-
-func readJSONLines(path string) ([]event, error) {
-	file, err := os.Open(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	out := []event{}
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		var item event
-		if err := json.Unmarshal([]byte(line), &item); err != nil {
-			return nil, fmt.Errorf("invalid JSONL %s: %w", path, err)
-		}
-		out = append(out, item)
-	}
-	return out, scanner.Err()
-}
-
-func laneList(v any) []event {
-	items, ok := v.([]any)
-	if !ok {
-		return nil
-	}
-	out := []event{}
-	for _, item := range items {
-		if lane, ok := item.(map[string]any); ok {
-			out = append(out, lane)
-		}
+func boardLaneEvents(lanes []mission.BoardLane) []event {
+	out := make([]event, 0, len(lanes))
+	for _, lane := range lanes {
+		out = append(out, event{
+			"id":        lane.ID,
+			"type":      lane.Type,
+			"title":     lane.Title,
+			"status":    lane.Status,
+			"authority": lane.Authority,
+			"workspace": lane.Workspace,
+			"updatedAt": lane.UpdatedAt,
+		})
 	}
 	return out
 }
@@ -834,14 +726,8 @@ func batchTag(e event) string {
 }
 
 func workstreamLabel(lane event) string {
-	if boolValue(lane, "authority") {
-		return "main"
-	}
 	id := stringValue(lane, "id")
-	if name, ok := strings.CutPrefix(id, "feature-"); ok {
-		return name
-	}
-	return id
+	return mission.BoardLaneLabel(mission.BoardLane{ID: id, Authority: boolValue(lane, "authority")})
 }
 
 func stringValue(m map[string]any, key string) string {

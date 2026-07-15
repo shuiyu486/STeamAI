@@ -1,6 +1,7 @@
 package mission
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,7 +12,15 @@ import (
 )
 
 type Board struct {
-	Lanes []BoardLane `json:"lanes"`
+	SchemaVersion        int         `json:"schemaVersion"`
+	CaseRoot             string      `json:"caseRoot"`
+	RepoRoot             string      `json:"repoRoot"`
+	Pack                 string      `json:"pack"`
+	AutomationMode       string      `json:"automationMode"`
+	DefaultAuthorityLane string      `json:"defaultAuthorityLane"`
+	Lanes                []BoardLane `json:"lanes"`
+	FactsRoot            string      `json:"factsRoot"`
+	UpdatedAt            string      `json:"updatedAt"`
 }
 
 type BoardLane struct {
@@ -40,21 +49,68 @@ func ReadBoard(caseRoot string) (Board, error) {
 	return out, nil
 }
 
+type LedgerFacts struct {
+	Facts
+	Observations    []map[string]any
+	Publications    []map[string]any
+	Hypotheses      []map[string]any
+	Verifications   []map[string]any
+	Rollbacks       []map[string]any
+	AllBatchEvents  []map[string]any
+	PendingDecision int
+}
+
 func ReadFacts(caseRoot string) (Facts, error) {
+	ledger, err := ReadLedgerFacts(caseRoot)
+	if err != nil {
+		return Facts{}, err
+	}
+	return ledger.Facts, nil
+}
+
+func ReadLedgerFacts(caseRoot string) (LedgerFacts, error) {
+	return readLedgerFacts(caseRoot, ReadFactFile)
+}
+
+func ReadStrictLedgerFacts(caseRoot string) (LedgerFacts, error) {
+	return readLedgerFacts(caseRoot, ReadStrictFactFile)
+}
+
+func readLedgerFacts(caseRoot string, readFact func(string, string) ([]map[string]any, error)) (LedgerFacts, error) {
+	read := func(name string) ([]map[string]any, error) {
+		return readFact(caseRoot, name)
+	}
 	var err error
-	out := Facts{}
-	if out.Candidates, err = ReadFactFile(caseRoot, "candidates.jsonl"); err != nil {
+	out := LedgerFacts{}
+	if out.Observations, err = read("observations.jsonl"); err != nil {
 		return out, err
 	}
-	if out.Requests, err = ReadFactFile(caseRoot, "requests.jsonl"); err != nil {
+	if out.Candidates, err = read("candidates.jsonl"); err != nil {
 		return out, err
 	}
-	if out.Decisions, err = ReadFactFile(caseRoot, "decisions.jsonl"); err != nil {
+	if out.Requests, err = read("requests.jsonl"); err != nil {
 		return out, err
 	}
-	if out.Interventions, err = ReadFactFile(caseRoot, "interventions.jsonl"); err != nil {
+	if out.Publications, err = read("publications.jsonl"); err != nil {
 		return out, err
 	}
+	if out.Decisions, err = read("decisions.jsonl"); err != nil {
+		return out, err
+	}
+	if out.Hypotheses, err = read("hypotheses.jsonl"); err != nil {
+		return out, err
+	}
+	if out.Verifications, err = read("verifications.jsonl"); err != nil {
+		return out, err
+	}
+	if out.Interventions, err = read("interventions.jsonl"); err != nil {
+		return out, err
+	}
+	if out.Rollbacks, err = read("rollbacks.jsonl"); err != nil {
+		return out, err
+	}
+	out.PendingDecision = PendingDecisionCount(out.Decisions)
+	out.AllBatchEvents = BatchEvents(out)
 	return out, nil
 }
 
@@ -66,27 +122,48 @@ func ReadFactFile(caseRoot, name string) ([]map[string]any, error) {
 	return ReadJSONLineObjects(filepath.Join(factsRoot, name))
 }
 
+func ReadStrictFactFile(caseRoot, name string) ([]map[string]any, error) {
+	factsRoot, err := refsf.SafeJoin(caseRoot, ".rekit/facts")
+	if err != nil {
+		return nil, err
+	}
+	return ReadStrictJSONLineObjects(filepath.Join(factsRoot, name))
+}
+
 func ReadJSONLineObjects(path string) ([]map[string]any, error) {
-	b, err := os.ReadFile(path)
+	return readJSONLineObjects(path, false)
+}
+
+func ReadStrictJSONLineObjects(path string) ([]map[string]any, error) {
+	return readJSONLineObjects(path, true)
+}
+
+func readJSONLineObjects(path string, strict bool) ([]map[string]any, error) {
+	file, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return []map[string]any{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	defer file.Close()
 	items := []map[string]any{}
-	for line := range strings.SplitSeq(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
-		line = strings.TrimSpace(line)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
 		var item map[string]any
 		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			if strict {
+				return nil, fmt.Errorf("invalid JSONL %s: %w", path, err)
+			}
 			continue
 		}
 		items = append(items, item)
 	}
-	return items, nil
+	return items, scanner.Err()
 }
 
 func CaseBrief(caseRoot string, opts BuildOptions) (Brief, error) {
@@ -99,6 +176,30 @@ func CaseBrief(caseRoot string, opts BuildOptions) (Brief, error) {
 		return Brief{}, err
 	}
 	return BuildWithOptions(BoardLanes(board.Lanes), facts, opts), nil
+}
+
+func PendingDecisionCount(decisions []map[string]any) int {
+	pending := 0
+	for _, decision := range decisions {
+		status := strings.ToLower(strings.TrimSpace(Value(decision, "status")))
+		decisionValue := strings.ToLower(strings.TrimSpace(FirstText(Value(decision, "decision"), Value(decision, "action"))))
+		if decisionValue == "pending-user" || (status == "" && decisionValue == "defer") || (status != "" && !IsTerminalStatus(status)) {
+			pending++
+		}
+	}
+	return pending
+}
+
+func BatchEvents(facts LedgerFacts) []map[string]any {
+	out := []map[string]any{}
+	for _, list := range [][]map[string]any{facts.Observations, facts.Hypotheses, facts.Candidates, facts.Verifications, facts.Decisions, facts.Interventions, facts.Rollbacks, facts.Publications, facts.Requests} {
+		for _, event := range list {
+			if strings.TrimSpace(Value(event, "batchId")) != "" {
+				out = append(out, event)
+			}
+		}
+	}
+	return out
 }
 
 func BoardLanes(lanes []BoardLane) []Lane {

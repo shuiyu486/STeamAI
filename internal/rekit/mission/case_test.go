@@ -74,4 +74,35 @@ func TestReadJSONLineObjectsSkipsBlankAndInvalidLines(t *testing.T) {
 	if len(items) != 2 || Value(items[0], "subject") != "first" || Value(items[1], "subject") != "second" {
 		t.Fatalf("items = %#v", items)
 	}
+	if _, err := ReadStrictJSONLineObjects(path); err == nil || !strings.Contains(err.Error(), "invalid JSONL") {
+		t.Fatalf("strict JSONL error = %v", err)
+	}
+}
+
+func TestReadStrictLedgerFactsSummarizesPendingAndBatches(t *testing.T) {
+	caseRoot := t.TempDir()
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	if err := os.MkdirAll(factsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(factsRoot, "decisions.jsonl"), []byte(strings.Join([]string{
+		`{"kind":"decision","subject":"pending user","action":"pending-user","batchId":"b2"}`,
+		`{"kind":"decision","subject":"deferred terminal","status":"deferred","decision":"defer","batchId":"b1"}`,
+	}, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(factsRoot, "requests.jsonl"), []byte(`{"kind":"request","subject":"debug gate","status":"pending-gate","batchId":"b2"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	facts, err := ReadStrictLedgerFacts(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts.PendingDecision != 1 {
+		t.Fatalf("pending decisions = %d", facts.PendingDecision)
+	}
+	if len(facts.AllBatchEvents) != 3 {
+		t.Fatalf("batch events = %#v", facts.AllBatchEvents)
+	}
 }
