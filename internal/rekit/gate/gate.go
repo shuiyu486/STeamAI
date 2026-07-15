@@ -1,7 +1,6 @@
 package gate
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -365,31 +364,16 @@ func eventID(event EventPreview) string {
 }
 
 func eventIDExists(path, id string) (bool, error) {
-	f, err := os.Open(path)
+	items, err := mission.ReadJSONLineObjects(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
 		return false, err
 	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		var item struct {
-			EventID string `json:"eventId"`
-		}
-		if err := json.Unmarshal([]byte(line), &item); err != nil {
-			continue
-		}
-		if item.EventID == id {
+	for _, item := range items {
+		if mission.Value(item, "eventId") == id {
 			return true, nil
 		}
 	}
-	return false, scanner.Err()
+	return false, nil
 }
 
 func relativeCasePath(caseRoot, path string) string {

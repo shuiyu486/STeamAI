@@ -466,11 +466,11 @@ func writeLaneResume(caseRoot string, lane Lane) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	inbox, err := readJSONLineObjects(filepath.Join(laneRoot, "inbox.jsonl"))
+	inbox, err := mission.ReadJSONLineObjects(filepath.Join(laneRoot, "inbox.jsonl"))
 	if err != nil {
 		return "", "", err
 	}
-	tasks, err := readJSONLineObjects(filepath.Join(laneRoot, "tasks.jsonl"))
+	tasks, err := mission.ReadJSONLineObjects(filepath.Join(laneRoot, "tasks.jsonl"))
 	if err != nil {
 		return "", "", err
 	}
@@ -609,10 +609,6 @@ func readLane(path string) (Lane, error) {
 		return Lane{}, fmt.Errorf("invalid lane json %s: %w", path, err)
 	}
 	return lane, nil
-}
-
-func readJSONLineObjects(path string) ([]map[string]any, error) {
-	return mission.ReadJSONLineObjects(path)
 }
 
 func lastObjects(items []map[string]any, limit int) []map[string]any {

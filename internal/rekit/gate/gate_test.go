@@ -206,6 +206,29 @@ func TestApplyDuplicateEventDoesNotAppend(t *testing.T) {
 	}
 }
 
+func TestApplyDuplicateEventUsesSharedJSONLReader(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	opt := Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "duplicate gate", Summary: "same semantic request"}
+
+	first, err := Apply(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestPath := filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl")
+	writeGateText(t, requestPath, "not json\n"+strings.Join(readGateLines(t, requestPath), "\n")+"\n")
+	second, err := Apply(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Applied || second.EventID != first.EventID || second.Reason != "duplicate eventId" {
+		t.Fatalf("duplicate lookup did not skip malformed JSONL via shared reader: first=%+v second=%+v", first, second)
+	}
+	lines := readGateLines(t, requestPath)
+	if len(lines) != 2 {
+		t.Fatalf("duplicate apply wrote new event after malformed line, lines=%q", lines)
+	}
+}
+
 func gateFixture(t *testing.T) (repoRoot, caseRoot, pack string) {
 	t.Helper()
 	return gateFixtureWithDefaultRisk(t, "high")

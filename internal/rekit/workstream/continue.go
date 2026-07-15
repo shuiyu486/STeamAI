@@ -785,7 +785,7 @@ func laneOutputEvents(caseRoot string, lane Lane, m *manifest.Manifest) ([]map[s
 	}
 	var events []map[string]any
 	for _, path := range []string{filepath.Join(laneRoot, "outbox.jsonl"), filepath.Join(workspace, "observations.jsonl"), filepath.Join(workspace, "requests.jsonl"), filepath.Join(workspace, "candidates.jsonl"), filepath.Join(workspace, "publications.jsonl")} {
-		items, err := readJSONLineObjects(path)
+		items, err := mission.ReadJSONLineObjects(path)
 		if err != nil {
 			return nil, err
 		}
@@ -1199,7 +1199,7 @@ func requestAlreadyRouted(caseRoot, laneID string, event map[string]any) bool {
 	if err != nil {
 		return false
 	}
-	tasks, err := readJSONLineObjects(filepath.Join(laneRoot, "tasks.jsonl"))
+	tasks, err := mission.ReadJSONLineObjects(filepath.Join(laneRoot, "tasks.jsonl"))
 	if err != nil {
 		return false
 	}
@@ -1225,7 +1225,7 @@ func knownEventIDs(caseRoot string) (map[string]bool, error) {
 	}
 	known := map[string]bool{}
 	for _, file := range mission.FactFileNames() {
-		items, err := readJSONLineObjects(filepath.Join(factsRoot, file))
+		items, err := mission.ReadJSONLineObjects(filepath.Join(factsRoot, file))
 		if err != nil {
 			return nil, err
 		}

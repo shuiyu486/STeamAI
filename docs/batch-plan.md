@@ -6165,3 +6165,31 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/workstream/handoff.go internal/rekit/workstream/handoff_test.go`、`go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 205：Shared JSONL reader reuse
+
+状态：已完成。
+
+目标：在 Batch 198-204 已将 board、ledger facts、fact-file mapping、lane guard、handoff facts snapshot 等收口到 `internal/rekit/mission` 后，继续清理 Go runtime 中仍保留或绕行 shared JSONL reader 的小型漂移面，让 gate duplicate eventId 检查与 workstream lane/workspace JSONL 读取直接复用 mission JSONL helper。
+
+实施范围：
+
+- `internal/rekit/gate/gate.go` 的 duplicate `eventId` 检查改为调用 `mission.ReadJSONLineObjects` 与 `mission.Value`，移除 gate-local `bufio.Scanner` / per-line struct unmarshal 逻辑，保持 non-strict JSONL malformed-line skip 行为不变。
+- `internal/rekit/workstream/start.go` 的 lane resume inbox/tasks 读取直接调用 `mission.ReadJSONLineObjects`，删除 workstream package-local passthrough wrapper。
+- `internal/rekit/workstream/continue.go` 的 lane outbox/workspace events、tasks routed check 与 known event ID scan 直接调用 `mission.ReadJSONLineObjects`，保留 workspace-local JSONL 文件集合与 shared facts file list 语义不变。
+- 扩展 `internal/rekit/gate/gate_test.go`，覆盖 duplicate lookup 在请求 ledger 前置 malformed JSONL 行时仍通过 shared non-strict reader 找到既有 eventId 并避免重复 append。
+
+边界：本批只做 Go runtime 内部复用、测试和文档；不改变 gate/start/continue JSON envelope 字段；不改变 `.rekit/facts/*.jsonl`、lane inbox/tasks、workspace outbox/observations/requests/candidates/publications 的实际路径或 append 语义；不改变 run artifacts、PowerShell façade 委托集合或 sync/promote review-first 语义；不执行 heavy-tool、不自动 spawn tactical subagent、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/gate/gate.go internal/rekit/gate/gate_test.go internal/rekit/workstream/start.go internal/rekit/workstream/continue.go`、`go test ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
