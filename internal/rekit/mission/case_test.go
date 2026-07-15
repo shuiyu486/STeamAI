@@ -175,6 +175,27 @@ func TestValidateJSONLinesReportsLineNumbersAndSkipsMissing(t *testing.T) {
 	}
 }
 
+func TestReadLedgerEventIDsUsesSharedFactsMapping(t *testing.T) {
+	caseRoot := t.TempDir()
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	if err := os.MkdirAll(factsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(factsRoot, "observations.jsonl"), []byte(`{"kind":"observation","eventId":"evt-observed"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(factsRoot, "requests.jsonl"), []byte("not json\n"+`{"kind":"request","eventId":"evt-request"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	known, err := ReadLedgerEventIDs(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !known["evt-observed"] || !known["evt-request"] || len(known) != 2 {
+		t.Fatalf("known event ids = %#v", known)
+	}
+}
+
 func TestReadStrictLedgerFactsSummarizesPendingAndBatches(t *testing.T) {
 	caseRoot := t.TempDir()
 	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")

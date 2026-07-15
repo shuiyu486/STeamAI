@@ -180,6 +180,22 @@ func ReadStrictFactFile(caseRoot, name string) ([]map[string]any, error) {
 	return ReadStrictJSONLineObjects(filepath.Join(factsRoot, name))
 }
 
+func ReadLedgerEventIDs(caseRoot string) (map[string]bool, error) {
+	known := map[string]bool{}
+	for _, name := range FactFileNames() {
+		items, err := ReadFactFile(caseRoot, name)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			if id := Value(item, "eventId"); id != "" {
+				known[id] = true
+			}
+		}
+	}
+	return known, nil
+}
+
 func ReadJSONLineObjects(path string) ([]map[string]any, error) {
 	return readJSONLineObjects(path, false)
 }

@@ -6335,3 +6335,30 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/workstream/continue.go internal/rekit/workstream/continue_facts.go internal/rekit/workstream/continue_facts_test.go`、`go test ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 211：Shared ledger event id helper
+
+状态：已完成。
+
+目标：在 Batch 203-210 已将 facts ledger mapping、continue facts promotion 与 JSONL reader 逐步收口后，继续清理 `continue` 中 duplicate eventId 扫描的本地实现，让 preview/apply skip 已知 eventId 使用 shared mission ledger helper，降低 facts file list 与 reader 语义漂移风险。
+
+实施范围：
+
+- `internal/rekit/mission/case.go` 新增 `ReadLedgerEventIDs(caseRoot)`，遍历 `FactFileNames()` 并复用 `ReadFactFile()` / `Value()` 聚合 shared ledger 中已有 `eventId`。
+- `internal/rekit/workstream/continue.go` 的 `ContinuePreview` 与 `ContinueApply` 改为调用 `mission.ReadLedgerEventIDs`，删除 continue-local `knownEventIDs` scanner 与 `.rekit/facts` path 拼装。
+- 扩展 `internal/rekit/mission/case_test.go`，覆盖 shared event id 聚合使用 shared facts mapping，且沿用 non-strict reader 跳过 malformed JSONL 行的行为。
+
+边界：本批只做 Go runtime 内部复用、测试和文档；不改变 continue JSON 或文本 envelope；不改变 duplicate eventId skip 语义、`.rekit/facts/*.jsonl` 文件名/路径、run artifacts、lane routing、PowerShell façade 委托集合或 sync/promote review-first 语义；不执行 heavy-tool、不自动 spawn tactical subagent、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/workstream/continue.go`、`go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

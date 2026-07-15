@@ -111,7 +111,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	if err != nil {
 		return ContinueResult{}, err
 	}
-	known, err := knownEventIDs(ctx.inst.CaseRoot)
+	known, err := mission.ReadLedgerEventIDs(ctx.inst.CaseRoot)
 	if err != nil {
 		return ContinueResult{}, err
 	}
@@ -203,7 +203,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 	if err != nil {
 		return ContinueResult{}, err
 	}
-	known, err := knownEventIDs(ctx.inst.CaseRoot)
+	known, err := mission.ReadLedgerEventIDs(ctx.inst.CaseRoot)
 	if err != nil {
 		return ContinueResult{}, err
 	}
@@ -1202,26 +1202,6 @@ func requestAlreadyRouted(caseRoot, laneID string, event map[string]any) bool {
 		}
 	}
 	return false
-}
-
-func knownEventIDs(caseRoot string) (map[string]bool, error) {
-	factsRoot, err := refsf.SafeJoin(caseRoot, ".rekit/facts")
-	if err != nil {
-		return nil, err
-	}
-	known := map[string]bool{}
-	for _, file := range mission.FactFileNames() {
-		items, err := mission.ReadJSONLineObjects(filepath.Join(factsRoot, file))
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range items {
-			if id := stringFrom(item, "eventId"); id != "" {
-				known[id] = true
-			}
-		}
-	}
-	return known, nil
 }
 
 func readCSVRows(path string) ([]map[string]string, error) {
