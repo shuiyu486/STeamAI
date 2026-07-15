@@ -74,6 +74,12 @@ func TestFactFileNameMapsLedgerKinds(t *testing.T) {
 			t.Fatalf("FactFileName(%q) = %q, want %q", kind, got, want)
 		}
 	}
+	if got := strings.Join(FactFileNames(), ","); got != "observations.jsonl,candidates.jsonl,requests.jsonl,publications.jsonl,decisions.jsonl,hypotheses.jsonl,verifications.jsonl,interventions.jsonl,rollbacks.jsonl" {
+		t.Fatalf("FactFileNames = %q", got)
+	}
+	if got := FactRelPath("decision"); got != ".rekit/facts/decisions.jsonl" {
+		t.Fatalf("FactRelPath(decision) = %q", got)
+	}
 }
 
 func TestAssertBoardLaneUsesSharedKnownLaneErrors(t *testing.T) {

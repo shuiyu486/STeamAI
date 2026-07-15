@@ -248,17 +248,7 @@ func ensureWorkstreamState(caseRoot string, m *manifest.Manifest, writes *[]Star
 			return err
 		}
 	}
-	for _, rel := range []string{
-		".rekit/facts/observations.jsonl",
-		".rekit/facts/candidates.jsonl",
-		".rekit/facts/requests.jsonl",
-		".rekit/facts/publications.jsonl",
-		".rekit/facts/decisions.jsonl",
-		".rekit/facts/hypotheses.jsonl",
-		".rekit/facts/verifications.jsonl",
-		".rekit/facts/interventions.jsonl",
-		".rekit/facts/rollbacks.jsonl",
-	} {
+	for _, rel := range mission.FactRelPaths() {
 		path, err := refsf.SafeJoin(caseRoot, rel)
 		if err != nil {
 			return err

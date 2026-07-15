@@ -60,6 +60,30 @@ type LedgerFacts struct {
 	PendingDecision int
 }
 
+func LedgerKinds() []string {
+	return []string{"observation", "candidate", "request", "publication", "decision", "hypothesis", "verification", "intervention", "rollback"}
+}
+
+func FactFileNames() []string {
+	out := []string{}
+	for _, kind := range LedgerKinds() {
+		out = append(out, FactFileName(kind))
+	}
+	return out
+}
+
+func FactRelPath(kind string) string {
+	return filepath.ToSlash(filepath.Join(".rekit", "facts", FactFileName(kind)))
+}
+
+func FactRelPaths() []string {
+	out := []string{}
+	for _, kind := range LedgerKinds() {
+		out = append(out, FactRelPath(kind))
+	}
+	return out
+}
+
 func FactFileName(kind string) string {
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	switch kind {

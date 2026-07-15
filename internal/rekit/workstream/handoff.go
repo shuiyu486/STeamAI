@@ -596,27 +596,27 @@ type handoffFacts struct {
 }
 
 func readHandoffFacts(caseRoot string) (handoffFacts, error) {
-	read := func(name string) ([]map[string]any, error) {
-		return mission.ReadFactFile(caseRoot, name)
+	read := func(kind string) ([]map[string]any, error) {
+		return mission.ReadFactFile(caseRoot, mission.FactFileName(kind))
 	}
 	var err error
 	out := handoffFacts{}
-	if out.Verifications, err = read("verifications.jsonl"); err != nil {
+	if out.Verifications, err = read("verification"); err != nil {
 		return out, err
 	}
-	if out.Candidates, err = read("candidates.jsonl"); err != nil {
+	if out.Candidates, err = read("candidate"); err != nil {
 		return out, err
 	}
-	if out.Decisions, err = read("decisions.jsonl"); err != nil {
+	if out.Decisions, err = read("decision"); err != nil {
 		return out, err
 	}
-	if out.Requests, err = read("requests.jsonl"); err != nil {
+	if out.Requests, err = read("request"); err != nil {
 		return out, err
 	}
-	if out.Interventions, err = read("interventions.jsonl"); err != nil {
+	if out.Interventions, err = read("intervention"); err != nil {
 		return out, err
 	}
-	if out.Rollbacks, err = read("rollbacks.jsonl"); err != nil {
+	if out.Rollbacks, err = read("rollback"); err != nil {
 		return out, err
 	}
 	return out, nil
