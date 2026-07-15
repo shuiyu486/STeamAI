@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 )
 
@@ -28,6 +29,7 @@ type Result struct {
 	Documents             []DocumentCheck        `json:"documents"`
 	Packs                 []manifest.PackSummary `json:"packs"`
 	PowerShellDeprecation PowerShellDeprecation  `json:"powerShellDeprecation"`
+	CaseShim              caseshim.Readiness     `json:"caseShim"`
 	ReleaseHandoff        ReleaseHandoff         `json:"releaseHandoff"`
 	HeavyToolGateActions  []string               `json:"heavyToolGateActions"`
 	Boundaries            []string               `json:"boundaries"`
@@ -114,6 +116,7 @@ func Build(repoRoot string) (Result, error) {
 		Documents:             documentChecks(repo, requiredDocuments),
 		Packs:                 packs,
 		PowerShellDeprecation: powerShellDeprecation(repo),
+		CaseShim:              caseshim.Inspect(repo),
 		HeavyToolGateActions:  heavyToolGateActions(packs),
 		Boundaries:            append([]string{}, cat.GlobalBoundaries...),
 		KnownGaps:             knownGaps(repo),
@@ -153,6 +156,10 @@ func Build(repoRoot string) (Result, error) {
 	if !check.PowerShellDeprecation.Ready {
 		check.Ready = false
 		check.Warnings = append(check.Warnings, check.PowerShellDeprecation.Warnings...)
+	}
+	if !check.CaseShim.Ready {
+		check.Ready = false
+		check.Warnings = append(check.Warnings, check.CaseShim.Warnings...)
 	}
 	if !check.Ready {
 		check.Summary = "release gate inventory has warnings"

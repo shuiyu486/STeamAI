@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
@@ -58,6 +59,9 @@ func Case(repoRoot, caseRoot, pack string) ([]Row, error) {
 		return nil, err
 	}
 	if err := assertCaseShimMatchesTemplate(inst.CaseRoot, repoRoot); err != nil {
+		return nil, err
+	}
+	if err := caseshim.AssertReady(repoRoot); err != nil {
 		return nil, err
 	}
 

@@ -164,6 +164,16 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			},
 		},
 		{
+			Name:    "case shim readiness",
+			Ready:   check.CaseShim.Ready,
+			Summary: check.CaseShim.Summary,
+			Details: []string{
+				fmt.Sprintf("template=%s", check.CaseShim.TemplatePath),
+				fmt.Sprintf("requiredPhrases=%d canonicalPhrases=%d forbidden=%d", len(check.CaseShim.RequiredPhrases), len(check.CaseShim.CanonicalSkillPhrases), len(check.CaseShim.ForbiddenStrings)),
+				"case-local shim stays thin and does not name PowerShell or raw Go CLI commands",
+			},
+		},
+		{
 			Name:    "heavy-tool gate manifests",
 			Ready:   len(check.HeavyToolGateActions) > 0,
 			Summary: strings.Join(check.HeavyToolGateActions, ","),

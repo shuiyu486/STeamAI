@@ -45,6 +45,8 @@ func writeReleaseHandoffFixture(t *testing.T, repo, batchTitle, changelogLine st
 	writeFile(t, filepath.Join(repo, "docs", "autonomous-goal.md"), "# autonomous goal\n")
 	writeFile(t, filepath.Join(repo, "docs", "go-first-convergence-plan.md"), "# go first\n")
 	writeFile(t, filepath.Join(repo, "docs", "powershell-deprecation.md"), "# powershell\n")
+	writeFile(t, filepath.Join(repo, ".claude", "skills", "rekit", "SKILL.md"), "# rekit\n\n底层 Go CLI 是 canonical runtime\n`rekit.ps1` 只是迁移期 legacy façade\ncase 只生成 `.claude/skills/rekit/SKILL.md` 薄 shim\n底层 runtime 只作为 `/rekit` 的内部实现\n")
+	writeFile(t, filepath.Join(repo, "rekit", "templates", "case-shim", "SKILL.md"), "# shim\n\ncase-local 薄 shim\n不包含业务逻辑\ncanonical `/rekit`\n.rekit/instance.yml\n.re-template.yml\n<templateRoot>/.claude/skills/rekit/SKILL.md\ncanonical runtime\nsync` / `promote` 默认必须 review-first\n不要在本 shim 里维护模板规则\n不要读取或修改用户级 `~/.claude/skills`\n不要在 shim 中复制逻辑\n不展示底层脚本或 CLI 命令\nGo-native backend\n")
 	writeFile(t, filepath.Join(repo, "CHANGELOG.md"), "# Changelog\n\n## Unreleased\n\n- "+changelogLine+".\n")
 	writeFile(t, filepath.Join(repo, "packs", "fixture", "manifest.yml"), `id: fixture
 name: Fixture

@@ -346,6 +346,27 @@ type releaseCheckPowerShellDeprecation struct {
 	Warnings          []string `json:"warnings"`
 }
 
+type releaseCheckCaseShim struct {
+	TemplatePath       string `json:"templatePath"`
+	CanonicalSkillPath string `json:"canonicalSkillPath"`
+	Ready              bool   `json:"ready"`
+	Summary            string `json:"summary"`
+	RequiredPhrases    []struct {
+		Phrase  string `json:"phrase"`
+		Present bool   `json:"present"`
+	} `json:"requiredPhrases"`
+	CanonicalSkillPhrases []struct {
+		Phrase  string `json:"phrase"`
+		Present bool   `json:"present"`
+	} `json:"canonicalSkillPhrases"`
+	ForbiddenStrings []struct {
+		Pattern string `json:"pattern"`
+		Present bool   `json:"present"`
+	} `json:"forbiddenStrings"`
+	Boundaries []string `json:"boundaries"`
+	Warnings   []string `json:"warnings"`
+}
+
 type releaseCheckHandoff struct {
 	Ready     bool   `json:"ready"`
 	Summary   string `json:"summary"`
@@ -434,6 +455,7 @@ type releaseCheckResult struct {
 		HeavyToolGates int    `json:"heavyToolGates"`
 	} `json:"packs"`
 	PowerShellDeprecation releaseCheckPowerShellDeprecation `json:"powerShellDeprecation"`
+	CaseShim              releaseCheckCaseShim              `json:"caseShim"`
 	ReleaseHandoff        releaseCheckHandoff               `json:"releaseHandoff"`
 	HeavyToolGateActions  []string                          `json:"heavyToolGateActions"`
 	Boundaries            []string                          `json:"boundaries"`
@@ -474,6 +496,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckStep(t, result.RecommendedMinimum, "go run ./cmd/rekit -- -Command doctor", "go-run", "cmd/rekit")
 	assertReleaseCheckCIReleaseGate(t, result.CIReleaseGate)
 	assertReleaseCheckPowerShellDeprecation(t, result.PowerShellDeprecation)
+	assertReleaseCheckCaseShim(t, result.CaseShim)
 	assertReleaseCheckHandoff(t, result.ReleaseHandoff)
 	if len(result.RecommendedMinimum) == 0 || len(result.Boundaries) == 0 || len(result.KnownGaps) == 0 || len(result.Packs) == 0 || len(result.HeavyToolGateActions) == 0 {
 		t.Fatalf("release-check omitted required inventory: %+v", result)
@@ -599,7 +622,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff summary: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 8 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 9 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertReleaseHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -612,6 +635,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignal(t, handoff, "release-check inventory")
 	assertReleaseHandoffSignal(t, handoff, "CI release gate")
 	assertReleaseHandoffSignal(t, handoff, "PowerShell deprecation")
+	assertReleaseHandoffSignal(t, handoff, "case shim readiness")
 	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
 	assertReleaseHandoffSignal(t, handoff, "pack maturity summary")
 	assertReleaseHandoffPackMaturity(t, handoff)
@@ -703,6 +727,39 @@ func assertReleaseHandoffKnownGap(t *testing.T, handoff releaseCheckHandoff, cat
 	t.Fatalf("release handoff missing known gap category %s: %+v", category, handoff.KnownGaps)
 }
 
+func assertReleaseCheckCaseShim(t *testing.T, shim releaseCheckCaseShim) {
+	t.Helper()
+	if !shim.Ready || shim.TemplatePath != "rekit/templates/case-shim/SKILL.md" || shim.CanonicalSkillPath != ".claude/skills/rekit/SKILL.md" || shim.Summary != "case shim readiness ok" || len(shim.Warnings) != 0 {
+		t.Fatalf("unexpected case shim readiness inventory: %+v", shim)
+	}
+	if len(shim.RequiredPhrases) == 0 || len(shim.CanonicalSkillPhrases) == 0 || len(shim.ForbiddenStrings) == 0 || len(shim.Boundaries) == 0 {
+		t.Fatalf("case shim readiness omitted required sections: %+v", shim)
+	}
+	assertCaseShimPhrase(t, shim.RequiredPhrases, "Go-native backend")
+	assertCaseShimPhrase(t, shim.RequiredPhrases, "不展示底层脚本或 CLI 命令")
+	for _, forbidden := range shim.ForbiddenStrings {
+		if forbidden.Present {
+			t.Fatalf("case shim forbidden pattern present: %+v", forbidden)
+		}
+	}
+}
+
+func assertCaseShimPhrase(t *testing.T, checks []struct {
+	Phrase  string `json:"phrase"`
+	Present bool   `json:"present"`
+}, want string) {
+	t.Helper()
+	for _, check := range checks {
+		if check.Phrase == want {
+			if !check.Present {
+				t.Fatalf("case shim phrase %q present=false", want)
+			}
+			return
+		}
+	}
+	t.Fatalf("case shim missing phrase check %q: %+v", want, checks)
+}
+
 func assertReleaseCheckPowerShellDeprecation(t *testing.T, inventory releaseCheckPowerShellDeprecation) {
 	t.Helper()
 	if !inventory.Ready || inventory.StrategyDocument != "docs/powershell-deprecation.md" || inventory.Summary != "PowerShell deprecation inventory ok" || len(inventory.Warnings) != 0 {
@@ -770,7 +827,8 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
 		"commands=14 modules=14 freezeGates=10 blocked=5",
-		"release handoff: release handoff summary ok ready=true readFirst=7 signals=8 knownGaps=5 packMaturity=10",
+		"case shim: case shim readiness ok ready=true",
+		"release handoff: release handoff summary ok ready=true readFirst=7 signals=9 knownGaps=5 packMaturity=10",
 		"releaseNotes=true",
 		"latest=Batch ",
 		"known gaps:",

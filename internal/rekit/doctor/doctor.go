@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 )
@@ -36,6 +37,9 @@ func Pack(repoRoot, pack string) ([]Row, error) {
 		return nil, err
 	}
 	if err := add(filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md"), 16384); err != nil {
+		return nil, err
+	}
+	if err := caseshim.AssertReady(repoRoot); err != nil {
 		return nil, err
 	}
 	if err := m.ValidateSchema(); err != nil {

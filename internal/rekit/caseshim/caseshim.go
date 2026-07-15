@@ -1,0 +1,147 @@
+package caseshim
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+type Readiness struct {
+	TemplatePath          string        `json:"templatePath"`
+	CanonicalSkillPath    string        `json:"canonicalSkillPath"`
+	Ready                 bool          `json:"ready"`
+	Summary               string        `json:"summary"`
+	RequiredPhrases       []PhraseCheck `json:"requiredPhrases"`
+	CanonicalSkillPhrases []PhraseCheck `json:"canonicalSkillPhrases"`
+	ForbiddenStrings      []StringCheck `json:"forbiddenStrings"`
+	Boundaries            []string      `json:"boundaries"`
+	Warnings              []string      `json:"warnings"`
+}
+
+type PhraseCheck struct {
+	Phrase  string `json:"phrase"`
+	Present bool   `json:"present"`
+}
+
+type StringCheck struct {
+	Pattern string `json:"pattern"`
+	Present bool   `json:"present"`
+}
+
+const TemplateRelPath = "rekit/templates/case-shim/SKILL.md"
+const CanonicalSkillRelPath = ".claude/skills/rekit/SKILL.md"
+
+var requiredShimPhrases = []string{
+	"case-local 薄 shim",
+	"不包含业务逻辑",
+	"canonical `/rekit`",
+	".rekit/instance.yml",
+	".re-template.yml",
+	"<templateRoot>/.claude/skills/rekit/SKILL.md",
+	"canonical runtime",
+	"sync` / `promote` 默认必须 review-first",
+	"不要在本 shim 里维护模板规则",
+	"不要读取或修改用户级 `~/.claude/skills`",
+	"不要在 shim 中复制逻辑",
+	"不展示底层脚本或 CLI 命令",
+	"Go-native backend",
+}
+
+var requiredCanonicalSkillPhrases = []string{
+	"底层 Go CLI 是 canonical runtime",
+	"`rekit.ps1` 只是迁移期 legacy façade",
+	"case 只生成 `.claude/skills/rekit/SKILL.md` 薄 shim",
+	"底层 runtime 只作为 `/rekit` 的内部实现",
+}
+
+var forbiddenShimStrings = []string{
+	"rekit.ps1",
+	".ps1",
+	"PowerShell",
+	"pwsh",
+	"cmd/rekit",
+	"go run",
+	"REKIT_GO_DISABLE",
+	"Set-ExecutionPolicy",
+	"Invoke-Rekit",
+}
+
+var boundaries = []string{
+	"case-local shim contains no runtime logic",
+	"case-local shim delegates to templateRoot canonical skill",
+	"case-local shim does not name PowerShell, pwsh, Go CLI commands, or façade fallback switches",
+	"sync/promote remain review-first through the canonical runtime",
+}
+
+func Inspect(repoRoot string) Readiness {
+	result := Readiness{
+		TemplatePath:          TemplateRelPath,
+		CanonicalSkillPath:    CanonicalSkillRelPath,
+		Ready:                 true,
+		Summary:               "case shim readiness ok",
+		RequiredPhrases:       []PhraseCheck{},
+		CanonicalSkillPhrases: []PhraseCheck{},
+		ForbiddenStrings:      []StringCheck{},
+		Boundaries:            append([]string{}, boundaries...),
+		Warnings:              []string{},
+	}
+
+	shimText, err := readRepoText(repoRoot, TemplateRelPath)
+	if err != nil {
+		result.Ready = false
+		result.Warnings = append(result.Warnings, err.Error())
+	}
+	canonicalText, err := readRepoText(repoRoot, CanonicalSkillRelPath)
+	if err != nil {
+		result.Ready = false
+		result.Warnings = append(result.Warnings, err.Error())
+	}
+
+	for _, phrase := range requiredShimPhrases {
+		present := strings.Contains(shimText, phrase)
+		result.RequiredPhrases = append(result.RequiredPhrases, PhraseCheck{Phrase: phrase, Present: present})
+		if !present {
+			result.Ready = false
+			result.Warnings = append(result.Warnings, fmt.Sprintf("case shim missing required phrase: %s", phrase))
+		}
+	}
+	for _, phrase := range requiredCanonicalSkillPhrases {
+		present := strings.Contains(canonicalText, phrase)
+		result.CanonicalSkillPhrases = append(result.CanonicalSkillPhrases, PhraseCheck{Phrase: phrase, Present: present})
+		if !present {
+			result.Ready = false
+			result.Warnings = append(result.Warnings, fmt.Sprintf("canonical skill missing required phrase: %s", phrase))
+		}
+	}
+	lowerShim := strings.ToLower(shimText)
+	for _, pattern := range forbiddenShimStrings {
+		present := strings.Contains(lowerShim, strings.ToLower(pattern))
+		result.ForbiddenStrings = append(result.ForbiddenStrings, StringCheck{Pattern: pattern, Present: present})
+		if present {
+			result.Ready = false
+			result.Warnings = append(result.Warnings, fmt.Sprintf("case shim contains forbidden runtime/default entrypoint string: %s", pattern))
+		}
+	}
+	if !result.Ready {
+		result.Summary = "case shim readiness has warnings"
+	}
+	return result
+}
+
+func AssertReady(repoRoot string) error {
+	readiness := Inspect(repoRoot)
+	if readiness.Ready {
+		return nil
+	}
+	return fmt.Errorf("case shim readiness failed: %s", strings.Join(readiness.Warnings, "; "))
+}
+
+func readRepoText(repoRoot, rel string) (string, error) {
+	path := filepath.Join(repoRoot, filepath.FromSlash(rel))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("case shim readiness missing %s: %w", rel, err)
+	}
+	return string(data), nil
+}

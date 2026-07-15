@@ -6543,3 +6543,35 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/releasecheck.go internal/rekit/releasecheck/ci_release_gate.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/manifest/release_invariants_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/manifest ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...` 与 `go vet ./...`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 218：Go-owned case shim readiness inventory
+
+状态：已完成。
+
+目标：继续 PowerShell-free / Go-native / 跨平台收敛，把 case-local thin shim 是否保持“只做 metadata 跳转、不展示底层脚本或 CLI、不含 PowerShell façade / fallback 默认入口”纳入 Go-owned readiness 与 release handoff，避免 case shim 在后续 fallback removal 前重新变成 PowerShell 默认入口或复制 runtime 逻辑。
+
+实施范围：
+
+- 新增 `internal/rekit/caseshim` readiness helper，检查 `rekit/templates/case-shim/SKILL.md` 的 thin-shim / canonical skill / review-first / Go-native backend 必备短语，并禁止 `rekit.ps1`、`.ps1`、`PowerShell`、`pwsh`、`cmd/rekit`、`go run`、`REKIT_GO_DISABLE` 等底层脚本、raw CLI 或 fallback 字符串出现在 case-local shim 模板中。
+- `doctor.Pack` 与 `doctor.Case` 在验证 canonical skill 和 case shim 模板后调用 `caseshim.AssertReady`，让 Go-native `doctor` 能直接捕获 case shim 漂移。
+- `release-check -Format json` 新增 `caseShim` inventory，text 输出新增 `case shim: ...` 行，`releaseHandoff.signals[]` 新增 `case shim readiness`；当 shim readiness 失败时 `release-check.ready=false` 并输出完整诊断。
+- case shim 模板补充 canonical runtime / Go-native backend 说明，明确 shim 只做 metadata 跳转，不展示底层脚本或 CLI 命令，也不维护 fallback / 命令执行细节。
+- 更新 CLI / releasecheck / caseshim Go tests、release readiness、PowerShell-free convergence roadmap、Go-first convergence plan 与 CHANGELOG，记录该 readiness 信号及其边界。
+
+边界：本批不改变 runtime 写入面、PowerShell façade 默认委托集合、`REKIT_GO_DISABLE=1` fallback、pack manifest、case state、sync/promote review-first 语义、workstream/ledger/gate 行为或实际 case lifecycle 写入结果；不删除 PowerShell 文件；不执行 heavy-tool、不自动 spawn agent、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+gofmt -w internal/rekit/caseshim/caseshim.go internal/rekit/caseshim/caseshim_test.go internal/rekit/doctor/doctor.go internal/rekit/doctor/case.go internal/rekit/releasecheck/releasecheck.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/release_notes_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/caseshim ./internal/rekit/doctor ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 targeted `gofmt`、`go test ./internal/rekit/caseshim ./internal/rekit/doctor ./internal/rekit/releasecheck ./internal/rekit/manifest ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...` 与 `go vet ./...`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

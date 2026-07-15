@@ -19,7 +19,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff inventory: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 8 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 9 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -32,6 +32,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignal(t, handoff, "release-check inventory")
 	assertHandoffSignal(t, handoff, "CI release gate")
 	assertHandoffSignal(t, handoff, "PowerShell deprecation")
+	assertHandoffSignal(t, handoff, "case shim readiness")
 	assertHandoffSignal(t, handoff, "heavy-tool gate manifests")
 	assertHandoffSignal(t, handoff, "pack maturity summary")
 	assertHandoffPackMaturity(t, handoff)
