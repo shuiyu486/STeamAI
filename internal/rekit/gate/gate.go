@@ -121,14 +121,15 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 	}
 	preview.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	preview.EventID = eventID(preview)
-	relPath, path, err := mission.FactPath(inst.CaseRoot, "request")
+	relPath, _, err := mission.FactPath(inst.CaseRoot, "request")
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	exists, err := eventIDExists(path, preview.EventID)
+	known, err := mission.ReadFactEventIDs(inst.CaseRoot, "request")
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	exists := known[preview.EventID]
 	result := ApplyResult{
 		SchemaVersion: 1,
 		Command:       "gate",
@@ -349,17 +350,4 @@ func eventID(event EventPreview) string {
 	}, "|")
 	sum := sha256.Sum256([]byte(seed))
 	return "evt-" + hex.EncodeToString(sum[:])[:16]
-}
-
-func eventIDExists(path, id string) (bool, error) {
-	items, err := mission.ReadJSONLineObjects(path)
-	if err != nil {
-		return false, err
-	}
-	for _, item := range items {
-		if mission.Value(item, "eventId") == id {
-			return true, nil
-		}
-	}
-	return false, nil
 }

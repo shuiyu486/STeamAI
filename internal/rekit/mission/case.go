@@ -132,16 +132,16 @@ func ReadFacts(caseRoot string) (Facts, error) {
 }
 
 func ReadLedgerFacts(caseRoot string) (LedgerFacts, error) {
-	return readLedgerFacts(caseRoot, ReadFactFile)
+	return readLedgerFacts(caseRoot, ReadFact)
 }
 
 func ReadStrictLedgerFacts(caseRoot string) (LedgerFacts, error) {
-	return readLedgerFacts(caseRoot, ReadStrictFactFile)
+	return readLedgerFacts(caseRoot, ReadStrictFact)
 }
 
 func readLedgerFacts(caseRoot string, readFact func(string, string) ([]map[string]any, error)) (LedgerFacts, error) {
 	read := func(kind string) ([]map[string]any, error) {
-		return readFact(caseRoot, FactFileName(kind))
+		return readFact(caseRoot, kind)
 	}
 	var err error
 	out := LedgerFacts{}
@@ -193,25 +193,61 @@ func ReadStrictFactFile(caseRoot, name string) ([]map[string]any, error) {
 	return ReadStrictJSONLineObjects(filepath.Join(factsRoot, name))
 }
 
+func ReadFact(caseRoot, kind string) ([]map[string]any, error) {
+	_, path, err := FactPath(caseRoot, kind)
+	if err != nil {
+		return nil, err
+	}
+	return ReadJSONLineObjects(path)
+}
+
+func ReadStrictFact(caseRoot, kind string) ([]map[string]any, error) {
+	_, path, err := FactPath(caseRoot, kind)
+	if err != nil {
+		return nil, err
+	}
+	return ReadStrictJSONLineObjects(path)
+}
+
+func ReadFactEventIDs(caseRoot, kind string) (map[string]bool, error) {
+	return readFactEventIDs(caseRoot, kind, ReadFact)
+}
+
+func ReadStrictFactEventIDs(caseRoot, kind string) (map[string]bool, error) {
+	return readFactEventIDs(caseRoot, kind, ReadStrictFact)
+}
+
 func ReadLedgerEventIDs(caseRoot string) (map[string]bool, error) {
-	return readLedgerEventIDs(caseRoot, ReadFactFile)
+	return readLedgerEventIDs(caseRoot, ReadFact)
 }
 
 func ReadStrictLedgerEventIDs(caseRoot string) (map[string]bool, error) {
-	return readLedgerEventIDs(caseRoot, ReadStrictFactFile)
+	return readLedgerEventIDs(caseRoot, ReadStrictFact)
 }
 
 func readLedgerEventIDs(caseRoot string, readFact func(string, string) ([]map[string]any, error)) (map[string]bool, error) {
 	known := map[string]bool{}
-	for _, name := range FactFileNames() {
-		items, err := readFact(caseRoot, name)
+	for _, kind := range LedgerKinds() {
+		ids, err := readFactEventIDs(caseRoot, kind, readFact)
 		if err != nil {
 			return nil, err
 		}
-		for _, item := range items {
-			if id := Value(item, "eventId"); id != "" {
-				known[id] = true
-			}
+		for id := range ids {
+			known[id] = true
+		}
+	}
+	return known, nil
+}
+
+func readFactEventIDs(caseRoot, kind string, readFact func(string, string) ([]map[string]any, error)) (map[string]bool, error) {
+	known := map[string]bool{}
+	items, err := readFact(caseRoot, kind)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if id := Value(item, "eventId"); id != "" {
+			known[id] = true
 		}
 	}
 	return known, nil

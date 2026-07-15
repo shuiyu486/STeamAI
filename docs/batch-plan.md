@@ -6450,3 +6450,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/note/note.go internal/rekit/gate/gate.go internal/rekit/workstream/continue_facts.go`、`go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 215：Shared fact read and eventId helper
+
+状态：已完成。
+
+目标：在 Batch 214 已把 shared facts path/append 收口到 mission helper 后，继续清理 facts 读取和 per-kind duplicate eventId scan 的漂移点，让 ledger snapshot、note list strict facts 读取与 gate pending request duplicate scan 复用同一 fact kind → path helper 和 strict/non-strict reader 语义。
+
+实施范围：
+
+- `internal/rekit/mission/case.go` 新增 `ReadFact(caseRoot, kind)` 与 `ReadStrictFact(caseRoot, kind)`，在 `FactPath` 基础上统一按 fact kind 读取 non-strict / strict facts JSONL。
+- `internal/rekit/mission/case.go` 新增 `ReadFactEventIDs(caseRoot, kind)` 与 `ReadStrictFactEventIDs(caseRoot, kind)`，统一 per-kind eventId 聚合，并让 `ReadLedgerEventIDs` / `ReadStrictLedgerEventIDs` 复用该 helper。
+- `ReadLedgerFacts` / `ReadStrictLedgerFacts` 改为复用 kind-based `ReadFact` / `ReadStrictFact`，避免 snapshot 读取绕过 `FactPath`。
+- `internal/rekit/gate/gate.go` 的 duplicate eventId scan 改为调用 `mission.ReadFactEventIDs(caseRoot, "request")`，删除 gate-local request JSONL scanner。
+- `internal/rekit/note/note.go` 的 strict list reader 改为调用 `mission.ReadStrictFact(caseRoot, kind)`，保留 malformed JSONL 报错语义。
+- 扩展 `internal/rekit/mission/case_test.go`，覆盖 non-strict/strict fact read、unsafe fact kind 拒绝与 per-kind eventId 聚合。
+- 文档收尾：更新 README internal state model，明确 `.rekit/facts/*.jsonl` 由 Go shared facts path/read/append helper 访问；更新 agent-team usage、Go-first convergence 与 CHANGELOG。未修改 CLAUDE.md、pack reference 或配置示例，因为本批为 Go helper 内部收口，相关用户可见边界已由 README 与使用指南覆盖，未引入新命令、配置项或 pack 模板语义。
+
+边界：本批只做 Go runtime 内部复用、测试和文档；不改变 note/gate/overview/continue JSON 或文本 envelope；不改变 strict/non-strict JSONL reader 语义、duplicate eventId skip 语义、facts 文件名、lane JSONL 路径、run artifacts、routing、PowerShell façade 委托集合或 sync/promote review-first 语义；不执行 heavy-tool、不自动 spawn tactical subagent、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/note/note.go internal/rekit/gate/gate.go`、`go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

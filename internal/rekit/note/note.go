@@ -340,7 +340,7 @@ func gateDetail(item event, omitStatus, omitBatch bool) string {
 }
 
 func readFactEvents(caseRoot, kind string) ([]event, error) {
-	items, err := mission.ReadStrictFactFile(caseRoot, mission.FactFileName(kind))
+	items, err := mission.ReadStrictFact(caseRoot, kind)
 	if err != nil {
 		return nil, err
 	}

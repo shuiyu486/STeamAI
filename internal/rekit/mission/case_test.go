@@ -206,12 +206,59 @@ func TestAppendFactCreatesSharedFactPathAndAppendsJSONLine(t *testing.T) {
 	if rel != ".rekit/facts/requests.jsonl" || path != filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl") {
 		t.Fatalf("append fact path = (%q, %q)", rel, path)
 	}
-	items, err := ReadStrictFactFile(caseRoot, "requests.jsonl")
+	items, err := ReadStrictFact(caseRoot, "request")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(items) != 1 || Value(items[0], "eventId") != "evt-request" {
 		t.Fatalf("request facts = %#v", items)
+	}
+}
+
+func TestReadFactUsesSharedFactPathAndStrictVariant(t *testing.T) {
+	caseRoot := t.TempDir()
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	if err := os.MkdirAll(factsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(factsRoot, "hypotheses.jsonl"), []byte("not json\n"+`{"kind":"hypothesis","eventId":"evt-hypothesis"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := ReadFact(caseRoot, "hypothesis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || Value(items[0], "eventId") != "evt-hypothesis" {
+		t.Fatalf("hypothesis facts = %#v", items)
+	}
+	if _, err := ReadStrictFact(caseRoot, "hypothesis"); err == nil || !strings.Contains(err.Error(), "invalid JSONL") {
+		t.Fatalf("strict fact error = %v", err)
+	}
+	if _, err := ReadFact(caseRoot, "../outside"); err == nil {
+		t.Fatalf("unsafe read fact kind did not error")
+	}
+}
+
+func TestReadFactEventIDsUsesSharedFactReader(t *testing.T) {
+	caseRoot := t.TempDir()
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	if err := os.MkdirAll(factsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(factsRoot, "requests.jsonl"), []byte("not json\n"+`{"kind":"request","eventId":"evt-request"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	known, err := ReadFactEventIDs(caseRoot, "request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !known["evt-request"] || len(known) != 1 {
+		t.Fatalf("request event ids = %#v", known)
+	}
+	if _, err := ReadStrictFactEventIDs(caseRoot, "request"); err == nil || !strings.Contains(err.Error(), "invalid JSONL") {
+		t.Fatalf("strict fact event ids error = %v", err)
 	}
 }
 
