@@ -101,15 +101,7 @@ type board struct {
 	UpdatedAt            string      `json:"updatedAt"`
 }
 
-type boardLane struct {
-	ID        string `json:"id"`
-	Type      string `json:"type"`
-	Title     string `json:"title"`
-	Status    string `json:"status"`
-	Authority bool   `json:"authority"`
-	Workspace string `json:"workspace"`
-	UpdatedAt string `json:"updatedAt"`
-}
+type boardLane = mission.BoardLane
 
 func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult, error) {
 	inst, m, laneType, laneID, name, err := startContext(repoRoot, caseRoot, pack, opt)
@@ -198,18 +190,17 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 }
 
 func startMissionBrief(caseRoot string) mission.Brief {
-	b, err := readBoard(caseRoot)
+	brief, err := mission.CaseBrief(caseRoot, mission.BuildOptions{
+		MaxRows:            maxHandoffRows,
+		OpenDecisionAction: "review open candidate/decision item(s) with evidence and authority boundary",
+	})
 	if err != nil {
 		if os.IsNotExist(err) {
 			return mission.Build(nil, mission.Facts{}, maxHandoffRows)
 		}
 		return mission.Brief{Summary: "unavailable: " + err.Error()}
 	}
-	facts, err := readHandoffFacts(caseRoot)
-	if err != nil {
-		return mission.Brief{Summary: "unavailable: " + err.Error()}
-	}
-	return projectMissionBrief(b.Lanes, facts)
+	return brief
 }
 
 func EnsureBoard(repoRoot, caseRoot, pack string) error {
@@ -641,26 +632,7 @@ func readLane(path string) (Lane, error) {
 }
 
 func readJSONLineObjects(path string) ([]map[string]any, error) {
-	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return []map[string]any{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	items := []map[string]any{}
-	for line := range strings.SplitSeq(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var item map[string]any
-		if err := json.Unmarshal([]byte(line), &item); err != nil {
-			continue
-		}
-		items = append(items, item)
-	}
-	return items, nil
+	return mission.ReadJSONLineObjects(path)
 }
 
 func lastObjects(items []map[string]any, limit int) []map[string]any {

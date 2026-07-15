@@ -609,13 +609,10 @@ type handoffFacts struct {
 }
 
 func readHandoffFacts(caseRoot string) (handoffFacts, error) {
-	factsRoot, err := refsf.SafeJoin(caseRoot, ".rekit/facts")
-	if err != nil {
-		return handoffFacts{}, err
-	}
 	read := func(name string) ([]map[string]any, error) {
-		return readJSONLineObjects(filepath.Join(factsRoot, name))
+		return mission.ReadFactFile(caseRoot, name)
 	}
+	var err error
 	out := handoffFacts{}
 	if out.Verifications, err = read("verifications.jsonl"); err != nil {
 		return out, err
@@ -639,7 +636,7 @@ func readHandoffFacts(caseRoot string) (handoffFacts, error) {
 }
 
 func projectMissionBrief(lanes []boardLane, facts handoffFacts) mission.Brief {
-	return mission.BuildWithOptions(missionBoardLanes(lanes), missionHandoffFacts(facts), mission.BuildOptions{
+	return mission.BuildWithOptions(mission.BoardLanes(lanes), missionHandoffFacts(facts), mission.BuildOptions{
 		MaxRows:            maxHandoffRows,
 		OpenDecisionAction: "review open candidate/decision item(s) with evidence and authority boundary",
 	})
@@ -694,24 +691,6 @@ func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts handoffFacts) {
 	}
 	writeHandoffBriefList(out, "next agent action", actions)
 	fmt.Fprintln(out)
-}
-
-func missionBoardLanes(lanes []boardLane) []mission.Lane {
-	out := make([]mission.Lane, 0, len(lanes))
-	for _, lane := range lanes {
-		out = append(out, mission.Lane{ID: lane.ID, Label: boardLaneLabel(lane), Status: lane.Status})
-	}
-	return out
-}
-
-func boardLaneLabel(lane boardLane) string {
-	if lane.Authority {
-		return "main"
-	}
-	if name, ok := strings.CutPrefix(lane.ID, "feature-"); ok {
-		return name
-	}
-	return lane.ID
 }
 
 func missionHandoffFacts(facts handoffFacts) mission.Facts {

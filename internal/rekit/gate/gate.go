@@ -173,18 +173,14 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 }
 
 func gateMissionBrief(caseRoot string) mission.Brief {
-	b, err := readBoard(caseRoot)
-	if err != nil {
-		return mission.Brief{Summary: "unavailable: " + err.Error()}
-	}
-	facts, err := readMissionFacts(caseRoot)
-	if err != nil {
-		return mission.Brief{Summary: "unavailable: " + err.Error()}
-	}
-	return mission.BuildWithOptions(missionBoardLanes(b.Lanes), facts, mission.BuildOptions{
+	brief, err := mission.CaseBrief(caseRoot, mission.BuildOptions{
 		MaxRows:            mission.DefaultMaxRows,
 		OpenDecisionAction: "review open candidate/decision item(s) with evidence and authority boundary",
 	})
+	if err != nil {
+		return mission.Brief{Summary: "unavailable: " + err.Error()}
+	}
+	return brief
 }
 
 func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instance, EventPreview, []string, error) {
@@ -277,94 +273,12 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 	return inst, preview, blocked, nil
 }
 
-type boardFile struct {
-	Lanes []gateBoardLane `json:"lanes"`
-}
-
-type gateBoardLane struct {
-	ID        string `json:"id"`
-	Status    string `json:"status"`
-	Authority bool   `json:"authority"`
-}
-
-func readBoard(caseRoot string) (boardFile, error) {
-	path := filepath.Join(caseRoot, ".rekit", "board.json")
-	b, err := os.ReadFile(path)
+func assertLane(caseRoot, lane string) error {
+	board, err := mission.ReadBoard(caseRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return boardFile{}, fmt.Errorf("gate requires .rekit/board.json to validate lane: %s", path)
+			return fmt.Errorf("gate requires .rekit/board.json to validate lane: %s", filepath.Join(caseRoot, ".rekit", "board.json"))
 		}
-		return boardFile{}, err
-	}
-	var board boardFile
-	if err := json.Unmarshal(b, &board); err != nil {
-		return boardFile{}, fmt.Errorf("invalid board json: %w", err)
-	}
-	return board, nil
-}
-
-func readMissionFacts(caseRoot string) (mission.Facts, error) {
-	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
-	read := func(name string) ([]map[string]any, error) {
-		return readJSONLineObjects(filepath.Join(factsRoot, name))
-	}
-	var err error
-	out := mission.Facts{}
-	if out.Candidates, err = read("candidates.jsonl"); err != nil {
-		return out, err
-	}
-	if out.Requests, err = read("requests.jsonl"); err != nil {
-		return out, err
-	}
-	if out.Decisions, err = read("decisions.jsonl"); err != nil {
-		return out, err
-	}
-	if out.Interventions, err = read("interventions.jsonl"); err != nil {
-		return out, err
-	}
-	return out, nil
-}
-
-func readJSONLineObjects(path string) ([]map[string]any, error) {
-	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return []map[string]any{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	items := []map[string]any{}
-	for line := range strings.SplitSeq(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var item map[string]any
-		if err := json.Unmarshal([]byte(line), &item); err != nil {
-			continue
-		}
-		items = append(items, item)
-	}
-	return items, nil
-}
-
-func missionBoardLanes(lanes []gateBoardLane) []mission.Lane {
-	out := make([]mission.Lane, 0, len(lanes))
-	for _, lane := range lanes {
-		label := lane.ID
-		if lane.Authority || lane.ID == "main" {
-			label = "main"
-		} else if name, ok := strings.CutPrefix(lane.ID, "feature-"); ok {
-			label = name
-		}
-		out = append(out, mission.Lane{ID: lane.ID, Label: label, Status: lane.Status})
-	}
-	return out
-}
-
-func assertLane(caseRoot, lane string) error {
-	board, err := readBoard(caseRoot)
-	if err != nil {
 		return err
 	}
 	known := []string{}
