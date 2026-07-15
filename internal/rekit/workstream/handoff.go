@@ -586,50 +586,18 @@ func writeWorkspacePackets(out *bytes.Buffer, caseRoot string, lane Lane) error 
 	return nil
 }
 
-type handoffFacts struct {
-	Verifications []map[string]any
-	Candidates    []map[string]any
-	Decisions     []map[string]any
-	Requests      []map[string]any
-	Interventions []map[string]any
-	Rollbacks     []map[string]any
+func readHandoffFacts(caseRoot string) (mission.LedgerFacts, error) {
+	return mission.ReadLedgerFacts(caseRoot)
 }
 
-func readHandoffFacts(caseRoot string) (handoffFacts, error) {
-	read := func(kind string) ([]map[string]any, error) {
-		return mission.ReadFactFile(caseRoot, mission.FactFileName(kind))
-	}
-	var err error
-	out := handoffFacts{}
-	if out.Verifications, err = read("verification"); err != nil {
-		return out, err
-	}
-	if out.Candidates, err = read("candidate"); err != nil {
-		return out, err
-	}
-	if out.Decisions, err = read("decision"); err != nil {
-		return out, err
-	}
-	if out.Requests, err = read("request"); err != nil {
-		return out, err
-	}
-	if out.Interventions, err = read("intervention"); err != nil {
-		return out, err
-	}
-	if out.Rollbacks, err = read("rollback"); err != nil {
-		return out, err
-	}
-	return out, nil
-}
-
-func projectMissionBrief(lanes []boardLane, facts handoffFacts) mission.Brief {
-	return mission.BuildWithOptions(mission.BoardLanes(lanes), missionHandoffFacts(facts), mission.BuildOptions{
+func projectMissionBrief(lanes []boardLane, facts mission.LedgerFacts) mission.Brief {
+	return mission.BuildWithOptions(mission.BoardLanes(lanes), facts.Facts, mission.BuildOptions{
 		MaxRows:            maxHandoffRows,
 		OpenDecisionAction: "review open candidate/decision item(s) with evidence and authority boundary",
 	})
 }
 
-func writeProjectMissionBrief(out *bytes.Buffer, lanes []boardLane, facts handoffFacts) {
+func writeProjectMissionBrief(out *bytes.Buffer, lanes []boardLane, facts mission.LedgerFacts) {
 	brief := projectMissionBrief(lanes, facts)
 	fmt.Fprintln(out, "## Mission Control brief")
 	fmt.Fprintln(out)
@@ -644,15 +612,15 @@ func writeProjectMissionBrief(out *bytes.Buffer, lanes []boardLane, facts handof
 	fmt.Fprintln(out)
 }
 
-func laneMissionBrief(lane Lane, facts handoffFacts) mission.Brief {
-	return mission.BuildWithOptions([]mission.Lane{{ID: lane.ID, Label: workstreamLabel(lane), Status: lane.Status}}, mission.LaneFacts(missionHandoffFacts(facts), lane.ID), mission.BuildOptions{
+func laneMissionBrief(lane Lane, facts mission.LedgerFacts) mission.Brief {
+	return mission.BuildWithOptions([]mission.Lane{{ID: lane.ID, Label: workstreamLabel(lane), Status: lane.Status}}, mission.LaneFacts(facts.Facts, lane.ID), mission.BuildOptions{
 		MaxRows:            maxHandoffRows,
 		OpenDecisionAction: "review open candidate/decision item(s) with evidence and authority boundary",
 	})
 }
 
-func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts handoffFacts) {
-	laneFacts := mission.LaneFacts(missionHandoffFacts(facts), lane.ID)
+func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts mission.LedgerFacts) {
+	laneFacts := mission.LaneFacts(facts.Facts, lane.ID)
 	gates := mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate")
 	interventions := mission.OpenEvents(laneFacts.Interventions)
 	openDecisions := mission.OpenDecisionItems(laneFacts)
@@ -678,15 +646,6 @@ func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts handoffFacts) {
 	}
 	writeHandoffBriefList(out, "next agent action", actions)
 	fmt.Fprintln(out)
-}
-
-func missionHandoffFacts(facts handoffFacts) mission.Facts {
-	return mission.Facts{
-		Candidates:    facts.Candidates,
-		Requests:      facts.Requests,
-		Decisions:     facts.Decisions,
-		Interventions: facts.Interventions,
-	}
 }
 
 func missionLines(items []map[string]any, line func(map[string]any) string) []string {

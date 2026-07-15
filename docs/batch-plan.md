@@ -6137,3 +6137,31 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/workstream/start.go internal/rekit/workstream/handoff.go internal/rekit/workstream/continue.go`、`go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 204：Workstream handoff facts snapshot reuse
+
+状态：已完成。
+
+目标：在 Batch 198-203 已把 board、facts 文件映射、lane guard 与 overview/note/gate/workstream 的多处 snapshot reader 收口到 `internal/rekit/mission` 后，继续清理 `workstream` handoff/continue 里仍保留的 handoff-local facts struct 和 adapter，让 handoff Markdown、handoff JSON 与 continue Mission Control brief 共享 `mission.LedgerFacts` / `mission.ReadLedgerFacts`。
+
+实施范围：
+
+- `internal/rekit/workstream/handoff.go` 的 `readHandoffFacts` 改为直接委托 `mission.ReadLedgerFacts`，继续使用非 strict JSONL reader，保持既有 handoff 容错行为。
+- 删除 handoff-local `handoffFacts` struct 与 `missionHandoffFacts` adapter；project/lane Mission Control brief 直接使用 `mission.LedgerFacts.Facts` 进入 `mission.BuildWithOptions` / `mission.LaneFacts`。
+- 保留 handoff Markdown 现有展示字段：verification、decision、pending-gate、intervention、rollback 仍来自同一 facts snapshot 的对应 ledger 切片；continue 的 project-level `missionBrief` 也复用同一路径。
+- 新增 `internal/rekit/workstream/handoff_test.go`，覆盖 handoff facts reader 能读取 full ledger snapshot，并继承 shared pending decision 与 batch event aggregation。
+
+边界：本批只做 Go runtime 内部复用、测试和文档；不改变 handoff/continue JSON envelope 字段；不改变 handoff Markdown 文案与展示语义；不改变 `.rekit/facts/*.jsonl` 实际文件名、append 路径、run artifacts、PowerShell façade 委托集合或 sync/promote review-first 语义；不执行 heavy-tool、不自动 spawn tactical subagent、不写 authority/confirmed。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/workstream/handoff.go internal/rekit/workstream/handoff_test.go`、`go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
