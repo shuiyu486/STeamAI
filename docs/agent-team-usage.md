@@ -79,7 +79,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 - `/rekit status` 能正确显示 kit/case 绑定。
 - `/rekit doctor` 通过，且 managed docs、policy、tooling 文件预算未超限。
 - 旧 case 同步前先看到 `.rekit/reviews/<timestamp>-sync/summary.md`、`packet.json` 和 bounded diff。
-- `overview` 能显示主线、功能支线、共享事实统计和 Mission Control brief；brief 必须让主 Agent 不读完整 ledger 也能看到 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations。lane handoff 的 Mission Control brief 应与 overview 使用同一 blocker 语义：pending gate、open intervention、open candidate/decision 都会让对应 lane blocked。
+- `overview` 能显示主线、功能支线、共享事实统计和 Mission Control brief；brief 必须让主 Agent 不读完整 ledger 也能看到 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations。project handoff 与 lane handoff 的 Mission Control brief 应与 overview 使用同一 blocker 语义：pending gate、open intervention、open candidate/decision 都会让对应 lane blocked。
 - `continue main` 与 `continue <name>` 明确接手不同工作线；无参数 `continue` 不应在多工作线时盲猜。
 - 功能支线只写自己的 workspace、outbox、candidate/request，不直接写 confirmed CSV、routine IR 或长期 handoff。
 - 长期成员身份绑定 lane，不绑定旧 session；旧会话上下文污染或用户希望重开时，新会话应读取 handoff / packet / evidence 接手同一 lane。
@@ -170,7 +170,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 |---|---|---|---|
 | 主线 | `/rekit continue main` | 收敛结论、验证 candidate、维护长期 handoff、处理 authority 写入 | canonical 文件、主线 workspace、`.rekit/**` |
 | 功能支线 | `/rekit start <name>`、`/rekit continue <name>` | 围绕一个功能点/阻塞点做探索、收集 evidence、提出 candidate/request | 自己的 lane workspace、outbox、candidate/request |
-| 项目级索引 | `/rekit handoff` | 生成跨工作线接手索引 | `.rekit/handovers/latest.md` |
+| 项目级索引 | `/rekit handoff` | 生成跨工作线接手索引，并在顶部 Mission Control brief 汇总 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations | `.rekit/handovers/latest.md` |
 
 推荐流程：
 

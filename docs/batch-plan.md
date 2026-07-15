@@ -5801,3 +5801,31 @@ git diff --check
 ```
 
 验证结果：已通过 `go test ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 192：Project handoff Mission Control brief
+
+状态：已完成。
+
+目标：把 Batch 189/191 已落到 overview 与 lane handoff 的 Mission Control brief 扩展到项目级 handoff 索引，让新会话只读取 `.rekit/handovers/latest.md` 也能先看到 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations，而不是必须先另跑 overview 或逐条打开 lane handoff。
+
+实施范围：
+
+- 扩展 `internal/rekit/workstream` project handoff render path，在 `## 推荐读取` 与 `## 工作线` 之间写入 `## Mission Control brief`。
+- project handoff brief 读取 same case-local facts ledger，汇总 ready lanes、blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations，并使用与 overview / lane handoff 一致的 blocker 语义：pending-gate、open intervention、open candidate/open decision 都会让对应 lane blocked。
+- 补 `internal/rekit/cli` tests，覆盖常规项目级 handoff 同时出现 gate/intervention/open-decision 的汇总，以及 candidate-only blocker 下项目级 handoff 与 lane/overview blocker 语义一致。
+- 更新 README、`/rekit` skill、`docs/agent-team-usage.md`、`docs/go-first-convergence-plan.md` 与 CHANGELOG，说明项目级 handoff 的 Mission Control brief 接手用途。
+
+边界：本批只增强 case-local handoff 接手索引、测试和文档；不改变 PowerShell façade 委托集合、不实现真实多会话调度、不自动 spawn tactical subagent、不执行 heavy-tool、不写 authority/confirmed、不改变 sync/promote review-first 语义。
+
+验证计划：
+
+```powershell
+go test ./internal/rekit/workstream ./internal/rekit/cli
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+.\rekit\rekit.ps1 -Command doctor
+git diff --check
+```
+
+验证结果：已通过 `go test ./internal/rekit/workstream ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json` 与 `/rekit doctor`；`release-check` 输出 `ready=true`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

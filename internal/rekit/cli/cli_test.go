@@ -1996,7 +1996,7 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"# rekit 项目接手索引", "## 工作线", "/rekit continue main", "/rekit handoff login"} {
+	for _, expected := range []string{"# rekit 项目接手索引", "## Mission Control brief", "summary: openLanes=2 ready=1 blocked=1", "ready lanes:", "main", "blocked lanes:", "login (pending-gate,intervention,open-decision)", "pending gates:", "debug gate", "open decisions:", "decision subject", "interventions:", "manual override", "next agent actions:", "reconcile open intervention", "escalations:", "pending-gate requires main-agent/user decision", "## 工作线", "/rekit continue main", "/rekit handoff login"} {
 		if !strings.Contains(string(text), expected) {
 			t.Fatalf("project handoff missing %q:\n%s", expected, string(text))
 		}
@@ -2026,6 +2026,37 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	}
 	if !strings.Contains(string(resume), "review queued") || !strings.Contains(string(resume), "inspect candidate") {
 		t.Fatalf("lane resume missing live inbox/tasks:\n%s", string(resume))
+	}
+}
+
+func TestRunProjectHandoffMissionBriefBlocksOpenDecisions(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeHandoffFixture(t, caseRoot)
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	writeFactFile(t, factsRoot, "candidates.jsonl", []string{`{"kind":"candidate","lane":"feature-login","subject":"project candidate blocker","summary":"awaiting main decision","confidence":"high","status":"open","batchId":"batch-project-handoff-parity"}`})
+	writeFactFile(t, factsRoot, "decisions.jsonl", nil)
+	writeFactFile(t, factsRoot, "requests.jsonl", nil)
+	writeFactFile(t, factsRoot, "interventions.jsonl", nil)
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	project := decodeHandoffResult(t, out.Bytes())
+	latest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
+	text, err := os.ReadFile(latest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"## Mission Control brief", "summary: openLanes=2 ready=1 blocked=1 pendingGates=0 openDecisions=1 interventions=0", "ready lanes:", "main", "blocked lanes:", "login (open-decision)", "pending gates: none", "open decisions:", "candidate: project candidate blocker", "lane=feature-login", "interventions: none", "next agent actions:", "review open candidate/decision item(s)", "/rekit continue main", "escalations:", "authority/confirmed outcome remains deferred"} {
+		if !strings.Contains(string(text), expected) {
+			t.Fatalf("project handoff missing %q:\n%s", expected, string(text))
+		}
+	}
+	for _, unexpected := range []string{"pending-gate requires main-agent/user decision", "open intervention must be reconciled"} {
+		if strings.Contains(string(text), unexpected) {
+			t.Fatalf("project handoff contained unexpected %q:\n%s", unexpected, string(text))
+		}
 	}
 }
 

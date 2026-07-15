@@ -226,6 +226,10 @@ func (ctx handoffContext) laneWrites(apply bool, lane Lane) ([]StartWrite, error
 
 func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error) {
 	writes := []StartWrite{}
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		return "", nil, err
+	}
 	handoffRel := strings.TrimSpace(ctx.manifest.WorkstreamDefaults["handoffPath"])
 	taskHandoff := ""
 	if handoffRel != "" {
@@ -261,6 +265,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		fmt.Fprintf(&out, "- `%s`：最近一次自动整理摘要。\n", latestDigest)
 	}
 	fmt.Fprintln(&out)
+	writeProjectMissionBrief(&out, ctx.board.Lanes, facts)
 	fmt.Fprintln(&out, "## 工作线")
 	fmt.Fprintln(&out)
 	for _, row := range ctx.board.Lanes {
@@ -610,6 +615,167 @@ func readHandoffFacts(caseRoot string) (handoffFacts, error) {
 		return out, err
 	}
 	return out, nil
+}
+
+func writeProjectMissionBrief(out *bytes.Buffer, lanes []boardLane, facts handoffFacts) {
+	open := openHandoffLanes(lanes)
+	blocked := map[string][]string{}
+	pendingGates := []map[string]any{}
+	for _, gate := range facts.Requests {
+		if firstObjectText(gate, "status") != "pending-gate" {
+			continue
+		}
+		pendingGates = append(pendingGates, gate)
+		if lane := firstObjectText(gate, "lane"); lane != "" {
+			blocked[lane] = append(blocked[lane], "pending-gate")
+		}
+	}
+	interventions := openHandoffEvents(facts.Interventions)
+	for _, intervention := range interventions {
+		if lane := firstObjectText(intervention, "lane"); lane != "" {
+			blocked[lane] = append(blocked[lane], "intervention")
+		}
+	}
+	openDecisions := projectOpenDecisionItems(facts)
+	for _, decision := range openDecisions {
+		if lane := firstObjectText(decision, "lane"); lane != "" {
+			blocked[lane] = append(blocked[lane], "open-decision")
+		}
+	}
+	readyLanes := []string{}
+	blockedLanes := []string{}
+	for _, lane := range open {
+		label := boardLaneLabel(lane)
+		if reasons := uniqueStrings(blocked[lane.ID]); len(reasons) > 0 {
+			blockedLanes = append(blockedLanes, fmt.Sprintf("%s (%s)", label, strings.Join(reasons, ",")))
+		} else {
+			readyLanes = append(readyLanes, label)
+		}
+	}
+
+	fmt.Fprintln(out, "## Mission Control brief")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "- summary: openLanes=%d ready=%d blocked=%d pendingGates=%d openDecisions=%d interventions=%d\n", len(open), len(readyLanes), len(blockedLanes), len(pendingGates), len(openDecisions), len(interventions))
+	writeHandoffBriefList(out, "ready lanes", readyLanes)
+	writeHandoffBriefList(out, "blocked lanes", blockedLanes)
+	writeHandoffBriefList(out, "pending gates", projectGateLines(pendingGates))
+	writeHandoffBriefList(out, "open decisions", projectOpenDecisionLines(openDecisions))
+	writeHandoffBriefList(out, "interventions", projectInterventionLines(interventions))
+	writeHandoffBriefList(out, "next agent actions", projectNextAgentActions(readyLanes, pendingGates, interventions, openDecisions))
+	writeHandoffBriefList(out, "escalations", projectEscalations(pendingGates, interventions, openDecisions))
+	fmt.Fprintln(out)
+}
+
+func openHandoffLanes(lanes []boardLane) []boardLane {
+	open := []boardLane{}
+	for _, lane := range lanes {
+		status := strings.ToLower(strings.TrimSpace(lane.Status))
+		if status != "archived" && status != "paused" && status != "closed" {
+			open = append(open, lane)
+		}
+	}
+	return open
+}
+
+func boardLaneLabel(lane boardLane) string {
+	if lane.Authority {
+		return "main"
+	}
+	if name, ok := strings.CutPrefix(lane.ID, "feature-"); ok {
+		return name
+	}
+	return lane.ID
+}
+
+func projectOpenDecisionItems(facts handoffFacts) []map[string]any {
+	items := []map[string]any{}
+	items = append(items, openHandoffCandidates(facts.Candidates)...)
+	items = append(items, openHandoffDecisions(facts.Decisions)...)
+	return items
+}
+
+func projectGateLines(items []map[string]any) []string {
+	lines := []string{}
+	for _, item := range items {
+		parts := []string{firstObjectText(item, "subject", "summary", "kind")}
+		appendPart(&parts, "lane", firstObjectText(item, "lane"))
+		appendPart(&parts, "risk", firstObjectText(item, "risk"))
+		appendPart(&parts, "target", firstObjectText(item, "target"))
+		if gate, ok := item["gate"].(map[string]any); ok {
+			appendPart(&parts, "action", firstObjectText(gate, "action"))
+			appendPart(&parts, "scope", firstObjectText(gate, "scope"))
+		}
+		lines = append(lines, strings.Join(parts, " | "))
+	}
+	return lines
+}
+
+func projectOpenDecisionLines(items []map[string]any) []string {
+	lines := []string{}
+	for _, item := range items {
+		kind := firstObjectText(item, "kind")
+		if kind == "candidate" {
+			parts := []string{"candidate: " + firstObjectText(item, "subject", "kind")}
+			appendPart(&parts, "lane", firstObjectText(item, "lane"))
+			appendPart(&parts, "status", firstObjectText(item, "status"))
+			appendPart(&parts, "summary", firstObjectText(item, "summary"))
+			lines = append(lines, strings.Join(parts, " | "))
+			continue
+		}
+		parts := []string{firstObjectText(item, "subject", "kind")}
+		appendPart(&parts, "lane", firstObjectText(item, "lane"))
+		appendPart(&parts, "decision", firstObjectText(item, "decision", "action"))
+		appendPart(&parts, "reason", firstObjectText(item, "reason"))
+		lines = append(lines, strings.Join(parts, " | "))
+	}
+	return lines
+}
+
+func projectInterventionLines(items []map[string]any) []string {
+	lines := []string{}
+	for _, item := range items {
+		parts := []string{firstObjectText(item, "subject", "action", "kind")}
+		appendPart(&parts, "lane", firstObjectText(item, "lane"))
+		appendPart(&parts, "action", firstObjectText(item, "action"))
+		appendPart(&parts, "status", fallbackText(firstObjectText(item, "status"), "open"))
+		appendPart(&parts, "target", firstObjectText(item, "target"))
+		lines = append(lines, strings.Join(parts, " | "))
+	}
+	return lines
+}
+
+func projectNextAgentActions(ready []string, gates, interventions, decisions []map[string]any) []string {
+	actions := []string{}
+	if len(interventions) > 0 {
+		actions = append(actions, "reconcile open intervention(s) before continuing the affected lane")
+	}
+	if len(gates) > 0 {
+		actions = append(actions, "resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool")
+	}
+	if len(decisions) > 0 {
+		actions = append(actions, "review open candidate/decision item(s) with evidence and authority boundary")
+	}
+	for _, lane := range ready {
+		actions = append(actions, "/rekit continue "+lane)
+	}
+	if len(actions) == 0 {
+		actions = append(actions, "/rekit start <name>", "/rekit handoff")
+	}
+	return actions
+}
+
+func projectEscalations(gates, interventions, decisions []map[string]any) []string {
+	escalations := []string{}
+	if len(gates) > 0 {
+		escalations = append(escalations, "pending-gate requires main-agent/user decision before heavy action")
+	}
+	if len(interventions) > 0 {
+		escalations = append(escalations, "open intervention must be reconciled into durable lane state")
+	}
+	if len(decisions) > 0 {
+		escalations = append(escalations, "authority/confirmed outcome remains deferred until explicitly approved")
+	}
+	return escalations
 }
 
 func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts handoffFacts) {
