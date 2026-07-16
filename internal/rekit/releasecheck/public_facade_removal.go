@@ -85,26 +85,27 @@ type PublicFacadeRemovalDeletionGate struct {
 }
 
 type PublicFacadeRemovalExecutionStep struct {
-	Name                    string   `json:"name"`
-	Action                  string   `json:"action"`
-	Required                bool     `json:"required"`
-	DependsOn               []string `json:"dependsOn"`
-	InputInventory          []string `json:"inputInventory"`
-	OutputArtifacts         []string `json:"outputArtifacts"`
-	FailureSignals          []string `json:"failureSignals"`
-	RemediationActions      []string `json:"remediationActions"`
-	VerificationArtifacts   []string `json:"verificationArtifacts"`
-	LedgerEvents            []string `json:"ledgerEvents"`
-	StateTransitions        []string `json:"stateTransitions"`
-	EscalationTriggers      []string `json:"escalationTriggers"`
-	EscalationEvidence      []string `json:"escalationEvidence"`
-	EscalationRecipients    []string `json:"escalationRecipients"`
-	EscalationHandoffSteps  []string `json:"escalationHandoffSteps"`
-	BoundaryGuards          []string `json:"boundaryGuards"`
-	AuditChecks             []string `json:"auditChecks"`
-	ValidationCommands      []string `json:"validationCommands"`
-	AllowsPowerShellRuntime bool     `json:"allowsPowerShellRuntime"`
-	AllowsExternalEffects   bool     `json:"allowsExternalEffects"`
+	Name                      string   `json:"name"`
+	Action                    string   `json:"action"`
+	Required                  bool     `json:"required"`
+	DependsOn                 []string `json:"dependsOn"`
+	InputInventory            []string `json:"inputInventory"`
+	OutputArtifacts           []string `json:"outputArtifacts"`
+	FailureSignals            []string `json:"failureSignals"`
+	RemediationActions        []string `json:"remediationActions"`
+	VerificationArtifacts     []string `json:"verificationArtifacts"`
+	LedgerEvents              []string `json:"ledgerEvents"`
+	StateTransitions          []string `json:"stateTransitions"`
+	EscalationTriggers        []string `json:"escalationTriggers"`
+	EscalationEvidence        []string `json:"escalationEvidence"`
+	EscalationRecipients      []string `json:"escalationRecipients"`
+	EscalationHandoffSteps    []string `json:"escalationHandoffSteps"`
+	EscalationDecisionOptions []string `json:"escalationDecisionOptions"`
+	BoundaryGuards            []string `json:"boundaryGuards"`
+	AuditChecks               []string `json:"auditChecks"`
+	ValidationCommands        []string `json:"validationCommands"`
+	AllowsPowerShellRuntime   bool     `json:"allowsPowerShellRuntime"`
+	AllowsExternalEffects     bool     `json:"allowsExternalEffects"`
 }
 
 type PublicFacadeRemovalPlanBoundaryCheck struct {
@@ -192,7 +193,7 @@ type PublicFacadeRemovalSmokeMigrationTarget struct {
 func publicFacadeRemovalHandoffDetails(inventory PublicFacadeRemoval) []string {
 	details := make([]string, 0, len(inventory.Prerequisites)+3)
 	details = append(details, fmt.Sprintf("ready=%t prerequisites=%d", inventory.Ready, len(inventory.Prerequisites)))
-	details = append(details, fmt.Sprintf("removalPlan=%t planChecks=%d replacementEntrypoints=%d replacementValidationCommands=%d deletionGates=%d deletionGateValidationCommands=%d deletionGateExitCriteria=%d deletionGateFailureSignals=%d deletionGateEscalationTriggers=%d deletionGateEscalationEvidence=%d deletionGateEscalationRecipients=%d deletionGateEscalationHandoffSteps=%d deletionGateEscalationDecisionOptions=%d deletionGateEscalationRetryConditions=%d deletionGateEscalationStopConditions=%d deletionGateEscalationResolutionArtifacts=%d deletionGateEscalationClosureChecks=%d deletionGateEscalationReopenConditions=%d deletionGateEscalationLedgerEvents=%d deletionGateEscalationStateTransitions=%d deletionGateEscalationBoundaryGuards=%d deletionGateEscalationAuditChecks=%d deletionGateVerificationArtifacts=%d deletionGateBlockedExecutionSteps=%d deletionGateRemediationActions=%d executionSteps=%d executionFailureSignals=%d executionRemediationActions=%d executionVerificationArtifacts=%d executionLedgerEvents=%d executionStateTransitions=%d executionEscalationTriggers=%d executionEscalationEvidence=%d executionEscalationRecipients=%d executionEscalationHandoffSteps=%d executionBoundaryGuards=%d executionAuditChecks=%d executionValidationCommands=%d boundaryChecks=%d boundaryValidationCommands=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", inventory.RemovalPlan.Ready, len(inventory.RemovalPlan.RequiredPhrases), len(inventory.RemovalPlan.ReplacementEntrypoints), publicFacadeRemovalReplacementValidationCommandCount(inventory.RemovalPlan.ReplacementEntrypoints), len(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateValidationCommandCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateExitCriteriaCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateFailureSignalCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationTriggerCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationEvidenceCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationRecipientCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationHandoffStepCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationDecisionOptionCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationRetryConditionCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationStopConditionCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationResolutionArtifactCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationClosureCheckCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationReopenConditionCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationLedgerEventCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationStateTransitionCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationBoundaryGuardCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationAuditCheckCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateVerificationArtifactCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateBlockedExecutionStepCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateRemediationActionCount(inventory.RemovalPlan.DeletionGates), len(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionFailureSignalCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionRemediationActionCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionVerificationArtifactCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionLedgerEventCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionStateTransitionCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationTriggerCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationEvidenceCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationRecipientCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationHandoffStepCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionBoundaryGuardCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionAuditCheckCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionValidationCommandCount(inventory.RemovalPlan.ExecutionSteps), len(inventory.RemovalPlan.BoundaryChecks), publicFacadeRemovalBoundaryValidationCommandCount(inventory.RemovalPlan.BoundaryChecks), len(inventory.RemovalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps), len(inventory.RemovalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets)))
+	details = append(details, fmt.Sprintf("removalPlan=%t planChecks=%d replacementEntrypoints=%d replacementValidationCommands=%d deletionGates=%d deletionGateValidationCommands=%d deletionGateExitCriteria=%d deletionGateFailureSignals=%d deletionGateEscalationTriggers=%d deletionGateEscalationEvidence=%d deletionGateEscalationRecipients=%d deletionGateEscalationHandoffSteps=%d deletionGateEscalationDecisionOptions=%d deletionGateEscalationRetryConditions=%d deletionGateEscalationStopConditions=%d deletionGateEscalationResolutionArtifacts=%d deletionGateEscalationClosureChecks=%d deletionGateEscalationReopenConditions=%d deletionGateEscalationLedgerEvents=%d deletionGateEscalationStateTransitions=%d deletionGateEscalationBoundaryGuards=%d deletionGateEscalationAuditChecks=%d deletionGateVerificationArtifacts=%d deletionGateBlockedExecutionSteps=%d deletionGateRemediationActions=%d executionSteps=%d executionFailureSignals=%d executionRemediationActions=%d executionVerificationArtifacts=%d executionLedgerEvents=%d executionStateTransitions=%d executionEscalationTriggers=%d executionEscalationEvidence=%d executionEscalationRecipients=%d executionEscalationHandoffSteps=%d executionEscalationDecisionOptions=%d executionBoundaryGuards=%d executionAuditChecks=%d executionValidationCommands=%d boundaryChecks=%d boundaryValidationCommands=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", inventory.RemovalPlan.Ready, len(inventory.RemovalPlan.RequiredPhrases), len(inventory.RemovalPlan.ReplacementEntrypoints), publicFacadeRemovalReplacementValidationCommandCount(inventory.RemovalPlan.ReplacementEntrypoints), len(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateValidationCommandCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateExitCriteriaCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateFailureSignalCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationTriggerCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationEvidenceCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationRecipientCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationHandoffStepCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationDecisionOptionCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationRetryConditionCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationStopConditionCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationResolutionArtifactCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationClosureCheckCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationReopenConditionCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationLedgerEventCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationStateTransitionCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationBoundaryGuardCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationAuditCheckCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateVerificationArtifactCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateBlockedExecutionStepCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateRemediationActionCount(inventory.RemovalPlan.DeletionGates), len(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionFailureSignalCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionRemediationActionCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionVerificationArtifactCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionLedgerEventCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionStateTransitionCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationTriggerCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationEvidenceCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationRecipientCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationHandoffStepCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationDecisionOptionCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionBoundaryGuardCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionAuditCheckCount(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionValidationCommandCount(inventory.RemovalPlan.ExecutionSteps), len(inventory.RemovalPlan.BoundaryChecks), publicFacadeRemovalBoundaryValidationCommandCount(inventory.RemovalPlan.BoundaryChecks), len(inventory.RemovalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps), len(inventory.RemovalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets)))
 	details = append(details, fmt.Sprintf("removalImpact=%t impactReferences=%d impactCategories=%d workItems=%d validationCommands=%d migrationTargets=%d migrationValidationCommands=%d smokeMigrationTargets=%d smokeMigrationValidationCommands=%d unclassified=%d", inventory.RemovalImpact.Ready, len(inventory.RemovalImpact.References), len(inventory.RemovalImpact.ReferenceCategories), len(inventory.RemovalImpact.WorkItems), publicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems), len(inventory.RemovalImpact.MigrationTargets), publicFacadeRemovalMigrationValidationCommandCount(inventory.RemovalImpact.MigrationTargets), len(inventory.RemovalImpact.SmokeMigrationTargets), publicFacadeRemovalSmokeMigrationValidationCommandCount(inventory.RemovalImpact.SmokeMigrationTargets), len(inventory.RemovalImpact.UnclassifiedReferences)))
 	for _, prerequisite := range inventory.Prerequisites {
 		details = append(details, fmt.Sprintf("%s ready=%t %s", prerequisite.Name, prerequisite.Ready, prerequisite.Summary))
@@ -240,7 +241,7 @@ func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation,
 			{
 				Name:    "removal-plan-documented",
 				Ready:   removalPlan.Ready,
-				Summary: fmt.Sprintf("removalPlanReady=%t checks=%d replacementEntrypoints=%d replacementValidationCommands=%d deletionGates=%d deletionGateValidationCommands=%d deletionGateExitCriteria=%d deletionGateFailureSignals=%d deletionGateEscalationTriggers=%d deletionGateEscalationEvidence=%d deletionGateEscalationRecipients=%d deletionGateEscalationHandoffSteps=%d deletionGateEscalationDecisionOptions=%d deletionGateEscalationRetryConditions=%d deletionGateEscalationStopConditions=%d deletionGateEscalationResolutionArtifacts=%d deletionGateEscalationClosureChecks=%d deletionGateEscalationReopenConditions=%d deletionGateEscalationLedgerEvents=%d deletionGateEscalationStateTransitions=%d deletionGateEscalationBoundaryGuards=%d deletionGateEscalationAuditChecks=%d deletionGateVerificationArtifacts=%d deletionGateBlockedExecutionSteps=%d deletionGateRemediationActions=%d executionSteps=%d executionFailureSignals=%d executionRemediationActions=%d executionVerificationArtifacts=%d executionLedgerEvents=%d executionStateTransitions=%d executionEscalationTriggers=%d executionEscalationEvidence=%d executionEscalationRecipients=%d executionEscalationHandoffSteps=%d executionBoundaryGuards=%d executionAuditChecks=%d executionValidationCommands=%d boundaryChecks=%d boundaryValidationCommands=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", removalPlan.Ready, len(removalPlan.RequiredPhrases), len(removalPlan.ReplacementEntrypoints), publicFacadeRemovalReplacementValidationCommandCount(removalPlan.ReplacementEntrypoints), len(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateValidationCommandCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateExitCriteriaCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateFailureSignalCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationTriggerCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationEvidenceCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationRecipientCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationHandoffStepCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationDecisionOptionCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationRetryConditionCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationStopConditionCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationResolutionArtifactCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationClosureCheckCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationReopenConditionCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationLedgerEventCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationStateTransitionCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationBoundaryGuardCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationAuditCheckCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateVerificationArtifactCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateBlockedExecutionStepCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateRemediationActionCount(removalPlan.DeletionGates), len(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionFailureSignalCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionRemediationActionCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionVerificationArtifactCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionLedgerEventCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionStateTransitionCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationTriggerCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationEvidenceCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationRecipientCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationHandoffStepCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionBoundaryGuardCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionAuditCheckCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionValidationCommandCount(removalPlan.ExecutionSteps), len(removalPlan.BoundaryChecks), publicFacadeRemovalBoundaryValidationCommandCount(removalPlan.BoundaryChecks), len(removalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(removalPlan.RecoverySteps), len(removalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(removalPlan.DocumentationTargets)),
+				Summary: fmt.Sprintf("removalPlanReady=%t checks=%d replacementEntrypoints=%d replacementValidationCommands=%d deletionGates=%d deletionGateValidationCommands=%d deletionGateExitCriteria=%d deletionGateFailureSignals=%d deletionGateEscalationTriggers=%d deletionGateEscalationEvidence=%d deletionGateEscalationRecipients=%d deletionGateEscalationHandoffSteps=%d deletionGateEscalationDecisionOptions=%d deletionGateEscalationRetryConditions=%d deletionGateEscalationStopConditions=%d deletionGateEscalationResolutionArtifacts=%d deletionGateEscalationClosureChecks=%d deletionGateEscalationReopenConditions=%d deletionGateEscalationLedgerEvents=%d deletionGateEscalationStateTransitions=%d deletionGateEscalationBoundaryGuards=%d deletionGateEscalationAuditChecks=%d deletionGateVerificationArtifacts=%d deletionGateBlockedExecutionSteps=%d deletionGateRemediationActions=%d executionSteps=%d executionFailureSignals=%d executionRemediationActions=%d executionVerificationArtifacts=%d executionLedgerEvents=%d executionStateTransitions=%d executionEscalationTriggers=%d executionEscalationEvidence=%d executionEscalationRecipients=%d executionEscalationHandoffSteps=%d executionEscalationDecisionOptions=%d executionBoundaryGuards=%d executionAuditChecks=%d executionValidationCommands=%d boundaryChecks=%d boundaryValidationCommands=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", removalPlan.Ready, len(removalPlan.RequiredPhrases), len(removalPlan.ReplacementEntrypoints), publicFacadeRemovalReplacementValidationCommandCount(removalPlan.ReplacementEntrypoints), len(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateValidationCommandCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateExitCriteriaCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateFailureSignalCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationTriggerCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationEvidenceCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationRecipientCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationHandoffStepCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationDecisionOptionCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationRetryConditionCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationStopConditionCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationResolutionArtifactCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationClosureCheckCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationReopenConditionCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationLedgerEventCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationStateTransitionCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationBoundaryGuardCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateEscalationAuditCheckCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateVerificationArtifactCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateBlockedExecutionStepCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateRemediationActionCount(removalPlan.DeletionGates), len(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionFailureSignalCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionRemediationActionCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionVerificationArtifactCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionLedgerEventCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionStateTransitionCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationTriggerCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationEvidenceCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationRecipientCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationHandoffStepCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionEscalationDecisionOptionCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionBoundaryGuardCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionAuditCheckCount(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionValidationCommandCount(removalPlan.ExecutionSteps), len(removalPlan.BoundaryChecks), publicFacadeRemovalBoundaryValidationCommandCount(removalPlan.BoundaryChecks), len(removalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(removalPlan.RecoverySteps), len(removalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(removalPlan.DocumentationTargets)),
 			},
 			{
 				Name:    "removal-impact-inventoried",
@@ -647,6 +648,14 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		for _, handoff := range step.EscalationHandoffSteps {
 			if strings.TrimSpace(handoff) == "" {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation handoff step: %s", step.Name))
+			}
+		}
+		if len(step.EscalationDecisionOptions) == 0 {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation decision options: %s", step.Name))
+		}
+		for _, option := range step.EscalationDecisionOptions {
+			if strings.TrimSpace(option) == "" {
+				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation decision option: %s", step.Name))
 			}
 		}
 		if len(step.BoundaryGuards) == 0 {
@@ -1551,6 +1560,11 @@ func publicFacadeRemovalExecutionSteps() []PublicFacadeRemovalExecutionStep {
 				"route packet to Mission Commander, runtime owner and documentation owner",
 				"record owner decision and retry or stop disposition before delete-public-facade",
 			},
+			EscalationDecisionOptions: []string{
+				"approve deletion readiness when replacement entrypoints and diagnostics are proven",
+				"defer deletion until Go-native public surface or documentation evidence is repaired",
+				"retain public facade when replacement UX remains a product-direction blocker",
+			},
 			BoundaryGuards: []string{
 				"must not accept PowerShell runtime or facade fallback as replacement evidence",
 				"must confirm canonical /rekit skill and direct Go CLI alternatives remain documented",
@@ -1616,6 +1630,11 @@ func publicFacadeRemovalExecutionSteps() []PublicFacadeRemovalExecutionStep {
 				"prepare unresolved reference escalation packet with migration and documentation evidence",
 				"route packet to documentation owner, Mission Commander and runtime owner",
 				"record reference disposition decision before retrying migration or stopping removal",
+			},
+			EscalationDecisionOptions: []string{
+				"approve migration completion when every reference has rewritten or preserved disposition",
+				"defer deletion until unresolved documentation targets receive owner disposition",
+				"retain or postpone facade removal when historical references require product direction",
 			},
 			BoundaryGuards: []string{
 				"must not remove user-facing public facade references without migration or historical-preservation decision",
@@ -1683,6 +1702,11 @@ func publicFacadeRemovalExecutionSteps() []PublicFacadeRemovalExecutionStep {
 				"route packet to release gate owner, runtime test owner and Mission Commander",
 				"record compatibility or replacement coverage decision before delete-public-facade",
 			},
+			EscalationDecisionOptions: []string{
+				"approve smoke retirement when Go-native coverage or retirement record is attached",
+				"defer deletion until default facade smoke dependencies are removed from release gates",
+				"retain compatibility smoke as non-default when coverage policy requires preservation",
+			},
 			BoundaryGuards: []string{
 				"must not keep facade-smoke.ps1 in default release gate or CI path",
 				"must require Go-native replacement coverage or explicit non-default compatibility decision",
@@ -1749,6 +1773,11 @@ func publicFacadeRemovalExecutionSteps() []PublicFacadeRemovalExecutionStep {
 				"route packet to Mission Commander, runtime owner and release owner",
 				"record independent removal batch authorization or stop decision before deletion",
 			},
+			EscalationDecisionOptions: []string{
+				"approve isolated public facade deletion in the independent removal batch",
+				"split or defer deletion until unrelated schema, heavy-tool or external-effect changes are removed",
+				"stop deletion and retain facade when recovery path or revert isolation is unavailable",
+			},
 			BoundaryGuards: []string{
 				"must run only in the independent public facade removal batch",
 				"must remain separately revertable through restore-public-facade recovery step",
@@ -1814,6 +1843,11 @@ func publicFacadeRemovalExecutionSteps() []PublicFacadeRemovalExecutionStep {
 				"prepare release gate escalation packet with failing transcripts and handoff drift evidence",
 				"route packet to release gate owner, Mission Commander and runtime owner",
 				"record validation retry, CI-only authorization or stop decision before closure",
+			},
+			EscalationDecisionOptions: []string{
+				"approve closure when release-check, tests, vet, diff and handoff transcripts are green",
+				"defer closure until failing local validation commands are fixed and rerun",
+				"escalate or stop when validation requires CI-only or external effects beyond local scope",
 			},
 			BoundaryGuards: []string{
 				"must rerun Go-native release-check JSON/text after deletion result",
@@ -1900,6 +1934,14 @@ func publicFacadeRemovalExecutionEscalationHandoffStepCount(steps []PublicFacade
 	count := 0
 	for _, step := range steps {
 		count += len(step.EscalationHandoffSteps)
+	}
+	return count
+}
+
+func publicFacadeRemovalExecutionEscalationDecisionOptionCount(steps []PublicFacadeRemovalExecutionStep) int {
+	count := 0
+	for _, step := range steps {
+		count += len(step.EscalationDecisionOptions)
 	}
 	return count
 }
