@@ -46,6 +46,7 @@ type PublicFacadeRemovalImpact struct {
 	FacadePresent          bool                                 `json:"facadePresent"`
 	References             []PublicFacadeRemovalImpactReference `json:"references"`
 	ReferenceCategories    []PublicFacadeRemovalImpactCategory  `json:"referenceCategories"`
+	WorkItems              []PublicFacadeRemovalImpactWorkItem  `json:"workItems"`
 	UnclassifiedReferences []PublicFacadeRemovalImpactReference `json:"unclassifiedReferences"`
 	Warnings               []string                             `json:"warnings"`
 }
@@ -63,11 +64,19 @@ type PublicFacadeRemovalImpactCategory struct {
 	Paths []string `json:"paths"`
 }
 
+type PublicFacadeRemovalImpactWorkItem struct {
+	Category string   `json:"category"`
+	Action   string   `json:"action"`
+	Required bool     `json:"required"`
+	Count    int      `json:"count"`
+	Paths    []string `json:"paths"`
+}
+
 func publicFacadeRemovalHandoffDetails(inventory PublicFacadeRemoval) []string {
 	details := make([]string, 0, len(inventory.Prerequisites)+3)
 	details = append(details, fmt.Sprintf("ready=%t prerequisites=%d", inventory.Ready, len(inventory.Prerequisites)))
 	details = append(details, fmt.Sprintf("removalPlan=%t planChecks=%d", inventory.RemovalPlan.Ready, len(inventory.RemovalPlan.RequiredPhrases)))
-	details = append(details, fmt.Sprintf("removalImpact=%t impactReferences=%d impactCategories=%d unclassified=%d", inventory.RemovalImpact.Ready, len(inventory.RemovalImpact.References), len(inventory.RemovalImpact.ReferenceCategories), len(inventory.RemovalImpact.UnclassifiedReferences)))
+	details = append(details, fmt.Sprintf("removalImpact=%t impactReferences=%d impactCategories=%d workItems=%d unclassified=%d", inventory.RemovalImpact.Ready, len(inventory.RemovalImpact.References), len(inventory.RemovalImpact.ReferenceCategories), len(inventory.RemovalImpact.WorkItems), len(inventory.RemovalImpact.UnclassifiedReferences)))
 	for _, prerequisite := range inventory.Prerequisites {
 		details = append(details, fmt.Sprintf("%s ready=%t %s", prerequisite.Name, prerequisite.Ready, prerequisite.Summary))
 	}
@@ -119,7 +128,7 @@ func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation,
 			{
 				Name:    "removal-impact-inventoried",
 				Ready:   removalImpact.Ready,
-				Summary: fmt.Sprintf("removalImpactReady=%t references=%d categories=%d unclassified=%d", removalImpact.Ready, len(removalImpact.References), len(removalImpact.ReferenceCategories), len(removalImpact.UnclassifiedReferences)),
+				Summary: fmt.Sprintf("removalImpactReady=%t references=%d categories=%d workItems=%d unclassified=%d", removalImpact.Ready, len(removalImpact.References), len(removalImpact.ReferenceCategories), len(removalImpact.WorkItems), len(removalImpact.UnclassifiedReferences)),
 			},
 		},
 		RemovalPlan:   removalPlan,
@@ -186,6 +195,7 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 		FacadePath:             facadePath,
 		References:             []PublicFacadeRemovalImpactReference{},
 		ReferenceCategories:    []PublicFacadeRemovalImpactCategory{},
+		WorkItems:              []PublicFacadeRemovalImpactWorkItem{},
 		UnclassifiedReferences: []PublicFacadeRemovalImpactReference{},
 		Warnings:               []string{},
 	}
@@ -198,6 +208,7 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 	impact.References = references
 	impact.Warnings = append(impact.Warnings, warnings...)
 	impact.ReferenceCategories = publicFacadeRemovalImpactCategories(references)
+	impact.WorkItems = publicFacadeRemovalImpactWorkItems(impact.ReferenceCategories)
 	for _, reference := range references {
 		if reference.Category == "unclassified" {
 			impact.UnclassifiedReferences = append(impact.UnclassifiedReferences, reference)
@@ -205,6 +216,14 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 	}
 	if len(impact.References) == 0 {
 		impact.Warnings = append(impact.Warnings, "public facade removal impact inventory found no facade references")
+	}
+	if len(impact.WorkItems) != len(impact.ReferenceCategories) {
+		impact.Warnings = append(impact.Warnings, "public facade removal impact work items do not cover every reference category")
+	}
+	for _, workItem := range impact.WorkItems {
+		if strings.TrimSpace(workItem.Action) == "" {
+			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact work item missing action: %s", workItem.Category))
+		}
 	}
 	for _, reference := range impact.UnclassifiedReferences {
 		impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact reference is unclassified: %s", reference.Path))
@@ -304,4 +323,43 @@ func publicFacadeRemovalImpactCategories(references []PublicFacadeRemovalImpactR
 	}
 	sort.Slice(categories, func(i, j int) bool { return categories[i].Name < categories[j].Name })
 	return categories
+}
+
+func publicFacadeRemovalImpactWorkItems(categories []PublicFacadeRemovalImpactCategory) []PublicFacadeRemovalImpactWorkItem {
+	workItems := make([]PublicFacadeRemovalImpactWorkItem, 0, len(categories))
+	for _, category := range categories {
+		workItems = append(workItems, PublicFacadeRemovalImpactWorkItem{
+			Category: category.Name,
+			Action:   publicFacadeRemovalImpactAction(category.Name),
+			Required: true,
+			Count:    category.Count,
+			Paths:    append([]string{}, category.Paths...),
+		})
+	}
+	return workItems
+}
+
+func publicFacadeRemovalImpactAction(category string) string {
+	switch category {
+	case "public-facade-entrypoint":
+		return "remove or replace the public facade entrypoint only in the independent removal batch"
+	case "facade-compatibility-smoke":
+		return "retire or rewrite facade compatibility smoke as Go-native/source-invariant coverage"
+	case "facade-dependent-smoke":
+		return "rewrite facade-dependent smoke invocations or explicitly retire compatibility coverage"
+	case "smoke-catalog-doc":
+		return "update smoke catalog and tests guide rows that name facade compatibility scripts"
+	case "pack-wrapper-compatibility":
+		return "update pack wrapper compatibility scripts that reference the public facade"
+	case "public-default-doc":
+		return "sync public default docs away from public facade file references"
+	case "roadmap-and-history-doc":
+		return "update roadmap/history docs while preserving historical context without defaulting to the facade"
+	case "release-inventory-and-tests":
+		return "update release inventory and tests that assert facade removal readiness counts"
+	case "unclassified":
+		return "classify or remove unexpected facade references before deleting the facade"
+	default:
+		return "review and classify facade removal impact before deleting the facade"
+	}
 }
