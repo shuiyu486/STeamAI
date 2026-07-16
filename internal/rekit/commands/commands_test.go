@@ -50,6 +50,10 @@ func TestPublicCommandProfiles(t *testing.T) {
 	if profileMap[Promote].WritesCase || !profileMap[Promote].WritesKit || !profileMap[Sync].WritesCase || profileMap[Sync].WritesKit {
 		t.Fatalf("unexpected kit/case write boundaries: promote=%+v sync=%+v", profileMap[Promote], profileMap[Sync])
 	}
+	summary := PublicProfileSummaryBaseline()
+	if summary.Total != 19 || summary.ReadOnly != 5 || summary.Mutating != 14 || summary.WritesCase != 13 || summary.WritesKit != 1 || summary.ReviewFirst != 3 || summary.ApplyRequired != 11 || summary.HeavyTool != 0 || summary.AuthorityConfirmed != 0 || summary.Boundaries[BoundaryCaseLocalApply] != 8 || summary.Boundaries[BoundaryCaseLocalReviewFirst] != 2 || summary.Boundaries[BoundaryKitReviewFirst] != 1 {
+		t.Fatalf("unexpected public command profile summary: %+v", summary)
+	}
 }
 
 func TestPublicCommandHandlerCoverageHelpers(t *testing.T) {

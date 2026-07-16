@@ -57,6 +57,19 @@ type PublicProfile struct {
 	AuthorityConfirmed bool   `json:"authorityConfirmed"`
 }
 
+type PublicProfileSummary struct {
+	Total              int            `json:"total"`
+	ReadOnly           int            `json:"readOnly"`
+	Mutating           int            `json:"mutating"`
+	WritesCase         int            `json:"writesCase"`
+	WritesKit          int            `json:"writesKit"`
+	ReviewFirst        int            `json:"reviewFirst"`
+	ApplyRequired      int            `json:"applyRequired"`
+	HeavyTool          int            `json:"heavyTool"`
+	AuthorityConfirmed int            `json:"authorityConfirmed"`
+	Boundaries         map[string]int `json:"boundaries"`
+}
+
 var publicCommands = []string{
 	Attach,
 	Bootstrap,
@@ -166,6 +179,43 @@ func PublicProfileCommands(profiles []PublicProfile) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func PublicProfileSummaryFor(profiles []PublicProfile) PublicProfileSummary {
+	summary := PublicProfileSummary{Boundaries: map[string]int{}}
+	for _, profile := range profiles {
+		summary.Total++
+		summary.Boundaries[profile.MutationBoundary]++
+		if profile.MutationBoundary == BoundaryReadOnly {
+			summary.ReadOnly++
+		}
+		if profile.IsMutation {
+			summary.Mutating++
+		}
+		if profile.WritesCase {
+			summary.WritesCase++
+		}
+		if profile.WritesKit {
+			summary.WritesKit++
+		}
+		if profile.ReviewFirst {
+			summary.ReviewFirst++
+		}
+		if profile.ApplyRequired {
+			summary.ApplyRequired++
+		}
+		if profile.HeavyTool {
+			summary.HeavyTool++
+		}
+		if profile.AuthorityConfirmed {
+			summary.AuthorityConfirmed++
+		}
+	}
+	return summary
+}
+
+func PublicProfileSummaryBaseline() PublicProfileSummary {
+	return PublicProfileSummaryFor(publicProfiles)
 }
 
 func KnownMutationBoundaries() []string {
