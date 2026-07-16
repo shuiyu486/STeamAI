@@ -14,7 +14,8 @@ function Invoke-RekitSmoke {
   param(
     [Parameter(Mandatory=$true)][string[]]$Arguments,
     [int[]]$AllowedExitCodes = @(0),
-    [hashtable]$Env = @{}
+    [hashtable]$Env = @{},
+    [string]$ScriptPath = $Rekit
   )
   $oldValues = @{}
   foreach ($key in $Env.Keys) {
@@ -25,7 +26,7 @@ function Invoke-RekitSmoke {
   try {
     $ErrorActionPreference = 'Continue'
     $global:LASTEXITCODE = 0
-    $output = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Rekit @Arguments 2>&1 | Out-String
+    $output = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $ScriptPath @Arguments 2>&1 | Out-String
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
   } finally {
     $ErrorActionPreference = $oldEap
@@ -100,6 +101,23 @@ function Assert-FakeFallback {
   Assert-ContainsText -Text $out -Expected $Expected -Label $Label
 }
 
+function Assert-LegacyRuntimeNotPreloaded {
+  $isolatedRoot = Join-Path $matrixRoot 'lazy-facade'
+  Copy-Item -LiteralPath $RekitRoot -Destination $isolatedRoot -Recurse -Force
+  $isolatedRekit = Join-Path $isolatedRoot 'rekit.ps1'
+  $sentinel = 'legacy runtime imported before guard'
+  [System.IO.File]::WriteAllText((Join-Path $isolatedRoot 'lib\Manifest.ps1'), "throw '$sentinel'`r`n", [System.Text.UTF8Encoding]::new($false))
+
+  Write-FakeGoBackend -Path $fakeGo -CommandName 'status'
+  $delegatedOut = Invoke-RekitSmoke -ScriptPath $isolatedRekit -Arguments @('-Command','status') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $delegatedOut -Expected '"delegatedByFake":true' -Label 'default delegation does not preload legacy runtime'
+  Assert-NotContainsText -Text $delegatedOut -Unexpected $sentinel -Label 'default delegation does not preload legacy runtime'
+
+  $disabledOut = Invoke-RekitSmoke -ScriptPath $isolatedRekit -Arguments @('-Command','status') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $disabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled no-fallback does not preload legacy runtime'
+  Assert-NotContainsText -Text $disabledOut -Unexpected $sentinel -Label 'disabled no-fallback does not preload legacy runtime'
+}
+
 $suffix = [Guid]::NewGuid().ToString('N').Substring(0,8)
 if ([string]::IsNullOrWhiteSpace($WorkRoot)) { $WorkRoot = $env:TEMP }
 $matrixRoot = Join-Path $WorkRoot "rekit-facade-matrix-$suffix"
@@ -117,6 +135,8 @@ try {
   } elseif ([string]::Equals($Pack, 'vmp-re', [System.StringComparison]::OrdinalIgnoreCase)) {
     $gateLane = 'feature-handler-0x40a010'
   }
+
+  Assert-LegacyRuntimeNotPreloaded
 
   # Low-risk read-only commands, overview/note reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, promote JSON previews, start/handoff JSON preview/apply paths, continue JSON preview/apply, and plan-subagents review artifacts default to Go; retired groups fail instead of using PowerShell fallback.
   $out = Invoke-RekitSmoke -Arguments @('-Command','status')

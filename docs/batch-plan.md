@@ -7050,3 +7050,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt`、`go test ./internal/rekit/cli ./internal/rekit/releasecheck ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\start-apply-smoke.ps1`、`.\rekit\tests\handoff-apply-smoke.ps1`、`.\rekit\tests\continue-whatif-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`fallbackRetirement.ready=true`、`goDefaultCommands=19`、`noFallbackCommands=19`、`candidateCommands=0`、`blockedCommands=2`、`removalCandidateModules=14`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `.\rekit\tests\catalog-smoke.ps1`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 233：Lazy legacy PowerShell runtime import after no-fallback guard
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 232 清空 ordinary fallback candidates 后，收缩公共 PowerShell façade 的默认路径依赖，使 Go-default delegation、fake Go delegation 与 disabled no-fallback 失败路径不再预加载 `rekit/lib/*.ps1` retired / removal-candidate modules。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 legacy `rekit/lib/*.ps1` dot-source 从脚本顶部移动到 Go delegation 与 `Test-RekitNoPowerShellFallbackCommand` guard 之后；只有未进入 Go delegation 且不是 no-fallback command 的 legacy compatibility path 才加载 PowerShell runtime modules。
+- `rekit/tests/facade-smoke.ps1` 增加隔离 façade fixture：复制 `rekit/` 到临时目录并把 `lib/Manifest.ps1` 改成 sentinel throw，验证 default fake Go delegation 与 `REKIT_GO_DISABLE=1` no-fallback 都不会触发 legacy module import。
+- `internal/rekit/manifest/release_invariants_test.go` 锁定 no-fallback guard 必须早于 legacy `Manifest.ps1` dot-source，防止后续把 retired PowerShell modules 重新放回默认路径。
+- README、PowerShell deprecation roadmap、release readiness、Go runtime migration、Go-first convergence、tests guide、catalog 与 CHANGELOG 同步记录 default/no-fallback façade path 不预加载 legacy modules。
+
+边界：本批不删除 PowerShell 文件，不新增 PowerShell runtime logic，不改变命令集合、Go output schema、fallback retirement inventory counts、case-local write semantics、sync/promote review-first、actual heavy-tool、authority/confirmed 或外部副作用边界；legacy-only path 仍可在 no-fallback guard 之后加载现有 PowerShell modules 以维持兼容。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/manifest/release_invariants_test.go
+go test ./internal/rekit/manifest
+.\rekit\tests\facade-smoke.ps1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+.\rekit\tests\catalog-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 `gofmt`、`go test ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\catalog-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 233）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。首次全量 `release-check` 在本节缺少验证结果时按设计失败，补齐验证结果后已通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

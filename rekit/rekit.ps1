@@ -40,21 +40,6 @@ param(
 $ErrorActionPreference = 'Stop'
 $RuntimeRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot '..'))
-
-. (Join-Path $RuntimeRoot 'lib\Manifest.ps1')
-. (Join-Path $RuntimeRoot 'lib\Instance.ps1')
-. (Join-Path $RuntimeRoot 'lib\Validate.ps1')
-. (Join-Path $RuntimeRoot 'lib\Promote.ps1')
-. (Join-Path $RuntimeRoot 'lib\Review.ps1')
-. (Join-Path $RuntimeRoot 'lib\Sync.ps1')
-. (Join-Path $RuntimeRoot 'lib\B3.Core.ps1')
-. (Join-Path $RuntimeRoot 'lib\B3.State.ps1')
-. (Join-Path $RuntimeRoot 'lib\B3.Policy.ps1')
-. (Join-Path $RuntimeRoot 'lib\B3.Lane.ps1')
-. (Join-Path $RuntimeRoot 'lib\B3.Auto.ps1')
-. (Join-Path $RuntimeRoot 'lib\B3.Handoff.ps1')
-. (Join-Path $RuntimeRoot 'lib\B3.Commands.ps1')
-
 function Resolve-RekitTarget {
   param([string]$Value)
   if ([string]::IsNullOrWhiteSpace($Value)) { return [System.IO.Path]::GetFullPath((Get-Location).Path) }
@@ -438,6 +423,20 @@ if (Test-RekitGoDelegationEnabled) {
 if (Test-RekitNoPowerShellFallbackCommand -Name $Command) {
   throw "$Command is implemented by the Go backend only; PowerShell fallback has been retired for this command. Remove REKIT_GO_DISABLE or use go run ./cmd/rekit -- -Command $Command."
 }
+
+. (Join-Path $RuntimeRoot 'lib\Manifest.ps1')
+. (Join-Path $RuntimeRoot 'lib\Instance.ps1')
+. (Join-Path $RuntimeRoot 'lib\Validate.ps1')
+. (Join-Path $RuntimeRoot 'lib\Promote.ps1')
+. (Join-Path $RuntimeRoot 'lib\Review.ps1')
+. (Join-Path $RuntimeRoot 'lib\Sync.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.Core.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.State.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.Policy.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.Lane.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.Auto.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.Handoff.ps1')
+. (Join-Path $RuntimeRoot 'lib\B3.Commands.ps1')
 
 switch ($Command) {
   'packs' {

@@ -178,11 +178,11 @@ Legacy façade / wrapper compatibility checks are only required when touching th
 顺序：
 
 1. `overview`（G4.1 已完成 Go CLI renderer：读取 board/facts，展示最近 verification/decision，支持 `-Format json` 机器可读 envelope；Batch 119 起缺 `.rekit/board.json` 时由 Go 初始化 case-local board/facts/policy/default authority lane，overview 文本与 JSON 默认经 PowerShell façade 委托 Go；初始化只写 case-local scaffold，不写 facts event、handoff、ledger、authority/confirmed 或 metadata）；
-2. `start`（G4.2 已完成 Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式创建/进入 feature lane 并初始化 board/facts/policy/default authority lane；Batch 117 起 attached case 的 JSON preview 与显式 apply 默认经 façade 委托 Go，文本 preview 与无 `-Apply` 文本 flow 回退 PowerShell）；
-3. `handoff`（G4.3 已完成 Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式写项目级/工作线级 handoff、展示最近 verification/decision 并刷新 lane resume/checkpoint；Batch 117 起 attached case 的 JSON preview 与显式 apply 默认经 façade 委托 Go，文本 preview 与无 `-Apply` 文本 flow 回退 PowerShell）；
+2. `start`（G4.2 已完成 Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式创建/进入 feature lane 并初始化 board/facts/policy/default authority lane；Batch 117 起 attached case 的 JSON preview 与显式 apply 默认经 façade 委托 Go，Batch 232 起文本 preview 与无 `-Apply` 文本 flow 也由 façade 明确请求 Go text output，不再回退 PowerShell）；
+3. `handoff`（G4.3 已完成 Go CLI 手动路径：`-WhatIf` 非写入预览，`-Apply` 显式写项目级/工作线级 handoff、展示最近 verification/decision 并刷新 lane resume/checkpoint；Batch 117 起 attached case 的 JSON preview 与显式 apply 默认经 façade 委托 Go，Batch 232 起文本 preview 与无 `-Apply` 文本 flow 也由 façade 明确请求 Go text output，不再回退 PowerShell）；
 4. `plan-subagents`（G4.4 已完成 Go CLI review artifact 手动路径：按 manifest `subagentRoutes` 选择 route、拆分 Items/ItemsFile、写 packet/summary review artifact；Batch 58 已补 route/shard/review-loop observability；Batch 190 起默认经 façade 委托 Go；不启动 agent、不写 board/facts/lanes/handoff/authority）。
 
-`continue` 的非写入 JSON preview 与 explicit `-Apply` 已分阶段交给 Go：Batch 118 起 `-WhatIf -Format json` 默认经 Go façade 委托非写入预览；Batch 121 起 explicit `continue -Apply` 默认经 Go façade 委托 case-local facts/routing/run digest/lane resume/checkpoint/board 写入。无 `-Apply` 的文本 workflow、authority/confirmed 写入和实际 heavy-tool 执行仍保留 PowerShell/人工确认边界。
+`continue` 的非写入 JSON preview 与 explicit `-Apply` 已分阶段交给 Go：Batch 118 起 `-WhatIf -Format json` 默认经 Go façade 委托非写入预览；Batch 121 起 explicit `continue -Apply` 默认经 Go façade 委托 case-local facts/routing/run digest/lane resume/checkpoint/board 写入；Batch 232 起无 `-Apply` 的文本 workflow 也由 façade 明确请求 Go text output，不再回退 PowerShell。authority/confirmed 写入和实际 heavy-tool 执行仍保留人工确认 / gate 边界。
 
 ### G4.5：`note` / `continue` 迁移再评估（Batch F）
 

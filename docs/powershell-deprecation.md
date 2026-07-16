@@ -11,7 +11,7 @@
 当前策略：
 
 - **Go-owned**：确定性状态、结构化输出、低风险写入、`release-check` inventory、release invariant、pack-neutral contract 和跨平台路径优先由 `cmd/rekit/**` 与 `internal/rekit/**` 维护。
-- **PowerShell façade**：`rekit/rekit.ps1` 只是迁移期公共兼容入口，负责 Go binary 查找、参数兼容、fallback、环境变量开关和旧 case 用户体验；不承载新的业务语义。
+- **PowerShell façade**：`rekit/rekit.ps1` 只是迁移期公共兼容入口，负责 Go binary 查找、参数兼容、fallback、环境变量开关和旧 case 用户体验；默认 Go 委托与 no-fallback guard 先于 legacy runtime module dot-source 执行；不承载新的业务语义。
 - **Legacy-only**：内部命令和非 Go-owned 写入路径暂时保留，禁止扩展新能力；`start` / `handoff` / `continue` 的文本/default 工作线 flow 已由 Go 接管，不再作为 PowerShell fallback 保留。
 - **Parity smoke**：少量 PowerShell smoke 仅保留为 Windows façade / fallback 回归，不进入默认 release gate；后续应迁移到 Go CLI E2E、Go package tests 或跨平台测试。
 - **Release inventory**：Go-owned `release-check -Format json` 输出 `powerShellDeprecation`、`ciReleaseGate`、`caseShim` 与 `publicDefaultDocs`，解析本文件中的命令归属、模块状态、freeze gates 和 blocked migrations，并对照 `rekit/rekit.ps1` 默认委托集合、`rekit/lib/*.ps1` 实际模块清单、默认 CI workflow、case-local thin shim 模板与公开默认文档入口发现漂移；其中 `powerShellDeprecation.fallbackRetirement` 进一步列出 Go-default commands、no-fallback commands、fallback retirement candidate commands、blocked commands 与 removal-candidate modules，作为后续 fallback removal batch 的机器可读前置库存。
@@ -105,7 +105,7 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 
 1. **Documented**：本文件列出命令和模块状态。
 2. **Go-owned**：Go package tests 和 CLI tests 覆盖 deterministic 行为。
-3. **Façade default**：公共 `/rekit` 默认委托 Go，并保留 `REKIT_GO_DISABLE=1` fallback 到对应 removal batch 明确删除。
+3. **Façade default**：公共 `/rekit` 默认委托 Go；已 no-fallback 的 Go-default commands 即使设置 `REKIT_GO_DISABLE=1` 也直接失败，且不会预加载 legacy runtime modules；未退休的 legacy-only 路径才进入 PowerShell compatibility runtime。
 4. **Release inventory**：`release-check` 的 `powerShellDeprecation`、`caseShim` 与 `publicDefaultDocs` inventory 必须 `ready=true`，并能解析命令归属、模块状态、freeze gates、blocked migrations、默认委托、actual Go-default fallback retirement 分类、实际 `.ps1` 模块清单、case-local thin shim 是否保持无 PowerShell / raw CLI 默认入口，以及 README / `/rekit` skill / CLAUDE / Mission Control product direction / autonomous goal / release readiness / Go-first plan / Go runtime migration / deprecation roadmap / vision / reference absorption / Agent Team rollout / tests guide 是否继续把 Mission Control、`/rekit` 和 Go-native backend 作为默认公开路径。
 5. **Release invariant**：Go release invariant 锁定 checklist、边界、known gaps、deprecation 状态或 façade freeze guard；Batch 131 已新增 `TestPowerShellFacadeFreezeInvariants` 锁定默认 Go 委托集合、`release-check` Go-only guard和 blocked heavy-tool/authority/confirmed 不进入默认委托；Batch 190 将 `plan-subagents` review artifacts 纳入默认 Go façade 并继续锁定不自动 spawn agent / 不执行 heavy-tool 边界。
 6. **Legacy freeze**：PowerShell 只允许 bug fix / compatibility / safety boundary 修复。

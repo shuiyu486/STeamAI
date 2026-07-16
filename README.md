@@ -204,7 +204,7 @@ claude
 /rekit handoff login
 ```
 
-显式 `/rekit handoff ... -Apply` 由 Go façade 写入 handoff 文件并输出 JSON envelope；不带 `-Apply` 的文本命令继续保持日常 PowerShell fallback。
+显式 `/rekit handoff ... -Apply` 由 Go façade 写入 handoff 文件并输出 JSON envelope；不带 `-Apply` 的文本命令也由 façade 明确请求 Go text output，不再进入 PowerShell fallback。
 
 它会生成：
 

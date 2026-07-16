@@ -530,6 +530,15 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 	strategy := readRepoText(t, repo, "docs/powershell-deprecation.md")
 	smoke := readRepoText(t, repo, "rekit/tests/facade-smoke.ps1")
 
+	fallbackGuardIndex := strings.Index(facade, "if (Test-RekitNoPowerShellFallbackCommand -Name $Command)")
+	legacyImportIndex := strings.Index(facade, ". (Join-Path $RuntimeRoot 'lib\\Manifest.ps1')")
+	if fallbackGuardIndex < 0 || legacyImportIndex < 0 {
+		t.Fatalf("PowerShell facade must keep no-fallback guard and legacy runtime import")
+	}
+	if legacyImportIndex < fallbackGuardIndex {
+		t.Fatal("PowerShell facade must not dot-source legacy runtime modules before Go delegation and no-fallback guards")
+	}
+
 	defaultCommands := powerShellSingleQuotedArrayInFunction(t, facade, "Test-RekitGoDefaultDelegationCommand")
 	expectedDefaultCommands := stringSet([]string{
 		"status",
@@ -576,6 +585,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"Test-RekitNoPowerShellFallbackCommand",
 		"PowerShell fallback has been retired",
 		"$goFormat = 'text'",
+		". (Join-Path $RuntimeRoot 'lib\\Manifest.ps1')",
 		"'plan-subagents' {",
 		"Add-RekitGoArg ([ref]$goArgs) '-Route' $Route",
 	} {
