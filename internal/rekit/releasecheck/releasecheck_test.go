@@ -366,7 +366,7 @@ func assertPublicFacadeRemoval(t *testing.T, inventory PublicFacadeRemoval) {
 	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || len(inventory.RemovalPlan.RequiredPhrases) != 9 || len(inventory.RemovalPlan.RecoverySteps) != 4 || publicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps) != 32 || len(inventory.RemovalPlan.DocumentationTargets) != 9 || publicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets) != 72 || !publicFacadeRemovalHasRecoveryStep(inventory.RemovalPlan, "restore-public-facade") || !publicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "docs/release-readiness.md") || !publicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "CHANGELOG.md") {
 		t.Fatalf("public facade removal plan drifted: %+v", inventory.RemovalPlan)
 	}
-	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || len(inventory.RemovalImpact.References) == 0 || len(inventory.RemovalImpact.ReferenceCategories) == 0 || len(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.ReferenceCategories) || publicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.WorkItems)*8 || len(inventory.RemovalImpact.SmokeMigrationTargets) != 29 || publicFacadeRemovalSmokeMigrationValidationCommandCount(inventory.RemovalImpact.SmokeMigrationTargets) != 232 || len(inventory.RemovalImpact.UnclassifiedReferences) != 0 || !publicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !publicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !publicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !publicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !publicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
+	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || len(inventory.RemovalImpact.References) == 0 || len(inventory.RemovalImpact.ReferenceCategories) == 0 || len(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.ReferenceCategories) || publicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.WorkItems)*8 || len(inventory.RemovalImpact.MigrationTargets) != 74 || publicFacadeRemovalMigrationValidationCommandCount(inventory.RemovalImpact.MigrationTargets) != 592 || len(inventory.RemovalImpact.SmokeMigrationTargets) != 29 || publicFacadeRemovalSmokeMigrationValidationCommandCount(inventory.RemovalImpact.SmokeMigrationTargets) != 232 || len(inventory.RemovalImpact.UnclassifiedReferences) != 0 || !publicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !publicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !publicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !publicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "rekit/rekit.ps1") || !publicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "docs/powershell-deprecation.md") || !publicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !publicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
 		t.Fatalf("public facade removal impact drifted: %+v", inventory.RemovalImpact)
 	}
 }
@@ -401,6 +401,15 @@ func publicFacadeRemovalHasImpactCategory(impact PublicFacadeRemovalImpact, name
 func publicFacadeRemovalHasImpactWorkItem(impact PublicFacadeRemovalImpact, category string) bool {
 	for _, item := range impact.WorkItems {
 		if item.Category == category && item.Required && item.Count > 0 && len(item.Paths) > 0 && strings.TrimSpace(item.Action) != "" && len(item.ValidationCommands) == 8 && slices.Contains(item.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
+			return true
+		}
+	}
+	return false
+}
+
+func publicFacadeRemovalHasMigrationTarget(impact PublicFacadeRemovalImpact, path string) bool {
+	for _, target := range impact.MigrationTargets {
+		if target.Path == path && target.Required && target.GoNativePreferred && strings.TrimSpace(target.Action) != "" && len(target.ValidationCommands) == 8 && slices.Contains(target.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
 			return true
 		}
 	}

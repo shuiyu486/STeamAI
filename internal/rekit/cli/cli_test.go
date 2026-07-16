@@ -850,6 +850,8 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "removalImpact=true impactReferences=")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "workItems=")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "validationCommands=")
+	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationTargets=74")
+	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationValidationCommands=592")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationTargets=29")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationValidationCommands=232")
 	assertReleaseHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "public-facade-retained-boundary ready=true publicFacadeReady=true present=true retained=true migrationBoundary=true removalBoundary=true")
@@ -1055,7 +1057,7 @@ func assertReleaseCheckPublicFacadeRemoval(t *testing.T, inventory releasecheck.
 	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || len(inventory.RemovalPlan.RequiredPhrases) != 9 || len(inventory.RemovalPlan.RecoverySteps) != 4 || releaseCheckPublicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps) != 32 || len(inventory.RemovalPlan.DocumentationTargets) != 9 || releaseCheckPublicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets) != 72 || !releaseCheckPublicFacadeRemovalHasRecoveryStep(inventory.RemovalPlan, "restore-public-facade") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "docs/release-readiness.md") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "CHANGELOG.md") {
 		t.Fatalf("public facade removal plan drifted: %+v", inventory.RemovalPlan)
 	}
-	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || len(inventory.RemovalImpact.References) == 0 || len(inventory.RemovalImpact.ReferenceCategories) == 0 || len(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.ReferenceCategories) || releaseCheckPublicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.WorkItems)*8 || len(inventory.RemovalImpact.SmokeMigrationTargets) != 29 || releaseCheckPublicFacadeRemovalSmokeMigrationValidationCommandCount(inventory.RemovalImpact.SmokeMigrationTargets) != 232 || len(inventory.RemovalImpact.UnclassifiedReferences) != 0 || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !releaseCheckPublicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
+	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || len(inventory.RemovalImpact.References) == 0 || len(inventory.RemovalImpact.ReferenceCategories) == 0 || len(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.ReferenceCategories) || releaseCheckPublicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.WorkItems)*8 || len(inventory.RemovalImpact.MigrationTargets) != 74 || releaseCheckPublicFacadeRemovalMigrationValidationCommandCount(inventory.RemovalImpact.MigrationTargets) != 592 || len(inventory.RemovalImpact.SmokeMigrationTargets) != 29 || releaseCheckPublicFacadeRemovalSmokeMigrationValidationCommandCount(inventory.RemovalImpact.SmokeMigrationTargets) != 232 || len(inventory.RemovalImpact.UnclassifiedReferences) != 0 || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !releaseCheckPublicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "rekit/rekit.ps1") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "docs/powershell-deprecation.md") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
 		t.Fatalf("public facade removal impact drifted: %+v", inventory.RemovalImpact)
 	}
 }
@@ -1126,6 +1128,23 @@ func releaseCheckPublicFacadeRemovalSmokeMigrationValidationCommandCount(targets
 		count += len(target.ValidationCommands)
 	}
 	return count
+}
+
+func releaseCheckPublicFacadeRemovalMigrationValidationCommandCount(targets []releasecheck.PublicFacadeRemovalMigrationTarget) int {
+	count := 0
+	for _, target := range targets {
+		count += len(target.ValidationCommands)
+	}
+	return count
+}
+
+func releaseCheckPublicFacadeRemovalHasMigrationTarget(impact releasecheck.PublicFacadeRemovalImpact, path string) bool {
+	for _, target := range impact.MigrationTargets {
+		if target.Path == path && target.Required && target.GoNativePreferred && strings.TrimSpace(target.Action) != "" && len(target.ValidationCommands) == 8 && slices.Contains(target.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
+			return true
+		}
+	}
+	return false
 }
 
 func releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(impact releasecheck.PublicFacadeRemovalImpact, path string) bool {
@@ -1396,6 +1415,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"public facade removal: public facade removal prerequisites ok ready=true prerequisites=8 removalPlan=true planChecks=9 recoverySteps=4 recoveryValidationCommands=32 documentationTargets=9 documentationValidationCommands=72 removalImpact=true impactReferences=",
 		"workItems=",
 		"validationCommands=",
+		"migrationTargets=74 migrationValidationCommands=592",
 		"smokeMigrationTargets=29 smokeMigrationValidationCommands=232",
 		"release handoff: release handoff summary ok ready=true readFirst=7 signals=12 knownGaps=5 packMaturity=10",
 		"releaseNotes=true",

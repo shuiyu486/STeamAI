@@ -65,6 +65,7 @@ type PublicFacadeRemovalImpact struct {
 	References             []PublicFacadeRemovalImpactReference      `json:"references"`
 	ReferenceCategories    []PublicFacadeRemovalImpactCategory       `json:"referenceCategories"`
 	WorkItems              []PublicFacadeRemovalImpactWorkItem       `json:"workItems"`
+	MigrationTargets       []PublicFacadeRemovalMigrationTarget      `json:"migrationTargets"`
 	SmokeMigrationTargets  []PublicFacadeRemovalSmokeMigrationTarget `json:"smokeMigrationTargets"`
 	UnclassifiedReferences []PublicFacadeRemovalImpactReference      `json:"unclassifiedReferences"`
 	Warnings               []string                                  `json:"warnings"`
@@ -92,6 +93,16 @@ type PublicFacadeRemovalImpactWorkItem struct {
 	ValidationCommands []string `json:"validationCommands"`
 }
 
+type PublicFacadeRemovalMigrationTarget struct {
+	Path                      string   `json:"path"`
+	Category                  string   `json:"category"`
+	Action                    string   `json:"action"`
+	Required                  bool     `json:"required"`
+	GoNativePreferred         bool     `json:"goNativePreferred"`
+	PreserveHistoricalContext bool     `json:"preserveHistoricalContext"`
+	ValidationCommands        []string `json:"validationCommands"`
+}
+
 type PublicFacadeRemovalSmokeMigrationTarget struct {
 	Path                   string   `json:"path"`
 	Category               string   `json:"category"`
@@ -107,7 +118,7 @@ func publicFacadeRemovalHandoffDetails(inventory PublicFacadeRemoval) []string {
 	details := make([]string, 0, len(inventory.Prerequisites)+3)
 	details = append(details, fmt.Sprintf("ready=%t prerequisites=%d", inventory.Ready, len(inventory.Prerequisites)))
 	details = append(details, fmt.Sprintf("removalPlan=%t planChecks=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", inventory.RemovalPlan.Ready, len(inventory.RemovalPlan.RequiredPhrases), len(inventory.RemovalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps), len(inventory.RemovalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets)))
-	details = append(details, fmt.Sprintf("removalImpact=%t impactReferences=%d impactCategories=%d workItems=%d validationCommands=%d smokeMigrationTargets=%d smokeMigrationValidationCommands=%d unclassified=%d", inventory.RemovalImpact.Ready, len(inventory.RemovalImpact.References), len(inventory.RemovalImpact.ReferenceCategories), len(inventory.RemovalImpact.WorkItems), publicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems), len(inventory.RemovalImpact.SmokeMigrationTargets), publicFacadeRemovalSmokeMigrationValidationCommandCount(inventory.RemovalImpact.SmokeMigrationTargets), len(inventory.RemovalImpact.UnclassifiedReferences)))
+	details = append(details, fmt.Sprintf("removalImpact=%t impactReferences=%d impactCategories=%d workItems=%d validationCommands=%d migrationTargets=%d migrationValidationCommands=%d smokeMigrationTargets=%d smokeMigrationValidationCommands=%d unclassified=%d", inventory.RemovalImpact.Ready, len(inventory.RemovalImpact.References), len(inventory.RemovalImpact.ReferenceCategories), len(inventory.RemovalImpact.WorkItems), publicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems), len(inventory.RemovalImpact.MigrationTargets), publicFacadeRemovalMigrationValidationCommandCount(inventory.RemovalImpact.MigrationTargets), len(inventory.RemovalImpact.SmokeMigrationTargets), publicFacadeRemovalSmokeMigrationValidationCommandCount(inventory.RemovalImpact.SmokeMigrationTargets), len(inventory.RemovalImpact.UnclassifiedReferences)))
 	for _, prerequisite := range inventory.Prerequisites {
 		details = append(details, fmt.Sprintf("%s ready=%t %s", prerequisite.Name, prerequisite.Ready, prerequisite.Summary))
 	}
@@ -159,7 +170,7 @@ func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation,
 			{
 				Name:    "removal-impact-inventoried",
 				Ready:   removalImpact.Ready,
-				Summary: fmt.Sprintf("removalImpactReady=%t references=%d categories=%d workItems=%d validationCommands=%d smokeMigrationTargets=%d smokeMigrationValidationCommands=%d unclassified=%d", removalImpact.Ready, len(removalImpact.References), len(removalImpact.ReferenceCategories), len(removalImpact.WorkItems), publicFacadeRemovalImpactValidationCommandCount(removalImpact.WorkItems), len(removalImpact.SmokeMigrationTargets), publicFacadeRemovalSmokeMigrationValidationCommandCount(removalImpact.SmokeMigrationTargets), len(removalImpact.UnclassifiedReferences)),
+				Summary: fmt.Sprintf("removalImpactReady=%t references=%d categories=%d workItems=%d validationCommands=%d migrationTargets=%d migrationValidationCommands=%d smokeMigrationTargets=%d smokeMigrationValidationCommands=%d unclassified=%d", removalImpact.Ready, len(removalImpact.References), len(removalImpact.ReferenceCategories), len(removalImpact.WorkItems), publicFacadeRemovalImpactValidationCommandCount(removalImpact.WorkItems), len(removalImpact.MigrationTargets), publicFacadeRemovalMigrationValidationCommandCount(removalImpact.MigrationTargets), len(removalImpact.SmokeMigrationTargets), publicFacadeRemovalSmokeMigrationValidationCommandCount(removalImpact.SmokeMigrationTargets), len(removalImpact.UnclassifiedReferences)),
 			},
 		},
 		RemovalPlan:   removalPlan,
@@ -343,6 +354,7 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 		References:             []PublicFacadeRemovalImpactReference{},
 		ReferenceCategories:    []PublicFacadeRemovalImpactCategory{},
 		WorkItems:              []PublicFacadeRemovalImpactWorkItem{},
+		MigrationTargets:       []PublicFacadeRemovalMigrationTarget{},
 		SmokeMigrationTargets:  []PublicFacadeRemovalSmokeMigrationTarget{},
 		UnclassifiedReferences: []PublicFacadeRemovalImpactReference{},
 		Warnings:               []string{},
@@ -357,6 +369,7 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 	impact.Warnings = append(impact.Warnings, warnings...)
 	impact.ReferenceCategories = publicFacadeRemovalImpactCategories(references)
 	impact.WorkItems = publicFacadeRemovalImpactWorkItems(impact.ReferenceCategories)
+	impact.MigrationTargets = publicFacadeRemovalMigrationTargets(references)
 	impact.SmokeMigrationTargets = publicFacadeRemovalSmokeMigrationTargets(references)
 	for _, reference := range references {
 		if reference.Category == "unclassified" {
@@ -384,6 +397,42 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 		for _, command := range publicFacadeRemovalImpactValidationCommands() {
 			if !slices.Contains(workItem.ValidationCommands, command) {
 				impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact work item missing validation command %q: %s", command, workItem.Category))
+			}
+		}
+	}
+	if len(impact.MigrationTargets) != len(impact.References) {
+		impact.Warnings = append(impact.Warnings, "public facade removal migration targets do not cover every reference")
+	}
+	for _, target := range impact.MigrationTargets {
+		if !target.Required {
+			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal migration target is not required: %s", target.Path))
+		}
+		if strings.TrimSpace(target.Path) == "" {
+			impact.Warnings = append(impact.Warnings, "public facade removal migration target missing path")
+		}
+		if strings.TrimSpace(target.Category) == "" {
+			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal migration target missing category: %s", target.Path))
+		}
+		if strings.TrimSpace(target.Action) == "" {
+			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal migration target missing action: %s", target.Path))
+		}
+		if !target.GoNativePreferred {
+			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal migration target is not Go-native preferred: %s", target.Path))
+		}
+		if target.Category == "roadmap-and-history-doc" && !target.PreserveHistoricalContext {
+			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal roadmap/history migration target does not preserve historical context: %s", target.Path))
+		}
+		if len(target.ValidationCommands) == 0 {
+			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal migration target missing validation commands: %s", target.Path))
+		}
+		for _, command := range target.ValidationCommands {
+			if strings.TrimSpace(command) == "" {
+				impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal migration target has empty validation command: %s", target.Path))
+			}
+		}
+		for _, command := range publicFacadeRemovalImpactValidationCommands() {
+			if !slices.Contains(target.ValidationCommands, command) {
+				impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal migration target missing validation command %q: %s", command, target.Path))
 			}
 		}
 	}
@@ -539,6 +588,61 @@ func publicFacadeRemovalImpactWorkItems(categories []PublicFacadeRemovalImpactCa
 		})
 	}
 	return workItems
+}
+
+func publicFacadeRemovalMigrationTargets(references []PublicFacadeRemovalImpactReference) []PublicFacadeRemovalMigrationTarget {
+	targets := make([]PublicFacadeRemovalMigrationTarget, 0, len(references))
+	for _, reference := range references {
+		targets = append(targets, PublicFacadeRemovalMigrationTarget{
+			Path:                      reference.Path,
+			Category:                  reference.Category,
+			Action:                    publicFacadeRemovalMigrationAction(reference.Category),
+			Required:                  true,
+			GoNativePreferred:         true,
+			PreserveHistoricalContext: publicFacadeRemovalPreserveHistoricalContext(reference.Category),
+			ValidationCommands:        publicFacadeRemovalImpactValidationCommands(),
+		})
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].Category == targets[j].Category {
+			return targets[i].Path < targets[j].Path
+		}
+		return targets[i].Category < targets[j].Category
+	})
+	return targets
+}
+
+func publicFacadeRemovalMigrationValidationCommandCount(targets []PublicFacadeRemovalMigrationTarget) int {
+	count := 0
+	for _, target := range targets {
+		count += len(target.ValidationCommands)
+	}
+	return count
+}
+
+func publicFacadeRemovalMigrationAction(category string) string {
+	switch category {
+	case "public-facade-entrypoint":
+		return "remove the public facade entrypoint only in the independent removal batch after Go-native alternatives are verified"
+	case "facade-compatibility-smoke", "facade-dependent-smoke":
+		return "rewrite or retire facade-dependent smoke while preferring direct Go backend validation"
+	case "smoke-catalog-doc":
+		return "update smoke catalog and tests guide entries to describe Go-native or retired facade coverage"
+	case "pack-wrapper-compatibility":
+		return "replace pack wrapper facade references with Go-native validation or document compatibility retirement"
+	case "public-default-doc":
+		return "remove public facade defaults while keeping /rekit and Mission Control as the user-facing path"
+	case "roadmap-and-history-doc":
+		return "update roadmap/history text without losing historical context or implying the facade remains the default path"
+	case "release-inventory-and-tests":
+		return "update release inventory, tests and expected counts after the removal batch"
+	default:
+		return "classify and migrate this public facade reference before deleting the facade"
+	}
+}
+
+func publicFacadeRemovalPreserveHistoricalContext(category string) bool {
+	return category == "roadmap-and-history-doc"
 }
 
 func publicFacadeRemovalSmokeMigrationTargets(references []PublicFacadeRemovalImpactReference) []PublicFacadeRemovalSmokeMigrationTarget {
