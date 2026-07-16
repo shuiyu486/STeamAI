@@ -34,7 +34,7 @@ git diff --check
 
 - smoke 失败时先修 root cause，不跳过验证。
 - pack smoke 必须覆盖 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review managed-doc candidate 和 no-write 边界。
-- façade smoke 必须证明默认 Go delegation、已退休 fallback 的 no-fallback 边界、显式 Go enable、Go disable 优先级和剩余 write/text compatibility fallback 不回归。
+- façade smoke 必须证明默认 Go delegation、已退休 fallback 的 no-fallback 边界、显式 Go enable、Go disable 优先级和剩余 write/text compatibility fallback 不回归；未来删除公共 façade 前，`publicFacadeRemoval.removalImpact.smokeMigrationTargets[]` 中列出的 façade compatibility / dependent smoke 必须迁移到 Go-native preferred 或显式退休 façade assertions。
 - sync/promote apply smoke 只能使用临时 case / pack-safe fixture，并验证 backup、deny、pack-root containment 和 cleanup。
 - workstream / ledger smoke 不写 confirmed/authority，除非脚本专门验证 gate 且使用临时 case。
 

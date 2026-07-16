@@ -7815,3 +7815,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 256，`publicFacadeRemoval.ready=true` / `prerequisites=8` / `removalPlan=true` / `planChecks=9` / `recoverySteps=4` / `recoveryValidationCommands=32` / `documentationTargets=9` / `documentationValidationCommands=72` / `removalImpact=true` / `impactReferences=74` / `impactCategories=8` / `workItems=8` / `validationCommands=64` / `unclassified=0`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `public facade removal: public facade removal prerequisites ok ready=true prerequisites=8 removalPlan=true planChecks=9 recoverySteps=4 recoveryValidationCommands=32 documentationTargets=9 documentationValidationCommands=72 removalImpact=true impactReferences=74 impactCategories=8 workItems=8 validationCommands=64 unclassified=0` 与 release handoff `latest=Batch 256：Public façade removal documentation targets`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 257：Public façade removal smoke migration targets
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 252-256 已把 public façade removal impact、work items、validation commands、recovery steps 与 documentation targets 纳入 release inventory 后，为 façade compatibility smoke 与 façade-dependent smoke 增加机器可读 migration targets，确保未来独立删除公共 façade 时必须迁移或退休的 smoke 不只作为路径列表存在，而是明确绑定 Go-native preferred、no facade compatibility 与 retire façade assertions 边界。
+
+实施范围：
+
+- 扩展 `PublicFacadeRemovalImpact`，新增 `smokeMigrationTargets[]`，从 `facade-compatibility-smoke` 与 `facade-dependent-smoke` references 派生，覆盖 `facade-smoke.ps1` 与当前 28 个 façade-dependent smoke。
+- 每个 smoke migration target 带 `path`、`category`、`action`、`required`、`goNativePreferred`、`allowFacadeCompat=false`、`retireFacadeAssertions=true` 与 `validationCommands[]`；readiness 要求字段完整，并覆盖推荐 Go-native release gate。
+- release-check text 与 `releaseHandoff.signals[]` 同步展示 `smokeMigrationTargets=29 smokeMigrationValidationCommands=232`，补 releasecheck / CLI / handoff tests，并同步 PowerShell deprecation、release readiness、Go-first convergence、tests guide、batch-plan 与 CHANGELOG 文档。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不改写 smoke 脚本实际执行路径，不改变 public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、actual heavy-tool、authority/confirmed、policy schema migration 或外部副作用边界；raw Go CLI 仍是底层 deterministic runtime/API，不变成用户主要交互界面。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 257，`publicFacadeRemoval.ready=true` / `prerequisites=8` / `removalPlan=true` / `planChecks=9` / `recoverySteps=4` / `recoveryValidationCommands=32` / `documentationTargets=9` / `documentationValidationCommands=72` / `removalImpact=true` / `impactReferences=74` / `impactCategories=8` / `workItems=8` / `validationCommands=64` / `smokeMigrationTargets=29` / `smokeMigrationValidationCommands=232` / `unclassified=0`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `smokeMigrationTargets=29 smokeMigrationValidationCommands=232` 与 release handoff `latest=Batch 257：Public façade removal smoke migration targets`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
