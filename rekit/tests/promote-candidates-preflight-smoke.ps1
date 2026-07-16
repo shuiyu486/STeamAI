@@ -34,6 +34,7 @@ function Invoke-RekitSmoke {
   if ($AllowedExitCodes -notcontains $exitCode) {
     throw "unexpected exit code $exitCode; output:`n$output"
   }
+  $global:LASTEXITCODE = 0
   return $output
 }
 
@@ -133,10 +134,9 @@ Context: ctx123 round7 Task #99
 "@
   [System.IO.File]::WriteAllText($tooling, $toolingText, [System.Text.UTF8Encoding]::new($false))
 
-  $psWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf')
-  Assert-ContainsText -Text $psWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'PowerShell managed candidate what-if'
-  Assert-ContainsText -Text $psWhatIf -Expected 'blocked promote: references/template/workflow-template.md' -Label 'PowerShell blocked candidate what-if'
-  Assert-ContainsText -Text $psWhatIf -Expected 'would write tooling candidate:' -Label 'PowerShell tooling candidate what-if'
+  $textWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') -AllowedExitCodes @(1)
+  Assert-ContainsText -Text $textWhatIf -Expected 'PowerShell fallback has been retired' -Label 'promote text candidate no fallback'
+  Assert-NotContainsText -Text $textWhatIf -Unexpected 'would promote candidate:' -Label 'promote text candidate no fallback'
 
   $fakeGo = Join-Path $caseRoot 'fake-rekit-go.cmd'
   [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"promote","delegatedByFake":true}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
@@ -149,13 +149,13 @@ Context: ctx123 round7 Task #99
   $facadeReview = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-ReviewOutputDir',$reviewRoot) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
   if (-not [bool]$facadeReview.delegatedByFake) { throw "facade promote review did not use default REKIT_GO_EXE delegation: $($facadeReview | ConvertTo-Json -Depth 8)" }
 
-  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $facadeWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote text candidate fallback'
-  Assert-ContainsText -Text $facadeWhatIf -Expected 'would write tooling candidate:' -Label 'facade tooling text candidate fallback'
+  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $facadeWhatIf -Unexpected 'delegatedByFake' -Label 'facade promote text candidate no fallback'
+  Assert-ContainsText -Text $facadeWhatIf -Expected 'PowerShell fallback has been retired' -Label 'facade promote text candidate no fallback'
 
-  $disabledJsonPreview = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-NotContainsText -Text $disabledJsonPreview -Unexpected 'delegatedByFake' -Label 'facade promote candidate JSON preview disabled fallback'
-  Assert-ContainsText -Text $disabledJsonPreview -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote candidate JSON preview disabled fallback'
+  $disabledJsonPreview = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledJsonPreview -Unexpected 'delegatedByFake' -Label 'facade promote candidate JSON preview disabled no fallback'
+  Assert-ContainsText -Text $disabledJsonPreview -Expected 'PowerShell fallback has been retired' -Label 'facade promote candidate JSON preview disabled no fallback'
 
   $goWhatIf = Invoke-GoRekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') | ConvertFrom-Json
   if ([bool]$goWhatIf.isMutation -or [bool]$goWhatIf.applied) { throw "Go promote create-candidates what-if reported mutation: $($goWhatIf | ConvertTo-Json -Depth 8)" }
@@ -189,8 +189,8 @@ Context: ctx123 round7 Task #99
 
   $afterPromote = Get-TreeSnapshot -Path $promoteCandidateRoot
   $afterTooling = Get-TreeSnapshot -Path $toolingCandidateRoot
-  if ($beforePromote -ne $afterPromote) { throw 'PowerShell what-if or Go review changed promote-candidates tree' }
-  if ($beforeTooling -ne $afterTooling) { throw 'PowerShell what-if or Go review changed tooling candidates tree' }
+  if ($beforePromote -ne $afterPromote) { throw 'promote no-fallback check or Go review changed promote-candidates tree' }
+  if ($beforeTooling -ne $afterTooling) { throw 'promote no-fallback check or Go review changed tooling candidates tree' }
 
   'promote candidates preflight smoke ok'
 } finally {

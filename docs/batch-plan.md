@@ -6906,3 +6906,40 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt`、`go test ./internal/rekit/sync ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\sync-review-parity-smoke.ps1`、`.\rekit\tests\sync-apply-smoke.ps1`、`.\rekit\tests\sync-apply-parity-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`fallbackRetirement.ready=true`、`goDefaultCommands=19`、`noFallbackCommands=11`、`candidateCommands=4`、`blockedCommands=2`、`removalCandidateModules=14`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `.\rekit\tests\catalog-smoke.ps1`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 229：Promote PowerShell fallback retirement
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛，将 `promote` 从 remaining compatibility fallback candidate 中移出，使 review、review artifacts、`promote -CreateCandidates`、`promote -CreateCandidates -WhatIf -Format json`、`promote -Apply` 与 `promote -Apply -WhatIf -Format json` 均保持 Go-owned default path，并在文本 promote what-if、`REKIT_GO_DISABLE=1` 或 Go delegation 不可用时明确失败，不再回退 PowerShell runtime 业务实现。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 `promote` 加入 no-fallback helper；当文本 promote what-if、`REKIT_GO_DISABLE=1` 或 Go delegation 不可用时，façade 输出 “PowerShell fallback has been retired” 并失败。
+- `facade-smoke.ps1`、`promote-candidates-preflight-smoke.ps1`、`promote-candidates-apply-smoke.ps1`、`promote-apply-preflight-smoke.ps1` 与 `promote-apply-smoke.ps1` 调整为默认 façade vs Go 路径，并覆盖文本/disabled/no-fallback error 与 no-write snapshot。
+- CLI、releasecheck、release handoff 与 façade freeze invariant tests 同步锁定 `fallbackRetirement=true noFallback=12 candidates=3 removalModules=14`。
+- README、CLAUDE、canonical `/rekit` skill、PowerShell deprecation、release readiness、Go runtime migration、Go-first convergence、promote migration docs、tests guide、catalog 与 CHANGELOG 同步记录 promote fallback 已退休。
+
+边界：本批不删除 PowerShell 文件，不改变 promote Go output schema、candidate/index/tooling candidate 写入语义、pack source backup/deny/restore/validation、review-first、case lifecycle、workstream、actual heavy-tool、authority/confirmed 或外部副作用边界；remaining candidate fallback 保留到后续独立 removal batch。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli_test.go internal/rekit/manifest/release_invariants_test.go
+go test ./internal/rekit/promote ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\promote-candidates-preflight-smoke.ps1
+.\rekit\tests\promote-candidates-apply-smoke.ps1
+.\rekit\tests\promote-apply-preflight-smoke.ps1
+.\rekit\tests\promote-apply-smoke.ps1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+.\rekit\tests\catalog-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 `gofmt`、`go test ./internal/rekit/promote ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`（首轮因本批 durable batch 状态尚未标记完成/缺验证结果失败，补齐后重跑通过）、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\promote-candidates-preflight-smoke.ps1`、`.\rekit\tests\promote-candidates-apply-smoke.ps1`、`.\rekit\tests\promote-apply-preflight-smoke.ps1`、`.\rekit\tests\promote-apply-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`fallbackRetirement.ready=true`、`goDefaultCommands=19`、`noFallbackCommands=12`、`candidateCommands=3`、`blockedCommands=2`、`removalCandidateModules=14`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `.\rekit\tests\catalog-smoke.ps1`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

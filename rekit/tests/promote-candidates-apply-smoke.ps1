@@ -34,6 +34,7 @@ function Invoke-RekitSmoke {
   if ($AllowedExitCodes -notcontains $exitCode) {
     throw "unexpected exit code $exitCode; output:`n$output"
   }
+  $global:LASTEXITCODE = 0
   return $output
 }
 
@@ -207,9 +208,8 @@ Context: ctx123 round7 Task #99
   if ($beforePromoteTree -ne (Get-TreeSnapshot -Path $promoteCandidateRoot)) { throw 'Go promote what-if changed promote-candidates tree' }
   if ($beforeToolingTree -ne (Get-TreeSnapshot -Path $toolingCandidateRoot)) { throw 'Go promote what-if changed tooling candidates tree' }
 
-  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '' }
-  Assert-ContainsText -Text $facadeWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote text candidate fallback'
-  Assert-ContainsText -Text $facadeWhatIf -Expected 'would write tooling candidate:' -Label 'facade tooling text candidate fallback'
+  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '' }
+  Assert-ContainsText -Text $facadeWhatIf -Expected 'PowerShell fallback has been retired' -Label 'facade promote text candidate no fallback'
 
   $result = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-CreateCandidates') | ConvertFrom-Json
   if (-not [bool]$result.applied -or [bool]$result.isMutation -ne $true) { throw "unexpected façade apply result: $($result | ConvertTo-Json -Depth 10)" }

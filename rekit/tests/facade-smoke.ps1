@@ -210,9 +210,9 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-CreateCandidates') -CommandName 'promote' -Label 'default promote create-candidates delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -CommandName 'promote' -Label 'default promote apply JSON preview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -CommandName 'promote' -Label 'default promote apply delegation'
-  Assert-FakeFallback -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') -Expected 'promote summary:' -Label 'promote create-candidates text preview fallback'
-  Assert-FakeFallback -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Expected 'promote summary:' -Label 'promote apply text preview fallback'
-  Assert-FakeFallback -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-CreateCandidates') -Expected 'promote -Apply cannot be combined with -CreateCandidates' -Label 'promote actual write combination fallback' -AllowedExitCodes @(1)
+  Assert-FakeFallback -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf') -Expected 'PowerShell fallback has been retired' -Label 'promote create-candidates text preview no fallback' -AllowedExitCodes @(1)
+  Assert-FakeFallback -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Expected 'PowerShell fallback has been retired' -Label 'promote apply text preview no fallback' -AllowedExitCodes @(1)
+  Assert-FakeFallback -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-CreateCandidates') -Expected 'PowerShell fallback has been retired' -Label 'promote actual write combination no fallback' -AllowedExitCodes @(1)
 
   Assert-FakeDefaultDelegation -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'overview' -Label 'default overview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -CommandName 'overview' -Label 'default overview JSON delegation'
@@ -253,6 +253,12 @@ try {
   $disabledSyncApplyOut = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledSyncApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled sync apply no fallback'
   Assert-ContainsText -Text $disabledSyncApplyOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled sync apply no fallback'
+  $disabledPromotePreviewOut = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledPromotePreviewOut -Unexpected 'delegatedByFake' -Label 'go disabled promote JSON preview no fallback'
+  Assert-ContainsText -Text $disabledPromotePreviewOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled promote JSON preview no fallback'
+  $disabledPromoteApplyOut = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledPromoteApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled promote apply no fallback'
+  Assert-ContainsText -Text $disabledPromoteApplyOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled promote apply no fallback'
   $disabledUpdateOut = Invoke-RekitSmoke -Arguments @('-Command','update','-Target',$CaseRoot,'-Pack',$Pack) -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledUpdateOut -Unexpected 'delegatedByFake' -Label 'go disabled update review no fallback'
   Assert-ContainsText -Text $disabledUpdateOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled update review no fallback'

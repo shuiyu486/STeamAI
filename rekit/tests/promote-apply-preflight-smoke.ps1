@@ -34,6 +34,7 @@ function Invoke-RekitSmoke {
   if ($AllowedExitCodes -notcontains $exitCode) {
     throw "unexpected exit code $exitCode; output:`n$output"
   }
+  $global:LASTEXITCODE = 0
   return $output
 }
 
@@ -183,10 +184,9 @@ try {
   [System.IO.File]::WriteAllText($caseReadme, $safeReadme, [System.Text.UTF8Encoding]::new($false))
   [System.IO.File]::WriteAllText($caseWorkflow, "# Blocked workflow`r`n`r`nDo not promote C:\case\artifact\sample-trace.csv from this case.`r`n", [System.Text.UTF8Encoding]::new($false))
 
-  $whatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf')
-  Assert-ContainsText -Text $whatIf -Expected 'would promote candidate: references/template/README.md' -Label 'PowerShell promote apply what-if'
-  Assert-ContainsText -Text $whatIf -Expected 'blocked promote: references/template/workflow-template.md' -Label 'PowerShell promote apply blocked what-if'
-  Assert-ContainsText -Text $whatIf -Expected 'would write tooling candidate:' -Label 'PowerShell promote apply what-if tooling preview'
+  $whatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -AllowedExitCodes @(1)
+  Assert-ContainsText -Text $whatIf -Expected 'PowerShell fallback has been retired' -Label 'promote apply text no fallback'
+  Assert-NotContainsText -Text $whatIf -Unexpected 'would promote candidate:' -Label 'promote apply text no fallback'
   $readmeAfterWhatIf = [System.IO.File]::ReadAllText($packReadme, [System.Text.Encoding]::UTF8)
   if ($readmeAfterWhatIf -ne $originalReadme) { throw 'promote -Apply -WhatIf changed pack README' }
   if ($beforePromoteTree -ne (Get-TreeSnapshot -Path $promoteCandidateRoot)) { throw 'promote -Apply -WhatIf changed promote-candidates tree' }
@@ -199,35 +199,26 @@ try {
   $facadeActualApply = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
   if (-not [bool]$facadeActualApply.delegatedByFake) { throw "facade promote apply did not use default REKIT_GO_EXE delegation: $($facadeActualApply | ConvertTo-Json -Depth 8)" }
 
-  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $facadeWhatIf -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote apply text fallback'
-  Assert-NotContainsText -Text $facadeWhatIf -Unexpected 'go backend' -Label 'facade promote apply text fallback'
+  $facadeWhatIf = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $facadeWhatIf -Unexpected 'delegatedByFake' -Label 'facade promote apply text no fallback'
+  Assert-ContainsText -Text $facadeWhatIf -Expected 'PowerShell fallback has been retired' -Label 'facade promote apply text no fallback'
 
-  $disabledJsonPreview = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-NotContainsText -Text $disabledJsonPreview -Unexpected 'delegatedByFake' -Label 'facade promote apply JSON preview disabled fallback'
-  Assert-ContainsText -Text $disabledJsonPreview -Expected 'would promote candidate: references/template/README.md' -Label 'facade promote apply JSON preview disabled fallback'
+  $disabledJsonPreview = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledJsonPreview -Unexpected 'delegatedByFake' -Label 'facade promote apply JSON preview disabled no fallback'
+  Assert-ContainsText -Text $disabledJsonPreview -Expected 'PowerShell fallback has been retired' -Label 'facade promote apply JSON preview disabled no fallback'
 
   $goWhatIf = Invoke-GoRekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') | ConvertFrom-Json
   if ([bool]$goWhatIf.isMutation -or [bool]$goWhatIf.applied) { throw "unexpected Go apply what-if mutation: $($goWhatIf | ConvertTo-Json -Depth 10)" }
   if ([int]$goWhatIf.changed -lt 1 -or [int]$goWhatIf.blocked -lt 1) { throw "unexpected Go apply what-if counts: $($goWhatIf | ConvertTo-Json -Depth 10)" }
   if (-not [string]::IsNullOrWhiteSpace([string]$goWhatIf.backupRoot)) { throw "Go promote apply what-if returned backupRoot: $($goWhatIf.backupRoot)" }
 
-  $apply = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1' }
-  Assert-ContainsText -Text $apply -Expected 'backup pack file:' -Label 'PowerShell disabled promote apply backup'
-  Assert-ContainsText -Text $apply -Expected 'promoted:' -Label 'PowerShell disabled promote apply write'
-  Assert-ContainsText -Text $apply -Expected 'promote summary:' -Label 'PowerShell disabled promote apply summary'
+  $apply = Invoke-RekitSmoke -Arguments @('-Command','promote','-Target',$caseRoot,'-Pack',$Pack,'-Apply') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1' }
+  Assert-ContainsText -Text $apply -Expected 'PowerShell fallback has been retired' -Label 'disabled promote apply no fallback'
+  Assert-NotContainsText -Text $apply -Unexpected 'promoted:' -Label 'disabled promote apply no fallback'
   $packReadmeAfterApply = [System.IO.File]::ReadAllText($packReadme, [System.Text.Encoding]::UTF8)
-  if ($packReadmeAfterApply -ne $safeReadme) { throw 'promote -Apply did not update pack README to safe case content' }
+  if ($packReadmeAfterApply -ne $originalReadme) { throw 'disabled promote -Apply no-fallback changed pack README' }
   $packWorkflowAfterApply = [System.IO.File]::ReadAllText($packWorkflow, [System.Text.Encoding]::UTF8)
-  if ($packWorkflowAfterApply -ne $originalWorkflow) { throw 'blocked workflow was written to pack source' }
-
-  $backupLine = @($apply -split "`r?`n" | Where-Object { $_ -like 'backup pack file:*' } | Select-Object -First 1)
-  if ($backupLine.Count -ne 1) { throw "missing backup line in promote apply output:`n$apply" }
-  $backupPath = ([string]$backupLine[0]).Substring('backup pack file:'.Length).Trim()
-  Assert-InsideRoot -Root (Join-Path $promoteCandidateRoot '.backup') -Path $backupPath -Label 'promote apply backup'
-  if (-not (Test-Path -LiteralPath $backupPath)) { throw "missing promote backup: $backupPath" }
-  $backupText = [System.IO.File]::ReadAllText($backupPath, [System.Text.Encoding]::UTF8)
-  if ($backupText -ne $originalReadme) { throw 'promote backup content did not match original pack README' }
+  if ($packWorkflowAfterApply -ne $originalWorkflow) { throw 'disabled promote -Apply no-fallback changed blocked workflow' }
 
   'promote apply preflight smoke ok'
 } finally {

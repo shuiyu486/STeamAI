@@ -18,7 +18,7 @@
 /rekit promote
 ```
 
-Claude 会先使用内部 runtime 生成只读 review 包。用户不需要手动执行底层脚本；Batch 107 起 `/rekit promote` review 与 JSON what-if preview 默认由 Go backend 处理；Batch 108 起 `promote -CreateCandidates` 实际候选写入也默认由 Go backend 处理；Batch 112 起 `promote -Apply` 实际 pack source 写入也默认由 Go backend 处理，`REKIT_GO_DISABLE=1` 可回退 PowerShell。
+Claude 会先使用内部 runtime 生成只读 review 包。用户不需要手动执行底层脚本；Batch 107 起 `/rekit promote` review 与 JSON what-if preview 默认由 Go backend 处理；Batch 108 起 `promote -CreateCandidates` 实际候选写入也默认由 Go backend 处理；Batch 112 起 `promote -Apply` 实际 pack source 写入也默认由 Go backend 处理；Batch 229 起 `promote` PowerShell fallback 已退休，`REKIT_GO_DISABLE=1` 或 Go delegation 不可用时直接失败。
 
 review 包写入 case-local 目录：
 

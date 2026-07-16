@@ -60,7 +60,7 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 | `status` / `packs` / `doctor` / `validate` | Go default | façade delegate + no PowerShell fallback | 默认本机验证路径已由 Go-native runtime 覆盖；PowerShell fallback 已退休，使用 Go release gate / package tests 维护 parity。 |
 | case lifecycle `attach` / `repair` / `init` / `bootstrap` preview/apply | Go default | façade + fallback | 保留 `REKIT_GO_DISABLE=1` fallback 到旧 case smoke 和 Go-native case shim 验证完成；随后按 removal batch 删除。 |
 | `sync` / `update` review/apply/JSON preview | Go default | façade delegate + no PowerShell fallback | `update` 作为 sync alias 同属 Go-default façade；PowerShell fallback 已退休，review、JSON preview 与显式 apply 由 Go 维护，继续保持 review-first 与 explicit apply 边界。 |
-| `promote` review/artifacts/candidates/apply/JSON preview | Go default | façade + text what-if fallback | 文本 promote what-if legacy-only；pack source 写入仍要求 review-first/backup；Go-native parity 后删除 fallback。 |
+| `promote` review/artifacts/candidates/apply/JSON preview | Go default | façade delegate + no PowerShell fallback | promote review、review artifacts、candidate/apply、JSON preview 与文本 what-if 均由 Go-owned/no-fallback 边界维护；pack source 写入仍要求 review-first/backup/deny/restore。 |
 | `overview` text/JSON 与缺 board 初始化 | Go default | façade delegate + no PowerShell fallback | Go overview 是 canonical owner；PowerShell fallback 已退休，缺 board 初始化仍只写 case-local scaffold。 |
 | `note -List` text/table/tsv/JSON、`note` append、`note -WhatIf` | Go default | façade delegate + no PowerShell fallback | 新 ledger schema 校验由 Go 维护；PowerShell fallback 已退休，append 仍只写 facts JSONL、不写 authority/confirmed。 |
 | `gate -WhatIf` / `gate -Apply` pending-gate | Go default | façade delegate + no PowerShell fallback | 只预览或写 pending-gate request；不执行 heavy-tool；PowerShell fallback 已退休。 |
@@ -80,7 +80,7 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 | `rekit/lib/Validate.ps1` | parity / compatibility / removal-candidate | pack/case doctor 兼容层；Go doctor 是默认路径。 |
 | `rekit/lib/Instance.ps1` | compatibility / removal-candidate | case instance/shim 兼容；case lifecycle Go-owned。 |
 | `rekit/lib/Sync.ps1` | retired fallback / removal-candidate | sync/update fallback 已退休；写入语义 Go-owned，模块仅作为后续文件删除/历史兼容审查对象。 |
-| `rekit/lib/Promote.ps1` | legacy fallback / removal-candidate | promote 文本 fallback 与兼容；candidate/apply 语义 Go-owned。 |
+| `rekit/lib/Promote.ps1` | retired fallback / removal-candidate | promote fallback 已退休；candidate/apply 语义 Go-owned，模块仅作为后续文件删除/历史兼容审查对象。 |
 | `rekit/lib/Review.ps1` | compatibility / removal-candidate | review artifact helper；新增确定性 review 语义优先 Go。 |
 | `rekit/lib/B3.Core.ps1` | shared compatibility / removal-candidate | PowerShell B3 基础 helper；只修兼容和安全边界。 |
 | `rekit/lib/B3.State.ps1` | legacy / compatibility / removal-candidate | board/facts/lane 状态兼容；Go workstream 是新 owner。 |
@@ -95,7 +95,7 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 `release-check -Format json` 的 `powerShellDeprecation.fallbackRetirement` 是后续 removal batch 的确定性前置库存：
 
 - `goDefaultCommands[]` 来自 `rekit/rekit.ps1` 的默认 Go delegation 集合，用于确认 façade 默认路径已经由 Go owner 覆盖。
-- `noFallbackCommands[]` 表示已经没有 PowerShell fallback 的 Go-default 命令；当前基线包含 `release-check`、`status`、`packs`、`doctor`、`validate`、`sync`、`update`、`overview`、`note`、`gate` 与 `plan-subagents`。
+- `noFallbackCommands[]` 表示已经没有 PowerShell fallback 的 Go-default 命令；当前基线包含 `release-check`、`status`、`packs`、`doctor`、`validate`、`sync`、`update`、`promote`、`overview`、`note`、`gate` 与 `plan-subagents`。
 - `candidateCommands[]` 表示 Go-default 但仍有 legacy / fallback / removal-candidate 语义的命令行，是后续 fallback removal batch 的候选工作清单。
 - `blockedCommands[]` 保留 actual heavy-tool、authority/confirmed 等不得普通迁移的 command rows；这些 row 不应进入自动 removal batch。
 - `removalCandidateModules[]` 来自模块状态矩阵中的 removal-candidate `.ps1` 文件，用于决定独立删除批次的 review 范围。
