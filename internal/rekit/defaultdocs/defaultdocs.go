@@ -58,8 +58,11 @@ var documents = []DocumentCheck{
 	{Path: "README.md", Purpose: "primary public usage and maintenance entrypoint"},
 	{Path: ".claude/skills/rekit/SKILL.md", Purpose: "canonical slash skill instructions"},
 	{Path: "CLAUDE.md", Purpose: "project maintainer instructions"},
+	{Path: "docs/mission-control-product-direction.md", Purpose: "Lane-centric Mission Control product direction"},
 	{Path: "docs/autonomous-goal.md", Purpose: "long-term autonomous handoff anchor"},
 	{Path: "docs/release-readiness.md", Purpose: "release gate default validation path"},
+	{Path: "docs/go-first-convergence-plan.md", Purpose: "Go-first convergence stage map and validation defaults"},
+	{Path: "docs/powershell-deprecation.md", Purpose: "PowerShell-free roadmap and fallback retirement gates"},
 }
 
 var requiredPhrases = []requiredPhrase{
@@ -69,6 +72,9 @@ var requiredPhrases = []requiredPhrase{
 	{path: "README.md", phrase: "默认路径继续向 PowerShell-free / Go-native / 跨平台收敛"},
 	{path: "README.md", phrase: "这里不需要你手动执行底层脚本"},
 	{path: "README.md", phrase: "用户不需要把 `/rekit` 子命令当成主要交互界面"},
+	{path: "docs/mission-control-product-direction.md", phrase: "Lane-centric Agent Team Mission Control"},
+	{path: "docs/mission-control-product-direction.md", phrase: "用户主要和一个 **主 Agent / Mission Commander** 会话交互"},
+	{path: "docs/mission-control-product-direction.md", phrase: "Go-first deterministic substrate"},
 	{path: ".claude/skills/rekit/SKILL.md", phrase: "产品方向是 Mission Control"},
 	{path: ".claude/skills/rekit/SKILL.md", phrase: "底层 Go CLI 是 canonical runtime"},
 	{path: ".claude/skills/rekit/SKILL.md", phrase: "`rekit.ps1` 只是迁移期 legacy façade"},
@@ -81,6 +87,12 @@ var requiredPhrases = []requiredPhrase{
 	{path: "docs/autonomous-goal.md", phrase: "默认继续自主推进"},
 	{path: "docs/release-readiness.md", phrase: "发布门禁默认依赖 Go-owned `release-check` inventory"},
 	{path: "docs/release-readiness.md", phrase: "默认本机验证路径不依赖 PowerShell"},
+	{path: "docs/go-first-convergence-plan.md", phrase: "Go backend 成为 rekit 的 deterministic runtime owner"},
+	{path: "docs/go-first-convergence-plan.md", phrase: "不要把大型 PowerShell matrix 作为默认必跑"},
+	{path: "docs/go-first-convergence-plan.md", phrase: "PowerShell-free / Go-native convergence"},
+	{path: "docs/powershell-deprecation.md", phrase: "PowerShell-free / Go-native / 跨平台 convergence"},
+	{path: "docs/powershell-deprecation.md", phrase: "Go CLI/backend 是 canonical runtime"},
+	{path: "docs/powershell-deprecation.md", phrase: "PowerShell 只作为迁移期 legacy façade / fallback / parity residue"},
 }
 
 var forbiddenFacadeCommand = regexp.MustCompile(`(?i)(^|[\s` + "`" + `])(?:\.?[\\/])?rekit[\\/]rekit\.ps1\s+(?:-[a-z][a-z0-9-]*\s+)*?(?:release-check|status|packs|doctor|validate|overview|continue|start|handoff|sync|promote|note|gate|plan-subagents|attach|init|bootstrap|repair)\b`)

@@ -95,7 +95,7 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 1. **Documented**：本文件列出命令和模块状态。
 2. **Go-owned**：Go package tests 和 CLI tests 覆盖 deterministic 行为。
 3. **Façade default**：公共 `/rekit` 默认委托 Go，并保留 `REKIT_GO_DISABLE=1` fallback 到对应 removal batch 明确删除。
-4. **Release inventory**：`release-check` 的 `powerShellDeprecation`、`caseShim` 与 `publicDefaultDocs` inventory 必须 `ready=true`，并能解析命令归属、模块状态、freeze gates、blocked migrations、默认委托、实际 `.ps1` 模块清单、case-local thin shim 是否保持无 PowerShell / raw CLI 默认入口，以及 README / `/rekit` skill / CLAUDE / autonomous goal 是否继续把 Mission Control、`/rekit` 和 Go-native backend 作为默认公开路径。
+4. **Release inventory**：`release-check` 的 `powerShellDeprecation`、`caseShim` 与 `publicDefaultDocs` inventory 必须 `ready=true`，并能解析命令归属、模块状态、freeze gates、blocked migrations、默认委托、实际 `.ps1` 模块清单、case-local thin shim 是否保持无 PowerShell / raw CLI 默认入口，以及 README / `/rekit` skill / CLAUDE / Mission Control product direction / autonomous goal / release readiness / Go-first plan / deprecation roadmap 是否继续把 Mission Control、`/rekit` 和 Go-native backend 作为默认公开路径。
 5. **Release invariant**：Go release invariant 锁定 checklist、边界、known gaps、deprecation 状态或 façade freeze guard；Batch 131 已新增 `TestPowerShellFacadeFreezeInvariants` 锁定默认 Go 委托集合、`release-check` Go-only guard和 blocked heavy-tool/authority/confirmed 不进入默认委托；Batch 190 将 `plan-subagents` review artifacts 纳入默认 Go façade 并继续锁定不自动 spawn agent / 不执行 heavy-tool 边界。
 6. **Legacy freeze**：PowerShell 只允许 bug fix / compatibility / safety boundary 修复。
 7. **Fallback retirement candidate**：至少一个 release cycle 无 fallback 需求，且旧 case smoke、doctor、facade smoke 或对应 Go-native parity test 通过。

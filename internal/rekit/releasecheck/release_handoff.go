@@ -179,7 +179,7 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			Summary: check.PublicDefaultDocs.Summary,
 			Details: []string{
 				fmt.Sprintf("documents=%d requiredPhrases=%d forbiddenCommands=%d forbiddenShellFences=%d", len(check.PublicDefaultDocs.Documents), len(check.PublicDefaultDocs.RequiredPhrases), len(check.PublicDefaultDocs.ForbiddenCommands), len(check.PublicDefaultDocs.ForbiddenShellFences)),
-				"README, CLAUDE, slash skill, autonomous goal, and release readiness keep Mission Control / Go-native defaults",
+				"README, CLAUDE, slash skill, product direction, autonomous goal, release readiness, Go-first plan, and deprecation roadmap keep Mission Control / Go-native defaults",
 				"PowerShell façade command snippets and shell fences are not documented as default user paths",
 			},
 		},

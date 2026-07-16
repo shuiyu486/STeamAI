@@ -15,13 +15,19 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertDocument(t, readiness, "README.md")
 	assertDocument(t, readiness, ".claude/skills/rekit/SKILL.md")
 	assertDocument(t, readiness, "CLAUDE.md")
+	assertDocument(t, readiness, "docs/mission-control-product-direction.md")
 	assertDocument(t, readiness, "docs/autonomous-goal.md")
 	assertDocument(t, readiness, "docs/release-readiness.md")
+	assertDocument(t, readiness, "docs/go-first-convergence-plan.md")
+	assertDocument(t, readiness, "docs/powershell-deprecation.md")
 	assertPhrase(t, readiness, "README.md", "用户主要指挥主 Agent / Mission Commander")
+	assertPhrase(t, readiness, "docs/mission-control-product-direction.md", "Lane-centric Agent Team Mission Control")
 	assertPhrase(t, readiness, ".claude/skills/rekit/SKILL.md", "底层 Go CLI 是 canonical runtime")
 	assertPhrase(t, readiness, "CLAUDE.md", "PowerShell-free / Go-native / 跨平台收敛")
 	assertPhrase(t, readiness, "docs/autonomous-goal.md", "默认继续自主推进")
 	assertPhrase(t, readiness, "docs/release-readiness.md", "默认本机验证路径不依赖 PowerShell")
+	assertPhrase(t, readiness, "docs/go-first-convergence-plan.md", "不要把大型 PowerShell matrix 作为默认必跑")
+	assertPhrase(t, readiness, "docs/powershell-deprecation.md", "Go CLI/backend 是 canonical runtime")
 	if len(readiness.ForbiddenCommands) != 0 {
 		t.Fatalf("unexpected forbidden public default commands: %+v", readiness.ForbiddenCommands)
 	}
@@ -113,8 +119,11 @@ func writeReadyDocs(t *testing.T, repo string) {
 	writeFile(t, filepath.Join(repo, "README.md"), readyREADME)
 	writeFile(t, filepath.Join(repo, ".claude", "skills", "rekit", "SKILL.md"), readySkill)
 	writeFile(t, filepath.Join(repo, "CLAUDE.md"), readyClaude)
+	writeFile(t, filepath.Join(repo, "docs", "mission-control-product-direction.md"), readyMissionControlProductDirection)
 	writeFile(t, filepath.Join(repo, "docs", "autonomous-goal.md"), readyAutonomousGoal)
 	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), readyReleaseReadiness)
+	writeFile(t, filepath.Join(repo, "docs", "go-first-convergence-plan.md"), readyGoFirstConvergence)
+	writeFile(t, filepath.Join(repo, "docs", "powershell-deprecation.md"), readyPowerShellDeprecation)
 }
 
 func writeFile(t *testing.T, path, content string) {
@@ -170,6 +179,13 @@ PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询�
 默认远程 CI 入口是 ` + "`.github/workflows/release-gate.yml`" + `，在 Linux、Windows、macOS 上运行 Go-native release checks。
 `
 
+const readyMissionControlProductDirection = `# mission
+
+Lane-centric Agent Team Mission Control。
+用户主要和一个 **主 Agent / Mission Commander** 会话交互。
+Go-first deterministic substrate。
+`
+
 const readyAutonomousGoal = `# goal
 
 PowerShell-free / Go-native / 跨平台。
@@ -181,4 +197,18 @@ const readyReleaseReadiness = `# release
 
 发布门禁默认依赖 Go-owned ` + "`release-check`" + ` inventory。
 默认本机验证路径不依赖 PowerShell。
+`
+
+const readyGoFirstConvergence = `# go first
+
+Go backend 成为 rekit 的 deterministic runtime owner。
+不要把大型 PowerShell matrix 作为默认必跑。
+PowerShell-free / Go-native convergence。
+`
+
+const readyPowerShellDeprecation = `# powershell
+
+PowerShell-free / Go-native / 跨平台 convergence。
+Go CLI/backend 是 canonical runtime。
+PowerShell 只作为迁移期 legacy façade / fallback / parity residue。
 `

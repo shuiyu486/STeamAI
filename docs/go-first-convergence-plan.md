@@ -54,22 +54,25 @@
 
 - 文档或规划改动：`git diff --check`。
 - Go runtime / Go tests 改动：`go test ./...`，并优先加入 `go vet ./...` 作为 release readiness 方向。
-- Pack manifest / doctor / inventory 改动：`go test ./...`、`./rekit/rekit.ps1 doctor`、必要时 `./rekit/rekit.ps1 packs`。
-- PowerShell façade 委托改动：`./rekit/tests/facade-smoke.ps1`。
+- Pack manifest / doctor / inventory 改动：`go test ./...`、`go run ./cmd/rekit -- -Command doctor`、必要时 `go run ./cmd/rekit -- -Command packs`。
+- PowerShell façade / fallback 委托改动：按需运行 façade compatibility smoke；它不属于默认 release gate。
 - Existing PowerShell smoke 维护：只维护既有 smoke/parity，不新增大编排；必要时运行 `rekit/tests/README.md` 指定的最小相关组合。
 - init/attach/sync/promote/workstream/ledger/gate 改动：使用临时 case 验证 no-real-artifact、backup、review-first、containment、no confirmed/authority unless explicitly allowed。
 - Agent Team 闭环改动：验证临时 case 中 packet、ledger events、gate request、handoff 和新会话可接手信息完整。
 
 Release readiness 目标门禁应逐步收束为：
 
-```powershell
+```text
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
 go test ./...
 go vet ./...
-.\rekit\rekit.ps1 doctor
-.\rekit\tests\facade-smoke.ps1
-# 按改动类型选择少量临时 case smoke，不默认运行大型 PowerShell matrix
 git diff --check
 ```
+
+迁移期 façade / fallback compatibility smoke 只在改对应兼容层时按需追加，不作为默认 release readiness 目标门禁。
 
 ## 风险与注意事项
 
@@ -233,8 +236,8 @@ git diff --check
 完成信号：
 
 - 新会话能通过一页 current-state/release checklist 了解项目状态；Batch 128 已新增 `docs/release-readiness.md` 并用 Go release invariant 锁定核心章节、命令、pack matrix 和 known gaps；Batch 141 已新增 `docs/autonomous-goal.md`，把未来几十到上百轮的中大型 autonomous goal、停止条件、执行顺序和可复制 prompt 固化为接手指南。
-- release gate 可在本机和 CI 中稳定执行；Batch 130 新增 Go-owned `release-check` inventory，用 JSON envelope 汇总 recommended minimum、文档入口、pack schema、边界与 known gaps，作为本机/CI release gate 的确定性前置检查；Batch 139 已进一步输出 `gateProfile`，把 recommended minimum 解析为 step kind、repo-local path、present/resolved 状态，供本机/CI 在执行前消费；Batch 140 已新增轻量 GitHub Actions release gate；Batch 143 新增 `heavyToolGateActions[]`，让 release inventory 暴露当前 pack manifest 声明的 heavy-tool gate action 集合；Batch 144 新增 `ciReleaseGate` inventory，对照 `.github/workflows/release-gate.yml` 的 required jobs、commands 与 forbidden broad/heavy steps 发现 CI 漂移；Batch 146 新增 `releaseHandoff` summary，把 read-first docs、readiness signals、latest batch、validation commands 与 next actions 放入 release-check envelope，提升新会话和维护者接手质量；Batch 147 新增 `releaseHandoff.releaseNotes` freshness gate，确保最新完成 batch 已进入 CHANGELOG `Unreleased`；Batch 148 新增 `releaseHandoff.knownGaps[]`，把 release readiness Known gaps 转为机器可读 category/summary 供新会话和 release maintainer 先读；Batch 149 新增 `releaseHandoff.packMaturity`，汇总 pack maturity、schema validity 与每 pack heavy-tool gate readiness；Batch 217 将 recommended minimum 与 CI required commands 改为 Go-native release-check/status/packs/doctor/test/vet/diff，并用 CI inventory 禁止默认 workflow 漂移回 `rekit.ps1` 或 `facade-smoke.ps1`；Batch 218 将 case-local thin shim readiness 纳入 Go `release-check` / `doctor`，防止 case shim 再次出现 PowerShell 或 raw CLI 默认入口；Batch 219 将 README、canonical `/rekit` skill、CLAUDE 与 autonomous goal 的默认公开入口纳入 `publicDefaultDocs` readiness 和 release handoff，防止公开文档漂移回 PowerShell façade 命令路径。
-- PowerShell-free / Go-native convergence 有明确文档入口、模块归属和 freeze/removal gates；Batch 129 已新增 `docs/powershell-deprecation.md`，Batch 131 已新增 Go release invariant 锁定默认 façade 委托集合、blocked heavy-tool/authority/confirmed 不进入默认委托；Batch 142 已将 PowerShell deprecation inventory 纳入 Go-owned `release-check`，对照 `rekit/rekit.ps1` 默认委托集合、命令归属矩阵、`rekit/lib/*.ps1` 模块清单、freeze gates 与 blocked migrations 输出 `powerShellDeprecation.ready`；Batch 190 已将 `plan-subagents` review artifacts 纳入默认 Go façade 并保留 fallback；Batch 216 将后续方向调整为 PowerShell replacement/removal、Go-native validation、macOS/Linux 默认路径和跨平台 release readiness，实际删除按中大型可验证 batch 推进；Batch 218 继续把 case shim PowerShell-free default path 固化为 Go-owned readiness inventory，作为后续 fallback retirement 的前置信号之一；Batch 219 将公开默认文档路径也固化为 Go-owned readiness inventory，确保删除/收缩 fallback 前 README、skill、CLAUDE 与 autonomous goal 不再把 PowerShell façade 命令作为默认入口。
+- release gate 可在本机和 CI 中稳定执行；Batch 130 新增 Go-owned `release-check` inventory，用 JSON envelope 汇总 recommended minimum、文档入口、pack schema、边界与 known gaps，作为本机/CI release gate 的确定性前置检查；Batch 139 已进一步输出 `gateProfile`，把 recommended minimum 解析为 step kind、repo-local path、present/resolved 状态，供本机/CI 在执行前消费；Batch 140 已新增轻量 GitHub Actions release gate；Batch 143 新增 `heavyToolGateActions[]`，让 release inventory 暴露当前 pack manifest 声明的 heavy-tool gate action 集合；Batch 144 新增 `ciReleaseGate` inventory，对照 `.github/workflows/release-gate.yml` 的 required jobs、commands 与 forbidden broad/heavy steps 发现 CI 漂移；Batch 146 新增 `releaseHandoff` summary，把 read-first docs、readiness signals、latest batch、validation commands 与 next actions 放入 release-check envelope，提升新会话和维护者接手质量；Batch 147 新增 `releaseHandoff.releaseNotes` freshness gate，确保最新完成 batch 已进入 CHANGELOG `Unreleased`；Batch 148 新增 `releaseHandoff.knownGaps[]`，把 release readiness Known gaps 转为机器可读 category/summary 供新会话和 release maintainer 先读；Batch 149 新增 `releaseHandoff.packMaturity`，汇总 pack maturity、schema validity 与每 pack heavy-tool gate readiness；Batch 217 将 recommended minimum 与 CI required commands 改为 Go-native release-check/status/packs/doctor/test/vet/diff，并用 CI inventory 禁止默认 workflow 漂移回 `rekit.ps1` 或 `facade-smoke.ps1`；Batch 218 将 case-local thin shim readiness 纳入 Go `release-check` / `doctor`，防止 case shim 再次出现 PowerShell 或 raw CLI 默认入口；Batch 219 将 README、canonical `/rekit` skill、CLAUDE 与 autonomous goal 的默认公开入口纳入 `publicDefaultDocs` readiness 和 release handoff，防止公开文档漂移回 PowerShell façade 命令路径；Batch 220 继续把 release readiness 与 PowerShell / pwsh shell fence drift 纳入 public docs readiness；Batch 221 将 Mission Control 产品方向、Go-first plan 与 PowerShell deprecation roadmap 纳入同一 readiness envelope，避免路线文档重新把 PowerShell façade 命令或 shell fence 变成默认路径。
+- PowerShell-free / Go-native convergence 有明确文档入口、模块归属和 freeze/removal gates；Batch 129 已新增 `docs/powershell-deprecation.md`，Batch 131 已新增 Go release invariant 锁定默认 façade 委托集合、blocked heavy-tool/authority/confirmed 不进入默认委托；Batch 142 已将 PowerShell deprecation inventory 纳入 Go-owned `release-check`，对照 `rekit/rekit.ps1` 默认委托集合、命令归属矩阵、`rekit/lib/*.ps1` 模块清单、freeze gates 与 blocked migrations 输出 `powerShellDeprecation.ready`；Batch 190 已将 `plan-subagents` review artifacts 纳入默认 Go façade 并保留 fallback；Batch 216 将后续方向调整为 PowerShell replacement/removal、Go-native validation、macOS/Linux 默认路径和跨平台 release readiness，实际删除按中大型可验证 batch 推进；Batch 218 继续把 case shim PowerShell-free default path 固化为 Go-owned readiness inventory，作为后续 fallback retirement 的前置信号之一；Batch 219 将公开默认文档路径也固化为 Go-owned readiness inventory，确保删除/收缩 fallback 前 README、skill、CLAUDE 与 autonomous goal 不再把 PowerShell façade 命令作为默认入口；Batch 220/221 继续扩大 public docs readiness 覆盖到 release readiness、Mission Control 产品方向、Go-first plan 与 deprecation roadmap，并锁定这些路线文档不再用 PowerShell shell fence 或 façade 命令片段表达默认路径。
 
 ## 自主推进优先级建议
 

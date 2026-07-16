@@ -6639,3 +6639,35 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `gofmt`、`go test ./internal/rekit/defaultdocs ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...` 与 `go vet ./...`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 221：Route docs public defaults readiness
+
+状态：已完成。
+
+目标：响应上一轮 stop hook 的文档收尾要求，继续 PowerShell-free / Go-native / 跨平台收敛，把 Mission Control 产品方向、Go-first convergence plan 与 PowerShell deprecation roadmap 这些新会话/维护者必读路线文档纳入 `publicDefaultDocs` readiness，避免默认接手文档在 fallback retirement 前继续用 PowerShell shell fence 或 `rekit.ps1` façade 命令片段表达默认路径。
+
+实施范围：
+
+- `internal/rekit/defaultdocs` 的公开默认文档集合从 README、canonical `/rekit` skill、CLAUDE、autonomous goal 与 release readiness 扩展到 `docs/mission-control-product-direction.md`、`docs/go-first-convergence-plan.md` 与 `docs/powershell-deprecation.md`。
+- 新增路线文档必备短语检查，锁定 Lane-centric Mission Control 北极星、Go-first deterministic substrate、Go-native 默认 release gate、PowerShell-free / Go-native / 跨平台 convergence 与 legacy façade / fallback / parity residue 边界。
+- 继续复用 Batch 220 的 `forbiddenCommands[]` 与 `forbiddenShellFences[]` 诊断，让这些路线文档也不能把 `rekit.ps1 <default command>` 或 ` ```powershell` / ` ```pwsh` 展示成默认公开入口。
+- 将 `docs/go-first-convergence-plan.md` 顶部 release readiness 目标门禁从旧 PowerShell façade doctor / facade smoke 示例收束为 Go-native `release-check`、`status`、`packs`、`doctor`、`go test`、`go vet` 与 `git diff --check`；façade/fallback smoke 只作为改兼容层时的按需追加。
+- 更新 `docs/release-readiness.md`、`docs/powershell-deprecation.md`、`releaseHandoff.signals[]` detail、CLI/defaultdocs/releasecheck tests、release fixtures 与 CHANGELOG，记录 expanded public docs readiness 覆盖范围。
+
+边界：本批只做文档收尾、Go-owned readiness/inventory 扩展、fixture 和测试补强；不改变 runtime 写入面、PowerShell façade 默认委托集合、`REKIT_GO_DISABLE=1` fallback、pack manifest、case state、sync/promote review-first 语义、workstream/ledger/gate 行为或实际 case lifecycle 写入结果；不删除 PowerShell 文件；不执行 heavy-tool、不自动 spawn agent、不写 authority/confirmed。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/defaultdocs/defaultdocs.go internal/rekit/defaultdocs/defaultdocs_test.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/release_notes_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/defaultdocs ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 targeted `gofmt`、`go test ./internal/rekit/defaultdocs ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`latest=Batch 221`、`publicDefaultDocs=true`、`documents=8`、`forbiddenShellFences=0`、`signals=10`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...` 与 `go vet ./...`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
