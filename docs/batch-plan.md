@@ -7116,3 +7116,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt`、`go test ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\catalog-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 234）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。首次全量 `go test ./...` 在本节仍标记“实施中”且缺少验证结果时按设计失败，补齐本节状态与验证记录后已通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 235：Go-owned façade runtime dependency release inventory
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 234 删除公共 façade legacy dispatcher 后，把 `rekit.ps1` 是否仍 dot-source legacy modules、是否仍含 command switch fallback dispatcher、是否保留 Go delegation / no-fallback guard / retired dispatcher error 转为 `release-check` 机器可读字段、文本输出、release handoff 信号和文档门禁。
+
+实施范围：
+
+- `internal/rekit/releasecheck` 新增 `powerShellDeprecation.facadeRuntime` 子库存，扫描 `rekit/rekit.ps1` 的 forbidden runtime dependency patterns 与 required Go/no-fallback patterns，并把 warnings 汇总到 `powerShellDeprecation.ready`。
+- `release-check` 文本输出与 `releaseHandoff.signals[]` 的 PowerShell deprecation detail 展示 `facadeRuntime`、`legacyImports` 与 `dispatcher` 状态，便于本机/CI 与新会话直接看到公共 façade runtime dependency 是否已退休。
+- CLI / releasecheck tests 覆盖 JSON shape、text output 与 handoff signal，锁定 `legacyImports=false`、`dispatcher=false`、`facadeRuntime=true`。
+- PowerShell deprecation roadmap、release readiness、Go-first convergence、Go runtime migration 与 CHANGELOG 同步记录该 release inventory。
+
+边界：本批只做 Go-owned release inventory、测试和文档；不删除 `rekit/lib/*.ps1` 文件，不新增 PowerShell runtime logic，不改变 `rekit.ps1` 命令集合或 delegation semantics，不改变 Go output schema 中既有字段语义、case-local write semantics、sync/promote review-first、actual heavy-tool、authority/confirmed 或外部副作用边界。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/powershell_deprecation.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go test ./internal/rekit/manifest
+.\rekit\tests\facade-smoke.ps1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 235）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。验证过程中曾因本节仍标记“实施中”且验证结果为待完成导致 release handoff/latest batch readiness 按设计失败；补齐状态与验证记录后通过。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

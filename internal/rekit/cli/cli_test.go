@@ -368,6 +368,19 @@ type releaseCheckPowerShellDeprecation struct {
 		} `json:"removalCandidateModules"`
 		Warnings []string `json:"warnings"`
 	} `json:"fallbackRetirement"`
+	FacadeRuntime struct {
+		Ready                      bool     `json:"ready"`
+		Summary                    string   `json:"summary"`
+		FacadePath                 string   `json:"facadePath"`
+		LegacyModuleImportsPresent bool     `json:"legacyModuleImportsPresent"`
+		CommandDispatcherPresent   bool     `json:"commandDispatcherPresent"`
+		NoFallbackGuardPresent     bool     `json:"noFallbackGuardPresent"`
+		GoDelegationPresent        bool     `json:"goDelegationPresent"`
+		RetiredDispatcherError     bool     `json:"retiredDispatcherError"`
+		ForbiddenPatterns          []string `json:"forbiddenPatterns"`
+		RequiredPatterns           []string `json:"requiredPatterns"`
+		Warnings                   []string `json:"warnings"`
+	} `json:"facadeRuntime"`
 	Warnings []string `json:"warnings"`
 }
 
@@ -693,6 +706,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignal(t, handoff, "release-check inventory")
 	assertReleaseHandoffSignal(t, handoff, "CI release gate")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=19 candidates=0 removalModules=14")
+	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "facadeRuntime=true legacyImports=false dispatcher=false")
 	assertReleaseHandoffSignal(t, handoff, "case shim readiness")
 	assertReleaseHandoffSignal(t, handoff, "public default docs")
 	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
@@ -922,6 +936,7 @@ func assertReleaseCheckPowerShellDeprecation(t *testing.T, inventory releaseChec
 	assertPowerShellModuleStatus(t, inventory, "rekit/rekit.ps1")
 	assertPowerShellModuleStatus(t, inventory, "rekit/lib/B3.Commands.ps1")
 	assertPowerShellFallbackRetirement(t, inventory)
+	assertPowerShellFacadeRuntime(t, inventory)
 }
 
 func assertPowerShellCommandOwner(t *testing.T, inventory releaseCheckPowerShellDeprecation, areaContains string, wantGoDefault, wantBlocked bool) {
@@ -966,6 +981,20 @@ func assertPowerShellFallbackRetirement(t *testing.T, inventory releaseCheckPowe
 	}
 }
 
+func assertPowerShellFacadeRuntime(t *testing.T, inventory releaseCheckPowerShellDeprecation) {
+	t.Helper()
+	facade := inventory.FacadeRuntime
+	if !facade.Ready || facade.Summary != "PowerShell facade runtime dependency inventory ok" || facade.FacadePath != "rekit/rekit.ps1" || len(facade.Warnings) != 0 {
+		t.Fatalf("unexpected PowerShell facade runtime inventory: %+v", facade)
+	}
+	if facade.LegacyModuleImportsPresent || facade.CommandDispatcherPresent || !facade.NoFallbackGuardPresent || !facade.GoDelegationPresent || !facade.RetiredDispatcherError {
+		t.Fatalf("unexpected PowerShell facade runtime dependency flags: %+v", facade)
+	}
+	if len(facade.ForbiddenPatterns) == 0 || len(facade.RequiredPatterns) == 0 {
+		t.Fatalf("PowerShell facade runtime inventory omitted required pattern lists: %+v", facade)
+	}
+}
+
 func TestRunReleaseCheckTextInventory(t *testing.T) {
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "release-check"}, &out); err != nil {
@@ -990,7 +1019,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"packs:",
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
-		"commands=13 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=19 candidates=0 removalModules=14",
+		"commands=13 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=19 candidates=0 removalModules=14 facadeRuntime=true legacyImports=false dispatcher=false",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=13",
 		"release handoff: release handoff summary ok ready=true readFirst=7 signals=10 knownGaps=5 packMaturity=10",

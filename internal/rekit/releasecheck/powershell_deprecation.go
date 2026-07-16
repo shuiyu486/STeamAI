@@ -18,6 +18,7 @@ type PowerShellDeprecation struct {
 	FreezeGates        []PowerShellFreezeGate       `json:"freezeGates"`
 	BlockedMigrations  []string                     `json:"blockedMigrations"`
 	FallbackRetirement PowerShellFallbackRetirement `json:"fallbackRetirement"`
+	FacadeRuntime      PowerShellFacadeRuntime      `json:"facadeRuntime"`
 	Warnings           []string                     `json:"warnings"`
 }
 
@@ -40,6 +41,20 @@ type PowerShellModuleStatus struct {
 type PowerShellFreezeGate struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+}
+
+type PowerShellFacadeRuntime struct {
+	Ready                      bool     `json:"ready"`
+	Summary                    string   `json:"summary"`
+	FacadePath                 string   `json:"facadePath"`
+	LegacyModuleImportsPresent bool     `json:"legacyModuleImportsPresent"`
+	CommandDispatcherPresent   bool     `json:"commandDispatcherPresent"`
+	NoFallbackGuardPresent     bool     `json:"noFallbackGuardPresent"`
+	GoDelegationPresent        bool     `json:"goDelegationPresent"`
+	RetiredDispatcherError     bool     `json:"retiredDispatcherError"`
+	ForbiddenPatterns          []string `json:"forbiddenPatterns"`
+	RequiredPatterns           []string `json:"requiredPatterns"`
+	Warnings                   []string `json:"warnings"`
 }
 
 type PowerShellFallbackRetirement struct {
@@ -87,8 +102,10 @@ func powerShellDeprecation(repo string) PowerShellDeprecation {
 	strategy.FreezeGates = parsePowerShellFreezeGates(text)
 	strategy.BlockedMigrations = markdownBulletsInSection(text, "## 禁止迁移清单")
 	strategy.FallbackRetirement = powerShellFallbackRetirement(repo, strategy.CommandOwnership, strategy.ModuleStatus)
+	strategy.FacadeRuntime = powerShellFacadeRuntime(repo)
 	strategy.Warnings = append(strategy.Warnings, powerShellDeprecationWarnings(repo, strategy)...)
 	strategy.Warnings = append(strategy.Warnings, strategy.FallbackRetirement.Warnings...)
+	strategy.Warnings = append(strategy.Warnings, strategy.FacadeRuntime.Warnings...)
 	if len(strategy.Warnings) > 0 {
 		strategy.Ready = false
 		strategy.Summary = "PowerShell deprecation inventory has warnings"
@@ -238,6 +255,63 @@ func sortFallbackRetirementCommands(items []PowerShellFallbackRetirementCommand)
 		}
 		return items[i].Area < items[j].Area
 	})
+}
+
+func powerShellFacadeRuntime(repo string) PowerShellFacadeRuntime {
+	const facadePath = "rekit/rekit.ps1"
+	inventory := PowerShellFacadeRuntime{
+		Ready:             true,
+		Summary:           "PowerShell facade runtime dependency inventory ok",
+		FacadePath:        facadePath,
+		ForbiddenPatterns: []string{},
+		RequiredPatterns:  []string{},
+		Warnings:          []string{},
+	}
+	data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(facadePath)))
+	if err != nil {
+		inventory.Ready = false
+		inventory.Summary = "PowerShell facade runtime dependency inventory has warnings"
+		inventory.Warnings = append(inventory.Warnings, err.Error())
+		return inventory
+	}
+	text := string(data)
+	forbidden := []string{
+		". (Join-Path $RuntimeRoot 'lib\\",
+		"Get-RekitPackInventory -RepoRoot",
+		"Invoke-RekitStart -Target",
+		"Sync-RekitPack -Target",
+		"Promote-RekitChanges -Target",
+		"Write-RekitSubagentPlan -Target",
+	}
+	for _, pattern := range forbidden {
+		inventory.ForbiddenPatterns = append(inventory.ForbiddenPatterns, pattern)
+		if strings.Contains(text, pattern) {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell facade still contains retired runtime dependency pattern: %s", pattern))
+		}
+	}
+	required := []string{
+		"function Test-RekitGoDefaultDelegationCommand",
+		"function Test-RekitNoPowerShellFallbackCommand",
+		"Invoke-RekitGoBackend -Invocation $goInvocation",
+		"if (Test-RekitNoPowerShellFallbackCommand -Name $Command)",
+		"retired PowerShell fallback dispatcher",
+	}
+	for _, pattern := range required {
+		inventory.RequiredPatterns = append(inventory.RequiredPatterns, pattern)
+		if !strings.Contains(text, pattern) {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell facade missing required Go/no-fallback pattern: %s", pattern))
+		}
+	}
+	inventory.LegacyModuleImportsPresent = strings.Contains(text, ". (Join-Path $RuntimeRoot 'lib\\")
+	inventory.CommandDispatcherPresent = strings.Contains(text, "Get-RekitPackInventory -RepoRoot") || strings.Contains(text, "Invoke-RekitStart -Target") || strings.Contains(text, "Sync-RekitPack -Target") || strings.Contains(text, "Promote-RekitChanges -Target") || strings.Contains(text, "Write-RekitSubagentPlan -Target")
+	inventory.NoFallbackGuardPresent = strings.Contains(text, "if (Test-RekitNoPowerShellFallbackCommand -Name $Command)")
+	inventory.GoDelegationPresent = strings.Contains(text, "Invoke-RekitGoBackend -Invocation $goInvocation")
+	inventory.RetiredDispatcherError = strings.Contains(text, "retired PowerShell fallback dispatcher")
+	if len(inventory.Warnings) > 0 {
+		inventory.Ready = false
+		inventory.Summary = "PowerShell facade runtime dependency inventory has warnings"
+	}
+	return inventory
 }
 
 func sortedStringMapKeys(values map[string]bool) []string {

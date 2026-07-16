@@ -123,6 +123,7 @@ func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {
 	assertModuleStatus(t, inventory, "rekit/rekit.ps1")
 	assertModuleStatus(t, inventory, "rekit/lib/B3.Commands.ps1")
 	assertFallbackRetirement(t, inventory)
+	assertFacadeRuntime(t, inventory)
 }
 
 func TestPowerShellDeprecationInventoryDetectsDrift(t *testing.T) {
@@ -212,6 +213,20 @@ func assertFallbackRetirement(t *testing.T, inventory PowerShellDeprecation) {
 		if !slices.Contains(fallback.NoFallbackCommands, command) {
 			t.Fatalf("NoFallbackCommands = %v, missing %s", fallback.NoFallbackCommands, command)
 		}
+	}
+}
+
+func assertFacadeRuntime(t *testing.T, inventory PowerShellDeprecation) {
+	t.Helper()
+	facade := inventory.FacadeRuntime
+	if !facade.Ready || facade.Summary != "PowerShell facade runtime dependency inventory ok" || facade.FacadePath != "rekit/rekit.ps1" || len(facade.Warnings) != 0 {
+		t.Fatalf("unexpected PowerShell facade runtime inventory: %+v", facade)
+	}
+	if facade.LegacyModuleImportsPresent || facade.CommandDispatcherPresent || !facade.NoFallbackGuardPresent || !facade.GoDelegationPresent || !facade.RetiredDispatcherError {
+		t.Fatalf("unexpected PowerShell facade runtime dependency flags: %+v", facade)
+	}
+	if len(facade.ForbiddenPatterns) == 0 || len(facade.RequiredPatterns) == 0 {
+		t.Fatalf("PowerShell facade runtime inventory omitted required pattern lists: %+v", facade)
 	}
 }
 
