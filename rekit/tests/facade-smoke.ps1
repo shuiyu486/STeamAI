@@ -101,21 +101,21 @@ function Assert-FakeFallback {
   Assert-ContainsText -Text $out -Expected $Expected -Label $Label
 }
 
-function Assert-LegacyRuntimeNotPreloaded {
-  $isolatedRoot = Join-Path $matrixRoot 'lazy-facade'
+function Assert-LegacyRuntimeNotLoaded {
+  $isolatedRoot = Join-Path $matrixRoot 'retired-facade-dispatcher'
   Copy-Item -LiteralPath $RekitRoot -Destination $isolatedRoot -Recurse -Force
   $isolatedRekit = Join-Path $isolatedRoot 'rekit.ps1'
-  $sentinel = 'legacy runtime imported before guard'
+  $sentinel = 'legacy runtime imported by retired dispatcher'
   [System.IO.File]::WriteAllText((Join-Path $isolatedRoot 'lib\Manifest.ps1'), "throw '$sentinel'`r`n", [System.Text.UTF8Encoding]::new($false))
 
   Write-FakeGoBackend -Path $fakeGo -CommandName 'status'
   $delegatedOut = Invoke-RekitSmoke -ScriptPath $isolatedRekit -Arguments @('-Command','status') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $delegatedOut -Expected '"delegatedByFake":true' -Label 'default delegation does not preload legacy runtime'
-  Assert-NotContainsText -Text $delegatedOut -Unexpected $sentinel -Label 'default delegation does not preload legacy runtime'
+  Assert-ContainsText -Text $delegatedOut -Expected '"delegatedByFake":true' -Label 'default delegation does not load legacy runtime'
+  Assert-NotContainsText -Text $delegatedOut -Unexpected $sentinel -Label 'default delegation does not load legacy runtime'
 
   $disabledOut = Invoke-RekitSmoke -ScriptPath $isolatedRekit -Arguments @('-Command','status') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $disabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled no-fallback does not preload legacy runtime'
-  Assert-NotContainsText -Text $disabledOut -Unexpected $sentinel -Label 'disabled no-fallback does not preload legacy runtime'
+  Assert-ContainsText -Text $disabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled no-fallback does not load legacy runtime'
+  Assert-NotContainsText -Text $disabledOut -Unexpected $sentinel -Label 'disabled no-fallback does not load legacy runtime'
 }
 
 $suffix = [Guid]::NewGuid().ToString('N').Substring(0,8)
@@ -136,7 +136,7 @@ try {
     $gateLane = 'feature-handler-0x40a010'
   }
 
-  Assert-LegacyRuntimeNotPreloaded
+  Assert-LegacyRuntimeNotLoaded
 
   # Low-risk read-only commands, overview/note reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, promote JSON previews, start/handoff JSON preview/apply paths, continue JSON preview/apply, and plan-subagents review artifacts default to Go; retired groups fail instead of using PowerShell fallback.
   $out = Invoke-RekitSmoke -Arguments @('-Command','status')

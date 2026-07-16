@@ -530,13 +530,18 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 	strategy := readRepoText(t, repo, "docs/powershell-deprecation.md")
 	smoke := readRepoText(t, repo, "rekit/tests/facade-smoke.ps1")
 
-	fallbackGuardIndex := strings.Index(facade, "if (Test-RekitNoPowerShellFallbackCommand -Name $Command)")
-	legacyImportIndex := strings.Index(facade, ". (Join-Path $RuntimeRoot 'lib\\Manifest.ps1')")
-	if fallbackGuardIndex < 0 || legacyImportIndex < 0 {
-		t.Fatalf("PowerShell facade must keep no-fallback guard and legacy runtime import")
+	if !strings.Contains(facade, "if (Test-RekitNoPowerShellFallbackCommand -Name $Command)") {
+		t.Fatalf("PowerShell facade must keep no-fallback guard")
 	}
-	if legacyImportIndex < fallbackGuardIndex {
-		t.Fatal("PowerShell facade must not dot-source legacy runtime modules before Go delegation and no-fallback guards")
+	for _, forbidden := range []string{
+		". (Join-Path $RuntimeRoot 'lib\\Manifest.ps1')",
+		". (Join-Path $RuntimeRoot 'lib\\B3.Commands.ps1')",
+		"Get-RekitPackInventory -RepoRoot",
+		"Invoke-RekitStart -Target",
+		"Sync-RekitPack -Target",
+		"Promote-RekitChanges -Target",
+	} {
+		assertTextNotContains(t, facade, forbidden, "retired PowerShell facade fallback dispatcher")
 	}
 
 	defaultCommands := powerShellSingleQuotedArrayInFunction(t, facade, "Test-RekitGoDefaultDelegationCommand")
@@ -581,12 +586,11 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 	for _, required := range []string{
 		"if ($Command -eq 'release-check' -and -not [string]::IsNullOrWhiteSpace($Target)) { return $false }",
 		"if ($Command -notin @('start','handoff','continue','release-check'))",
-		"release-check is implemented by the Go backend only",
+		"implemented by the Go backend only",
 		"Test-RekitNoPowerShellFallbackCommand",
 		"PowerShell fallback has been retired",
 		"$goFormat = 'text'",
-		". (Join-Path $RuntimeRoot 'lib\\Manifest.ps1')",
-		"'plan-subagents' {",
+		"retired PowerShell fallback dispatcher",
 		"Add-RekitGoArg ([ref]$goArgs) '-Route' $Route",
 	} {
 		assertTextContains(t, facade, required, "PowerShell facade freeze guard")
@@ -701,6 +705,13 @@ func assertTextContains(t *testing.T, text, want, label string) {
 	t.Helper()
 	if !strings.Contains(text, want) {
 		t.Fatalf("%s missing %q", label, want)
+	}
+}
+
+func assertTextNotContains(t *testing.T, text, forbidden, label string) {
+	t.Helper()
+	if strings.Contains(text, forbidden) {
+		t.Fatalf("%s must not contain %q", label, forbidden)
 	}
 }
 

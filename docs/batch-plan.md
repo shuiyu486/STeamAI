@@ -7083,3 +7083,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt`、`go test ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\catalog-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 233）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。首次全量 `release-check` 在本节缺少验证结果时按设计失败，补齐验证结果后已通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 234：Retire unreachable PowerShell façade dispatcher
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 232 清空 ordinary fallback candidates、Batch 233 将 legacy module import 后移之后，删除 `rekit.ps1` 中 no-fallback guard 后方已不可达的 legacy `rekit/lib/*.ps1` dot-source block 与 command switch fallback dispatcher，让公共 PowerShell façade 只保留参数兼容、Go delegation、no-fallback error 与 retired dispatcher error。
+
+实施范围：
+
+- `rekit/rekit.ps1` 删除 no-fallback guard 后方的 legacy runtime module dot-source block 和 command switch fallback dispatcher；所有当前 `ValidateSet` command 仍由 Go delegation 或 no-fallback guard 处理。
+- `internal/rekit/manifest/release_invariants_test.go` 从“legacy import 必须在 guard 之后”改为锁定 façade 不再包含 legacy module import / legacy dispatcher 代表性调用，并保留 Go-default command set、blocked command 与 no-fallback guard invariants。
+- `rekit/tests/facade-smoke.ps1` 保留隔离 sentinel fixture，验证 default fake Go delegation 与 `REKIT_GO_DISABLE=1` no-fallback 都不会加载 legacy runtime。
+- PowerShell deprecation roadmap、release readiness、Go runtime migration、Go-first convergence、tests guide、catalog 与 CHANGELOG 同步记录 façade dispatcher 已退休。
+
+边界：本批不删除 `rekit/lib/*.ps1` 文件，不新增 PowerShell runtime logic，不改变命令集合、Go output schema、fallback retirement inventory counts、case-local write semantics、sync/promote review-first、actual heavy-tool、authority/confirmed 或外部副作用边界。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/manifest/release_invariants_test.go
+go test ./internal/rekit/manifest
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\catalog-smoke.ps1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt`、`go test ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\catalog-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 234）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。首次全量 `go test ./...` 在本节仍标记“实施中”且缺少验证结果时按设计失败，补齐本节状态与验证记录后已通过；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
