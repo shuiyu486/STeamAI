@@ -7411,3 +7411,35 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/commands/commands.go internal/rekit/commands/commands_test.go internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/commands ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 243，`goNativePublicSurface.ready=true` / `entrypointPresent=true` / `commandCatalogPresent=true` / `commands=19` / `handlerCommands=19` / `symbolCommands=19` / `unsupportedCommandDiagnosticPresent=true`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `Go-native public surface: ... commands=19 handlers=19 symbols=19 ... unsupportedDiagnostic=true` 与 `release handoff ... signals=11`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 244：Go-native public command mutation boundary catalog
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 243 已锁定 catalog / dispatcher / symbol coverage 后，为 19 个 Go-native public commands 增加机器可读 mutation boundary profile，确保 release inventory 能同时表达 read-only、case-local write、review artifact、review-first 与 kit review-first 边界，并继续防止 actual heavy-tool 或 authority/confirmed 写入混入 public command surface。
+
+实施范围：
+
+- 扩展 `internal/rekit/commands` public command catalog，新增 `PublicProfile`、`PublicProfiles()`、`PublicProfileMap()`、`PublicProfileCommands()`、`KnownMutationBoundaries()` 与 `IsKnownMutationBoundary()`。
+- 为 19 个 public commands 显式声明 mutation boundary：`read-only`、`case-local-append`、`case-local-apply`、`case-local-read-or-bootstrap`、`case-local-review-artifact`、`case-local-review-first` 与 `kit-review-first`。
+- 扩展 `goNativePublicSurface` 输出 `commandProfiles[]` 与 `mutationBoundaries[]`，要求 profiles 覆盖同一 19 个 public commands、所有 boundary 来自 known set、kit write 必须 review-first、review-first 必须 apply-required，并拒绝 public profile 标记 actual heavy-tool 或 authority/confirmed 写入。
+- release-check text 与 `releaseHandoff.signals[]` 同步展示 `profiles=19` 与 `boundaries=7`，补 commands / releasecheck / CLI / handoff tests，并同步 PowerShell deprecation、release readiness、Go-first convergence、batch-plan 与 CHANGELOG 文档。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不改变 public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、actual heavy-tool、authority/confirmed、policy schema migration 或外部副作用边界；raw Go CLI 仍是底层 deterministic runtime/API，不变成用户主要交互界面。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/commands/commands.go internal/rekit/commands/commands_test.go internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/commands ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/commands/commands.go internal/rekit/commands/commands_test.go internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/commands ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 244，`goNativePublicSurface.ready=true` / `entrypointPresent=true` / `commandCatalogPresent=true` / `commands=19` / `handlerCommands=19` / `symbolCommands=19` / `commandProfiles=19` / `mutationBoundaries=7` / `unsupportedCommandDiagnosticPresent=true`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `Go-native public surface: ... commands=19 handlers=19 symbols=19 profiles=19 boundaries=7 ... unsupportedDiagnostic=true` 与 `release handoff ... signals=11`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 )
 
 func TestReleaseCheckIncludesManifestHeavyToolGateActions(t *testing.T) {
@@ -117,7 +119,7 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	if inventory.Entrypoint != "cmd/rekit" || !inventory.EntrypointPresent || inventory.CommandCatalogPath != "internal/rekit/commands/commands.go" || !inventory.CommandCatalogPresent || inventory.DefaultCommand != "status" || inventory.AlternativePattern != "go run ./cmd/rekit -- -Command <command>" || !inventory.UnsupportedCommandDiagnosticPresent {
 		t.Fatalf("unexpected Go-native public surface flags: %+v", inventory)
 	}
-	if len(inventory.Commands) != 19 || len(inventory.HandlerCommands) != 19 || len(inventory.SymbolCommands) != 19 {
+	if len(inventory.Commands) != 19 || len(inventory.HandlerCommands) != 19 || len(inventory.SymbolCommands) != 19 || len(inventory.CommandProfiles) != 19 || len(inventory.MutationBoundaries) != 7 {
 		t.Fatalf("Go-native public surface omitted expected command coverage: %+v", inventory)
 	}
 	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
@@ -127,6 +129,13 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	}
 	if inventory.SymbolCommands["PlanSubagents"] != "plan-subagents" || inventory.SymbolCommands["ReleaseCheck"] != "release-check" {
 		t.Fatalf("Go-native public symbol catalog drifted: %+v", inventory.SymbolCommands)
+	}
+	profiles := map[string]commands.PublicProfile{}
+	for _, profile := range inventory.CommandProfiles {
+		profiles[profile.Command] = profile
+	}
+	if profiles["release-check"].MutationBoundary != commands.BoundaryReadOnly || profiles["release-check"].IsMutation || !profiles["promote"].WritesKit || !profiles["promote"].ReviewFirst || profiles["sync"].WritesKit || !profiles["sync"].WritesCase || !slices.Contains(inventory.MutationBoundaries, commands.BoundaryKitReviewFirst) {
+		t.Fatalf("Go-native public command profiles drifted: profiles=%+v boundaries=%+v", inventory.CommandProfiles, inventory.MutationBoundaries)
 	}
 }
 

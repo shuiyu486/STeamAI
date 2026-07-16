@@ -35,6 +35,28 @@ const (
 	GoNativeAlternativePattern = "go run ./cmd/rekit -- -Command <command>"
 )
 
+const (
+	BoundaryReadOnly                 = "read-only"
+	BoundaryCaseLocalAppend          = "case-local-append"
+	BoundaryCaseLocalApply           = "case-local-apply"
+	BoundaryCaseLocalReadOrBootstrap = "case-local-read-or-bootstrap"
+	BoundaryCaseLocalReviewArtifact  = "case-local-review-artifact"
+	BoundaryCaseLocalReviewFirst     = "case-local-review-first"
+	BoundaryKitReviewFirst           = "kit-review-first"
+)
+
+type PublicProfile struct {
+	Command            string `json:"command"`
+	MutationBoundary   string `json:"mutationBoundary"`
+	IsMutation         bool   `json:"isMutation"`
+	WritesCase         bool   `json:"writesCase"`
+	WritesKit          bool   `json:"writesKit"`
+	ReviewFirst        bool   `json:"reviewFirst"`
+	ApplyRequired      bool   `json:"applyRequired"`
+	HeavyTool          bool   `json:"heavyTool"`
+	AuthorityConfirmed bool   `json:"authorityConfirmed"`
+}
+
 var publicCommands = []string{
 	Attach,
 	Bootstrap,
@@ -55,6 +77,28 @@ var publicCommands = []string{
 	Sync,
 	Update,
 	Validate,
+}
+
+var publicProfiles = []PublicProfile{
+	{Command: Attach, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: Bootstrap, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: Continue, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: Doctor, MutationBoundary: BoundaryReadOnly},
+	{Command: Gate, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: Handoff, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: Init, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: Note, MutationBoundary: BoundaryCaseLocalAppend, IsMutation: true, WritesCase: true},
+	{Command: Overview, MutationBoundary: BoundaryCaseLocalReadOrBootstrap, IsMutation: true, WritesCase: true},
+	{Command: Packs, MutationBoundary: BoundaryReadOnly},
+	{Command: PlanSubagents, MutationBoundary: BoundaryCaseLocalReviewArtifact, IsMutation: true, WritesCase: true},
+	{Command: Promote, MutationBoundary: BoundaryKitReviewFirst, IsMutation: true, WritesKit: true, ReviewFirst: true, ApplyRequired: true},
+	{Command: ReleaseCheck, MutationBoundary: BoundaryReadOnly},
+	{Command: Repair, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: Start, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: Status, MutationBoundary: BoundaryReadOnly},
+	{Command: Sync, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
+	{Command: Update, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
+	{Command: Validate, MutationBoundary: BoundaryReadOnly},
 }
 
 func Public() []string {
@@ -93,6 +137,51 @@ func SymbolValues() map[string]string {
 		"Update":        Update,
 		"Validate":      Validate,
 	}
+}
+
+func PublicProfiles() []PublicProfile {
+	out := append([]PublicProfile{}, publicProfiles...)
+	sort.Slice(out, func(i, j int) bool { return out[i].Command < out[j].Command })
+	return out
+}
+
+func PublicProfileMap() map[string]PublicProfile {
+	profiles := map[string]PublicProfile{}
+	for _, profile := range publicProfiles {
+		profiles[profile.Command] = profile
+	}
+	return profiles
+}
+
+func PublicProfileCommands(profiles []PublicProfile) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, profile := range profiles {
+		command := strings.TrimSpace(profile.Command)
+		if command == "" || seen[command] {
+			continue
+		}
+		seen[command] = true
+		out = append(out, command)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func KnownMutationBoundaries() []string {
+	return []string{
+		BoundaryCaseLocalAppend,
+		BoundaryCaseLocalApply,
+		BoundaryCaseLocalReadOrBootstrap,
+		BoundaryCaseLocalReviewArtifact,
+		BoundaryCaseLocalReviewFirst,
+		BoundaryKitReviewFirst,
+		BoundaryReadOnly,
+	}
+}
+
+func IsKnownMutationBoundary(name string) bool {
+	return slices.Contains(KnownMutationBoundaries(), strings.TrimSpace(name))
 }
 
 func IsPublic(name string) bool {

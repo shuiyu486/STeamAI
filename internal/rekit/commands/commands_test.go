@@ -23,6 +23,35 @@ func TestPublicCommandCatalog(t *testing.T) {
 	}
 }
 
+func TestPublicCommandProfiles(t *testing.T) {
+	profiles := PublicProfiles()
+	if len(profiles) != len(Public()) || !slices.IsSortedFunc(profiles, func(a, b PublicProfile) int { return strings.Compare(a.Command, b.Command) }) {
+		t.Fatalf("unexpected public command profiles: %+v", profiles)
+	}
+	profileMap := PublicProfileMap()
+	for _, command := range Public() {
+		profile, ok := profileMap[command]
+		if !ok || profile.Command != command || !IsKnownMutationBoundary(profile.MutationBoundary) || profile.HeavyTool || profile.AuthorityConfirmed {
+			t.Fatalf("invalid public command profile for %s: %+v", command, profile)
+		}
+	}
+	for _, command := range []string{ReleaseCheck, Status, Packs, Doctor, Validate} {
+		profile := profileMap[command]
+		if profile.IsMutation || profile.WritesCase || profile.WritesKit || profile.ApplyRequired || profile.ReviewFirst || profile.MutationBoundary != BoundaryReadOnly {
+			t.Fatalf("read-only command %s has mutating profile: %+v", command, profile)
+		}
+	}
+	for _, command := range []string{Sync, Update, Promote} {
+		profile := profileMap[command]
+		if !profile.IsMutation || !profile.ReviewFirst || !profile.ApplyRequired {
+			t.Fatalf("review-first command %s missing mutation guards: %+v", command, profile)
+		}
+	}
+	if profileMap[Promote].WritesCase || !profileMap[Promote].WritesKit || !profileMap[Sync].WritesCase || profileMap[Sync].WritesKit {
+		t.Fatalf("unexpected kit/case write boundaries: promote=%+v sync=%+v", profileMap[Promote], profileMap[Sync])
+	}
+}
+
 func TestPublicCommandHandlerCoverageHelpers(t *testing.T) {
 	symbols := SymbolValues()
 	if len(symbols) != len(Public()) || symbols["PlanSubagents"] != "plan-subagents" || symbols["ReleaseCheck"] != "release-check" {
