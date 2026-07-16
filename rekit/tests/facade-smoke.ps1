@@ -244,6 +244,9 @@ try {
   $disabledDefaultOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledDefaultOut -Unexpected 'delegatedByFake' -Label 'go disabled default packs no fallback'
   Assert-ContainsText -Text $disabledDefaultOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled default packs no fallback'
+  $disabledGateOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane) -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledGateOut -Unexpected 'delegatedByFake' -Label 'go disabled gate no fallback'
+  Assert-ContainsText -Text $disabledGateOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled gate no fallback'
   $disabledAttachOut = Invoke-RekitSmoke -Arguments @('-Command','attach','-Target',(Join-Path $matrixRoot 'disabled-attach'),'-Pack',$Pack,'-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledAttachOut -Unexpected 'delegatedByFake' -Label 'go disabled attach fallback'
   Assert-ContainsText -Text $disabledAttachOut -Expected 'would attach case' -Label 'go disabled attach fallback'

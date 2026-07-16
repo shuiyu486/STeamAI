@@ -63,7 +63,7 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 | `promote` review/artifacts/candidates/apply/JSON preview | Go default | façade + text what-if fallback | 文本 promote what-if legacy-only；pack source 写入仍要求 review-first/backup；Go-native parity 后删除 fallback。 |
 | `overview` text/JSON 与缺 board 初始化 | Go default | façade + fallback | PowerShell read layer 不新增展示语义；Go overview 是 canonical owner，fallback 是 removal candidate。 |
 | `note -List` text/table/tsv/JSON、`note` append、`note -WhatIf` | Go default | façade + fallback | 新 ledger schema 校验优先 Go；PowerShell 不新增 kind，fallback 是 removal candidate。 |
-| `gate -WhatIf` / `gate -Apply` pending-gate | Go default | façade + fallback | 只预览或写 pending-gate request；不执行 heavy-tool；fallback 是 removal candidate。 |
+| `gate -WhatIf` / `gate -Apply` pending-gate | Go default | façade delegate + no PowerShell fallback | 只预览或写 pending-gate request；不执行 heavy-tool；PowerShell fallback 已退休。 |
 | `start` / `handoff` JSON preview/apply | Go default | façade + text fallback | 文本 preview legacy-only；结构化语义以 Go 为准；Go-native default path 文档化后删除 fallback。 |
 | `continue -WhatIf -Format json` / explicit `continue -Apply` | Go default safe subset | façade + fallback | `continue -Apply` 不写 authority/confirmed；text flow legacy-only，后续以 Go-native resume/handoff 取代。 |
 | `plan-subagents` review artifacts | Go default | façade delegate + no PowerShell fallback | 只写 review packet / summary / combined diff 路径；不自动 spawn agent；PowerShell fallback 已退休，使用 Go package tests 与 `plan-subagents-smoke.ps1` 维护 parity。 |
@@ -95,7 +95,7 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 `release-check -Format json` 的 `powerShellDeprecation.fallbackRetirement` 是后续 removal batch 的确定性前置库存：
 
 - `goDefaultCommands[]` 来自 `rekit/rekit.ps1` 的默认 Go delegation 集合，用于确认 façade 默认路径已经由 Go owner 覆盖。
-- `noFallbackCommands[]` 表示已经没有 PowerShell fallback 的 Go-default 命令；当前基线包含 `release-check`、`status`、`packs`、`doctor`、`validate` 与 `plan-subagents`。
+- `noFallbackCommands[]` 表示已经没有 PowerShell fallback 的 Go-default 命令；当前基线包含 `release-check`、`status`、`packs`、`doctor`、`validate`、`gate` 与 `plan-subagents`。
 - `candidateCommands[]` 表示 Go-default 但仍有 legacy / fallback / removal-candidate 语义的命令行，是后续 fallback removal batch 的候选工作清单。
 - `blockedCommands[]` 保留 actual heavy-tool、authority/confirmed 等不得普通迁移的 command rows；这些 row 不应进入自动 removal batch。
 - `removalCandidateModules[]` 来自模块状态矩阵中的 removal-candidate `.ps1` 文件，用于决定独立删除批次的 review 范围。
