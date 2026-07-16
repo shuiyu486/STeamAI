@@ -146,6 +146,9 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	if len(inventory.CommandProfileBoundaries) != 7 || inventory.CommandProfileBoundaries[0].Boundary != commands.BoundaryCaseLocalAppend || inventory.CommandProfileBoundaries[0].Count != 1 || strings.Join(inventory.CommandProfileBoundaries[1].Commands, ",") != "attach,bootstrap,continue,gate,handoff,init,repair,start" || inventory.CommandProfileBoundaries[len(inventory.CommandProfileBoundaries)-1].Boundary != commands.BoundaryReadOnly || inventory.CommandProfileBoundaries[len(inventory.CommandProfileBoundaries)-1].Count != 5 {
 		t.Fatalf("Go-native public command profile boundary rows drifted: %+v", inventory.CommandProfileBoundaries)
 	}
+	if len(inventory.CommandProfilePolicies) != 5 || commands.PublicProfilePolicyViolationCount(inventory.CommandProfilePolicies) != 0 || inventory.CommandProfilePolicies[0].Policy != commands.PublicProfilePolicyNoHeavyTool || !inventory.CommandProfilePolicies[0].Ready || inventory.CommandProfilePolicies[3].Policy != commands.PublicProfilePolicyReviewFirstApplyRequired || len(inventory.CommandProfilePolicies[3].Commands) != 0 {
+		t.Fatalf("Go-native public command profile policy rows drifted: %+v", inventory.CommandProfilePolicies)
+	}
 }
 
 func TestGoNativePublicSurfaceInventoryDetectsDispatcherDrift(t *testing.T) {

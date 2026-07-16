@@ -45,6 +45,14 @@ const (
 	BoundaryKitReviewFirst           = "kit-review-first"
 )
 
+const (
+	PublicProfilePolicyNoHeavyTool              = "no-heavy-tool"
+	PublicProfilePolicyNoAuthorityConfirmed     = "no-authority-confirmed"
+	PublicProfilePolicyKitWriteReviewFirst      = "kit-write-review-first"
+	PublicProfilePolicyReviewFirstApplyRequired = "review-first-apply-required"
+	PublicProfilePolicyKnownMutationBoundary    = "known-mutation-boundary"
+)
+
 type PublicProfile struct {
 	Command            string `json:"command"`
 	MutationBoundary   string `json:"mutationBoundary"`
@@ -86,6 +94,14 @@ type PublicProfileBoundary struct {
 	Boundary string   `json:"boundary"`
 	Count    int      `json:"count"`
 	Commands []string `json:"commands"`
+}
+
+type PublicProfilePolicy struct {
+	Policy         string   `json:"policy"`
+	Ready          bool     `json:"ready"`
+	Summary        string   `json:"summary"`
+	ViolationCount int      `json:"violationCount"`
+	Commands       []string `json:"commands"`
 }
 
 var publicCommands = []string{
@@ -306,6 +322,47 @@ func PublicProfileBoundariesFor(groups PublicProfileGroups) []PublicProfileBound
 
 func PublicProfileBoundariesBaseline() []PublicProfileBoundary {
 	return PublicProfileBoundariesFor(PublicProfileGroupsBaseline())
+}
+
+func PublicProfilePoliciesFor(profiles []PublicProfile) []PublicProfilePolicy {
+	return []PublicProfilePolicy{
+		publicProfilePolicy(PublicProfilePolicyNoHeavyTool, "public command profiles must not execute actual heavy tools", profiles, func(profile PublicProfile) bool { return profile.HeavyTool }),
+		publicProfilePolicy(PublicProfilePolicyNoAuthorityConfirmed, "public command profiles must not write authority/confirmed state", profiles, func(profile PublicProfile) bool { return profile.AuthorityConfirmed }),
+		publicProfilePolicy(PublicProfilePolicyKitWriteReviewFirst, "kit-writing public commands must be review-first", profiles, func(profile PublicProfile) bool { return profile.WritesKit && !profile.ReviewFirst }),
+		publicProfilePolicy(PublicProfilePolicyReviewFirstApplyRequired, "review-first public commands must require apply", profiles, func(profile PublicProfile) bool { return profile.ReviewFirst && !profile.ApplyRequired }),
+		publicProfilePolicy(PublicProfilePolicyKnownMutationBoundary, "public command profiles must use known mutation boundaries", profiles, func(profile PublicProfile) bool { return !IsKnownMutationBoundary(profile.MutationBoundary) }),
+	}
+}
+
+func PublicProfilePoliciesBaseline() []PublicProfilePolicy {
+	return PublicProfilePoliciesFor(publicProfiles)
+}
+
+func PublicProfilePolicyViolationCount(policies []PublicProfilePolicy) int {
+	count := 0
+	for _, policy := range policies {
+		count += policy.ViolationCount
+	}
+	return count
+}
+
+func publicProfilePolicy(policy, summary string, profiles []PublicProfile, violates func(PublicProfile) bool) PublicProfilePolicy {
+	commands := []string{}
+	for _, profile := range profiles {
+		command := strings.TrimSpace(profile.Command)
+		if command == "" || !violates(profile) {
+			continue
+		}
+		commands = append(commands, command)
+	}
+	sort.Strings(commands)
+	return PublicProfilePolicy{
+		Policy:         policy,
+		Ready:          len(commands) == 0,
+		Summary:        summary,
+		ViolationCount: len(commands),
+		Commands:       commands,
+	}
 }
 
 func KnownMutationBoundaries() []string {

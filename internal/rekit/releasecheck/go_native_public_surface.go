@@ -27,6 +27,7 @@ type GoNativePublicSurface struct {
 	CommandProfileSummary               commands.PublicProfileSummary    `json:"commandProfileSummary"`
 	CommandProfileGroups                commands.PublicProfileGroups     `json:"commandProfileGroups"`
 	CommandProfileBoundaries            []commands.PublicProfileBoundary `json:"commandProfileBoundaries"`
+	CommandProfilePolicies              []commands.PublicProfilePolicy   `json:"commandProfilePolicies"`
 	MutationBoundaries                  []string                         `json:"mutationBoundaries"`
 	AlternativePattern                  string                           `json:"alternativePattern"`
 	UnsupportedCommandDiagnostic        string                           `json:"unsupportedCommandDiagnostic"`
@@ -49,6 +50,7 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 		CommandProfileSummary:        commands.PublicProfileSummaryBaseline(),
 		CommandProfileGroups:         commands.PublicProfileGroupsBaseline(),
 		CommandProfileBoundaries:     commands.PublicProfileBoundariesBaseline(),
+		CommandProfilePolicies:       commands.PublicProfilePoliciesBaseline(),
 		MutationBoundaries:           commands.KnownMutationBoundaries(),
 		AlternativePattern:           commands.GoNativeAlternativePattern,
 		UnsupportedCommandDiagnostic: commands.UnsupportedError("unsupported").Error(),
@@ -200,6 +202,27 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 	}
 	if len(inventory.CommandProfileBoundaries) != len(inventory.MutationBoundaries) {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile boundary rows do not cover mutation boundaries")
+	}
+	computedPolicies := commands.PublicProfilePoliciesFor(inventory.CommandProfiles)
+	if len(inventory.CommandProfilePolicies) != len(computedPolicies) {
+		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile policy rows do not cover required policies")
+	}
+	for i, policy := range computedPolicies {
+		if i >= len(inventory.CommandProfilePolicies) {
+			continue
+		}
+		row := inventory.CommandProfilePolicies[i]
+		if row.Policy != policy.Policy || row.Summary != policy.Summary || row.Ready != policy.Ready || row.ViolationCount != policy.ViolationCount || !slices.Equal(row.Commands, policy.Commands) {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile policy row drifted: %s", policy.Policy))
+		}
+	}
+	if commands.PublicProfilePolicyViolationCount(inventory.CommandProfilePolicies) != 0 {
+		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile policy rows contain violations")
+	}
+	for _, policy := range inventory.CommandProfilePolicies {
+		if !policy.Ready || policy.ViolationCount != 0 || len(policy.Commands) != 0 {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile policy is not ready: %s", policy.Policy))
+		}
 	}
 	seen := map[string]bool{}
 	for _, command := range inventory.Commands {
