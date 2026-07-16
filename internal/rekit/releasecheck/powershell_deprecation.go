@@ -19,6 +19,7 @@ type PowerShellDeprecation struct {
 	BlockedMigrations  []string                     `json:"blockedMigrations"`
 	FallbackRetirement PowerShellFallbackRetirement `json:"fallbackRetirement"`
 	FacadeRuntime      PowerShellFacadeRuntime      `json:"facadeRuntime"`
+	ModuleRemoval      PowerShellModuleRemoval      `json:"moduleRemoval"`
 	Warnings           []string                     `json:"warnings"`
 }
 
@@ -55,6 +56,23 @@ type PowerShellFacadeRuntime struct {
 	ForbiddenPatterns          []string `json:"forbiddenPatterns"`
 	RequiredPatterns           []string `json:"requiredPatterns"`
 	Warnings                   []string `json:"warnings"`
+}
+
+type PowerShellModuleRemoval struct {
+	Ready                     bool                          `json:"ready"`
+	Summary                   string                        `json:"summary"`
+	CandidateModules          []PowerShellModuleRemovalItem `json:"candidateModules"`
+	UndocumentedModules       []string                      `json:"undocumentedModules"`
+	FacadeRuntimeDependencies []string                      `json:"facadeRuntimeDependencies"`
+	Warnings                  []string                      `json:"warnings"`
+}
+
+type PowerShellModuleRemovalItem struct {
+	Path               string `json:"path"`
+	Status             string `json:"status"`
+	Notes              string `json:"notes"`
+	Present            bool   `json:"present"`
+	ReferencedByFacade bool   `json:"referencedByFacade"`
 }
 
 type PowerShellFallbackRetirement struct {
@@ -103,9 +121,11 @@ func powerShellDeprecation(repo string) PowerShellDeprecation {
 	strategy.BlockedMigrations = markdownBulletsInSection(text, "## 禁止迁移清单")
 	strategy.FallbackRetirement = powerShellFallbackRetirement(repo, strategy.CommandOwnership, strategy.ModuleStatus)
 	strategy.FacadeRuntime = powerShellFacadeRuntime(repo)
+	strategy.ModuleRemoval = powerShellModuleRemoval(repo, strategy.ModuleStatus, strategy.FacadeRuntime)
 	strategy.Warnings = append(strategy.Warnings, powerShellDeprecationWarnings(repo, strategy)...)
 	strategy.Warnings = append(strategy.Warnings, strategy.FallbackRetirement.Warnings...)
 	strategy.Warnings = append(strategy.Warnings, strategy.FacadeRuntime.Warnings...)
+	strategy.Warnings = append(strategy.Warnings, strategy.ModuleRemoval.Warnings...)
 	if len(strategy.Warnings) > 0 {
 		strategy.Ready = false
 		strategy.Summary = "PowerShell deprecation inventory has warnings"
@@ -310,6 +330,69 @@ func powerShellFacadeRuntime(repo string) PowerShellFacadeRuntime {
 	if len(inventory.Warnings) > 0 {
 		inventory.Ready = false
 		inventory.Summary = "PowerShell facade runtime dependency inventory has warnings"
+	}
+	return inventory
+}
+
+func powerShellModuleRemoval(repo string, modules []PowerShellModuleStatus, facade PowerShellFacadeRuntime) PowerShellModuleRemoval {
+	inventory := PowerShellModuleRemoval{
+		Ready:                     true,
+		Summary:                   "PowerShell module removal inventory ok",
+		CandidateModules:          []PowerShellModuleRemovalItem{},
+		UndocumentedModules:       []string{},
+		FacadeRuntimeDependencies: []string{},
+		Warnings:                  []string{},
+	}
+	facadeRefs := map[string]bool{}
+	if facade.LegacyModuleImportsPresent {
+		for _, module := range powerShellRuntimeModules(repo) {
+			facadeRefs[module] = true
+		}
+	}
+	documented := map[string]bool{}
+	for _, module := range modules {
+		documented[filepath.ToSlash(module.Path)] = true
+		combined := strings.ToLower(module.Status + " " + module.Notes)
+		if !strings.Contains(combined, "removal-candidate") && !strings.Contains(combined, "removal candidate") {
+			continue
+		}
+		path := filepath.ToSlash(module.Path)
+		_, err := os.Stat(filepath.Join(repo, filepath.FromSlash(path)))
+		item := PowerShellModuleRemovalItem{
+			Path:               path,
+			Status:             module.Status,
+			Notes:              module.Notes,
+			Present:            err == nil,
+			ReferencedByFacade: facadeRefs[path],
+		}
+		if !item.Present {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell removal-candidate module missing on disk: %s", path))
+		}
+		if item.ReferencedByFacade {
+			inventory.FacadeRuntimeDependencies = append(inventory.FacadeRuntimeDependencies, path)
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell removal-candidate module still referenced by facade: %s", path))
+		}
+		inventory.CandidateModules = append(inventory.CandidateModules, item)
+	}
+	for _, module := range powerShellRuntimeModules(repo) {
+		if !documented[module] {
+			inventory.UndocumentedModules = append(inventory.UndocumentedModules, module)
+		}
+	}
+	sort.Slice(inventory.CandidateModules, func(i, j int) bool {
+		return inventory.CandidateModules[i].Path < inventory.CandidateModules[j].Path
+	})
+	sort.Strings(inventory.UndocumentedModules)
+	sort.Strings(inventory.FacadeRuntimeDependencies)
+	if len(inventory.CandidateModules) == 0 {
+		inventory.Warnings = append(inventory.Warnings, "PowerShell module removal inventory has no removal-candidate modules")
+	}
+	if len(inventory.UndocumentedModules) > 0 {
+		inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell runtime modules missing from removal inventory: %s", strings.Join(inventory.UndocumentedModules, ", ")))
+	}
+	if len(inventory.Warnings) > 0 {
+		inventory.Ready = false
+		inventory.Summary = "PowerShell module removal inventory has warnings"
 	}
 	return inventory
 }

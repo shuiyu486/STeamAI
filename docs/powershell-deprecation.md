@@ -100,6 +100,16 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 
 该库存只审计公共 façade 是否重新依赖 legacy runtime；不删除 `rekit/lib/*.ps1`，也不表示 blocked heavy-tool、authority/confirmed 或 policy schema 迁移可以顺手迁入。
 
+## Module removal inventory
+
+`release-check -Format json` 的 `powerShellDeprecation.moduleRemoval` 是后续删除或归档 PowerShell 文件前的只读 readiness 库存：
+
+- `candidateModules[]` 来自模块状态矩阵中的 `removal-candidate` 行，记录每个候选 `.ps1` 文件是否仍存在、状态说明和是否被公共 façade 引用；当前基线为 14 个候选。
+- `facadeRuntimeDependencies[]` 必须为空，表示公共 façade 当前不依赖这些候选模块；若 `rekit.ps1` 重新加载 legacy runtime modules，则该清单会转为 warning。
+- `undocumentedModules[]` 必须为空，表示 `rekit/` 与 `rekit/lib/*.ps1` 的实际文件都已在模块状态矩阵中登记，避免删除批次遗漏未分类 PowerShell 文件。
+
+该库存只给出删除/归档候选清单和 readiness 信号；实际删除仍必须按独立 removal batch 执行，包含恢复计划、验证和文档。
+
 ## Fallback retirement inventory
 
 `release-check -Format json` 的 `powerShellDeprecation.fallbackRetirement` 是后续 removal batch 的确定性前置库存：
@@ -117,7 +127,7 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 1. **Documented**：本文件列出命令和模块状态。
 2. **Go-owned**：Go package tests 和 CLI tests 覆盖 deterministic 行为。
 3. **Façade default**：公共 `/rekit` 默认委托 Go；已 no-fallback 的 Go-default commands 即使设置 `REKIT_GO_DISABLE=1` 也直接失败，且 `rekit.ps1` 不再加载 legacy runtime modules 或进入 command switch fallback dispatcher。
-4. **Release inventory**：`release-check` 的 `powerShellDeprecation`、`caseShim` 与 `publicDefaultDocs` inventory 必须 `ready=true`，并能解析命令归属、模块状态、freeze gates、blocked migrations、默认委托、actual Go-default fallback retirement 分类、公共 façade runtime dependency / legacy dispatcher 状态、实际 `.ps1` 模块清单、case-local thin shim 是否保持无 PowerShell / raw CLI 默认入口，以及 README / `/rekit` skill / CLAUDE / Mission Control product direction / autonomous goal / release readiness / Go-first plan / Go runtime migration / deprecation roadmap / vision / reference absorption / Agent Team rollout / tests guide 是否继续把 Mission Control、`/rekit` 和 Go-native backend 作为默认公开路径。
+4. **Release inventory**：`release-check` 的 `powerShellDeprecation`、`caseShim` 与 `publicDefaultDocs` inventory 必须 `ready=true`，并能解析命令归属、模块状态、freeze gates、blocked migrations、默认委托、actual Go-default fallback retirement 分类、公共 façade runtime dependency / legacy dispatcher 状态、PowerShell module removal readiness、实际 `.ps1` 模块清单、case-local thin shim 是否保持无 PowerShell / raw CLI 默认入口，以及 README / `/rekit` skill / CLAUDE / Mission Control product direction / autonomous goal / release readiness / Go-first plan / Go runtime migration / deprecation roadmap / vision / reference absorption / Agent Team rollout / tests guide 是否继续把 Mission Control、`/rekit` 和 Go-native backend 作为默认公开路径。
 5. **Release invariant**：Go release invariant 锁定 checklist、边界、known gaps、deprecation 状态或 façade freeze guard；Batch 131 已新增 `TestPowerShellFacadeFreezeInvariants` 锁定默认 Go 委托集合、`release-check` Go-only guard和 blocked heavy-tool/authority/confirmed 不进入默认委托；Batch 190 将 `plan-subagents` review artifacts 纳入默认 Go façade 并继续锁定不自动 spawn agent / 不执行 heavy-tool 边界。
 6. **Legacy freeze**：PowerShell 只允许 bug fix / compatibility / safety boundary 修复。
 7. **Fallback retirement candidate**：至少一个 release cycle 无 fallback 需求，且旧 case smoke、doctor、facade smoke 或对应 Go-native parity test 通过。

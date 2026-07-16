@@ -124,6 +124,7 @@ func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {
 	assertModuleStatus(t, inventory, "rekit/lib/B3.Commands.ps1")
 	assertFallbackRetirement(t, inventory)
 	assertFacadeRuntime(t, inventory)
+	assertModuleRemoval(t, inventory)
 }
 
 func TestPowerShellDeprecationInventoryDetectsDrift(t *testing.T) {
@@ -227,6 +228,22 @@ func assertFacadeRuntime(t *testing.T, inventory PowerShellDeprecation) {
 	}
 	if len(facade.ForbiddenPatterns) == 0 || len(facade.RequiredPatterns) == 0 {
 		t.Fatalf("PowerShell facade runtime inventory omitted required pattern lists: %+v", facade)
+	}
+}
+
+func assertModuleRemoval(t *testing.T, inventory PowerShellDeprecation) {
+	t.Helper()
+	removal := inventory.ModuleRemoval
+	if !removal.Ready || removal.Summary != "PowerShell module removal inventory ok" || len(removal.Warnings) != 0 {
+		t.Fatalf("unexpected PowerShell module removal inventory: %+v", removal)
+	}
+	if len(removal.CandidateModules) != 14 || len(removal.FacadeRuntimeDependencies) != 0 || len(removal.UndocumentedModules) != 0 {
+		t.Fatalf("PowerShell module removal inventory omitted expected sections: %+v", removal)
+	}
+	for _, module := range removal.CandidateModules {
+		if strings.TrimSpace(module.Path) == "" || strings.TrimSpace(module.Status) == "" || strings.TrimSpace(module.Notes) == "" || !module.Present || module.ReferencedByFacade {
+			t.Fatalf("unexpected PowerShell module removal candidate: %+v", module)
+		}
 	}
 }
 

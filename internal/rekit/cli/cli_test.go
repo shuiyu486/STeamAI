@@ -381,6 +381,20 @@ type releaseCheckPowerShellDeprecation struct {
 		RequiredPatterns           []string `json:"requiredPatterns"`
 		Warnings                   []string `json:"warnings"`
 	} `json:"facadeRuntime"`
+	ModuleRemoval struct {
+		Ready            bool   `json:"ready"`
+		Summary          string `json:"summary"`
+		CandidateModules []struct {
+			Path               string `json:"path"`
+			Status             string `json:"status"`
+			Notes              string `json:"notes"`
+			Present            bool   `json:"present"`
+			ReferencedByFacade bool   `json:"referencedByFacade"`
+		} `json:"candidateModules"`
+		UndocumentedModules       []string `json:"undocumentedModules"`
+		FacadeRuntimeDependencies []string `json:"facadeRuntimeDependencies"`
+		Warnings                  []string `json:"warnings"`
+	} `json:"moduleRemoval"`
 	Warnings []string `json:"warnings"`
 }
 
@@ -707,6 +721,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignal(t, handoff, "CI release gate")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=19 candidates=0 removalModules=14")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "facadeRuntime=true legacyImports=false dispatcher=false")
+	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleRemoval=true candidates=14 facadeDeps=0 undocumented=0")
 	assertReleaseHandoffSignal(t, handoff, "case shim readiness")
 	assertReleaseHandoffSignal(t, handoff, "public default docs")
 	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
@@ -937,6 +952,7 @@ func assertReleaseCheckPowerShellDeprecation(t *testing.T, inventory releaseChec
 	assertPowerShellModuleStatus(t, inventory, "rekit/lib/B3.Commands.ps1")
 	assertPowerShellFallbackRetirement(t, inventory)
 	assertPowerShellFacadeRuntime(t, inventory)
+	assertPowerShellModuleRemoval(t, inventory)
 }
 
 func assertPowerShellCommandOwner(t *testing.T, inventory releaseCheckPowerShellDeprecation, areaContains string, wantGoDefault, wantBlocked bool) {
@@ -995,6 +1011,22 @@ func assertPowerShellFacadeRuntime(t *testing.T, inventory releaseCheckPowerShel
 	}
 }
 
+func assertPowerShellModuleRemoval(t *testing.T, inventory releaseCheckPowerShellDeprecation) {
+	t.Helper()
+	removal := inventory.ModuleRemoval
+	if !removal.Ready || removal.Summary != "PowerShell module removal inventory ok" || len(removal.Warnings) != 0 {
+		t.Fatalf("unexpected PowerShell module removal inventory: %+v", removal)
+	}
+	if len(removal.CandidateModules) != 14 || len(removal.FacadeRuntimeDependencies) != 0 || len(removal.UndocumentedModules) != 0 {
+		t.Fatalf("PowerShell module removal inventory omitted expected sections: %+v", removal)
+	}
+	for _, module := range removal.CandidateModules {
+		if strings.TrimSpace(module.Path) == "" || strings.TrimSpace(module.Status) == "" || strings.TrimSpace(module.Notes) == "" || !module.Present || module.ReferencedByFacade {
+			t.Fatalf("unexpected PowerShell module removal candidate: %+v", module)
+		}
+	}
+}
+
 func TestRunReleaseCheckTextInventory(t *testing.T) {
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "release-check"}, &out); err != nil {
@@ -1019,7 +1051,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"packs:",
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
-		"commands=13 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=19 candidates=0 removalModules=14 facadeRuntime=true legacyImports=false dispatcher=false",
+		"commands=13 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=19 candidates=0 removalModules=14 facadeRuntime=true legacyImports=false dispatcher=false moduleRemoval=true removalCandidates=14 facadeDeps=0 undocumented=0",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=13",
 		"release handoff: release handoff summary ok ready=true readFirst=7 signals=10 knownGaps=5 packMaturity=10",
