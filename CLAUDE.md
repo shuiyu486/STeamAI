@@ -43,8 +43,8 @@ BEGIN.
 ## 常用维护入口
 
 - `/rekit` skill 说明：`.claude/skills/rekit/SKILL.md`
-- PowerShell façade / runtime 入口：`rekit/rekit.ps1`
-- PowerShell runtime 模块：`rekit/lib/*.ps1`
+- PowerShell façade 入口：`rekit/rekit.ps1`
+- Legacy PowerShell runtime modules：`rekit/lib/*.ps1` 已在 Batch 240 删除，历史语义以 Go backend 为准
 - Go backend 入口：`cmd/rekit/main.go`
 - Go backend 模块：`internal/rekit/**`
 - vmp-re pack：`packs/vmp-re/**`
@@ -83,7 +83,7 @@ BEGIN.
 改动前先判断属于哪一层：
 
 1. Skill UI：改 `.claude/skills/rekit/SKILL.md`
-2. Runtime：改 `rekit/rekit.ps1`、`rekit/lib/*.ps1`、`cmd/rekit/**` 或 `internal/rekit/**`
+2. Runtime：改 `rekit/rekit.ps1` façade、`cmd/rekit/**` 或 `internal/rekit/**`；不要重新引入已删除的 `rekit/lib/*.ps1` legacy runtime modules
 3. Pack：改 `packs/<pack>/**`；当前首个成熟 pack 是 `packs/vmp-re/**`，首批安全领域 pack 骨架是 `packs/web-security/**`、`packs/malware-analysis/**`、`packs/vuln-research/**`、`packs/ctf/**`、`packs/unpack-pe/**`、`packs/ollvm/**`、`packs/android-native/**` 与 `packs/generic-binary-re/**`
 4. Common policies/prompts：改 `common/**`
 5. 用户文档：改 `README.md` 或 `docs/**`

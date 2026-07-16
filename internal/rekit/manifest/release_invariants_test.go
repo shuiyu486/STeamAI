@@ -503,11 +503,11 @@ func TestPowerShellDeprecationStrategyInvariants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(libModules) == 0 {
-		t.Fatal("no PowerShell lib modules found")
+	if len(libModules) != 0 {
+		t.Fatalf("PowerShell legacy lib modules must stay removed: %v", libModules)
 	}
-	for _, module := range libModules {
-		assertTextContains(t, strategy, "`rekit/lib/"+filepath.Base(module)+"`", "PowerShell deprecation module matrix")
+	for _, module := range []string{"Manifest.ps1", "Validate.ps1", "Instance.ps1", "Sync.ps1", "Promote.ps1", "Review.ps1", "B3.Core.ps1", "B3.State.ps1", "B3.Policy.ps1", "B3.Lane.ps1", "B3.Auto.ps1", "B3.Handoff.ps1", "B3.Commands.ps1"} {
+		assertTextContains(t, strategy, "`rekit/lib/"+module+"`", "PowerShell retired module matrix")
 	}
 
 	for _, blocked := range []string{

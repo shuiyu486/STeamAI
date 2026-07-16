@@ -63,6 +63,7 @@ type PowerShellModuleRemoval struct {
 	Ready                     bool                          `json:"ready"`
 	Summary                   string                        `json:"summary"`
 	CandidateModules          []PowerShellModuleRemovalItem `json:"candidateModules"`
+	RetiredModules            []PowerShellModuleRemovalItem `json:"retiredModules"`
 	UndocumentedModules       []string                      `json:"undocumentedModules"`
 	FacadeRuntimeDependencies []string                      `json:"facadeRuntimeDependencies"`
 	Warnings                  []string                      `json:"warnings"`
@@ -106,6 +107,7 @@ type PowerShellFallbackRetirement struct {
 	CandidateCommands       []PowerShellFallbackRetirementCommand `json:"candidateCommands"`
 	BlockedCommands         []PowerShellFallbackRetirementCommand `json:"blockedCommands"`
 	RemovalCandidateModules []PowerShellFallbackRetirementModule  `json:"removalCandidateModules"`
+	RetiredModules          []PowerShellFallbackRetirementModule  `json:"retiredModules"`
 	Warnings                []string                              `json:"warnings"`
 }
 
@@ -217,6 +219,16 @@ func parsePowerShellFreezeGates(text string) []PowerShellFreezeGate {
 	return gates
 }
 
+func powerShellModuleRetired(module PowerShellModuleStatus) bool {
+	status := strings.ToLower(module.Status)
+	return strings.Contains(status, "retired") || strings.Contains(status, "removed") || strings.Contains(status, "archived") || strings.Contains(status, "deleted")
+}
+
+func powerShellModulePresent(repo, path string) bool {
+	_, err := os.Stat(filepath.Join(repo, filepath.FromSlash(path)))
+	return err == nil
+}
+
 func powerShellFallbackRetirement(repo string, owners []PowerShellCommandOwner, modules []PowerShellModuleStatus) PowerShellFallbackRetirement {
 	inventory := PowerShellFallbackRetirement{
 		Ready:                   true,
@@ -226,6 +238,7 @@ func powerShellFallbackRetirement(repo string, owners []PowerShellCommandOwner, 
 		CandidateCommands:       []PowerShellFallbackRetirementCommand{},
 		BlockedCommands:         []PowerShellFallbackRetirementCommand{},
 		RemovalCandidateModules: []PowerShellFallbackRetirementModule{},
+		RetiredModules:          []PowerShellFallbackRetirementModule{},
 		Warnings:                []string{},
 	}
 	coveredDefault := map[string]bool{}
@@ -258,7 +271,11 @@ func powerShellFallbackRetirement(repo string, owners []PowerShellCommandOwner, 
 	}
 	for _, module := range modules {
 		combined := strings.ToLower(module.Status + " " + module.Notes)
-		if strings.Contains(combined, "removal-candidate") || strings.Contains(combined, "removal candidate") {
+		present := powerShellModulePresent(repo, module.Path)
+		switch {
+		case powerShellModuleRetired(module) && !present:
+			inventory.RetiredModules = append(inventory.RetiredModules, PowerShellFallbackRetirementModule(module))
+		case strings.Contains(combined, "removal-candidate") || strings.Contains(combined, "removal candidate"):
 			inventory.RemovalCandidateModules = append(inventory.RemovalCandidateModules, PowerShellFallbackRetirementModule(module))
 		}
 	}
@@ -268,6 +285,9 @@ func powerShellFallbackRetirement(repo string, owners []PowerShellCommandOwner, 
 	sortFallbackRetirementCommands(inventory.BlockedCommands)
 	sort.Slice(inventory.RemovalCandidateModules, func(i, j int) bool {
 		return inventory.RemovalCandidateModules[i].Path < inventory.RemovalCandidateModules[j].Path
+	})
+	sort.Slice(inventory.RetiredModules, func(i, j int) bool {
+		return inventory.RetiredModules[i].Path < inventory.RetiredModules[j].Path
 	})
 	if len(inventory.GoDefaultCommands) == 0 {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell fallback retirement inventory has no Go-default commands")
@@ -280,11 +300,8 @@ func powerShellFallbackRetirement(repo string, owners []PowerShellCommandOwner, 
 	if len(inventory.NoFallbackCommands) == 0 {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell fallback retirement inventory has no no-fallback Go-default commands")
 	}
-	if len(inventory.CandidateCommands) == 0 && len(inventory.RemovalCandidateModules) == 0 {
-		inventory.Warnings = append(inventory.Warnings, "PowerShell fallback retirement inventory has no fallback retirement candidate commands or removal-candidate modules")
-	}
-	if len(inventory.RemovalCandidateModules) == 0 {
-		inventory.Warnings = append(inventory.Warnings, "PowerShell fallback retirement inventory has no removal-candidate modules")
+	if len(inventory.CandidateCommands) == 0 && len(inventory.RemovalCandidateModules) == 0 && len(inventory.RetiredModules) == 0 {
+		inventory.Warnings = append(inventory.Warnings, "PowerShell fallback retirement inventory has no fallback retirement candidate commands, removal-candidate modules, or retired modules")
 	}
 	if len(inventory.Warnings) > 0 {
 		inventory.Ready = false
@@ -364,6 +381,7 @@ func powerShellModuleRemoval(repo string, modules []PowerShellModuleStatus, faca
 		Ready:                     true,
 		Summary:                   "PowerShell module removal inventory ok",
 		CandidateModules:          []PowerShellModuleRemovalItem{},
+		RetiredModules:            []PowerShellModuleRemovalItem{},
 		UndocumentedModules:       []string{},
 		FacadeRuntimeDependencies: []string{},
 		Warnings:                  []string{},
@@ -378,26 +396,30 @@ func powerShellModuleRemoval(repo string, modules []PowerShellModuleStatus, faca
 	for _, module := range modules {
 		documented[filepath.ToSlash(module.Path)] = true
 		combined := strings.ToLower(module.Status + " " + module.Notes)
-		if !strings.Contains(combined, "removal-candidate") && !strings.Contains(combined, "removal candidate") {
-			continue
-		}
 		path := filepath.ToSlash(module.Path)
-		_, err := os.Stat(filepath.Join(repo, filepath.FromSlash(path)))
 		item := PowerShellModuleRemovalItem{
 			Path:               path,
 			Status:             module.Status,
 			Notes:              module.Notes,
-			Present:            err == nil,
+			Present:            powerShellModulePresent(repo, path),
 			ReferencedByFacade: facadeRefs[path],
 		}
-		if !item.Present {
-			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell removal-candidate module missing on disk: %s", path))
+		switch {
+		case powerShellModuleRetired(module):
+			if item.Present {
+				inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell retired module still present on disk: %s", path))
+			}
+			inventory.RetiredModules = append(inventory.RetiredModules, item)
+		case strings.Contains(combined, "removal-candidate") || strings.Contains(combined, "removal candidate"):
+			if !item.Present {
+				inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell removal-candidate module missing on disk: %s", path))
+			}
+			if item.ReferencedByFacade {
+				inventory.FacadeRuntimeDependencies = append(inventory.FacadeRuntimeDependencies, path)
+				inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell removal-candidate module still referenced by facade: %s", path))
+			}
+			inventory.CandidateModules = append(inventory.CandidateModules, item)
 		}
-		if item.ReferencedByFacade {
-			inventory.FacadeRuntimeDependencies = append(inventory.FacadeRuntimeDependencies, path)
-			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell removal-candidate module still referenced by facade: %s", path))
-		}
-		inventory.CandidateModules = append(inventory.CandidateModules, item)
 	}
 	for _, module := range powerShellRuntimeModules(repo) {
 		if !documented[module] {
@@ -407,10 +429,13 @@ func powerShellModuleRemoval(repo string, modules []PowerShellModuleStatus, faca
 	sort.Slice(inventory.CandidateModules, func(i, j int) bool {
 		return inventory.CandidateModules[i].Path < inventory.CandidateModules[j].Path
 	})
+	sort.Slice(inventory.RetiredModules, func(i, j int) bool {
+		return inventory.RetiredModules[i].Path < inventory.RetiredModules[j].Path
+	})
 	sort.Strings(inventory.UndocumentedModules)
 	sort.Strings(inventory.FacadeRuntimeDependencies)
-	if len(inventory.CandidateModules) == 0 {
-		inventory.Warnings = append(inventory.Warnings, "PowerShell module removal inventory has no removal-candidate modules")
+	if len(inventory.CandidateModules) == 0 && len(inventory.RetiredModules) == 0 {
+		inventory.Warnings = append(inventory.Warnings, "PowerShell module removal inventory has no removal-candidate or retired modules")
 	}
 	if len(inventory.UndocumentedModules) > 0 {
 		inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell runtime modules missing from removal inventory: %s", strings.Join(inventory.UndocumentedModules, ", ")))
@@ -622,7 +647,7 @@ func powerShellDeprecationWarnings(repo string, strategy PowerShellDeprecation) 
 	documentedModules := map[string]bool{}
 	for _, module := range strategy.ModuleStatus {
 		documentedModules[filepath.ToSlash(module.Path)] = true
-		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(module.Path))); err != nil {
+		if !powerShellModulePresent(repo, module.Path) && !powerShellModuleRetired(module) {
 			warnings = append(warnings, fmt.Sprintf("documented PowerShell module missing on disk: %s", module.Path))
 		}
 	}

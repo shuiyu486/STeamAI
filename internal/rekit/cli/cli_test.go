@@ -366,6 +366,11 @@ type releaseCheckPowerShellDeprecation struct {
 			Status string `json:"status"`
 			Notes  string `json:"notes"`
 		} `json:"removalCandidateModules"`
+		RetiredModules []struct {
+			Path   string `json:"path"`
+			Status string `json:"status"`
+			Notes  string `json:"notes"`
+		} `json:"retiredModules"`
 		Warnings []string `json:"warnings"`
 	} `json:"fallbackRetirement"`
 	FacadeRuntime struct {
@@ -391,6 +396,13 @@ type releaseCheckPowerShellDeprecation struct {
 			Present            bool   `json:"present"`
 			ReferencedByFacade bool   `json:"referencedByFacade"`
 		} `json:"candidateModules"`
+		RetiredModules []struct {
+			Path               string `json:"path"`
+			Status             string `json:"status"`
+			Notes              string `json:"notes"`
+			Present            bool   `json:"present"`
+			ReferencedByFacade bool   `json:"referencedByFacade"`
+		} `json:"retiredModules"`
 		UndocumentedModules       []string `json:"undocumentedModules"`
 		FacadeRuntimeDependencies []string `json:"facadeRuntimeDependencies"`
 		Warnings                  []string `json:"warnings"`
@@ -774,9 +786,9 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffReadFirst(t, handoff, "CHANGELOG.md")
 	assertReleaseHandoffSignal(t, handoff, "release-check inventory")
 	assertReleaseHandoffSignal(t, handoff, "CI release gate")
-	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=19 candidates=0 removalModules=14")
+	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=19 candidates=0 removalModules=0 retiredModules=13")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "facadeRuntime=true legacyImports=false dispatcher=false")
-	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleRemoval=true candidates=14 facadeDeps=0 undocumented=0")
+	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleRemoval=true candidates=0 retired=13 facadeDeps=0 undocumented=0")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0")
 	assertReleaseHandoffSignal(t, handoff, "case shim readiness")
 	assertReleaseHandoffSignal(t, handoff, "public default docs")
@@ -1044,7 +1056,7 @@ func assertPowerShellFallbackRetirement(t *testing.T, inventory releaseCheckPowe
 	if !fallback.Ready || fallback.Summary != "PowerShell fallback retirement inventory ok" || len(fallback.Warnings) != 0 {
 		t.Fatalf("unexpected PowerShell fallback retirement inventory: %+v", fallback)
 	}
-	if len(fallback.GoDefaultCommands) != 19 || len(fallback.NoFallbackCommands) != 19 || len(fallback.CandidateCommands) != 0 || len(fallback.RemovalCandidateModules) != 14 {
+	if len(fallback.GoDefaultCommands) != 19 || len(fallback.NoFallbackCommands) != 19 || len(fallback.CandidateCommands) != 0 || len(fallback.RemovalCandidateModules) != 0 || len(fallback.RetiredModules) != 13 {
 		t.Fatalf("fallback retirement inventory omitted expected sections: %+v", fallback)
 	}
 	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
@@ -1074,12 +1086,12 @@ func assertPowerShellModuleRemoval(t *testing.T, inventory releaseCheckPowerShel
 	if !removal.Ready || removal.Summary != "PowerShell module removal inventory ok" || len(removal.Warnings) != 0 {
 		t.Fatalf("unexpected PowerShell module removal inventory: %+v", removal)
 	}
-	if len(removal.CandidateModules) != 14 || len(removal.FacadeRuntimeDependencies) != 0 || len(removal.UndocumentedModules) != 0 {
+	if len(removal.CandidateModules) != 0 || len(removal.RetiredModules) != 13 || len(removal.FacadeRuntimeDependencies) != 0 || len(removal.UndocumentedModules) != 0 {
 		t.Fatalf("PowerShell module removal inventory omitted expected sections: %+v", removal)
 	}
-	for _, module := range removal.CandidateModules {
-		if strings.TrimSpace(module.Path) == "" || strings.TrimSpace(module.Status) == "" || strings.TrimSpace(module.Notes) == "" || !module.Present || module.ReferencedByFacade {
-			t.Fatalf("unexpected PowerShell module removal candidate: %+v", module)
+	for _, module := range removal.RetiredModules {
+		if strings.TrimSpace(module.Path) == "" || strings.TrimSpace(module.Status) == "" || strings.TrimSpace(module.Notes) == "" || module.Present || module.ReferencedByFacade {
+			t.Fatalf("unexpected PowerShell retired module: %+v", module)
 		}
 	}
 }
@@ -1119,7 +1131,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"packs:",
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
-		"commands=13 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=19 candidates=0 removalModules=14 facadeRuntime=true legacyImports=false dispatcher=false moduleRemoval=true removalCandidates=14 facadeDeps=0 undocumented=0 moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0",
+		"commands=13 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=19 candidates=0 removalModules=0 retiredModules=13 facadeRuntime=true legacyImports=false dispatcher=false moduleRemoval=true removalCandidates=0 retired=13 facadeDeps=0 undocumented=0 moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=13",
 		"release handoff: release handoff summary ok ready=true readFirst=7 signals=10 knownGaps=5 packMaturity=10",

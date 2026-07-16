@@ -208,7 +208,7 @@ func assertFallbackRetirement(t *testing.T, inventory PowerShellDeprecation) {
 	if !fallback.Ready || fallback.Summary != "PowerShell fallback retirement inventory ok" || len(fallback.Warnings) != 0 {
 		t.Fatalf("unexpected fallback retirement inventory: %+v", fallback)
 	}
-	if len(fallback.GoDefaultCommands) != 19 || len(fallback.NoFallbackCommands) != 19 || len(fallback.CandidateCommands) != 0 || len(fallback.RemovalCandidateModules) != 14 {
+	if len(fallback.GoDefaultCommands) != 19 || len(fallback.NoFallbackCommands) != 19 || len(fallback.CandidateCommands) != 0 || len(fallback.RemovalCandidateModules) != 0 || len(fallback.RetiredModules) != 13 {
 		t.Fatalf("fallback retirement inventory omitted expected sections: %+v", fallback)
 	}
 	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
@@ -238,12 +238,12 @@ func assertModuleRemoval(t *testing.T, inventory PowerShellDeprecation) {
 	if !removal.Ready || removal.Summary != "PowerShell module removal inventory ok" || len(removal.Warnings) != 0 {
 		t.Fatalf("unexpected PowerShell module removal inventory: %+v", removal)
 	}
-	if len(removal.CandidateModules) != 14 || len(removal.FacadeRuntimeDependencies) != 0 || len(removal.UndocumentedModules) != 0 {
+	if len(removal.CandidateModules) != 0 || len(removal.RetiredModules) != 13 || len(removal.FacadeRuntimeDependencies) != 0 || len(removal.UndocumentedModules) != 0 {
 		t.Fatalf("PowerShell module removal inventory omitted expected sections: %+v", removal)
 	}
-	for _, module := range removal.CandidateModules {
-		if strings.TrimSpace(module.Path) == "" || strings.TrimSpace(module.Status) == "" || strings.TrimSpace(module.Notes) == "" || !module.Present || module.ReferencedByFacade {
-			t.Fatalf("unexpected PowerShell module removal candidate: %+v", module)
+	for _, module := range removal.RetiredModules {
+		if strings.TrimSpace(module.Path) == "" || strings.TrimSpace(module.Status) == "" || strings.TrimSpace(module.Notes) == "" || module.Present || module.ReferencedByFacade {
+			t.Fatalf("unexpected PowerShell retired module: %+v", module)
 		}
 	}
 }

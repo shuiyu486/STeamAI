@@ -7281,3 +7281,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/cli/cli_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go`、`go test ./internal/rekit/releasecheck -run 'Test(PowerShellDeprecationInventoryFromRepo|ReleaseHandoffInventoryFromRepo)'`、`go test ./internal/rekit/cli -run TestRunReleaseCheckTextInventory`、`.\rekit\tests\facade-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 239，`moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 240：Legacy PowerShell runtime module removal
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 237-239 已确认 active dependency 与 compatibility fixture 均归零后，物理删除 `rekit/lib/*.ps1` legacy runtime modules，保留公共 `rekit/rekit.ps1` 迁移期 façade，并将 release inventory 从“待删候选”升级为“已删除 retired baseline guard”。
+
+实施范围：
+
+- 删除 `rekit/lib/Manifest.ps1`、`Validate.ps1`、`Instance.ps1`、`Sync.ps1`、`Promote.ps1`、`Review.ps1` 与 `B3.*.ps1` legacy runtime modules。
+- 更新 `powerShellDeprecation.fallbackRetirement` / `moduleRemoval` JSON shape 与 text / release handoff detail，新增 retired module baseline，锁定 `removalModules=0 retiredModules=13` 与 `moduleRemoval=true candidates=0 retired=13 facadeDeps=0 undocumented=0`。
+- 更新 releasecheck / CLI / manifest invariants：不再要求 `rekit/lib/*.ps1` 存在，反而要求 legacy lib modules 保持删除；同时继续要求 public façade 不 dot-source legacy modules、不恢复 command switch fallback dispatcher。
+- 更新 README、CLAUDE、PowerShell deprecation roadmap、release readiness、Go-first convergence plan、batch-plan 与 CHANGELOG，明确 Go runtime 是历史语义 owner，`rekit/rekit.ps1` 只是 retained façade。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不改变 façade delegation/no-fallback semantics、Go output schema、case-local write semantics、sync/promote review-first、actual heavy-tool、authority/confirmed、policy schema migration 或外部副作用边界；若未来要删除公共 façade，仍需独立 batch 处理替代入口、恢复计划、验证和文档。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/powershell_deprecation.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go internal/rekit/manifest/release_invariants_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest
+.\rekit\tests\facade-smoke.ps1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/powershell_deprecation.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go internal/rekit/manifest/release_invariants_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 240，`removalModules=0 retiredModules=13`，`moduleRemoval=true removalCandidates=0 retired=13 facadeDeps=0 undocumented=0`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

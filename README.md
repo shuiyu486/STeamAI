@@ -34,7 +34,7 @@
 本仓库本身不是具体安全 case，也不是具体 RE case。维护时优先看根目录 `CLAUDE.md` 和 `docs/vision.md`，再按职责修改：
 
 - `/rekit` skill：`.claude/skills/rekit/SKILL.md`
-- runtime：`rekit/rekit.ps1`、`rekit/lib/*.ps1`、`cmd/rekit/**`、`internal/rekit/**`
+- runtime：`rekit/rekit.ps1` façade、`cmd/rekit/**`、`internal/rekit/**`；legacy `rekit/lib/*.ps1` 已删除，历史语义以 Go runtime 为准。
 - 领域 pack：`packs/<pack>/**`
 - 通用 policy / prompt：`common/**`
 - 设计与路线：`docs/**`
@@ -422,7 +422,7 @@ packs/vmp-re/scripts/promote.ps1
 - `/rekit` 是用户入口。
 - `rekit/rekit.ps1` 是稳定 PowerShell façade / fallback，只是 backend。
 - Go backend 位于 `cmd/rekit/**` 与 `internal/rekit/**`；低风险只读命令 `status`、`packs`、`doctor/validate`，attached case 的 `overview` 文本/JSON 与缺 board 时的 case-local board/facts/policy/default authority lane 初始化，`note -List` 文本/table/tsv/JSON 只读查询，attached case 的 note append / `note -WhatIf` facts JSONL 写入或预览，`gate -WhatIf` 非写入 heavy-tool gate preview，`gate -Apply` pending-gate request 写入，attached case 的 `start` / `handoff` JSON preview、explicit apply、文本 preview 与 bare/default 工作线 flow，`continue` JSON preview、explicit apply 与文本/default preview 的 case-local facts/routing/run digest/lane resume/checkpoint/board safe subset，边界清晰的 case lifecycle 命令 `attach`、`repair`、`init/bootstrap` 的预览与显式 `-Apply`，`/rekit sync` review、`sync -Apply` 实际写入和 `sync -Apply -WhatIf -Format json` 非写入预览，以及 `/rekit promote` review、review artifact 写入、promote `-CreateCandidates` 实际候选写入、promote `-CreateCandidates -WhatIf -Format json` 非写入预览、promote `-Apply` 实际 pack source 写入和 promote `-Apply -WhatIf -Format json` 非写入预览默认委托 Go。`release-check`、`status`、`packs`、`doctor/validate`、`attach/repair/init/bootstrap`、`sync/update`、`promote`、`overview`、`note`、`gate`、`start`、`handoff`、`continue` 与 `plan-subagents` 已 no-fallback；`REKIT_GO_DISABLE=1` 不再让 Go-default command rows 回落到 PowerShell 业务实现。`plan-subagents` review artifacts 只写 review packet/summary/combined diff 路径、不自动 spawn agent；actual heavy-tool 执行、authority/confirmed 写入和非 note/gate/continue apply 的其它 ledger 写入命令仍不由默认 Go façade执行；文本 `sync -Apply -WhatIf`、文本 promote what-if、case lifecycle fallback 与 workstream fallback 已 no-fallback；Go `continue -Apply` 不写 authority/confirmed，authority/confirmed 仍需显式用户确认。
-- 工作流 runtime 已拆为 `rekit/lib/B3.*.ps1`，按 Core / State / Policy / Lane / Auto / Commands 分层。
+- legacy `rekit/lib/B3.*.ps1` 工作流 runtime 已在 Batch 240 删除；工作线、ledger、gate、handoff 与 Mission Control 状态以 Go-owned `internal/rekit/**` runtime 为准。
 - `packs/<pack>/manifest.yml` 是 managed/local/tooling/budget/promote 规则的单一事实源。
 - case-local `.claude/skills/rekit/SKILL.md` 只是 thin shim，不维护业务逻辑。
 - `.re-template.yml` 只保留兼容旧入口；新状态看 `.rekit/instance.yml`。

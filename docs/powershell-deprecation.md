@@ -74,20 +74,20 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 
 | 模块 | 状态 | 说明 |
 |---|---|---|
-| `rekit/rekit.ps1` | façade-stable / removal-candidate | 迁移期公共入口、参数兼容、Go binary 查找和错误透传；Batch 234 后不再 dot-source `rekit/lib/*.ps1` 或保留 command switch fallback dispatcher；Go-native public entrypoint 文档化后删除或归档。 |
-| `rekit/lib/Manifest.ps1` | compatibility / removal-candidate | manifest 读取/兼容 helper；Go manifest package 是 release invariant owner。 |
-| `rekit/lib/Validate.ps1` | parity / compatibility / removal-candidate | pack/case doctor 兼容层；Go doctor 是默认路径。 |
-| `rekit/lib/Instance.ps1` | compatibility / removal-candidate | case instance/shim 兼容；case lifecycle Go-owned。 |
-| `rekit/lib/Sync.ps1` | retired fallback / removal-candidate | sync/update fallback 已退休；写入语义 Go-owned，模块仅作为后续文件删除/历史兼容审查对象。 |
-| `rekit/lib/Promote.ps1` | retired fallback / removal-candidate | promote fallback 已退休；candidate/apply 语义 Go-owned，模块仅作为后续文件删除/历史兼容审查对象。 |
-| `rekit/lib/Review.ps1` | compatibility / removal-candidate | review artifact helper；新增确定性 review 语义优先 Go。 |
-| `rekit/lib/B3.Core.ps1` | shared compatibility / removal-candidate | PowerShell B3 基础 helper；只修兼容和安全边界。 |
-| `rekit/lib/B3.State.ps1` | legacy / compatibility / removal-candidate | board/facts/lane 状态兼容；Go workstream 是新 owner。 |
-| `rekit/lib/B3.Policy.ps1` | legacy / compatibility / removal-candidate | policy helper；schema 迁移需单独 gate。 |
-| `rekit/lib/B3.Lane.ps1` | legacy text flow / removal-candidate | lane prompt/workspace helper；结构化 start/handoff/continue 以 Go 为准。 |
-| `rekit/lib/B3.Auto.ps1` | legacy guarded / removal-candidate | continue auto / authority guard 旧实现；不扩 authority/confirmed 自动写入。 |
-| `rekit/lib/B3.Handoff.ps1` | legacy display fallback / removal-candidate | handoff fallback 展示；Go handoff 是默认结构化 owner。 |
-| `rekit/lib/B3.Commands.ps1` | legacy command layer / removal-candidate | 文本工作线和内部命令入口；冻结语义，避免新增 runtime owner。 |
+| `rekit/rekit.ps1` | façade-stable / retained | 迁移期公共入口、参数兼容、Go binary 查找和错误透传；Batch 234 后不再 dot-source `rekit/lib/*.ps1` 或保留 command switch fallback dispatcher；Batch 240 后作为唯一保留 PowerShell façade，不承载业务 runtime。 |
+| `rekit/lib/Manifest.ps1` | retired / removed | manifest 读取/兼容 helper 已由 Go manifest package 接管；Batch 240 物理删除。 |
+| `rekit/lib/Validate.ps1` | retired / removed | pack/case doctor 兼容层已由 Go doctor 默认路径接管；Batch 240 物理删除。 |
+| `rekit/lib/Instance.ps1` | retired / removed | case instance/shim 兼容已由 Go case lifecycle 接管；Batch 240 物理删除。 |
+| `rekit/lib/Sync.ps1` | retired / removed | sync/update fallback 已退休；写入语义 Go-owned；Batch 240 物理删除。 |
+| `rekit/lib/Promote.ps1` | retired / removed | promote fallback 已退休；candidate/apply 语义 Go-owned；Batch 240 物理删除。 |
+| `rekit/lib/Review.ps1` | retired / removed | review artifact helper 已由 Go review/promote/sync paths 接管；Batch 240 物理删除。 |
+| `rekit/lib/B3.Core.ps1` | retired / removed | PowerShell B3 基础 helper 已无默认 runtime 依赖；Batch 240 物理删除。 |
+| `rekit/lib/B3.State.ps1` | retired / removed | board/facts/lane 状态兼容已由 Go Mission Control/workstream packages 接管；Batch 240 物理删除。 |
+| `rekit/lib/B3.Policy.ps1` | retired / removed | policy helper 不再作为默认 runtime；blocked policy schema migration 仍需单独 gate；Batch 240 物理删除。 |
+| `rekit/lib/B3.Lane.ps1` | retired / removed | lane prompt/workspace helper 已由 Go start/handoff/continue paths 接管；Batch 240 物理删除。 |
+| `rekit/lib/B3.Auto.ps1` | retired / removed | continue auto / authority guard 旧实现已由 Go continue guard 和人工 authority gate 取代；Batch 240 物理删除。 |
+| `rekit/lib/B3.Handoff.ps1` | retired / removed | handoff fallback 展示已由 Go handoff 接管；Batch 240 物理删除。 |
+| `rekit/lib/B3.Commands.ps1` | retired / removed | 文本工作线和内部命令入口 fallback 已退休；Batch 240 物理删除。 |
 
 ## Façade runtime dependency inventory
 
@@ -98,17 +98,18 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 - `noFallbackGuardPresent=true`、`goDelegationPresent=true` 与 `retiredDispatcherError=true` 表示公共 façade 仍保留 Go delegation、no-fallback guard 与 retired dispatcher error。
 - `forbiddenPatterns[]` 与 `requiredPatterns[]` 是后续删除/归档 batch 的机器可读审计清单；任一 forbidden pattern 回归或 required pattern 缺失都会让 `powerShellDeprecation.ready=false`。
 
-该库存只审计公共 façade 是否重新依赖 legacy runtime；不删除 `rekit/lib/*.ps1`，也不表示 blocked heavy-tool、authority/confirmed 或 policy schema 迁移可以顺手迁入。
+该库存只审计公共 façade 是否重新依赖 legacy runtime；Batch 240 后 `rekit/lib/*.ps1` 已删除，该库存继续防止 façade 重新加载已删除 legacy modules，也不表示 blocked heavy-tool、authority/confirmed 或 policy schema 迁移可以顺手迁入。
 
 ## Module removal inventory
 
-`release-check -Format json` 的 `powerShellDeprecation.moduleRemoval` 是后续删除或归档 PowerShell 文件前的只读 readiness 库存：
+`release-check -Format json` 的 `powerShellDeprecation.moduleRemoval` 是 Batch 240 删除 legacy PowerShell runtime modules 后的只读 readiness 库存：
 
-- `candidateModules[]` 来自模块状态矩阵中的 `removal-candidate` 行，记录每个候选 `.ps1` 文件是否仍存在、状态说明和是否被公共 façade 引用；当前基线为 14 个候选。
-- `facadeRuntimeDependencies[]` 必须为空，表示公共 façade 当前不依赖这些候选模块；若 `rekit.ps1` 重新加载 legacy runtime modules，则该清单会转为 warning。
-- `undocumentedModules[]` 必须为空，表示 `rekit/` 与 `rekit/lib/*.ps1` 的实际文件都已在模块状态矩阵中登记，避免删除批次遗漏未分类 PowerShell 文件。
+- `candidateModules[]` 来自模块状态矩阵中仍标记为 `removal-candidate` 且仍存在的 `.ps1` 文件；当前基线为 0，表示 `rekit/lib/*.ps1` legacy runtime modules 已无待删候选。
+- `retiredModules[]` 来自模块状态矩阵中的 `retired / removed` 行，记录已从磁盘移除的 legacy runtime modules；当前基线为 13，且每项必须 `present=false`。
+- `facadeRuntimeDependencies[]` 必须为空，表示公共 façade 当前不依赖候选或已删除 legacy modules；若 `rekit.ps1` 重新加载 legacy runtime modules，则该清单会转为 warning。
+- `undocumentedModules[]` 必须为空，表示实际存在的 `rekit/` PowerShell 文件都已在模块状态矩阵中登记；若未来重新引入 `rekit/lib/*.ps1`，必须先显式分类，而不能作为隐式 runtime 回归。
 
-该库存只给出删除/归档候选清单和 readiness 信号；实际删除仍必须按独立 removal batch 执行，包含恢复计划、验证和文档。
+该库存只给出 façade 保留、legacy modules 已删除和回归防护信号；后续若要删除公共 `rekit/rekit.ps1` façade，仍必须按独立 removal batch 执行，包含替代入口、恢复计划、验证和文档。
 
 ## Module reference inventory
 
@@ -119,7 +120,7 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 - `inventoryGuards[]`、`documentationReferences[]` 与 `historicalReferences[]` 分别记录 Go release inventory / invariant guard、当前说明文档和历史迁移记录中的引用，避免删除批次误把历史说明当成 runtime dependency。
 - `removalBlockers[]` 和 `unclassifiedReferences[]` 必须为空；若出现新的 `.ps1` / `.go` 主动依赖或无法分类的 `rekit/lib/*.ps1` 引用，`powerShellDeprecation.ready=false`，删除/归档批次必须先分类或消除该引用。
 
-该库存只分类引用面；不删除 `rekit/lib/*.ps1`，也不把历史文档引用视为 active runtime dependency。实际删除仍必须单独处理恢复计划和验证；若未来重新出现 active test dependency 或 compatibility fixture，应先迁移到 Go-native/package-level source invariant coverage。
+该库存只分类引用面；Batch 240 后 `rekit/lib/*.ps1` 已删除，历史文档引用不视为 active runtime dependency。若未来重新出现 active test dependency、compatibility fixture 或新的 `rekit/lib/*.ps1` 文件，应先迁移到 Go-native/package-level source invariant coverage，或显式作为 regression/blocker 分类。
 
 ## Fallback retirement inventory
 
@@ -127,11 +128,12 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 
 - `goDefaultCommands[]` 来自 `rekit/rekit.ps1` 的默认 Go delegation 集合，用于确认 façade 默认路径已经由 Go owner 覆盖。
 - `noFallbackCommands[]` 表示已经没有 PowerShell fallback 的 Go-default 命令；当前基线包含 `release-check`、`status`、`packs`、`doctor`、`validate`、`attach`、`repair`、`init`、`bootstrap`、`sync`、`update`、`promote`、`overview`、`note`、`gate`、`start`、`handoff`、`continue` 与 `plan-subagents`。
-- `candidateCommands[]` 表示 Go-default 但仍有 legacy / fallback / removal-candidate 语义的命令行，是后续 fallback removal batch 的候选工作清单；Batch 232 起 `start` / `handoff` / `continue` 的 structured 与文本/default invocation 均不再 fallback，因此当前 candidate 清单为空；后续清理转向 removal-candidate PowerShell modules 与 blocked 迁移边界。
+- `candidateCommands[]` 表示 Go-default 但仍有 legacy / fallback / removal-candidate 语义的命令行，是后续 fallback removal batch 的候选工作清单；Batch 232 起 `start` / `handoff` / `continue` 的 structured 与文本/default invocation 均不再 fallback，因此当前 candidate 清单为空。
 - `blockedCommands[]` 保留 actual heavy-tool、authority/confirmed 等不得普通迁移的 command rows；这些 row 不应进入自动 removal batch。
-- `removalCandidateModules[]` 来自模块状态矩阵中的 removal-candidate `.ps1` 文件，用于决定独立删除批次的 review 范围。
+- `removalCandidateModules[]` 来自模块状态矩阵中仍存在且仍标记为 removal-candidate 的 `.ps1` 文件；Batch 240 后当前基线为 0。
+- `retiredModules[]` 来自模块状态矩阵中已标记 retired / removed 且磁盘上不存在的 legacy runtime modules；Batch 240 后当前基线为 13。
 
-该库存只分类和报警；真正 fallback 退休或文件删除仍必须按单独 removal batch 执行，包含恢复计划、验证和文档。当前已退休的 no-fallback 命令即使设置 `REKIT_GO_DISABLE=1` 也不会回落到 PowerShell 业务实现；`candidateCommands[]` 为空表示 Go-default command rows 已无普通 PowerShell fallback 候选，不表示 blocked heavy-tool、authority/confirmed 或 policy schema 迁移可以顺手迁入。
+该库存只分类和报警；当前已退休的 no-fallback 命令即使设置 `REKIT_GO_DISABLE=1` 也不会回落到 PowerShell 业务实现；`candidateCommands[]` 和 `removalCandidateModules[]` 为空表示 Go-default command rows 与 legacy `rekit/lib/*.ps1` modules 已无普通 fallback/removal 候选，不表示 blocked heavy-tool、authority/confirmed、policy schema 迁移或公共 façade 删除可以顺手迁入。
 
 ## Freeze / deprecation gates
 
