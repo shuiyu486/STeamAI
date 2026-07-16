@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -19,6 +20,7 @@ type PowerShellDeprecation struct {
 	BlockedMigrations  []string                     `json:"blockedMigrations"`
 	FallbackRetirement PowerShellFallbackRetirement `json:"fallbackRetirement"`
 	FacadeRuntime      PowerShellFacadeRuntime      `json:"facadeRuntime"`
+	PublicFacade       PowerShellPublicFacade       `json:"publicFacade"`
 	ModuleRemoval      PowerShellModuleRemoval      `json:"moduleRemoval"`
 	ModuleReferences   PowerShellModuleReferences   `json:"moduleReferences"`
 	Warnings           []string                     `json:"warnings"`
@@ -57,6 +59,21 @@ type PowerShellFacadeRuntime struct {
 	ForbiddenPatterns          []string `json:"forbiddenPatterns"`
 	RequiredPatterns           []string `json:"requiredPatterns"`
 	Warnings                   []string `json:"warnings"`
+}
+
+type PowerShellPublicFacade struct {
+	Ready                       bool     `json:"ready"`
+	Summary                     string   `json:"summary"`
+	FacadePath                  string   `json:"facadePath"`
+	Present                     bool     `json:"present"`
+	Retained                    bool     `json:"retained"`
+	CommandSurface              []string `json:"commandSurface"`
+	GoDefaultCommands           []string `json:"goDefaultCommands"`
+	NoFallbackCommands          []string `json:"noFallbackCommands"`
+	GoNativeAlternative         string   `json:"goNativeAlternative"`
+	MigrationBoundaryDocumented bool     `json:"migrationBoundaryDocumented"`
+	RemovalBoundaryDocumented   bool     `json:"removalBoundaryDocumented"`
+	Warnings                    []string `json:"warnings"`
 }
 
 type PowerShellModuleRemoval struct {
@@ -146,11 +163,13 @@ func powerShellDeprecation(repo string) PowerShellDeprecation {
 	strategy.BlockedMigrations = markdownBulletsInSection(text, "## 禁止迁移清单")
 	strategy.FallbackRetirement = powerShellFallbackRetirement(repo, strategy.CommandOwnership, strategy.ModuleStatus)
 	strategy.FacadeRuntime = powerShellFacadeRuntime(repo)
+	strategy.PublicFacade = powerShellPublicFacade(repo, strategy.ModuleStatus, strategy.FallbackRetirement)
 	strategy.ModuleRemoval = powerShellModuleRemoval(repo, strategy.ModuleStatus, strategy.FacadeRuntime)
 	strategy.ModuleReferences = powerShellModuleReferences(repo)
 	strategy.Warnings = append(strategy.Warnings, powerShellDeprecationWarnings(repo, strategy)...)
 	strategy.Warnings = append(strategy.Warnings, strategy.FallbackRetirement.Warnings...)
 	strategy.Warnings = append(strategy.Warnings, strategy.FacadeRuntime.Warnings...)
+	strategy.Warnings = append(strategy.Warnings, strategy.PublicFacade.Warnings...)
 	strategy.Warnings = append(strategy.Warnings, strategy.ModuleRemoval.Warnings...)
 	strategy.Warnings = append(strategy.Warnings, strategy.ModuleReferences.Warnings...)
 	if len(strategy.Warnings) > 0 {
@@ -227,6 +246,80 @@ func powerShellModuleRetired(module PowerShellModuleStatus) bool {
 func powerShellModulePresent(repo, path string) bool {
 	_, err := os.Stat(filepath.Join(repo, filepath.FromSlash(path)))
 	return err == nil
+}
+
+func powerShellPublicFacade(repo string, modules []PowerShellModuleStatus, fallback PowerShellFallbackRetirement) PowerShellPublicFacade {
+	const facadePath = "rekit/rekit.ps1"
+	inventory := PowerShellPublicFacade{
+		Ready:               true,
+		Summary:             "PowerShell public facade retention inventory ok",
+		FacadePath:          facadePath,
+		CommandSurface:      sortedStringMapKeys(powerShellValidateSet(repo)),
+		GoDefaultCommands:   sortedStringMapKeys(powerShellDefaultDelegationCommands(repo)),
+		NoFallbackCommands:  append([]string{}, fallback.NoFallbackCommands...),
+		GoNativeAlternative: "go run ./cmd/rekit -- -Command <command>",
+		Warnings:            []string{},
+	}
+	inventory.Present = powerShellModulePresent(repo, facadePath)
+	for _, module := range modules {
+		if filepath.ToSlash(module.Path) != facadePath {
+			continue
+		}
+		combined := strings.ToLower(module.Status + " " + module.Notes)
+		inventory.Retained = strings.Contains(combined, "retained") || strings.Contains(combined, "façade-stable") || strings.Contains(combined, "facade-stable")
+		break
+	}
+	sort.Strings(inventory.NoFallbackCommands)
+	strategyText := ""
+	if data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash("docs/powershell-deprecation.md"))); err == nil {
+		strategyText = string(data)
+	}
+	inventory.MigrationBoundaryDocumented = strings.Contains(strategyText, "迁移期公共入口") && strings.Contains(strategyText, "不承载业务 runtime")
+	inventory.RemovalBoundaryDocumented = strings.Contains(strategyText, "删除公共 `rekit/rekit.ps1` façade") && strings.Contains(strategyText, "独立 removal batch") && strings.Contains(strategyText, "替代入口")
+	if !inventory.Present {
+		inventory.Warnings = append(inventory.Warnings, "PowerShell public facade missing: rekit/rekit.ps1")
+	}
+	if !inventory.Retained {
+		inventory.Warnings = append(inventory.Warnings, "PowerShell public facade is not documented as retained")
+	}
+	if len(inventory.CommandSurface) == 0 {
+		inventory.Warnings = append(inventory.Warnings, "PowerShell public facade command surface is empty")
+	}
+	if len(inventory.GoDefaultCommands) == 0 {
+		inventory.Warnings = append(inventory.Warnings, "PowerShell public facade Go-default command list is empty")
+	}
+	if len(inventory.NoFallbackCommands) == 0 {
+		inventory.Warnings = append(inventory.Warnings, "PowerShell public facade no-fallback command list is empty")
+	}
+	for _, command := range inventory.CommandSurface {
+		if !slices.Contains(inventory.GoDefaultCommands, command) {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell public facade command is not Go-default: %s", command))
+		}
+		if !slices.Contains(inventory.NoFallbackCommands, command) {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell public facade command is not no-fallback: %s", command))
+		}
+	}
+	for _, command := range inventory.GoDefaultCommands {
+		if !slices.Contains(inventory.CommandSurface, command) {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell Go-default command missing from public facade command surface: %s", command))
+		}
+	}
+	for _, command := range inventory.NoFallbackCommands {
+		if !slices.Contains(inventory.CommandSurface, command) {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell no-fallback command missing from public facade command surface: %s", command))
+		}
+	}
+	if !inventory.MigrationBoundaryDocumented {
+		inventory.Warnings = append(inventory.Warnings, "PowerShell public facade migration boundary is not documented")
+	}
+	if !inventory.RemovalBoundaryDocumented {
+		inventory.Warnings = append(inventory.Warnings, "PowerShell public facade removal boundary is not documented")
+	}
+	if len(inventory.Warnings) > 0 {
+		inventory.Ready = false
+		inventory.Summary = "PowerShell public facade retention inventory has warnings"
+	}
+	return inventory
 }
 
 func powerShellFallbackRetirement(repo string, owners []PowerShellCommandOwner, modules []PowerShellModuleStatus) PowerShellFallbackRetirement {

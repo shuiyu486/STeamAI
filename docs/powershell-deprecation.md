@@ -100,6 +100,17 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 
 该库存只审计公共 façade 是否重新依赖 legacy runtime；Batch 240 后 `rekit/lib/*.ps1` 已删除，该库存继续防止 façade 重新加载已删除 legacy modules，也不表示 blocked heavy-tool、authority/confirmed 或 policy schema 迁移可以顺手迁入。
 
+## Public façade retention inventory
+
+`release-check -Format json` 的 `powerShellDeprecation.publicFacade` 是 Batch 241 为保留公共迁移期 façade 新增的只读库存：
+
+- `present=true` 与 `retained=true` 表示 `rekit/rekit.ps1` 仍作为迁移期公共 façade 明确保留，并在模块状态矩阵中标记为 retained，而不是被误当作 legacy runtime module 删除。
+- `commandSurface[]` 来自 `rekit/rekit.ps1` 的 `ValidateSet`，当前基线为 19；每个公开 façade command 都必须同时出现在 `goDefaultCommands[]` 与 `noFallbackCommands[]` 中，确保公共 façade 只透传 Go-owned / no-fallback 命令面。
+- `goNativeAlternative` 当前为 `go run ./cmd/rekit -- -Command <command>`，记录公共 façade 删除或失效时的底层 Go-native 替代路径；公开用户默认路径仍由 `/rekit` skill / Mission Control 负责，不把 raw Go CLI 变成用户主要交互界面。
+- `migrationBoundaryDocumented=true` 与 `removalBoundaryDocumented=true` 分别要求本文件说明 façade 是迁移期公共入口、不承载业务 runtime，并要求未来删除公共 `rekit/rekit.ps1` façade 时必须是独立 removal batch，包含替代入口、恢复计划、验证和文档。
+
+该库存只锁定公共 façade 的“保留但非 runtime owner”状态；它不鼓励新增 PowerShell 逻辑，也不把公共 façade 删除并入普通 legacy module removal。若新增 façade command 没有 Go-default/no-fallback owner，或文档未声明删除边界，`powerShellDeprecation.ready=false`。
+
 ## Module removal inventory
 
 `release-check -Format json` 的 `powerShellDeprecation.moduleRemoval` 是 Batch 240 删除 legacy PowerShell runtime modules 后的只读 readiness 库存：

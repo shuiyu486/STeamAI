@@ -33,6 +33,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignal(t, handoff, "CI release gate")
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=19 candidates=0 removalModules=0 retiredModules=13")
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "facadeRuntime=true legacyImports=false dispatcher=false")
+	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "publicFacade=true retained=true facadeCommands=19 noFallback=19")
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleRemoval=true candidates=0 retired=13 facadeDeps=0 undocumented=0")
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0")
 	assertHandoffSignal(t, handoff, "case shim readiness")

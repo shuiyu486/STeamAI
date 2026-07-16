@@ -124,6 +124,7 @@ func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {
 	assertModuleStatus(t, inventory, "rekit/lib/B3.Commands.ps1")
 	assertFallbackRetirement(t, inventory)
 	assertFacadeRuntime(t, inventory)
+	assertPublicFacade(t, inventory)
 	assertModuleRemoval(t, inventory)
 	assertModuleReferences(t, inventory)
 }
@@ -229,6 +230,25 @@ func assertFacadeRuntime(t *testing.T, inventory PowerShellDeprecation) {
 	}
 	if len(facade.ForbiddenPatterns) == 0 || len(facade.RequiredPatterns) == 0 {
 		t.Fatalf("PowerShell facade runtime inventory omitted required pattern lists: %+v", facade)
+	}
+}
+
+func assertPublicFacade(t *testing.T, inventory PowerShellDeprecation) {
+	t.Helper()
+	facade := inventory.PublicFacade
+	if !facade.Ready || facade.Summary != "PowerShell public facade retention inventory ok" || facade.FacadePath != "rekit/rekit.ps1" || len(facade.Warnings) != 0 {
+		t.Fatalf("unexpected PowerShell public facade inventory: %+v", facade)
+	}
+	if !facade.Present || !facade.Retained || !facade.MigrationBoundaryDocumented || !facade.RemovalBoundaryDocumented || facade.GoNativeAlternative != "go run ./cmd/rekit -- -Command <command>" {
+		t.Fatalf("unexpected PowerShell public facade retention flags: %+v", facade)
+	}
+	if len(facade.CommandSurface) != 19 || len(facade.GoDefaultCommands) != 19 || len(facade.NoFallbackCommands) != 19 {
+		t.Fatalf("PowerShell public facade inventory omitted expected command lists: %+v", facade)
+	}
+	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
+		if !slices.Contains(facade.CommandSurface, command) || !slices.Contains(facade.GoDefaultCommands, command) || !slices.Contains(facade.NoFallbackCommands, command) {
+			t.Fatalf("public facade command %s missing from command lists: %+v", command, facade)
+		}
 	}
 }
 
