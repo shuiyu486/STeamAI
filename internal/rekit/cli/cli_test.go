@@ -395,6 +395,61 @@ type releaseCheckPowerShellDeprecation struct {
 		FacadeRuntimeDependencies []string `json:"facadeRuntimeDependencies"`
 		Warnings                  []string `json:"warnings"`
 	} `json:"moduleRemoval"`
+	ModuleReferences struct {
+		Ready                  bool   `json:"ready"`
+		Summary                string `json:"summary"`
+		TotalReferences        int    `json:"totalReferences"`
+		ActiveTestDependencies []struct {
+			Path    string `json:"path"`
+			Line    int    `json:"line"`
+			Kind    string `json:"kind"`
+			Target  string `json:"target"`
+			Snippet string `json:"snippet"`
+		} `json:"activeTestDependencies"`
+		CompatibilityFixtures []struct {
+			Path    string `json:"path"`
+			Line    int    `json:"line"`
+			Kind    string `json:"kind"`
+			Target  string `json:"target"`
+			Snippet string `json:"snippet"`
+		} `json:"compatibilityFixtures"`
+		InventoryGuards []struct {
+			Path    string `json:"path"`
+			Line    int    `json:"line"`
+			Kind    string `json:"kind"`
+			Target  string `json:"target"`
+			Snippet string `json:"snippet"`
+		} `json:"inventoryGuards"`
+		DocumentationReferences []struct {
+			Path    string `json:"path"`
+			Line    int    `json:"line"`
+			Kind    string `json:"kind"`
+			Target  string `json:"target"`
+			Snippet string `json:"snippet"`
+		} `json:"documentationReferences"`
+		HistoricalReferences []struct {
+			Path    string `json:"path"`
+			Line    int    `json:"line"`
+			Kind    string `json:"kind"`
+			Target  string `json:"target"`
+			Snippet string `json:"snippet"`
+		} `json:"historicalReferences"`
+		RemovalBlockers []struct {
+			Path    string `json:"path"`
+			Line    int    `json:"line"`
+			Kind    string `json:"kind"`
+			Target  string `json:"target"`
+			Snippet string `json:"snippet"`
+		} `json:"removalBlockers"`
+		UnclassifiedReferences []struct {
+			Path    string `json:"path"`
+			Line    int    `json:"line"`
+			Kind    string `json:"kind"`
+			Target  string `json:"target"`
+			Snippet string `json:"snippet"`
+		} `json:"unclassifiedReferences"`
+		Warnings []string `json:"warnings"`
+	} `json:"moduleReferences"`
 	Warnings []string `json:"warnings"`
 }
 
@@ -722,6 +777,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=19 candidates=0 removalModules=14")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "facadeRuntime=true legacyImports=false dispatcher=false")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleRemoval=true candidates=14 facadeDeps=0 undocumented=0")
+	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleReferences=true activeTests=8 fixtures=1 blockers=0 unclassified=0")
 	assertReleaseHandoffSignal(t, handoff, "case shim readiness")
 	assertReleaseHandoffSignal(t, handoff, "public default docs")
 	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
@@ -953,6 +1009,7 @@ func assertReleaseCheckPowerShellDeprecation(t *testing.T, inventory releaseChec
 	assertPowerShellFallbackRetirement(t, inventory)
 	assertPowerShellFacadeRuntime(t, inventory)
 	assertPowerShellModuleRemoval(t, inventory)
+	assertPowerShellModuleReferences(t, inventory)
 }
 
 func assertPowerShellCommandOwner(t *testing.T, inventory releaseCheckPowerShellDeprecation, areaContains string, wantGoDefault, wantBlocked bool) {
@@ -1027,6 +1084,35 @@ func assertPowerShellModuleRemoval(t *testing.T, inventory releaseCheckPowerShel
 	}
 }
 
+func assertPowerShellModuleReferences(t *testing.T, inventory releaseCheckPowerShellDeprecation) {
+	t.Helper()
+	refs := inventory.ModuleReferences
+	if !refs.Ready || refs.Summary != "PowerShell module reference inventory ok" || len(refs.Warnings) != 0 {
+		t.Fatalf("unexpected PowerShell module reference inventory: %+v", refs)
+	}
+	if refs.TotalReferences == 0 || len(refs.ActiveTestDependencies) != 8 || len(refs.CompatibilityFixtures) != 1 || len(refs.InventoryGuards) == 0 || len(refs.RemovalBlockers) != 0 || len(refs.UnclassifiedReferences) != 0 {
+		t.Fatalf("PowerShell module reference inventory omitted expected sections: %+v", refs)
+	}
+	activeFound := false
+	for _, ref := range refs.ActiveTestDependencies {
+		if ref.Path == "rekit/tests/continue-preflight-smoke.ps1" && ref.Target == "rekit/lib/Manifest.ps1" && ref.Line > 0 && ref.Kind == "active-test-dependency" && strings.TrimSpace(ref.Snippet) != "" {
+			activeFound = true
+		}
+	}
+	if !activeFound {
+		t.Fatalf("PowerShell module reference inventory missing continue-preflight active dependency: %+v", refs.ActiveTestDependencies)
+	}
+	fixtureFound := false
+	for _, ref := range refs.CompatibilityFixtures {
+		if ref.Path == "rekit/tests/facade-smoke.ps1" && ref.Target == "isolated/lib/Manifest.ps1" && ref.Line > 0 && ref.Kind == "compatibility-fixture" && strings.TrimSpace(ref.Snippet) != "" {
+			fixtureFound = true
+		}
+	}
+	if !fixtureFound {
+		t.Fatalf("PowerShell module reference inventory missing facade smoke fixture: %+v", refs.CompatibilityFixtures)
+	}
+}
+
 func TestRunReleaseCheckTextInventory(t *testing.T) {
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "release-check"}, &out); err != nil {
@@ -1051,7 +1137,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"packs:",
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
-		"commands=13 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=19 candidates=0 removalModules=14 facadeRuntime=true legacyImports=false dispatcher=false moduleRemoval=true removalCandidates=14 facadeDeps=0 undocumented=0",
+		"commands=13 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=19 candidates=0 removalModules=14 facadeRuntime=true legacyImports=false dispatcher=false moduleRemoval=true removalCandidates=14 facadeDeps=0 undocumented=0 moduleReferences=true activeTests=8 fixtures=1 blockers=0 unclassified=0",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=13",
 		"release handoff: release handoff summary ok ready=true readFirst=7 signals=10 knownGaps=5 packMaturity=10",

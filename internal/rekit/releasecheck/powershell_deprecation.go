@@ -20,6 +20,7 @@ type PowerShellDeprecation struct {
 	FallbackRetirement PowerShellFallbackRetirement `json:"fallbackRetirement"`
 	FacadeRuntime      PowerShellFacadeRuntime      `json:"facadeRuntime"`
 	ModuleRemoval      PowerShellModuleRemoval      `json:"moduleRemoval"`
+	ModuleReferences   PowerShellModuleReferences   `json:"moduleReferences"`
 	Warnings           []string                     `json:"warnings"`
 }
 
@@ -75,6 +76,28 @@ type PowerShellModuleRemovalItem struct {
 	ReferencedByFacade bool   `json:"referencedByFacade"`
 }
 
+type PowerShellModuleReferences struct {
+	Ready                   bool                        `json:"ready"`
+	Summary                 string                      `json:"summary"`
+	TotalReferences         int                         `json:"totalReferences"`
+	ActiveTestDependencies  []PowerShellModuleReference `json:"activeTestDependencies"`
+	CompatibilityFixtures   []PowerShellModuleReference `json:"compatibilityFixtures"`
+	InventoryGuards         []PowerShellModuleReference `json:"inventoryGuards"`
+	DocumentationReferences []PowerShellModuleReference `json:"documentationReferences"`
+	HistoricalReferences    []PowerShellModuleReference `json:"historicalReferences"`
+	RemovalBlockers         []PowerShellModuleReference `json:"removalBlockers"`
+	UnclassifiedReferences  []PowerShellModuleReference `json:"unclassifiedReferences"`
+	Warnings                []string                    `json:"warnings"`
+}
+
+type PowerShellModuleReference struct {
+	Path    string `json:"path"`
+	Line    int    `json:"line"`
+	Kind    string `json:"kind"`
+	Target  string `json:"target"`
+	Snippet string `json:"snippet"`
+}
+
 type PowerShellFallbackRetirement struct {
 	Ready                   bool                                  `json:"ready"`
 	Summary                 string                                `json:"summary"`
@@ -122,10 +145,12 @@ func powerShellDeprecation(repo string) PowerShellDeprecation {
 	strategy.FallbackRetirement = powerShellFallbackRetirement(repo, strategy.CommandOwnership, strategy.ModuleStatus)
 	strategy.FacadeRuntime = powerShellFacadeRuntime(repo)
 	strategy.ModuleRemoval = powerShellModuleRemoval(repo, strategy.ModuleStatus, strategy.FacadeRuntime)
+	strategy.ModuleReferences = powerShellModuleReferences(repo)
 	strategy.Warnings = append(strategy.Warnings, powerShellDeprecationWarnings(repo, strategy)...)
 	strategy.Warnings = append(strategy.Warnings, strategy.FallbackRetirement.Warnings...)
 	strategy.Warnings = append(strategy.Warnings, strategy.FacadeRuntime.Warnings...)
 	strategy.Warnings = append(strategy.Warnings, strategy.ModuleRemoval.Warnings...)
+	strategy.Warnings = append(strategy.Warnings, strategy.ModuleReferences.Warnings...)
 	if len(strategy.Warnings) > 0 {
 		strategy.Ready = false
 		strategy.Summary = "PowerShell deprecation inventory has warnings"
@@ -395,6 +420,154 @@ func powerShellModuleRemoval(repo string, modules []PowerShellModuleStatus, faca
 		inventory.Summary = "PowerShell module removal inventory has warnings"
 	}
 	return inventory
+}
+
+func powerShellModuleReferences(repo string) PowerShellModuleReferences {
+	inventory := PowerShellModuleReferences{
+		Ready:                   true,
+		Summary:                 "PowerShell module reference inventory ok",
+		ActiveTestDependencies:  []PowerShellModuleReference{},
+		CompatibilityFixtures:   []PowerShellModuleReference{},
+		InventoryGuards:         []PowerShellModuleReference{},
+		DocumentationReferences: []PowerShellModuleReference{},
+		HistoricalReferences:    []PowerShellModuleReference{},
+		RemovalBlockers:         []PowerShellModuleReference{},
+		UnclassifiedReferences:  []PowerShellModuleReference{},
+		Warnings:                []string{},
+	}
+	for _, ref := range powerShellModuleReferenceScan(repo) {
+		switch ref.Kind {
+		case "active-test-dependency":
+			inventory.ActiveTestDependencies = append(inventory.ActiveTestDependencies, ref)
+		case "compatibility-fixture":
+			inventory.CompatibilityFixtures = append(inventory.CompatibilityFixtures, ref)
+		case "inventory-guard":
+			inventory.InventoryGuards = append(inventory.InventoryGuards, ref)
+		case "documentation-reference":
+			inventory.DocumentationReferences = append(inventory.DocumentationReferences, ref)
+		case "historical-reference":
+			inventory.HistoricalReferences = append(inventory.HistoricalReferences, ref)
+		case "removal-blocker":
+			inventory.RemovalBlockers = append(inventory.RemovalBlockers, ref)
+		default:
+			ref.Kind = "unclassified"
+			inventory.UnclassifiedReferences = append(inventory.UnclassifiedReferences, ref)
+		}
+		inventory.TotalReferences++
+	}
+	if len(inventory.ActiveTestDependencies) == 0 {
+		inventory.Warnings = append(inventory.Warnings, "PowerShell module reference inventory has no active test dependency markers")
+	}
+	if len(inventory.InventoryGuards) == 0 {
+		inventory.Warnings = append(inventory.Warnings, "PowerShell module reference inventory has no inventory guard markers")
+	}
+	if len(inventory.RemovalBlockers) > 0 {
+		inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell module reference inventory has removal blockers: %d", len(inventory.RemovalBlockers)))
+	}
+	if len(inventory.UnclassifiedReferences) > 0 {
+		inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell module reference inventory has unclassified references: %d", len(inventory.UnclassifiedReferences)))
+	}
+	if len(inventory.Warnings) > 0 {
+		inventory.Ready = false
+		inventory.Summary = "PowerShell module reference inventory has warnings"
+	}
+	return inventory
+}
+
+func powerShellModuleReferenceScan(repo string) []PowerShellModuleReference {
+	refs := []PowerShellModuleReference{}
+	_ = filepath.WalkDir(repo, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", ".claude", "memory":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !powerShellReferenceFile(path) {
+			return nil
+		}
+		rel, err := filepath.Rel(repo, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		for index, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+			target := powerShellModuleReferenceTarget(line)
+			if target == "" {
+				continue
+			}
+			refs = append(refs, PowerShellModuleReference{
+				Path:    rel,
+				Line:    index + 1,
+				Kind:    powerShellModuleReferenceKind(rel, line),
+				Target:  target,
+				Snippet: strings.TrimSpace(line),
+			})
+		}
+		return nil
+	})
+	sort.Slice(refs, func(i, j int) bool {
+		if refs[i].Path == refs[j].Path {
+			return refs[i].Line < refs[j].Line
+		}
+		return refs[i].Path < refs[j].Path
+	})
+	return refs
+}
+
+func powerShellReferenceFile(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".go", ".md", ".ps1", ".yml", ".yaml":
+		return true
+	default:
+		return false
+	}
+}
+
+func powerShellModuleReferenceTarget(line string) string {
+	if match := regexp.MustCompile(`rekit[/\\]lib[/\\][A-Za-z0-9_.-]+\.ps1`).FindString(line); match != "" {
+		return filepath.ToSlash(match)
+	}
+	if strings.Contains(line, "rekit/lib/*.ps1") || strings.Contains(line, "rekit\\lib\\*.ps1") {
+		return "rekit/lib/*.ps1"
+	}
+	if match := regexp.MustCompile(`Join-Path\s+\$(RekitRoot|RuntimeRoot|isolatedRoot)\s+'lib\\([^']+\.ps1)'`).FindStringSubmatch(line); len(match) == 3 {
+		if match[1] == "isolatedRoot" {
+			return "isolated/lib/" + match[2]
+		}
+		return "rekit/lib/" + match[2]
+	}
+	if match := regexp.MustCompile(`lib\\([A-Za-z0-9_.-]+\.ps1)`).FindStringSubmatch(line); len(match) == 2 {
+		return "rekit/lib/" + match[1]
+	}
+	return ""
+}
+
+func powerShellModuleReferenceKind(path, line string) string {
+	switch {
+	case path == "rekit/tests/continue-preflight-smoke.ps1" && strings.Contains(line, "$RekitRoot"):
+		return "active-test-dependency"
+	case path == "rekit/tests/facade-smoke.ps1" && strings.Contains(line, "$isolatedRoot"):
+		return "compatibility-fixture"
+	case strings.HasPrefix(path, "internal/rekit/releasecheck/") || strings.HasPrefix(path, "internal/rekit/manifest/") || strings.HasPrefix(path, "internal/rekit/cli/"):
+		return "inventory-guard"
+	case path == "CHANGELOG.md" || path == "docs/batch-plan.md" || strings.HasSuffix(path, "-migration.md") || path == "docs/reference-absorption.md" || path == "docs/agent-team-rollout-plan.md":
+		return "historical-reference"
+	case strings.HasSuffix(path, ".md") || path == "CLAUDE.md" || path == "README.md":
+		return "documentation-reference"
+	case strings.HasSuffix(path, ".ps1") || strings.HasSuffix(path, ".go"):
+		return "removal-blocker"
+	default:
+		return "unclassified"
+	}
 }
 
 func sortedStringMapKeys(values map[string]bool) []string {

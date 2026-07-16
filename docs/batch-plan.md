@@ -7181,3 +7181,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go test ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 236，`moduleRemoval=true removalCandidates=14 facadeDeps=0 undocumented=0`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。验证过程中曾因本节仍标记“实施中”且验证结果为待完成导致 release handoff/latest batch readiness 按设计失败；补齐状态与验证记录后通过。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 237：Go-owned PowerShell module reference surface inventory
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 236 已将 removal-candidate PowerShell module 清单、公共 façade 依赖和未登记模块纳入 release inventory 后，把仓库中仍出现的 `rekit/lib/*.ps1` 引用面分类为 active test dependency、compatibility fixture、inventory guard、documentation reference、historical reference、removal blocker 与 unclassified reference，为后续独立删除或归档 PowerShell 文件批次提供可审计的主动依赖 / fixture 清单。
+
+实施范围：
+
+- `internal/rekit/releasecheck` 新增 `powerShellDeprecation.moduleReferences` 子库存，扫描 `.go`、`.md`、`.ps1`、`.yml` 与 `.yaml` 中的 `rekit/lib/*.ps1`、`Join-Path ... 'lib\\*.ps1'` 和相关 Windows-style 引用，并分类到 active test dependency、compatibility fixture、inventory guard、documentation reference、historical reference、removal blocker 或 unclassified reference。
+- `powerShellDeprecation.ready` 汇总 `moduleReferences` warnings：当前要求 active test dependency 与 inventory guard 至少存在，且 removal blockers / unclassified references 必须为 0；当前基线为 `activeTests=8 fixtures=1 blockers=0 unclassified=0`。
+- `release-check` 文本输出与 `releaseHandoff.signals[]` 的 PowerShell deprecation detail 展示 `moduleReferences`、`activeTests`、`fixtures`、`blockers` 与 `unclassified` 状态，便于本机 / CI / 新会话在删除前先看到主动依赖与 fixture 面。
+- CLI / releasecheck tests 覆盖 JSON shape、text output、handoff signal，以及 `continue-preflight-smoke.ps1` active dependency 和 `facade-smoke.ps1` compatibility fixture 分类。
+- PowerShell deprecation roadmap、release readiness、Go-first convergence 与 CHANGELOG 同步记录该 module reference surface inventory。
+
+边界：本批只做 Go-owned release inventory、测试和文档；不删除 PowerShell 文件，不新增 PowerShell runtime logic，不改变 `rekit.ps1` 命令集合或 delegation semantics，不改变 Go output schema 中既有字段语义、case-local write semantics、sync/promote review-first、actual heavy-tool、authority/confirmed 或外部副作用边界；历史文档引用不视为 runtime dependency，后续删除仍必须单独处理 active test dependency、compatibility fixture、恢复计划和验证。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/powershell_deprecation.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go test ./internal/rekit/manifest
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go test ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 237，`moduleReferences=true activeTests=8 fixtures=1 blockers=0 unclassified=0`，release handoff / release notes freshness 通过）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

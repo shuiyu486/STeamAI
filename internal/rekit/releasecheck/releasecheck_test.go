@@ -125,6 +125,7 @@ func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {
 	assertFallbackRetirement(t, inventory)
 	assertFacadeRuntime(t, inventory)
 	assertModuleRemoval(t, inventory)
+	assertModuleReferences(t, inventory)
 }
 
 func TestPowerShellDeprecationInventoryDetectsDrift(t *testing.T) {
@@ -245,6 +246,32 @@ func assertModuleRemoval(t *testing.T, inventory PowerShellDeprecation) {
 			t.Fatalf("unexpected PowerShell module removal candidate: %+v", module)
 		}
 	}
+}
+
+func assertModuleReferences(t *testing.T, inventory PowerShellDeprecation) {
+	t.Helper()
+	refs := inventory.ModuleReferences
+	if !refs.Ready || refs.Summary != "PowerShell module reference inventory ok" || len(refs.Warnings) != 0 {
+		t.Fatalf("unexpected PowerShell module reference inventory: %+v", refs)
+	}
+	if refs.TotalReferences == 0 || len(refs.ActiveTestDependencies) != 8 || len(refs.CompatibilityFixtures) != 1 || len(refs.InventoryGuards) == 0 || len(refs.RemovalBlockers) != 0 || len(refs.UnclassifiedReferences) != 0 {
+		t.Fatalf("PowerShell module reference inventory omitted expected sections: %+v", refs)
+	}
+	assertModuleReference(t, refs.ActiveTestDependencies, "rekit/tests/continue-preflight-smoke.ps1", "rekit/lib/Manifest.ps1")
+	assertModuleReference(t, refs.CompatibilityFixtures, "rekit/tests/facade-smoke.ps1", "isolated/lib/Manifest.ps1")
+}
+
+func assertModuleReference(t *testing.T, refs []PowerShellModuleReference, path, target string) {
+	t.Helper()
+	for _, ref := range refs {
+		if ref.Path == path && ref.Target == target {
+			if ref.Line <= 0 || strings.TrimSpace(ref.Kind) == "" || strings.TrimSpace(ref.Snippet) == "" {
+				t.Fatalf("unexpected PowerShell module reference: %+v", ref)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing PowerShell module reference %s -> %s: %+v", path, target, refs)
 }
 
 func assertWarningContains(t *testing.T, warnings []string, want string) {
