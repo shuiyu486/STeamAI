@@ -82,6 +82,12 @@ type PublicProfileGroups struct {
 	ByBoundary         map[string][]string `json:"byBoundary"`
 }
 
+type PublicProfileBoundary struct {
+	Boundary string   `json:"boundary"`
+	Count    int      `json:"count"`
+	Commands []string `json:"commands"`
+}
+
 var publicCommands = []string{
 	Attach,
 	Bootstrap,
@@ -282,6 +288,24 @@ func PublicProfileGroupsFor(profiles []PublicProfile) PublicProfileGroups {
 
 func PublicProfileGroupsBaseline() PublicProfileGroups {
 	return PublicProfileGroupsFor(publicProfiles)
+}
+
+func PublicProfileBoundariesFor(groups PublicProfileGroups) []PublicProfileBoundary {
+	boundaries := []PublicProfileBoundary{}
+	for _, boundary := range KnownMutationBoundaries() {
+		commands := append([]string{}, groups.ByBoundary[boundary]...)
+		sort.Strings(commands)
+		boundaries = append(boundaries, PublicProfileBoundary{
+			Boundary: boundary,
+			Count:    len(commands),
+			Commands: commands,
+		})
+	}
+	return boundaries
+}
+
+func PublicProfileBoundariesBaseline() []PublicProfileBoundary {
+	return PublicProfileBoundariesFor(PublicProfileGroupsBaseline())
 }
 
 func KnownMutationBoundaries() []string {

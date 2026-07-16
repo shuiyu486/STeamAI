@@ -621,24 +621,25 @@ type releaseCheckResult struct {
 	} `json:"packs"`
 	PowerShellDeprecation releaseCheckPowerShellDeprecation `json:"powerShellDeprecation"`
 	GoNativePublicSurface struct {
-		Ready                               bool                          `json:"ready"`
-		Summary                             string                        `json:"summary"`
-		Entrypoint                          string                        `json:"entrypoint"`
-		EntrypointPresent                   bool                          `json:"entrypointPresent"`
-		CommandCatalogPath                  string                        `json:"commandCatalogPath"`
-		CommandCatalogPresent               bool                          `json:"commandCatalogPresent"`
-		DefaultCommand                      string                        `json:"defaultCommand"`
-		Commands                            []string                      `json:"commands"`
-		HandlerCommands                     []string                      `json:"handlerCommands"`
-		SymbolCommands                      map[string]string             `json:"symbolCommands"`
-		CommandProfiles                     []commands.PublicProfile      `json:"commandProfiles"`
-		CommandProfileSummary               commands.PublicProfileSummary `json:"commandProfileSummary"`
-		CommandProfileGroups                commands.PublicProfileGroups  `json:"commandProfileGroups"`
-		MutationBoundaries                  []string                      `json:"mutationBoundaries"`
-		AlternativePattern                  string                        `json:"alternativePattern"`
-		UnsupportedCommandDiagnostic        string                        `json:"unsupportedCommandDiagnostic"`
-		UnsupportedCommandDiagnosticPresent bool                          `json:"unsupportedCommandDiagnosticPresent"`
-		Warnings                            []string                      `json:"warnings"`
+		Ready                               bool                             `json:"ready"`
+		Summary                             string                           `json:"summary"`
+		Entrypoint                          string                           `json:"entrypoint"`
+		EntrypointPresent                   bool                             `json:"entrypointPresent"`
+		CommandCatalogPath                  string                           `json:"commandCatalogPath"`
+		CommandCatalogPresent               bool                             `json:"commandCatalogPresent"`
+		DefaultCommand                      string                           `json:"defaultCommand"`
+		Commands                            []string                         `json:"commands"`
+		HandlerCommands                     []string                         `json:"handlerCommands"`
+		SymbolCommands                      map[string]string                `json:"symbolCommands"`
+		CommandProfiles                     []commands.PublicProfile         `json:"commandProfiles"`
+		CommandProfileSummary               commands.PublicProfileSummary    `json:"commandProfileSummary"`
+		CommandProfileGroups                commands.PublicProfileGroups     `json:"commandProfileGroups"`
+		CommandProfileBoundaries            []commands.PublicProfileBoundary `json:"commandProfileBoundaries"`
+		MutationBoundaries                  []string                         `json:"mutationBoundaries"`
+		AlternativePattern                  string                           `json:"alternativePattern"`
+		UnsupportedCommandDiagnostic        string                           `json:"unsupportedCommandDiagnostic"`
+		UnsupportedCommandDiagnosticPresent bool                             `json:"unsupportedCommandDiagnosticPresent"`
+		Warnings                            []string                         `json:"warnings"`
 	} `json:"goNativePublicSurface"`
 	CaseShim             releaseCheckCaseShim          `json:"caseShim"`
 	PublicDefaultDocs    releaseCheckPublicDefaultDocs `json:"publicDefaultDocs"`
@@ -831,6 +832,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=19 handlers=19 symbols=19 profiles=19 boundaries=7 alternative=go run ./cmd/rekit -- -Command <command>")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileSummary total=19 readOnly=5 mutating=14 writesCase=13 writesKit=1 reviewFirst=3 applyRequired=11 heavyTool=0 authorityConfirmed=0")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileGroups readOnly=doctor,packs,release-check,status,validate reviewFirst=promote,sync,update writesKit=promote")
+	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileBoundaries rows=7 caseLocalApply=attach,bootstrap,continue,gate,handoff,init,repair,start kitReviewFirst=promote readOnly=doctor,packs,release-check,status,validate")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "unsupportedDiagnostic=true")
 	assertReleaseHandoffSignal(t, handoff, "case shim readiness")
 	assertReleaseHandoffSignal(t, handoff, "public default docs")
@@ -942,24 +944,25 @@ func assertReleaseHandoffKnownGap(t *testing.T, handoff releaseCheckHandoff, cat
 }
 
 func assertReleaseCheckGoNativePublicSurface(t *testing.T, surface struct {
-	Ready                               bool                          `json:"ready"`
-	Summary                             string                        `json:"summary"`
-	Entrypoint                          string                        `json:"entrypoint"`
-	EntrypointPresent                   bool                          `json:"entrypointPresent"`
-	CommandCatalogPath                  string                        `json:"commandCatalogPath"`
-	CommandCatalogPresent               bool                          `json:"commandCatalogPresent"`
-	DefaultCommand                      string                        `json:"defaultCommand"`
-	Commands                            []string                      `json:"commands"`
-	HandlerCommands                     []string                      `json:"handlerCommands"`
-	SymbolCommands                      map[string]string             `json:"symbolCommands"`
-	CommandProfiles                     []commands.PublicProfile      `json:"commandProfiles"`
-	CommandProfileSummary               commands.PublicProfileSummary `json:"commandProfileSummary"`
-	CommandProfileGroups                commands.PublicProfileGroups  `json:"commandProfileGroups"`
-	MutationBoundaries                  []string                      `json:"mutationBoundaries"`
-	AlternativePattern                  string                        `json:"alternativePattern"`
-	UnsupportedCommandDiagnostic        string                        `json:"unsupportedCommandDiagnostic"`
-	UnsupportedCommandDiagnosticPresent bool                          `json:"unsupportedCommandDiagnosticPresent"`
-	Warnings                            []string                      `json:"warnings"`
+	Ready                               bool                             `json:"ready"`
+	Summary                             string                           `json:"summary"`
+	Entrypoint                          string                           `json:"entrypoint"`
+	EntrypointPresent                   bool                             `json:"entrypointPresent"`
+	CommandCatalogPath                  string                           `json:"commandCatalogPath"`
+	CommandCatalogPresent               bool                             `json:"commandCatalogPresent"`
+	DefaultCommand                      string                           `json:"defaultCommand"`
+	Commands                            []string                         `json:"commands"`
+	HandlerCommands                     []string                         `json:"handlerCommands"`
+	SymbolCommands                      map[string]string                `json:"symbolCommands"`
+	CommandProfiles                     []commands.PublicProfile         `json:"commandProfiles"`
+	CommandProfileSummary               commands.PublicProfileSummary    `json:"commandProfileSummary"`
+	CommandProfileGroups                commands.PublicProfileGroups     `json:"commandProfileGroups"`
+	CommandProfileBoundaries            []commands.PublicProfileBoundary `json:"commandProfileBoundaries"`
+	MutationBoundaries                  []string                         `json:"mutationBoundaries"`
+	AlternativePattern                  string                           `json:"alternativePattern"`
+	UnsupportedCommandDiagnostic        string                           `json:"unsupportedCommandDiagnostic"`
+	UnsupportedCommandDiagnosticPresent bool                             `json:"unsupportedCommandDiagnosticPresent"`
+	Warnings                            []string                         `json:"warnings"`
 }) {
 	t.Helper()
 	if !surface.Ready || surface.Summary != "Go-native public command surface inventory ok" || surface.Entrypoint != "cmd/rekit" || !surface.EntrypointPresent || surface.CommandCatalogPath != "internal/rekit/commands/commands.go" || !surface.CommandCatalogPresent || surface.DefaultCommand != "status" || surface.AlternativePattern != "go run ./cmd/rekit -- -Command <command>" || !surface.UnsupportedCommandDiagnosticPresent || len(surface.Warnings) != 0 {
@@ -988,6 +991,9 @@ func assertReleaseCheckGoNativePublicSurface(t *testing.T, surface struct {
 	}
 	if strings.Join(surface.CommandProfileGroups.ReadOnly, ",") != "doctor,packs,release-check,status,validate" || strings.Join(surface.CommandProfileGroups.ReviewFirst, ",") != "promote,sync,update" || strings.Join(surface.CommandProfileGroups.WritesKit, ",") != "promote" || len(surface.CommandProfileGroups.HeavyTool) != 0 || len(surface.CommandProfileGroups.AuthorityConfirmed) != 0 || len(surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalApply]) != 8 || len(surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalReviewFirst]) != 2 {
 		t.Fatalf("Go-native public command profile groups drifted: %+v", surface.CommandProfileGroups)
+	}
+	if len(surface.CommandProfileBoundaries) != 7 || surface.CommandProfileBoundaries[0].Boundary != commands.BoundaryCaseLocalAppend || surface.CommandProfileBoundaries[0].Count != 1 || strings.Join(surface.CommandProfileBoundaries[1].Commands, ",") != "attach,bootstrap,continue,gate,handoff,init,repair,start" || surface.CommandProfileBoundaries[len(surface.CommandProfileBoundaries)-1].Boundary != commands.BoundaryReadOnly || surface.CommandProfileBoundaries[len(surface.CommandProfileBoundaries)-1].Count != 5 {
+		t.Fatalf("Go-native public command profile boundary rows drifted: %+v", surface.CommandProfileBoundaries)
 	}
 }
 
@@ -1244,7 +1250,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
 		"commands=13 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=19 candidates=0 removalModules=0 retiredModules=13 facadeRuntime=true legacyImports=false dispatcher=false publicFacade=true retained=true facadeCommands=19 noFallback=19 moduleRemoval=true removalCandidates=0 retired=13 facadeDeps=0 undocumented=0 moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0",
-		"Go-native public surface: Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true default=status commands=19 handlers=19 symbols=19 profiles=19 boundaries=7 readOnly=5 mutating=14 writesCase=13 writesKit=1 reviewFirst=3 applyRequired=11 heavyTool=0 authorityConfirmed=0 readOnlyCommands=doctor,packs,release-check,status,validate reviewFirstCommands=promote,sync,update writesKitCommands=promote alternative=go run ./cmd/rekit -- -Command <command> unsupportedDiagnostic=true",
+		"Go-native public surface: Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true default=status commands=19 handlers=19 symbols=19 profiles=19 boundaries=7 boundaryRows=7 readOnly=5 mutating=14 writesCase=13 writesKit=1 reviewFirst=3 applyRequired=11 heavyTool=0 authorityConfirmed=0 readOnlyCommands=doctor,packs,release-check,status,validate reviewFirstCommands=promote,sync,update writesKitCommands=promote caseLocalApplyCommands=attach,bootstrap,continue,gate,handoff,init,repair,start kitReviewFirstCommands=promote alternative=go run ./cmd/rekit -- -Command <command> unsupportedDiagnostic=true",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=13",
 		"release handoff: release handoff summary ok ready=true readFirst=7 signals=11 knownGaps=5 packMaturity=10",

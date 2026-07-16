@@ -13,24 +13,25 @@ import (
 )
 
 type GoNativePublicSurface struct {
-	Ready                               bool                          `json:"ready"`
-	Summary                             string                        `json:"summary"`
-	Entrypoint                          string                        `json:"entrypoint"`
-	EntrypointPresent                   bool                          `json:"entrypointPresent"`
-	CommandCatalogPath                  string                        `json:"commandCatalogPath"`
-	CommandCatalogPresent               bool                          `json:"commandCatalogPresent"`
-	DefaultCommand                      string                        `json:"defaultCommand"`
-	Commands                            []string                      `json:"commands"`
-	HandlerCommands                     []string                      `json:"handlerCommands"`
-	SymbolCommands                      map[string]string             `json:"symbolCommands"`
-	CommandProfiles                     []commands.PublicProfile      `json:"commandProfiles"`
-	CommandProfileSummary               commands.PublicProfileSummary `json:"commandProfileSummary"`
-	CommandProfileGroups                commands.PublicProfileGroups  `json:"commandProfileGroups"`
-	MutationBoundaries                  []string                      `json:"mutationBoundaries"`
-	AlternativePattern                  string                        `json:"alternativePattern"`
-	UnsupportedCommandDiagnostic        string                        `json:"unsupportedCommandDiagnostic"`
-	UnsupportedCommandDiagnosticPresent bool                          `json:"unsupportedCommandDiagnosticPresent"`
-	Warnings                            []string                      `json:"warnings"`
+	Ready                               bool                             `json:"ready"`
+	Summary                             string                           `json:"summary"`
+	Entrypoint                          string                           `json:"entrypoint"`
+	EntrypointPresent                   bool                             `json:"entrypointPresent"`
+	CommandCatalogPath                  string                           `json:"commandCatalogPath"`
+	CommandCatalogPresent               bool                             `json:"commandCatalogPresent"`
+	DefaultCommand                      string                           `json:"defaultCommand"`
+	Commands                            []string                         `json:"commands"`
+	HandlerCommands                     []string                         `json:"handlerCommands"`
+	SymbolCommands                      map[string]string                `json:"symbolCommands"`
+	CommandProfiles                     []commands.PublicProfile         `json:"commandProfiles"`
+	CommandProfileSummary               commands.PublicProfileSummary    `json:"commandProfileSummary"`
+	CommandProfileGroups                commands.PublicProfileGroups     `json:"commandProfileGroups"`
+	CommandProfileBoundaries            []commands.PublicProfileBoundary `json:"commandProfileBoundaries"`
+	MutationBoundaries                  []string                         `json:"mutationBoundaries"`
+	AlternativePattern                  string                           `json:"alternativePattern"`
+	UnsupportedCommandDiagnostic        string                           `json:"unsupportedCommandDiagnostic"`
+	UnsupportedCommandDiagnosticPresent bool                             `json:"unsupportedCommandDiagnosticPresent"`
+	Warnings                            []string                         `json:"warnings"`
 }
 
 func goNativePublicSurface(repo string) GoNativePublicSurface {
@@ -47,6 +48,7 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 		CommandProfiles:              commands.PublicProfiles(),
 		CommandProfileSummary:        commands.PublicProfileSummaryBaseline(),
 		CommandProfileGroups:         commands.PublicProfileGroupsBaseline(),
+		CommandProfileBoundaries:     commands.PublicProfileBoundariesBaseline(),
 		MutationBoundaries:           commands.KnownMutationBoundaries(),
 		AlternativePattern:           commands.GoNativeAlternativePattern,
 		UnsupportedCommandDiagnostic: commands.UnsupportedError("unsupported").Error(),
@@ -168,6 +170,36 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 	}
 	if len(inventory.CommandProfileGroups.ReadOnly) != inventory.CommandProfileSummary.ReadOnly || len(inventory.CommandProfileGroups.Mutating) != inventory.CommandProfileSummary.Mutating || len(inventory.CommandProfileGroups.WritesCase) != inventory.CommandProfileSummary.WritesCase || len(inventory.CommandProfileGroups.WritesKit) != inventory.CommandProfileSummary.WritesKit || len(inventory.CommandProfileGroups.ReviewFirst) != inventory.CommandProfileSummary.ReviewFirst || len(inventory.CommandProfileGroups.ApplyRequired) != inventory.CommandProfileSummary.ApplyRequired || len(inventory.CommandProfileGroups.HeavyTool) != inventory.CommandProfileSummary.HeavyTool || len(inventory.CommandProfileGroups.AuthorityConfirmed) != inventory.CommandProfileSummary.AuthorityConfirmed {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile group counts do not match summary")
+	}
+	boundaryRows := map[string]commands.PublicProfileBoundary{}
+	for _, row := range inventory.CommandProfileBoundaries {
+		if !commands.IsKnownMutationBoundary(row.Boundary) {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile boundary row has unknown boundary: %s", row.Boundary))
+		}
+		if _, ok := boundaryRows[row.Boundary]; ok {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile boundary row duplicated boundary: %s", row.Boundary))
+		}
+		boundaryRows[row.Boundary] = row
+		if row.Count != len(row.Commands) {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile boundary row count mismatch for %s", row.Boundary))
+		}
+		if !slices.IsSorted(row.Commands) {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile boundary row commands are not sorted for %s", row.Boundary))
+		}
+		if inventory.CommandProfileSummary.Boundaries[row.Boundary] != row.Count {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile boundary row does not match summary for %s", row.Boundary))
+		}
+		if !slices.Equal(inventory.CommandProfileGroups.ByBoundary[row.Boundary], row.Commands) {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile boundary row does not match command groups for %s", row.Boundary))
+		}
+	}
+	for _, boundary := range inventory.MutationBoundaries {
+		if _, ok := boundaryRows[boundary]; !ok {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile boundary rows missing boundary: %s", boundary))
+		}
+	}
+	if len(inventory.CommandProfileBoundaries) != len(inventory.MutationBoundaries) {
+		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile boundary rows do not cover mutation boundaries")
 	}
 	seen := map[string]bool{}
 	for _, command := range inventory.Commands {

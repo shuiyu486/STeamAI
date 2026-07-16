@@ -143,6 +143,9 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	if strings.Join(inventory.CommandProfileGroups.ReadOnly, ",") != "doctor,packs,release-check,status,validate" || strings.Join(inventory.CommandProfileGroups.ReviewFirst, ",") != "promote,sync,update" || strings.Join(inventory.CommandProfileGroups.WritesKit, ",") != "promote" || len(inventory.CommandProfileGroups.HeavyTool) != 0 || len(inventory.CommandProfileGroups.AuthorityConfirmed) != 0 || len(inventory.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalApply]) != 8 || len(inventory.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalReviewFirst]) != 2 {
 		t.Fatalf("Go-native public command profile groups drifted: %+v", inventory.CommandProfileGroups)
 	}
+	if len(inventory.CommandProfileBoundaries) != 7 || inventory.CommandProfileBoundaries[0].Boundary != commands.BoundaryCaseLocalAppend || inventory.CommandProfileBoundaries[0].Count != 1 || strings.Join(inventory.CommandProfileBoundaries[1].Commands, ",") != "attach,bootstrap,continue,gate,handoff,init,repair,start" || inventory.CommandProfileBoundaries[len(inventory.CommandProfileBoundaries)-1].Boundary != commands.BoundaryReadOnly || inventory.CommandProfileBoundaries[len(inventory.CommandProfileBoundaries)-1].Count != 5 {
+		t.Fatalf("Go-native public command profile boundary rows drifted: %+v", inventory.CommandProfileBoundaries)
+	}
 }
 
 func TestGoNativePublicSurfaceInventoryDetectsDispatcherDrift(t *testing.T) {

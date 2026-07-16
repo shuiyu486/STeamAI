@@ -40,6 +40,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=19 handlers=19 symbols=19 profiles=19 boundaries=7 alternative=go run ./cmd/rekit -- -Command <command>")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileSummary total=19 readOnly=5 mutating=14 writesCase=13 writesKit=1 reviewFirst=3 applyRequired=11 heavyTool=0 authorityConfirmed=0")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileGroups readOnly=doctor,packs,release-check,status,validate reviewFirst=promote,sync,update writesKit=promote")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileBoundaries rows=7 caseLocalApply=attach,bootstrap,continue,gate,handoff,init,repair,start kitReviewFirst=promote readOnly=doctor,packs,release-check,status,validate")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "unsupportedDiagnostic=true")
 	assertHandoffSignal(t, handoff, "case shim readiness")
 	assertHandoffSignal(t, handoff, "public default docs")

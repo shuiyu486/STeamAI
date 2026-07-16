@@ -58,6 +58,10 @@ func TestPublicCommandProfiles(t *testing.T) {
 	if strings.Join(groups.ReadOnly, ",") != "doctor,packs,release-check,status,validate" || strings.Join(groups.WritesKit, ",") != Promote || strings.Join(groups.ReviewFirst, ",") != "promote,sync,update" || len(groups.HeavyTool) != 0 || len(groups.AuthorityConfirmed) != 0 || len(groups.ByBoundary[BoundaryCaseLocalApply]) != 8 || len(groups.ByBoundary[BoundaryCaseLocalReviewFirst]) != 2 || groups.ByBoundary[BoundaryKitReviewFirst][0] != Promote {
 		t.Fatalf("unexpected public command profile groups: %+v", groups)
 	}
+	boundaries := PublicProfileBoundariesBaseline()
+	if len(boundaries) != len(KnownMutationBoundaries()) || boundaries[0].Boundary != BoundaryCaseLocalAppend || boundaries[0].Count != 1 || strings.Join(boundaries[1].Commands, ",") != "attach,bootstrap,continue,gate,handoff,init,repair,start" || boundaries[len(boundaries)-1].Boundary != BoundaryReadOnly || boundaries[len(boundaries)-1].Count != 5 {
+		t.Fatalf("unexpected public command profile boundaries: %+v", boundaries)
+	}
 }
 
 func TestPublicCommandHandlerCoverageHelpers(t *testing.T) {
