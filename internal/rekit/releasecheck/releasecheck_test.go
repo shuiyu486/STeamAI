@@ -363,7 +363,7 @@ func assertPublicFacadeRemoval(t *testing.T, inventory PublicFacadeRemoval) {
 	if len(inventory.Prerequisites) != 8 || inventory.Prerequisites[0].Name != "public-facade-retained-boundary" || !inventory.Prerequisites[0].Ready || inventory.Prerequisites[2].Name != "go-native-public-surface" || !inventory.Prerequisites[2].Ready || inventory.Prerequisites[5].Name != "module-reference-blockers-clear" || !inventory.Prerequisites[5].Ready || inventory.Prerequisites[6].Name != "removal-plan-documented" || !inventory.Prerequisites[6].Ready || inventory.Prerequisites[7].Name != "removal-impact-inventoried" || !inventory.Prerequisites[7].Ready {
 		t.Fatalf("public facade removal prerequisites drifted: %+v", inventory.Prerequisites)
 	}
-	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || len(inventory.RemovalPlan.RequiredPhrases) != 9 || len(inventory.RemovalPlan.RecoverySteps) != 4 || publicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps) != 32 || !publicFacadeRemovalHasRecoveryStep(inventory.RemovalPlan, "restore-public-facade") {
+	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || len(inventory.RemovalPlan.RequiredPhrases) != 9 || len(inventory.RemovalPlan.RecoverySteps) != 4 || publicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps) != 32 || len(inventory.RemovalPlan.DocumentationTargets) != 9 || publicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets) != 72 || !publicFacadeRemovalHasRecoveryStep(inventory.RemovalPlan, "restore-public-facade") || !publicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "docs/release-readiness.md") || !publicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "CHANGELOG.md") {
 		t.Fatalf("public facade removal plan drifted: %+v", inventory.RemovalPlan)
 	}
 	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || len(inventory.RemovalImpact.References) == 0 || len(inventory.RemovalImpact.ReferenceCategories) == 0 || len(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.ReferenceCategories) || publicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.WorkItems)*8 || len(inventory.RemovalImpact.UnclassifiedReferences) != 0 || !publicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !publicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !publicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") {
@@ -374,6 +374,15 @@ func assertPublicFacadeRemoval(t *testing.T, inventory PublicFacadeRemoval) {
 func publicFacadeRemovalHasRecoveryStep(plan PublicFacadeRemovalPlan, name string) bool {
 	for _, step := range plan.RecoverySteps {
 		if step.Name == name && step.Required && strings.TrimSpace(step.Action) != "" && len(step.Paths) > 0 && len(step.ValidationCommands) == 8 && slices.Contains(step.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
+			return true
+		}
+	}
+	return false
+}
+
+func publicFacadeRemovalHasDocumentationTarget(plan PublicFacadeRemovalPlan, path string) bool {
+	for _, target := range plan.DocumentationTargets {
+		if target.Path == path && target.Required && strings.TrimSpace(target.Purpose) != "" && strings.TrimSpace(target.Action) != "" && len(target.ValidationCommands) == 8 && slices.Contains(target.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
 			return true
 		}
 	}

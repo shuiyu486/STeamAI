@@ -48,6 +48,8 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "removalPlan=true planChecks=9")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "recoverySteps=4")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "recoveryValidationCommands=32")
+	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "documentationTargets=9")
+	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "documentationValidationCommands=72")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "removalImpact=true impactReferences=")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "workItems=")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "validationCommands=")

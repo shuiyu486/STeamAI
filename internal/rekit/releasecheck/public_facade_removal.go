@@ -26,12 +26,13 @@ type PublicFacadeRemovalPrerequisite struct {
 }
 
 type PublicFacadeRemovalPlan struct {
-	Ready           bool                              `json:"ready"`
-	Summary         string                            `json:"summary"`
-	Document        string                            `json:"document"`
-	RequiredPhrases []PublicFacadeRemovalPlanPhrase   `json:"requiredPhrases"`
-	RecoverySteps   []PublicFacadeRemovalRecoveryStep `json:"recoverySteps"`
-	Warnings        []string                          `json:"warnings"`
+	Ready                bool                                     `json:"ready"`
+	Summary              string                                   `json:"summary"`
+	Document             string                                   `json:"document"`
+	RequiredPhrases      []PublicFacadeRemovalPlanPhrase          `json:"requiredPhrases"`
+	RecoverySteps        []PublicFacadeRemovalRecoveryStep        `json:"recoverySteps"`
+	DocumentationTargets []PublicFacadeRemovalDocumentationTarget `json:"documentationTargets"`
+	Warnings             []string                                 `json:"warnings"`
 }
 
 type PublicFacadeRemovalPlanPhrase struct {
@@ -45,6 +46,14 @@ type PublicFacadeRemovalRecoveryStep struct {
 	Action             string   `json:"action"`
 	Required           bool     `json:"required"`
 	Paths              []string `json:"paths"`
+	ValidationCommands []string `json:"validationCommands"`
+}
+
+type PublicFacadeRemovalDocumentationTarget struct {
+	Path               string   `json:"path"`
+	Purpose            string   `json:"purpose"`
+	Action             string   `json:"action"`
+	Required           bool     `json:"required"`
 	ValidationCommands []string `json:"validationCommands"`
 }
 
@@ -85,7 +94,7 @@ type PublicFacadeRemovalImpactWorkItem struct {
 func publicFacadeRemovalHandoffDetails(inventory PublicFacadeRemoval) []string {
 	details := make([]string, 0, len(inventory.Prerequisites)+3)
 	details = append(details, fmt.Sprintf("ready=%t prerequisites=%d", inventory.Ready, len(inventory.Prerequisites)))
-	details = append(details, fmt.Sprintf("removalPlan=%t planChecks=%d recoverySteps=%d recoveryValidationCommands=%d", inventory.RemovalPlan.Ready, len(inventory.RemovalPlan.RequiredPhrases), len(inventory.RemovalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps)))
+	details = append(details, fmt.Sprintf("removalPlan=%t planChecks=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", inventory.RemovalPlan.Ready, len(inventory.RemovalPlan.RequiredPhrases), len(inventory.RemovalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps), len(inventory.RemovalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets)))
 	details = append(details, fmt.Sprintf("removalImpact=%t impactReferences=%d impactCategories=%d workItems=%d validationCommands=%d unclassified=%d", inventory.RemovalImpact.Ready, len(inventory.RemovalImpact.References), len(inventory.RemovalImpact.ReferenceCategories), len(inventory.RemovalImpact.WorkItems), publicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems), len(inventory.RemovalImpact.UnclassifiedReferences)))
 	for _, prerequisite := range inventory.Prerequisites {
 		details = append(details, fmt.Sprintf("%s ready=%t %s", prerequisite.Name, prerequisite.Ready, prerequisite.Summary))
@@ -133,7 +142,7 @@ func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation,
 			{
 				Name:    "removal-plan-documented",
 				Ready:   removalPlan.Ready,
-				Summary: fmt.Sprintf("removalPlanReady=%t checks=%d recoverySteps=%d recoveryValidationCommands=%d", removalPlan.Ready, len(removalPlan.RequiredPhrases), len(removalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(removalPlan.RecoverySteps)),
+				Summary: fmt.Sprintf("removalPlanReady=%t checks=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", removalPlan.Ready, len(removalPlan.RequiredPhrases), len(removalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(removalPlan.RecoverySteps), len(removalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(removalPlan.DocumentationTargets)),
 			},
 			{
 				Name:    "removal-impact-inventoried",
@@ -174,8 +183,9 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 			{Name: "no-powershell-runtime-logic", Phrase: "不新增 PowerShell runtime logic"},
 			{Name: "no-heavy-tool-authority", Phrase: "actual heavy-tool、authority/confirmed"},
 		},
-		RecoverySteps: publicFacadeRemovalRecoverySteps(),
-		Warnings:      []string{},
+		RecoverySteps:        publicFacadeRemovalRecoverySteps(),
+		DocumentationTargets: publicFacadeRemovalDocumentationTargets(),
+		Warnings:             []string{},
 	}
 	data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(document)))
 	if err != nil {
@@ -217,6 +227,28 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		for _, command := range publicFacadeRemovalImpactValidationCommands() {
 			if !slices.Contains(step.ValidationCommands, command) {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal recovery step missing validation command %q: %s", command, step.Name))
+			}
+		}
+	}
+	for _, target := range plan.DocumentationTargets {
+		if !target.Required {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal documentation target is not required: %s", target.Path))
+		}
+		if strings.TrimSpace(target.Path) == "" {
+			plan.Warnings = append(plan.Warnings, "public facade removal documentation target missing path")
+		}
+		if strings.TrimSpace(target.Purpose) == "" {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal documentation target missing purpose: %s", target.Path))
+		}
+		if strings.TrimSpace(target.Action) == "" {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal documentation target missing action: %s", target.Path))
+		}
+		if len(target.ValidationCommands) == 0 {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal documentation target missing validation commands: %s", target.Path))
+		}
+		for _, command := range publicFacadeRemovalImpactValidationCommands() {
+			if !slices.Contains(target.ValidationCommands, command) {
+				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal documentation target missing validation command %q: %s", command, target.Path))
 			}
 		}
 	}
@@ -264,6 +296,28 @@ func publicFacadeRemovalRecoveryValidationCommandCount(steps []PublicFacadeRemov
 	count := 0
 	for _, step := range steps {
 		count += len(step.ValidationCommands)
+	}
+	return count
+}
+
+func publicFacadeRemovalDocumentationTargets() []PublicFacadeRemovalDocumentationTarget {
+	return []PublicFacadeRemovalDocumentationTarget{
+		{Path: "README.md", Purpose: "public default docs", Action: "remove or replace public facade references in user-facing overview", Required: true, ValidationCommands: publicFacadeRemovalImpactValidationCommands()},
+		{Path: "CLAUDE.md", Purpose: "project instructions", Action: "keep project maintenance guidance aligned with Go-native public path", Required: true, ValidationCommands: publicFacadeRemovalImpactValidationCommands()},
+		{Path: ".claude/skills/rekit/SKILL.md", Purpose: "canonical /rekit skill", Action: "keep the user-facing command path on /rekit and Mission Control instead of the removed facade", Required: true, ValidationCommands: publicFacadeRemovalImpactValidationCommands()},
+		{Path: "rekit/templates/case-shim/SKILL.md", Purpose: "case-local thin shim", Action: "keep case-local shim documentation free of removed facade defaults", Required: true, ValidationCommands: publicFacadeRemovalImpactValidationCommands()},
+		{Path: "docs/release-readiness.md", Purpose: "release gate checklist", Action: "update public facade removal readiness and known gaps", Required: true, ValidationCommands: publicFacadeRemovalImpactValidationCommands()},
+		{Path: "docs/powershell-deprecation.md", Purpose: "PowerShell deprecation roadmap", Action: "update removal plan, recovery plan and retained facade status", Required: true, ValidationCommands: publicFacadeRemovalImpactValidationCommands()},
+		{Path: "docs/go-first-convergence-plan.md", Purpose: "Go-first convergence plan", Action: "update Stage 8 progress without declaring global completion", Required: true, ValidationCommands: publicFacadeRemovalImpactValidationCommands()},
+		{Path: "docs/batch-plan.md", Purpose: "batch implementation record", Action: "record the independent removal batch scope, validation and recovery result", Required: true, ValidationCommands: publicFacadeRemovalImpactValidationCommands()},
+		{Path: "CHANGELOG.md", Purpose: "release notes", Action: "record user-visible removal batch changes and boundaries", Required: true, ValidationCommands: publicFacadeRemovalImpactValidationCommands()},
+	}
+}
+
+func publicFacadeRemovalDocumentationValidationCommandCount(targets []PublicFacadeRemovalDocumentationTarget) int {
+	count := 0
+	for _, target := range targets {
+		count += len(target.ValidationCommands)
 	}
 	return count
 }
