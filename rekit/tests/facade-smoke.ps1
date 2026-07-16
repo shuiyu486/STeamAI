@@ -101,21 +101,21 @@ function Assert-FakeFallback {
   Assert-ContainsText -Text $out -Expected $Expected -Label $Label
 }
 
-function Assert-LegacyRuntimeNotLoaded {
-  $isolatedRoot = Join-Path $matrixRoot 'retired-facade-dispatcher'
-  Copy-Item -LiteralPath $RekitRoot -Destination $isolatedRoot -Recurse -Force
-  $isolatedRekit = Join-Path $isolatedRoot 'rekit.ps1'
-  $sentinel = 'legacy runtime imported by retired dispatcher'
-  [System.IO.File]::WriteAllText((Join-Path $isolatedRoot 'lib\Manifest.ps1'), "throw '$sentinel'`r`n", [System.Text.UTF8Encoding]::new($false))
+function Assert-FacadeRuntimeNoLegacyDependency {
+  $facadeText = [System.IO.File]::ReadAllText($Rekit, [System.Text.Encoding]::UTF8)
+  foreach ($unexpected in @("Join-Path `$RuntimeRoot 'lib\", 'Get-RekitPackInventory -RepoRoot', 'Invoke-RekitStart -Target', 'Sync-RekitPack -Target', 'Promote-RekitChanges -Target', 'Write-RekitSubagentPlan -Target')) {
+    Assert-NotContainsText -Text $facadeText -Unexpected $unexpected -Label 'facade source has no legacy runtime dependency'
+  }
+  foreach ($expected in @('Invoke-RekitGoBackend -Invocation $goInvocation', 'if (Test-RekitNoPowerShellFallbackCommand -Name $Command)')) {
+    Assert-ContainsText -Text $facadeText -Expected $expected -Label 'facade source keeps Go delegation and no-fallback guard'
+  }
 
   Write-FakeGoBackend -Path $fakeGo -CommandName 'status'
-  $delegatedOut = Invoke-RekitSmoke -ScriptPath $isolatedRekit -Arguments @('-Command','status') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $delegatedOut -Expected '"delegatedByFake":true' -Label 'default delegation does not load legacy runtime'
-  Assert-NotContainsText -Text $delegatedOut -Unexpected $sentinel -Label 'default delegation does not load legacy runtime'
+  $delegatedOut = Invoke-RekitSmoke -Arguments @('-Command','status') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $delegatedOut -Expected '"delegatedByFake":true' -Label 'default delegation remains Go-owned'
 
-  $disabledOut = Invoke-RekitSmoke -ScriptPath $isolatedRekit -Arguments @('-Command','status') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $disabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled no-fallback does not load legacy runtime'
-  Assert-NotContainsText -Text $disabledOut -Unexpected $sentinel -Label 'disabled no-fallback does not load legacy runtime'
+  $disabledOut = Invoke-RekitSmoke -Arguments @('-Command','status') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $disabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled no-fallback remains retired'
 }
 
 $suffix = [Guid]::NewGuid().ToString('N').Substring(0,8)
@@ -136,7 +136,7 @@ try {
     $gateLane = 'feature-handler-0x40a010'
   }
 
-  Assert-LegacyRuntimeNotLoaded
+  Assert-FacadeRuntimeNoLegacyDependency
 
   # Low-risk read-only commands, overview/note reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, promote JSON previews, start/handoff JSON preview/apply paths, continue JSON preview/apply, and plan-subagents review artifacts default to Go; retired groups fail instead of using PowerShell fallback.
   $out = Invoke-RekitSmoke -Arguments @('-Command','status')

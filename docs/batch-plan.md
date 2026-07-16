@@ -7251,3 +7251,33 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt`、`go test ./internal/rekit/workstream -run TestContinueAuthority`、`go test ./internal/rekit/cli -run 'TestRun(ReleaseCheckTextInventory|ContinueWhatIfDoesNotWrite|ContinueApplyWritesDigestAndFacts)'`、`go test ./internal/rekit/releasecheck -run 'Test(PowerShellDeprecationInventoryFromRepo|ReleaseHandoffInventoryFromRepo)'`、`.\rekit\tests\continue-preflight-smoke.ps1`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/workstream`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 238，`moduleReferences=true activeTests=0 fixtures=1 blockers=0 unclassified=0`，release notes freshness 通过）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 239：Go-owned façade fixture removal
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 238 已把 active test dependency 基线降为 0 后，处理剩余 `facade-smoke.ps1` compatibility fixture，使 `powerShellDeprecation.moduleReferences` 的 fixture 基线也降为 0，同时保留 façade 默认 Go delegation 与 disabled no-fallback 的验证能力。
+
+实施范围：
+
+- 将 `facade-smoke.ps1` 的 `Assert-LegacyRuntimeNotLoaded` 改为 `Assert-FacadeRuntimeNoLegacyDependency`：不再复制 `rekit/` 或改写隔离 `lib/Manifest.ps1` sentinel，而是直接读取公共 `rekit.ps1`，检查不包含 legacy module imports / retired dispatcher patterns，并继续验证默认 fake Go delegation 与 `REKIT_GO_DISABLE=1` no-fallback 行为。
+- 更新 releasecheck / CLI tests，将 `powerShellDeprecation.moduleReferences` 基线调整为 `activeTests=0 fixtures=0 blockers=0 unclassified=0`，并移除对 `isolated/lib/Manifest.ps1` fixture 的断言。
+- 更新 PowerShell deprecation roadmap、release readiness、Go-first convergence plan、batch-plan 与 CHANGELOG，明确 compatibility fixture 已迁到 source invariant + behavior check，不再通过 legacy module sentinel 表示。
+
+边界：本批不删除 `rekit/lib/*.ps1` 或任何 PowerShell 文件，不新增 PowerShell runtime logic，不改变 `rekit.ps1` 命令集合、delegation semantics、Go output schema 中既有字段语义、case-local write semantics、sync/promote review-first、actual heavy-tool、authority/confirmed 或外部副作用边界；`facade-smoke.ps1` 仍是按需 compatibility smoke，不进入默认 release gate。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/cli/cli_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go
+go test ./internal/rekit/releasecheck -run 'Test(PowerShellDeprecationInventoryFromRepo|ReleaseHandoffInventoryFromRepo)'
+go test ./internal/rekit/cli -run TestRunReleaseCheckTextInventory
+.\rekit\tests\facade-smoke.ps1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/cli/cli_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go`、`go test ./internal/rekit/releasecheck -run 'Test(PowerShellDeprecationInventoryFromRepo|ReleaseHandoffInventoryFromRepo)'`、`go test ./internal/rekit/cli -run TestRunReleaseCheckTextInventory`、`.\rekit\tests\facade-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 239，`moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

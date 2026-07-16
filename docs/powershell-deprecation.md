@@ -115,11 +115,11 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 `release-check -Format json` 的 `powerShellDeprecation.moduleReferences` 是删除或归档 PowerShell 文件前的引用面分类库存：
 
 - `activeTestDependencies[]` 记录仍直接 dot-source `rekit/lib/*.ps1` 的主动测试依赖；当前基线为 0，`continue-preflight-smoke.ps1` 已改为 Go-owned package-test wrapper，不再加载 legacy runtime modules。
-- `compatibilityFixtures[]` 记录刻意构造的 compatibility fixture；当前基线为 `rekit/tests/facade-smoke.ps1` 的隔离 `lib/Manifest.ps1` sentinel，用于验证默认 Go delegation / no-fallback 不加载 legacy runtime。
+- `compatibilityFixtures[]` 记录刻意构造的 compatibility fixture；当前基线为 0，`facade-smoke.ps1` 已改为直接检查 façade source invariant 与默认 Go delegation / no-fallback 行为，不再复制隔离 `lib/Manifest.ps1` sentinel。
 - `inventoryGuards[]`、`documentationReferences[]` 与 `historicalReferences[]` 分别记录 Go release inventory / invariant guard、当前说明文档和历史迁移记录中的引用，避免删除批次误把历史说明当成 runtime dependency。
 - `removalBlockers[]` 和 `unclassifiedReferences[]` 必须为空；若出现新的 `.ps1` / `.go` 主动依赖或无法分类的 `rekit/lib/*.ps1` 引用，`powerShellDeprecation.ready=false`，删除/归档批次必须先分类或消除该引用。
 
-该库存只分类引用面；不删除 `rekit/lib/*.ps1`，也不把历史文档引用视为 active runtime dependency。实际删除仍必须单独处理 compatibility fixture、恢复计划和验证；若未来重新出现 active test dependency，应先迁移到 Go-native/package-level coverage。
+该库存只分类引用面；不删除 `rekit/lib/*.ps1`，也不把历史文档引用视为 active runtime dependency。实际删除仍必须单独处理恢复计划和验证；若未来重新出现 active test dependency 或 compatibility fixture，应先迁移到 Go-native/package-level source invariant coverage。
 
 ## Fallback retirement inventory
 
