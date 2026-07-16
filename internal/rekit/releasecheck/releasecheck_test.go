@@ -205,11 +205,13 @@ func assertFallbackRetirement(t *testing.T, inventory PowerShellDeprecation) {
 	if !fallback.Ready || fallback.Summary != "PowerShell fallback retirement inventory ok" || len(fallback.Warnings) != 0 {
 		t.Fatalf("unexpected fallback retirement inventory: %+v", fallback)
 	}
-	if len(fallback.GoDefaultCommands) != 19 || len(fallback.NoFallbackCommands) != 1 || len(fallback.CandidateCommands) != 10 || len(fallback.RemovalCandidateModules) != 14 {
+	if len(fallback.GoDefaultCommands) != 19 || len(fallback.NoFallbackCommands) != 5 || len(fallback.CandidateCommands) != 9 || len(fallback.RemovalCandidateModules) != 14 {
 		t.Fatalf("fallback retirement inventory omitted expected sections: %+v", fallback)
 	}
-	if fallback.NoFallbackCommands[0] != "release-check" {
-		t.Fatalf("NoFallbackCommands = %v, want release-check", fallback.NoFallbackCommands)
+	for _, command := range []string{"doctor", "packs", "release-check", "status", "validate"} {
+		if !slices.Contains(fallback.NoFallbackCommands, command) {
+			t.Fatalf("NoFallbackCommands = %v, missing %s", fallback.NoFallbackCommands, command)
+		}
 	}
 	assertFallbackCommand(t, fallback.CandidateCommands, "sync / update", "sync", "update")
 	assertFallbackCommand(t, fallback.CandidateCommands, "plan-subagents", "plan-subagents")

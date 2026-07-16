@@ -573,6 +573,8 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"if ($Command -eq 'release-check' -and -not [string]::IsNullOrWhiteSpace($Target)) { return $false }",
 		"if ($Command -notin @('start','handoff','continue','release-check'))",
 		"release-check is implemented by the Go backend only",
+		"Test-RekitNoPowerShellFallbackCommand",
+		"PowerShell fallback has been retired",
 		"gate is implemented by the Go backend only",
 		"'plan-subagents' {",
 		"Add-RekitGoArg ([ref]$goArgs) '-Route' $Route",
@@ -581,6 +583,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 	}
 	for _, required := range []string{
 		"| `release-check` | Go default | façade delegate + no PowerShell fallback |",
+		"| `status` / `packs` / `doctor` / `validate` | Go default | façade delegate + no PowerShell fallback |",
 		"| `plan-subagents` review artifacts | Go default | façade + fallback |",
 		"Legacy freeze",
 		"PowerShell 只允许 bug fix / compatibility / safety boundary 修复",

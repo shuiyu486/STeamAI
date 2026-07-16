@@ -6734,3 +6734,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`fallbackRetirement.ready=true`、`goDefaultCommands=19`、`noFallbackCommands=1`、`candidateCommands=10`、`blockedCommands=2`、`removalCandidateModules=14`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...` 与 `go vet ./...`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 224：Read-only PowerShell fallback retirement
+
+状态：已完成。
+
+目标：在 Batch 223 的 `fallbackRetirement` inventory 基础上，实际退休第一组低风险 read-only PowerShell fallback，使 `status`、`packs`、`doctor` 与 `validate` 和 `release-check` 一样成为 Go-owned no-fallback 命令；为后续继续按 `candidateCommands[]` 收缩 PowerShell fallback 提供可验证模式。
+
+实施范围：
+
+- `rekit/rekit.ps1` 新增 no-fallback command helper，并在 Go delegation 尝试之后阻止 `release-check`、`status`、`packs`、`doctor` 与 `validate` 回落到 PowerShell 业务实现；这些命令在 `REKIT_GO_DISABLE=1` 或 Go delegation 不可用时输出 “PowerShell fallback has been retired”。
+- `docs/powershell-deprecation.md` 的 command matrix 将 `status` / `packs` / `doctor` / `validate` 更新为 `façade delegate + no PowerShell fallback`；`fallbackRetirement.noFallbackCommands[]` 基线从 1 扩展到 5，`candidateCommands[]` 从 10 收窄到 9。
+- façade / pack inventory smoke、release invariant、release-check / release handoff tests 和 CLI tests 同步锁定 retired read-only fallback 边界；remaining candidate fallback 继续覆盖 case lifecycle、sync/promote、overview/note/gate/workstream 与 `plan-subagents` 等迁移期 compatibility 路径。
+- 更新 `docs/release-readiness.md`、`docs/go-first-convergence-plan.md`、`rekit/tests/README.md` 与 CHANGELOG，明确 `REKIT_GO_DISABLE=1` 只适用于尚未退休的 candidate fallback，不再适用于 `release-check` / `status` / `packs` / `doctor` / `validate`。
+
+边界：本批不删除 PowerShell 文件，不改变公共命令名，不写 case state，不改变 sync/promote review-first、gate pending request、workstream、actual heavy-tool、authority/confirmed 或外部副作用边界；remaining candidate fallback 保留到后续独立 removal batch。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli_test.go internal/rekit/manifest/release_invariants_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\pack-inventory-smoke.ps1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\pack-inventory-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`fallbackRetirement.ready=true`、`goDefaultCommands=19`、`noFallbackCommands=5`、`candidateCommands=9`、`blockedCommands=2`、`removalCandidateModules=14`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...` 与 `go vet ./...`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

@@ -123,6 +123,11 @@ function Test-RekitGoDefaultDelegationCommand {
   return (@('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','plan-subagents') -contains $Name)
 }
 
+function Test-RekitNoPowerShellFallbackCommand {
+  param([string]$Name)
+  return (@('release-check','status','packs','doctor','validate') -contains $Name)
+}
+
 function Test-RekitGoDelegationEnabled {
   if (Test-RekitEnvTruthy 'REKIT_GO_DISABLE') { return $false }
   if (Test-RekitEnvTruthy 'REKIT_GO_ENABLE') { return $true }
@@ -432,6 +437,10 @@ if (Test-RekitGoDelegationEnabled) {
       return
     }
   }
+}
+
+if (Test-RekitNoPowerShellFallbackCommand -Name $Command) {
+  throw "$Command is implemented by the Go backend only; PowerShell fallback has been retired for this command. Remove REKIT_GO_DISABLE or use go run ./cmd/rekit -- -Command $Command."
 }
 
 if ($Command -eq 'gate') {

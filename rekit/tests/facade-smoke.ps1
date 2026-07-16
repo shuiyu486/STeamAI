@@ -237,12 +237,12 @@ try {
 
   Assert-FakeFallback -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf') -Expected 'prompts/RESUME.md' -Label 'continue text preview fallback'
 
-  # Disable wins over default and explicit enable.
-  $disabledOut = Invoke-RekitSmoke -Arguments @('-Command','status') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1' }
-  Assert-ContainsText -Text $disabledOut -Expected 'rekit runtime:' -Label 'go disabled status fallback'
-  $disabledDefaultOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-NotContainsText -Text $disabledDefaultOut -Unexpected 'delegatedByFake' -Label 'go disabled default packs fallback'
-  Assert-ContainsText -Text $disabledDefaultOut -Expected "pack`t" -Label 'go disabled default packs fallback'
+  # Disable wins over default and explicit enable for legacy fallback candidates; low-risk read-only fallback has been retired.
+  $disabledOut = Invoke-RekitSmoke -Arguments @('-Command','status') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1' }
+  Assert-ContainsText -Text $disabledOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled status no fallback'
+  $disabledDefaultOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledDefaultOut -Unexpected 'delegatedByFake' -Label 'go disabled default packs no fallback'
+  Assert-ContainsText -Text $disabledDefaultOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled default packs no fallback'
   $disabledAttachOut = Invoke-RekitSmoke -Arguments @('-Command','attach','-Target',(Join-Path $matrixRoot 'disabled-attach'),'-Pack',$Pack,'-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledAttachOut -Unexpected 'delegatedByFake' -Label 'go disabled attach fallback'
   Assert-ContainsText -Text $disabledAttachOut -Expected 'would attach case' -Label 'go disabled attach fallback'

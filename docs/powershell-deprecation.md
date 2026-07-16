@@ -57,7 +57,7 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 | 区域 | 当前 owner | PowerShell 状态 | 冻结/删除策略 |
 |---|---|---|---|
 | `release-check` | Go default | façade delegate + no PowerShell fallback | 只输出 release gate inventory，不执行测试、不写状态；保持 Go-owned。 |
-| `status` / `packs` / `doctor` / `validate` | Go default | façade + fallback | 优先转为 Go-native 默认验证路径；PowerShell fallback 是 removal candidate，删除前补 Go CLI parity。 |
+| `status` / `packs` / `doctor` / `validate` | Go default | façade delegate + no PowerShell fallback | 默认本机验证路径已由 Go-native runtime 覆盖；PowerShell fallback 已退休，使用 Go release gate / package tests 维护 parity。 |
 | case lifecycle `attach` / `repair` / `init` / `bootstrap` preview/apply | Go default | façade + fallback | 保留 `REKIT_GO_DISABLE=1` fallback 到旧 case smoke 和 Go-native case shim 验证完成；随后按 removal batch 删除。 |
 | `sync` / `update` review/apply/JSON preview | Go default | façade + text dry-run fallback | `update` 作为 sync alias 同属 Go-default façade；文本 `sync -Apply -WhatIf` legacy-only，不扩功能，后续迁移到 Go-native dry-run 后删除。 |
 | `promote` review/artifacts/candidates/apply/JSON preview | Go default | façade + text what-if fallback | 文本 promote what-if legacy-only；pack source 写入仍要求 review-first/backup；Go-native parity 后删除 fallback。 |
@@ -95,12 +95,12 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 `release-check -Format json` 的 `powerShellDeprecation.fallbackRetirement` 是后续 removal batch 的确定性前置库存：
 
 - `goDefaultCommands[]` 来自 `rekit/rekit.ps1` 的默认 Go delegation 集合，用于确认 façade 默认路径已经由 Go owner 覆盖。
-- `noFallbackCommands[]` 表示已经没有 PowerShell fallback 的 Go-default 命令；当前基线至少包含 `release-check`。
+- `noFallbackCommands[]` 表示已经没有 PowerShell fallback 的 Go-default 命令；当前基线包含 `release-check`、`status`、`packs`、`doctor` 与 `validate`。
 - `candidateCommands[]` 表示 Go-default 但仍有 legacy / fallback / removal-candidate 语义的命令行，是后续 fallback removal batch 的候选工作清单。
 - `blockedCommands[]` 保留 actual heavy-tool、authority/confirmed 等不得普通迁移的 command rows；这些 row 不应进入自动 removal batch。
 - `removalCandidateModules[]` 来自模块状态矩阵中的 removal-candidate `.ps1` 文件，用于决定独立删除批次的 review 范围。
 
-该库存只分类和报警，不删除文件、不改变 `REKIT_GO_DISABLE=1` fallback、不执行 compatibility smoke；真正删除仍必须按单独 removal batch 执行，包含恢复计划、验证和文档。
+该库存只分类和报警；真正 fallback 退休或文件删除仍必须按单独 removal batch 执行，包含恢复计划、验证和文档。当前已退休的 no-fallback 命令即使设置 `REKIT_GO_DISABLE=1` 也不会回落到 PowerShell 业务实现；仍在 `candidateCommands[]` 中的命令保留迁移期 compatibility fallback。
 
 ## Freeze / deprecation gates
 

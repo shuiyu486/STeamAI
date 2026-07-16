@@ -34,7 +34,7 @@ git diff --check
 
 - smoke 失败时先修 root cause，不跳过验证。
 - pack smoke 必须覆盖 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review managed-doc candidate 和 no-write 边界。
-- façade smoke 必须证明默认 fallback、显式 Go enable、Go disable 优先级和 write/text fallback 不回归。
+- façade smoke 必须证明默认 Go delegation、已退休 read-only fallback 的 no-fallback 边界、显式 Go enable、Go disable 优先级和剩余 write/text compatibility fallback 不回归。
 - sync/promote apply smoke 只能使用临时 case / pack-safe fixture，并验证 backup、deny、pack-root containment 和 cleanup。
 - workstream / ledger smoke 不写 confirmed/authority，除非脚本专门验证 gate 且使用临时 case。
 
@@ -51,8 +51,8 @@ git diff --check
 
 | 脚本 | 什么时候跑 | 覆盖重点 |
 |---|---|---|
-| `facade-smoke.ps1` | 改 `rekit.ps1`、Go façade 委托集合或 JSON preview/read-only 委托 | 只读命令、release-check inventory 默认委托、overview 文本/JSON 与 note 文本/JSON 只读默认委托、note append/what-if 默认委托、gate what-if/apply 默认委托、start/handoff JSON preview/apply 默认委托、continue JSON preview/apply 默认委托、case lifecycle、sync 与 promote review/candidate/apply 默认 Go 委托、disable 优先级、文本/write fallback。 |
-| `pack-inventory-smoke.ps1` | 改 pack manifest、maturity、inventory、status/doctor JSON | `/rekit packs/status/doctor/validate` text+JSON parity、Go/PowerShell/facade 委托。 |
+| `facade-smoke.ps1` | 改 `rekit.ps1`、Go façade 委托集合或 JSON preview/read-only 委托 | 只读命令、release-check inventory 默认委托、已退休 read-only fallback 的 no-fallback 边界、overview 文本/JSON 与 note 文本/JSON 只读默认委托、note append/what-if 默认委托、gate what-if/apply 默认委托、start/handoff JSON preview/apply 默认委托、continue JSON preview/apply 默认委托、case lifecycle、sync 与 promote review/candidate/apply 默认 Go 委托、disable 优先级、剩余文本/write fallback。 |
+| `pack-inventory-smoke.ps1` | 改 pack manifest、maturity、inventory、status/doctor JSON | `/rekit packs/status/doctor/validate` text+JSON parity、默认 Go/facade 委托，以及 read-only fallback 退休后的 disable no-fallback 边界。 |
 | `catalog-smoke.ps1` | 改 `catalog.json` 或测试导航字段 | catalog schema、唯一 id、全部 `*.ps1` 覆盖、脚本/文档存在性、pack smoke 与 discovery 对齐。 |
 | `pack-smoke-matrix.ps1 -DiscoveryOnly` | 新增/删除 skeleton pack 或 pack smoke wrapper | inventory 中 schema-valid skeleton pack 与 matrix 清单/wrapper 一致性。 |
 | `pack-smoke-matrix.ps1` | 需要全量 pack skeleton smoke 回归 | 串行运行全部安全领域 skeleton pack smoke。 |

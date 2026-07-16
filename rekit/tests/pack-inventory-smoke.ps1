@@ -29,6 +29,7 @@ function Invoke-RekitSmoke {
     foreach ($key in $Env.Keys) { [Environment]::SetEnvironmentVariable($key, $oldValues[$key], 'Process') }
   }
   if ($AllowedExitCodes -notcontains $exitCode) { throw "unexpected exit code $exitCode; output:`n$output" }
+  $global:LASTEXITCODE = 0
   return $output
 }
 
@@ -79,8 +80,8 @@ function Assert-PackRow {
   $line = @($Text -split "`r?`n" | Where-Object { $_ -like "$Pack`t*" })
   if ($line.Count -ne 1) { throw "expected one row for $Pack; output:`n$Text" }
   $cols = @([string]$line[0] -split "`t")
-  if ($cols.Count -lt 9) { throw "pack row has too few columns for ${Pack}: $($line[0])" }
-  if ($cols[1] -ne $Maturity -or $cols[2] -ne 'ok' -or $cols[3] -ne '2' -or $cols[4] -ne $Managed -or $cols[5] -ne $Tooling -or $cols[6] -ne $Authority) {
+  if ($cols.Count -lt 10) { throw "pack row has too few columns for ${Pack}: $($line[0])" }
+  if ($cols[1] -ne $Maturity -or $cols[2] -ne 'ok' -or $cols[3] -ne '1' -or $cols[4] -ne '2' -or $cols[5] -ne $Managed -or $cols[6] -ne $Tooling -or $cols[7] -ne $Authority) {
     throw "unexpected row for ${Pack}: $($line[0])"
   }
 }
@@ -96,7 +97,7 @@ function Assert-PackSchemaRow {
   $line = @($Text -split "`r?`n" | Where-Object { $_ -like "$Pack`t*" })
   if ($line.Count -ne 1) { throw "expected one row for $Pack; output:`n$Text" }
   $cols = @([string]$line[0] -split "`t")
-  if ($cols.Count -lt 9) { throw "pack row has too few columns for ${Pack}: $($line[0])" }
+  if ($cols.Count -lt 10) { throw "pack row has too few columns for ${Pack}: $($line[0])" }
   if ($cols[1] -ne $Maturity -or $cols[2] -ne $Schema) { throw "unexpected schema row for ${Pack}: $($line[0])" }
   Assert-ContainsText -Text $Text -Expected $ErrorText -Label "schema error for $Pack"
 }
@@ -173,7 +174,8 @@ function New-TransientPackManifest {
     'managedFiles:',
     '  - references/test/README.md'
   )
-  [System.IO.File]::WriteAllText((Join-Path $packRoot 'manifest.yml'), (($lines -join "`n") + "`n"), [System.Text.Encoding]::UTF8)
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText((Join-Path $packRoot 'manifest.yml'), (($lines -join "`n") + "`n"), $utf8NoBom)
   return $packRoot
 }
 
@@ -190,6 +192,13 @@ function New-TransientInvalidHeavyToolGateManifest {
     '',
     'managedFiles:',
     '  - references/test/README.md',
+    '',
+    'templateFiles:',
+    '  - references/test/task-handoff.template.md',
+    '',
+    'localNeverOverwrite:',
+    '  - CLAUDE.local.md',
+    '  - references/test/task-handoff.md',
     '',
     'managedBlock:',
     '  file: CLAUDE.local.md',
@@ -209,6 +218,20 @@ function New-TransientInvalidHeavyToolGateManifest {
     '',
     'authorityFiles:',
     '  - references/test/task-handoff.md',
+    '',
+    'commonPolicies:',
+    '  - agent-team',
+    '',
+    'policyOverlays: []',
+    '',
+    'subagentRoutes: []',
+    '',
+    'promoteFiles:',
+    '  - references/test/README.md',
+    '',
+    'toolingFiles: []',
+    '',
+    'promptFiles: []',
     '',
     'laneTypes:',
     '  - id: main',
@@ -238,9 +261,13 @@ function New-TransientInvalidHeavyToolGateManifest {
     '    sideEffects: filesystem-write',
     '    defaultRisk: high',
     '    requiresConfirmation: true',
-    '    stopConditions: timeout'
+    '    stopConditions: timeout',
+    '',
+    'budgets:',
+    '  defaultMarkdown: 16384'
   )
-  [System.IO.File]::WriteAllText((Join-Path $packRoot 'manifest.yml'), (($lines -join "`n") + "`n"), [System.Text.Encoding]::UTF8)
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText((Join-Path $packRoot 'manifest.yml'), (($lines -join "`n") + "`n"), $utf8NoBom)
   return $packRoot
 }
 
@@ -332,8 +359,8 @@ try {
   $invalidGatePack = "_invalid_heavy_gate_$([Guid]::NewGuid().ToString('N'))"
   $invalidGatePacks += (New-TransientInvalidHeavyToolGateManifest -Pack $invalidGatePack)
   $goInvalidGateJson = Invoke-GoRekitSmoke -Arguments @('-Command','packs','-Format','json') | ConvertFrom-Json
-  $psInvalidGateJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1' } | ConvertFrom-Json
-  foreach ($json in @($goInvalidGateJson,$psInvalidGateJson)) {
+  $facadeInvalidGateJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
+  foreach ($json in @($goInvalidGateJson,$facadeInvalidGateJson)) {
     $row = @($json.packs | Where-Object { [string]$_.id -eq $invalidGatePack })[0]
     if ([bool]$row.schemaValid -or [string]$row.error -notlike '*sideEffects must include*') { throw "unexpected invalid heavyToolGates JSON row: $($row | ConvertTo-Json -Depth 20)" }
   }
@@ -362,19 +389,13 @@ try {
   $sentinelValidateJsonOut = Invoke-RekitSmoke -Arguments @('-Command','validate','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $sentinel }
   Assert-ContainsText -Text $sentinelValidateJsonOut -Expected '-Format json' -Label 'facade validate default format delegation args'
 
-  $disabledOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $sentinel }
-  Assert-NotContainsText -Text $disabledOut -Unexpected 'sentinel-go-packs' -Label 'facade packs disable fallback'
-  Assert-PackRow -Text $disabledOut -Pack 'web-security' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
-  Assert-PackRow -Text $disabledOut -Pack 'malware-analysis' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
-  Assert-PackRow -Text $disabledOut -Pack 'vuln-research' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
-  Assert-PackRow -Text $disabledOut -Pack 'ctf' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
-  Assert-PackRow -Text $disabledOut -Pack 'unpack-pe' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
-  Assert-PackRow -Text $disabledOut -Pack 'ollvm' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
-  Assert-PackRow -Text $disabledOut -Pack 'android-native' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
-  Assert-PackRow -Text $disabledOut -Pack 'generic-binary-re' -Maturity 'skeleton' -Authority 'main' -Managed '4' -Tooling '4'
+  $disabledOut = Invoke-RekitSmoke -Arguments @('-Command','packs') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $sentinel }
+  Assert-NotContainsText -Text $disabledOut -Unexpected 'sentinel-go-packs' -Label 'facade packs disable no fallback'
+  Assert-ContainsText -Text $disabledOut -Expected 'PowerShell fallback has been retired' -Label 'facade packs disable no fallback'
 
-  $disabledJson = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $sentinel } | ConvertFrom-Json
-  Assert-PackJson -Inventory $disabledJson -Pack 'vmp-re' -Maturity 'mature' -Authority 'devirt-main' -Managed 7 -Tooling 12
+  $disabledJsonOut = Invoke-RekitSmoke -Arguments @('-Command','packs','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $sentinel }
+  Assert-NotContainsText -Text $disabledJsonOut -Unexpected 'sentinel-go-packs' -Label 'facade packs json disable no fallback'
+  Assert-ContainsText -Text $disabledJsonOut -Expected 'PowerShell fallback has been retired' -Label 'facade packs json disable no fallback'
 } finally {
   if (Test-Path -LiteralPath $sentinel) { Remove-Item -LiteralPath $sentinel -Force -Confirm:$false }
 }

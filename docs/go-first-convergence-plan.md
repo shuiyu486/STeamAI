@@ -128,8 +128,8 @@ git diff --check
 
 推荐批次形态：
 
-- `status`、`packs`、`doctor`、`validate` 默认委派 Go，保留 env disable/fallback。
-- 更新 façade smoke，覆盖默认 Go、disable fallback、错误回退语义。
+- `status`、`packs`、`doctor`、`validate` 默认委派 Go；Batch 224 后这些 read-only 命令的 PowerShell fallback 已退休，`REKIT_GO_DISABLE=1` 不再回落到 PowerShell 业务实现。
+- 更新 façade smoke，覆盖默认 Go、已退休 read-only no-fallback、剩余 candidate disable fallback 与错误回退语义。
 - 文档标明 Go read-only runtime 已成为默认路径。
 
 完成信号：
@@ -137,7 +137,7 @@ git diff --check
 - 用户不设置 `REKIT_GO_ENABLE` 也走 Go read-only runtime。
 - PowerShell 对这些命令不再作为业务逻辑 owner。
 
-当前进度：Batch 104 已完成低风险 read-only default façade：`status`、`packs`、kit/case `doctor/validate` 默认委托 Go；Batch 113 将已初始化 case 的 `overview -Format json` 与 `note -List -Format json` 只读查询也纳入默认 Go façade；Batch 114 将 `gate -WhatIf` 非写入 heavy-tool gate preview纳入默认 Go façade；Batch 115 将 `gate -Apply` pending-gate request ledger 写入纳入默认 Go façade；Batch 117 将 attached case 的 `start`/`handoff` JSON preview 与显式 `-Apply` 纳入默认 Go façade；Batch 118 将 attached case 的 `continue -WhatIf -Format json` 非写入 preview 纳入默认 Go façade；Batch 119 将 attached case 的 `overview` 文本/JSON 与缺 board 初始化纳入默认 Go façade；Batch 120 将 attached case 的 `note -List` 文本/table/tsv 查询也纳入默认 Go façade；Batch 121 将 explicit `continue -Apply` 的 case-local facts/routing/run digest/resume/board 写入纳入默认 Go façade；`REKIT_GO_DISABLE=1` 强制禁用 Go façade 委托。Stage 2 的核心完成信号已达成，后续可继续观察 façade smoke 与真实 dry-run case，或补充错误 fallback 文档/测试。
+当前进度：Batch 104 已完成低风险 read-only default façade：`status`、`packs`、kit/case `doctor/validate` 默认委托 Go；Batch 113 将已初始化 case 的 `overview -Format json` 与 `note -List -Format json` 只读查询也纳入默认 Go façade；Batch 114 将 `gate -WhatIf` 非写入 heavy-tool gate preview纳入默认 Go façade；Batch 115 将 `gate -Apply` pending-gate request ledger 写入纳入默认 Go façade；Batch 117 将 attached case 的 `start`/`handoff` JSON preview 与显式 `-Apply` 纳入默认 Go façade；Batch 118 将 attached case 的 `continue -WhatIf -Format json` 非写入 preview 纳入默认 Go façade；Batch 119 将 attached case 的 `overview` 文本/JSON 与缺 board 初始化纳入默认 Go façade；Batch 120 将 attached case 的 `note -List` 文本/table/tsv 查询也纳入默认 Go façade；Batch 121 将 explicit `continue -Apply` 的 case-local facts/routing/run digest/resume/board 写入纳入默认 Go façade；Batch 224 将 `status`、`packs`、`doctor` 与 `validate` 的 PowerShell fallback 退休，和 `release-check` 一起进入 no-fallback Go-owned baseline；`REKIT_GO_DISABLE=1` 仍可禁用未退休 candidate commands 的 Go façade 委托，但不再让这些 read-only 命令回落到 PowerShell 业务实现。Stage 2 的核心完成信号已达成，后续可继续观察 façade smoke 与真实 dry-run case，或继续按 `fallbackRetirement.candidateCommands[]` 选择下一组 removal batch。
 
 ### Stage 3：case lifecycle 写入路径 Go 化
 

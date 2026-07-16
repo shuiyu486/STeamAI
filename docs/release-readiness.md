@@ -11,7 +11,7 @@
 当前 release readiness 状态：
 
 - Go backend 已是多数确定性 runtime 路径的 owner：`status`、`packs`、`doctor/validate`、case lifecycle、sync/promote、overview、note、gate、start/handoff、continue preview/apply safe subset，以及 `plan-subagents` review artifacts。
-- PowerShell `rekit/rekit.ps1` 仍是迁移期公共 legacy façade：负责参数兼容、旧文本 flow、fallback、少量 parity smoke 和 `REKIT_GO_DISABLE=1` 回退；当前阶段默认向 PowerShell-free / Go-native / 跨平台路径收敛，后续不应新增 PowerShell runtime logic。
+- PowerShell `rekit/rekit.ps1` 仍是迁移期公共 legacy façade：负责参数兼容、旧文本 flow、剩余 compatibility fallback、少量 parity smoke 和仍未退休命令的 `REKIT_GO_DISABLE=1` 回退；`release-check`、`status`、`packs`、`doctor` 与 `validate` 已进入 no-fallback Go-owned 路径。当前阶段默认向 PowerShell-free / Go-native / 跨平台路径收敛，后续不应新增 PowerShell runtime logic。
 - Agent Team dry-run 已从 `_template` package E2E 扩展到 `generic-binary-re`、`web-security` package E2E，并新增 `web-security`、`generic-binary-re`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 真实临时 case smoke。
 - 发布门禁默认依赖 Go-owned `release-check` inventory、Go-native `status` / `packs` / `doctor`、Go tests 与 `go vet`；Batch 139 已让 `release-check` 输出 `gateProfile`，将 recommended minimum 解析为本机/CI 可消费的 step kind、repo-local path、present/resolved 状态；Batch 140 已新增 `.github/workflows/release-gate.yml`，Batch 217 将默认 CI / recommended minimum 收敛为 Linux、Windows、macOS 三平台 Go-native release checks，不再把 PowerShell façade smoke 或 `rekit.ps1 doctor` 放在默认 release gate 内；Batch 142 已让 `release-check` 输出 `powerShellDeprecation` inventory，解析 PowerShell 命令归属、模块状态、freeze gates 与 blocked migrations，作为 PowerShell 收缩的确定性前置检查；Batch 144 已让 `release-check` 输出 `ciReleaseGate` inventory，对照 GitHub Actions workflow 的 job、required commands 与 forbidden broad/heavy steps 发现漂移；Batch 146 已让 `release-check` 输出 `releaseHandoff`，把新会话 read-first 文档、关键 readiness signals、latest batch 摘要、验证命令和下一步接手动作放进同一个 Go-owned envelope；Batch 147 已让 `releaseHandoff.releaseNotes` 对照最新 batch 与 CHANGELOG `Unreleased`，防止完成批次但漏写 release note；Batch 148 已让 `releaseHandoff.knownGaps[]` 汇总 `docs/release-readiness.md` Known gaps 的 category/summary，便于新会话先看机器可读缺口再按需读长文档；Batch 149 已让 `releaseHandoff.packMaturity` 汇总 pack maturity、schema validity 与每 pack heavy-tool gate readiness，Batch 162 已进一步输出 pack manifest `schemaVersion` 与 `schemaVersionReady`，避免接手时必须遍历完整 `packs[]` 或 manifest 才能判断 pack 覆盖和 schema contract 版本状态。
 - Mission Control 产品北极星已集中到 `docs/mission-control-product-direction.md`：后续 release readiness 不应偏回“命令大全”、固定旧会话、短命 subagent-only 或用户盯多个会话的路线。
@@ -91,7 +91,7 @@ Release gate 通过的最低标准：
 - `gate -WhatIf` 只预览 pending-gate request；`gate -Apply` 只写 pending-gate request，不执行 heavy-tool；实际 heavy action 由 lane executor / tool adapter 在授权 profile 内执行并写回 evidence/ledger。
 - `continue -Apply` 只写 case-local facts/routing/run digest/lane resume/checkpoint/board；不写 authority/confirmed。
 - `sync/promote` 保持 review-first；实际写入前必须确认范围，pack source 写入依赖 backup/deny/restore。
-- PowerShell fallback 仍存在；删除或冻结 PowerShell runtime 前必须有单独 deprecation batch、兼容验证和文档说明。
+- PowerShell fallback 仍存在于 candidate commands；`release-check`、`status`、`packs`、`doctor` 与 `validate` 的 read-only fallback 已退休。删除或冻结剩余 PowerShell runtime 前必须有单独 deprecation batch、兼容验证和文档说明。
 
 ## 当前 pack maturity matrix
 
@@ -128,7 +128,7 @@ PowerShell legacy / fallback 路径（详细冻结/删除策略见 `docs/powersh
 - 无 `-Apply` 的文本工作线 flow。
 - 文本 `sync -Apply -WhatIf` 与文本 promote what-if。
 - 非 note/gate/continue apply 的其它 ledger 写入命令。
-- `REKIT_GO_DISABLE=1` fallback。
+- 仍未退休 candidate commands 的 `REKIT_GO_DISABLE=1` compatibility fallback；`release-check`、`status`、`packs`、`doctor` 与 `validate` 已 no-fallback。
 - 少量 Windows façade parity smoke，默认 release gate 已改为三平台 Go-native checks；只有改 façade/fallback 时按需运行。
 
 ## Known gaps
@@ -136,5 +136,5 @@ PowerShell legacy / fallback 路径（详细冻结/删除策略见 `docs/powersh
 - bounded dispatch 仍不自动 spawn reviewer；runtime 只生成 review packet 和 observability。
 - actual heavy-tool 执行未迁入 deterministic runtime；full-trace/debug/inject/patch/dump/network/symex 仍必须显式 gate，且 `gate` 只接受 pack manifest `heavyToolGates` 声明的 action。
 - authority/confirmed 写入仍需人工确认，不由 Go `continue -Apply` 自动执行。
-- policy schema 迁移与 PowerShell-free / Go-native 收敛的实际删除批次尚未进入默认发布路径；Batch 129 已新增 `docs/powershell-deprecation.md` 作为策略入口，Batch 130 已新增 Go-owned `release-check` inventory 作为本机/CI release gate 前置检查，Batch 131 已新增 façade freeze invariant 防止默认委托集合和 blocked 边界漂移，Batch 139 已新增 `release-check` gate profile 以便 CI/本机在执行前解析 recommended minimum，Batch 140 已新增轻量 CI workflow，Batch 142 已新增 `powerShellDeprecation` inventory 用于在删除前发现命令归属/模块清单漂移，Batch 144 已新增 `ciReleaseGate` inventory 用于发现 GitHub Actions release gate job/command/forbidden step 漂移，Batch 216 已把接手 goal 与 roadmap 调整为默认路径逐步不依赖 PowerShell、面向 macOS/Linux/Windows 的 Go-native convergence，Batch 217 已将默认 recommended minimum 与 CI release gate 收敛为 Linux/Windows/macOS 三平台 Go-native checks，Batch 223 已新增 `powerShellDeprecation.fallbackRetirement` 子库存用于区分 no-fallback、fallback removal candidate、blocked command 与 removal-candidate module，PowerShell façade smoke 转为按需 compatibility 验证。
+- policy schema 迁移与 PowerShell-free / Go-native 收敛的实际删除批次尚未进入默认发布路径；Batch 129 已新增 `docs/powershell-deprecation.md` 作为策略入口，Batch 130 已新增 Go-owned `release-check` inventory 作为本机/CI release gate 前置检查，Batch 131 已新增 façade freeze invariant 防止默认委托集合和 blocked 边界漂移，Batch 139 已新增 `release-check` gate profile 以便 CI/本机在执行前解析 recommended minimum，Batch 140 已新增轻量 CI workflow，Batch 142 已新增 `powerShellDeprecation` inventory 用于在删除前发现命令归属/模块清单漂移，Batch 144 已新增 `ciReleaseGate` inventory 用于发现 GitHub Actions release gate job/command/forbidden step 漂移，Batch 216 已把接手 goal 与 roadmap 调整为默认路径逐步不依赖 PowerShell、面向 macOS/Linux/Windows 的 Go-native convergence，Batch 217 已将默认 recommended minimum 与 CI release gate 收敛为 Linux/Windows/macOS 三平台 Go-native checks，Batch 223 已新增 `powerShellDeprecation.fallbackRetirement` 子库存用于区分 no-fallback、fallback removal candidate、blocked command 与 removal-candidate module，Batch 224 已退休 `status` / `packs` / `doctor` / `validate` read-only PowerShell fallback，使 no-fallback baseline 扩展到 5 个命令且剩余 candidate fallback 收窄到 9 个 command rows；PowerShell façade smoke 转为按需 compatibility 验证。
 - 目前安全领域 skeleton pack 均已有真实临时 case dry-run；后续缺口转向 release readiness/CI 门禁、policy schema migration 和 PowerShell runtime deprecation。
