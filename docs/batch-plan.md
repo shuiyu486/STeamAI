@@ -7722,3 +7722,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 253，`publicFacadeRemoval.ready=true` / `prerequisites=8` / `removalPlan=true` / `planChecks=9` / `removalImpact=true` / `impactReferences=74` / `impactCategories=8` / `workItems=8` / `unclassified=0`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `public facade removal: public facade removal prerequisites ok ready=true prerequisites=8 removalPlan=true planChecks=9 removalImpact=true impactReferences=74 impactCategories=8 workItems=8 unclassified=0` 与 release handoff `latest=Batch 253：Public façade removal impact work items`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 254：Public façade removal impact validation commands
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 253 已把 public façade removal impact categories 映射为 `workItems[]` 后，为每个 work item 增加机器可读 `validationCommands[]`，确保未来独立删除公共 façade 时，每类影响面不只带有 action / count / paths，也直接携带推荐 Go-native release gate 验证清单。
+
+实施范围：
+
+- 扩展 `PublicFacadeRemovalImpactWorkItem`，新增 `validationCommands[]`，每个 impact category 默认绑定 `release-check -Format json`、`release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。
+- `publicFacadeRemoval.removalImpact` readiness 现在要求每个 work item 的 validation commands 非空、无空字符串，并覆盖推荐 Go-native release gate；release-check text 与 `releaseHandoff.signals[]` 同步展示 `validationCommands=64`。
+- 补 releasecheck / CLI / handoff tests，并同步 PowerShell deprecation、release readiness、Go-first convergence、batch-plan 与 CHANGELOG 文档。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不改变 public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、actual heavy-tool、authority/confirmed、policy schema migration 或外部副作用边界；raw Go CLI 仍是底层 deterministic runtime/API，不变成用户主要交互界面。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 254，`publicFacadeRemoval.ready=true` / `prerequisites=8` / `removalPlan=true` / `planChecks=9` / `removalImpact=true` / `impactReferences=74` / `impactCategories=8` / `workItems=8` / `validationCommands=64` / `unclassified=0`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `public facade removal: public facade removal prerequisites ok ready=true prerequisites=8 removalPlan=true planChecks=9 removalImpact=true impactReferences=74 impactCategories=8 workItems=8 validationCommands=64 unclassified=0` 与 release handoff `latest=Batch 254：Public façade removal impact validation commands`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

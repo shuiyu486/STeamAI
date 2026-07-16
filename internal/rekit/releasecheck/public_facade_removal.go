@@ -65,18 +65,19 @@ type PublicFacadeRemovalImpactCategory struct {
 }
 
 type PublicFacadeRemovalImpactWorkItem struct {
-	Category string   `json:"category"`
-	Action   string   `json:"action"`
-	Required bool     `json:"required"`
-	Count    int      `json:"count"`
-	Paths    []string `json:"paths"`
+	Category           string   `json:"category"`
+	Action             string   `json:"action"`
+	Required           bool     `json:"required"`
+	Count              int      `json:"count"`
+	Paths              []string `json:"paths"`
+	ValidationCommands []string `json:"validationCommands"`
 }
 
 func publicFacadeRemovalHandoffDetails(inventory PublicFacadeRemoval) []string {
 	details := make([]string, 0, len(inventory.Prerequisites)+3)
 	details = append(details, fmt.Sprintf("ready=%t prerequisites=%d", inventory.Ready, len(inventory.Prerequisites)))
 	details = append(details, fmt.Sprintf("removalPlan=%t planChecks=%d", inventory.RemovalPlan.Ready, len(inventory.RemovalPlan.RequiredPhrases)))
-	details = append(details, fmt.Sprintf("removalImpact=%t impactReferences=%d impactCategories=%d workItems=%d unclassified=%d", inventory.RemovalImpact.Ready, len(inventory.RemovalImpact.References), len(inventory.RemovalImpact.ReferenceCategories), len(inventory.RemovalImpact.WorkItems), len(inventory.RemovalImpact.UnclassifiedReferences)))
+	details = append(details, fmt.Sprintf("removalImpact=%t impactReferences=%d impactCategories=%d workItems=%d validationCommands=%d unclassified=%d", inventory.RemovalImpact.Ready, len(inventory.RemovalImpact.References), len(inventory.RemovalImpact.ReferenceCategories), len(inventory.RemovalImpact.WorkItems), publicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems), len(inventory.RemovalImpact.UnclassifiedReferences)))
 	for _, prerequisite := range inventory.Prerequisites {
 		details = append(details, fmt.Sprintf("%s ready=%t %s", prerequisite.Name, prerequisite.Ready, prerequisite.Summary))
 	}
@@ -128,7 +129,7 @@ func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation,
 			{
 				Name:    "removal-impact-inventoried",
 				Ready:   removalImpact.Ready,
-				Summary: fmt.Sprintf("removalImpactReady=%t references=%d categories=%d workItems=%d unclassified=%d", removalImpact.Ready, len(removalImpact.References), len(removalImpact.ReferenceCategories), len(removalImpact.WorkItems), len(removalImpact.UnclassifiedReferences)),
+				Summary: fmt.Sprintf("removalImpactReady=%t references=%d categories=%d workItems=%d validationCommands=%d unclassified=%d", removalImpact.Ready, len(removalImpact.References), len(removalImpact.ReferenceCategories), len(removalImpact.WorkItems), publicFacadeRemovalImpactValidationCommandCount(removalImpact.WorkItems), len(removalImpact.UnclassifiedReferences)),
 			},
 		},
 		RemovalPlan:   removalPlan,
@@ -223,6 +224,19 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 	for _, workItem := range impact.WorkItems {
 		if strings.TrimSpace(workItem.Action) == "" {
 			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact work item missing action: %s", workItem.Category))
+		}
+		if len(workItem.ValidationCommands) == 0 {
+			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact work item missing validation commands: %s", workItem.Category))
+		}
+		for _, command := range workItem.ValidationCommands {
+			if strings.TrimSpace(command) == "" {
+				impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact work item has empty validation command: %s", workItem.Category))
+			}
+		}
+		for _, command := range publicFacadeRemovalImpactValidationCommands() {
+			if !slices.Contains(workItem.ValidationCommands, command) {
+				impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact work item missing validation command %q: %s", command, workItem.Category))
+			}
 		}
 	}
 	for _, reference := range impact.UnclassifiedReferences {
@@ -329,14 +343,23 @@ func publicFacadeRemovalImpactWorkItems(categories []PublicFacadeRemovalImpactCa
 	workItems := make([]PublicFacadeRemovalImpactWorkItem, 0, len(categories))
 	for _, category := range categories {
 		workItems = append(workItems, PublicFacadeRemovalImpactWorkItem{
-			Category: category.Name,
-			Action:   publicFacadeRemovalImpactAction(category.Name),
-			Required: true,
-			Count:    category.Count,
-			Paths:    append([]string{}, category.Paths...),
+			Category:           category.Name,
+			Action:             publicFacadeRemovalImpactAction(category.Name),
+			Required:           true,
+			Count:              category.Count,
+			Paths:              append([]string{}, category.Paths...),
+			ValidationCommands: publicFacadeRemovalImpactValidationCommands(),
 		})
 	}
 	return workItems
+}
+
+func publicFacadeRemovalImpactValidationCommandCount(workItems []PublicFacadeRemovalImpactWorkItem) int {
+	count := 0
+	for _, workItem := range workItems {
+		count += len(workItem.ValidationCommands)
+	}
+	return count
 }
 
 func publicFacadeRemovalImpactAction(category string) string {
@@ -361,5 +384,18 @@ func publicFacadeRemovalImpactAction(category string) string {
 		return "classify or remove unexpected facade references before deleting the facade"
 	default:
 		return "review and classify facade removal impact before deleting the facade"
+	}
+}
+
+func publicFacadeRemovalImpactValidationCommands() []string {
+	return []string{
+		"go run ./cmd/rekit -- -Command release-check -Format json",
+		"go run ./cmd/rekit -- -Command release-check",
+		"go run ./cmd/rekit -- -Command status",
+		"go run ./cmd/rekit -- -Command packs",
+		"go run ./cmd/rekit -- -Command doctor",
+		"go test ./...",
+		"go vet ./...",
+		"git diff --check",
 	}
 }
