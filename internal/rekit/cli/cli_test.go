@@ -849,6 +849,8 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "documentationValidationCommands=72")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "executionSteps=5")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "executionValidationCommands=40")
+	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "boundaryChecks=6")
+	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "boundaryValidationCommands=48")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "removalImpact=true impactReferences=")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "workItems=")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "validationCommands=")
@@ -1056,7 +1058,7 @@ func assertReleaseCheckPublicFacadeRemoval(t *testing.T, inventory releasecheck.
 	if len(inventory.Prerequisites) != 8 || inventory.Prerequisites[0].Name != "public-facade-retained-boundary" || !inventory.Prerequisites[0].Ready || inventory.Prerequisites[2].Name != "go-native-public-surface" || !inventory.Prerequisites[2].Ready || inventory.Prerequisites[5].Name != "module-reference-blockers-clear" || !inventory.Prerequisites[5].Ready || inventory.Prerequisites[6].Name != "removal-plan-documented" || !inventory.Prerequisites[6].Ready || inventory.Prerequisites[7].Name != "removal-impact-inventoried" || !inventory.Prerequisites[7].Ready {
 		t.Fatalf("public facade removal prerequisites drifted: %+v", inventory.Prerequisites)
 	}
-	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || len(inventory.RemovalPlan.RequiredPhrases) != 9 || len(inventory.RemovalPlan.ExecutionSteps) != 5 || releaseCheckPublicFacadeRemovalExecutionValidationCommandCount(inventory.RemovalPlan.ExecutionSteps) != 40 || len(inventory.RemovalPlan.RecoverySteps) != 4 || releaseCheckPublicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps) != 32 || len(inventory.RemovalPlan.DocumentationTargets) != 9 || releaseCheckPublicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets) != 72 || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "delete-public-facade") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "rerun-release-gate") || !releaseCheckPublicFacadeRemovalHasRecoveryStep(inventory.RemovalPlan, "restore-public-facade") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "docs/release-readiness.md") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "CHANGELOG.md") {
+	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || len(inventory.RemovalPlan.RequiredPhrases) != 9 || len(inventory.RemovalPlan.ExecutionSteps) != 5 || releaseCheckPublicFacadeRemovalExecutionValidationCommandCount(inventory.RemovalPlan.ExecutionSteps) != 40 || len(inventory.RemovalPlan.BoundaryChecks) != 6 || releaseCheckPublicFacadeRemovalBoundaryValidationCommandCount(inventory.RemovalPlan.BoundaryChecks) != 48 || len(inventory.RemovalPlan.RecoverySteps) != 4 || releaseCheckPublicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps) != 32 || len(inventory.RemovalPlan.DocumentationTargets) != 9 || releaseCheckPublicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets) != 72 || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "delete-public-facade") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "rerun-release-gate") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-powershell-runtime-logic") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-external-effects") || !releaseCheckPublicFacadeRemovalHasRecoveryStep(inventory.RemovalPlan, "restore-public-facade") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "docs/release-readiness.md") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "CHANGELOG.md") {
 		t.Fatalf("public facade removal plan drifted: %+v", inventory.RemovalPlan)
 	}
 	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || len(inventory.RemovalImpact.References) == 0 || len(inventory.RemovalImpact.ReferenceCategories) == 0 || len(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.ReferenceCategories) || releaseCheckPublicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.WorkItems)*8 || len(inventory.RemovalImpact.MigrationTargets) != 74 || releaseCheckPublicFacadeRemovalMigrationValidationCommandCount(inventory.RemovalImpact.MigrationTargets) != 592 || len(inventory.RemovalImpact.SmokeMigrationTargets) != 29 || releaseCheckPublicFacadeRemovalSmokeMigrationValidationCommandCount(inventory.RemovalImpact.SmokeMigrationTargets) != 232 || len(inventory.RemovalImpact.UnclassifiedReferences) != 0 || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !releaseCheckPublicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "rekit/rekit.ps1") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "docs/powershell-deprecation.md") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
@@ -1067,6 +1069,15 @@ func assertReleaseCheckPublicFacadeRemoval(t *testing.T, inventory releasecheck.
 func releaseCheckPublicFacadeRemovalHasExecutionStep(plan releasecheck.PublicFacadeRemovalPlan, name string) bool {
 	for _, step := range plan.ExecutionSteps {
 		if step.Name == name && step.Required && strings.TrimSpace(step.Action) != "" && len(step.DependsOn) > 0 && len(step.InputInventory) > 0 && len(step.OutputArtifacts) > 0 && len(step.ValidationCommands) == 8 && !step.AllowsPowerShellRuntime && !step.AllowsExternalEffects && slices.Contains(step.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
+			return true
+		}
+	}
+	return false
+}
+
+func releaseCheckPublicFacadeRemovalHasBoundaryCheck(plan releasecheck.PublicFacadeRemovalPlan, name string) bool {
+	for _, check := range plan.BoundaryChecks {
+		if check.Name == name && check.Required && check.Preserved && strings.TrimSpace(check.Boundary) != "" && len(check.Evidence) > 0 && len(check.ValidationCommands) == 8 && slices.Contains(check.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
 			return true
 		}
 	}
@@ -1086,6 +1097,14 @@ func releaseCheckPublicFacadeRemovalExecutionValidationCommandCount(steps []rele
 	count := 0
 	for _, step := range steps {
 		count += len(step.ValidationCommands)
+	}
+	return count
+}
+
+func releaseCheckPublicFacadeRemovalBoundaryValidationCommandCount(checks []releasecheck.PublicFacadeRemovalPlanBoundaryCheck) int {
+	count := 0
+	for _, check := range checks {
+		count += len(check.ValidationCommands)
 	}
 	return count
 }
@@ -1431,7 +1450,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"Go-native public surface: Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true default=status commands=19 handlers=19 symbols=19 profiles=19 boundaries=7 boundaryRows=7 policyRows=5 policyViolations=0 facadeRemovalReady=true facadePrerequisites=5 readOnly=5 mutating=14 writesCase=13 writesKit=1 reviewFirst=3 applyRequired=11 heavyTool=0 authorityConfirmed=0 readOnlyCommands=doctor,packs,release-check,status,validate reviewFirstCommands=promote,sync,update writesKitCommands=promote caseLocalApplyCommands=attach,bootstrap,continue,gate,handoff,init,repair,start kitReviewFirstCommands=promote alternative=go run ./cmd/rekit -- -Command <command> unsupportedDiagnostic=true",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=13",
-		"public facade removal: public facade removal prerequisites ok ready=true prerequisites=8 removalPlan=true planChecks=9 recoverySteps=4 recoveryValidationCommands=32 documentationTargets=9 documentationValidationCommands=72 executionSteps=5 executionValidationCommands=40 removalImpact=true impactReferences=",
+		"public facade removal: public facade removal prerequisites ok ready=true prerequisites=8 removalPlan=true planChecks=9 recoverySteps=4 recoveryValidationCommands=32 documentationTargets=9 documentationValidationCommands=72 executionSteps=5 executionValidationCommands=40 boundaryChecks=6 boundaryValidationCommands=48 removalImpact=true impactReferences=",
 		"workItems=",
 		"validationCommands=",
 		"migrationTargets=74 migrationValidationCommands=592",

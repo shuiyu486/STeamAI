@@ -31,6 +31,7 @@ type PublicFacadeRemovalPlan struct {
 	Document             string                                   `json:"document"`
 	RequiredPhrases      []PublicFacadeRemovalPlanPhrase          `json:"requiredPhrases"`
 	ExecutionSteps       []PublicFacadeRemovalExecutionStep       `json:"executionSteps"`
+	BoundaryChecks       []PublicFacadeRemovalPlanBoundaryCheck   `json:"boundaryChecks"`
 	RecoverySteps        []PublicFacadeRemovalRecoveryStep        `json:"recoverySteps"`
 	DocumentationTargets []PublicFacadeRemovalDocumentationTarget `json:"documentationTargets"`
 	Warnings             []string                                 `json:"warnings"`
@@ -52,6 +53,15 @@ type PublicFacadeRemovalExecutionStep struct {
 	ValidationCommands      []string `json:"validationCommands"`
 	AllowsPowerShellRuntime bool     `json:"allowsPowerShellRuntime"`
 	AllowsExternalEffects   bool     `json:"allowsExternalEffects"`
+}
+
+type PublicFacadeRemovalPlanBoundaryCheck struct {
+	Name               string   `json:"name"`
+	Boundary           string   `json:"boundary"`
+	Required           bool     `json:"required"`
+	Preserved          bool     `json:"preserved"`
+	Evidence           []string `json:"evidence"`
+	ValidationCommands []string `json:"validationCommands"`
 }
 
 type PublicFacadeRemovalRecoveryStep struct {
@@ -130,7 +140,7 @@ type PublicFacadeRemovalSmokeMigrationTarget struct {
 func publicFacadeRemovalHandoffDetails(inventory PublicFacadeRemoval) []string {
 	details := make([]string, 0, len(inventory.Prerequisites)+3)
 	details = append(details, fmt.Sprintf("ready=%t prerequisites=%d", inventory.Ready, len(inventory.Prerequisites)))
-	details = append(details, fmt.Sprintf("removalPlan=%t planChecks=%d executionSteps=%d executionValidationCommands=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", inventory.RemovalPlan.Ready, len(inventory.RemovalPlan.RequiredPhrases), len(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionValidationCommandCount(inventory.RemovalPlan.ExecutionSteps), len(inventory.RemovalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps), len(inventory.RemovalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets)))
+	details = append(details, fmt.Sprintf("removalPlan=%t planChecks=%d executionSteps=%d executionValidationCommands=%d boundaryChecks=%d boundaryValidationCommands=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", inventory.RemovalPlan.Ready, len(inventory.RemovalPlan.RequiredPhrases), len(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionValidationCommandCount(inventory.RemovalPlan.ExecutionSteps), len(inventory.RemovalPlan.BoundaryChecks), publicFacadeRemovalBoundaryValidationCommandCount(inventory.RemovalPlan.BoundaryChecks), len(inventory.RemovalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps), len(inventory.RemovalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets)))
 	details = append(details, fmt.Sprintf("removalImpact=%t impactReferences=%d impactCategories=%d workItems=%d validationCommands=%d migrationTargets=%d migrationValidationCommands=%d smokeMigrationTargets=%d smokeMigrationValidationCommands=%d unclassified=%d", inventory.RemovalImpact.Ready, len(inventory.RemovalImpact.References), len(inventory.RemovalImpact.ReferenceCategories), len(inventory.RemovalImpact.WorkItems), publicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems), len(inventory.RemovalImpact.MigrationTargets), publicFacadeRemovalMigrationValidationCommandCount(inventory.RemovalImpact.MigrationTargets), len(inventory.RemovalImpact.SmokeMigrationTargets), publicFacadeRemovalSmokeMigrationValidationCommandCount(inventory.RemovalImpact.SmokeMigrationTargets), len(inventory.RemovalImpact.UnclassifiedReferences)))
 	for _, prerequisite := range inventory.Prerequisites {
 		details = append(details, fmt.Sprintf("%s ready=%t %s", prerequisite.Name, prerequisite.Ready, prerequisite.Summary))
@@ -178,7 +188,7 @@ func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation,
 			{
 				Name:    "removal-plan-documented",
 				Ready:   removalPlan.Ready,
-				Summary: fmt.Sprintf("removalPlanReady=%t checks=%d executionSteps=%d executionValidationCommands=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", removalPlan.Ready, len(removalPlan.RequiredPhrases), len(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionValidationCommandCount(removalPlan.ExecutionSteps), len(removalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(removalPlan.RecoverySteps), len(removalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(removalPlan.DocumentationTargets)),
+				Summary: fmt.Sprintf("removalPlanReady=%t checks=%d executionSteps=%d executionValidationCommands=%d boundaryChecks=%d boundaryValidationCommands=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", removalPlan.Ready, len(removalPlan.RequiredPhrases), len(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionValidationCommandCount(removalPlan.ExecutionSteps), len(removalPlan.BoundaryChecks), publicFacadeRemovalBoundaryValidationCommandCount(removalPlan.BoundaryChecks), len(removalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(removalPlan.RecoverySteps), len(removalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(removalPlan.DocumentationTargets)),
 			},
 			{
 				Name:    "removal-impact-inventoried",
@@ -220,6 +230,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 			{Name: "no-heavy-tool-authority", Phrase: "actual heavy-tool、authority/confirmed"},
 		},
 		ExecutionSteps:       publicFacadeRemovalExecutionSteps(),
+		BoundaryChecks:       publicFacadeRemovalBoundaryChecks(),
 		RecoverySteps:        publicFacadeRemovalRecoverySteps(),
 		DocumentationTargets: publicFacadeRemovalDocumentationTargets(),
 		Warnings:             []string{},
@@ -293,6 +304,44 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		}
 		if step.AllowsExternalEffects {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step allows external effects: %s", step.Name))
+		}
+	}
+	if len(plan.BoundaryChecks) == 0 {
+		plan.Warnings = append(plan.Warnings, "public facade removal boundary checks are empty")
+	}
+	for _, check := range plan.BoundaryChecks {
+		if !check.Required {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check is not required: %s", check.Name))
+		}
+		if !check.Preserved {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check is not preserved: %s", check.Name))
+		}
+		if strings.TrimSpace(check.Name) == "" {
+			plan.Warnings = append(plan.Warnings, "public facade removal boundary check missing name")
+		}
+		if strings.TrimSpace(check.Boundary) == "" {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check missing boundary: %s", check.Name))
+		}
+		if len(check.Evidence) == 0 {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check missing evidence: %s", check.Name))
+		}
+		for _, evidence := range check.Evidence {
+			if strings.TrimSpace(evidence) == "" {
+				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check has empty evidence: %s", check.Name))
+			}
+		}
+		if len(check.ValidationCommands) == 0 {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check missing validation commands: %s", check.Name))
+		}
+		for _, command := range check.ValidationCommands {
+			if strings.TrimSpace(command) == "" {
+				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check has empty validation command: %s", check.Name))
+			}
+		}
+		for _, command := range publicFacadeRemovalImpactValidationCommands() {
+			if !slices.Contains(check.ValidationCommands, command) {
+				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check missing validation command %q: %s", command, check.Name))
+			}
 		}
 	}
 	for _, step := range plan.RecoverySteps {
@@ -418,6 +467,68 @@ func publicFacadeRemovalExecutionValidationCommandCount(steps []PublicFacadeRemo
 	count := 0
 	for _, step := range steps {
 		count += len(step.ValidationCommands)
+	}
+	return count
+}
+
+func publicFacadeRemovalBoundaryChecks() []PublicFacadeRemovalPlanBoundaryCheck {
+	commands := publicFacadeRemovalImpactValidationCommands()
+	return []PublicFacadeRemovalPlanBoundaryCheck{
+		{
+			Name:               "no-powershell-runtime-logic",
+			Boundary:           "do not add PowerShell runtime logic or reintroduce retired PowerShell modules during public facade removal",
+			Required:           true,
+			Preserved:          true,
+			Evidence:           []string{"docs/powershell-deprecation.md", "powerShellDeprecation.facadeRuntime", "powerShellDeprecation.moduleRemoval"},
+			ValidationCommands: commands,
+		},
+		{
+			Name:               "no-actual-heavy-tool",
+			Boundary:           "do not execute actual heavy-tool, debug, dump, patch, hook, network or exploit replay actions in the removal batch",
+			Required:           true,
+			Preserved:          true,
+			Evidence:           []string{"docs/release-readiness.md", "goNativePublicSurface.commandProfilePolicies", "publicFacadeRemoval.removalPlan.executionSteps"},
+			ValidationCommands: commands,
+		},
+		{
+			Name:               "no-authority-confirmed-write",
+			Boundary:           "do not write authority or confirmed state while removing the public facade",
+			Required:           true,
+			Preserved:          true,
+			Evidence:           []string{"goNativePublicSurface.commandProfileSummary", "goNativePublicSurface.commandProfilePolicies", "docs/release-readiness.md"},
+			ValidationCommands: commands,
+		},
+		{
+			Name:               "sync-promote-review-first",
+			Boundary:           "preserve sync/promote review-first and explicit apply semantics",
+			Required:           true,
+			Preserved:          true,
+			Evidence:           []string{"goNativePublicSurface.commandProfileGroups", "docs/release-readiness.md", "docs/powershell-deprecation.md"},
+			ValidationCommands: commands,
+		},
+		{
+			Name:               "case-local-write-semantics",
+			Boundary:           "preserve case-local write semantics for attach/bootstrap/continue/gate/handoff/init/repair/start",
+			Required:           true,
+			Preserved:          true,
+			Evidence:           []string{"goNativePublicSurface.commandProfileBoundaries", "goNativePublicSurface.commandProfilePolicies", "docs/release-readiness.md"},
+			ValidationCommands: commands,
+		},
+		{
+			Name:               "no-external-effects",
+			Boundary:           "do not publish, scan, fuzz, connect to devices, call external services or create real case artifacts during removal readiness work",
+			Required:           true,
+			Preserved:          true,
+			Evidence:           []string{"docs/release-readiness.md", "docs/powershell-deprecation.md", "publicFacadeRemoval.removalPlan.executionSteps"},
+			ValidationCommands: commands,
+		},
+	}
+}
+
+func publicFacadeRemovalBoundaryValidationCommandCount(checks []PublicFacadeRemovalPlanBoundaryCheck) int {
+	count := 0
+	for _, check := range checks {
+		count += len(check.ValidationCommands)
 	}
 	return count
 }
