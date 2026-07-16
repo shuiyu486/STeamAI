@@ -128,6 +128,10 @@ function Test-RekitNoPowerShellFallbackCommand {
   return (@('release-check','status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','plan-subagents') -contains $Name)
 }
 
+function Test-RekitNoPowerShellFallbackPath {
+  return (($Command -in @('start','handoff','continue')) -and (Test-RekitGoDelegationSafe))
+}
+
 function Test-RekitGoDelegationEnabled {
   if (Test-RekitEnvTruthy 'REKIT_GO_DISABLE') { return $false }
   if (Test-RekitEnvTruthy 'REKIT_GO_ENABLE') { return $true }
@@ -439,8 +443,8 @@ if (Test-RekitGoDelegationEnabled) {
   }
 }
 
-if (Test-RekitNoPowerShellFallbackCommand -Name $Command) {
-  throw "$Command is implemented by the Go backend only; PowerShell fallback has been retired for this command. Remove REKIT_GO_DISABLE or use go run ./cmd/rekit -- -Command $Command."
+if ((Test-RekitNoPowerShellFallbackCommand -Name $Command) -or (Test-RekitNoPowerShellFallbackPath)) {
+  throw "$Command is implemented by the Go backend only for this invocation; PowerShell fallback has been retired for this path. Remove REKIT_GO_DISABLE or use go run ./cmd/rekit -- -Command $Command."
 }
 
 switch ($Command) {

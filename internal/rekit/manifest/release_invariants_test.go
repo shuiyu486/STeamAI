@@ -574,6 +574,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"if ($Command -notin @('start','handoff','continue','release-check'))",
 		"release-check is implemented by the Go backend only",
 		"Test-RekitNoPowerShellFallbackCommand",
+		"Test-RekitNoPowerShellFallbackPath",
 		"PowerShell fallback has been retired",
 		"'plan-subagents' {",
 		"Add-RekitGoArg ([ref]$goArgs) '-Route' $Route",

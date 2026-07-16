@@ -232,12 +232,10 @@ try {
   }
   $disabledBeforeFiles = Save-TreeSnapshot -Path $caseRoot
   $disabledBeforeDirs = Save-TreeDirectories -Path $caseRoot
-  $disabledPreviewJson = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','login','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1' } | ConvertFrom-Json
-  if ([string]$disabledPreviewJson.command -ne 'continue' -or [string]$disabledPreviewJson.lane.id -ne 'feature-login') {
-    throw "unexpected disabled fallback continue JSON preview: $($disabledPreviewJson | ConvertTo-Json -Depth 20)"
-  }
-  Assert-ContainsText -Text ([string]::Join("`n", @($disabledPreviewJson.nextSteps))) -Expected 'PowerShell workflow after review' -Label 'go disabled continue JSON fallback'
-  Assert-TreeUnchanged -Root $caseRoot -BeforeSnapshot $disabledBeforeFiles -BeforeDirectories $disabledBeforeDirs -Label 'go disabled continue json preview fallback'
+  $disabledPreviewOut = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','login','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1' }
+  Assert-ContainsText -Text $disabledPreviewOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled continue JSON no fallback'
+  Assert-NotContainsText -Text $disabledPreviewOut -Unexpected 'PowerShell workflow after review' -Label 'go disabled continue JSON no fallback'
+  Assert-TreeUnchanged -Root $caseRoot -BeforeSnapshot $disabledBeforeFiles -BeforeDirectories $disabledBeforeDirs -Label 'go disabled continue json no fallback'
   $global:LASTEXITCODE = 0
 
   'continue what-if smoke ok'

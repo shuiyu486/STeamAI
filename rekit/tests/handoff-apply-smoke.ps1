@@ -210,6 +210,12 @@ try {
   $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','facade') -Env @{ REKIT_GO_DISABLE = '1' }
   Assert-ContainsText -Text $facadeOut -Expected 'would write workstream handoff: facade' -Label 'facade handoff fallback'
   Assert-NotContainsText -Text $facadeOut -Unexpected 'schemaVersion' -Label 'facade handoff fallback'
+  $facadeRekitRoot = Join-Path $facadeRoot '.rekit'
+  $disabledBeforeFiles = Save-TreeSnapshot -Path $facadeRekitRoot
+  $disabledBeforeDirs = Save-TreeDirectories -Path $facadeRekitRoot
+  $disabledPreviewOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','facade','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1' }
+  Assert-ContainsText -Text $disabledPreviewOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled handoff JSON no fallback'
+  Assert-TreeUnchanged -Root $facadeRekitRoot -BeforeSnapshot $disabledBeforeFiles -BeforeDirectories $disabledBeforeDirs
   $facadeApplyJson = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Format','json','login') | ConvertFrom-Json
   if ([string]$facadeApplyJson.command -ne 'handoff' -or -not [bool]$facadeApplyJson.isMutation -or -not [bool]$facadeApplyJson.applied -or [bool]$facadeApplyJson.project -or [string]$facadeApplyJson.lane.id -ne 'feature-login') { throw "unexpected facade handoff JSON apply: $($facadeApplyJson | ConvertTo-Json -Depth 20)" }
   Assert-WriteAction -Result $facadeApplyJson -Path '.rekit/handovers/feature-login-latest.md' -Action 'write-latest-lane-handoff' | Out-Null

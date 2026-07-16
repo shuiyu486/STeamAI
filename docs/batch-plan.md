@@ -6977,3 +6977,39 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt`、`go test ./internal/rekit/cli ./internal/rekit/manifest`（首轮因本批 durable batch 状态尚未标记完成失败，补齐状态/验证结果后重跑通过）、`go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\init-bootstrap-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`fallbackRetirement.ready=true`、`goDefaultCommands=19`、`noFallbackCommands=16`、`candidateCommands=2`、`blockedCommands=2`、`removalCandidateModules=14`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `.\rekit\tests\catalog-smoke.ps1`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 231：Structured workstream PowerShell fallback retirement
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛，将 `start`、`handoff` 与 `continue` 中已由 Go 默认接管的 structured invocation（JSON preview 与 explicit apply）从 remaining compatibility fallback 中移出；在 `REKIT_GO_DISABLE=1`、Go delegation 不可用或 fake backend 不应被触发时明确失败，不再回退 PowerShell runtime 业务实现，同时保留无 `-Apply` 的文本工作线 preview/workflow compatibility。
+
+实施范围：
+
+- `rekit/rekit.ps1` 新增 path-level no-fallback guard：只在 `start` / `handoff` / `continue` 满足现有 Go delegation safe-set 时触发 no-fallback；不把整个 command 加入 no-fallback command list，避免破坏文本工作线 compatibility。
+- `facade-smoke.ps1` 覆盖 disabled `start -Apply`、`handoff -Apply`、`continue -WhatIf -Format json` 与 `continue -Apply` no-fallback，并继续锁定 `start` / `handoff` / `continue` 文本 preview/bare fallback。
+- `start-apply-smoke.ps1`、`handoff-apply-smoke.ps1` 与 `continue-whatif-smoke.ps1` 增加 structured disabled no-fallback 与 no-write snapshot 覆盖，同时保留文本 fallback 断言。
+- release invariant、README、CLAUDE、canonical `/rekit` skill、PowerShell deprecation、release readiness、Go runtime migration、Go-first convergence、tests guide、catalog 与 CHANGELOG 同步记录 structured workstream fallback 已退休；`powerShellDeprecation.fallbackRetirement` inventory 仍保持 `noFallback=16 candidates=2`，因为 candidate command rows 仍包含无 `-Apply` 文本工作线 compatibility。
+
+边界：本批不删除 PowerShell 文件，不改变 `start` / `handoff` / `continue` Go output schema、case-local facts/routing/run digest/lane resume/checkpoint/board 写入语义、Mission Control brief、sync/promote review-first、actual heavy-tool、authority/confirmed 或外部副作用边界；无 `-Apply` 的文本工作线 flow 仍作为 legacy compatibility 保留。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/manifest/release_invariants_test.go
+go test ./internal/rekit/manifest
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\start-apply-smoke.ps1
+.\rekit\tests\handoff-apply-smoke.ps1
+.\rekit\tests\continue-whatif-smoke.ps1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+.\rekit\tests\catalog-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 `gofmt`、`go test ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\start-apply-smoke.ps1`、`.\rekit\tests\handoff-apply-smoke.ps1`、`.\rekit\tests\continue-whatif-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`fallbackRetirement.ready=true`、`goDefaultCommands=19`、`noFallbackCommands=16`、`candidateCommands=2`、`blockedCommands=2`、`removalCandidateModules=14`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `.\rekit\tests\catalog-smoke.ps1`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

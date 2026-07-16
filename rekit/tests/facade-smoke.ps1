@@ -286,12 +286,18 @@ try {
   $disabledNoteAppendOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','disabled note append','-Summary','fallback note append','-Actor','facade-smoke') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledNoteAppendOut -Unexpected 'delegatedByFake' -Label 'go disabled note append no fallback'
   Assert-ContainsText -Text $disabledNoteAppendOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled note append no fallback'
-  $disabledStartApplyOut = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$CaseRoot,'disabled-start','-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-NotContainsText -Text $disabledStartApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled start apply fallback'
-  Assert-ContainsText -Text $disabledStartApplyOut -Expected 'feature-' -Label 'go disabled start apply fallback'
-  $disabledHandoffApplyOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-NotContainsText -Text $disabledHandoffApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled handoff apply fallback'
-  Assert-ContainsText -Text $disabledHandoffApplyOut -Expected 'main-latest.md' -Label 'go disabled handoff apply fallback'
+  $disabledStartApplyOut = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$CaseRoot,'disabled-start','-Pack',$Pack,'-Apply') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledStartApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled start apply no fallback'
+  Assert-ContainsText -Text $disabledStartApplyOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled start apply no fallback'
+  $disabledHandoffApplyOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledHandoffApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled handoff apply no fallback'
+  Assert-ContainsText -Text $disabledHandoffApplyOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled handoff apply no fallback'
+  $disabledContinuePreviewOut = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledContinuePreviewOut -Unexpected 'delegatedByFake' -Label 'go disabled continue JSON preview no fallback'
+  Assert-ContainsText -Text $disabledContinuePreviewOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled continue JSON preview no fallback'
+  $disabledContinueApplyOut = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledContinueApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled continue apply no fallback'
+  Assert-ContainsText -Text $disabledContinueApplyOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled continue apply no fallback'
   $disabledPlanOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-Items','disabled-alpha,disabled-beta','-ReviewOutputDir',(Join-Path $matrixRoot 'plan-disabled')) -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledPlanOut -Unexpected 'delegatedByFake' -Label 'go disabled plan-subagents no fallback'
   Assert-ContainsText -Text $disabledPlanOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled plan-subagents no fallback'
