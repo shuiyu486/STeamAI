@@ -31,6 +31,7 @@ type Result struct {
 	Packs                 []manifest.PackSummary `json:"packs"`
 	PowerShellDeprecation PowerShellDeprecation  `json:"powerShellDeprecation"`
 	GoNativePublicSurface GoNativePublicSurface  `json:"goNativePublicSurface"`
+	PublicFacadeRemoval   PublicFacadeRemoval    `json:"publicFacadeRemoval"`
 	CaseShim              caseshim.Readiness     `json:"caseShim"`
 	PublicDefaultDocs     defaultdocs.Readiness  `json:"publicDefaultDocs"`
 	ReleaseHandoff        ReleaseHandoff         `json:"releaseHandoff"`
@@ -133,6 +134,7 @@ func Build(repoRoot string) (Result, error) {
 		check.GoNativePublicSurface.Ready = false
 		check.GoNativePublicSurface.Summary = "Go-native public command surface inventory has warnings"
 	}
+	check.PublicFacadeRemoval = publicFacadeRemovalInventory(check.PowerShellDeprecation, check.GoNativePublicSurface)
 	if !check.GateProfile.Ready {
 		check.Ready = false
 		check.Warnings = append(check.Warnings, "release gate profile has unresolved commands or missing repo-local scripts")
@@ -170,6 +172,10 @@ func Build(repoRoot string) (Result, error) {
 	if !check.GoNativePublicSurface.Ready {
 		check.Ready = false
 		check.Warnings = append(check.Warnings, check.GoNativePublicSurface.Warnings...)
+	}
+	if !check.PublicFacadeRemoval.Ready {
+		check.Ready = false
+		check.Warnings = append(check.Warnings, check.PublicFacadeRemoval.Warnings...)
 	}
 	if !check.CaseShim.Ready {
 		check.Ready = false

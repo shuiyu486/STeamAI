@@ -185,6 +185,12 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			},
 		},
 		{
+			Name:    "public facade removal prerequisites",
+			Ready:   check.PublicFacadeRemoval.Ready,
+			Summary: check.PublicFacadeRemoval.Summary,
+			Details: publicFacadeRemovalHandoffDetails(check.PublicFacadeRemoval),
+		},
+		{
 			Name:    "case shim readiness",
 			Ready:   check.CaseShim.Ready,
 			Summary: check.CaseShim.Summary,

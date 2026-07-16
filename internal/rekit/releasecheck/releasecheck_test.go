@@ -199,6 +199,7 @@ func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {
 	assertPublicFacade(t, inventory)
 	assertModuleRemoval(t, inventory)
 	assertModuleReferences(t, inventory)
+	assertPublicFacadeRemoval(t, publicFacadeRemovalInventory(inventory, goNativePublicSurface(repo)))
 }
 
 func TestPowerShellDeprecationInventoryDetectsDrift(t *testing.T) {
@@ -321,6 +322,16 @@ func assertPublicFacade(t *testing.T, inventory PowerShellDeprecation) {
 		if !slices.Contains(facade.CommandSurface, command) || !slices.Contains(facade.GoDefaultCommands, command) || !slices.Contains(facade.NoFallbackCommands, command) {
 			t.Fatalf("public facade command %s missing from command lists: %+v", command, facade)
 		}
+	}
+}
+
+func assertPublicFacadeRemoval(t *testing.T, inventory PublicFacadeRemoval) {
+	t.Helper()
+	if !inventory.Ready || inventory.Summary != "public facade removal prerequisites ok" || len(inventory.Warnings) != 0 {
+		t.Fatalf("unexpected public facade removal inventory: %+v", inventory)
+	}
+	if len(inventory.Prerequisites) != 6 || inventory.Prerequisites[0].Name != "public-facade-retained-boundary" || !inventory.Prerequisites[0].Ready || inventory.Prerequisites[2].Name != "go-native-public-surface" || !inventory.Prerequisites[2].Ready || inventory.Prerequisites[5].Name != "module-reference-blockers-clear" || !inventory.Prerequisites[5].Ready {
+		t.Fatalf("public facade removal prerequisites drifted: %+v", inventory.Prerequisites)
 	}
 }
 

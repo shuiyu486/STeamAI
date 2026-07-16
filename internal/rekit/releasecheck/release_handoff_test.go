@@ -19,7 +19,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff inventory: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 11 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 12 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -44,6 +44,9 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profilePolicies rows=5 violations=0")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "facadeRemovalReady=true prerequisites=5")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "unsupportedDiagnostic=true")
+	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "ready=true prerequisites=6")
+	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "public-facade-retained-boundary ready=true publicFacadeReady=true present=true retained=true migrationBoundary=true removalBoundary=true")
+	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "go-native-public-surface ready=true goNativeReady=true facadeRemovalReady=true prerequisites=5")
 	assertHandoffSignal(t, handoff, "case shim readiness")
 	assertHandoffSignal(t, handoff, "public default docs")
 	assertHandoffSignal(t, handoff, "heavy-tool gate manifests")

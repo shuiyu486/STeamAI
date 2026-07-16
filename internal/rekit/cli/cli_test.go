@@ -644,13 +644,14 @@ type releaseCheckResult struct {
 		UnsupportedCommandDiagnosticPresent bool                                             `json:"unsupportedCommandDiagnosticPresent"`
 		Warnings                            []string                                         `json:"warnings"`
 	} `json:"goNativePublicSurface"`
-	CaseShim             releaseCheckCaseShim          `json:"caseShim"`
-	PublicDefaultDocs    releaseCheckPublicDefaultDocs `json:"publicDefaultDocs"`
-	ReleaseHandoff       releaseCheckHandoff           `json:"releaseHandoff"`
-	HeavyToolGateActions []string                      `json:"heavyToolGateActions"`
-	Boundaries           []string                      `json:"boundaries"`
-	KnownGaps            []string                      `json:"knownGaps"`
-	Warnings             []string                      `json:"warnings"`
+	PublicFacadeRemoval  releasecheck.PublicFacadeRemoval `json:"publicFacadeRemoval"`
+	CaseShim             releaseCheckCaseShim             `json:"caseShim"`
+	PublicDefaultDocs    releaseCheckPublicDefaultDocs    `json:"publicDefaultDocs"`
+	ReleaseHandoff       releaseCheckHandoff              `json:"releaseHandoff"`
+	HeavyToolGateActions []string                         `json:"heavyToolGateActions"`
+	Boundaries           []string                         `json:"boundaries"`
+	KnownGaps            []string                         `json:"knownGaps"`
+	Warnings             []string                         `json:"warnings"`
 }
 
 func TestRunReleaseCheckJsonInventory(t *testing.T) {
@@ -687,6 +688,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckCIReleaseGate(t, result.CIReleaseGate)
 	assertReleaseCheckPowerShellDeprecation(t, result.PowerShellDeprecation)
 	assertReleaseCheckGoNativePublicSurface(t, result.GoNativePublicSurface)
+	assertReleaseCheckPublicFacadeRemoval(t, result.PublicFacadeRemoval)
 	assertReleaseCheckCaseShim(t, result.CaseShim)
 	assertReleaseCheckPublicDefaultDocs(t, result.PublicDefaultDocs)
 	assertReleaseCheckHandoff(t, result.ReleaseHandoff)
@@ -814,7 +816,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff summary: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 11 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 12 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertReleaseHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -839,6 +841,9 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profilePolicies rows=5 violations=0")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "facadeRemovalReady=true prerequisites=5")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "unsupportedDiagnostic=true")
+	assertReleaseHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "ready=true prerequisites=6")
+	assertReleaseHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "public-facade-retained-boundary ready=true publicFacadeReady=true present=true retained=true migrationBoundary=true removalBoundary=true")
+	assertReleaseHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "go-native-public-surface ready=true goNativeReady=true facadeRemovalReady=true prerequisites=5")
 	assertReleaseHandoffSignal(t, handoff, "case shim readiness")
 	assertReleaseHandoffSignal(t, handoff, "public default docs")
 	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
@@ -1008,6 +1013,16 @@ func assertReleaseCheckGoNativePublicSurface(t *testing.T, surface struct {
 	}
 	if !surface.FacadeRemovalReady || len(surface.FacadeRemovalPrerequisites) != 5 || surface.FacadeRemovalPrerequisites[0].Name != "entrypoint" || !surface.FacadeRemovalPrerequisites[0].Ready || surface.FacadeRemovalPrerequisites[4].Name != "unsupported-command-diagnostic" || !surface.FacadeRemovalPrerequisites[4].Ready {
 		t.Fatalf("Go-native public surface facade removal prerequisites drifted: ready=%t prerequisites=%+v", surface.FacadeRemovalReady, surface.FacadeRemovalPrerequisites)
+	}
+}
+
+func assertReleaseCheckPublicFacadeRemoval(t *testing.T, inventory releasecheck.PublicFacadeRemoval) {
+	t.Helper()
+	if !inventory.Ready || inventory.Summary != "public facade removal prerequisites ok" || len(inventory.Warnings) != 0 {
+		t.Fatalf("unexpected public facade removal inventory: %+v", inventory)
+	}
+	if len(inventory.Prerequisites) != 6 || inventory.Prerequisites[0].Name != "public-facade-retained-boundary" || !inventory.Prerequisites[0].Ready || inventory.Prerequisites[2].Name != "go-native-public-surface" || !inventory.Prerequisites[2].Ready || inventory.Prerequisites[5].Name != "module-reference-blockers-clear" || !inventory.Prerequisites[5].Ready {
+		t.Fatalf("public facade removal prerequisites drifted: %+v", inventory.Prerequisites)
 	}
 }
 
@@ -1267,7 +1282,8 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"Go-native public surface: Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true default=status commands=19 handlers=19 symbols=19 profiles=19 boundaries=7 boundaryRows=7 policyRows=5 policyViolations=0 facadeRemovalReady=true facadePrerequisites=5 readOnly=5 mutating=14 writesCase=13 writesKit=1 reviewFirst=3 applyRequired=11 heavyTool=0 authorityConfirmed=0 readOnlyCommands=doctor,packs,release-check,status,validate reviewFirstCommands=promote,sync,update writesKitCommands=promote caseLocalApplyCommands=attach,bootstrap,continue,gate,handoff,init,repair,start kitReviewFirstCommands=promote alternative=go run ./cmd/rekit -- -Command <command> unsupportedDiagnostic=true",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=13",
-		"release handoff: release handoff summary ok ready=true readFirst=7 signals=11 knownGaps=5 packMaturity=10",
+		"public facade removal: public facade removal prerequisites ok ready=true prerequisites=6",
+		"release handoff: release handoff summary ok ready=true readFirst=7 signals=12 knownGaps=5 packMaturity=10",
 		"releaseNotes=true",
 		"latest=Batch ",
 		"known gaps:",
