@@ -207,12 +207,15 @@ try {
 
   Invoke-GoRekitSmoke -Arguments @('-Command','init','-Target',$facadeRoot,'-Pack',$Pack,'-ProjectName',"handoff-facade-$suffix",'-Apply') | Out-Null
   Invoke-GoRekitSmoke -Arguments @('-Command','start','-Target',$facadeRoot,'-Pack',$Pack,'-Name','facade','-Apply') | Out-Null
-  $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','facade') -Env @{ REKIT_GO_DISABLE = '1' }
-  Assert-ContainsText -Text $facadeOut -Expected 'would write workstream handoff: facade' -Label 'facade handoff fallback'
-  Assert-NotContainsText -Text $facadeOut -Unexpected 'schemaVersion' -Label 'facade handoff fallback'
+  $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','facade')
+  Assert-ContainsText -Text $facadeOut -Expected 'would write workstream handoff: facade' -Label 'facade handoff text delegated to Go'
+  Assert-NotContainsText -Text $facadeOut -Unexpected 'schemaVersion' -Label 'facade handoff text delegated to Go'
   $facadeRekitRoot = Join-Path $facadeRoot '.rekit'
   $disabledBeforeFiles = Save-TreeSnapshot -Path $facadeRekitRoot
   $disabledBeforeDirs = Save-TreeDirectories -Path $facadeRekitRoot
+  $disabledTextOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','facade') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1' }
+  Assert-ContainsText -Text $disabledTextOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled handoff text no fallback'
+  Assert-TreeUnchanged -Root $facadeRekitRoot -BeforeSnapshot $disabledBeforeFiles -BeforeDirectories $disabledBeforeDirs
   $disabledPreviewOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','facade','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1' }
   Assert-ContainsText -Text $disabledPreviewOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled handoff JSON no fallback'
   Assert-TreeUnchanged -Root $facadeRekitRoot -BeforeSnapshot $disabledBeforeFiles -BeforeDirectories $disabledBeforeDirs

@@ -12,7 +12,7 @@
 
 - **Go-owned**：确定性状态、结构化输出、低风险写入、`release-check` inventory、release invariant、pack-neutral contract 和跨平台路径优先由 `cmd/rekit/**` 与 `internal/rekit/**` 维护。
 - **PowerShell façade**：`rekit/rekit.ps1` 只是迁移期公共兼容入口，负责 Go binary 查找、参数兼容、fallback、环境变量开关和旧 case 用户体验；不承载新的业务语义。
-- **Legacy-only**：无 `-Apply` 的文本工作线 flow、内部命令和非 Go-owned 写入路径暂时保留，禁止扩展新能力。
+- **Legacy-only**：内部命令和非 Go-owned 写入路径暂时保留，禁止扩展新能力；`start` / `handoff` / `continue` 的文本/default 工作线 flow 已由 Go 接管，不再作为 PowerShell fallback 保留。
 - **Parity smoke**：少量 PowerShell smoke 仅保留为 Windows façade / fallback 回归，不进入默认 release gate；后续应迁移到 Go CLI E2E、Go package tests 或跨平台测试。
 - **Release inventory**：Go-owned `release-check -Format json` 输出 `powerShellDeprecation`、`ciReleaseGate`、`caseShim` 与 `publicDefaultDocs`，解析本文件中的命令归属、模块状态、freeze gates 和 blocked migrations，并对照 `rekit/rekit.ps1` 默认委托集合、`rekit/lib/*.ps1` 实际模块清单、默认 CI workflow、case-local thin shim 模板与公开默认文档入口发现漂移；其中 `powerShellDeprecation.fallbackRetirement` 进一步列出 Go-default commands、no-fallback commands、fallback retirement candidate commands、blocked commands 与 removal-candidate modules，作为后续 fallback removal batch 的机器可读前置库存。
 - **删除前置条件**：对应命令已有 Go owner、Go-native 文档入口、release invariant、测试覆盖、fallback 替代或明确删除条件后，即可按独立 batch 删除或降级 PowerShell 实现。
@@ -64,10 +64,9 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 | `overview` text/JSON 与缺 board 初始化 | Go default | façade delegate + no PowerShell fallback | Go overview 是 canonical owner；PowerShell fallback 已退休，缺 board 初始化仍只写 case-local scaffold。 |
 | `note -List` text/table/tsv/JSON、`note` append、`note -WhatIf` | Go default | façade delegate + no PowerShell fallback | 新 ledger schema 校验由 Go 维护；PowerShell fallback 已退休，append 仍只写 facts JSONL、不写 authority/confirmed。 |
 | `gate -WhatIf` / `gate -Apply` pending-gate | Go default | façade delegate + no PowerShell fallback | 只预览或写 pending-gate request；不执行 heavy-tool；PowerShell fallback 已退休。 |
-| `start` / `handoff` JSON preview/apply | Go default | façade + text fallback | Batch 231 起 JSON preview / explicit apply 的 structured invocation 在 Go disabled/unavailable 时直接失败；无 `-Apply` 的文本 preview/workflow 仍为 legacy compatibility，后续以 Go-native lane handoff/resume 取代。 |
-| `continue -WhatIf -Format json` / explicit `continue -Apply` | Go default safe subset | façade + text fallback | Batch 231 起 JSON preview / explicit apply 的 structured invocation 在 Go disabled/unavailable 时直接失败；文本 preview flow 仍为 legacy compatibility；`continue -Apply` 不写 authority/confirmed。 |
+| `start` / `handoff` preview/apply/text/default | Go default | façade delegate + no PowerShell fallback | Batch 232 起 JSON preview、explicit apply、文本 preview 与 bare/default 工作线 flow 均由 Go-owned 路径接管；façade 对非 `-Apply` 且空 `-Format` 明确转为 Go text output，同时 direct Go CLI 继续保持默认 JSON contract。 |
+| `continue -WhatIf` / explicit `continue -Apply` text/JSON | Go default | façade delegate + no PowerShell fallback | Batch 232 起 JSON preview、explicit apply 与文本/default preview 均由 Go-owned 路径接管；`continue -Apply` 仍只写 case-local facts/routing/run digest/lane resume/checkpoint/board，不写 authority/confirmed、不执行 heavy-tool。 |
 | `plan-subagents` review artifacts | Go default | façade delegate + no PowerShell fallback | 只写 review packet / summary / combined diff 路径；不自动 spawn agent；PowerShell fallback 已退休，使用 Go package tests 与 `plan-subagents-smoke.ps1` 维护 parity。 |
-| 无 `-Apply` 的文本工作线 flow | PowerShell legacy | legacy-only | 冻结语义；只修 bug，不新增状态模型；由 Go-native lane handoff/resume/continue 取代后删除。 |
 | actual heavy-tool 执行 | 未迁移 | blocked / manual gate | 不自动迁移；需要用户确认和单独设计。 |
 | authority/confirmed 写入 | 人工 gate / legacy guarded | blocked | 不由 Go apply 自动执行；删除/迁移需 schema 与恢复策略。 |
 
@@ -95,12 +94,12 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 `release-check -Format json` 的 `powerShellDeprecation.fallbackRetirement` 是后续 removal batch 的确定性前置库存：
 
 - `goDefaultCommands[]` 来自 `rekit/rekit.ps1` 的默认 Go delegation 集合，用于确认 façade 默认路径已经由 Go owner 覆盖。
-- `noFallbackCommands[]` 表示已经没有 PowerShell fallback 的 Go-default 命令；当前基线包含 `release-check`、`status`、`packs`、`doctor`、`validate`、`attach`、`repair`、`init`、`bootstrap`、`sync`、`update`、`promote`、`overview`、`note`、`gate` 与 `plan-subagents`。
-- `candidateCommands[]` 表示 Go-default 但仍有 legacy / fallback / removal-candidate 语义的命令行，是后续 fallback removal batch 的候选工作清单；Batch 231 起 `start` / `handoff` / `continue` 的 Go-owned structured invocation 已经不再 fallback，但这些 command rows 仍因无 `-Apply` 文本工作线 compatibility 留在 candidate 清单。
+- `noFallbackCommands[]` 表示已经没有 PowerShell fallback 的 Go-default 命令；当前基线包含 `release-check`、`status`、`packs`、`doctor`、`validate`、`attach`、`repair`、`init`、`bootstrap`、`sync`、`update`、`promote`、`overview`、`note`、`gate`、`start`、`handoff`、`continue` 与 `plan-subagents`。
+- `candidateCommands[]` 表示 Go-default 但仍有 legacy / fallback / removal-candidate 语义的命令行，是后续 fallback removal batch 的候选工作清单；Batch 232 起 `start` / `handoff` / `continue` 的 structured 与文本/default invocation 均不再 fallback，因此当前 candidate 清单为空；后续清理转向 removal-candidate PowerShell modules 与 blocked 迁移边界。
 - `blockedCommands[]` 保留 actual heavy-tool、authority/confirmed 等不得普通迁移的 command rows；这些 row 不应进入自动 removal batch。
 - `removalCandidateModules[]` 来自模块状态矩阵中的 removal-candidate `.ps1` 文件，用于决定独立删除批次的 review 范围。
 
-该库存只分类和报警；真正 fallback 退休或文件删除仍必须按单独 removal batch 执行，包含恢复计划、验证和文档。当前已退休的 no-fallback 命令即使设置 `REKIT_GO_DISABLE=1` 也不会回落到 PowerShell 业务实现；仍在 `candidateCommands[]` 中的命令只表示该 command row 仍含某些迁移期 compatibility fallback，不表示其所有 invocation 都允许 fallback。
+该库存只分类和报警；真正 fallback 退休或文件删除仍必须按单独 removal batch 执行，包含恢复计划、验证和文档。当前已退休的 no-fallback 命令即使设置 `REKIT_GO_DISABLE=1` 也不会回落到 PowerShell 业务实现；`candidateCommands[]` 为空表示 Go-default command rows 已无普通 PowerShell fallback 候选，不表示 blocked heavy-tool、authority/confirmed 或 policy schema 迁移可以顺手迁入。
 
 ## Freeze / deprecation gates
 

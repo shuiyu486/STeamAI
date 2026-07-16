@@ -692,7 +692,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffReadFirst(t, handoff, "CHANGELOG.md")
 	assertReleaseHandoffSignal(t, handoff, "release-check inventory")
 	assertReleaseHandoffSignal(t, handoff, "CI release gate")
-	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=16 candidates=2 removalModules=14")
+	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=19 candidates=0 removalModules=14")
 	assertReleaseHandoffSignal(t, handoff, "case shim readiness")
 	assertReleaseHandoffSignal(t, handoff, "public default docs")
 	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
@@ -956,38 +956,14 @@ func assertPowerShellFallbackRetirement(t *testing.T, inventory releaseCheckPowe
 	if !fallback.Ready || fallback.Summary != "PowerShell fallback retirement inventory ok" || len(fallback.Warnings) != 0 {
 		t.Fatalf("unexpected PowerShell fallback retirement inventory: %+v", fallback)
 	}
-	if len(fallback.GoDefaultCommands) != 19 || len(fallback.NoFallbackCommands) != 16 || len(fallback.CandidateCommands) != 2 || len(fallback.RemovalCandidateModules) != 14 {
+	if len(fallback.GoDefaultCommands) != 19 || len(fallback.NoFallbackCommands) != 19 || len(fallback.CandidateCommands) != 0 || len(fallback.RemovalCandidateModules) != 14 {
 		t.Fatalf("fallback retirement inventory omitted expected sections: %+v", fallback)
 	}
-	for _, command := range []string{"attach", "bootstrap", "doctor", "gate", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "status", "sync", "update", "validate"} {
+	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
 		if !slices.Contains(fallback.NoFallbackCommands, command) {
 			t.Fatalf("NoFallbackCommands = %v, missing %s", fallback.NoFallbackCommands, command)
 		}
 	}
-	assertFallbackCandidate(t, fallback.CandidateCommands, "start", "start", "handoff")
-}
-
-func assertFallbackCandidate(t *testing.T, candidates []struct {
-	Area     string   `json:"area"`
-	Commands []string `json:"commands"`
-	Status   string   `json:"status"`
-	Strategy string   `json:"strategy"`
-}, areaContains string, commands ...string) {
-	t.Helper()
-	for _, candidate := range candidates {
-		if strings.Contains(candidate.Area, areaContains) {
-			for _, command := range commands {
-				if !slices.Contains(candidate.Commands, command) {
-					t.Fatalf("candidate %q commands = %v, missing %s", areaContains, candidate.Commands, command)
-				}
-			}
-			if strings.TrimSpace(candidate.Status) == "" || strings.TrimSpace(candidate.Strategy) == "" {
-				t.Fatalf("candidate %q has empty status/strategy: %+v", areaContains, candidate)
-			}
-			return
-		}
-	}
-	t.Fatalf("fallback retirement missing candidate containing %q: %+v", areaContains, candidates)
 }
 
 func TestRunReleaseCheckTextInventory(t *testing.T) {
@@ -1014,7 +990,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"packs:",
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
-		"commands=14 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=16 candidates=2 removalModules=14",
+		"commands=13 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=19 candidates=0 removalModules=14",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=13",
 		"release handoff: release handoff summary ok ready=true readFirst=7 signals=10 knownGaps=5 packMaturity=10",

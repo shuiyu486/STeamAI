@@ -231,12 +231,12 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'continue' -Label 'default continue JSON preview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply') -CommandName 'continue' -Label 'default continue apply delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-Items','matrix-alpha,matrix-beta','-ReviewOutputDir',(Join-Path $matrixRoot 'plan-matrix')) -CommandName 'plan-subagents' -Label 'default plan-subagents delegation'
-  Assert-FakeFallback -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf') -Expected 'would create or enter feature workstream:' -Label 'start text preview fallback'
-  Assert-FakeFallback -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack) -Expected 'feature-' -Label 'start bare text fallback'
-  Assert-FakeFallback -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf') -Expected 'would write workstream handoff:' -Label 'handoff text preview fallback'
-  Assert-FakeFallback -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack) -Expected 'main-latest.md' -Label 'handoff bare text fallback'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf') -CommandName 'start' -Label 'default start text preview delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack) -CommandName 'start' -Label 'default start bare text delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf') -CommandName 'handoff' -Label 'default handoff text preview delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack) -CommandName 'handoff' -Label 'default handoff bare text delegation'
 
-  Assert-FakeFallback -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf') -Expected 'prompts/RESUME.md' -Label 'continue text preview fallback'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf') -CommandName 'continue' -Label 'default continue text preview delegation'
 
   # Disable wins over default and explicit enable for legacy fallback candidates; low-risk read-only fallback has been retired.
   $disabledOut = Invoke-RekitSmoke -Arguments @('-Command','status') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '1' }
@@ -286,12 +286,21 @@ try {
   $disabledNoteAppendOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','disabled note append','-Summary','fallback note append','-Actor','facade-smoke') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledNoteAppendOut -Unexpected 'delegatedByFake' -Label 'go disabled note append no fallback'
   Assert-ContainsText -Text $disabledNoteAppendOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled note append no fallback'
+  $disabledStartTextOut = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$CaseRoot,'disabled-start-text','-Pack',$Pack,'-WhatIf') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledStartTextOut -Unexpected 'delegatedByFake' -Label 'go disabled start text no fallback'
+  Assert-ContainsText -Text $disabledStartTextOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled start text no fallback'
   $disabledStartApplyOut = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$CaseRoot,'disabled-start','-Pack',$Pack,'-Apply') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledStartApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled start apply no fallback'
   Assert-ContainsText -Text $disabledStartApplyOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled start apply no fallback'
+  $disabledHandoffTextOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledHandoffTextOut -Unexpected 'delegatedByFake' -Label 'go disabled handoff text no fallback'
+  Assert-ContainsText -Text $disabledHandoffTextOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled handoff text no fallback'
   $disabledHandoffApplyOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledHandoffApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled handoff apply no fallback'
   Assert-ContainsText -Text $disabledHandoffApplyOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled handoff apply no fallback'
+  $disabledContinueTextOut = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledContinueTextOut -Unexpected 'delegatedByFake' -Label 'go disabled continue text no fallback'
+  Assert-ContainsText -Text $disabledContinueTextOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled continue text no fallback'
   $disabledContinuePreviewOut = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledContinuePreviewOut -Unexpected 'delegatedByFake' -Label 'go disabled continue JSON preview no fallback'
   Assert-ContainsText -Text $disabledContinuePreviewOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled continue JSON preview no fallback'

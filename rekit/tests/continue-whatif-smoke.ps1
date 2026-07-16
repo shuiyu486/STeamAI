@@ -207,9 +207,10 @@ try {
 
   $facadeBeforeFiles = Save-TreeSnapshot -Path $caseRoot
   $facadeBeforeDirs = Save-TreeDirectories -Path $caseRoot
-  $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf')
-  Assert-NotContainsText -Text $facadeOut -Unexpected '"command": "continue"' -Label 'facade continue fallback'
-  Assert-TreeUnchanged -Root $caseRoot -BeforeSnapshot $facadeBeforeFiles -BeforeDirectories $facadeBeforeDirs -Label 'facade continue what-if fallback'
+  $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','continue','-Target',$caseRoot,'-Pack',$Pack,'-WhatIf','login')
+  Assert-ContainsText -Text $facadeOut -Expected 'feature-login' -Label 'facade continue text delegated to Go'
+  Assert-NotContainsText -Text $facadeOut -Unexpected '"command": "continue"' -Label 'facade continue text delegated to Go'
+  Assert-TreeUnchanged -Root $caseRoot -BeforeSnapshot $facadeBeforeFiles -BeforeDirectories $facadeBeforeDirs -Label 'facade continue what-if text delegated to Go'
 
   $facadeJsonBeforeFiles = Save-TreeSnapshot -Path $caseRoot
   $facadeJsonBeforeDirs = Save-TreeDirectories -Path $caseRoot

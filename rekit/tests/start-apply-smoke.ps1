@@ -186,12 +186,15 @@ try {
 
   Invoke-GoRekitSmoke -Arguments @('-Command','init','-Target',$facadeRoot,'-Pack',$Pack,'-ProjectName',"start-facade-$suffix",'-Apply') | Out-Null
   $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','facade') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
-  Assert-ContainsText -Text $facadeOut -Expected 'would create or enter feature workstream' -Label 'facade start fallback'
-  Assert-NotContainsText -Text $facadeOut -Unexpected 'schemaVersion' -Label 'facade start fallback'
+  Assert-ContainsText -Text $facadeOut -Expected 'would create or enter feature workstream' -Label 'facade start text delegated to Go'
+  Assert-NotContainsText -Text $facadeOut -Unexpected 'schemaVersion' -Label 'facade start text delegated to Go'
 
   $disabledFacadeRekitRoot = Join-Path $facadeRoot '.rekit'
   $disabledBeforeFiles = Save-TreeSnapshot -Path $disabledFacadeRekitRoot
   $disabledBeforeDirs = Save-TreeDirectories -Path $disabledFacadeRekitRoot
+  $disabledTextOut = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','facade') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1' }
+  Assert-ContainsText -Text $disabledTextOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled start text no fallback'
+  Assert-TreeUnchanged -Root $disabledFacadeRekitRoot -BeforeSnapshot $disabledBeforeFiles -BeforeDirectories $disabledBeforeDirs
   $disabledPreviewOut = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$facadeRoot,'-Pack',$Pack,'-WhatIf','facade','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1' }
   Assert-ContainsText -Text $disabledPreviewOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled start JSON no fallback'
   Assert-TreeUnchanged -Root $disabledFacadeRekitRoot -BeforeSnapshot $disabledBeforeFiles -BeforeDirectories $disabledBeforeDirs

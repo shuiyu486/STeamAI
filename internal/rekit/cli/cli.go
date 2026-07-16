@@ -979,26 +979,28 @@ func runStart(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.WhatIf && opt.Apply {
 		return fmt.Errorf("start -WhatIf cannot be combined with -Apply")
 	}
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported start format: %s", opt.Format)
+	}
 	startOpt := opt.Start
 	startOpt.Force = opt.Force
-	var result any
-	var err error
-	if opt.WhatIf {
-		result, err = workstream.StartPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, startOpt)
-	} else if opt.Apply {
-		result, err = workstream.StartApply(ctx.RepoRoot, ctx.Target, ctx.Pack, startOpt)
-	} else {
+	if !opt.WhatIf && !opt.Apply && format == "json" {
 		return fmt.Errorf("start write requires -Apply; use -WhatIf for preview")
 	}
+	var result workstream.StartResult
+	if opt.WhatIf {
+		result, err = workstream.StartPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, startOpt)
+	} else {
+		result, err = workstream.StartApply(ctx.RepoRoot, ctx.Target, ctx.Pack, startOpt)
+	}
 	if err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return err
+	if format == "json" {
+		return writeJSON(out, result)
 	}
-	_, err = out.Write(append(b, '\n'))
-	return err
+	return writeStartText(out, result)
 }
 
 func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -1008,24 +1010,26 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.WhatIf && opt.Apply {
 		return fmt.Errorf("handoff -WhatIf cannot be combined with -Apply")
 	}
-	var result any
-	var err error
-	if opt.WhatIf {
-		result, err = workstream.HandoffPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Handoff)
-	} else if opt.Apply {
-		result, err = workstream.HandoffApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Handoff)
-	} else {
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported handoff format: %s", opt.Format)
+	}
+	if !opt.WhatIf && !opt.Apply && format == "json" {
 		return fmt.Errorf("handoff write requires -Apply; use -WhatIf for preview")
 	}
+	var result workstream.HandoffResult
+	if opt.WhatIf {
+		result, err = workstream.HandoffPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Handoff)
+	} else {
+		result, err = workstream.HandoffApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Handoff)
+	}
 	if err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return err
+	if format == "json" {
+		return writeJSON(out, result)
 	}
-	_, err = out.Write(append(b, '\n'))
-	return err
+	return writeHandoffText(out, result)
 }
 
 func runContinue(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -1041,25 +1045,142 @@ func runContinue(ctx runtime.Context, opt Options, out io.Writer) error {
 	if wantsReviewArtifacts(opt) {
 		return fmt.Errorf("continue does not support review artifact options")
 	}
-	if !opt.WhatIf && !opt.Apply {
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported continue format: %s", opt.Format)
+	}
+	if !opt.WhatIf && !opt.Apply && format == "json" {
 		return fmt.Errorf("go backend continue requires -WhatIf or -Apply")
 	}
 	var result workstream.ContinueResult
-	var err error
-	if opt.Apply {
-		result, err = workstream.ContinueApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
-	} else {
+	if opt.WhatIf {
 		result, err = workstream.ContinuePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
+	} else {
+		result, err = workstream.ContinueApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
 	}
 	if err != nil {
 		return err
 	}
+	if format == "json" {
+		return writeJSON(out, result)
+	}
+	return writeContinueText(out, result)
+}
+
+func workstreamFormat(format string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(format))
+	if value == "" {
+		return "json", nil
+	}
+	switch value {
+	case "table", "text", "tsv", "json":
+		return value, nil
+	default:
+		return "", fmt.Errorf("unsupported format: %s", format)
+	}
+}
+
+func writeJSON(out io.Writer, result any) error {
 	b, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return err
 	}
 	_, err = out.Write(append(b, '\n'))
 	return err
+}
+
+func writeStartText(out io.Writer, result workstream.StartResult) error {
+	label := workstreamTextLabel(result.Lane)
+	if !result.Applied {
+		_, err := fmt.Fprintf(out, "would create or enter feature workstream: %s\n", result.Lane.ID)
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "功能支线已准备：%s\n", result.Lane.ID); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "工作区：%s\n", result.Lane.Workspace); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "接续提示：%s/prompts/RESUME.md\n", result.Lane.LaneRoot); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(out, "继续此支线：/rekit continue %s\n", label)
+	return err
+}
+
+func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
+	if !result.Applied {
+		if result.Project {
+			_, err := fmt.Fprintln(out, "would write project handoff index: .rekit/handovers/latest.md")
+			return err
+		}
+		_, err := fmt.Fprintf(out, "would write workstream handoff: %s\n", handoffTextSelector(result))
+		return err
+	}
+	path := handoffLatestPath(result)
+	if result.Project {
+		_, err := fmt.Fprintf(out, "项目级接手索引：%s\n", path)
+		return err
+	}
+	_, err := fmt.Fprintf(out, "工作线接手文档：%s\n", path)
+	return err
+}
+
+func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
+	if _, err := fmt.Fprintf(out, "已选择工作线：%s\n", result.Lane.ID); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "工作区：%s\n", result.Lane.Workspace); err != nil {
+		return err
+	}
+	resume := result.Lane.LaneRoot + "/prompts/RESUME.md"
+	for _, write := range result.Writes {
+		if write.Kind == "lane-resume" && strings.TrimSpace(write.Path) != "" {
+			resume = write.Path
+			break
+		}
+	}
+	_, err := fmt.Fprintf(out, "接续提示：%s\n", resume)
+	return err
+}
+
+func workstreamTextLabel(lane workstream.Lane) string {
+	if lane.Authority {
+		return "main"
+	}
+	if name, ok := strings.CutPrefix(lane.ID, "feature-"); ok {
+		return name
+	}
+	return lane.ID
+}
+
+func handoffTextSelector(result workstream.HandoffResult) string {
+	if strings.TrimSpace(result.Selector) != "" {
+		return result.Selector
+	}
+	if result.Lane != nil {
+		return workstreamTextLabel(*result.Lane)
+	}
+	return ""
+}
+
+func handoffLatestPath(result workstream.HandoffResult) string {
+	wantAction := "write-latest-lane-handoff"
+	fallback := ".rekit/handovers/"
+	if result.Project {
+		wantAction = "write-latest-project-handoff"
+		fallback += "latest.md"
+	} else if result.Lane != nil {
+		fallback += result.Lane.ID + "-latest.md"
+	} else {
+		fallback += "latest.md"
+	}
+	for _, write := range result.Writes {
+		if write.Action == wantAction && strings.TrimSpace(write.Path) != "" {
+			return write.Path
+		}
+	}
+	return fallback
 }
 
 func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {

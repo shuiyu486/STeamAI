@@ -125,11 +125,7 @@ function Test-RekitGoDefaultDelegationCommand {
 
 function Test-RekitNoPowerShellFallbackCommand {
   param([string]$Name)
-  return (@('release-check','status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','plan-subagents') -contains $Name)
-}
-
-function Test-RekitNoPowerShellFallbackPath {
-  return (($Command -in @('start','handoff','continue')) -and (Test-RekitGoDelegationSafe))
+  return (@('release-check','status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','plan-subagents') -contains $Name)
 }
 
 function Test-RekitGoDelegationEnabled {
@@ -239,41 +235,35 @@ function Test-RekitGoDelegationSafe {
     'start' {
       if ($CreateCandidates -or $Review) { return $false }
       if ($WhatIf -and $Apply) { return $false }
-      if ((-not $WhatIf) -and (-not $Apply)) { return $false }
       if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
       $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
       if (-not (Test-RekitLooksLikeCase ([string]$resolved.Target))) { return $false }
       $selector = ((@($resolved.Args) | ForEach-Object { [string]$_ }) -join '-').Trim('-')
       if ([string]::IsNullOrWhiteSpace($selector)) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
-      if ($WhatIf) { return ($formatValue -eq 'json') }
-      return ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json')
+      return ([string]::IsNullOrWhiteSpace($formatValue) -or @('json','text','table','tsv') -contains $formatValue)
     }
     'handoff' {
       if ($CreateCandidates -or $Review -or $Force) { return $false }
       if ($WhatIf -and $Apply) { return $false }
-      if ((-not $WhatIf) -and (-not $Apply)) { return $false }
       if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
       $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
       $caseRoot = [string]$resolved.Target
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
       if (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json'))) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
-      if ($WhatIf) { return ($formatValue -eq 'json') }
-      return ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json')
+      return ([string]::IsNullOrWhiteSpace($formatValue) -or @('json','text','table','tsv') -contains $formatValue)
     }
     'continue' {
       if ($CreateCandidates -or $Review -or $Force) { return $false }
       if ($WhatIf -and $Apply) { return $false }
-      if ((-not $WhatIf) -and (-not $Apply)) { return $false }
       if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
       $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
       $caseRoot = [string]$resolved.Target
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
       if (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json'))) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
-      if ($WhatIf) { return ($formatValue -eq 'json') }
-      return ($Apply -and ([string]::IsNullOrWhiteSpace($formatValue) -or $formatValue -eq 'json'))
+      return ([string]::IsNullOrWhiteSpace($formatValue) -or @('json','text','table','tsv') -contains $formatValue)
     }
     'plan-subagents' {
       if ($Apply -or $WhatIf -or $CreateCandidates -or $Review -or $Force) { return $false }
@@ -347,7 +337,9 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-ReviewOutputDir' $ReviewOutputDir
   Add-RekitGoArg ([ref]$goArgs) '-PacketPath' $PacketPath
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' $DiffPath
-  if ($Command -in @('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $Format }
+  $goFormat = $Format
+  if ($Command -in @('start','handoff','continue') -and (-not $Apply.IsPresent) -and [string]::IsNullOrWhiteSpace([string]$goFormat)) { $goFormat = 'text' }
+  if ($Command -in @('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
   if ($Command -in @('attach','repair','init','bootstrap','sync','update')) { Add-RekitGoArg ([ref]$goArgs) '-ProjectName' $ProjectName }
   if ($Command -in @('init','bootstrap','sync','update')) { Add-RekitGoSwitch ([ref]$goArgs) '-Force' $Force.IsPresent }
   if ($Command -eq 'note') {
@@ -443,8 +435,8 @@ if (Test-RekitGoDelegationEnabled) {
   }
 }
 
-if ((Test-RekitNoPowerShellFallbackCommand -Name $Command) -or (Test-RekitNoPowerShellFallbackPath)) {
-  throw "$Command is implemented by the Go backend only for this invocation; PowerShell fallback has been retired for this path. Remove REKIT_GO_DISABLE or use go run ./cmd/rekit -- -Command $Command."
+if (Test-RekitNoPowerShellFallbackCommand -Name $Command) {
+  throw "$Command is implemented by the Go backend only; PowerShell fallback has been retired for this command. Remove REKIT_GO_DISABLE or use go run ./cmd/rekit -- -Command $Command."
 }
 
 switch ($Command) {

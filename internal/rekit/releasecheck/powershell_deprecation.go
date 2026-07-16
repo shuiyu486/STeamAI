@@ -157,10 +157,14 @@ func parsePowerShellFreezeGates(text string) []PowerShellFreezeGate {
 
 func powerShellFallbackRetirement(repo string, owners []PowerShellCommandOwner, modules []PowerShellModuleStatus) PowerShellFallbackRetirement {
 	inventory := PowerShellFallbackRetirement{
-		Ready:             true,
-		Summary:           "PowerShell fallback retirement inventory ok",
-		GoDefaultCommands: sortedStringMapKeys(powerShellDefaultDelegationCommands(repo)),
-		Warnings:          []string{},
+		Ready:                   true,
+		Summary:                 "PowerShell fallback retirement inventory ok",
+		GoDefaultCommands:       sortedStringMapKeys(powerShellDefaultDelegationCommands(repo)),
+		NoFallbackCommands:      []string{},
+		CandidateCommands:       []PowerShellFallbackRetirementCommand{},
+		BlockedCommands:         []PowerShellFallbackRetirementCommand{},
+		RemovalCandidateModules: []PowerShellFallbackRetirementModule{},
+		Warnings:                []string{},
 	}
 	coveredDefault := map[string]bool{}
 	for _, owner := range owners {
@@ -214,8 +218,8 @@ func powerShellFallbackRetirement(repo string, owners []PowerShellCommandOwner, 
 	if len(inventory.NoFallbackCommands) == 0 {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell fallback retirement inventory has no no-fallback Go-default commands")
 	}
-	if len(inventory.CandidateCommands) == 0 {
-		inventory.Warnings = append(inventory.Warnings, "PowerShell fallback retirement inventory has no fallback retirement candidate commands")
+	if len(inventory.CandidateCommands) == 0 && len(inventory.RemovalCandidateModules) == 0 {
+		inventory.Warnings = append(inventory.Warnings, "PowerShell fallback retirement inventory has no fallback retirement candidate commands or removal-candidate modules")
 	}
 	if len(inventory.RemovalCandidateModules) == 0 {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell fallback retirement inventory has no removal-candidate modules")
