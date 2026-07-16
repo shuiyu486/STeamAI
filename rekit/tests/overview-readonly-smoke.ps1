@@ -34,6 +34,7 @@ function Invoke-RekitSmoke {
   if ($AllowedExitCodes -notcontains $exitCode) {
     throw "unexpected exit code $exitCode; output:`n$output"
   }
+  $global:LASTEXITCODE = 0
   return $output
 }
 
@@ -195,6 +196,9 @@ try {
   [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"overview","delegatedByFake":true}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
   $delegatedJson = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack,'-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
   if (-not [bool]$delegatedJson.delegatedByFake) { throw "facade overview JSON did not use default REKIT_GO_EXE delegation: $($delegatedJson | ConvertTo-Json -Depth 20)" }
+  $disabledOverview = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack,'-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $disabledOverview -Expected 'PowerShell fallback has been retired' -Label 'facade overview disabled no fallback'
+  Assert-TreeUnchanged -Root $rekitRoot -BeforeSnapshot $beforeFiles -BeforeDirectories $beforeDirs
 
   $facadeJson = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$caseRoot,'-Pack',$Pack,'-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
   if ([string]$facadeJson.command -ne 'overview' -or [bool]$facadeJson.isMutation -or [string]$facadeJson.pack -ne $Pack -or [int]$facadeJson.counts.candidates -ne 2 -or [int]$facadeJson.sections.verifications.total -ne 1) { throw "unexpected facade overview JSON: $($facadeJson | ConvertTo-Json -Depth 20)" }

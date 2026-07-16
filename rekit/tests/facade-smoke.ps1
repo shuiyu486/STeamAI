@@ -250,20 +250,18 @@ try {
   $disabledAttachOut = Invoke-RekitSmoke -Arguments @('-Command','attach','-Target',(Join-Path $matrixRoot 'disabled-attach'),'-Pack',$Pack,'-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledAttachOut -Unexpected 'delegatedByFake' -Label 'go disabled attach fallback'
   Assert-ContainsText -Text $disabledAttachOut -Expected 'would attach case' -Label 'go disabled attach fallback'
-  $disabledOverviewOut = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-NotContainsText -Text $disabledOverviewOut -Unexpected 'delegatedByFake' -Label 'go disabled overview JSON fallback'
-  Assert-ContainsText -Text $disabledOverviewOut -Expected '"command"' -Label 'go disabled overview JSON fallback'
-  Assert-ContainsText -Text $disabledOverviewOut -Expected 'overview' -Label 'go disabled overview JSON fallback'
-  $disabledNoteTextOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-NotContainsText -Text $disabledNoteTextOut -Unexpected 'delegatedByFake' -Label 'go disabled note text fallback'
-  Assert-ContainsText -Text $disabledNoteTextOut -Expected '[observation]' -Label 'go disabled note text fallback'
-  $disabledNoteOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-NotContainsText -Text $disabledNoteOut -Unexpected 'delegatedByFake' -Label 'go disabled note JSON fallback'
-  Assert-ContainsText -Text $disabledNoteOut -Expected '"command"' -Label 'go disabled note JSON fallback'
-  Assert-ContainsText -Text $disabledNoteOut -Expected 'note' -Label 'go disabled note JSON fallback'
-  $disabledNoteAppendOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','disabled note append','-Summary','fallback note append','-Actor','facade-smoke') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-NotContainsText -Text $disabledNoteAppendOut -Unexpected 'delegatedByFake' -Label 'go disabled note append fallback'
-  Assert-ContainsText -Text $disabledNoteAppendOut -Expected 'observation' -Label 'go disabled note append fallback'
+  $disabledOverviewOut = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledOverviewOut -Unexpected 'delegatedByFake' -Label 'go disabled overview JSON no fallback'
+  Assert-ContainsText -Text $disabledOverviewOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled overview JSON no fallback'
+  $disabledNoteTextOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledNoteTextOut -Unexpected 'delegatedByFake' -Label 'go disabled note text no fallback'
+  Assert-ContainsText -Text $disabledNoteTextOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled note text no fallback'
+  $disabledNoteOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledNoteOut -Unexpected 'delegatedByFake' -Label 'go disabled note JSON no fallback'
+  Assert-ContainsText -Text $disabledNoteOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled note JSON no fallback'
+  $disabledNoteAppendOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','disabled note append','-Summary','fallback note append','-Actor','facade-smoke') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledNoteAppendOut -Unexpected 'delegatedByFake' -Label 'go disabled note append no fallback'
+  Assert-ContainsText -Text $disabledNoteAppendOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled note append no fallback'
   $disabledStartApplyOut = Invoke-RekitSmoke -Arguments @('-Command','start','-Target',$CaseRoot,'disabled-start','-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledStartApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled start apply fallback'
   Assert-ContainsText -Text $disabledStartApplyOut -Expected 'feature-' -Label 'go disabled start apply fallback'

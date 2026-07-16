@@ -6833,3 +6833,39 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\gate-parity-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`fallbackRetirement.ready=true`、`goDefaultCommands=19`、`noFallbackCommands=7`、`candidateCommands=7`、`blockedCommands=2`、`removalCandidateModules=14`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `.\rekit\tests\catalog-smoke.ps1`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 227：Overview / note PowerShell fallback retirement
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛，将 `overview` 与 `note` 从 remaining compatibility fallback candidate 中移出，使 attached case 的 overview 文本/JSON、缺 board 初始化、`note -List` 文本/table/tsv/JSON、`note` append 与 `note -WhatIf` 均保持 Go-owned default path，并在 `REKIT_GO_DISABLE=1` 或 Go delegation 不可用时明确失败，不再回退 PowerShell runtime 业务实现。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 `overview` 与 `note` 加入 no-fallback helper；当 `REKIT_GO_DISABLE=1` 或 Go delegation 不可用时，façade 输出 “PowerShell fallback has been retired” 并失败。
+- `docs/powershell-deprecation.md` 的 command matrix 将 `overview` 与 `note` 更新为 `façade delegate + no PowerShell fallback`；`fallbackRetirement.noFallbackCommands[]` 基线从 7 扩展到 9，`candidateCommands[]` 从 7 收窄到 5。
+- `facade-smoke.ps1`、`overview-readonly-smoke.ps1` 与 `agent-team-review-loop-smoke.ps1` 覆盖 disabled/no-fallback error，并对 overview/note no-fallback 路径保持 no-write / ledger 不变断言。
+- CLI、releasecheck、release handoff 与 façade freeze invariant tests 同步锁定新计数和 no-fallback 文档行。
+- README、CLAUDE、canonical `/rekit` skill、release readiness、Go runtime migration、Go-first convergence、tests guide、catalog 与 CHANGELOG 同步记录 overview/note fallback 已退休。
+
+边界：本批不删除 PowerShell 文件，不改变 overview/note Go output schema、facts JSONL schema、eventId 幂等、缺 board 初始化写入面、case lifecycle、sync/promote review-first、workstream、actual heavy-tool、authority/confirmed 或外部副作用边界；remaining candidate fallback 保留到后续独立 removal batch。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli_test.go internal/rekit/manifest/release_invariants_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\overview-readonly-smoke.ps1
+.\rekit\tests\agent-team-review-loop-smoke.ps1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+.\rekit\tests\catalog-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 `gofmt`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\overview-readonly-smoke.ps1`、`.\rekit\tests\agent-team-review-loop-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`fallbackRetirement.ready=true`、`goDefaultCommands=19`、`noFallbackCommands=9`、`candidateCommands=5`、`blockedCommands=2`、`removalCandidateModules=14`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `.\rekit\tests\catalog-smoke.ps1`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

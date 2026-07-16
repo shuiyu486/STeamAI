@@ -34,6 +34,7 @@ function Invoke-RekitSmoke {
   if ($AllowedExitCodes -notcontains $exitCode) {
     throw "unexpected exit code $exitCode; output:`n$output"
   }
+  $global:LASTEXITCODE = 0
   return $output
 }
 
@@ -100,8 +101,12 @@ try {
   if (-not [bool]$delegatedNoteText.delegatedByFake) { throw "facade note list text did not use default REKIT_GO_EXE delegation: $($delegatedNoteText | ConvertTo-Json -Depth 20)" }
   $delegatedNoteJson = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane,'-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
   if (-not [bool]$delegatedNoteJson.delegatedByFake) { throw "facade note list JSON did not use default REKIT_GO_EXE delegation: $($delegatedNoteJson | ConvertTo-Json -Depth 20)" }
-  $textFallback = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $textFallback -Expected 'verifier=manual-review' -Label 'note text list disabled fallback'
+  $verificationsPath = Join-Path $caseRoot '.rekit\facts\verifications.jsonl'
+  $beforeDisabledNote = [System.IO.File]::ReadAllText($verificationsPath, [System.Text.Encoding]::UTF8)
+  $textFallback = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane) -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $textFallback -Expected 'PowerShell fallback has been retired' -Label 'note text list disabled no fallback'
+  $afterDisabledNote = [System.IO.File]::ReadAllText($verificationsPath, [System.Text.Encoding]::UTF8)
+  if ($beforeDisabledNote -ne $afterDisabledNote) { throw 'disabled note no-fallback changed verifications ledger' }
 
   $verificationJson = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$caseRoot,'-Pack',$Pack,'-List','-Kind','verification','-Lane',$lane,'-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '' } | ConvertFrom-Json
   if ([string]$verificationJson.command -ne 'note' -or [bool]$verificationJson.isMutation -or [string]$verificationJson.kind -ne 'verification' -or [string]$verificationJson.lane -ne $lane -or [int]$verificationJson.eventCount -ne 1) { throw "unexpected note verification JSON: $($verificationJson | ConvertTo-Json -Depth 20)" }
