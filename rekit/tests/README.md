@@ -80,7 +80,7 @@ generic-binary-re-pack-smoke.ps1
 
 | 脚本 | 什么时候跑 | 覆盖重点 |
 |---|---|---|
-| `init-bootstrap-smoke.ps1` | 改 Go init/bootstrap、case scaffold 或 lifecycle façade 委托 | preview/apply、managed docs、template、managed block、state、doctor、默认 façade 委托。 |
+| `init-bootstrap-smoke.ps1` | 改 Go init/bootstrap、case scaffold 或 lifecycle façade 委托 | preview/apply、managed docs、template、managed block、state、doctor、默认 façade 委托、disabled no-fallback。 |
 | `sync-review-parity-smoke.ps1` | 改 sync review 或 bounded diff | 默认 façade/Go sync review action 和 diff parity。 |
 | `sync-apply-smoke.ps1` / `go test ./internal/rekit/sync` | 改 Go sync apply、sync package helper 或 façade sync 默认委托 | 临时 case apply、backup、managed block、template force、state、backup escape guard、默认 façade 委托、disabled no-fallback、Go/façade doctor。 |
 | `sync-apply-parity-smoke.ps1` | 改 sync apply force/parity | 默认 façade 与直接 Go apply/force 后 managed docs、metadata/shim、state 对比，并验证 disabled no-fallback。 |

@@ -205,10 +205,10 @@ func assertFallbackRetirement(t *testing.T, inventory PowerShellDeprecation) {
 	if !fallback.Ready || fallback.Summary != "PowerShell fallback retirement inventory ok" || len(fallback.Warnings) != 0 {
 		t.Fatalf("unexpected fallback retirement inventory: %+v", fallback)
 	}
-	if len(fallback.GoDefaultCommands) != 19 || len(fallback.NoFallbackCommands) != 12 || len(fallback.CandidateCommands) != 3 || len(fallback.RemovalCandidateModules) != 14 {
+	if len(fallback.GoDefaultCommands) != 19 || len(fallback.NoFallbackCommands) != 16 || len(fallback.CandidateCommands) != 2 || len(fallback.RemovalCandidateModules) != 14 {
 		t.Fatalf("fallback retirement inventory omitted expected sections: %+v", fallback)
 	}
-	for _, command := range []string{"doctor", "gate", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "status", "sync", "update", "validate"} {
+	for _, command := range []string{"attach", "bootstrap", "doctor", "gate", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "status", "sync", "update", "validate"} {
 		if !slices.Contains(fallback.NoFallbackCommands, command) {
 			t.Fatalf("NoFallbackCommands = %v, missing %s", fallback.NoFallbackCommands, command)
 		}

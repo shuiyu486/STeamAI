@@ -583,6 +583,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 	for _, required := range []string{
 		"| `release-check` | Go default | façade delegate + no PowerShell fallback |",
 		"| `status` / `packs` / `doctor` / `validate` | Go default | façade delegate + no PowerShell fallback |",
+		"| case lifecycle `attach` / `repair` / `init` / `bootstrap` preview/apply | Go default | façade delegate + no PowerShell fallback |",
 		"| `sync` / `update` review/apply/JSON preview | Go default | façade delegate + no PowerShell fallback |",
 		"| `promote` review/artifacts/candidates/apply/JSON preview | Go default | façade delegate + no PowerShell fallback |",
 		"| `overview` text/JSON 与缺 board 初始化 | Go default | façade delegate + no PowerShell fallback |",

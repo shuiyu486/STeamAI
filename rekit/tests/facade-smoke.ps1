@@ -118,7 +118,7 @@ try {
     $gateLane = 'feature-handler-0x40a010'
   }
 
-  # Low-risk read-only commands, overview/note reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, promote JSON previews, start/handoff JSON preview/apply paths, continue JSON preview/apply, and plan-subagents review artifacts default to Go.
+  # Low-risk read-only commands, overview/note reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, promote JSON previews, start/handoff JSON preview/apply paths, continue JSON preview/apply, and plan-subagents review artifacts default to Go; retired groups fail instead of using PowerShell fallback.
   $out = Invoke-RekitSmoke -Arguments @('-Command','status')
   Assert-ContainsText -Text $out -Expected 'rekit go backend:' -Label 'default go status'
 
@@ -262,9 +262,18 @@ try {
   $disabledUpdateOut = Invoke-RekitSmoke -Arguments @('-Command','update','-Target',$CaseRoot,'-Pack',$Pack) -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledUpdateOut -Unexpected 'delegatedByFake' -Label 'go disabled update review no fallback'
   Assert-ContainsText -Text $disabledUpdateOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled update review no fallback'
-  $disabledAttachOut = Invoke-RekitSmoke -Arguments @('-Command','attach','-Target',(Join-Path $matrixRoot 'disabled-attach'),'-Pack',$Pack,'-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-NotContainsText -Text $disabledAttachOut -Unexpected 'delegatedByFake' -Label 'go disabled attach fallback'
-  Assert-ContainsText -Text $disabledAttachOut -Expected 'would attach case' -Label 'go disabled attach fallback'
+  $disabledAttachOut = Invoke-RekitSmoke -Arguments @('-Command','attach','-Target',(Join-Path $matrixRoot 'disabled-attach'),'-Pack',$Pack,'-WhatIf') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledAttachOut -Unexpected 'delegatedByFake' -Label 'go disabled attach no fallback'
+  Assert-ContainsText -Text $disabledAttachOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled attach no fallback'
+  $disabledRepairOut = Invoke-RekitSmoke -Arguments @('-Command','repair','-Target',$CaseRoot,'-Pack',$Pack) -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledRepairOut -Unexpected 'delegatedByFake' -Label 'go disabled repair no fallback'
+  Assert-ContainsText -Text $disabledRepairOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled repair no fallback'
+  $disabledInitOut = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',(Join-Path $matrixRoot 'disabled-init'),'-Pack',$Pack,'-ProjectName',"disabled-init-$suffix",'-WhatIf') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledInitOut -Unexpected 'delegatedByFake' -Label 'go disabled init no fallback'
+  Assert-ContainsText -Text $disabledInitOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled init no fallback'
+  $disabledBootstrapOut = Invoke-RekitSmoke -Arguments @('-Command','bootstrap','-Target',(Join-Path $matrixRoot 'disabled-bootstrap'),'-Pack',$Pack,'-ProjectName',"disabled-bootstrap-$suffix",'-Apply') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledBootstrapOut -Unexpected 'delegatedByFake' -Label 'go disabled bootstrap no fallback'
+  Assert-ContainsText -Text $disabledBootstrapOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled bootstrap no fallback'
   $disabledOverviewOut = Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack,'-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledOverviewOut -Unexpected 'delegatedByFake' -Label 'go disabled overview JSON no fallback'
   Assert-ContainsText -Text $disabledOverviewOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled overview JSON no fallback'

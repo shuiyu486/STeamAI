@@ -6943,3 +6943,37 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt`、`go test ./internal/rekit/promote ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`（首轮因本批 durable batch 状态尚未标记完成/缺验证结果失败，补齐后重跑通过）、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\promote-candidates-preflight-smoke.ps1`、`.\rekit\tests\promote-candidates-apply-smoke.ps1`、`.\rekit\tests\promote-apply-preflight-smoke.ps1`、`.\rekit\tests\promote-apply-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`fallbackRetirement.ready=true`、`goDefaultCommands=19`、`noFallbackCommands=12`、`candidateCommands=3`、`blockedCommands=2`、`removalCandidateModules=14`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `.\rekit\tests\catalog-smoke.ps1`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 230：Case lifecycle PowerShell fallback retirement
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛，将 case lifecycle `attach`、`repair`、`init` 与 `bootstrap` 从 remaining compatibility fallback candidate 中移出，使预览与显式 `-Apply` 均保持 Go-owned default path，并在裸 lifecycle 命令、`REKIT_GO_DISABLE=1` 或 Go delegation 不可用时明确失败，不再回退 PowerShell runtime 业务实现。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 `attach`、`repair`、`init` 与 `bootstrap` 加入 no-fallback helper；当 Go delegation disabled / unavailable 或命令不满足 safe-set 时，façade 输出 “PowerShell fallback has been retired” 并失败。
+- `facade-smoke.ps1` 与 `init-bootstrap-smoke.ps1` 继续锁定默认 lifecycle façade 委托，并覆盖 disabled attach/repair/init/bootstrap no-fallback error 与 no-write 边界。
+- CLI、releasecheck、release handoff 与 façade freeze invariant tests 同步锁定 `fallbackRetirement=true noFallback=16 candidates=2 removalModules=14`。
+- README、CLAUDE、canonical `/rekit` skill、PowerShell deprecation、release readiness、Go runtime migration、Go-first convergence、init/bootstrap migration、case migration、tests guide、catalog 与 CHANGELOG 同步记录 case lifecycle fallback 已退休。
+
+边界：本批不删除 PowerShell 文件，不改变 case lifecycle Go output schema、metadata/thin shim/managed docs/template/state 写入语义、case-local shim thin boundary、sync/promote review-first、workstream、actual heavy-tool、authority/confirmed 或外部副作用边界；remaining candidate fallback 保留给 start/handoff/continue 与文本工作线等后续独立 removal batch。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli_test.go internal/rekit/manifest/release_invariants_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\init-bootstrap-smoke.ps1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+.\rekit\tests\catalog-smoke.ps1
+git diff --check
+```
+
+验证结果：已通过 `gofmt`、`go test ./internal/rekit/cli ./internal/rekit/manifest`（首轮因本批 durable batch 状态尚未标记完成失败，补齐状态/验证结果后重跑通过）、`go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\init-bootstrap-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`fallbackRetirement.ready=true`、`goDefaultCommands=19`、`noFallbackCommands=16`、`candidateCommands=2`、`blockedCommands=2`、`removalCandidateModules=14`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `.\rekit\tests\catalog-smoke.ps1`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

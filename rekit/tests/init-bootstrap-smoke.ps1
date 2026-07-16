@@ -34,6 +34,7 @@ function Invoke-RekitSmoke {
   if ($AllowedExitCodes -notcontains $exitCode) {
     throw "unexpected exit code $exitCode; output:`n$output"
   }
+  $global:LASTEXITCODE = 0
   return $output
 }
 
@@ -56,6 +57,15 @@ function Assert-ContainsText {
     [Parameter(Mandatory=$true)][string]$Label
   )
   if ($Text -notlike "*$Expected*") { throw "$Label missing expected text '$Expected'. Output:`n$Text" }
+}
+
+function Assert-NotContainsText {
+  param(
+    [Parameter(Mandatory=$true)][AllowEmptyString()][string]$Text,
+    [Parameter(Mandatory=$true)][string]$Unexpected,
+    [Parameter(Mandatory=$true)][string]$Label
+  )
+  if ($Text -like "*$Unexpected*") { throw "$Label contained unexpected text '$Unexpected'. Output:`n$Text" }
 }
 
 function Assert-FileEquals {
@@ -174,6 +184,22 @@ try {
 
   $facadeOut = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$facadeInitRoot,'-Pack',$Pack,'-ProjectName',"facade-init-$suffix",'-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
   if (-not [bool]$facadeOut.delegatedByFake) { throw "facade init text preview did not use default REKIT_GO_EXE delegation: $($facadeOut | ConvertTo-Json -Depth 8)" }
+
+  $disabledAttachOut = Invoke-RekitSmoke -Arguments @('-Command','attach','-Target',(Join-Path $WorkRoot "disabled-attach-$suffix"),'-Pack',$Pack,'-ProjectName',"disabled-attach-$suffix",'-WhatIf') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledAttachOut -Unexpected 'delegatedByFake' -Label 'disabled attach no fallback'
+  Assert-ContainsText -Text $disabledAttachOut -Expected 'PowerShell fallback has been retired' -Label 'disabled attach no fallback'
+
+  $disabledRepairOut = Invoke-RekitSmoke -Arguments @('-Command','repair','-Target',$caseRoot,'-Pack',$Pack) -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledRepairOut -Unexpected 'delegatedByFake' -Label 'disabled repair no fallback'
+  Assert-ContainsText -Text $disabledRepairOut -Expected 'PowerShell fallback has been retired' -Label 'disabled repair no fallback'
+
+  $disabledInitOut = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',(Join-Path $WorkRoot "disabled-init-$suffix"),'-Pack',$Pack,'-ProjectName',"disabled-init-$suffix",'-WhatIf') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledInitOut -Unexpected 'delegatedByFake' -Label 'disabled init no fallback'
+  Assert-ContainsText -Text $disabledInitOut -Expected 'PowerShell fallback has been retired' -Label 'disabled init no fallback'
+
+  $disabledBootstrapOut = Invoke-RekitSmoke -Arguments @('-Command','bootstrap','-Target',(Join-Path $WorkRoot "disabled-bootstrap-$suffix"),'-Pack',$Pack,'-ProjectName',"disabled-bootstrap-$suffix",'-Apply') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledBootstrapOut -Unexpected 'delegatedByFake' -Label 'disabled bootstrap no fallback'
+  Assert-ContainsText -Text $disabledBootstrapOut -Expected 'PowerShell fallback has been retired' -Label 'disabled bootstrap no fallback'
 
   'init/bootstrap smoke ok'
 } finally {

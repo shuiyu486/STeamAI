@@ -4,7 +4,7 @@
 
 - 只接手实现时，先读“实施摘要”“执行清单”“验证标准”。
 - 需要判断与 PowerShell 行为的差异时，再读“PowerShell 当前语义基线”和“Go 迁移契约”。
-- 本计划原本记录 G3.5 Go CLI 手动验证路径；Batch 105 已把 `init/bootstrap` 预览与显式 `-Apply` 纳入默认 Go façade 委托，公共 `/rekit` 入口仍保留 PowerShell fallback 与 `REKIT_GO_DISABLE=1` 回退。
+- 本计划原本记录 G3.5 Go CLI 手动验证路径；Batch 105 已把 `init/bootstrap` 预览与显式 `-Apply` 纳入默认 Go façade 委托，Batch 230 已退休 case lifecycle PowerShell fallback，公共 `/rekit` 入口在 `REKIT_GO_DISABLE=1` 或 Go delegation 不可用时直接 no-fallback 失败。
 
 ## 实施摘要
 
@@ -19,7 +19,7 @@ G3.5 已在 Go backend 中补齐 `init/bootstrap` 的手动路径，维护者可
 - [x] 在 Go sync/apply 层增加允许 missing target 的 create-local-files 模式，保留 existing attached case 的 moved/different binding guard。
 - [x] 在 Go CLI 中新增 `init` / `bootstrap` 手动命令，要求显式 `-WhatIf` 或 `-Apply`。
 - [x] 增加 Go tests 覆盖 missing target apply、what-if 不写文件、existing same binding refresh、different binding/moved guard、`-Force` template overwrite。
-- [x] 增加 `rekit/tests/init-bootstrap-smoke.ps1`，使用临时 case 验证 Go init/bootstrap apply、backup/state/doctor；Batch 105 后同步验证公共 façade 默认委托与 disable fallback。
+- [x] 增加 `rekit/tests/init-bootstrap-smoke.ps1`，使用临时 case 验证 Go init/bootstrap apply、backup/state/doctor；Batch 105 后同步验证公共 façade 默认委托，Batch 230 后同步验证 disabled no-fallback。
 - [x] 更新 `README.md`、`docs/go-runtime-migration.md`、`docs/batch-plan.md` 与 `CHANGELOG.md`。
 
 ## 验证标准
@@ -41,11 +41,11 @@ git diff --check
 - `init -Apply` 对 missing target 创建完整 case-local runtime 文件，并通过 Go doctor 与 PowerShell doctor。
 - `bootstrap` 与 `init` 使用同一语义，只在输出 `command` 字段上反映调用命令。
 - `-Force` 只影响 local template files，不改变 managed files overwrite-with-backup 语义。
-- Batch 105 起 PowerShell façade 默认委托 `init/bootstrap -WhatIf` 与显式 `-Apply` 到 Go；`REKIT_GO_DISABLE=1` 必须仍能回退 PowerShell fallback。
+- Batch 105 起 PowerShell façade 默认委托 `init/bootstrap -WhatIf` 与显式 `-Apply` 到 Go；Batch 230 起 `REKIT_GO_DISABLE=1` 或 Go delegation 不可用时必须报 no-fallback error，不再回退 PowerShell。
 
 ## 风险与注意事项
 
-- `init/bootstrap` 会创建新 case 并写 managed docs，比 `attach` 风险更高；Go CLI 与默认 Go façade 委托路径都必须要求显式 `-Apply`，不能把裸 `init` 当作 Go 写入授权；裸命令仅保留 PowerShell legacy fallback 兼容，文档与新流程应显式写 `-Apply`。
+- `init/bootstrap` 会创建新 case 并写 managed docs，比 `attach` 风险更高；Go CLI 与默认 Go façade 委托路径都必须要求显式 `-Apply`，不能把裸 `init` 当作 Go 写入授权；Batch 230 起裸命令与 disabled façade 均直接 no-fallback，文档与新流程应显式写 `-Apply`。
 - 必须拒绝把 kit repo root 当作 init target，避免在本仓库内伪造 case state。
 - missing target 只允许来自显式 `-Target`；不得从空 target、cwd 或 README 示例中隐式创建 case。
 - 已 attached 到同一 templateRoot/templatePack 的 case 可以刷新；moved case、different templateRoot、different templatePack 必须拒绝。
@@ -93,7 +93,7 @@ Go CLI 行为：
 - 裸 `init/bootstrap` 拒绝，提示使用 `-WhatIf` 预览或 `-Apply` 写入。
 - `-WhatIf` 与 `-Apply` 互斥。
 - review artifact options 不与 `init/bootstrap` 混用。
-- Batch 105 起经 PowerShell façade 默认委托；公共 `/rekit init -WhatIf` 与 `/rekit init -Apply` 默认走 Go，`REKIT_GO_DISABLE=1` 回退 PowerShell。
+- Batch 105 起经 PowerShell façade 默认委托；公共 `/rekit init -WhatIf` 与 `/rekit init -Apply` 默认走 Go；Batch 230 起 `REKIT_GO_DISABLE=1` 与 Go delegation 不可用均报 no-fallback error。
 
 路径与 guard：
 
@@ -122,4 +122,4 @@ Go CLI 行为：
 | I13 | apply 后 Go doctor | 通过。 |
 | I14 | apply 后 PowerShell doctor | 通过。 |
 | I15 | 默认 PowerShell `/rekit init/bootstrap -WhatIf/-Apply` | 委托 Go；fake backend sentinel 能证明默认委托。 |
-| I16 | `REKIT_GO_DISABLE=1` 下 PowerShell `/rekit init/bootstrap` | 不委托 Go，继续走 PowerShell façade/fallback。 |
+| I16 | `REKIT_GO_DISABLE=1` 下 PowerShell `/rekit init/bootstrap` | 不委托 Go，报 no-fallback error，不写 target。 |

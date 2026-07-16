@@ -33,7 +33,7 @@
 /rekit attach -Target <caseRoot> -Pack vmp-re -Apply
 ```
 
-`/rekit attach -Apply` 默认由 Go backend 处理，只写 `.rekit/instance.yml`、初始 `.rekit/state.json`、`.re-template.yml` 和 case-local `/rekit` shim，不覆盖已有 reference、handoff 或工具链文档。`/rekit attach -WhatIf` 只预览；`REKIT_GO_DISABLE=1` 可强制回退 PowerShell fallback。
+`/rekit attach -Apply` 默认由 Go backend 处理，只写 `.rekit/instance.yml`、初始 `.rekit/state.json`、`.re-template.yml` 和 case-local `/rekit` shim，不覆盖已有 reference、handoff 或工具链文档。`/rekit attach -WhatIf` 只预览；Batch 230 起 `REKIT_GO_DISABLE=1` 或 Go delegation 不可用时直接 no-fallback 失败。
 
 2. **同步 managed docs 前先 review**：
 
