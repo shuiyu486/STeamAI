@@ -31,7 +31,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffReadFirst(t, handoff, "CHANGELOG.md")
 	assertHandoffSignal(t, handoff, "release-check inventory")
 	assertHandoffSignal(t, handoff, "CI release gate")
-	assertHandoffSignal(t, handoff, "PowerShell deprecation")
+	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=1 candidates=10 removalModules=14")
 	assertHandoffSignal(t, handoff, "case shim readiness")
 	assertHandoffSignal(t, handoff, "public default docs")
 	assertHandoffSignal(t, handoff, "heavy-tool gate manifests")
@@ -154,6 +154,22 @@ func assertHandoffSignal(t *testing.T, handoff ReleaseHandoff, name string) {
 				t.Fatalf("signal %s = %+v, want ready with summary/details", name, signal)
 			}
 			return
+		}
+	}
+	t.Fatalf("missing signal %s: %+v", name, handoff.Signals)
+}
+
+func assertHandoffSignalDetail(t *testing.T, handoff ReleaseHandoff, name, detail string) {
+	t.Helper()
+	for _, signal := range handoff.Signals {
+		if signal.Name == name {
+			if !signal.Ready || strings.TrimSpace(signal.Summary) == "" || len(signal.Details) == 0 {
+				t.Fatalf("signal %s = %+v, want ready with summary/details", name, signal)
+			}
+			if slices.Contains(signal.Details, detail) {
+				return
+			}
+			t.Fatalf("signal %s missing detail %q: %+v", name, detail, signal.Details)
 		}
 	}
 	t.Fatalf("missing signal %s: %+v", name, handoff.Signals)

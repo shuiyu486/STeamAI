@@ -3,6 +3,7 @@ package releasecheck
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -121,6 +122,7 @@ func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {
 	assertCommandOwner(t, inventory, "actual heavy-tool", false, true)
 	assertModuleStatus(t, inventory, "rekit/rekit.ps1")
 	assertModuleStatus(t, inventory, "rekit/lib/B3.Commands.ps1")
+	assertFallbackRetirement(t, inventory)
 }
 
 func TestPowerShellDeprecationInventoryDetectsDrift(t *testing.T) {
@@ -195,6 +197,40 @@ func assertModuleStatus(t *testing.T, inventory PowerShellDeprecation, path stri
 		}
 	}
 	t.Fatalf("missing module row %s: %+v", path, inventory.ModuleStatus)
+}
+
+func assertFallbackRetirement(t *testing.T, inventory PowerShellDeprecation) {
+	t.Helper()
+	fallback := inventory.FallbackRetirement
+	if !fallback.Ready || fallback.Summary != "PowerShell fallback retirement inventory ok" || len(fallback.Warnings) != 0 {
+		t.Fatalf("unexpected fallback retirement inventory: %+v", fallback)
+	}
+	if len(fallback.GoDefaultCommands) != 19 || len(fallback.NoFallbackCommands) != 1 || len(fallback.CandidateCommands) != 10 || len(fallback.RemovalCandidateModules) != 14 {
+		t.Fatalf("fallback retirement inventory omitted expected sections: %+v", fallback)
+	}
+	if fallback.NoFallbackCommands[0] != "release-check" {
+		t.Fatalf("NoFallbackCommands = %v, want release-check", fallback.NoFallbackCommands)
+	}
+	assertFallbackCommand(t, fallback.CandidateCommands, "sync / update", "sync", "update")
+	assertFallbackCommand(t, fallback.CandidateCommands, "plan-subagents", "plan-subagents")
+}
+
+func assertFallbackCommand(t *testing.T, commands []PowerShellFallbackRetirementCommand, areaContains string, wantCommands ...string) {
+	t.Helper()
+	for _, command := range commands {
+		if strings.Contains(command.Area, areaContains) {
+			for _, want := range wantCommands {
+				if !slices.Contains(command.Commands, want) {
+					t.Fatalf("fallback command %q commands = %v, missing %s", areaContains, command.Commands, want)
+				}
+			}
+			if strings.TrimSpace(command.Status) == "" || strings.TrimSpace(command.Strategy) == "" {
+				t.Fatalf("fallback command %q has empty status/strategy: %+v", areaContains, command)
+			}
+			return
+		}
+	}
+	t.Fatalf("fallback retirement missing command containing %q: %+v", areaContains, commands)
 }
 
 func assertWarningContains(t *testing.T, warnings []string, want string) {

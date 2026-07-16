@@ -326,12 +326,13 @@ type releaseCheckPowerShellDeprecation struct {
 	Ready            bool   `json:"ready"`
 	Summary          string `json:"summary"`
 	CommandOwnership []struct {
-		Area      string `json:"area"`
-		Owner     string `json:"owner"`
-		Status    string `json:"status"`
-		Strategy  string `json:"strategy"`
-		GoDefault bool   `json:"goDefault"`
-		Blocked   bool   `json:"blocked"`
+		Area      string   `json:"area"`
+		Owner     string   `json:"owner"`
+		Status    string   `json:"status"`
+		Strategy  string   `json:"strategy"`
+		Commands  []string `json:"commands"`
+		GoDefault bool     `json:"goDefault"`
+		Blocked   bool     `json:"blocked"`
 	} `json:"commandOwnership"`
 	ModuleStatus []struct {
 		Path   string `json:"path"`
@@ -342,8 +343,32 @@ type releaseCheckPowerShellDeprecation struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
 	} `json:"freezeGates"`
-	BlockedMigrations []string `json:"blockedMigrations"`
-	Warnings          []string `json:"warnings"`
+	BlockedMigrations  []string `json:"blockedMigrations"`
+	FallbackRetirement struct {
+		Ready              bool     `json:"ready"`
+		Summary            string   `json:"summary"`
+		GoDefaultCommands  []string `json:"goDefaultCommands"`
+		NoFallbackCommands []string `json:"noFallbackCommands"`
+		CandidateCommands  []struct {
+			Area     string   `json:"area"`
+			Commands []string `json:"commands"`
+			Status   string   `json:"status"`
+			Strategy string   `json:"strategy"`
+		} `json:"candidateCommands"`
+		BlockedCommands []struct {
+			Area     string   `json:"area"`
+			Commands []string `json:"commands"`
+			Status   string   `json:"status"`
+			Strategy string   `json:"strategy"`
+		} `json:"blockedCommands"`
+		RemovalCandidateModules []struct {
+			Path   string `json:"path"`
+			Status string `json:"status"`
+			Notes  string `json:"notes"`
+		} `json:"removalCandidateModules"`
+		Warnings []string `json:"warnings"`
+	} `json:"fallbackRetirement"`
+	Warnings []string `json:"warnings"`
 }
 
 type releaseCheckCaseShim struct {
@@ -667,7 +692,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffReadFirst(t, handoff, "CHANGELOG.md")
 	assertReleaseHandoffSignal(t, handoff, "release-check inventory")
 	assertReleaseHandoffSignal(t, handoff, "CI release gate")
-	assertReleaseHandoffSignal(t, handoff, "PowerShell deprecation")
+	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=1 candidates=10 removalModules=14")
 	assertReleaseHandoffSignal(t, handoff, "case shim readiness")
 	assertReleaseHandoffSignal(t, handoff, "public default docs")
 	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
@@ -710,6 +735,22 @@ func assertReleaseHandoffSignal(t *testing.T, handoff releaseCheckHandoff, name 
 				t.Fatalf("release handoff signal %s = %+v, want ready with summary/details", name, signal)
 			}
 			return
+		}
+	}
+	t.Fatalf("release handoff missing signal %s: %+v", name, handoff.Signals)
+}
+
+func assertReleaseHandoffSignalDetail(t *testing.T, handoff releaseCheckHandoff, name, detail string) {
+	t.Helper()
+	for _, signal := range handoff.Signals {
+		if signal.Name == name {
+			if !signal.Ready || strings.TrimSpace(signal.Summary) == "" || len(signal.Details) == 0 {
+				t.Fatalf("release handoff signal %s = %+v, want ready with summary/details", name, signal)
+			}
+			if slices.Contains(signal.Details, detail) {
+				return
+			}
+			t.Fatalf("release handoff signal %s missing detail %q: %+v", name, detail, signal.Details)
 		}
 	}
 	t.Fatalf("release handoff missing signal %s: %+v", name, handoff.Signals)
@@ -880,6 +921,7 @@ func assertReleaseCheckPowerShellDeprecation(t *testing.T, inventory releaseChec
 	assertPowerShellCommandOwner(t, inventory, "actual heavy-tool", false, true)
 	assertPowerShellModuleStatus(t, inventory, "rekit/rekit.ps1")
 	assertPowerShellModuleStatus(t, inventory, "rekit/lib/B3.Commands.ps1")
+	assertPowerShellFallbackRetirement(t, inventory)
 }
 
 func assertPowerShellCommandOwner(t *testing.T, inventory releaseCheckPowerShellDeprecation, areaContains string, wantGoDefault, wantBlocked bool) {
@@ -908,6 +950,45 @@ func assertPowerShellModuleStatus(t *testing.T, inventory releaseCheckPowerShell
 	t.Fatalf("PowerShell deprecation inventory missing module %s: %+v", path, inventory.ModuleStatus)
 }
 
+func assertPowerShellFallbackRetirement(t *testing.T, inventory releaseCheckPowerShellDeprecation) {
+	t.Helper()
+	fallback := inventory.FallbackRetirement
+	if !fallback.Ready || fallback.Summary != "PowerShell fallback retirement inventory ok" || len(fallback.Warnings) != 0 {
+		t.Fatalf("unexpected PowerShell fallback retirement inventory: %+v", fallback)
+	}
+	if len(fallback.GoDefaultCommands) != 19 || len(fallback.NoFallbackCommands) != 1 || len(fallback.CandidateCommands) != 10 || len(fallback.RemovalCandidateModules) != 14 {
+		t.Fatalf("fallback retirement inventory omitted expected sections: %+v", fallback)
+	}
+	if fallback.NoFallbackCommands[0] != "release-check" {
+		t.Fatalf("NoFallbackCommands = %v, want release-check", fallback.NoFallbackCommands)
+	}
+	assertFallbackCandidate(t, fallback.CandidateCommands, "sync / update", "sync", "update")
+	assertFallbackCandidate(t, fallback.CandidateCommands, "plan-subagents", "plan-subagents")
+}
+
+func assertFallbackCandidate(t *testing.T, candidates []struct {
+	Area     string   `json:"area"`
+	Commands []string `json:"commands"`
+	Status   string   `json:"status"`
+	Strategy string   `json:"strategy"`
+}, areaContains string, commands ...string) {
+	t.Helper()
+	for _, candidate := range candidates {
+		if strings.Contains(candidate.Area, areaContains) {
+			for _, command := range commands {
+				if !slices.Contains(candidate.Commands, command) {
+					t.Fatalf("candidate %q commands = %v, missing %s", areaContains, candidate.Commands, command)
+				}
+			}
+			if strings.TrimSpace(candidate.Status) == "" || strings.TrimSpace(candidate.Strategy) == "" {
+				t.Fatalf("candidate %q has empty status/strategy: %+v", areaContains, candidate)
+			}
+			return
+		}
+	}
+	t.Fatalf("fallback retirement missing candidate containing %q: %+v", areaContains, candidates)
+}
+
 func TestRunReleaseCheckTextInventory(t *testing.T) {
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "release-check"}, &out); err != nil {
@@ -932,7 +1013,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"packs:",
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
-		"commands=14 modules=14 freezeGates=10 blocked=5",
+		"commands=14 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=1 candidates=10 removalModules=14",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=13",
 		"release handoff: release handoff summary ok ready=true readFirst=7 signals=10 knownGaps=5 packMaturity=10",

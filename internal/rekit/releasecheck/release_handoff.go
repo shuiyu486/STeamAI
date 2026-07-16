@@ -160,6 +160,7 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			Summary: check.PowerShellDeprecation.Summary,
 			Details: []string{
 				fmt.Sprintf("strategy=%s", check.PowerShellDeprecation.StrategyDocument),
+				fmt.Sprintf("fallbackRetirement=%t noFallback=%d candidates=%d removalModules=%d", check.PowerShellDeprecation.FallbackRetirement.Ready, len(check.PowerShellDeprecation.FallbackRetirement.NoFallbackCommands), len(check.PowerShellDeprecation.FallbackRetirement.CandidateCommands), len(check.PowerShellDeprecation.FallbackRetirement.RemovalCandidateModules)),
 				fmt.Sprintf("commands=%d modules=%d freezeGates=%d blocked=%d", len(check.PowerShellDeprecation.CommandOwnership), len(check.PowerShellDeprecation.ModuleStatus), len(check.PowerShellDeprecation.FreezeGates), len(check.PowerShellDeprecation.BlockedMigrations)),
 			},
 		},
