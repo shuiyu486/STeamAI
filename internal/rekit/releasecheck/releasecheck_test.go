@@ -268,6 +268,18 @@ func TestPublicFacadeRemovalPlanDetectsMissingChecklist(t *testing.T) {
 	assertWarningContains(t, plan.Warnings, "no-heavy-tool-authority")
 }
 
+func TestPublicFacadeRemovalImpactDetectsUnclassifiedReference(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, filepath.Join(repo, "rekit", "rekit.ps1"), "# facade\n")
+	writeFile(t, filepath.Join(repo, "misc.txt"), "unexpected rekit.ps1 reference\n")
+
+	impact := publicFacadeRemovalImpact(repo)
+	if impact.Ready || impact.Summary != "public facade removal impact inventory has warnings" || len(impact.UnclassifiedReferences) != 1 || impact.UnclassifiedReferences[0].Path != "misc.txt" {
+		t.Fatalf("public facade removal impact unexpectedly ready: %+v", impact)
+	}
+	assertWarningContains(t, impact.Warnings, "misc.txt")
+}
+
 func assertCommandOwner(t *testing.T, inventory PowerShellDeprecation, areaContains string, wantGoDefault, wantBlocked bool) {
 	t.Helper()
 	for _, row := range inventory.CommandOwnership {
@@ -348,12 +360,24 @@ func assertPublicFacadeRemoval(t *testing.T, inventory PublicFacadeRemoval) {
 	if !inventory.Ready || inventory.Summary != "public facade removal prerequisites ok" || len(inventory.Warnings) != 0 {
 		t.Fatalf("unexpected public facade removal inventory: %+v", inventory)
 	}
-	if len(inventory.Prerequisites) != 7 || inventory.Prerequisites[0].Name != "public-facade-retained-boundary" || !inventory.Prerequisites[0].Ready || inventory.Prerequisites[2].Name != "go-native-public-surface" || !inventory.Prerequisites[2].Ready || inventory.Prerequisites[5].Name != "module-reference-blockers-clear" || !inventory.Prerequisites[5].Ready || inventory.Prerequisites[6].Name != "removal-plan-documented" || !inventory.Prerequisites[6].Ready {
+	if len(inventory.Prerequisites) != 8 || inventory.Prerequisites[0].Name != "public-facade-retained-boundary" || !inventory.Prerequisites[0].Ready || inventory.Prerequisites[2].Name != "go-native-public-surface" || !inventory.Prerequisites[2].Ready || inventory.Prerequisites[5].Name != "module-reference-blockers-clear" || !inventory.Prerequisites[5].Ready || inventory.Prerequisites[6].Name != "removal-plan-documented" || !inventory.Prerequisites[6].Ready || inventory.Prerequisites[7].Name != "removal-impact-inventoried" || !inventory.Prerequisites[7].Ready {
 		t.Fatalf("public facade removal prerequisites drifted: %+v", inventory.Prerequisites)
 	}
 	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || len(inventory.RemovalPlan.RequiredPhrases) != 9 {
 		t.Fatalf("public facade removal plan drifted: %+v", inventory.RemovalPlan)
 	}
+	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || len(inventory.RemovalImpact.References) == 0 || len(inventory.RemovalImpact.ReferenceCategories) == 0 || len(inventory.RemovalImpact.UnclassifiedReferences) != 0 || !publicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !publicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") {
+		t.Fatalf("public facade removal impact drifted: %+v", inventory.RemovalImpact)
+	}
+}
+
+func publicFacadeRemovalHasImpactCategory(impact PublicFacadeRemovalImpact, name string) bool {
+	for _, category := range impact.ReferenceCategories {
+		if category.Name == name && category.Count > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func assertModuleRemoval(t *testing.T, inventory PowerShellDeprecation) {

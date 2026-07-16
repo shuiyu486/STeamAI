@@ -2,9 +2,11 @@ package releasecheck
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 )
 
@@ -13,6 +15,7 @@ type PublicFacadeRemoval struct {
 	Summary       string                            `json:"summary"`
 	Prerequisites []PublicFacadeRemovalPrerequisite `json:"prerequisites"`
 	RemovalPlan   PublicFacadeRemovalPlan           `json:"removalPlan"`
+	RemovalImpact PublicFacadeRemovalImpact         `json:"removalImpact"`
 	Warnings      []string                          `json:"warnings"`
 }
 
@@ -36,10 +39,35 @@ type PublicFacadeRemovalPlanPhrase struct {
 	Present bool   `json:"present"`
 }
 
+type PublicFacadeRemovalImpact struct {
+	Ready                  bool                                 `json:"ready"`
+	Summary                string                               `json:"summary"`
+	FacadePath             string                               `json:"facadePath"`
+	FacadePresent          bool                                 `json:"facadePresent"`
+	References             []PublicFacadeRemovalImpactReference `json:"references"`
+	ReferenceCategories    []PublicFacadeRemovalImpactCategory  `json:"referenceCategories"`
+	UnclassifiedReferences []PublicFacadeRemovalImpactReference `json:"unclassifiedReferences"`
+	Warnings               []string                             `json:"warnings"`
+}
+
+type PublicFacadeRemovalImpactReference struct {
+	Path                string `json:"path"`
+	Category            string `json:"category"`
+	MentionsFacade      bool   `json:"mentionsFacade"`
+	MentionsFacadeSmoke bool   `json:"mentionsFacadeSmoke"`
+}
+
+type PublicFacadeRemovalImpactCategory struct {
+	Name  string   `json:"name"`
+	Count int      `json:"count"`
+	Paths []string `json:"paths"`
+}
+
 func publicFacadeRemovalHandoffDetails(inventory PublicFacadeRemoval) []string {
-	details := make([]string, 0, len(inventory.Prerequisites)+2)
+	details := make([]string, 0, len(inventory.Prerequisites)+3)
 	details = append(details, fmt.Sprintf("ready=%t prerequisites=%d", inventory.Ready, len(inventory.Prerequisites)))
 	details = append(details, fmt.Sprintf("removalPlan=%t planChecks=%d", inventory.RemovalPlan.Ready, len(inventory.RemovalPlan.RequiredPhrases)))
+	details = append(details, fmt.Sprintf("removalImpact=%t impactReferences=%d impactCategories=%d unclassified=%d", inventory.RemovalImpact.Ready, len(inventory.RemovalImpact.References), len(inventory.RemovalImpact.ReferenceCategories), len(inventory.RemovalImpact.UnclassifiedReferences)))
 	for _, prerequisite := range inventory.Prerequisites {
 		details = append(details, fmt.Sprintf("%s ready=%t %s", prerequisite.Name, prerequisite.Ready, prerequisite.Summary))
 	}
@@ -48,6 +76,7 @@ func publicFacadeRemovalHandoffDetails(inventory PublicFacadeRemoval) []string {
 
 func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation, goSurface GoNativePublicSurface) PublicFacadeRemoval {
 	removalPlan := publicFacadeRemovalPlan(repo)
+	removalImpact := publicFacadeRemovalImpact(repo)
 	inventory := PublicFacadeRemoval{
 		Ready:   true,
 		Summary: "public facade removal prerequisites ok",
@@ -87,9 +116,15 @@ func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation,
 				Ready:   removalPlan.Ready,
 				Summary: fmt.Sprintf("removalPlanReady=%t checks=%d", removalPlan.Ready, len(removalPlan.RequiredPhrases)),
 			},
+			{
+				Name:    "removal-impact-inventoried",
+				Ready:   removalImpact.Ready,
+				Summary: fmt.Sprintf("removalImpactReady=%t references=%d categories=%d unclassified=%d", removalImpact.Ready, len(removalImpact.References), len(removalImpact.ReferenceCategories), len(removalImpact.UnclassifiedReferences)),
+			},
 		},
-		RemovalPlan: removalPlan,
-		Warnings:    append([]string{}, removalPlan.Warnings...),
+		RemovalPlan:   removalPlan,
+		RemovalImpact: removalImpact,
+		Warnings:      append(append([]string{}, removalPlan.Warnings...), removalImpact.Warnings...),
 	}
 	for _, prerequisite := range inventory.Prerequisites {
 		if !prerequisite.Ready {
@@ -141,4 +176,132 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		plan.Summary = "public facade removal plan has warnings"
 	}
 	return plan
+}
+
+func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
+	const facadePath = "rekit/rekit.ps1"
+	impact := PublicFacadeRemovalImpact{
+		Ready:                  true,
+		Summary:                "public facade removal impact inventory ok",
+		FacadePath:             facadePath,
+		References:             []PublicFacadeRemovalImpactReference{},
+		ReferenceCategories:    []PublicFacadeRemovalImpactCategory{},
+		UnclassifiedReferences: []PublicFacadeRemovalImpactReference{},
+		Warnings:               []string{},
+	}
+	if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(facadePath))); err == nil {
+		impact.FacadePresent = true
+	} else {
+		impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact inventory cannot find facade path: %s", facadePath))
+	}
+	references, warnings := publicFacadeRemovalReferences(repo)
+	impact.References = references
+	impact.Warnings = append(impact.Warnings, warnings...)
+	impact.ReferenceCategories = publicFacadeRemovalImpactCategories(references)
+	for _, reference := range references {
+		if reference.Category == "unclassified" {
+			impact.UnclassifiedReferences = append(impact.UnclassifiedReferences, reference)
+		}
+	}
+	if len(impact.References) == 0 {
+		impact.Warnings = append(impact.Warnings, "public facade removal impact inventory found no facade references")
+	}
+	for _, reference := range impact.UnclassifiedReferences {
+		impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact reference is unclassified: %s", reference.Path))
+	}
+	if len(impact.Warnings) > 0 {
+		impact.Ready = false
+		impact.Summary = "public facade removal impact inventory has warnings"
+	}
+	return impact
+}
+
+func publicFacadeRemovalReferences(repo string) ([]PublicFacadeRemovalImpactReference, []string) {
+	references := []PublicFacadeRemovalImpactReference{}
+	warnings := []string{}
+	err := filepath.WalkDir(repo, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			warnings = append(warnings, err.Error())
+			return nil
+		}
+		name := entry.Name()
+		if entry.IsDir() {
+			if name == ".git" || name == ".codegraph" || name == ".rekit" || name == "node_modules" || name == "vendor" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(repo, path)
+		if err != nil {
+			warnings = append(warnings, err.Error())
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		isFacadeEntrypoint := rel == "rekit/rekit.ps1"
+		data, err := os.ReadFile(path)
+		if err != nil {
+			warnings = append(warnings, err.Error())
+			return nil
+		}
+		text := string(data)
+		mentionsFacade := strings.Contains(text, "rekit/rekit.ps1") || strings.Contains(text, `rekit\rekit.ps1`) || strings.Contains(text, "rekit.ps1")
+		mentionsFacadeSmoke := strings.Contains(text, "facade-smoke.ps1")
+		if !isFacadeEntrypoint && !mentionsFacade && !mentionsFacadeSmoke {
+			return nil
+		}
+		references = append(references, PublicFacadeRemovalImpactReference{
+			Path:                rel,
+			Category:            publicFacadeRemovalImpactCategory(rel),
+			MentionsFacade:      mentionsFacade,
+			MentionsFacadeSmoke: mentionsFacadeSmoke,
+		})
+		return nil
+	})
+	if err != nil {
+		warnings = append(warnings, err.Error())
+	}
+	sort.Slice(references, func(i, j int) bool {
+		if references[i].Category == references[j].Category {
+			return references[i].Path < references[j].Path
+		}
+		return references[i].Category < references[j].Category
+	})
+	return references, warnings
+}
+
+func publicFacadeRemovalImpactCategory(path string) string {
+	switch {
+	case path == "rekit/rekit.ps1":
+		return "public-facade-entrypoint"
+	case path == "rekit/tests/facade-smoke.ps1":
+		return "facade-compatibility-smoke"
+	case strings.HasPrefix(path, "rekit/tests/") && strings.HasSuffix(path, ".ps1"):
+		return "facade-dependent-smoke"
+	case strings.HasPrefix(path, "rekit/tests/"):
+		return "smoke-catalog-doc"
+	case strings.HasPrefix(path, "packs/") && strings.HasSuffix(path, ".ps1"):
+		return "pack-wrapper-compatibility"
+	case path == "README.md" || path == "CLAUDE.md" || strings.HasPrefix(path, ".claude/skills/"):
+		return "public-default-doc"
+	case path == "CHANGELOG.md" || strings.HasPrefix(path, "docs/"):
+		return "roadmap-and-history-doc"
+	case strings.HasPrefix(path, "internal/rekit/"):
+		return "release-inventory-and-tests"
+	default:
+		return "unclassified"
+	}
+}
+
+func publicFacadeRemovalImpactCategories(references []PublicFacadeRemovalImpactReference) []PublicFacadeRemovalImpactCategory {
+	pathsByCategory := map[string][]string{}
+	for _, reference := range references {
+		pathsByCategory[reference.Category] = append(pathsByCategory[reference.Category], reference.Path)
+	}
+	categories := make([]PublicFacadeRemovalImpactCategory, 0, len(pathsByCategory))
+	for name, paths := range pathsByCategory {
+		sort.Strings(paths)
+		categories = append(categories, PublicFacadeRemovalImpactCategory{Name: name, Count: len(paths), Paths: paths})
+	}
+	sort.Slice(categories, func(i, j int) bool { return categories[i].Name < categories[j].Name })
+	return categories
 }

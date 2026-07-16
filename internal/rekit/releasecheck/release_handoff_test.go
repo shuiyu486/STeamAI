@@ -44,8 +44,9 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profilePolicies rows=5 violations=0")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "facadeRemovalReady=true prerequisites=5")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "unsupportedDiagnostic=true")
-	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "ready=true prerequisites=7")
+	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "ready=true prerequisites=8")
 	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "removalPlan=true planChecks=9")
+	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "removalImpact=true impactReferences=")
 	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "public-facade-retained-boundary ready=true publicFacadeReady=true present=true retained=true migrationBoundary=true removalBoundary=true")
 	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "go-native-public-surface ready=true goNativeReady=true facadeRemovalReady=true prerequisites=5")
 	assertHandoffSignal(t, handoff, "case shim readiness")
@@ -186,6 +187,24 @@ func assertHandoffSignalDetail(t *testing.T, handoff ReleaseHandoff, name, detai
 				return
 			}
 			t.Fatalf("signal %s missing detail %q: %+v", name, detail, signal.Details)
+		}
+	}
+	t.Fatalf("missing signal %s: %+v", name, handoff.Signals)
+}
+
+func assertHandoffSignalDetailContains(t *testing.T, handoff ReleaseHandoff, name, detail string) {
+	t.Helper()
+	for _, signal := range handoff.Signals {
+		if signal.Name == name {
+			if !signal.Ready || strings.TrimSpace(signal.Summary) == "" || len(signal.Details) == 0 {
+				t.Fatalf("signal %s = %+v, want ready with summary/details", name, signal)
+			}
+			for _, actual := range signal.Details {
+				if strings.Contains(actual, detail) {
+					return
+				}
+			}
+			t.Fatalf("signal %s missing detail containing %q: %+v", name, detail, signal.Details)
 		}
 	}
 	t.Fatalf("missing signal %s: %+v", name, handoff.Signals)
