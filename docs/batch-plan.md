@@ -8714,3 +8714,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 285，`executionSteps=5` / `executionFailureSignals=15` / `executionRemediationActions=15` / `executionBoundaryGuards=15` / `executionAuditChecks=15` / `executionValidationCommands=40`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `executionRemediationActions=15` 与 release handoff `latest=Batch 285：Public façade removal execution step remediation actions`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 286：Public façade removal execution step verification artifacts
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 284-285 已为 `removalPlan.executionSteps[]` 增加失败信号与修复动作后，继续为每个 required execution step 增加机器可读 `verificationArtifacts[]`，让未来真正删除公共 façade 前的 verify alternatives、migrate references、retire smoke、delete façade 与 rerun gate 步骤在完成后都有明确、可审计的验证证据。
+
+实施范围：
+
+- 扩展 `PublicFacadeRemovalExecutionStep`，新增 `verificationArtifacts[]`，五个 execution steps 各提供 3 条完成后必须留存的验证证据，覆盖替代入口证明、公开引用处置证据、façade smoke 退休证明、独立删除 commit 证据与 Go-native release gate 重跑 transcripts。
+- readiness 校验要求每个 execution step 的 `verificationArtifacts[]` 非空且不能包含空字符串；release-check text 与 `releaseHandoff.signals[]` 同步展示 `executionVerificationArtifacts=15`。
+- 补 releasecheck / CLI / handoff tests，并同步 PowerShell deprecation、release readiness、Go-first convergence、batch-plan 与 CHANGELOG 文档。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool，不写 authority/confirmed，不改变 public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、policy schema migration 或外部副作用边界；raw Go CLI 仍是底层 deterministic runtime/API，不变成用户主要交互界面。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 286，`executionSteps=5` / `executionFailureSignals=15` / `executionRemediationActions=15` / `executionVerificationArtifacts=15` / `executionBoundaryGuards=15` / `executionAuditChecks=15` / `executionValidationCommands=40`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `executionVerificationArtifacts=15` 与 release handoff `latest=Batch 286：Public façade removal execution step verification artifacts`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
