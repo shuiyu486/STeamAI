@@ -108,7 +108,7 @@ generic-binary-re-pack-smoke.ps1
 | `overview-readonly-smoke.ps1` | 改 Go overview 或 façade overview 文本/JSON | 缺 board 初始化、后续只读 overview、Go gate request 展示、默认 façade 文本/JSON 委托、`REKIT_GO_DISABLE=1` no-fallback 边界。 |
 | `start-apply-smoke.ps1` | 改 Go start 或 start façade 委托 | preview/apply scaffold、board/facts/policy/lane/workspace、默认 façade JSON preview/apply/text 委托、disabled text/JSON no-fallback、doctor。 |
 | `handoff-apply-smoke.ps1` | 改 Go handoff 或 handoff façade 委托 | project/lane handoff preview/apply、resume/checkpoint、ledger 区段、默认 façade JSON preview/apply/text 委托、disabled text/JSON no-fallback。 |
-| `continue-preflight-smoke.ps1` | 改 PowerShell continue authority gate | authority append gate matrix、backup/diff、CSV recovery、routing、digest/status、WhatIf no-write。 |
+| `continue-preflight-smoke.ps1` | 改 Go continue authority preflight gate | Go package authority append policy matrix、continue WhatIf no-write、Apply authority guard、routing、digest/status；该脚本只调 `go test`，不再 dot-source legacy `rekit/lib/*.ps1`。 |
 | `continue-whatif-smoke.ps1` / `go test ./internal/rekit/cli -run TestRunGoWorkstreamE2EStartNoteContinueHandoff` | 改 Go continue preview/apply、continue JSON/text preview/apply façade 委托或 Go workstream 闭环 | non-write preview、case-local apply writes、default façade JSON preview/apply/text delegation、disabled text/JSON no-fallback、wouldWrites/writes、blocked actions、authority guard；Go package E2E 额外覆盖 `_template` pack start → note → continue apply → handoff 闭环。 |
 | `continue-digest-smoke.ps1` | 改 continue digest/status | structured digest inputs/route/packet refs/outputs/decisions/open risks。 |
 

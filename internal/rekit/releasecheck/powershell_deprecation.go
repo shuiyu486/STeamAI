@@ -455,9 +455,6 @@ func powerShellModuleReferences(repo string) PowerShellModuleReferences {
 		}
 		inventory.TotalReferences++
 	}
-	if len(inventory.ActiveTestDependencies) == 0 {
-		inventory.Warnings = append(inventory.Warnings, "PowerShell module reference inventory has no active test dependency markers")
-	}
 	if len(inventory.InventoryGuards) == 0 {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell module reference inventory has no inventory guard markers")
 	}

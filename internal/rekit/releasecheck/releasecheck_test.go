@@ -254,10 +254,9 @@ func assertModuleReferences(t *testing.T, inventory PowerShellDeprecation) {
 	if !refs.Ready || refs.Summary != "PowerShell module reference inventory ok" || len(refs.Warnings) != 0 {
 		t.Fatalf("unexpected PowerShell module reference inventory: %+v", refs)
 	}
-	if refs.TotalReferences == 0 || len(refs.ActiveTestDependencies) != 8 || len(refs.CompatibilityFixtures) != 1 || len(refs.InventoryGuards) == 0 || len(refs.RemovalBlockers) != 0 || len(refs.UnclassifiedReferences) != 0 {
+	if refs.TotalReferences == 0 || len(refs.ActiveTestDependencies) != 0 || len(refs.CompatibilityFixtures) != 1 || len(refs.InventoryGuards) == 0 || len(refs.RemovalBlockers) != 0 || len(refs.UnclassifiedReferences) != 0 {
 		t.Fatalf("PowerShell module reference inventory omitted expected sections: %+v", refs)
 	}
-	assertModuleReference(t, refs.ActiveTestDependencies, "rekit/tests/continue-preflight-smoke.ps1", "rekit/lib/Manifest.ps1")
 	assertModuleReference(t, refs.CompatibilityFixtures, "rekit/tests/facade-smoke.ps1", "isolated/lib/Manifest.ps1")
 }
 

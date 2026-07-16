@@ -777,7 +777,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=19 candidates=0 removalModules=14")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "facadeRuntime=true legacyImports=false dispatcher=false")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleRemoval=true candidates=14 facadeDeps=0 undocumented=0")
-	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleReferences=true activeTests=8 fixtures=1 blockers=0 unclassified=0")
+	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleReferences=true activeTests=0 fixtures=1 blockers=0 unclassified=0")
 	assertReleaseHandoffSignal(t, handoff, "case shim readiness")
 	assertReleaseHandoffSignal(t, handoff, "public default docs")
 	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
@@ -1090,17 +1090,8 @@ func assertPowerShellModuleReferences(t *testing.T, inventory releaseCheckPowerS
 	if !refs.Ready || refs.Summary != "PowerShell module reference inventory ok" || len(refs.Warnings) != 0 {
 		t.Fatalf("unexpected PowerShell module reference inventory: %+v", refs)
 	}
-	if refs.TotalReferences == 0 || len(refs.ActiveTestDependencies) != 8 || len(refs.CompatibilityFixtures) != 1 || len(refs.InventoryGuards) == 0 || len(refs.RemovalBlockers) != 0 || len(refs.UnclassifiedReferences) != 0 {
+	if refs.TotalReferences == 0 || len(refs.ActiveTestDependencies) != 0 || len(refs.CompatibilityFixtures) != 1 || len(refs.InventoryGuards) == 0 || len(refs.RemovalBlockers) != 0 || len(refs.UnclassifiedReferences) != 0 {
 		t.Fatalf("PowerShell module reference inventory omitted expected sections: %+v", refs)
-	}
-	activeFound := false
-	for _, ref := range refs.ActiveTestDependencies {
-		if ref.Path == "rekit/tests/continue-preflight-smoke.ps1" && ref.Target == "rekit/lib/Manifest.ps1" && ref.Line > 0 && ref.Kind == "active-test-dependency" && strings.TrimSpace(ref.Snippet) != "" {
-			activeFound = true
-		}
-	}
-	if !activeFound {
-		t.Fatalf("PowerShell module reference inventory missing continue-preflight active dependency: %+v", refs.ActiveTestDependencies)
 	}
 	fixtureFound := false
 	for _, ref := range refs.CompatibilityFixtures {
@@ -1137,7 +1128,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"packs:",
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
-		"commands=13 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=19 candidates=0 removalModules=14 facadeRuntime=true legacyImports=false dispatcher=false moduleRemoval=true removalCandidates=14 facadeDeps=0 undocumented=0 moduleReferences=true activeTests=8 fixtures=1 blockers=0 unclassified=0",
+		"commands=13 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=19 candidates=0 removalModules=14 facadeRuntime=true legacyImports=false dispatcher=false moduleRemoval=true removalCandidates=14 facadeDeps=0 undocumented=0 moduleReferences=true activeTests=0 fixtures=1 blockers=0 unclassified=0",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=13",
 		"release handoff: release handoff summary ok ready=true readFirst=7 signals=10 knownGaps=5 packMaturity=10",
@@ -2593,8 +2584,10 @@ func TestRunContinueWhatIfDoesNotWrite(t *testing.T) {
 		Events       []struct {
 			Kind          string       `json:"kind"`
 			Decision      string       `json:"decision"`
+			Reason        string       `json:"reason"`
 			TargetLane    string       `json:"targetLane"`
 			AuthorityFile string       `json:"authorityFile"`
+			Rows          int          `json:"rows"`
 			WouldWrites   []startWrite `json:"wouldWrites"`
 		} `json:"events"`
 		WouldWrites []startWrite `json:"wouldWrites"`
@@ -2608,6 +2601,26 @@ func TestRunContinueWhatIfDoesNotWrite(t *testing.T) {
 	if result.Summary.Collected != 3 || result.Summary.Observations != 1 || result.Summary.Requests != 1 || result.Summary.Routed != 1 || result.Summary.Candidates != 1 || result.Summary.AuthorityApplied != 0 || result.Summary.AuthorityWouldAppend != 1 || result.Summary.PendingUser != 0 {
 		t.Fatalf("unexpected continue summary: %+v", result.Summary)
 	}
+	var authorityEvent struct {
+		Decision    string       `json:"decision"`
+		Reason      string       `json:"reason"`
+		Rows        int          `json:"rows"`
+		WouldWrites []startWrite `json:"wouldWrites"`
+	}
+	for _, event := range result.Events {
+		if event.Kind == "candidate" && event.AuthorityFile == "captures/vm_opcode_semantics_confirmed.csv" {
+			authorityEvent.Decision = event.Decision
+			authorityEvent.Reason = event.Reason
+			authorityEvent.Rows = event.Rows
+			authorityEvent.WouldWrites = event.WouldWrites
+		}
+	}
+	if authorityEvent.Decision != "accept" || authorityEvent.Reason != "passed authority append policy" || authorityEvent.Rows != 1 {
+		t.Fatalf("unexpected continue authority preview: %+v", result.Events)
+	}
+	assertContinueWrite(t, authorityEvent.WouldWrites, "captures/vm_opcode_semantics_confirmed.csv", "would-append")
+	assertContinueWrite(t, authorityEvent.WouldWrites, ".rekit/runs/run-preview/backups/captures/vm_opcode_semantics_confirmed.csv", "would-create")
+	assertContinueWrite(t, authorityEvent.WouldWrites, ".rekit/runs/run-preview/diffs/captures_vm_opcode_semantics_confirmed.csv.diff", "would-create")
 	if result.MissionBrief.Summary == "" || !slices.Contains(result.MissionBrief.ReadyLanes, "main") || !slices.Contains(result.MissionBrief.ReadyLanes, "login") || len(result.MissionBrief.BlockedLanes) != 0 {
 		t.Fatalf("continue what-if JSON missing pre-apply mission brief: %+v", result.MissionBrief)
 	}

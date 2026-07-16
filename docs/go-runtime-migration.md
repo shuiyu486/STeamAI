@@ -203,7 +203,7 @@ Legacy façade / wrapper compatibility checks are only required when touching th
 
 ### G5：`continue` 与 policy gate 迁移
 
-状态：G5 preflight baseline、Go `continue -WhatIf` 非写入预览路径与 PowerShell fallback `continue -WhatIf -Format json` 机器可读预览已完成；Batch 118 起 `continue -WhatIf -Format json` 默认经 PowerShell façade 委托 Go；Batch 121 起 explicit `continue -Apply` 默认经 façade 委托 Go，写 case-local facts/routing/run digest/lane resume/checkpoint/board，并将 authority/confirmed 写入 defer 给显式用户确认。
+状态：G5 preflight baseline 已从 legacy PowerShell authority append helper 收敛为 Go-owned package preflight；Go `continue -WhatIf` 非写入预览路径与 explicit `continue -Apply` 已完成并默认经 façade 委托 Go，写 case-local facts/routing/run digest/lane resume/checkpoint/board，并将 authority/confirmed 写入 defer 给显式用户确认。
 
 已补齐的 preflight gate tests（见 `rekit/tests/continue-preflight-smoke.ps1`）：
 
@@ -212,12 +212,11 @@ Legacy façade / wrapper compatibility checks are only required when touching th
 - confidence threshold；
 - CSV schema valid；
 - no conflict；
-- backup created；
-- bounded diff created；
+- preview records backup/diff would-write artifacts；
 - max rows；
 - authorityFiles allowlist；
-- append 后 CSV 失败可恢复 backup；
-- request routing 写 task/inbox 幂等；
+- `continue -Apply` authority/confirmed write guard；
+- request routing 写 task/inbox；
 - run digest/status parity（inputs、route、packet refs、outputs、decisions、open risks）；
 - `-WhatIf` 不创建 runRoot、不刷新 board/lane resume、不写 facts。
 
@@ -302,7 +301,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 | OLLVM pack smoke | `.\rekit\tests\ollvm-pack-smoke.ps1` | 使用 `ollvm` 自包含临时 case 验证 Go/PowerShell doctor、Go init/case doctor、`plan-subagents` route packet、promote review 与 no-write 边界；不执行样本、不 trace/dump/patch、不写 deobfuscated binary/authority/confirmed。 |
 | Android native pack smoke | `.\rekit\tests\android-native-pack-smoke.ps1` | 使用 `android-native` 自包含临时 case 验证 Go/PowerShell doctor、Go init/case doctor、`plan-subagents` route packet、promote review 与 no-write 边界；不连接设备、不 attach Frida、不执行 hook、不写 authority/confirmed。 |
 | Generic binary RE pack smoke | `.\rekit\tests\generic-binary-re-pack-smoke.ps1` | 使用 `generic-binary-re` 自包含临时 case 验证 Go/PowerShell doctor、Go init/case doctor、`plan-subagents` route packet、promote review 与 no-write 边界；不执行样本、不 debug/trace/dump/patch、不写 authority/confirmed。 |
-| Continue preflight baseline | `.\rekit\tests\continue-preflight-smoke.ps1` | 验证 PowerShell `continue` authority append gate matrix、backup/diff、CSV 失败恢复、request routing 幂等、digest/status parity 与 `-WhatIf` no-write，作为 Go `continue` 迁移 baseline。 |
+| Continue preflight baseline | `.\rekit\tests\continue-preflight-smoke.ps1` | 调用 Go package tests 验证 `continue` authority append policy matrix、backup/diff would-write artifact、request routing、digest/status、WhatIf no-write 与 Apply authority guard；该 smoke 不再 dot-source legacy `rekit/lib/*.ps1`。 |
 | Go continue preview/apply | `.\rekit\tests\continue-whatif-smoke.ps1` / `go test ./internal/rekit/cli` | 手动 Go CLI `continue -WhatIf` 输出非写入 preview，`continue -Apply` 写 case-local facts/routing/run digest/lane resume/checkpoint/board，并覆盖 PowerShell text preview fallback、`continue -WhatIf -Format json` 与 explicit `continue -Apply` 默认 façade 委托、preview no-write、`REKIT_GO_DISABLE=1` fallback、duplicate skipped 与 authority guard；Batch 122 起 `_template` pack package test 验证 continue apply 输出可被 handoff 消费；不写 authority/confirmed、不执行 heavy-tool。 |
 | Go attach preview | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -WhatIf` | 输出非写入 plan，不创建目录或文件。 |
 | Go attach apply | `go run ./cmd/rekit -- -Command attach -Target <case> -Pack vmp-re -ProjectName <name> -Apply` | 只写 `.rekit/instance.yml`、legacy `.re-template.yml`、初始 `.rekit/state.json` 与 case-local thin shim，不写 managed docs、board/facts/lanes。 |

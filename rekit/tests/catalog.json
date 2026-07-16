@@ -448,11 +448,11 @@
       "id": "continue-preflight-smoke",
       "script": "continue-preflight-smoke.ps1",
       "category": "workstream",
-      "purpose": "Validate PowerShell continue authority append gate matrix, backup/diff, CSV recovery, routing, digest/status, and WhatIf no-write.",
-      "recommendedFor": ["continue", "authority gate", "digest/status"],
+      "purpose": "Validate Go continue authority append policy matrix plus continue WhatIf no-write, Apply authority guard, routing, digest/status, and release preflight coverage without dot-sourcing legacy runtime modules.",
+      "recommendedFor": ["continue", "authority gate", "digest/status", "Go continue", "PowerShell-free smoke"],
       "supportsWorkRoot": true,
       "supportsCaseRoot": false,
-      "riskBoundary": "Temporary case only; authority gate fixture is controlled and cleaned up.",
+      "riskBoundary": "Go package tests use temporary fixtures only; no authority/confirmed writes or heavy-tool execution.",
       "relatedDocs": ["docs/go-runtime-migration.md", "rekit/tests/README.md"]
     },
     {

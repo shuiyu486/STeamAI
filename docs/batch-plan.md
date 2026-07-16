@@ -7214,3 +7214,40 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go test ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 237，`moduleReferences=true activeTests=8 fixtures=1 blockers=0 unclassified=0`，release handoff / release notes freshness 通过）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 238：Go-owned continue preflight dependency removal
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 237 已暴露 `continue-preflight-smoke.ps1` 仍直接 dot-source `rekit/lib/*.ps1` 的 8 个 active test dependencies 后，把 continue authority preflight coverage 迁到 Go-owned package tests，并让 `powerShellDeprecation.moduleReferences` 的 active test dependency 基线降为 0。
+
+实施范围：
+
+- 新增 `internal/rekit/workstream/continue_preflight_test.go`，覆盖 Go continue authority append policy matrix：allowlist、`authorityAutoAppend`、confidence、evidence、accepted verifier、missing/non-CSV authority file、CSV schema、conflict、empty rows、newline rows 与 max rows。
+- 在 Go workstream package test 中补充 authority preview would-write 断言，确保通过 policy 后仍记录 authority CSV、backup artifact 与 diff artifact 的非写入计划。
+- 将 `rekit/tests/continue-preflight-smoke.ps1` 收敛为 thin Go test wrapper：保留旧参数兼容，但只运行 Go package / CLI tests，不再 dot-source `rekit/lib/*.ps1` 或调用 retired PowerShell authority append helper。
+- 更新 `powerShellDeprecation.moduleReferences` readiness：active test dependency 不再是必须存在的 marker，release-check text 与 release handoff baseline 调整为 `moduleReferences=true activeTests=0 fixtures=1 blockers=0 unclassified=0`。
+- 更新 tests guide、catalog、PowerShell deprecation roadmap、Go runtime migration、release readiness、Go-first convergence plan 与 CHANGELOG，明确 continue preflight 已迁入 Go-owned coverage，remaining fixture 仅为 façade compatibility sentinel。
+
+边界：本批不删除 `rekit/lib/*.ps1` 或任何 PowerShell 文件，不新增 PowerShell runtime logic，不改变 `rekit.ps1` 命令集合、delegation semantics、Go output schema 中既有字段语义、case-local write semantics、sync/promote review-first、actual heavy-tool、authority/confirmed 或外部副作用边界；`continue -Apply` 继续不写 authority/confirmed，`gate -Apply` 继续只写 pending-gate request。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/workstream/continue_preflight_test.go internal/rekit/cli/cli_test.go internal/rekit/releasecheck/powershell_deprecation.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go
+go test ./internal/rekit/workstream -run TestContinueAuthority
+go test ./internal/rekit/cli -run 'TestRun(ReleaseCheckTextInventory|ContinueWhatIfDoesNotWrite|ContinueApplyWritesDigestAndFacts)'
+go test ./internal/rekit/releasecheck -run 'Test(PowerShellDeprecationInventoryFromRepo|ReleaseHandoffInventoryFromRepo)'
+.\rekit\tests\continue-preflight-smoke.ps1
+go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/workstream
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt`、`go test ./internal/rekit/workstream -run TestContinueAuthority`、`go test ./internal/rekit/cli -run 'TestRun(ReleaseCheckTextInventory|ContinueWhatIfDoesNotWrite|ContinueApplyWritesDigestAndFacts)'`、`go test ./internal/rekit/releasecheck -run 'Test(PowerShellDeprecationInventoryFromRepo|ReleaseHandoffInventoryFromRepo)'`、`.\rekit\tests\continue-preflight-smoke.ps1`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/workstream`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 238，`moduleReferences=true activeTests=0 fixtures=1 blockers=0 unclassified=0`，release notes freshness 通过）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
