@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -70,12 +71,64 @@ func PublicSet() map[string]bool {
 	return set
 }
 
+func SymbolValues() map[string]string {
+	return map[string]string{
+		"Attach":        Attach,
+		"Bootstrap":     Bootstrap,
+		"Continue":      Continue,
+		"Doctor":        Doctor,
+		"Gate":          Gate,
+		"Handoff":       Handoff,
+		"Init":          Init,
+		"Note":          Note,
+		"Overview":      Overview,
+		"Packs":         Packs,
+		"PlanSubagents": PlanSubagents,
+		"Promote":       Promote,
+		"ReleaseCheck":  ReleaseCheck,
+		"Repair":        Repair,
+		"Start":         Start,
+		"Status":        Status,
+		"Sync":          Sync,
+		"Update":        Update,
+		"Validate":      Validate,
+	}
+}
+
 func IsPublic(name string) bool {
 	return PublicSet()[strings.ToLower(strings.TrimSpace(name))]
 }
 
 func SupportedList() string {
 	return strings.Join(Public(), ", ")
+}
+
+func MissingPublicHandlers(handlerNames []string) []string {
+	missing := []string{}
+	for _, command := range Public() {
+		if !slices.Contains(handlerNames, command) {
+			missing = append(missing, command)
+		}
+	}
+	return missing
+}
+
+func UnknownPublicHandlers(handlerNames []string) []string {
+	unknown := []string{}
+	public := PublicSet()
+	seen := map[string]bool{}
+	for _, name := range handlerNames {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		if !public[name] {
+			unknown = append(unknown, name)
+		}
+	}
+	sort.Strings(unknown)
+	return unknown
 }
 
 func AlternativeFor(name string) string {

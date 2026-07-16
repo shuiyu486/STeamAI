@@ -23,6 +23,19 @@ func TestPublicCommandCatalog(t *testing.T) {
 	}
 }
 
+func TestPublicCommandHandlerCoverageHelpers(t *testing.T) {
+	symbols := SymbolValues()
+	if len(symbols) != len(Public()) || symbols["PlanSubagents"] != "plan-subagents" || symbols["ReleaseCheck"] != "release-check" {
+		t.Fatalf("unexpected public command symbols: %+v", symbols)
+	}
+	if missing := MissingPublicHandlers([]string{"status", "packs", "unknown"}); !slices.Contains(missing, "release-check") || slices.Contains(missing, "unknown") {
+		t.Fatalf("unexpected missing handler coverage: %v", missing)
+	}
+	if unknown := UnknownPublicHandlers([]string{" status ", "unknown", "packs", "unknown"}); len(unknown) != 1 || unknown[0] != "unknown" {
+		t.Fatalf("unexpected unknown handler coverage: %v", unknown)
+	}
+}
+
 func TestUnsupportedErrorNamesSupportedSurface(t *testing.T) {
 	err := UnsupportedError("debug")
 	if err == nil {

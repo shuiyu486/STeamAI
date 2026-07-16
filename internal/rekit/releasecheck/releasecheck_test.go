@@ -117,14 +117,43 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	if inventory.Entrypoint != "cmd/rekit" || !inventory.EntrypointPresent || inventory.CommandCatalogPath != "internal/rekit/commands/commands.go" || !inventory.CommandCatalogPresent || inventory.DefaultCommand != "status" || inventory.AlternativePattern != "go run ./cmd/rekit -- -Command <command>" || !inventory.UnsupportedCommandDiagnosticPresent {
 		t.Fatalf("unexpected Go-native public surface flags: %+v", inventory)
 	}
-	if len(inventory.Commands) != 19 {
-		t.Fatalf("Go-native public surface omitted expected command catalog: %+v", inventory)
+	if len(inventory.Commands) != 19 || len(inventory.HandlerCommands) != 19 || len(inventory.SymbolCommands) != 19 {
+		t.Fatalf("Go-native public surface omitted expected command coverage: %+v", inventory)
 	}
 	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
-		if !slices.Contains(inventory.Commands, command) {
-			t.Fatalf("Go-native public command %s missing from catalog: %+v", command, inventory)
+		if !slices.Contains(inventory.Commands, command) || !slices.Contains(inventory.HandlerCommands, command) {
+			t.Fatalf("Go-native public command %s missing from catalog or handler coverage: %+v", command, inventory)
 		}
 	}
+	if inventory.SymbolCommands["PlanSubagents"] != "plan-subagents" || inventory.SymbolCommands["ReleaseCheck"] != "release-check" {
+		t.Fatalf("Go-native public symbol catalog drifted: %+v", inventory.SymbolCommands)
+	}
+}
+
+func TestGoNativePublicSurfaceInventoryDetectsDispatcherDrift(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, filepath.Join(repo, "cmd", "rekit", "main.go"), "package main\n")
+	writeFile(t, filepath.Join(repo, "internal", "rekit", "commands", "commands.go"), "package commands\n")
+	writeFile(t, filepath.Join(repo, "internal", "rekit", "cli", "cli.go"), `package cli
+
+import "github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+
+func dispatch(command string) error {
+	switch command {
+	case commands.Status:
+		return nil
+	default:
+		// commands.UnsupportedError(opt.Command)
+		return commands.UnsupportedError(command)
+	}
+}
+`)
+
+	inventory := goNativePublicSurface(repo)
+	if inventory.Ready {
+		t.Fatalf("Go-native public surface unexpectedly ready despite dispatcher drift: %+v", inventory)
+	}
+	assertWarningContains(t, inventory.Warnings, "Go CLI dispatcher missing public command handler: release-check")
 }
 
 func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {
