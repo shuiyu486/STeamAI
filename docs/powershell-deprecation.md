@@ -123,6 +123,18 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 
 该库存不把 raw Go CLI 变成用户主要交互界面；公开用户默认路径仍由 `/rekit` skill / Mission Control 负责。它只为未来独立删除公共 `rekit/rekit.ps1` façade 时提供确定性替代路径、命令面和诊断基线。
 
+## Public façade removal plan inventory
+
+`release-check -Format json` 的顶层 `publicFacadeRemoval` 是后续删除公共 `rekit/rekit.ps1` façade 前必须通过的跨库存 readiness：
+
+- `public-facade-retained-boundary` 要求公共 façade 当前仍存在、仍被文档标记为 retained / migration boundary，并继续声明删除公共 façade 必须作为独立 removal batch。
+- `facade-command-surface-no-fallback` 要求 19 个 façade commands 与 Go-default / no-fallback command surface 完全一致，不能留下隐式 PowerShell fallback。
+- `go-native-public-surface` 要求 `goNativePublicSurface.ready=true` 且 Go-native surface 自身的 `facadeRemovalReady=true`。
+- `legacy-runtime-detached`、`legacy-module-removal-settled` 与 `module-reference-blockers-clear` 要求公共 façade 不再加载 legacy runtime、不再包含 legacy dispatcher、legacy modules 已 settled，且 active test dependencies、compatibility fixtures、removal blockers 与 unclassified references 均为空。
+- `removal-plan-documented` 要求本节持续记录后续独立 removal batch 的替代入口、恢复计划、验证命令、文档同步、CHANGELOG、当前授权边界、不新增 PowerShell runtime logic，以及不触碰 actual heavy-tool、authority/confirmed 的边界。
+
+后续真正删除公共 façade 时，替代入口仍以 `/rekit` skill / Mission Control 为用户默认路径，底层 deterministic alternative 为 `go run ./cmd/rekit -- -Command <command>`；恢复计划至少包括保留可 revert 的单独 commit、在失败时恢复 `rekit/rekit.ps1` 公共 façade 文件与相关 docs，并重新运行本节列出的验证命令。验证命令至少覆盖 `go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。文档同步必须覆盖 README / CLAUDE / `/rekit` skill / case shim / release readiness / batch plan / CHANGELOG。该 removal batch 不得新增 PowerShell runtime logic，不得执行 actual heavy-tool、authority/confirmed 写入或改变 sync/promote review-first 与 case-local write semantics。
+
 ## Module removal inventory
 
 `release-check -Format json` 的 `powerShellDeprecation.moduleRemoval` 是 Batch 240 删除 legacy PowerShell runtime modules 后的只读 readiness 库存：

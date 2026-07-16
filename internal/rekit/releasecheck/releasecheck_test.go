@@ -199,7 +199,7 @@ func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {
 	assertPublicFacade(t, inventory)
 	assertModuleRemoval(t, inventory)
 	assertModuleReferences(t, inventory)
-	assertPublicFacadeRemoval(t, publicFacadeRemovalInventory(inventory, goNativePublicSurface(repo)))
+	assertPublicFacadeRemoval(t, publicFacadeRemovalInventory(repo, inventory, goNativePublicSurface(repo)))
 }
 
 func TestPowerShellDeprecationInventoryDetectsDrift(t *testing.T) {
@@ -248,6 +248,24 @@ function Test-RekitGoDefaultDelegationCommand {
 	}
 	assertWarningContains(t, inventory.Warnings, "new-default")
 	assertWarningContains(t, inventory.Warnings, "rekit/lib/Extra.ps1")
+}
+
+func TestPublicFacadeRemovalPlanDetectsMissingChecklist(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, filepath.Join(repo, "docs", "powershell-deprecation.md"), `# PowerShell-free Go-native convergence roadmap
+
+## Public façade removal plan inventory
+
+删除必须是独立 removal batch。
+`)
+
+	plan := publicFacadeRemovalPlan(repo)
+	if plan.Ready || plan.Summary != "public facade removal plan has warnings" || len(plan.RequiredPhrases) != 9 {
+		t.Fatalf("public facade removal plan unexpectedly ready: %+v", plan)
+	}
+	assertWarningContains(t, plan.Warnings, "alternative-entrypoint")
+	assertWarningContains(t, plan.Warnings, "recovery-plan")
+	assertWarningContains(t, plan.Warnings, "no-heavy-tool-authority")
 }
 
 func assertCommandOwner(t *testing.T, inventory PowerShellDeprecation, areaContains string, wantGoDefault, wantBlocked bool) {
@@ -330,8 +348,11 @@ func assertPublicFacadeRemoval(t *testing.T, inventory PublicFacadeRemoval) {
 	if !inventory.Ready || inventory.Summary != "public facade removal prerequisites ok" || len(inventory.Warnings) != 0 {
 		t.Fatalf("unexpected public facade removal inventory: %+v", inventory)
 	}
-	if len(inventory.Prerequisites) != 6 || inventory.Prerequisites[0].Name != "public-facade-retained-boundary" || !inventory.Prerequisites[0].Ready || inventory.Prerequisites[2].Name != "go-native-public-surface" || !inventory.Prerequisites[2].Ready || inventory.Prerequisites[5].Name != "module-reference-blockers-clear" || !inventory.Prerequisites[5].Ready {
+	if len(inventory.Prerequisites) != 7 || inventory.Prerequisites[0].Name != "public-facade-retained-boundary" || !inventory.Prerequisites[0].Ready || inventory.Prerequisites[2].Name != "go-native-public-surface" || !inventory.Prerequisites[2].Ready || inventory.Prerequisites[5].Name != "module-reference-blockers-clear" || !inventory.Prerequisites[5].Ready || inventory.Prerequisites[6].Name != "removal-plan-documented" || !inventory.Prerequisites[6].Ready {
 		t.Fatalf("public facade removal prerequisites drifted: %+v", inventory.Prerequisites)
+	}
+	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || len(inventory.RemovalPlan.RequiredPhrases) != 9 {
+		t.Fatalf("public facade removal plan drifted: %+v", inventory.RemovalPlan)
 	}
 }
 

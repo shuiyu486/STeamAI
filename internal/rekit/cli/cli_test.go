@@ -841,7 +841,8 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profilePolicies rows=5 violations=0")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "facadeRemovalReady=true prerequisites=5")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "unsupportedDiagnostic=true")
-	assertReleaseHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "ready=true prerequisites=6")
+	assertReleaseHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "ready=true prerequisites=7")
+	assertReleaseHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "removalPlan=true planChecks=9")
 	assertReleaseHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "public-facade-retained-boundary ready=true publicFacadeReady=true present=true retained=true migrationBoundary=true removalBoundary=true")
 	assertReleaseHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "go-native-public-surface ready=true goNativeReady=true facadeRemovalReady=true prerequisites=5")
 	assertReleaseHandoffSignal(t, handoff, "case shim readiness")
@@ -1021,8 +1022,11 @@ func assertReleaseCheckPublicFacadeRemoval(t *testing.T, inventory releasecheck.
 	if !inventory.Ready || inventory.Summary != "public facade removal prerequisites ok" || len(inventory.Warnings) != 0 {
 		t.Fatalf("unexpected public facade removal inventory: %+v", inventory)
 	}
-	if len(inventory.Prerequisites) != 6 || inventory.Prerequisites[0].Name != "public-facade-retained-boundary" || !inventory.Prerequisites[0].Ready || inventory.Prerequisites[2].Name != "go-native-public-surface" || !inventory.Prerequisites[2].Ready || inventory.Prerequisites[5].Name != "module-reference-blockers-clear" || !inventory.Prerequisites[5].Ready {
+	if len(inventory.Prerequisites) != 7 || inventory.Prerequisites[0].Name != "public-facade-retained-boundary" || !inventory.Prerequisites[0].Ready || inventory.Prerequisites[2].Name != "go-native-public-surface" || !inventory.Prerequisites[2].Ready || inventory.Prerequisites[5].Name != "module-reference-blockers-clear" || !inventory.Prerequisites[5].Ready || inventory.Prerequisites[6].Name != "removal-plan-documented" || !inventory.Prerequisites[6].Ready {
 		t.Fatalf("public facade removal prerequisites drifted: %+v", inventory.Prerequisites)
+	}
+	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || len(inventory.RemovalPlan.RequiredPhrases) != 9 {
+		t.Fatalf("public facade removal plan drifted: %+v", inventory.RemovalPlan)
 	}
 }
 
@@ -1282,7 +1286,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"Go-native public surface: Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true default=status commands=19 handlers=19 symbols=19 profiles=19 boundaries=7 boundaryRows=7 policyRows=5 policyViolations=0 facadeRemovalReady=true facadePrerequisites=5 readOnly=5 mutating=14 writesCase=13 writesKit=1 reviewFirst=3 applyRequired=11 heavyTool=0 authorityConfirmed=0 readOnlyCommands=doctor,packs,release-check,status,validate reviewFirstCommands=promote,sync,update writesKitCommands=promote caseLocalApplyCommands=attach,bootstrap,continue,gate,handoff,init,repair,start kitReviewFirstCommands=promote alternative=go run ./cmd/rekit -- -Command <command> unsupportedDiagnostic=true",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=13",
-		"public facade removal: public facade removal prerequisites ok ready=true prerequisites=6",
+		"public facade removal: public facade removal prerequisites ok ready=true prerequisites=7 removalPlan=true planChecks=9",
 		"release handoff: release handoff summary ok ready=true readFirst=7 signals=12 knownGaps=5 packMaturity=10",
 		"releaseNotes=true",
 		"latest=Batch ",

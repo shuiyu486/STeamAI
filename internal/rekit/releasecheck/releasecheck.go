@@ -134,7 +134,7 @@ func Build(repoRoot string) (Result, error) {
 		check.GoNativePublicSurface.Ready = false
 		check.GoNativePublicSurface.Summary = "Go-native public command surface inventory has warnings"
 	}
-	check.PublicFacadeRemoval = publicFacadeRemovalInventory(check.PowerShellDeprecation, check.GoNativePublicSurface)
+	check.PublicFacadeRemoval = publicFacadeRemovalInventory(repo, check.PowerShellDeprecation, check.GoNativePublicSurface)
 	if !check.GateProfile.Ready {
 		check.Ready = false
 		check.Warnings = append(check.Warnings, "release gate profile has unresolved commands or missing repo-local scripts")
