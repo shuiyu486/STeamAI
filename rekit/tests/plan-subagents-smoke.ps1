@@ -34,6 +34,7 @@ function Invoke-RekitSmoke {
   if ($AllowedExitCodes -notcontains $exitCode) {
     throw "unexpected exit code $exitCode; output:`n$output"
   }
+  $global:LASTEXITCODE = 0
   return $output
 }
 
@@ -50,6 +51,7 @@ function Invoke-GoRekitSmoke {
     $output = & go run ./cmd/rekit -- @Arguments 2>&1 | Out-String
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
     if ($AllowedExitCodes -notcontains $exitCode) { throw "go rekit unexpected exit code $exitCode; output:`n$output" }
+    $global:LASTEXITCODE = 0
     return $output
   } finally {
     $ErrorActionPreference = $oldEap
@@ -177,9 +179,9 @@ try {
   }
 
   $fallbackRoot = Join-Path $WorkRoot "plan-subagents-fallback-$suffix"
-  $fallbackOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-Items','fallback-alpha,fallback-beta','-ReviewOutputDir',$fallbackRoot) -Env @{ REKIT_GO_DISABLE = '1' }
-  Assert-ContainsText -Text $fallbackOut -Expected 'review packet:' -Label 'facade plan-subagents disabled fallback'
-  if (-not (Test-Path -LiteralPath (Join-Path $fallbackRoot 'packet.json'))) { throw 'fallback plan-subagents packet was not written' }
+  $fallbackOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$caseRoot,'-Pack',$Pack,'-Items','fallback-alpha,fallback-beta','-ReviewOutputDir',$fallbackRoot) -AllowedExitCodes @(1) -Env @{ REKIT_GO_DISABLE = '1' }
+  Assert-ContainsText -Text $fallbackOut -Expected 'PowerShell fallback has been retired' -Label 'facade plan-subagents disabled no fallback'
+  if (Test-Path -LiteralPath (Join-Path $fallbackRoot 'packet.json')) { throw 'retired fallback plan-subagents packet was written' }
 
   'plan-subagents smoke ok'
 } finally {

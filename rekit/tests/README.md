@@ -34,7 +34,7 @@ git diff --check
 
 - smoke 失败时先修 root cause，不跳过验证。
 - pack smoke 必须覆盖 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review managed-doc candidate 和 no-write 边界。
-- façade smoke 必须证明默认 Go delegation、已退休 read-only fallback 的 no-fallback 边界、显式 Go enable、Go disable 优先级和剩余 write/text compatibility fallback 不回归。
+- façade smoke 必须证明默认 Go delegation、已退休 fallback 的 no-fallback 边界、显式 Go enable、Go disable 优先级和剩余 write/text compatibility fallback 不回归。
 - sync/promote apply smoke 只能使用临时 case / pack-safe fixture，并验证 backup、deny、pack-root containment 和 cleanup。
 - workstream / ledger smoke 不写 confirmed/authority，除非脚本专门验证 gate 且使用临时 case。
 
@@ -51,7 +51,7 @@ git diff --check
 
 | 脚本 | 什么时候跑 | 覆盖重点 |
 |---|---|---|
-| `facade-smoke.ps1` | 改 `rekit.ps1`、Go façade 委托集合或 JSON preview/read-only 委托 | 只读命令、release-check inventory 默认委托、已退休 read-only fallback 的 no-fallback 边界、overview 文本/JSON 与 note 文本/JSON 只读默认委托、note append/what-if 默认委托、gate what-if/apply 默认委托、start/handoff JSON preview/apply 默认委托、continue JSON preview/apply 默认委托、case lifecycle、sync 与 promote review/candidate/apply 默认 Go 委托、disable 优先级、剩余文本/write fallback。 |
+| `facade-smoke.ps1` | 改 `rekit.ps1`、Go façade 委托集合或 JSON preview/read-only 委托 | 只读命令、release-check inventory 默认委托、已退休 fallback 的 no-fallback 边界、overview 文本/JSON 与 note 文本/JSON 只读默认委托、note append/what-if 默认委托、gate what-if/apply 默认委托、start/handoff JSON preview/apply 默认委托、continue JSON preview/apply 默认委托、case lifecycle、sync 与 promote review/candidate/apply 默认 Go 委托、disable 优先级、剩余文本/write fallback。 |
 | `pack-inventory-smoke.ps1` | 改 pack manifest、maturity、inventory、status/doctor JSON | `/rekit packs/status/doctor/validate` text+JSON parity、默认 Go/facade 委托，以及 read-only fallback 退休后的 disable no-fallback 边界。 |
 | `catalog-smoke.ps1` | 改 `catalog.json` 或测试导航字段 | catalog schema、唯一 id、全部 `*.ps1` 覆盖、脚本/文档存在性、pack smoke 与 discovery 对齐。 |
 | `pack-smoke-matrix.ps1 -DiscoveryOnly` | 新增/删除 skeleton pack 或 pack smoke wrapper | inventory 中 schema-valid skeleton pack 与 matrix 清单/wrapper 一致性。 |
@@ -93,7 +93,7 @@ generic-binary-re-pack-smoke.ps1
 
 | 脚本 | 什么时候跑 | 覆盖重点 |
 |---|---|---|
-| `plan-subagents-smoke.ps1` / `go test ./internal/rekit/cli -run 'TestRunGo(GateDispatchE2EPlanGateOverviewHandoff|GenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff|WebSecurityPackNeutralE2EStartPlanGateOverviewHandoff)'` | 改 `plan-subagents`、subagent routes、review packet、plan-subagents façade 委托、gate/dispatch 闭环或 pack-neutral route 闭环 | route/taskType、Items/ItemsFile、observability、out-of-case guard、默认 façade Go JSON result、`REKIT_GO_DISABLE=1` fallback；Go package E2E 额外覆盖 `_template` pack plan-subagents → gate request → overview/handoff 可见性链路、`generic-binary-re:binary-analysis` non-feature lane / pack-specific route 可见性链路，以及 `web-security:feature-analysis` Web/API route 可见性链路。 |
+| `plan-subagents-smoke.ps1` / `go test ./internal/rekit/cli -run 'TestRunGo(GateDispatchE2EPlanGateOverviewHandoff|GenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff|WebSecurityPackNeutralE2EStartPlanGateOverviewHandoff)'` | 改 `plan-subagents`、subagent routes、review packet、plan-subagents façade 委托、gate/dispatch 闭环或 pack-neutral route 闭环 | route/taskType、Items/ItemsFile、observability、out-of-case guard、默认 façade Go JSON result、`REKIT_GO_DISABLE=1` no-fallback 边界；Go package E2E 额外覆盖 `_template` pack plan-subagents → gate request → overview/handoff 可见性链路、`generic-binary-re:binary-analysis` non-feature lane / pack-specific route 可见性链路，以及 `web-security:feature-analysis` Web/API route 可见性链路。 |
 | `agent-team-review-loop-smoke.ps1` / `go test ./internal/rekit/cli -run 'TestRunGo(ReviewerDecisionE2ENoteOverviewHandoff|GenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff|WebSecurityPackNeutralE2EStartPlanGateOverviewHandoff)'` | 改 review loop、verification/decision 展示、note list 委托、note append façade、reviewer/decision 闭环或 pack-neutral ledger 闭环 | packet -> note what-if no-write -> verification append -> decision append -> note/list -> overview/handoff 最小闭环，含默认 façade note append/what-if、note list 文本/JSON 委托与 disable fallback；Go package E2E 额外覆盖 `_template` pack candidate → verification → decision → overview/handoff 可见性链路、`generic-binary-re` non-feature lane 的 candidate/verification/decision → overview/handoff 可见性链路，以及 `web-security` endpoint candidate/verification/decision → overview/handoff 可见性链路。 |
 | `agent-team-d5-dryrun-smoke.ps1` | 改 batch/intervention/rollback 展示 | candidate、verification、decision、batch、intervention/rollback、handoff。 |
 | `web-security-agent-team-dryrun-smoke.ps1` | 改 web-security Agent Team dry-run、Web/API route、network gate、真实临时 case flow 或 pack-neutral handoff | 公共 `/rekit` façade 下的临时 case：`init -Apply`、`start -Apply`、`plan-subagents` review packet、candidate/verification/decision `note` append、`gate -WhatIf/-Apply -Action network`、`note -List`、`overview` text/JSON、lane `handoff -Apply` 与 `doctor`；不自动 spawn agent、不联网、不写 authority/confirmed。 |

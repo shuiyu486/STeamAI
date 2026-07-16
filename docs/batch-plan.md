@@ -6767,3 +6767,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\pack-inventory-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`fallbackRetirement.ready=true`、`goDefaultCommands=19`、`noFallbackCommands=5`、`candidateCommands=9`、`blockedCommands=2`、`removalCandidateModules=14`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...` 与 `go vet ./...`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 225：Plan-subagents PowerShell fallback retirement
+
+状态：已完成。
+
+目标：继续沿用 Batch 223/224 的 `fallbackRetirement` 模式，退休 `plan-subagents` review artifact 路径的 PowerShell fallback，使该命令和 read-only no-fallback baseline 一样只由 Go backend 承担确定性 review packet / summary / combined diff 生成。
+
+实施范围：
+
+- `rekit/rekit.ps1` 将 `plan-subagents` 加入 no-fallback helper；当 `REKIT_GO_DISABLE=1` 或 Go delegation 不可用时，façade 输出 “PowerShell fallback has been retired” 并失败，不再调用 PowerShell `Write-RekitSubagentPlan` fallback。
+- `docs/powershell-deprecation.md` 的 command matrix 将 `plan-subagents` 更新为 `façade delegate + no PowerShell fallback`；`fallbackRetirement.noFallbackCommands[]` 基线从 5 扩展到 6，`candidateCommands[]` 从 9 收窄到 8。
+- `facade-smoke.ps1` 与 `plan-subagents-smoke.ps1` 改为验证 disabled/no-fallback error；CLI、releasecheck、release handoff 与 façade freeze invariant tests 同步锁定新计数和 no-fallback 文档行。
+- README、CLAUDE、release readiness、Go-first convergence、tests guide、catalog 与 CHANGELOG 同步记录 `plan-subagents` 仍只写 review artifact、不自动 spawn agent、不写 board/facts/lanes/handoff/authority，且 PowerShell fallback 已退休。
+
+边界：本批不删除 PowerShell 文件，不改变 `plan-subagents` Go output schema，不自动 spawn agent，不写 board/facts/lanes/handoff/authority，不改变 sync/promote review-first、gate pending request、workstream、actual heavy-tool、authority/confirmed 或外部副作用边界；remaining candidate fallback 保留到后续独立 removal batch。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli_test.go internal/rekit/manifest/release_invariants_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest
+.\rekit\tests\facade-smoke.ps1
+.\rekit\tests\plan-subagents-smoke.ps1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`.\rekit\tests\facade-smoke.ps1`、`.\rekit\tests\plan-subagents-smoke.ps1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`fallbackRetirement.ready=true`、`goDefaultCommands=19`、`noFallbackCommands=6`、`candidateCommands=8`、`blockedCommands=2`、`removalCandidateModules=14`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...` 与 `go vet ./...`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

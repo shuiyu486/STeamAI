@@ -125,7 +125,7 @@ function Test-RekitGoDefaultDelegationCommand {
 
 function Test-RekitNoPowerShellFallbackCommand {
   param([string]$Name)
-  return (@('release-check','status','packs','doctor','validate') -contains $Name)
+  return (@('release-check','status','packs','doctor','validate','plan-subagents') -contains $Name)
 }
 
 function Test-RekitGoDelegationEnabled {

@@ -41,4 +41,4 @@ item, decision, confidence, evidence, risk, next_action, tier_used, tool_scope, 
 - 按领域替换 `taskTypes`、`trigger` 和 `shardBasis`。
 - 明确哪些写入只能由 main 执行。
 - 为领域证据补充必要的 `evidence_id`、sidecar 路径和 verifier 标准。
-- 运行 `plan-subagents` smoke，确认 Go 与 PowerShell fallback 都能生成 packet / summary。
+- 运行 `plan-subagents` smoke，确认默认 Go packet / summary 生成与 `REKIT_GO_DISABLE=1` no-fallback 边界。

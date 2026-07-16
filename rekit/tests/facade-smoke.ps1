@@ -34,6 +34,7 @@ function Invoke-RekitSmoke {
   if ($AllowedExitCodes -notcontains $exitCode) {
     throw "unexpected exit code $exitCode; output:`n$output"
   }
+  $global:LASTEXITCODE = 0
   return $output
 }
 
@@ -266,9 +267,9 @@ try {
   $disabledHandoffApplyOut = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledHandoffApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled handoff apply fallback'
   Assert-ContainsText -Text $disabledHandoffApplyOut -Expected 'main-latest.md' -Label 'go disabled handoff apply fallback'
-  $disabledPlanOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-Items','disabled-alpha,disabled-beta','-ReviewOutputDir',(Join-Path $matrixRoot 'plan-disabled')) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-NotContainsText -Text $disabledPlanOut -Unexpected 'delegatedByFake' -Label 'go disabled plan-subagents fallback'
-  Assert-ContainsText -Text $disabledPlanOut -Expected 'review packet:' -Label 'go disabled plan-subagents fallback'
+  $disabledPlanOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-Items','disabled-alpha,disabled-beta','-ReviewOutputDir',(Join-Path $matrixRoot 'plan-disabled')) -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledPlanOut -Unexpected 'delegatedByFake' -Label 'go disabled plan-subagents no fallback'
+  Assert-ContainsText -Text $disabledPlanOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled plan-subagents no fallback'
 
   'facade smoke ok'
 } finally {

@@ -584,7 +584,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 	for _, required := range []string{
 		"| `release-check` | Go default | façade delegate + no PowerShell fallback |",
 		"| `status` / `packs` / `doctor` / `validate` | Go default | façade delegate + no PowerShell fallback |",
-		"| `plan-subagents` review artifacts | Go default | façade + fallback |",
+		"| `plan-subagents` review artifacts | Go default | façade delegate + no PowerShell fallback |",
 		"Legacy freeze",
 		"PowerShell 只允许 bug fix / compatibility / safety boundary 修复",
 		"actual full-trace/debug/inject/patch/dump/network/symex/heavy-tool",
