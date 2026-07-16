@@ -140,6 +140,9 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	if inventory.CommandProfileSummary.Total != 19 || inventory.CommandProfileSummary.ReadOnly != 5 || inventory.CommandProfileSummary.Mutating != 14 || inventory.CommandProfileSummary.WritesCase != 13 || inventory.CommandProfileSummary.WritesKit != 1 || inventory.CommandProfileSummary.ReviewFirst != 3 || inventory.CommandProfileSummary.ApplyRequired != 11 || inventory.CommandProfileSummary.HeavyTool != 0 || inventory.CommandProfileSummary.AuthorityConfirmed != 0 || inventory.CommandProfileSummary.Boundaries[commands.BoundaryReadOnly] != 5 || inventory.CommandProfileSummary.Boundaries[commands.BoundaryCaseLocalApply] != 8 || inventory.CommandProfileSummary.Boundaries[commands.BoundaryCaseLocalReviewFirst] != 2 || inventory.CommandProfileSummary.Boundaries[commands.BoundaryKitReviewFirst] != 1 {
 		t.Fatalf("Go-native public command profile summary drifted: %+v", inventory.CommandProfileSummary)
 	}
+	if strings.Join(inventory.CommandProfileGroups.ReadOnly, ",") != "doctor,packs,release-check,status,validate" || strings.Join(inventory.CommandProfileGroups.ReviewFirst, ",") != "promote,sync,update" || strings.Join(inventory.CommandProfileGroups.WritesKit, ",") != "promote" || len(inventory.CommandProfileGroups.HeavyTool) != 0 || len(inventory.CommandProfileGroups.AuthorityConfirmed) != 0 || len(inventory.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalApply]) != 8 || len(inventory.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalReviewFirst]) != 2 {
+		t.Fatalf("Go-native public command profile groups drifted: %+v", inventory.CommandProfileGroups)
+	}
 }
 
 func TestGoNativePublicSurfaceInventoryDetectsDispatcherDrift(t *testing.T) {

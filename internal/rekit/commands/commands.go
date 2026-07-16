@@ -70,6 +70,18 @@ type PublicProfileSummary struct {
 	Boundaries         map[string]int `json:"boundaries"`
 }
 
+type PublicProfileGroups struct {
+	ReadOnly           []string            `json:"readOnly"`
+	Mutating           []string            `json:"mutating"`
+	WritesCase         []string            `json:"writesCase"`
+	WritesKit          []string            `json:"writesKit"`
+	ReviewFirst        []string            `json:"reviewFirst"`
+	ApplyRequired      []string            `json:"applyRequired"`
+	HeavyTool          []string            `json:"heavyTool"`
+	AuthorityConfirmed []string            `json:"authorityConfirmed"`
+	ByBoundary         map[string][]string `json:"byBoundary"`
+}
+
 var publicCommands = []string{
 	Attach,
 	Bootstrap,
@@ -216,6 +228,60 @@ func PublicProfileSummaryFor(profiles []PublicProfile) PublicProfileSummary {
 
 func PublicProfileSummaryBaseline() PublicProfileSummary {
 	return PublicProfileSummaryFor(publicProfiles)
+}
+
+func PublicProfileGroupsFor(profiles []PublicProfile) PublicProfileGroups {
+	groups := PublicProfileGroups{ByBoundary: map[string][]string{}}
+	for _, boundary := range KnownMutationBoundaries() {
+		groups.ByBoundary[boundary] = []string{}
+	}
+	for _, profile := range profiles {
+		command := strings.TrimSpace(profile.Command)
+		if command == "" {
+			continue
+		}
+		groups.ByBoundary[profile.MutationBoundary] = append(groups.ByBoundary[profile.MutationBoundary], command)
+		if profile.MutationBoundary == BoundaryReadOnly {
+			groups.ReadOnly = append(groups.ReadOnly, command)
+		}
+		if profile.IsMutation {
+			groups.Mutating = append(groups.Mutating, command)
+		}
+		if profile.WritesCase {
+			groups.WritesCase = append(groups.WritesCase, command)
+		}
+		if profile.WritesKit {
+			groups.WritesKit = append(groups.WritesKit, command)
+		}
+		if profile.ReviewFirst {
+			groups.ReviewFirst = append(groups.ReviewFirst, command)
+		}
+		if profile.ApplyRequired {
+			groups.ApplyRequired = append(groups.ApplyRequired, command)
+		}
+		if profile.HeavyTool {
+			groups.HeavyTool = append(groups.HeavyTool, command)
+		}
+		if profile.AuthorityConfirmed {
+			groups.AuthorityConfirmed = append(groups.AuthorityConfirmed, command)
+		}
+	}
+	sort.Strings(groups.ReadOnly)
+	sort.Strings(groups.Mutating)
+	sort.Strings(groups.WritesCase)
+	sort.Strings(groups.WritesKit)
+	sort.Strings(groups.ReviewFirst)
+	sort.Strings(groups.ApplyRequired)
+	sort.Strings(groups.HeavyTool)
+	sort.Strings(groups.AuthorityConfirmed)
+	for boundary := range groups.ByBoundary {
+		sort.Strings(groups.ByBoundary[boundary])
+	}
+	return groups
+}
+
+func PublicProfileGroupsBaseline() PublicProfileGroups {
+	return PublicProfileGroupsFor(publicProfiles)
 }
 
 func KnownMutationBoundaries() []string {

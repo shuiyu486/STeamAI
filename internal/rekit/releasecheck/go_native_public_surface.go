@@ -25,6 +25,7 @@ type GoNativePublicSurface struct {
 	SymbolCommands                      map[string]string             `json:"symbolCommands"`
 	CommandProfiles                     []commands.PublicProfile      `json:"commandProfiles"`
 	CommandProfileSummary               commands.PublicProfileSummary `json:"commandProfileSummary"`
+	CommandProfileGroups                commands.PublicProfileGroups  `json:"commandProfileGroups"`
 	MutationBoundaries                  []string                      `json:"mutationBoundaries"`
 	AlternativePattern                  string                        `json:"alternativePattern"`
 	UnsupportedCommandDiagnostic        string                        `json:"unsupportedCommandDiagnostic"`
@@ -45,6 +46,7 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 		SymbolCommands:               commands.SymbolValues(),
 		CommandProfiles:              commands.PublicProfiles(),
 		CommandProfileSummary:        commands.PublicProfileSummaryBaseline(),
+		CommandProfileGroups:         commands.PublicProfileGroupsBaseline(),
 		MutationBoundaries:           commands.KnownMutationBoundaries(),
 		AlternativePattern:           commands.GoNativeAlternativePattern,
 		UnsupportedCommandDiagnostic: commands.UnsupportedError("unsupported").Error(),
@@ -154,6 +156,18 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 	}
 	if inventory.CommandProfileSummary.AuthorityConfirmed != 0 {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile summary unexpectedly includes authority/confirmed writers")
+	}
+	computedGroups := commands.PublicProfileGroupsFor(inventory.CommandProfiles)
+	if !slices.Equal(inventory.CommandProfileGroups.ReadOnly, computedGroups.ReadOnly) || !slices.Equal(inventory.CommandProfileGroups.Mutating, computedGroups.Mutating) || !slices.Equal(inventory.CommandProfileGroups.WritesCase, computedGroups.WritesCase) || !slices.Equal(inventory.CommandProfileGroups.WritesKit, computedGroups.WritesKit) || !slices.Equal(inventory.CommandProfileGroups.ReviewFirst, computedGroups.ReviewFirst) || !slices.Equal(inventory.CommandProfileGroups.ApplyRequired, computedGroups.ApplyRequired) || !slices.Equal(inventory.CommandProfileGroups.HeavyTool, computedGroups.HeavyTool) || !slices.Equal(inventory.CommandProfileGroups.AuthorityConfirmed, computedGroups.AuthorityConfirmed) {
+		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile groups do not match profile catalog")
+	}
+	for boundary, groupCommands := range computedGroups.ByBoundary {
+		if !slices.Equal(inventory.CommandProfileGroups.ByBoundary[boundary], groupCommands) {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile group mismatch for boundary %s", boundary))
+		}
+	}
+	if len(inventory.CommandProfileGroups.ReadOnly) != inventory.CommandProfileSummary.ReadOnly || len(inventory.CommandProfileGroups.Mutating) != inventory.CommandProfileSummary.Mutating || len(inventory.CommandProfileGroups.WritesCase) != inventory.CommandProfileSummary.WritesCase || len(inventory.CommandProfileGroups.WritesKit) != inventory.CommandProfileSummary.WritesKit || len(inventory.CommandProfileGroups.ReviewFirst) != inventory.CommandProfileSummary.ReviewFirst || len(inventory.CommandProfileGroups.ApplyRequired) != inventory.CommandProfileSummary.ApplyRequired || len(inventory.CommandProfileGroups.HeavyTool) != inventory.CommandProfileSummary.HeavyTool || len(inventory.CommandProfileGroups.AuthorityConfirmed) != inventory.CommandProfileSummary.AuthorityConfirmed {
+		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile group counts do not match summary")
 	}
 	seen := map[string]bool{}
 	for _, command := range inventory.Commands {
