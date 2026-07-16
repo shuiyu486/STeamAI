@@ -61,6 +61,7 @@ type PublicFacadeRemovalDeletionGate struct {
 	Gate                  string   `json:"gate"`
 	Required              bool     `json:"required"`
 	BlocksRemoval         bool     `json:"blocksRemoval"`
+	BlockedExecutionSteps []string `json:"blockedExecutionSteps"`
 	InputInventory        []string `json:"inputInventory"`
 	ExitCriteria          []string `json:"exitCriteria"`
 	VerificationArtifacts []string `json:"verificationArtifacts"`
@@ -164,7 +165,7 @@ type PublicFacadeRemovalSmokeMigrationTarget struct {
 func publicFacadeRemovalHandoffDetails(inventory PublicFacadeRemoval) []string {
 	details := make([]string, 0, len(inventory.Prerequisites)+3)
 	details = append(details, fmt.Sprintf("ready=%t prerequisites=%d", inventory.Ready, len(inventory.Prerequisites)))
-	details = append(details, fmt.Sprintf("removalPlan=%t planChecks=%d replacementEntrypoints=%d replacementValidationCommands=%d deletionGates=%d deletionGateValidationCommands=%d deletionGateExitCriteria=%d deletionGateVerificationArtifacts=%d executionSteps=%d executionValidationCommands=%d boundaryChecks=%d boundaryValidationCommands=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", inventory.RemovalPlan.Ready, len(inventory.RemovalPlan.RequiredPhrases), len(inventory.RemovalPlan.ReplacementEntrypoints), publicFacadeRemovalReplacementValidationCommandCount(inventory.RemovalPlan.ReplacementEntrypoints), len(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateValidationCommandCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateExitCriteriaCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateVerificationArtifactCount(inventory.RemovalPlan.DeletionGates), len(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionValidationCommandCount(inventory.RemovalPlan.ExecutionSteps), len(inventory.RemovalPlan.BoundaryChecks), publicFacadeRemovalBoundaryValidationCommandCount(inventory.RemovalPlan.BoundaryChecks), len(inventory.RemovalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps), len(inventory.RemovalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets)))
+	details = append(details, fmt.Sprintf("removalPlan=%t planChecks=%d replacementEntrypoints=%d replacementValidationCommands=%d deletionGates=%d deletionGateValidationCommands=%d deletionGateExitCriteria=%d deletionGateVerificationArtifacts=%d deletionGateBlockedExecutionSteps=%d executionSteps=%d executionValidationCommands=%d boundaryChecks=%d boundaryValidationCommands=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", inventory.RemovalPlan.Ready, len(inventory.RemovalPlan.RequiredPhrases), len(inventory.RemovalPlan.ReplacementEntrypoints), publicFacadeRemovalReplacementValidationCommandCount(inventory.RemovalPlan.ReplacementEntrypoints), len(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateValidationCommandCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateExitCriteriaCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateVerificationArtifactCount(inventory.RemovalPlan.DeletionGates), publicFacadeRemovalDeletionGateBlockedExecutionStepCount(inventory.RemovalPlan.DeletionGates), len(inventory.RemovalPlan.ExecutionSteps), publicFacadeRemovalExecutionValidationCommandCount(inventory.RemovalPlan.ExecutionSteps), len(inventory.RemovalPlan.BoundaryChecks), publicFacadeRemovalBoundaryValidationCommandCount(inventory.RemovalPlan.BoundaryChecks), len(inventory.RemovalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps), len(inventory.RemovalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets)))
 	details = append(details, fmt.Sprintf("removalImpact=%t impactReferences=%d impactCategories=%d workItems=%d validationCommands=%d migrationTargets=%d migrationValidationCommands=%d smokeMigrationTargets=%d smokeMigrationValidationCommands=%d unclassified=%d", inventory.RemovalImpact.Ready, len(inventory.RemovalImpact.References), len(inventory.RemovalImpact.ReferenceCategories), len(inventory.RemovalImpact.WorkItems), publicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems), len(inventory.RemovalImpact.MigrationTargets), publicFacadeRemovalMigrationValidationCommandCount(inventory.RemovalImpact.MigrationTargets), len(inventory.RemovalImpact.SmokeMigrationTargets), publicFacadeRemovalSmokeMigrationValidationCommandCount(inventory.RemovalImpact.SmokeMigrationTargets), len(inventory.RemovalImpact.UnclassifiedReferences)))
 	for _, prerequisite := range inventory.Prerequisites {
 		details = append(details, fmt.Sprintf("%s ready=%t %s", prerequisite.Name, prerequisite.Ready, prerequisite.Summary))
@@ -212,7 +213,7 @@ func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation,
 			{
 				Name:    "removal-plan-documented",
 				Ready:   removalPlan.Ready,
-				Summary: fmt.Sprintf("removalPlanReady=%t checks=%d replacementEntrypoints=%d replacementValidationCommands=%d deletionGates=%d deletionGateValidationCommands=%d deletionGateExitCriteria=%d deletionGateVerificationArtifacts=%d executionSteps=%d executionValidationCommands=%d boundaryChecks=%d boundaryValidationCommands=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", removalPlan.Ready, len(removalPlan.RequiredPhrases), len(removalPlan.ReplacementEntrypoints), publicFacadeRemovalReplacementValidationCommandCount(removalPlan.ReplacementEntrypoints), len(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateValidationCommandCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateExitCriteriaCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateVerificationArtifactCount(removalPlan.DeletionGates), len(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionValidationCommandCount(removalPlan.ExecutionSteps), len(removalPlan.BoundaryChecks), publicFacadeRemovalBoundaryValidationCommandCount(removalPlan.BoundaryChecks), len(removalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(removalPlan.RecoverySteps), len(removalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(removalPlan.DocumentationTargets)),
+				Summary: fmt.Sprintf("removalPlanReady=%t checks=%d replacementEntrypoints=%d replacementValidationCommands=%d deletionGates=%d deletionGateValidationCommands=%d deletionGateExitCriteria=%d deletionGateVerificationArtifacts=%d deletionGateBlockedExecutionSteps=%d executionSteps=%d executionValidationCommands=%d boundaryChecks=%d boundaryValidationCommands=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", removalPlan.Ready, len(removalPlan.RequiredPhrases), len(removalPlan.ReplacementEntrypoints), publicFacadeRemovalReplacementValidationCommandCount(removalPlan.ReplacementEntrypoints), len(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateValidationCommandCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateExitCriteriaCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateVerificationArtifactCount(removalPlan.DeletionGates), publicFacadeRemovalDeletionGateBlockedExecutionStepCount(removalPlan.DeletionGates), len(removalPlan.ExecutionSteps), publicFacadeRemovalExecutionValidationCommandCount(removalPlan.ExecutionSteps), len(removalPlan.BoundaryChecks), publicFacadeRemovalBoundaryValidationCommandCount(removalPlan.BoundaryChecks), len(removalPlan.RecoverySteps), publicFacadeRemovalRecoveryValidationCommandCount(removalPlan.RecoverySteps), len(removalPlan.DocumentationTargets), publicFacadeRemovalDocumentationValidationCommandCount(removalPlan.DocumentationTargets)),
 			},
 			{
 				Name:    "removal-impact-inventoried",
@@ -314,12 +315,31 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 	if len(plan.DeletionGates) == 0 {
 		plan.Warnings = append(plan.Warnings, "public facade removal deletion gates are empty")
 	}
+	executionStepNames := map[string]bool{}
+	for _, step := range plan.ExecutionSteps {
+		if strings.TrimSpace(step.Name) != "" {
+			executionStepNames[step.Name] = true
+		}
+	}
 	for _, gate := range plan.DeletionGates {
 		if !gate.Required {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate is not required: %s", gate.Name))
 		}
 		if !gate.BlocksRemoval {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate does not block removal: %s", gate.Name))
+		}
+		if len(gate.BlockedExecutionSteps) == 0 {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing blocked execution steps: %s", gate.Name))
+		}
+		if !slices.Contains(gate.BlockedExecutionSteps, "delete-public-facade") {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate does not block delete-public-facade: %s", gate.Name))
+		}
+		for _, step := range gate.BlockedExecutionSteps {
+			if strings.TrimSpace(step) == "" {
+				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty blocked execution step: %s", gate.Name))
+			} else if !executionStepNames[step] {
+				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate references unknown blocked execution step %q: %s", step, gate.Name))
+			}
 		}
 		if strings.TrimSpace(gate.Name) == "" {
 			plan.Warnings = append(plan.Warnings, "public facade removal deletion gate missing name")
@@ -576,11 +596,12 @@ func publicFacadeRemovalDeletionGates() []PublicFacadeRemovalDeletionGate {
 	commands := publicFacadeRemovalImpactValidationCommands()
 	return []PublicFacadeRemovalDeletionGate{
 		{
-			Name:           "go-native-alternatives-ready",
-			Gate:           "replacement entrypoints and Go-native public surface must be ready before deleting the public facade",
-			Required:       true,
-			BlocksRemoval:  true,
-			InputInventory: []string{"publicFacadeRemoval.removalPlan.replacementEntrypoints", "goNativePublicSurface"},
+			Name:                  "go-native-alternatives-ready",
+			Gate:                  "replacement entrypoints and Go-native public surface must be ready before deleting the public facade",
+			Required:              true,
+			BlocksRemoval:         true,
+			BlockedExecutionSteps: []string{"delete-public-facade", "rerun-release-gate"},
+			InputInventory:        []string{"publicFacadeRemoval.removalPlan.replacementEntrypoints", "goNativePublicSurface"},
 			ExitCriteria: []string{
 				"replacementEntrypoints[] covers all required user-facing and deterministic alternatives",
 				"goNativePublicSurface.ready and facadeRemovalReady are true",
@@ -594,11 +615,12 @@ func publicFacadeRemovalDeletionGates() []PublicFacadeRemovalDeletionGate {
 			ValidationCommands: commands,
 		},
 		{
-			Name:           "public-references-migrated",
-			Gate:           "all public facade migration targets must be processed before deleting the public facade",
-			Required:       true,
-			BlocksRemoval:  true,
-			InputInventory: []string{"publicFacadeRemoval.removalImpact.migrationTargets", "publicFacadeRemoval.removalPlan.documentationTargets"},
+			Name:                  "public-references-migrated",
+			Gate:                  "all public facade migration targets must be processed before deleting the public facade",
+			Required:              true,
+			BlocksRemoval:         true,
+			BlockedExecutionSteps: []string{"delete-public-facade", "rerun-release-gate"},
+			InputInventory:        []string{"publicFacadeRemoval.removalImpact.migrationTargets", "publicFacadeRemoval.removalPlan.documentationTargets"},
 			ExitCriteria: []string{
 				"migrationTargets[] have been rewritten, retired or explicitly preserved as historical context",
 				"documentationTargets[] have been synchronized with the removal result",
@@ -612,11 +634,12 @@ func publicFacadeRemovalDeletionGates() []PublicFacadeRemovalDeletionGate {
 			ValidationCommands: commands,
 		},
 		{
-			Name:           "facade-smoke-retired",
-			Gate:           "facade compatibility and dependent smoke targets must be rewritten or retired before deleting the public facade",
-			Required:       true,
-			BlocksRemoval:  true,
-			InputInventory: []string{"publicFacadeRemoval.removalImpact.smokeMigrationTargets"},
+			Name:                  "facade-smoke-retired",
+			Gate:                  "facade compatibility and dependent smoke targets must be rewritten or retired before deleting the public facade",
+			Required:              true,
+			BlocksRemoval:         true,
+			BlockedExecutionSteps: []string{"delete-public-facade", "rerun-release-gate"},
+			InputInventory:        []string{"publicFacadeRemoval.removalImpact.smokeMigrationTargets"},
 			ExitCriteria: []string{
 				"smokeMigrationTargets[] no longer require public facade compatibility assertions",
 				"replacement Go-native checks cover the retired facade smoke intent",
@@ -630,11 +653,12 @@ func publicFacadeRemovalDeletionGates() []PublicFacadeRemovalDeletionGate {
 			ValidationCommands: commands,
 		},
 		{
-			Name:           "recovery-path-ready",
-			Gate:           "recovery steps and synchronized docs must be ready before deleting the public facade",
-			Required:       true,
-			BlocksRemoval:  true,
-			InputInventory: []string{"publicFacadeRemoval.removalPlan.recoverySteps", "publicFacadeRemoval.removalPlan.documentationTargets"},
+			Name:                  "recovery-path-ready",
+			Gate:                  "recovery steps and synchronized docs must be ready before deleting the public facade",
+			Required:              true,
+			BlocksRemoval:         true,
+			BlockedExecutionSteps: []string{"delete-public-facade", "rerun-release-gate"},
+			InputInventory:        []string{"publicFacadeRemoval.removalPlan.recoverySteps", "publicFacadeRemoval.removalPlan.documentationTargets"},
 			ExitCriteria: []string{
 				"recoverySteps[] include public facade, docs and release gate restoration paths",
 				"documentationTargets[] include every public removal communication surface",
@@ -648,11 +672,12 @@ func publicFacadeRemovalDeletionGates() []PublicFacadeRemovalDeletionGate {
 			ValidationCommands: commands,
 		},
 		{
-			Name:           "release-gate-green",
-			Gate:           "Go-native release gate must pass before and after deleting the public facade",
-			Required:       true,
-			BlocksRemoval:  true,
-			InputInventory: []string{"gateProfile", "ciReleaseGate", "releaseHandoff.signals"},
+			Name:                  "release-gate-green",
+			Gate:                  "Go-native release gate must pass before and after deleting the public facade",
+			Required:              true,
+			BlocksRemoval:         true,
+			BlockedExecutionSteps: []string{"delete-public-facade", "rerun-release-gate"},
+			InputInventory:        []string{"gateProfile", "ciReleaseGate", "releaseHandoff.signals"},
 			ExitCriteria: []string{
 				"gateProfile and ciReleaseGate remain ready on Go-native commands",
 				"releaseHandoff.signals[] show synchronized public facade removal readiness",
@@ -688,6 +713,14 @@ func publicFacadeRemovalDeletionGateVerificationArtifactCount(gates []PublicFaca
 	count := 0
 	for _, gate := range gates {
 		count += len(gate.VerificationArtifacts)
+	}
+	return count
+}
+
+func publicFacadeRemovalDeletionGateBlockedExecutionStepCount(gates []PublicFacadeRemovalDeletionGate) int {
+	count := 0
+	for _, gate := range gates {
+		count += len(gate.BlockedExecutionSteps)
 	}
 	return count
 }
