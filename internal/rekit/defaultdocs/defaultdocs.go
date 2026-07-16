@@ -9,13 +9,14 @@ import (
 )
 
 type Readiness struct {
-	Ready             bool               `json:"ready"`
-	Summary           string             `json:"summary"`
-	Documents         []DocumentCheck    `json:"documents"`
-	RequiredPhrases   []PhraseCheck      `json:"requiredPhrases"`
-	ForbiddenCommands []ForbiddenCommand `json:"forbiddenCommands"`
-	Boundaries        []string           `json:"boundaries"`
-	Warnings          []string           `json:"warnings"`
+	Ready                bool                  `json:"ready"`
+	Summary              string                `json:"summary"`
+	Documents            []DocumentCheck       `json:"documents"`
+	RequiredPhrases      []PhraseCheck         `json:"requiredPhrases"`
+	ForbiddenCommands    []ForbiddenCommand    `json:"forbiddenCommands"`
+	ForbiddenShellFences []ForbiddenShellFence `json:"forbiddenShellFences"`
+	Boundaries           []string              `json:"boundaries"`
+	Warnings             []string              `json:"warnings"`
 }
 
 type DocumentCheck struct {
@@ -38,6 +39,14 @@ type ForbiddenCommand struct {
 	Present bool   `json:"present"`
 }
 
+type ForbiddenShellFence struct {
+	Path     string `json:"path"`
+	Language string `json:"language"`
+	Line     int    `json:"line"`
+	Snippet  string `json:"snippet"`
+	Present  bool   `json:"present"`
+}
+
 type requiredPhrase struct {
 	path   string
 	phrase string
@@ -50,6 +59,7 @@ var documents = []DocumentCheck{
 	{Path: ".claude/skills/rekit/SKILL.md", Purpose: "canonical slash skill instructions"},
 	{Path: "CLAUDE.md", Purpose: "project maintainer instructions"},
 	{Path: "docs/autonomous-goal.md", Purpose: "long-term autonomous handoff anchor"},
+	{Path: "docs/release-readiness.md", Purpose: "release gate default validation path"},
 }
 
 var requiredPhrases = []requiredPhrase{
@@ -69,6 +79,8 @@ var requiredPhrases = []requiredPhrase{
 	{path: "docs/autonomous-goal.md", phrase: "PowerShell-free / Go-native / 跨平台"},
 	{path: "docs/autonomous-goal.md", phrase: "每轮自主推进按这个循环做"},
 	{path: "docs/autonomous-goal.md", phrase: "默认继续自主推进"},
+	{path: "docs/release-readiness.md", phrase: "发布门禁默认依赖 Go-owned `release-check` inventory"},
+	{path: "docs/release-readiness.md", phrase: "默认本机验证路径不依赖 PowerShell"},
 }
 
 var forbiddenFacadeCommand = regexp.MustCompile(`(?i)(^|[\s` + "`" + `])(?:\.?[\\/])?rekit[\\/]rekit\.ps1\s+(?:-[a-z][a-z0-9-]*\s+)*?(?:release-check|status|packs|doctor|validate|overview|continue|start|handoff|sync|promote|note|gate|plan-subagents|attach|init|bootstrap|repair)\b`)
@@ -82,13 +94,14 @@ var boundaries = []string{
 
 func Inspect(repoRoot string) Readiness {
 	readiness := Readiness{
-		Ready:             true,
-		Summary:           "public default docs readiness ok",
-		Documents:         []DocumentCheck{},
-		RequiredPhrases:   []PhraseCheck{},
-		ForbiddenCommands: []ForbiddenCommand{},
-		Boundaries:        append([]string{}, boundaries...),
-		Warnings:          []string{},
+		Ready:                true,
+		Summary:              "public default docs readiness ok",
+		Documents:            []DocumentCheck{},
+		RequiredPhrases:      []PhraseCheck{},
+		ForbiddenCommands:    []ForbiddenCommand{},
+		ForbiddenShellFences: []ForbiddenShellFence{},
+		Boundaries:           append([]string{}, boundaries...),
+		Warnings:             []string{},
 	}
 	texts := map[string]string{}
 	for _, doc := range documents {
@@ -116,10 +129,16 @@ func Inspect(repoRoot string) Readiness {
 			continue
 		}
 		readiness.ForbiddenCommands = append(readiness.ForbiddenCommands, forbiddenCommandsInDoc(doc.Path, text)...)
+		readiness.ForbiddenShellFences = append(readiness.ForbiddenShellFences, forbiddenShellFencesInDoc(doc.Path, text)...)
 	}
 	for _, forbidden := range readiness.ForbiddenCommands {
 		if forbidden.Present {
 			readiness.Warnings = append(readiness.Warnings, fmt.Sprintf("public default doc %s:%d exposes PowerShell façade command as a default path: %s", forbidden.Path, forbidden.Line, forbidden.Snippet))
+		}
+	}
+	for _, forbidden := range readiness.ForbiddenShellFences {
+		if forbidden.Present {
+			readiness.Warnings = append(readiness.Warnings, fmt.Sprintf("public default doc %s:%d uses PowerShell shell fence in default docs: %s", forbidden.Path, forbidden.Line, forbidden.Snippet))
 		}
 	}
 	if len(readiness.Warnings) > 0 {
@@ -142,6 +161,25 @@ func forbiddenCommandsInDoc(path, text string) []ForbiddenCommand {
 			Line:    i + 1,
 			Snippet: strings.TrimSpace(line),
 			Present: true,
+		})
+	}
+	return checks
+}
+
+func forbiddenShellFencesInDoc(path, text string) []ForbiddenShellFence {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	checks := []ForbiddenShellFence{}
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "```powershell" && trimmed != "```pwsh" {
+			continue
+		}
+		checks = append(checks, ForbiddenShellFence{
+			Path:     path,
+			Language: strings.TrimPrefix(trimmed, "```"),
+			Line:     i + 1,
+			Snippet:  trimmed,
+			Present:  true,
 		})
 	}
 	return checks

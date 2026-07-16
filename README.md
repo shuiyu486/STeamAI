@@ -47,7 +47,7 @@
 
 进入 kit 仓库启动 Claude Code：
 
-```powershell
+```text
 cd <workspaceRoot>\kits\re-context-kits
 claude
 ```
@@ -70,7 +70,7 @@ claude
 
 进入 case 启动 Claude Code：
 
-```powershell
+```text
 cd <workspaceRoot>\cases\<caseName>
 claude
 ```
@@ -333,13 +333,13 @@ packs/vmp-re/tooling/patches/vmpimportfixer-timeout-and-quiet-log.md
 
 先关闭正在使用该 case 的 Claude Code、IDA、x64dbg、trace 脚本等进程：
 
-```powershell
+```text
 robocopy <oldCaseRoot> <newCaseRoot> /E
 ```
 
 ### 2. 在新目录检查状态
 
-```powershell
+```text
 cd <newCaseRoot>
 claude
 ```

@@ -387,6 +387,13 @@ type releaseCheckPublicDefaultDocs struct {
 		Snippet string `json:"snippet"`
 		Present bool   `json:"present"`
 	} `json:"forbiddenCommands"`
+	ForbiddenShellFences []struct {
+		Path     string `json:"path"`
+		Language string `json:"language"`
+		Line     int    `json:"line"`
+		Snippet  string `json:"snippet"`
+		Present  bool   `json:"present"`
+	} `json:"forbiddenShellFences"`
 	Boundaries []string `json:"boundaries"`
 	Warnings   []string `json:"warnings"`
 }
@@ -792,20 +799,27 @@ func assertReleaseCheckPublicDefaultDocs(t *testing.T, docs releaseCheckPublicDe
 	if !docs.Ready || docs.Summary != "public default docs readiness ok" || len(docs.Warnings) != 0 {
 		t.Fatalf("unexpected public default docs readiness inventory: %+v", docs)
 	}
-	if len(docs.Documents) != 4 || len(docs.RequiredPhrases) == 0 || len(docs.Boundaries) == 0 {
+	if len(docs.Documents) != 5 || len(docs.RequiredPhrases) == 0 || len(docs.Boundaries) == 0 {
 		t.Fatalf("public default docs readiness omitted required sections: %+v", docs)
 	}
 	assertPublicDefaultDoc(t, docs, "README.md")
 	assertPublicDefaultDoc(t, docs, ".claude/skills/rekit/SKILL.md")
 	assertPublicDefaultDoc(t, docs, "CLAUDE.md")
 	assertPublicDefaultDoc(t, docs, "docs/autonomous-goal.md")
+	assertPublicDefaultDoc(t, docs, "docs/release-readiness.md")
 	assertPublicDefaultPhrase(t, docs, "README.md", "用户主要指挥主 Agent / Mission Commander")
 	assertPublicDefaultPhrase(t, docs, ".claude/skills/rekit/SKILL.md", "底层 Go CLI 是 canonical runtime")
 	assertPublicDefaultPhrase(t, docs, "CLAUDE.md", "PowerShell-free / Go-native / 跨平台收敛")
 	assertPublicDefaultPhrase(t, docs, "docs/autonomous-goal.md", "默认继续自主推进")
+	assertPublicDefaultPhrase(t, docs, "docs/release-readiness.md", "默认本机验证路径不依赖 PowerShell")
 	for _, forbidden := range docs.ForbiddenCommands {
 		if forbidden.Present {
 			t.Fatalf("public default docs forbidden command present: %+v", forbidden)
+		}
+	}
+	for _, forbidden := range docs.ForbiddenShellFences {
+		if forbidden.Present {
+			t.Fatalf("public default docs forbidden shell fence present: %+v", forbidden)
 		}
 	}
 }
@@ -904,7 +918,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
 		"commands=14 modules=14 freezeGates=10 blocked=5",
 		"case shim: case shim readiness ok ready=true",
-		"public default docs: public default docs readiness ok ready=true documents=4",
+		"public default docs: public default docs readiness ok ready=true documents=5",
 		"release handoff: release handoff summary ok ready=true readFirst=7 signals=10 knownGaps=5 packMaturity=10",
 		"releaseNotes=true",
 		"latest=Batch ",

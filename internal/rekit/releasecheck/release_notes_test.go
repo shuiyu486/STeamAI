@@ -40,7 +40,7 @@ func writeReleaseHandoffFixture(t *testing.T, repo, batchTitle, changelogLine st
   "globalBoundaries": ["boundary"]
 }`)
 	writeFile(t, filepath.Join(repo, "docs", "batch-plan.md"), "# Batch implementation plan\n\n### "+batchTitle+"\n\n状态：已完成。\n\n目标：fixture goal.\n\n验证结果：fixture validation.\n")
-	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), "## Known gaps\n\n- fixture gap\n")
+	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), "# Release readiness\n\n发布门禁默认依赖 Go-owned `release-check` inventory。\n默认本机验证路径不依赖 PowerShell。\n\n## Known gaps\n\n- fixture gap\n")
 	writeFile(t, filepath.Join(repo, "README.md"), "# README\n\n用户主要指挥主 Agent / Mission Commander\nGo CLI/backend 是背后的 canonical deterministic runtime/API\n`rekit.ps1` 仅作为迁移期 legacy façade\n默认路径继续向 PowerShell-free / Go-native / 跨平台收敛\n这里不需要你手动执行底层脚本\n用户不需要把 `/rekit` 子命令当成主要交互界面\n")
 	writeFile(t, filepath.Join(repo, "CLAUDE.md"), "# CLAUDE\n\nPowerShell-free / Go-native / 跨平台收敛\nPowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问\n默认远程 CI 入口是 `.github/workflows/release-gate.yml`，在 Linux、Windows、macOS 上运行 Go-native release checks\n")
 	writeFile(t, filepath.Join(repo, "docs", "mission-control-product-direction.md"), "# mission control\n")

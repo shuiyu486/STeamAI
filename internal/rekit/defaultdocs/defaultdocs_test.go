@@ -16,19 +16,24 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertDocument(t, readiness, ".claude/skills/rekit/SKILL.md")
 	assertDocument(t, readiness, "CLAUDE.md")
 	assertDocument(t, readiness, "docs/autonomous-goal.md")
+	assertDocument(t, readiness, "docs/release-readiness.md")
 	assertPhrase(t, readiness, "README.md", "用户主要指挥主 Agent / Mission Commander")
 	assertPhrase(t, readiness, ".claude/skills/rekit/SKILL.md", "底层 Go CLI 是 canonical runtime")
 	assertPhrase(t, readiness, "CLAUDE.md", "PowerShell-free / Go-native / 跨平台收敛")
 	assertPhrase(t, readiness, "docs/autonomous-goal.md", "默认继续自主推进")
+	assertPhrase(t, readiness, "docs/release-readiness.md", "默认本机验证路径不依赖 PowerShell")
 	if len(readiness.ForbiddenCommands) != 0 {
 		t.Fatalf("unexpected forbidden public default commands: %+v", readiness.ForbiddenCommands)
+	}
+	if len(readiness.ForbiddenShellFences) != 0 {
+		t.Fatalf("unexpected forbidden public default shell fences: %+v", readiness.ForbiddenShellFences)
 	}
 }
 
 func TestInspectDetectsPowerShellFacadeCommandSnippet(t *testing.T) {
 	repo := t.TempDir()
 	writeReadyDocs(t, repo)
-	writeFile(t, filepath.Join(repo, "README.md"), readyREADME+"\n```powershell\n./rekit/rekit.ps1 -Command doctor\n```\n")
+	writeFile(t, filepath.Join(repo, "README.md"), readyREADME+"\n```text\n./rekit/rekit.ps1 -Command doctor\n```\n")
 
 	readiness := Inspect(repo)
 	if readiness.Ready {
@@ -38,6 +43,21 @@ func TestInspectDetectsPowerShellFacadeCommandSnippet(t *testing.T) {
 		t.Fatalf("unexpected forbidden command diagnostics: %+v", readiness.ForbiddenCommands)
 	}
 	assertWarningContains(t, readiness.Warnings, "exposes PowerShell façade command")
+}
+
+func TestInspectDetectsPowerShellShellFence(t *testing.T) {
+	repo := t.TempDir()
+	writeReadyDocs(t, repo)
+	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), readyReleaseReadiness+"\n```powershell\ngo test ./...\n```\n")
+
+	readiness := Inspect(repo)
+	if readiness.Ready {
+		t.Fatalf("public default docs unexpectedly ready despite PowerShell shell fence: %+v", readiness)
+	}
+	if len(readiness.ForbiddenShellFences) != 1 || readiness.ForbiddenShellFences[0].Language != "powershell" {
+		t.Fatalf("unexpected forbidden shell fence diagnostics: %+v", readiness.ForbiddenShellFences)
+	}
+	assertWarningContains(t, readiness.Warnings, "uses PowerShell shell fence")
 }
 
 func TestInspectDetectsMissingMissionControlDefaultPhrase(t *testing.T) {
@@ -94,6 +114,7 @@ func writeReadyDocs(t *testing.T, repo string) {
 	writeFile(t, filepath.Join(repo, ".claude", "skills", "rekit", "SKILL.md"), readySkill)
 	writeFile(t, filepath.Join(repo, "CLAUDE.md"), readyClaude)
 	writeFile(t, filepath.Join(repo, "docs", "autonomous-goal.md"), readyAutonomousGoal)
+	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), readyReleaseReadiness)
 }
 
 func writeFile(t *testing.T, path, content string) {
@@ -154,4 +175,10 @@ const readyAutonomousGoal = `# goal
 PowerShell-free / Go-native / 跨平台。
 每轮自主推进按这个循环做。
 默认继续自主推进。
+`
+
+const readyReleaseReadiness = `# release
+
+发布门禁默认依赖 Go-owned ` + "`release-check`" + ` inventory。
+默认本机验证路径不依赖 PowerShell。
 `

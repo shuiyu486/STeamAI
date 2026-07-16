@@ -98,7 +98,7 @@ BEGIN.
 
 仓库级只读检查：
 
-```powershell
+```text
 go run ./cmd/rekit -- -Command release-check -Format json
 go run ./cmd/rekit -- -Command status
 go run ./cmd/rekit -- -Command packs
@@ -111,19 +111,19 @@ go vet ./...
 
 涉及 PowerShell façade / Go backend 委托时额外检查：
 
-```powershell
+```text
 .\rekit\tests\facade-smoke.ps1
 ```
 
 需要对长期 dryrun case 做兼容验证时，可额外传入显式 case：
 
-```powershell
+```text
 .\rekit\tests\facade-smoke.ps1 -CaseRoot 'C:\AI\m_projects\RE\_dryrun_cases\agent-team-dryrun' -Pack vmp-re
 ```
 
 改动 pack wrapper 时可额外检查：
 
-```powershell
+```text
 .\packs\vmp-re\scripts\validate.ps1
 ```
 

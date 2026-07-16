@@ -49,7 +49,7 @@
 
 按改动类型选择验证，不要求每批都跑所有 smoke。常用基础组合优先用 Go-native 路径：
 
-```powershell
+```text
 go run ./cmd/rekit -- -Command release-check -Format json
 go run ./cmd/rekit -- -Command status
 go run ./cmd/rekit -- -Command packs

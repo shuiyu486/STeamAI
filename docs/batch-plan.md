@@ -6607,3 +6607,35 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `gofmt`、`go test ./internal/rekit/defaultdocs ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...` 与 `go vet ./...`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 220：Public default docs shell fence readiness
+
+状态：已完成。
+
+目标：继续 PowerShell-free / Go-native / 跨平台收敛，在 Batch 219 的 `publicDefaultDocs` 基础上继续收紧公开默认文档入口，确保 README、CLAUDE、canonical `/rekit` skill、autonomous goal 与 release readiness 不再用 PowerShell / pwsh code fence 展示默认命令，也不在 release readiness 中把 `rekit.ps1` façade 命令片段展示成默认路径。
+
+实施范围：
+
+- `internal/rekit/defaultdocs` 将 `docs/release-readiness.md` 纳入 public default docs readiness，新增 `forbiddenShellFences[]` JSON 诊断，拒绝 ` ```powershell` / ` ```pwsh` fence 出现在公开默认文档集合中。
+- `release-check` text output 与 `releaseHandoff.signals[]` 的 `public default docs` detail 同步展示 `forbiddenShellFences` 计数。
+- README、CLAUDE、`docs/autonomous-goal.md` 与 `docs/release-readiness.md` 的默认命令块改为 neutral `text` fence；release readiness 中按需 compatibility 检查改为文字描述，不再展示 `./rekit/rekit.ps1 -Command doctor` 命令片段。
+- 更新 defaultdocs / releasecheck / CLI tests 与 release handoff fixtures，覆盖 PowerShell shell fence drift、release readiness 必备短语和 expanded JSON/text inventory。
+- 更新 CHANGELOG，记录该 readiness 扩展及边界。
+
+边界：本批不改变 runtime 写入面、PowerShell façade 默认委托集合、`REKIT_GO_DISABLE=1` fallback、pack manifest、case state、sync/promote review-first 语义、workstream/ledger/gate 行为或实际 case lifecycle 写入结果；不删除 PowerShell 文件；不执行 heavy-tool、不自动 spawn agent、不写 authority/confirmed。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/defaultdocs/defaultdocs.go internal/rekit/defaultdocs/defaultdocs_test.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_notes_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/defaultdocs ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 targeted `gofmt`、`go test ./internal/rekit/defaultdocs ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...` 与 `go vet ./...`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
