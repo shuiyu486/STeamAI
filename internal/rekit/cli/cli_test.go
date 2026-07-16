@@ -619,13 +619,27 @@ type releaseCheckResult struct {
 		HeavyToolGates int    `json:"heavyToolGates"`
 	} `json:"packs"`
 	PowerShellDeprecation releaseCheckPowerShellDeprecation `json:"powerShellDeprecation"`
-	CaseShim              releaseCheckCaseShim              `json:"caseShim"`
-	PublicDefaultDocs     releaseCheckPublicDefaultDocs     `json:"publicDefaultDocs"`
-	ReleaseHandoff        releaseCheckHandoff               `json:"releaseHandoff"`
-	HeavyToolGateActions  []string                          `json:"heavyToolGateActions"`
-	Boundaries            []string                          `json:"boundaries"`
-	KnownGaps             []string                          `json:"knownGaps"`
-	Warnings              []string                          `json:"warnings"`
+	GoNativePublicSurface struct {
+		Ready                               bool     `json:"ready"`
+		Summary                             string   `json:"summary"`
+		Entrypoint                          string   `json:"entrypoint"`
+		EntrypointPresent                   bool     `json:"entrypointPresent"`
+		CommandCatalogPath                  string   `json:"commandCatalogPath"`
+		CommandCatalogPresent               bool     `json:"commandCatalogPresent"`
+		DefaultCommand                      string   `json:"defaultCommand"`
+		Commands                            []string `json:"commands"`
+		AlternativePattern                  string   `json:"alternativePattern"`
+		UnsupportedCommandDiagnostic        string   `json:"unsupportedCommandDiagnostic"`
+		UnsupportedCommandDiagnosticPresent bool     `json:"unsupportedCommandDiagnosticPresent"`
+		Warnings                            []string `json:"warnings"`
+	} `json:"goNativePublicSurface"`
+	CaseShim             releaseCheckCaseShim          `json:"caseShim"`
+	PublicDefaultDocs    releaseCheckPublicDefaultDocs `json:"publicDefaultDocs"`
+	ReleaseHandoff       releaseCheckHandoff           `json:"releaseHandoff"`
+	HeavyToolGateActions []string                      `json:"heavyToolGateActions"`
+	Boundaries           []string                      `json:"boundaries"`
+	KnownGaps            []string                      `json:"knownGaps"`
+	Warnings             []string                      `json:"warnings"`
 }
 
 func TestRunReleaseCheckJsonInventory(t *testing.T) {
@@ -661,6 +675,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckStep(t, result.RecommendedMinimum, "go run ./cmd/rekit -- -Command doctor", "go-run", "cmd/rekit")
 	assertReleaseCheckCIReleaseGate(t, result.CIReleaseGate)
 	assertReleaseCheckPowerShellDeprecation(t, result.PowerShellDeprecation)
+	assertReleaseCheckGoNativePublicSurface(t, result.GoNativePublicSurface)
 	assertReleaseCheckCaseShim(t, result.CaseShim)
 	assertReleaseCheckPublicDefaultDocs(t, result.PublicDefaultDocs)
 	assertReleaseCheckHandoff(t, result.ReleaseHandoff)
@@ -788,7 +803,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff summary: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 10 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 11 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertReleaseHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -805,6 +820,9 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "publicFacade=true retained=true facadeCommands=19 noFallback=19")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleRemoval=true candidates=0 retired=13 facadeDeps=0 undocumented=0")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0")
+	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true")
+	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=19 alternative=go run ./cmd/rekit -- -Command <command>")
+	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "unsupportedDiagnostic=true")
 	assertReleaseHandoffSignal(t, handoff, "case shim readiness")
 	assertReleaseHandoffSignal(t, handoff, "public default docs")
 	assertReleaseHandoffSignal(t, handoff, "heavy-tool gate manifests")
@@ -912,6 +930,34 @@ func assertReleaseHandoffKnownGap(t *testing.T, handoff releaseCheckHandoff, cat
 		}
 	}
 	t.Fatalf("release handoff missing known gap category %s: %+v", category, handoff.KnownGaps)
+}
+
+func assertReleaseCheckGoNativePublicSurface(t *testing.T, surface struct {
+	Ready                               bool     `json:"ready"`
+	Summary                             string   `json:"summary"`
+	Entrypoint                          string   `json:"entrypoint"`
+	EntrypointPresent                   bool     `json:"entrypointPresent"`
+	CommandCatalogPath                  string   `json:"commandCatalogPath"`
+	CommandCatalogPresent               bool     `json:"commandCatalogPresent"`
+	DefaultCommand                      string   `json:"defaultCommand"`
+	Commands                            []string `json:"commands"`
+	AlternativePattern                  string   `json:"alternativePattern"`
+	UnsupportedCommandDiagnostic        string   `json:"unsupportedCommandDiagnostic"`
+	UnsupportedCommandDiagnosticPresent bool     `json:"unsupportedCommandDiagnosticPresent"`
+	Warnings                            []string `json:"warnings"`
+}) {
+	t.Helper()
+	if !surface.Ready || surface.Summary != "Go-native public command surface inventory ok" || surface.Entrypoint != "cmd/rekit" || !surface.EntrypointPresent || surface.CommandCatalogPath != "internal/rekit/commands/commands.go" || !surface.CommandCatalogPresent || surface.DefaultCommand != "status" || surface.AlternativePattern != "go run ./cmd/rekit -- -Command <command>" || !surface.UnsupportedCommandDiagnosticPresent || len(surface.Warnings) != 0 {
+		t.Fatalf("unexpected Go-native public surface inventory: %+v", surface)
+	}
+	if len(surface.Commands) != 19 {
+		t.Fatalf("Go-native public surface command catalog omitted expected commands: %+v", surface)
+	}
+	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
+		if !slices.Contains(surface.Commands, command) {
+			t.Fatalf("Go-native public command %s missing from catalog: %+v", command, surface)
+		}
+	}
 }
 
 func assertReleaseCheckCaseShim(t *testing.T, shim releaseCheckCaseShim) {
@@ -1167,9 +1213,10 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
 		"commands=13 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=19 candidates=0 removalModules=0 retiredModules=13 facadeRuntime=true legacyImports=false dispatcher=false publicFacade=true retained=true facadeCommands=19 noFallback=19 moduleRemoval=true removalCandidates=0 retired=13 facadeDeps=0 undocumented=0 moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0",
+		"Go-native public surface: Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true default=status commands=19 alternative=go run ./cmd/rekit -- -Command <command> unsupportedDiagnostic=true",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=13",
-		"release handoff: release handoff summary ok ready=true readFirst=7 signals=10 knownGaps=5 packMaturity=10",
+		"release handoff: release handoff summary ok ready=true readFirst=7 signals=11 knownGaps=5 packMaturity=10",
 		"releaseNotes=true",
 		"latest=Batch ",
 		"known gaps:",

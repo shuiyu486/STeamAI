@@ -169,6 +169,16 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			},
 		},
 		{
+			Name:    "Go-native public surface",
+			Ready:   check.GoNativePublicSurface.Ready,
+			Summary: check.GoNativePublicSurface.Summary,
+			Details: []string{
+				fmt.Sprintf("entrypoint=%s present=%t catalog=%s catalogPresent=%t", check.GoNativePublicSurface.Entrypoint, check.GoNativePublicSurface.EntrypointPresent, check.GoNativePublicSurface.CommandCatalogPath, check.GoNativePublicSurface.CommandCatalogPresent),
+				fmt.Sprintf("default=%s commands=%d alternative=%s", check.GoNativePublicSurface.DefaultCommand, len(check.GoNativePublicSurface.Commands), check.GoNativePublicSurface.AlternativePattern),
+				fmt.Sprintf("unsupportedDiagnostic=%t", check.GoNativePublicSurface.UnsupportedCommandDiagnosticPresent),
+			},
+		},
+		{
 			Name:    "case shim readiness",
 			Ready:   check.CaseShim.Ready,
 			Summary: check.CaseShim.Summary,

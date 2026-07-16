@@ -111,6 +111,17 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 
 该库存只锁定公共 façade 的“保留但非 runtime owner”状态；它不鼓励新增 PowerShell 逻辑，也不把公共 façade 删除并入普通 legacy module removal。若新增 façade command 没有 Go-default/no-fallback owner，或文档未声明删除边界，`powerShellDeprecation.ready=false`。
 
+## Go-native public surface inventory
+
+`release-check -Format json` 的顶层 `goNativePublicSurface` 是 Batch 242 为公共 façade 删除准备新增的只读库存：
+
+- `entrypoint=cmd/rekit` 与 `entrypointPresent=true` 表示底层 Go-native entrypoint 存在；`alternativePattern=go run ./cmd/rekit -- -Command <command>` 与 `powerShellDeprecation.publicFacade.goNativeAlternative` 保持一致。
+- `commandCatalogPath=internal/rekit/commands/commands.go` 与 `commands[]` 是 Go-owned public command catalog，当前基线为 19；CLI dispatcher、unsupported command diagnostic 与 release inventory 均复用该 catalog，避免 public façade command surface 与 Go-native command surface 各自漂移。
+- `unsupportedCommandDiagnosticPresent=true` 要求 direct Go CLI 的未知命令错误列出 supported commands 与 Go-native alternative pattern，确保公共 façade 删除或失效时仍有机器可读、可诊断的底层替代路径。
+- release inventory 会双向校验 `goNativePublicSurface.commands[]` 与 `powerShellDeprecation.publicFacade.commandSurface[]`；任一公开 façade command 未进入 Go-native catalog，或 Go-native public command 未出现在 façade command surface，都会让 `release-check` 失败。
+
+该库存不把 raw Go CLI 变成用户主要交互界面；公开用户默认路径仍由 `/rekit` skill / Mission Control 负责。它只为未来独立删除公共 `rekit/rekit.ps1` façade 时提供确定性替代路径、命令面和诊断基线。
+
 ## Module removal inventory
 
 `release-check -Format json` 的 `powerShellDeprecation.moduleRemoval` 是 Batch 240 删除 legacy PowerShell runtime modules 后的只读 readiness 库存：

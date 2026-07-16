@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/attach"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
@@ -56,7 +57,7 @@ type Options struct {
 }
 
 func Parse(args []string) (Options, error) {
-	opt := Options{Command: "status", Pack: defaults.DefaultPack}
+	opt := Options{Command: commands.DefaultCommand, Pack: defaults.DefaultPack}
 	for i := 0; i < len(args); i++ {
 		if strings.EqualFold(args[i], "--") {
 			continue
@@ -351,7 +352,7 @@ func Parse(args []string) (Options, error) {
 		}
 	}
 	if opt.Command == "" {
-		opt.Command = "status"
+		opt.Command = commands.DefaultCommand
 	}
 	if opt.Pack == "" {
 		opt.Pack = defaults.DefaultPack
@@ -369,40 +370,40 @@ func Run(args []string, stdout io.Writer) error {
 		return err
 	}
 	switch opt.Command {
-	case "status":
+	case commands.Status:
 		return runStatus(ctx, opt, stdout)
-	case "packs":
+	case commands.Packs:
 		return runPacks(ctx, opt, stdout)
-	case "release-check":
+	case commands.ReleaseCheck:
 		return runReleaseCheck(ctx, opt, stdout)
-	case "doctor", "validate":
+	case commands.Doctor, commands.Validate:
 		return runDoctor(ctx, opt, stdout)
-	case "attach":
+	case commands.Attach:
 		return runAttach(ctx, opt, stdout)
-	case "repair":
+	case commands.Repair:
 		return runRepair(ctx, opt, stdout)
-	case "init", "bootstrap":
+	case commands.Init, commands.Bootstrap:
 		return runInitBootstrap(ctx, opt, stdout)
-	case "sync", "update":
+	case commands.Sync, commands.Update:
 		return runSyncReview(ctx, opt, stdout)
-	case "promote":
+	case commands.Promote:
 		return runPromoteReview(ctx, opt, stdout)
-	case "overview":
+	case commands.Overview:
 		return runOverview(ctx, opt, stdout)
-	case "start":
+	case commands.Start:
 		return runStart(ctx, opt, stdout)
-	case "handoff":
+	case commands.Handoff:
 		return runHandoff(ctx, opt, stdout)
-	case "continue":
+	case commands.Continue:
 		return runContinue(ctx, opt, stdout)
-	case "plan-subagents":
+	case commands.PlanSubagents:
 		return runPlanSubagents(ctx, opt, stdout)
-	case "gate":
+	case commands.Gate:
 		return runGate(ctx, opt, stdout)
-	case "note":
+	case commands.Note:
 		return runNote(ctx, opt, stdout)
 	default:
-		return fmt.Errorf("go backend does not implement command yet: %s", opt.Command)
+		return commands.UnsupportedError(opt.Command)
 	}
 }
 
@@ -491,9 +492,16 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 		fmt.Fprintf(out, "packs: %d\n", len(result.Packs))
 		fmt.Fprintf(out, "heavy-tool gate actions: %s\n", strings.Join(result.HeavyToolGateActions, ","))
 		fmt.Fprintf(out, "PowerShell deprecation: %s ready=%t commands=%d modules=%d freezeGates=%d blocked=%d fallbackRetirement=%t noFallback=%d candidates=%d removalModules=%d retiredModules=%d facadeRuntime=%t legacyImports=%t dispatcher=%t publicFacade=%t retained=%t facadeCommands=%d noFallback=%d moduleRemoval=%t removalCandidates=%d retired=%d facadeDeps=%d undocumented=%d moduleReferences=%t activeTests=%d fixtures=%d blockers=%d unclassified=%d\n", result.PowerShellDeprecation.Summary, result.PowerShellDeprecation.Ready, len(result.PowerShellDeprecation.CommandOwnership), len(result.PowerShellDeprecation.ModuleStatus), len(result.PowerShellDeprecation.FreezeGates), len(result.PowerShellDeprecation.BlockedMigrations), result.PowerShellDeprecation.FallbackRetirement.Ready, len(result.PowerShellDeprecation.FallbackRetirement.NoFallbackCommands), len(result.PowerShellDeprecation.FallbackRetirement.CandidateCommands), len(result.PowerShellDeprecation.FallbackRetirement.RemovalCandidateModules), len(result.PowerShellDeprecation.FallbackRetirement.RetiredModules), result.PowerShellDeprecation.FacadeRuntime.Ready, result.PowerShellDeprecation.FacadeRuntime.LegacyModuleImportsPresent, result.PowerShellDeprecation.FacadeRuntime.CommandDispatcherPresent, result.PowerShellDeprecation.PublicFacade.Ready, result.PowerShellDeprecation.PublicFacade.Retained, len(result.PowerShellDeprecation.PublicFacade.CommandSurface), len(result.PowerShellDeprecation.PublicFacade.NoFallbackCommands), result.PowerShellDeprecation.ModuleRemoval.Ready, len(result.PowerShellDeprecation.ModuleRemoval.CandidateModules), len(result.PowerShellDeprecation.ModuleRemoval.RetiredModules), len(result.PowerShellDeprecation.ModuleRemoval.FacadeRuntimeDependencies), len(result.PowerShellDeprecation.ModuleRemoval.UndocumentedModules), result.PowerShellDeprecation.ModuleReferences.Ready, len(result.PowerShellDeprecation.ModuleReferences.ActiveTestDependencies), len(result.PowerShellDeprecation.ModuleReferences.CompatibilityFixtures), len(result.PowerShellDeprecation.ModuleReferences.RemovalBlockers), len(result.PowerShellDeprecation.ModuleReferences.UnclassifiedReferences))
+		fmt.Fprintf(out, "Go-native public surface: %s ready=%t entrypoint=%s present=%t catalog=%s catalogPresent=%t default=%s commands=%d alternative=%s unsupportedDiagnostic=%t\n", result.GoNativePublicSurface.Summary, result.GoNativePublicSurface.Ready, result.GoNativePublicSurface.Entrypoint, result.GoNativePublicSurface.EntrypointPresent, result.GoNativePublicSurface.CommandCatalogPath, result.GoNativePublicSurface.CommandCatalogPresent, result.GoNativePublicSurface.DefaultCommand, len(result.GoNativePublicSurface.Commands), result.GoNativePublicSurface.AlternativePattern, result.GoNativePublicSurface.UnsupportedCommandDiagnosticPresent)
 		fmt.Fprintf(out, "case shim: %s ready=%t required=%d canonical=%d forbidden=%d\n", result.CaseShim.Summary, result.CaseShim.Ready, len(result.CaseShim.RequiredPhrases), len(result.CaseShim.CanonicalSkillPhrases), len(result.CaseShim.ForbiddenStrings))
 		fmt.Fprintf(out, "public default docs: %s ready=%t documents=%d required=%d forbiddenCommands=%d forbiddenShellFences=%d\n", result.PublicDefaultDocs.Summary, result.PublicDefaultDocs.Ready, len(result.PublicDefaultDocs.Documents), len(result.PublicDefaultDocs.RequiredPhrases), len(result.PublicDefaultDocs.ForbiddenCommands), len(result.PublicDefaultDocs.ForbiddenShellFences))
 		fmt.Fprintf(out, "release handoff: %s ready=%t readFirst=%d signals=%d knownGaps=%d packMaturity=%d validation=%d releaseNotes=%t latest=%s\n", result.ReleaseHandoff.Summary, result.ReleaseHandoff.Ready, len(result.ReleaseHandoff.ReadFirst), len(result.ReleaseHandoff.Signals), len(result.ReleaseHandoff.KnownGaps), result.ReleaseHandoff.PackMaturity.Total, len(result.ReleaseHandoff.Validation), result.ReleaseHandoff.ReleaseNotes.Covered, result.ReleaseHandoff.LatestBatch.Title)
+		if len(result.GoNativePublicSurface.Warnings) > 0 {
+			fmt.Fprintln(out, "Go-native public surface warnings:")
+			for _, warning := range result.GoNativePublicSurface.Warnings {
+				fmt.Fprintf(out, "- %s\n", warning)
+			}
+		}
 		if len(result.CaseShim.Warnings) > 0 {
 			fmt.Fprintln(out, "case shim warnings:")
 			for _, warning := range result.CaseShim.Warnings {

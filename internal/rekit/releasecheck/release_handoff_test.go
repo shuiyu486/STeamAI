@@ -19,7 +19,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff inventory: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 10 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 11 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -36,6 +36,9 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "publicFacade=true retained=true facadeCommands=19 noFallback=19")
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleRemoval=true candidates=0 retired=13 facadeDeps=0 undocumented=0")
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=19 alternative=go run ./cmd/rekit -- -Command <command>")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "unsupportedDiagnostic=true")
 	assertHandoffSignal(t, handoff, "case shim readiness")
 	assertHandoffSignal(t, handoff, "public default docs")
 	assertHandoffSignal(t, handoff, "heavy-tool gate manifests")

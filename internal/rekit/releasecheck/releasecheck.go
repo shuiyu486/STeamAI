@@ -30,6 +30,7 @@ type Result struct {
 	Documents             []DocumentCheck        `json:"documents"`
 	Packs                 []manifest.PackSummary `json:"packs"`
 	PowerShellDeprecation PowerShellDeprecation  `json:"powerShellDeprecation"`
+	GoNativePublicSurface GoNativePublicSurface  `json:"goNativePublicSurface"`
 	CaseShim              caseshim.Readiness     `json:"caseShim"`
 	PublicDefaultDocs     defaultdocs.Readiness  `json:"publicDefaultDocs"`
 	ReleaseHandoff        ReleaseHandoff         `json:"releaseHandoff"`
@@ -118,6 +119,7 @@ func Build(repoRoot string) (Result, error) {
 		Documents:             documentChecks(repo, requiredDocuments),
 		Packs:                 packs,
 		PowerShellDeprecation: powerShellDeprecation(repo),
+		GoNativePublicSurface: goNativePublicSurface(repo),
 		CaseShim:              caseshim.Inspect(repo),
 		PublicDefaultDocs:     defaultdocs.Inspect(repo),
 		HeavyToolGateActions:  heavyToolGateActions(packs),
@@ -126,6 +128,11 @@ func Build(repoRoot string) (Result, error) {
 		Warnings:              []string{},
 	}
 	check.GateProfile = gateProfile(check.RecommendedMinimum)
+	if crossWarnings := goNativePublicSurfaceCrossWarnings(check.GoNativePublicSurface, check.PowerShellDeprecation.PublicFacade); len(crossWarnings) > 0 {
+		check.GoNativePublicSurface.Warnings = append(check.GoNativePublicSurface.Warnings, crossWarnings...)
+		check.GoNativePublicSurface.Ready = false
+		check.GoNativePublicSurface.Summary = "Go-native public command surface inventory has warnings"
+	}
 	if !check.GateProfile.Ready {
 		check.Ready = false
 		check.Warnings = append(check.Warnings, "release gate profile has unresolved commands or missing repo-local scripts")
@@ -159,6 +166,10 @@ func Build(repoRoot string) (Result, error) {
 	if !check.PowerShellDeprecation.Ready {
 		check.Ready = false
 		check.Warnings = append(check.Warnings, check.PowerShellDeprecation.Warnings...)
+	}
+	if !check.GoNativePublicSurface.Ready {
+		check.Ready = false
+		check.Warnings = append(check.Warnings, check.GoNativePublicSurface.Warnings...)
 	}
 	if !check.CaseShim.Ready {
 		check.Ready = false

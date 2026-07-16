@@ -108,6 +108,25 @@ func assertCICommand(t *testing.T, gate CIReleaseGate, jobID, command string) {
 	t.Fatalf("missing CI command %s/%s: %+v", jobID, command, gate.RequiredCommands)
 }
 
+func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
+	repo := repoRoot(t)
+	inventory := goNativePublicSurface(repo)
+	if !inventory.Ready || inventory.Summary != "Go-native public command surface inventory ok" || len(inventory.Warnings) != 0 {
+		t.Fatalf("unexpected Go-native public surface inventory: %+v", inventory)
+	}
+	if inventory.Entrypoint != "cmd/rekit" || !inventory.EntrypointPresent || inventory.CommandCatalogPath != "internal/rekit/commands/commands.go" || !inventory.CommandCatalogPresent || inventory.DefaultCommand != "status" || inventory.AlternativePattern != "go run ./cmd/rekit -- -Command <command>" || !inventory.UnsupportedCommandDiagnosticPresent {
+		t.Fatalf("unexpected Go-native public surface flags: %+v", inventory)
+	}
+	if len(inventory.Commands) != 19 {
+		t.Fatalf("Go-native public surface omitted expected command catalog: %+v", inventory)
+	}
+	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
+		if !slices.Contains(inventory.Commands, command) {
+			t.Fatalf("Go-native public command %s missing from catalog: %+v", command, inventory)
+		}
+	}
+}
+
 func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {
 	repo := repoRoot(t)
 	inventory := powerShellDeprecation(repo)
