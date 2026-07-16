@@ -8373,3 +8373,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 274，`deletionGates=5` / `deletionGateValidationCommands=40` / `deletionGateExitCriteria=15` / `deletionGateFailureSignals=15` / `deletionGateEscalationTriggers=15` / `deletionGateEscalationEvidence=15` / `deletionGateEscalationRecipients=15` / `deletionGateEscalationHandoffSteps=15` / `deletionGateEscalationDecisionOptions=15` / `deletionGateEscalationRetryConditions=15` / `deletionGateEscalationStopConditions=15` / `deletionGateVerificationArtifacts=15` / `deletionGateBlockedExecutionSteps=10` / `deletionGateRemediationActions=15`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `deletionGateEscalationStopConditions=15` 与 release handoff `latest=Batch 274：Public façade removal deletion gate escalation stop conditions`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 275：Public façade removal deletion gate escalation resolution artifacts
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 262-274 已把 blocking deletion gates、exit criteria、verification artifacts、blocked execution steps、remediation actions、failure signals、escalation triggers、escalation evidence、escalation recipients、escalation handoff steps、escalation decision options、escalation retry conditions 与 escalation stop conditions 固化后，为每个 deletion gate 增加机器可读 `escalationResolutionArtifacts[]`，让未来真正删除公共 façade 前在触发升级并收束后能审计最终决策、证据和验证产物。
+
+实施范围：
+
+- 扩展 `PublicFacadeRemovalDeletionGate`，新增 `escalationResolutionArtifacts[]`，五个 deletion gates 各提供 3 条升级收束产物，覆盖替代入口决策、public references 处理、façade smoke 去留、恢复路径归属与 release gate retry/stop 记录。
+- readiness 校验要求每个 deletion gate 的 `escalationResolutionArtifacts[]` 非空且不能包含空字符串；release-check text 与 `releaseHandoff.signals[]` 同步展示 `deletionGateEscalationResolutionArtifacts=15`。
+- 补 releasecheck / CLI / handoff tests，并同步 PowerShell deprecation、release readiness、Go-first convergence、batch-plan 与 CHANGELOG 文档。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool，不写 authority/confirmed，不改变 public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、policy schema migration 或外部副作用边界；raw Go CLI 仍是底层 deterministic runtime/API，不变成用户主要交互界面。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 275，`deletionGates=5` / `deletionGateValidationCommands=40` / `deletionGateExitCriteria=15` / `deletionGateFailureSignals=15` / `deletionGateEscalationTriggers=15` / `deletionGateEscalationEvidence=15` / `deletionGateEscalationRecipients=15` / `deletionGateEscalationHandoffSteps=15` / `deletionGateEscalationDecisionOptions=15` / `deletionGateEscalationRetryConditions=15` / `deletionGateEscalationStopConditions=15` / `deletionGateEscalationResolutionArtifacts=15` / `deletionGateVerificationArtifacts=15` / `deletionGateBlockedExecutionSteps=10` / `deletionGateRemediationActions=15`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `deletionGateEscalationResolutionArtifacts=15` 与 release handoff `latest=Batch 275：Public façade removal deletion gate escalation resolution artifacts`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
