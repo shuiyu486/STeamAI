@@ -62,7 +62,12 @@ var documents = []DocumentCheck{
 	{Path: "docs/autonomous-goal.md", Purpose: "long-term autonomous handoff anchor"},
 	{Path: "docs/release-readiness.md", Purpose: "release gate default validation path"},
 	{Path: "docs/go-first-convergence-plan.md", Purpose: "Go-first convergence stage map and validation defaults"},
+	{Path: "docs/go-runtime-migration.md", Purpose: "Go runtime migration history and fallback boundary guidance"},
 	{Path: "docs/powershell-deprecation.md", Purpose: "PowerShell-free roadmap and fallback retirement gates"},
+	{Path: "docs/vision.md", Purpose: "long-term framework vision and validation guidance"},
+	{Path: "docs/reference-absorption.md", Purpose: "reference absorption map and handoff validation guidance"},
+	{Path: "docs/agent-team-rollout-plan.md", Purpose: "Agent Team rollout status and validation guidance"},
+	{Path: "rekit/tests/README.md", Purpose: "smoke selection guide and recommended validation defaults"},
 }
 
 var requiredPhrases = []requiredPhrase{
@@ -90,9 +95,20 @@ var requiredPhrases = []requiredPhrase{
 	{path: "docs/go-first-convergence-plan.md", phrase: "Go backend 成为 rekit 的 deterministic runtime owner"},
 	{path: "docs/go-first-convergence-plan.md", phrase: "不要把大型 PowerShell matrix 作为默认必跑"},
 	{path: "docs/go-first-convergence-plan.md", phrase: "PowerShell-free / Go-native convergence"},
+	{path: "docs/go-runtime-migration.md", phrase: "当前默认验证应优先运行 Go-native release gate"},
+	{path: "docs/go-runtime-migration.md", phrase: "`/rekit` remains the public ABI"},
+	{path: "docs/go-runtime-migration.md", phrase: "default implementation converges to the Go deterministic backend"},
 	{path: "docs/powershell-deprecation.md", phrase: "PowerShell-free / Go-native / 跨平台 convergence"},
 	{path: "docs/powershell-deprecation.md", phrase: "Go CLI/backend 是 canonical runtime"},
 	{path: "docs/powershell-deprecation.md", phrase: "PowerShell 只作为迁移期 legacy façade / fallback / parity residue"},
+	{path: "docs/vision.md", phrase: "Claude Code Agent Team Mission Control 框架"},
+	{path: "docs/vision.md", phrase: "优先运行 Go-native 检查"},
+	{path: "docs/reference-absorption.md", phrase: "Go-native release readiness 子集"},
+	{path: "docs/reference-absorption.md", phrase: "不能宣称已具备自动脱壳/逆向引擎"},
+	{path: "docs/agent-team-rollout-plan.md", phrase: "公共 `/rekit` 默认路径继续向 Go-native / PowerShell-free 收敛"},
+	{path: "docs/agent-team-rollout-plan.md", phrase: "Go-native `status`、`doctor` 与 `release-check` 不回归"},
+	{path: "rekit/tests/README.md", phrase: "Go-first release gate 优先由 Go-owned `release-check` inventory"},
+	{path: "rekit/tests/README.md", phrase: "推荐最小回归组合"},
 }
 
 var forbiddenFacadeCommand = regexp.MustCompile(`(?i)(^|[\s` + "`" + `])(?:\.?[\\/])?rekit[\\/]rekit\.ps1\s+(?:-[a-z][a-z0-9-]*\s+)*?(?:release-check|status|packs|doctor|validate|overview|continue|start|handoff|sync|promote|note|gate|plan-subagents|attach|init|bootstrap|repair)\b`)

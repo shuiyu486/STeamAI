@@ -44,16 +44,12 @@
 
 ## 验证标准
 
-维护本文件或相关映射后，至少执行：
+维护本文件或相关映射后，至少执行 Go-native release readiness 子集：
 
-```powershell
-.\rekit\rekit.ps1 status
-.\rekit\rekit.ps1 doctor
-```
-
-并执行：
-
-```bash
+```text
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
@@ -213,7 +209,7 @@ git diff --check
 
 ### 6.1 只接手维护 kit 仓库
 
-```powershell
+```text
 git clone https://github.com/shuiyu486/re-context-kits
 cd re-context-kits
 claude

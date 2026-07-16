@@ -6,7 +6,7 @@
 - 维护者开始新批次前先读本文件顶部：读取指南、实施摘要、执行清单、验证标准、风险与注意事项，再按批次读细节。
 - 本文件只写计划与契约压测方法，不替代 `common/policies/agent-team.md` 和 `common/policies/subagents.md` 的契约定义。
 - 推进姿态为 **选项 C：契约 dry-run + 临时 case 验证优先**。先压测契约，再按真实缺口决定 ledger runtime（Phase 5）与 bounded dispatch（Phase 6）的顺序。
-- 当前状态：PowerShell `/rekit` 仍是公共入口；R0-R7、B/C 系列、D2-D4、Go G1-G5 已完成。Ledger runtime 支持 9 种 kind、`batchId`、overview/handoff/note-List 读层和 intervention/rollback 展示闭环；`continue` auto 流程写 `.rekit/runs/<run-id>/digest.md`，Go backend 可输出 `continue -WhatIf` 非写入 preview，并在 explicit `continue -Apply` 中写 case-local facts/routing/run digest/lane resume/checkpoint/board，同时 defer authority/confirmed。`plan-subagents` 仍是只读计划器，已输出 route/shard/review-loop observability，但不自动 spawn reviewer。Go backend 已默认接管 `sync/promote` review/apply、gate preview/request、note append/list 文本与 JSON、overview 文本/JSON 与缺 board 初始化、start/handoff JSON preview 与显式 apply，以及 continue JSON preview/explicit apply；Batch 122-124 已用 `_template` pack 的 Go package tests 锁定 start → note → continue apply → handoff、gate/dispatch 与 reviewer/decision 可见性闭环；Batch 125 已用 `generic-binary-re` Go package test 覆盖 non-feature lane、pack-specific route、candidate/gate/verification/decision、overview 与 handoff 的 pack-neutral 闭环；Batch 126 已用 `web-security` Go package test 覆盖非 RE-only route、network gate、candidate/gate/verification/decision、overview 与 handoff 的 pack-neutral 闭环；Batch 127 已新增 `web-security-agent-team-dryrun-smoke.ps1`，使用公共 `/rekit` façade 与真实临时 case 跑通 Web/API Agent Team dry-run；无 `-Apply` 的 continue/text 工作线 flow 仍由 PowerShell fallback 承担。Batch 101 后的新阶段导航见 `docs/go-first-convergence-plan.md`；后续优先 Go deterministic runtime 收口、release readiness、Agent Team 真实 dry-run 闭环与 PowerShell 收缩。
+- 当前状态：公共 `/rekit` 默认路径继续向 Go-native / PowerShell-free 收敛；R0-R7、B/C 系列、D2-D4、Go G1-G5 已完成。Ledger runtime 支持 9 种 kind、`batchId`、overview/handoff/note-List 读层和 intervention/rollback 展示闭环；`continue` auto 流程写 `.rekit/runs/<run-id>/digest.md`，Go backend 可输出 `continue -WhatIf` 非写入 preview，并在 explicit `continue -Apply` 中写 case-local facts/routing/run digest/lane resume/checkpoint/board，同时 defer authority/confirmed。`plan-subagents` 仍是只读计划器，已输出 route/shard/review-loop observability，但不自动 spawn reviewer。Go backend 已默认接管 `sync/promote` review/apply、gate preview/request、note append/list 文本与 JSON、overview 文本/JSON 与缺 board 初始化、start/handoff JSON preview 与显式 apply，以及 continue JSON preview/explicit apply；Batch 122-124 已用 `_template` pack 的 Go package tests 锁定 start → note → continue apply → handoff、gate/dispatch 与 reviewer/decision 可见性闭环；Batch 125 已用 `generic-binary-re` Go package test 覆盖 non-feature lane、pack-specific route、candidate/gate/verification/decision、overview 与 handoff 的 pack-neutral 闭环；Batch 126 已用 `web-security` Go package test 覆盖非 RE-only route、network gate、candidate/gate/verification/decision、overview 与 handoff 的 pack-neutral 闭环；Batch 127 已新增 `web-security-agent-team-dryrun-smoke.ps1`，使用公共 `/rekit` façade 与真实临时 case 跑通 Web/API Agent Team dry-run；无 `-Apply` 的 continue/text 工作线 flow 仍由 PowerShell fallback 承担。Batch 101 后的新阶段导航见 `docs/go-first-convergence-plan.md`；后续优先 Go deterministic runtime 收口、release readiness、Agent Team 真实 dry-run 闭环与 PowerShell 收缩。
 
 ## 实施摘要
 
@@ -37,7 +37,7 @@ R0-R2（契约压测阶段）：
 2. 每类 packet 在实际 agent 输出里字段不缺、可合并、可 diff；output contract 的 `decision,confidence,evidence,risk,next_action` 字段在主 agent 合并台账时够用。
 3. 发现的 schema 缺口已回写 `common/policies/agent-team.md` 或 `subagents.md`，并在 `CHANGELOG.md` 记录。
 4. 临时 case 删除，未污染 kit 仓库；无真实样本/trace/dump/绝对路径进入模板。
-5. `git diff --check` 通过；`./rekit/rekit.ps1 status`、`./rekit/rekit.ps1 doctor` 不回归。
+5. `git diff --check` 通过；Go-native `status`、`doctor` 与 `release-check` 不回归。
 
 R4-R6（runtime 切片阶段，按 R3 决定激活）：
 
@@ -278,7 +278,7 @@ B3：
 B4：
 
 1. `git diff --check` 通过。
-2. `./rekit/rekit.ps1 doctor` / `doctor -Target <tmpCase>` 通过。
+2. Go-native `doctor` / `doctor -Target <tmpCase>` 通过。
 3. `go test ./...` 通过（不涉及 Go，但确认不回归）。
 4. CHANGELOG、batch-plan 记录 B1-B3。
 
@@ -625,7 +625,7 @@ D 系列 D1-D6 已完成：ledger 已具备 batch / intervention / rollback / ga
 D1：
 
 1. `git status --short` 只剩明确无关的本地未跟踪/未提交文件，或完全干净。
-2. `./rekit/rekit.ps1 -Command doctor` 通过。
+2. Go-native `doctor` 通过。
 3. 临时 case `doctor` 通过。
 4. `go test ./...` 通过。
 5. `git diff --check` 通过。

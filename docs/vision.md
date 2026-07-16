@@ -56,7 +56,7 @@
 2. README 仍能指导用户完成 `/rekit init` / `/rekit attach` 的现有流程。
 3. `docs/vision.md` 不承诺尚未实现的自动能力为已完成能力。
 4. `git diff --check` 无空白错误。
-5. 可运行时执行 `./rekit/rekit.ps1 status` 与 `./rekit/rekit.ps1 doctor`；若失败，必须区分是本次改动导致还是既有 runtime 问题。
+5. 可运行时执行 Go-native `release-check`、`status` 与 `doctor`；若失败，必须区分是本次改动导致还是既有 runtime 问题。
 
 runtime 阶段还应增加：
 

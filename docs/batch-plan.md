@@ -6671,3 +6671,35 @@ git diff --check
 ```
 
 验证结果：已通过 targeted `gofmt`、`go test ./internal/rekit/defaultdocs ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`latest=Batch 221`、`publicDefaultDocs=true`、`documents=8`、`forbiddenShellFences=0`、`signals=10`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...` 与 `go vet ./...`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 222：Support docs and runtime migration public defaults readiness
+
+状态：已完成。
+
+目标：继续响应文档收尾要求，把支撑文档、runtime migration history 与 tests guide 纳入 Go-owned `publicDefaultDocs` readiness，确保 vision、reference absorption、Agent Team rollout、Go runtime migration 和 smoke 选择指南不再把 PowerShell façade 命令、PowerShell / pwsh shell fence 或 legacy compatibility path 表达成默认公开路径，并把默认验证继续收敛到 Go-native release gate。
+
+实施范围：
+
+- `internal/rekit/defaultdocs` 的公开默认文档集合扩展到 `docs/go-runtime-migration.md`、`docs/vision.md`、`docs/reference-absorption.md`、`docs/agent-team-rollout-plan.md` 与 `rekit/tests/README.md`，文档数量从 8 扩到 13。
+- 新增支撑文档必备短语检查，锁定 Go-native release readiness、Go runtime migration 的 `/rekit` public ABI / Go deterministic backend 边界、Agent Team rollout 默认路径和 tests guide 推荐最小回归组合。
+- 清理 `docs/go-runtime-migration.md` 中作为默认片段展示的 `rekit.ps1` command rows，把它们改为 legacy façade compatibility wording；保留迁移史语义，但不再把 façade 命令当成公开默认入口。
+- 将 `docs/vision.md`、`docs/reference-absorption.md`、`docs/agent-team-rollout-plan.md` 与 `rekit/tests/README.md` 的验证说明继续收敛到 Go-native `release-check` / `status` / `doctor` / tests；PowerShell façade smoke 只作为改 compatibility/fallback 时的按需追加。
+- 更新 `docs/release-readiness.md`、`docs/powershell-deprecation.md`、`docs/go-first-convergence-plan.md`、`releaseHandoff.signals[]` detail、CLI/defaultdocs/releasecheck tests、release fixtures 与 CHANGELOG，记录 expanded public docs readiness 覆盖范围。
+
+边界：本批只做文档收尾、Go-owned readiness/inventory 扩展、fixture 和测试补强；不改变 runtime 写入面、PowerShell façade 默认委托集合、`REKIT_GO_DISABLE=1` fallback、pack manifest、case state、sync/promote review-first 语义、workstream/ledger/gate 行为或实际 case lifecycle 写入结果；不删除 PowerShell 文件；不执行 heavy-tool、不自动 spawn agent、不写 authority/confirmed。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/defaultdocs/defaultdocs.go internal/rekit/defaultdocs/defaultdocs_test.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_notes_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/defaultdocs ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 targeted `gofmt`、`go test ./internal/rekit/defaultdocs ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`publicDefaultDocs=true`、`documents=13`、`forbiddenCommands=0`、`forbiddenShellFences=0`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...` 与 `go vet ./...`。更新本批 `docs/batch-plan.md` 后复跑 `go run ./cmd/rekit -- -Command release-check` 确认 latest=`Batch 222：Support docs and runtime migration public defaults readiness`，`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

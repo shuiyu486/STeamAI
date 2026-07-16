@@ -12,7 +12,7 @@ Go-first release gate 优先由 Go-owned `release-check` inventory、Go-native `
 
 推荐最小回归组合：
 
-```powershell
+```text
 go run ./cmd/rekit -- -Command release-check -Format json
 go run ./cmd/rekit -- -Command status
 go run ./cmd/rekit -- -Command packs
@@ -116,7 +116,7 @@ generic-binary-re-pack-smoke.ps1
 
 多数 case smoke 默认使用：
 
-```powershell
+```text
 C:\AI\m_projects\RE\_dryrun_cases
 ```
 
@@ -129,6 +129,6 @@ C:\AI\m_projects\RE\_dryrun_cases
 | 新增 skeleton pack | 单 pack smoke -> `pack-smoke-matrix.ps1 -DiscoveryOnly` -> `pack-inventory-smoke.ps1` -> `go test ./...` -> `doctor`。 |
 | 改测试导航 catalog | `catalog-smoke.ps1` -> `pack-smoke-matrix.ps1 -DiscoveryOnly` -> `pack-inventory-smoke.ps1`。 |
 | 改 pack smoke helper/matrix | `pack-smoke-matrix-selftest.ps1` -> `pack-smoke-matrix.ps1 -DiscoveryOnly` -> 1-2 个代表 pack smoke -> `pack-inventory-smoke.ps1`。 |
-| 改 Go façade 委托 | `facade-smoke.ps1` -> 相关命令 smoke -> `go test ./...`。 |
+| 改 Go façade 委托 | 按需运行 `facade-smoke.ps1` 与相关命令 smoke -> `go test ./...`。 |
 | 改 sync/promote 写入 | 对应 preflight/apply smoke -> `doctor` -> `git diff --check`。 |
 | 改 workstream/ledger/gate | 对应 workstream/ledger smoke -> `go test ./...` -> `doctor`。 |
