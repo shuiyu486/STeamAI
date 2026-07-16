@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-`rekit/tests` 里的脚本都是仓库维护验证入口，默认使用临时 case 或只读仓库状态，目标是锁定 review-first、no-write、Go/PowerShell parity 和 pack skeleton 边界。`catalog.json` 用相同分类记录全部 `*.ps1` smoke/helper 的 `category`、`purpose`、`recommendedFor`、`supportsWorkRoot` 和 `riskBoundary`，供后续自动测试选择器或 CI 读取。
+`rekit/tests` 里的脚本都是仓库维护验证入口，默认使用临时 case 或只读仓库状态，目标是锁定 review-first、no-write、Go façade parity、remaining PowerShell compatibility 和 pack skeleton 边界。`catalog.json` 用相同分类记录全部 `*.ps1` smoke/helper 的 `category`、`purpose`、`recommendedFor`、`supportsWorkRoot` 和 `riskBoundary`，供后续自动测试选择器或 CI 读取。
 
 Go-first release gate 优先由 Go-owned `release-check` inventory、Go-native `status` / `packs` / `doctor`、`go test ./...` 与 `go vet ./...` 捕获确定性 invariant；默认远程 CI 见 `.github/workflows/release-gate.yml`，在 Linux、Windows、macOS 上运行同一组 Go-native release checks；`facade-smoke.ps1`、`catalog-smoke.ps1`、`pack-smoke-matrix-selftest.ps1` 与 pack matrix 保留为按需 PowerShell compatibility / parity 层，不继续扩张成新的 runtime owner。
 
@@ -81,9 +81,9 @@ generic-binary-re-pack-smoke.ps1
 | 脚本 | 什么时候跑 | 覆盖重点 |
 |---|---|---|
 | `init-bootstrap-smoke.ps1` | 改 Go init/bootstrap、case scaffold 或 lifecycle façade 委托 | preview/apply、managed docs、template、managed block、state、doctor、默认 façade 委托。 |
-| `sync-review-parity-smoke.ps1` | 改 sync review 或 bounded diff | PowerShell/Go sync review action 和 diff parity。 |
-| `sync-apply-smoke.ps1` / `go test ./internal/rekit/sync` | 改 Go sync apply、sync package helper 或 façade sync 默认委托 | 临时 case apply、backup、managed block、template force、state、backup escape guard、默认 façade 委托、disable fallback、Go/PowerShell doctor。 |
-| `sync-apply-parity-smoke.ps1` | 改 sync apply force/parity | PowerShell fallback 与默认 Go façade apply/force 后 managed docs、metadata/shim、state 对比。 |
+| `sync-review-parity-smoke.ps1` | 改 sync review 或 bounded diff | 默认 façade/Go sync review action 和 diff parity。 |
+| `sync-apply-smoke.ps1` / `go test ./internal/rekit/sync` | 改 Go sync apply、sync package helper 或 façade sync 默认委托 | 临时 case apply、backup、managed block、template force、state、backup escape guard、默认 façade 委托、disabled no-fallback、Go/façade doctor。 |
+| `sync-apply-parity-smoke.ps1` | 改 sync apply force/parity | 默认 façade 与直接 Go apply/force 后 managed docs、metadata/shim、state 对比，并验证 disabled no-fallback。 |
 | `promote-candidates-preflight-smoke.ps1` | 改 promote candidates preview/review 或 façade promote 默认委托 | PowerShell baseline、Go review artifact/sanitized preview、default JSON preview/review/create-candidates delegation、write guard、façade fallback。 |
 | `promote-candidates-apply-smoke.ps1` / `go test ./internal/rekit/promote` | 改 Go candidate 写入、façade candidate 写入委托或 promote package helper | 默认 façade candidate 写入、candidate/index/tooling candidate、deny、sanitization、unique candidate path、restore helper、pack-root containment、cleanup。 |
 | `promote-apply-preflight-smoke.ps1` | 改 promote apply preview/baseline 或 façade promote 默认委托 | PowerShell disabled fallback baseline、backup、deny、Go apply what-if、default JSON preview delegation、actual apply default delegation、façade fallback。 |

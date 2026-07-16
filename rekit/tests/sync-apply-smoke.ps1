@@ -34,6 +34,7 @@ function Invoke-RekitSmoke {
   if ($AllowedExitCodes -notcontains $exitCode) {
     throw "unexpected exit code $exitCode; output:`n$output"
   }
+  $global:LASTEXITCODE = 0
   return $output
 }
 
@@ -156,11 +157,15 @@ try {
   $facadeApply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
   if (-not [bool]$facadeApply.delegatedByFake) { throw "facade sync apply did not use default REKIT_GO_EXE delegation: $($facadeApply | ConvertTo-Json -Depth 8)" }
 
-  $facadeTextPreview = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $facadeTextPreview -Expected 'would attach case' -Label 'facade sync apply text fallback'
+  $beforeTextPreview = Get-TreeSnapshot -Root $caseRoot
+  $facadeTextPreview = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $facadeTextPreview -Expected 'PowerShell fallback has been retired' -Label 'facade sync apply text no fallback'
+  Assert-SnapshotEquals -Before $beforeTextPreview -After (Get-TreeSnapshot -Root $caseRoot) -Label 'facade sync apply text no-fallback'
 
-  $disabledFacadeApply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
-  Assert-ContainsText -Text $disabledFacadeApply -Expected 'would attach case' -Label 'facade sync apply disabled fallback'
+  $beforeDisabled = Get-TreeSnapshot -Root $caseRoot
+  $disabledFacadeApply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $disabledFacadeApply -Expected 'PowerShell fallback has been retired' -Label 'facade sync apply disabled no fallback'
+  Assert-SnapshotEquals -Before $beforeDisabled -After (Get-TreeSnapshot -Root $caseRoot) -Label 'disabled sync no-fallback'
 
   $apply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-Apply','-ProjectName',"sync-apply-$suffix") | ConvertFrom-Json
   if (-not [bool]$apply.applied -or [bool]$apply.isMutation -ne $true) { throw "unexpected sync apply result: $($apply | ConvertTo-Json -Depth 8)" }

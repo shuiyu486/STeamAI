@@ -101,20 +101,20 @@ try {
   $block = "Case preface`r`n`r`n<!-- BEGIN template-pack:router -->`r`nold managed block`r`n<!-- END template-pack:router -->`r`n`r`nCase suffix`r`n"
   [System.IO.File]::WriteAllText($blockHost, $block, [System.Text.UTF8Encoding]::new($false))
 
-  $psReview = Join-Path $caseRoot '.rekit\reviews\ps-sync-review'
+  $facadeReview = Join-Path $caseRoot '.rekit\reviews\facade-sync-review'
   $goReview = Join-Path $caseRoot '.rekit\reviews\go-sync-review'
 
-  Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-ReviewOutputDir',$psReview) | Out-Null
+  Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-ReviewOutputDir',$facadeReview) | Out-Null
   Invoke-GoRekitSmoke -Arguments @('-Command','sync','-Target',$caseRoot,'-Pack',$Pack,'-ReviewOutputDir',$goReview) | Out-Null
 
-  $psPacketPath = Join-Path $psReview 'packet.json'
+  $facadePacketPath = Join-Path $facadeReview 'packet.json'
   $goPacketPath = Join-Path $goReview 'packet.json'
-  if (-not (Test-Path -LiteralPath $psPacketPath)) { throw "missing PowerShell review packet: $psPacketPath" }
+  if (-not (Test-Path -LiteralPath $facadePacketPath)) { throw "missing façade review packet: $facadePacketPath" }
   if (-not (Test-Path -LiteralPath $goPacketPath)) { throw "missing Go review packet: $goPacketPath" }
-  $psPacket = Get-Content -LiteralPath $psPacketPath -Raw | ConvertFrom-Json
+  $facadePacket = Get-Content -LiteralPath $facadePacketPath -Raw | ConvertFrom-Json
   $goPacket = Get-Content -LiteralPath $goPacketPath -Raw | ConvertFrom-Json
 
-  foreach ($packetInfo in @(@{ label = 'PowerShell'; packet = $psPacket }, @{ label = 'Go'; packet = $goPacket })) {
+  foreach ($packetInfo in @(@{ label = 'façade'; packet = $facadePacket }, @{ label = 'Go'; packet = $goPacket })) {
     $label = [string]$packetInfo.label
     $packet = $packetInfo.packet
     Assert-ReviewAction -Packet $packet -Path 'references/template/README.md' -Kind 'managed-file' -Action 'overwrite-with-backup' -Label "$label managed drift action"
@@ -123,10 +123,10 @@ try {
     Assert-ReviewAction -Packet $packet -Path 'CLAUDE.local.md' -Kind 'managed-block' -Action 'replace-managed-block' -Label "$label managed block action"
   }
 
-  $psDiff = [System.IO.File]::ReadAllText((Join-Path $psReview 'diffs\combined.diff'), [System.Text.Encoding]::UTF8)
+  $facadeDiff = [System.IO.File]::ReadAllText((Join-Path $facadeReview 'diffs\combined.diff'), [System.Text.Encoding]::UTF8)
   $goDiff = [System.IO.File]::ReadAllText((Join-Path $goReview 'diffs\combined.diff'), [System.Text.Encoding]::UTF8)
   foreach ($expected in @('changed after initial sync','old managed block','references/template/workflow-template.md')) {
-    Assert-ContainsText -Text $psDiff -Expected $expected -Label 'PowerShell combined diff'
+    Assert-ContainsText -Text $facadeDiff -Expected $expected -Label 'façade combined diff'
     Assert-ContainsText -Text $goDiff -Expected $expected -Label 'Go combined diff'
   }
 

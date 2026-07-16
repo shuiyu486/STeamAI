@@ -54,7 +54,7 @@ R4-R6（runtime 切片阶段，按 R3 决定激活）：
 - **dry-run 不执行真实 heavy-tool 动作**：full trace、动态调试、注入、patch、dump、网络、外部副作用一律 dry-run 或 mock，不碰真实样本。
 - **不绕过 review-first**：sync/promote 仍默认 review；confirmed/authority 写入仍需人工确认；dry-run 中的 "confirmed" 只写临时 case workspace，不写 kit 模板。
 - **不复制 runtime 逻辑到 case shim**：case-local `/rekit` 保持 thin shim。
-- **Go runtime 渐进接入**：R4-R6 初期以 PowerShell runtime 为准；当前 Go façade 已按低风险 read-only、case lifecycle、sync/promote、ledger/gate、start/handoff 显式 apply 与 continue preview/apply safe subset 逐步默认启用。新增默认委托前必须有 smoke/package test 覆盖，`REKIT_GO_DISABLE=1` 继续作为 fallback。
+- **Go runtime 渐进接入**：R4-R6 初期以 PowerShell runtime 为准；当前 Go façade 已按低风险 read-only、case lifecycle、sync/promote、ledger/gate、start/handoff 显式 apply 与 continue preview/apply safe subset 逐步默认启用。新增默认委托前必须有 smoke/package test 覆盖；`REKIT_GO_DISABLE=1` 只对尚未退休的 candidate commands 保留 fallback，已退休命令直接 no-fallback。
 - **R3 是决策门，不是自动推进**：dry-run 结果可能指向 ledger 优先、dispatch 优先、或两者并行；必须显式记录决策理由，不能默认全做。
 - **schema 改动走文档先**：packet schema 缺口先回写 policy 文档，再考虑 runtime 校验；不在 dry-run 阶段做 schema 迁移。
 - **批次写回**：每批完成后回写本文件、`docs/batch-plan.md`、`CHANGELOG.md` 与 `docs/vision.md` 执行清单；后续所有实施计划必须先落到文档，并随代码提交推送到远程 `main`，不能只留在聊天上下文。

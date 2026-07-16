@@ -34,6 +34,7 @@ function Invoke-RekitSmoke {
   if ($AllowedExitCodes -notcontains $exitCode) {
     throw "unexpected exit code $exitCode; output:`n$output"
   }
+  $global:LASTEXITCODE = 0
   return $output
 }
 
@@ -144,7 +145,7 @@ function Seed-CaseDrift {
 
 function Assert-CaseParity {
   param(
-    [Parameter(Mandatory=$true)][string]$PowerShellRoot,
+    [Parameter(Mandatory=$true)][string]$FacadeRoot,
     [Parameter(Mandatory=$true)][string]$GoRoot
   )
   foreach ($rel in @(
@@ -158,56 +159,58 @@ function Assert-CaseParity {
     '.rekit\instance.yml',
     '.re-template.yml'
   )) {
-    Assert-NormalizedFileEquals -LeftRoot $PowerShellRoot -RightRoot $GoRoot -Rel $rel
+    Assert-NormalizedFileEquals -LeftRoot $FacadeRoot -RightRoot $GoRoot -Rel $rel
   }
-  Assert-SyncStateParity -LeftRoot $PowerShellRoot -RightRoot $GoRoot
+  Assert-SyncStateParity -LeftRoot $FacadeRoot -RightRoot $GoRoot
 }
 
 Get-ChildItem -LiteralPath $WorkRoot | Select-Object -First 1 | Out-Null
 $suffix = [Guid]::NewGuid().ToString('N').Substring(0,8)
-$psCase = Join-Path $WorkRoot "sync-parity-ps-$suffix"
+$facadeCase = Join-Path $WorkRoot "sync-parity-facade-$suffix"
 $goCase = Join-Path $WorkRoot "sync-parity-go-$suffix"
 try {
-  Invoke-GoRekitSmoke -Arguments @('-Command','attach','-Target',$psCase,'-Pack',$Pack,'-ProjectName',"sync-parity-$suffix",'-Apply') | Out-Null
+  Invoke-GoRekitSmoke -Arguments @('-Command','attach','-Target',$facadeCase,'-Pack',$Pack,'-ProjectName',"sync-parity-$suffix",'-Apply') | Out-Null
   Invoke-GoRekitSmoke -Arguments @('-Command','attach','-Target',$goCase,'-Pack',$Pack,'-ProjectName',"sync-parity-$suffix",'-Apply') | Out-Null
-  Seed-CaseDrift -Root $psCase
+  Seed-CaseDrift -Root $facadeCase
   Seed-CaseDrift -Root $goCase
 
-  Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$psCase,'-Pack',$Pack,'-Apply','-ProjectName',"sync-parity-$suffix") -Env @{ REKIT_GO_DISABLE = '1' } | Out-Null
-  $goApply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$goCase,'-Pack',$Pack,'-Apply','-ProjectName',"sync-parity-$suffix") | ConvertFrom-Json
+  $facadeApply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$facadeCase,'-Pack',$Pack,'-Apply','-ProjectName',"sync-parity-$suffix") | ConvertFrom-Json
+  if (-not [bool]$facadeApply.applied -or [bool]$facadeApply.isMutation -ne $true) { throw "unexpected facade apply result: $($facadeApply | ConvertTo-Json -Depth 8)" }
+  $goApply = Invoke-GoRekitSmoke -Arguments @('-Command','sync','-Target',$goCase,'-Pack',$Pack,'-Apply','-ProjectName',"sync-parity-$suffix") | ConvertFrom-Json
   if (-not [bool]$goApply.applied -or [bool]$goApply.isMutation -ne $true) { throw "unexpected Go apply result: $($goApply | ConvertTo-Json -Depth 8)" }
 
-  Assert-CaseParity -PowerShellRoot $psCase -GoRoot $goCase
-  Assert-BackupExists -Root $psCase -Leaf 'README.md' -Label 'PowerShell sync apply'
+  Assert-CaseParity -FacadeRoot $facadeCase -GoRoot $goCase
+  Assert-BackupExists -Root $facadeCase -Leaf 'README.md' -Label 'facade sync apply'
   Assert-BackupExists -Root $goCase -Leaf 'README.md' -Label 'Go sync apply'
-  Assert-BackupExists -Root $psCase -Leaf 'CLAUDE.local.md' -Label 'PowerShell sync apply'
+  Assert-BackupExists -Root $facadeCase -Leaf 'CLAUDE.local.md' -Label 'facade sync apply'
   Assert-BackupExists -Root $goCase -Leaf 'CLAUDE.local.md' -Label 'Go sync apply'
 
-  Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$psCase,'-Pack',$Pack,'-Apply','-Force','-ProjectName',"sync-force-$suffix") -Env @{ REKIT_GO_DISABLE = '1' } | Out-Null
-  $goForce = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$goCase,'-Pack',$Pack,'-Apply','-Force','-ProjectName',"sync-force-$suffix") | ConvertFrom-Json
+  $facadeForce = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$facadeCase,'-Pack',$Pack,'-Apply','-Force','-ProjectName',"sync-force-$suffix") | ConvertFrom-Json
+  if (-not [bool]$facadeForce.applied -or [bool]$facadeForce.isMutation -ne $true) { throw "unexpected facade force apply result: $($facadeForce | ConvertTo-Json -Depth 8)" }
+  $goForce = Invoke-GoRekitSmoke -Arguments @('-Command','sync','-Target',$goCase,'-Pack',$Pack,'-Apply','-Force','-ProjectName',"sync-force-$suffix") | ConvertFrom-Json
   if (-not [bool]$goForce.applied -or [bool]$goForce.isMutation -ne $true) { throw "unexpected Go force apply result: $($goForce | ConvertTo-Json -Depth 8)" }
 
-  Assert-CaseParity -PowerShellRoot $psCase -GoRoot $goCase
-  Assert-ContainsText -Text (Read-NormalizedFile -Root $psCase -Rel 'references\template\task-handoff.md') -Expected "sync-force-$suffix" -Label 'PowerShell forced template'
+  Assert-CaseParity -FacadeRoot $facadeCase -GoRoot $goCase
+  Assert-ContainsText -Text (Read-NormalizedFile -Root $facadeCase -Rel 'references\template\task-handoff.md') -Expected "sync-force-$suffix" -Label 'facade forced template'
   Assert-ContainsText -Text (Read-NormalizedFile -Root $goCase -Rel 'references\template\task-handoff.md') -Expected "sync-force-$suffix" -Label 'Go forced template'
-  Assert-BackupExists -Root $psCase -Leaf 'task-handoff.md' -Label 'PowerShell force sync apply'
+  Assert-BackupExists -Root $facadeCase -Leaf 'task-handoff.md' -Label 'facade force sync apply'
   Assert-BackupExists -Root $goCase -Leaf 'task-handoff.md' -Label 'Go force sync apply'
 
-  Invoke-RekitSmoke -Arguments @('-Command','doctor','-Target',$psCase,'-Pack',$Pack) | Out-Null
+  Invoke-RekitSmoke -Arguments @('-Command','doctor','-Target',$facadeCase,'-Pack',$Pack) | Out-Null
   Invoke-RekitSmoke -Arguments @('-Command','doctor','-Target',$goCase,'-Pack',$Pack) | Out-Null
-  Invoke-GoRekitSmoke -Arguments @('-Command','doctor','-Target',$psCase,'-Pack',$Pack) | Out-Null
+  Invoke-GoRekitSmoke -Arguments @('-Command','doctor','-Target',$facadeCase,'-Pack',$Pack) | Out-Null
   Invoke-GoRekitSmoke -Arguments @('-Command','doctor','-Target',$goCase,'-Pack',$Pack) | Out-Null
 
   $fakeGo = Join-Path $goCase 'fake-rekit-go.cmd'
   [System.IO.File]::WriteAllText($fakeGo, ('@echo off' + "`r`n" + 'echo {"schemaVersion":1,"command":"sync","delegatedByFake":true,"isMutation":true,"applied":true}' + "`r`n"), [System.Text.UTF8Encoding]::new($false))
   $facadeDefaultApply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$goCase,'-Pack',$Pack,'-Apply','-Format','json') -Env @{ REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo } | ConvertFrom-Json
   if (-not [bool]$facadeDefaultApply.delegatedByFake) { throw "facade sync apply did not use default delegation: $($facadeDefaultApply | ConvertTo-Json -Depth 8)" }
-  $facadeDisabledApply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$goCase,'-Pack',$Pack,'-Apply') -Env @{ REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  $facadeDisabledApply = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$goCase,'-Pack',$Pack,'-Apply') -AllowedExitCodes @(1) -Env @{ REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   if ($facadeDisabledApply -like '*delegatedByFake*') { throw "disabled sync apply unexpectedly used fake Go delegation: $facadeDisabledApply" }
-  Assert-ContainsText -Text $facadeDisabledApply -Expected 'sync ok' -Label 'disabled sync apply fallback'
+  Assert-ContainsText -Text $facadeDisabledApply -Expected 'PowerShell fallback has been retired' -Label 'disabled sync apply no fallback'
 
   'sync apply parity smoke ok'
 } finally {
-  if (Test-Path -LiteralPath $psCase) { Remove-Item -LiteralPath $psCase -Recurse -Force -Confirm:$false }
+  if (Test-Path -LiteralPath $facadeCase) { Remove-Item -LiteralPath $facadeCase -Recurse -Force -Confirm:$false }
   if (Test-Path -LiteralPath $goCase) { Remove-Item -LiteralPath $goCase -Recurse -Force -Confirm:$false }
 }

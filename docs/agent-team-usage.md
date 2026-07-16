@@ -161,7 +161,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 /rekit sync
 ```
 
-生成 review 包。确认无误后，再让 Claude 执行写入型 sync；Batch 106 起 `sync -Apply` 默认由 Go backend 处理，`REKIT_GO_DISABLE=1` 可回退 PowerShell fallback。
+生成 review 包。确认无误后，再让 Claude 执行写入型 sync；Batch 106 起 `sync -Apply` 默认由 Go backend 处理，Batch 228 起 `sync` / `update` PowerShell fallback 已退休。
 
 ## 2. 主线和功能支线是否还能用
 

@@ -41,7 +41,7 @@
 /rekit sync
 ```
 
-默认只生成 `.rekit/reviews/<timestamp>-sync/packet.json`、`summary.md` 和 bounded diff。确认具体范围后，才执行写入型 `sync -Apply`；Batch 106 起该写入默认由 Go backend 处理，`REKIT_GO_DISABLE=1` 可回退 PowerShell fallback。
+默认只生成 `.rekit/reviews/<timestamp>-sync/packet.json`、`summary.md` 和 bounded diff。确认具体范围后，才执行写入型 `sync -Apply`；Batch 106 起该写入默认由 Go backend 处理，Batch 228 起 `sync` / `update` PowerShell fallback 已退休。
 
 接入后仍然可以继续使用主线/功能支线：
 

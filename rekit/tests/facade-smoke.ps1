@@ -204,7 +204,7 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','init','-Target',$initRoot,'-Pack',$Pack,'-WhatIf') -CommandName 'init' -Label 'default init text preview delegation'
 
   Assert-FakeDefaultDelegation -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -CommandName 'sync' -Label 'default sync apply JSON preview delegation'
-  Assert-FakeFallback -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Expected 'would attach case' -Label 'sync apply text preview fallback'
+  Assert-FakeFallback -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf') -Expected 'PowerShell fallback has been retired' -Label 'sync apply text preview no fallback' -AllowedExitCodes @(1)
 
   Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-CreateCandidates','-WhatIf','-Format','json') -CommandName 'promote' -Label 'default promote candidate JSON preview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-CreateCandidates') -CommandName 'promote' -Label 'default promote create-candidates delegation'
@@ -247,6 +247,15 @@ try {
   $disabledGateOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane) -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledGateOut -Unexpected 'delegatedByFake' -Label 'go disabled gate no fallback'
   Assert-ContainsText -Text $disabledGateOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled gate no fallback'
+  $disabledSyncPreviewOut = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledSyncPreviewOut -Unexpected 'delegatedByFake' -Label 'go disabled sync JSON preview no fallback'
+  Assert-ContainsText -Text $disabledSyncPreviewOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled sync JSON preview no fallback'
+  $disabledSyncApplyOut = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledSyncApplyOut -Unexpected 'delegatedByFake' -Label 'go disabled sync apply no fallback'
+  Assert-ContainsText -Text $disabledSyncApplyOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled sync apply no fallback'
+  $disabledUpdateOut = Invoke-RekitSmoke -Arguments @('-Command','update','-Target',$CaseRoot,'-Pack',$Pack) -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledUpdateOut -Unexpected 'delegatedByFake' -Label 'go disabled update review no fallback'
+  Assert-ContainsText -Text $disabledUpdateOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled update review no fallback'
   $disabledAttachOut = Invoke-RekitSmoke -Arguments @('-Command','attach','-Target',(Join-Path $matrixRoot 'disabled-attach'),'-Pack',$Pack,'-WhatIf') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledAttachOut -Unexpected 'delegatedByFake' -Label 'go disabled attach fallback'
   Assert-ContainsText -Text $disabledAttachOut -Expected 'would attach case' -Label 'go disabled attach fallback'
