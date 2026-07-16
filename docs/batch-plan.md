@@ -7567,3 +7567,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/commands/commands.go internal/rekit/commands/commands_test.go internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/commands ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 248，`goNativePublicSurface.ready=true` / `commandProfilePolicies=5` / `policyViolations=0` / `policies=no-heavy-tool,no-authority-confirmed,kit-write-review-first,review-first-apply-required,known-mutation-boundary`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `policyRows=5 policyViolations=0` 与 release handoff `profilePolicies rows=5 violations=0`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 249：Go-native public surface façade removal prerequisites
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 248 已新增 public command profile policy rows 后，把未来删除公共 `rekit/rekit.ps1` façade 前必须满足的 readiness 条件升级为机器可读 prerequisites，确保 release inventory 能直接表达 entrypoint、coverage、boundary、policy 与 unsupported command diagnostic 是否足以支撑后续独立 removal batch。
+
+实施范围：
+
+- 扩展 `goNativePublicSurface` 输出 `facadeRemovalReady` 与 `facadeRemovalPrerequisites[]`，当前 5 条 prerequisites 为 `entrypoint`、`catalog-handler-symbol-profile-coverage`、`mutation-boundary-inventory`、`profile-policy-guards` 与 `unsupported-command-diagnostic`。
+- 校验 prerequisites 非空且全部 ready，任一 prerequisite 未 ready 时让 `goNativePublicSurface.ready=false` 并输出明确 warning。
+- release-check text 与 `releaseHandoff.signals[]` 同步展示 `facadeRemovalReady=true` 与 `facadePrerequisites=5` / `prerequisites=5`，补 releasecheck / CLI / handoff tests，并同步 PowerShell deprecation、release readiness、Go-first convergence、batch-plan 与 CHANGELOG 文档。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不改变 public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、actual heavy-tool、authority/confirmed、policy schema migration 或外部副作用边界；raw Go CLI 仍是底层 deterministic runtime/API，不变成用户主要交互界面。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/commands ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/commands ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 249，`goNativePublicSurface.ready=true` / `facadeRemovalReady=true` / `facadeRemovalPrerequisites=5` / `prerequisites=entrypoint,catalog-handler-symbol-profile-coverage,mutation-boundary-inventory,profile-policy-guards,unsupported-command-diagnostic`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `facadeRemovalReady=true facadePrerequisites=5` 与 release handoff `facadeRemovalReady=true prerequisites=5`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

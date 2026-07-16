@@ -180,6 +180,7 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 				fmt.Sprintf("profileGroups readOnly=%s reviewFirst=%s writesKit=%s", strings.Join(check.GoNativePublicSurface.CommandProfileGroups.ReadOnly, ","), strings.Join(check.GoNativePublicSurface.CommandProfileGroups.ReviewFirst, ","), strings.Join(check.GoNativePublicSurface.CommandProfileGroups.WritesKit, ",")),
 				fmt.Sprintf("profileBoundaries rows=%d caseLocalApply=%s kitReviewFirst=%s readOnly=%s", len(check.GoNativePublicSurface.CommandProfileBoundaries), strings.Join(check.GoNativePublicSurface.CommandProfileGroups.ByBoundary["case-local-apply"], ","), strings.Join(check.GoNativePublicSurface.CommandProfileGroups.ByBoundary["kit-review-first"], ","), strings.Join(check.GoNativePublicSurface.CommandProfileGroups.ByBoundary["read-only"], ",")),
 				fmt.Sprintf("profilePolicies rows=%d violations=%d", len(check.GoNativePublicSurface.CommandProfilePolicies), commands.PublicProfilePolicyViolationCount(check.GoNativePublicSurface.CommandProfilePolicies)),
+				fmt.Sprintf("facadeRemovalReady=%t prerequisites=%d", check.GoNativePublicSurface.FacadeRemovalReady, len(check.GoNativePublicSurface.FacadeRemovalPrerequisites)),
 				fmt.Sprintf("unsupportedDiagnostic=%t", check.GoNativePublicSurface.UnsupportedCommandDiagnosticPresent),
 			},
 		},

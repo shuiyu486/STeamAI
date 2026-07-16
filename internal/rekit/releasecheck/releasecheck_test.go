@@ -149,6 +149,9 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	if len(inventory.CommandProfilePolicies) != 5 || commands.PublicProfilePolicyViolationCount(inventory.CommandProfilePolicies) != 0 || inventory.CommandProfilePolicies[0].Policy != commands.PublicProfilePolicyNoHeavyTool || !inventory.CommandProfilePolicies[0].Ready || inventory.CommandProfilePolicies[3].Policy != commands.PublicProfilePolicyReviewFirstApplyRequired || len(inventory.CommandProfilePolicies[3].Commands) != 0 {
 		t.Fatalf("Go-native public command profile policy rows drifted: %+v", inventory.CommandProfilePolicies)
 	}
+	if !inventory.FacadeRemovalReady || len(inventory.FacadeRemovalPrerequisites) != 5 || inventory.FacadeRemovalPrerequisites[0].Name != "entrypoint" || !inventory.FacadeRemovalPrerequisites[0].Ready || inventory.FacadeRemovalPrerequisites[4].Name != "unsupported-command-diagnostic" || !inventory.FacadeRemovalPrerequisites[4].Ready {
+		t.Fatalf("Go-native public surface facade removal prerequisites drifted: ready=%t prerequisites=%+v", inventory.FacadeRemovalReady, inventory.FacadeRemovalPrerequisites)
+	}
 }
 
 func TestGoNativePublicSurfaceInventoryDetectsDispatcherDrift(t *testing.T) {

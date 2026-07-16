@@ -13,26 +13,34 @@ import (
 )
 
 type GoNativePublicSurface struct {
-	Ready                               bool                             `json:"ready"`
-	Summary                             string                           `json:"summary"`
-	Entrypoint                          string                           `json:"entrypoint"`
-	EntrypointPresent                   bool                             `json:"entrypointPresent"`
-	CommandCatalogPath                  string                           `json:"commandCatalogPath"`
-	CommandCatalogPresent               bool                             `json:"commandCatalogPresent"`
-	DefaultCommand                      string                           `json:"defaultCommand"`
-	Commands                            []string                         `json:"commands"`
-	HandlerCommands                     []string                         `json:"handlerCommands"`
-	SymbolCommands                      map[string]string                `json:"symbolCommands"`
-	CommandProfiles                     []commands.PublicProfile         `json:"commandProfiles"`
-	CommandProfileSummary               commands.PublicProfileSummary    `json:"commandProfileSummary"`
-	CommandProfileGroups                commands.PublicProfileGroups     `json:"commandProfileGroups"`
-	CommandProfileBoundaries            []commands.PublicProfileBoundary `json:"commandProfileBoundaries"`
-	CommandProfilePolicies              []commands.PublicProfilePolicy   `json:"commandProfilePolicies"`
-	MutationBoundaries                  []string                         `json:"mutationBoundaries"`
-	AlternativePattern                  string                           `json:"alternativePattern"`
-	UnsupportedCommandDiagnostic        string                           `json:"unsupportedCommandDiagnostic"`
-	UnsupportedCommandDiagnosticPresent bool                             `json:"unsupportedCommandDiagnosticPresent"`
-	Warnings                            []string                         `json:"warnings"`
+	Ready                               bool                                `json:"ready"`
+	Summary                             string                              `json:"summary"`
+	Entrypoint                          string                              `json:"entrypoint"`
+	EntrypointPresent                   bool                                `json:"entrypointPresent"`
+	CommandCatalogPath                  string                              `json:"commandCatalogPath"`
+	CommandCatalogPresent               bool                                `json:"commandCatalogPresent"`
+	DefaultCommand                      string                              `json:"defaultCommand"`
+	Commands                            []string                            `json:"commands"`
+	HandlerCommands                     []string                            `json:"handlerCommands"`
+	SymbolCommands                      map[string]string                   `json:"symbolCommands"`
+	CommandProfiles                     []commands.PublicProfile            `json:"commandProfiles"`
+	CommandProfileSummary               commands.PublicProfileSummary       `json:"commandProfileSummary"`
+	CommandProfileGroups                commands.PublicProfileGroups        `json:"commandProfileGroups"`
+	CommandProfileBoundaries            []commands.PublicProfileBoundary    `json:"commandProfileBoundaries"`
+	CommandProfilePolicies              []commands.PublicProfilePolicy      `json:"commandProfilePolicies"`
+	FacadeRemovalReady                  bool                                `json:"facadeRemovalReady"`
+	FacadeRemovalPrerequisites          []GoNativePublicSurfacePrerequisite `json:"facadeRemovalPrerequisites"`
+	MutationBoundaries                  []string                            `json:"mutationBoundaries"`
+	AlternativePattern                  string                              `json:"alternativePattern"`
+	UnsupportedCommandDiagnostic        string                              `json:"unsupportedCommandDiagnostic"`
+	UnsupportedCommandDiagnosticPresent bool                                `json:"unsupportedCommandDiagnosticPresent"`
+	Warnings                            []string                            `json:"warnings"`
+}
+
+type GoNativePublicSurfacePrerequisite struct {
+	Name    string `json:"name"`
+	Ready   bool   `json:"ready"`
+	Summary string `json:"summary"`
 }
 
 func goNativePublicSurface(repo string) GoNativePublicSurface {
@@ -224,6 +232,13 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile policy is not ready: %s", policy.Policy))
 		}
 	}
+	inventory.FacadeRemovalPrerequisites = goNativePublicSurfaceFacadeRemovalPrerequisites(inventory)
+	inventory.FacadeRemovalReady = goNativePublicSurfacePrerequisitesReady(inventory.FacadeRemovalPrerequisites)
+	for _, prerequisite := range inventory.FacadeRemovalPrerequisites {
+		if !prerequisite.Ready {
+			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public surface facade removal prerequisite is not ready: %s", prerequisite.Name))
+		}
+	}
 	seen := map[string]bool{}
 	for _, command := range inventory.Commands {
 		if strings.TrimSpace(command) == "" {
@@ -240,6 +255,48 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 		inventory.Summary = "Go-native public command surface inventory has warnings"
 	}
 	return inventory
+}
+
+func goNativePublicSurfaceFacadeRemovalPrerequisites(inventory GoNativePublicSurface) []GoNativePublicSurfacePrerequisite {
+	return []GoNativePublicSurfacePrerequisite{
+		{
+			Name:    "entrypoint",
+			Ready:   inventory.EntrypointPresent,
+			Summary: fmt.Sprintf("entrypoint=%s present=%t", inventory.Entrypoint, inventory.EntrypointPresent),
+		},
+		{
+			Name:    "catalog-handler-symbol-profile-coverage",
+			Ready:   len(inventory.Commands) > 0 && len(inventory.HandlerCommands) == len(inventory.Commands) && len(inventory.SymbolCommands) == len(inventory.Commands) && len(inventory.CommandProfiles) == len(inventory.Commands),
+			Summary: fmt.Sprintf("commands=%d handlers=%d symbols=%d profiles=%d", len(inventory.Commands), len(inventory.HandlerCommands), len(inventory.SymbolCommands), len(inventory.CommandProfiles)),
+		},
+		{
+			Name:    "mutation-boundary-inventory",
+			Ready:   len(inventory.MutationBoundaries) > 0 && len(inventory.CommandProfileBoundaries) == len(inventory.MutationBoundaries) && inventory.CommandProfileSummary.Total == len(inventory.Commands),
+			Summary: fmt.Sprintf("boundaries=%d rows=%d profileTotal=%d", len(inventory.MutationBoundaries), len(inventory.CommandProfileBoundaries), inventory.CommandProfileSummary.Total),
+		},
+		{
+			Name:    "profile-policy-guards",
+			Ready:   len(inventory.CommandProfilePolicies) > 0 && commands.PublicProfilePolicyViolationCount(inventory.CommandProfilePolicies) == 0 && inventory.CommandProfileSummary.HeavyTool == 0 && inventory.CommandProfileSummary.AuthorityConfirmed == 0,
+			Summary: fmt.Sprintf("policies=%d violations=%d heavyTool=%d authorityConfirmed=%d", len(inventory.CommandProfilePolicies), commands.PublicProfilePolicyViolationCount(inventory.CommandProfilePolicies), inventory.CommandProfileSummary.HeavyTool, inventory.CommandProfileSummary.AuthorityConfirmed),
+		},
+		{
+			Name:    "unsupported-command-diagnostic",
+			Ready:   inventory.UnsupportedCommandDiagnosticPresent && inventory.AlternativePattern == commands.GoNativeAlternativePattern,
+			Summary: fmt.Sprintf("alternative=%s unsupportedDiagnostic=%t", inventory.AlternativePattern, inventory.UnsupportedCommandDiagnosticPresent),
+		},
+	}
+}
+
+func goNativePublicSurfacePrerequisitesReady(prerequisites []GoNativePublicSurfacePrerequisite) bool {
+	if len(prerequisites) == 0 {
+		return false
+	}
+	for _, prerequisite := range prerequisites {
+		if !prerequisite.Ready {
+			return false
+		}
+	}
+	return true
 }
 
 func goNativePublicHandlerCommands(repo string) []string {
