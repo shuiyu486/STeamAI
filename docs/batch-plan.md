@@ -8001,3 +8001,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 262，`publicFacadeRemoval.ready=true` / `prerequisites=8` / `removalPlan=true` / `planChecks=9` / `replacementEntrypoints=4` / `replacementValidationCommands=32` / `deletionGates=5` / `deletionGateValidationCommands=40` / `executionSteps=5` / `executionValidationCommands=40` / `boundaryChecks=6` / `boundaryValidationCommands=48` / `recoverySteps=4` / `recoveryValidationCommands=32` / `documentationTargets=9` / `documentationValidationCommands=72` / `removalImpact=true` / `impactReferences=74` / `impactCategories=8` / `workItems=8` / `validationCommands=64` / `migrationTargets=74` / `migrationValidationCommands=592` / `smokeMigrationTargets=29` / `smokeMigrationValidationCommands=232` / `unclassified=0`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `deletionGates=5 deletionGateValidationCommands=40` 与 release handoff `latest=Batch 262：Public façade removal deletion gates`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 263：Public façade removal deletion gate exit criteria
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 262 已把五个 blocking deletion gates 固化后，为每个 gate 增加机器可读 `exitCriteria[]`，让未来真正删除公共 façade 前的 Go-native alternatives、public references、façade smoke、recovery path 与 release gate 门禁具备可判定退出条件，而不是只知道阻断项名称。
+
+实施范围：
+
+- 扩展 `PublicFacadeRemovalDeletionGate`，新增 `exitCriteria[]`，五个 deletion gates 各提供 3 条退出条件，覆盖替代入口、引用迁移、smoke 退休、恢复路径与 release gate 绿灯。
+- readiness 校验要求每个 deletion gate 的 `exitCriteria[]` 非空且不能包含空字符串；release-check text 与 `releaseHandoff.signals[]` 同步展示 `deletionGateExitCriteria=15`。
+- 补 releasecheck / CLI / handoff tests，并同步 PowerShell deprecation、release readiness、Go-first convergence、batch-plan 与 CHANGELOG 文档。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不改写 smoke 脚本实际执行路径，不改变 public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、actual heavy-tool、authority/confirmed、policy schema migration 或外部副作用边界；raw Go CLI 仍是底层 deterministic runtime/API，不变成用户主要交互界面。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，latest batch 为 Batch 263，`deletionGates=5` / `deletionGateValidationCommands=40` / `deletionGateExitCriteria=15`）、`go run ./cmd/rekit -- -Command release-check` 文本输出检查（含 `deletionGateExitCriteria=15` 与 release handoff `latest=Batch 263：Public façade removal deletion gate exit criteria`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
