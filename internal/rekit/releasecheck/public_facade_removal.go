@@ -19,6 +19,26 @@ type PublicFacadeRemoval struct {
 	Warnings      []string                          `json:"warnings"`
 }
 
+type PublicFacadeRemovalCounts struct {
+	Prerequisites  int
+	Warnings       int
+	Plan           PublicFacadeRemovalPlanCounts
+	DeletionGates  PublicFacadeRemovalDeletionGateCounts
+	ExecutionSteps PublicFacadeRemovalExecutionStepCounts
+	Impact         PublicFacadeRemovalImpactCounts
+}
+
+func PublicFacadeRemovalCountsFor(inventory PublicFacadeRemoval) PublicFacadeRemovalCounts {
+	return PublicFacadeRemovalCounts{
+		Prerequisites:  len(inventory.Prerequisites),
+		Warnings:       len(inventory.Warnings),
+		Plan:           PublicFacadeRemovalPlanCountsFor(inventory.RemovalPlan),
+		DeletionGates:  PublicFacadeRemovalDeletionGateCountsFor(inventory.RemovalPlan.DeletionGates),
+		ExecutionSteps: PublicFacadeRemovalExecutionStepCountsFor(inventory.RemovalPlan.ExecutionSteps),
+		Impact:         PublicFacadeRemovalImpactCountsFor(inventory.RemovalImpact),
+	}
+}
+
 type PublicFacadeRemovalPrerequisite struct {
 	Name    string `json:"name"`
 	Ready   bool   `json:"ready"`
@@ -374,12 +394,13 @@ type PublicFacadeRemovalSmokeMigrationTarget struct {
 }
 
 func publicFacadeRemovalHandoffDetails(inventory PublicFacadeRemoval) []string {
-	details := make([]string, 0, len(inventory.Prerequisites)+3)
-	planCounts := PublicFacadeRemovalPlanCountsFor(inventory.RemovalPlan)
-	deletionGateCounts := PublicFacadeRemovalDeletionGateCountsFor(inventory.RemovalPlan.DeletionGates)
-	executionCounts := PublicFacadeRemovalExecutionStepCountsFor(inventory.RemovalPlan.ExecutionSteps)
-	impactCounts := PublicFacadeRemovalImpactCountsFor(inventory.RemovalImpact)
-	details = append(details, fmt.Sprintf("ready=%t prerequisites=%d", inventory.Ready, len(inventory.Prerequisites)))
+	counts := PublicFacadeRemovalCountsFor(inventory)
+	details := make([]string, 0, counts.Prerequisites+3)
+	planCounts := counts.Plan
+	deletionGateCounts := counts.DeletionGates
+	executionCounts := counts.ExecutionSteps
+	impactCounts := counts.Impact
+	details = append(details, fmt.Sprintf("ready=%t prerequisites=%d", inventory.Ready, counts.Prerequisites))
 	details = append(details, fmt.Sprintf("removalPlan=%t planChecks=%d replacementEntrypoints=%d replacementValidationCommands=%d deletionGates=%d deletionGateValidationCommands=%d deletionGateExitCriteria=%d deletionGateFailureSignals=%d deletionGateEscalationTriggers=%d deletionGateEscalationEvidence=%d deletionGateEscalationRecipients=%d deletionGateEscalationHandoffSteps=%d deletionGateEscalationDecisionOptions=%d deletionGateEscalationRetryConditions=%d deletionGateEscalationStopConditions=%d deletionGateEscalationResolutionArtifacts=%d deletionGateEscalationClosureChecks=%d deletionGateEscalationReopenConditions=%d deletionGateEscalationLedgerEvents=%d deletionGateEscalationStateTransitions=%d deletionGateEscalationBoundaryGuards=%d deletionGateEscalationAuditChecks=%d deletionGateVerificationArtifacts=%d deletionGateBlockedExecutionSteps=%d deletionGateRemediationActions=%d executionSteps=%d executionFailureSignals=%d executionRemediationActions=%d executionVerificationArtifacts=%d executionLedgerEvents=%d executionStateTransitions=%d executionEscalationTriggers=%d executionEscalationEvidence=%d executionEscalationRecipients=%d executionEscalationHandoffSteps=%d executionEscalationDecisionOptions=%d executionEscalationRetryConditions=%d executionEscalationStopConditions=%d executionEscalationResolutionArtifacts=%d executionEscalationClosureChecks=%d executionEscalationReopenConditions=%d executionEscalationLedgerEvents=%d executionEscalationStateTransitions=%d executionEscalationBoundaryGuards=%d executionEscalationAuditChecks=%d executionBoundaryGuards=%d executionAuditChecks=%d executionValidationCommands=%d boundaryChecks=%d boundaryValidationCommands=%d recoverySteps=%d recoveryValidationCommands=%d documentationTargets=%d documentationValidationCommands=%d", inventory.RemovalPlan.Ready, planCounts.RequiredPhrases, planCounts.ReplacementEntrypoints, planCounts.ReplacementValidationCommands, deletionGateCounts.Gates, deletionGateCounts.ValidationCommands, deletionGateCounts.ExitCriteria, deletionGateCounts.FailureSignals, deletionGateCounts.EscalationTriggers, deletionGateCounts.EscalationEvidence, deletionGateCounts.EscalationRecipients, deletionGateCounts.EscalationHandoffSteps, deletionGateCounts.EscalationDecisionOptions, deletionGateCounts.EscalationRetryConditions, deletionGateCounts.EscalationStopConditions, deletionGateCounts.EscalationResolutionArtifacts, deletionGateCounts.EscalationClosureChecks, deletionGateCounts.EscalationReopenConditions, deletionGateCounts.EscalationLedgerEvents, deletionGateCounts.EscalationStateTransitions, deletionGateCounts.EscalationBoundaryGuards, deletionGateCounts.EscalationAuditChecks, deletionGateCounts.VerificationArtifacts, deletionGateCounts.BlockedExecutionSteps, deletionGateCounts.RemediationActions, executionCounts.Steps, executionCounts.FailureSignals, executionCounts.RemediationActions, executionCounts.VerificationArtifacts, executionCounts.LedgerEvents, executionCounts.StateTransitions, executionCounts.EscalationTriggers, executionCounts.EscalationEvidence, executionCounts.EscalationRecipients, executionCounts.EscalationHandoffSteps, executionCounts.EscalationDecisionOptions, executionCounts.EscalationRetryConditions, executionCounts.EscalationStopConditions, executionCounts.EscalationResolutionArtifacts, executionCounts.EscalationClosureChecks, executionCounts.EscalationReopenConditions, executionCounts.EscalationLedgerEvents, executionCounts.EscalationStateTransitions, executionCounts.EscalationBoundaryGuards, executionCounts.EscalationAuditChecks, executionCounts.BoundaryGuards, executionCounts.AuditChecks, executionCounts.ValidationCommands, planCounts.BoundaryChecks, planCounts.BoundaryValidationCommands, planCounts.RecoverySteps, planCounts.RecoveryValidationCommands, planCounts.DocumentationTargets, planCounts.DocumentationValidationCommands))
 	details = append(details, fmt.Sprintf("removalImpact=%t impactReferences=%d impactCategories=%d workItems=%d validationCommands=%d migrationTargets=%d migrationValidationCommands=%d smokeMigrationTargets=%d smokeMigrationValidationCommands=%d unclassified=%d", inventory.RemovalImpact.Ready, impactCounts.References, impactCounts.ReferenceCategories, impactCounts.WorkItems, impactCounts.WorkItemValidationCommands, impactCounts.MigrationTargets, impactCounts.MigrationValidationCommands, impactCounts.SmokeMigrationTargets, impactCounts.SmokeMigrationValidationCommands, impactCounts.UnclassifiedReferences))
 	for _, prerequisite := range inventory.Prerequisites {
@@ -449,7 +470,7 @@ func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation,
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("public facade removal prerequisite is not ready: %s", prerequisite.Name))
 		}
 	}
-	if len(inventory.Warnings) > 0 {
+	if PublicFacadeRemovalCountsFor(inventory).Warnings > 0 {
 		inventory.Ready = false
 		inventory.Summary = "public facade removal prerequisites have warnings"
 	}
