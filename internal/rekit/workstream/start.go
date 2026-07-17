@@ -506,6 +506,12 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	if err != nil {
 		return "", "", err
 	}
+	ledgerFacts, err := mission.ReadLedgerFacts(caseRoot)
+	if err != nil {
+		return "", "", err
+	}
+	pendingGateLines := missionLines(mission.FilterLane(ledgerFacts.Requests, lane.ID, "pending-gate"), mission.LaneGateLine)
+	authorizedGateLines := missionLines(mission.FilterLane(ledgerFacts.Requests, lane.ID, "authorized-gate"), mission.LaneGateLine)
 	autonomySummary := autonomy.ReadSummary(caseRoot, lane.ID, m)
 	lines := []string{
 		"# RESUME：" + lane.ID,
@@ -538,9 +544,16 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		"- output paths: `" + firstText(strings.Join(autonomySummary.OutputPaths, ","), "none") + "`",
 		"- record required: `" + fmt.Sprintf("%t", autonomySummary.RecordRequired) + "`",
 		"",
-		"## 最近 inbox",
+		"## Heavy-action gate decisions",
 		"",
 	}
+	lines = appendResumeList(lines, "pending-gate", pendingGateLines)
+	lines = appendResumeList(lines, "authorized-gate", authorizedGateLines)
+	lines = append(lines,
+		"",
+		"## 最近 inbox",
+		"",
+	)
 	for _, msg := range lastObjects(inbox, 8) {
 		lines = append(lines, "- "+firstObjectText(msg, "summary", "kind", "eventId"))
 	}
@@ -577,7 +590,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		return "", "", err
 	}
 	checkpointPath := filepath.Join(laneRoot, "checkpoints", "latest.json")
-	checkpoint := map[string]any{"schemaVersion": 1, "lane": lane.ID, "status": lane.Status, "workspace": lane.Workspace, "currentExecutor": lane.CurrentExecutor, "executorGeneration": lane.ExecutorGeneration, "lastReconciledIntervention": lane.LastReconciledIntervention, "lastReconcileAt": lane.LastReconcileAt, "autonomyProfile": autonomySummary, "openInterventions": openInterventions, "inbox": len(inbox), "tasks": len(tasks), "updatedAt": time.Now().UTC().Format(time.RFC3339Nano), "resume": relativePath(caseRoot, resumePath)}
+	checkpoint := map[string]any{"schemaVersion": 1, "lane": lane.ID, "status": lane.Status, "workspace": lane.Workspace, "currentExecutor": lane.CurrentExecutor, "executorGeneration": lane.ExecutorGeneration, "lastReconciledIntervention": lane.LastReconciledIntervention, "lastReconcileAt": lane.LastReconcileAt, "autonomyProfile": autonomySummary, "pendingGates": pendingGateLines, "authorizedGates": authorizedGateLines, "openInterventions": openInterventions, "inbox": len(inbox), "tasks": len(tasks), "updatedAt": time.Now().UTC().Format(time.RFC3339Nano), "resume": relativePath(caseRoot, resumePath)}
 	if err := writeJSON(checkpointPath, checkpoint); err != nil {
 		return "", "", err
 	}
@@ -674,6 +687,17 @@ func lastObjects(items []map[string]any, limit int) []map[string]any {
 		return items
 	}
 	return items[len(items)-limit:]
+}
+
+func appendResumeList(lines []string, label string, items []string) []string {
+	if len(items) == 0 {
+		return append(lines, "- "+label+": none")
+	}
+	lines = append(lines, "- "+label+":")
+	for _, item := range mission.LimitStrings(items, maxHandoffRows) {
+		lines = append(lines, "  - "+item)
+	}
+	return lines
 }
 
 func firstObjectText(item map[string]any, keys ...string) string {

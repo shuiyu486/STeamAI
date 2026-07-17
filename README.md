@@ -285,7 +285,7 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 | 路径 | 内容 |
 |---|---|
 | `.rekit/board.json` | 项目概览的机器状态。 |
-| `.rekit/lanes/<id>/` | 每条工作线的事件、任务、inbox/outbox 和接续提示。 |
+| `.rekit/lanes/<id>/` | 每条工作线的事件、任务、inbox/outbox、`prompts/RESUME.md` 与 `checkpoints/latest.json`；resume/checkpoint 会记录 lane-local pending gates 与非阻塞 authorized gates，便于替换 executor 接手。 |
 | `.rekit/facts/*.jsonl` | append-only ledger：observation、hypothesis、candidate、verification、decision、intervention、rollback、publication、request；Go runtime 通过 shared facts path/read/append helper 访问，避免各命令自行拼路径、读取或追加 JSONL。 |
 | `.rekit/runs/<run-id>/digest.md` | `/rekit continue` 每轮摘要，记录 inputs、route、packet refs、Mission Control brief、outputs、decisions、open risks。 |
 | `.rekit/handovers/latest.md` | 项目级接手索引。 |

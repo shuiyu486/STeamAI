@@ -10152,3 +10152,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/cli/cli_test.go internal/rekit/mission/brief.go internal/rekit/mission/brief_test.go internal/rekit/mission/case_test.go internal/rekit/overview/overview.go internal/rekit/workstream/continue.go internal/rekit/workstream/handoff.go`、targeted `go test ./internal/rekit/mission ./internal/rekit/overview ./internal/rekit/workstream ./internal/rekit/gate ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。
+
+### Batch 332：Go-native lane resume/checkpoint authorized-gate handoff snapshot
+
+状态：已完成。
+
+目标：继续 Stage 5 workstream / ledger / gate / continue Go 化，把 Batch 331 已在 Mission brief / overview / handoff / continue artifacts 中可见的 `authorized-gate` 进一步落到 durable lane-local `prompts/RESUME.md` 与 `checkpoints/latest.json`。替换 executor 或新会话即使只读取 lane-local prompt/checkpoint，也能看到 pending-gate blocker 与非阻塞 authorized-gate 的 authorization decision/profile 边界，降低 heavy-action 执行前漏看预授权范围的风险。
+
+实施范围：
+
+- 更新 `writeLaneResume`：读取 shared ledger requests，按当前 lane 分离 `pending-gate` 与 `authorized-gate`，在 RESUME 新增 `## Heavy-action gate decisions`，展示 lane-local pending/authorized gate lines；空列表显式写 `none`。
+- 更新 lane checkpoint：`checkpoints/latest.json` 新增 `pendingGates` 与 `authorizedGates` 字段，复用 `mission.LaneGateLine` 的 action/scope/risk/target/auth/profile summary，保持与 handoff/Mission brief 同一 gate line 语义。
+- 更新 CLI E2E：authorized-gate fixture 在 `continue -Apply` 后校验 run status/digest、lane `RESUME.md` 与 `checkpoints/latest.json` 均包含非阻塞 authorized gate，且 pending gates 为空。
+- 更新 README、canonical `/rekit` skill、Agent Team usage、release readiness、Go-first convergence 与 CHANGELOG，记录 lane-local resume/checkpoint gate snapshot 与 no heavy-tool / no authority 边界。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不写 authority/confirmed，不改变 sync/promote review-first、不迁移 policy schema、不写真实样本、trace、dump、capture、artifact、绝对 case 路径或 case-specific 进度；`gate -Apply` 仍只写 request ledger decision，resume/checkpoint 只是 lane-local handoff snapshot。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/workstream/start.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/workstream ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/workstream/start.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。

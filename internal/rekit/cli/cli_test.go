@@ -4456,6 +4456,31 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 			t.Fatalf("continue digest missing %q:\n%s", expected, string(digest))
 		}
 	}
+	resumePath := assertStartWrite(t, cont.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh").TargetPath
+	checkpointPath := assertStartWrite(t, cont.Writes, ".rekit/lanes/main/checkpoints/latest.json", "refresh").TargetPath
+	resume, err := os.ReadFile(resumePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"## Heavy-action gate decisions", "- authorized-gate:", "authorized debug", "auth=preauthorized", "profile=prof-main-debug", "- pending-gate: none"} {
+		if !strings.Contains(string(resume), expected) {
+			t.Fatalf("lane resume missing %q:\n%s", expected, string(resume))
+		}
+	}
+	checkpointBytes, err := os.ReadFile(checkpointPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		PendingGates    []string `json:"pendingGates"`
+		AuthorizedGates []string `json:"authorizedGates"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("lane checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
+	}
+	if len(checkpoint.PendingGates) != 0 || !containsSubstring(checkpoint.AuthorizedGates, "authorized debug") || !containsSubstring(checkpoint.AuthorizedGates, "auth=preauthorized") {
+		t.Fatalf("lane checkpoint missing non-blocking authorized gate visibility: %+v", checkpoint)
+	}
 }
 
 func TestRunGateApplyIsIdempotentByEventID(t *testing.T) {
