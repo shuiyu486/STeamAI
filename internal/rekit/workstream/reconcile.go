@@ -171,7 +171,7 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (Reco
 		return ReconcileResult{}, err
 	}
 	writes = append(writes, StartWrite{Path: relativePath(ctx.inst.CaseRoot, laneFile), Kind: "lane", Action: "update-reconcile-state", TargetPath: laneFile})
-	resumePath, checkpointPath, err := writeLaneResume(ctx.inst.CaseRoot, ctx.lane)
+	resumePath, checkpointPath, err := writeLaneResume(ctx.inst.CaseRoot, ctx.manifest, ctx.lane)
 	if err != nil {
 		return ReconcileResult{}, err
 	}

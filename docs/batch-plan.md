@@ -10088,3 +10088,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/mission/brief_test.go internal/rekit/mission/interventions.go internal/rekit/workstream/start.go internal/rekit/workstream/continue.go internal/rekit/workstream/reconcile.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go internal/rekit/commands/commands.go internal/rekit/commands/commands_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/manifest/release_invariants_test.go`、`go test ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，public surface baseline 为 20 commands）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go vet ./...`、`git diff --check` 与 `.\rekit\tests\facade-smoke.ps1`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 330：Go-native durable lane autonomy profile and fail-closed heavy-action authorization preflight
+
+状态：已完成。
+
+目标：继续 Stage 5 workstream / ledger / gate / continue Go 化，并补齐 Mission Control 的 durable lane autonomy profile preflight：成员 lane 只有在 `.rekit/lanes/<lane>/autonomy.json` 明确预授权 action、exact target、typed budget、output paths、stop conditions、record/notify 和 grant/expiry 后，`gate` 才能记录 `authorized-gate`；缺 profile、manual-gate、过期、越界、budget/output/stop mismatch 或 invalid schema 必须 fail-closed 为需要人工确认或 denied decision。
+
+实施范围：
+
+- 新增 `internal/rekit/autonomy` package：定义 `manual-gate` / `preauthorized` / `autonomous` profile schema、default manual profile、strict JSON decode（拒绝 unknown/trailing data）、manifest-aware validation、profile hash/summary 与 request evaluation；`recordRequired=true`、manifest-declared heavyToolGates、safe case-relative output paths、positive typed budget、grant actor/time/expiry 和 exact target scope 均纳入校验。
+- 更新 `gate -WhatIf/-Apply`：新增 `-RuntimeSeconds`、`-DiskMB`、`-Requests`、`-OutputPaths` typed contract（PowerShell façade 仅透传，不新增 runtime logic），并把 authorization decision 写入 gate details；有效 durable profile 完全覆盖时 event status 为 `authorized-gate`、`requiresConfirmation=false`、不阻塞 Mission brief；其它情况保持 `pending-gate` / fail-closed decision、`requiresConfirmation=true`。
+- 更新 workstream / overview / doctor：`start -Apply` 确保 lane-local manual `autonomy.json`；`start`、`continue`、handoff、RESUME/checkpoint 与 overview JSON/text 暴露 manifest-aware autonomy summary；case doctor 验证已存在的 autonomy profile，缺失 profile 仍兼容为 manual-gate fallback。
+- 更新 Mission brief blocker 语义：只把 `status=pending-gate` 视为 pending gate blocker，`authorized-gate` 作为已记录授权决策不阻塞 ready lane；open intervention、open candidate/decision 语义保持不变。
+- 更新 README、canonical `/rekit` skill、CLAUDE、release readiness、PowerShell deprecation、Go runtime migration、evidence ledger、Agent Team usage/rollout 与 tests guide，记录 pending-gate / authorized-gate request ledger decision、actual heavy-tool 外置执行和 no authority/confirmed 边界。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不写 authority/confirmed，不改变 sync/promote review-first、不迁移 policy schema、不写真实样本、trace、dump、capture、artifact、绝对 case 路径或 case-specific 进度；`gate -Apply` 仍只写 request ledger decision，actual heavy action 必须由 lane executor / tool adapter 在 authorization decision 与 autonomy profile 范围内执行并写回 evidence/ledger。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/autonomy/profile.go internal/rekit/autonomy/profile_test.go internal/rekit/gate/gate.go internal/rekit/gate/gate_test.go internal/rekit/mission/brief.go internal/rekit/mission/brief_test.go internal/rekit/workstream/start.go internal/rekit/workstream/continue.go internal/rekit/workstream/handoff.go internal/rekit/workstream/reconcile.go internal/rekit/overview/overview.go internal/rekit/doctor/case.go internal/rekit/cli/cli.go internal/rekit/releasecheck/release_handoff.go internal/rekit/manifest/release_invariants_test.go
+go test ./internal/rekit/autonomy ./internal/rekit/gate ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/doctor ./internal/rekit/cli ./internal/rekit/releasecheck ./internal/rekit/manifest
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+.\rekit\tests\facade-smoke.ps1
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/autonomy/profile.go internal/rekit/autonomy/profile_test.go internal/rekit/gate/gate.go internal/rekit/gate/gate_test.go internal/rekit/mission/brief.go internal/rekit/mission/brief_test.go internal/rekit/workstream/start.go internal/rekit/workstream/continue.go internal/rekit/workstream/handoff.go internal/rekit/workstream/reconcile.go internal/rekit/overview/overview.go internal/rekit/doctor/case.go internal/rekit/cli/cli.go internal/rekit/releasecheck/release_handoff.go internal/rekit/manifest/release_invariants_test.go`、`go test ./internal/rekit/autonomy ./internal/rekit/gate ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/doctor ./internal/rekit/cli ./internal/rekit/releasecheck ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 与 `.\rekit\tests\facade-smoke.ps1`。自审发现 `preauthorized/autonomous` profile 缺 `notifyMainOn` 仍可能 ready 的 fail-open 缺口，已补 `notifyMainOn` 必填校验与测试后重新通过验证；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

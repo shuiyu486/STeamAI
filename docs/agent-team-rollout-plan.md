@@ -10,10 +10,10 @@
 
 ## 实施摘要
 
-Agent Team 当前真实状态是**契约层完整、ledger/runtime 基础已落地、Mission Control 产品方向已确认，自动编排、可替换 session executor、Human-in-the-Lane reconcile、预授权 lane autonomy 与强制 gate 仍待推进**：
+Agent Team 当前真实状态是**契约层完整、ledger/runtime 基础已落地、Mission Control 产品方向已确认，自动编排、真实 heavy-tool 执行闭环、confirmed/authority 强制 gate 仍待推进；可替换 session executor、Human-in-the-Lane reconcile 与 durable lane autonomy preflight 已进入 Go runtime**：
 
 - 已固化：`common/policies/agent-team.md`（角色 + packet + 状态流）、`common/policies/subagents.md`（L1/L2/L3 + output contract）、manifest `subagentRoutes`、`B3` 工作线 runtime、vmp-re pack、`_template` pack。
-- 已落地：PowerShell ledger runtime（9 种 kind、batchId、overview/handoff/note-List、run digest）、sync/promote review-first、Go review-only plan/artifacts、Go gate dry-run 与 pending-gate request 写入、Go façade 对 read-only/case lifecycle/sync/promote/ledger/gate/start/handoff/continue preview/apply safe subset 的默认接管，`_template` pack 的 Go package workstream、gate/dispatch 与 reviewer/decision 闭环测试，`generic-binary-re` 的 pack-neutral non-feature lane E2E 测试、`web-security` 的非 RE-only pack-neutral route/network gate E2E 测试，以及 `web-security` 的真实临时 case Agent Team dry-run smoke。
+- 已落地：Go-owned ledger runtime（9 种 kind、batchId、overview/handoff/note-List、run digest）、sync/promote review-first、Go review-only plan/artifacts、Go gate authorization preflight 与 pending-gate / authorized-gate request ledger decision 写入、durable lane reconcile / executor takeover、start/continue/handoff/overview autonomy profile summary、Go façade 对 read-only/case lifecycle/sync/promote/ledger/gate/start/handoff/continue/reconcile preview/apply safe subset 的默认接管，`_template` pack 的 Go package workstream、gate/dispatch 与 reviewer/decision 闭环测试，`generic-binary-re` 的 pack-neutral non-feature lane E2E 测试、`web-security` 的非 RE-only pack-neutral route/network gate E2E 测试，以及安全领域 pack 的真实临时 case Agent Team dry-run smoke。
 - 未落地：bounded dispatch 自动 spawn、candidate → verified → confirmed 的机器强制 gate、真实 heavy-tool 执行闭环、PowerShell façade 全量 shim 化、更多非 `vmp-re` pack 的真实 dry-run 脚本闭环（Batch 125/126 已覆盖 `generic-binary-re` 与 `web-security` package E2E；Batch 127 已补 `web-security` 真实临时 case dry-run，其他非 RE-only pack 尚未覆盖）。
 
 本计划先用临时 case 端到端 dry-run 压测 main → feature → reviewer → confirmed 全流程，再按 dry-run 暴露的真实需求分批做 ledger runtime、gate 与 bounded dispatch。当前文档保留历史批次记录，新批次以顶部当前状态和 `docs/batch-plan.md` 最新 batch 为准。
@@ -79,7 +79,7 @@ R4-R6（runtime 切片阶段，按 R3 决定激活）：
 | bounded dispatch | `plan-subagents` 只输出分片计划，不启动 agent | 主 agent 按 route 启动只读 reviewer，回收 verdict，合并 accepted/rejected/deferred |
 | evidence ledger runtime 强制 gate | `.rekit/facts/*.jsonl` append/聚合/查询已落地；candidate/verification/decision/intervention/rollback 可记账，但 confirmed/authority 仍需人工确认 | candidate → verified → confirmed 的机器强制 gate 与 authority 写入保护 |
 | batch-level replay/resume | `batchId` 与 run digest 已落地；overview 可聚合 batch | batch-level replay、resume、整体接受/回滚自动化 |
-| heavy-tool gate runtime | Go `gate -WhatIf` 可预览，`gate -Apply` 只写 pending-gate request；不执行工具 | runtime 在 full-trace/debug/inject/patch/dump 前强制确认 packet，并在确认后执行受控动作 |
+| heavy-tool gate runtime | Go `gate -WhatIf/-Apply` 可预览或记录 pending-gate / authorized-gate request ledger decision；durable lane autonomy profile 完全覆盖时可记录 `authorized-gate`；不执行工具、不写 authority/confirmed | lane executor / tool adapter 在 full-trace/debug/inject/patch/dump 前消费 gate decision 与 autonomy profile，并在执行后强制写回 evidence / budget / output 记录 |
 | reviewer/verifier spawn 路径 | 靠主会话自觉 | 强契约：route → packet → spawn → verdict → merge |
 
 ## 2. 推进姿态：选项 C

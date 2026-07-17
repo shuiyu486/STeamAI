@@ -8,7 +8,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -33,12 +35,15 @@ type Inventory struct {
 }
 
 type LaneSummary struct {
-	ID        string `json:"id"`
-	Label     string `json:"label"`
-	Kind      string `json:"kind"`
-	Status    string `json:"status"`
-	Workspace string `json:"workspace"`
-	Authority bool   `json:"authority"`
+	ID              string `json:"id"`
+	Label           string `json:"label"`
+	Kind            string `json:"kind"`
+	Status          string `json:"status"`
+	Workspace       string `json:"workspace"`
+	Authority       bool   `json:"authority"`
+	AutonomyMode    string `json:"autonomyMode"`
+	AutonomyReady   bool   `json:"autonomyReady"`
+	AutonomyProfile string `json:"autonomyProfile"`
 }
 
 type MissionBrief = mission.Brief
@@ -83,6 +88,7 @@ type BatchSummary struct {
 
 type overviewData struct {
 	inst        instance.Instance
+	manifest    *manifest.Manifest
 	board       event
 	facts       factSet
 	lanes       []event
@@ -118,7 +124,8 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 		if boolValue(lane, "authority") {
 			kind = "主线"
 		}
-		fmt.Fprintf(&out, "- %s：%s，选择名=%s，状态=%s，工作区=%s\n", kind, stringValue(lane, "id"), workstreamLabel(lane), stringValue(lane, "status"), stringValue(lane, "workspace"))
+		autonomySummary := autonomy.ReadSummary(data.inst.CaseRoot, stringValue(lane, "id"), data.manifest)
+		fmt.Fprintf(&out, "- %s：%s，选择名=%s，状态=%s，工作区=%s，autonomy=%s ready=%t\n", kind, stringValue(lane, "id"), workstreamLabel(lane), stringValue(lane, "status"), stringValue(lane, "workspace"), autonomySummary.Mode, autonomySummary.Ready)
 	}
 	fmt.Fprintln(&out)
 	fmt.Fprintln(&out, "共享事实：")
@@ -153,13 +160,18 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 		if boolValue(lane, "authority") {
 			kind = "main"
 		}
+		laneID := stringValue(lane, "id")
+		autonomySummary := autonomy.ReadSummary(data.inst.CaseRoot, laneID, data.manifest)
 		lanes = append(lanes, LaneSummary{
-			ID:        stringValue(lane, "id"),
-			Label:     workstreamLabel(lane),
-			Kind:      kind,
-			Status:    stringValue(lane, "status"),
-			Workspace: stringValue(lane, "workspace"),
-			Authority: boolValue(lane, "authority"),
+			ID:              laneID,
+			Label:           workstreamLabel(lane),
+			Kind:            kind,
+			Status:          stringValue(lane, "status"),
+			Workspace:       stringValue(lane, "workspace"),
+			Authority:       boolValue(lane, "authority"),
+			AutonomyMode:    autonomySummary.Mode,
+			AutonomyReady:   autonomySummary.Ready,
+			AutonomyProfile: autonomySummary.ProfilePath,
 		})
 	}
 	facts := data.facts
@@ -190,6 +202,10 @@ func loadOverviewData(repoRoot, caseRoot, pack string) (overviewData, error) {
 	if err != nil {
 		return overviewData{}, err
 	}
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return overviewData{}, err
+	}
 	board, err := mission.ReadBoard(inst.CaseRoot)
 	initialized := false
 	if os.IsNotExist(err) {
@@ -208,6 +224,7 @@ func loadOverviewData(repoRoot, caseRoot, pack string) (overviewData, error) {
 	}
 	return overviewData{
 		inst:        inst,
+		manifest:    m,
 		board:       boardEvent(board),
 		facts:       facts,
 		lanes:       boardLaneEvents(board.Lanes),
@@ -221,7 +238,7 @@ func buildOverviewSections(facts factSet) OverviewSections {
 	openCandidates := openStatusEvents(facts.Candidates)
 	pendingGates := []event{}
 	for _, request := range facts.Requests {
-		if stringValue(request, "status") == "pending-gate" {
+		if mission.IsPendingGateRequest(request) {
 			pendingGates = append(pendingGates, request)
 		}
 	}
@@ -418,7 +435,7 @@ func writeOpenCandidates(out *bytes.Buffer, candidates []event) {
 func writePendingGates(out *bytes.Buffer, requests []event) {
 	pending := []event{}
 	for _, r := range requests {
-		if stringValue(r, "status") == "pending-gate" {
+		if mission.IsPendingGateRequest(r) {
 			pending = append(pending, r)
 		}
 	}

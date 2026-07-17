@@ -58,6 +58,22 @@ func TestBuildBlocksLanesAndUsesSharedDecisionAction(t *testing.T) {
 	}
 }
 
+func TestBuildDoesNotBlockOnAuthorizedGate(t *testing.T) {
+	brief := Build(
+		[]Lane{{ID: "main", Label: "main", Status: "active"}},
+		Facts{Requests: []map[string]any{
+			{"kind": "request", "lane": "main", "subject": "authorized debug", "status": "authorized-gate", "risk": "high", "gate": map[string]any{"action": "debug"}},
+		}},
+		10,
+	)
+	if brief.Summary != "openLanes=1 ready=1 blocked=0 pendingGates=0 openDecisions=0 interventions=0" {
+		t.Fatalf("summary = %q", brief.Summary)
+	}
+	if len(brief.PendingGates) != 0 || !slices.Contains(brief.ReadyLanes, "main") {
+		t.Fatalf("authorized gate should not block as pending gate: %+v", brief)
+	}
+}
+
 func TestEffectiveOpenInterventionsHonorsAppendOnlyResolution(t *testing.T) {
 	items := []map[string]any{
 		{"eventId": "evt-open", "kind": "intervention", "lane": "feature-login", "subject": "manual pause", "status": "open"},

@@ -24,6 +24,10 @@ param(
   [string]$BatchId = '',
   [string]$Scope = '',
   [string]$Budget = '',
+  [int]$RuntimeSeconds = 0,
+  [int]$DiskMB = 0,
+  [int]$Requests = 0,
+  [string]$OutputPaths = '',
   [string]$TriedLightSteps = '',
   [string]$StopConditions = '',
   [string]$Route = '',
@@ -413,6 +417,10 @@ function Get-RekitGoArgs {
     Add-RekitGoArg ([ref]$goArgs) '-BatchId' $BatchId
     Add-RekitGoArg ([ref]$goArgs) '-Scope' $Scope
     Add-RekitGoArg ([ref]$goArgs) '-Budget' $Budget
+    if ($RuntimeSeconds -gt 0) { Add-RekitGoArg ([ref]$goArgs) '-RuntimeSeconds' ([string]$RuntimeSeconds) }
+    if ($DiskMB -gt 0) { Add-RekitGoArg ([ref]$goArgs) '-DiskMB' ([string]$DiskMB) }
+    if ($Requests -gt 0) { Add-RekitGoArg ([ref]$goArgs) '-Requests' ([string]$Requests) }
+    Add-RekitGoArg ([ref]$goArgs) '-OutputPaths' $OutputPaths
     Add-RekitGoArg ([ref]$goArgs) '-TriedLightSteps' $TriedLightSteps
     Add-RekitGoArg ([ref]$goArgs) '-StopConditions' $StopConditions
   }

@@ -101,13 +101,13 @@ packet / reviewer output 中可使用 `needs_more_evidence` 表达候选仍缺�
 
 ## Request 字段
 
-`request` 用于请求 main/tooling/user 处理，也承载 heavy-tool gate 的 pending 请求：
+`request` 用于请求 main/tooling/user 处理，也承载 heavy-action gate 的 pending 或 durable autonomy authorized decision：
 
 ```json
 {
   "kind": "request",
   "target": "<event|lane|batch|object>",
-  "status": "open|pending-gate|resolved|deferred|rejected",
+  "status": "open|pending-gate|authorized-gate|resolved|deferred|rejected",
   "risk": "medium|high|critical",
   "gate": {
     "action": "full-trace|debug|inject|patch|dump|network|symex|other",
@@ -119,7 +119,7 @@ packet / reviewer output 中可使用 `needs_more_evidence` 表达候选仍缺�
 }
 ```
 
-`status=pending-gate` 表示需要用户确认；它不是执行授权本身。确认只覆盖 event 中列明的 action/scope/budget/risk/stopConditions，不得扩大到其它 heavy-tool 动作。Go `gate -WhatIf/-Apply` 使用 manifest `defaultRisk`，用户覆盖 `-Risk` 时必须是小写 `medium|high|critical`；`stopConditions` 在 preview/request ledger 中使用小写 slug/snake token 列表，人类说明应放在 summary 或 decision_reason。
+`status=pending-gate` 表示需要用户确认；它不是执行授权本身。`status=authorized-gate` 表示 Go gate preflight 已找到当前 lane 的 durable autonomy profile，且 action、target、typed budget、output paths 与 stop conditions 被 profile 完全覆盖；它仍只是 ledger authorization decision，不代表 `/rekit` 已执行 heavy-tool，也不放宽 confirmed/authority/sync/promote 边界。确认或 profile 授权只覆盖 event 中列明的 action/scope/budget/risk/outputPaths/stopConditions，不得扩大到其它 heavy-tool 动作。Go `gate -WhatIf/-Apply` 使用 manifest `defaultRisk`，用户覆盖 `-Risk` 时必须是小写 `medium|high|critical`；`stopConditions` 在 preview/request ledger 中使用小写 slug/snake token 列表，人类说明应放在 summary 或 decision_reason。
 
 ## Intervention 字段
 

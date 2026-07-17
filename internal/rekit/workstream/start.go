@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
@@ -56,19 +57,20 @@ type StartWrite struct {
 }
 
 type StartResult struct {
-	SchemaVersion        int           `json:"schemaVersion"`
-	Command              string        `json:"command"`
-	CaseRoot             string        `json:"caseRoot"`
-	RepoRoot             string        `json:"repoRoot"`
-	Pack                 string        `json:"pack"`
-	IsMutation           bool          `json:"isMutation"`
-	Applied              bool          `json:"applied"`
-	RequiresConfirmation bool          `json:"requiresConfirmation"`
-	Lane                 Lane          `json:"lane"`
-	MissionBrief         mission.Brief `json:"missionBrief"`
-	Writes               []StartWrite  `json:"writes"`
-	BlockedActions       []string      `json:"blockedActions"`
-	NextSteps            []string      `json:"nextSteps"`
+	SchemaVersion        int              `json:"schemaVersion"`
+	Command              string           `json:"command"`
+	CaseRoot             string           `json:"caseRoot"`
+	RepoRoot             string           `json:"repoRoot"`
+	Pack                 string           `json:"pack"`
+	IsMutation           bool             `json:"isMutation"`
+	Applied              bool             `json:"applied"`
+	RequiresConfirmation bool             `json:"requiresConfirmation"`
+	Lane                 Lane             `json:"lane"`
+	AutonomyProfile      autonomy.Summary `json:"autonomyProfile"`
+	MissionBrief         mission.Brief    `json:"missionBrief"`
+	Writes               []StartWrite     `json:"writes"`
+	BlockedActions       []string         `json:"blockedActions"`
+	NextSteps            []string         `json:"nextSteps"`
 }
 
 type Lane struct {
@@ -137,7 +139,8 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 			Action:     action,
 			TargetPath: laneFile,
 		}},
-		BlockedActions: []string{"authority/confirmed writes", "heavy-tool execution", "handoff writes", "continue auto-apply"},
+		AutonomyProfile: autonomy.ReadSummary(inst.CaseRoot, laneID, m),
+		BlockedActions:  []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
 		NextSteps: []string{
 			"review this plan, then re-run start with -Apply to create or enter the workstream",
 			"PowerShell /rekit remains the public entrypoint; JSON preview/apply is Go-owned by default",
@@ -154,7 +157,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 	if err := ensureWorkstreamState(inst.CaseRoot, m, &writes); err != nil {
 		return StartResult{}, err
 	}
-	lane, laneWrites, err := writeLane(inst.CaseRoot, laneType, laneID, name, opt.Force)
+	lane, laneWrites, err := writeLane(inst.CaseRoot, m, laneType, laneID, name, opt.Force)
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -175,9 +178,10 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 		Applied:              true,
 		RequiresConfirmation: false,
 		Lane:                 lane,
+		AutonomyProfile:      autonomy.ReadSummary(inst.CaseRoot, lane.ID, m),
 		MissionBrief:         brief,
 		Writes:               writes,
-		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution", "handoff writes", "continue auto-apply"},
+		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
 		NextSteps: []string{
 			"run doctor after apply",
 			"use /rekit continue " + workstreamLabel(lane) + " to enter the lane workflow",
@@ -288,7 +292,7 @@ func ensureWorkstreamState(caseRoot string, m *manifest.Manifest, writes *[]Star
 		return err
 	}
 	if !refsf.Exists(authorityFile) {
-		_, laneWrites, err := writeLane(caseRoot, authorityType, authorityID, "", false)
+		_, laneWrites, err := writeLane(caseRoot, m, authorityType, authorityID, "", false)
 		if err != nil {
 			return err
 		}
@@ -297,7 +301,7 @@ func ensureWorkstreamState(caseRoot string, m *manifest.Manifest, writes *[]Star
 	return nil
 }
 
-func writeLane(caseRoot string, laneType manifest.LaneType, id, name string, force bool) (Lane, []StartWrite, error) {
+func writeLane(caseRoot string, m *manifest.Manifest, laneType manifest.LaneType, id, name string, force bool) (Lane, []StartWrite, error) {
 	laneRootRel := relJoin(".rekit", "lanes", id)
 	laneRoot, err := refsf.SafeJoin(caseRoot, laneRootRel)
 	if err != nil {
@@ -310,7 +314,14 @@ func writeLane(caseRoot string, laneType manifest.LaneType, id, name string, for
 		if err != nil {
 			return Lane{}, nil, err
 		}
-		return lane, []StartWrite{{Path: relJoin(laneRootRel, "lane.json"), Kind: "lane", Action: "enter-existing-lane", TargetPath: laneFile}}, nil
+		profileRel, profilePath, err := autonomy.EnsureManualProfile(caseRoot, id)
+		if err != nil {
+			return Lane{}, nil, err
+		}
+		return lane, []StartWrite{
+			{Path: relJoin(laneRootRel, "lane.json"), Kind: "lane", Action: "enter-existing-lane", TargetPath: laneFile},
+			{Path: profileRel, Kind: "autonomy-profile", Action: "ensure-manual-profile", TargetPath: profilePath},
+		}, nil
 	}
 	var existingLane Lane
 	if laneExists {
@@ -393,13 +404,18 @@ func writeLane(caseRoot string, laneType manifest.LaneType, id, name string, for
 		return Lane{}, nil, err
 	}
 	writes = append(writes, StartWrite{Path: relJoin(laneRootRel, "lane.json"), Kind: "lane", Action: action, TargetPath: laneFile})
+	profileRel, profilePath, err := autonomy.EnsureManualProfile(caseRoot, id)
+	if err != nil {
+		return Lane{}, nil, err
+	}
+	writes = append(writes, StartWrite{Path: profileRel, Kind: "autonomy-profile", Action: "ensure-manual-profile", TargetPath: profilePath})
 	eventPath := LaneEventsJSONLPath(laneRoot)
 	event := map[string]any{"eventId": eventID(id, eventKind, now), "kind": eventKind, "lane": id, "time": now, "summary": eventSummary}
 	if err := mission.AppendJSONLine(eventPath, event); err != nil {
 		return Lane{}, nil, err
 	}
 	writes = append(writes, StartWrite{Path: relJoin(laneRootRel, "events.jsonl"), Kind: "lane-event", Action: eventAction, TargetPath: eventPath})
-	resumePath, checkpointPath, err := writeLaneResume(caseRoot, lane)
+	resumePath, checkpointPath, err := writeLaneResume(caseRoot, m, lane)
 	if err != nil {
 		return Lane{}, nil, err
 	}
@@ -473,7 +489,7 @@ func saveBoard(caseRoot string, m *manifest.Manifest) (string, error) {
 	return path, writeJSON(path, b)
 }
 
-func writeLaneResume(caseRoot string, lane Lane) (string, string, error) {
+func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, string, error) {
 	laneRoot, err := laneRootPath(caseRoot, lane)
 	if err != nil {
 		return "", "", err
@@ -490,6 +506,7 @@ func writeLaneResume(caseRoot string, lane Lane) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
+	autonomySummary := autonomy.ReadSummary(caseRoot, lane.ID, m)
 	lines := []string{
 		"# RESUME：" + lane.ID,
 		"",
@@ -499,12 +516,27 @@ func writeLaneResume(caseRoot string, lane Lane) (string, string, error) {
 		"current executor: `" + firstText(lane.CurrentExecutor, "unassigned") + "`",
 		fmt.Sprintf("executor generation: `%d`", lane.ExecutorGeneration),
 		"last reconciled intervention: `" + firstText(lane.LastReconciledIntervention, "none") + "`",
+		"autonomy mode: `" + firstText(autonomySummary.Mode, autonomy.ModeManualGate) + "`",
+		"autonomy profile: `" + firstText(autonomySummary.ProfilePath, autonomy.RelPath(lane.ID)) + "`",
+		"autonomy ready: `" + fmt.Sprintf("%t", autonomySummary.Ready) + "`",
 		"",
 		"## 边界",
 		"",
 		"- 只写本工作线 workspace，除非 lane.json 明确列入 canWrite。",
 		"- authority 文件只由主线或 policy gate 写入。",
 		"- 新发现写入 outbox.jsonl / workspace observations.jsonl / requests.jsonl / candidates.jsonl。",
+		"- autonomy profile 只限定 heavy-action 预授权边界；不放宽 authority/confirmed/sync/promote。",
+		"- heavy-tool execution 仍需有效 gate authorization decision，并且执行后必须记录 evidence。",
+		"",
+		"## Autonomy profile",
+		"",
+		"- mode: `" + firstText(autonomySummary.Mode, autonomy.ModeManualGate) + "`",
+		"- profile: `" + firstText(autonomySummary.ProfilePath, autonomy.RelPath(lane.ID)) + "`",
+		"- ready: `" + fmt.Sprintf("%t", autonomySummary.Ready) + "` valid=`" + fmt.Sprintf("%t", autonomySummary.Valid) + "` expired=`" + fmt.Sprintf("%t", autonomySummary.Expired) + "`",
+		"- allowed actions: `" + firstText(strings.Join(autonomySummary.AllowedActions, ","), "none") + "`",
+		"- denied actions: `" + firstText(strings.Join(autonomySummary.DeniedActions, ","), "none") + "`",
+		"- output paths: `" + firstText(strings.Join(autonomySummary.OutputPaths, ","), "none") + "`",
+		"- record required: `" + fmt.Sprintf("%t", autonomySummary.RecordRequired) + "`",
 		"",
 		"## 最近 inbox",
 		"",
@@ -545,7 +577,7 @@ func writeLaneResume(caseRoot string, lane Lane) (string, string, error) {
 		return "", "", err
 	}
 	checkpointPath := filepath.Join(laneRoot, "checkpoints", "latest.json")
-	checkpoint := map[string]any{"schemaVersion": 1, "lane": lane.ID, "status": lane.Status, "workspace": lane.Workspace, "currentExecutor": lane.CurrentExecutor, "executorGeneration": lane.ExecutorGeneration, "lastReconciledIntervention": lane.LastReconciledIntervention, "lastReconcileAt": lane.LastReconcileAt, "openInterventions": openInterventions, "inbox": len(inbox), "tasks": len(tasks), "updatedAt": time.Now().UTC().Format(time.RFC3339Nano), "resume": relativePath(caseRoot, resumePath)}
+	checkpoint := map[string]any{"schemaVersion": 1, "lane": lane.ID, "status": lane.Status, "workspace": lane.Workspace, "currentExecutor": lane.CurrentExecutor, "executorGeneration": lane.ExecutorGeneration, "lastReconciledIntervention": lane.LastReconciledIntervention, "lastReconcileAt": lane.LastReconcileAt, "autonomyProfile": autonomySummary, "openInterventions": openInterventions, "inbox": len(inbox), "tasks": len(tasks), "updatedAt": time.Now().UTC().Format(time.RFC3339Nano), "resume": relativePath(caseRoot, resumePath)}
 	if err := writeJSON(checkpointPath, checkpoint); err != nil {
 		return "", "", err
 	}

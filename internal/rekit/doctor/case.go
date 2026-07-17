@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
@@ -94,7 +95,7 @@ func Case(repoRoot, caseRoot, pack string) ([]Row, error) {
 	if err := validateSubagentRoutesInstance(m, inst.CaseRoot); err != nil {
 		return nil, err
 	}
-	if err := validateWorkstreamState(inst.CaseRoot); err != nil {
+	if err := validateWorkstreamState(inst.CaseRoot, m); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -144,7 +145,7 @@ func validateSubagentRoutesInstance(m *manifest.Manifest, caseRoot string) error
 	return nil
 }
 
-func validateWorkstreamState(caseRoot string) error {
+func validateWorkstreamState(caseRoot string, m *manifest.Manifest) error {
 	for _, rel := range mission.FactRelPaths() {
 		path := filepath.Join(caseRoot, filepath.FromSlash(rel))
 		if err := mission.ValidateJSONLines(path); err != nil {
@@ -202,6 +203,15 @@ func validateWorkstreamState(caseRoot string) error {
 		}
 		if laneRootRel := jsonString(lane, "laneRoot"); strings.TrimSpace(laneRootRel) != "" {
 			if _, err := refsf.SafeJoin(caseRoot, laneRootRel); err != nil {
+				return err
+			}
+		}
+		profile, _, exists, err := autonomy.Read(caseRoot, id)
+		if err != nil {
+			return err
+		}
+		if exists {
+			if err := autonomy.Validate(profile, id, m, caseRoot); err != nil {
 				return err
 			}
 		}

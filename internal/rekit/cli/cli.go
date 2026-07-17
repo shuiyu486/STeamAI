@@ -285,6 +285,42 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -Budget")
 			}
 			opt.Gate.Budget = args[i]
+		case "-RuntimeSeconds", "--runtime-seconds":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -RuntimeSeconds")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return opt, fmt.Errorf("invalid -RuntimeSeconds: %s", args[i])
+			}
+			opt.Gate.RuntimeSeconds = n
+		case "-DiskMB", "--disk-mb":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -DiskMB")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return opt, fmt.Errorf("invalid -DiskMB: %s", args[i])
+			}
+			opt.Gate.DiskMB = n
+		case "-Requests", "--requests":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Requests")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return opt, fmt.Errorf("invalid -Requests: %s", args[i])
+			}
+			opt.Gate.Requests = n
+		case "-OutputPaths", "--output-paths":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -OutputPaths")
+			}
+			opt.Gate.OutputPaths = args[i]
 		case "-TriedLightSteps", "--tried-light-steps":
 			i++
 			if i >= len(args) {

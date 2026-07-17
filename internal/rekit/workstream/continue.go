@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
@@ -38,6 +39,7 @@ type ContinueResult struct {
 	RequiresConfirmation bool                   `json:"requiresConfirmation"`
 	Selector             string                 `json:"selector"`
 	Lane                 Lane                   `json:"lane"`
+	AutonomyProfile      autonomy.Summary       `json:"autonomyProfile"`
 	RunID                string                 `json:"runId"`
 	BatchID              string                 `json:"batchId"`
 	Summary              ContinueSummary        `json:"summary"`
@@ -144,12 +146,13 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		RequiresConfirmation: true,
 		Selector:             ctx.selector,
 		Lane:                 ctx.lane,
+		AutonomyProfile:      autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
 		RunID:                continuePreviewRunID,
 		BatchID:              "batch-" + continuePreviewRunID,
 		MissionBrief:         ctx.missionBrief(),
 		Inputs:               uniqueStrings(inputs),
 		PacketRefs:           uniqueStrings(packets),
-		BlockedActions:       []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution"},
+		BlockedActions:       []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
 		NextSteps: []string{
 			"review this preview, then re-run continue with -Apply when the case-local facts/route/digest writes are acceptable",
 			"PowerShell /rekit remains the public entrypoint; JSON preview and explicit apply are Go-owned by default",
@@ -249,6 +252,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 		RequiresConfirmation: false,
 		Selector:             ctx.selector,
 		Lane:                 ctx.lane,
+		AutonomyProfile:      autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
 		RunID:                runID,
 		BatchID:              batchID,
 		Inputs:               uniqueStrings(inputs),
@@ -257,7 +261,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 		OpenRisks:            []string{},
 		WouldWrites:          []StartWrite{},
 		Writes:               []StartWrite{},
-		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution"},
+		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
 		NextSteps: []string{
 			"run doctor after apply",
 			"use /rekit handoff " + workstreamLabel(ctx.lane) + " to refresh case-local handoff when needed",
@@ -300,7 +304,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 		result.updateApplySummary(preview)
 		known[id] = true
 	}
-	resumePath, checkpointPath, err := writeLaneResume(ctx.inst.CaseRoot, ctx.lane)
+	resumePath, checkpointPath, err := writeLaneResume(ctx.inst.CaseRoot, ctx.manifest, ctx.lane)
 	if err != nil {
 		return ContinueResult{}, err
 	}
@@ -398,6 +402,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 		RequiresConfirmation: false,
 		Selector:             ctx.selector,
 		Lane:                 ctx.lane,
+		AutonomyProfile:      autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
 		RunID:                continuePreviewRunID,
 		BatchID:              "batch-" + continuePreviewRunID,
 		MissionBrief:         ctx.missionBrief(),
@@ -407,7 +412,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 		OpenInterventions:    open,
 		WouldWrites:          []StartWrite{},
 		Writes:               []StartWrite{},
-		BlockedActions:       []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution"},
+		BlockedActions:       []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
 		NextSteps:            []string{"run /rekit reconcile " + workstreamLabel(ctx.lane) + " -InterventionId <eventId> -Apply before continuing this lane"},
 	}, nil
 }
@@ -658,7 +663,7 @@ func writeContinueRunArtifacts(runRoot string, result ContinueResult) (string, s
 		return "", "", err
 	}
 	statusPath := filepath.Join(runRoot, "status.json")
-	status := map[string]any{"schemaVersion": 1, "runId": result.RunID, "batchId": result.BatchID, "summary": result.Summary, "missionBrief": result.MissionBrief, "inputs": result.Inputs, "packetRefs": result.PacketRefs, "openRisks": result.OpenRisks, "time": isoNow()}
+	status := map[string]any{"schemaVersion": 1, "runId": result.RunID, "batchId": result.BatchID, "summary": result.Summary, "autonomyProfile": result.AutonomyProfile, "missionBrief": result.MissionBrief, "inputs": result.Inputs, "packetRefs": result.PacketRefs, "openRisks": result.OpenRisks, "time": isoNow()}
 	if err := writeJSON(statusPath, status); err != nil {
 		return "", "", err
 	}
@@ -680,6 +685,9 @@ func continueDigestText(result ContinueResult) string {
 		"runId: `" + result.RunID + "`",
 		"batchId: `" + result.BatchID + "`",
 		"focus lane: `" + result.Lane.ID + "`",
+		"autonomy mode: `" + firstText(result.AutonomyProfile.Mode, autonomy.ModeManualGate) + "`",
+		"autonomy profile: `" + firstText(result.AutonomyProfile.ProfilePath, autonomy.RelPath(result.Lane.ID)) + "`",
+		"autonomy ready: `" + fmt.Sprintf("%t", result.AutonomyProfile.Ready) + "`",
 		"",
 		"## Mission Control brief",
 		"",

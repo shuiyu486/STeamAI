@@ -49,7 +49,7 @@ func BuildWithOptions(lanes []Lane, facts Facts, opts BuildOptions) Brief {
 	blocked := map[string][]string{}
 	pendingGateLines := []string{}
 	for _, gate := range facts.Requests {
-		if Value(gate, "status") != "pending-gate" {
+		if !IsPendingGateRequest(gate) {
 			continue
 		}
 		lane := Value(gate, "lane")
@@ -199,6 +199,10 @@ func FilterLane(items []map[string]any, laneID, status string) []map[string]any 
 		out = append(out, item)
 	}
 	return out
+}
+
+func IsPendingGateRequest(item map[string]any) bool {
+	return Value(item, "status") == "pending-gate"
 }
 
 func GateLine(item map[string]any) string {

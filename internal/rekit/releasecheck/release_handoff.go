@@ -253,7 +253,7 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			Summary: strings.Join(check.HeavyToolGateActions, ","),
 			Details: []string{
 				fmt.Sprintf("actions=%d", resultCounts.HeavyToolGateActions),
-				"gate preview/apply only creates pending-gate requests; no heavy-tool execution",
+				"gate preview/apply records pending-gate or authorized-gate ledger decisions; no heavy-tool execution",
 			},
 		},
 		{

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
@@ -143,7 +144,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		Lane:                 lane,
 		MissionBrief:         brief,
 		Writes:               writes,
-		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution", "continue auto-apply", "board/facts/lane creation"},
+		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
 		NextSteps:            next,
 	}
 }
@@ -306,7 +307,8 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 			kind = "主线"
 		}
 		label := workstreamLabel(lane)
-		fmt.Fprintf(&out, "- %s `%s`：status=%s，workspace=`%s`\n", kind, lane.ID, lane.Status, lane.Workspace)
+		autonomySummary := autonomy.ReadSummary(ctx.inst.CaseRoot, lane.ID, ctx.manifest)
+		fmt.Fprintf(&out, "- %s `%s`：status=%s，workspace=`%s`，autonomy=%s ready=%t\n", kind, lane.ID, lane.Status, lane.Workspace, autonomySummary.Mode, autonomySummary.Ready)
 		fmt.Fprintf(&out, "  - 接手：`/rekit continue %s`\n", label)
 		fmt.Fprintf(&out, "  - 指定交接：`/rekit handoff %s`\n", label)
 		fmt.Fprintf(&out, "  - 接续提示：`%s`\n", resumeRel)
@@ -382,6 +384,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 		return "", nil, err
 	}
 	writeLaneMissionBrief(&out, lane, facts)
+	writeAutonomyProfileSection(&out, ctx.inst.CaseRoot, lane, ctx.manifest)
 	writeVerificationSection(&out, facts.Verifications, lane.ID)
 	writeDecisionSection(&out, facts.Decisions, lane.ID)
 	writePendingGateSection(&out, facts.Requests, lane.ID)
@@ -395,6 +398,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 		fmt.Fprintln(&out, "- 这是功能支线；只写自己的 workspace、证据、候选和 request。")
 	}
 	fmt.Fprintln(&out, "- 不并发写 IDB 注释/rename/type；不把完整 trace、disasm、decompile、dump 内容复制进 Markdown。")
+	fmt.Fprintln(&out, "- autonomy profile 只授权 bounded heavy-action；不放宽 authority/confirmed/sync/promote。")
 	return out.String(), writes, nil
 }
 
@@ -405,7 +409,7 @@ func (ctx handoffContext) refreshResume(lane Lane, apply bool) (string, []StartW
 	}
 	actionPrefix := "would-"
 	if apply {
-		resumePath, checkpointPath, err = writeLaneResume(ctx.inst.CaseRoot, lane)
+		resumePath, checkpointPath, err = writeLaneResume(ctx.inst.CaseRoot, ctx.manifest, lane)
 		if err != nil {
 			return "", nil, err
 		}
@@ -645,6 +649,19 @@ func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts mission.LedgerFac
 		actions = append(actions, "continue lane with /rekit continue "+workstreamLabel(lane))
 	}
 	writeHandoffBriefList(out, "next agent action", actions)
+	fmt.Fprintln(out)
+}
+
+func writeAutonomyProfileSection(out *bytes.Buffer, caseRoot string, lane Lane, m *manifest.Manifest) {
+	summary := autonomy.ReadSummary(caseRoot, lane.ID, m)
+	fmt.Fprintln(out, "## autonomy profile")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "- mode=%s ready=%t valid=%t expired=%t profile=`%s`\n", summary.Mode, summary.Ready, summary.Valid, summary.Expired, summary.ProfilePath)
+	fmt.Fprintf(out, "- allowedActions=%s deniedActions=%s outputPaths=%s\n", firstText(strings.Join(summary.AllowedActions, ","), "none"), firstText(strings.Join(summary.DeniedActions, ","), "none"), firstText(strings.Join(summary.OutputPaths, ","), "none"))
+	fmt.Fprintf(out, "- recordRequired=%t notifyMainOn=%s\n", summary.RecordRequired, firstText(strings.Join(summary.NotifyMainOn, ","), "none"))
+	if strings.TrimSpace(summary.Error) != "" {
+		fmt.Fprintf(out, "- error=%s\n", summary.Error)
+	}
 	fmt.Fprintln(out)
 }
 

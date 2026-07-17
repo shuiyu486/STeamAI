@@ -4,10 +4,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -24,6 +28,10 @@ type Options struct {
 	BatchID         string
 	Scope           string
 	Budget          string
+	RuntimeSeconds  int
+	DiskMB          int
+	Requests        int
+	OutputPaths     string
 	TriedLightSteps string
 	StopConditions  string
 }
@@ -76,13 +84,16 @@ type EventPreview struct {
 }
 
 type GateDetails struct {
-	Action                      string   `json:"action"`
-	Scope                       string   `json:"scope,omitempty"`
-	Budget                      string   `json:"budget,omitempty"`
-	TriedLightSteps             []string `json:"triedLightSteps,omitempty"`
-	StopConditions              []string `json:"stopConditions,omitempty"`
-	RequiresConfirmation        bool     `json:"requiresConfirmation"`
-	DeniedUntilUserConfirmation []string `json:"deniedUntilUserConfirmation"`
+	Action                      string            `json:"action"`
+	Scope                       string            `json:"scope,omitempty"`
+	Budget                      string            `json:"budget,omitempty"`
+	RequestedBudget             autonomy.Budget   `json:"requestedBudget"`
+	OutputPaths                 []string          `json:"outputPaths,omitempty"`
+	TriedLightSteps             []string          `json:"triedLightSteps,omitempty"`
+	StopConditions              []string          `json:"stopConditions,omitempty"`
+	RequiresConfirmation        bool              `json:"requiresConfirmation"`
+	DeniedUntilUserConfirmation []string          `json:"deniedUntilUserConfirmation"`
+	Authorization               autonomy.Decision `json:"authorization"`
 }
 
 func PlanDryRun(repoRoot, caseRoot, pack string, opt Options) (Plan, error) {
@@ -97,23 +108,18 @@ func PlanDryRun(repoRoot, caseRoot, pack string, opt Options) (Plan, error) {
 		RepoRoot:             repoRoot,
 		Pack:                 pack,
 		IsMutation:           false,
-		ReviewRequired:       true,
-		RequiresConfirmation: true,
+		ReviewRequired:       preview.Gate.RequiresConfirmation,
+		RequiresConfirmation: preview.Gate.RequiresConfirmation,
 		EventPreview:         preview,
 		MissionBrief:         gateMissionBrief(inst.CaseRoot),
 		BlockedActions:       blocked,
-		NextSteps: []string{
-			"Record the pending-gate request in the ledger only if this preview is accepted.",
-			"Ask the user to confirm the exact action, target, scope, budget, and stop conditions.",
-			"Run the heavy tool only after that explicit confirmation; this dry-run is not approval.",
-			"After the tool run, append an observation event summarizing output path, findings, errors, and next action.",
-		},
+		NextSteps:            planNextSteps(preview),
 	}, nil
 }
 
 func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 	if strings.TrimSpace(opt.Actor) == "" {
-		return ApplyResult{}, fmt.Errorf("gate -Apply requires -Actor <confirmed-by>; this records who approved writing the pending gate")
+		return ApplyResult{}, fmt.Errorf("gate -Apply requires -Actor <recorded-by>; this records who wrote the gate authorization request")
 	}
 	inst, preview, _, err := buildPreview(repoRoot, caseRoot, pack, opt)
 	if err != nil {
@@ -141,11 +147,7 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 		EventID:       preview.EventID,
 		Path:          relPath,
 		Event:         preview,
-		NextSteps: []string{
-			"Ask the user to confirm the exact action, target, scope, budget, and stop conditions before running the heavy tool.",
-			"This ledger write records a pending gate only; it is not heavy-tool approval.",
-			"After the tool run, append an observation event summarizing output path, findings, errors, and next action.",
-		},
+		NextSteps:     applyNextSteps(preview),
 	}
 	if exists {
 		result.MissionBrief = gateMissionBrief(inst.CaseRoot)
@@ -169,6 +171,37 @@ func gateMissionBrief(caseRoot string) mission.Brief {
 		return mission.Brief{Summary: "unavailable: " + err.Error()}
 	}
 	return brief
+}
+
+func planNextSteps(preview EventPreview) []string {
+	if preview.Gate.Authorization.Decision == autonomy.DecisionPreauthorized {
+		return []string{
+			"Record this authorized gate decision in the ledger if the preflight matches the intended action, target, budget, output paths, and stop conditions.",
+			"The actual heavy tool still runs outside /rekit; keep execution within the durable lane autonomy profile and record output evidence afterward.",
+			"After the tool run, append an observation event summarizing output path, findings, errors, budget use, and next action.",
+		}
+	}
+	return []string{
+		"Record the pending-gate request in the ledger only if this preview is accepted.",
+		"Ask the user to confirm the exact action, target, scope, budget, output paths, and stop conditions.",
+		"Run the heavy tool only after explicit confirmation or a valid durable lane autonomy profile; this dry-run is not approval.",
+		"After the tool run, append an observation event summarizing output path, findings, errors, and next action.",
+	}
+}
+
+func applyNextSteps(preview EventPreview) []string {
+	if preview.Gate.Authorization.Decision == autonomy.DecisionPreauthorized {
+		return []string{
+			"This ledger write records a durable lane autonomy authorization decision; /rekit still did not execute the heavy tool.",
+			"Run the heavy tool only within the authorized target, budget, output paths, and stop conditions.",
+			"After the tool run, append an observation event summarizing output path, findings, errors, budget use, and next action.",
+		}
+	}
+	return []string{
+		"Ask the user to confirm the exact action, target, scope, budget, output paths, and stop conditions before running the heavy tool.",
+		"This ledger write records a pending gate only; it is not heavy-tool approval.",
+		"After the tool run, append an observation event summarizing output path, findings, errors, and next action.",
+	}
 }
 
 func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instance, EventPreview, []string, error) {
@@ -208,7 +241,8 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 	if lane == "" {
 		return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("gate requires -Lane <lane id>")
 	}
-	if err := assertLane(caseRoot, lane); err != nil {
+	lane, err = canonicalLane(inst.CaseRoot, lane)
+	if err != nil {
 		return instance.Instance{}, EventPreview{}, nil, err
 	}
 	subject := strings.TrimSpace(opt.Subject)
@@ -216,9 +250,6 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 		subject = action + " gate"
 	}
 	summary := strings.TrimSpace(opt.Summary)
-	if summary == "" {
-		summary = "Request user confirmation before running " + action
-	}
 	risk, err := parseGateRisk(opt.Risk)
 	if err != nil {
 		return instance.Instance{}, EventPreview{}, nil, err
@@ -236,33 +267,80 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 			return instance.Instance{}, EventPreview{}, nil, fmt.Errorf("gate action %q has invalid %w", action, err)
 		}
 	}
-	blocked := []string{action}
+	outputPaths, err := parseOutputPaths(inst.CaseRoot, opt.OutputPaths)
+	if err != nil {
+		return instance.Instance{}, EventPreview{}, nil, err
+	}
+	requestedBudget := autonomy.Budget{RuntimeSeconds: opt.RuntimeSeconds, DiskMB: opt.DiskMB, Requests: opt.Requests}
+	target := strings.TrimSpace(opt.TargetRef)
+	authorization := authorizationDecision(inst.CaseRoot, lane, m, autonomy.Request{
+		Lane:           lane,
+		Action:         action,
+		Target:         target,
+		Budget:         requestedBudget,
+		StopConditions: stopConditions,
+		OutputPaths:    outputPaths,
+	})
+	status := "pending-gate"
+	if authorization.Decision == autonomy.DecisionPreauthorized {
+		status = "authorized-gate"
+	}
+	if summary == "" {
+		if authorization.Decision == autonomy.DecisionPreauthorized {
+			summary = "Preauthorized by durable lane autonomy profile before running " + action
+		} else {
+			summary = "Request user confirmation before running " + action
+		}
+	}
+	blocked := []string{}
+	if authorization.RequiresConfirmation {
+		blocked = []string{action}
+	}
 	preview := EventPreview{
 		SchemaVersion: 1,
 		Kind:          "request",
 		Lane:          lane,
 		Subject:       subject,
 		Summary:       summary,
-		Status:        "pending-gate",
+		Status:        status,
 		Actor:         strings.TrimSpace(opt.Actor),
 		Risk:          risk,
-		Target:        strings.TrimSpace(opt.TargetRef),
+		Target:        target,
 		BatchID:       strings.TrimSpace(opt.BatchID),
 		Gate: GateDetails{
 			Action:                      action,
 			Scope:                       strings.TrimSpace(opt.Scope),
 			Budget:                      strings.TrimSpace(opt.Budget),
+			RequestedBudget:             requestedBudget,
+			OutputPaths:                 outputPaths,
 			TriedLightSteps:             splitList(opt.TriedLightSteps),
 			StopConditions:              stopConditions,
-			RequiresConfirmation:        gate.RequiresConfirmation,
+			RequiresConfirmation:        authorization.RequiresConfirmation,
 			DeniedUntilUserConfirmation: blocked,
+			Authorization:               authorization,
 		},
 	}
 	return inst, preview, blocked, nil
 }
 
-func assertLane(caseRoot, lane string) error {
-	return mission.AssertBoardLane(caseRoot, lane, mission.LaneGuardOptions{Command: "gate", CaseInsensitive: true})
+func canonicalLane(caseRoot, lane string) (string, error) {
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("gate requires .rekit/board.json to validate lane: %s", filepath.Join(caseRoot, ".rekit", "board.json"))
+		}
+		return "", err
+	}
+	known := mission.BoardLaneIDs(board.Lanes)
+	for _, item := range board.Lanes {
+		if strings.EqualFold(strings.TrimSpace(item.ID), strings.TrimSpace(lane)) {
+			return strings.TrimSpace(item.ID), nil
+		}
+	}
+	if len(known) == 0 {
+		return "", fmt.Errorf("gate requires at least one lane in .rekit/board.json")
+	}
+	return "", fmt.Errorf("unknown lane %q; known: %s", lane, strings.Join(known, ","))
 }
 
 func splitList(value string) []string {
@@ -275,6 +353,37 @@ func splitList(value string) []string {
 		}
 	}
 	return out
+}
+
+func parseOutputPaths(caseRoot, value string) ([]string, error) {
+	paths := splitList(value)
+	for _, rel := range paths {
+		if filepath.IsAbs(rel) {
+			return nil, fmt.Errorf("gate output path must be case-relative: %s", rel)
+		}
+		clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(rel)))
+		if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+			return nil, fmt.Errorf("gate output path escapes case root: %s", rel)
+		}
+		if _, err := refsf.SafeJoin(caseRoot, rel); err != nil {
+			return nil, fmt.Errorf("gate output path escapes case root: %s", rel)
+		}
+	}
+	return paths, nil
+}
+
+func authorizationDecision(caseRoot, lane string, m *manifest.Manifest, req autonomy.Request) autonomy.Decision {
+	profile, path, exists, err := autonomy.Read(caseRoot, lane)
+	rel := autonomy.RelPath(lane)
+	if err != nil {
+		return autonomy.Decision{Decision: autonomy.DecisionInvalidProfile, Mode: autonomy.ModeManualGate, ProfilePath: rel, Source: "lane-autonomy-profile", RequiresConfirmation: true, Reasons: []string{err.Error()}}
+	}
+	if exists {
+		if err := autonomy.Validate(profile, lane, m, caseRoot); err != nil {
+			return autonomy.Decision{Decision: autonomy.DecisionInvalidProfile, Mode: profile.Mode, ProfileID: profile.ProfileID, ProfilePath: rel, ProfileHash: autonomy.FileHash(path), Source: "lane-autonomy-profile", RequiresConfirmation: true, Reasons: []string{err.Error()}, RecordRequired: profile.RecordRequired}
+		}
+	}
+	return autonomy.Evaluate(profile, rel, exists, autonomy.FileHash(path), req, time.Now().UTC())
 }
 
 func parseGateRisk(value string) (string, error) {
@@ -345,6 +454,10 @@ func eventID(event EventPreview) string {
 		event.Gate.Action,
 		event.Gate.Scope,
 		event.Gate.Budget,
+		fmt.Sprintf("%d/%d/%d", event.Gate.RequestedBudget.RuntimeSeconds, event.Gate.RequestedBudget.DiskMB, event.Gate.RequestedBudget.Requests),
+		strings.Join(event.Gate.OutputPaths, ","),
+		event.Gate.Authorization.Decision,
+		event.Gate.Authorization.ProfileHash,
 		strings.Join(event.Gate.TriedLightSteps, ","),
 		strings.Join(event.Gate.StopConditions, ","),
 	}, "|")

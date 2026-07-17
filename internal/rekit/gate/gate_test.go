@@ -262,6 +262,69 @@ heavyToolGates:
 	return repoRoot, caseRoot, pack
 }
 
+func TestPlanDryRunUsesPreauthorizedLaneAutonomyProfile(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writeGateText(t, filepath.Join(caseRoot, ".rekit", "lanes", "main", "autonomy.json"), `{
+  "schemaVersion": 1,
+  "profileId": "prof-main-debug",
+  "lane": "main",
+  "mode": "preauthorized",
+  "allowedActions": ["debug"],
+  "deniedActions": ["symex"],
+  "targetScope": [{"match":"exact","value":"target-alpha"}],
+  "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},
+  "stopConditions": ["timeout", "scope-drift"],
+  "outputPaths": ["workspace/main/debug"],
+  "recordRequired": true,
+  "notifyMainOn": ["boundary-hit", "new-risk"],
+  "grantedBy": "user",
+  "grantedAt": "2026-01-01T00:00:00Z",
+  "expiresAt": "2999-01-01T00:00:00Z"
+}`)
+	plan, err := PlanDryRun(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.RequiresConfirmation || plan.ReviewRequired || len(plan.BlockedActions) != 0 || plan.EventPreview.Status != "authorized-gate" {
+		t.Fatalf("unexpected authorized plan: %+v", plan)
+	}
+	if plan.EventPreview.Gate.Authorization.Decision != "preauthorized" || plan.EventPreview.Gate.Authorization.ProfileID != "prof-main-debug" || plan.EventPreview.Gate.RequiresConfirmation {
+		t.Fatalf("unexpected authorization details: %+v", plan.EventPreview.Gate.Authorization)
+	}
+	if plan.EventPreview.Gate.RequestedBudget.RuntimeSeconds != 30 || strings.Join(plan.EventPreview.Gate.OutputPaths, ",") != "workspace/main/debug/session-1" {
+		t.Fatalf("missing typed request contract: %+v", plan.EventPreview.Gate)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
+}
+
+func TestPlanDryRunFallsBackToPendingGateWhenAutonomyOutOfScope(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writeGateText(t, filepath.Join(caseRoot, ".rekit", "lanes", "main", "autonomy.json"), `{
+  "schemaVersion": 1,
+  "profileId": "prof-main-debug",
+  "lane": "main",
+  "mode": "preauthorized",
+  "allowedActions": ["debug"],
+  "deniedActions": [],
+  "targetScope": [{"match":"exact","value":"target-alpha"}],
+  "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},
+  "stopConditions": ["timeout"],
+  "outputPaths": ["workspace/main/debug"],
+  "recordRequired": true,
+  "notifyMainOn": ["boundary-hit"],
+  "grantedBy": "user",
+  "grantedAt": "2026-01-01T00:00:00Z",
+  "expiresAt": "2999-01-01T00:00:00Z"
+}`)
+	plan, err := PlanDryRun(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", TargetRef: "target-beta", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.RequiresConfirmation || len(plan.BlockedActions) != 1 || plan.EventPreview.Status != "pending-gate" || plan.EventPreview.Gate.Authorization.Decision != "out-of-scope" {
+		t.Fatalf("unexpected out-of-scope plan: %+v", plan)
+	}
+}
+
 func readSingleGateEvent(t *testing.T, path string) EventPreview {
 	t.Helper()
 	lines := readGateLines(t, path)

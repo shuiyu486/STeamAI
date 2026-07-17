@@ -604,7 +604,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"| `promote` review/artifacts/candidates/apply/JSON preview | Go default | façade delegate + no PowerShell fallback |",
 		"| `overview` text/JSON 与缺 board 初始化 | Go default | façade delegate + no PowerShell fallback |",
 		"| `note -List` text/table/tsv/JSON、`note` append、`note -WhatIf` | Go default | façade delegate + no PowerShell fallback |",
-		"| `gate -WhatIf` / `gate -Apply` pending-gate | Go default | façade delegate + no PowerShell fallback |",
+		"| `gate -WhatIf` / `gate -Apply` gate decision ledger | Go default | façade delegate + no PowerShell fallback |",
 		"| `start` / `handoff` preview/apply/text/default | Go default | façade delegate + no PowerShell fallback |",
 		"| `continue -WhatIf` / explicit `continue -Apply` text/JSON | Go default | façade delegate + no PowerShell fallback |",
 		"| `reconcile -WhatIf` / explicit `reconcile -Apply` | Go default | façade delegate + no PowerShell fallback |",
