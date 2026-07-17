@@ -9957,3 +9957,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 326：Go-native public surface profile catalog count refactor
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 325 已将 Go-native public surface catalog 与 mutation boundary inventory counts 收敛到共享 summary 后，继续将 public command profile catalog rows、empty/duplicate、unknown-boundary 与 policy-adjacent counts 纳入共享 summary，减少 readiness、façade removal prerequisite 与测试断言中的 raw profile scan plumbing。
+
+实施范围：
+
+- 新增 `GoNativePublicSurfaceProfileCatalogCounts` 与 `GoNativePublicSurfaceProfileCatalogCountsFor`，统一计算 profile rows、empty commands、duplicate commands、unknown boundaries、heavy-tool、authority/confirmed、kit-write-without-review 与 review-first-without-apply counts。
+- `GoNativePublicSurfaceCounts` 嵌入 `ProfileCatalog` nested counts，并保留既有 profile summary/group/policy aliases。
+- `goNativePublicSurface` profile catalog warnings、`profile-policy-guards` façade removal prerequisite readiness、releasecheck package tests 与 CLI JSON assertions 复用 profile catalog count summary。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不新增或删除 release-check JSON 字段，不改变 release-check text key、public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、policy schema migration、actual heavy-tool/authority/confirmed 或外部副作用边界；公共 façade deletion 仍必须作为独立 removal batch。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

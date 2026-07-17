@@ -141,7 +141,7 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	for _, profile := range inventory.CommandProfiles {
 		profiles[profile.Command] = profile
 	}
-	if profiles["release-check"].MutationBoundary != commands.BoundaryReadOnly || profiles["release-check"].IsMutation || !profiles["promote"].WritesKit || !profiles["promote"].ReviewFirst || profiles["sync"].WritesKit || !profiles["sync"].WritesCase || !slices.Contains(inventory.MutationBoundaries, commands.BoundaryKitReviewFirst) {
+	if surfaceCounts.ProfileCatalog.Rows != 19 || surfaceCounts.ProfileCatalog.Empty != 0 || surfaceCounts.ProfileCatalog.Duplicates != 0 || surfaceCounts.ProfileCatalog.UnknownBoundaries != 0 || surfaceCounts.ProfileCatalog.HeavyTool != 0 || surfaceCounts.ProfileCatalog.AuthorityConfirmed != 0 || surfaceCounts.ProfileCatalog.WritesKitNoReview != 0 || surfaceCounts.ProfileCatalog.ReviewNoApply != 0 || profiles["release-check"].MutationBoundary != commands.BoundaryReadOnly || profiles["release-check"].IsMutation || !profiles["promote"].WritesKit || !profiles["promote"].ReviewFirst || profiles["sync"].WritesKit || !profiles["sync"].WritesCase || !slices.Contains(inventory.MutationBoundaries, commands.BoundaryKitReviewFirst) {
 		t.Fatalf("Go-native public command profiles drifted: profiles=%+v boundaries=%+v", inventory.CommandProfiles, inventory.MutationBoundaries)
 	}
 	profileSummaryCounts := surfaceCounts.ProfileSummary

@@ -52,6 +52,7 @@ type GoNativePublicSurfaceCounts struct {
 	Catalog                     GoNativePublicSurfaceCatalogCounts
 	Coverage                    GoNativePublicSurfaceCoverageCounts
 	MutationBoundaryInventory   GoNativePublicSurfaceMutationBoundaryCounts
+	ProfileCatalog              GoNativePublicSurfaceProfileCatalogCounts
 	ProfileSummary              GoNativePublicSurfaceProfileSummaryCounts
 	ProfileTotal                int
 	Boundaries                  GoNativePublicSurfaceBoundaryCounts
@@ -112,6 +113,17 @@ type GoNativePublicSurfaceCoverageDrift struct {
 type GoNativePublicSurfaceMutationBoundaryCounts struct {
 	Rows    int
 	Unknown int
+}
+
+type GoNativePublicSurfaceProfileCatalogCounts struct {
+	Rows               int
+	Empty              int
+	Duplicates         int
+	UnknownBoundaries  int
+	HeavyTool          int
+	AuthorityConfirmed int
+	WritesKitNoReview  int
+	ReviewNoApply      int
 }
 
 type GoNativePublicSurfaceProfileSummaryCounts struct {
@@ -198,6 +210,38 @@ func GoNativePublicSurfaceMutationBoundaryCountsFor(boundaries []string) GoNativ
 	for _, boundary := range boundaries {
 		if !commands.IsKnownMutationBoundary(boundary) {
 			counts.Unknown++
+		}
+	}
+	return counts
+}
+
+func GoNativePublicSurfaceProfileCatalogCountsFor(profiles []commands.PublicProfile) GoNativePublicSurfaceProfileCatalogCounts {
+	counts := GoNativePublicSurfaceProfileCatalogCounts{Rows: len(profiles)}
+	seen := map[string]bool{}
+	for _, profile := range profiles {
+		command := strings.TrimSpace(profile.Command)
+		if command == "" {
+			counts.Empty++
+			continue
+		}
+		if seen[command] {
+			counts.Duplicates++
+		}
+		seen[command] = true
+		if !commands.IsKnownMutationBoundary(profile.MutationBoundary) {
+			counts.UnknownBoundaries++
+		}
+		if profile.HeavyTool {
+			counts.HeavyTool++
+		}
+		if profile.AuthorityConfirmed {
+			counts.AuthorityConfirmed++
+		}
+		if profile.WritesKit && !profile.ReviewFirst {
+			counts.WritesKitNoReview++
+		}
+		if profile.ReviewFirst && !profile.ApplyRequired {
+			counts.ReviewNoApply++
 		}
 	}
 	return counts
@@ -323,6 +367,7 @@ func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePubli
 	catalogCounts := GoNativePublicSurfaceCatalogCountsFor(surface.Commands)
 	coverageCounts := GoNativePublicSurfaceCoverageCountsFor(surface)
 	mutationBoundaryCounts := GoNativePublicSurfaceMutationBoundaryCountsFor(surface.MutationBoundaries)
+	profileCatalogCounts := GoNativePublicSurfaceProfileCatalogCountsFor(surface.CommandProfiles)
 	profileSummaryCounts := GoNativePublicSurfaceProfileSummaryCountsFor(surface.CommandProfileSummary)
 	groupCounts := GoNativePublicSurfaceGroupCountsFor(surface.CommandProfileGroups)
 	boundaryCounts := GoNativePublicSurfaceBoundaryCountsFor(surface.CommandProfileBoundaries)
@@ -337,6 +382,7 @@ func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePubli
 		Catalog:                     catalogCounts,
 		Coverage:                    coverageCounts,
 		MutationBoundaryInventory:   mutationBoundaryCounts,
+		ProfileCatalog:              profileCatalogCounts,
 		ProfileSummary:              profileSummaryCounts,
 		ProfileTotal:                profileSummaryCounts.Total,
 		Boundaries:                  boundaryCounts,
@@ -516,30 +562,34 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 	for _, command := range coverageDrift.ProfileUnknown {
 		inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile outside public command catalog: %s", command))
 	}
-	profileSeen := map[string]bool{}
-	for _, profile := range inventory.CommandProfiles {
-		if strings.TrimSpace(profile.Command) == "" {
-			inventory.Warnings = append(inventory.Warnings, "Go-native public command profile contains an empty command")
-			continue
-		}
-		if profileSeen[profile.Command] {
-			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile contains duplicate command: %s", profile.Command))
-		}
-		profileSeen[profile.Command] = true
-		if !commands.IsKnownMutationBoundary(profile.MutationBoundary) {
-			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile has unknown mutation boundary for %s: %s", profile.Command, profile.MutationBoundary))
-		}
-		if profile.HeavyTool {
-			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile incorrectly marks public command as heavy-tool executor: %s", profile.Command))
-		}
-		if profile.AuthorityConfirmed {
-			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile incorrectly marks public command as authority/confirmed writer: %s", profile.Command))
-		}
-		if profile.WritesKit && !profile.ReviewFirst {
-			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile writes kit without review-first boundary: %s", profile.Command))
-		}
-		if profile.ReviewFirst && !profile.ApplyRequired {
-			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile review-first command missing apply-required boundary: %s", profile.Command))
+	profileCatalogCounts := GoNativePublicSurfaceProfileCatalogCountsFor(inventory.CommandProfiles)
+	if profileCatalogCounts.Empty != 0 || profileCatalogCounts.Duplicates != 0 || profileCatalogCounts.UnknownBoundaries != 0 || profileCatalogCounts.HeavyTool != 0 || profileCatalogCounts.AuthorityConfirmed != 0 || profileCatalogCounts.WritesKitNoReview != 0 || profileCatalogCounts.ReviewNoApply != 0 {
+		profileSeen := map[string]bool{}
+		for _, profile := range inventory.CommandProfiles {
+			command := strings.TrimSpace(profile.Command)
+			if command == "" {
+				inventory.Warnings = append(inventory.Warnings, "Go-native public command profile contains an empty command")
+				continue
+			}
+			if profileSeen[command] {
+				inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile contains duplicate command: %s", command))
+			}
+			profileSeen[command] = true
+			if !commands.IsKnownMutationBoundary(profile.MutationBoundary) {
+				inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile has unknown mutation boundary for %s: %s", command, profile.MutationBoundary))
+			}
+			if profile.HeavyTool {
+				inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile incorrectly marks public command as heavy-tool executor: %s", command))
+			}
+			if profile.AuthorityConfirmed {
+				inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile incorrectly marks public command as authority/confirmed writer: %s", command))
+			}
+			if profile.WritesKit && !profile.ReviewFirst {
+				inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile writes kit without review-first boundary: %s", command))
+			}
+			if profile.ReviewFirst && !profile.ApplyRequired {
+				inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile review-first command missing apply-required boundary: %s", command))
+			}
 		}
 	}
 	mutationBoundaryCounts := GoNativePublicSurfaceMutationBoundaryCountsFor(inventory.MutationBoundaries)
@@ -684,8 +734,8 @@ func goNativePublicSurfaceFacadeRemovalPrerequisites(inventory GoNativePublicSur
 		},
 		{
 			Name:    "profile-policy-guards",
-			Ready:   counts.PolicyRows > 0 && counts.PolicyViolations == 0 && counts.HeavyTool == 0 && counts.AuthorityConfirmed == 0,
-			Summary: fmt.Sprintf("policies=%d violations=%d heavyTool=%d authorityConfirmed=%d", counts.PolicyRows, counts.PolicyViolations, counts.HeavyTool, counts.AuthorityConfirmed),
+			Ready:   counts.PolicyRows > 0 && counts.PolicyViolations == 0 && counts.ProfileCatalog.HeavyTool == 0 && counts.ProfileCatalog.AuthorityConfirmed == 0 && counts.ProfileCatalog.WritesKitNoReview == 0 && counts.ProfileCatalog.ReviewNoApply == 0,
+			Summary: fmt.Sprintf("policies=%d violations=%d heavyTool=%d authorityConfirmed=%d", counts.PolicyRows, counts.PolicyViolations, counts.ProfileCatalog.HeavyTool, counts.ProfileCatalog.AuthorityConfirmed),
 		},
 		{
 			Name:    "unsupported-command-diagnostic",

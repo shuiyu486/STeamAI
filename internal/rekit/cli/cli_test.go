@@ -706,7 +706,7 @@ func assertReleaseCheckGoNativePublicSurface(t *testing.T, surface struct {
 	for _, profile := range surface.CommandProfiles {
 		profiles[profile.Command] = profile
 	}
-	if profiles["release-check"].MutationBoundary != commands.BoundaryReadOnly || profiles["release-check"].IsMutation || !profiles["promote"].WritesKit || !profiles["promote"].ReviewFirst || profiles["sync"].WritesKit || !profiles["sync"].WritesCase || !slices.Contains(surface.MutationBoundaries, commands.BoundaryKitReviewFirst) {
+	if surfaceCounts.ProfileCatalog.Rows != 19 || surfaceCounts.ProfileCatalog.Empty != 0 || surfaceCounts.ProfileCatalog.Duplicates != 0 || surfaceCounts.ProfileCatalog.UnknownBoundaries != 0 || surfaceCounts.ProfileCatalog.HeavyTool != 0 || surfaceCounts.ProfileCatalog.AuthorityConfirmed != 0 || surfaceCounts.ProfileCatalog.WritesKitNoReview != 0 || surfaceCounts.ProfileCatalog.ReviewNoApply != 0 || profiles["release-check"].MutationBoundary != commands.BoundaryReadOnly || profiles["release-check"].IsMutation || !profiles["promote"].WritesKit || !profiles["promote"].ReviewFirst || profiles["sync"].WritesKit || !profiles["sync"].WritesCase || !slices.Contains(surface.MutationBoundaries, commands.BoundaryKitReviewFirst) {
 		t.Fatalf("Go-native public command profiles drifted: profiles=%+v boundaries=%+v", surface.CommandProfiles, surface.MutationBoundaries)
 	}
 	profileSummaryCounts := surfaceCounts.ProfileSummary
