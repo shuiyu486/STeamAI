@@ -189,10 +189,11 @@ func dispatch(command string) error {
 func TestPowerShellDeprecationInventoryFromRepo(t *testing.T) {
 	repo := repoRoot(t)
 	inventory := powerShellDeprecation(repo)
-	if !inventory.Ready || inventory.StrategyDocument != "docs/powershell-deprecation.md" || len(inventory.Warnings) != 0 {
+	counts := PowerShellDeprecationCountsFor(inventory)
+	if !inventory.Ready || inventory.StrategyDocument != "docs/powershell-deprecation.md" || counts.Warnings != 0 {
 		t.Fatalf("unexpected PowerShell deprecation inventory: %+v", inventory)
 	}
-	if len(inventory.CommandOwnership) == 0 || len(inventory.ModuleStatus) == 0 || len(inventory.FreezeGates) == 0 || len(inventory.BlockedMigrations) == 0 {
+	if counts.CommandOwnership == 0 || counts.ModuleStatus == 0 || counts.FreezeGates == 0 || counts.BlockedMigrations == 0 {
 		t.Fatalf("PowerShell deprecation inventory omitted required sections: %+v", inventory)
 	}
 	assertCommandOwner(t, inventory, "sync / update", true, false)
@@ -315,10 +316,11 @@ func assertModuleStatus(t *testing.T, inventory PowerShellDeprecation, path stri
 func assertFallbackRetirement(t *testing.T, inventory PowerShellDeprecation) {
 	t.Helper()
 	fallback := inventory.FallbackRetirement
-	if !fallback.Ready || fallback.Summary != "PowerShell fallback retirement inventory ok" || len(fallback.Warnings) != 0 {
+	counts := PowerShellDeprecationCountsFor(inventory)
+	if !fallback.Ready || fallback.Summary != "PowerShell fallback retirement inventory ok" || counts.FallbackWarnings != 0 {
 		t.Fatalf("unexpected fallback retirement inventory: %+v", fallback)
 	}
-	if len(fallback.GoDefaultCommands) != 19 || len(fallback.NoFallbackCommands) != 19 || len(fallback.CandidateCommands) != 0 || len(fallback.RemovalCandidateModules) != 0 || len(fallback.RetiredModules) != 13 {
+	if counts.FallbackGoDefaultCommands != 19 || counts.FallbackNoFallbackCommands != 19 || counts.FallbackCandidateCommands != 0 || counts.FallbackRemovalCandidateModules != 0 || counts.FallbackRetiredModules != 13 {
 		t.Fatalf("fallback retirement inventory omitted expected sections: %+v", fallback)
 	}
 	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
@@ -331,13 +333,14 @@ func assertFallbackRetirement(t *testing.T, inventory PowerShellDeprecation) {
 func assertFacadeRuntime(t *testing.T, inventory PowerShellDeprecation) {
 	t.Helper()
 	facade := inventory.FacadeRuntime
-	if !facade.Ready || facade.Summary != "PowerShell facade runtime dependency inventory ok" || facade.FacadePath != "rekit/rekit.ps1" || len(facade.Warnings) != 0 {
+	counts := PowerShellDeprecationCountsFor(inventory)
+	if !facade.Ready || facade.Summary != "PowerShell facade runtime dependency inventory ok" || facade.FacadePath != "rekit/rekit.ps1" || counts.FacadeRuntimeWarnings != 0 {
 		t.Fatalf("unexpected PowerShell facade runtime inventory: %+v", facade)
 	}
 	if facade.LegacyModuleImportsPresent || facade.CommandDispatcherPresent || !facade.NoFallbackGuardPresent || !facade.GoDelegationPresent || !facade.RetiredDispatcherError {
 		t.Fatalf("unexpected PowerShell facade runtime dependency flags: %+v", facade)
 	}
-	if len(facade.ForbiddenPatterns) == 0 || len(facade.RequiredPatterns) == 0 {
+	if counts.FacadeRuntimeForbiddenPatterns == 0 || counts.FacadeRuntimeRequiredPatterns == 0 {
 		t.Fatalf("PowerShell facade runtime inventory omitted required pattern lists: %+v", facade)
 	}
 }
@@ -345,13 +348,14 @@ func assertFacadeRuntime(t *testing.T, inventory PowerShellDeprecation) {
 func assertPublicFacade(t *testing.T, inventory PowerShellDeprecation) {
 	t.Helper()
 	facade := inventory.PublicFacade
-	if !facade.Ready || facade.Summary != "PowerShell public facade retention inventory ok" || facade.FacadePath != "rekit/rekit.ps1" || len(facade.Warnings) != 0 {
+	counts := PowerShellDeprecationCountsFor(inventory)
+	if !facade.Ready || facade.Summary != "PowerShell public facade retention inventory ok" || facade.FacadePath != "rekit/rekit.ps1" || counts.PublicFacadeWarnings != 0 {
 		t.Fatalf("unexpected PowerShell public facade inventory: %+v", facade)
 	}
 	if !facade.Present || !facade.Retained || !facade.MigrationBoundaryDocumented || !facade.RemovalBoundaryDocumented || facade.GoNativeAlternative != "go run ./cmd/rekit -- -Command <command>" {
 		t.Fatalf("unexpected PowerShell public facade retention flags: %+v", facade)
 	}
-	if len(facade.CommandSurface) != 19 || len(facade.GoDefaultCommands) != 19 || len(facade.NoFallbackCommands) != 19 {
+	if counts.PublicFacadeCommandSurface != 19 || counts.PublicFacadeGoDefaultCommands != 19 || counts.PublicFacadeNoFallbackCommands != 19 {
 		t.Fatalf("PowerShell public facade inventory omitted expected command lists: %+v", facade)
 	}
 	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
@@ -474,10 +478,11 @@ func publicFacadeRemovalHasSmokeMigrationTarget(impact PublicFacadeRemovalImpact
 func assertModuleRemoval(t *testing.T, inventory PowerShellDeprecation) {
 	t.Helper()
 	removal := inventory.ModuleRemoval
-	if !removal.Ready || removal.Summary != "PowerShell module removal inventory ok" || len(removal.Warnings) != 0 {
+	counts := PowerShellDeprecationCountsFor(inventory)
+	if !removal.Ready || removal.Summary != "PowerShell module removal inventory ok" || counts.ModuleRemovalWarnings != 0 {
 		t.Fatalf("unexpected PowerShell module removal inventory: %+v", removal)
 	}
-	if len(removal.CandidateModules) != 0 || len(removal.RetiredModules) != 13 || len(removal.FacadeRuntimeDependencies) != 0 || len(removal.UndocumentedModules) != 0 {
+	if counts.ModuleRemovalCandidateModules != 0 || counts.ModuleRemovalRetiredModules != 13 || counts.ModuleRemovalFacadeRuntimeDependencies != 0 || counts.ModuleRemovalUndocumentedModules != 0 {
 		t.Fatalf("PowerShell module removal inventory omitted expected sections: %+v", removal)
 	}
 	for _, module := range removal.RetiredModules {
@@ -490,10 +495,11 @@ func assertModuleRemoval(t *testing.T, inventory PowerShellDeprecation) {
 func assertModuleReferences(t *testing.T, inventory PowerShellDeprecation) {
 	t.Helper()
 	refs := inventory.ModuleReferences
-	if !refs.Ready || refs.Summary != "PowerShell module reference inventory ok" || len(refs.Warnings) != 0 {
+	counts := PowerShellDeprecationCountsFor(inventory)
+	if !refs.Ready || refs.Summary != "PowerShell module reference inventory ok" || counts.ModuleReferencesWarnings != 0 {
 		t.Fatalf("unexpected PowerShell module reference inventory: %+v", refs)
 	}
-	if refs.TotalReferences == 0 || len(refs.ActiveTestDependencies) != 0 || len(refs.CompatibilityFixtures) != 0 || len(refs.InventoryGuards) == 0 || len(refs.RemovalBlockers) != 0 || len(refs.UnclassifiedReferences) != 0 {
+	if counts.ModuleReferencesTotal == 0 || counts.ModuleReferencesActiveTestDependencies != 0 || counts.ModuleReferencesCompatibilityFixtures != 0 || counts.ModuleReferencesInventoryGuards == 0 || counts.ModuleReferencesRemovalBlockers != 0 || counts.ModuleReferencesUnclassifiedReferences != 0 {
 		t.Fatalf("PowerShell module reference inventory omitted expected sections: %+v", refs)
 	}
 }

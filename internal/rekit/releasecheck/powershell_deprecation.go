@@ -26,6 +26,80 @@ type PowerShellDeprecation struct {
 	Warnings           []string                     `json:"warnings"`
 }
 
+type PowerShellDeprecationCounts struct {
+	CommandOwnership                        int
+	ModuleStatus                            int
+	FreezeGates                             int
+	BlockedMigrations                       int
+	Warnings                                int
+	FallbackGoDefaultCommands               int
+	FallbackNoFallbackCommands              int
+	FallbackCandidateCommands               int
+	FallbackBlockedCommands                 int
+	FallbackRemovalCandidateModules         int
+	FallbackRetiredModules                  int
+	FallbackWarnings                        int
+	FacadeRuntimeForbiddenPatterns          int
+	FacadeRuntimeRequiredPatterns           int
+	FacadeRuntimeWarnings                   int
+	PublicFacadeCommandSurface              int
+	PublicFacadeGoDefaultCommands           int
+	PublicFacadeNoFallbackCommands          int
+	PublicFacadeWarnings                    int
+	ModuleRemovalCandidateModules           int
+	ModuleRemovalRetiredModules             int
+	ModuleRemovalUndocumentedModules        int
+	ModuleRemovalFacadeRuntimeDependencies  int
+	ModuleRemovalWarnings                   int
+	ModuleReferencesTotal                   int
+	ModuleReferencesActiveTestDependencies  int
+	ModuleReferencesCompatibilityFixtures   int
+	ModuleReferencesInventoryGuards         int
+	ModuleReferencesDocumentationReferences int
+	ModuleReferencesHistoricalReferences    int
+	ModuleReferencesRemovalBlockers         int
+	ModuleReferencesUnclassifiedReferences  int
+	ModuleReferencesWarnings                int
+}
+
+func PowerShellDeprecationCountsFor(deprecation PowerShellDeprecation) PowerShellDeprecationCounts {
+	return PowerShellDeprecationCounts{
+		CommandOwnership:                        len(deprecation.CommandOwnership),
+		ModuleStatus:                            len(deprecation.ModuleStatus),
+		FreezeGates:                             len(deprecation.FreezeGates),
+		BlockedMigrations:                       len(deprecation.BlockedMigrations),
+		Warnings:                                len(deprecation.Warnings),
+		FallbackGoDefaultCommands:               len(deprecation.FallbackRetirement.GoDefaultCommands),
+		FallbackNoFallbackCommands:              len(deprecation.FallbackRetirement.NoFallbackCommands),
+		FallbackCandidateCommands:               len(deprecation.FallbackRetirement.CandidateCommands),
+		FallbackBlockedCommands:                 len(deprecation.FallbackRetirement.BlockedCommands),
+		FallbackRemovalCandidateModules:         len(deprecation.FallbackRetirement.RemovalCandidateModules),
+		FallbackRetiredModules:                  len(deprecation.FallbackRetirement.RetiredModules),
+		FallbackWarnings:                        len(deprecation.FallbackRetirement.Warnings),
+		FacadeRuntimeForbiddenPatterns:          len(deprecation.FacadeRuntime.ForbiddenPatterns),
+		FacadeRuntimeRequiredPatterns:           len(deprecation.FacadeRuntime.RequiredPatterns),
+		FacadeRuntimeWarnings:                   len(deprecation.FacadeRuntime.Warnings),
+		PublicFacadeCommandSurface:              len(deprecation.PublicFacade.CommandSurface),
+		PublicFacadeGoDefaultCommands:           len(deprecation.PublicFacade.GoDefaultCommands),
+		PublicFacadeNoFallbackCommands:          len(deprecation.PublicFacade.NoFallbackCommands),
+		PublicFacadeWarnings:                    len(deprecation.PublicFacade.Warnings),
+		ModuleRemovalCandidateModules:           len(deprecation.ModuleRemoval.CandidateModules),
+		ModuleRemovalRetiredModules:             len(deprecation.ModuleRemoval.RetiredModules),
+		ModuleRemovalUndocumentedModules:        len(deprecation.ModuleRemoval.UndocumentedModules),
+		ModuleRemovalFacadeRuntimeDependencies:  len(deprecation.ModuleRemoval.FacadeRuntimeDependencies),
+		ModuleRemovalWarnings:                   len(deprecation.ModuleRemoval.Warnings),
+		ModuleReferencesTotal:                   deprecation.ModuleReferences.TotalReferences,
+		ModuleReferencesActiveTestDependencies:  len(deprecation.ModuleReferences.ActiveTestDependencies),
+		ModuleReferencesCompatibilityFixtures:   len(deprecation.ModuleReferences.CompatibilityFixtures),
+		ModuleReferencesInventoryGuards:         len(deprecation.ModuleReferences.InventoryGuards),
+		ModuleReferencesDocumentationReferences: len(deprecation.ModuleReferences.DocumentationReferences),
+		ModuleReferencesHistoricalReferences:    len(deprecation.ModuleReferences.HistoricalReferences),
+		ModuleReferencesRemovalBlockers:         len(deprecation.ModuleReferences.RemovalBlockers),
+		ModuleReferencesUnclassifiedReferences:  len(deprecation.ModuleReferences.UnclassifiedReferences),
+		ModuleReferencesWarnings:                len(deprecation.ModuleReferences.Warnings),
+	}
+}
+
 type PowerShellCommandOwner struct {
 	Area      string   `json:"area"`
 	Owner     string   `json:"owner"`
@@ -172,7 +246,7 @@ func powerShellDeprecation(repo string) PowerShellDeprecation {
 	strategy.Warnings = append(strategy.Warnings, strategy.PublicFacade.Warnings...)
 	strategy.Warnings = append(strategy.Warnings, strategy.ModuleRemoval.Warnings...)
 	strategy.Warnings = append(strategy.Warnings, strategy.ModuleReferences.Warnings...)
-	if len(strategy.Warnings) > 0 {
+	if PowerShellDeprecationCountsFor(strategy).Warnings > 0 {
 		strategy.Ready = false
 		strategy.Summary = "PowerShell deprecation inventory has warnings"
 	}

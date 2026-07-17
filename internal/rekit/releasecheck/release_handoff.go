@@ -139,6 +139,7 @@ func releaseHandoffDocuments(repo string) []ReleaseHandoffDocument {
 func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes ReleaseHandoffReleaseNotes, gaps []ReleaseHandoffKnownGap, packMaturity ReleaseHandoffPackMaturity) []ReleaseHandoffSignal {
 	resultCounts := ReleaseCheckResultCountsFor(check)
 	ciGateCounts := CIReleaseGateCountsFor(check.CIReleaseGate)
+	powerShellCounts := PowerShellDeprecationCountsFor(check.PowerShellDeprecation)
 	caseShimCounts := caseshim.ReadinessCountsFor(check.CaseShim)
 	publicDefaultDocCounts := defaultdocs.ReadinessCountsFor(check.PublicDefaultDocs)
 	return []ReleaseHandoffSignal{
@@ -166,12 +167,12 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			Summary: check.PowerShellDeprecation.Summary,
 			Details: []string{
 				fmt.Sprintf("strategy=%s", check.PowerShellDeprecation.StrategyDocument),
-				fmt.Sprintf("fallbackRetirement=%t noFallback=%d candidates=%d removalModules=%d retiredModules=%d", check.PowerShellDeprecation.FallbackRetirement.Ready, len(check.PowerShellDeprecation.FallbackRetirement.NoFallbackCommands), len(check.PowerShellDeprecation.FallbackRetirement.CandidateCommands), len(check.PowerShellDeprecation.FallbackRetirement.RemovalCandidateModules), len(check.PowerShellDeprecation.FallbackRetirement.RetiredModules)),
+				fmt.Sprintf("fallbackRetirement=%t noFallback=%d candidates=%d removalModules=%d retiredModules=%d", check.PowerShellDeprecation.FallbackRetirement.Ready, powerShellCounts.FallbackNoFallbackCommands, powerShellCounts.FallbackCandidateCommands, powerShellCounts.FallbackRemovalCandidateModules, powerShellCounts.FallbackRetiredModules),
 				fmt.Sprintf("facadeRuntime=%t legacyImports=%t dispatcher=%t", check.PowerShellDeprecation.FacadeRuntime.Ready, check.PowerShellDeprecation.FacadeRuntime.LegacyModuleImportsPresent, check.PowerShellDeprecation.FacadeRuntime.CommandDispatcherPresent),
-				fmt.Sprintf("publicFacade=%t retained=%t facadeCommands=%d noFallback=%d", check.PowerShellDeprecation.PublicFacade.Ready, check.PowerShellDeprecation.PublicFacade.Retained, len(check.PowerShellDeprecation.PublicFacade.CommandSurface), len(check.PowerShellDeprecation.PublicFacade.NoFallbackCommands)),
-				fmt.Sprintf("moduleRemoval=%t candidates=%d retired=%d facadeDeps=%d undocumented=%d", check.PowerShellDeprecation.ModuleRemoval.Ready, len(check.PowerShellDeprecation.ModuleRemoval.CandidateModules), len(check.PowerShellDeprecation.ModuleRemoval.RetiredModules), len(check.PowerShellDeprecation.ModuleRemoval.FacadeRuntimeDependencies), len(check.PowerShellDeprecation.ModuleRemoval.UndocumentedModules)),
-				fmt.Sprintf("moduleReferences=%t activeTests=%d fixtures=%d blockers=%d unclassified=%d", check.PowerShellDeprecation.ModuleReferences.Ready, len(check.PowerShellDeprecation.ModuleReferences.ActiveTestDependencies), len(check.PowerShellDeprecation.ModuleReferences.CompatibilityFixtures), len(check.PowerShellDeprecation.ModuleReferences.RemovalBlockers), len(check.PowerShellDeprecation.ModuleReferences.UnclassifiedReferences)),
-				fmt.Sprintf("commands=%d modules=%d freezeGates=%d blocked=%d", len(check.PowerShellDeprecation.CommandOwnership), len(check.PowerShellDeprecation.ModuleStatus), len(check.PowerShellDeprecation.FreezeGates), len(check.PowerShellDeprecation.BlockedMigrations)),
+				fmt.Sprintf("publicFacade=%t retained=%t facadeCommands=%d noFallback=%d", check.PowerShellDeprecation.PublicFacade.Ready, check.PowerShellDeprecation.PublicFacade.Retained, powerShellCounts.PublicFacadeCommandSurface, powerShellCounts.PublicFacadeNoFallbackCommands),
+				fmt.Sprintf("moduleRemoval=%t candidates=%d retired=%d facadeDeps=%d undocumented=%d", check.PowerShellDeprecation.ModuleRemoval.Ready, powerShellCounts.ModuleRemovalCandidateModules, powerShellCounts.ModuleRemovalRetiredModules, powerShellCounts.ModuleRemovalFacadeRuntimeDependencies, powerShellCounts.ModuleRemovalUndocumentedModules),
+				fmt.Sprintf("moduleReferences=%t activeTests=%d fixtures=%d blockers=%d unclassified=%d", check.PowerShellDeprecation.ModuleReferences.Ready, powerShellCounts.ModuleReferencesActiveTestDependencies, powerShellCounts.ModuleReferencesCompatibilityFixtures, powerShellCounts.ModuleReferencesRemovalBlockers, powerShellCounts.ModuleReferencesUnclassifiedReferences),
+				fmt.Sprintf("commands=%d modules=%d freezeGates=%d blocked=%d", powerShellCounts.CommandOwnership, powerShellCounts.ModuleStatus, powerShellCounts.FreezeGates, powerShellCounts.BlockedMigrations),
 			},
 		},
 		{
