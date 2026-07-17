@@ -696,6 +696,7 @@ func continueDigestText(result ContinueResult) string {
 	lines = appendMissionBriefDigestList(lines, "ready lanes", result.MissionBrief.ReadyLanes)
 	lines = appendMissionBriefDigestList(lines, "blocked lanes", result.MissionBrief.BlockedLanes)
 	lines = appendMissionBriefDigestList(lines, "pending gates", result.MissionBrief.PendingGates)
+	lines = appendMissionBriefDigestList(lines, "authorized gates", result.MissionBrief.AuthorizedGates)
 	lines = appendMissionBriefDigestList(lines, "open decisions", result.MissionBrief.OpenDecisions)
 	lines = appendMissionBriefDigestList(lines, "interventions", result.MissionBrief.Interventions)
 	lines = appendMissionBriefDigestList(lines, "next agent actions", result.MissionBrief.NextAgentActions)

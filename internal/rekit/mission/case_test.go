@@ -35,7 +35,7 @@ func TestCaseBriefReadsBoardAndFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if brief.Summary != "openLanes=2 ready=1 blocked=1 pendingGates=1 openDecisions=1 interventions=0" {
+	if brief.Summary != "openLanes=2 ready=1 blocked=1 pendingGates=1 authorizedGates=0 openDecisions=1 interventions=0" {
 		t.Fatalf("summary = %q", brief.Summary)
 	}
 	if !slices.Contains(brief.ReadyLanes, "main") || !slices.Contains(brief.BlockedLanes, "login (pending-gate,open-decision)") {

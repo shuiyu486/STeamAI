@@ -80,7 +80,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 - `/rekit status` 能正确显示 kit/case 绑定。
 - `/rekit doctor` 通过，且 managed docs、policy、tooling 文件预算未超限。
 - 旧 case 同步前先看到 `.rekit/reviews/<timestamp>-sync/summary.md`、`packet.json` 和 bounded diff。
-- `overview` 能显示主线、功能支线、共享事实统计和 Mission Control brief；brief 必须让主 Agent 不读完整 ledger 也能看到 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations。overview、start/continue/handoff/gate/reconcile JSON envelope、continue run artifacts、project handoff 与 lane handoff 中的 `missionBrief` 应使用同一 Go mission snapshot / blocker 语义：只有 pending gate、effective open intervention、open candidate/decision 会让对应 lane blocked；`authorized-gate` 只是已记录的 durable autonomy authorization decision，不作为 pending-gate blocker；被 `resolvesEventId` resolution 关闭的 intervention 不应继续阻塞。
+- `overview` 能显示主线、功能支线、共享事实统计和 Mission Control brief；brief 必须让主 Agent 不读完整 ledger 也能看到 ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations。overview、start/continue/handoff/gate/reconcile JSON envelope、continue run artifacts、project handoff 与 lane handoff 中的 `missionBrief` 应使用同一 Go mission snapshot / blocker 语义：只有 pending gate、effective open intervention、open candidate/decision 会让对应 lane blocked；`authorized-gate` 只是已记录的 durable autonomy authorization decision，应在 `missionBrief.authorizedGates`、overview、handoff 与 continue digest/status 中可见，但不作为 pending-gate blocker；被 `resolvesEventId` resolution 关闭的 intervention 不应继续阻塞。
 - `note -List` 与 note append strict duplicate eventId 去重 / lane guard、gate lane guard、doctor JSONL validation、workstream board snapshot、shared facts 写入/读取路径、facts path/read/append、continue facts promotion 与 duplicate eventId scan、handoff/continue facts snapshot、gate duplicate eventId、note ledger kind 顺序、workstream lane/workspace local JSONL 文件集合与 path helpers、facts JSONL / fact-file mapping、JSONL append、board 读取、open-lane 过滤和 known-lane 诊断应复用同一 Go helper source，避免 note、overview、doctor、handoff、start/continue/gate 对 ledger kind/file/path、workstream local JSONL file/path、board JSON、JSONL/facts reader/append 或 lane guard 维护并行实现。
 - `continue main` 与 `continue <name>` 明确接手不同工作线；无参数 `continue` 不应在多工作线时盲猜。
 - 功能支线只写自己的 workspace、outbox、candidate/request，不直接写 confirmed CSV、routine IR 或长期 handoff。
@@ -170,9 +170,9 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 
 | 工作线 | 典型命令 | 主要职责 | 默认可写 |
 |---|---|---|---|
-| 主线 | `/rekit continue main` | 收敛结论、验证 candidate、维护长期 handoff、处理 authority 写入；JSON envelope/run artifacts 暴露 apply 后 `missionBrief` | canonical 文件、主线 workspace、`.rekit/**` |
-| 功能支线 | `/rekit start <name>`、`/rekit continue <name>` | 围绕一个功能点/阻塞点做探索、收集 evidence、提出 candidate/request；start/continue preview/apply `missionBrief` 让 lane executor 看到全局 ready/blocked 状态 | 自己的 lane workspace、outbox、candidate/request |
-| 项目级索引 | `/rekit handoff` | 生成跨工作线接手索引，并在顶部 Markdown 与 Go JSON `missionBrief` 汇总 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations | `.rekit/handovers/latest.md` |
+| 主线 | `/rekit continue main` | 收敛结论、验证 candidate、维护长期 handoff、处理 authority 写入；JSON envelope/run artifacts 暴露 apply 后 `missionBrief`，含 pending gates 与非阻塞 authorized gates | canonical 文件、主线 workspace、`.rekit/**` |
+| 功能支线 | `/rekit start <name>`、`/rekit continue <name>` | 围绕一个功能点/阻塞点做探索、收集 evidence、提出 candidate/request；start/continue preview/apply `missionBrief` 让 lane executor 看到全局 ready/blocked 状态、pending gates 与非阻塞 authorized gates | 自己的 lane workspace、outbox、candidate/request |
+| 项目级索引 | `/rekit handoff` | 生成跨工作线接手索引，并在顶部 Markdown 与 Go JSON `missionBrief` 汇总 ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations | `.rekit/handovers/latest.md` |
 
 推荐流程：
 

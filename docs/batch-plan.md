@@ -10121,3 +10121,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/autonomy/profile.go internal/rekit/autonomy/profile_test.go internal/rekit/gate/gate.go internal/rekit/gate/gate_test.go internal/rekit/mission/brief.go internal/rekit/mission/brief_test.go internal/rekit/workstream/start.go internal/rekit/workstream/continue.go internal/rekit/workstream/handoff.go internal/rekit/workstream/reconcile.go internal/rekit/overview/overview.go internal/rekit/doctor/case.go internal/rekit/cli/cli.go internal/rekit/releasecheck/release_handoff.go internal/rekit/manifest/release_invariants_test.go`、`go test ./internal/rekit/autonomy ./internal/rekit/gate ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/doctor ./internal/rekit/cli ./internal/rekit/releasecheck ./internal/rekit/manifest`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 与 `.\rekit\tests\facade-smoke.ps1`。自审发现 `preauthorized/autonomous` profile 缺 `notifyMainOn` 仍可能 ready 的 fail-open 缺口，已补 `notifyMainOn` 必填校验与测试后重新通过验证；`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。
+
+### Batch 331：Go-native authorized-gate decision visibility and executor handoff
+
+状态：已完成。
+
+目标：继续 Stage 5 workstream / ledger / gate / continue Go 化，并把 Batch 330 新增的 `authorized-gate` 从 gate result / request ledger 中提升为 Mission Commander 与 lane executor 都能直接看到的一等非阻塞授权决策。`pending-gate` 仍是 gate blocker；`authorized-gate` 必须在 Mission brief、overview、project/lane handoff、continue digest/status 与 CLI E2E 中可见，避免新会话或替换 executor 因未重扫 ledger 而漏看 durable autonomy profile 的授权边界。
+
+实施范围：
+
+- 更新 `internal/rekit/mission`：`Brief` 新增 `AuthorizedGates`，summary 计入 `authorizedGates=<n>`；`BuildWithOptions` 收集 `status=authorized-gate` request 但不加入 blocked lanes；`GateLine` / `LaneGateLine` 展示 `auth=<decision>` 与 `profile=<profileId>`，保留 pending gate / open intervention / open candidate/decision blocker 语义。
+- 更新 overview / handoff / continue：overview 文本新增 `authorized-gate（durable autonomy 已授权，非阻塞）` 区段，JSON `sections.authorizedGates` 与 `missionBrief.authorizedGates` 暴露同一信息；项目级 handoff brief、lane handoff brief 与 lane `## authorized-gate` 区段展示授权 decision/profile；continue digest/status 记录 authorized gates，便于 lane executor 接手时看到非阻塞授权边界。
+- 更新 CLI E2E：新增 preauthorized autonomy fixture，覆盖 `gate -Apply` 写入 `authorized-gate` 后 overview text/JSON、project handoff、lane handoff 与 Mission brief 的非阻塞可见性；既有 mission/overview/workstream/gate/cli tests 更新 expected summary，确保 `authorizedGates=0/1` 不漂移。
+- 更新 README、canonical `/rekit` skill、Agent Team usage、evidence ledger、release readiness、Go-first convergence、Go runtime migration、PowerShell deprecation 与 tests guide，记录 `authorized-gate` 的 executor handoff visibility、typed request fields、非阻塞语义与 actual heavy-tool 外置执行边界。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不写 authority/confirmed，不改变 sync/promote review-first、不迁移 policy schema、不写真实样本、trace、dump、capture、artifact、绝对 case 路径或 case-specific 进度；`gate -Apply` 仍只写 request ledger decision，actual heavy action 必须由 lane executor / tool adapter 在 authorization decision 与 autonomy profile 范围内执行并写回 evidence/ledger。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/cli/cli_test.go internal/rekit/mission/brief.go internal/rekit/mission/brief_test.go internal/rekit/mission/case_test.go internal/rekit/overview/overview.go internal/rekit/workstream/continue.go internal/rekit/workstream/handoff.go
+go test ./internal/rekit/mission ./internal/rekit/overview ./internal/rekit/workstream ./internal/rekit/gate ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/cli/cli_test.go internal/rekit/mission/brief.go internal/rekit/mission/brief_test.go internal/rekit/mission/case_test.go internal/rekit/overview/overview.go internal/rekit/workstream/continue.go internal/rekit/workstream/handoff.go`、targeted `go test ./internal/rekit/mission ./internal/rekit/overview ./internal/rekit/workstream ./internal/rekit/gate ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。

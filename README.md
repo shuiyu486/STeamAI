@@ -132,13 +132,13 @@ claude
 |---|---|---|
 | `/rekit status` | 只读 | 看当前 case 绑定状态；若目录被移动，只提示，不修复；`-Format json` 输出机器可读 status envelope。 |
 | `/rekit packs` | 只读 | 维护者查看当前 kit 内所有 pack 的成熟度、schema、route、managed/tooling 和 authority lane 概览；`-Format json` 输出机器可读 inventory。 |
-| `/rekit overview` | case-local 状态 | 显示项目概览、主线/支线、共享事实统计、Mission Control brief 和下一步建议；brief 会把 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations 汇总到文本和 `-Format json` envelope；缺 `.rekit/board.json` 时由 Go 初始化 case-local board/facts/policy/default authority lane；只表示总览，不代表当前会话已选择工作线。 |
-| `/rekit continue main` | case-local 自动整理 | 明确接手主线并整理相关状态；多工作线时不要用无参数 `continue` 盲猜；维护自动化可用 `-WhatIf -Format json` 经默认 Go façade 消费非写入 continue 计划，JSON envelope 含结构化 `missionBrief`。 |
-| `/rekit continue <name>` | case-local 自动整理 | 明确接手某条功能支线，只整理该支线的 workspace/outbox 并刷新接续提示；`-WhatIf -Format json` 默认经 Go façade 预览收集、路由和 authority append 计划；显式 `-Apply` 的 JSON envelope、run `status.json` 与 `digest.md` 都包含同一 `missionBrief`。 |
+| `/rekit overview` | case-local 状态 | 显示项目概览、主线/支线、共享事实统计、Mission Control brief 和下一步建议；brief 会把 ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations 汇总到文本和 `-Format json` envelope；`authorized-gate` 作为 durable autonomy 已授权决策单独展示但不阻塞 lane；缺 `.rekit/board.json` 时由 Go 初始化 case-local board/facts/policy/default authority lane；只表示总览，不代表当前会话已选择工作线。 |
+| `/rekit continue main` | case-local 自动整理 | 明确接手主线并整理相关状态；多工作线时不要用无参数 `continue` 盲猜；维护自动化可用 `-WhatIf -Format json` 经默认 Go façade 消费非写入 continue 计划，JSON envelope 含结构化 `missionBrief`，其中包含 pending gates 与非阻塞 authorized gates。 |
+| `/rekit continue <name>` | case-local 自动整理 | 明确接手某条功能支线，只整理该支线的 workspace/outbox 并刷新接续提示；`-WhatIf -Format json` 默认经 Go façade 预览收集、路由和 authority append 计划；显式 `-Apply` 的 JSON envelope、run `status.json` 与 `digest.md` 都包含同一 `missionBrief`，让 lane executor 直接看到 pending gates 与非阻塞 authorized gates。 |
 | `/rekit start <name>` | case-local 状态 | 创建或进入一个功能支线，例如 `/rekit start login`；支线只写自己的工作区；维护自动化可用 `-WhatIf -Format json` 消费非写入 start 计划和结构化 `missionBrief`，显式 `-Apply` 输出含 apply 后 `missionBrief` 的 Go JSON envelope。 |
-| `/rekit handoff` | case-local 状态 | 生成项目级接手索引 `.rekit/handovers/latest.md`；索引和 Go JSON envelope 都包含 Mission Control brief，汇总 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations；维护自动化可用 `-WhatIf -Format json` 消费同一结构化 `missionBrief` 与写入预览，显式 `-Apply` 输出 Go JSON envelope；不代表某个会话。 |
-| `/rekit handoff <name>` | case-local 状态 | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；lane handoff 的 Markdown 与 Go JSON `missionBrief` 使用 overview 同一 blocker 语义，pending gate、open intervention、open candidate/decision 都会让该 lane 显示为 blocked；`-WhatIf -Format json` 可预览目标工作线 handoff 写入计划，显式 `-Apply` 输出 Go JSON envelope。 |
-| `/rekit gate -WhatIf` / `/rekit gate -Apply` | case-local gate request | Go backend 的 heavy-action authorization preflight；`-WhatIf -Format json` 输出 gate decision plan 和当前 `missionBrief`，不写 ledger、不执行 heavy-tool；`-Apply -Format json` 只 append pending-gate 或 authorized-gate request ledger decision，并输出 apply 后 `missionBrief`；durable lane autonomy profile 完全覆盖时可记录 `authorized-gate`，否则 fail-closed 为 pending/denied decision；实际 heavy-tool 仍由 lane executor / tool adapter 在授权范围内执行并写 evidence，不写 confirmed/authority。 |
+| `/rekit handoff` | case-local 状态 | 生成项目级接手索引 `.rekit/handovers/latest.md`；索引和 Go JSON envelope 都包含 Mission Control brief，汇总 ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations；维护自动化可用 `-WhatIf -Format json` 消费同一结构化 `missionBrief` 与写入预览，显式 `-Apply` 输出 Go JSON envelope；不代表某个会话。 |
+| `/rekit handoff <name>` | case-local 状态 | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；lane handoff 的 Markdown 与 Go JSON `missionBrief` 使用 overview 同一 blocker 语义，pending gate、open intervention、open candidate/decision 都会让该 lane 显示为 blocked；`authorized-gate` 单独展示授权 profile / decision 但不阻塞 lane；`-WhatIf -Format json` 可预览目标工作线 handoff 写入计划，显式 `-Apply` 输出 Go JSON envelope。 |
+| `/rekit gate -WhatIf` / `/rekit gate -Apply` | case-local gate request | Go backend 的 heavy-action authorization preflight；`-WhatIf -Format json` 输出 gate decision plan 和当前 `missionBrief`，不写 ledger、不执行 heavy-tool；`-Apply -Format json` 只 append pending-gate 或 authorized-gate request ledger decision，并输出 apply 后 `missionBrief`；durable lane autonomy profile 完全覆盖时可记录 `authorized-gate`，并在 overview、handoff、continue digest/status 与 `missionBrief.authorizedGates` 中可见；否则 fail-closed 为 pending/denied decision；实际 heavy-tool 仍由 lane executor / tool adapter 在授权范围内执行并写 evidence，不写 confirmed/authority。 |
 | `/rekit sync` | kit -> case | 默认生成同步审查包；确认后才用 `-Apply` 写入 managed docs / managed block。 |
 | `/rekit promote` | case -> kit | 默认生成回流审查包；确认后才用 `-CreateCandidates` 生成候选或用 `-Apply` 写回 pack。 |
 | `/rekit doctor` | 只读 | 排障时详细验证结构；日常不必主动运行；维护自动化可用 `-Format json` 消费验证 rows。 |
@@ -158,8 +158,8 @@ claude
 
 - 当前主线和功能支线；
 - 共享事实、request、candidate、publication 统计；
-- Mission Control brief：ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations；
-- 未决 candidate、pending-gate、最近 verification / decision 等 review loop 摘要；
+- Mission Control brief：ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations；
+- 未决 candidate、pending-gate、authorized-gate、最近 verification / decision 等 review loop 摘要；
 - 需要人工确认的事项；
 - 推荐下一步。
 
@@ -170,7 +170,7 @@ claude
 /rekit continue login
 ```
 
-`overview` 只是项目总览，不代表当前会话已经选择主线或支线。多条 open 工作线时，无参数 `/rekit continue` 只会列出选择，不会盲目推进。需要自动化预览时可先运行 `/rekit continue login -WhatIf -Format json` 获取只读计划和结构化 `missionBrief`。明确选择后，它会自动整理对应工作线的 case-local 状态：收集 outbox/workspace 事件、发布低风险共享事实、路由 request、验证候选并刷新接续提示；显式 `-Apply` 后 JSON、run status 与 digest 会记录 apply 后 Mission Control brief，便于 lane executor 直接判断 open decision / gate / intervention 状态。
+`overview` 只是项目总览，不代表当前会话已经选择主线或支线。多条 open 工作线时，无参数 `/rekit continue` 只会列出选择，不会盲目推进。需要自动化预览时可先运行 `/rekit continue login -WhatIf -Format json` 获取只读计划和结构化 `missionBrief`。明确选择后，它会自动整理对应工作线的 case-local 状态：收集 outbox/workspace 事件、发布低风险共享事实、路由 request、验证候选并刷新接续提示；显式 `-Apply` 后 JSON、run status 与 digest 会记录 apply 后 Mission Control brief，便于 lane executor 直接判断 open decision / pending gate / authorized gate / intervention 状态。
 
 安全边界：只有 candidate 同时满足 evidence、accepted verifier、confidence 阈值、CSV schema、无冲突、backup、diff、max rows 时，才允许自动 append authority CSV；覆盖/删除 authority、冲突、schema change、外部副作用或破坏性动作仍必须问用户。
 
@@ -220,7 +220,7 @@ claude
 按 .rekit/handovers/devirt-main-latest.md 接手，然后 /rekit continue main。
 ```
 
-工作线接手文档会附带本工作线的 workspace packet、最近 verification、decision、pending-gate、intervention 和 rollback 摘要，便于新会话看到 reviewer verdict 到 main decision 的状态。
+工作线接手文档会附带本工作线的 workspace packet、最近 verification、decision、pending-gate、authorized-gate、intervention 和 rollback 摘要，便于新会话看到 reviewer verdict、main decision 与 durable autonomy gate decision 的状态。
 
 这些接手文档只引用 `references/vmp-re/task-handoff.md`，不会覆盖它。
 

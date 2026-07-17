@@ -31,7 +31,7 @@ func TestBuildBlocksLanesAndUsesSharedDecisionAction(t *testing.T) {
 		BuildOptions{MaxRows: 10, OpenDecisionAction: "review open candidate/decision item(s) with evidence and authority boundary"},
 	)
 
-	if brief.Summary != "openLanes=2 ready=1 blocked=1 pendingGates=1 openDecisions=2 interventions=1" {
+	if brief.Summary != "openLanes=2 ready=1 blocked=1 pendingGates=1 authorizedGates=0 openDecisions=2 interventions=1" {
 		t.Fatalf("summary = %q", brief.Summary)
 	}
 	if !slices.Contains(brief.ReadyLanes, "main") || !slices.Contains(brief.BlockedLanes, "login (pending-gate,intervention,open-decision)") {
@@ -66,11 +66,14 @@ func TestBuildDoesNotBlockOnAuthorizedGate(t *testing.T) {
 		}},
 		10,
 	)
-	if brief.Summary != "openLanes=1 ready=1 blocked=0 pendingGates=0 openDecisions=0 interventions=0" {
+	if brief.Summary != "openLanes=1 ready=1 blocked=0 pendingGates=0 authorizedGates=1 openDecisions=0 interventions=0" {
 		t.Fatalf("summary = %q", brief.Summary)
 	}
 	if len(brief.PendingGates) != 0 || !slices.Contains(brief.ReadyLanes, "main") {
 		t.Fatalf("authorized gate should not block as pending gate: %+v", brief)
+	}
+	if len(brief.AuthorizedGates) != 1 || !containsSubstring(brief.AuthorizedGates, "authorized debug") || !containsSubstring(brief.AuthorizedGates, "action=debug") {
+		t.Fatalf("authorized gate should be visible and non-blocking: %+v", brief)
 	}
 }
 

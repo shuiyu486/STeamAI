@@ -88,7 +88,7 @@ Release gate 通过的最低标准：
 - 不默认运行 PowerShell façade smoke 或大型 PowerShell matrix；只有改 façade/fallback、pack helper、matrix 输出或跨 pack skeleton 时才运行对应 PowerShell compatibility smoke。
 - 不把真实样本、trace、dump、capture、pcap、crash、payload、客户信息、flag、IOC、绝对 case 路径或 case-specific 进度写入本仓库。
 - release gate / CI / smoke 不执行真实网络请求、扫描、fuzz、exploit replay、debug、dump、patch、hook、设备连接或其它外部副作用；真实 case 的成员 lane 只有在 lane 文档/packet/autonomy profile 预授权范围内才可自主执行这些动作。
-- `gate -WhatIf` 只预览 gate request decision；`gate -Apply` 只写 pending-gate 或 authorized-gate request ledger decision，不执行 heavy-tool、不写 authority/confirmed；actual heavy action 由 lane executor / tool adapter 在授权 profile 与 gate decision 范围内执行并写回 evidence/ledger。
+- `gate -WhatIf` 只预览 gate request decision；`gate -Apply` 只写 pending-gate 或 authorized-gate request ledger decision，不执行 heavy-tool、不写 authority/confirmed；`authorized-gate` 会在 Mission Control brief、overview、project/lane handoff 与 continue digest/status 中作为非阻塞授权决策展示，`pending-gate` 仍是唯一 gate blocker；actual heavy action 由 lane executor / tool adapter 在授权 profile 与 gate decision 范围内执行并写回 evidence/ledger。
 - `continue -Apply` 只写 case-local facts/routing/run digest/lane resume/checkpoint/board；存在 effective open intervention 时 fail-closed，要求先 `reconcile`；不写 authority/confirmed。
 - `sync/promote` 保持 review-first；实际写入前必须确认范围，pack source 写入依赖 backup/deny/restore。
 - 普通 Go-default command fallback candidates 已清空；`release-check`、`status`、`packs`、`doctor`、`validate`、`attach`、`repair`、`init`、`bootstrap`、`sync`、`update`、`promote`、`overview`、`note`、`gate`、`start`、`handoff`、`continue`、`reconcile` 与 `plan-subagents` 的 fallback 已退休；`REKIT_GO_DISABLE=1` 只会触发 no-fallback guard，不再回落到这些 PowerShell 业务实现。删除或冻结剩余 PowerShell runtime modules 前必须有单独 deprecation batch、兼容验证和文档说明。
@@ -116,7 +116,7 @@ Go-owned / Go-default 路径：
 - `status`、`packs`、`doctor/validate`。
 - attached case 的 `overview` 文本/JSON 与缺 board 初始化，PowerShell fallback 已退休。
 - `note -List` 文本/table/tsv/JSON、`note` append、`note -WhatIf`，PowerShell fallback 已退休。
-- `gate -WhatIf`、`gate -Apply` gate request decision：只预览或写 pending-gate / authorized-gate request ledger decision，PowerShell fallback 已退休；仍不执行 heavy-tool、不写 authority/confirmed。
+- `gate -WhatIf`、`gate -Apply` gate request decision：只预览或写 pending-gate / authorized-gate request ledger decision，PowerShell fallback 已退休；authorized-gate 在 Mission Control brief、overview、handoff 与 continue digest/status 中可见但不阻塞 lane；仍不执行 heavy-tool、不写 authority/confirmed。
 - `start` / `handoff` 的 JSON preview、explicit apply、文本 preview 与 bare/default 工作线 flow；façade 非 `-Apply` 且空 `-Format` 会显式转为 Go text output，direct Go CLI 继续保持默认 JSON contract，Go disabled/unavailable 时直接 no-fallback。
 - `continue -WhatIf` 与 explicit / bare text `continue` safe subset；JSON preview、explicit apply 和文本/default preview 均由 Go-owned 路径接管，Go disabled/unavailable 时直接 no-fallback；存在 effective open intervention 时 fail-closed 并要求先 `reconcile`；`continue -Apply` 不写 authority/confirmed。
 - case lifecycle `attach`、`repair`、`init/bootstrap` preview/apply，PowerShell fallback 已退休。

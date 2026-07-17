@@ -388,6 +388,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	writeVerificationSection(&out, facts.Verifications, lane.ID)
 	writeDecisionSection(&out, facts.Decisions, lane.ID)
 	writePendingGateSection(&out, facts.Requests, lane.ID)
+	writeAuthorizedGateSection(&out, facts.Requests, lane.ID)
 	writeInterventionSection(&out, facts.Interventions, lane.ID)
 	writeRollbackSection(&out, facts.Rollbacks, lane.ID)
 	fmt.Fprintln(&out, "## 边界")
@@ -609,6 +610,7 @@ func writeProjectMissionBrief(out *bytes.Buffer, lanes []boardLane, facts missio
 	writeHandoffBriefList(out, "ready lanes", brief.ReadyLanes)
 	writeHandoffBriefList(out, "blocked lanes", brief.BlockedLanes)
 	writeHandoffBriefList(out, "pending gates", brief.PendingGates)
+	writeHandoffBriefList(out, "authorized gates", brief.AuthorizedGates)
 	writeHandoffBriefList(out, "open decisions", brief.OpenDecisions)
 	writeHandoffBriefList(out, "interventions", brief.Interventions)
 	writeHandoffBriefList(out, "next agent actions", brief.NextAgentActions)
@@ -626,6 +628,7 @@ func laneMissionBrief(lane Lane, facts mission.LedgerFacts) mission.Brief {
 func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts mission.LedgerFacts) {
 	laneFacts := mission.LaneFacts(facts.Facts, lane.ID)
 	gates := mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate")
+	authorizedGates := mission.FilterLane(laneFacts.Requests, lane.ID, "authorized-gate")
 	interventions := mission.EffectiveOpenInterventions(laneFacts.Interventions)
 	openDecisions := mission.OpenDecisionItems(laneFacts)
 	fmt.Fprintln(out, "## Mission Control brief")
@@ -633,6 +636,7 @@ func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts mission.LedgerFac
 	fmt.Fprintf(out, "- lane: %s status=%s workspace=%s\n", lane.ID, lane.Status, lane.Workspace)
 	fmt.Fprintf(out, "- blocked: %t\n", len(gates) > 0 || len(interventions) > 0 || len(openDecisions) > 0)
 	writeHandoffBriefList(out, "pending-gate", missionLines(gates, mission.LaneGateLine))
+	writeHandoffBriefList(out, "authorized-gate", missionLines(authorizedGates, mission.LaneGateLine))
 	writeHandoffBriefList(out, "open intervention", missionLines(interventions, mission.LaneInterventionLine))
 	writeHandoffBriefList(out, "open decision", missionLines(openDecisions, mission.LaneOpenDecisionLine))
 	actions := []string{}
@@ -736,6 +740,19 @@ func writePendingGateSection(out *bytes.Buffer, requests []map[string]any, laneI
 	fmt.Fprintln(out)
 }
 
+func writeAuthorizedGateSection(out *bytes.Buffer, requests []map[string]any, laneID string) {
+	items := filterLane(requests, laneID, "authorized-gate")
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "## authorized-gate")
+	fmt.Fprintln(out)
+	for _, g := range lastObjects(items, maxHandoffRows) {
+		fmt.Fprintf(out, "- %s | %s%s\n", firstObjectText(g, "subject"), firstObjectText(g, "summary"), gateRequestDetail(g, true, true))
+	}
+	fmt.Fprintln(out)
+}
+
 func writeInterventionSection(out *bytes.Buffer, interventions []map[string]any, laneID string) {
 	items := filterLane(interventions, laneID, "")
 	if len(items) == 0 {
@@ -800,6 +817,10 @@ func gateRequestDetail(e map[string]any, omitStatus, omitBatch bool) string {
 		add("budget", firstObjectText(gate, "budget"))
 		add("tried", firstObjectText(gate, "triedLightSteps"))
 		add("stop", firstObjectText(gate, "stopConditions"))
+		if auth, ok := gate["authorization"].(map[string]any); ok {
+			add("auth", firstObjectText(auth, "decision"))
+			add("profile", firstObjectText(auth, "profileId"))
+		}
 	}
 	if len(parts) == 0 {
 		return ""

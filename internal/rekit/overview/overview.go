@@ -59,6 +59,7 @@ type FactCounts struct {
 type OverviewSections struct {
 	OpenCandidates    EventSection `json:"openCandidates"`
 	PendingGates      EventSection `json:"pendingGates"`
+	AuthorizedGates   EventSection `json:"authorizedGates"`
 	Verifications     EventSection `json:"verifications"`
 	Decisions         EventSection `json:"decisions"`
 	Batches           BatchSection `json:"batches"`
@@ -140,6 +141,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	writeMissionBrief(&out, brief)
 	writeOpenCandidates(&out, facts.Candidates)
 	writePendingGates(&out, facts.Requests)
+	writeAuthorizedGates(&out, facts.Requests)
 	writeVerifications(&out, facts.Verifications)
 	writeDecisions(&out, facts.Decisions)
 	writeBatches(&out, facts.AllBatchEvents)
@@ -237,15 +239,21 @@ func loadOverviewData(repoRoot, caseRoot, pack string) (overviewData, error) {
 func buildOverviewSections(facts factSet) OverviewSections {
 	openCandidates := openStatusEvents(facts.Candidates)
 	pendingGates := []event{}
+	authorizedGates := []event{}
 	for _, request := range facts.Requests {
 		if mission.IsPendingGateRequest(request) {
 			pendingGates = append(pendingGates, request)
+			continue
+		}
+		if mission.IsAuthorizedGateRequest(request) {
+			authorizedGates = append(authorizedGates, request)
 		}
 	}
 	openInterventions := mission.EffectiveOpenInterventions(facts.Interventions)
 	return OverviewSections{
 		OpenCandidates:    newEventSection(openCandidates),
 		PendingGates:      newEventSection(pendingGates),
+		AuthorizedGates:   newEventSection(authorizedGates),
 		Verifications:     newEventSection(facts.Verifications),
 		Decisions:         newEventSection(facts.Decisions),
 		Batches:           newBatchSection(facts.AllBatchEvents),
@@ -272,6 +280,7 @@ func writeMissionBrief(out *bytes.Buffer, brief MissionBrief) {
 	writeBriefList(out, "ready lanes", brief.ReadyLanes)
 	writeBriefList(out, "blocked lanes", brief.BlockedLanes)
 	writeBriefList(out, "pending gates", brief.PendingGates)
+	writeBriefList(out, "authorized gates", brief.AuthorizedGates)
 	writeBriefList(out, "open decisions", brief.OpenDecisions)
 	writeBriefList(out, "interventions", brief.Interventions)
 	writeBriefList(out, "next agent actions", brief.NextAgentActions)
@@ -449,6 +458,27 @@ func writePendingGates(out *bytes.Buffer, requests []event) {
 	}
 	if rest := len(pending) - len(shown); rest > 0 {
 		fmt.Fprintf(out, "- 另有 %d 条 pending-gate\n", rest)
+	}
+	fmt.Fprintln(out)
+}
+
+func writeAuthorizedGates(out *bytes.Buffer, requests []event) {
+	authorized := []event{}
+	for _, r := range requests {
+		if mission.IsAuthorizedGateRequest(r) {
+			authorized = append(authorized, r)
+		}
+	}
+	if len(authorized) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "authorized-gate（durable autonomy 已授权，非阻塞）：")
+	shown := lastEvents(authorized, maxRows)
+	for _, g := range shown {
+		fmt.Fprintf(out, "- %s | %s%s\n", stringValue(g, "subject"), stringValue(g, "summary"), gateDetail(g, true, false))
+	}
+	if rest := len(authorized) - len(shown); rest > 0 {
+		fmt.Fprintf(out, "- 另有 %d 条 authorized-gate\n", rest)
 	}
 	fmt.Fprintln(out)
 }
@@ -727,6 +757,10 @@ func gateDetail(e event, omitStatus, omitBatch bool) string {
 		add("budget", stringValue(gate, "budget"))
 		add("tried", stringValue(gate, "triedLightSteps"))
 		add("stop", stringValue(gate, "stopConditions"))
+		if auth, ok := gate["authorization"].(map[string]any); ok {
+			add("auth", stringValue(auth, "decision"))
+			add("profile", stringValue(auth, "profileId"))
+		}
 	}
 	if len(parts) == 0 {
 		return ""

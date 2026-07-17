@@ -30,6 +30,7 @@ type Brief struct {
 	ReadyLanes       []string `json:"readyLanes"`
 	BlockedLanes     []string `json:"blockedLanes"`
 	PendingGates     []string `json:"pendingGates"`
+	AuthorizedGates  []string `json:"authorizedGates"`
 	OpenDecisions    []string `json:"openDecisions"`
 	Interventions    []string `json:"interventions"`
 	NextAgentActions []string `json:"nextAgentActions"`
@@ -48,15 +49,19 @@ func BuildWithOptions(lanes []Lane, facts Facts, opts BuildOptions) Brief {
 	open := OpenLanes(lanes)
 	blocked := map[string][]string{}
 	pendingGateLines := []string{}
+	authorizedGateLines := []string{}
 	for _, gate := range facts.Requests {
-		if !IsPendingGateRequest(gate) {
+		if IsPendingGateRequest(gate) {
+			lane := Value(gate, "lane")
+			if lane != "" {
+				blocked[lane] = append(blocked[lane], "pending-gate")
+			}
+			pendingGateLines = append(pendingGateLines, GateLine(gate))
 			continue
 		}
-		lane := Value(gate, "lane")
-		if lane != "" {
-			blocked[lane] = append(blocked[lane], "pending-gate")
+		if IsAuthorizedGateRequest(gate) {
+			authorizedGateLines = append(authorizedGateLines, GateLine(gate))
 		}
-		pendingGateLines = append(pendingGateLines, GateLine(gate))
 	}
 	interventionLines := []string{}
 	for _, item := range EffectiveOpenInterventions(facts.Interventions) {
@@ -72,8 +77,10 @@ func BuildWithOptions(lanes []Lane, facts Facts, opts BuildOptions) Brief {
 		blocked[lane] = append(blocked[lane], "open-decision")
 	}
 	pendingGateCount := len(pendingGateLines)
+	authorizedGateCount := len(authorizedGateLines)
 	interventionCount := len(interventionLines)
 	pendingGateLines = LimitStrings(pendingGateLines, maxRows)
+	authorizedGateLines = LimitStrings(authorizedGateLines, maxRows)
 	interventionLines = LimitStrings(interventionLines, maxRows)
 	openDecisions = LimitStrings(openDecisions, maxRows)
 	readyLanes := []string{}
@@ -89,10 +96,11 @@ func BuildWithOptions(lanes []Lane, facts Facts, opts BuildOptions) Brief {
 	nextActions := NextActionsWithOptions(readyLanes, pendingGateLines, interventionLines, openDecisions, opts)
 	escalations := Escalations(pendingGateLines, interventionLines, openDecisions)
 	return Brief{
-		Summary:          fmt.Sprintf("openLanes=%d ready=%d blocked=%d pendingGates=%d openDecisions=%d interventions=%d", len(open), len(readyLanes), len(blockedLanes), pendingGateCount, openDecisionCount, interventionCount),
+		Summary:          fmt.Sprintf("openLanes=%d ready=%d blocked=%d pendingGates=%d authorizedGates=%d openDecisions=%d interventions=%d", len(open), len(readyLanes), len(blockedLanes), pendingGateCount, authorizedGateCount, openDecisionCount, interventionCount),
 		ReadyLanes:       readyLanes,
 		BlockedLanes:     blockedLanes,
 		PendingGates:     pendingGateLines,
+		AuthorizedGates:  authorizedGateLines,
 		OpenDecisions:    openDecisions,
 		Interventions:    interventionLines,
 		NextAgentActions: nextActions,
@@ -205,6 +213,10 @@ func IsPendingGateRequest(item map[string]any) bool {
 	return Value(item, "status") == "pending-gate"
 }
 
+func IsAuthorizedGateRequest(item map[string]any) bool {
+	return Value(item, "status") == "authorized-gate"
+}
+
 func GateLine(item map[string]any) string {
 	parts := []string{Subject(item)}
 	AddPart(&parts, "lane", Value(item, "lane"))
@@ -213,6 +225,10 @@ func GateLine(item map[string]any) string {
 	if gate, ok := item["gate"].(map[string]any); ok {
 		AddPart(&parts, "action", Value(gate, "action"))
 		AddPart(&parts, "scope", Value(gate, "scope"))
+		if auth, ok := gate["authorization"].(map[string]any); ok {
+			AddPart(&parts, "auth", Value(auth, "decision"))
+			AddPart(&parts, "profile", Value(auth, "profileId"))
+		}
 	}
 	return strings.Join(parts, " | ")
 }
@@ -222,6 +238,10 @@ func LaneGateLine(item map[string]any) string {
 	if gate, ok := item["gate"].(map[string]any); ok {
 		AddPart(&parts, "action", Value(gate, "action"))
 		AddPart(&parts, "scope", Value(gate, "scope"))
+		if auth, ok := gate["authorization"].(map[string]any); ok {
+			AddPart(&parts, "auth", Value(auth, "decision"))
+			AddPart(&parts, "profile", Value(auth, "profileId"))
+		}
 	}
 	AddPart(&parts, "risk", Value(item, "risk"))
 	AddPart(&parts, "target", Value(item, "target"))

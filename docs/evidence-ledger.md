@@ -113,13 +113,21 @@ packet / reviewer output 中可使用 `needs_more_evidence` 表达候选仍缺�
     "action": "full-trace|debug|inject|patch|dump|network|symex|other",
     "scope": "<narrow authorized scope>",
     "budget": "<runtime/disk/token budget summary>",
+    "requestedBudget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},
+    "outputPaths": ["<case-relative-output-dir>"],
     "triedLightSteps": ["<lighter-step>"],
-    "stopConditions": ["<lowercase-slug-or_snake-token>"]
+    "stopConditions": ["<lowercase-slug-or_snake-token>"],
+    "requiresConfirmation": true,
+    "authorization": {
+      "decision": "manual-confirmation-required|preauthorized|denied|expired|invalid-profile|out-of-scope|budget-exceeded|output-path-denied|stop-condition-mismatch",
+      "profileId": "<lane-autonomy-profile-id>",
+      "reason": "<decision summary>"
+    }
   }
 }
 ```
 
-`status=pending-gate` 表示需要用户确认；它不是执行授权本身。`status=authorized-gate` 表示 Go gate preflight 已找到当前 lane 的 durable autonomy profile，且 action、target、typed budget、output paths 与 stop conditions 被 profile 完全覆盖；它仍只是 ledger authorization decision，不代表 `/rekit` 已执行 heavy-tool，也不放宽 confirmed/authority/sync/promote 边界。确认或 profile 授权只覆盖 event 中列明的 action/scope/budget/risk/outputPaths/stopConditions，不得扩大到其它 heavy-tool 动作。Go `gate -WhatIf/-Apply` 使用 manifest `defaultRisk`，用户覆盖 `-Risk` 时必须是小写 `medium|high|critical`；`stopConditions` 在 preview/request ledger 中使用小写 slug/snake token 列表，人类说明应放在 summary 或 decision_reason。
+`status=pending-gate` 表示需要用户确认；它不是执行授权本身。`status=authorized-gate` 表示 Go gate preflight 已找到当前 lane 的 durable autonomy profile，且 action、target、typed budget、output paths 与 stop conditions 被 profile 完全覆盖；它仍只是 ledger authorization decision，不代表 `/rekit` 已执行 heavy-tool，也不放宽 confirmed/authority/sync/promote 边界。确认或 profile 授权只覆盖 event 中列明的 action/scope/budget/risk/outputPaths/stopConditions，不得扩大到其它 heavy-tool 动作。`authorization.decision` / `profileId`、typed `requestedBudget` 与 `outputPaths` 是 executor handoff 字段：overview、project/lane handoff、continue digest/status 与 `missionBrief.authorizedGates` 必须展示 `authorized-gate`，但只有 `pending-gate` 会触发 lane blocker。Go `gate -WhatIf/-Apply` 使用 manifest `defaultRisk`，用户覆盖 `-Risk` 时必须是小写 `medium|high|critical`；`stopConditions` 在 preview/request ledger 中使用小写 slug/snake token 列表，人类说明应放在 summary 或 decision_reason。
 
 ## Intervention 字段
 

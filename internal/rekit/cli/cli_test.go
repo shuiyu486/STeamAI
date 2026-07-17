@@ -1849,6 +1849,7 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 			ReadyLanes       []string `json:"readyLanes"`
 			BlockedLanes     []string `json:"blockedLanes"`
 			PendingGates     []string `json:"pendingGates"`
+			AuthorizedGates  []string `json:"authorizedGates"`
 			OpenDecisions    []string `json:"openDecisions"`
 			Interventions    []string `json:"interventions"`
 			NextAgentActions []string `json:"nextAgentActions"`
@@ -1864,6 +1865,10 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 				Total  int              `json:"total"`
 				Events []map[string]any `json:"events"`
 			} `json:"pendingGates"`
+			AuthorizedGates struct {
+				Total  int              `json:"total"`
+				Events []map[string]any `json:"events"`
+			} `json:"authorizedGates"`
 			Verifications struct {
 				Total  int              `json:"total"`
 				Events []map[string]any `json:"events"`
@@ -1891,10 +1896,10 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	if result.Counts.Observations != 1 || result.Counts.Requests != 1 || result.Counts.Candidates != 2 || result.Counts.Publications != 1 || result.Counts.PendingDecisions != 1 {
 		t.Fatalf("unexpected overview counts: %+v", result.Counts)
 	}
-	if result.Sections.OpenCandidates.Total != 2 || result.Sections.OpenCandidates.Shown != 2 || result.Sections.PendingGates.Total != 1 || result.Sections.Verifications.Total != 1 || result.Sections.Batches.Total != 1 {
+	if result.Sections.OpenCandidates.Total != 2 || result.Sections.OpenCandidates.Shown != 2 || result.Sections.PendingGates.Total != 1 || result.Sections.AuthorizedGates.Total != 0 || result.Sections.Verifications.Total != 1 || result.Sections.Batches.Total != 1 {
 		t.Fatalf("unexpected overview sections: %+v", result.Sections)
 	}
-	if result.MissionBrief.Summary == "" || len(result.MissionBrief.ReadyLanes) != 0 || len(result.MissionBrief.BlockedLanes) != 1 || len(result.MissionBrief.PendingGates) != 1 || len(result.MissionBrief.OpenDecisions) != 3 || len(result.MissionBrief.Interventions) != 1 || len(result.MissionBrief.NextAgentActions) == 0 || len(result.MissionBrief.Escalations) != 3 {
+	if result.MissionBrief.Summary == "" || len(result.MissionBrief.ReadyLanes) != 0 || len(result.MissionBrief.BlockedLanes) != 1 || len(result.MissionBrief.PendingGates) != 1 || len(result.MissionBrief.AuthorizedGates) != 0 || len(result.MissionBrief.OpenDecisions) != 3 || len(result.MissionBrief.Interventions) != 1 || len(result.MissionBrief.NextAgentActions) == 0 || len(result.MissionBrief.Escalations) != 3 {
 		t.Fatalf("unexpected mission brief: %+v", result.MissionBrief)
 	}
 	if !slices.Contains(result.MissionBrief.BlockedLanes, "main (pending-gate,intervention,open-decision)") || !strings.Contains(result.MissionBrief.PendingGates[0], "action=debug") || !strings.Contains(result.MissionBrief.OpenDecisions[0], "candidate: handler") || !strings.Contains(result.MissionBrief.Interventions[0], "manual override") {
@@ -2252,7 +2257,7 @@ func TestRunStartPreviewDoesNotWriteBoard(t *testing.T) {
 	if result.IsMutation || result.Applied || result.Lane.ID != "feature-login" || result.Lane.Workspace != "workspace/features/feature-login" {
 		t.Fatalf("unexpected start preview result: %+v", result)
 	}
-	if result.MissionBrief.Summary == "" || result.MissionBrief.Summary != "openLanes=0 ready=0 blocked=0 pendingGates=0 openDecisions=0 interventions=0" {
+	if result.MissionBrief.Summary == "" || result.MissionBrief.Summary != "openLanes=0 ready=0 blocked=0 pendingGates=0 authorizedGates=0 openDecisions=0 interventions=0" {
 		t.Fatalf("start preview missing pre-apply mission brief: %+v", result.MissionBrief)
 	}
 	if len(result.Writes) != 1 || result.Writes[0].Path != ".rekit/lanes/feature-login/lane.json" || result.Writes[0].Action != "would-create-lane" {
@@ -2420,7 +2425,7 @@ func TestRunProjectHandoffMissionBriefBlocksOpenDecisions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Mission Control brief", "summary: openLanes=2 ready=1 blocked=1 pendingGates=0 openDecisions=1 interventions=0", "ready lanes:", "main", "blocked lanes:", "login (open-decision)", "pending gates: none", "open decisions:", "candidate: project candidate blocker", "lane=feature-login", "interventions: none", "next agent actions:", "review open candidate/decision item(s)", "/rekit continue main", "escalations:", "authority/confirmed outcome remains deferred"} {
+	for _, expected := range []string{"## Mission Control brief", "summary: openLanes=2 ready=1 blocked=1 pendingGates=0 authorizedGates=0 openDecisions=1 interventions=0", "ready lanes:", "main", "blocked lanes:", "login (open-decision)", "pending gates: none", "authorized gates: none", "open decisions:", "candidate: project candidate blocker", "lane=feature-login", "interventions: none", "next agent actions:", "review open candidate/decision item(s)", "/rekit continue main", "escalations:", "authority/confirmed outcome remains deferred"} {
 		if !strings.Contains(string(text), expected) {
 			t.Fatalf("project handoff missing %q:\n%s", expected, string(text))
 		}
@@ -4284,6 +4289,175 @@ func TestRunGateApplyAppendsPendingGateRequest(t *testing.T) {
 	}
 }
 
+func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeAuthorizedGateVisibilityFixture(t, caseRoot)
+	var out bytes.Buffer
+	args := []string{
+		"-Command", "gate",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Apply",
+		"-Action", "debug",
+		"-Lane", "main",
+		"-Actor", "runtime-test",
+		"-Subject", "authorized debug",
+		"-TargetRef", "target-alpha",
+		"-BatchId", "batch-authorized-gate",
+		"-Scope", "handler only",
+		"-RuntimeSeconds", "30",
+		"-DiskMB", "64",
+		"-Requests", "1",
+		"-OutputPaths", "workspace/main/debug/session-1",
+		"-StopConditions", "timeout",
+	}
+	if err := Run(args, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Applied bool `json:"applied"`
+		Event   struct {
+			Kind   string `json:"kind"`
+			Status string `json:"status"`
+			Gate   struct {
+				Authorization struct {
+					Decision  string `json:"decision"`
+					ProfileID string `json:"profileId"`
+				} `json:"authorization"`
+			} `json:"gate"`
+		} `json:"event"`
+		MissionBrief missionBrief `json:"missionBrief"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("authorized gate apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !result.Applied || result.Event.Kind != "request" || result.Event.Status != "authorized-gate" || result.Event.Gate.Authorization.Decision != "preauthorized" || result.Event.Gate.Authorization.ProfileID != "prof-main-debug" {
+		t.Fatalf("unexpected authorized gate result: %+v", result)
+	}
+	if len(result.MissionBrief.PendingGates) != 0 || !slices.Contains(result.MissionBrief.ReadyLanes, "main") || len(result.MissionBrief.BlockedLanes) != 0 || !containsSubstring(result.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(result.MissionBrief.AuthorizedGates, "auth=preauthorized") {
+		t.Fatalf("authorized gate mission brief should be visible and non-blocking: %+v", result.MissionBrief)
+	}
+	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ledger), `"authorized-gate"`) || !strings.Contains(string(ledger), `"preauthorized"`) {
+		t.Fatalf("ledger does not contain authorized gate decision:\n%s", string(ledger))
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	overviewText := out.String()
+	for _, expected := range []string{"authorized gates:", "authorized debug", "authorized-gate（durable autonomy 已授权，非阻塞）", "auth=preauthorized", "profile=prof-main-debug"} {
+		if !strings.Contains(overviewText, expected) {
+			t.Fatalf("overview missing %q:\n%s", expected, overviewText)
+		}
+	}
+	for _, unexpected := range []string{"pending-gate（heavy-tool 待确认）", "pending-gate requires main-agent/user decision"} {
+		if strings.Contains(overviewText, unexpected) {
+			t.Fatalf("overview contained unexpected pending blocker %q:\n%s", unexpected, overviewText)
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var overview struct {
+		MissionBrief missionBrief `json:"missionBrief"`
+		Sections     struct {
+			AuthorizedGates struct {
+				Total  int              `json:"total"`
+				Events []map[string]any `json:"events"`
+			} `json:"authorizedGates"`
+			PendingGates struct {
+				Total int `json:"total"`
+			} `json:"pendingGates"`
+		} `json:"sections"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("overview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if overview.Sections.PendingGates.Total != 0 || overview.Sections.AuthorizedGates.Total != 1 || len(overview.Sections.AuthorizedGates.Events) != 1 || !containsSubstring(overview.MissionBrief.AuthorizedGates, "authorized debug") {
+		t.Fatalf("overview JSON missing authorized gate visibility: %+v", overview)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	project := decodeHandoffResult(t, out.Bytes())
+	if !containsSubstring(project.MissionBrief.AuthorizedGates, "authorized debug") || len(project.MissionBrief.PendingGates) != 0 {
+		t.Fatalf("project handoff JSON missing authorized gate visibility: %+v", project.MissionBrief)
+	}
+	projectLatest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
+	projectText, err := os.ReadFile(projectLatest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"authorized gates:", "authorized debug", "auth=preauthorized"} {
+		if !strings.Contains(string(projectText), expected) {
+			t.Fatalf("project handoff missing %q:\n%s", expected, string(projectText))
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	lane := decodeHandoffResult(t, out.Bytes())
+	if !containsSubstring(lane.MissionBrief.AuthorizedGates, "authorized debug") || len(lane.MissionBrief.PendingGates) != 0 {
+		t.Fatalf("lane handoff JSON missing authorized gate visibility: %+v", lane.MissionBrief)
+	}
+	laneLatest := assertStartWrite(t, lane.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
+	laneText, err := os.ReadFile(laneLatest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"authorized-gate:", "## authorized-gate", "authorized debug", "auth=preauthorized"} {
+		if !strings.Contains(string(laneText), expected) {
+			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
+		}
+	}
+
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/outbox.jsonl", `{"eventId":"evt-authorized-continue","kind":"observation","subject":"post auth observation","summary":"continue after authorized gate","evidence":"evidence-authorized-gate"}`+"\n")
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var cont struct {
+		RunID        string       `json:"runId"`
+		MissionBrief missionBrief `json:"missionBrief"`
+		Writes       []startWrite `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &cont); err != nil {
+		t.Fatalf("continue apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !containsSubstring(cont.MissionBrief.AuthorizedGates, "authorized debug") || len(cont.MissionBrief.PendingGates) != 0 {
+		t.Fatalf("continue JSON missing authorized gate visibility: %+v", cont.MissionBrief)
+	}
+	statusPath := assertStartWrite(t, cont.Writes, ".rekit/runs/"+cont.RunID+"/status.json", "write").TargetPath
+	digestPath := assertStartWrite(t, cont.Writes, ".rekit/runs/"+cont.RunID+"/digest.md", "write").TargetPath
+	status, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(status), `"authorizedGates"`) || !strings.Contains(string(status), "authorized debug") || strings.Contains(string(status), "pending-gate requires main-agent/user decision") {
+		t.Fatalf("continue status missing non-blocking authorized gate visibility:\n%s", string(status))
+	}
+	digest, err := os.ReadFile(digestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"- authorized gates:", "authorized debug", "auth=preauthorized"} {
+		if !strings.Contains(string(digest), expected) {
+			t.Fatalf("continue digest missing %q:\n%s", expected, string(digest))
+		}
+	}
+}
+
 func TestRunGateApplyIsIdempotentByEventID(t *testing.T) {
 	caseRoot := attachedCaseWithBoard(t)
 	args := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Action", "debug", "-Lane", "main", "-Actor", "runtime-test", "-Subject", "debug gate"}
@@ -4381,6 +4555,7 @@ type missionBrief struct {
 	ReadyLanes       []string `json:"readyLanes"`
 	BlockedLanes     []string `json:"blockedLanes"`
 	PendingGates     []string `json:"pendingGates"`
+	AuthorizedGates  []string `json:"authorizedGates"`
 	OpenDecisions    []string `json:"openDecisions"`
 	Interventions    []string `json:"interventions"`
 	NextAgentActions []string `json:"nextAgentActions"`
@@ -4882,6 +5057,40 @@ func writeHandoffFixture(t *testing.T, caseRoot string) {
 	writeFactFile(t, factsRoot, "decisions.jsonl", []string{`{"kind":"decision","lane":"feature-login","subject":"decision subject","decision":"defer","actor":"runtime-test","reason":"needs review","batchId":"batch-handoff"}`})
 	writeFactFile(t, factsRoot, "interventions.jsonl", []string{`{"kind":"intervention","lane":"feature-login","subject":"manual override","summary":"needs human","action":"override","target":"batch-handoff","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-handoff"}`})
 	writeFactFile(t, factsRoot, "rollbacks.jsonl", []string{`{"kind":"rollback","lane":"feature-login","subject":"rollback item","target":"batch-handoff","status":"resolved","reason":"cleanup","batchId":"batch-handoff"}`})
+}
+
+func writeAuthorizedGateVisibilityFixture(t *testing.T, caseRoot string) {
+	t.Helper()
+	for _, dir := range []string{
+		".rekit/facts",
+		".rekit/lanes/main",
+		"workspace/main/main",
+		"workspace/main/debug",
+	} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[{"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main"}],"factsRoot":".rekit/facts"}`
+	writeCaseFile(t, caseRoot, ".rekit/board.json", board)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main","laneRoot":".rekit/lanes/main"}`)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/autonomy.json", `{
+  "schemaVersion": 1,
+  "profileId": "prof-main-debug",
+  "lane": "main",
+  "mode": "preauthorized",
+  "allowedActions": ["debug"],
+  "deniedActions": ["symex"],
+  "targetScope": [{"match":"exact","value":"target-alpha"}],
+  "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},
+  "stopConditions": ["timeout"],
+  "outputPaths": ["workspace/main/debug"],
+  "recordRequired": true,
+  "notifyMainOn": ["boundary-hit", "new-risk"],
+  "grantedBy": "user",
+  "grantedAt": "2026-01-01T00:00:00Z",
+  "expiresAt": "2999-01-01T00:00:00Z"
+}`)
 }
 
 func writeContinueFixture(t *testing.T, caseRoot string) {
