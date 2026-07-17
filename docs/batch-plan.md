@@ -9833,3 +9833,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 322：Go-native public surface boundary count refactor
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 321 已将 Go-native public surface façade removal prerequisite counts 收敛到共享 summary 后，继续将 Go-native public surface boundary row / command counts 纳入共享 summary，减少 mutation-boundary readiness、boundary row validation 与测试断言中的 raw boundary length/count plumbing。
+
+实施范围：
+
+- 新增 `GoNativePublicSurfaceBoundaryCounts`、`GoNativePublicSurfaceBoundaryCountsFor`、`GoNativePublicSurfaceBoundaryRowCounts` 与 `GoNativePublicSurfaceBoundaryRowCountsFor`，统一计算 boundary rows、row command counts 与 declared counts。
+- `GoNativePublicSurfaceCounts` 嵌入 `Boundaries` nested counts，并保留 `BoundaryRows` / `BoundaryCommands` / `BoundaryCountedCommands` flat aliases。
+- `goNativePublicSurface` boundary row validation、`mutation-boundary-inventory` prerequisite readiness、releasecheck package tests 与 CLI JSON assertions 复用 boundary counts。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不新增或删除 release-check JSON 字段，不改变 release-check text key、public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、policy schema migration、actual heavy-tool/authority/confirmed 或外部副作用边界；公共 façade deletion 仍必须作为独立 removal batch。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./internal/rekit/releasecheck -run TestPowerShellDeprecationInventoryFromRepo -count=1 -v`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。`go test ./...` 首次与其它验证并行运行时曾在 `TestPowerShellDeprecationInventoryFromRepo` 出现 transient failure，随后 focused rerun 与 full rerun 均通过。

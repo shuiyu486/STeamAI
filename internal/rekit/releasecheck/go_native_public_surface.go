@@ -49,7 +49,10 @@ type GoNativePublicSurfaceCounts struct {
 	SymbolCommands              int
 	CommandProfiles             int
 	MutationBoundaries          int
+	Boundaries                  GoNativePublicSurfaceBoundaryCounts
 	BoundaryRows                int
+	BoundaryCommands            int
+	BoundaryCountedCommands     int
 	PolicyRows                  int
 	PolicyViolations            int
 	FacadeRemoval               GoNativePublicSurfaceFacadeRemovalPrerequisiteCounts
@@ -90,6 +93,12 @@ type GoNativePublicSurfaceGroupCounts struct {
 	BoundaryReadOnly         int
 }
 
+type GoNativePublicSurfaceBoundaryCounts struct {
+	Rows            int
+	Commands        int
+	CountedCommands int
+}
+
 type GoNativePublicSurfacePolicyCounts struct {
 	Rows              int
 	Violations        int
@@ -101,12 +110,18 @@ type GoNativePublicSurfaceFacadeRemovalPrerequisiteCounts struct {
 	NotReady int
 }
 
+type GoNativePublicSurfaceBoundaryRowCounts struct {
+	Commands int
+	Count    int
+}
+
 type GoNativePublicSurfacePolicyRowCounts struct {
 	Commands int
 }
 
 func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePublicSurfaceCounts {
 	groupCounts := GoNativePublicSurfaceGroupCountsFor(surface.CommandProfileGroups)
+	boundaryCounts := GoNativePublicSurfaceBoundaryCountsFor(surface.CommandProfileBoundaries)
 	policyCounts := GoNativePublicSurfacePolicyCountsFor(surface.CommandProfilePolicies)
 	facadeRemovalCounts := GoNativePublicSurfaceFacadeRemovalPrerequisiteCountsFor(surface.FacadeRemovalPrerequisites)
 	return GoNativePublicSurfaceCounts{
@@ -115,7 +130,10 @@ func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePubli
 		SymbolCommands:              len(surface.SymbolCommands),
 		CommandProfiles:             len(surface.CommandProfiles),
 		MutationBoundaries:          len(surface.MutationBoundaries),
-		BoundaryRows:                len(surface.CommandProfileBoundaries),
+		Boundaries:                  boundaryCounts,
+		BoundaryRows:                boundaryCounts.Rows,
+		BoundaryCommands:            boundaryCounts.Commands,
+		BoundaryCountedCommands:     boundaryCounts.CountedCommands,
 		PolicyRows:                  policyCounts.Rows,
 		PolicyViolations:            policyCounts.Violations,
 		FacadeRemoval:               facadeRemovalCounts,
@@ -159,6 +177,16 @@ func GoNativePublicSurfaceGroupCountsFor(groups commands.PublicProfileGroups) Go
 	}
 }
 
+func GoNativePublicSurfaceBoundaryCountsFor(boundaries []commands.PublicProfileBoundary) GoNativePublicSurfaceBoundaryCounts {
+	counts := GoNativePublicSurfaceBoundaryCounts{Rows: len(boundaries)}
+	for _, boundary := range boundaries {
+		rowCounts := GoNativePublicSurfaceBoundaryRowCountsFor(boundary)
+		counts.Commands += rowCounts.Commands
+		counts.CountedCommands += rowCounts.Count
+	}
+	return counts
+}
+
 func GoNativePublicSurfacePolicyCountsFor(policies []commands.PublicProfilePolicy) GoNativePublicSurfacePolicyCounts {
 	counts := GoNativePublicSurfacePolicyCounts{Rows: len(policies)}
 	for _, policy := range policies {
@@ -177,6 +205,13 @@ func GoNativePublicSurfaceFacadeRemovalPrerequisiteCountsFor(prerequisites []GoN
 		}
 	}
 	return counts
+}
+
+func GoNativePublicSurfaceBoundaryRowCountsFor(boundary commands.PublicProfileBoundary) GoNativePublicSurfaceBoundaryRowCounts {
+	return GoNativePublicSurfaceBoundaryRowCounts{
+		Commands: len(boundary.Commands),
+		Count:    boundary.Count,
+	}
 }
 
 func GoNativePublicSurfacePolicyRowCountsFor(policy commands.PublicProfilePolicy) GoNativePublicSurfacePolicyRowCounts {
@@ -336,8 +371,10 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 	if groupCounts.ReadOnly != inventory.CommandProfileSummary.ReadOnly || groupCounts.Mutating != inventory.CommandProfileSummary.Mutating || groupCounts.WritesCase != inventory.CommandProfileSummary.WritesCase || groupCounts.WritesKit != inventory.CommandProfileSummary.WritesKit || groupCounts.ReviewFirst != inventory.CommandProfileSummary.ReviewFirst || groupCounts.ApplyRequired != inventory.CommandProfileSummary.ApplyRequired || groupCounts.HeavyTool != inventory.CommandProfileSummary.HeavyTool || groupCounts.AuthorityConfirmed != inventory.CommandProfileSummary.AuthorityConfirmed {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile group counts do not match summary")
 	}
+	boundaryCounts := GoNativePublicSurfaceBoundaryCountsFor(inventory.CommandProfileBoundaries)
 	boundaryRows := map[string]commands.PublicProfileBoundary{}
 	for _, row := range inventory.CommandProfileBoundaries {
+		rowCounts := GoNativePublicSurfaceBoundaryRowCountsFor(row)
 		if !commands.IsKnownMutationBoundary(row.Boundary) {
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile boundary row has unknown boundary: %s", row.Boundary))
 		}
@@ -345,7 +382,7 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile boundary row duplicated boundary: %s", row.Boundary))
 		}
 		boundaryRows[row.Boundary] = row
-		if row.Count != len(row.Commands) {
+		if rowCounts.Count != rowCounts.Commands {
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile boundary row count mismatch for %s", row.Boundary))
 		}
 		if !slices.IsSorted(row.Commands) {
@@ -363,7 +400,7 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile boundary rows missing boundary: %s", boundary))
 		}
 	}
-	if len(inventory.CommandProfileBoundaries) != len(inventory.MutationBoundaries) {
+	if boundaryCounts.Rows != len(inventory.MutationBoundaries) {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile boundary rows do not cover mutation boundaries")
 	}
 	computedPolicies := commands.PublicProfilePoliciesFor(inventory.CommandProfiles)
@@ -428,8 +465,8 @@ func goNativePublicSurfaceFacadeRemovalPrerequisites(inventory GoNativePublicSur
 		},
 		{
 			Name:    "mutation-boundary-inventory",
-			Ready:   counts.MutationBoundaries > 0 && counts.BoundaryRows == counts.MutationBoundaries && inventory.CommandProfileSummary.Total == counts.Commands,
-			Summary: fmt.Sprintf("boundaries=%d rows=%d profileTotal=%d", counts.MutationBoundaries, counts.BoundaryRows, inventory.CommandProfileSummary.Total),
+			Ready:   counts.MutationBoundaries > 0 && counts.Boundaries.Rows == counts.MutationBoundaries && counts.Boundaries.Commands == counts.Boundaries.CountedCommands && counts.Boundaries.Commands == counts.Commands && inventory.CommandProfileSummary.Total == counts.Commands,
+			Summary: fmt.Sprintf("boundaries=%d rows=%d profileTotal=%d", counts.MutationBoundaries, counts.Boundaries.Rows, inventory.CommandProfileSummary.Total),
 		},
 		{
 			Name:    "profile-policy-guards",
