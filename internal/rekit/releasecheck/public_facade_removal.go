@@ -706,6 +706,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		plan.Warnings = append(plan.Warnings, "public facade removal replacement entrypoints are empty")
 	}
 	for _, entrypoint := range plan.ReplacementEntrypoints {
+		counts := PublicFacadeRemovalReplacementEntrypointCountsFor(entrypoint)
 		if !entrypoint.Required {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal replacement entrypoint is not required: %s", entrypoint.Name))
 		}
@@ -724,7 +725,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		if strings.TrimSpace(entrypoint.Purpose) == "" {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal replacement entrypoint missing purpose: %s", entrypoint.Name))
 		}
-		if len(entrypoint.ValidationCommands) == 0 {
+		if counts.ValidationCommands == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal replacement entrypoint missing validation commands: %s", entrypoint.Name))
 		}
 		for _, command := range entrypoint.ValidationCommands {
@@ -748,13 +749,14 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		}
 	}
 	for _, gate := range plan.DeletionGates {
+		counts := PublicFacadeRemovalDeletionGateRowCountsFor(gate)
 		if !gate.Required {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate is not required: %s", gate.Name))
 		}
 		if !gate.BlocksRemoval {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate does not block removal: %s", gate.Name))
 		}
-		if len(gate.BlockedExecutionSteps) == 0 {
+		if counts.BlockedExecutionSteps == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing blocked execution steps: %s", gate.Name))
 		}
 		if !slices.Contains(gate.BlockedExecutionSteps, "delete-public-facade") {
@@ -773,7 +775,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		if strings.TrimSpace(gate.Gate) == "" {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing gate: %s", gate.Name))
 		}
-		if len(gate.InputInventory) == 0 {
+		if counts.InputInventory == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing input inventory: %s", gate.Name))
 		}
 		for _, input := range gate.InputInventory {
@@ -781,7 +783,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty input inventory: %s", gate.Name))
 			}
 		}
-		if len(gate.ExitCriteria) == 0 {
+		if counts.ExitCriteria == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing exit criteria: %s", gate.Name))
 		}
 		for _, criterion := range gate.ExitCriteria {
@@ -789,7 +791,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty exit criterion: %s", gate.Name))
 			}
 		}
-		if len(gate.FailureSignals) == 0 {
+		if counts.FailureSignals == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing failure signals: %s", gate.Name))
 		}
 		for _, signal := range gate.FailureSignals {
@@ -797,7 +799,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty failure signal: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationTriggers) == 0 {
+		if counts.EscalationTriggers == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation triggers: %s", gate.Name))
 		}
 		for _, trigger := range gate.EscalationTriggers {
@@ -805,7 +807,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation trigger: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationEvidence) == 0 {
+		if counts.EscalationEvidence == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation evidence: %s", gate.Name))
 		}
 		for _, evidence := range gate.EscalationEvidence {
@@ -813,7 +815,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation evidence: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationRecipients) == 0 {
+		if counts.EscalationRecipients == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation recipients: %s", gate.Name))
 		}
 		for _, recipient := range gate.EscalationRecipients {
@@ -821,7 +823,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation recipient: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationHandoffSteps) == 0 {
+		if counts.EscalationHandoffSteps == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation handoff steps: %s", gate.Name))
 		}
 		for _, step := range gate.EscalationHandoffSteps {
@@ -829,7 +831,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation handoff step: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationDecisionOptions) == 0 {
+		if counts.EscalationDecisionOptions == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation decision options: %s", gate.Name))
 		}
 		for _, option := range gate.EscalationDecisionOptions {
@@ -837,7 +839,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation decision option: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationRetryConditions) == 0 {
+		if counts.EscalationRetryConditions == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation retry conditions: %s", gate.Name))
 		}
 		for _, condition := range gate.EscalationRetryConditions {
@@ -845,7 +847,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation retry condition: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationStopConditions) == 0 {
+		if counts.EscalationStopConditions == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation stop conditions: %s", gate.Name))
 		}
 		for _, condition := range gate.EscalationStopConditions {
@@ -853,7 +855,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation stop condition: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationResolutionArtifacts) == 0 {
+		if counts.EscalationResolutionArtifacts == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation resolution artifacts: %s", gate.Name))
 		}
 		for _, artifact := range gate.EscalationResolutionArtifacts {
@@ -861,7 +863,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation resolution artifact: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationClosureChecks) == 0 {
+		if counts.EscalationClosureChecks == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation closure checks: %s", gate.Name))
 		}
 		for _, check := range gate.EscalationClosureChecks {
@@ -869,7 +871,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation closure check: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationReopenConditions) == 0 {
+		if counts.EscalationReopenConditions == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation reopen conditions: %s", gate.Name))
 		}
 		for _, condition := range gate.EscalationReopenConditions {
@@ -877,7 +879,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation reopen condition: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationLedgerEvents) == 0 {
+		if counts.EscalationLedgerEvents == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation ledger events: %s", gate.Name))
 		}
 		for _, event := range gate.EscalationLedgerEvents {
@@ -885,7 +887,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation ledger event: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationStateTransitions) == 0 {
+		if counts.EscalationStateTransitions == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation state transitions: %s", gate.Name))
 		}
 		for _, transition := range gate.EscalationStateTransitions {
@@ -893,7 +895,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation state transition: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationBoundaryGuards) == 0 {
+		if counts.EscalationBoundaryGuards == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation boundary guards: %s", gate.Name))
 		}
 		for _, guard := range gate.EscalationBoundaryGuards {
@@ -901,7 +903,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation boundary guard: %s", gate.Name))
 			}
 		}
-		if len(gate.EscalationAuditChecks) == 0 {
+		if counts.EscalationAuditChecks == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing escalation audit checks: %s", gate.Name))
 		}
 		for _, check := range gate.EscalationAuditChecks {
@@ -909,7 +911,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty escalation audit check: %s", gate.Name))
 			}
 		}
-		if len(gate.VerificationArtifacts) == 0 {
+		if counts.VerificationArtifacts == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing verification artifacts: %s", gate.Name))
 		}
 		for _, artifact := range gate.VerificationArtifacts {
@@ -917,7 +919,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty verification artifact: %s", gate.Name))
 			}
 		}
-		if len(gate.RemediationActions) == 0 {
+		if counts.RemediationActions == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing remediation actions: %s", gate.Name))
 		}
 		for _, action := range gate.RemediationActions {
@@ -925,7 +927,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty remediation action: %s", gate.Name))
 			}
 		}
-		if len(gate.ValidationCommands) == 0 {
+		if counts.ValidationCommands == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing validation commands: %s", gate.Name))
 		}
 		for _, command := range gate.ValidationCommands {
@@ -943,6 +945,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		plan.Warnings = append(plan.Warnings, "public facade removal execution steps are empty")
 	}
 	for _, step := range plan.ExecutionSteps {
+		counts := PublicFacadeRemovalExecutionStepRowCountsFor(step)
 		if !step.Required {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step is not required: %s", step.Name))
 		}
@@ -952,7 +955,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		if strings.TrimSpace(step.Action) == "" {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing action: %s", step.Name))
 		}
-		if len(step.DependsOn) == 0 {
+		if counts.DependsOn == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing dependencies: %s", step.Name))
 		}
 		for _, dependency := range step.DependsOn {
@@ -960,7 +963,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty dependency: %s", step.Name))
 			}
 		}
-		if len(step.InputInventory) == 0 {
+		if counts.InputInventory == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing input inventory: %s", step.Name))
 		}
 		for _, input := range step.InputInventory {
@@ -968,7 +971,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty input inventory: %s", step.Name))
 			}
 		}
-		if len(step.OutputArtifacts) == 0 {
+		if counts.OutputArtifacts == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing output artifacts: %s", step.Name))
 		}
 		for _, artifact := range step.OutputArtifacts {
@@ -976,7 +979,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty output artifact: %s", step.Name))
 			}
 		}
-		if len(step.FailureSignals) == 0 {
+		if counts.FailureSignals == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing failure signals: %s", step.Name))
 		}
 		for _, signal := range step.FailureSignals {
@@ -984,7 +987,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty failure signal: %s", step.Name))
 			}
 		}
-		if len(step.RemediationActions) == 0 {
+		if counts.RemediationActions == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing remediation actions: %s", step.Name))
 		}
 		for _, action := range step.RemediationActions {
@@ -992,7 +995,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty remediation action: %s", step.Name))
 			}
 		}
-		if len(step.VerificationArtifacts) == 0 {
+		if counts.VerificationArtifacts == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing verification artifacts: %s", step.Name))
 		}
 		for _, artifact := range step.VerificationArtifacts {
@@ -1000,7 +1003,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty verification artifact: %s", step.Name))
 			}
 		}
-		if len(step.LedgerEvents) == 0 {
+		if counts.LedgerEvents == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing ledger events: %s", step.Name))
 		}
 		for _, event := range step.LedgerEvents {
@@ -1008,7 +1011,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty ledger event: %s", step.Name))
 			}
 		}
-		if len(step.StateTransitions) == 0 {
+		if counts.StateTransitions == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing state transitions: %s", step.Name))
 		}
 		for _, transition := range step.StateTransitions {
@@ -1016,7 +1019,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty state transition: %s", step.Name))
 			}
 		}
-		if len(step.EscalationTriggers) == 0 {
+		if counts.EscalationTriggers == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation triggers: %s", step.Name))
 		}
 		for _, trigger := range step.EscalationTriggers {
@@ -1024,7 +1027,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation trigger: %s", step.Name))
 			}
 		}
-		if len(step.EscalationEvidence) == 0 {
+		if counts.EscalationEvidence == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation evidence: %s", step.Name))
 		}
 		for _, evidence := range step.EscalationEvidence {
@@ -1032,7 +1035,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation evidence: %s", step.Name))
 			}
 		}
-		if len(step.EscalationRecipients) == 0 {
+		if counts.EscalationRecipients == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation recipients: %s", step.Name))
 		}
 		for _, recipient := range step.EscalationRecipients {
@@ -1040,7 +1043,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation recipient: %s", step.Name))
 			}
 		}
-		if len(step.EscalationHandoffSteps) == 0 {
+		if counts.EscalationHandoffSteps == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation handoff steps: %s", step.Name))
 		}
 		for _, handoff := range step.EscalationHandoffSteps {
@@ -1048,7 +1051,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation handoff step: %s", step.Name))
 			}
 		}
-		if len(step.EscalationDecisionOptions) == 0 {
+		if counts.EscalationDecisionOptions == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation decision options: %s", step.Name))
 		}
 		for _, option := range step.EscalationDecisionOptions {
@@ -1056,7 +1059,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation decision option: %s", step.Name))
 			}
 		}
-		if len(step.EscalationRetryConditions) == 0 {
+		if counts.EscalationRetryConditions == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation retry conditions: %s", step.Name))
 		}
 		for _, condition := range step.EscalationRetryConditions {
@@ -1064,7 +1067,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation retry condition: %s", step.Name))
 			}
 		}
-		if len(step.EscalationStopConditions) == 0 {
+		if counts.EscalationStopConditions == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation stop conditions: %s", step.Name))
 		}
 		for _, condition := range step.EscalationStopConditions {
@@ -1072,7 +1075,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation stop condition: %s", step.Name))
 			}
 		}
-		if len(step.EscalationResolutionArtifacts) == 0 {
+		if counts.EscalationResolutionArtifacts == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation resolution artifacts: %s", step.Name))
 		}
 		for _, artifact := range step.EscalationResolutionArtifacts {
@@ -1080,7 +1083,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation resolution artifact: %s", step.Name))
 			}
 		}
-		if len(step.EscalationClosureChecks) == 0 {
+		if counts.EscalationClosureChecks == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation closure checks: %s", step.Name))
 		}
 		for _, check := range step.EscalationClosureChecks {
@@ -1088,7 +1091,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation closure check: %s", step.Name))
 			}
 		}
-		if len(step.EscalationReopenConditions) == 0 {
+		if counts.EscalationReopenConditions == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation reopen conditions: %s", step.Name))
 		}
 		for _, condition := range step.EscalationReopenConditions {
@@ -1096,7 +1099,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation reopen condition: %s", step.Name))
 			}
 		}
-		if len(step.EscalationLedgerEvents) == 0 {
+		if counts.EscalationLedgerEvents == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation ledger events: %s", step.Name))
 		}
 		for _, event := range step.EscalationLedgerEvents {
@@ -1104,7 +1107,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation ledger event: %s", step.Name))
 			}
 		}
-		if len(step.EscalationStateTransitions) == 0 {
+		if counts.EscalationStateTransitions == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation state transitions: %s", step.Name))
 		}
 		for _, transition := range step.EscalationStateTransitions {
@@ -1112,7 +1115,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation state transition: %s", step.Name))
 			}
 		}
-		if len(step.EscalationBoundaryGuards) == 0 {
+		if counts.EscalationBoundaryGuards == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation boundary guards: %s", step.Name))
 		}
 		for _, guard := range step.EscalationBoundaryGuards {
@@ -1120,7 +1123,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation boundary guard: %s", step.Name))
 			}
 		}
-		if len(step.EscalationAuditChecks) == 0 {
+		if counts.EscalationAuditChecks == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing escalation audit checks: %s", step.Name))
 		}
 		for _, check := range step.EscalationAuditChecks {
@@ -1128,7 +1131,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty escalation audit check: %s", step.Name))
 			}
 		}
-		if len(step.BoundaryGuards) == 0 {
+		if counts.BoundaryGuards == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing boundary guards: %s", step.Name))
 		}
 		for _, guard := range step.BoundaryGuards {
@@ -1136,7 +1139,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty boundary guard: %s", step.Name))
 			}
 		}
-		if len(step.AuditChecks) == 0 {
+		if counts.AuditChecks == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing audit checks: %s", step.Name))
 		}
 		for _, check := range step.AuditChecks {
@@ -1144,7 +1147,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty audit check: %s", step.Name))
 			}
 		}
-		if len(step.ValidationCommands) == 0 {
+		if counts.ValidationCommands == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing validation commands: %s", step.Name))
 		}
 		for _, command := range step.ValidationCommands {
@@ -1168,6 +1171,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		plan.Warnings = append(plan.Warnings, "public facade removal boundary checks are empty")
 	}
 	for _, check := range plan.BoundaryChecks {
+		counts := PublicFacadeRemovalPlanBoundaryCheckCountsFor(check)
 		if !check.Required {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check is not required: %s", check.Name))
 		}
@@ -1180,7 +1184,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		if strings.TrimSpace(check.Boundary) == "" {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check missing boundary: %s", check.Name))
 		}
-		if len(check.Evidence) == 0 {
+		if counts.Evidence == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check missing evidence: %s", check.Name))
 		}
 		for _, evidence := range check.Evidence {
@@ -1188,7 +1192,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check has empty evidence: %s", check.Name))
 			}
 		}
-		if len(check.ValidationCommands) == 0 {
+		if counts.ValidationCommands == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check missing validation commands: %s", check.Name))
 		}
 		for _, command := range check.ValidationCommands {
@@ -1203,13 +1207,14 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		}
 	}
 	for _, step := range plan.RecoverySteps {
+		counts := PublicFacadeRemovalRecoveryStepCountsFor(step)
 		if !step.Required {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal recovery step is not required: %s", step.Name))
 		}
 		if strings.TrimSpace(step.Action) == "" {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal recovery step missing action: %s", step.Name))
 		}
-		if len(step.Paths) == 0 {
+		if counts.Paths == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal recovery step missing paths: %s", step.Name))
 		}
 		for _, path := range step.Paths {
@@ -1217,7 +1222,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal recovery step has empty path: %s", step.Name))
 			}
 		}
-		if len(step.ValidationCommands) == 0 {
+		if counts.ValidationCommands == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal recovery step missing validation commands: %s", step.Name))
 		}
 		for _, command := range step.ValidationCommands {
@@ -1232,6 +1237,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		}
 	}
 	for _, target := range plan.DocumentationTargets {
+		counts := PublicFacadeRemovalDocumentationTargetCountsFor(target)
 		if !target.Required {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal documentation target is not required: %s", target.Path))
 		}
@@ -1244,7 +1250,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		if strings.TrimSpace(target.Action) == "" {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal documentation target missing action: %s", target.Path))
 		}
-		if len(target.ValidationCommands) == 0 {
+		if counts.ValidationCommands == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal documentation target missing validation commands: %s", target.Path))
 		}
 		for _, command := range publicFacadeRemovalImpactValidationCommands() {
@@ -2532,10 +2538,11 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 		impact.Warnings = append(impact.Warnings, "public facade removal impact work items do not cover every reference category")
 	}
 	for _, workItem := range impact.WorkItems {
+		counts := PublicFacadeRemovalImpactWorkItemCountsFor(workItem)
 		if strings.TrimSpace(workItem.Action) == "" {
 			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact work item missing action: %s", workItem.Category))
 		}
-		if len(workItem.ValidationCommands) == 0 {
+		if counts.ValidationCommands == 0 {
 			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact work item missing validation commands: %s", workItem.Category))
 		}
 		for _, command := range workItem.ValidationCommands {
@@ -2553,6 +2560,7 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 		impact.Warnings = append(impact.Warnings, "public facade removal migration targets do not cover every reference")
 	}
 	for _, target := range impact.MigrationTargets {
+		counts := PublicFacadeRemovalMigrationTargetCountsFor(target)
 		if !target.Required {
 			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal migration target is not required: %s", target.Path))
 		}
@@ -2571,7 +2579,7 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 		if target.Category == "roadmap-and-history-doc" && !target.PreserveHistoricalContext {
 			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal roadmap/history migration target does not preserve historical context: %s", target.Path))
 		}
-		if len(target.ValidationCommands) == 0 {
+		if counts.ValidationCommands == 0 {
 			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal migration target missing validation commands: %s", target.Path))
 		}
 		for _, command := range target.ValidationCommands {
@@ -2589,6 +2597,7 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 		impact.Warnings = append(impact.Warnings, "public facade removal smoke migration targets are empty")
 	}
 	for _, target := range impact.SmokeMigrationTargets {
+		counts := PublicFacadeRemovalSmokeMigrationTargetCountsFor(target)
 		if !target.Required {
 			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal smoke migration target is not required: %s", target.Path))
 		}
@@ -2610,7 +2619,7 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 		if !target.RetireFacadeAssertions {
 			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal smoke migration target does not retire facade assertions: %s", target.Path))
 		}
-		if len(target.ValidationCommands) == 0 {
+		if counts.ValidationCommands == 0 {
 			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal smoke migration target missing validation commands: %s", target.Path))
 		}
 		for _, command := range target.ValidationCommands {
