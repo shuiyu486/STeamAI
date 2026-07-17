@@ -508,7 +508,8 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 		publicDefaultDocCounts := defaultdocs.ReadinessCountsFor(result.PublicDefaultDocs)
 		fmt.Fprintf(out, "case shim: %s ready=%t required=%d canonical=%d forbidden=%d\n", result.CaseShim.Summary, result.CaseShim.Ready, caseShimCounts.RequiredPhrases, caseShimCounts.CanonicalSkillPhrases, caseShimCounts.ForbiddenStrings)
 		fmt.Fprintf(out, "public default docs: %s ready=%t documents=%d required=%d forbiddenCommands=%d forbiddenShellFences=%d\n", result.PublicDefaultDocs.Summary, result.PublicDefaultDocs.Ready, publicDefaultDocCounts.Documents, publicDefaultDocCounts.RequiredPhrases, publicDefaultDocCounts.ForbiddenCommands, publicDefaultDocCounts.ForbiddenShellFences)
-		fmt.Fprintf(out, "release handoff: %s ready=%t readFirst=%d signals=%d knownGaps=%d packMaturity=%d validation=%d releaseNotes=%t latest=%s\n", result.ReleaseHandoff.Summary, result.ReleaseHandoff.Ready, len(result.ReleaseHandoff.ReadFirst), len(result.ReleaseHandoff.Signals), len(result.ReleaseHandoff.KnownGaps), result.ReleaseHandoff.PackMaturity.Total, len(result.ReleaseHandoff.Validation), result.ReleaseHandoff.ReleaseNotes.Covered, result.ReleaseHandoff.LatestBatch.Title)
+		handoffCounts := releasecheck.ReleaseHandoffCountsFor(result.ReleaseHandoff)
+		fmt.Fprintf(out, "release handoff: %s ready=%t readFirst=%d signals=%d knownGaps=%d packMaturity=%d validation=%d releaseNotes=%t latest=%s\n", result.ReleaseHandoff.Summary, result.ReleaseHandoff.Ready, handoffCounts.ReadFirst, handoffCounts.Signals, handoffCounts.KnownGaps, handoffCounts.PackMaturity.Total, handoffCounts.Validation, result.ReleaseHandoff.ReleaseNotes.Covered, result.ReleaseHandoff.LatestBatch.Title)
 		if len(result.GoNativePublicSurface.Warnings) > 0 {
 			fmt.Fprintln(out, "Go-native public surface warnings:")
 			for _, warning := range result.GoNativePublicSurface.Warnings {
@@ -533,7 +534,7 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 				fmt.Fprintf(out, "- %s\n", warning)
 			}
 		}
-		if len(result.ReleaseHandoff.Warnings) > 0 {
+		if handoffCounts.Warnings > 0 {
 			fmt.Fprintln(out, "release handoff warnings:")
 			for _, warning := range result.ReleaseHandoff.Warnings {
 				fmt.Fprintf(out, "- %s\n", warning)

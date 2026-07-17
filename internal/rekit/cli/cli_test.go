@@ -441,10 +441,11 @@ func assertCIReleaseCommand(t *testing.T, gate releasecheck.CIReleaseGate, jobID
 
 func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff) {
 	t.Helper()
-	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
+	counts := releasecheck.ReleaseHandoffCountsFor(handoff)
+	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected release handoff summary: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 12 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if counts.ReadFirst != 7 || counts.Signals != 12 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertReleaseHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -628,8 +629,9 @@ func assertReleaseHandoffPackMaturity(t *testing.T, handoff releasecheck.Release
 	assertReleaseHandoffMaturityPack(t, inventory.PacksByMaturity, "template", "_template")
 	assertReleaseHandoffMaturityPack(t, inventory.PacksByMaturity, "mature", defaults.DefaultPack)
 	assertReleaseHandoffMaturityPack(t, inventory.PacksByMaturity, "skeleton", "web-security")
-	if len(inventory.HeavyToolGatesByPack) != inventory.Total {
-		t.Fatalf("release handoff pack gate rows = %d, want total %d", len(inventory.HeavyToolGatesByPack), inventory.Total)
+	counts := releasecheck.ReleaseHandoffPackMaturityCountsFor(inventory)
+	if counts.HeavyToolGatesByPack != counts.Total {
+		t.Fatalf("release handoff pack gate rows = %d, want total %d", counts.HeavyToolGatesByPack, counts.Total)
 	}
 	for _, pack := range inventory.HeavyToolGatesByPack {
 		if strings.TrimSpace(pack.ID) == "" || strings.TrimSpace(pack.Maturity) == "" || !pack.SchemaValid || pack.SchemaVersion != "1" || pack.HeavyToolGates == 0 || len(pack.Actions) == 0 {

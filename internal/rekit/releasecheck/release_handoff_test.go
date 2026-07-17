@@ -16,10 +16,11 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	handoff := result.ReleaseHandoff
-	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
+	counts := ReleaseHandoffCountsFor(handoff)
+	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected release handoff inventory: %+v", handoff)
 	}
-	if len(handoff.ReadFirst) != 7 || len(handoff.Signals) != 12 || len(handoff.KnownGaps) == 0 || handoff.PackMaturity.Total == 0 || len(handoff.Validation) == 0 || len(handoff.NextActions) == 0 {
+	if counts.ReadFirst != 7 || counts.Signals != 12 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -135,7 +136,8 @@ func TestReleaseHandoffPackMaturityDetectsMissingHeavyToolGates(t *testing.T) {
 	if inventory.Total != 1 || inventory.MaturityCounts["skeleton"] != 1 || inventory.SchemaValid != true || !inventory.SchemaVersionReady || inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory has warnings" {
 		t.Fatalf("unexpected drifted pack maturity inventory: %+v", inventory)
 	}
-	if len(inventory.HeavyToolGatesByPack) != 1 || inventory.HeavyToolGatesByPack[0].ID != "fixture" || inventory.HeavyToolGatesByPack[0].HeavyToolGates != 0 {
+	counts := ReleaseHandoffPackMaturityCountsFor(inventory)
+	if counts.HeavyToolGatesByPack != 1 || inventory.HeavyToolGatesByPack[0].ID != "fixture" || inventory.HeavyToolGatesByPack[0].HeavyToolGates != 0 {
 		t.Fatalf("unexpected drifted pack gate status: %+v", inventory.HeavyToolGatesByPack)
 	}
 }
@@ -147,7 +149,8 @@ func TestReleaseHandoffPackMaturityDetectsMissingSchemaVersion(t *testing.T) {
 	if inventory.Total != 1 || inventory.SchemaValid != true || inventory.SchemaVersionReady || !inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory has warnings" {
 		t.Fatalf("unexpected schema-version drifted pack maturity inventory: %+v", inventory)
 	}
-	if len(inventory.HeavyToolGatesByPack) != 1 || inventory.HeavyToolGatesByPack[0].ID != "fixture" || inventory.HeavyToolGatesByPack[0].SchemaVersion != "" {
+	counts := ReleaseHandoffPackMaturityCountsFor(inventory)
+	if counts.HeavyToolGatesByPack != 1 || inventory.HeavyToolGatesByPack[0].ID != "fixture" || inventory.HeavyToolGatesByPack[0].SchemaVersion != "" {
 		t.Fatalf("unexpected schema-version drifted pack gate status: %+v", inventory.HeavyToolGatesByPack)
 	}
 }
@@ -161,7 +164,7 @@ func TestReleaseHandoffDetectsMissingKnownGaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.ReleaseHandoff.KnownGaps) != 0 || result.ReleaseHandoff.Ready || result.Ready {
+	if ReleaseHandoffCountsFor(result.ReleaseHandoff).KnownGaps != 0 || result.ReleaseHandoff.Ready || result.Ready {
 		t.Fatalf("release handoff unexpectedly ready despite missing known gaps: %+v", result.ReleaseHandoff)
 	}
 	assertWarningContains(t, result.ReleaseHandoff.Warnings, "known gaps summary")
@@ -283,8 +286,9 @@ func assertHandoffPackMaturity(t *testing.T, handoff ReleaseHandoff) {
 	assertHandoffMaturityPack(t, inventory, "template", "_template")
 	assertHandoffMaturityPack(t, inventory, "mature", defaults.DefaultPack)
 	assertHandoffMaturityPack(t, inventory, "skeleton", "web-security")
-	if len(inventory.HeavyToolGatesByPack) != inventory.Total {
-		t.Fatalf("heavy-tool gate rows = %d, want total %d", len(inventory.HeavyToolGatesByPack), inventory.Total)
+	counts := ReleaseHandoffPackMaturityCountsFor(inventory)
+	if counts.HeavyToolGatesByPack != counts.Total {
+		t.Fatalf("heavy-tool gate rows = %d, want total %d", counts.HeavyToolGatesByPack, counts.Total)
 	}
 	for _, pack := range inventory.HeavyToolGatesByPack {
 		if strings.TrimSpace(pack.ID) == "" || strings.TrimSpace(pack.Maturity) == "" || !pack.SchemaValid || pack.SchemaVersion != "1" || pack.HeavyToolGates == 0 || len(pack.Actions) == 0 {

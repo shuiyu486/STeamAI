@@ -26,6 +26,28 @@ type ReleaseHandoff struct {
 	Warnings     []string                   `json:"warnings"`
 }
 
+type ReleaseHandoffCounts struct {
+	ReadFirst    int
+	Signals      int
+	KnownGaps    int
+	Validation   int
+	NextActions  int
+	Warnings     int
+	PackMaturity ReleaseHandoffPackMaturityCounts
+}
+
+func ReleaseHandoffCountsFor(handoff ReleaseHandoff) ReleaseHandoffCounts {
+	return ReleaseHandoffCounts{
+		ReadFirst:    len(handoff.ReadFirst),
+		Signals:      len(handoff.Signals),
+		KnownGaps:    len(handoff.KnownGaps),
+		Validation:   len(handoff.Validation),
+		NextActions:  len(handoff.NextActions),
+		Warnings:     len(handoff.Warnings),
+		PackMaturity: ReleaseHandoffPackMaturityCountsFor(handoff.PackMaturity),
+	}
+}
+
 type ReleaseHandoffDocument struct {
 	Path    string `json:"path"`
 	Present bool   `json:"present"`
@@ -76,6 +98,24 @@ type ReleaseHandoffPackMaturity struct {
 	Summary              string                         `json:"summary"`
 }
 
+type ReleaseHandoffPackMaturityCounts struct {
+	Total                int
+	MaturityCounts       int
+	PacksByMaturity      int
+	HeavyToolGateActions int
+	HeavyToolGatesByPack int
+}
+
+func ReleaseHandoffPackMaturityCountsFor(maturity ReleaseHandoffPackMaturity) ReleaseHandoffPackMaturityCounts {
+	return ReleaseHandoffPackMaturityCounts{
+		Total:                maturity.Total,
+		MaturityCounts:       len(maturity.MaturityCounts),
+		PacksByMaturity:      len(maturity.PacksByMaturity),
+		HeavyToolGateActions: len(maturity.HeavyToolGateActions),
+		HeavyToolGatesByPack: len(maturity.HeavyToolGatesByPack),
+	}
+}
+
 type ReleaseHandoffPackGateStatus struct {
 	ID             string   `json:"id"`
 	Maturity       string   `json:"maturity"`
@@ -119,7 +159,7 @@ func releaseHandoff(repo string, check Result) ReleaseHandoff {
 	handoff.PackMaturity = releaseHandoffPackMaturity(check.Packs, check.HeavyToolGateActions)
 	handoff.Signals = releaseHandoffSignals(check, handoff.LatestBatch, handoff.ReleaseNotes, handoff.KnownGaps, handoff.PackMaturity)
 	handoff.Warnings = releaseHandoffWarnings(handoff)
-	if len(handoff.Warnings) > 0 {
+	if ReleaseHandoffCountsFor(handoff).Warnings > 0 {
 		handoff.Ready = false
 		handoff.Summary = "release handoff summary has warnings"
 	}
@@ -429,7 +469,7 @@ func releaseHandoffWarnings(handoff ReleaseHandoff) []string {
 	} else if !handoff.ReleaseNotes.Covered {
 		warnings = append(warnings, fmt.Sprintf("release handoff release notes missing latest batch: %s", handoff.ReleaseNotes.LatestBatchID))
 	}
-	if len(handoff.Validation) == 0 {
+	if ReleaseHandoffCountsFor(handoff).Validation == 0 {
 		warnings = append(warnings, "release handoff validation command list is empty")
 	}
 	for _, signal := range handoff.Signals {

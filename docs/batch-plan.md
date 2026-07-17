@@ -9458,3 +9458,35 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/powershell_deprecation.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 310：release handoff count summary refactor
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 305-309 已把 public surface、readiness inventory、CI release gate、release-check 顶层与 PowerShell deprecation counts 收敛为共享 summary 后，继续减少 release handoff readFirst/signals/knownGaps/validation/nextActions/warnings 与 pack maturity counts 在 readiness、CLI text output、releasecheck tests 与 CLI JSON assertions 中的重复 plumbing。
+
+实施范围：
+
+- 新增 `ReleaseHandoffCounts` 与 `ReleaseHandoffCountsFor`，汇总 read-first documents、signals、known gaps、validation、next actions、warnings 与 nested pack maturity counts。
+- 新增 `ReleaseHandoffPackMaturityCounts` 与 `ReleaseHandoffPackMaturityCountsFor`，汇总 total、maturity buckets、packs-by-maturity、heavy-tool gate actions 与 per-pack heavy-tool gate rows。
+- Release handoff readiness/warnings、CLI `release-check` text output、releasecheck package tests 与 CLI JSON assertions 复用共享 handoff summary，保持既有 text key 与 count 数值不变。
+- 仅收敛 release handoff count plumbing，不改变 release-check JSON schema、release handoff signal count、pack maturity inventory semantics、public command surface 或任何写入行为。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不新增或删除 release-check JSON 字段，不改变 release-check text key、`releaseHandoff.signals[]` count、public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、policy schema migration、actual heavy-tool/authority/confirmed 或外部副作用边界；raw Go CLI 仍是底层 deterministic runtime/API，不变成用户主要交互界面。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
