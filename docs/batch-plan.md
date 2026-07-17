@@ -9709,3 +9709,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/public_facade_removal.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 318：public façade removal validation command test helper
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 317 已将 runtime validation command coverage guards 收敛到 shared missing-command helper 后，让 releasecheck package tests 与 CLI JSON assertions 的 public façade removal helper predicates 也复用本地 validation smoke helper，减少测试侧重复 validation command count 与 required command contains plumbing。
+
+实施范围：
+
+- `internal/rekit/releasecheck/releasecheck_test.go` 新增 `publicFacadeRemovalHasValidationSmoke`，集中校验 row validation command count 与 `release-check -Format json` smoke command 覆盖。
+- `internal/rekit/cli/cli_test.go` 新增 `releaseCheckPublicFacadeRemovalHasValidationSmoke`，让 CLI JSON assertion helper predicates 复用同一 validation smoke 判定。
+- 保持 public façade removal plan/impact fixture、release-check JSON schema/text key 与 public command surface 不变；本批仅收敛测试 helper plumbing。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不新增或删除 release-check JSON 字段，不改变 release-check text key、public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、policy schema migration、actual heavy-tool/authority/confirmed 或外部副作用边界；公共 façade deletion 仍必须作为独立 removal batch。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

@@ -386,10 +386,14 @@ func assertPublicFacadeRemoval(t *testing.T, inventory PublicFacadeRemoval) {
 	}
 }
 
+func publicFacadeRemovalHasValidationSmoke(count int, commands []string) bool {
+	return count == 8 && slices.Contains(commands, "go run ./cmd/rekit -- -Command release-check -Format json")
+}
+
 func publicFacadeRemovalHasReplacementEntrypoint(plan PublicFacadeRemovalPlan, name string) bool {
 	for _, entrypoint := range plan.ReplacementEntrypoints {
 		counts := PublicFacadeRemovalReplacementEntrypointCountsFor(entrypoint)
-		if entrypoint.Name == name && entrypoint.Required && entrypoint.GoNativeBacked && strings.TrimSpace(entrypoint.Entrypoint) != "" && strings.TrimSpace(entrypoint.Audience) != "" && strings.TrimSpace(entrypoint.Purpose) != "" && counts.ValidationCommands == 8 && slices.Contains(entrypoint.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
+		if entrypoint.Name == name && entrypoint.Required && entrypoint.GoNativeBacked && strings.TrimSpace(entrypoint.Entrypoint) != "" && strings.TrimSpace(entrypoint.Audience) != "" && strings.TrimSpace(entrypoint.Purpose) != "" && publicFacadeRemovalHasValidationSmoke(counts.ValidationCommands, entrypoint.ValidationCommands) {
 			return true
 		}
 	}
@@ -399,7 +403,7 @@ func publicFacadeRemovalHasReplacementEntrypoint(plan PublicFacadeRemovalPlan, n
 func publicFacadeRemovalHasDeletionGate(plan PublicFacadeRemovalPlan, name string) bool {
 	for _, gate := range plan.DeletionGates {
 		counts := PublicFacadeRemovalDeletionGateRowCountsFor(gate)
-		if gate.Name == name && gate.Required && gate.BlocksRemoval && strings.TrimSpace(gate.Gate) != "" && counts.InputInventory > 0 && counts.BlockedExecutionSteps == 2 && slices.Contains(gate.BlockedExecutionSteps, "delete-public-facade") && slices.Contains(gate.BlockedExecutionSteps, "rerun-release-gate") && counts.ExitCriteria == 3 && counts.FailureSignals == 3 && counts.EscalationTriggers == 3 && counts.EscalationEvidence == 3 && counts.EscalationRecipients == 3 && counts.EscalationHandoffSteps == 3 && counts.EscalationDecisionOptions == 3 && counts.EscalationRetryConditions == 3 && counts.EscalationStopConditions == 3 && counts.EscalationResolutionArtifacts == 3 && counts.EscalationClosureChecks == 3 && counts.EscalationReopenConditions == 3 && counts.EscalationLedgerEvents == 3 && counts.EscalationStateTransitions == 3 && counts.EscalationBoundaryGuards == 3 && counts.EscalationAuditChecks == 3 && counts.VerificationArtifacts == 3 && counts.RemediationActions == 3 && counts.ValidationCommands == 8 && slices.Contains(gate.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
+		if gate.Name == name && gate.Required && gate.BlocksRemoval && strings.TrimSpace(gate.Gate) != "" && counts.InputInventory > 0 && counts.BlockedExecutionSteps == 2 && slices.Contains(gate.BlockedExecutionSteps, "delete-public-facade") && slices.Contains(gate.BlockedExecutionSteps, "rerun-release-gate") && counts.ExitCriteria == 3 && counts.FailureSignals == 3 && counts.EscalationTriggers == 3 && counts.EscalationEvidence == 3 && counts.EscalationRecipients == 3 && counts.EscalationHandoffSteps == 3 && counts.EscalationDecisionOptions == 3 && counts.EscalationRetryConditions == 3 && counts.EscalationStopConditions == 3 && counts.EscalationResolutionArtifacts == 3 && counts.EscalationClosureChecks == 3 && counts.EscalationReopenConditions == 3 && counts.EscalationLedgerEvents == 3 && counts.EscalationStateTransitions == 3 && counts.EscalationBoundaryGuards == 3 && counts.EscalationAuditChecks == 3 && counts.VerificationArtifacts == 3 && counts.RemediationActions == 3 && publicFacadeRemovalHasValidationSmoke(counts.ValidationCommands, gate.ValidationCommands) {
 			return true
 		}
 	}
@@ -409,7 +413,7 @@ func publicFacadeRemovalHasDeletionGate(plan PublicFacadeRemovalPlan, name strin
 func publicFacadeRemovalHasExecutionStep(plan PublicFacadeRemovalPlan, name string) bool {
 	for _, step := range plan.ExecutionSteps {
 		counts := PublicFacadeRemovalExecutionStepRowCountsFor(step)
-		if step.Name == name && step.Required && strings.TrimSpace(step.Action) != "" && counts.DependsOn > 0 && counts.InputInventory > 0 && counts.OutputArtifacts > 0 && counts.FailureSignals == 3 && counts.RemediationActions == 3 && counts.VerificationArtifacts == 3 && counts.LedgerEvents == 3 && counts.StateTransitions == 3 && counts.EscalationTriggers == 3 && counts.EscalationEvidence == 3 && counts.EscalationRecipients == 3 && counts.EscalationHandoffSteps == 3 && counts.EscalationDecisionOptions == 3 && counts.EscalationRetryConditions == 3 && counts.EscalationStopConditions == 3 && counts.EscalationResolutionArtifacts == 3 && counts.EscalationClosureChecks == 3 && counts.EscalationReopenConditions == 3 && counts.EscalationLedgerEvents == 3 && counts.EscalationStateTransitions == 3 && counts.EscalationBoundaryGuards == 3 && counts.EscalationAuditChecks == 3 && counts.BoundaryGuards == 3 && counts.AuditChecks == 3 && counts.ValidationCommands == 8 && !step.AllowsPowerShellRuntime && !step.AllowsExternalEffects && slices.Contains(step.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
+		if step.Name == name && step.Required && strings.TrimSpace(step.Action) != "" && counts.DependsOn > 0 && counts.InputInventory > 0 && counts.OutputArtifacts > 0 && counts.FailureSignals == 3 && counts.RemediationActions == 3 && counts.VerificationArtifacts == 3 && counts.LedgerEvents == 3 && counts.StateTransitions == 3 && counts.EscalationTriggers == 3 && counts.EscalationEvidence == 3 && counts.EscalationRecipients == 3 && counts.EscalationHandoffSteps == 3 && counts.EscalationDecisionOptions == 3 && counts.EscalationRetryConditions == 3 && counts.EscalationStopConditions == 3 && counts.EscalationResolutionArtifacts == 3 && counts.EscalationClosureChecks == 3 && counts.EscalationReopenConditions == 3 && counts.EscalationLedgerEvents == 3 && counts.EscalationStateTransitions == 3 && counts.EscalationBoundaryGuards == 3 && counts.EscalationAuditChecks == 3 && counts.BoundaryGuards == 3 && counts.AuditChecks == 3 && publicFacadeRemovalHasValidationSmoke(counts.ValidationCommands, step.ValidationCommands) && !step.AllowsPowerShellRuntime && !step.AllowsExternalEffects {
 			return true
 		}
 	}
@@ -419,7 +423,7 @@ func publicFacadeRemovalHasExecutionStep(plan PublicFacadeRemovalPlan, name stri
 func publicFacadeRemovalHasBoundaryCheck(plan PublicFacadeRemovalPlan, name string) bool {
 	for _, check := range plan.BoundaryChecks {
 		counts := PublicFacadeRemovalPlanBoundaryCheckCountsFor(check)
-		if check.Name == name && check.Required && check.Preserved && strings.TrimSpace(check.Boundary) != "" && counts.Evidence > 0 && counts.ValidationCommands == 8 && slices.Contains(check.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
+		if check.Name == name && check.Required && check.Preserved && strings.TrimSpace(check.Boundary) != "" && counts.Evidence > 0 && publicFacadeRemovalHasValidationSmoke(counts.ValidationCommands, check.ValidationCommands) {
 			return true
 		}
 	}
@@ -429,7 +433,7 @@ func publicFacadeRemovalHasBoundaryCheck(plan PublicFacadeRemovalPlan, name stri
 func publicFacadeRemovalHasRecoveryStep(plan PublicFacadeRemovalPlan, name string) bool {
 	for _, step := range plan.RecoverySteps {
 		counts := PublicFacadeRemovalRecoveryStepCountsFor(step)
-		if step.Name == name && step.Required && strings.TrimSpace(step.Action) != "" && counts.Paths > 0 && counts.ValidationCommands == 8 && slices.Contains(step.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
+		if step.Name == name && step.Required && strings.TrimSpace(step.Action) != "" && counts.Paths > 0 && publicFacadeRemovalHasValidationSmoke(counts.ValidationCommands, step.ValidationCommands) {
 			return true
 		}
 	}
@@ -439,7 +443,7 @@ func publicFacadeRemovalHasRecoveryStep(plan PublicFacadeRemovalPlan, name strin
 func publicFacadeRemovalHasDocumentationTarget(plan PublicFacadeRemovalPlan, path string) bool {
 	for _, target := range plan.DocumentationTargets {
 		counts := PublicFacadeRemovalDocumentationTargetCountsFor(target)
-		if target.Path == path && target.Required && strings.TrimSpace(target.Purpose) != "" && strings.TrimSpace(target.Action) != "" && counts.ValidationCommands == 8 && slices.Contains(target.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
+		if target.Path == path && target.Required && strings.TrimSpace(target.Purpose) != "" && strings.TrimSpace(target.Action) != "" && publicFacadeRemovalHasValidationSmoke(counts.ValidationCommands, target.ValidationCommands) {
 			return true
 		}
 	}
@@ -458,7 +462,7 @@ func publicFacadeRemovalHasImpactCategory(impact PublicFacadeRemovalImpact, name
 func publicFacadeRemovalHasImpactWorkItem(impact PublicFacadeRemovalImpact, category string) bool {
 	for _, item := range impact.WorkItems {
 		counts := PublicFacadeRemovalImpactWorkItemCountsFor(item)
-		if item.Category == category && item.Required && item.Count > 0 && counts.Paths > 0 && strings.TrimSpace(item.Action) != "" && counts.ValidationCommands == 8 && slices.Contains(item.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
+		if item.Category == category && item.Required && item.Count > 0 && counts.Paths > 0 && strings.TrimSpace(item.Action) != "" && publicFacadeRemovalHasValidationSmoke(counts.ValidationCommands, item.ValidationCommands) {
 			return true
 		}
 	}
@@ -468,7 +472,7 @@ func publicFacadeRemovalHasImpactWorkItem(impact PublicFacadeRemovalImpact, cate
 func publicFacadeRemovalHasMigrationTarget(impact PublicFacadeRemovalImpact, path string) bool {
 	for _, target := range impact.MigrationTargets {
 		counts := PublicFacadeRemovalMigrationTargetCountsFor(target)
-		if target.Path == path && target.Required && target.GoNativePreferred && strings.TrimSpace(target.Action) != "" && counts.ValidationCommands == 8 && slices.Contains(target.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
+		if target.Path == path && target.Required && target.GoNativePreferred && strings.TrimSpace(target.Action) != "" && publicFacadeRemovalHasValidationSmoke(counts.ValidationCommands, target.ValidationCommands) {
 			return true
 		}
 	}
@@ -478,7 +482,7 @@ func publicFacadeRemovalHasMigrationTarget(impact PublicFacadeRemovalImpact, pat
 func publicFacadeRemovalHasSmokeMigrationTarget(impact PublicFacadeRemovalImpact, path string) bool {
 	for _, target := range impact.SmokeMigrationTargets {
 		counts := PublicFacadeRemovalSmokeMigrationTargetCountsFor(target)
-		if target.Path == path && target.Required && target.GoNativePreferred && !target.AllowFacadeCompat && target.RetireFacadeAssertions && strings.TrimSpace(target.Action) != "" && counts.ValidationCommands == 8 && slices.Contains(target.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
+		if target.Path == path && target.Required && target.GoNativePreferred && !target.AllowFacadeCompat && target.RetireFacadeAssertions && strings.TrimSpace(target.Action) != "" && publicFacadeRemovalHasValidationSmoke(counts.ValidationCommands, target.ValidationCommands) {
 			return true
 		}
 	}
