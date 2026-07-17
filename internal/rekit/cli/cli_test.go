@@ -691,7 +691,7 @@ func assertReleaseCheckGoNativePublicSurface(t *testing.T, surface struct {
 		t.Fatalf("unexpected Go-native public surface inventory: %+v", surface)
 	}
 	coverageCounts := surfaceCounts.Coverage
-	if coverageCounts.Commands != 19 || coverageCounts.HandlerCommands != 19 || coverageCounts.SymbolCommands != 19 || coverageCounts.ProfileCommands != 19 || coverageCounts.CommandProfiles != 19 || coverageCounts.HandlerMissing != 0 || coverageCounts.HandlerUnknown != 0 || coverageCounts.SymbolMissing != 0 || coverageCounts.SymbolUnknown != 0 || coverageCounts.ProfileMissing != 0 || coverageCounts.ProfileUnknown != 0 || surfaceCounts.MutationBoundaries != 7 {
+	if surfaceCounts.Catalog.Commands != 19 || surfaceCounts.Catalog.Empty != 0 || surfaceCounts.Catalog.Duplicates != 0 || coverageCounts.Commands != 19 || coverageCounts.HandlerCommands != 19 || coverageCounts.SymbolCommands != 19 || coverageCounts.ProfileCommands != 19 || coverageCounts.CommandProfiles != 19 || coverageCounts.HandlerMissing != 0 || coverageCounts.HandlerUnknown != 0 || coverageCounts.SymbolMissing != 0 || coverageCounts.SymbolUnknown != 0 || coverageCounts.ProfileMissing != 0 || coverageCounts.ProfileUnknown != 0 || surfaceCounts.MutationBoundaryInventory.Rows != 7 || surfaceCounts.MutationBoundaryInventory.Unknown != 0 {
 		t.Fatalf("Go-native public surface command coverage omitted expected commands: %+v", surface)
 	}
 	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
