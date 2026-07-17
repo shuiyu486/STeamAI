@@ -686,10 +686,11 @@ func assertReleaseCheckGoNativePublicSurface(t *testing.T, surface struct {
 	Warnings                            []string                                         `json:"warnings"`
 }) {
 	t.Helper()
-	if !surface.Ready || surface.Summary != "Go-native public command surface inventory ok" || surface.Entrypoint != "cmd/rekit" || !surface.EntrypointPresent || surface.CommandCatalogPath != "internal/rekit/commands/commands.go" || !surface.CommandCatalogPresent || surface.DefaultCommand != "status" || surface.AlternativePattern != "go run ./cmd/rekit -- -Command <command>" || !surface.UnsupportedCommandDiagnosticPresent || len(surface.Warnings) != 0 {
+	surfaceCounts := releasecheck.GoNativePublicSurfaceCountsFor(surface)
+	if !surface.Ready || surface.Summary != "Go-native public command surface inventory ok" || surface.Entrypoint != "cmd/rekit" || !surface.EntrypointPresent || surface.CommandCatalogPath != "internal/rekit/commands/commands.go" || !surface.CommandCatalogPresent || surface.DefaultCommand != "status" || surface.AlternativePattern != "go run ./cmd/rekit -- -Command <command>" || !surface.UnsupportedCommandDiagnosticPresent || surfaceCounts.Warnings != 0 {
 		t.Fatalf("unexpected Go-native public surface inventory: %+v", surface)
 	}
-	if len(surface.Commands) != 19 || len(surface.HandlerCommands) != 19 || len(surface.SymbolCommands) != 19 || len(surface.CommandProfiles) != 19 || len(surface.MutationBoundaries) != 7 {
+	if surfaceCounts.Commands != 19 || surfaceCounts.HandlerCommands != 19 || surfaceCounts.SymbolCommands != 19 || surfaceCounts.CommandProfiles != 19 || surfaceCounts.MutationBoundaries != 7 {
 		t.Fatalf("Go-native public surface command coverage omitted expected commands: %+v", surface)
 	}
 	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
@@ -707,7 +708,6 @@ func assertReleaseCheckGoNativePublicSurface(t *testing.T, surface struct {
 	if profiles["release-check"].MutationBoundary != commands.BoundaryReadOnly || profiles["release-check"].IsMutation || !profiles["promote"].WritesKit || !profiles["promote"].ReviewFirst || profiles["sync"].WritesKit || !profiles["sync"].WritesCase || !slices.Contains(surface.MutationBoundaries, commands.BoundaryKitReviewFirst) {
 		t.Fatalf("Go-native public command profiles drifted: profiles=%+v boundaries=%+v", surface.CommandProfiles, surface.MutationBoundaries)
 	}
-	surfaceCounts := releasecheck.GoNativePublicSurfaceCountsFor(surface)
 	if surface.CommandProfileSummary.Total != 19 || surfaceCounts.ReadOnly != 5 || surfaceCounts.Mutating != 14 || surfaceCounts.WritesCase != 13 || surfaceCounts.WritesKit != 1 || surfaceCounts.ReviewFirst != 3 || surfaceCounts.ApplyRequired != 11 || surfaceCounts.HeavyTool != 0 || surfaceCounts.AuthorityConfirmed != 0 || surface.CommandProfileSummary.Boundaries[commands.BoundaryReadOnly] != 5 || surface.CommandProfileSummary.Boundaries[commands.BoundaryCaseLocalApply] != 8 || surface.CommandProfileSummary.Boundaries[commands.BoundaryCaseLocalReviewFirst] != 2 || surface.CommandProfileSummary.Boundaries[commands.BoundaryKitReviewFirst] != 1 {
 		t.Fatalf("Go-native public command profile summary drifted: %+v", surface.CommandProfileSummary)
 	}

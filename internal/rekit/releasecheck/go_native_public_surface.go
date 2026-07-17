@@ -53,6 +53,7 @@ type GoNativePublicSurfaceCounts struct {
 	PolicyRows              int
 	PolicyViolations        int
 	FacadePrerequisites     int
+	Warnings                int
 	ReadOnly                int
 	Mutating                int
 	WritesCase              int
@@ -110,6 +111,7 @@ func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePubli
 		PolicyRows:              policyCounts.Rows,
 		PolicyViolations:        policyCounts.Violations,
 		FacadePrerequisites:     len(surface.FacadeRemovalPrerequisites),
+		Warnings:                len(surface.Warnings),
 		ReadOnly:                surface.CommandProfileSummary.ReadOnly,
 		Mutating:                surface.CommandProfileSummary.Mutating,
 		WritesCase:              surface.CommandProfileSummary.WritesCase,
@@ -384,7 +386,7 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 		}
 		seen[command] = true
 	}
-	if len(inventory.Warnings) > 0 {
+	if GoNativePublicSurfaceCountsFor(inventory).Warnings > 0 {
 		inventory.Ready = false
 		inventory.Summary = "Go-native public command surface inventory has warnings"
 	}

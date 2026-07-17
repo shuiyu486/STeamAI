@@ -118,13 +118,14 @@ func assertCICommand(t *testing.T, gate CIReleaseGate, jobID, command string) {
 func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	repo := repoRoot(t)
 	inventory := goNativePublicSurface(repo)
-	if !inventory.Ready || inventory.Summary != "Go-native public command surface inventory ok" || len(inventory.Warnings) != 0 {
+	surfaceCounts := GoNativePublicSurfaceCountsFor(inventory)
+	if !inventory.Ready || inventory.Summary != "Go-native public command surface inventory ok" || surfaceCounts.Warnings != 0 {
 		t.Fatalf("unexpected Go-native public surface inventory: %+v", inventory)
 	}
 	if inventory.Entrypoint != "cmd/rekit" || !inventory.EntrypointPresent || inventory.CommandCatalogPath != "internal/rekit/commands/commands.go" || !inventory.CommandCatalogPresent || inventory.DefaultCommand != "status" || inventory.AlternativePattern != "go run ./cmd/rekit -- -Command <command>" || !inventory.UnsupportedCommandDiagnosticPresent {
 		t.Fatalf("unexpected Go-native public surface flags: %+v", inventory)
 	}
-	if len(inventory.Commands) != 19 || len(inventory.HandlerCommands) != 19 || len(inventory.SymbolCommands) != 19 || len(inventory.CommandProfiles) != 19 || len(inventory.MutationBoundaries) != 7 {
+	if surfaceCounts.Commands != 19 || surfaceCounts.HandlerCommands != 19 || surfaceCounts.SymbolCommands != 19 || surfaceCounts.CommandProfiles != 19 || surfaceCounts.MutationBoundaries != 7 {
 		t.Fatalf("Go-native public surface omitted expected command coverage: %+v", inventory)
 	}
 	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
@@ -142,7 +143,6 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	if profiles["release-check"].MutationBoundary != commands.BoundaryReadOnly || profiles["release-check"].IsMutation || !profiles["promote"].WritesKit || !profiles["promote"].ReviewFirst || profiles["sync"].WritesKit || !profiles["sync"].WritesCase || !slices.Contains(inventory.MutationBoundaries, commands.BoundaryKitReviewFirst) {
 		t.Fatalf("Go-native public command profiles drifted: profiles=%+v boundaries=%+v", inventory.CommandProfiles, inventory.MutationBoundaries)
 	}
-	surfaceCounts := GoNativePublicSurfaceCountsFor(inventory)
 	if inventory.CommandProfileSummary.Total != 19 || surfaceCounts.ReadOnly != 5 || surfaceCounts.Mutating != 14 || surfaceCounts.WritesCase != 13 || surfaceCounts.WritesKit != 1 || surfaceCounts.ReviewFirst != 3 || surfaceCounts.ApplyRequired != 11 || surfaceCounts.HeavyTool != 0 || surfaceCounts.AuthorityConfirmed != 0 || inventory.CommandProfileSummary.Boundaries[commands.BoundaryReadOnly] != 5 || inventory.CommandProfileSummary.Boundaries[commands.BoundaryCaseLocalApply] != 8 || inventory.CommandProfileSummary.Boundaries[commands.BoundaryCaseLocalReviewFirst] != 2 || inventory.CommandProfileSummary.Boundaries[commands.BoundaryKitReviewFirst] != 1 {
 		t.Fatalf("Go-native public command profile summary drifted: %+v", inventory.CommandProfileSummary)
 	}
