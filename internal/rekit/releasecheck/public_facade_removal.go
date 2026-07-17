@@ -733,10 +733,8 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal replacement entrypoint has empty validation command: %s", entrypoint.Name))
 			}
 		}
-		for _, command := range publicFacadeRemovalImpactValidationCommands() {
-			if !slices.Contains(entrypoint.ValidationCommands, command) {
-				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal replacement entrypoint missing validation command %q: %s", command, entrypoint.Name))
-			}
+		for _, command := range publicFacadeRemovalMissingValidationCommands(entrypoint.ValidationCommands) {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal replacement entrypoint missing validation command %q: %s", command, entrypoint.Name))
 		}
 	}
 	if len(plan.DeletionGates) == 0 {
@@ -935,10 +933,8 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate has empty validation command: %s", gate.Name))
 			}
 		}
-		for _, command := range publicFacadeRemovalImpactValidationCommands() {
-			if !slices.Contains(gate.ValidationCommands, command) {
-				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing validation command %q: %s", command, gate.Name))
-			}
+		for _, command := range publicFacadeRemovalMissingValidationCommands(gate.ValidationCommands) {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal deletion gate missing validation command %q: %s", command, gate.Name))
 		}
 	}
 	if len(plan.ExecutionSteps) == 0 {
@@ -1155,10 +1151,8 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step has empty validation command: %s", step.Name))
 			}
 		}
-		for _, command := range publicFacadeRemovalImpactValidationCommands() {
-			if !slices.Contains(step.ValidationCommands, command) {
-				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing validation command %q: %s", command, step.Name))
-			}
+		for _, command := range publicFacadeRemovalMissingValidationCommands(step.ValidationCommands) {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step missing validation command %q: %s", command, step.Name))
 		}
 		if step.AllowsPowerShellRuntime {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal execution step allows PowerShell runtime logic: %s", step.Name))
@@ -1200,10 +1194,8 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check has empty validation command: %s", check.Name))
 			}
 		}
-		for _, command := range publicFacadeRemovalImpactValidationCommands() {
-			if !slices.Contains(check.ValidationCommands, command) {
-				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check missing validation command %q: %s", command, check.Name))
-			}
+		for _, command := range publicFacadeRemovalMissingValidationCommands(check.ValidationCommands) {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal boundary check missing validation command %q: %s", command, check.Name))
 		}
 	}
 	for _, step := range plan.RecoverySteps {
@@ -1230,10 +1222,8 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal recovery step has empty validation command: %s", step.Name))
 			}
 		}
-		for _, command := range publicFacadeRemovalImpactValidationCommands() {
-			if !slices.Contains(step.ValidationCommands, command) {
-				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal recovery step missing validation command %q: %s", command, step.Name))
-			}
+		for _, command := range publicFacadeRemovalMissingValidationCommands(step.ValidationCommands) {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal recovery step missing validation command %q: %s", command, step.Name))
 		}
 	}
 	for _, target := range plan.DocumentationTargets {
@@ -1253,10 +1243,8 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 		if counts.ValidationCommands == 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal documentation target missing validation commands: %s", target.Path))
 		}
-		for _, command := range publicFacadeRemovalImpactValidationCommands() {
-			if !slices.Contains(target.ValidationCommands, command) {
-				plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal documentation target missing validation command %q: %s", command, target.Path))
-			}
+		for _, command := range publicFacadeRemovalMissingValidationCommands(target.ValidationCommands) {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal documentation target missing validation command %q: %s", command, target.Path))
 		}
 	}
 	if len(plan.Warnings) > 0 {
@@ -2550,10 +2538,8 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 				impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact work item has empty validation command: %s", workItem.Category))
 			}
 		}
-		for _, command := range publicFacadeRemovalImpactValidationCommands() {
-			if !slices.Contains(workItem.ValidationCommands, command) {
-				impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact work item missing validation command %q: %s", command, workItem.Category))
-			}
+		for _, command := range publicFacadeRemovalMissingValidationCommands(workItem.ValidationCommands) {
+			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact work item missing validation command %q: %s", command, workItem.Category))
 		}
 	}
 	if len(impact.MigrationTargets) != len(impact.References) {
@@ -2587,10 +2573,8 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 				impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal migration target has empty validation command: %s", target.Path))
 			}
 		}
-		for _, command := range publicFacadeRemovalImpactValidationCommands() {
-			if !slices.Contains(target.ValidationCommands, command) {
-				impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal migration target missing validation command %q: %s", command, target.Path))
-			}
+		for _, command := range publicFacadeRemovalMissingValidationCommands(target.ValidationCommands) {
+			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal migration target missing validation command %q: %s", command, target.Path))
 		}
 	}
 	if len(impact.SmokeMigrationTargets) == 0 {
@@ -2627,10 +2611,8 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 				impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal smoke migration target has empty validation command: %s", target.Path))
 			}
 		}
-		for _, command := range publicFacadeRemovalImpactValidationCommands() {
-			if !slices.Contains(target.ValidationCommands, command) {
-				impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal smoke migration target missing validation command %q: %s", command, target.Path))
-			}
+		for _, command := range publicFacadeRemovalMissingValidationCommands(target.ValidationCommands) {
+			impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal smoke migration target missing validation command %q: %s", command, target.Path))
 		}
 	}
 	for _, reference := range impact.UnclassifiedReferences {
@@ -2868,4 +2850,14 @@ func publicFacadeRemovalImpactValidationCommands() []string {
 		"go vet ./...",
 		"git diff --check",
 	}
+}
+
+func publicFacadeRemovalMissingValidationCommands(commands []string) []string {
+	missing := []string{}
+	for _, command := range publicFacadeRemovalImpactValidationCommands() {
+		if !slices.Contains(commands, command) {
+			missing = append(missing, command)
+		}
+	}
+	return missing
 }
