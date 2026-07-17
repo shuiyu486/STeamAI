@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
@@ -480,58 +482,6 @@ type releaseCheckPowerShellDeprecation struct {
 	Warnings []string `json:"warnings"`
 }
 
-type releaseCheckCaseShim struct {
-	TemplatePath       string `json:"templatePath"`
-	CanonicalSkillPath string `json:"canonicalSkillPath"`
-	Ready              bool   `json:"ready"`
-	Summary            string `json:"summary"`
-	RequiredPhrases    []struct {
-		Phrase  string `json:"phrase"`
-		Present bool   `json:"present"`
-	} `json:"requiredPhrases"`
-	CanonicalSkillPhrases []struct {
-		Phrase  string `json:"phrase"`
-		Present bool   `json:"present"`
-	} `json:"canonicalSkillPhrases"`
-	ForbiddenStrings []struct {
-		Pattern string `json:"pattern"`
-		Present bool   `json:"present"`
-	} `json:"forbiddenStrings"`
-	Boundaries []string `json:"boundaries"`
-	Warnings   []string `json:"warnings"`
-}
-
-type releaseCheckPublicDefaultDocs struct {
-	Ready     bool   `json:"ready"`
-	Summary   string `json:"summary"`
-	Documents []struct {
-		Path    string `json:"path"`
-		Present bool   `json:"present"`
-		Purpose string `json:"purpose"`
-	} `json:"documents"`
-	RequiredPhrases []struct {
-		Path    string `json:"path"`
-		Phrase  string `json:"phrase"`
-		Present bool   `json:"present"`
-	} `json:"requiredPhrases"`
-	ForbiddenCommands []struct {
-		Path    string `json:"path"`
-		Pattern string `json:"pattern"`
-		Line    int    `json:"line"`
-		Snippet string `json:"snippet"`
-		Present bool   `json:"present"`
-	} `json:"forbiddenCommands"`
-	ForbiddenShellFences []struct {
-		Path     string `json:"path"`
-		Language string `json:"language"`
-		Line     int    `json:"line"`
-		Snippet  string `json:"snippet"`
-		Present  bool   `json:"present"`
-	} `json:"forbiddenShellFences"`
-	Boundaries []string `json:"boundaries"`
-	Warnings   []string `json:"warnings"`
-}
-
 type releaseCheckHandoff struct {
 	Ready     bool   `json:"ready"`
 	Summary   string `json:"summary"`
@@ -645,8 +595,8 @@ type releaseCheckResult struct {
 		Warnings                            []string                                         `json:"warnings"`
 	} `json:"goNativePublicSurface"`
 	PublicFacadeRemoval  releasecheck.PublicFacadeRemoval `json:"publicFacadeRemoval"`
-	CaseShim             releaseCheckCaseShim             `json:"caseShim"`
-	PublicDefaultDocs    releaseCheckPublicDefaultDocs    `json:"publicDefaultDocs"`
+	CaseShim             caseshim.Readiness               `json:"caseShim"`
+	PublicDefaultDocs    defaultdocs.Readiness            `json:"publicDefaultDocs"`
 	ReleaseHandoff       releaseCheckHandoff              `json:"releaseHandoff"`
 	HeavyToolGateActions []string                         `json:"heavyToolGateActions"`
 	Boundaries           []string                         `json:"boundaries"`
@@ -1205,12 +1155,13 @@ func releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(impact releasecheck.
 	return false
 }
 
-func assertReleaseCheckCaseShim(t *testing.T, shim releaseCheckCaseShim) {
+func assertReleaseCheckCaseShim(t *testing.T, shim caseshim.Readiness) {
 	t.Helper()
-	if !shim.Ready || shim.TemplatePath != "rekit/templates/case-shim/SKILL.md" || shim.CanonicalSkillPath != ".claude/skills/rekit/SKILL.md" || shim.Summary != "case shim readiness ok" || len(shim.Warnings) != 0 {
+	counts := caseshim.ReadinessCountsFor(shim)
+	if !shim.Ready || shim.TemplatePath != "rekit/templates/case-shim/SKILL.md" || shim.CanonicalSkillPath != ".claude/skills/rekit/SKILL.md" || shim.Summary != "case shim readiness ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected case shim readiness inventory: %+v", shim)
 	}
-	if len(shim.RequiredPhrases) == 0 || len(shim.CanonicalSkillPhrases) == 0 || len(shim.ForbiddenStrings) == 0 || len(shim.Boundaries) == 0 {
+	if counts.RequiredPhrases == 0 || counts.CanonicalSkillPhrases == 0 || counts.ForbiddenStrings == 0 || counts.Boundaries == 0 {
 		t.Fatalf("case shim readiness omitted required sections: %+v", shim)
 	}
 	assertCaseShimPhrase(t, shim.RequiredPhrases, "Go-native backend")
@@ -1222,10 +1173,7 @@ func assertReleaseCheckCaseShim(t *testing.T, shim releaseCheckCaseShim) {
 	}
 }
 
-func assertCaseShimPhrase(t *testing.T, checks []struct {
-	Phrase  string `json:"phrase"`
-	Present bool   `json:"present"`
-}, want string) {
+func assertCaseShimPhrase(t *testing.T, checks []caseshim.PhraseCheck, want string) {
 	t.Helper()
 	for _, check := range checks {
 		if check.Phrase == want {
@@ -1238,12 +1186,13 @@ func assertCaseShimPhrase(t *testing.T, checks []struct {
 	t.Fatalf("case shim missing phrase check %q: %+v", want, checks)
 }
 
-func assertReleaseCheckPublicDefaultDocs(t *testing.T, docs releaseCheckPublicDefaultDocs) {
+func assertReleaseCheckPublicDefaultDocs(t *testing.T, docs defaultdocs.Readiness) {
 	t.Helper()
-	if !docs.Ready || docs.Summary != "public default docs readiness ok" || len(docs.Warnings) != 0 {
+	counts := defaultdocs.ReadinessCountsFor(docs)
+	if !docs.Ready || docs.Summary != "public default docs readiness ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected public default docs readiness inventory: %+v", docs)
 	}
-	if len(docs.Documents) != 13 || len(docs.RequiredPhrases) == 0 || len(docs.Boundaries) == 0 {
+	if counts.Documents != 13 || counts.RequiredPhrases == 0 || counts.Boundaries == 0 {
 		t.Fatalf("public default docs readiness omitted required sections: %+v", docs)
 	}
 	assertPublicDefaultDoc(t, docs, "README.md")
@@ -1284,7 +1233,7 @@ func assertReleaseCheckPublicDefaultDocs(t *testing.T, docs releaseCheckPublicDe
 	}
 }
 
-func assertPublicDefaultDoc(t *testing.T, docs releaseCheckPublicDefaultDocs, path string) {
+func assertPublicDefaultDoc(t *testing.T, docs defaultdocs.Readiness, path string) {
 	t.Helper()
 	for _, doc := range docs.Documents {
 		if doc.Path == path {
@@ -1297,7 +1246,7 @@ func assertPublicDefaultDoc(t *testing.T, docs releaseCheckPublicDefaultDocs, pa
 	t.Fatalf("public default docs missing document %s: %+v", path, docs.Documents)
 }
 
-func assertPublicDefaultPhrase(t *testing.T, docs releaseCheckPublicDefaultDocs, path, phrase string) {
+func assertPublicDefaultPhrase(t *testing.T, docs defaultdocs.Readiness, path, phrase string) {
 	t.Helper()
 	for _, check := range docs.RequiredPhrases {
 		if check.Path == path && check.Phrase == phrase {

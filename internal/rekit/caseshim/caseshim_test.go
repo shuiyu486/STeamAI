@@ -9,10 +9,11 @@ import (
 
 func TestInspectRepoCaseShimReady(t *testing.T) {
 	readiness := Inspect(repoRoot(t))
-	if !readiness.Ready || readiness.Summary != "case shim readiness ok" || len(readiness.Warnings) != 0 {
+	counts := ReadinessCountsFor(readiness)
+	if !readiness.Ready || readiness.Summary != "case shim readiness ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected case shim readiness: %+v", readiness)
 	}
-	if len(readiness.RequiredPhrases) == 0 || len(readiness.CanonicalSkillPhrases) == 0 || len(readiness.ForbiddenStrings) == 0 || len(readiness.Boundaries) == 0 {
+	if counts.RequiredPhrases == 0 || counts.CanonicalSkillPhrases == 0 || counts.ForbiddenStrings == 0 || counts.Boundaries == 0 {
 		t.Fatalf("case shim readiness omitted required sections: %+v", readiness)
 	}
 	assertPhrasePresent(t, readiness.RequiredPhrases, "Go-native backend")

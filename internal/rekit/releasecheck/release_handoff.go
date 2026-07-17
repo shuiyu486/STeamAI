@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 )
 
@@ -135,6 +137,8 @@ func releaseHandoffDocuments(repo string) []ReleaseHandoffDocument {
 }
 
 func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes ReleaseHandoffReleaseNotes, gaps []ReleaseHandoffKnownGap, packMaturity ReleaseHandoffPackMaturity) []ReleaseHandoffSignal {
+	caseShimCounts := caseshim.ReadinessCountsFor(check.CaseShim)
+	publicDefaultDocCounts := defaultdocs.ReadinessCountsFor(check.PublicDefaultDocs)
 	return []ReleaseHandoffSignal{
 		{
 			Name:    "release-check inventory",
@@ -186,7 +190,7 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			Summary: check.CaseShim.Summary,
 			Details: []string{
 				fmt.Sprintf("template=%s", check.CaseShim.TemplatePath),
-				fmt.Sprintf("requiredPhrases=%d canonicalPhrases=%d forbidden=%d", len(check.CaseShim.RequiredPhrases), len(check.CaseShim.CanonicalSkillPhrases), len(check.CaseShim.ForbiddenStrings)),
+				fmt.Sprintf("requiredPhrases=%d canonicalPhrases=%d forbidden=%d", caseShimCounts.RequiredPhrases, caseShimCounts.CanonicalSkillPhrases, caseShimCounts.ForbiddenStrings),
 				"case-local shim stays thin and does not name PowerShell or raw Go CLI commands",
 			},
 		},
@@ -195,7 +199,7 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			Ready:   check.PublicDefaultDocs.Ready,
 			Summary: check.PublicDefaultDocs.Summary,
 			Details: []string{
-				fmt.Sprintf("documents=%d requiredPhrases=%d forbiddenCommands=%d forbiddenShellFences=%d", len(check.PublicDefaultDocs.Documents), len(check.PublicDefaultDocs.RequiredPhrases), len(check.PublicDefaultDocs.ForbiddenCommands), len(check.PublicDefaultDocs.ForbiddenShellFences)),
+				fmt.Sprintf("documents=%d requiredPhrases=%d forbiddenCommands=%d forbiddenShellFences=%d", publicDefaultDocCounts.Documents, publicDefaultDocCounts.RequiredPhrases, publicDefaultDocCounts.ForbiddenCommands, publicDefaultDocCounts.ForbiddenShellFences),
 				"README, CLAUDE, slash skill, product direction, autonomous goal, release readiness, Go-first plan, runtime migration, deprecation roadmap, vision, reference map, rollout plan, and tests guide keep Mission Control / Go-native defaults",
 				"PowerShell façade command snippets and shell fences are not documented as default user paths",
 			},

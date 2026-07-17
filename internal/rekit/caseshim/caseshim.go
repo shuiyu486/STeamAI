@@ -29,6 +29,24 @@ type StringCheck struct {
 	Present bool   `json:"present"`
 }
 
+type ReadinessCounts struct {
+	RequiredPhrases       int
+	CanonicalSkillPhrases int
+	ForbiddenStrings      int
+	Boundaries            int
+	Warnings              int
+}
+
+func ReadinessCountsFor(readiness Readiness) ReadinessCounts {
+	return ReadinessCounts{
+		RequiredPhrases:       len(readiness.RequiredPhrases),
+		CanonicalSkillPhrases: len(readiness.CanonicalSkillPhrases),
+		ForbiddenStrings:      len(readiness.ForbiddenStrings),
+		Boundaries:            len(readiness.Boundaries),
+		Warnings:              len(readiness.Warnings),
+	}
+}
+
 const TemplateRelPath = "rekit/templates/case-shim/SKILL.md"
 const CanonicalSkillRelPath = ".claude/skills/rekit/SKILL.md"
 
@@ -123,7 +141,7 @@ func Inspect(repoRoot string) Readiness {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("case shim contains forbidden runtime/default entrypoint string: %s", pattern))
 		}
 	}
-	if !result.Ready {
+	if ReadinessCountsFor(result).Warnings > 0 {
 		result.Summary = "case shim readiness has warnings"
 	}
 	return result

@@ -47,6 +47,26 @@ type ForbiddenShellFence struct {
 	Present  bool   `json:"present"`
 }
 
+type ReadinessCounts struct {
+	Documents            int
+	RequiredPhrases      int
+	ForbiddenCommands    int
+	ForbiddenShellFences int
+	Boundaries           int
+	Warnings             int
+}
+
+func ReadinessCountsFor(readiness Readiness) ReadinessCounts {
+	return ReadinessCounts{
+		Documents:            len(readiness.Documents),
+		RequiredPhrases:      len(readiness.RequiredPhrases),
+		ForbiddenCommands:    len(readiness.ForbiddenCommands),
+		ForbiddenShellFences: len(readiness.ForbiddenShellFences),
+		Boundaries:           len(readiness.Boundaries),
+		Warnings:             len(readiness.Warnings),
+	}
+}
+
 type requiredPhrase struct {
 	path   string
 	phrase string
@@ -169,7 +189,7 @@ func Inspect(repoRoot string) Readiness {
 			readiness.Warnings = append(readiness.Warnings, fmt.Sprintf("public default doc %s:%d uses PowerShell shell fence in default docs: %s", forbidden.Path, forbidden.Line, forbidden.Snippet))
 		}
 	}
-	if len(readiness.Warnings) > 0 {
+	if ReadinessCountsFor(readiness).Warnings > 0 {
 		readiness.Ready = false
 		readiness.Summary = "public default docs readiness has warnings"
 	}

@@ -9,7 +9,8 @@ import (
 
 func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	readiness := Inspect(repoRoot(t))
-	if !readiness.Ready || readiness.Summary != "public default docs readiness ok" || len(readiness.Warnings) != 0 {
+	counts := ReadinessCountsFor(readiness)
+	if !readiness.Ready || readiness.Summary != "public default docs readiness ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected public default docs readiness: %+v", readiness)
 	}
 	assertDocument(t, readiness, "README.md")
@@ -38,10 +39,10 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertPhrase(t, readiness, "docs/reference-absorption.md", "Go-native release readiness 子集")
 	assertPhrase(t, readiness, "docs/agent-team-rollout-plan.md", "公共 `/rekit` 默认路径继续向 Go-native / PowerShell-free 收敛")
 	assertPhrase(t, readiness, "rekit/tests/README.md", "推荐最小回归组合")
-	if len(readiness.ForbiddenCommands) != 0 {
+	if counts.ForbiddenCommands != 0 {
 		t.Fatalf("unexpected forbidden public default commands: %+v", readiness.ForbiddenCommands)
 	}
-	if len(readiness.ForbiddenShellFences) != 0 {
+	if counts.ForbiddenShellFences != 0 {
 		t.Fatalf("unexpected forbidden public default shell fences: %+v", readiness.ForbiddenShellFences)
 	}
 }
