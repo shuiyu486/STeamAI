@@ -10183,3 +10183,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/workstream/start.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。
+
+### Batch 333：Go-native lane-local Mission Control brief snapshot
+
+状态：已完成。
+
+目标：继续 Stage 5 workstream / ledger / gate / continue Go 化，在 Batch 332 lane-local gate snapshot 基础上，把同一 Mission Control blocker 语义进一步写入 durable lane-local `prompts/RESUME.md` 与 `checkpoints/latest.json`。替换 executor 或新会话即使只读取本 lane 的 prompt/checkpoint，也能看到 lane-local ready/blocked、open decision、intervention、pending/authorized gate、next action 与 escalation 状态，不必额外解析 handoff Markdown 或重新扫完整 ledger 才能判断是否可继续。
+
+实施范围：
+
+- 更新 `writeLaneResume`：基于 `mission.ReadLedgerFacts` 与现有 `laneMissionBrief` 生成 lane-local `missionBrief`，在 RESUME 新增 `## Mission Control brief`，展示 summary、ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations；继续保留 Batch 332 的 `## Heavy-action gate decisions` 轻量 gate snapshot。
+- 更新 lane checkpoint：`checkpoints/latest.json` 新增结构化 `missionBrief` 字段，复用 `mission.Brief` schema 与 handoff/continue/overview 的 blocker 语义；既有 `pendingGates` / `authorizedGates` 仍保留为 lane executor 快速读取的 gate-only shortcut。
+- 更新 CLI E2E：authorized-gate fixture 追加 lane-local open candidate，验证 `continue -Apply` 后 RESUME/checkpoint 同时展示非阻塞 authorized gate 与 open-decision blocker / next action，确保 `authorized-gate` 不阻塞但 open candidate/decision 仍阻塞 lane。
+- 更新 README、canonical `/rekit` skill、Agent Team usage、release readiness、Go-first convergence 与 CHANGELOG，记录 lane-local Mission Control brief snapshot 与 no heavy-tool / no authority 边界。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不写 authority/confirmed，不改变 sync/promote review-first、不迁移 policy schema、不写真实样本、trace、dump、capture、artifact、绝对 case 路径或 case-specific 进度；resume/checkpoint 只是 lane-local Mission Control handoff snapshot。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/workstream/start.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/workstream ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/workstream/start.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）与 `git diff --check`。第一次全量 `go test ./...` 失败是因为本批记录仍标记“实施中”触发 release handoff freshness gate；改为“已完成”并重跑 `release-check` / `go test ./...` 后通过。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。

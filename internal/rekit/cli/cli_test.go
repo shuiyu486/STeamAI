@@ -4422,6 +4422,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		}
 	}
 
+	writeCaseFile(t, caseRoot, ".rekit/facts/candidates.jsonl", `{"eventId":"evt-open-candidate","kind":"candidate","lane":"main","subject":"review candidate","summary":"needs authority review","status":"open","evidenceRefs":["workspace/main/main/packet.md"]}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/lanes/main/outbox.jsonl", `{"eventId":"evt-authorized-continue","kind":"observation","subject":"post auth observation","summary":"continue after authorized gate","evidence":"evidence-authorized-gate"}`+"\n")
 	out.Reset()
 	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main"}, &out); err != nil {
@@ -4462,7 +4463,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Heavy-action gate decisions", "- authorized-gate:", "authorized debug", "auth=preauthorized", "profile=prof-main-debug", "- pending-gate: none"} {
+	for _, expected := range []string{"## Mission Control brief", "openLanes=1 ready=0 blocked=1", "- blocked lanes:", "main (open-decision)", "- open decisions:", "review candidate", "- next agent actions:", "review open candidate/decision item(s) with evidence and authority boundary", "## Heavy-action gate decisions", "- authorized-gate:", "authorized debug", "auth=preauthorized", "profile=prof-main-debug", "- pending-gate: none"} {
 		if !strings.Contains(string(resume), expected) {
 			t.Fatalf("lane resume missing %q:\n%s", expected, string(resume))
 		}
@@ -4472,11 +4473,20 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	var checkpoint struct {
+		MissionBrief struct {
+			Summary       string   `json:"summary"`
+			BlockedLanes  []string `json:"blockedLanes"`
+			OpenDecisions []string `json:"openDecisions"`
+			PendingGates  []string `json:"pendingGates"`
+		} `json:"missionBrief"`
 		PendingGates    []string `json:"pendingGates"`
 		AuthorizedGates []string `json:"authorizedGates"`
 	}
 	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
 		t.Fatalf("lane checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
+	}
+	if checkpoint.MissionBrief.Summary != "openLanes=1 ready=0 blocked=1 pendingGates=0 authorizedGates=1 openDecisions=1 interventions=0" || !slices.Contains(checkpoint.MissionBrief.BlockedLanes, "main (open-decision)") || !containsSubstring(checkpoint.MissionBrief.OpenDecisions, "review candidate") || len(checkpoint.MissionBrief.PendingGates) != 0 {
+		t.Fatalf("lane checkpoint missing Mission Control brief snapshot: %+v", checkpoint.MissionBrief)
 	}
 	if len(checkpoint.PendingGates) != 0 || !containsSubstring(checkpoint.AuthorizedGates, "authorized debug") || !containsSubstring(checkpoint.AuthorizedGates, "auth=preauthorized") {
 		t.Fatalf("lane checkpoint missing non-blocking authorized gate visibility: %+v", checkpoint)
