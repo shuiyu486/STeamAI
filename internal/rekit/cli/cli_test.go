@@ -1102,12 +1102,14 @@ func assertReleaseCheckPublicFacadeRemoval(t *testing.T, inventory releasecheck.
 	if len(inventory.Prerequisites) != 8 || inventory.Prerequisites[0].Name != "public-facade-retained-boundary" || !inventory.Prerequisites[0].Ready || inventory.Prerequisites[2].Name != "go-native-public-surface" || !inventory.Prerequisites[2].Ready || inventory.Prerequisites[5].Name != "module-reference-blockers-clear" || !inventory.Prerequisites[5].Ready || inventory.Prerequisites[6].Name != "removal-plan-documented" || !inventory.Prerequisites[6].Ready || inventory.Prerequisites[7].Name != "removal-impact-inventoried" || !inventory.Prerequisites[7].Ready {
 		t.Fatalf("public facade removal prerequisites drifted: %+v", inventory.Prerequisites)
 	}
+	planCounts := releasecheck.PublicFacadeRemovalPlanCountsFor(inventory.RemovalPlan)
 	deletionGateCounts := releasecheck.PublicFacadeRemovalDeletionGateCountsFor(inventory.RemovalPlan.DeletionGates)
 	executionCounts := releasecheck.PublicFacadeRemovalExecutionStepCountsFor(inventory.RemovalPlan.ExecutionSteps)
-	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || len(inventory.RemovalPlan.RequiredPhrases) != 9 || len(inventory.RemovalPlan.ReplacementEntrypoints) != 4 || releaseCheckPublicFacadeRemovalReplacementValidationCommandCount(inventory.RemovalPlan.ReplacementEntrypoints) != 32 || deletionGateCounts.Gates != 5 || deletionGateCounts.ValidationCommands != 40 || deletionGateCounts.ExitCriteria != 15 || deletionGateCounts.FailureSignals != 15 || deletionGateCounts.EscalationTriggers != 15 || deletionGateCounts.EscalationEvidence != 15 || deletionGateCounts.EscalationRecipients != 15 || deletionGateCounts.EscalationHandoffSteps != 15 || deletionGateCounts.EscalationDecisionOptions != 15 || deletionGateCounts.EscalationRetryConditions != 15 || deletionGateCounts.EscalationStopConditions != 15 || deletionGateCounts.EscalationResolutionArtifacts != 15 || deletionGateCounts.EscalationClosureChecks != 15 || deletionGateCounts.EscalationReopenConditions != 15 || deletionGateCounts.EscalationLedgerEvents != 15 || deletionGateCounts.EscalationStateTransitions != 15 || deletionGateCounts.EscalationBoundaryGuards != 15 || deletionGateCounts.EscalationAuditChecks != 15 || deletionGateCounts.VerificationArtifacts != 15 || deletionGateCounts.BlockedExecutionSteps != 10 || deletionGateCounts.RemediationActions != 15 || executionCounts.Steps != 5 || executionCounts.FailureSignals != 15 || executionCounts.RemediationActions != 15 || executionCounts.VerificationArtifacts != 15 || executionCounts.LedgerEvents != 15 || executionCounts.StateTransitions != 15 || executionCounts.EscalationTriggers != 15 || executionCounts.EscalationEvidence != 15 || executionCounts.EscalationRecipients != 15 || executionCounts.EscalationHandoffSteps != 15 || executionCounts.EscalationDecisionOptions != 15 || executionCounts.EscalationRetryConditions != 15 || executionCounts.EscalationStopConditions != 15 || executionCounts.EscalationResolutionArtifacts != 15 || executionCounts.EscalationClosureChecks != 15 || executionCounts.EscalationReopenConditions != 15 || executionCounts.EscalationLedgerEvents != 15 || executionCounts.EscalationStateTransitions != 15 || executionCounts.EscalationBoundaryGuards != 15 || executionCounts.EscalationAuditChecks != 15 || executionCounts.BoundaryGuards != 15 || executionCounts.AuditChecks != 15 || executionCounts.ValidationCommands != 40 || len(inventory.RemovalPlan.BoundaryChecks) != 6 || releaseCheckPublicFacadeRemovalBoundaryValidationCommandCount(inventory.RemovalPlan.BoundaryChecks) != 48 || len(inventory.RemovalPlan.RecoverySteps) != 4 || releaseCheckPublicFacadeRemovalRecoveryValidationCommandCount(inventory.RemovalPlan.RecoverySteps) != 32 || len(inventory.RemovalPlan.DocumentationTargets) != 9 || releaseCheckPublicFacadeRemovalDocumentationValidationCommandCount(inventory.RemovalPlan.DocumentationTargets) != 72 || !releaseCheckPublicFacadeRemovalHasReplacementEntrypoint(inventory.RemovalPlan, "canonical-rekit-skill") || !releaseCheckPublicFacadeRemovalHasReplacementEntrypoint(inventory.RemovalPlan, "direct-go-cli") || !releaseCheckPublicFacadeRemovalHasDeletionGate(inventory.RemovalPlan, "go-native-alternatives-ready") || !releaseCheckPublicFacadeRemovalHasDeletionGate(inventory.RemovalPlan, "release-gate-green") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "delete-public-facade") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "rerun-release-gate") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-powershell-runtime-logic") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-external-effects") || !releaseCheckPublicFacadeRemovalHasRecoveryStep(inventory.RemovalPlan, "restore-public-facade") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "docs/release-readiness.md") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "CHANGELOG.md") {
+	impactCounts := releasecheck.PublicFacadeRemovalImpactCountsFor(inventory.RemovalImpact)
+	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || planCounts.RequiredPhrases != 9 || planCounts.ReplacementEntrypoints != 4 || planCounts.ReplacementValidationCommands != 32 || deletionGateCounts.Gates != 5 || deletionGateCounts.ValidationCommands != 40 || deletionGateCounts.ExitCriteria != 15 || deletionGateCounts.FailureSignals != 15 || deletionGateCounts.EscalationTriggers != 15 || deletionGateCounts.EscalationEvidence != 15 || deletionGateCounts.EscalationRecipients != 15 || deletionGateCounts.EscalationHandoffSteps != 15 || deletionGateCounts.EscalationDecisionOptions != 15 || deletionGateCounts.EscalationRetryConditions != 15 || deletionGateCounts.EscalationStopConditions != 15 || deletionGateCounts.EscalationResolutionArtifacts != 15 || deletionGateCounts.EscalationClosureChecks != 15 || deletionGateCounts.EscalationReopenConditions != 15 || deletionGateCounts.EscalationLedgerEvents != 15 || deletionGateCounts.EscalationStateTransitions != 15 || deletionGateCounts.EscalationBoundaryGuards != 15 || deletionGateCounts.EscalationAuditChecks != 15 || deletionGateCounts.VerificationArtifacts != 15 || deletionGateCounts.BlockedExecutionSteps != 10 || deletionGateCounts.RemediationActions != 15 || executionCounts.Steps != 5 || executionCounts.FailureSignals != 15 || executionCounts.RemediationActions != 15 || executionCounts.VerificationArtifacts != 15 || executionCounts.LedgerEvents != 15 || executionCounts.StateTransitions != 15 || executionCounts.EscalationTriggers != 15 || executionCounts.EscalationEvidence != 15 || executionCounts.EscalationRecipients != 15 || executionCounts.EscalationHandoffSteps != 15 || executionCounts.EscalationDecisionOptions != 15 || executionCounts.EscalationRetryConditions != 15 || executionCounts.EscalationStopConditions != 15 || executionCounts.EscalationResolutionArtifacts != 15 || executionCounts.EscalationClosureChecks != 15 || executionCounts.EscalationReopenConditions != 15 || executionCounts.EscalationLedgerEvents != 15 || executionCounts.EscalationStateTransitions != 15 || executionCounts.EscalationBoundaryGuards != 15 || executionCounts.EscalationAuditChecks != 15 || executionCounts.BoundaryGuards != 15 || executionCounts.AuditChecks != 15 || executionCounts.ValidationCommands != 40 || planCounts.BoundaryChecks != 6 || planCounts.BoundaryValidationCommands != 48 || planCounts.RecoverySteps != 4 || planCounts.RecoveryValidationCommands != 32 || planCounts.DocumentationTargets != 9 || planCounts.DocumentationValidationCommands != 72 || !releaseCheckPublicFacadeRemovalHasReplacementEntrypoint(inventory.RemovalPlan, "canonical-rekit-skill") || !releaseCheckPublicFacadeRemovalHasReplacementEntrypoint(inventory.RemovalPlan, "direct-go-cli") || !releaseCheckPublicFacadeRemovalHasDeletionGate(inventory.RemovalPlan, "go-native-alternatives-ready") || !releaseCheckPublicFacadeRemovalHasDeletionGate(inventory.RemovalPlan, "release-gate-green") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "delete-public-facade") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "rerun-release-gate") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-powershell-runtime-logic") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-external-effects") || !releaseCheckPublicFacadeRemovalHasRecoveryStep(inventory.RemovalPlan, "restore-public-facade") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "docs/release-readiness.md") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "CHANGELOG.md") {
 		t.Fatalf("public facade removal plan drifted: %+v", inventory.RemovalPlan)
 	}
-	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || len(inventory.RemovalImpact.References) == 0 || len(inventory.RemovalImpact.ReferenceCategories) == 0 || len(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.ReferenceCategories) || releaseCheckPublicFacadeRemovalImpactValidationCommandCount(inventory.RemovalImpact.WorkItems) != len(inventory.RemovalImpact.WorkItems)*8 || len(inventory.RemovalImpact.MigrationTargets) != 74 || releaseCheckPublicFacadeRemovalMigrationValidationCommandCount(inventory.RemovalImpact.MigrationTargets) != 592 || len(inventory.RemovalImpact.SmokeMigrationTargets) != 29 || releaseCheckPublicFacadeRemovalSmokeMigrationValidationCommandCount(inventory.RemovalImpact.SmokeMigrationTargets) != 232 || len(inventory.RemovalImpact.UnclassifiedReferences) != 0 || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !releaseCheckPublicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "rekit/rekit.ps1") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "docs/powershell-deprecation.md") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
+	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || impactCounts.References == 0 || impactCounts.ReferenceCategories == 0 || impactCounts.WorkItems != impactCounts.ReferenceCategories || impactCounts.WorkItemValidationCommands != impactCounts.WorkItems*8 || impactCounts.MigrationTargets != 74 || impactCounts.MigrationValidationCommands != 592 || impactCounts.SmokeMigrationTargets != 29 || impactCounts.SmokeMigrationValidationCommands != 232 || impactCounts.UnclassifiedReferences != 0 || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !releaseCheckPublicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "rekit/rekit.ps1") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "docs/powershell-deprecation.md") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
 		t.Fatalf("public facade removal impact drifted: %+v", inventory.RemovalImpact)
 	}
 }
@@ -1119,14 +1121,6 @@ func releaseCheckPublicFacadeRemovalHasReplacementEntrypoint(plan releasecheck.P
 		}
 	}
 	return false
-}
-
-func releaseCheckPublicFacadeRemovalReplacementValidationCommandCount(entrypoints []releasecheck.PublicFacadeRemovalReplacementEntrypoint) int {
-	count := 0
-	for _, entrypoint := range entrypoints {
-		count += len(entrypoint.ValidationCommands)
-	}
-	return count
 }
 
 func releaseCheckPublicFacadeRemovalHasDeletionGate(plan releasecheck.PublicFacadeRemovalPlan, name string) bool {
@@ -1165,22 +1159,6 @@ func releaseCheckPublicFacadeRemovalHasRecoveryStep(plan releasecheck.PublicFaca
 	return false
 }
 
-func releaseCheckPublicFacadeRemovalBoundaryValidationCommandCount(checks []releasecheck.PublicFacadeRemovalPlanBoundaryCheck) int {
-	count := 0
-	for _, check := range checks {
-		count += len(check.ValidationCommands)
-	}
-	return count
-}
-
-func releaseCheckPublicFacadeRemovalRecoveryValidationCommandCount(steps []releasecheck.PublicFacadeRemovalRecoveryStep) int {
-	count := 0
-	for _, step := range steps {
-		count += len(step.ValidationCommands)
-	}
-	return count
-}
-
 func releaseCheckPublicFacadeRemovalHasImpactCategory(impact releasecheck.PublicFacadeRemovalImpact, name string) bool {
 	for _, category := range impact.ReferenceCategories {
 		if category.Name == name && category.Count > 0 {
@@ -1199,14 +1177,6 @@ func releaseCheckPublicFacadeRemovalHasImpactWorkItem(impact releasecheck.Public
 	return false
 }
 
-func releaseCheckPublicFacadeRemovalDocumentationValidationCommandCount(targets []releasecheck.PublicFacadeRemovalDocumentationTarget) int {
-	count := 0
-	for _, target := range targets {
-		count += len(target.ValidationCommands)
-	}
-	return count
-}
-
 func releaseCheckPublicFacadeRemovalHasDocumentationTarget(plan releasecheck.PublicFacadeRemovalPlan, path string) bool {
 	for _, target := range plan.DocumentationTargets {
 		if target.Path == path && target.Required && strings.TrimSpace(target.Purpose) != "" && strings.TrimSpace(target.Action) != "" && len(target.ValidationCommands) == 8 && slices.Contains(target.ValidationCommands, "go run ./cmd/rekit -- -Command release-check -Format json") {
@@ -1214,30 +1184,6 @@ func releaseCheckPublicFacadeRemovalHasDocumentationTarget(plan releasecheck.Pub
 		}
 	}
 	return false
-}
-
-func releaseCheckPublicFacadeRemovalImpactValidationCommandCount(workItems []releasecheck.PublicFacadeRemovalImpactWorkItem) int {
-	count := 0
-	for _, workItem := range workItems {
-		count += len(workItem.ValidationCommands)
-	}
-	return count
-}
-
-func releaseCheckPublicFacadeRemovalSmokeMigrationValidationCommandCount(targets []releasecheck.PublicFacadeRemovalSmokeMigrationTarget) int {
-	count := 0
-	for _, target := range targets {
-		count += len(target.ValidationCommands)
-	}
-	return count
-}
-
-func releaseCheckPublicFacadeRemovalMigrationValidationCommandCount(targets []releasecheck.PublicFacadeRemovalMigrationTarget) int {
-	count := 0
-	for _, target := range targets {
-		count += len(target.ValidationCommands)
-	}
-	return count
 }
 
 func releaseCheckPublicFacadeRemovalHasMigrationTarget(impact releasecheck.PublicFacadeRemovalImpact, path string) bool {
