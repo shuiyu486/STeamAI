@@ -32,6 +32,7 @@ type PowerShellDeprecationCounts struct {
 	FreezeGates                             int
 	BlockedMigrations                       int
 	Warnings                                int
+	FallbackRetirement                      PowerShellFallbackRetirementCounts
 	FallbackGoDefaultCommands               int
 	FallbackNoFallbackCommands              int
 	FallbackCandidateCommands               int
@@ -39,18 +40,22 @@ type PowerShellDeprecationCounts struct {
 	FallbackRemovalCandidateModules         int
 	FallbackRetiredModules                  int
 	FallbackWarnings                        int
+	FacadeRuntime                           PowerShellFacadeRuntimeCounts
 	FacadeRuntimeForbiddenPatterns          int
 	FacadeRuntimeRequiredPatterns           int
 	FacadeRuntimeWarnings                   int
+	PublicFacade                            PowerShellPublicFacadeCounts
 	PublicFacadeCommandSurface              int
 	PublicFacadeGoDefaultCommands           int
 	PublicFacadeNoFallbackCommands          int
 	PublicFacadeWarnings                    int
+	ModuleRemoval                           PowerShellModuleRemovalCounts
 	ModuleRemovalCandidateModules           int
 	ModuleRemovalRetiredModules             int
 	ModuleRemovalUndocumentedModules        int
 	ModuleRemovalFacadeRuntimeDependencies  int
 	ModuleRemovalWarnings                   int
+	ModuleReferences                        PowerShellModuleReferencesCounts
 	ModuleReferencesTotal                   int
 	ModuleReferencesActiveTestDependencies  int
 	ModuleReferencesCompatibilityFixtures   int
@@ -62,41 +67,147 @@ type PowerShellDeprecationCounts struct {
 	ModuleReferencesWarnings                int
 }
 
+type PowerShellFallbackRetirementCounts struct {
+	GoDefaultCommands       int
+	NoFallbackCommands      int
+	CandidateCommands       int
+	BlockedCommands         int
+	RemovalCandidateModules int
+	RetiredModules          int
+	Warnings                int
+}
+
+type PowerShellFacadeRuntimeCounts struct {
+	ForbiddenPatterns int
+	RequiredPatterns  int
+	Warnings          int
+}
+
+type PowerShellPublicFacadeCounts struct {
+	CommandSurface     int
+	GoDefaultCommands  int
+	NoFallbackCommands int
+	Warnings           int
+}
+
+type PowerShellModuleRemovalCounts struct {
+	CandidateModules          int
+	RetiredModules            int
+	UndocumentedModules       int
+	FacadeRuntimeDependencies int
+	Warnings                  int
+}
+
+type PowerShellModuleReferencesCounts struct {
+	TotalReferences         int
+	ActiveTestDependencies  int
+	CompatibilityFixtures   int
+	InventoryGuards         int
+	DocumentationReferences int
+	HistoricalReferences    int
+	RemovalBlockers         int
+	UnclassifiedReferences  int
+	Warnings                int
+}
+
 func PowerShellDeprecationCountsFor(deprecation PowerShellDeprecation) PowerShellDeprecationCounts {
+	fallbackCounts := PowerShellFallbackRetirementCountsFor(deprecation.FallbackRetirement)
+	facadeRuntimeCounts := PowerShellFacadeRuntimeCountsFor(deprecation.FacadeRuntime)
+	publicFacadeCounts := PowerShellPublicFacadeCountsFor(deprecation.PublicFacade)
+	moduleRemovalCounts := PowerShellModuleRemovalCountsFor(deprecation.ModuleRemoval)
+	moduleReferenceCounts := PowerShellModuleReferencesCountsFor(deprecation.ModuleReferences)
 	return PowerShellDeprecationCounts{
 		CommandOwnership:                        len(deprecation.CommandOwnership),
 		ModuleStatus:                            len(deprecation.ModuleStatus),
 		FreezeGates:                             len(deprecation.FreezeGates),
 		BlockedMigrations:                       len(deprecation.BlockedMigrations),
 		Warnings:                                len(deprecation.Warnings),
-		FallbackGoDefaultCommands:               len(deprecation.FallbackRetirement.GoDefaultCommands),
-		FallbackNoFallbackCommands:              len(deprecation.FallbackRetirement.NoFallbackCommands),
-		FallbackCandidateCommands:               len(deprecation.FallbackRetirement.CandidateCommands),
-		FallbackBlockedCommands:                 len(deprecation.FallbackRetirement.BlockedCommands),
-		FallbackRemovalCandidateModules:         len(deprecation.FallbackRetirement.RemovalCandidateModules),
-		FallbackRetiredModules:                  len(deprecation.FallbackRetirement.RetiredModules),
-		FallbackWarnings:                        len(deprecation.FallbackRetirement.Warnings),
-		FacadeRuntimeForbiddenPatterns:          len(deprecation.FacadeRuntime.ForbiddenPatterns),
-		FacadeRuntimeRequiredPatterns:           len(deprecation.FacadeRuntime.RequiredPatterns),
-		FacadeRuntimeWarnings:                   len(deprecation.FacadeRuntime.Warnings),
-		PublicFacadeCommandSurface:              len(deprecation.PublicFacade.CommandSurface),
-		PublicFacadeGoDefaultCommands:           len(deprecation.PublicFacade.GoDefaultCommands),
-		PublicFacadeNoFallbackCommands:          len(deprecation.PublicFacade.NoFallbackCommands),
-		PublicFacadeWarnings:                    len(deprecation.PublicFacade.Warnings),
-		ModuleRemovalCandidateModules:           len(deprecation.ModuleRemoval.CandidateModules),
-		ModuleRemovalRetiredModules:             len(deprecation.ModuleRemoval.RetiredModules),
-		ModuleRemovalUndocumentedModules:        len(deprecation.ModuleRemoval.UndocumentedModules),
-		ModuleRemovalFacadeRuntimeDependencies:  len(deprecation.ModuleRemoval.FacadeRuntimeDependencies),
-		ModuleRemovalWarnings:                   len(deprecation.ModuleRemoval.Warnings),
-		ModuleReferencesTotal:                   deprecation.ModuleReferences.TotalReferences,
-		ModuleReferencesActiveTestDependencies:  len(deprecation.ModuleReferences.ActiveTestDependencies),
-		ModuleReferencesCompatibilityFixtures:   len(deprecation.ModuleReferences.CompatibilityFixtures),
-		ModuleReferencesInventoryGuards:         len(deprecation.ModuleReferences.InventoryGuards),
-		ModuleReferencesDocumentationReferences: len(deprecation.ModuleReferences.DocumentationReferences),
-		ModuleReferencesHistoricalReferences:    len(deprecation.ModuleReferences.HistoricalReferences),
-		ModuleReferencesRemovalBlockers:         len(deprecation.ModuleReferences.RemovalBlockers),
-		ModuleReferencesUnclassifiedReferences:  len(deprecation.ModuleReferences.UnclassifiedReferences),
-		ModuleReferencesWarnings:                len(deprecation.ModuleReferences.Warnings),
+		FallbackRetirement:                      fallbackCounts,
+		FallbackGoDefaultCommands:               fallbackCounts.GoDefaultCommands,
+		FallbackNoFallbackCommands:              fallbackCounts.NoFallbackCommands,
+		FallbackCandidateCommands:               fallbackCounts.CandidateCommands,
+		FallbackBlockedCommands:                 fallbackCounts.BlockedCommands,
+		FallbackRemovalCandidateModules:         fallbackCounts.RemovalCandidateModules,
+		FallbackRetiredModules:                  fallbackCounts.RetiredModules,
+		FallbackWarnings:                        fallbackCounts.Warnings,
+		FacadeRuntime:                           facadeRuntimeCounts,
+		FacadeRuntimeForbiddenPatterns:          facadeRuntimeCounts.ForbiddenPatterns,
+		FacadeRuntimeRequiredPatterns:           facadeRuntimeCounts.RequiredPatterns,
+		FacadeRuntimeWarnings:                   facadeRuntimeCounts.Warnings,
+		PublicFacade:                            publicFacadeCounts,
+		PublicFacadeCommandSurface:              publicFacadeCounts.CommandSurface,
+		PublicFacadeGoDefaultCommands:           publicFacadeCounts.GoDefaultCommands,
+		PublicFacadeNoFallbackCommands:          publicFacadeCounts.NoFallbackCommands,
+		PublicFacadeWarnings:                    publicFacadeCounts.Warnings,
+		ModuleRemoval:                           moduleRemovalCounts,
+		ModuleRemovalCandidateModules:           moduleRemovalCounts.CandidateModules,
+		ModuleRemovalRetiredModules:             moduleRemovalCounts.RetiredModules,
+		ModuleRemovalUndocumentedModules:        moduleRemovalCounts.UndocumentedModules,
+		ModuleRemovalFacadeRuntimeDependencies:  moduleRemovalCounts.FacadeRuntimeDependencies,
+		ModuleRemovalWarnings:                   moduleRemovalCounts.Warnings,
+		ModuleReferences:                        moduleReferenceCounts,
+		ModuleReferencesTotal:                   moduleReferenceCounts.TotalReferences,
+		ModuleReferencesActiveTestDependencies:  moduleReferenceCounts.ActiveTestDependencies,
+		ModuleReferencesCompatibilityFixtures:   moduleReferenceCounts.CompatibilityFixtures,
+		ModuleReferencesInventoryGuards:         moduleReferenceCounts.InventoryGuards,
+		ModuleReferencesDocumentationReferences: moduleReferenceCounts.DocumentationReferences,
+		ModuleReferencesHistoricalReferences:    moduleReferenceCounts.HistoricalReferences,
+		ModuleReferencesRemovalBlockers:         moduleReferenceCounts.RemovalBlockers,
+		ModuleReferencesUnclassifiedReferences:  moduleReferenceCounts.UnclassifiedReferences,
+		ModuleReferencesWarnings:                moduleReferenceCounts.Warnings,
+	}
+}
+
+func PowerShellFallbackRetirementCountsFor(inventory PowerShellFallbackRetirement) PowerShellFallbackRetirementCounts {
+	return PowerShellFallbackRetirementCounts{
+		GoDefaultCommands:       len(inventory.GoDefaultCommands),
+		NoFallbackCommands:      len(inventory.NoFallbackCommands),
+		CandidateCommands:       len(inventory.CandidateCommands),
+		BlockedCommands:         len(inventory.BlockedCommands),
+		RemovalCandidateModules: len(inventory.RemovalCandidateModules),
+		RetiredModules:          len(inventory.RetiredModules),
+		Warnings:                len(inventory.Warnings),
+	}
+}
+
+func PowerShellFacadeRuntimeCountsFor(inventory PowerShellFacadeRuntime) PowerShellFacadeRuntimeCounts {
+	return PowerShellFacadeRuntimeCounts{
+		ForbiddenPatterns: len(inventory.ForbiddenPatterns),
+		RequiredPatterns:  len(inventory.RequiredPatterns),
+		Warnings:          len(inventory.Warnings),
+	}
+}
+
+func PowerShellPublicFacadeCountsFor(inventory PowerShellPublicFacade) PowerShellPublicFacadeCounts {
+	return PowerShellPublicFacadeCounts{
+		CommandSurface:     len(inventory.CommandSurface),
+		GoDefaultCommands:  len(inventory.GoDefaultCommands),
+		NoFallbackCommands: len(inventory.NoFallbackCommands),
+		Warnings:           len(inventory.Warnings),
+	}
+}
+
+func PowerShellModuleRemovalCountsFor(inventory PowerShellModuleRemoval) PowerShellModuleRemovalCounts {
+	return PowerShellModuleRemovalCounts{
+		CandidateModules:          len(inventory.CandidateModules),
+		RetiredModules:            len(inventory.RetiredModules),
+		UndocumentedModules:       len(inventory.UndocumentedModules),
+		FacadeRuntimeDependencies: len(inventory.FacadeRuntimeDependencies),
+		Warnings:                  len(inventory.Warnings),
+	}
+}
+
+func PowerShellModuleReferencesCountsFor(inventory PowerShellModuleReferences) PowerShellModuleReferencesCounts {
+	return PowerShellModuleReferencesCounts{
+		TotalReferences:         inventory.TotalReferences,
+		ActiveTestDependencies:  len(inventory.ActiveTestDependencies),
+		CompatibilityFixtures:   len(inventory.CompatibilityFixtures),
+		InventoryGuards:         len(inventory.InventoryGuards),
+		DocumentationReferences: len(inventory.DocumentationReferences),
+		HistoricalReferences:    len(inventory.HistoricalReferences),
+		RemovalBlockers:         len(inventory.RemovalBlockers),
+		UnclassifiedReferences:  len(inventory.UnclassifiedReferences),
+		Warnings:                len(inventory.Warnings),
 	}
 }
 
@@ -356,13 +467,14 @@ func powerShellPublicFacade(repo string, modules []PowerShellModuleStatus, fallb
 	if !inventory.Retained {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell public facade is not documented as retained")
 	}
-	if len(inventory.CommandSurface) == 0 {
+	counts := PowerShellPublicFacadeCountsFor(inventory)
+	if counts.CommandSurface == 0 {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell public facade command surface is empty")
 	}
-	if len(inventory.GoDefaultCommands) == 0 {
+	if counts.GoDefaultCommands == 0 {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell public facade Go-default command list is empty")
 	}
-	if len(inventory.NoFallbackCommands) == 0 {
+	if counts.NoFallbackCommands == 0 {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell public facade no-fallback command list is empty")
 	}
 	for _, command := range inventory.CommandSurface {
@@ -389,7 +501,7 @@ func powerShellPublicFacade(repo string, modules []PowerShellModuleStatus, fallb
 	if !inventory.RemovalBoundaryDocumented {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell public facade removal boundary is not documented")
 	}
-	if len(inventory.Warnings) > 0 {
+	if PowerShellPublicFacadeCountsFor(inventory).Warnings > 0 {
 		inventory.Ready = false
 		inventory.Summary = "PowerShell public facade retention inventory has warnings"
 	}
@@ -456,7 +568,8 @@ func powerShellFallbackRetirement(repo string, owners []PowerShellCommandOwner, 
 	sort.Slice(inventory.RetiredModules, func(i, j int) bool {
 		return inventory.RetiredModules[i].Path < inventory.RetiredModules[j].Path
 	})
-	if len(inventory.GoDefaultCommands) == 0 {
+	counts := PowerShellFallbackRetirementCountsFor(inventory)
+	if counts.GoDefaultCommands == 0 {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell fallback retirement inventory has no Go-default commands")
 	}
 	for _, command := range inventory.GoDefaultCommands {
@@ -464,13 +577,14 @@ func powerShellFallbackRetirement(repo string, owners []PowerShellCommandOwner, 
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-default command missing fallback retirement classification: %s", command))
 		}
 	}
-	if len(inventory.NoFallbackCommands) == 0 {
+	counts = PowerShellFallbackRetirementCountsFor(inventory)
+	if counts.NoFallbackCommands == 0 {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell fallback retirement inventory has no no-fallback Go-default commands")
 	}
-	if len(inventory.CandidateCommands) == 0 && len(inventory.RemovalCandidateModules) == 0 && len(inventory.RetiredModules) == 0 {
+	if counts.CandidateCommands == 0 && counts.RemovalCandidateModules == 0 && counts.RetiredModules == 0 {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell fallback retirement inventory has no fallback retirement candidate commands, removal-candidate modules, or retired modules")
 	}
-	if len(inventory.Warnings) > 0 {
+	if PowerShellFallbackRetirementCountsFor(inventory).Warnings > 0 {
 		inventory.Ready = false
 		inventory.Summary = "PowerShell fallback retirement inventory has warnings"
 	}
@@ -536,7 +650,7 @@ func powerShellFacadeRuntime(repo string) PowerShellFacadeRuntime {
 	inventory.NoFallbackGuardPresent = strings.Contains(text, "if (Test-RekitNoPowerShellFallbackCommand -Name $Command)")
 	inventory.GoDelegationPresent = strings.Contains(text, "Invoke-RekitGoBackend -Invocation $goInvocation")
 	inventory.RetiredDispatcherError = strings.Contains(text, "retired PowerShell fallback dispatcher")
-	if len(inventory.Warnings) > 0 {
+	if PowerShellFacadeRuntimeCountsFor(inventory).Warnings > 0 {
 		inventory.Ready = false
 		inventory.Summary = "PowerShell facade runtime dependency inventory has warnings"
 	}
@@ -601,13 +715,14 @@ func powerShellModuleRemoval(repo string, modules []PowerShellModuleStatus, faca
 	})
 	sort.Strings(inventory.UndocumentedModules)
 	sort.Strings(inventory.FacadeRuntimeDependencies)
-	if len(inventory.CandidateModules) == 0 && len(inventory.RetiredModules) == 0 {
+	counts := PowerShellModuleRemovalCountsFor(inventory)
+	if counts.CandidateModules == 0 && counts.RetiredModules == 0 {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell module removal inventory has no removal-candidate or retired modules")
 	}
-	if len(inventory.UndocumentedModules) > 0 {
+	if counts.UndocumentedModules > 0 {
 		inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell runtime modules missing from removal inventory: %s", strings.Join(inventory.UndocumentedModules, ", ")))
 	}
-	if len(inventory.Warnings) > 0 {
+	if PowerShellModuleRemovalCountsFor(inventory).Warnings > 0 {
 		inventory.Ready = false
 		inventory.Summary = "PowerShell module removal inventory has warnings"
 	}
@@ -647,16 +762,17 @@ func powerShellModuleReferences(repo string) PowerShellModuleReferences {
 		}
 		inventory.TotalReferences++
 	}
-	if len(inventory.InventoryGuards) == 0 {
+	counts := PowerShellModuleReferencesCountsFor(inventory)
+	if counts.InventoryGuards == 0 {
 		inventory.Warnings = append(inventory.Warnings, "PowerShell module reference inventory has no inventory guard markers")
 	}
-	if len(inventory.RemovalBlockers) > 0 {
-		inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell module reference inventory has removal blockers: %d", len(inventory.RemovalBlockers)))
+	if counts.RemovalBlockers > 0 {
+		inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell module reference inventory has removal blockers: %d", counts.RemovalBlockers))
 	}
-	if len(inventory.UnclassifiedReferences) > 0 {
-		inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell module reference inventory has unclassified references: %d", len(inventory.UnclassifiedReferences)))
+	if counts.UnclassifiedReferences > 0 {
+		inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("PowerShell module reference inventory has unclassified references: %d", counts.UnclassifiedReferences))
 	}
-	if len(inventory.Warnings) > 0 {
+	if PowerShellModuleReferencesCountsFor(inventory).Warnings > 0 {
 		inventory.Ready = false
 		inventory.Summary = "PowerShell module reference inventory has warnings"
 	}

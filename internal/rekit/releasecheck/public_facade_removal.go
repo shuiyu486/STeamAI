@@ -410,6 +410,7 @@ func publicFacadeRemovalHandoffDetails(inventory PublicFacadeRemoval) []string {
 }
 
 func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation, goSurface GoNativePublicSurface) PublicFacadeRemoval {
+	powerShellCounts := PowerShellDeprecationCountsFor(powerShell)
 	removalPlan := publicFacadeRemovalPlan(repo)
 	planCounts := PublicFacadeRemovalPlanCountsFor(removalPlan)
 	deletionGateCounts := PublicFacadeRemovalDeletionGateCountsFor(removalPlan.DeletionGates)
@@ -427,8 +428,8 @@ func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation,
 			},
 			{
 				Name:    "facade-command-surface-no-fallback",
-				Ready:   len(powerShell.PublicFacade.CommandSurface) > 0 && slices.Equal(powerShell.PublicFacade.CommandSurface, powerShell.PublicFacade.GoDefaultCommands) && slices.Equal(powerShell.PublicFacade.CommandSurface, powerShell.PublicFacade.NoFallbackCommands),
-				Summary: fmt.Sprintf("facadeCommands=%d goDefault=%d noFallback=%d", len(powerShell.PublicFacade.CommandSurface), len(powerShell.PublicFacade.GoDefaultCommands), len(powerShell.PublicFacade.NoFallbackCommands)),
+				Ready:   powerShellCounts.PublicFacade.CommandSurface > 0 && slices.Equal(powerShell.PublicFacade.CommandSurface, powerShell.PublicFacade.GoDefaultCommands) && slices.Equal(powerShell.PublicFacade.CommandSurface, powerShell.PublicFacade.NoFallbackCommands),
+				Summary: fmt.Sprintf("facadeCommands=%d goDefault=%d noFallback=%d", powerShellCounts.PublicFacade.CommandSurface, powerShellCounts.PublicFacade.GoDefaultCommands, powerShellCounts.PublicFacade.NoFallbackCommands),
 			},
 			{
 				Name:    "go-native-public-surface",
@@ -442,13 +443,13 @@ func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation,
 			},
 			{
 				Name:    "legacy-module-removal-settled",
-				Ready:   powerShell.ModuleRemoval.Ready && len(powerShell.ModuleRemoval.CandidateModules) == 0 && len(powerShell.ModuleRemoval.FacadeRuntimeDependencies) == 0 && len(powerShell.ModuleRemoval.UndocumentedModules) == 0,
-				Summary: fmt.Sprintf("moduleRemovalReady=%t candidates=%d retired=%d facadeDeps=%d undocumented=%d", powerShell.ModuleRemoval.Ready, len(powerShell.ModuleRemoval.CandidateModules), len(powerShell.ModuleRemoval.RetiredModules), len(powerShell.ModuleRemoval.FacadeRuntimeDependencies), len(powerShell.ModuleRemoval.UndocumentedModules)),
+				Ready:   powerShell.ModuleRemoval.Ready && powerShellCounts.ModuleRemoval.CandidateModules == 0 && powerShellCounts.ModuleRemoval.FacadeRuntimeDependencies == 0 && powerShellCounts.ModuleRemoval.UndocumentedModules == 0,
+				Summary: fmt.Sprintf("moduleRemovalReady=%t candidates=%d retired=%d facadeDeps=%d undocumented=%d", powerShell.ModuleRemoval.Ready, powerShellCounts.ModuleRemoval.CandidateModules, powerShellCounts.ModuleRemoval.RetiredModules, powerShellCounts.ModuleRemoval.FacadeRuntimeDependencies, powerShellCounts.ModuleRemoval.UndocumentedModules),
 			},
 			{
 				Name:    "module-reference-blockers-clear",
-				Ready:   powerShell.ModuleReferences.Ready && len(powerShell.ModuleReferences.ActiveTestDependencies) == 0 && len(powerShell.ModuleReferences.CompatibilityFixtures) == 0 && len(powerShell.ModuleReferences.RemovalBlockers) == 0 && len(powerShell.ModuleReferences.UnclassifiedReferences) == 0,
-				Summary: fmt.Sprintf("moduleReferencesReady=%t activeTests=%d fixtures=%d blockers=%d unclassified=%d", powerShell.ModuleReferences.Ready, len(powerShell.ModuleReferences.ActiveTestDependencies), len(powerShell.ModuleReferences.CompatibilityFixtures), len(powerShell.ModuleReferences.RemovalBlockers), len(powerShell.ModuleReferences.UnclassifiedReferences)),
+				Ready:   powerShell.ModuleReferences.Ready && powerShellCounts.ModuleReferences.ActiveTestDependencies == 0 && powerShellCounts.ModuleReferences.CompatibilityFixtures == 0 && powerShellCounts.ModuleReferences.RemovalBlockers == 0 && powerShellCounts.ModuleReferences.UnclassifiedReferences == 0,
+				Summary: fmt.Sprintf("moduleReferencesReady=%t activeTests=%d fixtures=%d blockers=%d unclassified=%d", powerShell.ModuleReferences.Ready, powerShellCounts.ModuleReferences.ActiveTestDependencies, powerShellCounts.ModuleReferences.CompatibilityFixtures, powerShellCounts.ModuleReferences.RemovalBlockers, powerShellCounts.ModuleReferences.UnclassifiedReferences),
 			},
 			{
 				Name:    "removal-plan-documented",

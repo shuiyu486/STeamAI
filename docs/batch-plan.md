@@ -9585,3 +9585,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/cli/cli.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 314：PowerShell deprecation nested count summary refactor
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 309 已新增 PowerShell deprecation 顶层 counts、Batch 310-313 已继续收敛 release handoff、Go-native public surface 与 public façade removal count plumbing 后，进一步减少 PowerShell deprecation 子 inventory readiness、public façade removal prerequisites、releasecheck tests 与 CLI JSON assertions 中对 fallback/façade/module-removal/module-reference warnings 与 coverage counts 的重复 plumbing。
+
+实施范围：
+
+- 新增 `PowerShellFallbackRetirementCounts`、`PowerShellFacadeRuntimeCounts`、`PowerShellPublicFacadeCounts`、`PowerShellModuleRemovalCounts`、`PowerShellModuleReferencesCounts` 与对应 `*CountsFor` helper，并嵌入既有 `PowerShellDeprecationCounts`，保留原有 flat count aliases 以避免影响既有 call sites。
+- PowerShell fallback retirement、façade runtime、public façade、module removal 与 module reference readiness guards 复用各自 nested counts；public façade removal prerequisites 对 public façade/module removal/module references 的 count summary 复用 `PowerShellDeprecationCountsFor`。
+- releasecheck package tests 与 CLI JSON assertions 使用 nested counts 验证子 inventory coverage/warnings，同时保持 `/rekit release-check` text output 既有 key、顺序与数值不变。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不新增或删除 release-check JSON 字段，不改变 release-check text key、public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、policy schema migration、actual heavy-tool/authority/confirmed 或外部副作用边界；公共 façade deletion 仍必须作为独立 removal batch。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/powershell_deprecation.go internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/powershell_deprecation.go internal/rekit/releasecheck/public_facade_removal.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
