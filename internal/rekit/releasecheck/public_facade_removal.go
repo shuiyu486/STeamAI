@@ -69,6 +69,7 @@ type PublicFacadeRemovalPlanCounts struct {
 	RecoveryValidationCommands      int
 	DocumentationTargets            int
 	DocumentationValidationCommands int
+	Warnings                        int
 }
 
 func PublicFacadeRemovalPlanCountsFor(plan PublicFacadeRemovalPlan) PublicFacadeRemovalPlanCounts {
@@ -78,6 +79,7 @@ func PublicFacadeRemovalPlanCountsFor(plan PublicFacadeRemovalPlan) PublicFacade
 		BoundaryChecks:         len(plan.BoundaryChecks),
 		RecoverySteps:          len(plan.RecoverySteps),
 		DocumentationTargets:   len(plan.DocumentationTargets),
+		Warnings:               len(plan.Warnings),
 	}
 	for _, entrypoint := range plan.ReplacementEntrypoints {
 		rowCounts := PublicFacadeRemovalReplacementEntrypointCountsFor(entrypoint)
@@ -481,6 +483,7 @@ type PublicFacadeRemovalImpactCounts struct {
 	SmokeMigrationTargets            int
 	SmokeMigrationValidationCommands int
 	UnclassifiedReferences           int
+	Warnings                         int
 }
 
 func PublicFacadeRemovalImpactCountsFor(impact PublicFacadeRemovalImpact) PublicFacadeRemovalImpactCounts {
@@ -491,6 +494,7 @@ func PublicFacadeRemovalImpactCountsFor(impact PublicFacadeRemovalImpact) Public
 		MigrationTargets:       len(impact.MigrationTargets),
 		SmokeMigrationTargets:  len(impact.SmokeMigrationTargets),
 		UnclassifiedReferences: len(impact.UnclassifiedReferences),
+		Warnings:               len(impact.Warnings),
 	}
 	for _, workItem := range impact.WorkItems {
 		rowCounts := PublicFacadeRemovalImpactWorkItemCountsFor(workItem)
@@ -1247,7 +1251,7 @@ func publicFacadeRemovalPlan(repo string) PublicFacadeRemovalPlan {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("public facade removal documentation target missing validation command %q: %s", command, target.Path))
 		}
 	}
-	if len(plan.Warnings) > 0 {
+	if PublicFacadeRemovalPlanCountsFor(plan).Warnings > 0 {
 		plan.Ready = false
 		plan.Summary = "public facade removal plan has warnings"
 	}
@@ -2618,7 +2622,7 @@ func publicFacadeRemovalImpact(repo string) PublicFacadeRemovalImpact {
 	for _, reference := range impact.UnclassifiedReferences {
 		impact.Warnings = append(impact.Warnings, fmt.Sprintf("public facade removal impact reference is unclassified: %s", reference.Path))
 	}
-	if len(impact.Warnings) > 0 {
+	if PublicFacadeRemovalImpactCountsFor(impact).Warnings > 0 {
 		impact.Ready = false
 		impact.Summary = "public facade removal impact inventory has warnings"
 	}
