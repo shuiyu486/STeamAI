@@ -58,6 +58,24 @@ func TestBuildBlocksLanesAndUsesSharedDecisionAction(t *testing.T) {
 	}
 }
 
+func TestEffectiveOpenInterventionsHonorsAppendOnlyResolution(t *testing.T) {
+	items := []map[string]any{
+		{"eventId": "evt-open", "kind": "intervention", "lane": "feature-login", "subject": "manual pause", "status": "open"},
+		{"eventId": "evt-deferred", "kind": "intervention", "lane": "feature-login", "subject": "manual override", "status": "deferred"},
+		{"eventId": "evt-resolution", "kind": "intervention", "lane": "feature-login", "subject": "resolved pause", "status": "resolved", "resolvesEventId": "evt-open"},
+		{"eventId": "evt-target-only", "kind": "intervention", "lane": "feature-login", "subject": "target is not lifecycle", "status": "resolved", "target": "evt-deferred"},
+	}
+
+	open := EffectiveOpenInterventions(items)
+	if len(open) != 1 || Value(open[0], "eventId") != "evt-deferred" {
+		t.Fatalf("effective open interventions = %+v", open)
+	}
+	projection := EffectiveInterventions(items)
+	if projection.Resolved["evt-open"] == nil || projection.Resolved["evt-deferred"] != nil {
+		t.Fatalf("unexpected resolution projection: %+v", projection.Resolved)
+	}
+}
+
 func TestLaneOpenDecisionLineOmitsLaneField(t *testing.T) {
 	facts := LaneFacts(Facts{
 		Candidates: []map[string]any{{"kind": "candidate", "lane": "feature-login", "subject": "candidate blocker", "status": "open"}},

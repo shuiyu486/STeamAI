@@ -72,21 +72,27 @@ type StartResult struct {
 }
 
 type Lane struct {
-	SchemaVersion int            `json:"schemaVersion"`
-	ID            string         `json:"id"`
-	Type          string         `json:"type"`
-	Name          string         `json:"name"`
-	Title         string         `json:"title"`
-	Status        string         `json:"status"`
-	Authority     bool           `json:"authority"`
-	Workspace     string         `json:"workspace"`
-	LaneRoot      string         `json:"laneRoot"`
-	CanWrite      []string       `json:"canWrite"`
-	ReadOnly      []string       `json:"readOnly"`
-	Outputs       []string       `json:"outputs"`
-	Counters      map[string]int `json:"counters"`
-	CreatedAt     string         `json:"createdAt"`
-	UpdatedAt     string         `json:"updatedAt"`
+	SchemaVersion              int            `json:"schemaVersion"`
+	ID                         string         `json:"id"`
+	Type                       string         `json:"type"`
+	Name                       string         `json:"name"`
+	Title                      string         `json:"title"`
+	Status                     string         `json:"status"`
+	Authority                  bool           `json:"authority"`
+	Workspace                  string         `json:"workspace"`
+	LaneRoot                   string         `json:"laneRoot"`
+	CanWrite                   []string       `json:"canWrite"`
+	ReadOnly                   []string       `json:"readOnly"`
+	Outputs                    []string       `json:"outputs"`
+	Counters                   map[string]int `json:"counters"`
+	CurrentExecutor            string         `json:"currentExecutor,omitempty"`
+	ExecutorGeneration         int            `json:"executorGeneration,omitempty"`
+	LastTakeoverAt             string         `json:"lastTakeoverAt,omitempty"`
+	LastTakeoverReason         string         `json:"lastTakeoverReason,omitempty"`
+	LastReconciledIntervention string         `json:"lastReconciledIntervention,omitempty"`
+	LastReconcileAt            string         `json:"lastReconcileAt,omitempty"`
+	CreatedAt                  string         `json:"createdAt"`
+	UpdatedAt                  string         `json:"updatedAt"`
 }
 
 type board = mission.Board
@@ -373,6 +379,12 @@ func writeLane(caseRoot string, laneType manifest.LaneType, id, name string, for
 		if existingLane.Counters != nil {
 			lane.Counters = existingLane.Counters
 		}
+		lane.CurrentExecutor = existingLane.CurrentExecutor
+		lane.ExecutorGeneration = existingLane.ExecutorGeneration
+		lane.LastTakeoverAt = existingLane.LastTakeoverAt
+		lane.LastTakeoverReason = existingLane.LastTakeoverReason
+		lane.LastReconciledIntervention = existingLane.LastReconciledIntervention
+		lane.LastReconcileAt = existingLane.LastReconcileAt
 		if strings.TrimSpace(existingLane.CreatedAt) != "" {
 			lane.CreatedAt = existingLane.CreatedAt
 		}
@@ -474,12 +486,19 @@ func writeLaneResume(caseRoot string, lane Lane) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
+	openInterventions, err := openLaneInterventionSummaries(caseRoot, lane.ID)
+	if err != nil {
+		return "", "", err
+	}
 	lines := []string{
 		"# RESUME：" + lane.ID,
 		"",
 		"lane type: `" + lane.Type + "`",
 		"status: `" + lane.Status + "`",
 		"workspace: `" + lane.Workspace + "`",
+		"current executor: `" + firstText(lane.CurrentExecutor, "unassigned") + "`",
+		fmt.Sprintf("executor generation: `%d`", lane.ExecutorGeneration),
+		"last reconciled intervention: `" + firstText(lane.LastReconciledIntervention, "none") + "`",
 		"",
 		"## 边界",
 		"",
@@ -494,6 +513,13 @@ func writeLaneResume(caseRoot string, lane Lane) (string, string, error) {
 		lines = append(lines, "- "+firstObjectText(msg, "summary", "kind", "eventId"))
 	}
 	if len(inbox) == 0 {
+		lines = append(lines, "- 无。")
+	}
+	lines = append(lines, "", "## Open interventions", "")
+	for _, item := range openInterventions {
+		lines = append(lines, "- "+firstText(item.Subject, item.Summary, item.EventID)+" | eventId=`"+item.EventID+"` | status=`"+item.Status+"`")
+	}
+	if len(openInterventions) == 0 {
 		lines = append(lines, "- 无。")
 	}
 	openTasks := []map[string]any{}
@@ -519,7 +545,7 @@ func writeLaneResume(caseRoot string, lane Lane) (string, string, error) {
 		return "", "", err
 	}
 	checkpointPath := filepath.Join(laneRoot, "checkpoints", "latest.json")
-	checkpoint := map[string]any{"schemaVersion": 1, "lane": lane.ID, "status": lane.Status, "workspace": lane.Workspace, "inbox": len(inbox), "tasks": len(tasks), "updatedAt": time.Now().UTC().Format(time.RFC3339Nano), "resume": relativePath(caseRoot, resumePath)}
+	checkpoint := map[string]any{"schemaVersion": 1, "lane": lane.ID, "status": lane.Status, "workspace": lane.Workspace, "currentExecutor": lane.CurrentExecutor, "executorGeneration": lane.ExecutorGeneration, "lastReconciledIntervention": lane.LastReconciledIntervention, "lastReconcileAt": lane.LastReconcileAt, "openInterventions": openInterventions, "inbox": len(inbox), "tasks": len(tasks), "updatedAt": time.Now().UTC().Format(time.RFC3339Nano), "resume": relativePath(caseRoot, resumePath)}
 	if err := writeJSON(checkpointPath, checkpoint); err != nil {
 		return "", "", err
 	}

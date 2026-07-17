@@ -66,7 +66,8 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 /rekit overview              # 看项目总览，不选择工作线
 /rekit continue main         # 接手主线
 /rekit start unpacking       # 创建/进入功能支线
-/rekit continue unpacking    # 继续功能支线
+/rekit continue unpacking    # 继续功能支线；若存在 open intervention 会要求先 reconcile
+/rekit reconcile unpacking   # 将用户干预显式 reconcile 到 durable lane state
 /rekit handoff               # 生成项目级接手索引
 /rekit handoff main          # 生成主线接手文档
 /rekit handoff unpacking     # 生成功能支线接手文档
@@ -79,12 +80,12 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 - `/rekit status` 能正确显示 kit/case 绑定。
 - `/rekit doctor` 通过，且 managed docs、policy、tooling 文件预算未超限。
 - 旧 case 同步前先看到 `.rekit/reviews/<timestamp>-sync/summary.md`、`packet.json` 和 bounded diff。
-- `overview` 能显示主线、功能支线、共享事实统计和 Mission Control brief；brief 必须让主 Agent 不读完整 ledger 也能看到 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations。overview、start/continue/handoff/gate JSON envelope、continue run artifacts、project handoff 与 lane handoff 中的 `missionBrief` 应使用同一 Go mission snapshot / blocker 语义：pending gate、open intervention、open candidate/decision 都会让对应 lane blocked。
+- `overview` 能显示主线、功能支线、共享事实统计和 Mission Control brief；brief 必须让主 Agent 不读完整 ledger 也能看到 ready/blocked lanes、pending gates、open decisions、interventions、next agent actions 与 escalations。overview、start/continue/handoff/gate/reconcile JSON envelope、continue run artifacts、project handoff 与 lane handoff 中的 `missionBrief` 应使用同一 Go mission snapshot / blocker 语义：pending gate、effective open intervention、open candidate/decision 都会让对应 lane blocked；被 `resolvesEventId` resolution 关闭的 intervention 不应继续阻塞。
 - `note -List` 与 note append strict duplicate eventId 去重 / lane guard、gate lane guard、doctor JSONL validation、workstream board snapshot、shared facts 写入/读取路径、facts path/read/append、continue facts promotion 与 duplicate eventId scan、handoff/continue facts snapshot、gate duplicate eventId、note ledger kind 顺序、workstream lane/workspace local JSONL 文件集合与 path helpers、facts JSONL / fact-file mapping、JSONL append、board 读取、open-lane 过滤和 known-lane 诊断应复用同一 Go helper source，避免 note、overview、doctor、handoff、start/continue/gate 对 ledger kind/file/path、workstream local JSONL file/path、board JSON、JSONL/facts reader/append 或 lane guard 维护并行实现。
 - `continue main` 与 `continue <name>` 明确接手不同工作线；无参数 `continue` 不应在多工作线时盲猜。
 - 功能支线只写自己的 workspace、outbox、candidate/request，不直接写 confirmed CSV、routine IR 或长期 handoff。
 - 长期成员身份绑定 lane，不绑定旧 session；旧会话上下文污染或用户希望重开时，新会话应读取 handoff / packet / evidence 接手同一 lane。
-- 用户可随时进入 lane 打断、纠错、改向或硬切模型；lane 继续时要 reconcile 干预并写回 durable state。
+- 用户可随时进入 lane 打断、纠错、改向或硬切模型；lane 继续时要用 `/rekit reconcile <name> -InterventionId <eventId> -Apply` 将干预写成 append-only resolution event，并刷新 durable lane executor/resume/checkpoint/board state。
 - confirmed / authority 写入仍需要更严格 gate；动态调试、注入、patch、dump、hook、full trace、网络、exploit replay 等外部副作用若已在 lane 文档/packet/autonomy profile 预授权，可在 scope、预算、止损和记录要求内自主执行，否则需要人工确认。
 
 ## 风险与注意事项

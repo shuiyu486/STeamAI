@@ -59,7 +59,7 @@ func BuildWithOptions(lanes []Lane, facts Facts, opts BuildOptions) Brief {
 		pendingGateLines = append(pendingGateLines, GateLine(gate))
 	}
 	interventionLines := []string{}
-	for _, item := range OpenEvents(facts.Interventions) {
+	for _, item := range EffectiveOpenInterventions(facts.Interventions) {
 		lane := Value(item, "lane")
 		if lane != "" {
 			blocked[lane] = append(blocked[lane], "intervention")

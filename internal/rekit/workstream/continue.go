@@ -46,6 +46,9 @@ type ContinueResult struct {
 	PacketRefs           []string               `json:"packetRefs"`
 	Events               []ContinueEventPreview `json:"events"`
 	OpenRisks            []string               `json:"openRisks"`
+	Blocked              bool                   `json:"blocked"`
+	ReconcileRequired    bool                   `json:"reconcileRequired"`
+	OpenInterventions    []InterventionSummary  `json:"openInterventions,omitempty"`
 	WouldWrites          []StartWrite           `json:"wouldWrites"`
 	Writes               []StartWrite           `json:"writes,omitempty"`
 	BlockedActions       []string               `json:"blockedActions"`
@@ -110,6 +113,9 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	ctx, err := newContinueContext(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return ContinueResult{}, err
+	}
+	if blocked, err := ctx.blockedByOpenInterventions(false); err != nil || blocked.Blocked {
+		return blocked, err
 	}
 	known, err := mission.ReadLedgerEventIDs(ctx.inst.CaseRoot)
 	if err != nil {
@@ -202,6 +208,9 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 	ctx, err := newContinueContext(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return ContinueResult{}, err
+	}
+	if blocked, err := ctx.blockedByOpenInterventions(true); err != nil || blocked.Blocked {
+		return blocked, err
 	}
 	known, err := mission.ReadLedgerEventIDs(ctx.inst.CaseRoot)
 	if err != nil {
@@ -368,6 +377,47 @@ func (ctx continueContext) missionBrief() mission.Brief {
 		return mission.Brief{Summary: "unavailable: " + err.Error()}
 	}
 	return projectMissionBrief(ctx.board.Lanes, facts)
+}
+
+func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResult, error) {
+	open, err := openLaneInterventionSummaries(ctx.inst.CaseRoot, ctx.lane.ID)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	if len(open) == 0 {
+		return ContinueResult{}, nil
+	}
+	return ContinueResult{
+		SchemaVersion:        1,
+		Command:              "continue",
+		CaseRoot:             ctx.inst.CaseRoot,
+		RepoRoot:             ctx.manifest.RepoRoot,
+		Pack:                 ctx.manifest.Pack,
+		IsMutation:           apply,
+		Applied:              false,
+		RequiresConfirmation: false,
+		Selector:             ctx.selector,
+		Lane:                 ctx.lane,
+		RunID:                continuePreviewRunID,
+		BatchID:              "batch-" + continuePreviewRunID,
+		MissionBrief:         ctx.missionBrief(),
+		OpenRisks:            interventionRiskLines(open),
+		Blocked:              true,
+		ReconcileRequired:    true,
+		OpenInterventions:    open,
+		WouldWrites:          []StartWrite{},
+		Writes:               []StartWrite{},
+		BlockedActions:       []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution"},
+		NextSteps:            []string{"run /rekit reconcile " + workstreamLabel(ctx.lane) + " -InterventionId <eventId> -Apply before continuing this lane"},
+	}, nil
+}
+
+func interventionRiskLines(items []InterventionSummary) []string {
+	lines := []string{}
+	for _, item := range items {
+		lines = append(lines, fmt.Sprintf("intervention: %s | lane=%s | status=%s", firstText(item.Subject, item.Summary, item.EventID), item.Lane, item.Status))
+	}
+	return lines
 }
 
 func (ctx continueContext) previewEvent(event map[string]any) ContinueEventPreview {

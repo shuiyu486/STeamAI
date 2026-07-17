@@ -1,7 +1,7 @@
 [CmdletBinding(PositionalBinding=$false)]
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','packs','release-check','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','start','handoff','note','gate')]
+  [ValidateSet('status','packs','release-check','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','reconcile','start','handoff','note','gate')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -105,12 +105,12 @@ function Test-RekitEnvTruthy {
 
 function Test-RekitGoDefaultDelegationCommand {
   param([string]$Name)
-  return (@('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','plan-subagents') -contains $Name)
+  return (@('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile','plan-subagents') -contains $Name)
 }
 
 function Test-RekitNoPowerShellFallbackCommand {
   param([string]$Name)
-  return (@('release-check','status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','plan-subagents') -contains $Name)
+  return (@('release-check','status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile','plan-subagents') -contains $Name)
 }
 
 function Test-RekitGoDelegationEnabled {
@@ -250,6 +250,18 @@ function Test-RekitGoDelegationSafe {
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
       return ([string]::IsNullOrWhiteSpace($formatValue) -or @('json','text','table','tsv') -contains $formatValue)
     }
+    'reconcile' {
+      if ($CreateCandidates -or $Review -or $Force) { return $false }
+      if ($WhatIf -and $Apply) { return $false }
+      if ((-not $WhatIf) -and (-not $Apply)) { return $false }
+      if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+      $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
+      $caseRoot = [string]$resolved.Target
+      if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
+      if (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json'))) { return $false }
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      return ([string]::IsNullOrWhiteSpace($formatValue) -or @('json','text','table','tsv') -contains $formatValue)
+    }
     'plan-subagents' {
       if ($Apply -or $WhatIf -or $CreateCandidates -or $Review -or $Force) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
@@ -311,7 +323,7 @@ function Get-RekitGoTarget {
 function Get-RekitGoArgs {
   $goArgs = @('-Command', $Command, '-Pack', $Pack)
   $goTarget = Get-RekitGoTarget
-  if ($Command -notin @('start','handoff','continue','release-check')) { Add-RekitGoArg ([ref]$goArgs) '-Target' $goTarget }
+  if ($Command -notin @('start','handoff','continue','reconcile','release-check')) { Add-RekitGoArg ([ref]$goArgs) '-Target' $goTarget }
   $goReview = $Review.IsPresent
   if ($Command -in @('sync','update') -and (-not $Apply) -and (-not $WhatIf)) { $goReview = $true }
   if ($Command -eq 'promote' -and (-not $Apply) -and (-not $CreateCandidates) -and (-not $WhatIf)) { $goReview = $true }
@@ -323,8 +335,8 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-PacketPath' $PacketPath
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' $DiffPath
   $goFormat = $Format
-  if ($Command -in @('start','handoff','continue') -and (-not $Apply.IsPresent) -and [string]::IsNullOrWhiteSpace([string]$goFormat)) { $goFormat = 'text' }
-  if ($Command -in @('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','start','handoff','continue')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
+  if ($Command -in @('start','handoff','continue','reconcile') -and (-not $Apply.IsPresent) -and [string]::IsNullOrWhiteSpace([string]$goFormat)) { $goFormat = 'text' }
+  if ($Command -in @('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','start','handoff','continue','reconcile')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
   if ($Command -in @('attach','repair','init','bootstrap','sync','update')) { Add-RekitGoArg ([ref]$goArgs) '-ProjectName' $ProjectName }
   if ($Command -in @('init','bootstrap','sync','update')) { Add-RekitGoSwitch ([ref]$goArgs) '-Force' $Force.IsPresent }
   if ($Command -eq 'note') {
@@ -362,7 +374,7 @@ function Get-RekitGoArgs {
       Add-RekitGoArg ([ref]$goArgs) ('-' + $name) ([string]$noteValues[$name])
     }
   }
-  if ($Command -in @('start','handoff','continue')) {
+  if ($Command -in @('start','handoff','continue','reconcile')) {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
     Add-RekitGoArg ([ref]$goArgs) '-Target' ([string]$resolved.Target)
     foreach ($arg in @($resolved.Args)) {
@@ -371,6 +383,24 @@ function Get-RekitGoArgs {
       }
     }
     if ($Command -eq 'start') { Add-RekitGoSwitch ([ref]$goArgs) '-Force' $Force.IsPresent }
+  }
+  if ($Command -eq 'reconcile') {
+    $reconcileArgs = Get-RekitRemainingArgMap -Tokens $RemainingArgs
+    $reconcileValues = [ordered]@{
+      Lane = $Lane
+      InterventionId = ''
+      EventId = ''
+      Executor = ''
+      Actor = $Actor
+      Summary = $Summary
+      Reason = ''
+    }
+    foreach ($name in @($reconcileValues.Keys)) {
+      if ([string]::IsNullOrWhiteSpace([string]$reconcileValues[$name]) -and $reconcileArgs.ContainsKey($name)) { $reconcileValues[$name] = [string]$reconcileArgs[$name] }
+    }
+    foreach ($name in @($reconcileValues.Keys)) {
+      Add-RekitGoArg ([ref]$goArgs) ('-' + $name) ([string]$reconcileValues[$name])
+    }
   }
   if ($Command -eq 'gate') {
     Add-RekitGoArg ([ref]$goArgs) '-Action' $Action

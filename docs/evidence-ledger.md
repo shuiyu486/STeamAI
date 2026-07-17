@@ -135,6 +135,10 @@ packet / reviewer output 中可使用 `needs_more_evidence` 表达候选仍缺�
 }
 ```
 
+resolution 不修改历史 intervention；runtime 应追加新的 `kind=intervention`、`status=resolved`、`resolvesEventId=<source eventId>` 事件表达关闭关系。Mission brief、overview、handoff 与 `continue` blocker 判断使用 effective open projection：只有没有被 resolution event 关闭的 open/deferred intervention 才继续阻塞 lane；单纯 `target` 字段不代表 lifecycle resolution。
+
+`/rekit reconcile <lane> -InterventionId <eventId> -Apply` 是 Go-native resolution 入口：只写 case-local interventions ledger、lane events、lane.json、RESUME/checkpoint 和 board，刷新 current executor / executor generation，不执行 heavy-tool，也不写 authority/confirmed。
+
 ## Batch 模型
 
 一轮自动整理、review 或工具运行应生成 `batchId`：

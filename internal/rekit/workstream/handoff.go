@@ -622,7 +622,7 @@ func laneMissionBrief(lane Lane, facts mission.LedgerFacts) mission.Brief {
 func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts mission.LedgerFacts) {
 	laneFacts := mission.LaneFacts(facts.Facts, lane.ID)
 	gates := mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate")
-	interventions := mission.OpenEvents(laneFacts.Interventions)
+	interventions := mission.EffectiveOpenInterventions(laneFacts.Interventions)
 	openDecisions := mission.OpenDecisionItems(laneFacts)
 	fmt.Fprintln(out, "## Mission Control brief")
 	fmt.Fprintln(out)

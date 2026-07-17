@@ -564,6 +564,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"start",
 		"handoff",
 		"continue",
+		"reconcile",
 		"plan-subagents",
 	})
 	assertSameStringSet(t, "documented Go-default facade commands", expectedDefaultCommands, "Test-RekitGoDefaultDelegationCommand", defaultCommands)
@@ -585,7 +586,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 
 	for _, required := range []string{
 		"if ($Command -eq 'release-check' -and -not [string]::IsNullOrWhiteSpace($Target)) { return $false }",
-		"if ($Command -notin @('start','handoff','continue','release-check'))",
+		"if ($Command -notin @('start','handoff','continue','reconcile','release-check'))",
 		"implemented by the Go backend only",
 		"Test-RekitNoPowerShellFallbackCommand",
 		"PowerShell fallback has been retired",
@@ -606,6 +607,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"| `gate -WhatIf` / `gate -Apply` pending-gate | Go default | façade delegate + no PowerShell fallback |",
 		"| `start` / `handoff` preview/apply/text/default | Go default | façade delegate + no PowerShell fallback |",
 		"| `continue -WhatIf` / explicit `continue -Apply` text/JSON | Go default | façade delegate + no PowerShell fallback |",
+		"| `reconcile -WhatIf` / explicit `reconcile -Apply` | Go default | façade delegate + no PowerShell fallback |",
 		"| `plan-subagents` review artifacts | Go default | façade delegate + no PowerShell fallback |",
 		"Legacy freeze",
 		"PowerShell 只允许 bug fix / compatibility / safety boundary 修复",

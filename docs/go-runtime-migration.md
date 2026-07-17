@@ -247,15 +247,16 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 - attached case 的 `note -List` 文本/table/tsv 与 `note -List -Format json` 只读 ledger event 查询，以及 `note` append / `note -WhatIf` ledger event JSON envelope（只写 facts JSONL 或 preview，不写 authority/confirmed）；
 - `gate -WhatIf` 非写入 heavy-tool gate preview 与 `gate -Apply` pending-gate request ledger 写入；
 - attached case 的 `start -WhatIf -Format json` 非写入 preview、`start -Apply` lane scaffold 写入、`handoff -WhatIf -Format json` 非写入 preview 与 `handoff -Apply` handoff 文件写入；
-- attached case 的 `continue -WhatIf -Format json` 非写入 preview 与 explicit `continue -Apply` case-local facts/routing/run digest/lane resume/checkpoint/board 写入；
+- attached case 的 `continue -WhatIf -Format json` 非写入 preview 与 explicit `continue -Apply` case-local facts/routing/run digest/lane resume/checkpoint/board 写入；存在 effective open intervention 时 fail-closed，要求先 reconcile；
 - case lifecycle `attach`、`repair`、`init/bootstrap` 预览与显式 `-Apply`；
 - `/rekit sync` review、`sync -Apply` 实际写入与 `sync -Apply -WhatIf -Format json` 非写入 preview；
 - `/rekit promote` review、review artifact 写入、`promote -CreateCandidates` 实际候选写入、`promote -CreateCandidates -WhatIf -Format json` 非写入 preview、`promote -Apply` 实际 pack source 写入与 `promote -Apply -WhatIf -Format json` 非写入 preview；
+- `reconcile -WhatIf` / `reconcile -Apply` 显式关闭 lane-local effective open intervention，写 append-only resolution event 并刷新 lane executor/resume/checkpoint/board，不写 authority/confirmed、不执行 heavy-tool；
 - `plan-subagents` review artifact 写入：只生成 packet / summary / combined diff 路径，不自动 spawn reviewer。
 
 `REKIT_GO_ENABLE=1` 保留为兼容开关；当前 documented safe set 已默认开放，后续若新增 preview/review 扩展集合可继续用它灰度。
 
-不委托：实际 heavy-tool 执行、无 `-Apply` 的工作线文本 workflow、authority/confirmed 写入和非 note/gate/continue apply 的其它 ledger 写入命令。文本 `sync -Apply -WhatIf` 已随 Batch 228 进入 no-fallback guard；文本 promote what-if 已随 Batch 229 进入 no-fallback guard；case lifecycle fallback 已随 Batch 230 进入 no-fallback guard。公共 `/rekit` 入口继续由 PowerShell 处理工作线文本命令、仍未退休的 legacy fallback 和未迁移写入路径。
+不委托：实际 heavy-tool 执行、authority/confirmed 写入和非 note/gate/continue/reconcile apply 的其它 ledger 写入命令。文本 `sync -Apply -WhatIf` 已随 Batch 228 进入 no-fallback guard；文本 promote what-if 已随 Batch 229 进入 no-fallback guard；case lifecycle fallback 已随 Batch 230 进入 no-fallback guard，workstream 文本/default fallback 已随 Batch 232 退休。公共 `/rekit` PowerShell façade 只负责兼容入口、Go delegation 和 no-fallback guard，不再承载默认业务 runtime。
 
 ## 验证矩阵
 

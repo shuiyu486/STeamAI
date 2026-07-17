@@ -225,7 +225,7 @@ func buildOverviewSections(facts factSet) OverviewSections {
 			pendingGates = append(pendingGates, request)
 		}
 	}
-	openInterventions := openStatusEvents(facts.Interventions)
+	openInterventions := mission.EffectiveOpenInterventions(facts.Interventions)
 	return OverviewSections{
 		OpenCandidates:    newEventSection(openCandidates),
 		PendingGates:      newEventSection(pendingGates),

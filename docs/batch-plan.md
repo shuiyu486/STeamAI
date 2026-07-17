@@ -10054,3 +10054,37 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 329：Go-native durable lane reconcile and executor takeover
+
+状态：已完成。
+
+目标：继续 Stage 5 workstream / ledger / gate / continue Go 化，并直接补齐 Lane-centric Mission Control 的 Human-in-the-Lane reconcile 缺口：当用户打断、纠错、改向或硬切 lane executor 后，runtime 必须能用 append-only ledger resolution 显式关闭 intervention，让同一 durable lane 被新 executor 安全接手；在 reconcile 前，`continue` 必须 fail-closed，避免旧上下文继续写 facts/run/board/resume。
+
+实施范围：
+
+- 新增 Go public command `reconcile`，纳入 `internal/rekit/commands` catalog / symbol / profile / release inventory；public command surface 从 19 扩展到 20，profile summary 更新为 `total=20 readOnly=5 mutating=15 writesCase=14 writesKit=1 reviewFirst=3 applyRequired=12 heavyTool=0 authorityConfirmed=0`，`case-local-apply` 新增 `reconcile`。
+- 新增 append-only intervention lifecycle projection：只把 `status=resolved|superseded|accepted|confirmed` 且带 `resolvesEventId` 的 event 视作 resolution；单纯 `target` 不关闭源 intervention。`overview`、handoff、Mission Control brief 与 lane resume/checkpoint 均使用 effective open interventions。
+- 新增 `reconcile -WhatIf/-Apply` Go runtime：显式选择 lane 与 intervention，预览/写入 `.rekit/facts/interventions.jsonl` resolution event、lane-local `intervention-reconciled` / `executor-takeover` events、lane executor generation/current executor/last reconcile state、RESUME/checkpoint 与 board refresh；不执行 heavy-tool、不写 authority/confirmed。
+- 更新 `continue -WhatIf/-Apply`：若目标 lane 仍有 effective open intervention，返回 `blocked=true` / `reconcileRequired=true`，列出 open interventions 和 blocked actions，并在创建 run directory、读取/写入 facts、刷新 resume/checkpoint/board 之前退出。
+- 更新 PowerShell façade：`reconcile` 仅作为 Go delegation/no-fallback public façade command 透传，支持 positional lane、`-InterventionId`、`-Executor`、`-Actor`、`-Reason`、`-Summary` 与 text/json/table/tsv format guard；不新增 PowerShell business runtime logic。
+- 更新 canonical `/rekit` skill、README、CLAUDE、evidence ledger、Agent Team usage、PowerShell deprecation、Go runtime migration、Go-first convergence 与 release readiness 文档，记录 effective intervention projection、reconcile 行为、continue fail-closed 和 20-command public surface baseline。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不改变 sync/promote review-first，不写 authority/confirmed，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不迁移 policy schema，不写真实样本、trace、dump、capture、artifact、绝对 case 路径或 case-specific 进度；`resolvesEventId` 是 intervention lifecycle resolution 的唯一关闭信号。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/mission/brief_test.go internal/rekit/mission/interventions.go internal/rekit/workstream/start.go internal/rekit/workstream/continue.go internal/rekit/workstream/reconcile.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go internal/rekit/commands/commands.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/manifest/release_invariants_test.go
+go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli ./internal/rekit/releasecheck ./internal/rekit/manifest
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+.\rekit\tests\facade-smoke.ps1
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/mission/brief_test.go internal/rekit/mission/interventions.go internal/rekit/workstream/start.go internal/rekit/workstream/continue.go internal/rekit/workstream/reconcile.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go internal/rekit/commands/commands.go internal/rekit/commands/commands_test.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/manifest/release_invariants_test.go`、`go test ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`，public surface baseline 为 20 commands）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go vet ./...`、`git diff --check` 与 `.\rekit\tests\facade-smoke.ps1`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error。

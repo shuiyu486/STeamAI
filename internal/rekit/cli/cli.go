@@ -56,6 +56,7 @@ type Options struct {
 	Start            workstream.StartOptions
 	Handoff          workstream.HandoffOptions
 	Continue         workstream.ContinueOptions
+	Reconcile        workstream.ReconcileOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -140,6 +141,7 @@ func Parse(args []string) (Options, error) {
 			opt.Gate.Lane = args[i]
 			opt.Note.Lane = args[i]
 			opt.Continue.Selector = args[i]
+			opt.Reconcile.Selector = args[i]
 		case "-Kind", "--kind":
 			i++
 			if i >= len(args) {
@@ -170,6 +172,7 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -Reason")
 			}
 			opt.Note.Reason = args[i]
+			opt.Reconcile.Reason = args[i]
 		case "-Status", "--status":
 			i++
 			if i >= len(args) {
@@ -212,6 +215,19 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -EventId")
 			}
 			opt.Note.EventID = args[i]
+			opt.Reconcile.InterventionID = args[i]
+		case "-InterventionId", "--intervention-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -InterventionId")
+			}
+			opt.Reconcile.InterventionID = args[i]
+		case "-Executor", "--executor":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Executor")
+			}
+			opt.Reconcile.Executor = args[i]
 		case "-Subject", "--subject":
 			i++
 			if i >= len(args) {
@@ -226,6 +242,7 @@ func Parse(args []string) (Options, error) {
 			}
 			opt.Gate.Summary = args[i]
 			opt.Note.Summary = args[i]
+			opt.Reconcile.Summary = args[i]
 		case "-Actor", "--actor":
 			i++
 			if i >= len(args) {
@@ -233,6 +250,7 @@ func Parse(args []string) (Options, error) {
 			}
 			opt.Gate.Actor = args[i]
 			opt.Note.Actor = args[i]
+			opt.Reconcile.Actor = args[i]
 		case "-Risk", "--risk":
 			i++
 			if i >= len(args) {
@@ -350,6 +368,12 @@ func Parse(args []string) (Options, error) {
 				} else {
 					opt.Continue.Selector += "-" + args[i]
 				}
+			} else if strings.EqualFold(opt.Command, "reconcile") && args[i] != "" && args[i][0] != '-' {
+				if opt.Reconcile.Selector == "" {
+					opt.Reconcile.Selector = args[i]
+				} else {
+					opt.Reconcile.Selector += "-" + args[i]
+				}
 			}
 		}
 	}
@@ -398,6 +422,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runHandoff(ctx, opt, stdout)
 	case commands.Continue:
 		return runContinue(ctx, opt, stdout)
+	case commands.Reconcile:
+		return runReconcile(ctx, opt, stdout)
 	case commands.PlanSubagents:
 		return runPlanSubagents(ctx, opt, stdout)
 	case commands.Gate:
@@ -1061,6 +1087,41 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 	return writeHandoffText(out, result)
 }
 
+func runReconcile(ctx runtime.Context, opt Options, out io.Writer) error {
+	if !ctx.TargetProvided {
+		return fmt.Errorf("reconcile requires an explicit -Target attached case")
+	}
+	if opt.CreateCandidates || opt.Review || opt.Force {
+		return fmt.Errorf("reconcile does not support -CreateCandidates, -Review, or -Force")
+	}
+	if opt.WhatIf && opt.Apply {
+		return fmt.Errorf("reconcile cannot combine -WhatIf and -Apply")
+	}
+	if wantsReviewArtifacts(opt) {
+		return fmt.Errorf("reconcile does not support review artifact options")
+	}
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported reconcile format: %s", opt.Format)
+	}
+	if !opt.WhatIf && !opt.Apply {
+		return fmt.Errorf("reconcile write requires -Apply; use -WhatIf for preview")
+	}
+	var result workstream.ReconcileResult
+	if opt.WhatIf {
+		result, err = workstream.ReconcilePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Reconcile)
+	} else {
+		result, err = workstream.ReconcileApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Reconcile)
+	}
+	if err != nil {
+		return err
+	}
+	if format == "json" {
+		return writeJSON(out, result)
+	}
+	return writeReconcileText(out, result)
+}
+
 func runContinue(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !ctx.TargetProvided {
 		return fmt.Errorf("continue requires an explicit -Target attached case")
@@ -1155,7 +1216,39 @@ func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 	return err
 }
 
+func writeReconcileText(out io.Writer, result workstream.ReconcileResult) error {
+	if !result.Applied {
+		_, err := fmt.Fprintf(out, "would reconcile intervention: %s on lane %s\n", result.Intervention.EventID, result.Lane.ID)
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "已 reconcile intervention：%s\n", result.Intervention.EventID); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "工作线：%s\n", result.Lane.ID); err != nil {
+		return err
+	}
+	if result.Executor != "" {
+		if _, err := fmt.Fprintf(out, "executor：%s generation=%d\n", result.Executor, result.ExecutorGeneration); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(out, "继续此支线：/rekit continue %s\n", workstreamTextLabel(result.Lane))
+	return err
+}
+
 func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
+	if result.Blocked {
+		if _, err := fmt.Fprintf(out, "工作线被 intervention 阻塞：%s\n", result.Lane.ID); err != nil {
+			return err
+		}
+		for _, item := range result.OpenInterventions {
+			if _, err := fmt.Fprintf(out, "- %s | eventId=%s | status=%s\n", textFirst(item.Subject, item.Summary, item.EventID), item.EventID, item.Status); err != nil {
+				return err
+			}
+		}
+		_, err := fmt.Fprintf(out, "先执行：/rekit reconcile %s -InterventionId <eventId> -Apply\n", workstreamTextLabel(result.Lane))
+		return err
+	}
 	if _, err := fmt.Fprintf(out, "已选择工作线：%s\n", result.Lane.ID); err != nil {
 		return err
 	}
@@ -1181,6 +1274,15 @@ func workstreamTextLabel(lane workstream.Lane) string {
 		return name
 	}
 	return lane.ID
+}
+
+func textFirst(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func handoffTextSelector(result workstream.HandoffResult) string {
