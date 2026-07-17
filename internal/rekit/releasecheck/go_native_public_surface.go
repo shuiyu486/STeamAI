@@ -50,6 +50,7 @@ type GoNativePublicSurfaceCounts struct {
 	CommandProfiles             int
 	MutationBoundaries          int
 	Catalog                     GoNativePublicSurfaceCatalogCounts
+	SymbolCatalog               GoNativePublicSurfaceSymbolCatalogCounts
 	Coverage                    GoNativePublicSurfaceCoverageCounts
 	MutationBoundaryInventory   GoNativePublicSurfaceMutationBoundaryCounts
 	ProfileCatalog              GoNativePublicSurfaceProfileCatalogCounts
@@ -85,6 +86,12 @@ type GoNativePublicSurfaceCatalogCounts struct {
 	Commands   int
 	Empty      int
 	Duplicates int
+}
+
+type GoNativePublicSurfaceSymbolCatalogCounts struct {
+	Symbols       int
+	EmptySymbols  int
+	EmptyCommands int
 }
 
 type GoNativePublicSurfaceCoverageCounts struct {
@@ -210,6 +217,19 @@ func GoNativePublicSurfaceMutationBoundaryCountsFor(boundaries []string) GoNativ
 	for _, boundary := range boundaries {
 		if !commands.IsKnownMutationBoundary(boundary) {
 			counts.Unknown++
+		}
+	}
+	return counts
+}
+
+func GoNativePublicSurfaceSymbolCatalogCountsFor(symbols map[string]string) GoNativePublicSurfaceSymbolCatalogCounts {
+	counts := GoNativePublicSurfaceSymbolCatalogCounts{Symbols: len(symbols)}
+	for symbol, command := range symbols {
+		if strings.TrimSpace(symbol) == "" {
+			counts.EmptySymbols++
+		}
+		if strings.TrimSpace(command) == "" {
+			counts.EmptyCommands++
 		}
 	}
 	return counts
@@ -365,6 +385,7 @@ func goNativePublicSurfaceProfileSummaryBoundaryCountFor(counts GoNativePublicSu
 
 func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePublicSurfaceCounts {
 	catalogCounts := GoNativePublicSurfaceCatalogCountsFor(surface.Commands)
+	symbolCatalogCounts := GoNativePublicSurfaceSymbolCatalogCountsFor(surface.SymbolCommands)
 	coverageCounts := GoNativePublicSurfaceCoverageCountsFor(surface)
 	mutationBoundaryCounts := GoNativePublicSurfaceMutationBoundaryCountsFor(surface.MutationBoundaries)
 	profileCatalogCounts := GoNativePublicSurfaceProfileCatalogCountsFor(surface.CommandProfiles)
@@ -380,6 +401,7 @@ func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePubli
 		CommandProfiles:             coverageCounts.CommandProfiles,
 		MutationBoundaries:          mutationBoundaryCounts.Rows,
 		Catalog:                     catalogCounts,
+		SymbolCatalog:               symbolCatalogCounts,
 		Coverage:                    coverageCounts,
 		MutationBoundaryInventory:   mutationBoundaryCounts,
 		ProfileCatalog:              profileCatalogCounts,
@@ -542,12 +564,15 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 	for _, command := range coverageDrift.HandlerUnknown {
 		inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go CLI dispatcher exposes handler outside public command catalog: %s", command))
 	}
-	for symbol, command := range inventory.SymbolCommands {
-		if strings.TrimSpace(symbol) == "" {
-			inventory.Warnings = append(inventory.Warnings, "Go-native public command symbol catalog contains an empty symbol")
-		}
-		if strings.TrimSpace(command) == "" {
-			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command symbol %q has an empty command", symbol))
+	symbolCatalogCounts := GoNativePublicSurfaceSymbolCatalogCountsFor(inventory.SymbolCommands)
+	if symbolCatalogCounts.EmptySymbols != 0 || symbolCatalogCounts.EmptyCommands != 0 {
+		for symbol, command := range inventory.SymbolCommands {
+			if strings.TrimSpace(symbol) == "" {
+				inventory.Warnings = append(inventory.Warnings, "Go-native public command symbol catalog contains an empty symbol")
+			}
+			if strings.TrimSpace(command) == "" {
+				inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command symbol %q has an empty command", symbol))
+			}
 		}
 	}
 	for _, command := range coverageDrift.SymbolMissing {
@@ -724,8 +749,8 @@ func goNativePublicSurfaceFacadeRemovalPrerequisites(inventory GoNativePublicSur
 		},
 		{
 			Name:    "catalog-handler-symbol-profile-coverage",
-			Ready:   counts.Catalog.Commands > 0 && counts.Catalog.Empty == 0 && counts.Catalog.Duplicates == 0 && counts.Coverage.HandlerCommands == counts.Catalog.Commands && counts.Coverage.SymbolCommands == counts.Catalog.Commands && counts.Coverage.ProfileCommands == counts.Catalog.Commands && counts.Coverage.CommandProfiles == counts.Catalog.Commands && counts.Coverage.HandlerMissing == 0 && counts.Coverage.HandlerUnknown == 0 && counts.Coverage.SymbolMissing == 0 && counts.Coverage.SymbolUnknown == 0 && counts.Coverage.ProfileMissing == 0 && counts.Coverage.ProfileUnknown == 0,
-			Summary: fmt.Sprintf("commands=%d handlers=%d symbols=%d profiles=%d", counts.Catalog.Commands, counts.Coverage.HandlerCommands, counts.Coverage.SymbolCommands, counts.Coverage.CommandProfiles),
+			Ready:   counts.Catalog.Commands > 0 && counts.Catalog.Empty == 0 && counts.Catalog.Duplicates == 0 && counts.SymbolCatalog.Symbols == counts.Catalog.Commands && counts.SymbolCatalog.EmptySymbols == 0 && counts.SymbolCatalog.EmptyCommands == 0 && counts.Coverage.HandlerCommands == counts.Catalog.Commands && counts.Coverage.SymbolCommands == counts.Catalog.Commands && counts.Coverage.ProfileCommands == counts.Catalog.Commands && counts.Coverage.CommandProfiles == counts.Catalog.Commands && counts.Coverage.HandlerMissing == 0 && counts.Coverage.HandlerUnknown == 0 && counts.Coverage.SymbolMissing == 0 && counts.Coverage.SymbolUnknown == 0 && counts.Coverage.ProfileMissing == 0 && counts.Coverage.ProfileUnknown == 0,
+			Summary: fmt.Sprintf("commands=%d handlers=%d symbols=%d profiles=%d", counts.Catalog.Commands, counts.Coverage.HandlerCommands, counts.SymbolCatalog.Symbols, counts.Coverage.CommandProfiles),
 		},
 		{
 			Name:    "mutation-boundary-inventory",

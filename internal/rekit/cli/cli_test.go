@@ -699,7 +699,7 @@ func assertReleaseCheckGoNativePublicSurface(t *testing.T, surface struct {
 			t.Fatalf("Go-native public command %s missing from catalog or handler coverage: %+v", command, surface)
 		}
 	}
-	if surface.SymbolCommands["PlanSubagents"] != "plan-subagents" || surface.SymbolCommands["ReleaseCheck"] != "release-check" {
+	if surfaceCounts.SymbolCatalog.Symbols != 19 || surfaceCounts.SymbolCatalog.EmptySymbols != 0 || surfaceCounts.SymbolCatalog.EmptyCommands != 0 || surface.SymbolCommands["PlanSubagents"] != "plan-subagents" || surface.SymbolCommands["ReleaseCheck"] != "release-check" {
 		t.Fatalf("Go-native public symbol catalog drifted: %+v", surface.SymbolCommands)
 	}
 	profiles := map[string]commands.PublicProfile{}

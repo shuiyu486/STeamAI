@@ -134,7 +134,7 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 			t.Fatalf("Go-native public command %s missing from catalog or handler coverage: %+v", command, inventory)
 		}
 	}
-	if inventory.SymbolCommands["PlanSubagents"] != "plan-subagents" || inventory.SymbolCommands["ReleaseCheck"] != "release-check" {
+	if surfaceCounts.SymbolCatalog.Symbols != 19 || surfaceCounts.SymbolCatalog.EmptySymbols != 0 || surfaceCounts.SymbolCatalog.EmptyCommands != 0 || inventory.SymbolCommands["PlanSubagents"] != "plan-subagents" || inventory.SymbolCommands["ReleaseCheck"] != "release-check" {
 		t.Fatalf("Go-native public symbol catalog drifted: %+v", inventory.SymbolCommands)
 	}
 	profiles := map[string]commands.PublicProfile{}
