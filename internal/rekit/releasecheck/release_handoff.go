@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 )
 
@@ -173,16 +172,7 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			Name:    "Go-native public surface",
 			Ready:   check.GoNativePublicSurface.Ready,
 			Summary: check.GoNativePublicSurface.Summary,
-			Details: []string{
-				fmt.Sprintf("entrypoint=%s present=%t catalog=%s catalogPresent=%t", check.GoNativePublicSurface.Entrypoint, check.GoNativePublicSurface.EntrypointPresent, check.GoNativePublicSurface.CommandCatalogPath, check.GoNativePublicSurface.CommandCatalogPresent),
-				fmt.Sprintf("default=%s commands=%d handlers=%d symbols=%d profiles=%d boundaries=%d alternative=%s", check.GoNativePublicSurface.DefaultCommand, len(check.GoNativePublicSurface.Commands), len(check.GoNativePublicSurface.HandlerCommands), len(check.GoNativePublicSurface.SymbolCommands), len(check.GoNativePublicSurface.CommandProfiles), len(check.GoNativePublicSurface.MutationBoundaries), check.GoNativePublicSurface.AlternativePattern),
-				fmt.Sprintf("profileSummary total=%d readOnly=%d mutating=%d writesCase=%d writesKit=%d reviewFirst=%d applyRequired=%d heavyTool=%d authorityConfirmed=%d", check.GoNativePublicSurface.CommandProfileSummary.Total, check.GoNativePublicSurface.CommandProfileSummary.ReadOnly, check.GoNativePublicSurface.CommandProfileSummary.Mutating, check.GoNativePublicSurface.CommandProfileSummary.WritesCase, check.GoNativePublicSurface.CommandProfileSummary.WritesKit, check.GoNativePublicSurface.CommandProfileSummary.ReviewFirst, check.GoNativePublicSurface.CommandProfileSummary.ApplyRequired, check.GoNativePublicSurface.CommandProfileSummary.HeavyTool, check.GoNativePublicSurface.CommandProfileSummary.AuthorityConfirmed),
-				fmt.Sprintf("profileGroups readOnly=%s reviewFirst=%s writesKit=%s", strings.Join(check.GoNativePublicSurface.CommandProfileGroups.ReadOnly, ","), strings.Join(check.GoNativePublicSurface.CommandProfileGroups.ReviewFirst, ","), strings.Join(check.GoNativePublicSurface.CommandProfileGroups.WritesKit, ",")),
-				fmt.Sprintf("profileBoundaries rows=%d caseLocalApply=%s kitReviewFirst=%s readOnly=%s", len(check.GoNativePublicSurface.CommandProfileBoundaries), strings.Join(check.GoNativePublicSurface.CommandProfileGroups.ByBoundary["case-local-apply"], ","), strings.Join(check.GoNativePublicSurface.CommandProfileGroups.ByBoundary["kit-review-first"], ","), strings.Join(check.GoNativePublicSurface.CommandProfileGroups.ByBoundary["read-only"], ",")),
-				fmt.Sprintf("profilePolicies rows=%d violations=%d", len(check.GoNativePublicSurface.CommandProfilePolicies), commands.PublicProfilePolicyViolationCount(check.GoNativePublicSurface.CommandProfilePolicies)),
-				fmt.Sprintf("facadeRemovalReady=%t prerequisites=%d", check.GoNativePublicSurface.FacadeRemovalReady, len(check.GoNativePublicSurface.FacadeRemovalPrerequisites)),
-				fmt.Sprintf("unsupportedDiagnostic=%t", check.GoNativePublicSurface.UnsupportedCommandDiagnosticPresent),
-			},
+			Details: goNativePublicSurfaceHandoffDetails(check.GoNativePublicSurface),
 		},
 		{
 			Name:    "public facade removal prerequisites",

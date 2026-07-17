@@ -43,6 +43,70 @@ type GoNativePublicSurfacePrerequisite struct {
 	Summary string `json:"summary"`
 }
 
+type GoNativePublicSurfaceCounts struct {
+	Commands                int
+	HandlerCommands         int
+	SymbolCommands          int
+	CommandProfiles         int
+	MutationBoundaries      int
+	BoundaryRows            int
+	PolicyRows              int
+	PolicyViolations        int
+	FacadePrerequisites     int
+	ReadOnly                int
+	Mutating                int
+	WritesCase              int
+	WritesKit               int
+	ReviewFirst             int
+	ApplyRequired           int
+	HeavyTool               int
+	AuthorityConfirmed      int
+	CaseLocalApplyCommands  int
+	CaseLocalReviewCommands int
+	KitReviewFirstCommands  int
+	ReadOnlyCommands        int
+}
+
+func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePublicSurfaceCounts {
+	return GoNativePublicSurfaceCounts{
+		Commands:                len(surface.Commands),
+		HandlerCommands:         len(surface.HandlerCommands),
+		SymbolCommands:          len(surface.SymbolCommands),
+		CommandProfiles:         len(surface.CommandProfiles),
+		MutationBoundaries:      len(surface.MutationBoundaries),
+		BoundaryRows:            len(surface.CommandProfileBoundaries),
+		PolicyRows:              len(surface.CommandProfilePolicies),
+		PolicyViolations:        commands.PublicProfilePolicyViolationCount(surface.CommandProfilePolicies),
+		FacadePrerequisites:     len(surface.FacadeRemovalPrerequisites),
+		ReadOnly:                surface.CommandProfileSummary.ReadOnly,
+		Mutating:                surface.CommandProfileSummary.Mutating,
+		WritesCase:              surface.CommandProfileSummary.WritesCase,
+		WritesKit:               surface.CommandProfileSummary.WritesKit,
+		ReviewFirst:             surface.CommandProfileSummary.ReviewFirst,
+		ApplyRequired:           surface.CommandProfileSummary.ApplyRequired,
+		HeavyTool:               surface.CommandProfileSummary.HeavyTool,
+		AuthorityConfirmed:      surface.CommandProfileSummary.AuthorityConfirmed,
+		CaseLocalApplyCommands:  len(surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalApply]),
+		CaseLocalReviewCommands: len(surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalReviewFirst]),
+		KitReviewFirstCommands:  len(surface.CommandProfileGroups.ByBoundary[commands.BoundaryKitReviewFirst]),
+		ReadOnlyCommands:        len(surface.CommandProfileGroups.ReadOnly),
+	}
+}
+
+func goNativePublicSurfaceHandoffDetails(surface GoNativePublicSurface) []string {
+	counts := GoNativePublicSurfaceCountsFor(surface)
+	return []string{
+		fmt.Sprintf("entrypoint=%s present=%t catalog=%s catalogPresent=%t", surface.Entrypoint, surface.EntrypointPresent, surface.CommandCatalogPath, surface.CommandCatalogPresent),
+		fmt.Sprintf("default=%s commands=%d handlers=%d symbols=%d profiles=%d boundaries=%d alternative=%s", surface.DefaultCommand, counts.Commands, counts.HandlerCommands, counts.SymbolCommands, counts.CommandProfiles, counts.MutationBoundaries, surface.AlternativePattern),
+		fmt.Sprintf("profileSummary total=%d readOnly=%d mutating=%d writesCase=%d writesKit=%d reviewFirst=%d applyRequired=%d heavyTool=%d authorityConfirmed=%d", surface.CommandProfileSummary.Total, counts.ReadOnly, counts.Mutating, counts.WritesCase, counts.WritesKit, counts.ReviewFirst, counts.ApplyRequired, counts.HeavyTool, counts.AuthorityConfirmed),
+		fmt.Sprintf("profileGroups readOnly=%s reviewFirst=%s writesKit=%s", strings.Join(surface.CommandProfileGroups.ReadOnly, ","), strings.Join(surface.CommandProfileGroups.ReviewFirst, ","), strings.Join(surface.CommandProfileGroups.WritesKit, ",")),
+		fmt.Sprintf("profileBoundaries rows=%d caseLocalApply=%s kitReviewFirst=%s readOnly=%s", counts.BoundaryRows, strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalApply], ","), strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryKitReviewFirst], ","), strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryReadOnly], ",")),
+		fmt.Sprintf("profilePolicies rows=%d violations=%d", counts.PolicyRows, counts.PolicyViolations),
+		fmt.Sprintf("facadeRemovalReady=%t prerequisites=%d", surface.FacadeRemovalReady, counts.FacadePrerequisites),
+		fmt.Sprintf("unsupportedDiagnostic=%t", surface.UnsupportedCommandDiagnosticPresent),
+	}
+}
+
 func goNativePublicSurface(repo string) GoNativePublicSurface {
 	const catalogPath = "internal/rekit/commands/commands.go"
 	inventory := GoNativePublicSurface{
@@ -224,7 +288,7 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile policy row drifted: %s", policy.Policy))
 		}
 	}
-	if commands.PublicProfilePolicyViolationCount(inventory.CommandProfilePolicies) != 0 {
+	if GoNativePublicSurfaceCountsFor(inventory).PolicyViolations != 0 {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile policy rows contain violations")
 	}
 	for _, policy := range inventory.CommandProfilePolicies {
@@ -258,6 +322,7 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 }
 
 func goNativePublicSurfaceFacadeRemovalPrerequisites(inventory GoNativePublicSurface) []GoNativePublicSurfacePrerequisite {
+	counts := GoNativePublicSurfaceCountsFor(inventory)
 	return []GoNativePublicSurfacePrerequisite{
 		{
 			Name:    "entrypoint",
@@ -266,18 +331,18 @@ func goNativePublicSurfaceFacadeRemovalPrerequisites(inventory GoNativePublicSur
 		},
 		{
 			Name:    "catalog-handler-symbol-profile-coverage",
-			Ready:   len(inventory.Commands) > 0 && len(inventory.HandlerCommands) == len(inventory.Commands) && len(inventory.SymbolCommands) == len(inventory.Commands) && len(inventory.CommandProfiles) == len(inventory.Commands),
-			Summary: fmt.Sprintf("commands=%d handlers=%d symbols=%d profiles=%d", len(inventory.Commands), len(inventory.HandlerCommands), len(inventory.SymbolCommands), len(inventory.CommandProfiles)),
+			Ready:   counts.Commands > 0 && counts.HandlerCommands == counts.Commands && counts.SymbolCommands == counts.Commands && counts.CommandProfiles == counts.Commands,
+			Summary: fmt.Sprintf("commands=%d handlers=%d symbols=%d profiles=%d", counts.Commands, counts.HandlerCommands, counts.SymbolCommands, counts.CommandProfiles),
 		},
 		{
 			Name:    "mutation-boundary-inventory",
-			Ready:   len(inventory.MutationBoundaries) > 0 && len(inventory.CommandProfileBoundaries) == len(inventory.MutationBoundaries) && inventory.CommandProfileSummary.Total == len(inventory.Commands),
-			Summary: fmt.Sprintf("boundaries=%d rows=%d profileTotal=%d", len(inventory.MutationBoundaries), len(inventory.CommandProfileBoundaries), inventory.CommandProfileSummary.Total),
+			Ready:   counts.MutationBoundaries > 0 && counts.BoundaryRows == counts.MutationBoundaries && inventory.CommandProfileSummary.Total == counts.Commands,
+			Summary: fmt.Sprintf("boundaries=%d rows=%d profileTotal=%d", counts.MutationBoundaries, counts.BoundaryRows, inventory.CommandProfileSummary.Total),
 		},
 		{
 			Name:    "profile-policy-guards",
-			Ready:   len(inventory.CommandProfilePolicies) > 0 && commands.PublicProfilePolicyViolationCount(inventory.CommandProfilePolicies) == 0 && inventory.CommandProfileSummary.HeavyTool == 0 && inventory.CommandProfileSummary.AuthorityConfirmed == 0,
-			Summary: fmt.Sprintf("policies=%d violations=%d heavyTool=%d authorityConfirmed=%d", len(inventory.CommandProfilePolicies), commands.PublicProfilePolicyViolationCount(inventory.CommandProfilePolicies), inventory.CommandProfileSummary.HeavyTool, inventory.CommandProfileSummary.AuthorityConfirmed),
+			Ready:   counts.PolicyRows > 0 && counts.PolicyViolations == 0 && counts.HeavyTool == 0 && counts.AuthorityConfirmed == 0,
+			Summary: fmt.Sprintf("policies=%d violations=%d heavyTool=%d authorityConfirmed=%d", counts.PolicyRows, counts.PolicyViolations, counts.HeavyTool, counts.AuthorityConfirmed),
 		},
 		{
 			Name:    "unsupported-command-diagnostic",
