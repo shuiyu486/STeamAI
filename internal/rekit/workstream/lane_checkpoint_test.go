@@ -1,0 +1,74 @@
+package workstream
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+)
+
+func TestLaneCheckpointJSONContract(t *testing.T) {
+	checkpoint := laneCheckpoint{
+		SchemaVersion: 1,
+		Lane:          "main",
+		Status:        "open",
+		Workspace:     "workspace/main/main",
+		AutonomyProfile: autonomy.Summary{
+			Mode:  autonomy.ModeManualGate,
+			Ready: true,
+		},
+		MissionBrief: mission.Brief{
+			Summary:          "openLanes=1 ready=0 blocked=1 pendingGates=0 authorizedGates=1 openDecisions=1 interventions=0",
+			BlockedLanes:     []string{"main (open-decision)"},
+			AuthorizedGates:  []string{"authorized debug | auth=preauthorized"},
+			OpenDecisions:    []string{"candidate: review candidate"},
+			NextAgentActions: []string{"review open candidate/decision item(s) with evidence and authority boundary"},
+		},
+		ExecutorAction: laneExecutorAction{
+			Blocked:              true,
+			BlockerReasons:       []string{"open-decision"},
+			OpenDecisionRequired: true,
+			ResumeCommand:        "/rekit continue main",
+			HandoffCommand:       "/rekit handoff main",
+		},
+		PendingGates:      []string{},
+		AuthorizedGates:   []string{"authorized debug | auth=preauthorized"},
+		OpenInterventions: []InterventionSummary{},
+		Inbox:             2,
+		Tasks:             3,
+		UpdatedAt:         "2026-01-01T00:00:00Z",
+		Resume:            ".rekit/lanes/main/prompts/RESUME.md",
+	}
+	encoded, err := json.Marshal(checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		SchemaVersion int `json:"schemaVersion"`
+		MissionBrief  struct {
+			AuthorizedGates []string `json:"authorizedGates"`
+			OpenDecisions   []string `json:"openDecisions"`
+		} `json:"missionBrief"`
+		ExecutorAction struct {
+			Blocked              bool     `json:"blocked"`
+			BlockerReasons       []string `json:"blockerReasons"`
+			OpenDecisionRequired bool     `json:"openDecisionRequired"`
+			ResumeCommand        string   `json:"resumeCommand"`
+		} `json:"executorAction"`
+		AuthorizedGates []string `json:"authorizedGates"`
+		Resume          string   `json:"resume"`
+	}
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("lane checkpoint json did not decode: %v\n%s", err, string(encoded))
+	}
+	if decoded.SchemaVersion != 1 || len(decoded.MissionBrief.AuthorizedGates) != 1 || len(decoded.MissionBrief.OpenDecisions) != 1 {
+		t.Fatalf("checkpoint mission brief contract drifted: %+v", decoded.MissionBrief)
+	}
+	if !decoded.ExecutorAction.Blocked || !decoded.ExecutorAction.OpenDecisionRequired || decoded.ExecutorAction.ResumeCommand != "/rekit continue main" || len(decoded.ExecutorAction.BlockerReasons) != 1 {
+		t.Fatalf("checkpoint executor action contract drifted: %+v", decoded.ExecutorAction)
+	}
+	if len(decoded.AuthorizedGates) != 1 || decoded.Resume != ".rekit/lanes/main/prompts/RESUME.md" {
+		t.Fatalf("checkpoint shortcut fields drifted: %+v", decoded)
+	}
+}

@@ -111,6 +111,27 @@ type laneExecutorAction struct {
 	Escalations          []string `json:"escalations"`
 }
 
+type laneCheckpoint struct {
+	SchemaVersion              int                   `json:"schemaVersion"`
+	Lane                       string                `json:"lane"`
+	Status                     string                `json:"status"`
+	Workspace                  string                `json:"workspace"`
+	CurrentExecutor            string                `json:"currentExecutor"`
+	ExecutorGeneration         int                   `json:"executorGeneration"`
+	LastReconciledIntervention string                `json:"lastReconciledIntervention"`
+	LastReconcileAt            string                `json:"lastReconcileAt"`
+	AutonomyProfile            autonomy.Summary      `json:"autonomyProfile"`
+	MissionBrief               mission.Brief         `json:"missionBrief"`
+	ExecutorAction             laneExecutorAction    `json:"executorAction"`
+	PendingGates               []string              `json:"pendingGates"`
+	AuthorizedGates            []string              `json:"authorizedGates"`
+	OpenInterventions          []InterventionSummary `json:"openInterventions"`
+	Inbox                      int                   `json:"inbox"`
+	Tasks                      int                   `json:"tasks"`
+	UpdatedAt                  string                `json:"updatedAt"`
+	Resume                     string                `json:"resume"`
+}
+
 type board = mission.Board
 
 type boardLane = mission.BoardLane
@@ -635,7 +656,26 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		return "", "", err
 	}
 	checkpointPath := filepath.Join(laneRoot, "checkpoints", "latest.json")
-	checkpoint := map[string]any{"schemaVersion": 1, "lane": lane.ID, "status": lane.Status, "workspace": lane.Workspace, "currentExecutor": lane.CurrentExecutor, "executorGeneration": lane.ExecutorGeneration, "lastReconciledIntervention": lane.LastReconciledIntervention, "lastReconcileAt": lane.LastReconcileAt, "autonomyProfile": autonomySummary, "missionBrief": brief, "executorAction": executorAction, "pendingGates": pendingGateLines, "authorizedGates": authorizedGateLines, "openInterventions": openInterventions, "inbox": len(inbox), "tasks": len(tasks), "updatedAt": time.Now().UTC().Format(time.RFC3339Nano), "resume": relativePath(caseRoot, resumePath)}
+	checkpoint := laneCheckpoint{
+		SchemaVersion:              1,
+		Lane:                       lane.ID,
+		Status:                     lane.Status,
+		Workspace:                  lane.Workspace,
+		CurrentExecutor:            lane.CurrentExecutor,
+		ExecutorGeneration:         lane.ExecutorGeneration,
+		LastReconciledIntervention: lane.LastReconciledIntervention,
+		LastReconcileAt:            lane.LastReconcileAt,
+		AutonomyProfile:            autonomySummary,
+		MissionBrief:               brief,
+		ExecutorAction:             executorAction,
+		PendingGates:               pendingGateLines,
+		AuthorizedGates:            authorizedGateLines,
+		OpenInterventions:          openInterventions,
+		Inbox:                      len(inbox),
+		Tasks:                      len(tasks),
+		UpdatedAt:                  time.Now().UTC().Format(time.RFC3339Nano),
+		Resume:                     relativePath(caseRoot, resumePath),
+	}
 	if err := writeJSON(checkpointPath, checkpoint); err != nil {
 		return "", "", err
 	}

@@ -10246,3 +10246,35 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/workstream/start.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。
+
+### Batch 335：Go-native typed lane checkpoint contract
+
+状态：已完成。
+
+目标：继续 Stage 5 workstream / ledger / gate / continue Go 化，在 Batch 333/334 的 lane-local `missionBrief` 与 `executorAction` 基础上，把 `checkpoints/latest.json` 从 inline map 写入收敛为 typed Go schema。这样 durable executor handoff 的核心字段（Mission Control brief、executor action shortcut、pending/authorized gate shortcut、intervention summary、计数与 resume path）不会因为后续修改 inline map 而静默漂移或遗漏。
+
+实施范围：
+
+- 新增 typed `laneCheckpoint` struct：显式声明 `schemaVersion`、lane/status/workspace、executor metadata、autonomy profile、`missionBrief`、`executorAction`、pending/authorized gates、open interventions、inbox/tasks counts、updatedAt 与 resume path。
+- 更新 `writeLaneResume`：改用 `laneCheckpoint` struct 写 `checkpoints/latest.json`，保持 JSON field names 与 Batch 333/334 contract 一致，并保留空 executor metadata 字段，避免替换 executor 因字段缺失而做额外兼容判断。
+- 新增 `internal/rekit/workstream/lane_checkpoint_test.go`：用 package-level JSON contract test 锁定 checkpoint schema 中 `missionBrief`、`executorAction`、authorized gate shortcut 与 resume path 的可解码性。
+- 保持 CLI E2E：继续通过 authorized-gate + open candidate fixture 验证 continue apply 后 checkpoint 中的 `missionBrief` / `executorAction` / gate snapshot 行为。
+- 更新 README、canonical `/rekit` skill、Agent Team usage、release readiness、Go-first convergence、batch-plan 与 CHANGELOG，记录 typed checkpoint contract 与 no heavy-tool / no authority 边界。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不写 authority/confirmed，不改变 sync/promote review-first、不迁移 policy schema、不写真实样本、trace、dump、capture、artifact、绝对 case 路径或 case-specific 进度；typed checkpoint 只是稳定 lane-local handoff schema。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/workstream/start.go internal/rekit/workstream/lane_checkpoint_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneCheckpointJSONContract|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility"
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/workstream/start.go internal/rekit/workstream/lane_checkpoint_test.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneCheckpointJSONContract|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility"`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。
