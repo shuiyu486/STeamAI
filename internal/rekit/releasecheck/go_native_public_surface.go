@@ -61,13 +61,45 @@ type GoNativePublicSurfaceCounts struct {
 	ApplyRequired           int
 	HeavyTool               int
 	AuthorityConfirmed      int
+	Groups                  GoNativePublicSurfaceGroupCounts
+	Policies                GoNativePublicSurfacePolicyCounts
 	CaseLocalApplyCommands  int
 	CaseLocalReviewCommands int
 	KitReviewFirstCommands  int
 	ReadOnlyCommands        int
 }
 
+type GoNativePublicSurfaceGroupCounts struct {
+	ReadOnly                 int
+	Mutating                 int
+	WritesCase               int
+	WritesKit                int
+	ReviewFirst              int
+	ApplyRequired            int
+	HeavyTool                int
+	AuthorityConfirmed       int
+	CaseLocalAppend          int
+	CaseLocalApply           int
+	CaseLocalReadOrBootstrap int
+	CaseLocalReviewArtifact  int
+	CaseLocalReviewFirst     int
+	KitReviewFirst           int
+	BoundaryReadOnly         int
+}
+
+type GoNativePublicSurfacePolicyCounts struct {
+	Rows              int
+	Violations        int
+	ViolationCommands int
+}
+
+type GoNativePublicSurfacePolicyRowCounts struct {
+	Commands int
+}
+
 func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePublicSurfaceCounts {
+	groupCounts := GoNativePublicSurfaceGroupCountsFor(surface.CommandProfileGroups)
+	policyCounts := GoNativePublicSurfacePolicyCountsFor(surface.CommandProfilePolicies)
 	return GoNativePublicSurfaceCounts{
 		Commands:                len(surface.Commands),
 		HandlerCommands:         len(surface.HandlerCommands),
@@ -75,8 +107,8 @@ func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePubli
 		CommandProfiles:         len(surface.CommandProfiles),
 		MutationBoundaries:      len(surface.MutationBoundaries),
 		BoundaryRows:            len(surface.CommandProfileBoundaries),
-		PolicyRows:              len(surface.CommandProfilePolicies),
-		PolicyViolations:        commands.PublicProfilePolicyViolationCount(surface.CommandProfilePolicies),
+		PolicyRows:              policyCounts.Rows,
+		PolicyViolations:        policyCounts.Violations,
 		FacadePrerequisites:     len(surface.FacadeRemovalPrerequisites),
 		ReadOnly:                surface.CommandProfileSummary.ReadOnly,
 		Mutating:                surface.CommandProfileSummary.Mutating,
@@ -86,11 +118,47 @@ func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePubli
 		ApplyRequired:           surface.CommandProfileSummary.ApplyRequired,
 		HeavyTool:               surface.CommandProfileSummary.HeavyTool,
 		AuthorityConfirmed:      surface.CommandProfileSummary.AuthorityConfirmed,
-		CaseLocalApplyCommands:  len(surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalApply]),
-		CaseLocalReviewCommands: len(surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalReviewFirst]),
-		KitReviewFirstCommands:  len(surface.CommandProfileGroups.ByBoundary[commands.BoundaryKitReviewFirst]),
-		ReadOnlyCommands:        len(surface.CommandProfileGroups.ReadOnly),
+		Groups:                  groupCounts,
+		Policies:                policyCounts,
+		CaseLocalApplyCommands:  groupCounts.CaseLocalApply,
+		CaseLocalReviewCommands: groupCounts.CaseLocalReviewFirst,
+		KitReviewFirstCommands:  groupCounts.KitReviewFirst,
+		ReadOnlyCommands:        groupCounts.ReadOnly,
 	}
+}
+
+func GoNativePublicSurfaceGroupCountsFor(groups commands.PublicProfileGroups) GoNativePublicSurfaceGroupCounts {
+	return GoNativePublicSurfaceGroupCounts{
+		ReadOnly:                 len(groups.ReadOnly),
+		Mutating:                 len(groups.Mutating),
+		WritesCase:               len(groups.WritesCase),
+		WritesKit:                len(groups.WritesKit),
+		ReviewFirst:              len(groups.ReviewFirst),
+		ApplyRequired:            len(groups.ApplyRequired),
+		HeavyTool:                len(groups.HeavyTool),
+		AuthorityConfirmed:       len(groups.AuthorityConfirmed),
+		CaseLocalAppend:          len(groups.ByBoundary[commands.BoundaryCaseLocalAppend]),
+		CaseLocalApply:           len(groups.ByBoundary[commands.BoundaryCaseLocalApply]),
+		CaseLocalReadOrBootstrap: len(groups.ByBoundary[commands.BoundaryCaseLocalReadOrBootstrap]),
+		CaseLocalReviewArtifact:  len(groups.ByBoundary[commands.BoundaryCaseLocalReviewArtifact]),
+		CaseLocalReviewFirst:     len(groups.ByBoundary[commands.BoundaryCaseLocalReviewFirst]),
+		KitReviewFirst:           len(groups.ByBoundary[commands.BoundaryKitReviewFirst]),
+		BoundaryReadOnly:         len(groups.ByBoundary[commands.BoundaryReadOnly]),
+	}
+}
+
+func GoNativePublicSurfacePolicyCountsFor(policies []commands.PublicProfilePolicy) GoNativePublicSurfacePolicyCounts {
+	counts := GoNativePublicSurfacePolicyCounts{Rows: len(policies)}
+	for _, policy := range policies {
+		rowCounts := GoNativePublicSurfacePolicyRowCountsFor(policy)
+		counts.Violations += policy.ViolationCount
+		counts.ViolationCommands += rowCounts.Commands
+	}
+	return counts
+}
+
+func GoNativePublicSurfacePolicyRowCountsFor(policy commands.PublicProfilePolicy) GoNativePublicSurfacePolicyRowCounts {
+	return GoNativePublicSurfacePolicyRowCounts{Commands: len(policy.Commands)}
 }
 
 func goNativePublicSurfaceHandoffDetails(surface GoNativePublicSurface) []string {
@@ -242,7 +310,8 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile group mismatch for boundary %s", boundary))
 		}
 	}
-	if len(inventory.CommandProfileGroups.ReadOnly) != inventory.CommandProfileSummary.ReadOnly || len(inventory.CommandProfileGroups.Mutating) != inventory.CommandProfileSummary.Mutating || len(inventory.CommandProfileGroups.WritesCase) != inventory.CommandProfileSummary.WritesCase || len(inventory.CommandProfileGroups.WritesKit) != inventory.CommandProfileSummary.WritesKit || len(inventory.CommandProfileGroups.ReviewFirst) != inventory.CommandProfileSummary.ReviewFirst || len(inventory.CommandProfileGroups.ApplyRequired) != inventory.CommandProfileSummary.ApplyRequired || len(inventory.CommandProfileGroups.HeavyTool) != inventory.CommandProfileSummary.HeavyTool || len(inventory.CommandProfileGroups.AuthorityConfirmed) != inventory.CommandProfileSummary.AuthorityConfirmed {
+	groupCounts := GoNativePublicSurfaceGroupCountsFor(inventory.CommandProfileGroups)
+	if groupCounts.ReadOnly != inventory.CommandProfileSummary.ReadOnly || groupCounts.Mutating != inventory.CommandProfileSummary.Mutating || groupCounts.WritesCase != inventory.CommandProfileSummary.WritesCase || groupCounts.WritesKit != inventory.CommandProfileSummary.WritesKit || groupCounts.ReviewFirst != inventory.CommandProfileSummary.ReviewFirst || groupCounts.ApplyRequired != inventory.CommandProfileSummary.ApplyRequired || groupCounts.HeavyTool != inventory.CommandProfileSummary.HeavyTool || groupCounts.AuthorityConfirmed != inventory.CommandProfileSummary.AuthorityConfirmed {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile group counts do not match summary")
 	}
 	boundaryRows := map[string]commands.PublicProfileBoundary{}
@@ -276,7 +345,7 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile boundary rows do not cover mutation boundaries")
 	}
 	computedPolicies := commands.PublicProfilePoliciesFor(inventory.CommandProfiles)
-	if len(inventory.CommandProfilePolicies) != len(computedPolicies) {
+	if GoNativePublicSurfacePolicyCountsFor(inventory.CommandProfilePolicies).Rows != GoNativePublicSurfacePolicyCountsFor(computedPolicies).Rows {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile policy rows do not cover required policies")
 	}
 	for i, policy := range computedPolicies {
@@ -292,7 +361,8 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile policy rows contain violations")
 	}
 	for _, policy := range inventory.CommandProfilePolicies {
-		if !policy.Ready || policy.ViolationCount != 0 || len(policy.Commands) != 0 {
+		rowCounts := GoNativePublicSurfacePolicyRowCountsFor(policy)
+		if !policy.Ready || policy.ViolationCount != 0 || rowCounts.Commands != 0 {
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile policy is not ready: %s", policy.Policy))
 		}
 	}

@@ -9490,3 +9490,35 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 311：Go-native public surface nested count summary refactor
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 305-310 已把 Go-native public surface 顶层、readiness inventory、CI release gate、release-check 顶层、PowerShell deprecation 与 release handoff counts 收敛为共享 summary 后，继续减少 Go-native public surface command profile group、boundary group 与 policy violation command counts 在 readiness、releasecheck tests 与 CLI JSON assertions 中的重复 plumbing。
+
+实施范围：
+
+- 新增 `GoNativePublicSurfaceGroupCounts` 与 `GoNativePublicSurfaceGroupCountsFor`，汇总 read-only、mutating、writesCase、writesKit、reviewFirst、applyRequired、heavyTool、authorityConfirmed 与各 mutation boundary group counts。
+- 新增 `GoNativePublicSurfacePolicyCounts`、`GoNativePublicSurfacePolicyCountsFor`、`GoNativePublicSurfacePolicyRowCounts` 与 `GoNativePublicSurfacePolicyRowCountsFor`，汇总 policy rows、violation count 与 policy row command counts。
+- `GoNativePublicSurfaceCounts` 嵌入 group/policy nested summaries，同时保留既有 top-level count fields；Go-native public surface readiness、releasecheck package tests 与 CLI JSON assertions 复用共享 nested counts。
+- 仅收敛 Go-native public surface nested count plumbing，不改变 release-check JSON schema、release-check text key、public command catalog、command profile semantics、mutation boundary guardrails 或任何写入行为。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不新增或删除 release-check JSON 字段，不改变 release-check text key、`releaseHandoff.signals[]` count、public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、policy schema migration、actual heavy-tool/authority/confirmed 或外部副作用边界；raw Go CLI 仍是底层 deterministic runtime/API，不变成用户主要交互界面。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
