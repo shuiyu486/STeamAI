@@ -690,7 +690,8 @@ func assertReleaseCheckGoNativePublicSurface(t *testing.T, surface struct {
 	if !surface.Ready || surface.Summary != "Go-native public command surface inventory ok" || surface.Entrypoint != "cmd/rekit" || !surface.EntrypointPresent || surface.CommandCatalogPath != "internal/rekit/commands/commands.go" || !surface.CommandCatalogPresent || surface.DefaultCommand != "status" || surface.AlternativePattern != "go run ./cmd/rekit -- -Command <command>" || !surface.UnsupportedCommandDiagnosticPresent || surfaceCounts.Warnings != 0 {
 		t.Fatalf("unexpected Go-native public surface inventory: %+v", surface)
 	}
-	if surfaceCounts.Commands != 19 || surfaceCounts.HandlerCommands != 19 || surfaceCounts.SymbolCommands != 19 || surfaceCounts.CommandProfiles != 19 || surfaceCounts.MutationBoundaries != 7 {
+	coverageCounts := surfaceCounts.Coverage
+	if coverageCounts.Commands != 19 || coverageCounts.HandlerCommands != 19 || coverageCounts.SymbolCommands != 19 || coverageCounts.ProfileCommands != 19 || coverageCounts.CommandProfiles != 19 || coverageCounts.HandlerMissing != 0 || coverageCounts.HandlerUnknown != 0 || coverageCounts.SymbolMissing != 0 || coverageCounts.SymbolUnknown != 0 || coverageCounts.ProfileMissing != 0 || coverageCounts.ProfileUnknown != 0 || surfaceCounts.MutationBoundaries != 7 {
 		t.Fatalf("Go-native public surface command coverage omitted expected commands: %+v", surface)
 	}
 	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {

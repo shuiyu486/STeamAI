@@ -125,7 +125,8 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	if inventory.Entrypoint != "cmd/rekit" || !inventory.EntrypointPresent || inventory.CommandCatalogPath != "internal/rekit/commands/commands.go" || !inventory.CommandCatalogPresent || inventory.DefaultCommand != "status" || inventory.AlternativePattern != "go run ./cmd/rekit -- -Command <command>" || !inventory.UnsupportedCommandDiagnosticPresent {
 		t.Fatalf("unexpected Go-native public surface flags: %+v", inventory)
 	}
-	if surfaceCounts.Commands != 19 || surfaceCounts.HandlerCommands != 19 || surfaceCounts.SymbolCommands != 19 || surfaceCounts.CommandProfiles != 19 || surfaceCounts.MutationBoundaries != 7 {
+	coverageCounts := surfaceCounts.Coverage
+	if coverageCounts.Commands != 19 || coverageCounts.HandlerCommands != 19 || coverageCounts.SymbolCommands != 19 || coverageCounts.ProfileCommands != 19 || coverageCounts.CommandProfiles != 19 || coverageCounts.HandlerMissing != 0 || coverageCounts.HandlerUnknown != 0 || coverageCounts.SymbolMissing != 0 || coverageCounts.SymbolUnknown != 0 || coverageCounts.ProfileMissing != 0 || coverageCounts.ProfileUnknown != 0 || surfaceCounts.MutationBoundaries != 7 {
 		t.Fatalf("Go-native public surface omitted expected command coverage: %+v", inventory)
 	}
 	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "release-check", "repair", "start", "status", "sync", "update", "validate"} {
