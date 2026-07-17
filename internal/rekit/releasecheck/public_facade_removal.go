@@ -80,16 +80,20 @@ func PublicFacadeRemovalPlanCountsFor(plan PublicFacadeRemovalPlan) PublicFacade
 		DocumentationTargets:   len(plan.DocumentationTargets),
 	}
 	for _, entrypoint := range plan.ReplacementEntrypoints {
-		counts.ReplacementValidationCommands += len(entrypoint.ValidationCommands)
+		rowCounts := PublicFacadeRemovalReplacementEntrypointCountsFor(entrypoint)
+		counts.ReplacementValidationCommands += rowCounts.ValidationCommands
 	}
 	for _, check := range plan.BoundaryChecks {
-		counts.BoundaryValidationCommands += len(check.ValidationCommands)
+		rowCounts := PublicFacadeRemovalPlanBoundaryCheckCountsFor(check)
+		counts.BoundaryValidationCommands += rowCounts.ValidationCommands
 	}
 	for _, step := range plan.RecoverySteps {
-		counts.RecoveryValidationCommands += len(step.ValidationCommands)
+		rowCounts := PublicFacadeRemovalRecoveryStepCountsFor(step)
+		counts.RecoveryValidationCommands += rowCounts.ValidationCommands
 	}
 	for _, target := range plan.DocumentationTargets {
-		counts.DocumentationValidationCommands += len(target.ValidationCommands)
+		rowCounts := PublicFacadeRemovalDocumentationTargetCountsFor(target)
+		counts.DocumentationValidationCommands += rowCounts.ValidationCommands
 	}
 	return counts
 }
@@ -109,6 +113,14 @@ type PublicFacadeRemovalReplacementEntrypoint struct {
 	GoNativeBacked     bool     `json:"goNativeBacked"`
 	UserFacing         bool     `json:"userFacing"`
 	ValidationCommands []string `json:"validationCommands"`
+}
+
+type PublicFacadeRemovalReplacementEntrypointCounts struct {
+	ValidationCommands int
+}
+
+func PublicFacadeRemovalReplacementEntrypointCountsFor(entrypoint PublicFacadeRemovalReplacementEntrypoint) PublicFacadeRemovalReplacementEntrypointCounts {
+	return PublicFacadeRemovalReplacementEntrypointCounts{ValidationCommands: len(entrypoint.ValidationCommands)}
 }
 
 type PublicFacadeRemovalDeletionGate struct {
@@ -163,29 +175,80 @@ type PublicFacadeRemovalDeletionGateCounts struct {
 	RemediationActions            int
 }
 
+type PublicFacadeRemovalDeletionGateRowCounts struct {
+	ValidationCommands            int
+	InputInventory                int
+	ExitCriteria                  int
+	FailureSignals                int
+	EscalationTriggers            int
+	EscalationEvidence            int
+	EscalationRecipients          int
+	EscalationHandoffSteps        int
+	EscalationDecisionOptions     int
+	EscalationRetryConditions     int
+	EscalationStopConditions      int
+	EscalationResolutionArtifacts int
+	EscalationClosureChecks       int
+	EscalationReopenConditions    int
+	EscalationLedgerEvents        int
+	EscalationStateTransitions    int
+	EscalationBoundaryGuards      int
+	EscalationAuditChecks         int
+	VerificationArtifacts         int
+	BlockedExecutionSteps         int
+	RemediationActions            int
+}
+
+func PublicFacadeRemovalDeletionGateRowCountsFor(gate PublicFacadeRemovalDeletionGate) PublicFacadeRemovalDeletionGateRowCounts {
+	return PublicFacadeRemovalDeletionGateRowCounts{
+		ValidationCommands:            len(gate.ValidationCommands),
+		InputInventory:                len(gate.InputInventory),
+		ExitCriteria:                  len(gate.ExitCriteria),
+		FailureSignals:                len(gate.FailureSignals),
+		EscalationTriggers:            len(gate.EscalationTriggers),
+		EscalationEvidence:            len(gate.EscalationEvidence),
+		EscalationRecipients:          len(gate.EscalationRecipients),
+		EscalationHandoffSteps:        len(gate.EscalationHandoffSteps),
+		EscalationDecisionOptions:     len(gate.EscalationDecisionOptions),
+		EscalationRetryConditions:     len(gate.EscalationRetryConditions),
+		EscalationStopConditions:      len(gate.EscalationStopConditions),
+		EscalationResolutionArtifacts: len(gate.EscalationResolutionArtifacts),
+		EscalationClosureChecks:       len(gate.EscalationClosureChecks),
+		EscalationReopenConditions:    len(gate.EscalationReopenConditions),
+		EscalationLedgerEvents:        len(gate.EscalationLedgerEvents),
+		EscalationStateTransitions:    len(gate.EscalationStateTransitions),
+		EscalationBoundaryGuards:      len(gate.EscalationBoundaryGuards),
+		EscalationAuditChecks:         len(gate.EscalationAuditChecks),
+		VerificationArtifacts:         len(gate.VerificationArtifacts),
+		BlockedExecutionSteps:         len(gate.BlockedExecutionSteps),
+		RemediationActions:            len(gate.RemediationActions),
+	}
+}
+
 func PublicFacadeRemovalDeletionGateCountsFor(gates []PublicFacadeRemovalDeletionGate) PublicFacadeRemovalDeletionGateCounts {
 	counts := PublicFacadeRemovalDeletionGateCounts{Gates: len(gates)}
 	for _, gate := range gates {
-		counts.ValidationCommands += len(gate.ValidationCommands)
-		counts.ExitCriteria += len(gate.ExitCriteria)
-		counts.FailureSignals += len(gate.FailureSignals)
-		counts.EscalationTriggers += len(gate.EscalationTriggers)
-		counts.EscalationEvidence += len(gate.EscalationEvidence)
-		counts.EscalationRecipients += len(gate.EscalationRecipients)
-		counts.EscalationHandoffSteps += len(gate.EscalationHandoffSteps)
-		counts.EscalationDecisionOptions += len(gate.EscalationDecisionOptions)
-		counts.EscalationRetryConditions += len(gate.EscalationRetryConditions)
-		counts.EscalationStopConditions += len(gate.EscalationStopConditions)
-		counts.EscalationResolutionArtifacts += len(gate.EscalationResolutionArtifacts)
-		counts.EscalationClosureChecks += len(gate.EscalationClosureChecks)
-		counts.EscalationReopenConditions += len(gate.EscalationReopenConditions)
-		counts.EscalationLedgerEvents += len(gate.EscalationLedgerEvents)
-		counts.EscalationStateTransitions += len(gate.EscalationStateTransitions)
-		counts.EscalationBoundaryGuards += len(gate.EscalationBoundaryGuards)
-		counts.EscalationAuditChecks += len(gate.EscalationAuditChecks)
-		counts.VerificationArtifacts += len(gate.VerificationArtifacts)
-		counts.BlockedExecutionSteps += len(gate.BlockedExecutionSteps)
-		counts.RemediationActions += len(gate.RemediationActions)
+		rowCounts := PublicFacadeRemovalDeletionGateRowCountsFor(gate)
+		counts.ValidationCommands += rowCounts.ValidationCommands
+		counts.ExitCriteria += rowCounts.ExitCriteria
+		counts.FailureSignals += rowCounts.FailureSignals
+		counts.EscalationTriggers += rowCounts.EscalationTriggers
+		counts.EscalationEvidence += rowCounts.EscalationEvidence
+		counts.EscalationRecipients += rowCounts.EscalationRecipients
+		counts.EscalationHandoffSteps += rowCounts.EscalationHandoffSteps
+		counts.EscalationDecisionOptions += rowCounts.EscalationDecisionOptions
+		counts.EscalationRetryConditions += rowCounts.EscalationRetryConditions
+		counts.EscalationStopConditions += rowCounts.EscalationStopConditions
+		counts.EscalationResolutionArtifacts += rowCounts.EscalationResolutionArtifacts
+		counts.EscalationClosureChecks += rowCounts.EscalationClosureChecks
+		counts.EscalationReopenConditions += rowCounts.EscalationReopenConditions
+		counts.EscalationLedgerEvents += rowCounts.EscalationLedgerEvents
+		counts.EscalationStateTransitions += rowCounts.EscalationStateTransitions
+		counts.EscalationBoundaryGuards += rowCounts.EscalationBoundaryGuards
+		counts.EscalationAuditChecks += rowCounts.EscalationAuditChecks
+		counts.VerificationArtifacts += rowCounts.VerificationArtifacts
+		counts.BlockedExecutionSteps += rowCounts.BlockedExecutionSteps
+		counts.RemediationActions += rowCounts.RemediationActions
 	}
 	return counts
 }
@@ -249,31 +312,90 @@ type PublicFacadeRemovalExecutionStepCounts struct {
 	ValidationCommands            int
 }
 
+type PublicFacadeRemovalExecutionStepRowCounts struct {
+	DependsOn                     int
+	InputInventory                int
+	OutputArtifacts               int
+	FailureSignals                int
+	RemediationActions            int
+	VerificationArtifacts         int
+	LedgerEvents                  int
+	StateTransitions              int
+	EscalationTriggers            int
+	EscalationEvidence            int
+	EscalationRecipients          int
+	EscalationHandoffSteps        int
+	EscalationDecisionOptions     int
+	EscalationRetryConditions     int
+	EscalationStopConditions      int
+	EscalationResolutionArtifacts int
+	EscalationClosureChecks       int
+	EscalationReopenConditions    int
+	EscalationLedgerEvents        int
+	EscalationStateTransitions    int
+	EscalationBoundaryGuards      int
+	EscalationAuditChecks         int
+	BoundaryGuards                int
+	AuditChecks                   int
+	ValidationCommands            int
+}
+
+func PublicFacadeRemovalExecutionStepRowCountsFor(step PublicFacadeRemovalExecutionStep) PublicFacadeRemovalExecutionStepRowCounts {
+	return PublicFacadeRemovalExecutionStepRowCounts{
+		DependsOn:                     len(step.DependsOn),
+		InputInventory:                len(step.InputInventory),
+		OutputArtifacts:               len(step.OutputArtifacts),
+		FailureSignals:                len(step.FailureSignals),
+		RemediationActions:            len(step.RemediationActions),
+		VerificationArtifacts:         len(step.VerificationArtifacts),
+		LedgerEvents:                  len(step.LedgerEvents),
+		StateTransitions:              len(step.StateTransitions),
+		EscalationTriggers:            len(step.EscalationTriggers),
+		EscalationEvidence:            len(step.EscalationEvidence),
+		EscalationRecipients:          len(step.EscalationRecipients),
+		EscalationHandoffSteps:        len(step.EscalationHandoffSteps),
+		EscalationDecisionOptions:     len(step.EscalationDecisionOptions),
+		EscalationRetryConditions:     len(step.EscalationRetryConditions),
+		EscalationStopConditions:      len(step.EscalationStopConditions),
+		EscalationResolutionArtifacts: len(step.EscalationResolutionArtifacts),
+		EscalationClosureChecks:       len(step.EscalationClosureChecks),
+		EscalationReopenConditions:    len(step.EscalationReopenConditions),
+		EscalationLedgerEvents:        len(step.EscalationLedgerEvents),
+		EscalationStateTransitions:    len(step.EscalationStateTransitions),
+		EscalationBoundaryGuards:      len(step.EscalationBoundaryGuards),
+		EscalationAuditChecks:         len(step.EscalationAuditChecks),
+		BoundaryGuards:                len(step.BoundaryGuards),
+		AuditChecks:                   len(step.AuditChecks),
+		ValidationCommands:            len(step.ValidationCommands),
+	}
+}
+
 func PublicFacadeRemovalExecutionStepCountsFor(steps []PublicFacadeRemovalExecutionStep) PublicFacadeRemovalExecutionStepCounts {
 	counts := PublicFacadeRemovalExecutionStepCounts{Steps: len(steps)}
 	for _, step := range steps {
-		counts.FailureSignals += len(step.FailureSignals)
-		counts.RemediationActions += len(step.RemediationActions)
-		counts.VerificationArtifacts += len(step.VerificationArtifacts)
-		counts.LedgerEvents += len(step.LedgerEvents)
-		counts.StateTransitions += len(step.StateTransitions)
-		counts.EscalationTriggers += len(step.EscalationTriggers)
-		counts.EscalationEvidence += len(step.EscalationEvidence)
-		counts.EscalationRecipients += len(step.EscalationRecipients)
-		counts.EscalationHandoffSteps += len(step.EscalationHandoffSteps)
-		counts.EscalationDecisionOptions += len(step.EscalationDecisionOptions)
-		counts.EscalationRetryConditions += len(step.EscalationRetryConditions)
-		counts.EscalationStopConditions += len(step.EscalationStopConditions)
-		counts.EscalationResolutionArtifacts += len(step.EscalationResolutionArtifacts)
-		counts.EscalationClosureChecks += len(step.EscalationClosureChecks)
-		counts.EscalationReopenConditions += len(step.EscalationReopenConditions)
-		counts.EscalationLedgerEvents += len(step.EscalationLedgerEvents)
-		counts.EscalationStateTransitions += len(step.EscalationStateTransitions)
-		counts.EscalationBoundaryGuards += len(step.EscalationBoundaryGuards)
-		counts.EscalationAuditChecks += len(step.EscalationAuditChecks)
-		counts.BoundaryGuards += len(step.BoundaryGuards)
-		counts.AuditChecks += len(step.AuditChecks)
-		counts.ValidationCommands += len(step.ValidationCommands)
+		rowCounts := PublicFacadeRemovalExecutionStepRowCountsFor(step)
+		counts.FailureSignals += rowCounts.FailureSignals
+		counts.RemediationActions += rowCounts.RemediationActions
+		counts.VerificationArtifacts += rowCounts.VerificationArtifacts
+		counts.LedgerEvents += rowCounts.LedgerEvents
+		counts.StateTransitions += rowCounts.StateTransitions
+		counts.EscalationTriggers += rowCounts.EscalationTriggers
+		counts.EscalationEvidence += rowCounts.EscalationEvidence
+		counts.EscalationRecipients += rowCounts.EscalationRecipients
+		counts.EscalationHandoffSteps += rowCounts.EscalationHandoffSteps
+		counts.EscalationDecisionOptions += rowCounts.EscalationDecisionOptions
+		counts.EscalationRetryConditions += rowCounts.EscalationRetryConditions
+		counts.EscalationStopConditions += rowCounts.EscalationStopConditions
+		counts.EscalationResolutionArtifacts += rowCounts.EscalationResolutionArtifacts
+		counts.EscalationClosureChecks += rowCounts.EscalationClosureChecks
+		counts.EscalationReopenConditions += rowCounts.EscalationReopenConditions
+		counts.EscalationLedgerEvents += rowCounts.EscalationLedgerEvents
+		counts.EscalationStateTransitions += rowCounts.EscalationStateTransitions
+		counts.EscalationBoundaryGuards += rowCounts.EscalationBoundaryGuards
+		counts.EscalationAuditChecks += rowCounts.EscalationAuditChecks
+		counts.BoundaryGuards += rowCounts.BoundaryGuards
+		counts.AuditChecks += rowCounts.AuditChecks
+		counts.ValidationCommands += rowCounts.ValidationCommands
 	}
 	return counts
 }
@@ -287,6 +409,18 @@ type PublicFacadeRemovalPlanBoundaryCheck struct {
 	ValidationCommands []string `json:"validationCommands"`
 }
 
+type PublicFacadeRemovalPlanBoundaryCheckCounts struct {
+	Evidence           int
+	ValidationCommands int
+}
+
+func PublicFacadeRemovalPlanBoundaryCheckCountsFor(check PublicFacadeRemovalPlanBoundaryCheck) PublicFacadeRemovalPlanBoundaryCheckCounts {
+	return PublicFacadeRemovalPlanBoundaryCheckCounts{
+		Evidence:           len(check.Evidence),
+		ValidationCommands: len(check.ValidationCommands),
+	}
+}
+
 type PublicFacadeRemovalRecoveryStep struct {
 	Name               string   `json:"name"`
 	Action             string   `json:"action"`
@@ -295,12 +429,32 @@ type PublicFacadeRemovalRecoveryStep struct {
 	ValidationCommands []string `json:"validationCommands"`
 }
 
+type PublicFacadeRemovalRecoveryStepCounts struct {
+	Paths              int
+	ValidationCommands int
+}
+
+func PublicFacadeRemovalRecoveryStepCountsFor(step PublicFacadeRemovalRecoveryStep) PublicFacadeRemovalRecoveryStepCounts {
+	return PublicFacadeRemovalRecoveryStepCounts{
+		Paths:              len(step.Paths),
+		ValidationCommands: len(step.ValidationCommands),
+	}
+}
+
 type PublicFacadeRemovalDocumentationTarget struct {
 	Path               string   `json:"path"`
 	Purpose            string   `json:"purpose"`
 	Action             string   `json:"action"`
 	Required           bool     `json:"required"`
 	ValidationCommands []string `json:"validationCommands"`
+}
+
+type PublicFacadeRemovalDocumentationTargetCounts struct {
+	ValidationCommands int
+}
+
+func PublicFacadeRemovalDocumentationTargetCountsFor(target PublicFacadeRemovalDocumentationTarget) PublicFacadeRemovalDocumentationTargetCounts {
+	return PublicFacadeRemovalDocumentationTargetCounts{ValidationCommands: len(target.ValidationCommands)}
 }
 
 type PublicFacadeRemovalImpact struct {
@@ -339,13 +493,16 @@ func PublicFacadeRemovalImpactCountsFor(impact PublicFacadeRemovalImpact) Public
 		UnclassifiedReferences: len(impact.UnclassifiedReferences),
 	}
 	for _, workItem := range impact.WorkItems {
-		counts.WorkItemValidationCommands += len(workItem.ValidationCommands)
+		rowCounts := PublicFacadeRemovalImpactWorkItemCountsFor(workItem)
+		counts.WorkItemValidationCommands += rowCounts.ValidationCommands
 	}
 	for _, target := range impact.MigrationTargets {
-		counts.MigrationValidationCommands += len(target.ValidationCommands)
+		rowCounts := PublicFacadeRemovalMigrationTargetCountsFor(target)
+		counts.MigrationValidationCommands += rowCounts.ValidationCommands
 	}
 	for _, target := range impact.SmokeMigrationTargets {
-		counts.SmokeMigrationValidationCommands += len(target.ValidationCommands)
+		rowCounts := PublicFacadeRemovalSmokeMigrationTargetCountsFor(target)
+		counts.SmokeMigrationValidationCommands += rowCounts.ValidationCommands
 	}
 	return counts
 }
@@ -372,6 +529,18 @@ type PublicFacadeRemovalImpactWorkItem struct {
 	ValidationCommands []string `json:"validationCommands"`
 }
 
+type PublicFacadeRemovalImpactWorkItemCounts struct {
+	Paths              int
+	ValidationCommands int
+}
+
+func PublicFacadeRemovalImpactWorkItemCountsFor(item PublicFacadeRemovalImpactWorkItem) PublicFacadeRemovalImpactWorkItemCounts {
+	return PublicFacadeRemovalImpactWorkItemCounts{
+		Paths:              len(item.Paths),
+		ValidationCommands: len(item.ValidationCommands),
+	}
+}
+
 type PublicFacadeRemovalMigrationTarget struct {
 	Path                      string   `json:"path"`
 	Category                  string   `json:"category"`
@@ -380,6 +549,14 @@ type PublicFacadeRemovalMigrationTarget struct {
 	GoNativePreferred         bool     `json:"goNativePreferred"`
 	PreserveHistoricalContext bool     `json:"preserveHistoricalContext"`
 	ValidationCommands        []string `json:"validationCommands"`
+}
+
+type PublicFacadeRemovalMigrationTargetCounts struct {
+	ValidationCommands int
+}
+
+func PublicFacadeRemovalMigrationTargetCountsFor(target PublicFacadeRemovalMigrationTarget) PublicFacadeRemovalMigrationTargetCounts {
+	return PublicFacadeRemovalMigrationTargetCounts{ValidationCommands: len(target.ValidationCommands)}
 }
 
 type PublicFacadeRemovalSmokeMigrationTarget struct {
@@ -391,6 +568,14 @@ type PublicFacadeRemovalSmokeMigrationTarget struct {
 	AllowFacadeCompat      bool     `json:"allowFacadeCompat"`
 	ValidationCommands     []string `json:"validationCommands"`
 	RetireFacadeAssertions bool     `json:"retireFacadeAssertions"`
+}
+
+type PublicFacadeRemovalSmokeMigrationTargetCounts struct {
+	ValidationCommands int
+}
+
+func PublicFacadeRemovalSmokeMigrationTargetCountsFor(target PublicFacadeRemovalSmokeMigrationTarget) PublicFacadeRemovalSmokeMigrationTargetCounts {
+	return PublicFacadeRemovalSmokeMigrationTargetCounts{ValidationCommands: len(target.ValidationCommands)}
 }
 
 func publicFacadeRemovalHandoffDetails(inventory PublicFacadeRemoval) []string {
