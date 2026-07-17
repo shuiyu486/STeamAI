@@ -137,6 +137,7 @@ func releaseHandoffDocuments(repo string) []ReleaseHandoffDocument {
 }
 
 func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes ReleaseHandoffReleaseNotes, gaps []ReleaseHandoffKnownGap, packMaturity ReleaseHandoffPackMaturity) []ReleaseHandoffSignal {
+	ciGateCounts := CIReleaseGateCountsFor(check.CIReleaseGate)
 	caseShimCounts := caseshim.ReadinessCountsFor(check.CaseShim)
 	publicDefaultDocCounts := defaultdocs.ReadinessCountsFor(check.PublicDefaultDocs)
 	return []ReleaseHandoffSignal{
@@ -155,7 +156,7 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			Summary: check.CIReleaseGate.Summary,
 			Details: []string{
 				fmt.Sprintf("workflow=%s", check.CIReleaseGate.WorkflowPath),
-				fmt.Sprintf("jobs=%d commands=%d forbidden=%d", len(check.CIReleaseGate.Jobs), len(check.CIReleaseGate.RequiredCommands), len(check.CIReleaseGate.ForbiddenStrings)),
+				fmt.Sprintf("jobs=%d commands=%d forbidden=%d", ciGateCounts.Jobs, ciGateCounts.RequiredCommands, ciGateCounts.ForbiddenStrings),
 			},
 		},
 		{

@@ -30,10 +30,11 @@ func TestReleaseCheckIncludesManifestHeavyToolGateActions(t *testing.T) {
 
 func TestCIReleaseGateInventoryFromRepo(t *testing.T) {
 	gate := ciReleaseGate(repoRoot(t))
-	if !gate.Ready || gate.WorkflowPath != ".github/workflows/release-gate.yml" || gate.Summary != "CI release gate inventory ok" || len(gate.Warnings) != 0 {
+	counts := CIReleaseGateCountsFor(gate)
+	if !gate.Ready || gate.WorkflowPath != ".github/workflows/release-gate.yml" || gate.Summary != "CI release gate inventory ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected CI release gate inventory: %+v", gate)
 	}
-	if len(gate.WorkflowChecks) == 0 || len(gate.Jobs) != 3 || len(gate.RequiredCommands) != 18 || len(gate.ForbiddenStrings) == 0 {
+	if counts.WorkflowChecks == 0 || counts.Jobs != 3 || counts.RequiredCommands != 18 || counts.ForbiddenStrings == 0 {
 		t.Fatalf("CI release gate omitted required sections: %+v", gate)
 	}
 	assertCIJob(t, gate, "go-checks-linux", "Go release checks (Linux)", "ubuntu-latest")

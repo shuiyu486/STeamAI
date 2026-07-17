@@ -44,6 +44,24 @@ type CIReleaseForbidden struct {
 	Present bool   `json:"present"`
 }
 
+type CIReleaseGateCounts struct {
+	WorkflowChecks   int
+	Jobs             int
+	RequiredCommands int
+	ForbiddenStrings int
+	Warnings         int
+}
+
+func CIReleaseGateCountsFor(gate CIReleaseGate) CIReleaseGateCounts {
+	return CIReleaseGateCounts{
+		WorkflowChecks:   len(gate.WorkflowChecks),
+		Jobs:             len(gate.Jobs),
+		RequiredCommands: len(gate.RequiredCommands),
+		ForbiddenStrings: len(gate.ForbiddenStrings),
+		Warnings:         len(gate.Warnings),
+	}
+}
+
 type ciRequiredJob struct {
 	id     string
 	name   string
@@ -135,7 +153,7 @@ func ciReleaseGate(repo string) CIReleaseGate {
 	gate.RequiredCommands = ciCommandReadiness(jobs)
 	gate.ForbiddenStrings = ciForbiddenReadiness(text)
 	gate.Warnings = append(gate.Warnings, ciReleaseGateWarnings(gate)...)
-	if len(gate.Warnings) > 0 {
+	if CIReleaseGateCountsFor(gate).Warnings > 0 {
 		gate.Ready = false
 		gate.Summary = "CI release gate inventory has warnings"
 	}

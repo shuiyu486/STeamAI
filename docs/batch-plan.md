@@ -9365,3 +9365,34 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/caseshim/caseshim.go internal/rekit/caseshim/caseshim_test.go internal/rekit/defaultdocs/defaultdocs.go internal/rekit/defaultdocs/defaultdocs_test.go internal/rekit/releasecheck/release_handoff.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/caseshim ./internal/rekit/defaultdocs ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 307：CI release gate count summary refactor
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 305/306 已把 public surface 与 readiness inventory counts 收敛为共享 summary 后，继续减少 CI release gate workflow/job/required-command/forbidden-string/warning counts 在 release handoff、CLI text output 与 tests 中的重复 plumbing。
+
+实施范围：
+
+- 新增 `CIReleaseGateCounts` 与 `CIReleaseGateCountsFor`，汇总 workflow checks、required jobs、required commands、forbidden strings 与 warnings counts。
+- CI release gate readiness、release handoff、CLI `release-check` text output 与 releasecheck / CLI tests 复用共享 CI gate summary，保持既有 text key 与 count 数值不变。
+- 仅收敛 CI release gate count plumbing，不改变 `.github/workflows/release-gate.yml` 预期命令、禁止 PowerShell/heavy-tool 默认步骤、CI readiness 判定或 release-check JSON schema。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不新增或删除 release-check JSON 字段，不改变 release-check text key、`releaseHandoff.signals[]` count、public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、policy schema migration、actual heavy-tool/authority/confirmed 或外部副作用边界；raw Go CLI 仍是底层 deterministic runtime/API，不变成用户主要交互界面。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/ci_release_gate.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/ci_release_gate.go internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。

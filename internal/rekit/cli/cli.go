@@ -462,8 +462,9 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 		fmt.Fprintf(out, "release-check: %s\n", result.Summary)
 		fmt.Fprintf(out, "ready: %t\n", result.Ready)
 		fmt.Fprintf(out, "gate profile: %s ready=%t steps=%d largeMatrixDefault=%t\n", result.GateProfile.Name, result.GateProfile.Ready, result.GateProfile.StepCount, result.GateProfile.LargeMatrixDefault)
-		fmt.Fprintf(out, "CI release gate: %s ready=%t jobs=%d commands=%d forbidden=%d\n", result.CIReleaseGate.WorkflowPath, result.CIReleaseGate.Ready, len(result.CIReleaseGate.Jobs), len(result.CIReleaseGate.RequiredCommands), len(result.CIReleaseGate.ForbiddenStrings))
-		if len(result.CIReleaseGate.Warnings) > 0 {
+		ciGateCounts := releasecheck.CIReleaseGateCountsFor(result.CIReleaseGate)
+		fmt.Fprintf(out, "CI release gate: %s ready=%t jobs=%d commands=%d forbidden=%d\n", result.CIReleaseGate.WorkflowPath, result.CIReleaseGate.Ready, ciGateCounts.Jobs, ciGateCounts.RequiredCommands, ciGateCounts.ForbiddenStrings)
+		if ciGateCounts.Warnings > 0 {
 			fmt.Fprintln(out, "CI release gate warnings:")
 			for _, warning := range result.CIReleaseGate.Warnings {
 				fmt.Fprintf(out, "- %s\n", warning)
