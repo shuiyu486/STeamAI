@@ -10021,3 +10021,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
+
+### Batch 328：Go-native public surface boundary inventory count refactor
+
+状态：已完成。
+
+目标：继续 Stage 8 PowerShell-free / Go-native 收敛；在 Batch 327 已将 Go-native public surface symbol catalog counts 收敛到共享 summary 后，继续将 public command profile boundary row unknown、duplicate、count mismatch、unsorted、summary mismatch、group mismatch、missing 与 coverage mismatch counts 纳入共享 summary，减少 readiness、façade removal prerequisite 与测试断言中的 raw boundary row scan plumbing。
+
+实施范围：
+
+- 扩展 `GoNativePublicSurfaceBoundaryCounts` 与 `GoNativePublicSurfaceBoundaryCountsFor`，统一计算 boundary rows、command rows、counted commands、unknown boundary rows、duplicate boundary rows、count mismatches、unsorted command rows、summary mismatches、group mismatches、missing boundary rows 与 coverage mismatches。
+- `GoNativePublicSurfaceCounts` 继续嵌入 `Boundaries` nested counts，并保留 `BoundaryRows` / `BoundaryCommands` / `BoundaryCountedCommands` flat aliases。
+- `goNativePublicSurface` boundary row warnings、`mutation-boundary-inventory` façade removal prerequisite readiness、releasecheck package tests 与 CLI JSON assertions 复用 boundary inventory count summary。
+
+边界：本批不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不新增或删除 release-check JSON 字段，不改变 release-check text key、public command 集合、façade delegation/no-fallback semantics、Go command output 既有字段语义、case-local write semantics、sync/promote review-first、policy schema migration、actual heavy-tool/authority/confirmed 或外部副作用边界；公共 façade deletion 仍必须作为独立 removal batch。
+
+文档收尾：已检查 `docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/powershell-deprecation.md`、`docs/release-readiness.md`、`CHANGELOG.md` 与 `docs/go-first-convergence-plan.md` 顶部/最新进度；本批属于 release-check internal count plumbing，不改变 README、CLAUDE.md、public reference、配置说明或用户示例命令，因此无需更新这些用户入口文档。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/releasecheck ./internal/rekit/cli
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command release-check
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/go_native_public_surface.go internal/rekit/releasecheck/releasecheck_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`；`git diff --check` 仅报告 LF/CRLF warning，无 whitespace error。
