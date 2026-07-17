@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -95,6 +96,19 @@ type Lane struct {
 	LastReconcileAt            string         `json:"lastReconcileAt,omitempty"`
 	CreatedAt                  string         `json:"createdAt"`
 	UpdatedAt                  string         `json:"updatedAt"`
+}
+
+type laneExecutorAction struct {
+	Blocked              bool     `json:"blocked"`
+	Ready                bool     `json:"ready"`
+	BlockerReasons       []string `json:"blockerReasons"`
+	ReconcileRequired    bool     `json:"reconcileRequired"`
+	PendingGateRequired  bool     `json:"pendingGateRequired"`
+	OpenDecisionRequired bool     `json:"openDecisionRequired"`
+	ResumeCommand        string   `json:"resumeCommand"`
+	HandoffCommand       string   `json:"handoffCommand"`
+	NextAgentActions     []string `json:"nextAgentActions"`
+	Escalations          []string `json:"escalations"`
 }
 
 type board = mission.Board
@@ -514,6 +528,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	pendingGateLines := missionLines(mission.FilterLane(ledgerFacts.Requests, lane.ID, "pending-gate"), mission.LaneGateLine)
 	authorizedGateLines := missionLines(mission.FilterLane(ledgerFacts.Requests, lane.ID, "authorized-gate"), mission.LaneGateLine)
 	autonomySummary := autonomy.ReadSummary(caseRoot, lane.ID, m)
+	executorAction := laneExecutorActionFor(lane, brief)
 	lines := []string{
 		"# RESUME：" + lane.ID,
 		"",
@@ -557,6 +572,21 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	lines = appendResumeList(lines, "interventions", brief.Interventions)
 	lines = appendResumeList(lines, "next agent actions", brief.NextAgentActions)
 	lines = appendResumeList(lines, "escalations", brief.Escalations)
+	lines = append(lines,
+		"",
+		"## Executor action snapshot",
+		"",
+		"- blocked: `"+fmt.Sprintf("%t", executorAction.Blocked)+"`",
+		"- ready: `"+fmt.Sprintf("%t", executorAction.Ready)+"`",
+		"- reconcile required: `"+fmt.Sprintf("%t", executorAction.ReconcileRequired)+"`",
+		"- pending gate required: `"+fmt.Sprintf("%t", executorAction.PendingGateRequired)+"`",
+		"- open decision required: `"+fmt.Sprintf("%t", executorAction.OpenDecisionRequired)+"`",
+		"- resume command: `"+executorAction.ResumeCommand+"`",
+		"- handoff command: `"+executorAction.HandoffCommand+"`",
+	)
+	lines = appendResumeList(lines, "blocker reasons", executorAction.BlockerReasons)
+	lines = appendResumeList(lines, "executor next actions", executorAction.NextAgentActions)
+	lines = appendResumeList(lines, "executor escalations", executorAction.Escalations)
 	lines = append(lines,
 		"",
 		"## Heavy-action gate decisions",
@@ -605,11 +635,40 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		return "", "", err
 	}
 	checkpointPath := filepath.Join(laneRoot, "checkpoints", "latest.json")
-	checkpoint := map[string]any{"schemaVersion": 1, "lane": lane.ID, "status": lane.Status, "workspace": lane.Workspace, "currentExecutor": lane.CurrentExecutor, "executorGeneration": lane.ExecutorGeneration, "lastReconciledIntervention": lane.LastReconciledIntervention, "lastReconcileAt": lane.LastReconcileAt, "autonomyProfile": autonomySummary, "missionBrief": brief, "pendingGates": pendingGateLines, "authorizedGates": authorizedGateLines, "openInterventions": openInterventions, "inbox": len(inbox), "tasks": len(tasks), "updatedAt": time.Now().UTC().Format(time.RFC3339Nano), "resume": relativePath(caseRoot, resumePath)}
+	checkpoint := map[string]any{"schemaVersion": 1, "lane": lane.ID, "status": lane.Status, "workspace": lane.Workspace, "currentExecutor": lane.CurrentExecutor, "executorGeneration": lane.ExecutorGeneration, "lastReconciledIntervention": lane.LastReconciledIntervention, "lastReconcileAt": lane.LastReconcileAt, "autonomyProfile": autonomySummary, "missionBrief": brief, "executorAction": executorAction, "pendingGates": pendingGateLines, "authorizedGates": authorizedGateLines, "openInterventions": openInterventions, "inbox": len(inbox), "tasks": len(tasks), "updatedAt": time.Now().UTC().Format(time.RFC3339Nano), "resume": relativePath(caseRoot, resumePath)}
 	if err := writeJSON(checkpointPath, checkpoint); err != nil {
 		return "", "", err
 	}
 	return resumePath, checkpointPath, nil
+}
+
+func laneExecutorActionFor(lane Lane, brief mission.Brief) laneExecutorAction {
+	label := workstreamLabel(lane)
+	reasons := []string{}
+	for _, blocked := range brief.BlockedLanes {
+		if !strings.HasPrefix(blocked, label+" (") {
+			continue
+		}
+		reasonList := strings.TrimSuffix(strings.TrimPrefix(blocked, label+" ("), ")")
+		for reason := range strings.SplitSeq(reasonList, ",") {
+			if trimmed := strings.TrimSpace(reason); trimmed != "" {
+				reasons = append(reasons, trimmed)
+			}
+		}
+	}
+	blocked := len(reasons) > 0
+	return laneExecutorAction{
+		Blocked:              blocked,
+		Ready:                slices.Contains(brief.ReadyLanes, label),
+		BlockerReasons:       mission.UniqueStrings(reasons),
+		ReconcileRequired:    slices.Contains(reasons, "intervention"),
+		PendingGateRequired:  slices.Contains(reasons, "pending-gate"),
+		OpenDecisionRequired: slices.Contains(reasons, "open-decision"),
+		ResumeCommand:        "/rekit continue " + label,
+		HandoffCommand:       "/rekit handoff " + label,
+		NextAgentActions:     brief.NextAgentActions,
+		Escalations:          brief.Escalations,
+	}
 }
 
 func defaultStartLaneType(m *manifest.Manifest) string {

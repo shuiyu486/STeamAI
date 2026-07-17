@@ -4463,7 +4463,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Mission Control brief", "openLanes=1 ready=0 blocked=1", "- blocked lanes:", "main (open-decision)", "- open decisions:", "review candidate", "- next agent actions:", "review open candidate/decision item(s) with evidence and authority boundary", "## Heavy-action gate decisions", "- authorized-gate:", "authorized debug", "auth=preauthorized", "profile=prof-main-debug", "- pending-gate: none"} {
+	for _, expected := range []string{"## Mission Control brief", "openLanes=1 ready=0 blocked=1", "- blocked lanes:", "main (open-decision)", "- open decisions:", "review candidate", "- next agent actions:", "review open candidate/decision item(s) with evidence and authority boundary", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "- blocker reasons:", "open-decision", "## Heavy-action gate decisions", "- authorized-gate:", "authorized debug", "auth=preauthorized", "profile=prof-main-debug", "- pending-gate: none"} {
 		if !strings.Contains(string(resume), expected) {
 			t.Fatalf("lane resume missing %q:\n%s", expected, string(resume))
 		}
@@ -4479,6 +4479,13 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 			OpenDecisions []string `json:"openDecisions"`
 			PendingGates  []string `json:"pendingGates"`
 		} `json:"missionBrief"`
+		ExecutorAction struct {
+			Blocked              bool     `json:"blocked"`
+			Ready                bool     `json:"ready"`
+			BlockerReasons       []string `json:"blockerReasons"`
+			OpenDecisionRequired bool     `json:"openDecisionRequired"`
+			ResumeCommand        string   `json:"resumeCommand"`
+		} `json:"executorAction"`
 		PendingGates    []string `json:"pendingGates"`
 		AuthorizedGates []string `json:"authorizedGates"`
 	}
@@ -4487,6 +4494,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if checkpoint.MissionBrief.Summary != "openLanes=1 ready=0 blocked=1 pendingGates=0 authorizedGates=1 openDecisions=1 interventions=0" || !slices.Contains(checkpoint.MissionBrief.BlockedLanes, "main (open-decision)") || !containsSubstring(checkpoint.MissionBrief.OpenDecisions, "review candidate") || len(checkpoint.MissionBrief.PendingGates) != 0 {
 		t.Fatalf("lane checkpoint missing Mission Control brief snapshot: %+v", checkpoint.MissionBrief)
+	}
+	if !checkpoint.ExecutorAction.Blocked || checkpoint.ExecutorAction.Ready || !checkpoint.ExecutorAction.OpenDecisionRequired || !slices.Contains(checkpoint.ExecutorAction.BlockerReasons, "open-decision") || checkpoint.ExecutorAction.ResumeCommand != "/rekit continue main" {
+		t.Fatalf("lane checkpoint missing executor action snapshot: %+v", checkpoint.ExecutorAction)
 	}
 	if len(checkpoint.PendingGates) != 0 || !containsSubstring(checkpoint.AuthorizedGates, "authorized debug") || !containsSubstring(checkpoint.AuthorizedGates, "auth=preauthorized") {
 		t.Fatalf("lane checkpoint missing non-blocking authorized gate visibility: %+v", checkpoint)
