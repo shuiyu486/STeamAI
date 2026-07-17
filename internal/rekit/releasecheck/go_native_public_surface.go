@@ -49,6 +49,8 @@ type GoNativePublicSurfaceCounts struct {
 	SymbolCommands              int
 	CommandProfiles             int
 	MutationBoundaries          int
+	ProfileSummary              GoNativePublicSurfaceProfileSummaryCounts
+	ProfileTotal                int
 	Boundaries                  GoNativePublicSurfaceBoundaryCounts
 	BoundaryRows                int
 	BoundaryCommands            int
@@ -73,6 +75,25 @@ type GoNativePublicSurfaceCounts struct {
 	CaseLocalReviewCommands     int
 	KitReviewFirstCommands      int
 	ReadOnlyCommands            int
+}
+
+type GoNativePublicSurfaceProfileSummaryCounts struct {
+	Total                      int
+	ReadOnly                   int
+	Mutating                   int
+	WritesCase                 int
+	WritesKit                  int
+	ReviewFirst                int
+	ApplyRequired              int
+	HeavyTool                  int
+	AuthorityConfirmed         int
+	BoundaryCaseLocalAppend    int
+	BoundaryCaseLocalApply     int
+	BoundaryCaseLocalBootstrap int
+	BoundaryCaseLocalArtifact  int
+	BoundaryCaseLocalReview    int
+	BoundaryKitReview          int
+	BoundaryReadOnly           int
 }
 
 type GoNativePublicSurfaceGroupCounts struct {
@@ -119,7 +140,84 @@ type GoNativePublicSurfacePolicyRowCounts struct {
 	Commands int
 }
 
+func GoNativePublicSurfaceProfileSummaryCountsFor(summary commands.PublicProfileSummary) GoNativePublicSurfaceProfileSummaryCounts {
+	return GoNativePublicSurfaceProfileSummaryCounts{
+		Total:                      summary.Total,
+		ReadOnly:                   summary.ReadOnly,
+		Mutating:                   summary.Mutating,
+		WritesCase:                 summary.WritesCase,
+		WritesKit:                  summary.WritesKit,
+		ReviewFirst:                summary.ReviewFirst,
+		ApplyRequired:              summary.ApplyRequired,
+		HeavyTool:                  summary.HeavyTool,
+		AuthorityConfirmed:         summary.AuthorityConfirmed,
+		BoundaryCaseLocalAppend:    summary.Boundaries[commands.BoundaryCaseLocalAppend],
+		BoundaryCaseLocalApply:     summary.Boundaries[commands.BoundaryCaseLocalApply],
+		BoundaryCaseLocalBootstrap: summary.Boundaries[commands.BoundaryCaseLocalReadOrBootstrap],
+		BoundaryCaseLocalArtifact:  summary.Boundaries[commands.BoundaryCaseLocalReviewArtifact],
+		BoundaryCaseLocalReview:    summary.Boundaries[commands.BoundaryCaseLocalReviewFirst],
+		BoundaryKitReview:          summary.Boundaries[commands.BoundaryKitReviewFirst],
+		BoundaryReadOnly:           summary.Boundaries[commands.BoundaryReadOnly],
+	}
+}
+
+func goNativePublicSurfaceProfileSummaryCountsMatch(left, right GoNativePublicSurfaceProfileSummaryCounts) bool {
+	return left.Total == right.Total &&
+		left.ReadOnly == right.ReadOnly &&
+		left.Mutating == right.Mutating &&
+		left.WritesCase == right.WritesCase &&
+		left.WritesKit == right.WritesKit &&
+		left.ReviewFirst == right.ReviewFirst &&
+		left.ApplyRequired == right.ApplyRequired &&
+		left.HeavyTool == right.HeavyTool &&
+		left.AuthorityConfirmed == right.AuthorityConfirmed &&
+		left.BoundaryCaseLocalAppend == right.BoundaryCaseLocalAppend &&
+		left.BoundaryCaseLocalApply == right.BoundaryCaseLocalApply &&
+		left.BoundaryCaseLocalBootstrap == right.BoundaryCaseLocalBootstrap &&
+		left.BoundaryCaseLocalArtifact == right.BoundaryCaseLocalArtifact &&
+		left.BoundaryCaseLocalReview == right.BoundaryCaseLocalReview &&
+		left.BoundaryKitReview == right.BoundaryKitReview &&
+		left.BoundaryReadOnly == right.BoundaryReadOnly
+}
+
+func goNativePublicSurfaceProfileSummaryRequiredCountsPresent(counts GoNativePublicSurfaceProfileSummaryCounts) bool {
+	return counts.ReadOnly > 0 && counts.Mutating > 0 && counts.WritesCase > 0 && counts.ReviewFirst > 0 && counts.ApplyRequired > 0
+}
+
+func goNativePublicSurfaceGroupCountsMatchProfileSummary(groupCounts GoNativePublicSurfaceGroupCounts, summaryCounts GoNativePublicSurfaceProfileSummaryCounts) bool {
+	return groupCounts.ReadOnly == summaryCounts.ReadOnly &&
+		groupCounts.Mutating == summaryCounts.Mutating &&
+		groupCounts.WritesCase == summaryCounts.WritesCase &&
+		groupCounts.WritesKit == summaryCounts.WritesKit &&
+		groupCounts.ReviewFirst == summaryCounts.ReviewFirst &&
+		groupCounts.ApplyRequired == summaryCounts.ApplyRequired &&
+		groupCounts.HeavyTool == summaryCounts.HeavyTool &&
+		groupCounts.AuthorityConfirmed == summaryCounts.AuthorityConfirmed
+}
+
+func goNativePublicSurfaceProfileSummaryBoundaryCountFor(counts GoNativePublicSurfaceProfileSummaryCounts, boundary string) int {
+	switch boundary {
+	case commands.BoundaryCaseLocalAppend:
+		return counts.BoundaryCaseLocalAppend
+	case commands.BoundaryCaseLocalApply:
+		return counts.BoundaryCaseLocalApply
+	case commands.BoundaryCaseLocalReadOrBootstrap:
+		return counts.BoundaryCaseLocalBootstrap
+	case commands.BoundaryCaseLocalReviewArtifact:
+		return counts.BoundaryCaseLocalArtifact
+	case commands.BoundaryCaseLocalReviewFirst:
+		return counts.BoundaryCaseLocalReview
+	case commands.BoundaryKitReviewFirst:
+		return counts.BoundaryKitReview
+	case commands.BoundaryReadOnly:
+		return counts.BoundaryReadOnly
+	default:
+		return 0
+	}
+}
+
 func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePublicSurfaceCounts {
+	profileSummaryCounts := GoNativePublicSurfaceProfileSummaryCountsFor(surface.CommandProfileSummary)
 	groupCounts := GoNativePublicSurfaceGroupCountsFor(surface.CommandProfileGroups)
 	boundaryCounts := GoNativePublicSurfaceBoundaryCountsFor(surface.CommandProfileBoundaries)
 	policyCounts := GoNativePublicSurfacePolicyCountsFor(surface.CommandProfilePolicies)
@@ -130,6 +228,8 @@ func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePubli
 		SymbolCommands:              len(surface.SymbolCommands),
 		CommandProfiles:             len(surface.CommandProfiles),
 		MutationBoundaries:          len(surface.MutationBoundaries),
+		ProfileSummary:              profileSummaryCounts,
+		ProfileTotal:                profileSummaryCounts.Total,
 		Boundaries:                  boundaryCounts,
 		BoundaryRows:                boundaryCounts.Rows,
 		BoundaryCommands:            boundaryCounts.Commands,
@@ -140,14 +240,14 @@ func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePubli
 		FacadePrerequisites:         facadeRemovalCounts.Rows,
 		FacadeNotReadyPrerequisites: facadeRemovalCounts.NotReady,
 		Warnings:                    len(surface.Warnings),
-		ReadOnly:                    surface.CommandProfileSummary.ReadOnly,
-		Mutating:                    surface.CommandProfileSummary.Mutating,
-		WritesCase:                  surface.CommandProfileSummary.WritesCase,
-		WritesKit:                   surface.CommandProfileSummary.WritesKit,
-		ReviewFirst:                 surface.CommandProfileSummary.ReviewFirst,
-		ApplyRequired:               surface.CommandProfileSummary.ApplyRequired,
-		HeavyTool:                   surface.CommandProfileSummary.HeavyTool,
-		AuthorityConfirmed:          surface.CommandProfileSummary.AuthorityConfirmed,
+		ReadOnly:                    profileSummaryCounts.ReadOnly,
+		Mutating:                    profileSummaryCounts.Mutating,
+		WritesCase:                  profileSummaryCounts.WritesCase,
+		WritesKit:                   profileSummaryCounts.WritesKit,
+		ReviewFirst:                 profileSummaryCounts.ReviewFirst,
+		ApplyRequired:               profileSummaryCounts.ApplyRequired,
+		HeavyTool:                   profileSummaryCounts.HeavyTool,
+		AuthorityConfirmed:          profileSummaryCounts.AuthorityConfirmed,
 		Groups:                      groupCounts,
 		Policies:                    policyCounts,
 		CaseLocalApplyCommands:      groupCounts.CaseLocalApply,
@@ -223,7 +323,7 @@ func goNativePublicSurfaceHandoffDetails(surface GoNativePublicSurface) []string
 	return []string{
 		fmt.Sprintf("entrypoint=%s present=%t catalog=%s catalogPresent=%t", surface.Entrypoint, surface.EntrypointPresent, surface.CommandCatalogPath, surface.CommandCatalogPresent),
 		fmt.Sprintf("default=%s commands=%d handlers=%d symbols=%d profiles=%d boundaries=%d alternative=%s", surface.DefaultCommand, counts.Commands, counts.HandlerCommands, counts.SymbolCommands, counts.CommandProfiles, counts.MutationBoundaries, surface.AlternativePattern),
-		fmt.Sprintf("profileSummary total=%d readOnly=%d mutating=%d writesCase=%d writesKit=%d reviewFirst=%d applyRequired=%d heavyTool=%d authorityConfirmed=%d", surface.CommandProfileSummary.Total, counts.ReadOnly, counts.Mutating, counts.WritesCase, counts.WritesKit, counts.ReviewFirst, counts.ApplyRequired, counts.HeavyTool, counts.AuthorityConfirmed),
+		fmt.Sprintf("profileSummary total=%d readOnly=%d mutating=%d writesCase=%d writesKit=%d reviewFirst=%d applyRequired=%d heavyTool=%d authorityConfirmed=%d", counts.ProfileTotal, counts.ReadOnly, counts.Mutating, counts.WritesCase, counts.WritesKit, counts.ReviewFirst, counts.ApplyRequired, counts.HeavyTool, counts.AuthorityConfirmed),
 		fmt.Sprintf("profileGroups readOnly=%s reviewFirst=%s writesKit=%s", strings.Join(surface.CommandProfileGroups.ReadOnly, ","), strings.Join(surface.CommandProfileGroups.ReviewFirst, ","), strings.Join(surface.CommandProfileGroups.WritesKit, ",")),
 		fmt.Sprintf("profileBoundaries rows=%d caseLocalApply=%s kitReviewFirst=%s readOnly=%s", counts.BoundaryRows, strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalApply], ","), strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryKitReviewFirst], ","), strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryReadOnly], ",")),
 		fmt.Sprintf("profilePolicies rows=%d violations=%d", counts.PolicyRows, counts.PolicyViolations),
@@ -340,22 +440,24 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command surface exposes unknown mutation boundary: %s", boundary))
 		}
 	}
+	profileSummaryCounts := GoNativePublicSurfaceProfileSummaryCountsFor(inventory.CommandProfileSummary)
 	computedSummary := commands.PublicProfileSummaryFor(inventory.CommandProfiles)
-	if inventory.CommandProfileSummary.Total != computedSummary.Total || inventory.CommandProfileSummary.ReadOnly != computedSummary.ReadOnly || inventory.CommandProfileSummary.Mutating != computedSummary.Mutating || inventory.CommandProfileSummary.WritesCase != computedSummary.WritesCase || inventory.CommandProfileSummary.WritesKit != computedSummary.WritesKit || inventory.CommandProfileSummary.ReviewFirst != computedSummary.ReviewFirst || inventory.CommandProfileSummary.ApplyRequired != computedSummary.ApplyRequired || inventory.CommandProfileSummary.HeavyTool != computedSummary.HeavyTool || inventory.CommandProfileSummary.AuthorityConfirmed != computedSummary.AuthorityConfirmed {
+	computedSummaryCounts := GoNativePublicSurfaceProfileSummaryCountsFor(computedSummary)
+	if !goNativePublicSurfaceProfileSummaryCountsMatch(profileSummaryCounts, computedSummaryCounts) {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile summary does not match profile catalog")
 	}
-	for boundary, count := range computedSummary.Boundaries {
-		if inventory.CommandProfileSummary.Boundaries[boundary] != count {
+	for _, boundary := range commands.KnownMutationBoundaries() {
+		if goNativePublicSurfaceProfileSummaryBoundaryCountFor(profileSummaryCounts, boundary) != goNativePublicSurfaceProfileSummaryBoundaryCountFor(computedSummaryCounts, boundary) {
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile summary boundary count mismatch for %s", boundary))
 		}
 	}
-	if inventory.CommandProfileSummary.ReadOnly == 0 || inventory.CommandProfileSummary.Mutating == 0 || inventory.CommandProfileSummary.WritesCase == 0 || inventory.CommandProfileSummary.ReviewFirst == 0 || inventory.CommandProfileSummary.ApplyRequired == 0 {
+	if !goNativePublicSurfaceProfileSummaryRequiredCountsPresent(profileSummaryCounts) {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile summary omitted required public command boundary counts")
 	}
-	if inventory.CommandProfileSummary.HeavyTool != 0 {
+	if profileSummaryCounts.HeavyTool != 0 {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile summary unexpectedly includes heavy-tool executors")
 	}
-	if inventory.CommandProfileSummary.AuthorityConfirmed != 0 {
+	if profileSummaryCounts.AuthorityConfirmed != 0 {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile summary unexpectedly includes authority/confirmed writers")
 	}
 	computedGroups := commands.PublicProfileGroupsFor(inventory.CommandProfiles)
@@ -368,7 +470,7 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 		}
 	}
 	groupCounts := GoNativePublicSurfaceGroupCountsFor(inventory.CommandProfileGroups)
-	if groupCounts.ReadOnly != inventory.CommandProfileSummary.ReadOnly || groupCounts.Mutating != inventory.CommandProfileSummary.Mutating || groupCounts.WritesCase != inventory.CommandProfileSummary.WritesCase || groupCounts.WritesKit != inventory.CommandProfileSummary.WritesKit || groupCounts.ReviewFirst != inventory.CommandProfileSummary.ReviewFirst || groupCounts.ApplyRequired != inventory.CommandProfileSummary.ApplyRequired || groupCounts.HeavyTool != inventory.CommandProfileSummary.HeavyTool || groupCounts.AuthorityConfirmed != inventory.CommandProfileSummary.AuthorityConfirmed {
+	if !goNativePublicSurfaceGroupCountsMatchProfileSummary(groupCounts, profileSummaryCounts) {
 		inventory.Warnings = append(inventory.Warnings, "Go-native public command profile group counts do not match summary")
 	}
 	boundaryCounts := GoNativePublicSurfaceBoundaryCountsFor(inventory.CommandProfileBoundaries)
@@ -388,7 +490,7 @@ func goNativePublicSurface(repo string) GoNativePublicSurface {
 		if !slices.IsSorted(row.Commands) {
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile boundary row commands are not sorted for %s", row.Boundary))
 		}
-		if inventory.CommandProfileSummary.Boundaries[row.Boundary] != row.Count {
+		if goNativePublicSurfaceProfileSummaryBoundaryCountFor(profileSummaryCounts, row.Boundary) != rowCounts.Count {
 			inventory.Warnings = append(inventory.Warnings, fmt.Sprintf("Go-native public command profile boundary row does not match summary for %s", row.Boundary))
 		}
 		if !slices.Equal(inventory.CommandProfileGroups.ByBoundary[row.Boundary], row.Commands) {
@@ -465,8 +567,8 @@ func goNativePublicSurfaceFacadeRemovalPrerequisites(inventory GoNativePublicSur
 		},
 		{
 			Name:    "mutation-boundary-inventory",
-			Ready:   counts.MutationBoundaries > 0 && counts.Boundaries.Rows == counts.MutationBoundaries && counts.Boundaries.Commands == counts.Boundaries.CountedCommands && counts.Boundaries.Commands == counts.Commands && inventory.CommandProfileSummary.Total == counts.Commands,
-			Summary: fmt.Sprintf("boundaries=%d rows=%d profileTotal=%d", counts.MutationBoundaries, counts.Boundaries.Rows, inventory.CommandProfileSummary.Total),
+			Ready:   counts.MutationBoundaries > 0 && counts.Boundaries.Rows == counts.MutationBoundaries && counts.Boundaries.Commands == counts.Boundaries.CountedCommands && counts.Boundaries.Commands == counts.Commands && counts.ProfileTotal == counts.Commands,
+			Summary: fmt.Sprintf("boundaries=%d rows=%d profileTotal=%d", counts.MutationBoundaries, counts.Boundaries.Rows, counts.ProfileTotal),
 		},
 		{
 			Name:    "profile-policy-guards",
