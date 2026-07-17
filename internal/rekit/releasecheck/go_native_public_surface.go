@@ -44,30 +44,32 @@ type GoNativePublicSurfacePrerequisite struct {
 }
 
 type GoNativePublicSurfaceCounts struct {
-	Commands                int
-	HandlerCommands         int
-	SymbolCommands          int
-	CommandProfiles         int
-	MutationBoundaries      int
-	BoundaryRows            int
-	PolicyRows              int
-	PolicyViolations        int
-	FacadePrerequisites     int
-	Warnings                int
-	ReadOnly                int
-	Mutating                int
-	WritesCase              int
-	WritesKit               int
-	ReviewFirst             int
-	ApplyRequired           int
-	HeavyTool               int
-	AuthorityConfirmed      int
-	Groups                  GoNativePublicSurfaceGroupCounts
-	Policies                GoNativePublicSurfacePolicyCounts
-	CaseLocalApplyCommands  int
-	CaseLocalReviewCommands int
-	KitReviewFirstCommands  int
-	ReadOnlyCommands        int
+	Commands                    int
+	HandlerCommands             int
+	SymbolCommands              int
+	CommandProfiles             int
+	MutationBoundaries          int
+	BoundaryRows                int
+	PolicyRows                  int
+	PolicyViolations            int
+	FacadeRemoval               GoNativePublicSurfaceFacadeRemovalPrerequisiteCounts
+	FacadePrerequisites         int
+	FacadeNotReadyPrerequisites int
+	Warnings                    int
+	ReadOnly                    int
+	Mutating                    int
+	WritesCase                  int
+	WritesKit                   int
+	ReviewFirst                 int
+	ApplyRequired               int
+	HeavyTool                   int
+	AuthorityConfirmed          int
+	Groups                      GoNativePublicSurfaceGroupCounts
+	Policies                    GoNativePublicSurfacePolicyCounts
+	CaseLocalApplyCommands      int
+	CaseLocalReviewCommands     int
+	KitReviewFirstCommands      int
+	ReadOnlyCommands            int
 }
 
 type GoNativePublicSurfaceGroupCounts struct {
@@ -94,6 +96,11 @@ type GoNativePublicSurfacePolicyCounts struct {
 	ViolationCommands int
 }
 
+type GoNativePublicSurfaceFacadeRemovalPrerequisiteCounts struct {
+	Rows     int
+	NotReady int
+}
+
 type GoNativePublicSurfacePolicyRowCounts struct {
 	Commands int
 }
@@ -101,31 +108,34 @@ type GoNativePublicSurfacePolicyRowCounts struct {
 func GoNativePublicSurfaceCountsFor(surface GoNativePublicSurface) GoNativePublicSurfaceCounts {
 	groupCounts := GoNativePublicSurfaceGroupCountsFor(surface.CommandProfileGroups)
 	policyCounts := GoNativePublicSurfacePolicyCountsFor(surface.CommandProfilePolicies)
+	facadeRemovalCounts := GoNativePublicSurfaceFacadeRemovalPrerequisiteCountsFor(surface.FacadeRemovalPrerequisites)
 	return GoNativePublicSurfaceCounts{
-		Commands:                len(surface.Commands),
-		HandlerCommands:         len(surface.HandlerCommands),
-		SymbolCommands:          len(surface.SymbolCommands),
-		CommandProfiles:         len(surface.CommandProfiles),
-		MutationBoundaries:      len(surface.MutationBoundaries),
-		BoundaryRows:            len(surface.CommandProfileBoundaries),
-		PolicyRows:              policyCounts.Rows,
-		PolicyViolations:        policyCounts.Violations,
-		FacadePrerequisites:     len(surface.FacadeRemovalPrerequisites),
-		Warnings:                len(surface.Warnings),
-		ReadOnly:                surface.CommandProfileSummary.ReadOnly,
-		Mutating:                surface.CommandProfileSummary.Mutating,
-		WritesCase:              surface.CommandProfileSummary.WritesCase,
-		WritesKit:               surface.CommandProfileSummary.WritesKit,
-		ReviewFirst:             surface.CommandProfileSummary.ReviewFirst,
-		ApplyRequired:           surface.CommandProfileSummary.ApplyRequired,
-		HeavyTool:               surface.CommandProfileSummary.HeavyTool,
-		AuthorityConfirmed:      surface.CommandProfileSummary.AuthorityConfirmed,
-		Groups:                  groupCounts,
-		Policies:                policyCounts,
-		CaseLocalApplyCommands:  groupCounts.CaseLocalApply,
-		CaseLocalReviewCommands: groupCounts.CaseLocalReviewFirst,
-		KitReviewFirstCommands:  groupCounts.KitReviewFirst,
-		ReadOnlyCommands:        groupCounts.ReadOnly,
+		Commands:                    len(surface.Commands),
+		HandlerCommands:             len(surface.HandlerCommands),
+		SymbolCommands:              len(surface.SymbolCommands),
+		CommandProfiles:             len(surface.CommandProfiles),
+		MutationBoundaries:          len(surface.MutationBoundaries),
+		BoundaryRows:                len(surface.CommandProfileBoundaries),
+		PolicyRows:                  policyCounts.Rows,
+		PolicyViolations:            policyCounts.Violations,
+		FacadeRemoval:               facadeRemovalCounts,
+		FacadePrerequisites:         facadeRemovalCounts.Rows,
+		FacadeNotReadyPrerequisites: facadeRemovalCounts.NotReady,
+		Warnings:                    len(surface.Warnings),
+		ReadOnly:                    surface.CommandProfileSummary.ReadOnly,
+		Mutating:                    surface.CommandProfileSummary.Mutating,
+		WritesCase:                  surface.CommandProfileSummary.WritesCase,
+		WritesKit:                   surface.CommandProfileSummary.WritesKit,
+		ReviewFirst:                 surface.CommandProfileSummary.ReviewFirst,
+		ApplyRequired:               surface.CommandProfileSummary.ApplyRequired,
+		HeavyTool:                   surface.CommandProfileSummary.HeavyTool,
+		AuthorityConfirmed:          surface.CommandProfileSummary.AuthorityConfirmed,
+		Groups:                      groupCounts,
+		Policies:                    policyCounts,
+		CaseLocalApplyCommands:      groupCounts.CaseLocalApply,
+		CaseLocalReviewCommands:     groupCounts.CaseLocalReviewFirst,
+		KitReviewFirstCommands:      groupCounts.KitReviewFirst,
+		ReadOnlyCommands:            groupCounts.ReadOnly,
 	}
 }
 
@@ -155,6 +165,16 @@ func GoNativePublicSurfacePolicyCountsFor(policies []commands.PublicProfilePolic
 		rowCounts := GoNativePublicSurfacePolicyRowCountsFor(policy)
 		counts.Violations += policy.ViolationCount
 		counts.ViolationCommands += rowCounts.Commands
+	}
+	return counts
+}
+
+func GoNativePublicSurfaceFacadeRemovalPrerequisiteCountsFor(prerequisites []GoNativePublicSurfacePrerequisite) GoNativePublicSurfaceFacadeRemovalPrerequisiteCounts {
+	counts := GoNativePublicSurfaceFacadeRemovalPrerequisiteCounts{Rows: len(prerequisites)}
+	for _, prerequisite := range prerequisites {
+		if !prerequisite.Ready {
+			counts.NotReady++
+		}
 	}
 	return counts
 }
@@ -425,15 +445,8 @@ func goNativePublicSurfaceFacadeRemovalPrerequisites(inventory GoNativePublicSur
 }
 
 func goNativePublicSurfacePrerequisitesReady(prerequisites []GoNativePublicSurfacePrerequisite) bool {
-	if len(prerequisites) == 0 {
-		return false
-	}
-	for _, prerequisite := range prerequisites {
-		if !prerequisite.Ready {
-			return false
-		}
-	}
-	return true
+	counts := GoNativePublicSurfaceFacadeRemovalPrerequisiteCountsFor(prerequisites)
+	return counts.Rows > 0 && counts.NotReady == 0
 }
 
 func goNativePublicHandlerCommands(repo string) []string {

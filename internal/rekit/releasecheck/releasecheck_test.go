@@ -155,7 +155,7 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 	if surfaceCounts.Policies.Rows != 5 || surfaceCounts.Policies.Violations != 0 || surfaceCounts.Policies.ViolationCommands != 0 || inventory.CommandProfilePolicies[0].Policy != commands.PublicProfilePolicyNoHeavyTool || !inventory.CommandProfilePolicies[0].Ready || inventory.CommandProfilePolicies[3].Policy != commands.PublicProfilePolicyReviewFirstApplyRequired || GoNativePublicSurfacePolicyRowCountsFor(inventory.CommandProfilePolicies[3]).Commands != 0 {
 		t.Fatalf("Go-native public command profile policy rows drifted: %+v", inventory.CommandProfilePolicies)
 	}
-	if !inventory.FacadeRemovalReady || surfaceCounts.FacadePrerequisites != 5 || inventory.FacadeRemovalPrerequisites[0].Name != "entrypoint" || !inventory.FacadeRemovalPrerequisites[0].Ready || inventory.FacadeRemovalPrerequisites[4].Name != "unsupported-command-diagnostic" || !inventory.FacadeRemovalPrerequisites[4].Ready {
+	if !inventory.FacadeRemovalReady || surfaceCounts.FacadeRemoval.Rows != 5 || surfaceCounts.FacadeRemoval.NotReady != 0 || inventory.FacadeRemovalPrerequisites[0].Name != "entrypoint" || !inventory.FacadeRemovalPrerequisites[0].Ready || inventory.FacadeRemovalPrerequisites[4].Name != "unsupported-command-diagnostic" || !inventory.FacadeRemovalPrerequisites[4].Ready {
 		t.Fatalf("Go-native public surface facade removal prerequisites drifted: ready=%t prerequisites=%+v", inventory.FacadeRemovalReady, inventory.FacadeRemovalPrerequisites)
 	}
 }

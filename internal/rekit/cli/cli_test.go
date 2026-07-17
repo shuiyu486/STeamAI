@@ -720,7 +720,7 @@ func assertReleaseCheckGoNativePublicSurface(t *testing.T, surface struct {
 	if surfaceCounts.Policies.Rows != 5 || surfaceCounts.Policies.Violations != 0 || surfaceCounts.Policies.ViolationCommands != 0 || surface.CommandProfilePolicies[0].Policy != commands.PublicProfilePolicyNoHeavyTool || !surface.CommandProfilePolicies[0].Ready || surface.CommandProfilePolicies[3].Policy != commands.PublicProfilePolicyReviewFirstApplyRequired || releasecheck.GoNativePublicSurfacePolicyRowCountsFor(surface.CommandProfilePolicies[3]).Commands != 0 {
 		t.Fatalf("Go-native public command profile policy rows drifted: %+v", surface.CommandProfilePolicies)
 	}
-	if !surface.FacadeRemovalReady || surfaceCounts.FacadePrerequisites != 5 || surface.FacadeRemovalPrerequisites[0].Name != "entrypoint" || !surface.FacadeRemovalPrerequisites[0].Ready || surface.FacadeRemovalPrerequisites[4].Name != "unsupported-command-diagnostic" || !surface.FacadeRemovalPrerequisites[4].Ready {
+	if !surface.FacadeRemovalReady || surfaceCounts.FacadeRemoval.Rows != 5 || surfaceCounts.FacadeRemoval.NotReady != 0 || surface.FacadeRemovalPrerequisites[0].Name != "entrypoint" || !surface.FacadeRemovalPrerequisites[0].Ready || surface.FacadeRemovalPrerequisites[4].Name != "unsupported-command-diagnostic" || !surface.FacadeRemovalPrerequisites[4].Ready {
 		t.Fatalf("Go-native public surface facade removal prerequisites drifted: ready=%t prerequisites=%+v", surface.FacadeRemovalReady, surface.FacadeRemovalPrerequisites)
 	}
 }

@@ -600,6 +600,7 @@ func publicFacadeRemovalHandoffDetails(inventory PublicFacadeRemoval) []string {
 
 func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation, goSurface GoNativePublicSurface) PublicFacadeRemoval {
 	powerShellCounts := PowerShellDeprecationCountsFor(powerShell)
+	goSurfaceCounts := GoNativePublicSurfaceCountsFor(goSurface)
 	removalPlan := publicFacadeRemovalPlan(repo)
 	planCounts := PublicFacadeRemovalPlanCountsFor(removalPlan)
 	deletionGateCounts := PublicFacadeRemovalDeletionGateCountsFor(removalPlan.DeletionGates)
@@ -623,7 +624,7 @@ func publicFacadeRemovalInventory(repo string, powerShell PowerShellDeprecation,
 			{
 				Name:    "go-native-public-surface",
 				Ready:   goSurface.Ready && goSurface.FacadeRemovalReady,
-				Summary: fmt.Sprintf("goNativeReady=%t facadeRemovalReady=%t prerequisites=%d", goSurface.Ready, goSurface.FacadeRemovalReady, len(goSurface.FacadeRemovalPrerequisites)),
+				Summary: fmt.Sprintf("goNativeReady=%t facadeRemovalReady=%t prerequisites=%d", goSurface.Ready, goSurface.FacadeRemovalReady, goSurfaceCounts.FacadeRemoval.Rows),
 			},
 			{
 				Name:    "legacy-runtime-detached",
