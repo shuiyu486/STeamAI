@@ -15,8 +15,12 @@ func TestReleaseCheckIncludesManifestHeavyToolGateActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Ready || len(result.Warnings) != 0 {
+	counts := ReleaseCheckResultCountsFor(result)
+	if !result.Ready || counts.Warnings != 0 {
 		t.Fatalf("release-check unexpectedly not ready: %+v", result)
+	}
+	if counts.Packs == 0 || counts.HeavyToolGateActions == 0 {
+		t.Fatalf("release-check omitted pack or heavy-tool gate inventory: %+v", result)
 	}
 	if got := strings.Join(result.HeavyToolGateActions, ","); got != "debug,dump,full-trace,inject,network,patch,symex" {
 		t.Fatalf("HeavyToolGateActions = %q", got)

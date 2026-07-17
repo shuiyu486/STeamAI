@@ -14,6 +14,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 )
@@ -285,295 +286,9 @@ func TestRunStatusRejectsUnsupportedFormat(t *testing.T) {
 	}
 }
 
-type releaseCheckStep struct {
-	Command   string `json:"command"`
-	Kind      string `json:"kind"`
-	RepoPath  string `json:"repoPath"`
-	Present   bool   `json:"present"`
-	Required  bool   `json:"required"`
-	InCatalog bool   `json:"inCatalog"`
-	Resolved  bool   `json:"resolved"`
-}
+type releaseCheckPowerShellDeprecation = releasecheck.PowerShellDeprecation
 
-type releaseCheckPowerShellDeprecation struct {
-	StrategyDocument string `json:"strategyDocument"`
-	Ready            bool   `json:"ready"`
-	Summary          string `json:"summary"`
-	CommandOwnership []struct {
-		Area      string   `json:"area"`
-		Owner     string   `json:"owner"`
-		Status    string   `json:"status"`
-		Strategy  string   `json:"strategy"`
-		Commands  []string `json:"commands"`
-		GoDefault bool     `json:"goDefault"`
-		Blocked   bool     `json:"blocked"`
-	} `json:"commandOwnership"`
-	ModuleStatus []struct {
-		Path   string `json:"path"`
-		Status string `json:"status"`
-		Notes  string `json:"notes"`
-	} `json:"moduleStatus"`
-	FreezeGates []struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	} `json:"freezeGates"`
-	BlockedMigrations  []string `json:"blockedMigrations"`
-	FallbackRetirement struct {
-		Ready              bool     `json:"ready"`
-		Summary            string   `json:"summary"`
-		GoDefaultCommands  []string `json:"goDefaultCommands"`
-		NoFallbackCommands []string `json:"noFallbackCommands"`
-		CandidateCommands  []struct {
-			Area     string   `json:"area"`
-			Commands []string `json:"commands"`
-			Status   string   `json:"status"`
-			Strategy string   `json:"strategy"`
-		} `json:"candidateCommands"`
-		BlockedCommands []struct {
-			Area     string   `json:"area"`
-			Commands []string `json:"commands"`
-			Status   string   `json:"status"`
-			Strategy string   `json:"strategy"`
-		} `json:"blockedCommands"`
-		RemovalCandidateModules []struct {
-			Path   string `json:"path"`
-			Status string `json:"status"`
-			Notes  string `json:"notes"`
-		} `json:"removalCandidateModules"`
-		RetiredModules []struct {
-			Path   string `json:"path"`
-			Status string `json:"status"`
-			Notes  string `json:"notes"`
-		} `json:"retiredModules"`
-		Warnings []string `json:"warnings"`
-	} `json:"fallbackRetirement"`
-	FacadeRuntime struct {
-		Ready                      bool     `json:"ready"`
-		Summary                    string   `json:"summary"`
-		FacadePath                 string   `json:"facadePath"`
-		LegacyModuleImportsPresent bool     `json:"legacyModuleImportsPresent"`
-		CommandDispatcherPresent   bool     `json:"commandDispatcherPresent"`
-		NoFallbackGuardPresent     bool     `json:"noFallbackGuardPresent"`
-		GoDelegationPresent        bool     `json:"goDelegationPresent"`
-		RetiredDispatcherError     bool     `json:"retiredDispatcherError"`
-		ForbiddenPatterns          []string `json:"forbiddenPatterns"`
-		RequiredPatterns           []string `json:"requiredPatterns"`
-		Warnings                   []string `json:"warnings"`
-	} `json:"facadeRuntime"`
-	PublicFacade struct {
-		Ready                       bool     `json:"ready"`
-		Summary                     string   `json:"summary"`
-		FacadePath                  string   `json:"facadePath"`
-		Present                     bool     `json:"present"`
-		Retained                    bool     `json:"retained"`
-		CommandSurface              []string `json:"commandSurface"`
-		GoDefaultCommands           []string `json:"goDefaultCommands"`
-		NoFallbackCommands          []string `json:"noFallbackCommands"`
-		GoNativeAlternative         string   `json:"goNativeAlternative"`
-		MigrationBoundaryDocumented bool     `json:"migrationBoundaryDocumented"`
-		RemovalBoundaryDocumented   bool     `json:"removalBoundaryDocumented"`
-		Warnings                    []string `json:"warnings"`
-	} `json:"publicFacade"`
-	ModuleRemoval struct {
-		Ready            bool   `json:"ready"`
-		Summary          string `json:"summary"`
-		CandidateModules []struct {
-			Path               string `json:"path"`
-			Status             string `json:"status"`
-			Notes              string `json:"notes"`
-			Present            bool   `json:"present"`
-			ReferencedByFacade bool   `json:"referencedByFacade"`
-		} `json:"candidateModules"`
-		RetiredModules []struct {
-			Path               string `json:"path"`
-			Status             string `json:"status"`
-			Notes              string `json:"notes"`
-			Present            bool   `json:"present"`
-			ReferencedByFacade bool   `json:"referencedByFacade"`
-		} `json:"retiredModules"`
-		UndocumentedModules       []string `json:"undocumentedModules"`
-		FacadeRuntimeDependencies []string `json:"facadeRuntimeDependencies"`
-		Warnings                  []string `json:"warnings"`
-	} `json:"moduleRemoval"`
-	ModuleReferences struct {
-		Ready                  bool   `json:"ready"`
-		Summary                string `json:"summary"`
-		TotalReferences        int    `json:"totalReferences"`
-		ActiveTestDependencies []struct {
-			Path    string `json:"path"`
-			Line    int    `json:"line"`
-			Kind    string `json:"kind"`
-			Target  string `json:"target"`
-			Snippet string `json:"snippet"`
-		} `json:"activeTestDependencies"`
-		CompatibilityFixtures []struct {
-			Path    string `json:"path"`
-			Line    int    `json:"line"`
-			Kind    string `json:"kind"`
-			Target  string `json:"target"`
-			Snippet string `json:"snippet"`
-		} `json:"compatibilityFixtures"`
-		InventoryGuards []struct {
-			Path    string `json:"path"`
-			Line    int    `json:"line"`
-			Kind    string `json:"kind"`
-			Target  string `json:"target"`
-			Snippet string `json:"snippet"`
-		} `json:"inventoryGuards"`
-		DocumentationReferences []struct {
-			Path    string `json:"path"`
-			Line    int    `json:"line"`
-			Kind    string `json:"kind"`
-			Target  string `json:"target"`
-			Snippet string `json:"snippet"`
-		} `json:"documentationReferences"`
-		HistoricalReferences []struct {
-			Path    string `json:"path"`
-			Line    int    `json:"line"`
-			Kind    string `json:"kind"`
-			Target  string `json:"target"`
-			Snippet string `json:"snippet"`
-		} `json:"historicalReferences"`
-		RemovalBlockers []struct {
-			Path    string `json:"path"`
-			Line    int    `json:"line"`
-			Kind    string `json:"kind"`
-			Target  string `json:"target"`
-			Snippet string `json:"snippet"`
-		} `json:"removalBlockers"`
-		UnclassifiedReferences []struct {
-			Path    string `json:"path"`
-			Line    int    `json:"line"`
-			Kind    string `json:"kind"`
-			Target  string `json:"target"`
-			Snippet string `json:"snippet"`
-		} `json:"unclassifiedReferences"`
-		Warnings []string `json:"warnings"`
-	} `json:"moduleReferences"`
-	Warnings []string `json:"warnings"`
-}
-
-type releaseCheckHandoff struct {
-	Ready     bool   `json:"ready"`
-	Summary   string `json:"summary"`
-	ReadFirst []struct {
-		Path    string `json:"path"`
-		Present bool   `json:"present"`
-		Purpose string `json:"purpose"`
-	} `json:"readFirst"`
-	Signals []struct {
-		Name    string   `json:"name"`
-		Ready   bool     `json:"ready"`
-		Summary string   `json:"summary"`
-		Details []string `json:"details"`
-	} `json:"signals"`
-	LatestBatch struct {
-		PlanPath         string `json:"planPath"`
-		Present          bool   `json:"present"`
-		Title            string `json:"title"`
-		BatchID          string `json:"batchId"`
-		Status           string `json:"status"`
-		Goal             string `json:"goal"`
-		ValidationResult string `json:"validationResult"`
-	} `json:"latestBatch"`
-	ReleaseNotes struct {
-		Path          string `json:"path"`
-		Present       bool   `json:"present"`
-		Section       string `json:"section"`
-		LatestBatchID string `json:"latestBatchId"`
-		Covered       bool   `json:"covered"`
-		Summary       string `json:"summary"`
-	} `json:"releaseNotes"`
-	KnownGaps []struct {
-		Index    int    `json:"index"`
-		Category string `json:"category"`
-		Summary  string `json:"summary"`
-	} `json:"knownGaps"`
-	PackMaturity struct {
-		Total                int                 `json:"total"`
-		MaturityCounts       map[string]int      `json:"maturityCounts"`
-		PacksByMaturity      map[string][]string `json:"packsByMaturity"`
-		SchemaValid          bool                `json:"schemaValid"`
-		SchemaVersionReady   bool                `json:"schemaVersionReady"`
-		HeavyToolGateReady   bool                `json:"heavyToolGateReady"`
-		HeavyToolGateActions []string            `json:"heavyToolGateActions"`
-		HeavyToolGatesByPack []struct {
-			ID             string   `json:"id"`
-			Maturity       string   `json:"maturity"`
-			SchemaValid    bool     `json:"schemaValid"`
-			SchemaVersion  string   `json:"schemaVersion"`
-			HeavyToolGates int      `json:"heavyToolGates"`
-			Actions        []string `json:"actions"`
-		} `json:"heavyToolGatesByPack"`
-		Summary string `json:"summary"`
-	} `json:"packMaturity"`
-	Validation  []releaseCheckStep `json:"validation"`
-	NextActions []string           `json:"nextActions"`
-	Warnings    []string           `json:"warnings"`
-}
-
-type releaseCheckResult struct {
-	Command       string `json:"command"`
-	SchemaVersion int    `json:"schemaVersion"`
-	IsMutation    bool   `json:"isMutation"`
-	Ready         bool   `json:"ready"`
-	Summary       string `json:"summary"`
-	GateProfile   struct {
-		Name               string             `json:"name"`
-		Ready              bool               `json:"ready"`
-		StepCount          int                `json:"stepCount"`
-		LargeMatrixDefault bool               `json:"largeMatrixDefault"`
-		Steps              []releaseCheckStep `json:"steps"`
-	} `json:"gateProfile"`
-	CIReleaseGate      releasecheck.CIReleaseGate `json:"ciReleaseGate"`
-	RecommendedMinimum []releaseCheckStep         `json:"recommendedMinimum"`
-	RequiredCommands   []releaseCheckStep         `json:"requiredCommands"`
-	Documents          []struct {
-		Path    string `json:"path"`
-		Present bool   `json:"present"`
-		Purpose string `json:"purpose"`
-	} `json:"documents"`
-	Packs []struct {
-		ID             string `json:"id"`
-		Maturity       string `json:"maturity"`
-		SchemaValid    bool   `json:"schemaValid"`
-		SchemaVersion  string `json:"schemaVersion"`
-		HeavyToolGates int    `json:"heavyToolGates"`
-	} `json:"packs"`
-	PowerShellDeprecation releaseCheckPowerShellDeprecation `json:"powerShellDeprecation"`
-	GoNativePublicSurface struct {
-		Ready                               bool                                             `json:"ready"`
-		Summary                             string                                           `json:"summary"`
-		Entrypoint                          string                                           `json:"entrypoint"`
-		EntrypointPresent                   bool                                             `json:"entrypointPresent"`
-		CommandCatalogPath                  string                                           `json:"commandCatalogPath"`
-		CommandCatalogPresent               bool                                             `json:"commandCatalogPresent"`
-		DefaultCommand                      string                                           `json:"defaultCommand"`
-		Commands                            []string                                         `json:"commands"`
-		HandlerCommands                     []string                                         `json:"handlerCommands"`
-		SymbolCommands                      map[string]string                                `json:"symbolCommands"`
-		CommandProfiles                     []commands.PublicProfile                         `json:"commandProfiles"`
-		CommandProfileSummary               commands.PublicProfileSummary                    `json:"commandProfileSummary"`
-		CommandProfileGroups                commands.PublicProfileGroups                     `json:"commandProfileGroups"`
-		CommandProfileBoundaries            []commands.PublicProfileBoundary                 `json:"commandProfileBoundaries"`
-		CommandProfilePolicies              []commands.PublicProfilePolicy                   `json:"commandProfilePolicies"`
-		FacadeRemovalReady                  bool                                             `json:"facadeRemovalReady"`
-		FacadeRemovalPrerequisites          []releasecheck.GoNativePublicSurfacePrerequisite `json:"facadeRemovalPrerequisites"`
-		MutationBoundaries                  []string                                         `json:"mutationBoundaries"`
-		AlternativePattern                  string                                           `json:"alternativePattern"`
-		UnsupportedCommandDiagnostic        string                                           `json:"unsupportedCommandDiagnostic"`
-		UnsupportedCommandDiagnosticPresent bool                                             `json:"unsupportedCommandDiagnosticPresent"`
-		Warnings                            []string                                         `json:"warnings"`
-	} `json:"goNativePublicSurface"`
-	PublicFacadeRemoval  releasecheck.PublicFacadeRemoval `json:"publicFacadeRemoval"`
-	CaseShim             caseshim.Readiness               `json:"caseShim"`
-	PublicDefaultDocs    defaultdocs.Readiness            `json:"publicDefaultDocs"`
-	ReleaseHandoff       releaseCheckHandoff              `json:"releaseHandoff"`
-	HeavyToolGateActions []string                         `json:"heavyToolGateActions"`
-	Boundaries           []string                         `json:"boundaries"`
-	KnownGaps            []string                         `json:"knownGaps"`
-	Warnings             []string                         `json:"warnings"`
-}
+type releaseCheckResult = releasecheck.Result
 
 func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	var out bytes.Buffer
@@ -584,7 +299,8 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("release-check JSON did not decode: %v\n%s", err, out.String())
 	}
-	if result.Command != "release-check" || result.SchemaVersion != 1 || result.IsMutation || !result.Ready || result.Summary != "release gate inventory ok" || len(result.Warnings) != 0 {
+	resultCounts := releasecheck.ReleaseCheckResultCountsFor(result)
+	if result.Command != "release-check" || result.SchemaVersion != 1 || result.IsMutation || !result.Ready || result.Summary != "release gate inventory ok" || resultCounts.Warnings != 0 {
 		t.Fatalf("unexpected release-check JSON envelope: %+v", result)
 	}
 	assertReleaseCheckCommand(t, result.RequiredCommands, "go run ./cmd/rekit -- -Command release-check -Format json")
@@ -599,7 +315,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckDocument(t, result.Documents, "docs/autonomous-goal.md")
 	assertReleaseCheckDocument(t, result.Documents, "docs/go-first-convergence-plan.md")
 	assertReleaseCheckDocument(t, result.Documents, "docs/powershell-deprecation.md")
-	if !result.GateProfile.Ready || result.GateProfile.Name != "local-ci-minimum" || result.GateProfile.StepCount != len(result.RecommendedMinimum) || result.GateProfile.LargeMatrixDefault || len(result.GateProfile.Steps) != len(result.RecommendedMinimum) {
+	if !result.GateProfile.Ready || result.GateProfile.Name != "local-ci-minimum" || result.GateProfile.StepCount != resultCounts.RecommendedMinimum || result.GateProfile.LargeMatrixDefault || resultCounts.GateProfileSteps != resultCounts.RecommendedMinimum {
 		t.Fatalf("unexpected release-check gate profile: %+v", result.GateProfile)
 	}
 	assertReleaseCheckStep(t, result.RecommendedMinimum, "go run ./cmd/rekit -- -Command release-check -Format json", "go-run", "cmd/rekit")
@@ -613,19 +329,13 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckCaseShim(t, result.CaseShim)
 	assertReleaseCheckPublicDefaultDocs(t, result.PublicDefaultDocs)
 	assertReleaseCheckHandoff(t, result.ReleaseHandoff)
-	if len(result.RecommendedMinimum) == 0 || len(result.Boundaries) == 0 || len(result.KnownGaps) == 0 || len(result.Packs) == 0 || len(result.HeavyToolGateActions) == 0 {
+	if resultCounts.RecommendedMinimum == 0 || resultCounts.Boundaries == 0 || resultCounts.KnownGaps == 0 || resultCounts.Packs == 0 || resultCounts.HeavyToolGateActions == 0 {
 		t.Fatalf("release-check omitted required inventory: %+v", result)
 	}
 	if strings.Join(result.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,network,patch,symex" {
 		t.Fatalf("unexpected heavy-tool gate actions: %v", result.HeavyToolGateActions)
 	}
-	packs := map[string]struct {
-		ID             string `json:"id"`
-		Maturity       string `json:"maturity"`
-		SchemaValid    bool   `json:"schemaValid"`
-		SchemaVersion  string `json:"schemaVersion"`
-		HeavyToolGates int    `json:"heavyToolGates"`
-	}{}
+	packs := map[string]manifest.PackSummary{}
 	for _, pack := range result.Packs {
 		packs[pack.ID] = pack
 	}
@@ -637,7 +347,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	}
 }
 
-func assertReleaseCheckCommand(t *testing.T, steps []releaseCheckStep, want string) {
+func assertReleaseCheckCommand(t *testing.T, steps []releasecheck.GateStep, want string) {
 	t.Helper()
 	for _, step := range steps {
 		if step.Command == want {
@@ -650,7 +360,7 @@ func assertReleaseCheckCommand(t *testing.T, steps []releaseCheckStep, want stri
 	t.Fatalf("release-check missing command %q: %+v", want, steps)
 }
 
-func assertReleaseCheckStep(t *testing.T, steps []releaseCheckStep, wantCommand, wantKind, wantRepoPath string) {
+func assertReleaseCheckStep(t *testing.T, steps []releasecheck.GateStep, wantCommand, wantKind, wantRepoPath string) {
 	t.Helper()
 	for _, step := range steps {
 		if step.Command == wantCommand {
@@ -663,11 +373,7 @@ func assertReleaseCheckStep(t *testing.T, steps []releaseCheckStep, wantCommand,
 	t.Fatalf("release-check missing step %q: %+v", wantCommand, steps)
 }
 
-func assertReleaseCheckDocument(t *testing.T, docs []struct {
-	Path    string `json:"path"`
-	Present bool   `json:"present"`
-	Purpose string `json:"purpose"`
-}, want string) {
+func assertReleaseCheckDocument(t *testing.T, docs []releasecheck.DocumentCheck, want string) {
 	t.Helper()
 	for _, doc := range docs {
 		if doc.Path == want {
@@ -733,7 +439,7 @@ func assertCIReleaseCommand(t *testing.T, gate releasecheck.CIReleaseGate, jobID
 	t.Fatalf("CI release gate missing command %s/%s: %+v", jobID, command, gate.RequiredCommands)
 }
 
-func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
+func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff) {
 	t.Helper()
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || len(handoff.Warnings) != 0 {
 		t.Fatalf("unexpected release handoff summary: %+v", handoff)
@@ -847,7 +553,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releaseCheckHandoff) {
 	}
 }
 
-func assertReleaseHandoffReadFirst(t *testing.T, handoff releaseCheckHandoff, path string) {
+func assertReleaseHandoffReadFirst(t *testing.T, handoff releasecheck.ReleaseHandoff, path string) {
 	t.Helper()
 	for _, doc := range handoff.ReadFirst {
 		if doc.Path == path {
@@ -860,7 +566,7 @@ func assertReleaseHandoffReadFirst(t *testing.T, handoff releaseCheckHandoff, pa
 	t.Fatalf("release handoff missing read-first doc %s: %+v", path, handoff.ReadFirst)
 }
 
-func assertReleaseHandoffSignal(t *testing.T, handoff releaseCheckHandoff, name string) {
+func assertReleaseHandoffSignal(t *testing.T, handoff releasecheck.ReleaseHandoff, name string) {
 	t.Helper()
 	for _, signal := range handoff.Signals {
 		if signal.Name == name {
@@ -873,7 +579,7 @@ func assertReleaseHandoffSignal(t *testing.T, handoff releaseCheckHandoff, name 
 	t.Fatalf("release handoff missing signal %s: %+v", name, handoff.Signals)
 }
 
-func assertReleaseHandoffSignalDetail(t *testing.T, handoff releaseCheckHandoff, name, detail string) {
+func assertReleaseHandoffSignalDetail(t *testing.T, handoff releasecheck.ReleaseHandoff, name, detail string) {
 	t.Helper()
 	for _, signal := range handoff.Signals {
 		if signal.Name == name {
@@ -889,7 +595,7 @@ func assertReleaseHandoffSignalDetail(t *testing.T, handoff releaseCheckHandoff,
 	t.Fatalf("release handoff missing signal %s: %+v", name, handoff.Signals)
 }
 
-func assertReleaseHandoffSignalDetailContains(t *testing.T, handoff releaseCheckHandoff, name, detail string) {
+func assertReleaseHandoffSignalDetailContains(t *testing.T, handoff releasecheck.ReleaseHandoff, name, detail string) {
 	t.Helper()
 	for _, signal := range handoff.Signals {
 		if signal.Name == name {
@@ -907,7 +613,7 @@ func assertReleaseHandoffSignalDetailContains(t *testing.T, handoff releaseCheck
 	t.Fatalf("release handoff missing signal %s: %+v", name, handoff.Signals)
 }
 
-func assertReleaseHandoffPackMaturity(t *testing.T, handoff releaseCheckHandoff) {
+func assertReleaseHandoffPackMaturity(t *testing.T, handoff releasecheck.ReleaseHandoff) {
 	t.Helper()
 	inventory := handoff.PackMaturity
 	if inventory.Total != 10 || !inventory.SchemaValid || !inventory.SchemaVersionReady || !inventory.HeavyToolGateReady || inventory.Summary != "pack maturity inventory ok" {
@@ -940,7 +646,7 @@ func assertReleaseHandoffMaturityPack(t *testing.T, packsByMaturity map[string][
 	t.Fatalf("release handoff pack maturity %s missing %s: %+v", maturity, packID, packsByMaturity)
 }
 
-func assertReleaseHandoffKnownGap(t *testing.T, handoff releaseCheckHandoff, category string) {
+func assertReleaseHandoffKnownGap(t *testing.T, handoff releasecheck.ReleaseHandoff, category string) {
 	t.Helper()
 	for _, gap := range handoff.KnownGaps {
 		if strings.Contains(gap.Category, category) {

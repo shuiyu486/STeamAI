@@ -450,7 +450,7 @@ func writeReleaseCheckResult(out io.Writer, result releasecheck.Result, format s
 	if result.Ready {
 		return nil
 	}
-	if len(result.Warnings) == 0 {
+	if releasecheck.ReleaseCheckResultCountsFor(result).Warnings == 0 {
 		return fmt.Errorf("release-check not ready")
 	}
 	return fmt.Errorf("release-check not ready: %s", strings.Join(result.Warnings, "; "))
@@ -459,9 +459,10 @@ func writeReleaseCheckResult(out io.Writer, result releasecheck.Result, format s
 func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format string) error {
 	switch format {
 	case "table", "text", "tsv":
+		resultCounts := releasecheck.ReleaseCheckResultCountsFor(result)
 		fmt.Fprintf(out, "release-check: %s\n", result.Summary)
 		fmt.Fprintf(out, "ready: %t\n", result.Ready)
-		fmt.Fprintf(out, "gate profile: %s ready=%t steps=%d largeMatrixDefault=%t\n", result.GateProfile.Name, result.GateProfile.Ready, result.GateProfile.StepCount, result.GateProfile.LargeMatrixDefault)
+		fmt.Fprintf(out, "gate profile: %s ready=%t steps=%d largeMatrixDefault=%t\n", result.GateProfile.Name, result.GateProfile.Ready, resultCounts.GateProfileSteps, result.GateProfile.LargeMatrixDefault)
 		ciGateCounts := releasecheck.CIReleaseGateCountsFor(result.CIReleaseGate)
 		fmt.Fprintf(out, "CI release gate: %s ready=%t jobs=%d commands=%d forbidden=%d\n", result.CIReleaseGate.WorkflowPath, result.CIReleaseGate.Ready, ciGateCounts.Jobs, ciGateCounts.RequiredCommands, ciGateCounts.ForbiddenStrings)
 		if ciGateCounts.Warnings > 0 {
@@ -492,7 +493,7 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 			}
 			fmt.Fprintf(out, "- [%s] %s (%s)\n", status, doc.Path, doc.Purpose)
 		}
-		fmt.Fprintf(out, "packs: %d\n", len(result.Packs))
+		fmt.Fprintf(out, "packs: %d\n", resultCounts.Packs)
 		fmt.Fprintf(out, "heavy-tool gate actions: %s\n", strings.Join(result.HeavyToolGateActions, ","))
 		fmt.Fprintf(out, "PowerShell deprecation: %s ready=%t commands=%d modules=%d freezeGates=%d blocked=%d fallbackRetirement=%t noFallback=%d candidates=%d removalModules=%d retiredModules=%d facadeRuntime=%t legacyImports=%t dispatcher=%t publicFacade=%t retained=%t facadeCommands=%d noFallback=%d moduleRemoval=%t removalCandidates=%d retired=%d facadeDeps=%d undocumented=%d moduleReferences=%t activeTests=%d fixtures=%d blockers=%d unclassified=%d\n", result.PowerShellDeprecation.Summary, result.PowerShellDeprecation.Ready, len(result.PowerShellDeprecation.CommandOwnership), len(result.PowerShellDeprecation.ModuleStatus), len(result.PowerShellDeprecation.FreezeGates), len(result.PowerShellDeprecation.BlockedMigrations), result.PowerShellDeprecation.FallbackRetirement.Ready, len(result.PowerShellDeprecation.FallbackRetirement.NoFallbackCommands), len(result.PowerShellDeprecation.FallbackRetirement.CandidateCommands), len(result.PowerShellDeprecation.FallbackRetirement.RemovalCandidateModules), len(result.PowerShellDeprecation.FallbackRetirement.RetiredModules), result.PowerShellDeprecation.FacadeRuntime.Ready, result.PowerShellDeprecation.FacadeRuntime.LegacyModuleImportsPresent, result.PowerShellDeprecation.FacadeRuntime.CommandDispatcherPresent, result.PowerShellDeprecation.PublicFacade.Ready, result.PowerShellDeprecation.PublicFacade.Retained, len(result.PowerShellDeprecation.PublicFacade.CommandSurface), len(result.PowerShellDeprecation.PublicFacade.NoFallbackCommands), result.PowerShellDeprecation.ModuleRemoval.Ready, len(result.PowerShellDeprecation.ModuleRemoval.CandidateModules), len(result.PowerShellDeprecation.ModuleRemoval.RetiredModules), len(result.PowerShellDeprecation.ModuleRemoval.FacadeRuntimeDependencies), len(result.PowerShellDeprecation.ModuleRemoval.UndocumentedModules), result.PowerShellDeprecation.ModuleReferences.Ready, len(result.PowerShellDeprecation.ModuleReferences.ActiveTestDependencies), len(result.PowerShellDeprecation.ModuleReferences.CompatibilityFixtures), len(result.PowerShellDeprecation.ModuleReferences.RemovalBlockers), len(result.PowerShellDeprecation.ModuleReferences.UnclassifiedReferences))
 		surfaceCounts := releasecheck.GoNativePublicSurfaceCountsFor(result.GoNativePublicSurface)
@@ -543,13 +544,13 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 				fmt.Fprintf(out, "- %s\n", warning)
 			}
 		}
-		if len(result.KnownGaps) > 0 {
+		if resultCounts.KnownGaps > 0 {
 			fmt.Fprintln(out, "known gaps:")
 			for _, gap := range result.KnownGaps {
 				fmt.Fprintf(out, "- %s\n", gap)
 			}
 		}
-		if len(result.Warnings) > 0 {
+		if resultCounts.Warnings > 0 {
 			fmt.Fprintln(out, "warnings:")
 			for _, warning := range result.Warnings {
 				fmt.Fprintf(out, "- %s\n", warning)

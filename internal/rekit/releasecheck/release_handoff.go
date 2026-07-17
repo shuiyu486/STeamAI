@@ -137,6 +137,7 @@ func releaseHandoffDocuments(repo string) []ReleaseHandoffDocument {
 }
 
 func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes ReleaseHandoffReleaseNotes, gaps []ReleaseHandoffKnownGap, packMaturity ReleaseHandoffPackMaturity) []ReleaseHandoffSignal {
+	resultCounts := ReleaseCheckResultCountsFor(check)
 	ciGateCounts := CIReleaseGateCountsFor(check.CIReleaseGate)
 	caseShimCounts := caseshim.ReadinessCountsFor(check.CaseShim)
 	publicDefaultDocCounts := defaultdocs.ReadinessCountsFor(check.PublicDefaultDocs)
@@ -146,8 +147,8 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			Ready:   check.Ready,
 			Summary: check.Summary,
 			Details: []string{
-				fmt.Sprintf("gateProfile=%s ready=%t steps=%d", check.GateProfile.Name, check.GateProfile.Ready, check.GateProfile.StepCount),
-				fmt.Sprintf("packs=%d knownGaps=%d warnings=%d", len(check.Packs), len(check.KnownGaps), len(check.Warnings)),
+				fmt.Sprintf("gateProfile=%s ready=%t steps=%d", check.GateProfile.Name, check.GateProfile.Ready, resultCounts.GateProfileSteps),
+				fmt.Sprintf("packs=%d knownGaps=%d warnings=%d", resultCounts.Packs, resultCounts.KnownGaps, resultCounts.Warnings),
 			},
 		},
 		{
@@ -207,10 +208,10 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 		},
 		{
 			Name:    "heavy-tool gate manifests",
-			Ready:   len(check.HeavyToolGateActions) > 0,
+			Ready:   resultCounts.HeavyToolGateActions > 0,
 			Summary: strings.Join(check.HeavyToolGateActions, ","),
 			Details: []string{
-				fmt.Sprintf("actions=%d", len(check.HeavyToolGateActions)),
+				fmt.Sprintf("actions=%d", resultCounts.HeavyToolGateActions),
 				"gate preview/apply only creates pending-gate requests; no heavy-tool execution",
 			},
 		},

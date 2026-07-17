@@ -41,6 +41,32 @@ type Result struct {
 	Warnings              []string               `json:"warnings"`
 }
 
+type ReleaseCheckResultCounts struct {
+	RecommendedMinimum   int
+	RequiredCommands     int
+	Documents            int
+	Packs                int
+	GateProfileSteps     int
+	HeavyToolGateActions int
+	Boundaries           int
+	KnownGaps            int
+	Warnings             int
+}
+
+func ReleaseCheckResultCountsFor(result Result) ReleaseCheckResultCounts {
+	return ReleaseCheckResultCounts{
+		RecommendedMinimum:   len(result.RecommendedMinimum),
+		RequiredCommands:     len(result.RequiredCommands),
+		Documents:            len(result.Documents),
+		Packs:                len(result.Packs),
+		GateProfileSteps:     len(result.GateProfile.Steps),
+		HeavyToolGateActions: len(result.HeavyToolGateActions),
+		Boundaries:           len(result.Boundaries),
+		KnownGaps:            len(result.KnownGaps),
+		Warnings:             len(result.Warnings),
+	}
+}
+
 type GateProfile struct {
 	Name               string     `json:"name"`
 	Description        string     `json:"description"`
@@ -157,7 +183,7 @@ func Build(repoRoot string) (Result, error) {
 			check.Warnings = append(check.Warnings, fmt.Sprintf("pack manifest invalid: %s: %s", pack.ID, pack.Error))
 		}
 	}
-	if len(check.HeavyToolGateActions) == 0 {
+	if ReleaseCheckResultCountsFor(check).HeavyToolGateActions == 0 {
 		check.Ready = false
 		check.Warnings = append(check.Warnings, "no heavy-tool gate actions declared by pack manifests")
 	}
