@@ -10,7 +10,7 @@
 
 ## 实施摘要
 
-长期目标保持不变但阶段重点已更新：`re-context-kits` 应成为 Claude Code 中的多会话 Agent Team Mission Control 框架，而不是命令大全；Go 已是 public command surface 的 deterministic owner。Batch 353 已跑通由主 Agent实际 spawn read-only reviewer，到 Go-native strict intake、evidence-ref validation、WhatIf/Apply verification-before-decision 幂等写回和 post-validation 的本机 bounded reviewer E2E；runtime 仍不自动 spawn 或管理 session/reviewer。当前重点是 replaceable session executor / reviewer orchestration、authorized execution evidence、pack-memory reconsume、PowerShell-free product path 与跨平台验证，而不是继续扩 contract/inventory 字段。
+长期目标保持不变但阶段重点已更新：`re-context-kits` 应成为 Claude Code 中的多会话 Agent Team Mission Control 框架，而不是命令大全；Go 已是 public command surface 的 deterministic owner。Batch 359 后，主 Agent实际 spawn read-only reviewer → Go-native strict intake/writeback、本机 bounded reviewer E2E、pack-memory promote/reconsume package E2E，以及 authorized execution observation evidence + bounded adapter execution report strict intake 均已形成底座；runtime 仍不自动 spawn 或管理 session/reviewer，也不执行 heavy-tool。当前重点是 replaceable session executor / reviewer orchestration、lane executor / tool-adapter live validation hardening、pack-memory product UX、PowerShell-free product path 与跨平台验证，而不是继续扩 contract/inventory 字段。
 
 核心产品形态：
 
@@ -98,11 +98,11 @@ Mission Control 相关批次还应检查：
 
 为防止上下文压缩导致方向偏移，每轮开始先用仓库事实校准方向，优先读取 docs/mission-control-product-direction.md、docs/autonomous-goal.md、docs/release-readiness.md、docs/go-first-convergence-plan.md、docs/powershell-deprecation.md、docs/batch-plan.md 的 current/最新区、README.md、CHANGELOG.md，并检查 git、本地 gate 与远程 CI 实际状态。聊天摘要或 durable docs 与代码/运行结果冲突时，以代码和实际验证为准，并先修正文档。
 
-每轮选择一个 coherent、中大型、可验证、能提升真实可用性或降低维护风险的 vertical slice，不做一两行或逐字段 metadata 微批次。优先方向包括 Mission Commander orchestration、replaceable session executor operational closure、reviewer dispatch/intake/writeback E2E、reconcile UX、authorized execution evidence closure、pack-memory promote/reconsume E2E、PowerShell retained façade 收束，以及 macOS/Linux/Windows product-path readiness。
+每轮选择一个 coherent、中大型、可验证、能提升真实可用性或降低维护风险的 vertical slice，不做一两行或逐字段 metadata 微批次。优先方向包括 Mission Commander orchestration、replaceable session executor operational closure、reviewer orchestration hardening、reconcile UX、lane executor / tool-adapter live validation hardening、pack-memory product UX、PowerShell retained façade 收束，以及 macOS/Linux/Windows product-path readiness。
 
 详细路线、关键决策、验证结果、下一步方向和未完成风险必须持续写回 repo docs，尤其是 docs/batch-plan.md；涉及 PowerShell、Go-native、跨平台或 release readiness 时，同步更新相关设计文档。不要只把计划和结论留在聊天上下文中。
 
 每批完成后运行必要的真实验证，更新 docs/batch-plan.md 的 active/next 状态、相关 durable docs 与必要的 CHANGELOG；仅在当前用户 goal/session 明确授权时提交并推送指定分支。若长期目标未整体完成，先重新校准实际 gate/CI 和风险，无升级条件时写入并继续下一批。除产品方向变化、公共入口删除门禁不完整、schema 迁移、confirmed/authority 策略变化、未授权外部副作用或难以判断的架构取舍外，自主判断并持续推进。
 
-不要声称长期 goal 已完成，除非 PowerShell 已退出默认 runtime/入口/验证/release gate，repository/runtime portability、direct CLI/case E2E 与 installed `/rekit`/case-shim product path 均在 macOS/Linux/Windows 有实际验证，且 Mission Commander、durable lanes、replaceable session executor、Human-in-the-Lane、typed autonomy + authorized execution evidence、bounded reviewer dispatch/intake/writeback、pack-memory promote/reconsume 与 Go-native runtime 的核心闭环均已实现、验证并文档化。`release-check` inventory ready 或 workflow 定义存在不等于远程 CI jobs green。
+不要声称长期 goal 已完成，除非 PowerShell 已退出默认 runtime/入口/验证/release gate，repository/runtime portability、direct CLI/case E2E 与 installed `/rekit`/case-shim product path 均在 macOS/Linux/Windows 有实际验证，且 Mission Commander、durable lanes、replaceable session executor、Human-in-the-Lane、typed autonomy + authorized execution evidence + tool-adapter live validation、bounded reviewer dispatch/intake/writeback + orchestration、pack-memory promote/reconsume + product UX 与 Go-native runtime 的核心闭环均已实现、验证并文档化。`release-check` inventory ready 或 workflow 定义存在不等于远程 CI jobs green。
 ```

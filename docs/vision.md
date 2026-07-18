@@ -304,7 +304,7 @@ packs/<pack>/
 - `internal/rekit/note`、`internal/rekit/gate`、`internal/rekit/workstream`：ledger append、authorization decision、continue/reconcile/handoff durable flow。
 - `internal/rekit/autonomy`：strict durable profile 与 fail-closed preflight。
 - `common/policies/evidence.md`、`review-first.md`：状态和证据规则。
-- 下一步围绕 confirmed/authority 人工 gate、authorized execution evidence closure 与 batch replay/resume 设计；不要重新引入 B3 PowerShell runtime。
+- 下一步围绕 confirmed/authority 人工 gate、lane executor / tool-adapter live validation、pack-memory product UX 与 batch replay/resume 设计；不要重新引入 B3 PowerShell runtime。
 
 **实施步骤：**
 

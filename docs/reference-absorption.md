@@ -25,7 +25,7 @@
 2. **工具 adapter 策略**：IDA/调试器/trace 等工具先 recipe 化、candidate 化，再逐步 adapter 化，避免成为硬依赖或大输出源。
 3. **证据与门禁模型**：evidence ledger、batch/intervention、heavy-tool gate、人工确认和可回滚的审查流程。
 
-当前已经落地的是安全 Agent Team 框架底座、文档契约、Go-owned/no-fallback `/rekit` runtime、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action、review-first sync/promote、首个成熟 pack `vmp-re` 扩展、安全领域 pack 骨架 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re`、tooling candidate、`ida-agent-bridge` 只读 packet contract、bounded reviewer result/writeback contracts，以及 evidence ledger runtime；尚未落地的是实际 member/reviewer session orchestration、runtime 强制 heavy-tool evidence closure、真实工具 bridge adapter、pack-memory reconsume 与跨平台 product-path E2E，也不能宣称已具备自动脱壳/逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
+当前已经落地的是安全 Agent Team 框架底座、文档契约、Go-owned/no-fallback `/rekit` runtime、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action、review-first sync/promote、首个成熟 pack `vmp-re` 扩展、安全领域 pack 骨架 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re`、tooling candidate、`ida-agent-bridge` 只读 packet contract、bounded reviewer dispatch/result/writeback 本机 E2E、authorized execution observation evidence + bounded adapter execution report strict intake、pack-memory promote/reconsume package E2E，以及 evidence ledger runtime；尚未落地的是实际 member/reviewer session orchestration、runtime auto-spawn/session management、真实工具 bridge adapter / lane executor live validation、pack-memory product UX 与跨平台 product-path E2E，也不能宣称已具备自动脱壳/逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
 
 ## 执行清单
 
@@ -37,9 +37,9 @@
 - [x] 增加 evidence/intervention ledger 草案。
 - [x] 增加 orchestration 计划和 pack authoring template。
 - [x] 将 evidence ledger 从文档推进为 Go-owned append-only JSONL（`internal/rekit/note/**` append/list + `internal/rekit/mission/**` typed facts/brief + `internal/rekit/workstream/**` consume/writeback，9 种 kind 与 decision 字段对齐 `docs/evidence-ledger.md`，见 `docs/agent-team-rollout-plan.md` §4-§5）。
-- [x] 将 typed autonomy + `authorized-gate` 从 authorization preflight 推进为 executor/tool-adapter execution evidence closure：Go `gate -Apply -GateEventId ... -ExecutionStatus ...` 消费 authorized-gate、actual budget、output refs、evidence refs、boundary hits 与 escalation，并写 observation evidence；真实工具业务逻辑仍留在 lane executor / tool adapter，不塞入 core runtime。
+- [x] 将 typed autonomy + `authorized-gate` 从 authorization preflight 推进为 executor/tool-adapter execution evidence closure：Go `gate -Apply -GateEventId ... -ExecutionStatus ... -ExecutionReportPath ...` 消费 authorized-gate、actual budget、output refs、evidence refs、boundary hits、escalation 与 strict validated bounded adapter execution report provenance，并写 observation evidence；真实工具业务逻辑仍留在 lane executor / tool adapter，不塞入 core runtime。
 - [x] 将 `ida-agent-bridge` 从 candidate tooling 推进到只读 packet contract / capability card（仍不安装、不连接、不实现 runtime-level adapter）。
-- [ ] 将 bounded dispatch 从完整 contract 推进为 Mission Commander 可验证 E2E：主 Agent实际 spawn 只读 reviewer，完成 result intake、WhatIf、ledger writeback 与 post-validation；`plan-subagents` 本身仍不自动 spawn。
+- [x] 将 bounded dispatch 从完整 contract 推进为 Mission Commander 可验证 E2E：主 Agent实际 spawn 只读 reviewer，完成 result intake、WhatIf、ledger writeback 与 post-validation；`plan-subagents` 本身仍不自动 spawn。
 - [ ] 扩展 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native`、`generic-binary-re` 等安全领域 pack（`web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 已有最小骨架；后续按真实需求继续扩展）。
 
 ## 验证标准
