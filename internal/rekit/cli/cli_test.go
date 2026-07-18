@@ -3839,14 +3839,26 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		t.Fatalf("missing shard handoffs: result=%+v packet=%+v", result.ShardHandoffs, packet.ShardHandoffs)
 	}
 	firstHandoff := packet.ShardHandoffs[0]
-	if firstHandoff.ShardID != "shard-01" || firstHandoff.Status != "planned" || strings.Join(firstHandoff.Items, ",") != "alpha,beta" || !strings.Contains(firstHandoff.DispatchPrompt, "read-only reviewer") || !strings.Contains(firstHandoff.DispatchPrompt, "Do not write files") || !strings.Contains(firstHandoff.ExpectedOutput, "decision") || !strings.Contains(firstHandoff.ReviewerWriteback, "note -Kind verification") || !strings.Contains(firstHandoff.MainAgentNextAction, "launch a read-only reviewer") || !slices.Contains(firstHandoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(firstHandoff.CompletionCriteria, "reviewer verdicts are recorded in the ledger before main merge decisions") || firstHandoff.FailureHandling == "" {
+	if firstHandoff.ShardID != "shard-01" || firstHandoff.Status != "planned" || strings.Join(firstHandoff.Items, ",") != "alpha,beta" || !strings.Contains(firstHandoff.DispatchPrompt, "read-only reviewer") || !strings.Contains(firstHandoff.DispatchPrompt, "Do not write files") || !strings.Contains(firstHandoff.ExpectedOutput, "decision") || !strings.Contains(firstHandoff.ReviewerWriteback, "note -Kind verification") || !strings.Contains(firstHandoff.MainAgentNextAction, "ledgerWritebackTemplates") || !slices.Contains(firstHandoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(firstHandoff.CompletionCriteria, "reviewer verdicts are recorded in the ledger before main merge decisions") || firstHandoff.FailureHandling == "" {
 		t.Fatalf("unexpected shard handoff: %+v", firstHandoff)
+	}
+	if len(firstHandoff.LedgerWritebackTemplates) != 2 || firstHandoff.LedgerWritebackTemplates[0].Kind != "verification" || firstHandoff.LedgerWritebackTemplates[1].Kind != "decision" {
+		t.Fatalf("unexpected shard writeback templates: %+v", firstHandoff.LedgerWritebackTemplates)
+	}
+	if !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].Command, "-Kind verification") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].Command, "-Verdict <accepted|rejected|inconclusive|needs-more-evidence>") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].Command, "-TargetRef \"alpha,beta\"") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[0].RequiredFields, "evidenceRefs") {
+		t.Fatalf("unexpected verification writeback template: %+v", firstHandoff.LedgerWritebackTemplates[0])
+	}
+	if !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].Command, "-Kind decision") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].Command, "-Decision <accept|reject|defer|supersede>") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].Command, "-TargetRef \"alpha,beta\"") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[1].RequiredFields, "decision") {
+		t.Fatalf("unexpected decision writeback template: %+v", firstHandoff.LedgerWritebackTemplates[1])
+	}
+	if !slices.Contains(firstHandoff.PostReviewMerge, "record the main merge decision with the decision template only after validation/conflict review") {
+		t.Fatalf("unexpected post-review merge guidance: %+v", firstHandoff.PostReviewMerge)
 	}
 	summary, err := os.ReadFile(result.SummaryPath)
 	if err != nil {
 		t.Fatalf("missing summary: %v", err)
 	}
-	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback"} {
+	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "verification writeback", "decision writeback", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -4920,16 +4932,26 @@ type planSubagentsPacket struct {
 }
 
 type planSubagentsHandoff struct {
-	ShardID             string   `json:"shardId"`
-	Status              string   `json:"status"`
-	DispatchPrompt      string   `json:"dispatchPrompt"`
-	Items               []string `json:"items"`
-	ReadOnlyBoundary    []string `json:"readOnlyBoundary"`
-	ExpectedOutput      string   `json:"expectedOutput"`
-	ReviewerWriteback   string   `json:"reviewerWriteback"`
-	MainAgentNextAction string   `json:"mainAgentNextAction"`
-	CompletionCriteria  []string `json:"completionCriteria"`
-	FailureHandling     string   `json:"failureHandling"`
+	ShardID                  string                           `json:"shardId"`
+	Status                   string                           `json:"status"`
+	DispatchPrompt           string                           `json:"dispatchPrompt"`
+	Items                    []string                         `json:"items"`
+	ReadOnlyBoundary         []string                         `json:"readOnlyBoundary"`
+	ExpectedOutput           string                           `json:"expectedOutput"`
+	ReviewerWriteback        string                           `json:"reviewerWriteback"`
+	LedgerWritebackTemplates []planSubagentsWritebackTemplate `json:"ledgerWritebackTemplates"`
+	MainAgentNextAction      string                           `json:"mainAgentNextAction"`
+	PostReviewMerge          []string                         `json:"postReviewMerge"`
+	CompletionCriteria       []string                         `json:"completionCriteria"`
+	FailureHandling          string                           `json:"failureHandling"`
+}
+
+type planSubagentsWritebackTemplate struct {
+	Kind           string   `json:"kind"`
+	Purpose        string   `json:"purpose"`
+	Command        string   `json:"command"`
+	RequiredFields []string `json:"requiredFields"`
+	AllowedValues  []string `json:"allowedValues"`
 }
 
 type planSubagentsObservables struct {

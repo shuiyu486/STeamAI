@@ -138,16 +138,26 @@ type Shard struct {
 }
 
 type ShardHandoff struct {
-	ShardID             string   `json:"shardId"`
-	Status              string   `json:"status"`
-	DispatchPrompt      string   `json:"dispatchPrompt"`
-	Items               []string `json:"items"`
-	ReadOnlyBoundary    []string `json:"readOnlyBoundary"`
-	ExpectedOutput      string   `json:"expectedOutput"`
-	ReviewerWriteback   string   `json:"reviewerWriteback"`
-	MainAgentNextAction string   `json:"mainAgentNextAction"`
-	CompletionCriteria  []string `json:"completionCriteria"`
-	FailureHandling     string   `json:"failureHandling"`
+	ShardID                  string                    `json:"shardId"`
+	Status                   string                    `json:"status"`
+	DispatchPrompt           string                    `json:"dispatchPrompt"`
+	Items                    []string                  `json:"items"`
+	ReadOnlyBoundary         []string                  `json:"readOnlyBoundary"`
+	ExpectedOutput           string                    `json:"expectedOutput"`
+	ReviewerWriteback        string                    `json:"reviewerWriteback"`
+	LedgerWritebackTemplates []LedgerWritebackTemplate `json:"ledgerWritebackTemplates"`
+	MainAgentNextAction      string                    `json:"mainAgentNextAction"`
+	PostReviewMerge          []string                  `json:"postReviewMerge"`
+	CompletionCriteria       []string                  `json:"completionCriteria"`
+	FailureHandling          string                    `json:"failureHandling"`
+}
+
+type LedgerWritebackTemplate struct {
+	Kind           string   `json:"kind"`
+	Purpose        string   `json:"purpose"`
+	Command        string   `json:"command"`
+	RequiredFields []string `json:"requiredFields"`
+	AllowedValues  []string `json:"allowedValues,omitempty"`
 }
 
 type artifactPaths struct {
@@ -327,19 +337,53 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 	readOnlyBoundary := append([]string{}, observability.BlockedActions...)
 	for _, shard := range shards {
 		handoffs = append(handoffs, ShardHandoff{
-			ShardID:             shard.ID,
-			Status:              "planned",
-			DispatchPrompt:      shardDispatchPrompt(shard, route, readOnlyBoundary, reviewLoop),
-			Items:               append([]string{}, shard.Items...),
-			ReadOnlyBoundary:    append([]string{}, readOnlyBoundary...),
-			ExpectedOutput:      route.OutputContract,
-			ReviewerWriteback:   reviewLoop.VerdictWriteback,
-			MainAgentNextAction: "launch a read-only reviewer with dispatchPrompt, then record accepted/rejected/deferred verdicts via the ledger writeback command",
-			CompletionCriteria:  append([]string{}, reviewLoop.CompletionCriteria...),
-			FailureHandling:     reviewLoop.FailureHandling,
+			ShardID:                  shard.ID,
+			Status:                   "planned",
+			DispatchPrompt:           shardDispatchPrompt(shard, route, readOnlyBoundary, reviewLoop),
+			Items:                    append([]string{}, shard.Items...),
+			ReadOnlyBoundary:         append([]string{}, readOnlyBoundary...),
+			ExpectedOutput:           route.OutputContract,
+			ReviewerWriteback:        reviewLoop.VerdictWriteback,
+			LedgerWritebackTemplates: ledgerWritebackTemplates(shard),
+			MainAgentNextAction:      "launch a read-only reviewer with dispatchPrompt, then use ledgerWritebackTemplates to record reviewer verification and main merge decision",
+			PostReviewMerge:          postReviewMergeSteps(),
+			CompletionCriteria:       append([]string{}, reviewLoop.CompletionCriteria...),
+			FailureHandling:          reviewLoop.FailureHandling,
 		})
 	}
 	return handoffs
+}
+
+func ledgerWritebackTemplates(shard Shard) []LedgerWritebackTemplate {
+	itemRef := strings.Join(shard.Items, ",")
+	if itemRef == "" {
+		itemRef = shard.ID
+	}
+	return []LedgerWritebackTemplate{
+		{
+			Kind:           "verification",
+			Purpose:        "record a read-only reviewer verdict for this shard after the main agent inspects the reviewer output",
+			Command:        "/rekit note -Kind verification -Lane <lane> -Verifier manual-review -Verdict <accepted|rejected|inconclusive|needs-more-evidence> -TargetRef \"" + itemRef + "\" -Subject \"reviewer verdict for " + shard.ID + "\" -Summary \"<short reviewer verdict summary>\" -EvidenceRefs \"<packet-or-evidence-ref>\" -Actor <main-agent> -Apply",
+			RequiredFields: []string{"lane", "verifier", "verdict", "target", "subject", "summary", "evidenceRefs", "actor"},
+			AllowedValues:  []string{"verifier=manual-review|schema-check|focused-trace|parity|cross-run|tool-review", "verdict=accepted|rejected|inconclusive|needs-more-evidence"},
+		},
+		{
+			Kind:           "decision",
+			Purpose:        "record the main agent merge decision for this shard after validation and conflict review",
+			Command:        "/rekit note -Kind decision -Lane <lane> -Decision <accept|reject|defer|supersede> -TargetRef \"" + itemRef + "\" -Subject \"main merge decision for " + shard.ID + "\" -Summary \"<merge decision and reason>\" -EvidenceRefs \"<verification-event-or-packet-ref>\" -Actor <main-agent> -Apply",
+			RequiredFields: []string{"lane", "decision", "target", "subject", "summary", "evidenceRefs", "actor"},
+			AllowedValues:  []string{"decision=accept|reject|defer|supersede"},
+		},
+	}
+}
+
+func postReviewMergeSteps() []string {
+	return []string{
+		"inspect reviewer output against expectedOutput before ledger writeback",
+		"record reviewer verdict with the verification template; do not let the reviewer append ledger events directly",
+		"record the main merge decision with the decision template only after validation/conflict review",
+		"run the relevant overview/handoff/doctor check after accepted decisions that affect lane state",
+	}
 }
 
 func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, reviewLoop ReviewLoop) string {
@@ -560,6 +604,12 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 	} else {
 		for _, handoff := range shardHandoffs {
 			lines = append(lines, fmt.Sprintf("- %s: `%s`; expected output=`%s`", handoff.ShardID, handoff.DispatchPrompt, handoff.ExpectedOutput))
+			for _, tmpl := range handoff.LedgerWritebackTemplates {
+				lines = append(lines, fmt.Sprintf("  - %s writeback: `%s`; required=`%s`", tmpl.Kind, tmpl.Command, strings.Join(tmpl.RequiredFields, ",")))
+			}
+			for _, step := range handoff.PostReviewMerge {
+				lines = append(lines, "  - post-review: "+step)
+			}
 		}
 	}
 	lines = append(lines,

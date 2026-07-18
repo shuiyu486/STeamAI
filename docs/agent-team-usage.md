@@ -86,7 +86,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 - 功能支线只写自己的 workspace、outbox、candidate/request，不直接写 confirmed CSV、routine IR 或长期 handoff。
 - 长期成员身份绑定 lane，不绑定旧 session；旧会话上下文污染或用户希望重开时，新会话应读取 handoff / packet / evidence 接手同一 lane。
 - 用户可随时进入 lane 打断、纠错、改向或硬切模型；lane 继续时要用 `/rekit reconcile <name> -InterventionId <eventId> -Apply` 将干预写成 append-only resolution event，并刷新 durable lane executor/resume/checkpoint/board state。
-- `plan-subagents` 只写 review artifacts，不自动 spawn reviewer；`packet.json` / `summary.md` 的 `shardHandoffs[]` 应提供每个 shard 的 read-only dispatch prompt、expected output、ledger writeback 和 main-agent merge boundary，让主 Agent 可调度短命 reviewer 而不把写入权交给 reviewer。
+- `plan-subagents` 只写 review artifacts，不自动 spawn reviewer；`packet.json` / `summary.md` 的 `shardHandoffs[]` 应提供每个 shard 的 read-only dispatch prompt、expected output、`ledgerWritebackTemplates[]` verification / decision note 命令模板、required fields / allowed values、post-review merge guidance 和 main-agent merge boundary，让主 Agent 可调度短命 reviewer、审查输出后手动落账，而不把写入权、authority/confirmed 决策或 heavy-tool 执行权交给 reviewer/runtime。
 - confirmed / authority 写入仍需要更严格 gate；动态调试、注入、patch、dump、hook、full trace、网络、exploit replay 等外部副作用若已在 lane 文档/packet/autonomy profile 预授权，可在 scope、预算、止损和记录要求内自主执行，否则需要人工确认。
 
 ## 风险与注意事项
