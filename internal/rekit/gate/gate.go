@@ -111,6 +111,7 @@ type AdapterReport struct {
 	OutputRefs    []string        `json:"outputRefs,omitempty"`
 	EvidenceRefs  []string        `json:"evidenceRefs,omitempty"`
 	BoundaryHits  []string        `json:"boundaryHits,omitempty"`
+	Escalation    string          `json:"escalation,omitempty"`
 	Summary       string          `json:"summary,omitempty"`
 }
 
@@ -141,6 +142,7 @@ type AdapterExecutionReportContract struct {
 	RecordRequired         bool              `json:"recordRequired"`
 	NotifyMainOn           []string          `json:"notifyMainOn,omitempty"`
 	BoundaryStatusRequires []string          `json:"boundaryStatusRequires,omitempty"`
+	EscalationMaxBytes     int               `json:"escalationMaxBytes"`
 	DeniedActions          []string          `json:"deniedActions,omitempty"`
 	NextSteps              []string          `json:"nextSteps,omitempty"`
 }
@@ -393,6 +395,7 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) 
 		StopConditions:         append([]string{}, event.Gate.StopConditions...),
 		ReportPathRule:         "case-relative or case-contained absolute file path under one authorized outputPath; sidecar must be <= 1048576 bytes and contain no trailing JSON data",
 		SummaryMaxBytes:        4096,
+		EscalationMaxBytes:     4096,
 		RecordRequired:         event.Gate.Authorization.RecordRequired,
 		NotifyMainOn:           append([]string{}, event.Gate.Authorization.NotifyMainOn...),
 		BoundaryStatusRequires: []string{"boundaryHits or escalation for boundary-hit/escalated status", "boundaryHits or escalation when actualBudget exceeds authorizedBudget"},
@@ -471,6 +474,14 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (Ex
 		}
 	}
 	escalation := strings.TrimSpace(opt.Escalation)
+	if adapterReport != nil {
+		if escalation != "" && adapterReport.Escalation != "" && escalation != adapterReport.Escalation {
+			return ExecutionEvidencePreview{}, fmt.Errorf("adapter execution report escalation does not match explicit Escalation")
+		}
+		if escalation == "" {
+			escalation = adapterReport.Escalation
+		}
+	}
 	if exceedsGateBudget(gateEvent.Gate.RequestedBudget, actual) && len(boundaryHits) == 0 && escalation == "" {
 		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence actual budget exceeds authorized request; record -BoundaryHits or -Escalation")
 	}
@@ -652,6 +663,16 @@ func validateAdapterExecutionReport(caseRoot string, gateEvent EventPreview, rep
 			return err
 		}
 	}
+	report.Escalation = strings.TrimSpace(report.Escalation)
+	if len(report.Escalation) > 4096 {
+		return fmt.Errorf("adapter execution report escalation is too large")
+	}
+	if (report.Status == "boundary-hit" || report.Status == "escalated") && len(report.BoundaryHits) == 0 && report.Escalation == "" {
+		return fmt.Errorf("adapter execution report status %s requires boundaryHits or escalation", report.Status)
+	}
+	if exceedsGateBudget(gateEvent.Gate.RequestedBudget, report.ActualBudget) && len(report.BoundaryHits) == 0 && report.Escalation == "" {
+		return fmt.Errorf("adapter execution report actualBudget exceeds authorized request; record boundaryHits or escalation")
+	}
 	report.Summary = strings.TrimSpace(report.Summary)
 	if len(report.Summary) > 4096 {
 		return fmt.Errorf("adapter execution report summary is too large")
@@ -785,6 +806,7 @@ func adapterEventIDSeed(report *AdapterReport) string {
 		strings.Join(report.OutputRefs, ","),
 		strings.Join(report.EvidenceRefs, ","),
 		strings.Join(report.BoundaryHits, ","),
+		report.Escalation,
 		report.Summary,
 	}, "|")
 }

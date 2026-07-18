@@ -4980,14 +4980,17 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	var contract struct {
-		Kind                string   `json:"kind"`
-		ReportKind          string   `json:"reportKind"`
-		ReportSchemaVersion int      `json:"reportSchemaVersion"`
-		GateEventID         string   `json:"gateEventId"`
-		Action              string   `json:"action"`
-		AllowedStatuses     []string `json:"allowedStatuses"`
-		AllowedOutputPaths  []string `json:"allowedOutputPaths"`
-		AuthorizedBudget    struct {
+		Kind                   string   `json:"kind"`
+		ReportKind             string   `json:"reportKind"`
+		ReportSchemaVersion    int      `json:"reportSchemaVersion"`
+		GateEventID            string   `json:"gateEventId"`
+		Action                 string   `json:"action"`
+		AllowedStatuses        []string `json:"allowedStatuses"`
+		AllowedOutputPaths     []string `json:"allowedOutputPaths"`
+		BoundaryStatusRequires []string `json:"boundaryStatusRequires"`
+		SummaryMaxBytes        int      `json:"summaryMaxBytes"`
+		EscalationMaxBytes     int      `json:"escalationMaxBytes"`
+		AuthorizedBudget       struct {
 			RuntimeSeconds int `json:"runtimeSeconds"`
 		} `json:"authorizedBudget"`
 		DeniedActions []string `json:"deniedActions"`
@@ -4998,7 +5001,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if contract.Kind != "adapter-execution-report-contract" || contract.ReportKind != "adapter-execution-report" || contract.ReportSchemaVersion != 1 || contract.GateEventID != authorizedEventID || contract.Action != "debug" {
 		t.Fatalf("unexpected adapter report contract identity: %+v", contract)
 	}
-	if strings.Join(contract.AllowedStatuses, ",") != "succeeded,failed,boundary-hit,escalated,aborted" || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || contract.AuthorizedBudget.RuntimeSeconds != 30 || !slices.Contains(contract.DeniedActions, "heavy-tool execution") {
+	if strings.Join(contract.AllowedStatuses, ",") != "succeeded,failed,boundary-hit,escalated,aborted" || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || contract.AuthorizedBudget.RuntimeSeconds != 30 || contract.SummaryMaxBytes != 4096 || contract.EscalationMaxBytes != 4096 || !containsSubstring(contract.BoundaryStatusRequires, "boundaryHits or escalation") || !slices.Contains(contract.DeniedActions, "heavy-tool execution") {
 		t.Fatalf("adapter report contract omitted live validation boundaries: %+v", contract)
 	}
 	out.Reset()
@@ -5029,6 +5032,11 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 					DiskMB         int `json:"diskMB"`
 					Requests       int `json:"requests"`
 				} `json:"actualBudget"`
+				Escalation string `json:"escalation"`
+				Adapter    struct {
+					AdapterID  string `json:"adapterId"`
+					Escalation string `json:"escalation"`
+				} `json:"adapter"`
 			} `json:"execution"`
 		} `json:"executionEvidence"`
 	}
@@ -5041,11 +5049,46 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if strings.Join(evidence.ExecutionEvidence.Related, ",") != authorizedEventID || evidence.ExecutionEvidence.Execution.GateEventID != authorizedEventID || evidence.ExecutionEvidence.Execution.Authorization != "preauthorized" || evidence.ExecutionEvidence.Execution.ActualBudget.RuntimeSeconds != 25 || strings.Join(evidence.ExecutionEvidence.Execution.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" {
 		t.Fatalf("execution evidence did not preserve gate provenance: %+v", evidence.ExecutionEvidence)
 	}
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-escalation.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "cli-adapter",
+  "action": "debug",
+  "status": "escalated",
+  "gateEventId": "`+authorizedEventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/adapter-result.json"],
+  "escalation": "adapter escalated from CLI E2E",
+  "summary": "Adapter reported an escalation"
+}`)
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-GateEventId", authorizedEventID, "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-escalation.json", "-Actor", "executor-1", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var adapterEvidence struct {
+		Applied           bool `json:"applied"`
+		ExecutionEvidence struct {
+			Status    string `json:"status"`
+			Execution struct {
+				Escalation string `json:"escalation"`
+				Adapter    struct {
+					AdapterID  string `json:"adapterId"`
+					Escalation string `json:"escalation"`
+				} `json:"adapter"`
+			} `json:"execution"`
+		} `json:"executionEvidence"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &adapterEvidence); err != nil {
+		t.Fatalf("adapter execution evidence stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !adapterEvidence.Applied || adapterEvidence.ExecutionEvidence.Status != "escalated" || adapterEvidence.ExecutionEvidence.Execution.Escalation != "adapter escalated from CLI E2E" || adapterEvidence.ExecutionEvidence.Execution.Adapter.AdapterID != "cli-adapter" || adapterEvidence.ExecutionEvidence.Execution.Adapter.Escalation != "adapter escalated from CLI E2E" {
+		t.Fatalf("adapter execution report evidence drifted: %+v", adapterEvidence)
+	}
 	observations, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(observations), `"gateEventId":"`+authorizedEventID+`"`) || !strings.Contains(string(observations), `"authorization":"preauthorized"`) || strings.Contains(string(observations), `"kind":"authority"`) || strings.Contains(string(observations), `"kind":"confirmed"`) {
+	if !strings.Contains(string(observations), `"gateEventId":"`+authorizedEventID+`"`) || !strings.Contains(string(observations), `"authorization":"preauthorized"`) || !strings.Contains(string(observations), `"escalation":"adapter escalated from CLI E2E"`) || strings.Contains(string(observations), `"kind":"authority"`) || strings.Contains(string(observations), `"kind":"confirmed"`) {
 		t.Fatalf("execution evidence ledger mismatch:\n%s", string(observations))
 	}
 	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))

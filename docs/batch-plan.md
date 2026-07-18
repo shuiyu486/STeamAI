@@ -16,26 +16,27 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 364：Installed case shim product-path E2E hardening**
+**Batch 365：Adapter report escalation live-validation hardening**
 
-状态：已完成 attach → nested cwd → status caseShim → shim drift → init refresh → doctor 的本地 installed case shim product-path E2E hardening、durable docs 更新与本地验证；远程 release-gate 仍因 runner/billing blocker 失败，不能声明远程 CI green。
+状态：已完成 bounded adapter execution report 的 escalation / boundary marker strict intake hardening、CLI/package E2E 与 durable docs 更新；远程 release-gate 仍因 runner/billing blocker 失败，不能声明远程 CI green。
 
-目标：把 Batch 363 的只读 readiness projection 接入一个更贴近日常产品路径的临时 case flow：case 先由 `attach -Apply` 写入 installed thin shim，主 Agent 在 case 下的 nested workspace cwd 无 `-Target` 调用 `status` 消费 `caseShim`，检测 drift 后再由 `init -Apply` 刷新 shim 并通过 case `doctor` 验证。
+目标：补齐 Batch 359/361 adapter report contract 的 live-validation 细节：lane executor / tool adapter 写入的 bounded sidecar 若声明 `boundary-hit`、`escalated` 或实际预算越界，必须在 sidecar 自身携带 `boundaryHits` 或 `escalation` marker；`/rekit` 可把 bounded escalation 从 sidecar 嵌入 observation evidence，但仍不执行 heavy-tool、不写 authority/confirmed。
 
-边界：本批只加强本地 CLI/case E2E 与 durable docs；不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 authority/confirmed，不改变 sync/promote review-first、case shim template 内容、runtime schema migration、公共入口删除门禁或远程 CI blocker 状态；完整 Claude Code slash skill installed user entrypoint E2E 与三平台 runner matrix 仍是后续 gap。
+边界：本批只强化 Go strict intake、只读 contract projection、CLI/package tests 与 durable docs；不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 authority/confirmed，不改变 sync/promote review-first、case shim template 内容、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；真实工具调用隔离、停止条件执行和 adapter-specific live validation 仍由 lane executor / tool adapter 在授权边界内承担。
 
 完成内容：
 
-- 新增 `TestRunInstalledCaseShimProductPathStatusAndRefresh`，覆盖 `attach -Apply` 写 installed case shim 后，在 nested case workspace cwd 中无 `-Target` 运行 `status -Format json` 并验证 `caseShim.ready=true` / `installedShimMatchesTemplate=true`。
-- 同一 E2E 人为制造 case-local shim drift，验证 nested cwd 的 `status.caseShim` fail-open 只读暴露 drift warning 与 `shimMatchesTemplate=false`，不静默修复。
-- 同一 E2E 用 `init -Apply` 刷新 case-local thin shim，再次通过 nested cwd `status` 验证 readiness 恢复，并通过 `doctor -Format json` 验证 case mode valid。
-- 更新 release readiness / Go-first convergence / batch-plan / CHANGELOG，明确本地 product-path 覆盖已包含 installed shim status/refresh hardening，但完整 installed user entrypoint E2E 和三平台 matrix 仍未完成。
+- `AdapterReport` 新增 optional bounded `escalation` 字段，strict intake 会 trim 并限制 4096 bytes，写入 observation evidence 的 `execution.escalation` 与 `execution.adapter.escalation` provenance。
+- `AdapterExecutionReportContract` 输出 `escalationMaxBytes=4096`，并继续暴露 `boundaryStatusRequires[]`，让 adapter 执行前能消费 boundary/escalation sidecar requirements。
+- `validateAdapterExecutionReport` 现在 fail-closed 拒绝缺少 `boundaryHits` / `escalation` marker 的 `boundary-hit` / `escalated` report，以及 actual budget 超出 authorized budget 却无 marker 的 report；显式 `-Escalation` 与 sidecar escalation 不一致时拒绝写 observation。
+- 扩展 package tests 覆盖 adapter escalation happy path、boundary/escalated 缺 marker、预算越界缺 marker 与 explicit escalation mismatch；扩展 CLI E2E 覆盖 contract 字段与 `-ExecutionReportPath` escalation sidecar 写入 observations ledger，继续断言不写 authority/confirmed。
+- 更新 README、canonical `/rekit` skill、tool adapter policy、release readiness、Go-first convergence、agent-team rollout、tests guide、batch-plan 与 CHANGELOG，明确 `/rekit` 只记录 strict validated bounded report，不执行实际工具。
 
 已通过验证：
 
 ```text
-go test ./internal/rekit/cli
-go vet ./internal/rekit/cli
+go test ./internal/rekit/gate ./internal/rekit/cli
+go vet ./internal/rekit/gate ./internal/rekit/cli
 go test ./...
 go vet ./...
 go run ./cmd/rekit -- -Command release-check -Format json
@@ -43,16 +44,16 @@ go run ./cmd/rekit -- -Command status
 go run ./cmd/rekit -- -Command packs
 go run ./cmd/rekit -- -Command doctor
 git diff --check
-gh run view 29663671474 --json conclusion,event,headSha,jobs
+gh run view 29663908602 --json conclusion,event,headSha,jobs
 ```
 
-本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；最新 inspected remote run `29663671474` 对应 Batch 363 head `f6d142aad45f07b5ce7d9fffa74c7c531f06653d`，Linux/macOS/Windows jobs 均为 failure 且 steps 为空，仍符合已知 runner/billing blocker。
+本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；最新 inspected remote run `29663908602` 对应 Batch 364 head `0edf787de75a09f8bb0208eda971579ff2dad055`，Linux/macOS/Windows jobs 均为 failure 且 steps 为空，仍符合已知 runner/billing blocker。
 
 ### Next candidates
 
 1. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E、`status.caseShim` readiness 和完整 installed user entrypoint E2E 纳入可用 runner 验证。
 2. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
-3. **Lane executor/tool-adapter live validation hardening**：在 Batch 359 bounded report intake 之外，为具体 lane executor / adapter 补真实工具调用隔离、停止条件执行和 adapter-specific live validation 的产品级闭环。
+3. **Lane executor/tool-adapter live validation hardening**：在 Batch 365 bounded report escalation strict intake 之外，为具体 lane executor / adapter 补真实工具调用隔离、停止条件执行和 adapter-specific live validation 的产品级闭环。
 4. **Pack-memory product UX hardening**：在 Batch 358 package E2E 之外，补真实多 pack/跨 case review UX、candidate cleanup 和人工 merge guidance 的产品级验证。
 
 ### Escalation / stopping conditions
@@ -10985,3 +10986,23 @@ git diff --check
 实施范围：新增 `caseshim.InspectInstalled` helper，`status` JSON/text 投影 canonical / installed case shim readiness，case `doctor` 复用同一 installed shim match helper，扩展 package/CLI tests，并更新 README、canonical skill、release readiness、Go-first convergence plan、batch plan 与 CHANGELOG。不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool，不写 authority/confirmed，不改变 sync/promote review-first、case shim template 内容、runtime schema migration、公共入口删除门禁或远程 CI blocker 状态。
 
 验证结果：已通过 `go test ./internal/rekit/caseshim ./internal/rekit/cli`、`go vet ./internal/rekit/caseshim ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。远程 release-gate 仍为 failure，最新 inspected run `29662788363` 的 Linux/macOS/Windows jobs steps 为空，不能声明远程 CI green。
+
+### Batch 364：Installed case shim product-path E2E hardening
+
+状态：已完成 attach → nested cwd → status caseShim → shim drift → init refresh → doctor 的本地 installed case shim product-path E2E hardening、durable docs 更新与最终验证。
+
+目标：把 Batch 363 的只读 readiness projection 接入一个更贴近日常产品路径的临时 case flow：case 先由 `attach -Apply` 写入 installed thin shim，主 Agent 在 case 下的 nested workspace cwd 无 `-Target` 调用 `status` 消费 `caseShim`，检测 drift 后再由 `init -Apply` 刷新 shim 并通过 case `doctor` 验证。
+
+实施范围：新增 `TestRunInstalledCaseShimProductPathStatusAndRefresh`，覆盖 `attach -Apply` 写 installed case shim、nested cwd 无 `-Target` status、shim drift detection、`init -Apply` refresh 与 nested cwd doctor；同步 release readiness、Go-first convergence plan、batch plan 与 CHANGELOG。不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool，不写 authority/confirmed，不改变 sync/promote review-first、case shim template 内容、runtime schema migration、公共入口删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 `go test ./internal/rekit/cli`、`go vet ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。远程 release-gate 仍为 failure，最新 inspected run `29663908602` 的 Linux/macOS/Windows jobs steps 为空，不能声明远程 CI green。
+
+### Batch 365：Adapter report escalation live-validation hardening
+
+状态：已完成 bounded adapter execution report escalation / boundary marker strict intake、文档更新与最终验证。
+
+目标：补齐 lane executor / tool adapter sidecar 的 boundary/escalation live-validation：sidecar 若声明 `boundary-hit`、`escalated` 或 actual budget 超出 authorized budget，必须自身携带 `boundaryHits` 或 bounded `escalation` marker；`/rekit` 只记录 strict validated observation evidence，不执行 heavy-tool、不写 authority/confirmed。
+
+实施范围：新增 adapter report `escalation` 字段、contract `escalationMaxBytes`、sidecar boundary/budget marker fail-closed validation、package tests 与 CLI E2E；同步 README、canonical skill、tool adapter policy、release readiness、Go-first convergence plan、agent-team rollout、tests guide、batch plan 与 CHANGELOG。不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool，不写 authority/confirmed，不改变 sync/promote review-first、case shim template 内容、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 `go test ./internal/rekit/gate ./internal/rekit/cli`、`go vet ./internal/rekit/gate ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。远程 release-gate 仍为 failure，最新 inspected run `29663908602` 的 Linux/macOS/Windows jobs steps 为空，不能声明远程 CI green。
