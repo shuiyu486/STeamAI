@@ -10,7 +10,7 @@
 
 ## 实施摘要
 
-长期目标保持不变但阶段重点已更新：`re-context-kits` 应成为 Claude Code 中的多会话 Agent Team Mission Control 框架，而不是命令大全；Go 已是 public command surface 的 deterministic owner，当前重点是 PowerShell-free default/product path 与 Mission Commander operational closure，而不是继续扩 contract/inventory 字段或依赖 retained PowerShell compatibility façade。
+长期目标保持不变但阶段重点已更新：`re-context-kits` 应成为 Claude Code 中的多会话 Agent Team Mission Control 框架，而不是命令大全；Go 已是 public command surface 的 deterministic owner。Batch 353 已跑通由主 Agent实际 spawn read-only reviewer，到 Go-native strict intake、evidence-ref validation、WhatIf/Apply verification-before-decision 幂等写回和 post-validation 的本机 bounded reviewer E2E；runtime 仍不自动 spawn 或管理 session/reviewer。当前重点是 replaceable session executor / reviewer orchestration、authorized execution evidence、pack-memory reconsume、PowerShell-free product path 与跨平台验证，而不是继续扩 contract/inventory 字段。
 
 核心产品形态：
 

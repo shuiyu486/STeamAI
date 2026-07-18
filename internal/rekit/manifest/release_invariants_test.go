@@ -302,7 +302,7 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 		"billing/spending limit",
 		"cross-platform",
 		"session/reviewer orchestrator",
-		"bounded dispatch",
+		"多 reviewer orchestration",
 		"actual heavy-tool",
 		"authority/confirmed",
 		"pack-based team memory",
@@ -688,6 +688,10 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"$goFormat = 'text'",
 		"retired PowerShell fallback dispatcher",
 		"Add-RekitGoArg ([ref]$goArgs) '-Route' $Route",
+		"if ($Command -ne 'plan-subagents' -and -not [string]::IsNullOrWhiteSpace($ReviewerResultPath)) { return $false }",
+		"$CallerWorkingDirectory = [System.IO.Path]::GetFullPath((Get-Location).Path)",
+		"Add-RekitGoArg ([ref]$goArgs) '-ReviewerResultPath' (Resolve-RekitCallerPath $ReviewerResultPath)",
+		"Add-RekitGoArg ([ref]$goArgs) '-ItemsFile' (Resolve-RekitCallerPath $ItemsFile)",
 	} {
 		assertTextContains(t, facade, required, "PowerShell facade freeze guard")
 	}
@@ -703,7 +707,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"| `start` / `handoff` preview/apply/text/default | Go default | façade delegate + no PowerShell fallback |",
 		"| `continue -WhatIf` / explicit `continue -Apply` text/JSON | Go default | façade delegate + no PowerShell fallback |",
 		"| `reconcile -WhatIf` / explicit `reconcile -Apply` | Go default | façade delegate + no PowerShell fallback |",
-		"| `plan-subagents` review artifacts | Go default | façade delegate + no PowerShell fallback |",
+		"| `plan-subagents` planning / reviewer intake | Go default | façade delegate + no PowerShell fallback |",
 		"Legacy freeze",
 		"PowerShell 只允许 bug fix / compatibility / safety boundary 修复",
 		"actual full-trace/debug/inject/patch/dump/network/symex/heavy-tool",

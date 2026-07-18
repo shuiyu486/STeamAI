@@ -51,15 +51,17 @@ func TestPublicCommandProfiles(t *testing.T) {
 		t.Fatalf("unexpected kit/case write boundaries: promote=%+v sync=%+v", profileMap[Promote], profileMap[Sync])
 	}
 	summary := PublicProfileSummaryBaseline()
-	if summary.Total != 20 || summary.ReadOnly != 5 || summary.Mutating != 15 || summary.WritesCase != 14 || summary.WritesKit != 1 || summary.ReviewFirst != 3 || summary.ApplyRequired != 12 || summary.HeavyTool != 0 || summary.AuthorityConfirmed != 0 || summary.Boundaries[BoundaryCaseLocalApply] != 9 || summary.Boundaries[BoundaryCaseLocalReviewFirst] != 2 || summary.Boundaries[BoundaryKitReviewFirst] != 1 {
+	if summary.Total != 20 || summary.ReadOnly != 5 || summary.Mutating != 15 || summary.WritesCase != 14 || summary.WritesKit != 1 || summary.ReviewFirst != 3 || summary.ApplyRequired != 13 || summary.HeavyTool != 0 || summary.AuthorityConfirmed != 0 || summary.Boundaries[BoundaryCaseLocalApply] != 9 || summary.Boundaries[BoundaryCaseLocalReviewWriteback] != 1 || summary.Boundaries[BoundaryCaseLocalReviewFirst] != 2 || summary.Boundaries[BoundaryKitReviewFirst] != 1 {
 		t.Fatalf("unexpected public command profile summary: %+v", summary)
 	}
 	groups := PublicProfileGroupsBaseline()
-	if strings.Join(groups.ReadOnly, ",") != "doctor,packs,release-check,status,validate" || strings.Join(groups.WritesKit, ",") != Promote || strings.Join(groups.ReviewFirst, ",") != "promote,sync,update" || len(groups.HeavyTool) != 0 || len(groups.AuthorityConfirmed) != 0 || len(groups.ByBoundary[BoundaryCaseLocalApply]) != 9 || len(groups.ByBoundary[BoundaryCaseLocalReviewFirst]) != 2 || groups.ByBoundary[BoundaryKitReviewFirst][0] != Promote {
+	if strings.Join(groups.ReadOnly, ",") != "doctor,packs,release-check,status,validate" || strings.Join(groups.WritesKit, ",") != Promote || strings.Join(groups.ReviewFirst, ",") != "promote,sync,update" || len(groups.HeavyTool) != 0 || len(groups.AuthorityConfirmed) != 0 || len(groups.ByBoundary[BoundaryCaseLocalApply]) != 9 || strings.Join(groups.ByBoundary[BoundaryCaseLocalReviewWriteback], ",") != PlanSubagents || len(groups.ByBoundary[BoundaryCaseLocalReviewFirst]) != 2 || groups.ByBoundary[BoundaryKitReviewFirst][0] != Promote {
 		t.Fatalf("unexpected public command profile groups: %+v", groups)
 	}
 	boundaries := PublicProfileBoundariesBaseline()
-	if len(boundaries) != len(KnownMutationBoundaries()) || boundaries[0].Boundary != BoundaryCaseLocalAppend || boundaries[0].Count != 1 || strings.Join(boundaries[1].Commands, ",") != "attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start" || boundaries[len(boundaries)-1].Boundary != BoundaryReadOnly || boundaries[len(boundaries)-1].Count != 5 {
+	if len(boundaries) != len(KnownMutationBoundaries()) || boundaries[0].Boundary != BoundaryCaseLocalAppend || boundaries[0].Count != 1 || strings.Join(boundaries[1].Commands, ",") != "attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start" || !slices.ContainsFunc(boundaries, func(boundary PublicProfileBoundary) bool {
+		return boundary.Boundary == BoundaryCaseLocalReviewWriteback && boundary.Count == 1 && strings.Join(boundary.Commands, ",") == PlanSubagents
+	}) || boundaries[len(boundaries)-1].Boundary != BoundaryReadOnly || boundaries[len(boundaries)-1].Count != 5 {
 		t.Fatalf("unexpected public command profile boundaries: %+v", boundaries)
 	}
 	policies := PublicProfilePoliciesBaseline()

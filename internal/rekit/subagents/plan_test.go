@@ -36,7 +36,7 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if err := json.Unmarshal(packetBytes, &packet); err != nil {
 		t.Fatalf("packet JSON did not decode: %v\n%s", err, string(packetBytes))
 	}
-	if packet.Command != commandName || packet.Route.ID != defaults.DefaultPack+":lane-feature-analysis" || len(packet.ShardHandoffs) != 2 {
+	if packet.Command != commandName || packet.PacketID == "" || packet.PacketID != packetIdentity(packet) || packet.Route.ID != defaults.DefaultPack+":lane-feature-analysis" || len(packet.ShardHandoffs) != 2 {
 		t.Fatalf("unexpected packet: %+v", packet)
 	}
 	assertShardHandoff(t, packet.ShardHandoffs[0], "shard-01", []string{"alpha", "beta"})
@@ -45,7 +45,7 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"### shard handoff prompts", "read-only reviewer", "Do not write files", "expected output=`item,decision", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"### shard handoff prompts", "read-only reviewer", "Do not write files", "reviewer result root:", "main-agent result path=", "expected output=`item,decision", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "n/a: reviewer intake requires an attached rekit case", "out-of-case review artifacts are dispatch-only", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -72,18 +72,18 @@ func TestWritePlanNoItemsKeepsEmptyShardHandoffs(t *testing.T) {
 
 func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantItems []string) {
 	t.Helper()
-	if handoff.ShardID != wantID || handoff.Status != "planned" || strings.Join(handoff.Items, ",") != strings.Join(wantItems, ",") {
+	if handoff.ShardID != wantID || handoff.Status != "planned" || strings.Join(handoff.Items, ",") != strings.Join(wantItems, ",") || filepath.Base(handoff.ReviewerResultPath) != wantID+".json" {
 		t.Fatalf("unexpected shard handoff identity: %+v", handoff)
 	}
-	for _, expected := range []string{"read-only reviewer", "Do not write files", "note -Kind verification"} {
+	for _, expected := range []string{"read-only reviewer", "Do not write files", "plan-subagents -ReviewerResultPath"} {
 		if !strings.Contains(handoff.DispatchPrompt, expected) {
 			t.Fatalf("dispatch prompt missing %q: %+v", expected, handoff)
 		}
 	}
-	if !strings.Contains(handoff.ExpectedOutput, "decision") || !strings.Contains(handoff.ReviewerWriteback, "note -Kind verification") || !strings.Contains(handoff.MainAgentNextAction, "reviewerResultContract") || !strings.Contains(handoff.MainAgentNextAction, "previewCommand") || !strings.Contains(handoff.MainAgentNextAction, "applyCommand") {
+	if !strings.Contains(handoff.ExpectedOutput, "decision") || !strings.Contains(handoff.ReviewerWriteback, "plan-subagents -ReviewerResultPath") || !strings.Contains(handoff.MainAgentNextAction, "reviewerResultContract") || !strings.Contains(handoff.MainAgentNextAction, "reviewerIntakeCommands") {
 		t.Fatalf("unexpected reviewer contract: %+v", handoff)
 	}
-	if handoff.ReviewerResultContract.OutputFormat == "" || !slices.Contains(handoff.ReviewerResultContract.RequiredFields, "recommendedVerdict") || !slices.Contains(handoff.ReviewerResultContract.AllowedDecisions, "needs-more-evidence") || !slices.Contains(handoff.ReviewerResultContract.EvidenceRules, "missing, ambiguous, or inaccessible evidenceRefs require decision=needs-more-evidence or defer") || !slices.Contains(handoff.ReviewerResultContract.ConflictSignals, "reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects") {
+	if handoff.ReviewerResultContract.OutputFormat == "" || !slices.Contains(handoff.ReviewerResultContract.RequiredFields, "recommendedVerdict") || !slices.Contains(handoff.ReviewerResultContract.RequiredFields, "routeOutput") || !slices.Contains(handoff.ReviewerResultContract.AllowedDecisions, "needs-more-evidence") || !slices.Contains(handoff.ReviewerResultContract.EvidenceRules, "missing, ambiguous, or inaccessible evidenceRefs require decision=needs-more-evidence or defer") || !slices.Contains(handoff.ReviewerResultContract.ConflictSignals, "reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects") {
 		t.Fatalf("unexpected reviewer result contract: %+v", handoff.ReviewerResultContract)
 	}
 	if !slices.Contains(handoff.IntakeChecklist, "validate reviewer output against reviewerResultContract before using any writeback template") || !slices.Contains(handoff.IntakeChecklist, "defer the main decision when conflicts, missing evidence, or blocked outputs are present") {
@@ -95,30 +95,23 @@ func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantI
 	if !slices.Contains(handoff.ConflictHandling, "if any conflictSignal is present, map verification verdict to inconclusive or needs-more-evidence and keep main decision deferred unless independently resolved") || !slices.Contains(handoff.ConflictHandling, "if reviewer requests writes, heavy tools, authority/confirmed changes, or external effects, discard that output for ledger purposes and escalate through the lane gate path") {
 		t.Fatalf("unexpected conflict handling: %+v", handoff.ConflictHandling)
 	}
-	if len(handoff.WritebackSequence) != 7 || handoff.WritebackSequence[0].Step != "validate-reviewer-result" || handoff.WritebackSequence[2].Step != "preview-verification-note" || handoff.WritebackSequence[3].Step != "apply-verification-note" || handoff.WritebackSequence[4].Step != "preview-main-decision-note" || handoff.WritebackSequence[5].Step != "apply-main-decision-note" || handoff.WritebackSequence[6].Step != "post-review-validation" {
+	if len(handoff.WritebackSequence) != 5 || handoff.WritebackSequence[0].Step != "validate-reviewer-result" || handoff.WritebackSequence[2].Step != "preview-reviewer-intake" || handoff.WritebackSequence[3].Step != "apply-reviewer-intake" || handoff.WritebackSequence[4].Step != "post-review-validation" {
 		t.Fatalf("unexpected writeback sequence: %+v", handoff.WritebackSequence)
 	}
-	if !slices.Contains(handoff.WritebackSequence[0].Uses, "reviewerResultContract") || !slices.Contains(handoff.WritebackSequence[2].Uses, "ledgerWritebackTemplates[kind=verification].previewCommand") || !slices.Contains(handoff.WritebackSequence[4].BlockedBy, "verification note missing") || handoff.WritebackSequence[5].NextOnSuccess != "post-review-validation" {
+	if !slices.Contains(handoff.WritebackSequence[0].Uses, "reviewerResultContract") || !slices.Contains(handoff.WritebackSequence[2].Uses, "reviewerIntakeCommands.previewCommand") || !slices.Contains(handoff.WritebackSequence[2].BlockedBy, "wrong packet/case/pack/shard/items") || handoff.WritebackSequence[3].NextOnSuccess != "post-review-validation" {
 		t.Fatalf("unexpected writeback sequence details: %+v", handoff.WritebackSequence)
 	}
-	if len(handoff.WritebackSequence[2].CommandBindings) != 1 || handoff.WritebackSequence[2].CommandBindings[0].Binding != "verification-preview" || handoff.WritebackSequence[2].CommandBindings[0].Kind != "verification" || !strings.Contains(handoff.WritebackSequence[2].CommandBindings[0].Command, "-Kind verification") || !strings.Contains(handoff.WritebackSequence[2].CommandBindings[0].Command, "-WhatIf -Format json") || !slices.Contains(handoff.WritebackSequence[2].CommandBindings[0].RequiredFields, "verdict") {
-		t.Fatalf("unexpected verification preview command binding: %+v", handoff.WritebackSequence[2].CommandBindings)
+	if len(handoff.WritebackSequence[2].CommandBindings) != 1 || handoff.WritebackSequence[2].CommandBindings[0].Binding != "reviewer-intake-preview" || handoff.WritebackSequence[2].CommandBindings[0].Kind != "reviewer-intake" || !strings.Contains(handoff.WritebackSequence[2].CommandBindings[0].Command, "n/a: reviewer intake requires an attached rekit case") || !slices.Contains(handoff.WritebackSequence[2].CommandBindings[0].RequiredFields, "reviewerResultPath") {
+		t.Fatalf("unexpected out-of-case reviewer intake preview command binding: %+v", handoff.WritebackSequence[2].CommandBindings)
 	}
-	if len(handoff.WritebackSequence[5].CommandBindings) != 1 || handoff.WritebackSequence[5].CommandBindings[0].Binding != "decision-apply" || handoff.WritebackSequence[5].CommandBindings[0].Kind != "decision" || !strings.Contains(handoff.WritebackSequence[5].CommandBindings[0].Command, "-Kind decision") || !strings.Contains(handoff.WritebackSequence[5].CommandBindings[0].Command, "-Apply") || !slices.Contains(handoff.WritebackSequence[5].CommandBindings[0].RequiredFields, "decision") {
-		t.Fatalf("unexpected decision apply command binding: %+v", handoff.WritebackSequence[5].CommandBindings)
+	if len(handoff.WritebackSequence[3].CommandBindings) != 1 || handoff.WritebackSequence[3].CommandBindings[0].Binding != "reviewer-intake-apply" || handoff.WritebackSequence[3].CommandBindings[0].Kind != "reviewer-intake" || !strings.Contains(handoff.WritebackSequence[3].CommandBindings[0].Command, "n/a: reviewer intake requires an attached rekit case") || handoff.WritebackSequence[3].NextOnFailure != "retry-same-intake-to-complete-writeback" {
+		t.Fatalf("unexpected out-of-case reviewer intake apply command binding: %+v", handoff.WritebackSequence[3])
 	}
-	if len(handoff.LedgerWritebackTemplates) != 2 || handoff.LedgerWritebackTemplates[0].Kind != "verification" || handoff.LedgerWritebackTemplates[1].Kind != "decision" {
-		t.Fatalf("unexpected writeback templates: %+v", handoff.LedgerWritebackTemplates)
+	commands := handoff.ReviewerIntakeCommands
+	if !strings.Contains(commands.PreviewCommand, "n/a: reviewer intake requires an attached rekit case") || !strings.Contains(commands.ApplyCommand, "n/a: reviewer intake requires an attached rekit case") || !slices.Contains(commands.RequiredFields, "packetPath") || !slices.Contains(commands.RequiredFields, "reviewerResultPath") || !slices.Contains(commands.RequiredFields, "targetLane") || !slices.Contains(commands.PreviewChecks, "confirm reviewer intake returns isMutation=false, applied=false, and readyForWriteback=true") || !slices.Contains(commands.PreviewChecks, "out-of-case review artifacts are dispatch-only; reviewer intake/writeback is unavailable until the target is an attached rekit case") || !slices.Contains(commands.BlockedOutputs, "reviewer intake must not execute heavy tools or write authority/confirmed state") || !slices.Contains(commands.BlockedOutputs, "out-of-case plan packets must not be presented as immediately runnable reviewer intake commands") || strings.Contains(commands.ApplyCommand, "note -Kind") {
+		t.Fatalf("unexpected out-of-case reviewer intake commands: %+v", commands)
 	}
-	verification := handoff.LedgerWritebackTemplates[0]
-	decision := handoff.LedgerWritebackTemplates[1]
-	if !strings.Contains(verification.Command, "-Kind verification") || !strings.Contains(verification.Command, "-Apply") || !strings.Contains(verification.PreviewCommand, "-WhatIf -Format json") || !strings.Contains(verification.ApplyCommand, "-Apply") || !strings.Contains(verification.ApplyCommand, "-TargetRef \"alpha,beta\"") || !slices.Contains(verification.RequiredFields, "target") || !slices.Contains(verification.RequiredFields, "evidenceRefs") || !slices.Contains(verification.AllowedValues, "verdict=accepted|rejected|inconclusive|needs-more-evidence") || !slices.Contains(verification.PreviewChecks, "confirm note WhatIf returns isMutation=false and applied=false") || !slices.Contains(verification.BlockedOutputs, "previewCommand must not write facts, authority, confirmed, board, lane, handoff, or source files") {
-		t.Fatalf("unexpected verification writeback template: %+v", verification)
-	}
-	if !strings.Contains(decision.Command, "-Kind decision") || !strings.Contains(decision.PreviewCommand, "-WhatIf -Format json") || !strings.Contains(decision.ApplyCommand, "-Apply") || !strings.Contains(decision.ApplyCommand, "-Decision <accept|reject|defer|supersede>") || !strings.Contains(decision.ApplyCommand, "-TargetRef \"alpha,beta\"") || !slices.Contains(decision.RequiredFields, "decision") || !slices.Contains(decision.RequiredFields, "target") || !slices.Contains(decision.AllowedValues, "decision=accept|reject|defer|supersede") || !slices.Contains(decision.PreviewChecks, "confirm note WhatIf returns isMutation=false and applied=false") {
-		t.Fatalf("unexpected decision writeback template: %+v", decision)
-	}
-	if !slices.Contains(handoff.PostReviewMerge, "run each template previewCommand and inspect note WhatIf output before applyCommand") || !slices.Contains(handoff.PostReviewMerge, "record reviewer verdict with the verification applyCommand; do not let the reviewer append ledger events directly") || !slices.Contains(handoff.PostReviewMerge, "record the main merge decision with the decision applyCommand only after validation/conflict review") {
+	if !slices.Contains(handoff.PostReviewMerge, "run reviewerIntakeCommands.previewCommand and inspect verification, decision, and postValidation before applyCommand") || !slices.Contains(handoff.PostReviewMerge, "retry the identical applyCommand when an interrupted writeback needs idempotent completion") {
 		t.Fatalf("unexpected post-review merge guidance: %+v", handoff.PostReviewMerge)
 	}
 	if !slices.Contains(handoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(handoff.ReadOnlyBoundary, "subagents must not write files") {

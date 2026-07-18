@@ -19,10 +19,10 @@
 
 ## 实施摘要
 
-### Batch 351 后 current baseline
+### Batch 353 后 current baseline
 
 - Go backend 已是 20 个 public commands 的 deterministic owner；所有 public commands 已 no-fallback，legacy `rekit/lib/*.ps1` modules 已删除，`rekit.ps1` 仅作为 retained compatibility façade。
-- durable lane、显式 `reconcile`、typed autonomy preflight、Mission brief / executor action snapshot 与 bounded reviewer result/writeback contracts 已落地；尚未完成实际 member/reviewer session orchestration、自动 intake/writeback、authorized execution evidence closure 与 pack-memory reconsume。
+- durable lane、显式 `reconcile`、typed autonomy preflight、Mission brief / executor action snapshot 与 Go-native bounded reviewer strict intake/writeback 已落地；Batch 353 已由主 Agent在本机真实 spawn 一个 read-only reviewer，并跑通 packet/result binding、evidence-ref validation、WhatIf/Apply verification-before-decision 幂等写回与 overview/handoff/doctor post-validation。尚未完成统一 member/reviewer session orchestration、runtime auto-spawn/session management、authorized execution evidence closure 与 pack-memory reconsume。
 - `.github/workflows/release-gate.yml` 已定义 Linux/Windows/macOS Go-native checks，但 `release-check` 只验证 workflow/inventory 定义；远程 jobs 是否实际获得 runner并通过必须单独检查。2026-07-18 的最近 runs 因 GitHub account billing/spending limit 未启动，不可称为三平台 CI green。
 - 当前选题应从 contract/inventory field increments 转向 coherent operational vertical slice；current baseline 见本节，active/next milestone 见 `docs/batch-plan.md` 顶部。
 
@@ -249,7 +249,7 @@ git diff --check
 
 ## 历史阶段索引
 
-以下 Stage 1–8 是 Batch 101 后的历史实施顺序，不是 Batch 351 后要求新会话从 Stage 1 重走的 current priority。当前选题先读本文件顶部 current baseline、`docs/release-readiness.md` known gaps 和 `docs/batch-plan.md` active/next 区。
+以下 Stage 1–8 是 Batch 101 后的历史实施顺序，不是 Batch 353 后要求新会话从 Stage 1 重走的 current priority。当前选题先读本文件顶部 current baseline、`docs/release-readiness.md` known gaps 和 `docs/batch-plan.md` active/next 区。
 
 历史顺序为：
 

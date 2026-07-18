@@ -86,7 +86,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 - 功能支线只写自己的 workspace、outbox、candidate/request，不直接写 confirmed CSV、routine IR 或长期 handoff。
 - 长期成员身份绑定 lane，不绑定旧 session；旧会话上下文污染或用户希望重开时，新会话应读取 handoff / packet / evidence 接手同一 lane。
 - 用户可随时进入 lane 打断、纠错、改向或硬切模型；lane 继续时要用 `/rekit reconcile <name> -InterventionId <eventId> -Apply` 将干预写成 append-only resolution event，并刷新 durable lane executor/resume/checkpoint/board state。
-- `plan-subagents` 只写 review artifacts，不自动 spawn reviewer；`packet.json` / `summary.md` 的 `shardHandoffs[]` 应提供每个 shard 的 read-only dispatch prompt、expected output、`reviewerResultContract`、`intakeChecklist[]`、`reviewerDecisionMappings[]`、`conflictHandling[]`、`writebackSequence[]` / `commandBindings[]`、`ledgerWritebackTemplates[]` verification / decision note `previewCommand` / `applyCommand`、required fields / allowed values、preview checks、blocked outputs、post-review merge guidance 和 main-agent merge boundary，让主 Agent 可调度短命 reviewer、按统一输出 contract 审查 evidence/conflict、将 reviewer decision 映射到 verification/main decision、按 sequence 与 command bindings 先跑 note WhatIf preview 再手动落账并复核 post-review validation，而不把写入权、authority/confirmed 决策或 heavy-tool 执行权交给 reviewer/runtime。
+- `plan-subagents` planning mode 只写 review artifacts，不自动 spawn reviewer；`packet.json` / `summary.md` 的 `shardHandoffs[]` 提供 read-only dispatch prompt、strict `reviewerResultContract`、decision/conflict mapping、`reviewerIntakeCommands` 与 writeback sequence。主 Agent调度短命 reviewer后负责把单个 JSON object 放入生成的 `reviewerResultPath`，再调用 reviewer-intake `-WhatIf/-Apply`；runtime 严格绑定 packet/route/shard/items，验证 case-local evidence 与 route output contract，按 verification-before-decision 顺序写 facts，并返回 overview/handoff/doctor post-validation。reviewer 不写文件或 ledger；intake 不写 authority/confirmed、不执行 heavy-tool，最终 merge decision 仍由主 Agent拥有。
 - confirmed / authority 写入仍需要更严格 gate；lane 文档/packet 只表达授权意图，动态调试、注入、patch、dump、hook、full trace、网络、exploit replay 等外部副作用只有在 strict durable autonomy profile + `authorized-gate` decision 完全覆盖 action、exact target、typed budget、stop conditions、output paths、record/notify 和 grant/expiry 时才可由 executor 执行，否则必须升级。
 
 ## 风险与注意事项
@@ -247,7 +247,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 
 - 将 evidence ledger 从文档草案推进到 runtime 支持的 append-only JSONL。
 - 将 heavy-tool gate / lane autonomy profile 做成可复用 packet、授权和记录流程，支持预授权范围内自主执行与越界升级。
-- 将 `plan-subagents` 从只读计划器推进到主 Agent 可消费的 tactical subagent 调度辅助，但仍保持主 agent 拥有最终写入权。
+- 继续完善 `plan-subagents` 的 tactical reviewer dispatch、多 shard intake 与跨会话接手收敛；当前已支持 planning review artifacts，以及单个 contract-compliant reviewer result 的显式 WhatIf/Apply verification + main-decision writeback，后续重点是 bounded orchestration，而不是重复实现单 reviewer intake 或恢复手动 note 落账。
 - 为 `packs/_template` 增加最小验证命令，降低新 pack 作者出错概率。
 
 ### 4.3 长期优化

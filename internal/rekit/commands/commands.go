@@ -41,7 +41,7 @@ const (
 	BoundaryCaseLocalAppend          = "case-local-append"
 	BoundaryCaseLocalApply           = "case-local-apply"
 	BoundaryCaseLocalReadOrBootstrap = "case-local-read-or-bootstrap"
-	BoundaryCaseLocalReviewArtifact  = "case-local-review-artifact"
+	BoundaryCaseLocalReviewWriteback = "case-local-review-writeback"
 	BoundaryCaseLocalReviewFirst     = "case-local-review-first"
 	BoundaryKitReviewFirst           = "kit-review-first"
 )
@@ -139,7 +139,7 @@ var publicProfiles = []PublicProfile{
 	{Command: Note, MutationBoundary: BoundaryCaseLocalAppend, IsMutation: true, WritesCase: true},
 	{Command: Overview, MutationBoundary: BoundaryCaseLocalReadOrBootstrap, IsMutation: true, WritesCase: true},
 	{Command: Packs, MutationBoundary: BoundaryReadOnly},
-	{Command: PlanSubagents, MutationBoundary: BoundaryCaseLocalReviewArtifact, IsMutation: true, WritesCase: true},
+	{Command: PlanSubagents, MutationBoundary: BoundaryCaseLocalReviewWriteback, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Promote, MutationBoundary: BoundaryKitReviewFirst, IsMutation: true, WritesKit: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: Reconcile, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: ReleaseCheck, MutationBoundary: BoundaryReadOnly},
@@ -374,7 +374,7 @@ func KnownMutationBoundaries() []string {
 		BoundaryCaseLocalAppend,
 		BoundaryCaseLocalApply,
 		BoundaryCaseLocalReadOrBootstrap,
-		BoundaryCaseLocalReviewArtifact,
+		BoundaryCaseLocalReviewWriteback,
 		BoundaryCaseLocalReviewFirst,
 		BoundaryKitReviewFirst,
 		BoundaryReadOnly,

@@ -16,7 +16,7 @@
 
 `/rekit` 与 Go backend 是底层确定性 runtime / API，`rekit.ps1` 只作为 retained compatibility façade；它们都不是主要用户体验。用户体验应尽量表现为自然语言 mission control：开始任务、继续推进、查看总体状态、进入某个成员 lane、接手 lane、沉淀经验。
 
-Batch 351 后，Go-owned public surface、durable lane state、显式 `reconcile`、typed autonomy preflight、Mission brief / executor action snapshot 与 bounded reviewer contract 已形成底座；当前未完成的是实际 session/reviewer orchestration、自动 intake/writeback、authorized execution evidence closure、pack-memory reconsume 和跨平台 product-path E2E。
+Batch 353 后，Go-owned public surface、durable lane state、显式 `reconcile`、typed autonomy preflight、Mission brief / executor action snapshot，以及 Go-native bounded reviewer strict intake/writeback 已形成底座；主 Agent已在本机真实 spawn 一个 read-only reviewer，并跑通 packet/result binding、evidence-ref validation、WhatIf/Apply verification-before-decision 幂等写回与 overview/handoff/doctor post-validation。runtime 仍不自动 spawn、注册或管理 reviewer/member session；当前未完成的是统一 session/reviewer orchestration、authorized execution evidence closure、pack-memory reconsume 和跨平台 product-path E2E。
 
 ## 执行清单
 
@@ -26,7 +26,7 @@ Batch 351 后，Go-owned public surface、durable lane state、显式 `reconcile
 - [ ] **Lane protocol**：定义 durable member lane 的 packet、status、outbox、handoff、intervention、authority profile 与 reconcile 流程。
 - [ ] **Replaceable session executor**：让新 Claude Code 会话能接手旧 lane，避免长期旧会话上下文污染；成员身份绑定 lane，而不是绑定 session。
 - [ ] **Human-in-the-Lane**：用户可随时进入任意成员 lane 纠错、补充、改向、打断或硬切模型；当前 `continue` 对 open intervention fail-closed 并要求显式 `reconcile`，目标是让 Mission Commander 自动发现、解释并准备安全 resolution。
-- [ ] **Tactical subagents**：主 Agent 可按需启动短命 subagent 做只读搜索、复核、反驳、小修、文档一致性检查或 bounded implementation；`plan-subagents` 当前只生成调度/回写 contract，不自动 spawn。
+- [ ] **Tactical subagents**：主 Agent可按需启动短命 subagent 做只读搜索、复核、反驳、小修、文档一致性检查或 bounded implementation；Batch 353 已由主 Agent在本机真实 spawn read-only reviewer，并通过显式 reviewer intake WhatIf/Apply 完成 verification-before-decision 写回与 post-validation，但 runtime / `plan-subagents` 仍不自动 spawn 或管理 reviewer session。
 - [ ] **Pre-authorized lane autonomy**：lane 文档/packet 可提出 heavy-tool、动态调试、patch、dump、hook、网络、exploit replay 等授权意图；只有 strict validated durable `autonomy.json` 加 `authorized-gate` decision 才构成 executor 的确定性预授权依据。
 - [ ] **Pack-based team memory**：把 case 中复用价值高的 recipe、checklist、prompt、policy、tool adapter 与 workflow 经 review/promote 沉淀回 pack/common。
 - [ ] **Go-first deterministic substrate**：Go backend 已是 public command surface 的确定性 owner；继续完成 PowerShell-free default/product path、retained compatibility façade 收束和跨平台 product-path E2E，禁止新增 PowerShell runtime logic。

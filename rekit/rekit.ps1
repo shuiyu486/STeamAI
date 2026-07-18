@@ -13,6 +13,7 @@ param(
   [switch]$Review,
   [string]$ReviewOutputDir = '',
   [string]$PacketPath = '',
+  [string]$ReviewerResultPath = '',
   [string]$DiffPath = '',
   [string]$Action = '',
   [string]$Lane = '',
@@ -44,6 +45,13 @@ param(
 $ErrorActionPreference = 'Stop'
 $RuntimeRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot '..'))
+$CallerWorkingDirectory = [System.IO.Path]::GetFullPath((Get-Location).Path)
+function Resolve-RekitCallerPath {
+  param([string]$Value)
+  if ([string]::IsNullOrWhiteSpace($Value)) { return '' }
+  if ([System.IO.Path]::IsPathRooted($Value)) { return [System.IO.Path]::GetFullPath($Value) }
+  return [System.IO.Path]::GetFullPath((Join-Path $CallerWorkingDirectory $Value))
+}
 function Resolve-RekitTarget {
   param([string]$Value)
   if ([string]::IsNullOrWhiteSpace($Value)) { return [System.IO.Path]::GetFullPath((Get-Location).Path) }
@@ -124,6 +132,7 @@ function Test-RekitGoDelegationEnabled {
 }
 
 function Test-RekitGoDelegationSafe {
+  if ($Command -ne 'plan-subagents' -and -not [string]::IsNullOrWhiteSpace($ReviewerResultPath)) { return $false }
   switch ($Command) {
     { $_ -in @('status','packs','release-check','doctor','validate') } {
       if ($Apply -or $CreateCandidates -or $Review -or $WhatIf) { return $false }
@@ -267,11 +276,20 @@ function Test-RekitGoDelegationSafe {
       return ([string]::IsNullOrWhiteSpace($formatValue) -or @('json','text','table','tsv') -contains $formatValue)
     }
     'plan-subagents' {
-      if ($Apply -or $WhatIf -or $CreateCandidates -or $Review -or $Force) { return $false }
+      if ($CreateCandidates -or $Review -or $Force) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
-      if (-not [string]::IsNullOrWhiteSpace($formatValue)) { return $false }
       if ([string]::IsNullOrWhiteSpace($Target)) { return $false }
       $planRoot = Resolve-RekitTarget $Target
+      if (-not [string]::IsNullOrWhiteSpace($ReviewerResultPath)) {
+        if ($WhatIf -and $Apply) { return $false }
+        if ((-not $WhatIf) -and (-not $Apply)) { return $false }
+        if ([string]::IsNullOrWhiteSpace($PacketPath) -or [string]::IsNullOrWhiteSpace($Lane) -or [string]::IsNullOrWhiteSpace($Actor)) { return $false }
+        if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+        if ((-not [string]::IsNullOrWhiteSpace($formatValue)) -and $formatValue -ne 'json') { return $false }
+        return (Test-RekitLooksLikeCase $planRoot)
+      }
+      if ($Apply -or $WhatIf) { return $false }
+      if (-not [string]::IsNullOrWhiteSpace($formatValue)) { return $false }
       if (Test-RekitLooksLikeCase $planRoot) { return $true }
       if ([string]::IsNullOrWhiteSpace($ReviewOutputDir)) { return $false }
       return (Test-Path -LiteralPath $planRoot)
@@ -335,9 +353,10 @@ function Get-RekitGoArgs {
   Add-RekitGoSwitch ([ref]$goArgs) '-Apply' $Apply.IsPresent
   Add-RekitGoSwitch ([ref]$goArgs) '-CreateCandidates' $CreateCandidates.IsPresent
   Add-RekitGoSwitch ([ref]$goArgs) '-WhatIf' $WhatIf.IsPresent
-  Add-RekitGoArg ([ref]$goArgs) '-ReviewOutputDir' $ReviewOutputDir
-  Add-RekitGoArg ([ref]$goArgs) '-PacketPath' $PacketPath
-  Add-RekitGoArg ([ref]$goArgs) '-DiffPath' $DiffPath
+  Add-RekitGoArg ([ref]$goArgs) '-ReviewOutputDir' (Resolve-RekitCallerPath $ReviewOutputDir)
+  Add-RekitGoArg ([ref]$goArgs) '-PacketPath' (Resolve-RekitCallerPath $PacketPath)
+  Add-RekitGoArg ([ref]$goArgs) '-ReviewerResultPath' (Resolve-RekitCallerPath $ReviewerResultPath)
+  Add-RekitGoArg ([ref]$goArgs) '-DiffPath' (Resolve-RekitCallerPath $DiffPath)
   $goFormat = $Format
   if ($Command -in @('start','handoff','continue','reconcile') -and (-not $Apply.IsPresent) -and [string]::IsNullOrWhiteSpace([string]$goFormat)) { $goFormat = 'text' }
   if ($Command -in @('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','start','handoff','continue','reconcile')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
@@ -428,9 +447,12 @@ function Get-RekitGoArgs {
     Add-RekitGoArg ([ref]$goArgs) '-Route' $Route
     Add-RekitGoArg ([ref]$goArgs) '-TaskType' $TaskType
     Add-RekitGoArg ([ref]$goArgs) '-Items' $Items
-    Add-RekitGoArg ([ref]$goArgs) '-ItemsFile' $ItemsFile
+    Add-RekitGoArg ([ref]$goArgs) '-ItemsFile' (Resolve-RekitCallerPath $ItemsFile)
     if ($ItemsPerAgent -gt 0) { Add-RekitGoArg ([ref]$goArgs) '-ItemsPerAgent' ([string]$ItemsPerAgent) }
     if ($MaxParallel -gt 0) { Add-RekitGoArg ([ref]$goArgs) '-MaxParallel' ([string]$MaxParallel) }
+    Add-RekitGoArg ([ref]$goArgs) '-Lane' $Lane
+    Add-RekitGoArg ([ref]$goArgs) '-Actor' $Actor
+    Add-RekitGoArg ([ref]$goArgs) '-Format' $Format
   }
   return $goArgs
 }
@@ -459,6 +481,9 @@ if (Test-RekitGoDelegationEnabled) {
 }
 
 if (Test-RekitNoPowerShellFallbackCommand -Name $Command) {
+  if ($Command -ne 'plan-subagents' -and -not [string]::IsNullOrWhiteSpace($ReviewerResultPath)) {
+    throw "-ReviewerResultPath is supported only by plan-subagents reviewer intake."
+  }
   throw "$Command is implemented by the Go backend only; PowerShell fallback has been retired for this command. Remove REKIT_GO_DISABLE or use go run ./cmd/rekit -- -Command $Command."
 }
 

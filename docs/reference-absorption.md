@@ -188,7 +188,7 @@ git diff --check
 | 能力 | 当前状态 | 下一步 |
 |---|---|---|
 | evidence ledger | runtime 已落地（`/rekit note` 9 种 kind + overview/handoff/note-List 读层 + auto decision 字段对齐草案） | 索引优化（SQLite 仅在查询压垮 runtime 时） |
-| orchestration | `plan-subagents` 只读计划器 + route/shard/review-loop observability + `note -Kind decision` verdict 写回（R5 判定 runtime 不自动 spawn） | 跨工具 adapter 实际调用属 Phase 6 后段 |
+| orchestration | `plan-subagents` planning mode 生成 route/shard/review-loop observability 与 read-only reviewer contract；显式 reviewer intake 已支持 strict WhatIf/Apply、verification-before-decision facts 写回、幂等重试与 post-validation（runtime 仍不自动 spawn 或管理 reviewer/session） | 下一步是统一 session/reviewer orchestration 与跨工具 adapter 实际调用 |
 | heavy-tool gate runtime | Go-owned/no-fallback `gate -WhatIf/-Apply` preview/request 与 `note`、`overview`、`handoff` 读写/投影链路；只写 pending/authorized gate decision，不执行 heavy-tool、不写 confirmed/authority | Phase 6 后段由 lane executor/tool adapter 消费授权并完成 evidence/budget/boundary-hit 闭环 |
 | tool adapter | policy + candidate + `ida-agent-bridge` 只读 packet contract | 后续多个真实 case 验证后，再考虑 runtime-level adapter 或其它工具 adapter |
 | 多 pack 扩展 | `_template` + `packs/web-security/` + `packs/malware-analysis/` + `packs/vuln-research/` + `packs/ctf/` + `packs/unpack-pe/` + `packs/ollvm/` + `packs/android-native/` + `packs/generic-binary-re/` | `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 已有 skeleton；后续按真实需求继续扩展领域 pack |

@@ -21,27 +21,32 @@ const (
 )
 
 type Options struct {
-	Kind         string
-	Lane         string
-	Subject      string
-	Summary      string
-	Actor        string
-	Risk         string
-	Related      string
-	Confidence   string
-	Decision     string
-	Reason       string
-	Status       string
-	BatchID      string
-	Target       string
-	Verifier     string
-	Verdict      string
-	Action       string
-	ApprovedBy   string
-	Scope        string
-	Expires      string
-	EvidenceRefs string
-	EventID      string
+	Kind               string
+	Lane               string
+	Subject            string
+	Summary            string
+	Actor              string
+	Risk               string
+	Related            string
+	Confidence         string
+	Decision           string
+	Reason             string
+	Status             string
+	BatchID            string
+	Target             string
+	Verifier           string
+	Verdict            string
+	Action             string
+	ApprovedBy         string
+	Scope              string
+	Expires            string
+	EvidenceRefs       string
+	EventID            string
+	PacketID           string
+	RouteID            string
+	ShardID            string
+	PacketPath         string
+	ReviewerResultPath string
 }
 
 type AppendResult struct {
@@ -231,7 +236,7 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 	result.Applied = true
 	result.MissionBrief, result.ExecutorAction, _, _, err = laneExecutorSnapshot(inst.CaseRoot, lane)
 	if err != nil {
-		return AppendResult{}, err
+		return result, err
 	}
 	return result, nil
 }
@@ -270,6 +275,11 @@ func buildEvent(kind, lane string, opt Options) map[string]any {
 		}
 	}
 	addString("actor", opt.Actor)
+	addString("packetId", opt.PacketID)
+	addString("routeId", opt.RouteID)
+	addString("shardId", opt.ShardID)
+	addString("packetPath", opt.PacketPath)
+	addString("reviewerResultPath", opt.ReviewerResultPath)
 	addString("risk", opt.Risk)
 	if related := splitList(opt.Related); len(related) > 0 {
 		event["related"] = related

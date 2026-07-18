@@ -1,6 +1,8 @@
 package subagents
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -50,12 +52,15 @@ type Result struct {
 
 type Packet struct {
 	SchemaVersion             int            `json:"schemaVersion"`
+	PacketID                  string         `json:"packetId"`
 	Command                   string         `json:"command"`
 	IsMutation                bool           `json:"isMutation"`
 	WritesReviewArtifacts     bool           `json:"writesReviewArtifacts"`
+	PlanRoot                  string         `json:"planRoot"`
 	RepoRoot                  string         `json:"repoRoot"`
 	Pack                      string         `json:"pack"`
 	ManifestPath              string         `json:"manifestPath"`
+	TargetLane                string         `json:"targetLane"`
 	Route                     Route          `json:"route"`
 	Input                     Input          `json:"input"`
 	ShardPolicy               ShardPolicy    `json:"shardPolicy"`
@@ -73,6 +78,7 @@ type Observability struct {
 	DispatchMode     string        `json:"dispatchMode"`
 	RouteDebug       RouteDebug    `json:"routeDebug"`
 	ReviewRoot       string        `json:"reviewRoot"`
+	ResultRoot       string        `json:"resultRoot"`
 	PacketPath       string        `json:"packetPath"`
 	SummaryPath      string        `json:"summaryPath"`
 	CombinedDiffPath string        `json:"combinedDiffPath"`
@@ -140,13 +146,14 @@ type Shard struct {
 type ShardHandoff struct {
 	ShardID                  string                    `json:"shardId"`
 	Status                   string                    `json:"status"`
+	ReviewerResultPath       string                    `json:"reviewerResultPath"`
 	DispatchPrompt           string                    `json:"dispatchPrompt"`
 	Items                    []string                  `json:"items"`
 	ReadOnlyBoundary         []string                  `json:"readOnlyBoundary"`
 	ExpectedOutput           string                    `json:"expectedOutput"`
 	ReviewerWriteback        string                    `json:"reviewerWriteback"`
 	ReviewerResultContract   ReviewerResultContract    `json:"reviewerResultContract"`
-	LedgerWritebackTemplates []LedgerWritebackTemplate `json:"ledgerWritebackTemplates"`
+	ReviewerIntakeCommands   ReviewerIntakeCommands    `json:"reviewerIntakeCommands"`
 	MainAgentNextAction      string                    `json:"mainAgentNextAction"`
 	IntakeChecklist          []string                  `json:"intakeChecklist"`
 	ReviewerDecisionMappings []ReviewerDecisionMapping `json:"reviewerDecisionMappings"`
@@ -193,14 +200,11 @@ type WritebackCommandBinding struct {
 	ExpectedOutput string   `json:"expectedOutput"`
 }
 
-type LedgerWritebackTemplate struct {
-	Kind           string   `json:"kind"`
+type ReviewerIntakeCommands struct {
 	Purpose        string   `json:"purpose"`
-	Command        string   `json:"command"`
 	PreviewCommand string   `json:"previewCommand"`
 	ApplyCommand   string   `json:"applyCommand"`
 	RequiredFields []string `json:"requiredFields"`
-	AllowedValues  []string `json:"allowedValues,omitempty"`
 	PreviewChecks  []string `json:"previewChecks,omitempty"`
 	BlockedOutputs []string `json:"blockedOutputs,omitempty"`
 }
@@ -209,6 +213,7 @@ type artifactPaths struct {
 	Root             string
 	DiffRoot         string
 	PreviewRoot      string
+	ResultRoot       string
 	PacketPath       string
 	SummaryPath      string
 	CombinedDiffPath string
@@ -269,15 +274,18 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	}
 	observability := newObservability(route, opt, paths, shards)
 	reviewLoop := newReviewLoop(route)
-	shardHandoffs := newShardHandoffs(shards, route, observability, reviewLoop)
+	targetLane := strings.TrimSpace(m.WorkstreamDefaults["defaultAuthorityLane"])
+	shardHandoffs := newShardHandoffs(shards, route, observability, reviewLoop, planRoot, m.Pack, targetLane, caseTarget)
 	packet := Packet{
 		SchemaVersion:             1,
 		Command:                   commandName,
 		IsMutation:                false,
 		WritesReviewArtifacts:     true,
+		PlanRoot:                  planRoot,
 		RepoRoot:                  m.RepoRoot,
 		Pack:                      m.Pack,
 		ManifestPath:              m.ManifestPath,
+		TargetLane:                targetLane,
 		Route:                     route,
 		Input:                     Input{TaskType: opt.TaskType, ItemCount: len(items), ItemsFile: itemsFile},
 		ShardPolicy:               ShardPolicy{Basis: route.ShardBasis, TargetItemsPerAgent: itemsPerAgent, MaxParallel: maxParallel},
@@ -290,6 +298,7 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 		Observability:             observability,
 		ReviewLoop:                reviewLoop,
 	}
+	packet.PacketID = packetIdentity(packet)
 	if err := writeJSON(paths.PacketPath, packet); err != nil {
 		return Result{}, err
 	}
@@ -360,6 +369,19 @@ func splitItems(items, itemsFile string) ([]string, string, error) {
 	return out, originalFile, nil
 }
 
+func packetIdentity(packet Packet) string {
+	packet.PacketID = ""
+	packet.PlanRoot = filepath.Clean(packet.PlanRoot)
+	packet.RepoRoot = filepath.Clean(packet.RepoRoot)
+	packet.Pack = strings.TrimSpace(packet.Pack)
+	encoded, err := json.Marshal(packet)
+	if err != nil {
+		panic(err)
+	}
+	sum := sha256.Sum256(encoded)
+	return "packet-" + hex.EncodeToString(sum[:])[:16]
+}
+
 func newShards(items []string, targetItemsPerAgent int) []Shard {
 	if targetItemsPerAgent < 1 {
 		targetItemsPerAgent = 4
@@ -377,30 +399,36 @@ func shardPrompt(items []string) string {
 	return "Review only these items: " + strings.Join(items, ", ") + ". Return the route output contract only; do not write files or paste long logs."
 }
 
-func newShardHandoffs(shards []Shard, route Route, observability Observability, reviewLoop ReviewLoop) []ShardHandoff {
+func newShardHandoffs(shards []Shard, route Route, observability Observability, reviewLoop ReviewLoop, planRoot, pack, targetLane string, intakeAvailable bool) []ShardHandoff {
 	handoffs := make([]ShardHandoff, 0, len(shards))
 	readOnlyBoundary := append([]string{}, observability.BlockedActions...)
 	for _, shard := range shards {
 		contract := reviewerResultContract()
+		resultPath := filepath.Join(observability.ResultRoot, shard.ID+".json")
 		intake := intakeChecklist()
 		mappings := reviewerDecisionMappings()
 		conflicts := conflictHandlingSteps()
-		templates := ledgerWritebackTemplates(shard)
+		commands := reviewerIntakeCommands(planRoot, pack, observability.PacketPath, resultPath, targetLane, intakeAvailable)
+		nextAction := "launch a read-only reviewer with dispatchPrompt, inspect its JSON against reviewerResultContract, place it at reviewerResultPath, run reviewerIntakeCommands.previewCommand, inspect the combined verification/decision/postValidation envelope, then run reviewerIntakeCommands.applyCommand"
+		if !intakeAvailable {
+			nextAction = "launch a read-only reviewer with dispatchPrompt, inspect its JSON against reviewerResultContract, and place it at reviewerResultPath; attach or init the target as a rekit case before running reviewerIntakeCommands.previewCommand or applyCommand"
+		}
 		handoffs = append(handoffs, ShardHandoff{
 			ShardID:                  shard.ID,
 			Status:                   "planned",
-			DispatchPrompt:           shardDispatchPrompt(shard, route, readOnlyBoundary, reviewLoop),
+			ReviewerResultPath:       resultPath,
+			DispatchPrompt:           shardDispatchPrompt(shard, route, readOnlyBoundary, reviewLoop, resultPath),
 			Items:                    append([]string{}, shard.Items...),
 			ReadOnlyBoundary:         append([]string{}, readOnlyBoundary...),
 			ExpectedOutput:           route.OutputContract,
 			ReviewerWriteback:        reviewLoop.VerdictWriteback,
 			ReviewerResultContract:   contract,
-			LedgerWritebackTemplates: templates,
-			MainAgentNextAction:      "launch a read-only reviewer with dispatchPrompt, inspect reviewerResultContract output, map reviewerDecisionMappings, run writebackSequence commandBindings in order, then use ledgerWritebackTemplates previewCommand/applyCommand for reviewer verification and main merge decision",
+			ReviewerIntakeCommands:   commands,
+			MainAgentNextAction:      nextAction,
 			IntakeChecklist:          intake,
 			ReviewerDecisionMappings: mappings,
 			ConflictHandling:         conflicts,
-			WritebackSequence:        writebackSequenceSteps(templates),
+			WritebackSequence:        writebackSequenceSteps(commands),
 			PostReviewMerge:          postReviewMergeSteps(),
 			CompletionCriteria:       append([]string{}, reviewLoop.CompletionCriteria...),
 			FailureHandling:          reviewLoop.FailureHandling,
@@ -411,11 +439,12 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 
 func reviewerResultContract() ReviewerResultContract {
 	return ReviewerResultContract{
-		OutputFormat:     "single JSON object per shard; no markdown tables, file writes, ledger appends, authority, confirmed, or heavy-tool output",
-		RequiredFields:   []string{"shardId", "items", "decision", "confidence", "summary", "evidenceRefs", "risks", "conflicts", "recommendedVerdict"},
+		OutputFormat:     "single JSON object per shard with route-specific fields nested under routeOutput; no markdown tables, file writes, ledger appends, authority, confirmed, or heavy-tool output",
+		RequiredFields:   []string{"packetId", "routeId", "shardId", "items", "decision", "confidence", "summary", "evidenceRefs", "risks", "conflicts", "recommendedVerdict", "routeOutput"},
 		AllowedDecisions: []string{"accept", "reject", "defer", "abandon", "needs-more-evidence"},
 		EvidenceRules: []string{
 			"accepted or rejected reviewer decisions must cite evidenceRefs from the packet, reviewed artifacts, or bounded evidence paths",
+			"route-specific outputContract fields must be returned inside routeOutput so strict intake can preserve pack-specific data without allowing unknown top-level fields",
 			"missing, ambiguous, or inaccessible evidenceRefs require decision=needs-more-evidence or defer",
 			"do not paste long logs; cite stable packet/evidence references and summarize the relevant observation",
 		},
@@ -434,7 +463,7 @@ func intakeChecklist() []string {
 		"confirm every accepted/rejected item has inspected evidenceRefs and no out-of-shard claims",
 		"map reviewer decision to verification verdict before running the verification previewCommand",
 		"defer the main decision when conflicts, missing evidence, or blocked outputs are present",
-		"run note previewCommand before applyCommand and inspect event / wouldExecutorAction before ledger writeback",
+		"run reviewerIntakeCommands.previewCommand before applyCommand and inspect verification / decision / postValidation before ledger writeback",
 	}
 }
 
@@ -487,9 +516,7 @@ func conflictHandlingSteps() []string {
 	}
 }
 
-func writebackSequenceSteps(templates []LedgerWritebackTemplate) []WritebackSequenceStep {
-	verificationTemplate := writebackTemplateByKind(templates, "verification")
-	decisionTemplate := writebackTemplateByKind(templates, "decision")
+func writebackSequenceSteps(commands ReviewerIntakeCommands) []WritebackSequenceStep {
 	return []WritebackSequenceStep{
 		{
 			Step:  "validate-reviewer-result",
@@ -528,54 +555,31 @@ func writebackSequenceSteps(templates []LedgerWritebackTemplate) []WritebackSequ
 			},
 			MustPass:      []string{"verification verdict is selected", "main decision is selected", "conflict signals are absent or independently resolved"},
 			BlockedBy:     []string{"recommendedVerdict disagreement", "unresolved conflictSignal", "low confidence without inspected evidence"},
-			NextOnSuccess: "preview-verification-note",
+			NextOnSuccess: "preview-reviewer-intake",
 			NextOnFailure: "record-safer-defer-decision",
 		},
 		{
-			Step:  "preview-verification-note",
+			Step:  "preview-reviewer-intake",
 			Owner: "main-agent",
-			Uses:  []string{"ledgerWritebackTemplates[kind=verification].previewCommand"},
+			Uses:  []string{"reviewerIntakeCommands.previewCommand"},
 			CommandBindings: []WritebackCommandBinding{
-				writebackCommandBinding("verification-preview", "ledgerWritebackTemplates[kind=verification].previewCommand", verificationTemplate, verificationTemplate.PreviewCommand, "note WhatIf JSON preview for verification event"),
+				reviewerIntakeCommandBinding("reviewer-intake-preview", "reviewerIntakeCommands.previewCommand", commands.PreviewCommand, commands.RequiredFields, "combined reviewer intake WhatIf JSON envelope for verification, decision, overview, handoff, and doctor"),
 			},
-			MustPass:      []string{"note WhatIf returns isMutation=false", "note WhatIf returns applied=false", "event.kind is verification", "event lane/target/evidenceRefs match this shard", "wouldExecutorAction contains only the expected lane-local delta"},
-			BlockedBy:     []string{"preview fails", "wrong lane or target", "missing inspected evidenceRefs", "unexpected wouldExecutorAction"},
-			NextOnSuccess: "apply-verification-note",
+			MustPass:      []string{"reviewer intake returns isMutation=false", "reviewer intake returns applied=false", "verification and decision previews match reviewerDecisionMappings", "postValidation is valid", "no authority/confirmed or heavy-tool output is present"},
+			BlockedBy:     []string{"strict contract validation fails", "wrong packet/case/pack/shard/items", "missing inspected evidenceRefs", "conflict or blocked action is present", "unexpected executor action"},
+			NextOnSuccess: "apply-reviewer-intake",
 			NextOnFailure: "stop-before-ledger-write",
 		},
 		{
-			Step:  "apply-verification-note",
+			Step:  "apply-reviewer-intake",
 			Owner: "main-agent",
-			Uses:  []string{"ledgerWritebackTemplates[kind=verification].applyCommand"},
+			Uses:  []string{"reviewerIntakeCommands.applyCommand"},
 			CommandBindings: []WritebackCommandBinding{
-				writebackCommandBinding("verification-apply", "ledgerWritebackTemplates[kind=verification].applyCommand", verificationTemplate, verificationTemplate.ApplyCommand, "applied verification ledger event owned by main agent"),
+				reviewerIntakeCommandBinding("reviewer-intake-apply", "reviewerIntakeCommands.applyCommand", commands.ApplyCommand, commands.RequiredFields, "verification-before-decision ledger writeback with post-validation snapshots"),
 			},
-			MustPass:      []string{"verification preview passed", "selected verdict matches reviewerDecisionMappings", "main agent has inspected the cited evidenceRefs"},
-			NextOnSuccess: "preview-main-decision-note",
-			NextOnFailure: "stop-and-inspect-ledger",
-		},
-		{
-			Step:  "preview-main-decision-note",
-			Owner: "main-agent",
-			Uses:  []string{"ledgerWritebackTemplates[kind=decision].previewCommand"},
-			CommandBindings: []WritebackCommandBinding{
-				writebackCommandBinding("decision-preview", "ledgerWritebackTemplates[kind=decision].previewCommand", decisionTemplate, decisionTemplate.PreviewCommand, "note WhatIf JSON preview for main decision event"),
-			},
-			MustPass:      []string{"note WhatIf returns isMutation=false", "note WhatIf returns applied=false", "event.kind is decision", "event decision matches reviewerDecisionMappings", "event evidenceRefs cite the verification event or packet evidence"},
-			BlockedBy:     []string{"verification note missing", "unresolved conflict", "decision is accepting without inspected evidence"},
-			NextOnSuccess: "apply-main-decision-note",
-			NextOnFailure: "keep-main-decision-deferred",
-		},
-		{
-			Step:  "apply-main-decision-note",
-			Owner: "main-agent",
-			Uses:  []string{"ledgerWritebackTemplates[kind=decision].applyCommand"},
-			CommandBindings: []WritebackCommandBinding{
-				writebackCommandBinding("decision-apply", "ledgerWritebackTemplates[kind=decision].applyCommand", decisionTemplate, decisionTemplate.ApplyCommand, "applied main decision ledger event owned by main agent"),
-			},
-			MustPass:      []string{"decision preview passed", "verification evidence is referenced", "accept/reject/supersede decisions have no unresolved conflict"},
+			MustPass:      []string{"reviewer intake preview passed", "main agent inspected cited evidenceRefs", "verification event ID is linked from the decision event", "retry remains idempotent"},
 			NextOnSuccess: "post-review-validation",
-			NextOnFailure: "stop-and-inspect-ledger",
+			NextOnFailure: "retry-same-intake-to-complete-writeback",
 		},
 		{
 			Step:  "post-review-validation",
@@ -596,87 +600,61 @@ func writebackSequenceSteps(templates []LedgerWritebackTemplate) []WritebackSequ
 	}
 }
 
-func writebackTemplateByKind(templates []LedgerWritebackTemplate, kind string) LedgerWritebackTemplate {
-	for _, template := range templates {
-		if template.Kind == kind {
-			return template
-		}
+func reviewerIntakeCommands(planRoot, pack, packetPath, resultPath, targetLane string, intakeAvailable bool) ReviewerIntakeCommands {
+	base := "/rekit plan-subagents -Target " + quoteCommandArg(planRoot) + " -Pack " + quoteCommandArg(pack) + " -PacketPath " + quoteCommandArg(packetPath) + " -ReviewerResultPath " + quoteCommandArg(resultPath) + " -Lane " + quoteCommandArg(targetLane) + " -Actor <main-agent>"
+	commands := ReviewerIntakeCommands{
+		Purpose:        "strictly validate one reviewer result, preview or append verification-before-decision events, and return overview/handoff/doctor post-validation",
+		PreviewCommand: base + " -WhatIf -Format json",
+		ApplyCommand:   base + " -Apply -Format json",
+		RequiredFields: []string{"target", "pack", "packetPath", "reviewerResultPath", "targetLane", "actor"},
+		PreviewChecks: []string{
+			"run previewCommand before applyCommand",
+			"confirm reviewer intake returns isMutation=false, applied=false, and readyForWriteback=true",
+			"confirm verification and decision previews match the shard, mapped verdict/decision, and cited evidenceRefs",
+			"confirm postValidation overview, handoff, and doctor snapshots are valid",
+		},
+		BlockedOutputs: []string{
+			"reviewer output alone must not be treated as a ledger event",
+			"previewCommand must not write facts, authority, confirmed, board, lane, handoff, or source files",
+			"applyCommand must not run when strict validation fails, blockers are present, the lane is wrong, or evidenceRefs were not inspected",
+			"reviewer intake must not execute heavy tools or write authority/confirmed state",
+		},
 	}
-	return LedgerWritebackTemplate{Kind: kind}
+	if !intakeAvailable {
+		commands.PreviewCommand = "n/a: reviewer intake requires an attached rekit case; attach or init the target before running -ReviewerResultPath intake"
+		commands.ApplyCommand = "n/a: reviewer intake requires an attached rekit case; attach or init the target before running -ReviewerResultPath intake"
+		commands.PreviewChecks = append(commands.PreviewChecks, "out-of-case review artifacts are dispatch-only; reviewer intake/writeback is unavailable until the target is an attached rekit case")
+		commands.BlockedOutputs = append(commands.BlockedOutputs, "out-of-case plan packets must not be presented as immediately runnable reviewer intake commands")
+	}
+	return commands
 }
 
-func writebackCommandBinding(binding, source string, template LedgerWritebackTemplate, command, expectedOutput string) WritebackCommandBinding {
+func reviewerIntakeCommandBinding(binding, source, command string, requiredFields []string, expectedOutput string) WritebackCommandBinding {
 	return WritebackCommandBinding{
 		Binding:        binding,
 		Source:         source,
-		Kind:           template.Kind,
+		Kind:           "reviewer-intake",
 		Command:        command,
-		RequiredFields: append([]string{}, template.RequiredFields...),
+		RequiredFields: append([]string{}, requiredFields...),
 		ExpectedOutput: expectedOutput,
 	}
 }
 
-func ledgerWritebackTemplates(shard Shard) []LedgerWritebackTemplate {
-	itemRef := strings.Join(shard.Items, ",")
-	if itemRef == "" {
-		itemRef = shard.ID
-	}
-	verificationBase := "/rekit note -Kind verification -Lane <lane> -Verifier manual-review -Verdict <accepted|rejected|inconclusive|needs-more-evidence> -TargetRef \"" + itemRef + "\" -Subject \"reviewer verdict for " + shard.ID + "\" -Summary \"<short reviewer verdict summary>\" -EvidenceRefs \"<packet-or-evidence-ref>\" -Actor <main-agent>"
-	decisionBase := "/rekit note -Kind decision -Lane <lane> -Decision <accept|reject|defer|supersede> -TargetRef \"" + itemRef + "\" -Subject \"main merge decision for " + shard.ID + "\" -Summary \"<merge decision and reason>\" -EvidenceRefs \"<verification-event-or-packet-ref>\" -Actor <main-agent>"
-	return []LedgerWritebackTemplate{
-		{
-			Kind:           "verification",
-			Purpose:        "record a read-only reviewer verdict for this shard after the main agent inspects the reviewer output",
-			Command:        verificationBase + " -Apply",
-			PreviewCommand: verificationBase + " -WhatIf -Format json",
-			ApplyCommand:   verificationBase + " -Apply",
-			RequiredFields: []string{"lane", "verifier", "verdict", "target", "subject", "summary", "evidenceRefs", "actor"},
-			AllowedValues:  []string{"verifier=manual-review|schema-check|focused-trace|parity|cross-run|tool-review", "verdict=accepted|rejected|inconclusive|needs-more-evidence"},
-			PreviewChecks:  writebackPreviewChecks("verification"),
-			BlockedOutputs: writebackBlockedOutputs(),
-		},
-		{
-			Kind:           "decision",
-			Purpose:        "record the main agent merge decision for this shard after validation and conflict review",
-			Command:        decisionBase + " -Apply",
-			PreviewCommand: decisionBase + " -WhatIf -Format json",
-			ApplyCommand:   decisionBase + " -Apply",
-			RequiredFields: []string{"lane", "decision", "target", "subject", "summary", "evidenceRefs", "actor"},
-			AllowedValues:  []string{"decision=accept|reject|defer|supersede"},
-			PreviewChecks:  writebackPreviewChecks("decision"),
-			BlockedOutputs: writebackBlockedOutputs(),
-		},
-	}
-}
-
-func writebackPreviewChecks(kind string) []string {
-	return []string{
-		"run previewCommand before applyCommand",
-		"confirm note WhatIf returns isMutation=false and applied=false",
-		"confirm event.kind is " + kind + " and event lane/target/evidenceRefs match the reviewed shard",
-		"confirm wouldExecutorAction contains only the expected lane-local blocker delta before applying",
-	}
-}
-
-func writebackBlockedOutputs() []string {
-	return []string{
-		"reviewer output alone must not be treated as a ledger event",
-		"previewCommand must not write facts, authority, confirmed, board, lane, handoff, or source files",
-		"applyCommand must not run when previewCommand fails, targets the wrong lane, or lacks inspected evidenceRefs",
-	}
+func quoteCommandArg(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
 func postReviewMergeSteps() []string {
 	return []string{
-		"inspect reviewer output against expectedOutput before ledger writeback",
-		"run each template previewCommand and inspect note WhatIf output before applyCommand",
-		"record reviewer verdict with the verification applyCommand; do not let the reviewer append ledger events directly",
-		"record the main merge decision with the decision applyCommand only after validation/conflict review",
-		"run the relevant overview/handoff/doctor check after accepted decisions that affect lane state",
+		"inspect reviewer output against expectedOutput before reviewer intake",
+		"run reviewerIntakeCommands.previewCommand and inspect verification, decision, and postValidation before applyCommand",
+		"let the runtime append the reviewer verification event before the linked main decision event; do not let the reviewer append ledger events directly",
+		"retry the identical applyCommand when an interrupted writeback needs idempotent completion",
+		"consume the returned overview/handoff/doctor postValidation before handing off or continuing the lane",
 	}
 }
 
-func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, reviewLoop ReviewLoop) string {
+func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, reviewLoop ReviewLoop, resultPath string) string {
 	contract := reviewerResultContract()
 	lines := []string{
 		"You are a read-only reviewer for rekit plan-subagents shard " + shard.ID + ".",
@@ -685,7 +663,9 @@ func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, re
 		"Return only this output contract: " + route.OutputContract + ".",
 		"Reviewer result contract: " + contract.OutputFormat + ".",
 		"Required result fields: " + strings.Join(contract.RequiredFields, ", ") + ".",
+		"Set packetId to the packet packetId and routeId to " + route.ID + ".",
 		"Allowed decisions: " + strings.Join(contract.AllowedDecisions, ", ") + ".",
+		"Return the result to the main agent for placement at: " + resultPath + ". Do not write this path yourself.",
 		"Do not write files, run heavy tools, append ledgers, or change authority/confirmed state.",
 		"The main agent owns merge, validation, handoff, and ledger writeback: " + reviewLoop.VerdictWriteback + ".",
 	}
@@ -711,6 +691,7 @@ func newObservability(route Route, opt Options, paths artifactPaths, shards []Sh
 			PolicyOverlay: route.PolicyOverlay,
 		},
 		ReviewRoot:       paths.Root,
+		ResultRoot:       paths.ResultRoot,
 		PacketPath:       paths.PacketPath,
 		SummaryPath:      paths.SummaryPath,
 		CombinedDiffPath: paths.CombinedDiffPath,
@@ -745,7 +726,7 @@ func newReviewLoop(route Route) ReviewLoop {
 		SpawnOwner:       "main-agent",
 		MergeOwner:       "main-agent",
 		MainAgentOwns:    mainOwns,
-		VerdictWriteback: "/rekit note -Kind verification for reviewer verdicts; /rekit note -Kind decision for main merge decisions",
+		VerdictWriteback: "/rekit plan-subagents -ReviewerResultPath ... -WhatIf/-Apply validates reviewer results and writes verification-before-decision facts for the main agent",
 		CompletionCriteria: []string{
 			"each planned shard is accepted, rejected, deferred, or explicitly abandoned",
 			"reviewer verdicts are recorded in the ledger before main merge decisions",
@@ -806,7 +787,7 @@ func makeArtifactPaths(planRoot string, opt Options) (artifactPaths, error) {
 			return artifactPaths{}, err
 		}
 	}
-	return artifactPaths{Root: root, DiffRoot: diffRoot, PreviewRoot: filepath.Join(root, "previews"), PacketPath: packet, SummaryPath: filepath.Join(root, "summary.md"), CombinedDiffPath: combined}, nil
+	return artifactPaths{Root: root, DiffRoot: diffRoot, PreviewRoot: filepath.Join(root, "previews"), ResultRoot: filepath.Join(root, "results"), PacketPath: packet, SummaryPath: filepath.Join(root, "summary.md"), CombinedDiffPath: combined}, nil
 }
 
 func requirePathUnder(root, path, label string) error {
@@ -828,7 +809,7 @@ func requirePathUnder(root, path, label string) error {
 }
 
 func prepareArtifactDirs(paths artifactPaths) error {
-	for _, dir := range []string{paths.Root, paths.DiffRoot, paths.PreviewRoot, filepath.Dir(paths.PacketPath), filepath.Dir(paths.CombinedDiffPath)} {
+	for _, dir := range []string{paths.Root, paths.DiffRoot, paths.PreviewRoot, paths.ResultRoot, filepath.Dir(paths.PacketPath), filepath.Dir(paths.CombinedDiffPath)} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
@@ -864,6 +845,7 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 		"- dispatch mode: `" + observability.DispatchMode + "`",
 		"- route selected by: `" + observability.RouteDebug.SelectedBy + "`",
 		"- review root: `" + observability.ReviewRoot + "`",
+		"- reviewer result root: `" + observability.ResultRoot + "`",
 		"- packet: `" + observability.PacketPath + "`",
 		"- combined diff: `" + observability.CombinedDiffPath + "`",
 		"- spawn owner: `" + reviewLoop.SpawnOwner + "`",
@@ -897,7 +879,7 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 		lines = append(lines, "- no shard handoffs planned")
 	} else {
 		for _, handoff := range shardHandoffs {
-			lines = append(lines, fmt.Sprintf("- %s: `%s`; expected output=`%s`", handoff.ShardID, handoff.DispatchPrompt, handoff.ExpectedOutput))
+			lines = append(lines, fmt.Sprintf("- %s: `%s`; expected output=`%s`; main-agent result path=`%s`", handoff.ShardID, handoff.DispatchPrompt, handoff.ExpectedOutput, handoff.ReviewerResultPath))
 			contract := handoff.ReviewerResultContract
 			lines = append(lines, fmt.Sprintf("  - reviewer result contract: output=`%s`; required=`%s`; allowed decisions=`%s`", contract.OutputFormat, strings.Join(contract.RequiredFields, ","), strings.Join(contract.AllowedDecisions, ",")))
 			for _, rule := range contract.EvidenceRules {
@@ -924,14 +906,13 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 					lines = append(lines, "      - writeback-blocker: "+blocked)
 				}
 			}
-			for _, tmpl := range handoff.LedgerWritebackTemplates {
-				lines = append(lines, fmt.Sprintf("  - %s writeback preview: `%s`; apply: `%s`; required=`%s`", tmpl.Kind, tmpl.PreviewCommand, tmpl.ApplyCommand, strings.Join(tmpl.RequiredFields, ",")))
-				for _, check := range tmpl.PreviewChecks {
-					lines = append(lines, "    - preview-check: "+check)
-				}
-				for _, blocked := range tmpl.BlockedOutputs {
-					lines = append(lines, "    - blocked-output: "+blocked)
-				}
+			commands := handoff.ReviewerIntakeCommands
+			lines = append(lines, fmt.Sprintf("  - reviewer intake preview: `%s`; apply: `%s`; required=`%s`", commands.PreviewCommand, commands.ApplyCommand, strings.Join(commands.RequiredFields, ",")))
+			for _, check := range commands.PreviewChecks {
+				lines = append(lines, "    - preview-check: "+check)
+			}
+			for _, blocked := range commands.BlockedOutputs {
+				lines = append(lines, "    - blocked-output: "+blocked)
 			}
 			for _, step := range handoff.PostReviewMerge {
 				lines = append(lines, "  - post-review: "+step)

@@ -464,9 +464,9 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=20 handlers=20 symbols=20 profiles=20 boundaries=7 alternative=go run ./cmd/rekit -- -Command <command>")
-	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileSummary total=20 readOnly=5 mutating=15 writesCase=14 writesKit=1 reviewFirst=3 applyRequired=12 heavyTool=0 authorityConfirmed=0")
+	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileSummary total=20 readOnly=5 mutating=15 writesCase=14 writesKit=1 reviewFirst=3 applyRequired=13 heavyTool=0 authorityConfirmed=0")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileGroups readOnly=doctor,packs,release-check,status,validate reviewFirst=promote,sync,update writesKit=promote")
-	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileBoundaries rows=7 caseLocalApply=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start kitReviewFirst=promote readOnly=doctor,packs,release-check,status,validate")
+	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileBoundaries rows=7 caseLocalApply=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWriteback=plan-subagents caseLocalReviewFirst=sync,update kitReviewFirst=promote readOnly=doctor,packs,release-check,status,validate")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profilePolicies rows=5 violations=0")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "facadeRemovalReady=true prerequisites=5")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "unsupportedDiagnostic=true")
@@ -714,10 +714,10 @@ func assertReleaseCheckGoNativePublicSurface(t *testing.T, surface struct {
 		t.Fatalf("Go-native public command profiles drifted: profiles=%+v boundaries=%+v", surface.CommandProfiles, surface.MutationBoundaries)
 	}
 	profileSummaryCounts := surfaceCounts.ProfileSummary
-	if profileSummaryCounts.Total != 20 || surfaceCounts.ProfileTotal != 20 || profileSummaryCounts.ReadOnly != 5 || profileSummaryCounts.Mutating != 15 || profileSummaryCounts.WritesCase != 14 || profileSummaryCounts.WritesKit != 1 || profileSummaryCounts.ReviewFirst != 3 || profileSummaryCounts.ApplyRequired != 12 || profileSummaryCounts.HeavyTool != 0 || profileSummaryCounts.AuthorityConfirmed != 0 || profileSummaryCounts.BoundaryReadOnly != 5 || profileSummaryCounts.BoundaryCaseLocalApply != 9 || profileSummaryCounts.BoundaryCaseLocalReview != 2 || profileSummaryCounts.BoundaryKitReview != 1 {
+	if profileSummaryCounts.Total != 20 || surfaceCounts.ProfileTotal != 20 || profileSummaryCounts.ReadOnly != 5 || profileSummaryCounts.Mutating != 15 || profileSummaryCounts.WritesCase != 14 || profileSummaryCounts.WritesKit != 1 || profileSummaryCounts.ReviewFirst != 3 || profileSummaryCounts.ApplyRequired != 13 || profileSummaryCounts.HeavyTool != 0 || profileSummaryCounts.AuthorityConfirmed != 0 || profileSummaryCounts.BoundaryReadOnly != 5 || profileSummaryCounts.BoundaryCaseLocalApply != 9 || profileSummaryCounts.BoundaryCaseLocalWriteback != 1 || profileSummaryCounts.BoundaryCaseLocalReview != 2 || profileSummaryCounts.BoundaryKitReview != 1 {
 		t.Fatalf("Go-native public command profile summary drifted: %+v", surface.CommandProfileSummary)
 	}
-	if strings.Join(surface.CommandProfileGroups.ReadOnly, ",") != "doctor,packs,release-check,status,validate" || strings.Join(surface.CommandProfileGroups.ReviewFirst, ",") != "promote,sync,update" || strings.Join(surface.CommandProfileGroups.WritesKit, ",") != "promote" || surfaceCounts.Groups.HeavyTool != 0 || surfaceCounts.Groups.AuthorityConfirmed != 0 || surfaceCounts.Groups.CaseLocalApply != 9 || surfaceCounts.Groups.CaseLocalReviewFirst != 2 {
+	if strings.Join(surface.CommandProfileGroups.ReadOnly, ",") != "doctor,packs,release-check,status,validate" || strings.Join(surface.CommandProfileGroups.ReviewFirst, ",") != "promote,sync,update" || strings.Join(surface.CommandProfileGroups.WritesKit, ",") != "promote" || surfaceCounts.Groups.HeavyTool != 0 || surfaceCounts.Groups.AuthorityConfirmed != 0 || surfaceCounts.Groups.CaseLocalApply != 9 || surfaceCounts.Groups.CaseLocalReviewWriteback != 1 || surfaceCounts.Groups.CaseLocalReviewFirst != 2 {
 		t.Fatalf("Go-native public command profile groups drifted: %+v", surface.CommandProfileGroups)
 	}
 	firstBoundaryCounts := releasecheck.GoNativePublicSurfaceBoundaryRowCountsFor(surface.CommandProfileBoundaries[0])
@@ -1115,7 +1115,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
 		"commands=14 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=20 candidates=0 removalModules=0 retiredModules=13 facadeRuntime=true legacyImports=false dispatcher=false publicFacade=true retained=true facadeCommands=20 noFallback=20 moduleRemoval=true removalCandidates=0 retired=13 facadeDeps=0 undocumented=0 moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0",
-		"Go-native public surface: Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true default=status commands=20 handlers=20 symbols=20 profiles=20 boundaries=7 boundaryRows=7 policyRows=5 policyViolations=0 facadeRemovalReady=true facadePrerequisites=5 readOnly=5 mutating=15 writesCase=14 writesKit=1 reviewFirst=3 applyRequired=12 heavyTool=0 authorityConfirmed=0 readOnlyCommands=doctor,packs,release-check,status,validate reviewFirstCommands=promote,sync,update writesKitCommands=promote caseLocalApplyCommands=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start kitReviewFirstCommands=promote alternative=go run ./cmd/rekit -- -Command <command> unsupportedDiagnostic=true",
+		"Go-native public surface: Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true default=status commands=20 handlers=20 symbols=20 profiles=20 boundaries=7 boundaryRows=7 policyRows=5 policyViolations=0 facadeRemovalReady=true facadePrerequisites=5 readOnly=5 mutating=15 writesCase=14 writesKit=1 reviewFirst=3 applyRequired=13 heavyTool=0 authorityConfirmed=0 readOnlyCommands=doctor,packs,release-check,status,validate reviewFirstCommands=promote,sync,update writesKitCommands=promote caseLocalApplyCommands=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWritebackCommands=plan-subagents kitReviewFirstCommands=promote alternative=go run ./cmd/rekit -- -Command <command> unsupportedDiagnostic=true",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=13",
 		"public facade removal: public facade removal prerequisites ok ready=true prerequisites=8 removalPlan=true planChecks=9 replacementEntrypoints=4 replacementValidationCommands=32 deletionGates=5 deletionGateValidationCommands=40 deletionGateExitCriteria=15 deletionGateFailureSignals=15 deletionGateEscalationTriggers=15 deletionGateEscalationEvidence=15 deletionGateEscalationRecipients=15 deletionGateEscalationHandoffSteps=15 deletionGateEscalationDecisionOptions=15 deletionGateEscalationRetryConditions=15 deletionGateEscalationStopConditions=15 deletionGateEscalationResolutionArtifacts=15 deletionGateEscalationClosureChecks=15 deletionGateEscalationReopenConditions=15 deletionGateEscalationLedgerEvents=15 deletionGateEscalationStateTransitions=15 deletionGateEscalationBoundaryGuards=15 deletionGateEscalationAuditChecks=15 deletionGateVerificationArtifacts=15 deletionGateBlockedExecutionSteps=10 deletionGateRemediationActions=15 recoverySteps=4 recoveryValidationCommands=32 documentationTargets=9 documentationValidationCommands=72 executionSteps=5 executionFailureSignals=15 executionRemediationActions=15 executionVerificationArtifacts=15 executionLedgerEvents=15 executionStateTransitions=15 executionEscalationTriggers=15 executionEscalationEvidence=15 executionEscalationRecipients=15 executionEscalationHandoffSteps=15 executionEscalationDecisionOptions=15 executionEscalationRetryConditions=15 executionEscalationStopConditions=15 executionEscalationResolutionArtifacts=15 executionEscalationClosureChecks=15 executionEscalationReopenConditions=15 executionEscalationLedgerEvents=15 executionEscalationStateTransitions=15 executionEscalationBoundaryGuards=15 executionEscalationAuditChecks=15 executionBoundaryGuards=15 executionAuditChecks=15 executionValidationCommands=40 boundaryChecks=6 boundaryValidationCommands=48 removalImpact=true impactReferences=",
@@ -3836,20 +3836,20 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if packet.Observability.DispatchMode != "manual-main-agent" || packet.Observability.RouteDebug.RouteID != "vmp-re:lane-feature-analysis" || len(packet.Observability.ShardStatuses) != 2 || packet.Observability.ShardStatuses[0].Status != "planned" || packet.ReviewLoop.MergeOwner != "main-agent" {
 		t.Fatalf("unexpected packet observability: %+v", packet)
 	}
-	if !slices.Contains(packet.Observability.BlockedActions, "runtime does not spawn subagents") || !strings.Contains(packet.ReviewLoop.VerdictWriteback, "note -Kind verification") {
+	if !slices.Contains(packet.Observability.BlockedActions, "runtime does not spawn subagents") || !strings.Contains(packet.ReviewLoop.VerdictWriteback, "plan-subagents -ReviewerResultPath") {
 		t.Fatalf("unexpected review loop contract: %+v", packet)
 	}
 	if len(result.ShardHandoffs) != 2 || len(packet.ShardHandoffs) != 2 {
 		t.Fatalf("missing shard handoffs: result=%+v packet=%+v", result.ShardHandoffs, packet.ShardHandoffs)
 	}
 	firstHandoff := packet.ShardHandoffs[0]
-	if firstHandoff.ShardID != "shard-01" || firstHandoff.Status != "planned" || strings.Join(firstHandoff.Items, ",") != "alpha,beta" || !strings.Contains(firstHandoff.DispatchPrompt, "read-only reviewer") || !strings.Contains(firstHandoff.DispatchPrompt, "Do not write files") || !strings.Contains(firstHandoff.ExpectedOutput, "decision") || !strings.Contains(firstHandoff.ReviewerWriteback, "note -Kind verification") || !strings.Contains(firstHandoff.MainAgentNextAction, "reviewerResultContract") || !strings.Contains(firstHandoff.MainAgentNextAction, "previewCommand") || !strings.Contains(firstHandoff.MainAgentNextAction, "applyCommand") || !slices.Contains(firstHandoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(firstHandoff.CompletionCriteria, "reviewer verdicts are recorded in the ledger before main merge decisions") || firstHandoff.FailureHandling == "" {
+	if firstHandoff.ShardID != "shard-01" || firstHandoff.Status != "planned" || strings.Join(firstHandoff.Items, ",") != "alpha,beta" || !strings.Contains(firstHandoff.DispatchPrompt, "read-only reviewer") || !strings.Contains(firstHandoff.DispatchPrompt, "Do not write files") || !strings.Contains(firstHandoff.ExpectedOutput, "decision") || !strings.Contains(firstHandoff.ReviewerWriteback, "plan-subagents -ReviewerResultPath") || !strings.Contains(firstHandoff.MainAgentNextAction, "reviewerResultContract") || !strings.Contains(firstHandoff.MainAgentNextAction, "previewCommand") || !strings.Contains(firstHandoff.MainAgentNextAction, "applyCommand") || !slices.Contains(firstHandoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(firstHandoff.CompletionCriteria, "reviewer verdicts are recorded in the ledger before main merge decisions") || firstHandoff.FailureHandling == "" {
 		t.Fatalf("unexpected shard handoff: %+v", firstHandoff)
 	}
-	if firstHandoff.ReviewerResultContract.OutputFormat == "" || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "recommendedVerdict") || !slices.Contains(firstHandoff.ReviewerResultContract.AllowedDecisions, "needs-more-evidence") || !slices.Contains(firstHandoff.ReviewerResultContract.ConflictSignals, "reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects") {
+	if firstHandoff.ReviewerResultContract.OutputFormat == "" || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "recommendedVerdict") || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "routeOutput") || !slices.Contains(firstHandoff.ReviewerResultContract.AllowedDecisions, "needs-more-evidence") || !slices.Contains(firstHandoff.ReviewerResultContract.ConflictSignals, "reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects") {
 		t.Fatalf("unexpected reviewer result contract: %+v", firstHandoff.ReviewerResultContract)
 	}
-	if !slices.Contains(firstHandoff.IntakeChecklist, "validate reviewer output against reviewerResultContract before using any writeback template") || !slices.Contains(firstHandoff.IntakeChecklist, "defer the main decision when conflicts, missing evidence, or blocked outputs are present") {
+	if !slices.Contains(firstHandoff.IntakeChecklist, "validate reviewer output against reviewerResultContract before using any writeback template") || !slices.Contains(firstHandoff.IntakeChecklist, "defer the main decision when conflicts, missing evidence, or blocked outputs are present") || !slices.Contains(firstHandoff.IntakeChecklist, "run reviewerIntakeCommands.previewCommand before applyCommand and inspect verification / decision / postValidation before ledger writeback") {
 		t.Fatalf("unexpected intake checklist: %+v", firstHandoff.IntakeChecklist)
 	}
 	if len(firstHandoff.ReviewerDecisionMappings) != 5 || firstHandoff.ReviewerDecisionMappings[0].ReviewerDecision != "accept" || firstHandoff.ReviewerDecisionMappings[0].VerificationVerdict != "accepted" || firstHandoff.ReviewerDecisionMappings[0].MainDecision != "accept" || firstHandoff.ReviewerDecisionMappings[3].ReviewerDecision != "abandon" || firstHandoff.ReviewerDecisionMappings[3].MainDecision != "supersede" || firstHandoff.ReviewerDecisionMappings[4].ReviewerDecision != "needs-more-evidence" || firstHandoff.ReviewerDecisionMappings[4].VerificationVerdict != "needs-more-evidence" || firstHandoff.ReviewerDecisionMappings[4].MainDecision != "defer" {
@@ -3858,35 +3858,30 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if !slices.Contains(firstHandoff.ConflictHandling, "if any conflictSignal is present, map verification verdict to inconclusive or needs-more-evidence and keep main decision deferred unless independently resolved") || !slices.Contains(firstHandoff.ConflictHandling, "if reviewer requests writes, heavy tools, authority/confirmed changes, or external effects, discard that output for ledger purposes and escalate through the lane gate path") {
 		t.Fatalf("unexpected conflict handling: %+v", firstHandoff.ConflictHandling)
 	}
-	if len(firstHandoff.WritebackSequence) != 7 || firstHandoff.WritebackSequence[0].Step != "validate-reviewer-result" || firstHandoff.WritebackSequence[2].Step != "preview-verification-note" || firstHandoff.WritebackSequence[3].Step != "apply-verification-note" || firstHandoff.WritebackSequence[4].Step != "preview-main-decision-note" || firstHandoff.WritebackSequence[5].Step != "apply-main-decision-note" || firstHandoff.WritebackSequence[6].Step != "post-review-validation" {
+	if len(firstHandoff.WritebackSequence) != 5 || firstHandoff.WritebackSequence[0].Step != "validate-reviewer-result" || firstHandoff.WritebackSequence[2].Step != "preview-reviewer-intake" || firstHandoff.WritebackSequence[3].Step != "apply-reviewer-intake" || firstHandoff.WritebackSequence[4].Step != "post-review-validation" {
 		t.Fatalf("unexpected writeback sequence: %+v", firstHandoff.WritebackSequence)
 	}
-	if !slices.Contains(firstHandoff.WritebackSequence[0].Uses, "reviewerResultContract") || !slices.Contains(firstHandoff.WritebackSequence[2].Uses, "ledgerWritebackTemplates[kind=verification].previewCommand") || !slices.Contains(firstHandoff.WritebackSequence[4].BlockedBy, "verification note missing") || firstHandoff.WritebackSequence[5].NextOnSuccess != "post-review-validation" {
+	if !slices.Contains(firstHandoff.WritebackSequence[0].Uses, "reviewerResultContract") || !slices.Contains(firstHandoff.WritebackSequence[2].Uses, "reviewerIntakeCommands.previewCommand") || !slices.Contains(firstHandoff.WritebackSequence[2].BlockedBy, "wrong packet/case/pack/shard/items") || firstHandoff.WritebackSequence[3].NextOnSuccess != "post-review-validation" {
 		t.Fatalf("unexpected writeback sequence details: %+v", firstHandoff.WritebackSequence)
 	}
-	if len(firstHandoff.WritebackSequence[2].CommandBindings) != 1 || firstHandoff.WritebackSequence[2].CommandBindings[0].Binding != "verification-preview" || firstHandoff.WritebackSequence[2].CommandBindings[0].Kind != "verification" || !strings.Contains(firstHandoff.WritebackSequence[2].CommandBindings[0].Command, "-Kind verification") || !strings.Contains(firstHandoff.WritebackSequence[2].CommandBindings[0].Command, "-WhatIf -Format json") || !slices.Contains(firstHandoff.WritebackSequence[2].CommandBindings[0].RequiredFields, "verdict") {
-		t.Fatalf("unexpected verification preview command binding: %+v", firstHandoff.WritebackSequence[2].CommandBindings)
+	if len(firstHandoff.WritebackSequence[2].CommandBindings) != 1 || firstHandoff.WritebackSequence[2].CommandBindings[0].Binding != "reviewer-intake-preview" || firstHandoff.WritebackSequence[2].CommandBindings[0].Kind != "reviewer-intake" || !strings.Contains(firstHandoff.WritebackSequence[2].CommandBindings[0].Command, "/rekit plan-subagents") || !strings.Contains(firstHandoff.WritebackSequence[2].CommandBindings[0].Command, "-ReviewerResultPath") || !strings.Contains(firstHandoff.WritebackSequence[2].CommandBindings[0].Command, "-WhatIf -Format json") || !slices.Contains(firstHandoff.WritebackSequence[2].CommandBindings[0].RequiredFields, "reviewerResultPath") {
+		t.Fatalf("unexpected reviewer intake preview command binding: %+v", firstHandoff.WritebackSequence[2].CommandBindings)
 	}
-	if len(firstHandoff.WritebackSequence[5].CommandBindings) != 1 || firstHandoff.WritebackSequence[5].CommandBindings[0].Binding != "decision-apply" || firstHandoff.WritebackSequence[5].CommandBindings[0].Kind != "decision" || !strings.Contains(firstHandoff.WritebackSequence[5].CommandBindings[0].Command, "-Kind decision") || !strings.Contains(firstHandoff.WritebackSequence[5].CommandBindings[0].Command, "-Apply") || !slices.Contains(firstHandoff.WritebackSequence[5].CommandBindings[0].RequiredFields, "decision") {
-		t.Fatalf("unexpected decision apply command binding: %+v", firstHandoff.WritebackSequence[5].CommandBindings)
+	if len(firstHandoff.WritebackSequence[3].CommandBindings) != 1 || firstHandoff.WritebackSequence[3].CommandBindings[0].Binding != "reviewer-intake-apply" || firstHandoff.WritebackSequence[3].CommandBindings[0].Kind != "reviewer-intake" || !strings.Contains(firstHandoff.WritebackSequence[3].CommandBindings[0].Command, "-Apply -Format json") || firstHandoff.WritebackSequence[3].NextOnFailure != "retry-same-intake-to-complete-writeback" {
+		t.Fatalf("unexpected reviewer intake apply command binding: %+v", firstHandoff.WritebackSequence[3])
 	}
-	if len(firstHandoff.LedgerWritebackTemplates) != 2 || firstHandoff.LedgerWritebackTemplates[0].Kind != "verification" || firstHandoff.LedgerWritebackTemplates[1].Kind != "decision" {
-		t.Fatalf("unexpected shard writeback templates: %+v", firstHandoff.LedgerWritebackTemplates)
+	commands := firstHandoff.ReviewerIntakeCommands
+	if !strings.Contains(commands.PreviewCommand, "/rekit plan-subagents") || !strings.Contains(commands.PreviewCommand, "-PacketPath") || !strings.Contains(commands.PreviewCommand, "-ReviewerResultPath") || !strings.Contains(commands.PreviewCommand, "-Lane \"devirt-main\"") || !strings.Contains(commands.PreviewCommand, "-Actor <main-agent>") || !strings.Contains(commands.PreviewCommand, "-WhatIf -Format json") || !strings.Contains(commands.ApplyCommand, "-Apply -Format json") || strings.Contains(commands.ApplyCommand, "note -Kind") || !slices.Contains(commands.RequiredFields, "packetPath") || !slices.Contains(commands.RequiredFields, "reviewerResultPath") || !slices.Contains(commands.RequiredFields, "targetLane") || !slices.Contains(commands.PreviewChecks, "confirm reviewer intake returns isMutation=false, applied=false, and readyForWriteback=true") || !slices.Contains(commands.BlockedOutputs, "reviewer intake must not execute heavy tools or write authority/confirmed state") {
+		t.Fatalf("unexpected reviewer intake commands: %+v", commands)
 	}
-	if !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].Command, "-Kind verification") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].PreviewCommand, "-WhatIf -Format json") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].ApplyCommand, "-Apply") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].ApplyCommand, "-TargetRef \"alpha,beta\"") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[0].RequiredFields, "target") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[0].PreviewChecks, "confirm note WhatIf returns isMutation=false and applied=false") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[0].BlockedOutputs, "previewCommand must not write facts, authority, confirmed, board, lane, handoff, or source files") {
-		t.Fatalf("unexpected verification writeback template: %+v", firstHandoff.LedgerWritebackTemplates[0])
-	}
-	if !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].Command, "-Kind decision") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].PreviewCommand, "-WhatIf -Format json") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].ApplyCommand, "-Apply") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].ApplyCommand, "-Decision <accept|reject|defer|supersede>") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].ApplyCommand, "-TargetRef \"alpha,beta\"") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[1].RequiredFields, "decision") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[1].PreviewChecks, "confirm note WhatIf returns isMutation=false and applied=false") {
-		t.Fatalf("unexpected decision writeback template: %+v", firstHandoff.LedgerWritebackTemplates[1])
-	}
-	if !slices.Contains(firstHandoff.PostReviewMerge, "run each template previewCommand and inspect note WhatIf output before applyCommand") || !slices.Contains(firstHandoff.PostReviewMerge, "record the main merge decision with the decision applyCommand only after validation/conflict review") {
+	if !slices.Contains(firstHandoff.PostReviewMerge, "run reviewerIntakeCommands.previewCommand and inspect verification, decision, and postValidation before applyCommand") || !slices.Contains(firstHandoff.PostReviewMerge, "retry the identical applyCommand when an interrupted writeback needs idempotent completion") {
 		t.Fatalf("unexpected post-review merge guidance: %+v", firstHandoff.PostReviewMerge)
 	}
 	summary, err := os.ReadFile(result.SummaryPath)
 	if err != nil {
 		t.Fatalf("missing summary: %v", err)
 	}
-	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "-ReviewerResultPath", "-WhatIf -Format json", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -3930,6 +3925,10 @@ func TestRunPlanSubagentsItemsFileAndOutOfCaseGuard(t *testing.T) {
 	if !samePath(result.ReviewRoot, reviewRoot) {
 		t.Fatalf("review root = %q, want %q", result.ReviewRoot, reviewRoot)
 	}
+	commands := packet.ShardHandoffs[0].ReviewerIntakeCommands
+	if !strings.Contains(commands.PreviewCommand, "n/a: reviewer intake requires an attached rekit case") || !strings.Contains(commands.ApplyCommand, "n/a: reviewer intake requires an attached rekit case") || !slices.Contains(commands.PreviewChecks, "out-of-case review artifacts are dispatch-only; reviewer intake/writeback is unavailable until the target is an attached rekit case") || !slices.Contains(commands.BlockedOutputs, "out-of-case plan packets must not be presented as immediately runnable reviewer intake commands") {
+		t.Fatalf("out-of-case plan exposed runnable reviewer intake commands: %+v", commands)
+	}
 }
 
 func TestRunPlanSubagentsTemplatePackRoutes(t *testing.T) {
@@ -3943,7 +3942,7 @@ func TestRunPlanSubagentsTemplatePackRoutes(t *testing.T) {
 	if packet.Route.ID != "_template:lane-feature-analysis" || packet.Observability.RouteDebug.SelectedBy != "taskType" || result.ItemCount != 2 || result.ShardCount != 2 {
 		t.Fatalf("unexpected template plan: result=%+v packet=%+v", result, packet)
 	}
-	if !strings.Contains(packet.ReviewLoop.VerdictWriteback, "note -Kind verification") || len(packet.Observability.BlockedActions) == 0 {
+	if !strings.Contains(packet.ReviewLoop.VerdictWriteback, "plan-subagents -ReviewerResultPath") || len(packet.Observability.BlockedActions) == 0 {
 		t.Fatalf("template route missing review loop contract: %+v", packet)
 	}
 }
@@ -4940,8 +4939,10 @@ type planSubagentsResult struct {
 }
 
 type planSubagentsPacket struct {
-	Command string `json:"command"`
-	Route   struct {
+	PacketID   string `json:"packetId"`
+	Command    string `json:"command"`
+	TargetLane string `json:"targetLane"`
+	Route      struct {
 		ID string `json:"id"`
 	} `json:"route"`
 	Input struct {
@@ -4960,23 +4961,23 @@ type planSubagentsPacket struct {
 }
 
 type planSubagentsHandoff struct {
-	ShardID                  string                           `json:"shardId"`
-	Status                   string                           `json:"status"`
-	DispatchPrompt           string                           `json:"dispatchPrompt"`
-	Items                    []string                         `json:"items"`
-	ReadOnlyBoundary         []string                         `json:"readOnlyBoundary"`
-	ExpectedOutput           string                           `json:"expectedOutput"`
-	ReviewerWriteback        string                           `json:"reviewerWriteback"`
-	ReviewerResultContract   planSubagentsReviewerContract    `json:"reviewerResultContract"`
-	LedgerWritebackTemplates []planSubagentsWritebackTemplate `json:"ledgerWritebackTemplates"`
-	MainAgentNextAction      string                           `json:"mainAgentNextAction"`
-	IntakeChecklist          []string                         `json:"intakeChecklist"`
-	ReviewerDecisionMappings []planSubagentsDecisionMapping   `json:"reviewerDecisionMappings"`
-	ConflictHandling         []string                         `json:"conflictHandling"`
-	WritebackSequence        []planSubagentsWritebackStep     `json:"writebackSequence"`
-	PostReviewMerge          []string                         `json:"postReviewMerge"`
-	CompletionCriteria       []string                         `json:"completionCriteria"`
-	FailureHandling          string                           `json:"failureHandling"`
+	ShardID                  string                         `json:"shardId"`
+	Status                   string                         `json:"status"`
+	DispatchPrompt           string                         `json:"dispatchPrompt"`
+	Items                    []string                       `json:"items"`
+	ReadOnlyBoundary         []string                       `json:"readOnlyBoundary"`
+	ExpectedOutput           string                         `json:"expectedOutput"`
+	ReviewerWriteback        string                         `json:"reviewerWriteback"`
+	ReviewerResultContract   planSubagentsReviewerContract  `json:"reviewerResultContract"`
+	ReviewerIntakeCommands   planSubagentsIntakeCommands    `json:"reviewerIntakeCommands"`
+	MainAgentNextAction      string                         `json:"mainAgentNextAction"`
+	IntakeChecklist          []string                       `json:"intakeChecklist"`
+	ReviewerDecisionMappings []planSubagentsDecisionMapping `json:"reviewerDecisionMappings"`
+	ConflictHandling         []string                       `json:"conflictHandling"`
+	WritebackSequence        []planSubagentsWritebackStep   `json:"writebackSequence"`
+	PostReviewMerge          []string                       `json:"postReviewMerge"`
+	CompletionCriteria       []string                       `json:"completionCriteria"`
+	FailureHandling          string                         `json:"failureHandling"`
 }
 
 type planSubagentsReviewerContract struct {
@@ -5015,14 +5016,11 @@ type planSubagentsWritebackCommandBinding struct {
 	ExpectedOutput string   `json:"expectedOutput"`
 }
 
-type planSubagentsWritebackTemplate struct {
-	Kind           string   `json:"kind"`
+type planSubagentsIntakeCommands struct {
 	Purpose        string   `json:"purpose"`
-	Command        string   `json:"command"`
 	PreviewCommand string   `json:"previewCommand"`
 	ApplyCommand   string   `json:"applyCommand"`
 	RequiredFields []string `json:"requiredFields"`
-	AllowedValues  []string `json:"allowedValues"`
 	PreviewChecks  []string `json:"previewChecks"`
 	BlockedOutputs []string `json:"blockedOutputs"`
 }

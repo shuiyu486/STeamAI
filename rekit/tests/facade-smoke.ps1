@@ -66,6 +66,16 @@ function Write-FakeGoBackend {
   [System.IO.File]::WriteAllText($Path, ('@echo off' + "`r`n" + 'echo ' + $json + "`r`n"), [System.Text.UTF8Encoding]::new($false))
 }
 
+function Write-CapturingFakeGoBackend {
+  param(
+    [Parameter(Mandatory=$true)][string]$Path,
+    [Parameter(Mandatory=$true)][string]$CapturePath
+  )
+  $json = '{"schemaVersion":1,"command":"plan-subagents","delegatedByFake":true,"isMutation":false,"applied":false}'
+  $script = '@echo off' + "`r`n" + 'echo %* > "' + $CapturePath + '"' + "`r`n" + 'echo ' + $json + "`r`n"
+  [System.IO.File]::WriteAllText($Path, $script, [System.Text.UTF8Encoding]::new($false))
+}
+
 function Assert-FakeDelegation {
   param(
     [Parameter(Mandatory=$true)][string[]]$Arguments,
@@ -251,6 +261,38 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'continue' -Label 'default continue JSON preview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','continue','-Target',$CaseRoot,'main','-Pack',$Pack,'-Apply') -CommandName 'continue' -Label 'default continue apply delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-Items','matrix-alpha,matrix-beta','-ReviewOutputDir',(Join-Path $matrixRoot 'plan-matrix')) -CommandName 'plan-subagents' -Label 'default plan-subagents delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-PacketPath',(Join-Path $matrixRoot 'packet.json'),'-ReviewerResultPath',(Join-Path $matrixRoot 'reviewer-result.json'),'-Lane','main','-Actor','facade-smoke','-WhatIf','-Format','json') -CommandName 'plan-subagents' -Label 'default plan-subagents reviewer intake preview delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-PacketPath',(Join-Path $matrixRoot 'packet.json'),'-ReviewerResultPath',(Join-Path $matrixRoot 'reviewer-result.json'),'-Lane','main','-Actor','facade-smoke','-Apply','-Format','json') -CommandName 'plan-subagents' -Label 'default plan-subagents reviewer intake apply delegation'
+
+  $capturePath = Join-Path $matrixRoot 'relative-reviewer-intake-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $capturePath
+  Push-Location $matrixRoot
+  try {
+    $relativeReviewerOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-PacketPath','relative\packet.json','-ReviewerResultPath','relative\reviewer-result.json','-Lane','main','-Actor','facade-smoke','-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  } finally {
+    Pop-Location
+  }
+  Assert-ContainsText -Text $relativeReviewerOut -Expected '"delegatedByFake":true' -Label 'relative reviewer intake delegation'
+  $capturedArgs = [System.IO.File]::ReadAllText($capturePath, [System.Text.Encoding]::Default)
+  Assert-ContainsText -Text $capturedArgs -Expected (Join-Path $matrixRoot 'relative\packet.json') -Label 'relative packet path uses caller cwd'
+  Assert-ContainsText -Text $capturedArgs -Expected (Join-Path $matrixRoot 'relative\reviewer-result.json') -Label 'relative reviewer result path uses caller cwd'
+
+  $relativePlanCapturePath = Join-Path $matrixRoot 'relative-plan-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $relativePlanCapturePath
+  $relativeReviewOut = Join-Path $matrixRoot 'relative\review-out'
+  Push-Location $matrixRoot
+  try {
+    $relativePlanOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-ItemsFile','relative\items.txt','-ReviewOutputDir','relative\review-out','-DiffPath','relative\combined.diff') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  } finally {
+    Pop-Location
+  }
+  Assert-ContainsText -Text $relativePlanOut -Expected '"delegatedByFake":true' -Label 'relative plan artifact delegation'
+  $capturedPlanArgs = [System.IO.File]::ReadAllText($relativePlanCapturePath, [System.Text.Encoding]::Default)
+  Assert-ContainsText -Text $capturedPlanArgs -Expected (Join-Path $matrixRoot 'relative\items.txt') -Label 'relative items file uses caller cwd'
+  Assert-ContainsText -Text $capturedPlanArgs -Expected $relativeReviewOut -Label 'relative review output dir uses caller cwd'
+  Assert-ContainsText -Text $capturedPlanArgs -Expected (Join-Path $matrixRoot 'relative\combined.diff') -Label 'relative diff path uses caller cwd'
+
+  Assert-FakeFallback -Arguments @('-Command','status','-ReviewerResultPath',(Join-Path $matrixRoot 'reviewer-result.json')) -Expected 'ReviewerResultPath is supported only by plan-subagents reviewer intake' -Label 'reviewer result path rejected outside plan-subagents' -AllowedExitCodes @(1)
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf') -CommandName 'start' -Label 'default start text preview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack) -CommandName 'start' -Label 'default start bare text delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','handoff','-Target',$CaseRoot,'main','-Pack',$Pack,'-WhatIf') -CommandName 'handoff' -Label 'default handoff text preview delegation'
@@ -330,6 +372,9 @@ try {
   $disabledPlanOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-Items','disabled-alpha,disabled-beta','-ReviewOutputDir',(Join-Path $matrixRoot 'plan-disabled')) -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-NotContainsText -Text $disabledPlanOut -Unexpected 'delegatedByFake' -Label 'go disabled plan-subagents no fallback'
   Assert-ContainsText -Text $disabledPlanOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled plan-subagents no fallback'
+  $disabledReviewerIntakeOut = Invoke-RekitSmoke -Arguments @('-Command','plan-subagents','-Target',$CaseRoot,'-Pack',$Pack,'-PacketPath',(Join-Path $matrixRoot 'packet.json'),'-ReviewerResultPath',(Join-Path $matrixRoot 'reviewer-result.json'),'-Lane','main','-Actor','facade-smoke','-Apply','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-NotContainsText -Text $disabledReviewerIntakeOut -Unexpected 'delegatedByFake' -Label 'go disabled reviewer intake no fallback'
+  Assert-ContainsText -Text $disabledReviewerIntakeOut -Expected 'PowerShell fallback has been retired' -Label 'go disabled reviewer intake no fallback'
 
   'facade smoke ok'
 } finally {

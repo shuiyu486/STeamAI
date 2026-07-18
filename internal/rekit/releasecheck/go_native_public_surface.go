@@ -146,7 +146,7 @@ type GoNativePublicSurfaceProfileSummaryCounts struct {
 	BoundaryCaseLocalAppend    int
 	BoundaryCaseLocalApply     int
 	BoundaryCaseLocalBootstrap int
-	BoundaryCaseLocalArtifact  int
+	BoundaryCaseLocalWriteback int
 	BoundaryCaseLocalReview    int
 	BoundaryKitReview          int
 	BoundaryReadOnly           int
@@ -164,7 +164,7 @@ type GoNativePublicSurfaceGroupCounts struct {
 	CaseLocalAppend          int
 	CaseLocalApply           int
 	CaseLocalReadOrBootstrap int
-	CaseLocalReviewArtifact  int
+	CaseLocalReviewWriteback int
 	CaseLocalReviewFirst     int
 	KitReviewFirst           int
 	BoundaryReadOnly         int
@@ -329,7 +329,7 @@ func GoNativePublicSurfaceProfileSummaryCountsFor(summary commands.PublicProfile
 		BoundaryCaseLocalAppend:    summary.Boundaries[commands.BoundaryCaseLocalAppend],
 		BoundaryCaseLocalApply:     summary.Boundaries[commands.BoundaryCaseLocalApply],
 		BoundaryCaseLocalBootstrap: summary.Boundaries[commands.BoundaryCaseLocalReadOrBootstrap],
-		BoundaryCaseLocalArtifact:  summary.Boundaries[commands.BoundaryCaseLocalReviewArtifact],
+		BoundaryCaseLocalWriteback: summary.Boundaries[commands.BoundaryCaseLocalReviewWriteback],
 		BoundaryCaseLocalReview:    summary.Boundaries[commands.BoundaryCaseLocalReviewFirst],
 		BoundaryKitReview:          summary.Boundaries[commands.BoundaryKitReviewFirst],
 		BoundaryReadOnly:           summary.Boundaries[commands.BoundaryReadOnly],
@@ -349,7 +349,7 @@ func goNativePublicSurfaceProfileSummaryCountsMatch(left, right GoNativePublicSu
 		left.BoundaryCaseLocalAppend == right.BoundaryCaseLocalAppend &&
 		left.BoundaryCaseLocalApply == right.BoundaryCaseLocalApply &&
 		left.BoundaryCaseLocalBootstrap == right.BoundaryCaseLocalBootstrap &&
-		left.BoundaryCaseLocalArtifact == right.BoundaryCaseLocalArtifact &&
+		left.BoundaryCaseLocalWriteback == right.BoundaryCaseLocalWriteback &&
 		left.BoundaryCaseLocalReview == right.BoundaryCaseLocalReview &&
 		left.BoundaryKitReview == right.BoundaryKitReview &&
 		left.BoundaryReadOnly == right.BoundaryReadOnly
@@ -378,8 +378,8 @@ func goNativePublicSurfaceProfileSummaryBoundaryCountFor(counts GoNativePublicSu
 		return counts.BoundaryCaseLocalApply
 	case commands.BoundaryCaseLocalReadOrBootstrap:
 		return counts.BoundaryCaseLocalBootstrap
-	case commands.BoundaryCaseLocalReviewArtifact:
-		return counts.BoundaryCaseLocalArtifact
+	case commands.BoundaryCaseLocalReviewWriteback:
+		return counts.BoundaryCaseLocalWriteback
 	case commands.BoundaryCaseLocalReviewFirst:
 		return counts.BoundaryCaseLocalReview
 	case commands.BoundaryKitReviewFirst:
@@ -455,7 +455,7 @@ func GoNativePublicSurfaceGroupCountsFor(groups commands.PublicProfileGroups) Go
 		CaseLocalAppend:          len(groups.ByBoundary[commands.BoundaryCaseLocalAppend]),
 		CaseLocalApply:           len(groups.ByBoundary[commands.BoundaryCaseLocalApply]),
 		CaseLocalReadOrBootstrap: len(groups.ByBoundary[commands.BoundaryCaseLocalReadOrBootstrap]),
-		CaseLocalReviewArtifact:  len(groups.ByBoundary[commands.BoundaryCaseLocalReviewArtifact]),
+		CaseLocalReviewWriteback: len(groups.ByBoundary[commands.BoundaryCaseLocalReviewWriteback]),
 		CaseLocalReviewFirst:     len(groups.ByBoundary[commands.BoundaryCaseLocalReviewFirst]),
 		KitReviewFirst:           len(groups.ByBoundary[commands.BoundaryKitReviewFirst]),
 		BoundaryReadOnly:         len(groups.ByBoundary[commands.BoundaryReadOnly]),
@@ -538,7 +538,7 @@ func goNativePublicSurfaceHandoffDetails(surface GoNativePublicSurface) []string
 		fmt.Sprintf("default=%s commands=%d handlers=%d symbols=%d profiles=%d boundaries=%d alternative=%s", surface.DefaultCommand, counts.Commands, counts.HandlerCommands, counts.SymbolCommands, counts.CommandProfiles, counts.MutationBoundaries, surface.AlternativePattern),
 		fmt.Sprintf("profileSummary total=%d readOnly=%d mutating=%d writesCase=%d writesKit=%d reviewFirst=%d applyRequired=%d heavyTool=%d authorityConfirmed=%d", counts.ProfileTotal, counts.ReadOnly, counts.Mutating, counts.WritesCase, counts.WritesKit, counts.ReviewFirst, counts.ApplyRequired, counts.HeavyTool, counts.AuthorityConfirmed),
 		fmt.Sprintf("profileGroups readOnly=%s reviewFirst=%s writesKit=%s", strings.Join(surface.CommandProfileGroups.ReadOnly, ","), strings.Join(surface.CommandProfileGroups.ReviewFirst, ","), strings.Join(surface.CommandProfileGroups.WritesKit, ",")),
-		fmt.Sprintf("profileBoundaries rows=%d caseLocalApply=%s kitReviewFirst=%s readOnly=%s", counts.BoundaryRows, strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalApply], ","), strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryKitReviewFirst], ","), strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryReadOnly], ",")),
+		fmt.Sprintf("profileBoundaries rows=%d caseLocalApply=%s caseLocalReviewWriteback=%s caseLocalReviewFirst=%s kitReviewFirst=%s readOnly=%s", counts.BoundaryRows, strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalApply], ","), strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalReviewWriteback], ","), strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalReviewFirst], ","), strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryKitReviewFirst], ","), strings.Join(surface.CommandProfileGroups.ByBoundary[commands.BoundaryReadOnly], ",")),
 		fmt.Sprintf("profilePolicies rows=%d violations=%d", counts.PolicyRows, counts.PolicyViolations),
 		fmt.Sprintf("facadeRemovalReady=%t prerequisites=%d", surface.FacadeRemovalReady, counts.FacadePrerequisites),
 		fmt.Sprintf("unsupportedDiagnostic=%t", surface.UnsupportedCommandDiagnosticPresent),

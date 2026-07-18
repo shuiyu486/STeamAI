@@ -143,6 +143,8 @@ try {
   $outCase = Invoke-GoRekitSmoke -Arguments @('-Command','plan-subagents','-Target',$WorkRoot,'-Pack',$Pack,'-Route','vmp-re:bounded-review','-ItemsFile',$itemsFile,'-ReviewOutputDir',$outRoot) | ConvertFrom-Json
   $outPacket = Assert-PlanPacket -Result $outCase -Route 'vmp-re:bounded-review' -Items 3 -Shards 1
   if ([string]$outPacket.input.itemsFile -ne $itemsFile) { throw "itemsFile was not preserved: $($outPacket | ConvertTo-Json -Depth 10)" }
+  Assert-ContainsText -Text ([string](@($outPacket.shardHandoffs)[0].reviewerIntakeCommands.previewCommand)) -Expected 'reviewer intake requires an attached rekit case' -Label 'out-of-case reviewer intake preview disabled'
+  Assert-ContainsText -Text ((@($outPacket.shardHandoffs)[0].reviewerIntakeCommands.blockedOutputs -join ';')) -Expected 'out-of-case plan packets must not be presented as immediately runnable reviewer intake commands' -Label 'out-of-case reviewer intake blocked output'
 
   $templatePlan = Invoke-GoRekitSmoke -Arguments @('-Command','plan-subagents','-Target',$WorkRoot,'-Pack','_template','-TaskType','feature-analysis','-Items','one,two','-ReviewOutputDir',$templateRoot) | ConvertFrom-Json
   $templatePacket = Assert-PlanPacket -Result $templatePlan -Route '_template:lane-feature-analysis' -Items 2 -Shards 2
@@ -168,7 +170,8 @@ try {
   foreach ($expected in @('runtime does not spawn subagents','subagents must not write files','authority, and confirmed writes')) {
     Assert-ContainsText -Text (@($facadePacket.observability.blockedActions) -join ';') -Expected $expected -Label 'facade blocked actions'
   }
-  Assert-ContainsText -Text ([string]$facadePacket.reviewLoop.verdictWriteback) -Expected 'note -Kind verification' -Label 'facade verdict writeback'
+  Assert-ContainsText -Text ([string]$facadePacket.reviewLoop.verdictWriteback) -Expected 'plan-subagents -ReviewerResultPath' -Label 'facade verdict writeback'
+  Assert-ContainsText -Text ([string](@($facadePacket.shardHandoffs)[0].reviewerIntakeCommands.previewCommand)) -Expected '-Lane "devirt-main"' -Label 'facade reviewer intake target lane'
   if (@($facadePacket.reviewLoop.completionCriteria).Count -lt 3 -or @($facadePacket.observability.shardStatuses).Count -ne 1 -or [string]@($facadePacket.observability.shardStatuses)[0].status -ne 'planned') { throw "facade packet missing review loop details: $($facadePacket | ConvertTo-Json -Depth 20)" }
   $facadeSummary = [System.IO.File]::ReadAllText([string]$facadeResult.summaryPath, [System.Text.Encoding]::UTF8)
   Assert-ContainsText -Text $facadeSummary -Expected 'bounded dispatch observability' -Label 'facade plan summary observability'

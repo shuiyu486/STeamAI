@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-Batch 351 后，Go-owned/no-fallback public command surface、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action 与 bounded reviewer contracts 已形成底座。当前阶段从 contract/inventory field increments 转向 Mission Commander operational vertical slices、真实 release verification 与跨平台 product-path E2E。
+Batch 353 后，Go-owned/no-fallback public command surface、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action，以及 bounded reviewer dispatch → strict intake → verification-before-decision writeback → post-validation 的本机闭环已形成底座。当前阶段继续从 contract/inventory field increments 转向 replaceable session executor、authorized execution evidence、pack-memory reconsume、真实 release verification 与跨平台 product-path E2E。
 
 ## 执行清单
 
@@ -16,30 +16,39 @@ Batch 351 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 352：durable docs / current-state calibration**
+**Batch 353：Go-native plan-subagents reviewer intake / real local E2E**
 
-状态：已完成。
+状态：实现、本机 E2E、adversarial hardening 与完整本地 minimum 均已完成；远程 CI 仍需真实 runner green 复核。
 
-目标：校准 autonomy 授权来源、PowerShell retained façade/no-fallback 状态、Mission Commander/replaceable session executor 真实完成度、cross-platform 三级验收和 GitHub Actions billing blocker；更新核心 durable docs，避免新会话继续按 Batch 101 历史基线或 metadata 微批次推进。
+目标：把 Batch 345–351 的 bounded reviewer contract 串成实际 main-agent vertical slice：主 Agent真实 spawn 一个 read-only reviewer；Go-native `plan-subagents` 以显式 `ReviewerResultPath` + WhatIf/Apply 完成 strict packet/result binding、route/output contract 与 evidence-ref validation、verification-before-decision 写回、deterministic idempotent retry 和 overview/handoff/doctor post-validation。
 
-验证结果：
+边界：runtime 不自动 spawn、注册或管理 session/reviewer；主 Agent负责 dispatch、证据语义审查和显式 Apply。intake 不执行 heavy-tool、不写 authority/confirmed，不改变 sync/promote review-first、durable schema 或公共 façade 删除边界。
+
+完成内容：
+
+- `packet.json` 生成稳定 `packetId`；reviewer result 必须同时绑定 `packetId`、`routeId`、`shardId` 与 exact items。packet identity 覆盖完整 packet contract，intake 还会复核 repo/case/pack/manifest/route/top-level permissions 与 output contract。
+- reviewer result 采用 64 KiB、single-object、unknown-field fail-closed contract；`routeOutput` 只允许 outputContract 字段且要求非空 string，evidence refs 必须解析为 packet id 或非空 case-local bounded evidence file；不再接受任意 ledger event ID 作为 reviewer evidence。
+- `plan-subagents -ReviewerResultPath ... -WhatIf/-Apply` 成为 canonical intake/writeback path：先预览两条 note events，Apply 时固定 verification → decision 顺序，decision 引用 verification event ID；deterministic canonical intake ID 支持 duplicate Apply 与 JSON formatting/key-order 等价重试。
+- conflicts、缺证据、recommendedVerdict mismatch、low-confidence accept/reject、越权 write/heavy-tool/authority/confirmed/external-effect 请求全部 fail-closed；blocked intake 不写 facts。
+- `postValidation` 返回 overview、lane handoff preview 与 doctor rows；writeback 完成而 post-validation 失败会与 ledger commit 状态分开表达。
+- public command profile 新增专用 `case-local-review-writeback` boundary；retained `rekit.ps1` 只做参数透传、安全 guard 与 caller-CWD relative path normalization，不新增 PowerShell runtime logic。
+- adversarial hardening 后，out-of-case planning 只生成 dispatch artifacts，不再暴露可直接运行的 reviewer intake commands；`ItemsFile`、`ReviewOutputDir`、`PacketPath`、`ReviewerResultPath` 与 `DiffPath` 都按 caller CWD 规范化。
+- 本机真实 Mission Commander E2E 已创建临时 `_template` attached case，实际启动一个 read-only reviewer读取生成 packet/evidence，reviewer只返回 JSON；主 Agent写入生成路径并完成 WhatIf、Apply、duplicate Apply、overview/handoff/doctor，最终 verification/decision 各一条且 post-validation valid。
+
+已通过的定向验证：
 
 ```text
-go test ./internal/rekit/defaultdocs ./internal/rekit/caseshim ./internal/rekit/manifest ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/promote
-go run ./cmd/rekit -- -Command release-check -Format json
-go run ./cmd/rekit -- -Command status
-go run ./cmd/rekit -- -Command packs
-go run ./cmd/rekit -- -Command doctor
-go test ./...
-go vet ./...
-git diff --check
+go test ./internal/rekit/subagents ./internal/rekit/commands ./internal/rekit/releasecheck ./internal/rekit/cli -count=1
+go test ./internal/rekit/manifest ./internal/rekit/subagents ./internal/rekit/commands ./internal/rekit/releasecheck ./internal/rekit/cli -count=1
+.\rekit\tests\facade-smoke.ps1
+# 临时 _template case：init -> start -> plan-subagents -> real read-only reviewer -> intake WhatIf -> Apply -> duplicate Apply -> overview/handoff/doctor
 ```
 
-上述本地检查全部通过；`release-check` 输出 `ready=true`，5 个 coherent known gaps，0 warnings。`git diff --check` 只有工作树 LF/CRLF conversion warning，无 whitespace error。2026-07-18 最近一次远程 release-gate run `29638716747` 的 Linux/Windows/macOS jobs 均 `steps=[]`，annotation 明确为 GitHub account payments/spending limit，故远程三平台 gate 仍未实际执行，不能称为 green。
+完整本地 gate 已全部通过：`release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`facade-smoke.ps1`、`plan-subagents-smoke.ps1` 与 `git diff --check` 均通过；`release-check ready=true` 只表示 inventory/workflow 定义 ready。2026-07-18 最新远程 run `29644011190` 的 Linux/Windows/macOS jobs 仍为 `steps=[]` failure，未实际执行，不能称为三平台 jobs green；最终 commit/push 记录在本批提交后补录。
 
 ### Next candidates
 
-1. **Mission Commander bounded reviewer E2E**：实际 spawn read-only reviewer，消费 Batch 345–351 contract，完成 result intake → note WhatIf → verification/decision writeback → overview/handoff post-validation。
+1. **Replaceable session executor / reviewer orchestration**：定义并验证 session registration、ownership、takeover 与多 reviewer dispatch；保持 runtime 不宣称已自动 spawn。
 2. **Cross-platform product-path E2E**：在可用 runner 上验证 direct CLI/case lifecycle/workstream，再验证 installed `/rekit` / case shim runtime discovery；先解决或升级 GitHub Actions billing blocker。
 3. **Autonomy execution evidence closure**：sandbox adapter 消费 strict durable profile + `authorized-gate`，记录 actual budget、output refs、evidence 与 boundary-hit/escalation。
 4. **Pack-memory reconsume E2E**：case reusable observation → sanitize/review/promote → fresh case 或另一 pack 消费。
@@ -10873,3 +10882,13 @@ git diff --check
 边界：本批不改变 public command、runtime/case/policy durable schema、actual heavy-tool、authority/confirmed、sync/promote review-first 或公共 façade 删除行为；不把 `release-check` inventory ready 当作本地命令或远程 CI green；本轮未获得 commit/push 授权。
 
 验证结果：focused defaultdocs/caseshim/manifest/releasecheck/CLI/promote tests、`release-check -Format json`、status、packs、doctor、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过；`release-check ready=true`、known gaps 为 5、warnings 为 0，diff check 只有 LF/CRLF conversion warning。远程 run `29638716747` 的 Linux/Windows/macOS jobs 均 `steps=[]`，annotation 为 GitHub account payments/spending limit，故三平台 gate 未实际执行、不能称为 green。
+
+### Batch 353：Go-native plan-subagents reviewer intake / real local E2E
+
+状态：已完成实现与本地验证。
+
+目标：将 Batch 345–351 的 bounded reviewer contracts 串成 main-agent-owned operational slice：主 Agent真实 spawn read-only reviewer；Go-native `plan-subagents` 显式 intake 严格绑定 packet/current case/pack/manifest route 与 reviewer result，校验 exact shard/items、route output、evidence refs、conflicts 和 blocked actions，先 WhatIf，再按 verification-before-decision 顺序写 case-local facts，支持 deterministic idempotent retry，并返回 overview/handoff/doctor post-validation。
+
+实施范围：新增 strict reviewer intake runtime/package/CLI E2E、完整 packet identity、`case-local-review-writeback` public boundary、partial-write recovery JSON、routeOutput decision/confidence binding、verification-only partial-write failure injection/retry、retained façade caller-CWD relative path normalization/guard smoke，以及 current-state docs/test catalog/CHANGELOG 写回。runtime 仍不自动 spawn、注册或管理 reviewer/member session；reviewer 不写文件/ledger；intake 不执行 heavy-tool、不写 authority/confirmed、不修改 managed/project source files；sync/promote 继续 review-first。
+
+验证结果：targeted subagents/manifest/commands/releasecheck/CLI tests与 `rekit/tests/facade-smoke.ps1` 通过；临时 `_template` case 的真实 read-only reviewer E2E 完成 WhatIf、Apply、duplicate retry、overview/handoff/doctor，verification/decision 各一条且 post-validation valid；完整本地 minimum 的 `release-check -Format json`（`ready=true`）、status、packs、doctor、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过，diff check 只有 LF/CRLF conversion warning。2026-07-18 最新远程 release-gate run `29644011190` 仍为 failure，Linux/Windows/macOS jobs 均 `steps=[]`、未实际获得 runner；结合既有 billing/spending limit annotation，不能称为三平台 CI green。

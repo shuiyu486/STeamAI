@@ -32,32 +32,33 @@ import (
 )
 
 type Options struct {
-	Command          string
-	Target           string
-	Pack             string
-	Review           bool
-	Apply            bool
-	CreateCandidates bool
-	WhatIf           bool
-	Force            bool
-	List             bool
-	ReviewOutputDir  string
-	PacketPath       string
-	DiffPath         string
-	ProjectName      string
-	Route            string
-	TaskType         string
-	Items            string
-	ItemsFile        string
-	ItemsPerAgent    int
-	MaxParallel      int
-	Format           string
-	Gate             gate.Options
-	Note             note.Options
-	Start            workstream.StartOptions
-	Handoff          workstream.HandoffOptions
-	Continue         workstream.ContinueOptions
-	Reconcile        workstream.ReconcileOptions
+	Command            string
+	Target             string
+	Pack               string
+	Review             bool
+	Apply              bool
+	CreateCandidates   bool
+	WhatIf             bool
+	Force              bool
+	List               bool
+	ReviewOutputDir    string
+	PacketPath         string
+	ReviewerResultPath string
+	DiffPath           string
+	ProjectName        string
+	Route              string
+	TaskType           string
+	Items              string
+	ItemsFile          string
+	ItemsPerAgent      int
+	MaxParallel        int
+	Format             string
+	Gate               gate.Options
+	Note               note.Options
+	Start              workstream.StartOptions
+	Handoff            workstream.HandoffOptions
+	Continue           workstream.ContinueOptions
+	Reconcile          workstream.ReconcileOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -121,6 +122,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -PacketPath")
 			}
 			opt.PacketPath = args[i]
+		case "-ReviewerResultPath", "--reviewer-result-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerResultPath")
+			}
+			opt.ReviewerResultPath = args[i]
 		case "-DiffPath", "--diff-path":
 			i++
 			if i >= len(args) {
@@ -432,6 +439,9 @@ func Run(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(opt.ReviewerResultPath) != "" && opt.Command != commands.PlanSubagents {
+		return fmt.Errorf("-ReviewerResultPath is supported only by plan-subagents reviewer intake")
+	}
 	switch opt.Command {
 	case commands.Status:
 		return runStatus(ctx, opt, stdout)
@@ -561,7 +571,7 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 		powerShellCounts := releasecheck.PowerShellDeprecationCountsFor(result.PowerShellDeprecation)
 		fmt.Fprintf(out, "PowerShell deprecation: %s ready=%t commands=%d modules=%d freezeGates=%d blocked=%d fallbackRetirement=%t noFallback=%d candidates=%d removalModules=%d retiredModules=%d facadeRuntime=%t legacyImports=%t dispatcher=%t publicFacade=%t retained=%t facadeCommands=%d noFallback=%d moduleRemoval=%t removalCandidates=%d retired=%d facadeDeps=%d undocumented=%d moduleReferences=%t activeTests=%d fixtures=%d blockers=%d unclassified=%d\n", result.PowerShellDeprecation.Summary, result.PowerShellDeprecation.Ready, powerShellCounts.CommandOwnership, powerShellCounts.ModuleStatus, powerShellCounts.FreezeGates, powerShellCounts.BlockedMigrations, result.PowerShellDeprecation.FallbackRetirement.Ready, powerShellCounts.FallbackNoFallbackCommands, powerShellCounts.FallbackCandidateCommands, powerShellCounts.FallbackRemovalCandidateModules, powerShellCounts.FallbackRetiredModules, result.PowerShellDeprecation.FacadeRuntime.Ready, result.PowerShellDeprecation.FacadeRuntime.LegacyModuleImportsPresent, result.PowerShellDeprecation.FacadeRuntime.CommandDispatcherPresent, result.PowerShellDeprecation.PublicFacade.Ready, result.PowerShellDeprecation.PublicFacade.Retained, powerShellCounts.PublicFacadeCommandSurface, powerShellCounts.PublicFacadeNoFallbackCommands, result.PowerShellDeprecation.ModuleRemoval.Ready, powerShellCounts.ModuleRemovalCandidateModules, powerShellCounts.ModuleRemovalRetiredModules, powerShellCounts.ModuleRemovalFacadeRuntimeDependencies, powerShellCounts.ModuleRemovalUndocumentedModules, result.PowerShellDeprecation.ModuleReferences.Ready, powerShellCounts.ModuleReferencesActiveTestDependencies, powerShellCounts.ModuleReferencesCompatibilityFixtures, powerShellCounts.ModuleReferencesRemovalBlockers, powerShellCounts.ModuleReferencesUnclassifiedReferences)
 		surfaceCounts := releasecheck.GoNativePublicSurfaceCountsFor(result.GoNativePublicSurface)
-		fmt.Fprintf(out, "Go-native public surface: %s ready=%t entrypoint=%s present=%t catalog=%s catalogPresent=%t default=%s commands=%d handlers=%d symbols=%d profiles=%d boundaries=%d boundaryRows=%d policyRows=%d policyViolations=%d facadeRemovalReady=%t facadePrerequisites=%d readOnly=%d mutating=%d writesCase=%d writesKit=%d reviewFirst=%d applyRequired=%d heavyTool=%d authorityConfirmed=%d readOnlyCommands=%s reviewFirstCommands=%s writesKitCommands=%s caseLocalApplyCommands=%s kitReviewFirstCommands=%s alternative=%s unsupportedDiagnostic=%t\n", result.GoNativePublicSurface.Summary, result.GoNativePublicSurface.Ready, result.GoNativePublicSurface.Entrypoint, result.GoNativePublicSurface.EntrypointPresent, result.GoNativePublicSurface.CommandCatalogPath, result.GoNativePublicSurface.CommandCatalogPresent, result.GoNativePublicSurface.DefaultCommand, surfaceCounts.Commands, surfaceCounts.HandlerCommands, surfaceCounts.SymbolCommands, surfaceCounts.CommandProfiles, surfaceCounts.MutationBoundaries, surfaceCounts.BoundaryRows, surfaceCounts.PolicyRows, surfaceCounts.PolicyViolations, result.GoNativePublicSurface.FacadeRemovalReady, surfaceCounts.FacadePrerequisites, surfaceCounts.ReadOnly, surfaceCounts.Mutating, surfaceCounts.WritesCase, surfaceCounts.WritesKit, surfaceCounts.ReviewFirst, surfaceCounts.ApplyRequired, surfaceCounts.HeavyTool, surfaceCounts.AuthorityConfirmed, strings.Join(result.GoNativePublicSurface.CommandProfileGroups.ReadOnly, ","), strings.Join(result.GoNativePublicSurface.CommandProfileGroups.ReviewFirst, ","), strings.Join(result.GoNativePublicSurface.CommandProfileGroups.WritesKit, ","), strings.Join(result.GoNativePublicSurface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalApply], ","), strings.Join(result.GoNativePublicSurface.CommandProfileGroups.ByBoundary[commands.BoundaryKitReviewFirst], ","), result.GoNativePublicSurface.AlternativePattern, result.GoNativePublicSurface.UnsupportedCommandDiagnosticPresent)
+		fmt.Fprintf(out, "Go-native public surface: %s ready=%t entrypoint=%s present=%t catalog=%s catalogPresent=%t default=%s commands=%d handlers=%d symbols=%d profiles=%d boundaries=%d boundaryRows=%d policyRows=%d policyViolations=%d facadeRemovalReady=%t facadePrerequisites=%d readOnly=%d mutating=%d writesCase=%d writesKit=%d reviewFirst=%d applyRequired=%d heavyTool=%d authorityConfirmed=%d readOnlyCommands=%s reviewFirstCommands=%s writesKitCommands=%s caseLocalApplyCommands=%s caseLocalReviewWritebackCommands=%s kitReviewFirstCommands=%s alternative=%s unsupportedDiagnostic=%t\n", result.GoNativePublicSurface.Summary, result.GoNativePublicSurface.Ready, result.GoNativePublicSurface.Entrypoint, result.GoNativePublicSurface.EntrypointPresent, result.GoNativePublicSurface.CommandCatalogPath, result.GoNativePublicSurface.CommandCatalogPresent, result.GoNativePublicSurface.DefaultCommand, surfaceCounts.Commands, surfaceCounts.HandlerCommands, surfaceCounts.SymbolCommands, surfaceCounts.CommandProfiles, surfaceCounts.MutationBoundaries, surfaceCounts.BoundaryRows, surfaceCounts.PolicyRows, surfaceCounts.PolicyViolations, result.GoNativePublicSurface.FacadeRemovalReady, surfaceCounts.FacadePrerequisites, surfaceCounts.ReadOnly, surfaceCounts.Mutating, surfaceCounts.WritesCase, surfaceCounts.WritesKit, surfaceCounts.ReviewFirst, surfaceCounts.ApplyRequired, surfaceCounts.HeavyTool, surfaceCounts.AuthorityConfirmed, strings.Join(result.GoNativePublicSurface.CommandProfileGroups.ReadOnly, ","), strings.Join(result.GoNativePublicSurface.CommandProfileGroups.ReviewFirst, ","), strings.Join(result.GoNativePublicSurface.CommandProfileGroups.WritesKit, ","), strings.Join(result.GoNativePublicSurface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalApply], ","), strings.Join(result.GoNativePublicSurface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalReviewWriteback], ","), strings.Join(result.GoNativePublicSurface.CommandProfileGroups.ByBoundary[commands.BoundaryKitReviewFirst], ","), result.GoNativePublicSurface.AlternativePattern, result.GoNativePublicSurface.UnsupportedCommandDiagnosticPresent)
 		facadeRemovalCounts := releasecheck.PublicFacadeRemovalCountsFor(result.PublicFacadeRemoval)
 		planCounts := facadeRemovalCounts.Plan
 		deletionGateCounts := facadeRemovalCounts.DeletionGates
@@ -1403,12 +1413,39 @@ func handoffLatestPath(result workstream.HandoffResult) string {
 	return fallback
 }
 
+var intakeReviewerResult = subagents.IntakeReviewerResult
+
 func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !ctx.TargetProvided {
 		return fmt.Errorf("plan-subagents requires an explicit -Target directory")
 	}
+	if strings.TrimSpace(opt.ReviewerResultPath) != "" {
+		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" {
+			return fmt.Errorf("plan-subagents reviewer intake does not support -CreateCandidates, -Review, -Force, -ReviewOutputDir, or -DiffPath")
+		}
+		if opt.Apply && opt.WhatIf {
+			return fmt.Errorf("plan-subagents reviewer intake cannot combine -Apply and -WhatIf")
+		}
+		if !opt.Apply && !opt.WhatIf {
+			return fmt.Errorf("plan-subagents reviewer intake requires -WhatIf or -Apply")
+		}
+		format := strings.ToLower(strings.TrimSpace(opt.Format))
+		if format != "" && format != "json" {
+			return fmt.Errorf("plan-subagents reviewer intake supports only -Format json")
+		}
+		result, err := intakeReviewerResult(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerIntakeOptions{PacketPath: opt.PacketPath, ReviewerResultPath: opt.ReviewerResultPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
+		if err != nil {
+			if result.WritebackStatus != "" {
+				if writeErr := writeJSON(out, result); writeErr != nil {
+					return fmt.Errorf("%v; write reviewer intake recovery result: %w", err, writeErr)
+				}
+			}
+			return err
+		}
+		return writeJSON(out, result)
+	}
 	if opt.Apply || opt.WhatIf || opt.CreateCandidates {
-		return fmt.Errorf("plan-subagents only writes review artifacts; do not combine it with -Apply, -WhatIf, or -CreateCandidates")
+		return fmt.Errorf("plan-subagents planning only writes review artifacts; use -ReviewerResultPath with -WhatIf or -Apply for main-agent reviewer intake")
 	}
 	result, err := subagents.WritePlan(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.Options{Route: opt.Route, TaskType: opt.TaskType, Items: opt.Items, ItemsFile: opt.ItemsFile, ItemsPerAgent: opt.ItemsPerAgent, MaxParallel: opt.MaxParallel, ReviewOutputDir: opt.ReviewOutputDir, PacketPath: opt.PacketPath, DiffPath: opt.DiffPath})
 	if err != nil {

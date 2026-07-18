@@ -252,7 +252,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 - `/rekit sync` review、`sync -Apply` 实际写入与 `sync -Apply -WhatIf -Format json` 非写入 preview；
 - `/rekit promote` review、review artifact 写入、`promote -CreateCandidates` 实际候选写入、`promote -CreateCandidates -WhatIf -Format json` 非写入 preview、`promote -Apply` 实际 pack source 写入与 `promote -Apply -WhatIf -Format json` 非写入 preview；
 - `reconcile -WhatIf` / `reconcile -Apply` 显式关闭 lane-local effective open intervention，写 append-only resolution event 并刷新 lane executor/resume/checkpoint/board，不写 authority/confirmed、不执行 heavy-tool；
-- `plan-subagents` review artifact 写入：只生成 packet / summary / combined diff 路径，不自动 spawn reviewer。
+- `plan-subagents` planning / reviewer intake：planning mode 只生成 packet / summary / combined diff 与 shard handoff，不自动 spawn reviewer；显式 `-ReviewerResultPath` + WhatIf/Apply 进入 Go-native reviewer intake，strict validation 后预览或按 verification-before-decision 写 case-local facts，并返回 overview/handoff/doctor post-validation；不写 authority/confirmed、不执行 heavy-tool。
 
 `REKIT_GO_ENABLE=1` 保留为兼容开关；当前 documented safe set 已默认开放，后续若新增 preview/review 扩展集合可继续用它灰度。
 

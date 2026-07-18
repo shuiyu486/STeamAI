@@ -144,7 +144,7 @@ claude
 | `/rekit doctor` | 只读 | 排障时详细验证结构；日常不必主动运行；维护自动化可用 `-Format json` 消费验证 rows。 |
 | `/rekit repair` | case metadata | 迁移目录后先预览修复；确认后由 Claude 调用 backend `-Apply`。 |
 
-`validate` 和 `plan-subagents` 仍是 backend/内部命令，不是日常主入口；`plan-subagents` 默认经 Go façade 生成 review artifact，但不自动 spawn agent；`packs` 是维护者/排障入口，用于多 pack 发现和矩阵验证；`note -List` 文本/table/tsv 与 `note -List -Format json` 默认经 Go façade 只读查询 ledger events；`note -WhatIf` JSON envelope 输出当前 `executorAction` 与内存模拟 append 后的 `wouldExecutorAction`，实际 append 输出写入后的 `executorAction`，duplicate eventId 只返回未改变的当前 action 且不写 ledger。note 仍只写 facts JSONL 或预览，不写 authority/confirmed。
+`validate` 和 `plan-subagents` 仍是 backend/内部命令，不是日常主入口；`plan-subagents` planning mode 默认经 Go façade 生成 review artifacts，reviewer-intake mode 由主 Agent显式执行 strict WhatIf/Apply 与 post-validation，但 runtime 不自动 spawn agent；`packs` 是维护者/排障入口，用于多 pack 发现和矩阵验证；`note -List` 文本/table/tsv 与 `note -List -Format json` 默认经 Go façade 只读查询 ledger events；`note -WhatIf` JSON envelope 输出当前 `executorAction` 与内存模拟 append 后的 `wouldExecutorAction`，实际 append 输出写入后的 `executorAction`，duplicate eventId 只返回未改变的当前 action 且不写 ledger。note 仍只写 facts JSONL 或预览，不写 authority/confirmed。
 
 ## 日常工作流
 
@@ -297,9 +297,9 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 
 ## 高级/内部：子 agent 分片计划
 
-`/rekit plan-subagents` 是内部只读计划器，用于主 agent 或自动流程在批量复核时按 handler、trace、tooling diff 等固定边界生成分片审查产物。公共 façade 默认委托 Go backend 写 review artifact；PowerShell fallback 已退休，即使设置 `REKIT_GO_DISABLE=1` 也不会回落到 PowerShell 业务实现。它不启动 agent，也不修改 managed docs 或项目源文件；日常不需要用户手动调用。
+`/rekit plan-subagents` 是内部 tactical reviewer planning/intake 入口。planning mode 按 manifest route 生成 `packet.json`、`summary.md`、read-only shard handoff、strict reviewer result contract 与 writeback guidance；它不自动启动 reviewer。reviewer 产出单个 contract-compliant JSON object 后，主 Agent显式传入 `PacketPath`、`ReviewerResultPath`、`Lane` 与 `Actor`，先用 WhatIf 校验 packet/route/shard/items、route output、evidence refs、conflicts 与 blocked actions，再用 Apply 按 verification-before-decision 顺序写 case-local facts；deterministic event IDs 支持相同 intake 的安全重试，写后返回 overview、lane handoff 与 doctor validation。PowerShell fallback 已退休，即使设置 `REKIT_GO_DISABLE=1` 也不会回落到 PowerShell 业务实现。
 
-生成的 `packet.json` / `summary.md` 会标出 route 选择原因、每个 shard 的初始 `planned` 状态、每个 shard 的 `shardHandoffs[]` read-only reviewer dispatch prompt、spawn/merge 责任、`reviewerResultContract` 输出 schema、`intakeChecklist[]`、`reviewerDecisionMappings[]`、`conflictHandling[]`、`writebackSequence[]` / `commandBindings[]`、`ledgerWritebackTemplates[]` verification / decision note `previewCommand` / `applyCommand`、required fields / allowed values、preview checks、blocked outputs、post-review merge guidance，以及被 runtime 阻止的动作（例如 runtime 不自动 spawn、子 agent 不写文件）。这些字段只帮助主会话调度、按 reviewer decision 映射 verification/main decision、按 writeback sequence 与 command bindings 执行 intake / preview / apply / validation、处理冲突并审计 bounded dispatch，不代表 runtime 会启动 reviewer、替 reviewer 写 ledger，或把 authority/confirmed 决策自动落账。
+生成的 `packet.json` / `summary.md` 会标出 route 选择原因、每个 shard 的初始 `planned` 状态、`shardHandoffs[]` read-only dispatch prompt、spawn/merge 责任、`reviewerResultContract`、`intakeChecklist[]`、`reviewerDecisionMappings[]`、`conflictHandling[]`、`reviewerIntakeCommands`、`writebackSequence[]` / `commandBindings[]` 和 post-review merge guidance。evidence-ref validation 只证明引用为 packet ID、已知 ledger event ID 或存在的 case-local 文件，证据内容是否足够仍由主 Agent审查。reviewer 本身不写文件或 ledger；runtime 不自动 spawn agent、不写 authority/confirmed、不执行 heavy-tool，也不修改 managed docs 或项目源文件；`sync`/`promote` 继续 review-first。
 
 ## 工具经验保存在哪里
 
