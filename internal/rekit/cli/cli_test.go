@@ -3854,6 +3854,12 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if !slices.Contains(firstHandoff.ConflictHandling, "if any conflictSignal is present, map verification verdict to inconclusive or needs-more-evidence and keep main decision deferred unless independently resolved") || !slices.Contains(firstHandoff.ConflictHandling, "if reviewer requests writes, heavy tools, authority/confirmed changes, or external effects, discard that output for ledger purposes and escalate through the lane gate path") {
 		t.Fatalf("unexpected conflict handling: %+v", firstHandoff.ConflictHandling)
 	}
+	if len(firstHandoff.WritebackSequence) != 7 || firstHandoff.WritebackSequence[0].Step != "validate-reviewer-result" || firstHandoff.WritebackSequence[2].Step != "preview-verification-note" || firstHandoff.WritebackSequence[3].Step != "apply-verification-note" || firstHandoff.WritebackSequence[4].Step != "preview-main-decision-note" || firstHandoff.WritebackSequence[5].Step != "apply-main-decision-note" || firstHandoff.WritebackSequence[6].Step != "post-review-validation" {
+		t.Fatalf("unexpected writeback sequence: %+v", firstHandoff.WritebackSequence)
+	}
+	if !slices.Contains(firstHandoff.WritebackSequence[0].Uses, "reviewerResultContract") || !slices.Contains(firstHandoff.WritebackSequence[2].Uses, "ledgerWritebackTemplates[kind=verification].previewCommand") || !slices.Contains(firstHandoff.WritebackSequence[4].BlockedBy, "verification note missing") || firstHandoff.WritebackSequence[5].NextOnSuccess != "post-review-validation" {
+		t.Fatalf("unexpected writeback sequence details: %+v", firstHandoff.WritebackSequence)
+	}
 	if len(firstHandoff.LedgerWritebackTemplates) != 2 || firstHandoff.LedgerWritebackTemplates[0].Kind != "verification" || firstHandoff.LedgerWritebackTemplates[1].Kind != "decision" {
 		t.Fatalf("unexpected shard writeback templates: %+v", firstHandoff.LedgerWritebackTemplates)
 	}
@@ -3870,7 +3876,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing summary: %v", err)
 	}
-	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "writeback-blocker:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -4957,6 +4963,7 @@ type planSubagentsHandoff struct {
 	IntakeChecklist          []string                         `json:"intakeChecklist"`
 	ReviewerDecisionMappings []planSubagentsDecisionMapping   `json:"reviewerDecisionMappings"`
 	ConflictHandling         []string                         `json:"conflictHandling"`
+	WritebackSequence        []planSubagentsWritebackStep     `json:"writebackSequence"`
 	PostReviewMerge          []string                         `json:"postReviewMerge"`
 	CompletionCriteria       []string                         `json:"completionCriteria"`
 	FailureHandling          string                           `json:"failureHandling"`
@@ -4976,6 +4983,16 @@ type planSubagentsDecisionMapping struct {
 	MainDecision        string   `json:"mainDecision"`
 	ApplyWhen           []string `json:"applyWhen"`
 	Fallback            string   `json:"fallback"`
+}
+
+type planSubagentsWritebackStep struct {
+	Step          string   `json:"step"`
+	Owner         string   `json:"owner"`
+	Uses          []string `json:"uses"`
+	MustPass      []string `json:"mustPass"`
+	BlockedBy     []string `json:"blockedBy"`
+	NextOnSuccess string   `json:"nextOnSuccess"`
+	NextOnFailure string   `json:"nextOnFailure"`
 }
 
 type planSubagentsWritebackTemplate struct {

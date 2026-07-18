@@ -151,6 +151,7 @@ type ShardHandoff struct {
 	IntakeChecklist          []string                  `json:"intakeChecklist"`
 	ReviewerDecisionMappings []ReviewerDecisionMapping `json:"reviewerDecisionMappings"`
 	ConflictHandling         []string                  `json:"conflictHandling"`
+	WritebackSequence        []WritebackSequenceStep   `json:"writebackSequence"`
 	PostReviewMerge          []string                  `json:"postReviewMerge"`
 	CompletionCriteria       []string                  `json:"completionCriteria"`
 	FailureHandling          string                    `json:"failureHandling"`
@@ -170,6 +171,16 @@ type ReviewerDecisionMapping struct {
 	MainDecision        string   `json:"mainDecision"`
 	ApplyWhen           []string `json:"applyWhen"`
 	Fallback            string   `json:"fallback"`
+}
+
+type WritebackSequenceStep struct {
+	Step          string   `json:"step"`
+	Owner         string   `json:"owner"`
+	Uses          []string `json:"uses"`
+	MustPass      []string `json:"mustPass"`
+	BlockedBy     []string `json:"blockedBy,omitempty"`
+	NextOnSuccess string   `json:"nextOnSuccess"`
+	NextOnFailure string   `json:"nextOnFailure"`
 }
 
 type LedgerWritebackTemplate struct {
@@ -374,6 +385,7 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 			IntakeChecklist:          intakeChecklist(),
 			ReviewerDecisionMappings: reviewerDecisionMappings(),
 			ConflictHandling:         conflictHandlingSteps(),
+			WritebackSequence:        writebackSequenceSteps(),
 			PostReviewMerge:          postReviewMergeSteps(),
 			CompletionCriteria:       append([]string{}, reviewLoop.CompletionCriteria...),
 			FailureHandling:          reviewLoop.FailureHandling,
@@ -457,6 +469,71 @@ func conflictHandlingSteps() []string {
 		"if any conflictSignal is present, map verification verdict to inconclusive or needs-more-evidence and keep main decision deferred unless independently resolved",
 		"if reviewer decision and recommendedVerdict disagree, inspect evidenceRefs and record the safer non-accepting outcome",
 		"if reviewer requests writes, heavy tools, authority/confirmed changes, or external effects, discard that output for ledger purposes and escalate through the lane gate path",
+	}
+}
+
+func writebackSequenceSteps() []WritebackSequenceStep {
+	return []WritebackSequenceStep{
+		{
+			Step:          "validate-reviewer-result",
+			Owner:         "main-agent",
+			Uses:          []string{"reviewerResultContract", "intakeChecklist"},
+			MustPass:      []string{"single JSON object validates", "required fields are present", "decision uses an allowed value", "evidenceRefs are inspectable for accepted or rejected outcomes"},
+			BlockedBy:     []string{"malformed reviewer output", "missing evidenceRefs", "out-of-shard claims", "reviewer requested writes or heavy tools"},
+			NextOnSuccess: "map-reviewer-decision",
+			NextOnFailure: "defer-or-retry-shard",
+		},
+		{
+			Step:          "map-reviewer-decision",
+			Owner:         "main-agent",
+			Uses:          []string{"reviewerDecisionMappings", "conflictHandling"},
+			MustPass:      []string{"verification verdict is selected", "main decision is selected", "conflict signals are absent or independently resolved"},
+			BlockedBy:     []string{"recommendedVerdict disagreement", "unresolved conflictSignal", "low confidence without inspected evidence"},
+			NextOnSuccess: "preview-verification-note",
+			NextOnFailure: "record-safer-defer-decision",
+		},
+		{
+			Step:          "preview-verification-note",
+			Owner:         "main-agent",
+			Uses:          []string{"ledgerWritebackTemplates[kind=verification].previewCommand"},
+			MustPass:      []string{"note WhatIf returns isMutation=false", "note WhatIf returns applied=false", "event.kind is verification", "event lane/target/evidenceRefs match this shard", "wouldExecutorAction contains only the expected lane-local delta"},
+			BlockedBy:     []string{"preview fails", "wrong lane or target", "missing inspected evidenceRefs", "unexpected wouldExecutorAction"},
+			NextOnSuccess: "apply-verification-note",
+			NextOnFailure: "stop-before-ledger-write",
+		},
+		{
+			Step:          "apply-verification-note",
+			Owner:         "main-agent",
+			Uses:          []string{"ledgerWritebackTemplates[kind=verification].applyCommand"},
+			MustPass:      []string{"verification preview passed", "selected verdict matches reviewerDecisionMappings", "main agent has inspected the cited evidenceRefs"},
+			NextOnSuccess: "preview-main-decision-note",
+			NextOnFailure: "stop-and-inspect-ledger",
+		},
+		{
+			Step:          "preview-main-decision-note",
+			Owner:         "main-agent",
+			Uses:          []string{"ledgerWritebackTemplates[kind=decision].previewCommand"},
+			MustPass:      []string{"note WhatIf returns isMutation=false", "note WhatIf returns applied=false", "event.kind is decision", "event decision matches reviewerDecisionMappings", "event evidenceRefs cite the verification event or packet evidence"},
+			BlockedBy:     []string{"verification note missing", "unresolved conflict", "decision is accepting without inspected evidence"},
+			NextOnSuccess: "apply-main-decision-note",
+			NextOnFailure: "keep-main-decision-deferred",
+		},
+		{
+			Step:          "apply-main-decision-note",
+			Owner:         "main-agent",
+			Uses:          []string{"ledgerWritebackTemplates[kind=decision].applyCommand"},
+			MustPass:      []string{"decision preview passed", "verification evidence is referenced", "accept/reject/supersede decisions have no unresolved conflict"},
+			NextOnSuccess: "post-review-validation",
+			NextOnFailure: "stop-and-inspect-ledger",
+		},
+		{
+			Step:          "post-review-validation",
+			Owner:         "main-agent",
+			Uses:          []string{"postReviewMerge", "overview", "handoff", "doctor"},
+			MustPass:      []string{"accepted decisions that affect lane state are rechecked", "handoff or overview reflects the resulting blocker state", "no reviewer output was treated as a ledger event without main-agent apply"},
+			NextOnSuccess: "handoff-or-continue-ready-lane",
+			NextOnFailure: "open-main-agent-blocker",
+		},
 	}
 }
 
@@ -758,6 +835,12 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 			}
 			for _, step := range handoff.ConflictHandling {
 				lines = append(lines, "    - conflict-handling: "+step)
+			}
+			for _, step := range handoff.WritebackSequence {
+				lines = append(lines, fmt.Sprintf("    - writeback-step: `%s`; owner=`%s`; uses=`%s`; must-pass=`%s`; next-success=`%s`; next-failure=`%s`", step.Step, step.Owner, strings.Join(step.Uses, ","), strings.Join(step.MustPass, "; "), step.NextOnSuccess, step.NextOnFailure))
+				for _, blocked := range step.BlockedBy {
+					lines = append(lines, "      - writeback-blocker: "+blocked)
+				}
 			}
 			for _, tmpl := range handoff.LedgerWritebackTemplates {
 				lines = append(lines, fmt.Sprintf("  - %s writeback preview: `%s`; apply: `%s`; required=`%s`", tmpl.Kind, tmpl.PreviewCommand, tmpl.ApplyCommand, strings.Join(tmpl.RequiredFields, ",")))

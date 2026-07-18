@@ -45,7 +45,7 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"### shard handoff prompts", "read-only reviewer", "Do not write files", "expected output=`item,decision", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"### shard handoff prompts", "read-only reviewer", "Do not write files", "expected output=`item,decision", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "writeback-blocker:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -94,6 +94,12 @@ func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantI
 	}
 	if !slices.Contains(handoff.ConflictHandling, "if any conflictSignal is present, map verification verdict to inconclusive or needs-more-evidence and keep main decision deferred unless independently resolved") || !slices.Contains(handoff.ConflictHandling, "if reviewer requests writes, heavy tools, authority/confirmed changes, or external effects, discard that output for ledger purposes and escalate through the lane gate path") {
 		t.Fatalf("unexpected conflict handling: %+v", handoff.ConflictHandling)
+	}
+	if len(handoff.WritebackSequence) != 7 || handoff.WritebackSequence[0].Step != "validate-reviewer-result" || handoff.WritebackSequence[2].Step != "preview-verification-note" || handoff.WritebackSequence[3].Step != "apply-verification-note" || handoff.WritebackSequence[4].Step != "preview-main-decision-note" || handoff.WritebackSequence[5].Step != "apply-main-decision-note" || handoff.WritebackSequence[6].Step != "post-review-validation" {
+		t.Fatalf("unexpected writeback sequence: %+v", handoff.WritebackSequence)
+	}
+	if !slices.Contains(handoff.WritebackSequence[0].Uses, "reviewerResultContract") || !slices.Contains(handoff.WritebackSequence[2].Uses, "ledgerWritebackTemplates[kind=verification].previewCommand") || !slices.Contains(handoff.WritebackSequence[4].BlockedBy, "verification note missing") || handoff.WritebackSequence[5].NextOnSuccess != "post-review-validation" {
+		t.Fatalf("unexpected writeback sequence details: %+v", handoff.WritebackSequence)
 	}
 	if len(handoff.LedgerWritebackTemplates) != 2 || handoff.LedgerWritebackTemplates[0].Kind != "verification" || handoff.LedgerWritebackTemplates[1].Kind != "decision" {
 		t.Fatalf("unexpected writeback templates: %+v", handoff.LedgerWritebackTemplates)
