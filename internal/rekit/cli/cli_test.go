@@ -4429,9 +4429,19 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	var cont struct {
-		RunID        string       `json:"runId"`
-		MissionBrief missionBrief `json:"missionBrief"`
-		Writes       []startWrite `json:"writes"`
+		RunID          string       `json:"runId"`
+		MissionBrief   missionBrief `json:"missionBrief"`
+		ExecutorAction struct {
+			Blocked              bool     `json:"blocked"`
+			Ready                bool     `json:"ready"`
+			BlockerReasons       []string `json:"blockerReasons"`
+			PendingGates         int      `json:"pendingGates"`
+			OpenInterventions    int      `json:"openInterventions"`
+			OpenDecisions        int      `json:"openDecisions"`
+			OpenDecisionRequired bool     `json:"openDecisionRequired"`
+			ResumeCommand        string   `json:"resumeCommand"`
+		} `json:"executorAction"`
+		Writes []startWrite `json:"writes"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &cont); err != nil {
 		t.Fatalf("continue apply stdout is not JSON: %v\n%s", err, out.String())
@@ -4439,20 +4449,23 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if !containsSubstring(cont.MissionBrief.AuthorizedGates, "authorized debug") || len(cont.MissionBrief.PendingGates) != 0 {
 		t.Fatalf("continue JSON missing authorized gate visibility: %+v", cont.MissionBrief)
 	}
+	if !cont.ExecutorAction.Blocked || cont.ExecutorAction.Ready || !cont.ExecutorAction.OpenDecisionRequired || cont.ExecutorAction.PendingGates != 0 || cont.ExecutorAction.OpenInterventions != 0 || cont.ExecutorAction.OpenDecisions != 1 || !slices.Contains(cont.ExecutorAction.BlockerReasons, "open-decision") || cont.ExecutorAction.ResumeCommand != "/rekit continue main" {
+		t.Fatalf("continue JSON missing executor action snapshot: %+v", cont.ExecutorAction)
+	}
 	statusPath := assertStartWrite(t, cont.Writes, ".rekit/runs/"+cont.RunID+"/status.json", "write").TargetPath
 	digestPath := assertStartWrite(t, cont.Writes, ".rekit/runs/"+cont.RunID+"/digest.md", "write").TargetPath
 	status, err := os.ReadFile(statusPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(status), `"authorizedGates"`) || !strings.Contains(string(status), "authorized debug") || strings.Contains(string(status), "pending-gate requires main-agent/user decision") {
-		t.Fatalf("continue status missing non-blocking authorized gate visibility:\n%s", string(status))
+	if !strings.Contains(string(status), `"authorizedGates"`) || !strings.Contains(string(status), `"executorAction"`) || !strings.Contains(string(status), `"openDecisions": 1`) || !strings.Contains(string(status), "authorized debug") || strings.Contains(string(status), "pending-gate requires main-agent/user decision") {
+		t.Fatalf("continue status missing non-blocking authorized gate visibility or executor action:\n%s", string(status))
 	}
 	digest, err := os.ReadFile(digestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"- authorized gates:", "authorized debug", "auth=preauthorized"} {
+	for _, expected := range []string{"- authorized gates:", "authorized debug", "auth=preauthorized", "## Executor action snapshot", "- open decisions: `1`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "- blocker reasons:", "open-decision"} {
 		if !strings.Contains(string(digest), expected) {
 			t.Fatalf("continue digest missing %q:\n%s", expected, string(digest))
 		}

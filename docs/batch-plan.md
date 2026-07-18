@@ -10311,3 +10311,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/workstream/start.go internal/rekit/workstream/lane_checkpoint_test.go internal/rekit/workstream/lane_executor_action_test.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneCheckpointJSONContract|TestLaneExecutorAction|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility"`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。
+
+### Batch 337：Go-native continue executor action envelope/status/digest projection
+
+状态：已完成。
+
+目标：继续 Stage 5 workstream / ledger / gate / continue Go 化，在 Batch 334-336 的 lane-local `executorAction` 与 typed blocker projection 基础上，把同一 executor-friendly blocker/action snapshot 扩展到 `continue` JSON envelope、run `status.json` 与 `digest.md`。这样 lane executor 或自动化在消费 `continue` preview/apply 结果时，不需要再读取 lane checkpoint 或 Markdown handoff 才能知道 blocked/ready、typed blocker counts、requirements、resume/handoff command、next actions 与 escalations。
+
+实施范围：
+
+- 更新 `ContinueResult`：新增结构化 `executorAction` 字段，与 lane checkpoint 的 schema 复用同一 `laneExecutorAction` 类型。
+- 更新 `ContinuePreview`、blocked-by-intervention fail-closed result 与 `ContinueApply`：基于 current lane ledger facts 投影 executor action；apply 在 facts/routing、resume/checkpoint 和 board refresh 后重新投影，确保 JSON envelope 反映 apply 后 blocker 状态。
+- 更新 run `status.json`：写入 `executorAction`，让自动化只读 run status 即可拿到 blocker counts 与 requirements。
+- 更新 run `digest.md`：新增 `## Executor action snapshot`，写出 blocked/ready、typed blocker counts、requirements、resume/handoff command、blocker reasons、executor next actions 与 escalations。
+- 扩展 CLI E2E：authorized-gate + open candidate continue apply 同时校验 JSON envelope、status、digest 与 checkpoint 中的 executor action，确认 `authorized-gate` 仍非阻塞、open decision count/requirement 可见。
+- 更新 README、canonical `/rekit` skill、Agent Team usage、release readiness、Go-first convergence、batch-plan 与 CHANGELOG，记录 continue executor action projection 与 no heavy-tool / no authority 边界。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不写 authority/confirmed，不改变 sync/promote review-first、不迁移 policy schema、不写真实样本、trace、dump、capture、artifact、绝对 case 路径或 case-specific 进度；continue executor action 只是 durable run artifact / JSON envelope handoff shortcut。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/workstream/continue.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneExecutorAction|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunGoContinue"
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/workstream/continue.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneExecutorAction|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunGoContinue" -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。

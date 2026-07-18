@@ -44,6 +44,7 @@ type ContinueResult struct {
 	BatchID              string                 `json:"batchId"`
 	Summary              ContinueSummary        `json:"summary"`
 	MissionBrief         mission.Brief          `json:"missionBrief"`
+	ExecutorAction       laneExecutorAction     `json:"executorAction"`
 	Inputs               []string               `json:"inputs"`
 	PacketRefs           []string               `json:"packetRefs"`
 	Events               []ContinueEventPreview `json:"events"`
@@ -150,6 +151,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		RunID:                continuePreviewRunID,
 		BatchID:              "batch-" + continuePreviewRunID,
 		MissionBrief:         ctx.missionBrief(),
+		ExecutorAction:       ctx.executorAction(),
 		Inputs:               uniqueStrings(inputs),
 		PacketRefs:           uniqueStrings(packets),
 		BlockedActions:       []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
@@ -318,6 +320,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 	}
 	result.Writes = append(result.Writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
 	result.MissionBrief = ctx.missionBrief()
+	result.ExecutorAction = ctx.executorAction()
 	statusPath, digestPath, err := writeContinueRunArtifacts(runRoot, result)
 	if err != nil {
 		return ContinueResult{}, err
@@ -383,6 +386,16 @@ func (ctx continueContext) missionBrief() mission.Brief {
 	return projectMissionBrief(ctx.board.Lanes, facts)
 }
 
+func (ctx continueContext) executorAction() laneExecutorAction {
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		brief := mission.Brief{Summary: "unavailable: " + err.Error()}
+		return laneExecutorActionFor(ctx.lane, mission.Facts{}, brief)
+	}
+	brief := laneMissionBrief(ctx.lane, facts)
+	return laneExecutorActionFor(ctx.lane, facts.Facts, brief)
+}
+
 func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResult, error) {
 	open, err := openLaneInterventionSummaries(ctx.inst.CaseRoot, ctx.lane.ID)
 	if err != nil {
@@ -406,6 +419,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 		RunID:                continuePreviewRunID,
 		BatchID:              "batch-" + continuePreviewRunID,
 		MissionBrief:         ctx.missionBrief(),
+		ExecutorAction:       ctx.executorAction(),
 		OpenRisks:            interventionRiskLines(open),
 		Blocked:              true,
 		ReconcileRequired:    true,
@@ -663,7 +677,7 @@ func writeContinueRunArtifacts(runRoot string, result ContinueResult) (string, s
 		return "", "", err
 	}
 	statusPath := filepath.Join(runRoot, "status.json")
-	status := map[string]any{"schemaVersion": 1, "runId": result.RunID, "batchId": result.BatchID, "summary": result.Summary, "autonomyProfile": result.AutonomyProfile, "missionBrief": result.MissionBrief, "inputs": result.Inputs, "packetRefs": result.PacketRefs, "openRisks": result.OpenRisks, "time": isoNow()}
+	status := map[string]any{"schemaVersion": 1, "runId": result.RunID, "batchId": result.BatchID, "summary": result.Summary, "autonomyProfile": result.AutonomyProfile, "missionBrief": result.MissionBrief, "executorAction": result.ExecutorAction, "inputs": result.Inputs, "packetRefs": result.PacketRefs, "openRisks": result.OpenRisks, "time": isoNow()}
 	if err := writeJSON(statusPath, status); err != nil {
 		return "", "", err
 	}
@@ -701,6 +715,24 @@ func continueDigestText(result ContinueResult) string {
 	lines = appendMissionBriefDigestList(lines, "interventions", result.MissionBrief.Interventions)
 	lines = appendMissionBriefDigestList(lines, "next agent actions", result.MissionBrief.NextAgentActions)
 	lines = appendMissionBriefDigestList(lines, "escalations", result.MissionBrief.Escalations)
+	lines = append(lines,
+		"",
+		"## Executor action snapshot",
+		"",
+		"- blocked: `"+fmt.Sprintf("%t", result.ExecutorAction.Blocked)+"`",
+		"- ready: `"+fmt.Sprintf("%t", result.ExecutorAction.Ready)+"`",
+		"- pending gates: `"+fmt.Sprintf("%d", result.ExecutorAction.PendingGates)+"`",
+		"- open interventions: `"+fmt.Sprintf("%d", result.ExecutorAction.OpenInterventions)+"`",
+		"- open decisions: `"+fmt.Sprintf("%d", result.ExecutorAction.OpenDecisions)+"`",
+		"- reconcile required: `"+fmt.Sprintf("%t", result.ExecutorAction.ReconcileRequired)+"`",
+		"- pending gate required: `"+fmt.Sprintf("%t", result.ExecutorAction.PendingGateRequired)+"`",
+		"- open decision required: `"+fmt.Sprintf("%t", result.ExecutorAction.OpenDecisionRequired)+"`",
+		"- resume command: `"+result.ExecutorAction.ResumeCommand+"`",
+		"- handoff command: `"+result.ExecutorAction.HandoffCommand+"`",
+	)
+	lines = appendMissionBriefDigestList(lines, "blocker reasons", result.ExecutorAction.BlockerReasons)
+	lines = appendMissionBriefDigestList(lines, "executor next actions", result.ExecutorAction.NextAgentActions)
+	lines = appendMissionBriefDigestList(lines, "executor escalations", result.ExecutorAction.Escalations)
 	lines = append(lines,
 		"",
 		"## packet refs",
