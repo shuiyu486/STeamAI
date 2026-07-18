@@ -174,13 +174,23 @@ type ReviewerDecisionMapping struct {
 }
 
 type WritebackSequenceStep struct {
-	Step          string   `json:"step"`
-	Owner         string   `json:"owner"`
-	Uses          []string `json:"uses"`
-	MustPass      []string `json:"mustPass"`
-	BlockedBy     []string `json:"blockedBy,omitempty"`
-	NextOnSuccess string   `json:"nextOnSuccess"`
-	NextOnFailure string   `json:"nextOnFailure"`
+	Step            string                    `json:"step"`
+	Owner           string                    `json:"owner"`
+	Uses            []string                  `json:"uses"`
+	CommandBindings []WritebackCommandBinding `json:"commandBindings,omitempty"`
+	MustPass        []string                  `json:"mustPass"`
+	BlockedBy       []string                  `json:"blockedBy,omitempty"`
+	NextOnSuccess   string                    `json:"nextOnSuccess"`
+	NextOnFailure   string                    `json:"nextOnFailure"`
+}
+
+type WritebackCommandBinding struct {
+	Binding        string   `json:"binding"`
+	Source         string   `json:"source"`
+	Kind           string   `json:"kind,omitempty"`
+	Command        string   `json:"command,omitempty"`
+	RequiredFields []string `json:"requiredFields,omitempty"`
+	ExpectedOutput string   `json:"expectedOutput"`
 }
 
 type LedgerWritebackTemplate struct {
@@ -371,6 +381,11 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 	handoffs := make([]ShardHandoff, 0, len(shards))
 	readOnlyBoundary := append([]string{}, observability.BlockedActions...)
 	for _, shard := range shards {
+		contract := reviewerResultContract()
+		intake := intakeChecklist()
+		mappings := reviewerDecisionMappings()
+		conflicts := conflictHandlingSteps()
+		templates := ledgerWritebackTemplates(shard)
 		handoffs = append(handoffs, ShardHandoff{
 			ShardID:                  shard.ID,
 			Status:                   "planned",
@@ -379,13 +394,13 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 			ReadOnlyBoundary:         append([]string{}, readOnlyBoundary...),
 			ExpectedOutput:           route.OutputContract,
 			ReviewerWriteback:        reviewLoop.VerdictWriteback,
-			ReviewerResultContract:   reviewerResultContract(),
-			LedgerWritebackTemplates: ledgerWritebackTemplates(shard),
-			MainAgentNextAction:      "launch a read-only reviewer with dispatchPrompt, inspect reviewerResultContract output, map reviewerDecisionMappings, run ledgerWritebackTemplates.previewCommand, then use applyCommand for reviewer verification and main merge decision",
-			IntakeChecklist:          intakeChecklist(),
-			ReviewerDecisionMappings: reviewerDecisionMappings(),
-			ConflictHandling:         conflictHandlingSteps(),
-			WritebackSequence:        writebackSequenceSteps(),
+			ReviewerResultContract:   contract,
+			LedgerWritebackTemplates: templates,
+			MainAgentNextAction:      "launch a read-only reviewer with dispatchPrompt, inspect reviewerResultContract output, map reviewerDecisionMappings, run writebackSequence commandBindings in order, then use ledgerWritebackTemplates previewCommand/applyCommand for reviewer verification and main merge decision",
+			IntakeChecklist:          intake,
+			ReviewerDecisionMappings: mappings,
+			ConflictHandling:         conflicts,
+			WritebackSequence:        writebackSequenceSteps(templates),
 			PostReviewMerge:          postReviewMergeSteps(),
 			CompletionCriteria:       append([]string{}, reviewLoop.CompletionCriteria...),
 			FailureHandling:          reviewLoop.FailureHandling,
@@ -472,68 +487,132 @@ func conflictHandlingSteps() []string {
 	}
 }
 
-func writebackSequenceSteps() []WritebackSequenceStep {
+func writebackSequenceSteps(templates []LedgerWritebackTemplate) []WritebackSequenceStep {
+	verificationTemplate := writebackTemplateByKind(templates, "verification")
+	decisionTemplate := writebackTemplateByKind(templates, "decision")
 	return []WritebackSequenceStep{
 		{
-			Step:          "validate-reviewer-result",
-			Owner:         "main-agent",
-			Uses:          []string{"reviewerResultContract", "intakeChecklist"},
+			Step:  "validate-reviewer-result",
+			Owner: "main-agent",
+			Uses:  []string{"reviewerResultContract", "intakeChecklist"},
+			CommandBindings: []WritebackCommandBinding{
+				{
+					Binding:        "reviewer-output",
+					Source:         "reviewerResultContract",
+					RequiredFields: reviewerResultContract().RequiredFields,
+					ExpectedOutput: "single validated reviewer JSON object; no writes or heavy-tool output",
+				},
+			},
 			MustPass:      []string{"single JSON object validates", "required fields are present", "decision uses an allowed value", "evidenceRefs are inspectable for accepted or rejected outcomes"},
 			BlockedBy:     []string{"malformed reviewer output", "missing evidenceRefs", "out-of-shard claims", "reviewer requested writes or heavy tools"},
 			NextOnSuccess: "map-reviewer-decision",
 			NextOnFailure: "defer-or-retry-shard",
 		},
 		{
-			Step:          "map-reviewer-decision",
-			Owner:         "main-agent",
-			Uses:          []string{"reviewerDecisionMappings", "conflictHandling"},
+			Step:  "map-reviewer-decision",
+			Owner: "main-agent",
+			Uses:  []string{"reviewerDecisionMappings", "conflictHandling"},
+			CommandBindings: []WritebackCommandBinding{
+				{
+					Binding:        "decision-map",
+					Source:         "reviewerDecisionMappings",
+					RequiredFields: []string{"reviewerDecision", "verificationVerdict", "mainDecision"},
+					ExpectedOutput: "selected verification verdict and main decision",
+				},
+				{
+					Binding:        "conflict-rules",
+					Source:         "conflictHandling",
+					RequiredFields: []string{"conflicts", "recommendedVerdict", "evidenceRefs"},
+					ExpectedOutput: "conflicts absent, independently resolved, or mapped to safer defer outcome",
+				},
+			},
 			MustPass:      []string{"verification verdict is selected", "main decision is selected", "conflict signals are absent or independently resolved"},
 			BlockedBy:     []string{"recommendedVerdict disagreement", "unresolved conflictSignal", "low confidence without inspected evidence"},
 			NextOnSuccess: "preview-verification-note",
 			NextOnFailure: "record-safer-defer-decision",
 		},
 		{
-			Step:          "preview-verification-note",
-			Owner:         "main-agent",
-			Uses:          []string{"ledgerWritebackTemplates[kind=verification].previewCommand"},
+			Step:  "preview-verification-note",
+			Owner: "main-agent",
+			Uses:  []string{"ledgerWritebackTemplates[kind=verification].previewCommand"},
+			CommandBindings: []WritebackCommandBinding{
+				writebackCommandBinding("verification-preview", "ledgerWritebackTemplates[kind=verification].previewCommand", verificationTemplate, verificationTemplate.PreviewCommand, "note WhatIf JSON preview for verification event"),
+			},
 			MustPass:      []string{"note WhatIf returns isMutation=false", "note WhatIf returns applied=false", "event.kind is verification", "event lane/target/evidenceRefs match this shard", "wouldExecutorAction contains only the expected lane-local delta"},
 			BlockedBy:     []string{"preview fails", "wrong lane or target", "missing inspected evidenceRefs", "unexpected wouldExecutorAction"},
 			NextOnSuccess: "apply-verification-note",
 			NextOnFailure: "stop-before-ledger-write",
 		},
 		{
-			Step:          "apply-verification-note",
-			Owner:         "main-agent",
-			Uses:          []string{"ledgerWritebackTemplates[kind=verification].applyCommand"},
+			Step:  "apply-verification-note",
+			Owner: "main-agent",
+			Uses:  []string{"ledgerWritebackTemplates[kind=verification].applyCommand"},
+			CommandBindings: []WritebackCommandBinding{
+				writebackCommandBinding("verification-apply", "ledgerWritebackTemplates[kind=verification].applyCommand", verificationTemplate, verificationTemplate.ApplyCommand, "applied verification ledger event owned by main agent"),
+			},
 			MustPass:      []string{"verification preview passed", "selected verdict matches reviewerDecisionMappings", "main agent has inspected the cited evidenceRefs"},
 			NextOnSuccess: "preview-main-decision-note",
 			NextOnFailure: "stop-and-inspect-ledger",
 		},
 		{
-			Step:          "preview-main-decision-note",
-			Owner:         "main-agent",
-			Uses:          []string{"ledgerWritebackTemplates[kind=decision].previewCommand"},
+			Step:  "preview-main-decision-note",
+			Owner: "main-agent",
+			Uses:  []string{"ledgerWritebackTemplates[kind=decision].previewCommand"},
+			CommandBindings: []WritebackCommandBinding{
+				writebackCommandBinding("decision-preview", "ledgerWritebackTemplates[kind=decision].previewCommand", decisionTemplate, decisionTemplate.PreviewCommand, "note WhatIf JSON preview for main decision event"),
+			},
 			MustPass:      []string{"note WhatIf returns isMutation=false", "note WhatIf returns applied=false", "event.kind is decision", "event decision matches reviewerDecisionMappings", "event evidenceRefs cite the verification event or packet evidence"},
 			BlockedBy:     []string{"verification note missing", "unresolved conflict", "decision is accepting without inspected evidence"},
 			NextOnSuccess: "apply-main-decision-note",
 			NextOnFailure: "keep-main-decision-deferred",
 		},
 		{
-			Step:          "apply-main-decision-note",
-			Owner:         "main-agent",
-			Uses:          []string{"ledgerWritebackTemplates[kind=decision].applyCommand"},
+			Step:  "apply-main-decision-note",
+			Owner: "main-agent",
+			Uses:  []string{"ledgerWritebackTemplates[kind=decision].applyCommand"},
+			CommandBindings: []WritebackCommandBinding{
+				writebackCommandBinding("decision-apply", "ledgerWritebackTemplates[kind=decision].applyCommand", decisionTemplate, decisionTemplate.ApplyCommand, "applied main decision ledger event owned by main agent"),
+			},
 			MustPass:      []string{"decision preview passed", "verification evidence is referenced", "accept/reject/supersede decisions have no unresolved conflict"},
 			NextOnSuccess: "post-review-validation",
 			NextOnFailure: "stop-and-inspect-ledger",
 		},
 		{
-			Step:          "post-review-validation",
-			Owner:         "main-agent",
-			Uses:          []string{"postReviewMerge", "overview", "handoff", "doctor"},
+			Step:  "post-review-validation",
+			Owner: "main-agent",
+			Uses:  []string{"postReviewMerge", "overview", "handoff", "doctor"},
+			CommandBindings: []WritebackCommandBinding{
+				{
+					Binding:        "post-review-validation",
+					Source:         "postReviewMerge",
+					RequiredFields: []string{"overview", "handoff", "doctor"},
+					ExpectedOutput: "lane state, blocker summary, and handoff readiness rechecked after ledger writes",
+				},
+			},
 			MustPass:      []string{"accepted decisions that affect lane state are rechecked", "handoff or overview reflects the resulting blocker state", "no reviewer output was treated as a ledger event without main-agent apply"},
 			NextOnSuccess: "handoff-or-continue-ready-lane",
 			NextOnFailure: "open-main-agent-blocker",
 		},
+	}
+}
+
+func writebackTemplateByKind(templates []LedgerWritebackTemplate, kind string) LedgerWritebackTemplate {
+	for _, template := range templates {
+		if template.Kind == kind {
+			return template
+		}
+	}
+	return LedgerWritebackTemplate{Kind: kind}
+}
+
+func writebackCommandBinding(binding, source string, template LedgerWritebackTemplate, command, expectedOutput string) WritebackCommandBinding {
+	return WritebackCommandBinding{
+		Binding:        binding,
+		Source:         source,
+		Kind:           template.Kind,
+		Command:        command,
+		RequiredFields: append([]string{}, template.RequiredFields...),
+		ExpectedOutput: expectedOutput,
 	}
 }
 
@@ -838,6 +917,9 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 			}
 			for _, step := range handoff.WritebackSequence {
 				lines = append(lines, fmt.Sprintf("    - writeback-step: `%s`; owner=`%s`; uses=`%s`; must-pass=`%s`; next-success=`%s`; next-failure=`%s`", step.Step, step.Owner, strings.Join(step.Uses, ","), strings.Join(step.MustPass, "; "), step.NextOnSuccess, step.NextOnFailure))
+				for _, binding := range step.CommandBindings {
+					lines = append(lines, fmt.Sprintf("      - command-binding: `%s`; source=`%s`; kind=`%s`; command=`%s`; required=`%s`; expected=`%s`", binding.Binding, binding.Source, binding.Kind, binding.Command, strings.Join(binding.RequiredFields, ","), binding.ExpectedOutput))
+				}
 				for _, blocked := range step.BlockedBy {
 					lines = append(lines, "      - writeback-blocker: "+blocked)
 				}

@@ -3860,6 +3860,12 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if !slices.Contains(firstHandoff.WritebackSequence[0].Uses, "reviewerResultContract") || !slices.Contains(firstHandoff.WritebackSequence[2].Uses, "ledgerWritebackTemplates[kind=verification].previewCommand") || !slices.Contains(firstHandoff.WritebackSequence[4].BlockedBy, "verification note missing") || firstHandoff.WritebackSequence[5].NextOnSuccess != "post-review-validation" {
 		t.Fatalf("unexpected writeback sequence details: %+v", firstHandoff.WritebackSequence)
 	}
+	if len(firstHandoff.WritebackSequence[2].CommandBindings) != 1 || firstHandoff.WritebackSequence[2].CommandBindings[0].Binding != "verification-preview" || firstHandoff.WritebackSequence[2].CommandBindings[0].Kind != "verification" || !strings.Contains(firstHandoff.WritebackSequence[2].CommandBindings[0].Command, "-Kind verification") || !strings.Contains(firstHandoff.WritebackSequence[2].CommandBindings[0].Command, "-WhatIf -Format json") || !slices.Contains(firstHandoff.WritebackSequence[2].CommandBindings[0].RequiredFields, "verdict") {
+		t.Fatalf("unexpected verification preview command binding: %+v", firstHandoff.WritebackSequence[2].CommandBindings)
+	}
+	if len(firstHandoff.WritebackSequence[5].CommandBindings) != 1 || firstHandoff.WritebackSequence[5].CommandBindings[0].Binding != "decision-apply" || firstHandoff.WritebackSequence[5].CommandBindings[0].Kind != "decision" || !strings.Contains(firstHandoff.WritebackSequence[5].CommandBindings[0].Command, "-Kind decision") || !strings.Contains(firstHandoff.WritebackSequence[5].CommandBindings[0].Command, "-Apply") || !slices.Contains(firstHandoff.WritebackSequence[5].CommandBindings[0].RequiredFields, "decision") {
+		t.Fatalf("unexpected decision apply command binding: %+v", firstHandoff.WritebackSequence[5].CommandBindings)
+	}
 	if len(firstHandoff.LedgerWritebackTemplates) != 2 || firstHandoff.LedgerWritebackTemplates[0].Kind != "verification" || firstHandoff.LedgerWritebackTemplates[1].Kind != "decision" {
 		t.Fatalf("unexpected shard writeback templates: %+v", firstHandoff.LedgerWritebackTemplates)
 	}
@@ -3876,7 +3882,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing summary: %v", err)
 	}
-	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "writeback-blocker:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -4986,13 +4992,23 @@ type planSubagentsDecisionMapping struct {
 }
 
 type planSubagentsWritebackStep struct {
-	Step          string   `json:"step"`
-	Owner         string   `json:"owner"`
-	Uses          []string `json:"uses"`
-	MustPass      []string `json:"mustPass"`
-	BlockedBy     []string `json:"blockedBy"`
-	NextOnSuccess string   `json:"nextOnSuccess"`
-	NextOnFailure string   `json:"nextOnFailure"`
+	Step            string                                 `json:"step"`
+	Owner           string                                 `json:"owner"`
+	Uses            []string                               `json:"uses"`
+	CommandBindings []planSubagentsWritebackCommandBinding `json:"commandBindings"`
+	MustPass        []string                               `json:"mustPass"`
+	BlockedBy       []string                               `json:"blockedBy"`
+	NextOnSuccess   string                                 `json:"nextOnSuccess"`
+	NextOnFailure   string                                 `json:"nextOnFailure"`
+}
+
+type planSubagentsWritebackCommandBinding struct {
+	Binding        string   `json:"binding"`
+	Source         string   `json:"source"`
+	Kind           string   `json:"kind"`
+	Command        string   `json:"command"`
+	RequiredFields []string `json:"requiredFields"`
+	ExpectedOutput string   `json:"expectedOutput"`
 }
 
 type planSubagentsWritebackTemplate struct {

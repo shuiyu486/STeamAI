@@ -45,7 +45,7 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"### shard handoff prompts", "read-only reviewer", "Do not write files", "expected output=`item,decision", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "writeback-blocker:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"### shard handoff prompts", "read-only reviewer", "Do not write files", "expected output=`item,decision", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -100,6 +100,12 @@ func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantI
 	}
 	if !slices.Contains(handoff.WritebackSequence[0].Uses, "reviewerResultContract") || !slices.Contains(handoff.WritebackSequence[2].Uses, "ledgerWritebackTemplates[kind=verification].previewCommand") || !slices.Contains(handoff.WritebackSequence[4].BlockedBy, "verification note missing") || handoff.WritebackSequence[5].NextOnSuccess != "post-review-validation" {
 		t.Fatalf("unexpected writeback sequence details: %+v", handoff.WritebackSequence)
+	}
+	if len(handoff.WritebackSequence[2].CommandBindings) != 1 || handoff.WritebackSequence[2].CommandBindings[0].Binding != "verification-preview" || handoff.WritebackSequence[2].CommandBindings[0].Kind != "verification" || !strings.Contains(handoff.WritebackSequence[2].CommandBindings[0].Command, "-Kind verification") || !strings.Contains(handoff.WritebackSequence[2].CommandBindings[0].Command, "-WhatIf -Format json") || !slices.Contains(handoff.WritebackSequence[2].CommandBindings[0].RequiredFields, "verdict") {
+		t.Fatalf("unexpected verification preview command binding: %+v", handoff.WritebackSequence[2].CommandBindings)
+	}
+	if len(handoff.WritebackSequence[5].CommandBindings) != 1 || handoff.WritebackSequence[5].CommandBindings[0].Binding != "decision-apply" || handoff.WritebackSequence[5].CommandBindings[0].Kind != "decision" || !strings.Contains(handoff.WritebackSequence[5].CommandBindings[0].Command, "-Kind decision") || !strings.Contains(handoff.WritebackSequence[5].CommandBindings[0].Command, "-Apply") || !slices.Contains(handoff.WritebackSequence[5].CommandBindings[0].RequiredFields, "decision") {
+		t.Fatalf("unexpected decision apply command binding: %+v", handoff.WritebackSequence[5].CommandBindings)
 	}
 	if len(handoff.LedgerWritebackTemplates) != 2 || handoff.LedgerWritebackTemplates[0].Kind != "verification" || handoff.LedgerWritebackTemplates[1].Kind != "decision" {
 		t.Fatalf("unexpected writeback templates: %+v", handoff.LedgerWritebackTemplates)
