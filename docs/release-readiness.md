@@ -36,7 +36,7 @@
 2. **CLI/case E2E**：init/attach/start/reconcile/gate/handoff 等真实临时 case flow 在对应平台通过。
 3. **installed user entrypoint readiness**：canonical `/rekit` / case shim 能定位稳定 Go runtime，用户路径不要求手动运行 raw Go CLI 或 PowerShell façade。
 
-当前 workflow 主要覆盖第 1 级；本地 Go tests 已覆盖一条 CLI/case E2E product-path slice（repo 外 case metadata discovery，以及 case root / nested lane workspace cwd 中无 `-Target` 执行 `status`、`doctor`、`overview`、`start -Apply`、`continue -Apply`、`handoff -Apply`、`gate -WhatIf` 与 `plan-subagents`）；第 2 级尚未进入三平台 runner matrix，第 3 级 installed `/rekit` / case shim readiness 仍是 product-path known gap。
+当前 workflow 主要覆盖第 1 级；本地 Go tests 已覆盖一条 CLI/case E2E product-path slice（repo 外 case metadata discovery，以及 case root / nested lane workspace cwd 中无 `-Target` 执行 `status`、`doctor`、`overview`、`start -Apply`、`continue -Apply`、`handoff -Apply`、`gate -WhatIf` 与 `plan-subagents`），并且 `status` JSON/text 只读投影 canonical / installed case shim readiness 与 drift。第 2 级尚未进入三平台 runner matrix，第 3 级完整 installed user entrypoint E2E 仍是 product-path known gap。
 
 ### 本机 release gate（推荐最小集）
 
@@ -146,7 +146,7 @@ Retained compatibility / unsupported / manual-gate 能力（详细冻结/删除�
 
 ## Known gaps
 
-- 远程 release-gate 当前未实际执行：2026-07-18 最近及抽查的 Linux/Windows/macOS jobs 因 GitHub account billing/spending limit 未获得 runner、steps 为空；`release-check` / `ciReleaseGate.ready` 仍只表示 inventory/workflow 定义 ready。现有 workflow 也主要覆盖 repository/runtime portability；本地 Go tests 已覆盖 case metadata repo discovery 与 case-local cwd 无 `-Target` 的 `status`/`doctor`/`start`/`continue`/`handoff` product-path slice，但 CLI/case E2E 尚未进入三平台 runner matrix，installed `/rekit`/case-shim product path 仍未完整验证。
+- 远程 release-gate 当前未实际执行：2026-07-18 最近及抽查的 Linux/Windows/macOS jobs 因 GitHub account billing/spending limit 未获得 runner、steps 为空；`release-check` / `ciReleaseGate.ready` 仍只表示 inventory/workflow 定义 ready。现有 workflow 也主要覆盖 repository/runtime portability；本地 Go tests 已覆盖 case metadata repo discovery、case-local cwd 无 `-Target` 的 `status`/`doctor`/`start`/`continue`/`handoff` product-path slice，以及 `status.caseShim` 对 canonical / installed case shim readiness 与 drift 的只读投影；但 CLI/case E2E 尚未进入三平台 runner matrix，完整 installed user entrypoint product path E2E 仍未验证。
 - Mission Commander 尚无统一 session/reviewer orchestrator：durable lane、handoff/checkpoint 与 executor takeover contract 已存在，Batch 353 也已由主 Agent在本机真实 spawn 一个 read-only reviewer，并跑通显式 Go-native strict intake、WhatIf/Apply writeback 与 post-validation；但仓库 runtime 仍不启动、注册或管理可替换 Claude Code member session/reviewer。剩余缺口是 session lifecycle、托管 dispatch、跨会话 ownership/takeover 与更完整的多 reviewer orchestration，而不是单 reviewer intake/writeback contract。
 - actual heavy-tool 与 authority/confirmed 仍是独立边界：Go `gate -ExecutionReportContract -GateEventId ... -Format json` 已能为 lane executor/tool adapter 提供执行前只读 contract，`gate -Apply -GateEventId ... -ExecutionStatus ... -ExecutionReportPath ...` 已能记录 authorized execution observation evidence 并 strict 校验 bounded adapter execution report，但 full-trace/debug/inject/patch/dump/network/symex 的真实执行、隔离、停止条件执行和 adapter-specific live validation 仍由 lane executor/tool adapter 在 strict durable autonomy profile + `authorized-gate` 范围内承担；authority/confirmed 写入仍需人工确认，不由 Go `continue -Apply` 或 gate evidence mode 自动执行。
 - pack-based team memory 已有 review/sanitize/promote primitives，并新增 package E2E 覆盖 case tooling observation → sanitize/create candidate → reviewed recipe merge → fresh case attached metadata reconsume；仍缺真实多 pack/跨 case 产品场景与人工 review UX 的端到端验证。

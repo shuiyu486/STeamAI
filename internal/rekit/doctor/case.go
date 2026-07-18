@@ -1,7 +1,6 @@
 package doctor
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -102,20 +101,11 @@ func Case(repoRoot, caseRoot, pack string) ([]Row, error) {
 }
 
 func assertCaseShimMatchesTemplate(caseRoot, repoRoot string) error {
-	shim := filepath.Join(caseRoot, ".claude", "skills", "rekit", "SKILL.md")
-	template := filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md")
-	left, err := os.ReadFile(shim)
-	if err != nil {
-		return err
+	readiness := caseshim.InspectInstalled(repoRoot, caseRoot)
+	if readiness.Ready {
+		return nil
 	}
-	right, err := os.ReadFile(template)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(left, right) {
-		return fmt.Errorf("case-local /rekit shim differs from canonical thin shim template: %s", shim)
-	}
-	return nil
+	return fmt.Errorf("installed case shim readiness failed: %s", strings.Join(readiness.Warnings, "; "))
 }
 
 func assertManagedBlock(path, blockID string) error {

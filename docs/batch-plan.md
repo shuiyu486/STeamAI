@@ -16,27 +16,28 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 362：Nested case workspace product-path target discovery**
+**Batch 363：Status case shim readiness projection**
 
-状态：已完成 nested lane/workspace cwd 的 product-path target discovery、durable docs 更新与本地验证；远程 release-gate 仍因 runner/billing blocker 失败，不能声明远程 CI green。
+状态：已完成 `status` 对 canonical / installed case shim readiness 的只读投影、drift detection、durable docs 更新与本地验证；远程 release-gate 仍需读取真实 job conclusions，不能用 inventory ready 代替远程 CI green。
 
-目标：补齐 Batch 356 case-local product-path 的真实使用断点：用户/主 Agent 常在 lane workspace 子目录中启动 Claude Code 或继续工作，runtime 不应把 nested workspace 当成 case root，也不应要求手动传 `-Target` 才能运行 daily Mission Control commands。
+目标：补齐 product-path installed `/rekit` / case shim readiness 的日常可见性：维护者和主 Agent 不应只有 `doctor` fail-fast 才知道 case-local thin shim 是否存在、是否与 canonical template drift、canonical skill 是否仍满足 Go-native backend / retained façade 边界；`status` 应提供不会静默修复、可被自动化消费的 readiness envelope。
 
-边界：本批只改 Go runtime target discovery、CLI/runtime tests 与文档；不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 authority/confirmed，不改变 sync/promote review-first、installed `/rekit` / case shim readiness 或远程 CI blocker 状态。
+边界：本批只做只读 readiness projection、case shim package helper、CLI/status tests 与文档；不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 authority/confirmed，不改变 sync/promote review-first、case shim template 内容、runtime schema migration、公共入口删除门禁或远程 CI blocker 状态。
 
 完成内容：
 
-- `runtime.New` 在未显式传 `-Target` 时先用当前工作目录向上寻找最近 attached case root，并将 `ctx.Target` 规范为该 case root；显式 `-Target` 语义不变。
-- 新增 `findCaseRoot` helper，与现有 repo root discovery 保持分离，避免把 workspace 子目录误判为独立 case。
-- `doctor` 的 implicit case mode 改用 `ctx.Target`，使 nested workspace cwd 中的 `doctor -Format json` 验证 case root 而不是回落到 pack mode。
-- 扩展本地 CLI/case E2E，覆盖 nested lane workspace cwd 中无 `-Target` 的 `status`、`doctor`、`overview`、`gate -WhatIf` 与 `plan-subagents`。
+- `caseshim` 新增 `InspectInstalled(repoRoot, caseRoot)`，比较 case-local `.claude/skills/rekit/SKILL.md` 与 canonical thin shim template，输出 installed shim readiness、match 状态与 drift/missing warnings；case `doctor` 复用该 helper，避免 status / doctor 维护并行 shim match 逻辑。
+- `status -Format json` 新增 `caseShim` envelope，投影 canonical template / canonical skill readiness counts、warnings，以及 case mode 下的 installed shim path 与 `installedShimMatchesTemplate`。
+- `status` case envelope 新增 `shimPath` 与 `shimMatchesTemplate`，使主 Agent / automation 无需运行 fail-fast doctor 即可判断 case shim drift。
+- 文本 `status` 同步显示 case shim readiness；drift/missing 只读提示，不静默修复。
+- 扩展 `caseshim` package tests 与 CLI status tests，覆盖 installed shim template match 和 drift projection。
 - 更新 README、canonical skill、release readiness、Go-first convergence plan、batch-plan 与 CHANGELOG。
 
 已通过验证：
 
 ```text
-go test ./internal/rekit/runtime ./internal/rekit/cli
-go vet ./internal/rekit/runtime ./internal/rekit/cli
+go test ./internal/rekit/caseshim ./internal/rekit/cli
+go vet ./internal/rekit/caseshim ./internal/rekit/cli
 go test ./...
 go vet ./...
 go run ./cmd/rekit -- -Command release-check -Format json
@@ -45,14 +46,14 @@ go run ./cmd/rekit -- -Command packs
 go run ./cmd/rekit -- -Command doctor
 git diff --check
 gh run list --limit 5
-gh run view 29662407823 --json conclusion,event,headSha,jobs
+gh run view 29662788363 --json conclusion,event,headSha,jobs
 ```
 
-本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；最新远程 release-gate run `29662407823` 对应 Batch 361 head `f7e9534240abd41674d5b6abad77f9052e27df94`，Linux/macOS/Windows jobs 均为 failure 且 steps 为空，仍符合已知 runner/billing blocker。
+本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；最新 inspected remote run `29662788363` 对应 Batch 362 head `11fda0096f6a7110a8948523de2b33e28872a0e2`，Linux/macOS/Windows jobs 均为 failure 且 steps 为空，仍符合已知 runner/billing blocker。
 
 ### Next candidates
 
-1. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E 与 installed `/rekit` / case shim runtime discovery 纳入可用 runner 验证。
+1. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E、`status.caseShim` readiness 和完整 installed user entrypoint E2E 纳入可用 runner 验证。
 2. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 3. **Lane executor/tool-adapter live validation hardening**：在 Batch 359 bounded report intake 之外，为具体 lane executor / adapter 补真实工具调用隔离、停止条件执行和 adapter-specific live validation 的产品级闭环。
 4. **Pack-memory product UX hardening**：在 Batch 358 package E2E 之外，补真实多 pack/跨 case review UX、candidate cleanup 和人工 merge guidance 的产品级验证。
@@ -10977,3 +10978,13 @@ git diff --check
 实施范围：`runtime.New` 在未显式 `-Target` 时向上定位最近 attached case root，并把 implicit `ctx.Target` 规范为 case root；`doctor` 的 implicit case mode 改用 `ctx.Target`；本地 CLI/case E2E 覆盖 nested lane workspace cwd 的 `status`、`doctor`、`overview`、`gate -WhatIf` 与 `plan-subagents`；同步 README、canonical skill、release readiness、Go-first convergence plan、batch plan 与 CHANGELOG。不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool，不写 authority/confirmed，不改变 sync/promote review-first、installed `/rekit` / case shim readiness 或远程 CI blocker 状态。
 
 验证结果：已通过 `go test ./internal/rekit/runtime ./internal/rekit/cli`、`go vet ./internal/rekit/runtime ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。远程 release-gate 仍为 failure，最新 inspected run `29662407823` 的 Linux/macOS/Windows jobs steps 为空，不能声明远程 CI green。
+
+### Batch 363：Status case shim readiness projection
+
+状态：已完成 `status` 对 canonical / installed case shim readiness 的只读投影、文档更新与最终验证。
+
+目标：补齐 product-path installed `/rekit` / case shim readiness 的日常可见性，让维护者、主 Agent 和自动化不必等到 `doctor` fail-fast 才发现 case-local thin shim 缺失、与 canonical template drift，或 canonical skill 不再满足 Go-native backend / retained façade 边界。
+
+实施范围：新增 `caseshim.InspectInstalled` helper，`status` JSON/text 投影 canonical / installed case shim readiness，case `doctor` 复用同一 installed shim match helper，扩展 package/CLI tests，并更新 README、canonical skill、release readiness、Go-first convergence plan、batch plan 与 CHANGELOG。不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool，不写 authority/confirmed，不改变 sync/promote review-first、case shim template 内容、runtime schema migration、公共入口删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 `go test ./internal/rekit/caseshim ./internal/rekit/cli`、`go vet ./internal/rekit/caseshim ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。远程 release-gate 仍为 failure，最新 inspected run `29662788363` 的 Linux/macOS/Windows jobs steps 为空，不能声明远程 CI green。

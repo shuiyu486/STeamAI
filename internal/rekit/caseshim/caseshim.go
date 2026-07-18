@@ -1,6 +1,7 @@
 package caseshim
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,15 @@ type Readiness struct {
 	ForbiddenStrings      []StringCheck `json:"forbiddenStrings"`
 	Boundaries            []string      `json:"boundaries"`
 	Warnings              []string      `json:"warnings"`
+}
+
+type InstalledReadiness struct {
+	ShimPath        string   `json:"shimPath"`
+	TemplatePath    string   `json:"templatePath"`
+	MatchesTemplate bool     `json:"matchesTemplate"`
+	Ready           bool     `json:"ready"`
+	Summary         string   `json:"summary"`
+	Warnings        []string `json:"warnings"`
 }
 
 type PhraseCheck struct {
@@ -153,6 +163,44 @@ func AssertReady(repoRoot string) error {
 		return nil
 	}
 	return fmt.Errorf("case shim readiness failed: %s", strings.Join(readiness.Warnings, "; "))
+}
+
+func InspectInstalled(repoRoot, caseRoot string) InstalledReadiness {
+	template := filepath.Join(repoRoot, filepath.FromSlash(TemplateRelPath))
+	shim := filepath.Join(caseRoot, ".claude", "skills", "rekit", "SKILL.md")
+	result := InstalledReadiness{
+		ShimPath:        shim,
+		TemplatePath:    template,
+		MatchesTemplate: true,
+		Ready:           true,
+		Summary:         "installed case shim readiness ok",
+		Warnings:        []string{},
+	}
+	left, err := os.ReadFile(shim)
+	if err != nil {
+		result.MatchesTemplate = false
+		result.Ready = false
+		result.Warnings = append(result.Warnings, fmt.Sprintf("case shim readiness missing installed shim: %s: %v", shim, err))
+		result.Summary = "installed case shim readiness has warnings"
+		return result
+	}
+	right, err := os.ReadFile(template)
+	if err != nil {
+		result.MatchesTemplate = false
+		result.Ready = false
+		result.Warnings = append(result.Warnings, fmt.Sprintf("case shim readiness missing canonical thin shim template: %s: %v", template, err))
+		result.Summary = "installed case shim readiness has warnings"
+		return result
+	}
+	if !bytes.Equal(left, right) {
+		result.MatchesTemplate = false
+		result.Ready = false
+		result.Warnings = append(result.Warnings, fmt.Sprintf("case-local /rekit shim differs from canonical thin shim template: %s", shim))
+	}
+	if len(result.Warnings) > 0 {
+		result.Summary = "installed case shim readiness has warnings"
+	}
+	return result
 }
 
 func readRepoText(repoRoot, rel string) (string, error) {

@@ -23,6 +23,24 @@ func TestInspectRepoCaseShimReady(t *testing.T) {
 	assertForbiddenAbsent(t, readiness.ForbiddenStrings, "go run")
 }
 
+func TestInspectInstalledDetectsTemplateMatchAndDrift(t *testing.T) {
+	repo := t.TempDir()
+	caseRoot := t.TempDir()
+	writeRepoText(t, repo, TemplateRelPath, "thin shim\n")
+	writeCaseText(t, caseRoot, ".claude/skills/rekit/SKILL.md", "thin shim\n")
+
+	ready := InspectInstalled(repo, caseRoot)
+	if !ready.Ready || !ready.MatchesTemplate || ready.Summary != "installed case shim readiness ok" || len(ready.Warnings) != 0 {
+		t.Fatalf("unexpected installed shim readiness: %+v", ready)
+	}
+
+	writeCaseText(t, caseRoot, ".claude/skills/rekit/SKILL.md", "drift\n")
+	drift := InspectInstalled(repo, caseRoot)
+	if drift.Ready || drift.MatchesTemplate || drift.Summary != "installed case shim readiness has warnings" || len(drift.Warnings) == 0 || !strings.Contains(drift.Warnings[0], "shim differs") {
+		t.Fatalf("unexpected installed shim drift readiness: %+v", drift)
+	}
+}
+
 func TestAssertReadyDetectsPowerShellOrGoCommandLeakage(t *testing.T) {
 	repo := t.TempDir()
 	writeRepoText(t, repo, TemplateRelPath, strings.Join([]string{
@@ -92,7 +110,12 @@ func assertForbiddenAbsent(t *testing.T, checks []StringCheck, want string) {
 
 func writeRepoText(t *testing.T, repo, rel, text string) {
 	t.Helper()
-	path := filepath.Join(repo, filepath.FromSlash(rel))
+	writeCaseText(t, repo, rel, text)
+}
+
+func writeCaseText(t *testing.T, root, rel, text string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}

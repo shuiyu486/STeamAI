@@ -266,7 +266,7 @@ func TestRunStatusJsonDefaultPackContract(t *testing.T) {
 }
 
 func TestRunStatusJsonCase(t *testing.T) {
-	caseRoot := attachedCase(t)
+	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
@@ -279,13 +279,26 @@ func TestRunStatusJsonCase(t *testing.T) {
 		TargetProvided bool   `json:"targetProvided"`
 		Mode           string `json:"mode"`
 		Case           struct {
-			CaseRoot       string `json:"caseRoot"`
-			MetadataSource string `json:"metadataSource"`
-			TemplatePack   string `json:"templatePack"`
-			ProjectName    string `json:"projectName"`
-			Moved          bool   `json:"moved"`
+			CaseRoot            string `json:"caseRoot"`
+			MetadataSource      string `json:"metadataSource"`
+			TemplatePack        string `json:"templatePack"`
+			ProjectName         string `json:"projectName"`
+			Moved               bool   `json:"moved"`
+			ShimPath            string `json:"shimPath"`
+			ShimMatchesTemplate bool   `json:"shimMatchesTemplate"`
 		} `json:"case"`
 		Manifest any `json:"manifest"`
+		CaseShim struct {
+			Ready                        bool     `json:"ready"`
+			Summary                      string   `json:"summary"`
+			InstalledShimPath            string   `json:"installedShimPath"`
+			InstalledShimMatchesTemplate *bool    `json:"installedShimMatchesTemplate"`
+			RequiredPhrases              int      `json:"requiredPhrases"`
+			CanonicalSkillPhrases        int      `json:"canonicalSkillPhrases"`
+			ForbiddenStrings             int      `json:"forbiddenStrings"`
+			Boundaries                   int      `json:"boundaries"`
+			Warnings                     []string `json:"warnings"`
+		} `json:"caseShim"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
@@ -293,8 +306,48 @@ func TestRunStatusJsonCase(t *testing.T) {
 	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Pack != "_template" || !status.TargetProvided || status.Mode != "case" || status.Manifest != nil {
 		t.Fatalf("unexpected case status JSON envelope: %+v", status)
 	}
-	if status.Case.CaseRoot != caseRoot || status.Case.MetadataSource != "instance" || status.Case.TemplatePack != "_template" || status.Case.ProjectName != "demo" || status.Case.Moved {
+	if status.Case.CaseRoot != caseRoot || status.Case.MetadataSource != "instance" || status.Case.TemplatePack != "_template" || status.Case.ProjectName != "demo" || status.Case.Moved || status.Case.ShimPath == "" || !status.Case.ShimMatchesTemplate {
 		t.Fatalf("unexpected case status JSON: %+v", status.Case)
+	}
+	if !status.CaseShim.Ready || status.CaseShim.Summary != "case shim readiness ok" || status.CaseShim.InstalledShimPath != status.Case.ShimPath || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate || status.CaseShim.RequiredPhrases == 0 || status.CaseShim.CanonicalSkillPhrases == 0 || status.CaseShim.ForbiddenStrings == 0 || status.CaseShim.Boundaries == 0 || len(status.CaseShim.Warnings) != 0 {
+		t.Fatalf("unexpected case shim status JSON: %+v", status.CaseShim)
+	}
+}
+
+func TestRunStatusJsonCaseShimDrift(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeCaseFile(t, caseRoot, ".claude/skills/rekit/SKILL.md", "drift\n")
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Case struct {
+			ShimMatchesTemplate bool `json:"shimMatchesTemplate"`
+		} `json:"case"`
+		CaseShim struct {
+			Ready                        bool     `json:"ready"`
+			Summary                      string   `json:"summary"`
+			InstalledShimMatchesTemplate *bool    `json:"installedShimMatchesTemplate"`
+			Warnings                     []string `json:"warnings"`
+		} `json:"caseShim"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if status.Case.ShimMatchesTemplate || status.CaseShim.Ready || status.CaseShim.Summary != "case shim readiness has warnings" || status.CaseShim.InstalledShimMatchesTemplate == nil || *status.CaseShim.InstalledShimMatchesTemplate {
+		t.Fatalf("unexpected drift status: %+v", status)
+	}
+	foundDrift := false
+	for _, warning := range status.CaseShim.Warnings {
+		if strings.Contains(warning, "shim differs") {
+			foundDrift = true
+			break
+		}
+	}
+	if !foundDrift {
+		t.Fatalf("case shim warnings = %+v, want drift warning", status.CaseShim.Warnings)
 	}
 }
 

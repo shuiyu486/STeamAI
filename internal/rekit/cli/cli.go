@@ -763,17 +763,34 @@ type statusInventory struct {
 	Mode           string                 `json:"mode"`
 	Case           *statusCase            `json:"case"`
 	Manifest       *statusManifestSummary `json:"manifest"`
+	CaseShim       statusCaseShim         `json:"caseShim"`
 }
 
 type statusCase struct {
-	CaseRoot       string `json:"caseRoot"`
-	MetadataSource string `json:"metadataSource"`
-	InstancePath   string `json:"instancePath"`
-	TemplateRoot   string `json:"templateRoot"`
-	TemplatePack   string `json:"templatePack"`
-	ProjectName    string `json:"projectName"`
-	ProjectRoot    string `json:"projectRoot"`
-	Moved          bool   `json:"moved"`
+	CaseRoot            string `json:"caseRoot"`
+	MetadataSource      string `json:"metadataSource"`
+	InstancePath        string `json:"instancePath"`
+	TemplateRoot        string `json:"templateRoot"`
+	TemplatePack        string `json:"templatePack"`
+	ProjectName         string `json:"projectName"`
+	ProjectRoot         string `json:"projectRoot"`
+	Moved               bool   `json:"moved"`
+	ShimPath            string `json:"shimPath"`
+	ShimMatchesTemplate bool   `json:"shimMatchesTemplate"`
+}
+
+type statusCaseShim struct {
+	Ready                 bool     `json:"ready"`
+	Summary               string   `json:"summary"`
+	TemplatePath          string   `json:"templatePath"`
+	CanonicalSkillPath    string   `json:"canonicalSkillPath"`
+	InstalledShimPath     string   `json:"installedShimPath,omitempty"`
+	InstalledShimMatches  *bool    `json:"installedShimMatchesTemplate,omitempty"`
+	RequiredPhrases       int      `json:"requiredPhrases"`
+	CanonicalSkillPhrases int      `json:"canonicalSkillPhrases"`
+	ForbiddenStrings      int      `json:"forbiddenStrings"`
+	Boundaries            int      `json:"boundaries"`
+	Warnings              []string `json:"warnings,omitempty"`
 }
 
 type statusManifestSummary struct {
@@ -806,6 +823,7 @@ func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runStatusText(ctx runtime.Context, out io.Writer) error {
+	caseShim := buildStatusCaseShim(ctx.RepoRoot, "")
 	fmt.Fprintf(out, "rekit go backend: %s\n", ctx.RuntimeRoot)
 	fmt.Fprintf(out, "template root: %s\n", ctx.RepoRoot)
 	fmt.Fprintf(out, "pack: %s\n", ctx.Pack)
@@ -814,15 +832,18 @@ func runStatusText(ctx runtime.Context, out io.Writer) error {
 		if err != nil {
 			return err
 		}
+		caseShim = buildStatusCaseShim(ctx.RepoRoot, inst.CaseRoot)
 		fmt.Fprintf(out, "case: %s\n", inst.CaseRoot)
 		fmt.Fprintf(out, "case metadata: %s %s\n", inst.Source, inst.InstancePath)
 		fmt.Fprintf(out, "case templateRoot: %s\n", inst.TemplateRoot)
 		fmt.Fprintf(out, "case templatePack: %s\n", inst.TemplatePack)
+		fmt.Fprintf(out, "case shim: %s ready=%t installed=%s matchesTemplate=%t\n", caseShim.Summary, caseShim.Ready, caseShim.InstalledShimPath, boolPtrValue(caseShim.InstalledShimMatches))
 		if inst.Moved() {
 			fmt.Fprintln(out, "detected moved case metadata")
 		}
 		return nil
 	}
+	fmt.Fprintf(out, "case shim: %s ready=%t\n", caseShim.Summary, caseShim.Ready)
 	m, err := manifest.Load(ctx.RepoRoot, ctx.Pack)
 	if err != nil {
 		return err
@@ -845,6 +866,7 @@ func buildStatusInventory(ctx runtime.Context) (statusInventory, error) {
 		Target:         ctx.Target,
 		TargetProvided: ctx.TargetProvided,
 		Mode:           "kit",
+		CaseShim:       buildStatusCaseShim(ctx.RepoRoot, ""),
 	}
 	if instance.LooksLikeCase(ctx.Target) {
 		inst, err := instance.Read(ctx.Target)
@@ -852,15 +874,19 @@ func buildStatusInventory(ctx runtime.Context) (statusInventory, error) {
 			return statusInventory{}, err
 		}
 		status.Mode = "case"
+		caseShim := buildStatusCaseShim(ctx.RepoRoot, inst.CaseRoot)
+		status.CaseShim = caseShim
 		status.Case = &statusCase{
-			CaseRoot:       inst.CaseRoot,
-			MetadataSource: inst.Source,
-			InstancePath:   inst.InstancePath,
-			TemplateRoot:   inst.TemplateRoot,
-			TemplatePack:   inst.TemplatePack,
-			ProjectName:    inst.ProjectName,
-			ProjectRoot:    inst.ProjectRoot,
-			Moved:          inst.Moved(),
+			CaseRoot:            inst.CaseRoot,
+			MetadataSource:      inst.Source,
+			InstancePath:        inst.InstancePath,
+			TemplateRoot:        inst.TemplateRoot,
+			TemplatePack:        inst.TemplatePack,
+			ProjectName:         inst.ProjectName,
+			ProjectRoot:         inst.ProjectRoot,
+			Moved:               inst.Moved(),
+			ShimPath:            caseShim.InstalledShimPath,
+			ShimMatchesTemplate: boolPtrValue(caseShim.InstalledShimMatches),
 		}
 		return status, nil
 	}
@@ -876,6 +902,40 @@ func buildStatusInventory(ctx runtime.Context) (statusInventory, error) {
 		ToolingFiles:  len(m.ToolingFiles),
 	}
 	return status, nil
+}
+
+func buildStatusCaseShim(repoRoot, caseRoot string) statusCaseShim {
+	readiness := caseshim.Inspect(repoRoot)
+	counts := caseshim.ReadinessCountsFor(readiness)
+	shim := statusCaseShim{
+		Ready:                 readiness.Ready,
+		Summary:               readiness.Summary,
+		TemplatePath:          filepath.Join(repoRoot, filepath.FromSlash(readiness.TemplatePath)),
+		CanonicalSkillPath:    filepath.Join(repoRoot, filepath.FromSlash(readiness.CanonicalSkillPath)),
+		RequiredPhrases:       counts.RequiredPhrases,
+		CanonicalSkillPhrases: counts.CanonicalSkillPhrases,
+		ForbiddenStrings:      counts.ForbiddenStrings,
+		Boundaries:            counts.Boundaries,
+		Warnings:              append([]string{}, readiness.Warnings...),
+	}
+	if strings.TrimSpace(caseRoot) == "" {
+		return shim
+	}
+	installed := caseshim.InspectInstalled(repoRoot, caseRoot)
+	shim.InstalledShimPath = installed.ShimPath
+	shim.InstalledShimMatches = &installed.MatchesTemplate
+	if !installed.Ready {
+		shim.Ready = false
+		shim.Warnings = append(shim.Warnings, installed.Warnings...)
+	}
+	if len(shim.Warnings) > 0 {
+		shim.Summary = "case shim readiness has warnings"
+	}
+	return shim
+}
+
+func boolPtrValue(value *bool) bool {
+	return value != nil && *value
 }
 
 type doctorInventory struct {
