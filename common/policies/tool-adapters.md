@@ -64,6 +64,8 @@ next_action:
 
 lane executor / tool adapter 执行前可以由主 Agent 调用 `gate -ExecutionReportContract -GateEventId <id> -Format json` 读取只读 contract。该 contract 投影已授权 gate 的 action、budget、output paths、allowed statuses、stop conditions、record/notify、report path rule、summary/escalation size、boundary/escalation requirements 与 denied actions，供 adapter 在不重扫 ledger 的情况下做 live validation；该读取不写 ledger、不执行工具、不写 authority/confirmed。
 
+lane executor / tool adapter 完成 `authorized-gate` 覆盖的实际动作并写出 sidecar 后，主 Agent 可以先调用 `gate -ValidateExecutionReport -GateEventId <id> -ExecutionReportPath <path> -Format json` 做只读 strict validation preflight。该路径复用正式 intake 的 path/schema/action/status/gateEventId/budget/ref/boundary/escalation 校验，输出 `isMutation=false` / `applied=false` / `valid=true` envelope，不写 observations ledger、不执行工具、不写 authority/confirmed。
+
 lane executor / tool adapter 完成 `authorized-gate` 覆盖的实际动作后，可以额外写一个 bounded JSON sidecar，并由主 Agent 通过 `gate -Apply -GateEventId <id> -ExecutionReportPath <path>` 记录 observation evidence。该 sidecar 必须留在 case 内、位于本次 authorized gate 的 output paths 下，且只包含 refs/summary/bounded escalation，不包含完整 trace/dump/log：
 
 ```json
@@ -83,7 +85,7 @@ lane executor / tool adapter 完成 `authorized-gate` 覆盖的实际动作后�
 }
 ```
 
-Go runtime 只读取并校验该 report 后写 observation evidence：`schemaVersion`、`kind`、`action`、`status`、`gateEventId`、actual budget、case-relative refs、authorized output path 边界、boundary token 与 bounded escalation 都会 fail-closed 校验；`boundary-hit` / `escalated` status 或 actual budget 超出授权预算时，sidecar 本身必须包含 `boundaryHits` 或 `escalation` marker，不能只靠外部命令参数补齐；它仍不执行 heavy-tool、不写 authority/confirmed。
+Go runtime 可先只读校验该 report，也可在正式记录时读取并校验该 report 后写 observation evidence：`schemaVersion`、`kind`、`action`、`status`、`gateEventId`、actual budget、case-relative refs、authorized output path 边界、boundary token 与 bounded escalation 都会 fail-closed 校验；`boundary-hit` / `escalated` status 或 actual budget 超出授权预算时，sidecar 本身必须包含 `boundaryHits` 或 `escalation` marker，不能只靠外部命令参数补齐；它仍不执行 heavy-tool、不写 authority/confirmed。
 
 能用脚本统计的不手工复制长表；需要 LLM 判断时先抽取小样本、摘要或 bounded diff。
 

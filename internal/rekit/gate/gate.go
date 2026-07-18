@@ -47,6 +47,7 @@ type Options struct {
 	Escalation              string
 	ExecutionReportPath     string
 	ExecutionReportContract bool
+	ValidateExecutionReport bool
 }
 
 type Plan struct {
@@ -145,6 +146,23 @@ type AdapterExecutionReportContract struct {
 	EscalationMaxBytes     int               `json:"escalationMaxBytes"`
 	DeniedActions          []string          `json:"deniedActions,omitempty"`
 	NextSteps              []string          `json:"nextSteps,omitempty"`
+}
+
+type AdapterExecutionReportValidation struct {
+	SchemaVersion int                            `json:"schemaVersion"`
+	Command       string                         `json:"command"`
+	Kind          string                         `json:"kind"`
+	CaseRoot      string                         `json:"caseRoot"`
+	RepoRoot      string                         `json:"repoRoot"`
+	Pack          string                         `json:"pack"`
+	IsMutation    bool                           `json:"isMutation"`
+	Applied       bool                           `json:"applied"`
+	Valid         bool                           `json:"valid"`
+	GateEventID   string                         `json:"gateEventId"`
+	ReportPath    string                         `json:"reportPath"`
+	Report        AdapterReport                  `json:"report"`
+	Contract      AdapterExecutionReportContract `json:"contract"`
+	NextSteps     []string                       `json:"nextSteps"`
 }
 
 type ApplyResult struct {
@@ -337,6 +355,36 @@ func AdapterReportContract(repoRoot, caseRoot, pack string, opt Options) (Adapte
 		return AdapterExecutionReportContract{}, err
 	}
 	return adapterReportContract(repoRoot, inst.CaseRoot, pack, event), nil
+}
+
+func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options) (AdapterExecutionReportValidation, error) {
+	inst, gateEvent, err := authorizedGateEvent(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return AdapterExecutionReportValidation{}, err
+	}
+	reportRel, adapterReport, err := readAdapterExecutionReport(inst.CaseRoot, gateEvent, opt.ExecutionReportPath)
+	if err != nil {
+		return AdapterExecutionReportValidation{}, err
+	}
+	if adapterReport == nil {
+		return AdapterExecutionReportValidation{}, fmt.Errorf("gate execution report validation requires -ExecutionReportPath")
+	}
+	return AdapterExecutionReportValidation{
+		SchemaVersion: 1,
+		Command:       "gate",
+		Kind:          "adapter-execution-report-validation",
+		CaseRoot:      inst.CaseRoot,
+		RepoRoot:      repoRoot,
+		Pack:          pack,
+		IsMutation:    false,
+		Applied:       false,
+		Valid:         true,
+		GateEventID:   gateEvent.EventID,
+		ReportPath:    reportRel,
+		Report:        *adapterReport,
+		Contract:      adapterReportContract(repoRoot, inst.CaseRoot, pack, gateEvent),
+		NextSteps:     []string{"report is valid for read-only preflight", "record it after the authorized action with gate -Apply -GateEventId ... -ExecutionReportPath ...", "review refs before any authority/confirmed outcome"},
+	}, nil
 }
 
 func findAuthorizedGateEvent(caseRoot, gateEventID string) (EventPreview, error) {

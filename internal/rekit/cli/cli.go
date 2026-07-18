@@ -418,6 +418,8 @@ func Parse(args []string) (Options, error) {
 			opt.Gate.ExecutionReportPath = args[i]
 		case "-ExecutionReportContract", "--execution-report-contract":
 			opt.Gate.ExecutionReportContract = true
+		case "-ValidateExecutionReport", "--validate-execution-report":
+			opt.Gate.ValidateExecutionReport = true
 		case "-Format", "--format":
 			i++
 			if i >= len(args) {
@@ -1677,6 +1679,9 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("unsupported gate format: %s", opt.Format)
 	}
+	if opt.Gate.ExecutionReportContract && opt.Gate.ValidateExecutionReport {
+		return fmt.Errorf("gate -ExecutionReportContract cannot be combined with -ValidateExecutionReport")
+	}
 	if opt.Gate.ExecutionReportContract {
 		if opt.Apply || opt.WhatIf {
 			return fmt.Errorf("gate -ExecutionReportContract is read-only; omit -Apply and -WhatIf")
@@ -1692,6 +1697,25 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 			return err
 		}
 		return writeJSON(out, contract)
+	}
+	if opt.Gate.ValidateExecutionReport {
+		if opt.Apply || opt.WhatIf {
+			return fmt.Errorf("gate -ValidateExecutionReport is read-only; omit -Apply and -WhatIf")
+		}
+		if format != "json" {
+			return fmt.Errorf("gate -ValidateExecutionReport supports only -Format json")
+		}
+		if strings.TrimSpace(opt.Gate.ExecutionReportPath) == "" {
+			return fmt.Errorf("gate -ValidateExecutionReport requires -ExecutionReportPath")
+		}
+		if wantsGateExecutionEvidenceDetailsExceptReportPath(opt.Gate) {
+			return fmt.Errorf("gate -ValidateExecutionReport cannot be combined with execution evidence fields other than -ExecutionReportPath")
+		}
+		validation, err := gate.ValidateAdapterExecutionReport(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, validation)
 	}
 	executionEvidence := wantsGateExecutionEvidence(opt.Gate)
 	if opt.WhatIf {
@@ -1730,7 +1754,11 @@ func wantsGateExecutionEvidence(opt gate.Options) bool {
 }
 
 func wantsGateExecutionEvidenceDetails(opt gate.Options) bool {
-	return strings.TrimSpace(opt.ExecutionStatus) != "" || opt.ActualRuntimeSeconds != 0 || opt.ActualDiskMB != 0 || opt.ActualRequests != 0 || strings.TrimSpace(opt.OutputRefs) != "" || strings.TrimSpace(opt.EvidenceRefs) != "" || strings.TrimSpace(opt.BoundaryHits) != "" || strings.TrimSpace(opt.Escalation) != "" || strings.TrimSpace(opt.ExecutionReportPath) != ""
+	return wantsGateExecutionEvidenceDetailsExceptReportPath(opt) || strings.TrimSpace(opt.ExecutionReportPath) != ""
+}
+
+func wantsGateExecutionEvidenceDetailsExceptReportPath(opt gate.Options) bool {
+	return strings.TrimSpace(opt.ExecutionStatus) != "" || opt.ActualRuntimeSeconds != 0 || opt.ActualDiskMB != 0 || opt.ActualRequests != 0 || strings.TrimSpace(opt.OutputRefs) != "" || strings.TrimSpace(opt.EvidenceRefs) != "" || strings.TrimSpace(opt.BoundaryHits) != "" || strings.TrimSpace(opt.Escalation) != ""
 }
 
 func writeGatePlanText(out io.Writer, plan gate.Plan) error {

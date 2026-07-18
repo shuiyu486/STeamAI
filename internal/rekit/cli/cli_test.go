@@ -78,6 +78,16 @@ func TestParseGateExecutionReportContract(t *testing.T) {
 	}
 }
 
+func TestParseGateValidateExecutionReport(t *testing.T) {
+	opt, err := Parse([]string{"-Command", "gate", "-ValidateExecutionReport", "-GateEventId", "evt-authorized", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.Gate.ValidateExecutionReport || opt.Gate.GateEventID != "evt-authorized" || opt.Gate.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" {
+		t.Fatalf("unexpected gate validation options: %+v", opt.Gate)
+	}
+}
+
 func TestParsePlanSubagentsNumericOptionsRejectTrailingJunk(t *testing.T) {
 	_, err := Parse([]string{"-Command", "plan-subagents", "-ItemsPerAgent", "2x"})
 	if err == nil || !strings.Contains(err.Error(), "invalid -ItemsPerAgent") {
@@ -5061,6 +5071,42 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
   "escalation": "adapter escalated from CLI E2E",
   "summary": "Adapter reported an escalation"
 }`)
+	observationsBeforeValidation, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ValidateExecutionReport", "-GateEventId", authorizedEventID, "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-escalation.json", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var adapterValidation struct {
+		Kind       string `json:"kind"`
+		Valid      bool   `json:"valid"`
+		IsMutation bool   `json:"isMutation"`
+		Applied    bool   `json:"applied"`
+		ReportPath string `json:"reportPath"`
+		Report     struct {
+			AdapterID  string `json:"adapterId"`
+			Escalation string `json:"escalation"`
+		} `json:"report"`
+		Contract struct {
+			GateEventID string `json:"gateEventId"`
+			Action      string `json:"action"`
+		} `json:"contract"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &adapterValidation); err != nil {
+		t.Fatalf("adapter execution report validation stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if adapterValidation.Kind != "adapter-execution-report-validation" || !adapterValidation.Valid || adapterValidation.IsMutation || adapterValidation.Applied || adapterValidation.ReportPath != "workspace/main/debug/session-1/adapter-escalation.json" || adapterValidation.Report.AdapterID != "cli-adapter" || adapterValidation.Report.Escalation != "adapter escalated from CLI E2E" || adapterValidation.Contract.GateEventID != authorizedEventID || adapterValidation.Contract.Action != "debug" {
+		t.Fatalf("adapter execution report validation drifted: %+v", adapterValidation)
+	}
+	observationsAfterValidation, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(observationsAfterValidation) != string(observationsBeforeValidation) {
+		t.Fatalf("read-only adapter validation changed observations before record:\nbefore=%s\nafter=%s", string(observationsBeforeValidation), string(observationsAfterValidation))
+	}
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-GateEventId", authorizedEventID, "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-escalation.json", "-Actor", "executor-1", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)

@@ -16,21 +16,21 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 365：Adapter report escalation live-validation hardening**
+**Batch 366：Adapter report read-only validation preflight**
 
-状态：已完成 bounded adapter execution report 的 escalation / boundary marker strict intake hardening、CLI/package E2E 与 durable docs 更新；远程 release-gate 仍因 runner/billing blocker 失败，不能声明远程 CI green。
+状态：已完成 adapter execution report read-only validation preflight、CLI/package/façade coverage 与 durable docs 更新；远程 release-gate 仍需在 push 后检查，已知环境存在 runner/billing blocker，不能在本地直接声明远程 CI green。
 
-目标：补齐 Batch 359/361 adapter report contract 的 live-validation 细节：lane executor / tool adapter 写入的 bounded sidecar 若声明 `boundary-hit`、`escalated` 或实际预算越界，必须在 sidecar 自身携带 `boundaryHits` 或 `escalation` marker；`/rekit` 可把 bounded escalation 从 sidecar 嵌入 observation evidence，但仍不执行 heavy-tool、不写 authority/confirmed。
+目标：在 Batch 359/361/365 的 adapter report contract 与 strict intake 之外，让 lane executor / tool adapter 在把 bounded `adapter-execution-report` 记录进 observations ledger 之前，先用只读路径复用正式 intake 校验，确认 sidecar 位于 authorized output paths、schema/action/status/gateEventId/budget/ref/boundary/escalation 均可接受。
 
-边界：本批只强化 Go strict intake、只读 contract projection、CLI/package tests 与 durable docs；不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 authority/confirmed，不改变 sync/promote review-first、case shim template 内容、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；真实工具调用隔离、停止条件执行和 adapter-specific live validation 仍由 lane executor / tool adapter 在授权边界内承担。
+边界：本批只新增 Go read-only validation API、CLI/façade flag、package/CLI/façade tests 与 durable docs；不新增 PowerShell runtime logic，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 observations/authority/confirmed，不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；真实工具调用隔离、停止条件执行和 adapter-specific live validation 仍由 lane executor / tool adapter 在授权边界内承担。
 
-完成内容：
+已完成内容：
 
-- `AdapterReport` 新增 optional bounded `escalation` 字段，strict intake 会 trim 并限制 4096 bytes，写入 observation evidence 的 `execution.escalation` 与 `execution.adapter.escalation` provenance。
-- `AdapterExecutionReportContract` 输出 `escalationMaxBytes=4096`，并继续暴露 `boundaryStatusRequires[]`，让 adapter 执行前能消费 boundary/escalation sidecar requirements。
-- `validateAdapterExecutionReport` 现在 fail-closed 拒绝缺少 `boundaryHits` / `escalation` marker 的 `boundary-hit` / `escalated` report，以及 actual budget 超出 authorized budget 却无 marker 的 report；显式 `-Escalation` 与 sidecar escalation 不一致时拒绝写 observation。
-- 扩展 package tests 覆盖 adapter escalation happy path、boundary/escalated 缺 marker、预算越界缺 marker 与 explicit escalation mismatch；扩展 CLI E2E 覆盖 contract 字段与 `-ExecutionReportPath` escalation sidecar 写入 observations ledger，继续断言不写 authority/confirmed。
-- 更新 README、canonical `/rekit` skill、tool adapter policy、release readiness、Go-first convergence、agent-team rollout、tests guide、batch-plan 与 CHANGELOG，明确 `/rekit` 只记录 strict validated bounded report，不执行实际工具。
+- `gate.ValidateAdapterExecutionReport` 复用 `authorizedGateEvent`、`readAdapterExecutionReport` 与 `validateAdapterExecutionReport`，返回 `adapter-execution-report-validation` JSON envelope，包含 `isMutation=false`、`applied=false`、`valid=true`、normalized report、contract boundaries 与 next steps。
+- CLI 新增 `-ValidateExecutionReport` / `--validate-execution-report`，拒绝 `-Apply`、`-WhatIf`、`-ExecutionReportContract`、非 JSON format，以及除 `-ExecutionReportPath` 外的 execution evidence fields；该路径不写 observations ledger。
+- retained `rekit.ps1` 仅新增参数透传与 safe-delegation guard，`facade-smoke.ps1` 用 fake Go backend 捕获 `-ValidateExecutionReport` 参数，未新增 PowerShell 业务 runtime。
+- package tests 覆盖 read-only validation happy path 与 invalid sidecar fail-closed；CLI E2E 在正式 record 前验证 validation 不改变 observations ledger；parse test 覆盖新 flag。
+- README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go-first convergence、agent-team rollout、Go runtime migration、tests guide、CLAUDE 与 CHANGELOG 已同步说明只读 validation preflight。
 
 已通过验证：
 
@@ -43,17 +43,17 @@ go run ./cmd/rekit -- -Command release-check -Format json
 go run ./cmd/rekit -- -Command status
 go run ./cmd/rekit -- -Command packs
 go run ./cmd/rekit -- -Command doctor
+.\rekit\tests\facade-smoke.ps1
 git diff --check
-gh run view 29663908602 --json conclusion,event,headSha,jobs
 ```
 
-本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；最新 inspected remote run `29663908602` 对应 Batch 364 head `0edf787de75a09f8bb0208eda971579ff2dad055`，Linux/macOS/Windows jobs 均为 failure 且 steps 为空，仍符合已知 runner/billing blocker。
+本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；远程 release-gate 需在 push 后读取最新 run。Batch 365 push 后已知 run `29664863650` 对应 head `e82ecbf946e4053cac79580296352f881dedca05`，conclusion=failure 且 Linux/macOS/Windows jobs steps 为空，仍符合 runner/billing blocker。
 
 ### Next candidates
 
 1. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E、`status.caseShim` readiness 和完整 installed user entrypoint E2E 纳入可用 runner 验证。
 2. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
-3. **Lane executor/tool-adapter live validation hardening**：在 Batch 365 bounded report escalation strict intake 之外，为具体 lane executor / adapter 补真实工具调用隔离、停止条件执行和 adapter-specific live validation 的产品级闭环。
+3. **Lane executor/tool-adapter live validation hardening**：在 Batch 366 read-only report validation preflight 之外，为具体 lane executor / adapter 补真实工具调用隔离、停止条件执行和 adapter-specific live validation 的产品级闭环。
 4. **Pack-memory product UX hardening**：在 Batch 358 package E2E 之外，补真实多 pack/跨 case review UX、candidate cleanup 和人工 merge guidance 的产品级验证。
 
 ### Escalation / stopping conditions

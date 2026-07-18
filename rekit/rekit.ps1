@@ -44,6 +44,7 @@ param(
   [string]$Escalation = '',
   [string]$ExecutionReportPath = '',
   [switch]$ExecutionReportContract,
+  [switch]$ValidateExecutionReport,
   [string]$Route = '',
   [string]$TaskType = '',
   [string]$Items = '',
@@ -236,7 +237,8 @@ function Test-RekitGoDelegationSafe {
     'gate' {
       if ($CreateCandidates -or $Review -or $Force) { return $false }
       if ($WhatIf -and $Apply) { return $false }
-      if ($ExecutionReportContract) {
+      if ($ExecutionReportContract -and $ValidateExecutionReport) { return $false }
+      if ($ExecutionReportContract -or $ValidateExecutionReport) {
         if ($WhatIf -or $Apply) { return $false }
       } elseif ((-not $WhatIf) -and (-not $Apply)) {
         return $false
@@ -475,6 +477,7 @@ function Get-RekitGoArgs {
     Add-RekitGoArg ([ref]$goArgs) '-Escalation' $Escalation
     Add-RekitGoArg ([ref]$goArgs) '-ExecutionReportPath' $ExecutionReportPath
     Add-RekitGoSwitch ([ref]$goArgs) '-ExecutionReportContract' $ExecutionReportContract.IsPresent
+    Add-RekitGoSwitch ([ref]$goArgs) '-ValidateExecutionReport' $ValidateExecutionReport.IsPresent
   }
   if ($Command -eq 'plan-subagents') {
     Add-RekitGoArg ([ref]$goArgs) '-Route' $Route

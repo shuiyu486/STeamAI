@@ -268,6 +268,14 @@ try {
   foreach ($expectedGateArg in @('-GateEventId evt-authorized-gate','-ExecutionReportContract','-Format json')) {
     Assert-ContainsText -Text $capturedGateContractArgs -Expected $expectedGateArg -Label 'gate execution report contract facade args'
   }
+  $gateValidationCapturePath = Join-Path $matrixRoot 'gate-execution-validation-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $gateValidationCapturePath
+  $gateValidationOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-GateEventId','evt-authorized-gate','-ValidateExecutionReport','-ExecutionReportPath','workspace/main/debug/adapter-report.json','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $gateValidationOut -Expected '"delegatedByFake":true' -Label 'default gate execution report validation delegation'
+  $capturedGateValidationArgs = [System.IO.File]::ReadAllText($gateValidationCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedGateArg in @('-GateEventId evt-authorized-gate','-ValidateExecutionReport','-ExecutionReportPath workspace/main/debug/adapter-report.json','-Format json')) {
+    Assert-ContainsText -Text $capturedGateValidationArgs -Expected $expectedGateArg -Label 'gate execution report validation facade args'
+  }
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'start' -Label 'default start JSON preview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-apply','-Pack',$Pack,'-Apply','-Executor','matrix-session','-Actor','facade-smoke','-Reason','matrix explicit takeover') -CommandName 'start' -Label 'default start apply delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-json-apply','-Pack',$Pack,'-Apply','-Format','json') -CommandName 'start' -Label 'default start JSON apply delegation'

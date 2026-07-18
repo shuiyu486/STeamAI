@@ -10,7 +10,7 @@
 
 ## 实施摘要
 
-长期目标保持不变但阶段重点已更新：`re-context-kits` 应成为 Claude Code 中的多会话 Agent Team Mission Control 框架，而不是命令大全；Go 已是 public command surface 的 deterministic owner。Batch 359 后，主 Agent实际 spawn read-only reviewer → Go-native strict intake/writeback、本机 bounded reviewer E2E、pack-memory promote/reconsume package E2E，以及 authorized execution observation evidence + bounded adapter execution report strict intake/contract projection（含 sidecar boundary/escalation marker fail-closed validation）均已形成底座；runtime 仍不自动 spawn 或管理 session/reviewer，也不执行 heavy-tool。当前重点是 replaceable session executor / reviewer orchestration、lane executor / tool-adapter live validation hardening、pack-memory product UX、PowerShell-free product path 与跨平台验证，而不是继续扩 contract/inventory 字段。
+长期目标保持不变但阶段重点已更新：`re-context-kits` 应成为 Claude Code 中的多会话 Agent Team Mission Control 框架，而不是命令大全；Go 已是 public command surface 的 deterministic owner。Batch 359 后，主 Agent实际 spawn read-only reviewer → Go-native strict intake/writeback、本机 bounded reviewer E2E、pack-memory promote/reconsume package E2E，以及 authorized execution observation evidence + bounded adapter execution report strict intake/contract projection/read-only validation preflight（含 sidecar boundary/escalation marker fail-closed validation）均已形成底座；runtime 仍不自动 spawn 或管理 session/reviewer，也不执行 heavy-tool。当前重点是 replaceable session executor / reviewer orchestration、lane executor / tool-adapter live validation hardening、pack-memory product UX、PowerShell-free product path 与跨平台验证，而不是继续扩 contract/inventory 字段。
 
 核心产品形态：
 
