@@ -145,11 +145,21 @@ type ShardHandoff struct {
 	ReadOnlyBoundary         []string                  `json:"readOnlyBoundary"`
 	ExpectedOutput           string                    `json:"expectedOutput"`
 	ReviewerWriteback        string                    `json:"reviewerWriteback"`
+	ReviewerResultContract   ReviewerResultContract    `json:"reviewerResultContract"`
 	LedgerWritebackTemplates []LedgerWritebackTemplate `json:"ledgerWritebackTemplates"`
 	MainAgentNextAction      string                    `json:"mainAgentNextAction"`
+	IntakeChecklist          []string                  `json:"intakeChecklist"`
 	PostReviewMerge          []string                  `json:"postReviewMerge"`
 	CompletionCriteria       []string                  `json:"completionCriteria"`
 	FailureHandling          string                    `json:"failureHandling"`
+}
+
+type ReviewerResultContract struct {
+	OutputFormat     string   `json:"outputFormat"`
+	RequiredFields   []string `json:"requiredFields"`
+	AllowedDecisions []string `json:"allowedDecisions"`
+	EvidenceRules    []string `json:"evidenceRules"`
+	ConflictSignals  []string `json:"conflictSignals"`
 }
 
 type LedgerWritebackTemplate struct {
@@ -348,14 +358,45 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 			ReadOnlyBoundary:         append([]string{}, readOnlyBoundary...),
 			ExpectedOutput:           route.OutputContract,
 			ReviewerWriteback:        reviewLoop.VerdictWriteback,
+			ReviewerResultContract:   reviewerResultContract(),
 			LedgerWritebackTemplates: ledgerWritebackTemplates(shard),
-			MainAgentNextAction:      "launch a read-only reviewer with dispatchPrompt, inspect the output, run ledgerWritebackTemplates.previewCommand, then use applyCommand for reviewer verification and main merge decision",
+			MainAgentNextAction:      "launch a read-only reviewer with dispatchPrompt, inspect reviewerResultContract output, run ledgerWritebackTemplates.previewCommand, then use applyCommand for reviewer verification and main merge decision",
+			IntakeChecklist:          intakeChecklist(),
 			PostReviewMerge:          postReviewMergeSteps(),
 			CompletionCriteria:       append([]string{}, reviewLoop.CompletionCriteria...),
 			FailureHandling:          reviewLoop.FailureHandling,
 		})
 	}
 	return handoffs
+}
+
+func reviewerResultContract() ReviewerResultContract {
+	return ReviewerResultContract{
+		OutputFormat:     "single JSON object per shard; no markdown tables, file writes, ledger appends, authority, confirmed, or heavy-tool output",
+		RequiredFields:   []string{"shardId", "items", "decision", "confidence", "summary", "evidenceRefs", "risks", "conflicts", "recommendedVerdict"},
+		AllowedDecisions: []string{"accept", "reject", "defer", "abandon", "needs-more-evidence"},
+		EvidenceRules: []string{
+			"accepted or rejected reviewer decisions must cite evidenceRefs from the packet, reviewed artifacts, or bounded evidence paths",
+			"missing, ambiguous, or inaccessible evidenceRefs require decision=needs-more-evidence or defer",
+			"do not paste long logs; cite stable packet/evidence references and summarize the relevant observation",
+		},
+		ConflictSignals: []string{
+			"reviewer decision conflicts with evidenceRefs or route output contract",
+			"reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects",
+			"reviewer output overlaps another shard or changes items outside this shard",
+			"reviewer confidence is low or evidence cannot be independently inspected by the main agent",
+		},
+	}
+}
+
+func intakeChecklist() []string {
+	return []string{
+		"validate reviewer output against reviewerResultContract before using any writeback template",
+		"confirm every accepted/rejected item has inspected evidenceRefs and no out-of-shard claims",
+		"map reviewer decision to verification verdict before running the verification previewCommand",
+		"defer the main decision when conflicts, missing evidence, or blocked outputs are present",
+		"run note previewCommand before applyCommand and inspect event / wouldExecutorAction before ledger writeback",
+	}
 }
 
 func ledgerWritebackTemplates(shard Shard) []LedgerWritebackTemplate {
@@ -419,11 +460,15 @@ func postReviewMergeSteps() []string {
 }
 
 func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, reviewLoop ReviewLoop) string {
+	contract := reviewerResultContract()
 	lines := []string{
 		"You are a read-only reviewer for rekit plan-subagents shard " + shard.ID + ".",
 		"Route: " + route.ID + ".",
 		"Items: " + strings.Join(shard.Items, ", ") + ".",
 		"Return only this output contract: " + route.OutputContract + ".",
+		"Reviewer result contract: " + contract.OutputFormat + ".",
+		"Required result fields: " + strings.Join(contract.RequiredFields, ", ") + ".",
+		"Allowed decisions: " + strings.Join(contract.AllowedDecisions, ", ") + ".",
 		"Do not write files, run heavy tools, append ledgers, or change authority/confirmed state.",
 		"The main agent owns merge, validation, handoff, and ledger writeback: " + reviewLoop.VerdictWriteback + ".",
 	}
@@ -636,6 +681,17 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 	} else {
 		for _, handoff := range shardHandoffs {
 			lines = append(lines, fmt.Sprintf("- %s: `%s`; expected output=`%s`", handoff.ShardID, handoff.DispatchPrompt, handoff.ExpectedOutput))
+			contract := handoff.ReviewerResultContract
+			lines = append(lines, fmt.Sprintf("  - reviewer result contract: output=`%s`; required=`%s`; allowed decisions=`%s`", contract.OutputFormat, strings.Join(contract.RequiredFields, ","), strings.Join(contract.AllowedDecisions, ",")))
+			for _, rule := range contract.EvidenceRules {
+				lines = append(lines, "    - evidence-rule: "+rule)
+			}
+			for _, signal := range contract.ConflictSignals {
+				lines = append(lines, "    - conflict-signal: "+signal)
+			}
+			for _, item := range handoff.IntakeChecklist {
+				lines = append(lines, "    - intake-check: "+item)
+			}
 			for _, tmpl := range handoff.LedgerWritebackTemplates {
 				lines = append(lines, fmt.Sprintf("  - %s writeback preview: `%s`; apply: `%s`; required=`%s`", tmpl.Kind, tmpl.PreviewCommand, tmpl.ApplyCommand, strings.Join(tmpl.RequiredFields, ",")))
 				for _, check := range tmpl.PreviewChecks {

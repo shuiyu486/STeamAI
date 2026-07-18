@@ -3839,8 +3839,14 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		t.Fatalf("missing shard handoffs: result=%+v packet=%+v", result.ShardHandoffs, packet.ShardHandoffs)
 	}
 	firstHandoff := packet.ShardHandoffs[0]
-	if firstHandoff.ShardID != "shard-01" || firstHandoff.Status != "planned" || strings.Join(firstHandoff.Items, ",") != "alpha,beta" || !strings.Contains(firstHandoff.DispatchPrompt, "read-only reviewer") || !strings.Contains(firstHandoff.DispatchPrompt, "Do not write files") || !strings.Contains(firstHandoff.ExpectedOutput, "decision") || !strings.Contains(firstHandoff.ReviewerWriteback, "note -Kind verification") || !strings.Contains(firstHandoff.MainAgentNextAction, "previewCommand") || !strings.Contains(firstHandoff.MainAgentNextAction, "applyCommand") || !slices.Contains(firstHandoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(firstHandoff.CompletionCriteria, "reviewer verdicts are recorded in the ledger before main merge decisions") || firstHandoff.FailureHandling == "" {
+	if firstHandoff.ShardID != "shard-01" || firstHandoff.Status != "planned" || strings.Join(firstHandoff.Items, ",") != "alpha,beta" || !strings.Contains(firstHandoff.DispatchPrompt, "read-only reviewer") || !strings.Contains(firstHandoff.DispatchPrompt, "Do not write files") || !strings.Contains(firstHandoff.ExpectedOutput, "decision") || !strings.Contains(firstHandoff.ReviewerWriteback, "note -Kind verification") || !strings.Contains(firstHandoff.MainAgentNextAction, "reviewerResultContract") || !strings.Contains(firstHandoff.MainAgentNextAction, "previewCommand") || !strings.Contains(firstHandoff.MainAgentNextAction, "applyCommand") || !slices.Contains(firstHandoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(firstHandoff.CompletionCriteria, "reviewer verdicts are recorded in the ledger before main merge decisions") || firstHandoff.FailureHandling == "" {
 		t.Fatalf("unexpected shard handoff: %+v", firstHandoff)
+	}
+	if firstHandoff.ReviewerResultContract.OutputFormat == "" || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "recommendedVerdict") || !slices.Contains(firstHandoff.ReviewerResultContract.AllowedDecisions, "needs-more-evidence") || !slices.Contains(firstHandoff.ReviewerResultContract.ConflictSignals, "reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects") {
+		t.Fatalf("unexpected reviewer result contract: %+v", firstHandoff.ReviewerResultContract)
+	}
+	if !slices.Contains(firstHandoff.IntakeChecklist, "validate reviewer output against reviewerResultContract before using any writeback template") || !slices.Contains(firstHandoff.IntakeChecklist, "defer the main decision when conflicts, missing evidence, or blocked outputs are present") {
+		t.Fatalf("unexpected intake checklist: %+v", firstHandoff.IntakeChecklist)
 	}
 	if len(firstHandoff.LedgerWritebackTemplates) != 2 || firstHandoff.LedgerWritebackTemplates[0].Kind != "verification" || firstHandoff.LedgerWritebackTemplates[1].Kind != "decision" {
 		t.Fatalf("unexpected shard writeback templates: %+v", firstHandoff.LedgerWritebackTemplates)
@@ -3858,7 +3864,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing summary: %v", err)
 	}
-	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -4939,11 +4945,21 @@ type planSubagentsHandoff struct {
 	ReadOnlyBoundary         []string                         `json:"readOnlyBoundary"`
 	ExpectedOutput           string                           `json:"expectedOutput"`
 	ReviewerWriteback        string                           `json:"reviewerWriteback"`
+	ReviewerResultContract   planSubagentsReviewerContract    `json:"reviewerResultContract"`
 	LedgerWritebackTemplates []planSubagentsWritebackTemplate `json:"ledgerWritebackTemplates"`
 	MainAgentNextAction      string                           `json:"mainAgentNextAction"`
+	IntakeChecklist          []string                         `json:"intakeChecklist"`
 	PostReviewMerge          []string                         `json:"postReviewMerge"`
 	CompletionCriteria       []string                         `json:"completionCriteria"`
 	FailureHandling          string                           `json:"failureHandling"`
+}
+
+type planSubagentsReviewerContract struct {
+	OutputFormat     string   `json:"outputFormat"`
+	RequiredFields   []string `json:"requiredFields"`
+	AllowedDecisions []string `json:"allowedDecisions"`
+	EvidenceRules    []string `json:"evidenceRules"`
+	ConflictSignals  []string `json:"conflictSignals"`
 }
 
 type planSubagentsWritebackTemplate struct {

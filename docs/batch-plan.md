@@ -10672,3 +10672,35 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/subagents/plan.go internal/rekit/subagents/plan_test.go internal/rekit/cli/cli_test.go` 与 targeted `go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestWritePlan|TestRunPlanSubagents" -count=1`；完整 release gate 已运行 `go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`，均通过。`git diff --check` 仅报告 Windows LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade delegation/fallback。
+
+### Batch 348：Go-native plan-subagents reviewer result contract
+
+状态：已完成。
+
+目标：继续 Stage 6 Agent Team dry-run / bounded dispatch 可用性强化，在 Batch 347 的 ledger preview/apply writeback 模板基础上，为每个 shard handoff 增加 reviewer result contract 与 main-agent intake checklist，让主 Agent 在 note preview/apply 之前可用统一 schema 审查 read-only reviewer 输出、证据引用、冲突信号和 blocked outputs。
+
+实施范围：
+
+- `internal/rekit/subagents` 扩展 `ShardHandoff` contract，新增 `ReviewerResultContract` 与 `IntakeChecklist`；每个 handoff 输出 reviewer JSON result contract、required fields、allowed decisions、evidence rules、conflict signals 与主 Agent intake 顺序。
+- `shardDispatchPrompt` 明确要求 read-only reviewer 返回单个 JSON object，并列出 required fields 与 allowed decisions；reviewer 仍不得写文件、运行 heavy tools、append ledgers 或修改 authority/confirmed。
+- `summary.md` 的 shard handoff prompts 同步列出 reviewer result contract、evidence-rule、conflict-signal、intake-check、writeback preview/apply、preview-check、blocked-output 与 post-review guidance，便于主 Agent 不解析完整 JSON 也能按 intake -> preview -> apply 顺序执行。
+- 扩展 `internal/rekit/subagents/plan_test.go` 与 CLI E2E assertions，覆盖 result/packet/summary 的 reviewer result contract、required fields、allowed decisions、evidence rules、conflict signals 与 intake checklist 可见性。
+- 更新 README、项目 CLAUDE、canonical `/rekit` skill、Agent Team usage、release readiness、Go-first convergence、batch-plan 与 CHANGELOG，记录 reviewer result contract / intake checklist 边界。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不自动 spawn reviewer，不替 reviewer 写 ledger，不写 board/facts/lanes/handoff/authority/confirmed，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不改变 sync/promote review-first、facts/board/policy durable schema、policy schema 或公共 façade deletion 边界；新增 `reviewerResultContract` / `intakeChecklist[]` 是 additive public output，旧 `command`、`previewCommand`、`applyCommand`、`shards[]`、`shardHandoffs[]`、`ledgerWritebackTemplates[]`、`observability` 与 `reviewLoop` 字段保持兼容。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/subagents/plan.go internal/rekit/subagents/plan_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestWritePlan|TestRunPlanSubagents" -count=1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/subagents/plan.go internal/rekit/subagents/plan_test.go internal/rekit/cli/cli_test.go` 与 targeted `go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestWritePlan|TestRunPlanSubagents" -count=1`；完整 release gate 已运行 `go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`，均通过。`git diff --check` 仅报告 Windows LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade delegation/fallback。

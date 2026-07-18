@@ -45,7 +45,7 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"### shard handoff prompts", "read-only reviewer", "Do not write files", "expected output=`item,decision", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"### shard handoff prompts", "read-only reviewer", "Do not write files", "expected output=`item,decision", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -80,8 +80,14 @@ func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantI
 			t.Fatalf("dispatch prompt missing %q: %+v", expected, handoff)
 		}
 	}
-	if !strings.Contains(handoff.ExpectedOutput, "decision") || !strings.Contains(handoff.ReviewerWriteback, "note -Kind verification") || !strings.Contains(handoff.MainAgentNextAction, "previewCommand") || !strings.Contains(handoff.MainAgentNextAction, "applyCommand") {
+	if !strings.Contains(handoff.ExpectedOutput, "decision") || !strings.Contains(handoff.ReviewerWriteback, "note -Kind verification") || !strings.Contains(handoff.MainAgentNextAction, "reviewerResultContract") || !strings.Contains(handoff.MainAgentNextAction, "previewCommand") || !strings.Contains(handoff.MainAgentNextAction, "applyCommand") {
 		t.Fatalf("unexpected reviewer contract: %+v", handoff)
+	}
+	if handoff.ReviewerResultContract.OutputFormat == "" || !slices.Contains(handoff.ReviewerResultContract.RequiredFields, "recommendedVerdict") || !slices.Contains(handoff.ReviewerResultContract.AllowedDecisions, "needs-more-evidence") || !slices.Contains(handoff.ReviewerResultContract.EvidenceRules, "missing, ambiguous, or inaccessible evidenceRefs require decision=needs-more-evidence or defer") || !slices.Contains(handoff.ReviewerResultContract.ConflictSignals, "reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects") {
+		t.Fatalf("unexpected reviewer result contract: %+v", handoff.ReviewerResultContract)
+	}
+	if !slices.Contains(handoff.IntakeChecklist, "validate reviewer output against reviewerResultContract before using any writeback template") || !slices.Contains(handoff.IntakeChecklist, "defer the main decision when conflicts, missing evidence, or blocked outputs are present") {
+		t.Fatalf("unexpected intake checklist: %+v", handoff.IntakeChecklist)
 	}
 	if len(handoff.LedgerWritebackTemplates) != 2 || handoff.LedgerWritebackTemplates[0].Kind != "verification" || handoff.LedgerWritebackTemplates[1].Kind != "decision" {
 		t.Fatalf("unexpected writeback templates: %+v", handoff.LedgerWritebackTemplates)
