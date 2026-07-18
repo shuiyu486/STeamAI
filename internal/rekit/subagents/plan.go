@@ -14,6 +14,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 const commandName = "plan-subagents"
@@ -28,6 +29,7 @@ type Options struct {
 	ReviewOutputDir string
 	PacketPath      string
 	DiffPath        string
+	Lane            string
 }
 
 type Result struct {
@@ -45,6 +47,8 @@ type Result struct {
 	CombinedDiffPath      string         `json:"combinedDiffPath"`
 	ItemCount             int            `json:"itemCount"`
 	ShardCount            int            `json:"shardCount"`
+	TargetLane            string         `json:"targetLane"`
+	OwnerBinding          OwnerBinding   `json:"ownerBinding"`
 	ShardHandoffs         []ShardHandoff `json:"shardHandoffs"`
 	Observability         Observability  `json:"observability"`
 	ReviewLoop            ReviewLoop     `json:"reviewLoop"`
@@ -61,6 +65,7 @@ type Packet struct {
 	Pack                      string         `json:"pack"`
 	ManifestPath              string         `json:"manifestPath"`
 	TargetLane                string         `json:"targetLane"`
+	OwnerBinding              OwnerBinding   `json:"ownerBinding"`
 	Route                     Route          `json:"route"`
 	Input                     Input          `json:"input"`
 	ShardPolicy               ShardPolicy    `json:"shardPolicy"`
@@ -72,6 +77,19 @@ type Packet struct {
 	ReviewRequired            bool           `json:"reviewRequired"`
 	Observability             Observability  `json:"observability"`
 	ReviewLoop                ReviewLoop     `json:"reviewLoop"`
+}
+
+type OwnerBinding struct {
+	TargetLane             string `json:"targetLane"`
+	CurrentExecutor        string `json:"currentExecutor,omitempty"`
+	ExecutorGeneration     int    `json:"executorGeneration,omitempty"`
+	LastTakeoverAt         string `json:"lastTakeoverAt,omitempty"`
+	LastTakeoverBy         string `json:"lastTakeoverBy,omitempty"`
+	LastTakeoverReason     string `json:"lastTakeoverReason,omitempty"`
+	BindingMode            string `json:"bindingMode"`
+	RequiredForIntake      bool   `json:"requiredForIntake"`
+	MainAgentSpawnOwner    string `json:"mainAgentSpawnOwner"`
+	RuntimeSessionBoundary string `json:"runtimeSessionBoundary"`
 }
 
 type Observability struct {
@@ -147,6 +165,7 @@ type ShardHandoff struct {
 	ShardID                  string                    `json:"shardId"`
 	Status                   string                    `json:"status"`
 	ReviewerResultPath       string                    `json:"reviewerResultPath"`
+	OwnerBinding             OwnerBinding              `json:"ownerBinding"`
 	DispatchPrompt           string                    `json:"dispatchPrompt"`
 	Items                    []string                  `json:"items"`
 	ReadOnlyBoundary         []string                  `json:"readOnlyBoundary"`
@@ -274,8 +293,12 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	}
 	observability := newObservability(route, opt, paths, shards)
 	reviewLoop := newReviewLoop(route)
-	targetLane := strings.TrimSpace(m.WorkstreamDefaults["defaultAuthorityLane"])
-	shardHandoffs := newShardHandoffs(shards, route, observability, reviewLoop, planRoot, m.Pack, targetLane, caseTarget)
+	ownerBinding, err := resolveOwnerBinding(planRoot, m, opt, caseTarget)
+	if err != nil {
+		return Result{}, err
+	}
+	targetLane := ownerBinding.TargetLane
+	shardHandoffs := newShardHandoffs(shards, route, observability, reviewLoop, planRoot, m.Pack, ownerBinding, caseTarget)
 	packet := Packet{
 		SchemaVersion:             1,
 		Command:                   commandName,
@@ -286,6 +309,7 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 		Pack:                      m.Pack,
 		ManifestPath:              m.ManifestPath,
 		TargetLane:                targetLane,
+		OwnerBinding:              ownerBinding,
 		Route:                     route,
 		Input:                     Input{TaskType: opt.TaskType, ItemCount: len(items), ItemsFile: itemsFile},
 		ShardPolicy:               ShardPolicy{Basis: route.ShardBasis, TargetItemsPerAgent: itemsPerAgent, MaxParallel: maxParallel},
@@ -302,10 +326,55 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	if err := writeJSON(paths.PacketPath, packet); err != nil {
 		return Result{}, err
 	}
-	if err := os.WriteFile(paths.SummaryPath, []byte(summaryText(route, opt.TaskType, len(items), len(shards), itemsPerAgent, maxParallel, observability, reviewLoop, shardHandoffs)), 0o644); err != nil {
+	if err := os.WriteFile(paths.SummaryPath, []byte(summaryText(route, opt.TaskType, len(items), len(shards), itemsPerAgent, maxParallel, observability, reviewLoop, ownerBinding, shardHandoffs)), 0o644); err != nil {
 		return Result{}, err
 	}
-	return Result{SchemaVersion: 1, Command: commandName, PlanRoot: planRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, IsMutation: false, WritesReviewArtifacts: true, ReviewRequired: true, ReviewRoot: paths.Root, PacketPath: paths.PacketPath, SummaryPath: paths.SummaryPath, CombinedDiffPath: paths.CombinedDiffPath, ItemCount: len(items), ShardCount: len(shards), ShardHandoffs: shardHandoffs, Observability: observability, ReviewLoop: reviewLoop}, nil
+	return Result{SchemaVersion: 1, Command: commandName, PlanRoot: planRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, IsMutation: false, WritesReviewArtifacts: true, ReviewRequired: true, ReviewRoot: paths.Root, PacketPath: paths.PacketPath, SummaryPath: paths.SummaryPath, CombinedDiffPath: paths.CombinedDiffPath, ItemCount: len(items), ShardCount: len(shards), TargetLane: targetLane, OwnerBinding: ownerBinding, ShardHandoffs: shardHandoffs, Observability: observability, ReviewLoop: reviewLoop}, nil
+}
+
+func resolveOwnerBinding(planRoot string, m *manifest.Manifest, opt Options, intakeAvailable bool) (OwnerBinding, error) {
+	targetLane := strings.TrimSpace(opt.Lane)
+	if targetLane == "" {
+		targetLane = strings.TrimSpace(m.WorkstreamDefaults["defaultAuthorityLane"])
+	}
+	if targetLane == "" {
+		return OwnerBinding{}, fmt.Errorf("plan-subagents requires a target lane from -Lane or manifest defaultAuthorityLane")
+	}
+	binding := OwnerBinding{
+		TargetLane:             targetLane,
+		BindingMode:            "out-of-case-dispatch-only",
+		RequiredForIntake:      false,
+		MainAgentSpawnOwner:    "main-agent",
+		RuntimeSessionBoundary: "runtime only records reviewer owner provenance; it does not spawn, stop, monitor, or manage reviewer/member sessions",
+	}
+	if !intakeAvailable {
+		return binding, nil
+	}
+	board, err := mission.ReadBoard(planRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			binding.BindingMode = "attached-case-board-missing"
+			return binding, nil
+		}
+		return OwnerBinding{}, fmt.Errorf("read board for reviewer owner binding: %w", err)
+	}
+	lane, ok := mission.LookupBoardLane(board.Lanes, targetLane, false)
+	if !ok {
+		return OwnerBinding{}, fmt.Errorf("reviewer owner binding target lane %q is not present in .rekit/board.json; known: %s", targetLane, strings.Join(mission.BoardLaneIDs(board.Lanes), ","))
+	}
+	binding.CurrentExecutor = strings.TrimSpace(lane.CurrentExecutor)
+	binding.ExecutorGeneration = lane.ExecutorGeneration
+	binding.LastTakeoverAt = lane.LastTakeoverAt
+	binding.LastTakeoverBy = lane.LastTakeoverBy
+	binding.LastTakeoverReason = lane.LastTakeoverReason
+	if binding.CurrentExecutor != "" && binding.ExecutorGeneration > 0 {
+		binding.BindingMode = "current-executor-generation"
+		binding.RequiredForIntake = true
+	} else {
+		binding.BindingMode = "unassigned-lane"
+		binding.RequiredForIntake = false
+	}
+	return binding, nil
 }
 
 func selectRoute(m *manifest.Manifest, routeID, taskType string) (Route, error) {
@@ -399,9 +468,10 @@ func shardPrompt(items []string) string {
 	return "Review only these items: " + strings.Join(items, ", ") + ". Return the route output contract only; do not write files or paste long logs."
 }
 
-func newShardHandoffs(shards []Shard, route Route, observability Observability, reviewLoop ReviewLoop, planRoot, pack, targetLane string, intakeAvailable bool) []ShardHandoff {
+func newShardHandoffs(shards []Shard, route Route, observability Observability, reviewLoop ReviewLoop, planRoot, pack string, ownerBinding OwnerBinding, intakeAvailable bool) []ShardHandoff {
 	handoffs := make([]ShardHandoff, 0, len(shards))
 	readOnlyBoundary := append([]string{}, observability.BlockedActions...)
+	targetLane := ownerBinding.TargetLane
 	for _, shard := range shards {
 		contract := reviewerResultContract()
 		resultPath := filepath.Join(observability.ResultRoot, shard.ID+".json")
@@ -417,7 +487,8 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 			ShardID:                  shard.ID,
 			Status:                   "planned",
 			ReviewerResultPath:       resultPath,
-			DispatchPrompt:           shardDispatchPrompt(shard, route, readOnlyBoundary, reviewLoop, resultPath),
+			OwnerBinding:             ownerBinding,
+			DispatchPrompt:           shardDispatchPrompt(shard, route, readOnlyBoundary, reviewLoop, ownerBinding, resultPath),
 			Items:                    append([]string{}, shard.Items...),
 			ReadOnlyBoundary:         append([]string{}, readOnlyBoundary...),
 			ExpectedOutput:           route.OutputContract,
@@ -440,7 +511,7 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 func reviewerResultContract() ReviewerResultContract {
 	return ReviewerResultContract{
 		OutputFormat:     "single JSON object per shard with route-specific fields nested under routeOutput; no markdown tables, file writes, ledger appends, authority, confirmed, or heavy-tool output",
-		RequiredFields:   []string{"packetId", "routeId", "shardId", "items", "decision", "confidence", "summary", "evidenceRefs", "risks", "conflicts", "recommendedVerdict", "routeOutput"},
+		RequiredFields:   []string{"packetId", "routeId", "shardId", "items", "reviewerSession", "decision", "confidence", "summary", "evidenceRefs", "risks", "conflicts", "recommendedVerdict", "routeOutput"},
 		AllowedDecisions: []string{"accept", "reject", "defer", "abandon", "needs-more-evidence"},
 		EvidenceRules: []string{
 			"accepted or rejected reviewer decisions must cite evidenceRefs from the packet, reviewed artifacts, or bounded evidence paths",
@@ -654,20 +725,21 @@ func postReviewMergeSteps() []string {
 	}
 }
 
-func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, reviewLoop ReviewLoop, resultPath string) string {
+func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, reviewLoop ReviewLoop, ownerBinding OwnerBinding, resultPath string) string {
 	contract := reviewerResultContract()
 	lines := []string{
 		"You are a read-only reviewer for rekit plan-subagents shard " + shard.ID + ".",
 		"Route: " + route.ID + ".",
 		"Items: " + strings.Join(shard.Items, ", ") + ".",
+		"Owner binding: targetLane=" + ownerBinding.TargetLane + ", mode=" + ownerBinding.BindingMode + ", currentExecutor=" + textOr(ownerBinding.CurrentExecutor, "unassigned") + ", executorGeneration=" + strconv.Itoa(ownerBinding.ExecutorGeneration) + ".",
 		"Return only this output contract: " + route.OutputContract + ".",
 		"Reviewer result contract: " + contract.OutputFormat + ".",
 		"Required result fields: " + strings.Join(contract.RequiredFields, ", ") + ".",
-		"Set packetId to the packet packetId and routeId to " + route.ID + ".",
+		"Set packetId to the packet packetId, routeId to " + route.ID + ", shardId to " + shard.ID + ", and reviewerSession to your session identifier supplied by the main agent.",
 		"Allowed decisions: " + strings.Join(contract.AllowedDecisions, ", ") + ".",
 		"Return the result to the main agent for placement at: " + resultPath + ". Do not write this path yourself.",
 		"Do not write files, run heavy tools, append ledgers, or change authority/confirmed state.",
-		"The main agent owns merge, validation, handoff, and ledger writeback: " + reviewLoop.VerdictWriteback + ".",
+		"The main agent owns reviewer spawn, merge, validation, handoff, and ledger writeback: " + reviewLoop.VerdictWriteback + ".",
 	}
 	if len(readOnlyBoundary) > 0 {
 		lines = append(lines, "Blocked runtime actions: "+strings.Join(readOnlyBoundary, "; ")+".")
@@ -734,6 +806,13 @@ func newReviewLoop(route Route) ReviewLoop {
 		},
 		FailureHandling: "discard failed shard result and retry later with a smaller bounded shard; do not block unrelated shards",
 	}
+}
+
+func textOr(value, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	return fallback
 }
 
 func splitCSV(value string) []string {
@@ -828,7 +907,7 @@ func writeJSON(path string, v any) error {
 	return os.WriteFile(path, append(b, '\n'), 0o644)
 }
 
-func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAgent, maxParallel int, observability Observability, reviewLoop ReviewLoop, shardHandoffs []ShardHandoff) string {
+func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAgent, maxParallel int, observability Observability, reviewLoop ReviewLoop, ownerBinding OwnerBinding, shardHandoffs []ShardHandoff) string {
 	lines := []string{
 		"# rekit subagent plan",
 		"",
@@ -851,6 +930,11 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 		"- spawn owner: `" + reviewLoop.SpawnOwner + "`",
 		"- merge owner: `" + reviewLoop.MergeOwner + "`",
 		"- verdict writeback: `" + reviewLoop.VerdictWriteback + "`",
+		"- owner binding target lane: `" + ownerBinding.TargetLane + "`",
+		"- owner binding mode: `" + ownerBinding.BindingMode + "`",
+		"- owner binding current executor: `" + textOr(ownerBinding.CurrentExecutor, "unassigned") + "`",
+		fmt.Sprintf("- owner binding executor generation: `%d`", ownerBinding.ExecutorGeneration),
+		"- owner binding required for intake: `" + fmt.Sprintf("%t", ownerBinding.RequiredForIntake) + "`",
 		"",
 		"### shard status",
 		"",

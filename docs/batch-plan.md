@@ -16,26 +16,27 @@ Batch 353 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 354：Replaceable lane executor explicit takeover**
+**Batch 355：Reviewer orchestration owner binding**
 
-状态：已完成；实现、review 修复、文档收束与完整本地 gate 均通过，提交后继续下一候选批次。
+状态：已完成实现与本地验证；提交后继续下一候选批次。
 
-目标：把可替换 Claude Code session executor 变成可显式登记、接管和交接的 durable lane state。`start` 不自动 spawn、不管理 session，只接受主 Agent提供的 session identifier，把 `currentExecutor`、`executorGeneration` 与 takeover metadata 写入 lane/board/resume/checkpoint/handoff/overview，供新会话接手时验证。
+目标：把 `plan-subagents` reviewer dispatch/intake 绑定到 durable lane executor owner snapshot，使主 Agent调度短命 reviewer 后，runtime 能校验 packet 所属 lane 的 `currentExecutor` / `executorGeneration` 是否仍匹配，并把 reviewer session provenance 写入 verification-before-decision facts。
 
-边界：runtime 只记录和投影显式 executor claim，不创建/停止 Claude Code 会话，不接管 reviewer/member session，不执行 heavy-tool，不写 authority/confirmed，不改变 sync/promote review-first、durable autonomy grant 语义或公共 façade 删除边界；retained PowerShell façade 只做参数透传。
+边界：主 Agent仍负责 spawn/管理 reviewer；runtime 只生成 review artifacts、校验 owner/provenance、按顺序写回 facts 与返回 post-validation，不自动 spawn、注册、停止、监控或管理 reviewer/member session；reviewer 仍 read-only；不执行 heavy-tool，不写 authority/confirmed，不改变 sync/promote review-first、durable autonomy grant 或公共 façade 删除边界；不新增 PowerShell runtime logic。
 
 完成内容：
 
-- `start -Apply -Executor <session> -Actor <actor> -Reason <reason>` 支持首次 executor registration 与后续 takeover：新 lane 写 `executor-registered` lane event，existing lane 的不同 executor 写 `executor-takeover` lane event，同 executor 重试保持 generation 不变。
-- lane durable state 增加/补齐 `lastTakeoverBy`，并在 force refresh、reconcile takeover 与 existing lane enter 中保留或更新 `currentExecutor`、`executorGeneration`、`lastTakeoverAt`、`lastTakeoverBy`、`lastTakeoverReason`。
-- `RESUME.md`、typed `checkpoints/latest.json`、`.rekit/board.json`、overview text/JSON、`laneExecutorActions[]` 与 project/lane handoff Markdown 现在展示 current executor / generation / last takeover metadata，替换 executor 无需重扫 ledger 即可看到 owner snapshot。
-- PowerShell façade 新增 retained compatibility 参数 `-Executor` / `-Reason` 并透传 start/reconcile 到 Go backend；freeze invariants 与 façade smoke 覆盖该透传，不新增 PowerShell runtime logic。
-- CLI/workstream tests 覆盖 start executor claim、same-session idempotent retry、different-session takeover、overview executor projection 与 checkpoint takeover metadata contract。
+- `plan-subagents` planning result、`packet.json` 与每个 `shardHandoffs[]` 现在包含 `ownerBinding`：`targetLane`、`currentExecutor`、`executorGeneration`、last takeover metadata、binding mode、是否需要 intake 校验，以及主 Agent拥有 reviewer spawn 的边界说明。
+- planning 支持通过 `-Lane` 指定 reviewer target lane；未指定时仍回退 manifest `defaultAuthorityLane`。attached case 中若 board 存在且目标 lane 已登记 executor，则 packet 绑定当前 executor generation；out-of-case 或未分配 lane 保持 dispatch-only / unassigned mode，不冒充 durable grant。
+- reviewer result strict contract 新增必填 `reviewerSession`，dispatch prompt、summary、smoke 与 tests 同步要求短命 reviewer 返回单个 JSON object，并声明主 Agent提供/保存 reviewer session identifier。
+- reviewer intake 在写任何 ledger 前验证 `ownerBinding.targetLane`、packet identity、case/pack/route/shard/items/evidence、route output contract；当 packet 要求 owner binding 且 lane executor/generation 已变化时 fail-closed，防止旧 reviewer packet 在 executor takeover 后继续写回。
+- reviewer intake 输出 `ownerBinding` 与 `reviewerSession`，并在 verification 与 decision facts 中记录 `reviewerSession`、`ownerExecutor`、`ownerGeneration`、`ownerBindingMode`、`ownerBindingTarget`，保持 verification-before-decision 顺序、partial retry 与 idempotent duplicate 语义。
+- tests 覆盖 out-of-case owner binding、attached lane executor binding、stale owner binding 拒绝、reviewerSession contract/provenance、CLI JSON envelope 与 plan-subagents smoke owner/provenance contract。
 
 已通过验证：
 
 ```text
-go test ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli ./internal/rekit/manifest -count=1
+go test ./internal/rekit/subagents ./internal/rekit/cli ./internal/rekit/note -count=1
 go test ./...
 go vet ./...
 go run ./cmd/rekit -- -Command release-check -Format json
@@ -47,15 +48,16 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-说明：`release-check ready=true` 与 `ciReleaseGate.ready=true` 仅证明本地 inventory/workflow 定义 ready；本批未将其表述为远程 CI green。
+最终本地 gate 已执行通过；`git diff --check` 仅输出 Windows 工作区 LF→CRLF 提示，未报告 whitespace error。
+
+说明：`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready；不能表述为远程 CI green。
 
 ### Next candidates
 
-1. **Reviewer orchestration owner binding**：把 plan-subagents packet/intake 绑定到 current executor generation，并记录 reviewer session provenance；保持主 Agent负责 spawn，runtime 只校验 owner/provenance 与顺序写回。
-2. **Cross-platform product-path E2E**：在可用 runner 上验证 direct CLI/case lifecycle/workstream，再验证 installed `/rekit` / case shim runtime discovery；先解决或升级 GitHub Actions billing blocker。
-3. **Autonomy execution evidence closure**：sandbox adapter 消费 strict durable profile + `authorized-gate`，记录 actual budget、output refs、evidence 与 boundary-hit/escalation。
-4. **Pack-memory reconsume E2E**：case reusable observation → sanitize/review/promote → fresh case 或另一 pack 消费。
-5. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
+1. **Cross-platform product-path E2E**：在可用 runner 上验证 direct CLI/case lifecycle/workstream，再验证 installed `/rekit` / case shim runtime discovery；先解决或升级 GitHub Actions billing blocker。
+2. **Autonomy execution evidence closure**：sandbox adapter 消费 strict durable profile + `authorized-gate`，记录 actual budget、output refs、evidence 与 boundary-hit/escalation。
+3. **Pack-memory reconsume E2E**：case reusable observation → sanitize/review/promote → fresh case 或另一 pack 消费。
+4. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 
 ### Escalation / stopping conditions
 

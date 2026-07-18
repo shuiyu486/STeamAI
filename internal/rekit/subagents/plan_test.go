@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
 func TestWritePlanIncludesShardHandoffs(t *testing.T) {
@@ -22,6 +24,9 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	}
 	if result.Command != commandName || result.IsMutation || !result.WritesReviewArtifacts || !result.ReviewRequired || result.ItemCount != 3 || result.ShardCount != 2 {
 		t.Fatalf("unexpected result: %+v", result)
+	}
+	if result.TargetLane != "devirt-main" || result.OwnerBinding.TargetLane != "devirt-main" || result.OwnerBinding.BindingMode != "out-of-case-dispatch-only" || result.OwnerBinding.RequiredForIntake {
+		t.Fatalf("unexpected out-of-case owner binding: %+v", result.OwnerBinding)
 	}
 	if len(result.ShardHandoffs) != 2 {
 		t.Fatalf("ShardHandoffs = %+v, want 2", result.ShardHandoffs)
@@ -39,6 +44,9 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if packet.Command != commandName || packet.PacketID == "" || packet.PacketID != packetIdentity(packet) || packet.Route.ID != defaults.DefaultPack+":lane-feature-analysis" || len(packet.ShardHandoffs) != 2 {
 		t.Fatalf("unexpected packet: %+v", packet)
 	}
+	if packet.OwnerBinding != result.OwnerBinding || packet.ShardHandoffs[0].OwnerBinding != result.OwnerBinding {
+		t.Fatalf("packet did not preserve owner binding: result=%+v packet=%+v", result.OwnerBinding, packet.OwnerBinding)
+	}
 	assertShardHandoff(t, packet.ShardHandoffs[0], "shard-01", []string{"alpha", "beta"})
 
 	summary, err := os.ReadFile(result.SummaryPath)
@@ -49,6 +57,39 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
+	}
+}
+
+func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "plan-owner-binding-test", CreateLocalFiles: true, Command: "init"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-plan", Actor: "mission-commander", TakeoverReason: "plan owner binding fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TargetLane != "feature-intake" || result.OwnerBinding.CurrentExecutor != "session-plan" || result.OwnerBinding.ExecutorGeneration != 1 || !result.OwnerBinding.RequiredForIntake || result.OwnerBinding.BindingMode != "current-executor-generation" || result.OwnerBinding.LastTakeoverBy != "mission-commander" {
+		t.Fatalf("unexpected attached case owner binding: %+v", result.OwnerBinding)
+	}
+	packet := readPlanPacket(t, result.PacketPath)
+	if packet.OwnerBinding != result.OwnerBinding || !strings.Contains(packet.ShardHandoffs[0].DispatchPrompt, "currentExecutor=session-plan") || !slices.Contains(packet.ShardHandoffs[0].ReviewerResultContract.RequiredFields, "reviewerSession") {
+		t.Fatalf("packet omitted attached owner binding: %+v", packet)
+	}
+	summary, err := os.ReadFile(result.SummaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(summary), "owner binding current executor: `session-plan`") || !strings.Contains(string(summary), "owner binding required for intake: `true`") {
+		t.Fatalf("summary omitted owner binding:\n%s", string(summary))
 	}
 }
 
@@ -68,6 +109,19 @@ func TestWritePlanNoItemsKeepsEmptyShardHandoffs(t *testing.T) {
 	if !strings.Contains(string(summary), "- no shard handoffs planned") {
 		t.Fatalf("summary missing empty handoff marker:\n%s", string(summary))
 	}
+}
+
+func readPlanPacket(t *testing.T, path string) Packet {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packet Packet
+	if err := json.Unmarshal(data, &packet); err != nil {
+		t.Fatal(err)
+	}
+	return packet
 }
 
 func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantItems []string) {

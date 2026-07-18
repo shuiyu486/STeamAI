@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +37,7 @@ type ReviewerResult struct {
 	RouteID            string         `json:"routeId"`
 	ShardID            string         `json:"shardId"`
 	Items              []string       `json:"items"`
+	ReviewerSession    string         `json:"reviewerSession"`
 	Decision           string         `json:"decision"`
 	Confidence         string         `json:"confidence"`
 	Summary            string         `json:"summary"`
@@ -71,6 +73,8 @@ type ReviewerIntakeResult struct {
 	IntakeID            string                  `json:"intakeId"`
 	Lane                string                  `json:"lane"`
 	ShardID             string                  `json:"shardId"`
+	OwnerBinding        OwnerBinding            `json:"ownerBinding"`
+	ReviewerSession     string                  `json:"reviewerSession"`
 	ReviewerResult      ReviewerResult          `json:"reviewerResult"`
 	VerificationVerdict string                  `json:"verificationVerdict"`
 	MainDecision        string                  `json:"mainDecision"`
@@ -127,6 +131,9 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 	}
 	if lane != packet.TargetLane {
 		return ReviewerIntakeResult{}, fmt.Errorf("reviewer intake lane %q does not match packet targetLane %q", lane, packet.TargetLane)
+	}
+	if err := validateOwnerBinding(caseRoot, packet.OwnerBinding); err != nil {
+		return ReviewerIntakeResult{}, err
 	}
 	resultBytes, err := readBoundedFile(resultPath, "reviewer result", maxReviewerResultBytes)
 	if err != nil {
@@ -187,6 +194,8 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		IntakeID:            intakeID,
 		Lane:                lane,
 		ShardID:             shard.ID,
+		OwnerBinding:        packet.OwnerBinding,
+		ReviewerSession:     reviewerResult.ReviewerSession,
 		ReviewerResult:      reviewerResult,
 		VerificationVerdict: mapping.VerificationVerdict,
 		MainDecision:        mapping.MainDecision,
@@ -381,6 +390,7 @@ func decodeReviewerResult(data []byte) (ReviewerResult, error) {
 	result.PacketID = strings.TrimSpace(result.PacketID)
 	result.RouteID = strings.TrimSpace(result.RouteID)
 	result.ShardID = strings.TrimSpace(result.ShardID)
+	result.ReviewerSession = strings.TrimSpace(result.ReviewerSession)
 	result.Decision = strings.TrimSpace(result.Decision)
 	result.Confidence = strings.TrimSpace(result.Confidence)
 	result.Summary = strings.TrimSpace(result.Summary)
@@ -389,8 +399,11 @@ func decodeReviewerResult(data []byte) (ReviewerResult, error) {
 	result.EvidenceRefs = cleanStrings(result.EvidenceRefs)
 	result.Risks = cleanStrings(result.Risks)
 	result.Conflicts = cleanStrings(result.Conflicts)
-	if result.PacketID == "" || result.RouteID == "" || result.ShardID == "" || result.Summary == "" {
-		return ReviewerResult{}, fmt.Errorf("reviewer result packetId, routeId, shardId, and summary must be non-empty")
+	if result.PacketID == "" || result.RouteID == "" || result.ShardID == "" || result.ReviewerSession == "" || result.Summary == "" {
+		return ReviewerResult{}, fmt.Errorf("reviewer result packetId, routeId, shardId, reviewerSession, and summary must be non-empty")
+	}
+	if strings.ContainsAny(result.ReviewerSession, "\r\n") {
+		return ReviewerResult{}, fmt.Errorf("reviewer result reviewerSession must be a single-line session identifier")
 	}
 	if result.RouteOutput == nil {
 		return ReviewerResult{}, fmt.Errorf("reviewer result routeOutput must be an object, even when no route-specific values are needed")
@@ -483,6 +496,28 @@ func validateRouteOutputBindings(result ReviewerResult) error {
 	return nil
 }
 
+func validateOwnerBinding(caseRoot string, binding OwnerBinding) error {
+	if strings.TrimSpace(binding.TargetLane) == "" {
+		return fmt.Errorf("review packet ownerBinding.targetLane is required for reviewer intake")
+	}
+	if !binding.RequiredForIntake {
+		return nil
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		return fmt.Errorf("read board for reviewer owner binding validation: %w", err)
+	}
+	lane, ok := mission.LookupBoardLane(board.Lanes, binding.TargetLane, false)
+	if !ok {
+		return fmt.Errorf("review packet ownerBinding target lane %q is not present in current board", binding.TargetLane)
+	}
+	currentExecutor := strings.TrimSpace(lane.CurrentExecutor)
+	if currentExecutor == "" || binding.CurrentExecutor == "" || currentExecutor != strings.TrimSpace(binding.CurrentExecutor) || lane.ExecutorGeneration != binding.ExecutorGeneration {
+		return fmt.Errorf("review packet ownerBinding is stale for lane %s: packet executor=%s generation=%d current executor=%s generation=%d", binding.TargetLane, textOr(binding.CurrentExecutor, "unassigned"), binding.ExecutorGeneration, textOr(currentExecutor, "unassigned"), lane.ExecutorGeneration)
+	}
+	return nil
+}
+
 func validateIntakePacket(packet Packet, packetPath, repoRoot, caseRoot, pack string) error {
 	if packet.SchemaVersion != 1 || strings.TrimSpace(packet.PacketID) == "" || packet.PacketID != packetIdentity(packet) || packet.Command != commandName || !packet.WritesReviewArtifacts || packet.IsMutation || !packet.ReviewRequired {
 		return fmt.Errorf("review packet is not a supported non-mutating %s packet", commandName)
@@ -495,6 +530,9 @@ func validateIntakePacket(packet Packet, packetPath, repoRoot, caseRoot, pack st
 	}
 	if strings.TrimSpace(packet.TargetLane) == "" {
 		return fmt.Errorf("review packet targetLane is required for reviewer intake")
+	}
+	if strings.TrimSpace(packet.OwnerBinding.TargetLane) == "" || packet.OwnerBinding.TargetLane != packet.TargetLane {
+		return fmt.Errorf("review packet ownerBinding.targetLane %q does not match targetLane %q", packet.OwnerBinding.TargetLane, packet.TargetLane)
 	}
 	if !strings.EqualFold(strings.TrimSpace(packet.Pack), strings.TrimSpace(pack)) {
 		return fmt.Errorf("review packet pack %q does not match current pack %q", packet.Pack, pack)
@@ -655,6 +693,10 @@ func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerD
 	target := strings.Join(result.Items, ",")
 	evidence := strings.Join(result.EvidenceRefs, ",")
 	verificationID := "evt-" + intakeID + "-verification"
+	ownerGeneration := ""
+	if packet.OwnerBinding.ExecutorGeneration > 0 {
+		ownerGeneration = strconv.Itoa(packet.OwnerBinding.ExecutorGeneration)
+	}
 	verification := note.Options{
 		Kind:               "verification",
 		Lane:               lane,
@@ -673,6 +715,11 @@ func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerD
 		ShardID:            result.ShardID,
 		PacketPath:         packetPath,
 		ReviewerResultPath: resultPath,
+		ReviewerSession:    result.ReviewerSession,
+		OwnerExecutor:      packet.OwnerBinding.CurrentExecutor,
+		OwnerGeneration:    ownerGeneration,
+		OwnerBindingMode:   packet.OwnerBinding.BindingMode,
+		OwnerBindingTarget: packet.OwnerBinding.TargetLane,
 	}
 	decision := note.Options{
 		Kind:               "decision",
@@ -692,6 +739,11 @@ func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerD
 		ShardID:            result.ShardID,
 		PacketPath:         packetPath,
 		ReviewerResultPath: resultPath,
+		ReviewerSession:    result.ReviewerSession,
+		OwnerExecutor:      packet.OwnerBinding.CurrentExecutor,
+		OwnerGeneration:    ownerGeneration,
+		OwnerBindingMode:   packet.OwnerBinding.BindingMode,
+		OwnerBindingTarget: packet.OwnerBinding.TargetLane,
 	}
 	return verification, decision
 }
@@ -907,7 +959,7 @@ func existingEventByID(caseRoot, kind, eventID string) (map[string]any, bool, er
 }
 
 func eventMismatch(expected map[string]any, existing map[string]any) string {
-	for _, key := range []string{"schemaVersion", "kind", "lane", "subject", "summary", "actor", "risk", "related", "confidence", "decision", "reason", "status", "batchId", "evidenceRefs", "target", "verifier", "verdict", "action", "approvedBy", "scope", "expires", "eventId", "packetId", "routeId", "shardId", "packetPath", "reviewerResultPath"} {
+	for _, key := range []string{"schemaVersion", "kind", "lane", "subject", "summary", "actor", "risk", "related", "confidence", "decision", "reason", "status", "batchId", "evidenceRefs", "target", "verifier", "verdict", "action", "approvedBy", "scope", "expires", "eventId", "packetId", "routeId", "shardId", "packetPath", "reviewerResultPath", "reviewerSession", "ownerExecutor", "ownerGeneration", "ownerBindingMode", "ownerBindingTarget"} {
 		left := eventValue(expected, key)
 		right := eventValue(existing, key)
 		if left != right {

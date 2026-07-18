@@ -129,9 +129,12 @@ try {
   $packet = Assert-PlanPacket -Result $go -Route 'vmp-re:lane-feature-analysis' -Items 3 -Shards 2
   if ([int]$packet.shardPolicy.targetItemsPerAgent -ne 2 -or [int]$packet.shardPolicy.maxParallel -ne 7) { throw "unexpected shard policy: $($packet | ConvertTo-Json -Depth 10)" }
   if ((@($packet.shards)[0].items -join ',') -ne 'alpha,beta' -or (@($packet.shards)[1].items -join ',') -ne 'gamma') { throw "unexpected shards: $($packet | ConvertTo-Json -Depth 10)" }
+  if ([string]$packet.ownerBinding.targetLane -ne 'devirt-main' -or [string]$packet.ownerBinding.bindingMode -eq '') { throw "missing owner binding: $($packet | ConvertTo-Json -Depth 20)" }
+  if ((@(@($packet.shardHandoffs)[0].reviewerResultContract.requiredFields) -notcontains 'reviewerSession') -or [string]@($packet.shardHandoffs)[0].ownerBinding.targetLane -ne 'devirt-main') { throw "missing reviewer provenance contract: $($packet | ConvertTo-Json -Depth 20)" }
   $goSummary = [System.IO.File]::ReadAllText([string]$go.summaryPath, [System.Text.Encoding]::UTF8)
   Assert-ContainsText -Text $goSummary -Expected '# rekit subagent plan' -Label 'go plan summary'
   Assert-ContainsText -Text $goSummary -Expected 'bounded dispatch observability' -Label 'go plan summary observability'
+  Assert-ContainsText -Text $goSummary -Expected 'owner binding target lane' -Label 'go plan summary owner binding'
   Assert-ContainsText -Text $goSummary -Expected 'runtime does not spawn subagents' -Label 'go plan summary blocked actions'
   if (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json')) { throw 'plan-subagents created board.json' }
   if (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\facts')) { throw 'plan-subagents created facts' }

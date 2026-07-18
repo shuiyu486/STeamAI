@@ -47,6 +47,11 @@ type Options struct {
 	ShardID            string
 	PacketPath         string
 	ReviewerResultPath string
+	ReviewerSession    string
+	OwnerExecutor      string
+	OwnerGeneration    string
+	OwnerBindingMode   string
+	OwnerBindingTarget string
 }
 
 type AppendResult struct {
@@ -280,6 +285,11 @@ func buildEvent(kind, lane string, opt Options) map[string]any {
 	addString("shardId", opt.ShardID)
 	addString("packetPath", opt.PacketPath)
 	addString("reviewerResultPath", opt.ReviewerResultPath)
+	addString("reviewerSession", opt.ReviewerSession)
+	addString("ownerExecutor", opt.OwnerExecutor)
+	addString("ownerGeneration", opt.OwnerGeneration)
+	addString("ownerBindingMode", opt.OwnerBindingMode)
+	addString("ownerBindingTarget", opt.OwnerBindingTarget)
 	addString("risk", opt.Risk)
 	if related := splitList(opt.Related); len(related) > 0 {
 		event["related"] = related

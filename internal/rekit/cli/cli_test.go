@@ -3865,6 +3865,9 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if packet.Observability.DispatchMode != "manual-main-agent" || packet.Observability.RouteDebug.RouteID != "vmp-re:lane-feature-analysis" || len(packet.Observability.ShardStatuses) != 2 || packet.Observability.ShardStatuses[0].Status != "planned" || packet.ReviewLoop.MergeOwner != "main-agent" {
 		t.Fatalf("unexpected packet observability: %+v", packet)
 	}
+	if packet.OwnerBinding.TargetLane != "devirt-main" || packet.OwnerBinding.BindingMode == "" || packet.ShardHandoffs[0].OwnerBinding.TargetLane != "devirt-main" {
+		t.Fatalf("unexpected owner binding: result=%+v packet=%+v", result, packet)
+	}
 	if !slices.Contains(packet.Observability.BlockedActions, "runtime does not spawn subagents") || !strings.Contains(packet.ReviewLoop.VerdictWriteback, "plan-subagents -ReviewerResultPath") {
 		t.Fatalf("unexpected review loop contract: %+v", packet)
 	}
@@ -3875,7 +3878,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if firstHandoff.ShardID != "shard-01" || firstHandoff.Status != "planned" || strings.Join(firstHandoff.Items, ",") != "alpha,beta" || !strings.Contains(firstHandoff.DispatchPrompt, "read-only reviewer") || !strings.Contains(firstHandoff.DispatchPrompt, "Do not write files") || !strings.Contains(firstHandoff.ExpectedOutput, "decision") || !strings.Contains(firstHandoff.ReviewerWriteback, "plan-subagents -ReviewerResultPath") || !strings.Contains(firstHandoff.MainAgentNextAction, "reviewerResultContract") || !strings.Contains(firstHandoff.MainAgentNextAction, "previewCommand") || !strings.Contains(firstHandoff.MainAgentNextAction, "applyCommand") || !slices.Contains(firstHandoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(firstHandoff.CompletionCriteria, "reviewer verdicts are recorded in the ledger before main merge decisions") || firstHandoff.FailureHandling == "" {
 		t.Fatalf("unexpected shard handoff: %+v", firstHandoff)
 	}
-	if firstHandoff.ReviewerResultContract.OutputFormat == "" || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "recommendedVerdict") || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "routeOutput") || !slices.Contains(firstHandoff.ReviewerResultContract.AllowedDecisions, "needs-more-evidence") || !slices.Contains(firstHandoff.ReviewerResultContract.ConflictSignals, "reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects") {
+	if firstHandoff.ReviewerResultContract.OutputFormat == "" || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "reviewerSession") || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "recommendedVerdict") || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "routeOutput") || !slices.Contains(firstHandoff.ReviewerResultContract.AllowedDecisions, "needs-more-evidence") || !slices.Contains(firstHandoff.ReviewerResultContract.ConflictSignals, "reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects") {
 		t.Fatalf("unexpected reviewer result contract: %+v", firstHandoff.ReviewerResultContract)
 	}
 	if !slices.Contains(firstHandoff.IntakeChecklist, "validate reviewer output against reviewerResultContract before using any writeback template") || !slices.Contains(firstHandoff.IntakeChecklist, "defer the main decision when conflicts, missing evidence, or blocked outputs are present") || !slices.Contains(firstHandoff.IntakeChecklist, "run reviewerIntakeCommands.previewCommand before applyCommand and inspect verification / decision / postValidation before ledger writeback") {
@@ -4958,25 +4961,36 @@ type missionBrief struct {
 }
 
 type planSubagentsResult struct {
-	Command               string                   `json:"command"`
-	IsMutation            bool                     `json:"isMutation"`
-	WritesReviewArtifacts bool                     `json:"writesReviewArtifacts"`
-	ReviewRequired        bool                     `json:"reviewRequired"`
-	ReviewRoot            string                   `json:"reviewRoot"`
-	PacketPath            string                   `json:"packetPath"`
-	SummaryPath           string                   `json:"summaryPath"`
-	ItemCount             int                      `json:"itemCount"`
-	ShardCount            int                      `json:"shardCount"`
-	ShardHandoffs         []planSubagentsHandoff   `json:"shardHandoffs"`
-	Observability         planSubagentsObservables `json:"observability"`
-	ReviewLoop            planSubagentsReviewLoop  `json:"reviewLoop"`
+	Command               string                    `json:"command"`
+	IsMutation            bool                      `json:"isMutation"`
+	WritesReviewArtifacts bool                      `json:"writesReviewArtifacts"`
+	ReviewRequired        bool                      `json:"reviewRequired"`
+	ReviewRoot            string                    `json:"reviewRoot"`
+	PacketPath            string                    `json:"packetPath"`
+	SummaryPath           string                    `json:"summaryPath"`
+	ItemCount             int                       `json:"itemCount"`
+	ShardCount            int                       `json:"shardCount"`
+	TargetLane            string                    `json:"targetLane"`
+	OwnerBinding          planSubagentsOwnerBinding `json:"ownerBinding"`
+	ShardHandoffs         []planSubagentsHandoff    `json:"shardHandoffs"`
+	Observability         planSubagentsObservables  `json:"observability"`
+	ReviewLoop            planSubagentsReviewLoop   `json:"reviewLoop"`
+}
+
+type planSubagentsOwnerBinding struct {
+	TargetLane         string `json:"targetLane"`
+	CurrentExecutor    string `json:"currentExecutor"`
+	ExecutorGeneration int    `json:"executorGeneration"`
+	BindingMode        string `json:"bindingMode"`
+	RequiredForIntake  bool   `json:"requiredForIntake"`
 }
 
 type planSubagentsPacket struct {
-	PacketID   string `json:"packetId"`
-	Command    string `json:"command"`
-	TargetLane string `json:"targetLane"`
-	Route      struct {
+	PacketID     string                    `json:"packetId"`
+	Command      string                    `json:"command"`
+	TargetLane   string                    `json:"targetLane"`
+	OwnerBinding planSubagentsOwnerBinding `json:"ownerBinding"`
+	Route        struct {
 		ID string `json:"id"`
 	} `json:"route"`
 	Input struct {
@@ -4997,6 +5011,7 @@ type planSubagentsPacket struct {
 type planSubagentsHandoff struct {
 	ShardID                  string                         `json:"shardId"`
 	Status                   string                         `json:"status"`
+	OwnerBinding             planSubagentsOwnerBinding      `json:"ownerBinding"`
 	DispatchPrompt           string                         `json:"dispatchPrompt"`
 	Items                    []string                       `json:"items"`
 	ReadOnlyBoundary         []string                       `json:"readOnlyBoundary"`

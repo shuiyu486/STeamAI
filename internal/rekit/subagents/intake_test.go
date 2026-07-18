@@ -233,6 +233,38 @@ func TestIntakeReviewerResultRejectsRouteOutputContractViolations(t *testing.T) 
 	}
 }
 
+func TestIntakeReviewerResultRejectsStaleOwnerBinding(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	if !packet.OwnerBinding.RequiredForIntake || packet.OwnerBinding.CurrentExecutor != "session-main" {
+		t.Fatalf("plan did not bind owner executor: %+v", packet.OwnerBinding)
+	}
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-replacement", Actor: "mission-commander", TakeoverReason: "replace reviewer owner"}); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := filepath.Join(t.TempDir(), "reviewer-result.json")
+	if err := os.WriteFile(resultPath, reviewerResultForPlan(t, plan.PacketPath, "accept", "accepted", nil), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	if err == nil || !strings.Contains(err.Error(), "ownerBinding is stale") {
+		t.Fatalf("error = %v, want stale owner binding rejection", err)
+	}
+	if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
+		t.Fatalf("stale owner binding wrote verification ledger:\n%s", got)
+	}
+}
+
 func TestIntakeReviewerResultRejectsTamperedPacket(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
@@ -289,7 +321,7 @@ func TestIntakeReviewerResultWhatIfAndApply(t *testing.T) {
 	if preview.Command != commandName || preview.Mode != "reviewer-intake" || preview.IsMutation || preview.Applied || preview.WritebackStatus != "previewed" || !preview.ReadyForWriteback || !preview.ReviewRequired || preview.Verification == nil || preview.Decision == nil || preview.PostValidation == nil || !preview.PostValidation.Valid {
 		t.Fatalf("unexpected intake preview: %+v", preview)
 	}
-	if preview.Verification.Applied || preview.Decision.Applied || preview.Verification.Reason != "what-if" || preview.Decision.Reason != "what-if" || preview.Verification.Event["verdict"] != "accepted" || preview.Decision.Event["decision"] != "accept" {
+	if preview.Verification.Applied || preview.Decision.Applied || preview.Verification.Reason != "what-if" || preview.Decision.Reason != "what-if" || preview.Verification.Event["verdict"] != "accepted" || preview.Decision.Event["decision"] != "accept" || preview.Verification.Event["reviewerSession"] != "reviewer-session-1" || preview.Verification.Event["ownerBindingMode"] != "unassigned-lane" || preview.Verification.Event["ownerBindingTarget"] != "devirt-main" {
 		t.Fatalf("unexpected writeback previews: verification=%+v decision=%+v", preview.Verification, preview.Decision)
 	}
 	if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != beforeVerifications {
@@ -308,8 +340,8 @@ func TestIntakeReviewerResultWhatIfAndApply(t *testing.T) {
 	}
 	verificationLedger := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
 	decisionLedger := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"))
-	if strings.Count(verificationLedger, applied.Verification.EventID) != 1 || strings.Count(decisionLedger, applied.Decision.EventID) != 1 || !strings.Contains(decisionLedger, applied.Verification.EventID) {
-		t.Fatalf("writeback order/evidence linkage missing:\nverification=%s\ndecision=%s", verificationLedger, decisionLedger)
+	if strings.Count(verificationLedger, applied.Verification.EventID) != 1 || strings.Count(decisionLedger, applied.Decision.EventID) != 1 || !strings.Contains(decisionLedger, applied.Verification.EventID) || !strings.Contains(verificationLedger, "reviewer-session-1") || !strings.Contains(verificationLedger, "ownerBindingMode") {
+		t.Fatalf("writeback order/evidence/provenance linkage missing:\nverification=%s\ndecision=%s", verificationLedger, decisionLedger)
 	}
 
 	duplicate, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "devirt-main", Actor: "mission-commander"})
@@ -447,6 +479,7 @@ func reviewerResultJSON(packetID, routeID, decision, verdict string, conflicts [
 		RouteID:            routeID,
 		ShardID:            "shard-01",
 		Items:              []string{"alpha"},
+		ReviewerSession:    "reviewer-session-1",
 		Decision:           decision,
 		Confidence:         "high",
 		Summary:            "reviewed alpha against bounded evidence",
@@ -484,7 +517,7 @@ func writeReviewerIntakeCase(t *testing.T, repoRoot, caseRoot string) {
 	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "reviewer-intake-test", CreateLocalFiles: true, Command: "init"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake"}); err != nil {
+	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-main", Actor: "mission-commander", TakeoverReason: "reviewer intake owner binding fixture"}); err != nil {
 		t.Fatal(err)
 	}
 }

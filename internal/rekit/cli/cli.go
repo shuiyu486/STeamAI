@@ -1450,7 +1450,7 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.Apply || opt.WhatIf || opt.CreateCandidates {
 		return fmt.Errorf("plan-subagents planning only writes review artifacts; use -ReviewerResultPath with -WhatIf or -Apply for main-agent reviewer intake")
 	}
-	result, err := subagents.WritePlan(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.Options{Route: opt.Route, TaskType: opt.TaskType, Items: opt.Items, ItemsFile: opt.ItemsFile, ItemsPerAgent: opt.ItemsPerAgent, MaxParallel: opt.MaxParallel, ReviewOutputDir: opt.ReviewOutputDir, PacketPath: opt.PacketPath, DiffPath: opt.DiffPath})
+	result, err := subagents.WritePlan(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.Options{Route: opt.Route, TaskType: opt.TaskType, Items: opt.Items, ItemsFile: opt.ItemsFile, ItemsPerAgent: opt.ItemsPerAgent, MaxParallel: opt.MaxParallel, ReviewOutputDir: opt.ReviewOutputDir, PacketPath: opt.PacketPath, DiffPath: opt.DiffPath, Lane: opt.Note.Lane})
 	if err != nil {
 		return err
 	}
