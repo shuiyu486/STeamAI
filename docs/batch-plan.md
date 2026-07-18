@@ -16,28 +16,26 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 363：Status case shim readiness projection**
+**Batch 364：Installed case shim product-path E2E hardening**
 
-状态：已完成 `status` 对 canonical / installed case shim readiness 的只读投影、drift detection、durable docs 更新与本地验证；远程 release-gate 仍需读取真实 job conclusions，不能用 inventory ready 代替远程 CI green。
+状态：已完成 attach → nested cwd → status caseShim → shim drift → init refresh → doctor 的本地 installed case shim product-path E2E hardening、durable docs 更新与本地验证；远程 release-gate 仍因 runner/billing blocker 失败，不能声明远程 CI green。
 
-目标：补齐 product-path installed `/rekit` / case shim readiness 的日常可见性：维护者和主 Agent 不应只有 `doctor` fail-fast 才知道 case-local thin shim 是否存在、是否与 canonical template drift、canonical skill 是否仍满足 Go-native backend / retained façade 边界；`status` 应提供不会静默修复、可被自动化消费的 readiness envelope。
+目标：把 Batch 363 的只读 readiness projection 接入一个更贴近日常产品路径的临时 case flow：case 先由 `attach -Apply` 写入 installed thin shim，主 Agent 在 case 下的 nested workspace cwd 无 `-Target` 调用 `status` 消费 `caseShim`，检测 drift 后再由 `init -Apply` 刷新 shim 并通过 case `doctor` 验证。
 
-边界：本批只做只读 readiness projection、case shim package helper、CLI/status tests 与文档；不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 authority/confirmed，不改变 sync/promote review-first、case shim template 内容、runtime schema migration、公共入口删除门禁或远程 CI blocker 状态。
+边界：本批只加强本地 CLI/case E2E 与 durable docs；不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 authority/confirmed，不改变 sync/promote review-first、case shim template 内容、runtime schema migration、公共入口删除门禁或远程 CI blocker 状态；完整 Claude Code slash skill installed user entrypoint E2E 与三平台 runner matrix 仍是后续 gap。
 
 完成内容：
 
-- `caseshim` 新增 `InspectInstalled(repoRoot, caseRoot)`，比较 case-local `.claude/skills/rekit/SKILL.md` 与 canonical thin shim template，输出 installed shim readiness、match 状态与 drift/missing warnings；case `doctor` 复用该 helper，避免 status / doctor 维护并行 shim match 逻辑。
-- `status -Format json` 新增 `caseShim` envelope，投影 canonical template / canonical skill readiness counts、warnings，以及 case mode 下的 installed shim path 与 `installedShimMatchesTemplate`。
-- `status` case envelope 新增 `shimPath` 与 `shimMatchesTemplate`，使主 Agent / automation 无需运行 fail-fast doctor 即可判断 case shim drift。
-- 文本 `status` 同步显示 case shim readiness；drift/missing 只读提示，不静默修复。
-- 扩展 `caseshim` package tests 与 CLI status tests，覆盖 installed shim template match 和 drift projection。
-- 更新 README、canonical skill、release readiness、Go-first convergence plan、batch-plan 与 CHANGELOG。
+- 新增 `TestRunInstalledCaseShimProductPathStatusAndRefresh`，覆盖 `attach -Apply` 写 installed case shim 后，在 nested case workspace cwd 中无 `-Target` 运行 `status -Format json` 并验证 `caseShim.ready=true` / `installedShimMatchesTemplate=true`。
+- 同一 E2E 人为制造 case-local shim drift，验证 nested cwd 的 `status.caseShim` fail-open 只读暴露 drift warning 与 `shimMatchesTemplate=false`，不静默修复。
+- 同一 E2E 用 `init -Apply` 刷新 case-local thin shim，再次通过 nested cwd `status` 验证 readiness 恢复，并通过 `doctor -Format json` 验证 case mode valid。
+- 更新 release readiness / Go-first convergence / batch-plan / CHANGELOG，明确本地 product-path 覆盖已包含 installed shim status/refresh hardening，但完整 installed user entrypoint E2E 和三平台 matrix 仍未完成。
 
 已通过验证：
 
 ```text
-go test ./internal/rekit/caseshim ./internal/rekit/cli
-go vet ./internal/rekit/caseshim ./internal/rekit/cli
+go test ./internal/rekit/cli
+go vet ./internal/rekit/cli
 go test ./...
 go vet ./...
 go run ./cmd/rekit -- -Command release-check -Format json
@@ -45,11 +43,10 @@ go run ./cmd/rekit -- -Command status
 go run ./cmd/rekit -- -Command packs
 go run ./cmd/rekit -- -Command doctor
 git diff --check
-gh run list --limit 5
-gh run view 29662788363 --json conclusion,event,headSha,jobs
+gh run view 29663671474 --json conclusion,event,headSha,jobs
 ```
 
-本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；最新 inspected remote run `29662788363` 对应 Batch 362 head `11fda0096f6a7110a8948523de2b33e28872a0e2`，Linux/macOS/Windows jobs 均为 failure 且 steps 为空，仍符合已知 runner/billing blocker。
+本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；最新 inspected remote run `29663671474` 对应 Batch 363 head `f6d142aad45f07b5ce7d9fffa74c7c531f06653d`，Linux/macOS/Windows jobs 均为 failure 且 steps 为空，仍符合已知 runner/billing blocker。
 
 ### Next candidates
 

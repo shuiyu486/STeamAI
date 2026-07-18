@@ -1484,6 +1484,103 @@ func TestRunAttachApplyWritesBindingMetadataStateAndShim(t *testing.T) {
 	}
 }
 
+func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "attach", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "installed-entrypoint", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(caseRoot, "workspace", "main")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(nested); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	status := decodeInstalledCaseShimStatus(t, out.Bytes())
+	if status.Mode != "case" || status.TargetProvided || status.Target != caseRoot || status.Case.CaseRoot != caseRoot || status.Case.ProjectName != "installed-entrypoint" || !status.Case.ShimMatchesTemplate || !status.CaseShim.Ready || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate {
+		t.Fatalf("unexpected installed case shim status: %+v", status)
+	}
+
+	writeCaseFile(t, caseRoot, ".claude/skills/rekit/SKILL.md", "drift\n")
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	drift := decodeInstalledCaseShimStatus(t, out.Bytes())
+	if drift.Case.ShimMatchesTemplate || drift.CaseShim.Ready || drift.CaseShim.InstalledShimMatchesTemplate == nil || *drift.CaseShim.InstalledShimMatchesTemplate || len(drift.CaseShim.Warnings) == 0 {
+		t.Fatalf("unexpected drift case shim status: %+v", drift)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "init", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "installed-entrypoint", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	refreshed := decodeInstalledCaseShimStatus(t, out.Bytes())
+	if !refreshed.Case.ShimMatchesTemplate || !refreshed.CaseShim.Ready || refreshed.CaseShim.InstalledShimMatchesTemplate == nil || !*refreshed.CaseShim.InstalledShimMatchesTemplate {
+		t.Fatalf("unexpected refreshed case shim status: %+v", refreshed)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "doctor", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var doctor struct {
+		Command string `json:"command"`
+		Mode    string `json:"mode"`
+		Valid   bool   `json:"valid"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doctor); err != nil {
+		t.Fatalf("installed product-path doctor stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if doctor.Command != "doctor" || doctor.Mode != "case" || !doctor.Valid {
+		t.Fatalf("unexpected installed product-path doctor: %+v", doctor)
+	}
+}
+
+type installedCaseShimStatus struct {
+	Target         string `json:"target"`
+	TargetProvided bool   `json:"targetProvided"`
+	Mode           string `json:"mode"`
+	Case           struct {
+		CaseRoot            string `json:"caseRoot"`
+		ProjectName         string `json:"projectName"`
+		ShimMatchesTemplate bool   `json:"shimMatchesTemplate"`
+	} `json:"case"`
+	CaseShim struct {
+		Ready                        bool     `json:"ready"`
+		InstalledShimMatchesTemplate *bool    `json:"installedShimMatchesTemplate"`
+		Warnings                     []string `json:"warnings"`
+	} `json:"caseShim"`
+}
+
+func decodeInstalledCaseShimStatus(t *testing.T, data []byte) installedCaseShimStatus {
+	t.Helper()
+	var status installedCaseShimStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		t.Fatalf("installed case shim status stdout is not JSON: %v\n%s", err, string(data))
+	}
+	return status
+}
+
 func TestRunAttachRejectsDifferentBinding(t *testing.T) {
 	caseRoot := attachedCase(t)
 	writeCaseFile(t, caseRoot, ".rekit/instance.yml", "templateRoot: C:\\other\\kit\ntemplatePack: _template\nprojectName: demo\nprojectRoot: "+caseRoot+"\n")
