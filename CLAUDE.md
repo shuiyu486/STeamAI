@@ -80,6 +80,12 @@ BEGIN.
 
 ## 维护者工作流
 
+### CodeGraph MCP 使用边界
+
+维护本仓库自身代码、模板和文档时，分析 `internal/rekit/**`、`cmd/rekit/**`、`rekit/rekit.ps1`、pack/common/docs 中的代码结构、调用链、symbol 定义、调用方/被调用方或改动影响面，优先使用 CodeGraph MCP（`codegraph_explore`）；CodeGraph 返回的源码视为已读，仅在它未覆盖具体细节、测试夹具或非源码内容时再用 `Read` / `Grep` 补查。
+
+不要把 CodeGraph 当成外部黑盒程序、样本、二进制、trace、dump、capture、case artifacts 或目标环境的分析工具。处理具体安全 case / RE case 时，仍按对应 pack、lane packet、工具链、evidence ledger 与授权边界执行；CodeGraph 只辅助维护本 kit 仓库，不替代动态调试、反汇编、符号恢复、样本分析或证据记录流程。
+
 改动前先判断属于哪一层：
 
 1. Skill UI：改 `.claude/skills/rekit/SKILL.md`

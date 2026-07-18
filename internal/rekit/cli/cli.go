@@ -1233,10 +1233,23 @@ func writeStartText(out io.Writer, result workstream.StartResult) error {
 	if _, err := fmt.Fprintf(out, "接续提示：%s/prompts/RESUME.md\n", result.Lane.LaneRoot); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(out, "继续此支线：/rekit continue %s\n", label); err != nil {
+	if result.ExecutorAction.Ready {
+		if _, err := fmt.Fprintf(out, "继续此支线：/rekit continue %s\n", label); err != nil {
+			return err
+		}
+	} else if err := writeExecutorNextActionsText(out, result.ExecutorAction); err != nil {
 		return err
 	}
 	return writeStartExecutorActionText(out, result)
+}
+
+func writeExecutorNextActionsText(out io.Writer, action mission.ExecutorAction) error {
+	for _, next := range action.NextAgentActions {
+		if _, err := fmt.Fprintf(out, "executor next action：%s\n", next); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeStartExecutorActionText(out io.Writer, result workstream.StartResult) error {
@@ -1289,7 +1302,11 @@ func writeReconcileText(out io.Writer, result workstream.ReconcileResult) error 
 			return err
 		}
 	}
-	if _, err := fmt.Fprintf(out, "继续此支线：/rekit continue %s\n", workstreamTextLabel(result.Lane)); err != nil {
+	if result.ExecutorAction.Ready {
+		if _, err := fmt.Fprintf(out, "继续此支线：/rekit continue %s\n", workstreamTextLabel(result.Lane)); err != nil {
+			return err
+		}
+	} else if err := writeExecutorNextActionsText(out, result.ExecutorAction); err != nil {
 		return err
 	}
 	return writeReconcileExecutorActionText(out, result)
@@ -1310,8 +1327,8 @@ func writeReconcileExecutorActionText(out io.Writer, result workstream.Reconcile
 }
 
 func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
-	if result.Blocked {
-		if _, err := fmt.Fprintf(out, "工作线被 intervention 阻塞：%s\n", result.Lane.ID); err != nil {
+	if result.ExecutorAction.Blocked {
+		if _, err := fmt.Fprintf(out, "工作线被 blocker 阻塞：%s reasons=%s\n", result.Lane.ID, strings.Join(result.ExecutorAction.BlockerReasons, ",")); err != nil {
 			return err
 		}
 		for _, item := range result.OpenInterventions {
@@ -1319,8 +1336,7 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 				return err
 			}
 		}
-		_, err := fmt.Fprintf(out, "先执行：/rekit reconcile %s -InterventionId <eventId> -Apply\n", workstreamTextLabel(result.Lane))
-		return err
+		return writeExecutorNextActionsText(out, result.ExecutorAction)
 	}
 	if _, err := fmt.Fprintf(out, "已选择工作线：%s\n", result.Lane.ID); err != nil {
 		return err

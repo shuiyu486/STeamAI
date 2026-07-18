@@ -160,7 +160,7 @@ claude
 - 共享事实、request、candidate、publication 统计；
 - Mission Control brief：ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations；
 - 逐 lane executor action index：blocked/ready、pending gate / open intervention / open decision counts、requirements 与 resume/handoff command；
-- blocker-aware 下一步：先处理 reconcile / pending gate / open decision，只为 ready lane 建议 continue；
+- blocker-aware 下一步：`start` / `handoff` / `continue` / `reconcile` 的 apply JSON、text 与 handoff Markdown 使用 lane-local executor actions；blocked lane 只建议 reconcile / pending gate / open decision 处理，ready lane 才建议自己的 continue，paused/closed/unready lane 回到 handoff/read-only；
 - 未决 candidate、pending-gate、authorized-gate、最近 verification / decision 等 review loop 摘要；
 - 需要人工确认的事项；
 - 推荐下一步。

@@ -321,6 +321,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 	result.Writes = append(result.Writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
 	result.MissionBrief = ctx.missionBrief()
 	result.ExecutorAction = ctx.executorAction()
+	result.NextSteps = workstreamNextSteps(result.ExecutorAction, true)
 	statusPath, digestPath, err := writeContinueRunArtifacts(runRoot, result)
 	if err != nil {
 		return ContinueResult{}, err
@@ -404,6 +405,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 	if len(open) == 0 {
 		return ContinueResult{}, nil
 	}
+	executorAction := ctx.executorAction()
 	return ContinueResult{
 		SchemaVersion:        1,
 		Command:              "continue",
@@ -419,7 +421,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 		RunID:                continuePreviewRunID,
 		BatchID:              "batch-" + continuePreviewRunID,
 		MissionBrief:         ctx.missionBrief(),
-		ExecutorAction:       ctx.executorAction(),
+		ExecutorAction:       executorAction,
 		OpenRisks:            interventionRiskLines(open),
 		Blocked:              true,
 		ReconcileRequired:    true,
@@ -427,7 +429,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 		WouldWrites:          []StartWrite{},
 		Writes:               []StartWrite{},
 		BlockedActions:       []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
-		NextSteps:            []string{"run /rekit reconcile " + workstreamLabel(ctx.lane) + " -InterventionId <eventId> -Apply before continuing this lane"},
+		NextSteps:            executorAction.NextAgentActions,
 	}, nil
 }
 

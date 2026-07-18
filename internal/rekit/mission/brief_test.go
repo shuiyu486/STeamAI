@@ -113,6 +113,24 @@ func TestFactsWithEventCopiesAndRoutesBlockerKinds(t *testing.T) {
 	}
 }
 
+func TestLaneExecutorActionSnapshotsKeepNextActionsLaneLocal(t *testing.T) {
+	lanes := []BoardLane{{ID: "main", Status: "open", Authority: true}, {ID: "feature-login", Status: "open"}}
+	facts := Facts{Candidates: []map[string]any{{"kind": "candidate", "lane": "feature-login", "subject": "login review", "status": "open"}}}
+	brief := Build(BoardLanes(lanes), facts, 10)
+	items := LaneExecutorActionSnapshots(lanes, facts, brief)
+	if len(items) != 2 {
+		t.Fatalf("lane action rows = %+v", items)
+	}
+	mainAction := items[0].ExecutorAction
+	loginAction := items[1].ExecutorAction
+	if !mainAction.Ready || mainAction.Blocked || !slices.Equal(mainAction.NextAgentActions, []string{"/rekit continue main"}) || len(mainAction.Escalations) != 0 {
+		t.Fatalf("ready main lane action leaked project blockers: %+v", mainAction)
+	}
+	if !loginAction.Blocked || loginAction.Ready || !slices.Equal(loginAction.NextAgentActions, []string{"review open candidate/decision item(s) with evidence and authority boundary"}) || slices.Contains(loginAction.NextAgentActions, "/rekit continue main") || !slices.Equal(loginAction.Escalations, []string{"authority/confirmed outcome remains deferred until explicitly approved"}) {
+		t.Fatalf("blocked login lane action leaked another lane recommendation: %+v", loginAction)
+	}
+}
+
 func TestLaneExecutorActionSnapshotsProjectOpenLanes(t *testing.T) {
 	lanes := []BoardLane{
 		{ID: "main", Status: "open", Authority: true, Workspace: "workspace/main/main"},

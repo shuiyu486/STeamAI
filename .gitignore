@@ -9,6 +9,10 @@ Thumbs.db
 *.local.yaml
 tools.local.yml
 
+# CodeGraph local index; keep only the self-documenting ignore file.
+.codegraph/*
+!.codegraph/.gitignore
+
 # RE artifacts must not enter template repo
 *.exe
 *.dll

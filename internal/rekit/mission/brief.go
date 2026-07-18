@@ -185,9 +185,10 @@ func LaneExecutorAction(lane Lane, facts Facts, brief Brief) ExecutorAction {
 		reasons = append(reasons, "open-decision")
 	}
 	blocked := len(reasons) > 0
+	ready := !blocked && slices.Contains(brief.ReadyLanes, label)
 	return ExecutorAction{
 		Blocked:              blocked,
-		Ready:                !blocked && slices.Contains(brief.ReadyLanes, label),
+		Ready:                ready,
 		BlockerReasons:       reasons,
 		PendingGates:         pendingGates,
 		OpenInterventions:    openInterventions,
@@ -197,9 +198,43 @@ func LaneExecutorAction(lane Lane, facts Facts, brief Brief) ExecutorAction {
 		OpenDecisionRequired: openDecisions > 0,
 		ResumeCommand:        "/rekit continue " + label,
 		HandoffCommand:       "/rekit handoff " + label,
-		NextAgentActions:     brief.NextAgentActions,
-		Escalations:          brief.Escalations,
+		NextAgentActions:     LaneExecutorNextActions(label, ready, pendingGates, openInterventions, openDecisions),
+		Escalations:          LaneExecutorEscalations(pendingGates, openInterventions, openDecisions),
 	}
+}
+
+func LaneExecutorNextActions(label string, ready bool, pendingGates, openInterventions, openDecisions int) []string {
+	actions := []string{}
+	if openInterventions > 0 {
+		actions = append(actions, "reconcile open intervention(s) before continuing this lane")
+	}
+	if pendingGates > 0 {
+		actions = append(actions, "resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool")
+	}
+	if openDecisions > 0 {
+		actions = append(actions, "review open candidate/decision item(s) with evidence and authority boundary")
+	}
+	if len(actions) == 0 && ready {
+		actions = append(actions, "/rekit continue "+strings.TrimSpace(label))
+	}
+	if len(actions) == 0 {
+		actions = append(actions, "/rekit handoff "+strings.TrimSpace(label))
+	}
+	return actions
+}
+
+func LaneExecutorEscalations(pendingGates, openInterventions, openDecisions int) []string {
+	escalations := []string{}
+	if pendingGates > 0 {
+		escalations = append(escalations, "pending-gate requires main-agent/user decision before heavy action")
+	}
+	if openInterventions > 0 {
+		escalations = append(escalations, "open intervention must be reconciled into durable lane state")
+	}
+	if openDecisions > 0 {
+		escalations = append(escalations, "authority/confirmed outcome remains deferred until explicitly approved")
+	}
+	return escalations
 }
 
 func laneCommandLabel(lane Lane) string {

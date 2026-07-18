@@ -134,8 +134,8 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	if applied {
 		if ctx.project {
 			next = append(next, "open .rekit/handovers/latest.md in the case to continue")
-		} else if lane != nil {
-			next = append(next, "use /rekit continue "+workstreamLabel(*lane)+" to enter the lane workflow")
+		} else if executorAction != nil {
+			next = append(next, executorAction.NextAgentActions...)
 		}
 	} else {
 		next = append(next, "review this plan, then re-run handoff with -Apply to write case-local handoff files")
@@ -342,7 +342,12 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		fmt.Fprintf(&out, "- %s `%s`：status=%s，workspace=`%s`，autonomy=%s ready=%t，blocked=%t\n", kind, lane.ID, lane.Status, lane.Workspace, autonomySummary.Mode, autonomySummary.Ready, executorAction.Blocked)
 		fmt.Fprintf(&out, "  - executor blockers：pendingGates=%d openInterventions=%d openDecisions=%d reasons=%s\n", executorAction.PendingGates, executorAction.OpenInterventions, executorAction.OpenDecisions, firstText(strings.Join(executorAction.BlockerReasons, ","), "none"))
 		fmt.Fprintf(&out, "  - requirements：reconcile=%t pendingGate=%t openDecision=%t\n", executorAction.ReconcileRequired, executorAction.PendingGateRequired, executorAction.OpenDecisionRequired)
-		fmt.Fprintf(&out, "  - 接手：`%s`\n", executorAction.ResumeCommand)
+		writeProjectLaneNextActions(&out, executorAction.NextAgentActions)
+		if executorAction.Ready {
+			fmt.Fprintf(&out, "  - continue command：`%s`\n", executorAction.ResumeCommand)
+		} else {
+			fmt.Fprintf(&out, "  - ready 后继续：`%s`\n", executorAction.ResumeCommand)
+		}
 		fmt.Fprintf(&out, "  - 指定交接：`%s`\n", executorAction.HandoffCommand)
 		fmt.Fprintf(&out, "  - 接续提示：`%s`\n", resumeRel)
 	}
@@ -355,6 +360,16 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	}
 	fmt.Fprintln(&out, "- 多工作线时不要使用无参数 `/rekit continue` 盲目继续，应使用 `/rekit continue main` 或 `/rekit continue <name>`。")
 	return out.String(), writes, nil
+}
+
+func writeProjectLaneNextActions(out *bytes.Buffer, actions []string) {
+	if len(actions) == 0 {
+		fmt.Fprintln(out, "  - next action：none")
+		return
+	}
+	for _, action := range actions {
+		fmt.Fprintf(out, "  - next action：%s\n", action)
+	}
 }
 
 func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrite, error) {
@@ -377,6 +392,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 		kind = "主线"
 	}
 	label := workstreamLabel(lane)
+	executorAction := ctx.executorAction(lane)
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "# rekit 工作线接手：%s\n", lane.ID)
 	fmt.Fprintln(&out)
@@ -389,7 +405,15 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	fmt.Fprintln(&out)
 	fmt.Fprintln(&out, "## 新会话开场")
 	fmt.Fprintln(&out)
-	fmt.Fprintf(&out, "直接说：按 `%s` 接手，然后执行 `/rekit continue %s`。\n", relativePath(ctx.inst.CaseRoot, latestPath), label)
+	if executorAction.Ready {
+		fmt.Fprintf(&out, "直接说：按 `%s` 接手，然后执行 `%s`。\n", relativePath(ctx.inst.CaseRoot, latestPath), executorAction.ResumeCommand)
+	} else if executorAction.Blocked {
+		fmt.Fprintf(&out, "直接说：按 `%s` 接手，先处理下列 blocker，不要执行 `/rekit continue %s`。\n", relativePath(ctx.inst.CaseRoot, latestPath), label)
+		writeHandoffBriefList(&out, "next agent action", executorAction.NextAgentActions)
+	} else {
+		fmt.Fprintf(&out, "直接说：按 `%s` 接手，先阅读/刷新交接；当前不建议执行 `/rekit continue %s`。\n", relativePath(ctx.inst.CaseRoot, latestPath), label)
+		writeHandoffBriefList(&out, "next agent action", executorAction.NextAgentActions)
+	}
 	fmt.Fprintln(&out)
 	fmt.Fprintln(&out, "## 推荐读取")
 	fmt.Fprintln(&out)
@@ -416,8 +440,8 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	if err != nil {
 		return "", nil, err
 	}
-	writeLaneMissionBrief(&out, lane, facts)
-	writeExecutorActionSection(&out, ctx.executorAction(lane))
+	writeLaneMissionBrief(&out, lane, facts, executorAction)
+	writeExecutorActionSection(&out, executorAction)
 	writeAutonomyProfileSection(&out, ctx.inst.CaseRoot, lane, ctx.manifest)
 	writeVerificationSection(&out, facts.Verifications, lane.ID)
 	writeDecisionSection(&out, facts.Decisions, lane.ID)
@@ -659,7 +683,7 @@ func laneMissionBrief(lane Lane, facts mission.LedgerFacts) mission.Brief {
 	})
 }
 
-func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts mission.LedgerFacts) {
+func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts mission.LedgerFacts, action laneExecutorAction) {
 	laneFacts := mission.LaneFacts(facts.Facts, lane.ID)
 	gates := mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate")
 	authorizedGates := mission.FilterLane(laneFacts.Requests, lane.ID, "authorized-gate")
@@ -668,25 +692,12 @@ func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts mission.LedgerFac
 	fmt.Fprintln(out, "## Mission Control brief")
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "- lane: %s status=%s workspace=%s\n", lane.ID, lane.Status, lane.Workspace)
-	fmt.Fprintf(out, "- blocked: %t\n", len(gates) > 0 || len(interventions) > 0 || len(openDecisions) > 0)
+	fmt.Fprintf(out, "- blocked: %t\n", action.Blocked)
 	writeHandoffBriefList(out, "pending-gate", missionLines(gates, mission.LaneGateLine))
 	writeHandoffBriefList(out, "authorized-gate", missionLines(authorizedGates, mission.LaneGateLine))
 	writeHandoffBriefList(out, "open intervention", missionLines(interventions, mission.LaneInterventionLine))
 	writeHandoffBriefList(out, "open decision", missionLines(openDecisions, mission.LaneOpenDecisionLine))
-	actions := []string{}
-	if len(interventions) > 0 {
-		actions = append(actions, "reconcile user intervention before continuing this lane")
-	}
-	if len(gates) > 0 {
-		actions = append(actions, "resolve or explicitly defer pending gate request(s) before heavy action")
-	}
-	if len(openDecisions) > 0 {
-		actions = append(actions, "review open candidate/decision item(s) with evidence and authority boundary")
-	}
-	if len(actions) == 0 {
-		actions = append(actions, "continue lane with /rekit continue "+workstreamLabel(lane))
-	}
-	writeHandoffBriefList(out, "next agent action", actions)
+	writeHandoffBriefList(out, "next agent action", action.NextAgentActions)
 	fmt.Fprintln(out)
 }
 

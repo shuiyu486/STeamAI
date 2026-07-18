@@ -210,11 +210,16 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 		ExecutorAction:       executorAction,
 		Writes:               writes,
 		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
-		NextSteps: []string{
-			"run doctor after apply",
-			"use /rekit continue " + workstreamLabel(lane) + " to enter the lane workflow",
-		},
+		NextSteps:            workstreamNextSteps(executorAction, true),
 	}, nil
+}
+
+func workstreamNextSteps(action laneExecutorAction, includeDoctor bool) []string {
+	next := []string{}
+	if includeDoctor {
+		next = append(next, "run doctor after apply")
+	}
+	return append(next, action.NextAgentActions...)
 }
 
 func startMissionBrief(caseRoot string) mission.Brief {

@@ -194,10 +194,7 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (Reco
 	result.PreviousExecutor = previousExecutor
 	result.ExecutorGeneration = generation
 	result.Lane = ctx.lane
-	result.NextSteps = []string{
-		"run doctor after apply",
-		"use /rekit continue " + workstreamLabel(ctx.lane) + " to resume the reconciled lane",
-	}
+	result.NextSteps = workstreamNextSteps(result.ExecutorAction, true)
 	return result, nil
 }
 

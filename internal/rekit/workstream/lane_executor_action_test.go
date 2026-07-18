@@ -42,6 +42,9 @@ func TestLaneExecutorActionUsesTypedLaneFactsForBlockers(t *testing.T) {
 	if action.ResumeCommand != "/rekit continue main" || action.HandoffCommand != "/rekit handoff main" {
 		t.Fatalf("unexpected executor commands: %+v", action)
 	}
+	if slices.Contains(action.NextAgentActions, "/rekit continue main") || len(action.NextAgentActions) != 3 {
+		t.Fatalf("blocked lane should only recommend blocker resolution: %+v", action.NextAgentActions)
+	}
 }
 
 func TestLaneExecutorActionReadyUsesMissionBriefReadyLane(t *testing.T) {
@@ -54,5 +57,8 @@ func TestLaneExecutorActionReadyUsesMissionBriefReadyLane(t *testing.T) {
 	}
 	if action.ResumeCommand != "/rekit continue login" || action.HandoffCommand != "/rekit handoff login" {
 		t.Fatalf("unexpected ready lane commands: %+v", action)
+	}
+	if !slices.Equal(action.NextAgentActions, []string{"/rekit continue login"}) {
+		t.Fatalf("ready lane should recommend only its own continue command: %+v", action.NextAgentActions)
 	}
 }
