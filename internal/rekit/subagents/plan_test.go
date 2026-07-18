@@ -45,7 +45,7 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"### shard handoff prompts", "read-only reviewer", "Do not write files", "expected output=`item,decision", "verification writeback", "decision writeback", "post-review:"} {
+	for _, expected := range []string{"### shard handoff prompts", "read-only reviewer", "Do not write files", "expected output=`item,decision", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -80,7 +80,7 @@ func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantI
 			t.Fatalf("dispatch prompt missing %q: %+v", expected, handoff)
 		}
 	}
-	if !strings.Contains(handoff.ExpectedOutput, "decision") || !strings.Contains(handoff.ReviewerWriteback, "note -Kind verification") || !strings.Contains(handoff.MainAgentNextAction, "ledgerWritebackTemplates") {
+	if !strings.Contains(handoff.ExpectedOutput, "decision") || !strings.Contains(handoff.ReviewerWriteback, "note -Kind verification") || !strings.Contains(handoff.MainAgentNextAction, "previewCommand") || !strings.Contains(handoff.MainAgentNextAction, "applyCommand") {
 		t.Fatalf("unexpected reviewer contract: %+v", handoff)
 	}
 	if len(handoff.LedgerWritebackTemplates) != 2 || handoff.LedgerWritebackTemplates[0].Kind != "verification" || handoff.LedgerWritebackTemplates[1].Kind != "decision" {
@@ -88,13 +88,13 @@ func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantI
 	}
 	verification := handoff.LedgerWritebackTemplates[0]
 	decision := handoff.LedgerWritebackTemplates[1]
-	if !strings.Contains(verification.Command, "-Kind verification") || !strings.Contains(verification.Command, "-Verdict <accepted|rejected|inconclusive|needs-more-evidence>") || !strings.Contains(verification.Command, "-TargetRef \"alpha,beta\"") || !slices.Contains(verification.RequiredFields, "evidenceRefs") || !slices.Contains(verification.AllowedValues, "verdict=accepted|rejected|inconclusive|needs-more-evidence") {
+	if !strings.Contains(verification.Command, "-Kind verification") || !strings.Contains(verification.Command, "-Apply") || !strings.Contains(verification.PreviewCommand, "-WhatIf -Format json") || !strings.Contains(verification.ApplyCommand, "-Apply") || !strings.Contains(verification.ApplyCommand, "-TargetRef \"alpha,beta\"") || !slices.Contains(verification.RequiredFields, "target") || !slices.Contains(verification.RequiredFields, "evidenceRefs") || !slices.Contains(verification.AllowedValues, "verdict=accepted|rejected|inconclusive|needs-more-evidence") || !slices.Contains(verification.PreviewChecks, "confirm note WhatIf returns isMutation=false and applied=false") || !slices.Contains(verification.BlockedOutputs, "previewCommand must not write facts, authority, confirmed, board, lane, handoff, or source files") {
 		t.Fatalf("unexpected verification writeback template: %+v", verification)
 	}
-	if !strings.Contains(decision.Command, "-Kind decision") || !strings.Contains(decision.Command, "-Decision <accept|reject|defer|supersede>") || !strings.Contains(decision.Command, "-TargetRef \"alpha,beta\"") || !slices.Contains(decision.RequiredFields, "decision") || !slices.Contains(decision.AllowedValues, "decision=accept|reject|defer|supersede") {
+	if !strings.Contains(decision.Command, "-Kind decision") || !strings.Contains(decision.PreviewCommand, "-WhatIf -Format json") || !strings.Contains(decision.ApplyCommand, "-Apply") || !strings.Contains(decision.ApplyCommand, "-Decision <accept|reject|defer|supersede>") || !strings.Contains(decision.ApplyCommand, "-TargetRef \"alpha,beta\"") || !slices.Contains(decision.RequiredFields, "decision") || !slices.Contains(decision.RequiredFields, "target") || !slices.Contains(decision.AllowedValues, "decision=accept|reject|defer|supersede") || !slices.Contains(decision.PreviewChecks, "confirm note WhatIf returns isMutation=false and applied=false") {
 		t.Fatalf("unexpected decision writeback template: %+v", decision)
 	}
-	if !slices.Contains(handoff.PostReviewMerge, "record reviewer verdict with the verification template; do not let the reviewer append ledger events directly") || !slices.Contains(handoff.PostReviewMerge, "record the main merge decision with the decision template only after validation/conflict review") {
+	if !slices.Contains(handoff.PostReviewMerge, "run each template previewCommand and inspect note WhatIf output before applyCommand") || !slices.Contains(handoff.PostReviewMerge, "record reviewer verdict with the verification applyCommand; do not let the reviewer append ledger events directly") || !slices.Contains(handoff.PostReviewMerge, "record the main merge decision with the decision applyCommand only after validation/conflict review") {
 		t.Fatalf("unexpected post-review merge guidance: %+v", handoff.PostReviewMerge)
 	}
 	if !slices.Contains(handoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(handoff.ReadOnlyBoundary, "subagents must not write files") {

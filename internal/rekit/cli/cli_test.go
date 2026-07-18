@@ -3839,26 +3839,26 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		t.Fatalf("missing shard handoffs: result=%+v packet=%+v", result.ShardHandoffs, packet.ShardHandoffs)
 	}
 	firstHandoff := packet.ShardHandoffs[0]
-	if firstHandoff.ShardID != "shard-01" || firstHandoff.Status != "planned" || strings.Join(firstHandoff.Items, ",") != "alpha,beta" || !strings.Contains(firstHandoff.DispatchPrompt, "read-only reviewer") || !strings.Contains(firstHandoff.DispatchPrompt, "Do not write files") || !strings.Contains(firstHandoff.ExpectedOutput, "decision") || !strings.Contains(firstHandoff.ReviewerWriteback, "note -Kind verification") || !strings.Contains(firstHandoff.MainAgentNextAction, "ledgerWritebackTemplates") || !slices.Contains(firstHandoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(firstHandoff.CompletionCriteria, "reviewer verdicts are recorded in the ledger before main merge decisions") || firstHandoff.FailureHandling == "" {
+	if firstHandoff.ShardID != "shard-01" || firstHandoff.Status != "planned" || strings.Join(firstHandoff.Items, ",") != "alpha,beta" || !strings.Contains(firstHandoff.DispatchPrompt, "read-only reviewer") || !strings.Contains(firstHandoff.DispatchPrompt, "Do not write files") || !strings.Contains(firstHandoff.ExpectedOutput, "decision") || !strings.Contains(firstHandoff.ReviewerWriteback, "note -Kind verification") || !strings.Contains(firstHandoff.MainAgentNextAction, "previewCommand") || !strings.Contains(firstHandoff.MainAgentNextAction, "applyCommand") || !slices.Contains(firstHandoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(firstHandoff.CompletionCriteria, "reviewer verdicts are recorded in the ledger before main merge decisions") || firstHandoff.FailureHandling == "" {
 		t.Fatalf("unexpected shard handoff: %+v", firstHandoff)
 	}
 	if len(firstHandoff.LedgerWritebackTemplates) != 2 || firstHandoff.LedgerWritebackTemplates[0].Kind != "verification" || firstHandoff.LedgerWritebackTemplates[1].Kind != "decision" {
 		t.Fatalf("unexpected shard writeback templates: %+v", firstHandoff.LedgerWritebackTemplates)
 	}
-	if !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].Command, "-Kind verification") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].Command, "-Verdict <accepted|rejected|inconclusive|needs-more-evidence>") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].Command, "-TargetRef \"alpha,beta\"") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[0].RequiredFields, "evidenceRefs") {
+	if !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].Command, "-Kind verification") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].PreviewCommand, "-WhatIf -Format json") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].ApplyCommand, "-Apply") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[0].ApplyCommand, "-TargetRef \"alpha,beta\"") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[0].RequiredFields, "target") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[0].PreviewChecks, "confirm note WhatIf returns isMutation=false and applied=false") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[0].BlockedOutputs, "previewCommand must not write facts, authority, confirmed, board, lane, handoff, or source files") {
 		t.Fatalf("unexpected verification writeback template: %+v", firstHandoff.LedgerWritebackTemplates[0])
 	}
-	if !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].Command, "-Kind decision") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].Command, "-Decision <accept|reject|defer|supersede>") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].Command, "-TargetRef \"alpha,beta\"") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[1].RequiredFields, "decision") {
+	if !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].Command, "-Kind decision") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].PreviewCommand, "-WhatIf -Format json") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].ApplyCommand, "-Apply") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].ApplyCommand, "-Decision <accept|reject|defer|supersede>") || !strings.Contains(firstHandoff.LedgerWritebackTemplates[1].ApplyCommand, "-TargetRef \"alpha,beta\"") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[1].RequiredFields, "decision") || !slices.Contains(firstHandoff.LedgerWritebackTemplates[1].PreviewChecks, "confirm note WhatIf returns isMutation=false and applied=false") {
 		t.Fatalf("unexpected decision writeback template: %+v", firstHandoff.LedgerWritebackTemplates[1])
 	}
-	if !slices.Contains(firstHandoff.PostReviewMerge, "record the main merge decision with the decision template only after validation/conflict review") {
+	if !slices.Contains(firstHandoff.PostReviewMerge, "run each template previewCommand and inspect note WhatIf output before applyCommand") || !slices.Contains(firstHandoff.PostReviewMerge, "record the main merge decision with the decision applyCommand only after validation/conflict review") {
 		t.Fatalf("unexpected post-review merge guidance: %+v", firstHandoff.PostReviewMerge)
 	}
 	summary, err := os.ReadFile(result.SummaryPath)
 	if err != nil {
 		t.Fatalf("missing summary: %v", err)
 	}
-	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "verification writeback", "decision writeback", "post-review:"} {
+	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -4950,8 +4950,12 @@ type planSubagentsWritebackTemplate struct {
 	Kind           string   `json:"kind"`
 	Purpose        string   `json:"purpose"`
 	Command        string   `json:"command"`
+	PreviewCommand string   `json:"previewCommand"`
+	ApplyCommand   string   `json:"applyCommand"`
 	RequiredFields []string `json:"requiredFields"`
 	AllowedValues  []string `json:"allowedValues"`
+	PreviewChecks  []string `json:"previewChecks"`
+	BlockedOutputs []string `json:"blockedOutputs"`
 }
 
 type planSubagentsObservables struct {

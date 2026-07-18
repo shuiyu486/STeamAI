@@ -156,8 +156,12 @@ type LedgerWritebackTemplate struct {
 	Kind           string   `json:"kind"`
 	Purpose        string   `json:"purpose"`
 	Command        string   `json:"command"`
+	PreviewCommand string   `json:"previewCommand"`
+	ApplyCommand   string   `json:"applyCommand"`
 	RequiredFields []string `json:"requiredFields"`
 	AllowedValues  []string `json:"allowedValues,omitempty"`
+	PreviewChecks  []string `json:"previewChecks,omitempty"`
+	BlockedOutputs []string `json:"blockedOutputs,omitempty"`
 }
 
 type artifactPaths struct {
@@ -345,7 +349,7 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 			ExpectedOutput:           route.OutputContract,
 			ReviewerWriteback:        reviewLoop.VerdictWriteback,
 			LedgerWritebackTemplates: ledgerWritebackTemplates(shard),
-			MainAgentNextAction:      "launch a read-only reviewer with dispatchPrompt, then use ledgerWritebackTemplates to record reviewer verification and main merge decision",
+			MainAgentNextAction:      "launch a read-only reviewer with dispatchPrompt, inspect the output, run ledgerWritebackTemplates.previewCommand, then use applyCommand for reviewer verification and main merge decision",
 			PostReviewMerge:          postReviewMergeSteps(),
 			CompletionCriteria:       append([]string{}, reviewLoop.CompletionCriteria...),
 			FailureHandling:          reviewLoop.FailureHandling,
@@ -359,29 +363,57 @@ func ledgerWritebackTemplates(shard Shard) []LedgerWritebackTemplate {
 	if itemRef == "" {
 		itemRef = shard.ID
 	}
+	verificationBase := "/rekit note -Kind verification -Lane <lane> -Verifier manual-review -Verdict <accepted|rejected|inconclusive|needs-more-evidence> -TargetRef \"" + itemRef + "\" -Subject \"reviewer verdict for " + shard.ID + "\" -Summary \"<short reviewer verdict summary>\" -EvidenceRefs \"<packet-or-evidence-ref>\" -Actor <main-agent>"
+	decisionBase := "/rekit note -Kind decision -Lane <lane> -Decision <accept|reject|defer|supersede> -TargetRef \"" + itemRef + "\" -Subject \"main merge decision for " + shard.ID + "\" -Summary \"<merge decision and reason>\" -EvidenceRefs \"<verification-event-or-packet-ref>\" -Actor <main-agent>"
 	return []LedgerWritebackTemplate{
 		{
 			Kind:           "verification",
 			Purpose:        "record a read-only reviewer verdict for this shard after the main agent inspects the reviewer output",
-			Command:        "/rekit note -Kind verification -Lane <lane> -Verifier manual-review -Verdict <accepted|rejected|inconclusive|needs-more-evidence> -TargetRef \"" + itemRef + "\" -Subject \"reviewer verdict for " + shard.ID + "\" -Summary \"<short reviewer verdict summary>\" -EvidenceRefs \"<packet-or-evidence-ref>\" -Actor <main-agent> -Apply",
+			Command:        verificationBase + " -Apply",
+			PreviewCommand: verificationBase + " -WhatIf -Format json",
+			ApplyCommand:   verificationBase + " -Apply",
 			RequiredFields: []string{"lane", "verifier", "verdict", "target", "subject", "summary", "evidenceRefs", "actor"},
 			AllowedValues:  []string{"verifier=manual-review|schema-check|focused-trace|parity|cross-run|tool-review", "verdict=accepted|rejected|inconclusive|needs-more-evidence"},
+			PreviewChecks:  writebackPreviewChecks("verification"),
+			BlockedOutputs: writebackBlockedOutputs(),
 		},
 		{
 			Kind:           "decision",
 			Purpose:        "record the main agent merge decision for this shard after validation and conflict review",
-			Command:        "/rekit note -Kind decision -Lane <lane> -Decision <accept|reject|defer|supersede> -TargetRef \"" + itemRef + "\" -Subject \"main merge decision for " + shard.ID + "\" -Summary \"<merge decision and reason>\" -EvidenceRefs \"<verification-event-or-packet-ref>\" -Actor <main-agent> -Apply",
+			Command:        decisionBase + " -Apply",
+			PreviewCommand: decisionBase + " -WhatIf -Format json",
+			ApplyCommand:   decisionBase + " -Apply",
 			RequiredFields: []string{"lane", "decision", "target", "subject", "summary", "evidenceRefs", "actor"},
 			AllowedValues:  []string{"decision=accept|reject|defer|supersede"},
+			PreviewChecks:  writebackPreviewChecks("decision"),
+			BlockedOutputs: writebackBlockedOutputs(),
 		},
+	}
+}
+
+func writebackPreviewChecks(kind string) []string {
+	return []string{
+		"run previewCommand before applyCommand",
+		"confirm note WhatIf returns isMutation=false and applied=false",
+		"confirm event.kind is " + kind + " and event lane/target/evidenceRefs match the reviewed shard",
+		"confirm wouldExecutorAction contains only the expected lane-local blocker delta before applying",
+	}
+}
+
+func writebackBlockedOutputs() []string {
+	return []string{
+		"reviewer output alone must not be treated as a ledger event",
+		"previewCommand must not write facts, authority, confirmed, board, lane, handoff, or source files",
+		"applyCommand must not run when previewCommand fails, targets the wrong lane, or lacks inspected evidenceRefs",
 	}
 }
 
 func postReviewMergeSteps() []string {
 	return []string{
 		"inspect reviewer output against expectedOutput before ledger writeback",
-		"record reviewer verdict with the verification template; do not let the reviewer append ledger events directly",
-		"record the main merge decision with the decision template only after validation/conflict review",
+		"run each template previewCommand and inspect note WhatIf output before applyCommand",
+		"record reviewer verdict with the verification applyCommand; do not let the reviewer append ledger events directly",
+		"record the main merge decision with the decision applyCommand only after validation/conflict review",
 		"run the relevant overview/handoff/doctor check after accepted decisions that affect lane state",
 	}
 }
@@ -605,7 +637,13 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 		for _, handoff := range shardHandoffs {
 			lines = append(lines, fmt.Sprintf("- %s: `%s`; expected output=`%s`", handoff.ShardID, handoff.DispatchPrompt, handoff.ExpectedOutput))
 			for _, tmpl := range handoff.LedgerWritebackTemplates {
-				lines = append(lines, fmt.Sprintf("  - %s writeback: `%s`; required=`%s`", tmpl.Kind, tmpl.Command, strings.Join(tmpl.RequiredFields, ",")))
+				lines = append(lines, fmt.Sprintf("  - %s writeback preview: `%s`; apply: `%s`; required=`%s`", tmpl.Kind, tmpl.PreviewCommand, tmpl.ApplyCommand, strings.Join(tmpl.RequiredFields, ",")))
+				for _, check := range tmpl.PreviewChecks {
+					lines = append(lines, "    - preview-check: "+check)
+				}
+				for _, blocked := range tmpl.BlockedOutputs {
+					lines = append(lines, "    - blocked-output: "+blocked)
+				}
 			}
 			for _, step := range handoff.PostReviewMerge {
 				lines = append(lines, "  - post-review: "+step)

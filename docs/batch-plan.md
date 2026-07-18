@@ -10639,3 +10639,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/subagents/plan.go internal/rekit/subagents/plan_test.go internal/rekit/cli/cli_test.go` 与 targeted `go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestWritePlan|TestRunPlanSubagents" -count=1`；完整 release gate 已运行 `go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`，均通过。`git diff --check` 仅报告 Windows LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade delegation/fallback。
+
+### Batch 347：Go-native plan-subagents ledger preview contract
+
+状态：已完成。
+
+目标：继续 Stage 6 Agent Team dry-run / bounded dispatch 可用性强化，在 Batch 346 `ledgerWritebackTemplates[]` 的手动落账模板基础上，为 reviewer verification 与 main decision 明确区分 note WhatIf preview 与 Apply 落账命令，让主 Agent 能先复核 event / lane / evidence / executor action delta，再决定是否写入 ledger。
+
+实施范围：
+
+- `internal/rekit/subagents` 扩展 `LedgerWritebackTemplate`，新增 `previewCommand`、`applyCommand`、`previewChecks[]` 与 `blockedOutputs[]`；保留既有 `command` 作为 apply-compatible 模板，保证旧消费者仍可读取。
+- verification / decision writeback 模板现在均先提供 `/rekit note ... -WhatIf -Format json`，再提供 `/rekit note ... -Apply`；preview checks 要求主 Agent 检查 `isMutation=false`、`applied=false`、`event.kind`、lane / target / evidence refs 与 lane-local `wouldExecutorAction`。
+- `summary.md` 的 shard handoff prompts 同步列出 writeback preview / apply、preview-check 与 blocked-output，便于主 Agent 不解析完整 JSON 也能按 preview-first 顺序执行。
+- `postReviewMerge[]` 与 `mainAgentNextAction` 改为明确先 inspect reviewer output、运行 previewCommand，再用 applyCommand 记录 reviewer verification 与 main merge decision；reviewer 输出本身不得被当成 ledger event。
+- 扩展 `internal/rekit/subagents/plan_test.go` 与 CLI E2E assertions，覆盖 preview/apply commands、required fields、preview checks、blocked outputs 与 summary 可见性。
+- 更新 README、项目 CLAUDE、canonical `/rekit` skill、Agent Team usage、release readiness、Go-first convergence、batch-plan 与 CHANGELOG，记录 ledger preview contract 边界。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不自动 spawn reviewer，不替 reviewer 写 ledger，不写 board/facts/lanes/handoff/authority/confirmed，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不改变 sync/promote review-first、facts/board/policy durable schema、policy schema 或公共 façade deletion 边界；新增字段为 additive public output，旧 `command`、`shards[]`、`shardHandoffs[]`、`observability` 与 `reviewLoop` 字段保持兼容。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/subagents/plan.go internal/rekit/subagents/plan_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestWritePlan|TestRunPlanSubagents" -count=1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/subagents/plan.go internal/rekit/subagents/plan_test.go internal/rekit/cli/cli_test.go` 与 targeted `go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestWritePlan|TestRunPlanSubagents" -count=1`；完整 release gate 已运行 `go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`，均通过。`git diff --check` 仅报告 Windows LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade delegation/fallback。
