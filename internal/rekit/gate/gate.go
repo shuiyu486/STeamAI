@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -44,6 +45,7 @@ type Options struct {
 	EvidenceRefs         string
 	BoundaryHits         string
 	Escalation           string
+	ExecutionReportPath  string
 }
 
 type Plan struct {
@@ -83,16 +85,32 @@ type ExecutionEvidencePreview struct {
 }
 
 type ExecutionEvidenceDetails struct {
-	Status         string          `json:"status"`
-	ActualBudget   autonomy.Budget `json:"actualBudget"`
-	OutputRefs     []string        `json:"outputRefs,omitempty"`
-	BoundaryHits   []string        `json:"boundaryHits,omitempty"`
-	Escalation     string          `json:"escalation,omitempty"`
-	GateEventID    string          `json:"gateEventId"`
-	GateStatus     string          `json:"gateStatus"`
-	Authorization  string          `json:"authorization"`
-	RecordRequired bool            `json:"recordRequired"`
-	NotifyMainOn   []string        `json:"notifyMainOn,omitempty"`
+	Status              string          `json:"status"`
+	ActualBudget        autonomy.Budget `json:"actualBudget"`
+	OutputRefs          []string        `json:"outputRefs,omitempty"`
+	BoundaryHits        []string        `json:"boundaryHits,omitempty"`
+	Escalation          string          `json:"escalation,omitempty"`
+	GateEventID         string          `json:"gateEventId"`
+	GateStatus          string          `json:"gateStatus"`
+	Authorization       string          `json:"authorization"`
+	RecordRequired      bool            `json:"recordRequired"`
+	NotifyMainOn        []string        `json:"notifyMainOn,omitempty"`
+	ExecutionReportPath string          `json:"executionReportPath,omitempty"`
+	Adapter             *AdapterReport  `json:"adapter,omitempty"`
+}
+
+type AdapterReport struct {
+	SchemaVersion int             `json:"schemaVersion"`
+	Kind          string          `json:"kind"`
+	AdapterID     string          `json:"adapterId"`
+	Action        string          `json:"action"`
+	Status        string          `json:"status"`
+	GateEventID   string          `json:"gateEventId"`
+	ActualBudget  autonomy.Budget `json:"actualBudget"`
+	OutputRefs    []string        `json:"outputRefs,omitempty"`
+	EvidenceRefs  []string        `json:"evidenceRefs,omitempty"`
+	BoundaryHits  []string        `json:"boundaryHits,omitempty"`
+	Summary       string          `json:"summary,omitempty"`
 }
 
 type ApplyResult struct {
@@ -300,14 +318,32 @@ func authorizedGateEvent(repoRoot, caseRoot, pack string, opt Options) (instance
 }
 
 func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (ExecutionEvidencePreview, error) {
+	reportRel, adapterReport, err := readAdapterExecutionReport(caseRoot, gateEvent, opt.ExecutionReportPath)
+	if err != nil {
+		return ExecutionEvidencePreview{}, err
+	}
 	status := strings.ToLower(strings.TrimSpace(opt.ExecutionStatus))
+	if status == "" && adapterReport != nil {
+		status = adapterReport.Status
+	}
 	if status == "" {
 		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence requires -ExecutionStatus succeeded|failed|boundary-hit|escalated|aborted")
 	}
 	if !validExecutionStatus(status) {
 		return ExecutionEvidencePreview{}, fmt.Errorf("invalid ExecutionStatus %q; allowed: succeeded,failed,boundary-hit,escalated,aborted", opt.ExecutionStatus)
 	}
+	if adapterReport != nil && adapterReport.Status != status {
+		return ExecutionEvidencePreview{}, fmt.Errorf("adapter execution report status %q does not match ExecutionStatus %q", adapterReport.Status, status)
+	}
 	actual := autonomy.Budget{RuntimeSeconds: opt.ActualRuntimeSeconds, DiskMB: opt.ActualDiskMB, Requests: opt.ActualRequests}
+	if adapterReport != nil {
+		if actualBudgetFieldMismatch(actual, adapterReport.ActualBudget) {
+			return ExecutionEvidencePreview{}, fmt.Errorf("adapter execution report actualBudget does not match explicit actual budget flags")
+		}
+		if actual == (autonomy.Budget{}) {
+			actual = adapterReport.ActualBudget
+		}
+	}
 	if actual.RuntimeSeconds < 0 || actual.DiskMB < 0 || actual.Requests < 0 {
 		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence actual budget values must be non-negative")
 	}
@@ -315,16 +351,40 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (Ex
 	if err != nil {
 		return ExecutionEvidencePreview{}, err
 	}
+	if adapterReport != nil {
+		if len(outputRefs) > 0 && len(adapterReport.OutputRefs) > 0 && strings.Join(normalizedGatePaths(outputRefs), ",") != strings.Join(normalizedGatePaths(adapterReport.OutputRefs), ",") {
+			return ExecutionEvidencePreview{}, fmt.Errorf("adapter execution report outputRefs do not match explicit OutputRefs")
+		}
+		if len(outputRefs) == 0 {
+			outputRefs = adapterReport.OutputRefs
+		}
+	}
 	if len(outputRefs) > 0 && !outputRefsWithinGate(gateEvent.Gate.OutputPaths, outputRefs) {
 		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence outputRefs must stay within authorized gate outputPaths")
 	}
 	evidenceRefs := splitList(opt.EvidenceRefs)
-	if len(outputRefs) == 0 && len(evidenceRefs) == 0 {
-		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence requires -OutputRefs or -ExecutionEvidenceRefs")
+	if adapterReport != nil {
+		if len(evidenceRefs) > 0 && len(adapterReport.EvidenceRefs) > 0 && strings.Join(normalizedGatePaths(evidenceRefs), ",") != strings.Join(normalizedGatePaths(adapterReport.EvidenceRefs), ",") {
+			return ExecutionEvidencePreview{}, fmt.Errorf("adapter execution report evidenceRefs do not match explicit ExecutionEvidenceRefs")
+		}
+		if len(evidenceRefs) == 0 {
+			evidenceRefs = append([]string{}, adapterReport.EvidenceRefs...)
+		}
+	}
+	if len(outputRefs) == 0 && len(evidenceRefs) == 0 && reportRel == "" {
+		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence requires -OutputRefs, -ExecutionEvidenceRefs, or -ExecutionReportPath")
 	}
 	boundaryHits, err := parseBoundaryHits(opt.BoundaryHits)
 	if err != nil {
 		return ExecutionEvidencePreview{}, err
+	}
+	if adapterReport != nil {
+		if len(boundaryHits) > 0 && len(adapterReport.BoundaryHits) > 0 && strings.Join(boundaryHits, ",") != strings.Join(adapterReport.BoundaryHits, ",") {
+			return ExecutionEvidencePreview{}, fmt.Errorf("adapter execution report boundaryHits do not match explicit BoundaryHits")
+		}
+		if len(boundaryHits) == 0 {
+			boundaryHits = append([]string{}, adapterReport.BoundaryHits...)
+		}
 	}
 	escalation := strings.TrimSpace(opt.Escalation)
 	if exceedsGateBudget(gateEvent.Gate.RequestedBudget, actual) && len(boundaryHits) == 0 && escalation == "" {
@@ -338,6 +398,9 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (Ex
 		subject = "execution evidence for " + mission.Subject(gateEventMap(gateEvent))
 	}
 	summary := strings.TrimSpace(opt.Summary)
+	if summary == "" && adapterReport != nil && strings.TrimSpace(adapterReport.Summary) != "" {
+		summary = strings.TrimSpace(adapterReport.Summary)
+	}
 	if summary == "" {
 		summary = "Recorded execution evidence for authorized " + gateEvent.Gate.Action + " gate"
 	}
@@ -356,18 +419,190 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (Ex
 		EvidenceRefs:  evidenceRefs,
 		Gate:          gateEvent.Gate,
 		Execution: ExecutionEvidenceDetails{
-			Status:         status,
-			ActualBudget:   actual,
-			OutputRefs:     outputRefs,
-			BoundaryHits:   boundaryHits,
-			Escalation:     escalation,
-			GateEventID:    gateEvent.EventID,
-			GateStatus:     gateEvent.Status,
-			Authorization:  gateEvent.Gate.Authorization.Decision,
-			RecordRequired: gateEvent.Gate.Authorization.RecordRequired,
-			NotifyMainOn:   append([]string{}, gateEvent.Gate.Authorization.NotifyMainOn...),
+			Status:              status,
+			ActualBudget:        actual,
+			OutputRefs:          outputRefs,
+			BoundaryHits:        boundaryHits,
+			Escalation:          escalation,
+			GateEventID:         gateEvent.EventID,
+			GateStatus:          gateEvent.Status,
+			Authorization:       gateEvent.Gate.Authorization.Decision,
+			RecordRequired:      gateEvent.Gate.Authorization.RecordRequired,
+			NotifyMainOn:        append([]string{}, gateEvent.Gate.Authorization.NotifyMainOn...),
+			ExecutionReportPath: reportRel,
+			Adapter:             adapterReport,
 		},
 	}, nil
+}
+
+func actualBudgetFieldMismatch(explicit, reported autonomy.Budget) bool {
+	return (explicit.RuntimeSeconds != 0 && explicit.RuntimeSeconds != reported.RuntimeSeconds) || (explicit.DiskMB != 0 && explicit.DiskMB != reported.DiskMB) || (explicit.Requests != 0 && explicit.Requests != reported.Requests)
+}
+
+func readAdapterExecutionReport(caseRoot string, gateEvent EventPreview, value string) (string, *AdapterReport, error) {
+	path := strings.TrimSpace(value)
+	if path == "" {
+		return "", nil, nil
+	}
+	if len(splitList(path)) != 1 {
+		return "", nil, fmt.Errorf("gate execution report path must be a single file path")
+	}
+	fullPath, relPath, err := executionReportPath(caseRoot, path)
+	if err != nil {
+		return "", nil, err
+	}
+	if !outputRefsWithinGate(gateEvent.Gate.OutputPaths, []string{relPath}) {
+		return "", nil, fmt.Errorf("gate execution report path must stay within authorized gate outputPaths")
+	}
+	st, err := os.Stat(fullPath)
+	if err != nil {
+		return "", nil, fmt.Errorf("read adapter execution report %s: %w", relPath, err)
+	}
+	if st.IsDir() {
+		return "", nil, fmt.Errorf("adapter execution report path is a directory: %s", relPath)
+	}
+	if st.Size() > 1<<20 {
+		return "", nil, fmt.Errorf("adapter execution report is too large: %s %d > %d", relPath, st.Size(), 1<<20)
+	}
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return "", nil, fmt.Errorf("read adapter execution report %s: %w", relPath, err)
+	}
+	defer f.Close()
+	var report AdapterReport
+	dec := json.NewDecoder(io.LimitReader(f, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&report); err != nil {
+		return "", nil, fmt.Errorf("invalid adapter execution report %s: %w", relPath, err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return "", nil, fmt.Errorf("invalid adapter execution report %s: trailing data", relPath)
+		}
+		return "", nil, fmt.Errorf("invalid adapter execution report %s: trailing data: %w", relPath, err)
+	}
+	if err := validateAdapterExecutionReport(caseRoot, gateEvent, &report); err != nil {
+		return "", nil, err
+	}
+	return relPath, &report, nil
+}
+
+func executionReportPath(caseRoot, value string) (string, string, error) {
+	if filepath.IsAbs(value) {
+		caseAbs, err := filepath.Abs(caseRoot)
+		if err != nil {
+			return "", "", err
+		}
+		fullAbs, err := filepath.Abs(value)
+		if err != nil {
+			return "", "", err
+		}
+		caseClean := strings.TrimRight(filepath.Clean(caseAbs), string(filepath.Separator))
+		fullClean := strings.TrimRight(filepath.Clean(fullAbs), string(filepath.Separator))
+		prefix := caseClean + string(filepath.Separator)
+		if !strings.EqualFold(fullClean, caseClean) && !strings.HasPrefix(strings.ToLower(fullClean), strings.ToLower(prefix)) {
+			return "", "", fmt.Errorf("gate execution report path must stay within case root: %s", value)
+		}
+		rel, err := filepath.Rel(caseClean, fullClean)
+		if err != nil {
+			return "", "", err
+		}
+		if rel == "." {
+			return "", "", fmt.Errorf("gate execution report path must name a file under case root")
+		}
+		return fullClean, filepath.ToSlash(rel), nil
+	}
+	clean, err := validateCaseRelativePath(caseRoot, "gate execution report path", value)
+	if err != nil {
+		return "", "", err
+	}
+	fullPath, err := refsf.SafeJoin(caseRoot, clean)
+	if err != nil {
+		return "", "", fmt.Errorf("gate execution report path escapes case root: %s", value)
+	}
+	return fullPath, clean, nil
+}
+
+func validateAdapterExecutionReport(caseRoot string, gateEvent EventPreview, report *AdapterReport) error {
+	if report.SchemaVersion != 1 {
+		return fmt.Errorf("adapter execution report schemaVersion has unsupported value: %d", report.SchemaVersion)
+	}
+	if strings.TrimSpace(report.Kind) != "adapter-execution-report" {
+		return fmt.Errorf("adapter execution report kind has unsupported value: %s", report.Kind)
+	}
+	report.AdapterID = strings.TrimSpace(report.AdapterID)
+	if report.AdapterID == "" {
+		return fmt.Errorf("adapter execution report is missing adapterId")
+	}
+	report.Action = strings.ToLower(strings.TrimSpace(report.Action))
+	if report.Action != gateEvent.Gate.Action {
+		return fmt.Errorf("adapter execution report action %q does not match authorized gate action %q", report.Action, gateEvent.Gate.Action)
+	}
+	report.Status = strings.ToLower(strings.TrimSpace(report.Status))
+	if !validExecutionStatus(report.Status) {
+		return fmt.Errorf("adapter execution report status has unsupported value: %s", report.Status)
+	}
+	report.GateEventID = strings.TrimSpace(report.GateEventID)
+	if report.GateEventID != gateEvent.EventID {
+		return fmt.Errorf("adapter execution report gateEventId %q does not match authorized gate eventId %q", report.GateEventID, gateEvent.EventID)
+	}
+	if report.ActualBudget.RuntimeSeconds < 0 || report.ActualBudget.DiskMB < 0 || report.ActualBudget.Requests < 0 {
+		return fmt.Errorf("adapter execution report actualBudget values must be non-negative")
+	}
+	outputRefs, err := validateCaseRelativePaths(caseRoot, "adapter execution report outputRefs", report.OutputRefs)
+	if err != nil {
+		return err
+	}
+	if len(outputRefs) > 0 && !outputRefsWithinGate(gateEvent.Gate.OutputPaths, outputRefs) {
+		return fmt.Errorf("adapter execution report outputRefs must stay within authorized gate outputPaths")
+	}
+	report.OutputRefs = outputRefs
+	evidenceRefs, err := validateCaseRelativePaths(caseRoot, "adapter execution report evidenceRefs", report.EvidenceRefs)
+	if err != nil {
+		return err
+	}
+	report.EvidenceRefs = evidenceRefs
+	if len(report.BoundaryHits) > 0 {
+		if err := validateStopConditions("adapter execution report boundaryHits", report.BoundaryHits); err != nil {
+			return err
+		}
+	}
+	report.Summary = strings.TrimSpace(report.Summary)
+	if len(report.Summary) > 4096 {
+		return fmt.Errorf("adapter execution report summary is too large")
+	}
+	return nil
+}
+
+func validateCaseRelativePaths(caseRoot, field string, refs []string) ([]string, error) {
+	out := []string{}
+	for _, ref := range refs {
+		clean, err := validateCaseRelativePath(caseRoot, field, ref)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, clean)
+	}
+	return out, nil
+}
+
+func validateCaseRelativePath(caseRoot, field, value string) (string, error) {
+	rel := strings.TrimSpace(value)
+	if rel == "" {
+		return "", fmt.Errorf("%s contains an empty item", field)
+	}
+	if filepath.IsAbs(rel) {
+		return "", fmt.Errorf("%s must be case-relative: %s", field, rel)
+	}
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(rel)))
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("%s escapes case root: %s", field, rel)
+	}
+	if _, err := refsf.SafeJoin(caseRoot, clean); err != nil {
+		return "", fmt.Errorf("%s escapes case root: %s", field, rel)
+	}
+	return clean, nil
 }
 
 func validExecutionStatus(status string) bool {
@@ -445,9 +680,29 @@ func executionEventID(event ExecutionEvidencePreview) string {
 		strings.Join(event.Execution.OutputRefs, ","),
 		strings.Join(event.Execution.BoundaryHits, ","),
 		event.Execution.Escalation,
+		event.Execution.ExecutionReportPath,
+		adapterEventIDSeed(event.Execution.Adapter),
 	}, "|")
 	sum := sha256.Sum256([]byte(seed))
 	return "evt-" + hex.EncodeToString(sum[:])[:16]
+}
+
+func adapterEventIDSeed(report *AdapterReport) string {
+	if report == nil {
+		return ""
+	}
+	return strings.Join([]string{
+		report.Kind,
+		report.AdapterID,
+		report.Action,
+		report.Status,
+		report.GateEventID,
+		fmt.Sprintf("%d/%d/%d", report.ActualBudget.RuntimeSeconds, report.ActualBudget.DiskMB, report.ActualBudget.Requests),
+		strings.Join(report.OutputRefs, ","),
+		strings.Join(report.EvidenceRefs, ","),
+		strings.Join(report.BoundaryHits, ","),
+		report.Summary,
+	}, "|")
 }
 
 func executionNextSteps(event ExecutionEvidencePreview) []string {
@@ -746,19 +1001,15 @@ func splitList(value string) []string {
 
 func parseOutputPaths(caseRoot, value string) ([]string, error) {
 	paths := splitList(value)
+	out := []string{}
 	for _, rel := range paths {
-		if filepath.IsAbs(rel) {
-			return nil, fmt.Errorf("gate output path must be case-relative: %s", rel)
+		clean, err := validateCaseRelativePath(caseRoot, "gate output path", rel)
+		if err != nil {
+			return nil, err
 		}
-		clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(rel)))
-		if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
-			return nil, fmt.Errorf("gate output path escapes case root: %s", rel)
-		}
-		if _, err := refsf.SafeJoin(caseRoot, rel); err != nil {
-			return nil, fmt.Errorf("gate output path escapes case root: %s", rel)
-		}
+		out = append(out, clean)
 	}
-	return paths, nil
+	return out, nil
 }
 
 func authorizationDecision(caseRoot, lane string, m *manifest.Manifest, req autonomy.Request) autonomy.Decision {

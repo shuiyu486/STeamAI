@@ -62,6 +62,26 @@ errors:
 next_action:
 ```
 
+lane executor / tool adapter 完成 `authorized-gate` 覆盖的实际动作后，可以额外写一个 bounded JSON sidecar，并由主 Agent 通过 `gate -Apply -GateEventId <id> -ExecutionReportPath <path>` 记录 observation evidence。该 sidecar 必须留在 case 内、位于本次 authorized gate 的 output paths 下，且只包含 refs/summary，不包含完整 trace/dump/log：
+
+```json
+{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "<adapter-id>",
+  "action": "<manifest-heavyToolGates.id>",
+  "status": "succeeded|failed|boundary-hit|escalated|aborted",
+  "gateEventId": "<authorized-gate-event-id>",
+  "actualBudget": {"runtimeSeconds": 0, "diskMB": 0, "requests": 0},
+  "outputRefs": ["<case-relative output under authorized outputPaths>"],
+  "evidenceRefs": ["<case-relative bounded evidence ref>"],
+  "boundaryHits": ["<stop-condition-token>"],
+  "summary": "<short bounded summary>"
+}
+```
+
+Go runtime 只读取并校验该 report 后写 observation evidence：`schemaVersion`、`kind`、`action`、`status`、`gateEventId`、actual budget、case-relative refs、authorized output path 边界与 boundary token 都会 fail-closed 校验；它仍不执行 heavy-tool、不写 authority/confirmed。
+
 能用脚本统计的不手工复制长表；需要 LLM 判断时先抽取小样本、摘要或 bounded diff。
 
 ## 重型工具门禁与预授权 autonomy

@@ -58,6 +58,16 @@ func TestParseDefaults(t *testing.T) {
 	}
 }
 
+func TestParseGateExecutionReportPath(t *testing.T) {
+	opt, err := Parse([]string{"-Command", "gate", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opt.Gate.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" {
+		t.Fatalf("ExecutionReportPath = %q", opt.Gate.ExecutionReportPath)
+	}
+}
+
 func TestParsePlanSubagentsNumericOptionsRejectTrailingJunk(t *testing.T) {
 	_, err := Parse([]string{"-Command", "plan-subagents", "-ItemsPerAgent", "2x"})
 	if err == nil || !strings.Contains(err.Error(), "invalid -ItemsPerAgent") {

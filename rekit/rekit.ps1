@@ -42,6 +42,7 @@ param(
   [string]$ExecutionEvidenceRefs = '',
   [string]$BoundaryHits = '',
   [string]$Escalation = '',
+  [string]$ExecutionReportPath = '',
   [string]$Route = '',
   [string]$TaskType = '',
   [string]$Items = '',
@@ -467,6 +468,7 @@ function Get-RekitGoArgs {
     Add-RekitGoArg ([ref]$goArgs) '-ExecutionEvidenceRefs' $ExecutionEvidenceRefs
     Add-RekitGoArg ([ref]$goArgs) '-BoundaryHits' $BoundaryHits
     Add-RekitGoArg ([ref]$goArgs) '-Escalation' $Escalation
+    Add-RekitGoArg ([ref]$goArgs) '-ExecutionReportPath' $ExecutionReportPath
   }
   if ($Command -eq 'plan-subagents') {
     Add-RekitGoArg ([ref]$goArgs) '-Route' $Route

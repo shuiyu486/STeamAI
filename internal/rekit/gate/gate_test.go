@@ -407,6 +407,125 @@ func TestRecordExecutionRejectsPendingGate(t *testing.T) {
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
 
+func TestRecordExecutionAcceptsAdapterReportForAuthorizedGate(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "adapter-report.json")
+	writeGateText(t, reportPath, `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/debug/session-1/evidence.json"],
+  "summary": "Adapter completed bounded debug run"
+}`)
+
+	result, err := RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionReportPath: reportPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Applied || result.ExecutionEvidence == nil || result.ExecutionEvidence.Execution.Adapter == nil {
+		t.Fatalf("unexpected adapter execution evidence result: %+v", result)
+	}
+	if result.ExecutionEvidence.Status != "succeeded" || result.ExecutionEvidence.Summary != "Adapter completed bounded debug run" || result.ExecutionEvidence.Execution.ActualBudget.RuntimeSeconds != 24 {
+		t.Fatalf("adapter report defaults were not consumed: %+v", result.ExecutionEvidence)
+	}
+	if result.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || result.ExecutionEvidence.Execution.Adapter.AdapterID != "unit-adapter" {
+		t.Fatalf("adapter report provenance missing: %+v", result.ExecutionEvidence.Execution)
+	}
+	if strings.Join(result.ExecutionEvidence.Execution.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" || strings.Join(result.ExecutionEvidence.EvidenceRefs, ",") != "workspace/main/debug/session-1/evidence.json" {
+		t.Fatalf("adapter report refs were not consumed: %+v", result.ExecutionEvidence)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
+func TestRecordExecutionRejectsAdapterReportMismatch(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "bad-report.json")
+	writeGateText(t, reportPath, `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "evt-other",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"]
+}`)
+
+	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionReportPath: reportPath})
+	if err == nil || !strings.Contains(err.Error(), "gateEventId") {
+		t.Fatalf("RecordExecution error = %v, want adapter gateEventId mismatch", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+}
+
+func TestRecordExecutionRejectsAdapterReportExplicitStatusMismatch(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "status-report.json")
+	writeGateText(t, reportPath, `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "failed",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"]
+}`)
+
+	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionStatus: "succeeded", ExecutionReportPath: reportPath})
+	if err == nil || !strings.Contains(err.Error(), "status") {
+		t.Fatalf("RecordExecution error = %v, want adapter status mismatch", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+}
+
+func TestRecordExecutionRejectsOutOfScopeAdapterReportRefs(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "bad-refs-report.json")
+	writeGateText(t, reportPath, `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/other/result.json"]
+}`)
+
+	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionReportPath: reportPath})
+	if err == nil || !strings.Contains(err.Error(), "outputRefs must stay within authorized gate outputPaths") {
+		t.Fatalf("RecordExecution error = %v, want adapter outputRef boundary rejection", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+}
+
 func TestRecordExecutionRejectsOutOfScopeOutputRefs(t *testing.T) {
 	repoRoot, caseRoot, pack := gateFixture(t)
 	writePreauthorizedProfile(t, caseRoot)

@@ -410,6 +410,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -Escalation")
 			}
 			opt.Gate.Escalation = args[i]
+		case "-ExecutionReportPath", "--execution-report-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExecutionReportPath")
+			}
+			opt.Gate.ExecutionReportPath = args[i]
 		case "-Format", "--format":
 			i++
 			if i >= len(args) {
@@ -1642,7 +1648,7 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func wantsGateExecutionEvidence(opt gate.Options) bool {
-	return strings.TrimSpace(opt.GateEventID) != "" || strings.TrimSpace(opt.ExecutionStatus) != "" || opt.ActualRuntimeSeconds != 0 || opt.ActualDiskMB != 0 || opt.ActualRequests != 0 || strings.TrimSpace(opt.OutputRefs) != "" || strings.TrimSpace(opt.EvidenceRefs) != "" || strings.TrimSpace(opt.BoundaryHits) != "" || strings.TrimSpace(opt.Escalation) != ""
+	return strings.TrimSpace(opt.GateEventID) != "" || strings.TrimSpace(opt.ExecutionStatus) != "" || opt.ActualRuntimeSeconds != 0 || opt.ActualDiskMB != 0 || opt.ActualRequests != 0 || strings.TrimSpace(opt.OutputRefs) != "" || strings.TrimSpace(opt.EvidenceRefs) != "" || strings.TrimSpace(opt.BoundaryHits) != "" || strings.TrimSpace(opt.Escalation) != "" || strings.TrimSpace(opt.ExecutionReportPath) != ""
 }
 
 func writeGatePlanText(out io.Writer, plan gate.Plan) error {
