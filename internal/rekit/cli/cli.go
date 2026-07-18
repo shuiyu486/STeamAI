@@ -1272,8 +1272,10 @@ func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 
 func writeReconcileText(out io.Writer, result workstream.ReconcileResult) error {
 	if !result.Applied {
-		_, err := fmt.Fprintf(out, "would reconcile intervention: %s on lane %s\n", result.Intervention.EventID, result.Lane.ID)
-		return err
+		if _, err := fmt.Fprintf(out, "would reconcile intervention: %s on lane %s\n", result.Intervention.EventID, result.Lane.ID); err != nil {
+			return err
+		}
+		return writeReconcileExecutorActionText(out, result)
 	}
 	if _, err := fmt.Fprintf(out, "已 reconcile intervention：%s\n", result.Intervention.EventID); err != nil {
 		return err
@@ -1286,8 +1288,24 @@ func writeReconcileText(out io.Writer, result workstream.ReconcileResult) error 
 			return err
 		}
 	}
-	_, err := fmt.Fprintf(out, "继续此支线：/rekit continue %s\n", workstreamTextLabel(result.Lane))
-	return err
+	if _, err := fmt.Fprintf(out, "继续此支线：/rekit continue %s\n", workstreamTextLabel(result.Lane)); err != nil {
+		return err
+	}
+	return writeReconcileExecutorActionText(out, result)
+}
+
+func writeReconcileExecutorActionText(out io.Writer, result workstream.ReconcileResult) error {
+	action := result.ExecutorAction
+	if _, err := fmt.Fprintf(out, "executor action：blocked=%t ready=%t pendingGates=%d openInterventions=%d openDecisions=%d\n", action.Blocked, action.Ready, action.PendingGates, action.OpenInterventions, action.OpenDecisions); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "executor requirements：reconcile=%t pendingGate=%t openDecision=%t\n", action.ReconcileRequired, action.PendingGateRequired, action.OpenDecisionRequired); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "executor handoff：continue=`%s` handoff=`%s`\n", action.ResumeCommand, action.HandoffCommand); err != nil {
+		return err
+	}
+	return nil
 }
 
 func writeContinueText(out io.Writer, result workstream.ContinueResult) error {

@@ -48,6 +48,7 @@ type ReconcileResult struct {
 	PreviousExecutor     string              `json:"previousExecutor,omitempty"`
 	ExecutorGeneration   int                 `json:"executorGeneration"`
 	MissionBrief         mission.Brief       `json:"missionBrief"`
+	ExecutorAction       laneExecutorAction  `json:"executorAction"`
 	WouldWrites          []StartWrite        `json:"wouldWrites,omitempty"`
 	Writes               []StartWrite        `json:"writes,omitempty"`
 	BlockedActions       []string            `json:"blockedActions"`
@@ -287,6 +288,8 @@ func selectOpenIntervention(open []map[string]any, requested string) (map[string
 
 func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []StartWrite) ReconcileResult {
 	brief := projectMissionBrief(ctx.board.Lanes, ctx.facts)
+	laneBrief := laneMissionBrief(ctx.lane, ctx.facts)
+	laneFacts := mission.LaneFacts(ctx.facts.Facts, ctx.lane.ID)
 	result := ReconcileResult{
 		SchemaVersion:        1,
 		Command:              "reconcile",
@@ -304,6 +307,7 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 		PreviousExecutor:     ctx.lane.CurrentExecutor,
 		ExecutorGeneration:   ctx.lane.ExecutorGeneration,
 		MissionBrief:         brief,
+		ExecutorAction:       laneExecutorActionFor(ctx.lane, laneFacts, laneBrief),
 		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution", "external side effects"},
 		NextSteps: []string{
 			"review this reconcile plan, then re-run reconcile with -Apply to write case-local ledger and lane state",

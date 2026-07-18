@@ -2632,8 +2632,9 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 		Intervention struct {
 			EventID string `json:"eventId"`
 		} `json:"intervention"`
-		Executor    string       `json:"executor"`
-		WouldWrites []startWrite `json:"wouldWrites"`
+		Executor       string                 `json:"executor"`
+		ExecutorAction executorActionSnapshot `json:"executorAction"`
+		WouldWrites    []startWrite           `json:"wouldWrites"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
 		t.Fatalf("reconcile preview stdout is not JSON: %v\n%s", err, out.String())
@@ -2641,7 +2642,20 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	if preview.Command != "reconcile" || preview.IsMutation || preview.Applied || preview.Lane.ID != "feature-login" || preview.Intervention.EventID != "evt-human-stop" || preview.Executor != "session-2" || len(preview.WouldWrites) == 0 {
 		t.Fatalf("unexpected reconcile preview: %+v", preview)
 	}
+	if !preview.ExecutorAction.Blocked || preview.ExecutorAction.Ready || preview.ExecutorAction.OpenInterventions != 1 || !preview.ExecutorAction.ReconcileRequired || preview.ExecutorAction.ResumeCommand != "/rekit continue login" || preview.ExecutorAction.HandoffCommand != "/rekit handoff login" {
+		t.Fatalf("reconcile preview executor action drifted: %+v", preview.ExecutorAction)
+	}
 	assertWriteKind(t, preview.WouldWrites, "lane-event", "would-append-executor-takeover")
+
+	out.Reset()
+	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "vmp-re", "-WhatIf", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"executor action：blocked=true ready=false pendingGates=0 openInterventions=1 openDecisions=0", "executor requirements：reconcile=true pendingGate=false openDecision=false", "executor handoff：continue=`/rekit continue login` handoff=`/rekit handoff login`"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("reconcile text missing %q:\n%s", expected, out.String())
+		}
+	}
 	afterPreview := snapshotFiles(t, caseRoot)
 	assertSnapshotEqual(t, before, afterPreview)
 
@@ -2650,15 +2664,16 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 		t.Fatal(err)
 	}
 	var reconciled struct {
-		Command            string       `json:"command"`
-		IsMutation         bool         `json:"isMutation"`
-		Applied            bool         `json:"applied"`
-		Lane               startLane    `json:"lane"`
-		ResolutionEventID  string       `json:"resolutionEventId"`
-		Executor           string       `json:"executor"`
-		ExecutorGeneration int          `json:"executorGeneration"`
-		Writes             []startWrite `json:"writes"`
-		MissionBrief       missionBrief `json:"missionBrief"`
+		Command            string                 `json:"command"`
+		IsMutation         bool                   `json:"isMutation"`
+		Applied            bool                   `json:"applied"`
+		Lane               startLane              `json:"lane"`
+		ResolutionEventID  string                 `json:"resolutionEventId"`
+		Executor           string                 `json:"executor"`
+		ExecutorGeneration int                    `json:"executorGeneration"`
+		Writes             []startWrite           `json:"writes"`
+		MissionBrief       missionBrief           `json:"missionBrief"`
+		ExecutorAction     executorActionSnapshot `json:"executorAction"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &reconciled); err != nil {
 		t.Fatalf("reconcile apply stdout is not JSON: %v\n%s", err, out.String())
@@ -2673,6 +2688,9 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	assertContinueWrite(t, reconciled.Writes, ".rekit/lanes/feature-login/prompts/RESUME.md", "refresh")
 	if !slices.Contains(reconciled.MissionBrief.ReadyLanes, "login") || containsSubstring(reconciled.MissionBrief.BlockedLanes, "intervention") {
 		t.Fatalf("reconcile did not clear intervention blocker: %+v", reconciled.MissionBrief)
+	}
+	if reconciled.ExecutorAction.Blocked || !reconciled.ExecutorAction.Ready || reconciled.ExecutorAction.OpenInterventions != 0 || reconciled.ExecutorAction.ReconcileRequired || reconciled.ExecutorAction.ResumeCommand != "/rekit continue login" || reconciled.ExecutorAction.HandoffCommand != "/rekit handoff login" {
+		t.Fatalf("reconcile apply executor action drifted: %+v", reconciled.ExecutorAction)
 	}
 	interventions, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl"))
 	if err != nil {
