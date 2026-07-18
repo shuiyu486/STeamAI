@@ -37,6 +37,11 @@ func New(target, pack string) (Context, error) {
 	if err != nil {
 		return Context{}, err
 	}
+	if !targetProvided {
+		if caseRoot, ok := findCaseRoot(cwd); ok {
+			resolvedTarget = caseRoot
+		}
+	}
 	repo, err := discoverRepoRoot(cwd)
 	if err != nil {
 		if targetProvided {
@@ -93,6 +98,26 @@ func findRepoRoot(start string) (string, bool) {
 	}
 	for {
 		if refsf.Exists(filepath.Join(dir, "rekit", "rekit.ps1")) && refsf.Exists(filepath.Join(dir, "packs")) {
+			return dir, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
+}
+
+func findCaseRoot(start string) (string, bool) {
+	dir, err := filepath.Abs(start)
+	if err != nil {
+		return "", false
+	}
+	if st, err := os.Stat(dir); err == nil && !st.IsDir() {
+		dir = filepath.Dir(dir)
+	}
+	for {
+		if instance.LooksLikeCase(dir) {
 			return dir, true
 		}
 		parent := filepath.Dir(dir)

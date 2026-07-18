@@ -1729,6 +1729,76 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 		t.Fatalf("unexpected case-local lane handoff result: %+v", laneHandoff)
 	}
 	assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/feature-login-latest.md", "write-latest-lane-handoff")
+
+	nested := filepath.Join(caseRoot, "workspace", "features", "feature-login")
+	if err := os.Chdir(nested); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("nested case-local status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if status.Command != "status" || status.Mode != "case" || status.TargetProvided || status.Target != caseRoot || status.TemplateRoot != root || status.Case.TemplateRoot != root || status.Case.TemplatePack != "_template" {
+		t.Fatalf("unexpected nested case-local status: %+v", status)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "doctor", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &doctor); err != nil {
+		t.Fatalf("nested case-local doctor stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if doctor.Command != "doctor" || doctor.Mode != "case" || !doctor.Valid {
+		t.Fatalf("unexpected nested case-local doctor: %+v", doctor)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var overview struct {
+		Command  string `json:"command"`
+		CaseRoot string `json:"caseRoot"`
+		Pack     string `json:"pack"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("nested case-local overview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if overview.Command != "overview" || overview.CaseRoot != caseRoot || overview.Pack != "_template" {
+		t.Fatalf("unexpected nested case-local overview: %+v", overview)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-WhatIf", "-Action", "debug", "-Lane", "feature-login", "-Subject", "nested gate", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var gatePlan struct {
+		Command    string `json:"command"`
+		CaseRoot   string `json:"caseRoot"`
+		IsMutation bool   `json:"isMutation"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &gatePlan); err != nil {
+		t.Fatalf("nested case-local gate stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if gatePlan.Command != "gate" || gatePlan.CaseRoot != caseRoot || gatePlan.IsMutation {
+		t.Fatalf("unexpected nested case-local gate plan: %+v", gatePlan)
+	}
+
+	out.Reset()
+	reviewRoot := filepath.Join(caseRoot, ".rekit", "reviews", "nested-product-path")
+	if err := Run([]string{"-Command", "plan-subagents", "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha,beta", "-ReviewOutputDir", reviewRoot}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
+	if plan.Command != "plan-subagents" || plan.ReviewRoot != reviewRoot || plan.ItemCount != 2 || plan.ShardCount != 2 || !strings.HasPrefix(plan.PacketPath, caseRoot) || packet.Route.ID != "_template:lane-feature-analysis" {
+		t.Fatalf("unexpected nested case-local plan-subagents result: result=%+v packet=%+v", plan, packet)
+	}
 }
 
 func TestRunBootstrapApplyUsesBootstrapCommand(t *testing.T) {

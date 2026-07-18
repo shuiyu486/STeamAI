@@ -122,7 +122,7 @@ claude
 
 所以第一次需要在 kit 仓库里使用 canonical `/rekit` 完成 `init/attach`。
 
-完成后，case 里会有 thin shim。以后你在 case 目录启动 Claude Code，也能直接使用 `/rekit`。
+完成后，case 里会有 thin shim。以后你在 case 根目录或其下的 lane/workspace 子目录启动 Claude Code，也能直接使用 `/rekit`；未显式传 `-Target` 时，Go runtime 会向上寻找最近的 attached case root，再用 metadata 中的 `templateRoot` 定位 canonical runtime。
 
 ## Runtime/API 命令参考
 

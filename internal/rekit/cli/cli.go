@@ -928,8 +928,8 @@ func runDoctor(ctx runtime.Context, opt Options, out io.Writer) error {
 
 func doctorModeAndTarget(ctx runtime.Context) (string, string, error) {
 	if !ctx.TargetProvided {
-		if instance.LooksLikeCase(ctx.Cwd) && !samePath(ctx.Cwd, ctx.RepoRoot) {
-			return "case", ctx.Cwd, nil
+		if instance.LooksLikeCase(ctx.Target) && !samePath(ctx.Target, ctx.RepoRoot) {
+			return "case", ctx.Target, nil
 		}
 		return "pack", ctx.RepoRoot, nil
 	}

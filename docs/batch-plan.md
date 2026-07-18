@@ -16,40 +16,39 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 361：Adapter execution report contract projection**
+**Batch 362：Nested case workspace product-path target discovery**
 
-状态：已完成只读 `gate -ExecutionReportContract -GateEventId ... -Format json` slice、durable docs 更新与本地验证；远程 release-gate 仍因 runner/billing blocker 失败，不能声明远程 CI green。
+状态：已完成 nested lane/workspace cwd 的 product-path target discovery、durable docs 更新与本地验证；远程 release-gate 仍因 runner/billing blocker 失败，不能声明远程 CI green。
 
-目标：在 Batch 359 bounded adapter report intake 之外，给 lane executor / tool adapter 一个执行前可消费的 deterministic contract projection，使 adapter 无需重扫 request ledger 就能读取 authorized-gate 对应的 action、budget、output paths、allowed statuses、stop conditions、record/notify、sidecar path rule 与 denied actions。
+目标：补齐 Batch 356 case-local product-path 的真实使用断点：用户/主 Agent 常在 lane workspace 子目录中启动 Claude Code 或继续工作，runtime 不应把 nested workspace 当成 case root，也不应要求手动传 `-Target` 才能运行 daily Mission Control commands。
 
-边界：本批只新增只读 contract projection、CLI/façade flag、tests 与文档；不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 request/observation/authority/confirmed，不新增 PowerShell runtime logic，不自动 spawn 或管理 member session / reviewer / lane executor，不改变 sync/promote review-first、public façade deletion 门禁或远程 CI blocker 状态。
+边界：本批只改 Go runtime target discovery、CLI/runtime tests 与文档；不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 authority/confirmed，不改变 sync/promote review-first、installed `/rekit` / case shim readiness 或远程 CI blocker 状态。
 
 完成内容：
 
-- 新增 `AdapterExecutionReportContract` read-only JSON envelope 与 `gate.AdapterReportContract`，复用 strict authorized-gate lookup，只接受已有 `authorized-gate` / `preauthorized` request decision。
-- 新增 CLI `-ExecutionReportContract` flag；`gate -ExecutionReportContract -GateEventId ... -Format json` 不需要 `-Apply`/`-WhatIf`，且拒绝与 execution evidence detail fields 混用。
-- Contract 输出 `reportKind=adapter-execution-report`、report schema version、allowed statuses、required report fields、authorized output paths、authorized budget、stop conditions、record/notify、boundary/escalation requirements、denied actions 与 next steps。
-- Retained `rekit.ps1` 仅透传 `-ExecutionReportContract` 到 Go backend；façade smoke 捕获新 flag，不新增 PowerShell runtime logic。
-- 更新 README、skill、tool adapter policy、release readiness、rollout、Go runtime migration、tests guide、project CLAUDE、batch-plan 与 CHANGELOG。
+- `runtime.New` 在未显式传 `-Target` 时先用当前工作目录向上寻找最近 attached case root，并将 `ctx.Target` 规范为该 case root；显式 `-Target` 语义不变。
+- 新增 `findCaseRoot` helper，与现有 repo root discovery 保持分离，避免把 workspace 子目录误判为独立 case。
+- `doctor` 的 implicit case mode 改用 `ctx.Target`，使 nested workspace cwd 中的 `doctor -Format json` 验证 case root 而不是回落到 pack mode。
+- 扩展本地 CLI/case E2E，覆盖 nested lane workspace cwd 中无 `-Target` 的 `status`、`doctor`、`overview`、`gate -WhatIf` 与 `plan-subagents`。
+- 更新 README、canonical skill、release readiness、Go-first convergence plan、batch-plan 与 CHANGELOG。
 
 已通过验证：
 
 ```text
-.\rekit\tests\facade-smoke.ps1
-go test ./internal/rekit/cli ./internal/rekit/gate
-go vet ./internal/rekit/cli ./internal/rekit/gate
+go test ./internal/rekit/runtime ./internal/rekit/cli
+go vet ./internal/rekit/runtime ./internal/rekit/cli
+go test ./...
+go vet ./...
 go run ./cmd/rekit -- -Command release-check -Format json
 go run ./cmd/rekit -- -Command status
 go run ./cmd/rekit -- -Command packs
 go run ./cmd/rekit -- -Command doctor
-go test ./...
-go vet ./...
 git diff --check
 gh run list --limit 5
-gh run view 29661452381 --json conclusion,event,headSha,jobs
+gh run view 29662407823 --json conclusion,event,headSha,jobs
 ```
 
-本地 validation 已执行通过；`facade-smoke.ps1` 覆盖 default Go delegation、no-fallback 与 `-ExecutionReportContract` 透传；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；最新远程 release-gate run `29661452381` 对应 Batch 360 head `695ee5c768eeae5e1c6f637941bc326f31f76f10`，Linux/macOS/Windows jobs 均为 failure 且 steps 为空，仍符合已知 runner/billing blocker。
+本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；最新远程 release-gate run `29662407823` 对应 Batch 361 head `f7e9534240abd41674d5b6abad77f9052e27df94`，Linux/macOS/Windows jobs 均为 failure 且 steps 为空，仍符合已知 runner/billing blocker。
 
 ### Next candidates
 
@@ -10968,3 +10967,13 @@ git diff --check
 实施范围：新增 `AdapterExecutionReportContract`、`gate.AdapterReportContract`、CLI `-ExecutionReportContract` flag、retained façade 透传与 smoke coverage，并更新 README、skill、tool adapter policy、release readiness、rollout、Go runtime migration、tests guide、project CLAUDE、batch plan 与 CHANGELOG；不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 request/observation/authority/confirmed，不新增 PowerShell runtime logic，不自动 spawn 或管理 member session / reviewer / lane executor，不改变 sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态。
 
 验证结果：已通过 `go test ./internal/rekit/cli ./internal/rekit/gate`、`go vet ./internal/rekit/cli ./internal/rekit/gate`、`./rekit/tests/facade-smoke.ps1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。远程 release-gate 仍为 failure，最新 inspected run `29661452381` 的 Linux/macOS/Windows jobs steps 为空，不能声明远程 CI green。
+
+### Batch 362：Nested case workspace product-path target discovery
+
+状态：已完成 nested lane/workspace cwd 的 product-path target discovery、文档更新与最终验证。
+
+目标：补齐 Batch 356 case-local product-path 的真实使用断点：用户/主 Agent 常在 lane workspace 子目录中启动 Claude Code 或继续工作，runtime 不应把 nested workspace 当成 case root，也不应要求手动传 `-Target` 才能运行 daily Mission Control commands。
+
+实施范围：`runtime.New` 在未显式 `-Target` 时向上定位最近 attached case root，并把 implicit `ctx.Target` 规范为 case root；`doctor` 的 implicit case mode 改用 `ctx.Target`；本地 CLI/case E2E 覆盖 nested lane workspace cwd 的 `status`、`doctor`、`overview`、`gate -WhatIf` 与 `plan-subagents`；同步 README、canonical skill、release readiness、Go-first convergence plan、batch plan 与 CHANGELOG。不新增 PowerShell runtime logic，不删除 retained façade，不执行 heavy-tool，不写 authority/confirmed，不改变 sync/promote review-first、installed `/rekit` / case shim readiness 或远程 CI blocker 状态。
+
+验证结果：已通过 `go test ./internal/rekit/runtime ./internal/rekit/cli`、`go vet ./internal/rekit/runtime ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。远程 release-gate 仍为 failure，最新 inspected run `29662407823` 的 Linux/macOS/Windows jobs steps 为空，不能声明远程 CI green。

@@ -36,7 +36,7 @@
 2. **CLI/case E2E**：init/attach/start/reconcile/gate/handoff 等真实临时 case flow 在对应平台通过。
 3. **installed user entrypoint readiness**：canonical `/rekit` / case shim 能定位稳定 Go runtime，用户路径不要求手动运行 raw Go CLI 或 PowerShell façade。
 
-当前 workflow 主要覆盖第 1 级；本地 Go tests 已覆盖一条 CLI/case E2E product-path slice（repo 外 case metadata discovery，以及 case cwd 中无 `-Target` 执行 `status`、`doctor`、`start -Apply`、`continue -Apply`、`handoff -Apply`）；第 2 级尚未进入三平台 runner matrix，第 3 级 installed `/rekit` / case shim readiness 仍是 product-path known gap。
+当前 workflow 主要覆盖第 1 级；本地 Go tests 已覆盖一条 CLI/case E2E product-path slice（repo 外 case metadata discovery，以及 case root / nested lane workspace cwd 中无 `-Target` 执行 `status`、`doctor`、`overview`、`start -Apply`、`continue -Apply`、`handoff -Apply`、`gate -WhatIf` 与 `plan-subagents`）；第 2 级尚未进入三平台 runner matrix，第 3 级 installed `/rekit` / case shim readiness 仍是 product-path known gap。
 
 ### 本机 release gate（推荐最小集）
 
