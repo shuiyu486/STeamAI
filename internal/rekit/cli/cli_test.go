@@ -3835,6 +3835,13 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if !slices.Contains(packet.Observability.BlockedActions, "runtime does not spawn subagents") || !strings.Contains(packet.ReviewLoop.VerdictWriteback, "note -Kind verification") {
 		t.Fatalf("unexpected review loop contract: %+v", packet)
 	}
+	if len(result.ShardHandoffs) != 2 || len(packet.ShardHandoffs) != 2 {
+		t.Fatalf("missing shard handoffs: result=%+v packet=%+v", result.ShardHandoffs, packet.ShardHandoffs)
+	}
+	firstHandoff := packet.ShardHandoffs[0]
+	if firstHandoff.ShardID != "shard-01" || firstHandoff.Status != "planned" || strings.Join(firstHandoff.Items, ",") != "alpha,beta" || !strings.Contains(firstHandoff.DispatchPrompt, "read-only reviewer") || !strings.Contains(firstHandoff.DispatchPrompt, "Do not write files") || !strings.Contains(firstHandoff.ExpectedOutput, "decision") || !strings.Contains(firstHandoff.ReviewerWriteback, "note -Kind verification") || !strings.Contains(firstHandoff.MainAgentNextAction, "launch a read-only reviewer") || !slices.Contains(firstHandoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(firstHandoff.CompletionCriteria, "reviewer verdicts are recorded in the ledger before main merge decisions") || firstHandoff.FailureHandling == "" {
+		t.Fatalf("unexpected shard handoff: %+v", firstHandoff)
+	}
 	summary, err := os.ReadFile(result.SummaryPath)
 	if err != nil {
 		t.Fatalf("missing summary: %v", err)
@@ -4887,6 +4894,7 @@ type planSubagentsResult struct {
 	SummaryPath           string                   `json:"summaryPath"`
 	ItemCount             int                      `json:"itemCount"`
 	ShardCount            int                      `json:"shardCount"`
+	ShardHandoffs         []planSubagentsHandoff   `json:"shardHandoffs"`
 	Observability         planSubagentsObservables `json:"observability"`
 	ReviewLoop            planSubagentsReviewLoop  `json:"reviewLoop"`
 }
@@ -4906,8 +4914,22 @@ type planSubagentsPacket struct {
 	Shards []struct {
 		Items []string `json:"items"`
 	} `json:"shards"`
+	ShardHandoffs []planSubagentsHandoff   `json:"shardHandoffs"`
 	Observability planSubagentsObservables `json:"observability"`
 	ReviewLoop    planSubagentsReviewLoop  `json:"reviewLoop"`
+}
+
+type planSubagentsHandoff struct {
+	ShardID             string   `json:"shardId"`
+	Status              string   `json:"status"`
+	DispatchPrompt      string   `json:"dispatchPrompt"`
+	Items               []string `json:"items"`
+	ReadOnlyBoundary    []string `json:"readOnlyBoundary"`
+	ExpectedOutput      string   `json:"expectedOutput"`
+	ReviewerWriteback   string   `json:"reviewerWriteback"`
+	MainAgentNextAction string   `json:"mainAgentNextAction"`
+	CompletionCriteria  []string `json:"completionCriteria"`
+	FailureHandling     string   `json:"failureHandling"`
 }
 
 type planSubagentsObservables struct {

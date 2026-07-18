@@ -10575,3 +10575,35 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/mission/brief.go internal/rekit/mission/brief_test.go internal/rekit/workstream/start.go internal/rekit/workstream/handoff.go internal/rekit/workstream/reconcile.go internal/rekit/workstream/continue.go internal/rekit/workstream/lane_executor_action_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go` 与 targeted `go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneExecutorAction|TestRunStart|TestRunHandoff|TestRunProjectHandoff|TestRunContinue|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1`；完成 durable handoff 后运行 `go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过。第一次完整 `go test ./...` 在本批 section 仍标为 `进行中` 时按 release handoff gate 预期失败，改为 `已完成` 后重跑通过；`git diff --check` 仅报告 Windows LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade delegation/fallback。
+
+### Batch 345：Go-native plan-subagents bounded dispatch handoff
+
+状态：已完成。
+
+目标：继续 Stage 6 Agent Team dry-run / bounded dispatch 可用性强化，在不让 runtime 自动 spawn subagent、不把写入权交给 reviewer 的前提下，让 `plan-subagents` 生成的 review packet / summary / JSON result 足够主 Agent 直接调度短命 read-only reviewer、收集 verdict，并把写回、验证与合并边界留在主 Agent。
+
+实施范围：
+
+- `internal/rekit/subagents` 新增 `ShardHandoff` contract，并在 `Result` 与 `Packet` 输出 `shardHandoffs[]`；每个 shard handoff 包含 `dispatchPrompt`、items、read-only boundary、expected output、reviewer writeback、main-agent next action、completion criteria 与 failure handling。
+- `summary.md` 新增 `### shard handoff prompts`，把每个 planned shard 的 reviewer prompt 与 expected output 写入人类可读 review artifact，便于主 Agent 不解析完整 JSON 也能调度 reviewer。
+- 保持 `plan-subagents` 的边界不变：只写 `.rekit/reviews/**` review artifacts，不自动 spawn agent，不写 board/facts/lanes/handoff/authority/confirmed，不执行 heavy-tool，不修改 managed docs 或 project source。
+- 新增 `internal/rekit/subagents/plan_test.go`，并扩展 CLI E2E plan-subagents assertions，覆盖 result/packet/summary 的 shard handoff 字段、empty items no-handoff marker、read-only boundary、ledger writeback、main-agent next action 与 failure handling。
+- 更新 README、canonical `/rekit` skill、Agent Team usage、release readiness、Go-first convergence、batch-plan 与 CHANGELOG。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不写 board/facts/lanes/handoff/authority/confirmed，不改变 sync/promote review-first、facts/board/policy durable schema、public command surface、policy schema 或公共 façade deletion 边界；`shardHandoffs[]` 是 additive public output，旧 `shards[]` / `observability` / `reviewLoop` 字段保持兼容。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/subagents/plan.go internal/rekit/subagents/plan_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestWritePlan|TestRunPlanSubagents" -count=1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/subagents/plan.go internal/rekit/subagents/plan_test.go internal/rekit/cli/cli_test.go` 与 targeted `go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestWritePlan|TestRunPlanSubagents" -count=1`；完整 release gate 运行 `go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过。第一次 `go test ./...` 因新测试文件含默认 pack literal 触发既有 `TestGoRuntimeDefaultPackInvariants` guard，已改为使用 `defaults.DefaultPack` 后重跑通过；`git diff --check` 仅报告 Windows LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade delegation/fallback。
