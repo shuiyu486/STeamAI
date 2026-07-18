@@ -116,7 +116,7 @@ Go-owned / Go-default 路径：
 - `status`、`packs`、`doctor/validate`。
 - attached case 的 `overview` 文本/JSON 与缺 board 初始化，PowerShell fallback 已退休。
 - `note -List` 文本/table/tsv/JSON、`note` append、`note -WhatIf`，PowerShell fallback 已退休。
-- `gate -WhatIf`、`gate -Apply` gate request decision：只预览或写 pending-gate / authorized-gate request ledger decision，PowerShell fallback 已退休；authorized-gate 在 Mission Control brief、overview、handoff 与 continue digest/status 中可见但不阻塞 lane；仍不执行 heavy-tool、不写 authority/confirmed。
+- `gate -WhatIf`、`gate -Apply` gate request decision：只预览或写 pending-gate / authorized-gate request ledger decision，PowerShell fallback 已退休；JSON/text 输出当前 executor action、WhatIf 写入 request 后的 would executor action 或 Apply 后 executor action；authorized-gate 在 Mission Control brief、overview、handoff 与 continue digest/status 中可见但不阻塞 lane；仍不执行 heavy-tool、不写 authority/confirmed。
 - `start` / `handoff` 的 JSON preview、explicit apply、文本 preview 与 bare/default 工作线 flow；`start` JSON/text 输出 executor action snapshot，`handoff` JSON/Markdown 输出 lane executor action snapshot；façade 非 `-Apply` 且空 `-Format` 会显式转为 Go text output，direct Go CLI 继续保持默认 JSON contract，Go disabled/unavailable 时直接 no-fallback。
 - `continue -WhatIf` 与 explicit / bare text `continue` safe subset；JSON preview、explicit apply 和文本/default preview 均由 Go-owned 路径接管，Go disabled/unavailable 时直接 no-fallback；存在 effective open intervention 时 fail-closed 并要求先 `reconcile`；`continue -Apply` 不写 authority/confirmed。
 - case lifecycle `attach`、`repair`、`init/bootstrap` preview/apply，PowerShell fallback 已退休。

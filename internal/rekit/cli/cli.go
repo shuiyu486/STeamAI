@@ -18,6 +18,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/overview"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
@@ -1462,17 +1463,19 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.WhatIf && opt.Apply {
 		return fmt.Errorf("gate -WhatIf cannot be combined with -Apply")
 	}
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported gate format: %s", opt.Format)
+	}
 	if opt.WhatIf {
 		plan, err := gate.PlanDryRun(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Gate)
 		if err != nil {
 			return err
 		}
-		b, err := json.MarshalIndent(plan, "", "  ")
-		if err != nil {
-			return err
+		if format == "json" {
+			return writeJSON(out, plan)
 		}
-		_, err = out.Write(append(b, '\n'))
-		return err
+		return writeGatePlanText(out, plan)
 	}
 	if !opt.Apply {
 		return fmt.Errorf("gate write requires -Apply; use -WhatIf for dry-run preview")
@@ -1481,12 +1484,46 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
+	if format == "json" {
+		return writeJSON(out, result)
+	}
+	return writeGateApplyText(out, result)
+}
+
+func writeGatePlanText(out io.Writer, plan gate.Plan) error {
+	if _, err := fmt.Fprintf(out, "gate preview：action=%s lane=%s status=%s requiresConfirmation=%t\n", plan.EventPreview.Gate.Action, plan.EventPreview.Lane, plan.EventPreview.Status, plan.RequiresConfirmation); err != nil {
 		return err
 	}
-	_, err = out.Write(append(b, '\n'))
-	return err
+	if _, err := fmt.Fprintf(out, "gate decision：authorization=%s profile=%s\n", plan.EventPreview.Gate.Authorization.Decision, plan.EventPreview.Gate.Authorization.ProfileID); err != nil {
+		return err
+	}
+	if err := writeMissionExecutorActionText(out, "current executor action", plan.ExecutorAction); err != nil {
+		return err
+	}
+	return writeMissionExecutorActionText(out, "would executor action", plan.WouldExecutorAction)
+}
+
+func writeGateApplyText(out io.Writer, result gate.ApplyResult) error {
+	if _, err := fmt.Fprintf(out, "gate ledger：applied=%t status=%s eventId=%s path=%s\n", result.Applied, result.Event.Status, result.EventID, result.Path); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "gate decision：authorization=%s profile=%s\n", result.Event.Gate.Authorization.Decision, result.Event.Gate.Authorization.ProfileID); err != nil {
+		return err
+	}
+	return writeMissionExecutorActionText(out, "executor action", result.ExecutorAction)
+}
+
+func writeMissionExecutorActionText(out io.Writer, prefix string, action mission.ExecutorAction) error {
+	if _, err := fmt.Fprintf(out, "%s：blocked=%t ready=%t pendingGates=%d openInterventions=%d openDecisions=%d\n", prefix, action.Blocked, action.Ready, action.PendingGates, action.OpenInterventions, action.OpenDecisions); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "%s requirements：reconcile=%t pendingGate=%t openDecision=%t\n", prefix, action.ReconcileRequired, action.PendingGateRequired, action.OpenDecisionRequired); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "%s handoff：continue=`%s` handoff=`%s`\n", prefix, action.ResumeCommand, action.HandoffCommand); err != nil {
+		return err
+	}
+	return nil
 }
 
 func writeReviewPlan(out io.Writer, plan review.Plan) error {

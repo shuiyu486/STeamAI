@@ -4232,7 +4232,9 @@ func TestRunGateDryRunEmitsNonMutatingPlan(t *testing.T) {
 				DeniedUntilUserConfirmation []string `json:"deniedUntilUserConfirmation"`
 			} `json:"gate"`
 		} `json:"eventPreview"`
-		MissionBrief missionBrief `json:"missionBrief"`
+		MissionBrief        missionBrief           `json:"missionBrief"`
+		ExecutorAction      executorActionSnapshot `json:"executorAction"`
+		WouldExecutorAction executorActionSnapshot `json:"wouldExecutorAction"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
 		t.Fatalf("gate plan stdout is not JSON: %v\n%s", err, out.String())
@@ -4251,6 +4253,12 @@ func TestRunGateDryRunEmitsNonMutatingPlan(t *testing.T) {
 	}
 	if plan.MissionBrief.Summary == "" || !slices.Contains(plan.MissionBrief.ReadyLanes, "main") || len(plan.MissionBrief.PendingGates) != 0 {
 		t.Fatalf("gate plan missing pre-apply mission brief: %+v", plan.MissionBrief)
+	}
+	if plan.ExecutorAction.Blocked || !plan.ExecutorAction.Ready || plan.ExecutorAction.PendingGates != 0 || plan.ExecutorAction.ResumeCommand != "/rekit continue main" {
+		t.Fatalf("gate plan current executor action drifted: %+v", plan.ExecutorAction)
+	}
+	if !plan.WouldExecutorAction.Blocked || plan.WouldExecutorAction.Ready || plan.WouldExecutorAction.PendingGates != 1 || !plan.WouldExecutorAction.PendingGateRequired || plan.WouldExecutorAction.ResumeCommand != "/rekit continue main" {
+		t.Fatalf("gate plan would executor action drifted: %+v", plan.WouldExecutorAction)
 	}
 }
 
@@ -4321,7 +4329,8 @@ func TestRunGateApplyAppendsPendingGateRequest(t *testing.T) {
 			Kind   string `json:"kind"`
 			Status string `json:"status"`
 		} `json:"event"`
-		MissionBrief missionBrief `json:"missionBrief"`
+		MissionBrief   missionBrief           `json:"missionBrief"`
+		ExecutorAction executorActionSnapshot `json:"executorAction"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("gate apply stdout is not JSON: %v\n%s", err, out.String())
@@ -4335,12 +4344,48 @@ func TestRunGateApplyAppendsPendingGateRequest(t *testing.T) {
 	if result.MissionBrief.Summary == "" || !slices.Contains(result.MissionBrief.BlockedLanes, "main (pending-gate)") || !containsSubstring(result.MissionBrief.PendingGates, "debug gate") {
 		t.Fatalf("gate apply missing post-apply mission brief: %+v", result.MissionBrief)
 	}
+	if !result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 1 || !result.ExecutorAction.PendingGateRequired || result.ExecutorAction.ResumeCommand != "/rekit continue main" {
+		t.Fatalf("gate apply executor action drifted: %+v", result.ExecutorAction)
+	}
 	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(ledger), result.EventID) || !strings.Contains(string(ledger), `"pending-gate"`) {
 		t.Fatalf("ledger does not contain gate event: %s", string(ledger))
+	}
+}
+
+func TestRunGateTextOutputsExecutorActions(t *testing.T) {
+	caseRoot := attachedCaseWithBoard(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "text", "-Action", "debug", "-Lane", "main", "-Subject", "debug gate"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"current executor action：blocked=false ready=true pendingGates=0 openInterventions=0 openDecisions=0",
+		"would executor action：blocked=true ready=false pendingGates=1 openInterventions=0 openDecisions=0",
+		"would executor action requirements：reconcile=false pendingGate=true openDecision=false",
+		"would executor action handoff：continue=`/rekit continue main` handoff=`/rekit handoff main`",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("gate what-if text missing %q:\n%s", expected, out.String())
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "text", "-Action", "debug", "-Lane", "main", "-Actor", "runtime-test", "-Subject", "debug gate"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"gate ledger：applied=true status=pending-gate",
+		"executor action：blocked=true ready=false pendingGates=1 openInterventions=0 openDecisions=0",
+		"executor action requirements：reconcile=false pendingGate=true openDecision=false",
+		"executor action handoff：continue=`/rekit continue main` handoff=`/rekit handoff main`",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("gate apply text missing %q:\n%s", expected, out.String())
+		}
 	}
 }
 
@@ -4381,7 +4426,8 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 				} `json:"authorization"`
 			} `json:"gate"`
 		} `json:"event"`
-		MissionBrief missionBrief `json:"missionBrief"`
+		MissionBrief   missionBrief           `json:"missionBrief"`
+		ExecutorAction executorActionSnapshot `json:"executorAction"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("authorized gate apply stdout is not JSON: %v\n%s", err, out.String())
@@ -4391,6 +4437,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if len(result.MissionBrief.PendingGates) != 0 || !slices.Contains(result.MissionBrief.ReadyLanes, "main") || len(result.MissionBrief.BlockedLanes) != 0 || !containsSubstring(result.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(result.MissionBrief.AuthorizedGates, "auth=preauthorized") {
 		t.Fatalf("authorized gate mission brief should be visible and non-blocking: %+v", result.MissionBrief)
+	}
+	if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 0 {
+		t.Fatalf("authorized gate executor action should remain non-blocking: %+v", result.ExecutorAction)
 	}
 	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 	if err != nil {

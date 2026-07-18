@@ -21,6 +21,12 @@ func TestPlanDryRunDoesNotWriteRequestLedger(t *testing.T) {
 	if plan.MissionBrief.Summary == "" || len(plan.MissionBrief.ReadyLanes) != 1 || plan.MissionBrief.ReadyLanes[0] != "main" || len(plan.MissionBrief.PendingGates) != 0 {
 		t.Fatalf("gate dry-run missing pre-apply mission brief: %+v", plan.MissionBrief)
 	}
+	if plan.ExecutorAction.Blocked || !plan.ExecutorAction.Ready || plan.ExecutorAction.PendingGates != 0 || plan.ExecutorAction.ResumeCommand != "/rekit continue main" {
+		t.Fatalf("gate dry-run current executor action drifted: %+v", plan.ExecutorAction)
+	}
+	if !plan.WouldExecutorAction.Blocked || plan.WouldExecutorAction.Ready || plan.WouldExecutorAction.PendingGates != 1 || !plan.WouldExecutorAction.PendingGateRequired || plan.WouldExecutorAction.ResumeCommand != "/rekit continue main" {
+		t.Fatalf("gate dry-run would executor action drifted: %+v", plan.WouldExecutorAction)
+	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 }
 
@@ -162,6 +168,9 @@ func TestApplyWritesOnlyPendingGateRequest(t *testing.T) {
 	if result.Command != "gate" || !result.IsMutation || !result.Applied || result.EventID == "" || result.Path != ".rekit/facts/requests.jsonl" {
 		t.Fatalf("unexpected gate apply result: %+v", result)
 	}
+	if !result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 1 || !result.ExecutorAction.PendingGateRequired || result.ExecutorAction.ResumeCommand != "/rekit continue main" {
+		t.Fatalf("gate apply executor action drifted: %+v", result.ExecutorAction)
+	}
 	requestPath := filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl")
 	event := readSingleGateEvent(t, requestPath)
 	if event.Kind != "request" || event.Status != "pending-gate" || event.Lane != "main" || event.Actor != "gate-test" || event.Risk != "high" || event.Target != "batch-115-target" || event.BatchID != "batch-115" || event.EventID != result.EventID || event.CreatedAt == "" {
@@ -290,6 +299,9 @@ func TestPlanDryRunUsesPreauthorizedLaneAutonomyProfile(t *testing.T) {
 	}
 	if plan.EventPreview.Gate.Authorization.Decision != "preauthorized" || plan.EventPreview.Gate.Authorization.ProfileID != "prof-main-debug" || plan.EventPreview.Gate.RequiresConfirmation {
 		t.Fatalf("unexpected authorization details: %+v", plan.EventPreview.Gate.Authorization)
+	}
+	if plan.WouldExecutorAction.Blocked || !plan.WouldExecutorAction.Ready || plan.WouldExecutorAction.PendingGates != 0 {
+		t.Fatalf("authorized gate would executor action should remain non-blocking: %+v", plan.WouldExecutorAction)
 	}
 	if plan.EventPreview.Gate.RequestedBudget.RuntimeSeconds != 30 || strings.Join(plan.EventPreview.Gate.OutputPaths, ",") != "workspace/main/debug/session-1" {
 		t.Fatalf("missing typed request contract: %+v", plan.EventPreview.Gate)

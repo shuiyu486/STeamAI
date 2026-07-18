@@ -2,6 +2,7 @@ package mission
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -35,6 +36,22 @@ type Brief struct {
 	Interventions    []string `json:"interventions"`
 	NextAgentActions []string `json:"nextAgentActions"`
 	Escalations      []string `json:"escalations"`
+}
+
+type ExecutorAction struct {
+	Blocked              bool     `json:"blocked"`
+	Ready                bool     `json:"ready"`
+	BlockerReasons       []string `json:"blockerReasons"`
+	PendingGates         int      `json:"pendingGates"`
+	OpenInterventions    int      `json:"openInterventions"`
+	OpenDecisions        int      `json:"openDecisions"`
+	ReconcileRequired    bool     `json:"reconcileRequired"`
+	PendingGateRequired  bool     `json:"pendingGateRequired"`
+	OpenDecisionRequired bool     `json:"openDecisionRequired"`
+	ResumeCommand        string   `json:"resumeCommand"`
+	HandoffCommand       string   `json:"handoffCommand"`
+	NextAgentActions     []string `json:"nextAgentActions"`
+	Escalations          []string `json:"escalations"`
 }
 
 func Build(lanes []Lane, facts Facts, maxRows int) Brief {
@@ -106,6 +123,54 @@ func BuildWithOptions(lanes []Lane, facts Facts, opts BuildOptions) Brief {
 		NextAgentActions: nextActions,
 		Escalations:      escalations,
 	}
+}
+
+func LaneExecutorAction(lane Lane, facts Facts, brief Brief) ExecutorAction {
+	label := laneCommandLabel(lane)
+	laneFacts := LaneFacts(facts, lane.ID)
+	pendingGates := len(FilterLane(laneFacts.Requests, lane.ID, "pending-gate"))
+	openInterventions := len(EffectiveOpenInterventions(laneFacts.Interventions))
+	openDecisions := len(OpenDecisionItems(laneFacts))
+	reasons := []string{}
+	if pendingGates > 0 {
+		reasons = append(reasons, "pending-gate")
+	}
+	if openInterventions > 0 {
+		reasons = append(reasons, "intervention")
+	}
+	if openDecisions > 0 {
+		reasons = append(reasons, "open-decision")
+	}
+	blocked := len(reasons) > 0
+	return ExecutorAction{
+		Blocked:              blocked,
+		Ready:                !blocked && slices.Contains(brief.ReadyLanes, label),
+		BlockerReasons:       reasons,
+		PendingGates:         pendingGates,
+		OpenInterventions:    openInterventions,
+		OpenDecisions:        openDecisions,
+		ReconcileRequired:    openInterventions > 0,
+		PendingGateRequired:  pendingGates > 0,
+		OpenDecisionRequired: openDecisions > 0,
+		ResumeCommand:        "/rekit continue " + label,
+		HandoffCommand:       "/rekit handoff " + label,
+		NextAgentActions:     brief.NextAgentActions,
+		Escalations:          brief.Escalations,
+	}
+}
+
+func laneCommandLabel(lane Lane) string {
+	label := strings.TrimSpace(lane.Label)
+	if label != "" {
+		return label
+	}
+	if lane.ID == "main" {
+		return "main"
+	}
+	if name, ok := strings.CutPrefix(lane.ID, "feature-"); ok {
+		return name
+	}
+	return lane.ID
 }
 
 func OpenLanes(lanes []Lane) []Lane {

@@ -37,34 +37,37 @@ type Options struct {
 }
 
 type Plan struct {
-	SchemaVersion        int           `json:"schemaVersion"`
-	Command              string        `json:"command"`
-	CaseRoot             string        `json:"caseRoot"`
-	RepoRoot             string        `json:"repoRoot"`
-	Pack                 string        `json:"pack"`
-	IsMutation           bool          `json:"isMutation"`
-	ReviewRequired       bool          `json:"reviewRequired"`
-	RequiresConfirmation bool          `json:"requiresConfirmation"`
-	EventPreview         EventPreview  `json:"eventPreview"`
-	MissionBrief         mission.Brief `json:"missionBrief"`
-	BlockedActions       []string      `json:"blockedActions"`
-	NextSteps            []string      `json:"nextSteps"`
+	SchemaVersion        int                    `json:"schemaVersion"`
+	Command              string                 `json:"command"`
+	CaseRoot             string                 `json:"caseRoot"`
+	RepoRoot             string                 `json:"repoRoot"`
+	Pack                 string                 `json:"pack"`
+	IsMutation           bool                   `json:"isMutation"`
+	ReviewRequired       bool                   `json:"reviewRequired"`
+	RequiresConfirmation bool                   `json:"requiresConfirmation"`
+	EventPreview         EventPreview           `json:"eventPreview"`
+	MissionBrief         mission.Brief          `json:"missionBrief"`
+	ExecutorAction       mission.ExecutorAction `json:"executorAction"`
+	WouldExecutorAction  mission.ExecutorAction `json:"wouldExecutorAction"`
+	BlockedActions       []string               `json:"blockedActions"`
+	NextSteps            []string               `json:"nextSteps"`
 }
 
 type ApplyResult struct {
-	SchemaVersion int           `json:"schemaVersion"`
-	Command       string        `json:"command"`
-	CaseRoot      string        `json:"caseRoot"`
-	RepoRoot      string        `json:"repoRoot"`
-	Pack          string        `json:"pack"`
-	IsMutation    bool          `json:"isMutation"`
-	Applied       bool          `json:"applied"`
-	EventID       string        `json:"eventId"`
-	Path          string        `json:"path"`
-	Reason        string        `json:"reason,omitempty"`
-	Event         EventPreview  `json:"event"`
-	MissionBrief  mission.Brief `json:"missionBrief"`
-	NextSteps     []string      `json:"nextSteps"`
+	SchemaVersion  int                    `json:"schemaVersion"`
+	Command        string                 `json:"command"`
+	CaseRoot       string                 `json:"caseRoot"`
+	RepoRoot       string                 `json:"repoRoot"`
+	Pack           string                 `json:"pack"`
+	IsMutation     bool                   `json:"isMutation"`
+	Applied        bool                   `json:"applied"`
+	EventID        string                 `json:"eventId"`
+	Path           string                 `json:"path"`
+	Reason         string                 `json:"reason,omitempty"`
+	Event          EventPreview           `json:"event"`
+	MissionBrief   mission.Brief          `json:"missionBrief"`
+	ExecutorAction mission.ExecutorAction `json:"executorAction"`
+	NextSteps      []string               `json:"nextSteps"`
 }
 
 type EventPreview struct {
@@ -101,6 +104,7 @@ func PlanDryRun(repoRoot, caseRoot, pack string, opt Options) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	brief := gateMissionBrief(inst.CaseRoot)
 	return Plan{
 		SchemaVersion:        1,
 		Command:              "gate",
@@ -111,7 +115,9 @@ func PlanDryRun(repoRoot, caseRoot, pack string, opt Options) (Plan, error) {
 		ReviewRequired:       preview.Gate.RequiresConfirmation,
 		RequiresConfirmation: preview.Gate.RequiresConfirmation,
 		EventPreview:         preview,
-		MissionBrief:         gateMissionBrief(inst.CaseRoot),
+		MissionBrief:         brief,
+		ExecutorAction:       gateExecutorAction(inst.CaseRoot, preview.Lane, brief),
+		WouldExecutorAction:  gateWouldExecutorAction(inst.CaseRoot, preview, brief),
 		BlockedActions:       blocked,
 		NextSteps:            planNextSteps(preview),
 	}, nil
@@ -151,6 +157,7 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 	}
 	if exists {
 		result.MissionBrief = gateMissionBrief(inst.CaseRoot)
+		result.ExecutorAction = gateExecutorAction(inst.CaseRoot, preview.Lane, result.MissionBrief)
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
@@ -159,6 +166,7 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 	}
 	result.Applied = true
 	result.MissionBrief = gateMissionBrief(inst.CaseRoot)
+	result.ExecutorAction = gateExecutorAction(inst.CaseRoot, preview.Lane, result.MissionBrief)
 	return result, nil
 }
 
@@ -171,6 +179,82 @@ func gateMissionBrief(caseRoot string) mission.Brief {
 		return mission.Brief{Summary: "unavailable: " + err.Error()}
 	}
 	return brief
+}
+
+func gateExecutorAction(caseRoot, laneID string, brief mission.Brief) mission.ExecutorAction {
+	board, facts, err := gateBoardFacts(caseRoot)
+	if err != nil {
+		return mission.LaneExecutorAction(mission.Lane{ID: laneID, Label: mission.BoardLaneLabel(mission.BoardLane{ID: laneID})}, mission.Facts{}, brief)
+	}
+	lane := gateMissionLane(board, laneID)
+	return mission.LaneExecutorAction(lane, facts, brief)
+}
+
+func gateWouldExecutorAction(caseRoot string, preview EventPreview, brief mission.Brief) mission.ExecutorAction {
+	board, facts, err := gateBoardFacts(caseRoot)
+	if err != nil {
+		facts = mission.Facts{}
+	}
+	facts.Requests = append(append([]map[string]any{}, facts.Requests...), gatePreviewMap(preview))
+	wouldBrief := brief
+	if len(board.Lanes) > 0 {
+		wouldBrief = mission.BuildWithOptions(mission.BoardLanes(board.Lanes), facts, mission.BuildOptions{
+			MaxRows:            mission.DefaultMaxRows,
+			OpenDecisionAction: "review open candidate/decision item(s) with evidence and authority boundary",
+		})
+	}
+	return mission.LaneExecutorAction(gateMissionLane(board, preview.Lane), facts, wouldBrief)
+}
+
+func gateBoardFacts(caseRoot string) (mission.Board, mission.Facts, error) {
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		return mission.Board{}, mission.Facts{}, err
+	}
+	facts, err := mission.ReadFacts(caseRoot)
+	if err != nil {
+		return board, mission.Facts{}, err
+	}
+	return board, facts, nil
+}
+
+func gateMissionLane(board mission.Board, laneID string) mission.Lane {
+	for _, item := range board.Lanes {
+		if strings.EqualFold(strings.TrimSpace(item.ID), strings.TrimSpace(laneID)) {
+			return mission.Lane{ID: strings.TrimSpace(item.ID), Label: mission.BoardLaneLabel(item), Status: item.Status}
+		}
+	}
+	return mission.Lane{ID: laneID, Label: mission.BoardLaneLabel(mission.BoardLane{ID: laneID})}
+}
+
+func gatePreviewMap(preview EventPreview) map[string]any {
+	authorization := map[string]any{
+		"decision":  preview.Gate.Authorization.Decision,
+		"profileId": preview.Gate.Authorization.ProfileID,
+	}
+	gate := map[string]any{
+		"action":          preview.Gate.Action,
+		"scope":           preview.Gate.Scope,
+		"budget":          preview.Gate.Budget,
+		"authorization":   authorization,
+		"stopConditions":  preview.Gate.StopConditions,
+		"outputPaths":     preview.Gate.OutputPaths,
+		"requestedBudget": preview.Gate.RequestedBudget,
+	}
+	return map[string]any{
+		"kind":      preview.Kind,
+		"lane":      preview.Lane,
+		"subject":   preview.Subject,
+		"summary":   preview.Summary,
+		"status":    preview.Status,
+		"actor":     preview.Actor,
+		"risk":      preview.Risk,
+		"target":    preview.Target,
+		"batchId":   preview.BatchID,
+		"gate":      gate,
+		"eventId":   preview.EventID,
+		"createdAt": preview.CreatedAt,
+	}
 }
 
 func planNextSteps(preview EventPreview) []string {

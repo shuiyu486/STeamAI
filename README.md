@@ -6,7 +6,7 @@
 
 当前项目不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first、可预授权边界内自主推进的 Agent Team 底座。
 
-一句话：**用户主要指挥主 Agent / Mission Commander；主 Agent 调度 durable member lanes、可替换会话执行体和短命 tactical subagents；`start` / `reconcile` envelope/text、`handoff` JSON/Markdown、`continue` envelope/run artifacts 与 lane-local `RESUME.md` / typed checkpoint 复用 Mission Control brief、基于 typed facts 的 executor action blocker counts、gate snapshot 与下一步动作；`/rekit`、Go CLI/backend 是背后的 canonical deterministic runtime/API，`rekit.ps1` 仅作为迁移期 legacy façade，默认路径继续向 PowerShell-free / Go-native / 跨平台收敛。**
+一句话：**用户主要指挥主 Agent / Mission Commander；主 Agent 调度 durable member lanes、可替换会话执行体和短命 tactical subagents；`start` / `gate` / `reconcile` envelope/text、`handoff` JSON/Markdown、`continue` envelope/run artifacts 与 lane-local `RESUME.md` / typed checkpoint 复用 Mission Control brief、基于 typed facts 的 executor action blocker counts、gate snapshot 与下一步动作；`/rekit`、Go CLI/backend 是背后的 canonical deterministic runtime/API，`rekit.ps1` 仅作为迁移期 legacy façade，默认路径继续向 PowerShell-free / Go-native / 跨平台收敛。**
 
 ## 项目路线
 

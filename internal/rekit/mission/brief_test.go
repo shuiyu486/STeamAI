@@ -58,6 +58,45 @@ func TestBuildBlocksLanesAndUsesSharedDecisionAction(t *testing.T) {
 	}
 }
 
+func TestLaneExecutorActionUsesSharedTypedBlockerProjection(t *testing.T) {
+	facts := Facts{
+		Requests: []map[string]any{
+			{"kind": "request", "lane": "feature-login", "subject": "debug gate", "status": "pending-gate", "risk": "high"},
+			{"kind": "request", "lane": "feature-login", "subject": "authorized debug", "status": "authorized-gate", "risk": "high"},
+		},
+		Interventions: []map[string]any{
+			{"eventId": "evt-open", "kind": "intervention", "lane": "feature-login", "subject": "manual stop", "status": "open"},
+			{"eventId": "evt-resolved", "kind": "intervention", "lane": "feature-login", "status": "resolved", "resolvesEventId": "evt-ignored"},
+		},
+		Candidates: []map[string]any{
+			{"kind": "candidate", "lane": "feature-login", "subject": "review candidate", "status": "open"},
+			{"kind": "candidate", "lane": "feature-login", "subject": "accepted candidate", "status": "accepted"},
+		},
+	}
+	brief := BuildWithOptions([]Lane{{ID: "feature-login", Label: "login", Status: "active"}}, facts, BuildOptions{MaxRows: 10})
+	action := LaneExecutorAction(Lane{ID: "feature-login", Label: "login", Status: "active"}, facts, brief)
+	if !action.Blocked || action.Ready || action.PendingGates != 1 || action.OpenInterventions != 1 || action.OpenDecisions != 1 {
+		t.Fatalf("unexpected executor blockers: %+v", action)
+	}
+	for _, reason := range []string{"pending-gate", "intervention", "open-decision"} {
+		if !slices.Contains(action.BlockerReasons, reason) {
+			t.Fatalf("missing blocker reason %q: %+v", reason, action)
+		}
+	}
+	if !action.PendingGateRequired || !action.ReconcileRequired || !action.OpenDecisionRequired || action.ResumeCommand != "/rekit continue login" || action.HandoffCommand != "/rekit handoff login" {
+		t.Fatalf("unexpected executor requirements: %+v", action)
+	}
+}
+
+func TestLaneExecutorActionReadyUsesSharedMissionBrief(t *testing.T) {
+	facts := Facts{}
+	brief := BuildWithOptions([]Lane{{ID: "feature-login", Label: "login", Status: "active"}}, facts, BuildOptions{MaxRows: 10})
+	action := LaneExecutorAction(Lane{ID: "feature-login", Label: "login", Status: "active"}, facts, brief)
+	if action.Blocked || !action.Ready || len(action.BlockerReasons) != 0 || action.ResumeCommand != "/rekit continue login" || action.HandoffCommand != "/rekit handoff login" {
+		t.Fatalf("unexpected ready executor action: %+v", action)
+	}
+}
+
 func TestBuildDoesNotBlockOnAuthorizedGate(t *testing.T) {
 	brief := Build(
 		[]Lane{{ID: "main", Label: "main", Status: "active"}},

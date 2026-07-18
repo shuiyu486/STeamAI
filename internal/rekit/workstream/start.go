@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -99,21 +98,7 @@ type Lane struct {
 	UpdatedAt                  string         `json:"updatedAt"`
 }
 
-type laneExecutorAction struct {
-	Blocked              bool     `json:"blocked"`
-	Ready                bool     `json:"ready"`
-	BlockerReasons       []string `json:"blockerReasons"`
-	PendingGates         int      `json:"pendingGates"`
-	OpenInterventions    int      `json:"openInterventions"`
-	OpenDecisions        int      `json:"openDecisions"`
-	ReconcileRequired    bool     `json:"reconcileRequired"`
-	PendingGateRequired  bool     `json:"pendingGateRequired"`
-	OpenDecisionRequired bool     `json:"openDecisionRequired"`
-	ResumeCommand        string   `json:"resumeCommand"`
-	HandoffCommand       string   `json:"handoffCommand"`
-	NextAgentActions     []string `json:"nextAgentActions"`
-	Escalations          []string `json:"escalations"`
-}
+type laneExecutorAction = mission.ExecutorAction
 
 type laneCheckpoint struct {
 	SchemaVersion              int                   `json:"schemaVersion"`
@@ -703,37 +688,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 }
 
 func laneExecutorActionFor(lane Lane, laneFacts mission.Facts, brief mission.Brief) laneExecutorAction {
-	label := workstreamLabel(lane)
-	laneFacts = mission.LaneFacts(laneFacts, lane.ID)
-	pendingGates := len(mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate"))
-	openInterventions := len(mission.EffectiveOpenInterventions(laneFacts.Interventions))
-	openDecisions := len(mission.OpenDecisionItems(laneFacts))
-	reasons := []string{}
-	if pendingGates > 0 {
-		reasons = append(reasons, "pending-gate")
-	}
-	if openInterventions > 0 {
-		reasons = append(reasons, "intervention")
-	}
-	if openDecisions > 0 {
-		reasons = append(reasons, "open-decision")
-	}
-	blocked := len(reasons) > 0
-	return laneExecutorAction{
-		Blocked:              blocked,
-		Ready:                !blocked && slices.Contains(brief.ReadyLanes, label),
-		BlockerReasons:       reasons,
-		PendingGates:         pendingGates,
-		OpenInterventions:    openInterventions,
-		OpenDecisions:        openDecisions,
-		ReconcileRequired:    openInterventions > 0,
-		PendingGateRequired:  pendingGates > 0,
-		OpenDecisionRequired: openDecisions > 0,
-		ResumeCommand:        "/rekit continue " + label,
-		HandoffCommand:       "/rekit handoff " + label,
-		NextAgentActions:     brief.NextAgentActions,
-		Escalations:          brief.Escalations,
-	}
+	return mission.LaneExecutorAction(mission.Lane{ID: lane.ID, Label: workstreamLabel(lane), Status: lane.Status}, laneFacts, brief)
 }
 
 func defaultStartLaneType(m *manifest.Manifest) string {

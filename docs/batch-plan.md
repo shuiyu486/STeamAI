@@ -10443,3 +10443,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/workstream/reconcile.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestRunContinueBlocksUntilReconcileClosesIntervention" -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。
+
+### Batch 341：Go-native gate executor action projection
+
+状态：已完成。
+
+目标：继续 Stage 5 workstream / ledger / gate / continue Go 化，在 Batch 334-340 已把 `executorAction` 覆盖到 lane resume/checkpoint、continue、handoff、start 与 reconcile 的基础上，把同一 executor-friendly blocker/action snapshot 扩展到 `gate -WhatIf/-Apply` JSON envelope 与 gate text output。这样主 Agent / lane executor 在申请或记录 heavy-action gate request 时，无需另跑 overview/continue/handoff 或读取 checkpoint，就能直接判断 pending-gate/authorized-gate decision 对当前 lane 下一步接手的影响。
+
+实施范围：
+
+- 将 executor action 类型与 typed blocker projection 抽入 `internal/rekit/mission`，让 workstream 与 gate 复用同一 `mission.ExecutorAction` / `mission.LaneExecutorAction`，避免 gate 另建一套 blocker projection。
+- 更新 `gate.Plan`：新增当前 `executorAction` 与 `wouldExecutorAction`；`-WhatIf` 保持非写入，`wouldExecutorAction` 只基于预览 request 的 typed facts 投影写入后效果，不 append ledger。
+- 更新 `gate.ApplyResult`：新增 apply 后 `executorAction`；pending-gate apply 后显示 lane blocked / pendingGateRequired，authorized-gate apply 后保持 ready / non-blocking。
+- 更新 gate text output：`-WhatIf -Format text` 显示 current / would executor action，`-Apply -Format text` 显示 apply 后 executor action summary。
+- 扩展 package / CLI E2E：覆盖 shared mission executor action、gate dry-run current/would executor action、pending-gate apply executor action、authorized-gate non-blocking executor action与 text output contract。
+- 更新 README、canonical `/rekit` skill、Agent Team usage、release readiness、Go-first convergence、batch-plan 与 CHANGELOG，记录 gate executor action projection 与 no heavy-tool / no authority 边界。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不写 authority/confirmed，不改变 sync/promote review-first、不迁移 policy schema、不写真实样本、trace、dump、capture、artifact、绝对 case 路径或 case-specific 进度；gate executor action 只是 JSON/text envelope handoff shortcut，`gate -Apply` 仍只 append pending-gate / authorized-gate request ledger decision。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/mission/brief.go internal/rekit/mission/brief_test.go internal/rekit/workstream/start.go internal/rekit/gate/gate.go internal/rekit/gate/gate_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/gate ./internal/rekit/cli -run "TestLaneExecutorAction|TestPlanDryRun|TestApply|TestRunGate|TestRunGoGate|TestRunStart|TestRunContinueBlocksUntilReconcileClosesIntervention" -count=1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/mission/brief.go internal/rekit/mission/brief_test.go internal/rekit/workstream/start.go internal/rekit/gate/gate.go internal/rekit/gate/gate_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go` 与 targeted `go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/gate ./internal/rekit/cli -run "TestLaneExecutorAction|TestPlanDryRun|TestApply|TestRunGate|TestRunGoGate|TestRunStart|TestRunContinueBlocksUntilReconcileClosesIntervention" -count=1`。完整 `release-check` / `go test ./...` 的第一次执行按预期因本节仍标记“进行中”且验证结果为空而 fail-closed；完成 durable handoff 后重跑 `go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过。`git diff --check` 仅报告 Windows LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。
