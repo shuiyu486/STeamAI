@@ -3848,6 +3848,12 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if !slices.Contains(firstHandoff.IntakeChecklist, "validate reviewer output against reviewerResultContract before using any writeback template") || !slices.Contains(firstHandoff.IntakeChecklist, "defer the main decision when conflicts, missing evidence, or blocked outputs are present") {
 		t.Fatalf("unexpected intake checklist: %+v", firstHandoff.IntakeChecklist)
 	}
+	if len(firstHandoff.ReviewerDecisionMappings) != 5 || firstHandoff.ReviewerDecisionMappings[0].ReviewerDecision != "accept" || firstHandoff.ReviewerDecisionMappings[0].VerificationVerdict != "accepted" || firstHandoff.ReviewerDecisionMappings[0].MainDecision != "accept" || firstHandoff.ReviewerDecisionMappings[3].ReviewerDecision != "abandon" || firstHandoff.ReviewerDecisionMappings[3].MainDecision != "supersede" || firstHandoff.ReviewerDecisionMappings[4].ReviewerDecision != "needs-more-evidence" || firstHandoff.ReviewerDecisionMappings[4].VerificationVerdict != "needs-more-evidence" || firstHandoff.ReviewerDecisionMappings[4].MainDecision != "defer" {
+		t.Fatalf("unexpected reviewer decision mappings: %+v", firstHandoff.ReviewerDecisionMappings)
+	}
+	if !slices.Contains(firstHandoff.ConflictHandling, "if any conflictSignal is present, map verification verdict to inconclusive or needs-more-evidence and keep main decision deferred unless independently resolved") || !slices.Contains(firstHandoff.ConflictHandling, "if reviewer requests writes, heavy tools, authority/confirmed changes, or external effects, discard that output for ledger purposes and escalate through the lane gate path") {
+		t.Fatalf("unexpected conflict handling: %+v", firstHandoff.ConflictHandling)
+	}
 	if len(firstHandoff.LedgerWritebackTemplates) != 2 || firstHandoff.LedgerWritebackTemplates[0].Kind != "verification" || firstHandoff.LedgerWritebackTemplates[1].Kind != "decision" {
 		t.Fatalf("unexpected shard writeback templates: %+v", firstHandoff.LedgerWritebackTemplates)
 	}
@@ -3864,7 +3870,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing summary: %v", err)
 	}
-	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"## bounded dispatch observability", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "verification writeback preview", "decision writeback preview", "-WhatIf -Format json", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -4949,6 +4955,8 @@ type planSubagentsHandoff struct {
 	LedgerWritebackTemplates []planSubagentsWritebackTemplate `json:"ledgerWritebackTemplates"`
 	MainAgentNextAction      string                           `json:"mainAgentNextAction"`
 	IntakeChecklist          []string                         `json:"intakeChecklist"`
+	ReviewerDecisionMappings []planSubagentsDecisionMapping   `json:"reviewerDecisionMappings"`
+	ConflictHandling         []string                         `json:"conflictHandling"`
 	PostReviewMerge          []string                         `json:"postReviewMerge"`
 	CompletionCriteria       []string                         `json:"completionCriteria"`
 	FailureHandling          string                           `json:"failureHandling"`
@@ -4960,6 +4968,14 @@ type planSubagentsReviewerContract struct {
 	AllowedDecisions []string `json:"allowedDecisions"`
 	EvidenceRules    []string `json:"evidenceRules"`
 	ConflictSignals  []string `json:"conflictSignals"`
+}
+
+type planSubagentsDecisionMapping struct {
+	ReviewerDecision    string   `json:"reviewerDecision"`
+	VerificationVerdict string   `json:"verificationVerdict"`
+	MainDecision        string   `json:"mainDecision"`
+	ApplyWhen           []string `json:"applyWhen"`
+	Fallback            string   `json:"fallback"`
 }
 
 type planSubagentsWritebackTemplate struct {

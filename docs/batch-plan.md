@@ -10704,3 +10704,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/subagents/plan.go internal/rekit/subagents/plan_test.go internal/rekit/cli/cli_test.go` 与 targeted `go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestWritePlan|TestRunPlanSubagents" -count=1`；完整 release gate 已运行 `go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`，均通过。`git diff --check` 仅报告 Windows LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade delegation/fallback。
+
+### Batch 349：Go-native plan-subagents reviewer intake decision mapping
+
+状态：已完成。
+
+目标：继续 Stage 6 Agent Team dry-run / bounded dispatch 可用性强化，在 Batch 348 reviewer result contract / intake checklist 基础上，为每个 shard handoff 增加 reviewer decision 到 verification verdict / main merge decision 的显式映射，以及冲突/default handling，避免主 Agent 在 note preview/apply 前临场猜测 reviewer `accept`、`reject`、`defer`、`abandon` 或 `needs-more-evidence` 应如何落账。
+
+实施范围：
+
+- `internal/rekit/subagents` 扩展 `ShardHandoff` contract，新增 `ReviewerDecisionMappings[]` 与 `ConflictHandling[]`；每个 handoff 输出 reviewer decision、verification verdict、main decision、applyWhen 和 fallback。
+- `reviewerDecisionMappings()` 覆盖 accept -> accepted/accept、reject -> rejected/reject、defer -> inconclusive/defer、abandon -> inconclusive/supersede、needs-more-evidence -> needs-more-evidence/defer 的默认映射，并要求缺证、低置信度或冲突时走 defer / non-accepting fallback。
+- `conflictHandlingSteps()` 明确 reviewer result contract validation 失败、conflictSignal 命中、decision 与 recommendedVerdict 不一致、reviewer 请求写入/heavy-tool/authority/confirmed/external effects 时的 fail-closed 处理。
+- `summary.md` 的 shard handoff prompts 同步列出 decision-map 与 conflict-handling，便于主 Agent 不解析完整 JSON 也能在 intake 后选择 safer verification verdict 与 main decision。
+- 扩展 `internal/rekit/subagents/plan_test.go` 与 CLI E2E assertions，覆盖 result/packet/summary 的 reviewer decision mappings 与 conflict handling 可见性。
+- 更新 README、项目 CLAUDE、canonical `/rekit` skill、Agent Team usage、release readiness、Go-first convergence、batch-plan 与 CHANGELOG，记录 decision mapping / conflict handling 边界。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不自动 spawn reviewer，不替 reviewer 写 ledger，不写 board/facts/lanes/handoff/authority/confirmed，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不改变 sync/promote review-first、facts/board/policy durable schema、policy schema 或公共 façade deletion 边界；新增 `reviewerDecisionMappings[]` / `conflictHandling[]` 是 additive public output，旧 `reviewerResultContract`、`intakeChecklist[]`、`command`、`previewCommand`、`applyCommand`、`shards[]`、`shardHandoffs[]`、`ledgerWritebackTemplates[]`、`observability` 与 `reviewLoop` 字段保持兼容。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/subagents/plan.go internal/rekit/subagents/plan_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestWritePlan|TestRunPlanSubagents" -count=1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/subagents/plan.go internal/rekit/subagents/plan_test.go internal/rekit/cli/cli_test.go` 与 targeted `go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestWritePlan|TestRunPlanSubagents" -count=1`；完整 release gate 已运行 `go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`releaseNotesCovered=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`，均通过。`git diff --check` 仅报告 Windows LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade delegation/fallback。

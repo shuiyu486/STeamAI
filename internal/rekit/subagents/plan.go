@@ -149,6 +149,8 @@ type ShardHandoff struct {
 	LedgerWritebackTemplates []LedgerWritebackTemplate `json:"ledgerWritebackTemplates"`
 	MainAgentNextAction      string                    `json:"mainAgentNextAction"`
 	IntakeChecklist          []string                  `json:"intakeChecklist"`
+	ReviewerDecisionMappings []ReviewerDecisionMapping `json:"reviewerDecisionMappings"`
+	ConflictHandling         []string                  `json:"conflictHandling"`
 	PostReviewMerge          []string                  `json:"postReviewMerge"`
 	CompletionCriteria       []string                  `json:"completionCriteria"`
 	FailureHandling          string                    `json:"failureHandling"`
@@ -160,6 +162,14 @@ type ReviewerResultContract struct {
 	AllowedDecisions []string `json:"allowedDecisions"`
 	EvidenceRules    []string `json:"evidenceRules"`
 	ConflictSignals  []string `json:"conflictSignals"`
+}
+
+type ReviewerDecisionMapping struct {
+	ReviewerDecision    string   `json:"reviewerDecision"`
+	VerificationVerdict string   `json:"verificationVerdict"`
+	MainDecision        string   `json:"mainDecision"`
+	ApplyWhen           []string `json:"applyWhen"`
+	Fallback            string   `json:"fallback"`
 }
 
 type LedgerWritebackTemplate struct {
@@ -360,8 +370,10 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 			ReviewerWriteback:        reviewLoop.VerdictWriteback,
 			ReviewerResultContract:   reviewerResultContract(),
 			LedgerWritebackTemplates: ledgerWritebackTemplates(shard),
-			MainAgentNextAction:      "launch a read-only reviewer with dispatchPrompt, inspect reviewerResultContract output, run ledgerWritebackTemplates.previewCommand, then use applyCommand for reviewer verification and main merge decision",
+			MainAgentNextAction:      "launch a read-only reviewer with dispatchPrompt, inspect reviewerResultContract output, map reviewerDecisionMappings, run ledgerWritebackTemplates.previewCommand, then use applyCommand for reviewer verification and main merge decision",
 			IntakeChecklist:          intakeChecklist(),
+			ReviewerDecisionMappings: reviewerDecisionMappings(),
+			ConflictHandling:         conflictHandlingSteps(),
 			PostReviewMerge:          postReviewMergeSteps(),
 			CompletionCriteria:       append([]string{}, reviewLoop.CompletionCriteria...),
 			FailureHandling:          reviewLoop.FailureHandling,
@@ -396,6 +408,55 @@ func intakeChecklist() []string {
 		"map reviewer decision to verification verdict before running the verification previewCommand",
 		"defer the main decision when conflicts, missing evidence, or blocked outputs are present",
 		"run note previewCommand before applyCommand and inspect event / wouldExecutorAction before ledger writeback",
+	}
+}
+
+func reviewerDecisionMappings() []ReviewerDecisionMapping {
+	return []ReviewerDecisionMapping{
+		{
+			ReviewerDecision:    "accept",
+			VerificationVerdict: "accepted",
+			MainDecision:        "accept",
+			ApplyWhen:           []string{"reviewer result validates", "evidenceRefs are inspected", "no conflict signals are present"},
+			Fallback:            "defer when evidenceRefs are missing, confidence is low, or conflicts are present",
+		},
+		{
+			ReviewerDecision:    "reject",
+			VerificationVerdict: "rejected",
+			MainDecision:        "reject",
+			ApplyWhen:           []string{"reviewer result validates", "rejection reason cites inspected evidenceRefs", "no out-of-shard claims are present"},
+			Fallback:            "defer when rejection evidence cannot be independently inspected",
+		},
+		{
+			ReviewerDecision:    "defer",
+			VerificationVerdict: "inconclusive",
+			MainDecision:        "defer",
+			ApplyWhen:           []string{"reviewer result is valid but evidence is incomplete", "main agent needs another pass or narrower shard"},
+			Fallback:            "keep decision=defer and do not apply accept/reject templates until evidence improves",
+		},
+		{
+			ReviewerDecision:    "abandon",
+			VerificationVerdict: "inconclusive",
+			MainDecision:        "supersede",
+			ApplyWhen:           []string{"shard is out of scope, duplicated, or superseded", "main agent has inspected the superseding evidence"},
+			Fallback:            "record a defer decision when no superseding evidence has been inspected",
+		},
+		{
+			ReviewerDecision:    "needs-more-evidence",
+			VerificationVerdict: "needs-more-evidence",
+			MainDecision:        "defer",
+			ApplyWhen:           []string{"reviewer cites missing or inaccessible evidenceRefs", "main agent can name the next evidence collection step"},
+			Fallback:            "do not apply an accept/reject main decision; collect evidence or split the shard",
+		},
+	}
+}
+
+func conflictHandlingSteps() []string {
+	return []string{
+		"if reviewer output fails reviewerResultContract validation, do not run writeback templates; retry with a smaller shard or mark decision=defer",
+		"if any conflictSignal is present, map verification verdict to inconclusive or needs-more-evidence and keep main decision deferred unless independently resolved",
+		"if reviewer decision and recommendedVerdict disagree, inspect evidenceRefs and record the safer non-accepting outcome",
+		"if reviewer requests writes, heavy tools, authority/confirmed changes, or external effects, discard that output for ledger purposes and escalate through the lane gate path",
 	}
 }
 
@@ -691,6 +752,12 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 			}
 			for _, item := range handoff.IntakeChecklist {
 				lines = append(lines, "    - intake-check: "+item)
+			}
+			for _, mapping := range handoff.ReviewerDecisionMappings {
+				lines = append(lines, fmt.Sprintf("    - decision-map: reviewer=`%s` -> verification=`%s`, main=`%s`; when=`%s`; fallback=`%s`", mapping.ReviewerDecision, mapping.VerificationVerdict, mapping.MainDecision, strings.Join(mapping.ApplyWhen, "; "), mapping.Fallback))
+			}
+			for _, step := range handoff.ConflictHandling {
+				lines = append(lines, "    - conflict-handling: "+step)
 			}
 			for _, tmpl := range handoff.LedgerWritebackTemplates {
 				lines = append(lines, fmt.Sprintf("  - %s writeback preview: `%s`; apply: `%s`; required=`%s`", tmpl.Kind, tmpl.PreviewCommand, tmpl.ApplyCommand, strings.Join(tmpl.RequiredFields, ",")))
