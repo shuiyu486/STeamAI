@@ -252,6 +252,14 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','verification','-Lane','main','-Subject','matrix note what-if','-Summary','fake default note what-if','-WhatIf') -CommandName 'note' -Label 'default note what-if delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane) -CommandName 'gate' -Label 'default gate what-if delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane',$gateLane,'-Actor','facade-smoke') -CommandName 'gate' -Label 'default gate apply delegation'
+  $gateExecutionCapturePath = Join-Path $matrixRoot 'gate-execution-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $gateExecutionCapturePath
+  $gateExecutionOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-GateEventId','evt-authorized-gate','-ExecutionStatus','succeeded','-Actor','facade-smoke','-ActualRuntimeSeconds','3','-ActualDiskMB','4','-ActualRequests','1','-OutputRefs','workspace/main/debug/out.json','-ExecutionEvidenceRefs','workspace/main/debug/evidence.json','-BoundaryHits','timeout','-Escalation','manual review') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $gateExecutionOut -Expected '"delegatedByFake":true' -Label 'default gate execution evidence delegation'
+  $capturedGateExecutionArgs = [System.IO.File]::ReadAllText($gateExecutionCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedGateArg in @('-GateEventId evt-authorized-gate','-ExecutionStatus succeeded','-ActualRuntimeSeconds 3','-ActualDiskMB 4','-ActualRequests 1','-OutputRefs workspace/main/debug/out.json','-ExecutionEvidenceRefs workspace/main/debug/evidence.json','-BoundaryHits timeout','-Escalation "manual review"')) {
+    Assert-ContainsText -Text $capturedGateExecutionArgs -Expected $expectedGateArg -Label 'gate execution evidence facade args'
+  }
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'start' -Label 'default start JSON preview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-apply','-Pack',$Pack,'-Apply','-Executor','matrix-session','-Actor','facade-smoke','-Reason','matrix explicit takeover') -CommandName 'start' -Label 'default start apply delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-json-apply','-Pack',$Pack,'-Apply','-Format','json') -CommandName 'start' -Label 'default start JSON apply delegation'

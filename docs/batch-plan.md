@@ -16,28 +16,27 @@ Batch 353 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 356：Cross-platform product-path E2E（本地 product-path slice）**
+**Batch 357：Autonomy execution evidence closure（authorized gate 后证据闭环）**
 
-状态：已完成实现与本地 full release gate；提交后继续下一候选批次。
+状态：已完成实现、文档更新、本地 full release gate 与按需 PowerShell façade smoke；提交后继续下一候选批次。
 
-目标：先在远程 GitHub Actions billing/spending limit blocker 尚未解除的条件下，收敛一个本地可验证的 product-path vertical slice：Go CLI 即使从 case-local 工作目录启动，也能通过 `.rekit/instance.yml` / `.re-template.yml` 的 `templateRoot` 找到 canonical repo root，并让日常 case commands 在 case 目录中省略 `-Target`。
+目标：在不把 heavy-tool 业务逻辑塞入 core runtime 的前提下，补齐 strict durable autonomy profile + `authorized-gate` 后的 Go-native evidence closure：lane executor / tool adapter 完成授权动作后，能用 deterministic runtime 记录 actual budget、output refs、evidence refs、boundary hits、escalation 与 authorized gate provenance。
 
-边界：本批只改 Go runtime/CLI discovery 与 case-local command target resolution，不新增 PowerShell runtime logic，不删除 retained façade，不自动安装或启动 `/rekit`/Claude Code session，不扩大 init/attach/repair/bootstrap 这类 lifecycle 写入命令的隐式 target；远程三平台 CI green 仍受外部 billing/spending limit blocker 约束，不能把本地 slice 表述为完整跨平台 release green。
+边界：本批只新增 `gate -Apply` 的 post-action execution evidence 记录模式；不执行 full-trace/debug/inject/patch/dump/network/symex，不新增 PowerShell runtime logic，不自动 spawn、注册或管理 lane executor/session，不写 authority/confirmed，不改变 sync/promote review-first、runtime durable schema 迁移策略、公共 façade deletion 门禁或远程 CI blocker 状态。execution evidence mode 必须引用已存在的 `authorized-gate` / `preauthorized` request decision，output refs 必须保持在 authorized gate 的 output paths 内；pending/denied gate、越界 output、预算超限但未记录 boundary marker 均 fail-closed。
 
 完成内容：
 
-- `runtime.New` 在 cwd/executable 不能发现 repo root 时，会从目标 case metadata 读取 `templateRoot` 并验证它仍指向当前 kit repo root；这让 installed/direct Go CLI 可从 repo 外 case path 找回 canonical runtime。
-- case-local 工作目录现在可作为日常 case commands 的 implicit target：`overview`、`note`、`start`、`handoff`、`continue`、`reconcile`、`gate`、`sync`、`promote` 与 `plan-subagents` 在未传 `-Target` 时，会先确认当前目录 looks like attached case，避免误把 kit root 当 case。
-- `attach`、`repair`、`init` 与 `bootstrap` 仍要求显式 `-Target`，避免基于 cwd 意外创建、修复或重写 case metadata。
-- 新增 runtime unit test 覆盖从 repo 外 cwd 通过 target case metadata discovery repo root；新增 CLI product-path E2E 覆盖 `_template` 临时 case 在 case cwd 中无 `-Target` 执行 `status`、`doctor`、`start -Apply`、`continue -Apply` 与 `handoff -Apply`。
-- release readiness docs 将跨平台完成度区分为 repository/runtime portability、CLI/case E2E 与 installed user entrypoint readiness，并记录本批只关闭本地 CLI/case E2E slice；远程 Linux/Windows/macOS job conclusion 与 installed `/rekit`/case shim readiness 仍是 known gap。
+- `gate.Options` 新增 `GateEventID`、`ExecutionStatus`、actual budget、`OutputRefs`、`ExecutionEvidenceRefs`、`BoundaryHits` 与 `Escalation`，CLI 解析对应 flags，并用 `wantsGateExecutionEvidence` 在 `gate -Apply` 下选择 request decision 写入或 execution evidence 写入。
+- 新增 `gate.RecordExecution`：读取 strict request facts，要求 `-GateEventId` 指向 `authorized-gate` 且 authorization decision 为 `preauthorized`；成功时只 append `.rekit/facts/observations.jsonl` 的 `kind=observation` execution evidence event，保留 related gate event、gate details、recordRequired、notifyMainOn、actual budget、output/evidence refs、boundary hits 和 escalation。
+- execution evidence event ID 由授权 gate、actor、status、actual budget、output refs、evidence refs、boundary hits 与 escalation 等语义字段派生，支持 deterministic duplicate retry；duplicate 返回 `applied=false` / `duplicate eventId`，不重复 append。
+- validation 覆盖：execution status 限定为 `succeeded|failed|boundary-hit|escalated|aborted`；actual budget 非负；必须提供 output refs 或 evidence refs；output refs 必须 case-relative、不能逃逸 case root，且必须落在 authorized gate output paths 内；actual budget 超出 authorized requested budget 时必须记录 `-BoundaryHits` 或 `-Escalation`；`boundary-hit` / `escalated` status 也必须记录 boundary marker。
+- CLI JSON/text 输出区分 request decision result 与 execution evidence result；文本模式展示 evidence status、eventId、path、gateEventId、authorization/action 和 apply 后 executor action。README、canonical `/rekit` skill、release readiness、PowerShell deprecation、reference absorption、Go runtime migration、Agent Team rollout 与 tests guide 同步说明新 evidence 记录模式，同时保留 no heavy-tool / no authority / no confirmed 边界。
+- package tests 覆盖 authorized gate 后写 observation evidence、duplicate no-op、pending-gate 拒绝、out-of-scope output refs 拒绝、预算超限缺少 boundary marker 拒绝；CLI E2E 覆盖 authorized gate request 后用 `gate -Apply -GateEventId ... -ExecutionStatus succeeded` 写 execution evidence，并断言 observations ledger 不写 authority/confirmed。
 
 已通过验证：
 
 ```text
-go test ./internal/rekit/runtime -count=1
-go test ./internal/rekit/cli -run TestRunCaseLocalProductPathUsesCaseMetadataRuntime -count=1
-go test ./internal/rekit/runtime ./internal/rekit/cli -count=1
+go test ./internal/rekit/gate ./internal/rekit/cli -count=1
 go test ./...
 go vet ./...
 go run ./cmd/rekit -- -Command release-check -Format json
@@ -45,16 +44,17 @@ go run ./cmd/rekit -- -Command status
 go run ./cmd/rekit -- -Command packs
 go run ./cmd/rekit -- -Command doctor
 git diff --check
+.\rekit\tests\facade-smoke.ps1
 ```
 
-最终本地 gate 已执行通过；`git diff --check` 仅输出 Windows 工作区 LF→CRLF 提示，未报告 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green。
+最终本地 gate 已执行通过；`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；远程 Linux/Windows/macOS jobs 仍需读取 GitHub Actions 实际结论。
 
 ### Next candidates
 
-1. **Autonomy execution evidence closure**：sandbox adapter 消费 strict durable profile + `authorized-gate`，记录 actual budget、output refs、evidence 与 boundary-hit/escalation。
-2. **Pack-memory reconsume E2E**：case reusable observation → sanitize/review/promote → fresh case 或另一 pack 消费。
-3. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E 与 installed `/rekit` / case shim runtime discovery 纳入可用 runner 验证。
-4. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
+1. **Pack-memory reconsume E2E**：case reusable observation → sanitize/review/promote → fresh case 或另一 pack 消费。
+2. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E 与 installed `/rekit` / case shim runtime discovery 纳入可用 runner 验证。
+3. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
+4. **Lane executor/tool-adapter runtime integration**：在保持 `/rekit` 不执行 heavy-tool 的前提下，为具体 lane executor / adapter 定义如何消费 authorized execution evidence contract、隔离真实工具调用并回填 adapter-specific validation。
 
 ### Escalation / stopping conditions
 

@@ -337,6 +337,144 @@ func TestPlanDryRunFallsBackToPendingGateWhenAutonomyOutOfScope(t *testing.T) {
 	}
 }
 
+func TestRecordExecutionWritesObservationForAuthorizedGate(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorized.Event == nil || authorized.Event.Status != "authorized-gate" {
+		t.Fatalf("expected authorized gate event: %+v", authorized)
+	}
+
+	result, err := RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionStatus: "succeeded", ActualRuntimeSeconds: 25, ActualDiskMB: 32, ActualRequests: 1, OutputRefs: "workspace/main/debug/session-1/result.json", EvidenceRefs: "workspace/main/debug/session-1/result.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Applied || result.Path != ".rekit/facts/observations.jsonl" || result.ExecutionEvidence == nil || result.Event != nil {
+		t.Fatalf("unexpected execution evidence result: %+v", result)
+	}
+	if result.ExecutionEvidence.Kind != "observation" || result.ExecutionEvidence.Lane != "main" || result.ExecutionEvidence.Status != "succeeded" || result.ExecutionEvidence.Execution.GateEventID != authorized.EventID || result.ExecutionEvidence.Execution.Authorization != "preauthorized" || !result.ExecutionEvidence.Execution.RecordRequired {
+		t.Fatalf("unexpected execution evidence event: %+v", result.ExecutionEvidence)
+	}
+	if strings.Join(result.ExecutionEvidence.Related, ",") != authorized.EventID || strings.Join(result.ExecutionEvidence.Execution.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" || strings.Join(result.ExecutionEvidence.EvidenceRefs, ",") != "workspace/main/debug/session-1/result.json" {
+		t.Fatalf("execution evidence refs drifted: %+v", result.ExecutionEvidence)
+	}
+	observed := readSingleExecutionEvidence(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if observed.EventID != result.EventID || observed.Execution.GateEventID != authorized.EventID || observed.Gate.Authorization.Decision != "preauthorized" {
+		t.Fatalf("observation ledger mismatch: %+v", observed)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
+func TestRecordExecutionDuplicateDoesNotAppend(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt := Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionStatus: "succeeded", ActualRuntimeSeconds: 25, ActualDiskMB: 32, ActualRequests: 1, OutputRefs: "workspace/main/debug/session-1/result.json"}
+	first, err := RecordExecution(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := RecordExecution(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Applied || second.Applied || second.EventID != first.EventID || second.Reason != "duplicate eventId" {
+		t.Fatalf("unexpected duplicate execution results: first=%+v second=%+v", first, second)
+	}
+	lines := readGateLines(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if len(lines) != 1 {
+		t.Fatalf("duplicate execution evidence wrote %d lines, want 1: %q", len(lines), lines)
+	}
+}
+
+func TestRecordExecutionRejectsPendingGate(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	pending, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "pending debug"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: pending.EventID, Actor: "executor-1", ExecutionStatus: "succeeded", OutputRefs: "workspace/main/debug/result.json"})
+	if err == nil || !strings.Contains(err.Error(), "requires an authorized-gate request") {
+		t.Fatalf("RecordExecution error = %v, want authorized-gate rejection", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+}
+
+func TestRecordExecutionRejectsOutOfScopeOutputRefs(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionStatus: "succeeded", OutputRefs: "workspace/main/other/result.json"})
+	if err == nil || !strings.Contains(err.Error(), "outputRefs must stay within authorized gate outputPaths") {
+		t.Fatalf("RecordExecution error = %v, want outputRef boundary rejection", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+}
+
+func TestRecordExecutionRequiresBoundaryMarkerWhenBudgetExceeded(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionStatus: "succeeded", ActualRuntimeSeconds: 31, ActualDiskMB: 32, ActualRequests: 1, OutputRefs: "workspace/main/debug/session-1/result.json"})
+	if err == nil || !strings.Contains(err.Error(), "actual budget exceeds authorized request") {
+		t.Fatalf("RecordExecution error = %v, want budget boundary rejection", err)
+	}
+	result, err := RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionStatus: "boundary-hit", ActualRuntimeSeconds: 31, ActualDiskMB: 32, ActualRequests: 1, OutputRefs: "workspace/main/debug/session-1/result.json", BoundaryHits: "budget-exhausted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Applied || result.ExecutionEvidence == nil || strings.Join(result.ExecutionEvidence.Execution.BoundaryHits, ",") != "budget-exhausted" {
+		t.Fatalf("unexpected boundary-hit execution evidence: %+v", result)
+	}
+}
+
+func writePreauthorizedProfile(t *testing.T, caseRoot string) {
+	t.Helper()
+	writeGateText(t, filepath.Join(caseRoot, ".rekit", "lanes", "main", "autonomy.json"), `{
+  "schemaVersion": 1,
+  "profileId": "prof-main-debug",
+  "lane": "main",
+  "mode": "preauthorized",
+  "allowedActions": ["debug"],
+  "deniedActions": ["symex"],
+  "targetScope": [{"match":"exact","value":"target-alpha"}],
+  "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},
+  "stopConditions": ["timeout", "scope-drift"],
+  "outputPaths": ["workspace/main/debug"],
+  "recordRequired": true,
+  "notifyMainOn": ["boundary-hit", "new-risk"],
+  "grantedBy": "user",
+  "grantedAt": "2026-01-01T00:00:00Z",
+  "expiresAt": "2999-01-01T00:00:00Z"
+}`)
+}
+
+func readSingleExecutionEvidence(t *testing.T, path string) ExecutionEvidencePreview {
+	t.Helper()
+	lines := readGateLines(t, path)
+	if len(lines) != 1 {
+		t.Fatalf("observation ledger has %d lines, want 1: %q", len(lines), lines)
+	}
+	var event ExecutionEvidencePreview
+	if err := json.Unmarshal([]byte(lines[0]), &event); err != nil {
+		t.Fatalf("execution evidence event did not decode: %v\n%s", err, lines[0])
+	}
+	return event
+}
+
 func readSingleGateEvent(t *testing.T, path string) EventPreview {
 	t.Helper()
 	lines := readGateLines(t, path)

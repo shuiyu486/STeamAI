@@ -3,6 +3,7 @@ package gate
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,22 +19,31 @@ import (
 )
 
 type Options struct {
-	Action          string
-	Lane            string
-	Subject         string
-	Summary         string
-	Actor           string
-	Risk            string
-	TargetRef       string
-	BatchID         string
-	Scope           string
-	Budget          string
-	RuntimeSeconds  int
-	DiskMB          int
-	Requests        int
-	OutputPaths     string
-	TriedLightSteps string
-	StopConditions  string
+	Action               string
+	Lane                 string
+	Subject              string
+	Summary              string
+	Actor                string
+	Risk                 string
+	TargetRef            string
+	BatchID              string
+	Scope                string
+	Budget               string
+	RuntimeSeconds       int
+	DiskMB               int
+	Requests             int
+	OutputPaths          string
+	TriedLightSteps      string
+	StopConditions       string
+	GateEventID          string
+	ExecutionStatus      string
+	ActualRuntimeSeconds int
+	ActualDiskMB         int
+	ActualRequests       int
+	OutputRefs           string
+	EvidenceRefs         string
+	BoundaryHits         string
+	Escalation           string
 }
 
 type Plan struct {
@@ -53,21 +63,54 @@ type Plan struct {
 	NextSteps            []string               `json:"nextSteps"`
 }
 
+type ExecutionEvidencePreview struct {
+	SchemaVersion int                      `json:"schemaVersion"`
+	Kind          string                   `json:"kind"`
+	Lane          string                   `json:"lane"`
+	Subject       string                   `json:"subject"`
+	Summary       string                   `json:"summary"`
+	CreatedAt     string                   `json:"createdAt,omitempty"`
+	Status        string                   `json:"status"`
+	Actor         string                   `json:"actor,omitempty"`
+	Risk          string                   `json:"risk,omitempty"`
+	Target        string                   `json:"target,omitempty"`
+	BatchID       string                   `json:"batchId,omitempty"`
+	Related       []string                 `json:"related,omitempty"`
+	EvidenceRefs  []string                 `json:"evidenceRefs,omitempty"`
+	Gate          GateDetails              `json:"gate"`
+	Execution     ExecutionEvidenceDetails `json:"execution"`
+	EventID       string                   `json:"eventId,omitempty"`
+}
+
+type ExecutionEvidenceDetails struct {
+	Status         string          `json:"status"`
+	ActualBudget   autonomy.Budget `json:"actualBudget"`
+	OutputRefs     []string        `json:"outputRefs,omitempty"`
+	BoundaryHits   []string        `json:"boundaryHits,omitempty"`
+	Escalation     string          `json:"escalation,omitempty"`
+	GateEventID    string          `json:"gateEventId"`
+	GateStatus     string          `json:"gateStatus"`
+	Authorization  string          `json:"authorization"`
+	RecordRequired bool            `json:"recordRequired"`
+	NotifyMainOn   []string        `json:"notifyMainOn,omitempty"`
+}
+
 type ApplyResult struct {
-	SchemaVersion  int                    `json:"schemaVersion"`
-	Command        string                 `json:"command"`
-	CaseRoot       string                 `json:"caseRoot"`
-	RepoRoot       string                 `json:"repoRoot"`
-	Pack           string                 `json:"pack"`
-	IsMutation     bool                   `json:"isMutation"`
-	Applied        bool                   `json:"applied"`
-	EventID        string                 `json:"eventId"`
-	Path           string                 `json:"path"`
-	Reason         string                 `json:"reason,omitempty"`
-	Event          EventPreview           `json:"event"`
-	MissionBrief   mission.Brief          `json:"missionBrief"`
-	ExecutorAction mission.ExecutorAction `json:"executorAction"`
-	NextSteps      []string               `json:"nextSteps"`
+	SchemaVersion     int                       `json:"schemaVersion"`
+	Command           string                    `json:"command"`
+	CaseRoot          string                    `json:"caseRoot"`
+	RepoRoot          string                    `json:"repoRoot"`
+	Pack              string                    `json:"pack"`
+	IsMutation        bool                      `json:"isMutation"`
+	Applied           bool                      `json:"applied"`
+	EventID           string                    `json:"eventId"`
+	Path              string                    `json:"path"`
+	Reason            string                    `json:"reason,omitempty"`
+	Event             *EventPreview             `json:"event,omitempty"`
+	ExecutionEvidence *ExecutionEvidencePreview `json:"executionEvidence,omitempty"`
+	MissionBrief      mission.Brief             `json:"missionBrief"`
+	ExecutorAction    mission.ExecutorAction    `json:"executorAction"`
+	NextSteps         []string                  `json:"nextSteps"`
 }
 
 type EventPreview struct {
@@ -152,7 +195,7 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 		Applied:       false,
 		EventID:       preview.EventID,
 		Path:          relPath,
-		Event:         preview,
+		Event:         &preview,
 		NextSteps:     applyNextSteps(preview),
 	}
 	if exists {
@@ -168,6 +211,268 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 	result.MissionBrief = gateMissionBrief(inst.CaseRoot)
 	result.ExecutorAction = gateExecutorAction(inst.CaseRoot, preview.Lane, result.MissionBrief)
 	return result, nil
+}
+
+func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
+	if strings.TrimSpace(opt.Actor) == "" {
+		return ApplyResult{}, fmt.Errorf("gate execution evidence requires -Actor <recorded-by>")
+	}
+	inst, gateEvent, err := authorizedGateEvent(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	execution, err := executionEvidence(inst.CaseRoot, gateEvent, opt)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	execution.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	execution.EventID = executionEventID(execution)
+	relPath, _, err := mission.FactPath(inst.CaseRoot, "observation")
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	known, err := mission.ReadFactEventIDs(inst.CaseRoot, "observation")
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	result := ApplyResult{
+		SchemaVersion:     1,
+		Command:           "gate",
+		CaseRoot:          inst.CaseRoot,
+		RepoRoot:          repoRoot,
+		Pack:              pack,
+		IsMutation:        true,
+		Applied:           false,
+		EventID:           execution.EventID,
+		Path:              relPath,
+		ExecutionEvidence: &execution,
+		NextSteps:         executionNextSteps(execution),
+	}
+	if known[execution.EventID] {
+		result.MissionBrief = gateMissionBrief(inst.CaseRoot)
+		result.ExecutorAction = gateExecutorAction(inst.CaseRoot, execution.Lane, result.MissionBrief)
+		result.Reason = "duplicate eventId"
+		return result, nil
+	}
+	if _, _, err := mission.AppendFact(inst.CaseRoot, "observation", execution); err != nil {
+		return ApplyResult{}, err
+	}
+	result.Applied = true
+	result.MissionBrief = gateMissionBrief(inst.CaseRoot)
+	result.ExecutorAction = gateExecutorAction(inst.CaseRoot, execution.Lane, result.MissionBrief)
+	return result, nil
+}
+
+func authorizedGateEvent(repoRoot, caseRoot, pack string, opt Options) (instance.Instance, EventPreview, error) {
+	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
+	if err != nil {
+		return instance.Instance{}, EventPreview{}, err
+	}
+	gateEventID := strings.TrimSpace(opt.GateEventID)
+	if gateEventID == "" {
+		return instance.Instance{}, EventPreview{}, fmt.Errorf("gate execution evidence requires -GateEventId <authorized-gate-event-id>")
+	}
+	items, err := mission.ReadStrictFact(inst.CaseRoot, "request")
+	if err != nil {
+		return instance.Instance{}, EventPreview{}, err
+	}
+	for _, item := range items {
+		if mission.Value(item, "eventId") != gateEventID {
+			continue
+		}
+		data, err := json.Marshal(item)
+		if err != nil {
+			return instance.Instance{}, EventPreview{}, err
+		}
+		var event EventPreview
+		if err := json.Unmarshal(data, &event); err != nil {
+			return instance.Instance{}, EventPreview{}, fmt.Errorf("invalid gate request event %s: %w", gateEventID, err)
+		}
+		if event.Status != "authorized-gate" || event.Gate.Authorization.Decision != autonomy.DecisionPreauthorized {
+			return instance.Instance{}, EventPreview{}, fmt.Errorf("gate execution evidence requires an authorized-gate request with preauthorized decision; %s has status=%s authorization=%s", gateEventID, event.Status, event.Gate.Authorization.Decision)
+		}
+		if event.Lane == "" || event.Gate.Action == "" {
+			return instance.Instance{}, EventPreview{}, fmt.Errorf("authorized gate request %s is missing lane or action", gateEventID)
+		}
+		return inst, event, nil
+	}
+	return instance.Instance{}, EventPreview{}, fmt.Errorf("authorized gate eventId not found: %s", gateEventID)
+}
+
+func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (ExecutionEvidencePreview, error) {
+	status := strings.ToLower(strings.TrimSpace(opt.ExecutionStatus))
+	if status == "" {
+		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence requires -ExecutionStatus succeeded|failed|boundary-hit|escalated|aborted")
+	}
+	if !validExecutionStatus(status) {
+		return ExecutionEvidencePreview{}, fmt.Errorf("invalid ExecutionStatus %q; allowed: succeeded,failed,boundary-hit,escalated,aborted", opt.ExecutionStatus)
+	}
+	actual := autonomy.Budget{RuntimeSeconds: opt.ActualRuntimeSeconds, DiskMB: opt.ActualDiskMB, Requests: opt.ActualRequests}
+	if actual.RuntimeSeconds < 0 || actual.DiskMB < 0 || actual.Requests < 0 {
+		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence actual budget values must be non-negative")
+	}
+	outputRefs, err := parseOutputPaths(caseRoot, opt.OutputRefs)
+	if err != nil {
+		return ExecutionEvidencePreview{}, err
+	}
+	if len(outputRefs) > 0 && !outputRefsWithinGate(gateEvent.Gate.OutputPaths, outputRefs) {
+		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence outputRefs must stay within authorized gate outputPaths")
+	}
+	evidenceRefs := splitList(opt.EvidenceRefs)
+	if len(outputRefs) == 0 && len(evidenceRefs) == 0 {
+		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence requires -OutputRefs or -ExecutionEvidenceRefs")
+	}
+	boundaryHits, err := parseBoundaryHits(opt.BoundaryHits)
+	if err != nil {
+		return ExecutionEvidencePreview{}, err
+	}
+	escalation := strings.TrimSpace(opt.Escalation)
+	if exceedsGateBudget(gateEvent.Gate.RequestedBudget, actual) && len(boundaryHits) == 0 && escalation == "" {
+		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence actual budget exceeds authorized request; record -BoundaryHits or -Escalation")
+	}
+	if (status == "boundary-hit" || status == "escalated") && len(boundaryHits) == 0 && escalation == "" {
+		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence status %s requires -BoundaryHits or -Escalation", status)
+	}
+	subject := strings.TrimSpace(opt.Subject)
+	if subject == "" {
+		subject = "execution evidence for " + mission.Subject(gateEventMap(gateEvent))
+	}
+	summary := strings.TrimSpace(opt.Summary)
+	if summary == "" {
+		summary = "Recorded execution evidence for authorized " + gateEvent.Gate.Action + " gate"
+	}
+	return ExecutionEvidencePreview{
+		SchemaVersion: 1,
+		Kind:          "observation",
+		Lane:          gateEvent.Lane,
+		Subject:       subject,
+		Summary:       summary,
+		Status:        status,
+		Actor:         strings.TrimSpace(opt.Actor),
+		Risk:          gateEvent.Risk,
+		Target:        gateEvent.Target,
+		BatchID:       gateEvent.BatchID,
+		Related:       []string{gateEvent.EventID},
+		EvidenceRefs:  evidenceRefs,
+		Gate:          gateEvent.Gate,
+		Execution: ExecutionEvidenceDetails{
+			Status:         status,
+			ActualBudget:   actual,
+			OutputRefs:     outputRefs,
+			BoundaryHits:   boundaryHits,
+			Escalation:     escalation,
+			GateEventID:    gateEvent.EventID,
+			GateStatus:     gateEvent.Status,
+			Authorization:  gateEvent.Gate.Authorization.Decision,
+			RecordRequired: gateEvent.Gate.Authorization.RecordRequired,
+			NotifyMainOn:   append([]string{}, gateEvent.Gate.Authorization.NotifyMainOn...),
+		},
+	}, nil
+}
+
+func validExecutionStatus(status string) bool {
+	switch status {
+	case "succeeded", "failed", "boundary-hit", "escalated", "aborted":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseBoundaryHits(value string) ([]string, error) {
+	items := splitList(value)
+	if len(items) == 0 {
+		return nil, nil
+	}
+	if err := validateStopConditions("boundaryHits", items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func exceedsGateBudget(allowed, actual autonomy.Budget) bool {
+	return (allowed.RuntimeSeconds > 0 && actual.RuntimeSeconds > allowed.RuntimeSeconds) || (allowed.DiskMB > 0 && actual.DiskMB > allowed.DiskMB) || (allowed.Requests > 0 && actual.Requests > allowed.Requests)
+}
+
+func outputRefsWithinGate(allowed, refs []string) bool {
+	if len(allowed) == 0 {
+		return false
+	}
+	allowed = normalizedGatePaths(allowed)
+	for _, ref := range normalizedGatePaths(refs) {
+		matched := false
+		for _, prefix := range allowed {
+			if ref == prefix || strings.HasPrefix(ref, strings.TrimRight(prefix, "/")+"/") {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizedGatePaths(paths []string) []string {
+	out := []string{}
+	for _, item := range paths {
+		clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(item))))
+		if clean != "." && clean != "" {
+			out = append(out, clean)
+		}
+	}
+	return out
+}
+
+func executionEventID(event ExecutionEvidencePreview) string {
+	seed := strings.Join([]string{
+		event.Kind,
+		event.Lane,
+		event.Subject,
+		event.Summary,
+		event.Actor,
+		event.Status,
+		event.Target,
+		event.BatchID,
+		strings.Join(event.Related, ","),
+		strings.Join(event.EvidenceRefs, ","),
+		event.Gate.Action,
+		event.Gate.Authorization.Decision,
+		event.Execution.GateEventID,
+		event.Execution.Status,
+		fmt.Sprintf("%d/%d/%d", event.Execution.ActualBudget.RuntimeSeconds, event.Execution.ActualBudget.DiskMB, event.Execution.ActualBudget.Requests),
+		strings.Join(event.Execution.OutputRefs, ","),
+		strings.Join(event.Execution.BoundaryHits, ","),
+		event.Execution.Escalation,
+	}, "|")
+	sum := sha256.Sum256([]byte(seed))
+	return "evt-" + hex.EncodeToString(sum[:])[:16]
+}
+
+func executionNextSteps(event ExecutionEvidencePreview) []string {
+	if event.Status == "boundary-hit" || event.Status == "escalated" || event.Execution.Escalation != "" || len(event.Execution.BoundaryHits) > 0 {
+		return []string{
+			"Execution evidence recorded a boundary hit or escalation; stop autonomous work on this action and notify the main Agent.",
+			"Review output refs and evidence refs before recording any authority/confirmed outcome.",
+		}
+	}
+	return []string{
+		"Execution evidence recorded the authorized action outcome; /rekit did not execute the heavy tool.",
+		"Review output refs and evidence refs before recording any authority/confirmed outcome.",
+	}
+}
+
+func gateEventMap(event EventPreview) map[string]any {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return map[string]any{}
+	}
+	return out
 }
 
 func gateMissionBrief(caseRoot string) mission.Brief {
@@ -261,8 +566,8 @@ func planNextSteps(preview EventPreview) []string {
 	if preview.Gate.Authorization.Decision == autonomy.DecisionPreauthorized {
 		return []string{
 			"Record this authorized gate decision in the ledger if the preflight matches the intended action, target, budget, output paths, and stop conditions.",
-			"The actual heavy tool still runs outside /rekit; keep execution within the durable lane autonomy profile and record output evidence afterward.",
-			"After the tool run, append an observation event summarizing output path, findings, errors, budget use, and next action.",
+			"The actual heavy tool still runs outside /rekit; keep execution within the durable lane autonomy profile.",
+			"After the tool run, record execution evidence with gate -Apply -GateEventId and include output refs, evidence refs, actual budget use, and any boundary hit or escalation.",
 		}
 	}
 	return []string{
@@ -278,7 +583,7 @@ func applyNextSteps(preview EventPreview) []string {
 		return []string{
 			"This ledger write records a durable lane autonomy authorization decision; /rekit still did not execute the heavy tool.",
 			"Run the heavy tool only within the authorized target, budget, output paths, and stop conditions.",
-			"After the tool run, append an observation event summarizing output path, findings, errors, budget use, and next action.",
+			"After the tool run, record execution evidence with gate -Apply -GateEventId and include output refs, evidence refs, actual budget use, and any boundary hit or escalation.",
 		}
 	}
 	return []string{

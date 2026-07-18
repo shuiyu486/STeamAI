@@ -33,6 +33,15 @@ param(
   [string]$OutputPaths = '',
   [string]$TriedLightSteps = '',
   [string]$StopConditions = '',
+  [string]$GateEventId = '',
+  [string]$ExecutionStatus = '',
+  [int]$ActualRuntimeSeconds = 0,
+  [int]$ActualDiskMB = 0,
+  [int]$ActualRequests = 0,
+  [string]$OutputRefs = '',
+  [string]$ExecutionEvidenceRefs = '',
+  [string]$BoundaryHits = '',
+  [string]$Escalation = '',
   [string]$Route = '',
   [string]$TaskType = '',
   [string]$Items = '',
@@ -449,6 +458,15 @@ function Get-RekitGoArgs {
     Add-RekitGoArg ([ref]$goArgs) '-OutputPaths' $OutputPaths
     Add-RekitGoArg ([ref]$goArgs) '-TriedLightSteps' $TriedLightSteps
     Add-RekitGoArg ([ref]$goArgs) '-StopConditions' $StopConditions
+    Add-RekitGoArg ([ref]$goArgs) '-GateEventId' $GateEventId
+    Add-RekitGoArg ([ref]$goArgs) '-ExecutionStatus' $ExecutionStatus
+    if ($ActualRuntimeSeconds -ne 0) { Add-RekitGoArg ([ref]$goArgs) '-ActualRuntimeSeconds' ([string]$ActualRuntimeSeconds) }
+    if ($ActualDiskMB -ne 0) { Add-RekitGoArg ([ref]$goArgs) '-ActualDiskMB' ([string]$ActualDiskMB) }
+    if ($ActualRequests -ne 0) { Add-RekitGoArg ([ref]$goArgs) '-ActualRequests' ([string]$ActualRequests) }
+    Add-RekitGoArg ([ref]$goArgs) '-OutputRefs' $OutputRefs
+    Add-RekitGoArg ([ref]$goArgs) '-ExecutionEvidenceRefs' $ExecutionEvidenceRefs
+    Add-RekitGoArg ([ref]$goArgs) '-BoundaryHits' $BoundaryHits
+    Add-RekitGoArg ([ref]$goArgs) '-Escalation' $Escalation
   }
   if ($Command -eq 'plan-subagents') {
     Add-RekitGoArg ([ref]$goArgs) '-Route' $Route

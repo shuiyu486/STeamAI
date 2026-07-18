@@ -344,6 +344,72 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -StopConditions")
 			}
 			opt.Gate.StopConditions = args[i]
+		case "-GateEventId", "--gate-event-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -GateEventId")
+			}
+			opt.Gate.GateEventID = args[i]
+		case "-ExecutionStatus", "--execution-status":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExecutionStatus")
+			}
+			opt.Gate.ExecutionStatus = args[i]
+		case "-ActualRuntimeSeconds", "--actual-runtime-seconds":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ActualRuntimeSeconds")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return opt, fmt.Errorf("invalid -ActualRuntimeSeconds: %s", args[i])
+			}
+			opt.Gate.ActualRuntimeSeconds = n
+		case "-ActualDiskMB", "--actual-disk-mb":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ActualDiskMB")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return opt, fmt.Errorf("invalid -ActualDiskMB: %s", args[i])
+			}
+			opt.Gate.ActualDiskMB = n
+		case "-ActualRequests", "--actual-requests":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ActualRequests")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return opt, fmt.Errorf("invalid -ActualRequests: %s", args[i])
+			}
+			opt.Gate.ActualRequests = n
+		case "-OutputRefs", "--output-refs":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -OutputRefs")
+			}
+			opt.Gate.OutputRefs = args[i]
+		case "-ExecutionEvidenceRefs", "--execution-evidence-refs":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExecutionEvidenceRefs")
+			}
+			opt.Gate.EvidenceRefs = args[i]
+		case "-BoundaryHits", "--boundary-hits":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -BoundaryHits")
+			}
+			opt.Gate.BoundaryHits = args[i]
+		case "-Escalation", "--escalation":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Escalation")
+			}
+			opt.Gate.Escalation = args[i]
 		case "-Format", "--format":
 			i++
 			if i >= len(args) {
@@ -1543,7 +1609,11 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("unsupported gate format: %s", opt.Format)
 	}
+	executionEvidence := wantsGateExecutionEvidence(opt.Gate)
 	if opt.WhatIf {
+		if executionEvidence {
+			return fmt.Errorf("gate execution evidence does not support -WhatIf; use -Apply after the authorized action has completed")
+		}
 		plan, err := gate.PlanDryRun(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
 		if err != nil {
 			return err
@@ -1556,7 +1626,12 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !opt.Apply {
 		return fmt.Errorf("gate write requires -Apply; use -WhatIf for dry-run preview")
 	}
-	result, err := gate.Apply(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
+	var result gate.ApplyResult
+	if executionEvidence {
+		result, err = gate.RecordExecution(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
+	} else {
+		result, err = gate.Apply(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
+	}
 	if err != nil {
 		return err
 	}
@@ -1564,6 +1639,10 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writeJSON(out, result)
 	}
 	return writeGateApplyText(out, result)
+}
+
+func wantsGateExecutionEvidence(opt gate.Options) bool {
+	return strings.TrimSpace(opt.GateEventID) != "" || strings.TrimSpace(opt.ExecutionStatus) != "" || opt.ActualRuntimeSeconds != 0 || opt.ActualDiskMB != 0 || opt.ActualRequests != 0 || strings.TrimSpace(opt.OutputRefs) != "" || strings.TrimSpace(opt.EvidenceRefs) != "" || strings.TrimSpace(opt.BoundaryHits) != "" || strings.TrimSpace(opt.Escalation) != ""
 }
 
 func writeGatePlanText(out io.Writer, plan gate.Plan) error {
@@ -1580,6 +1659,18 @@ func writeGatePlanText(out io.Writer, plan gate.Plan) error {
 }
 
 func writeGateApplyText(out io.Writer, result gate.ApplyResult) error {
+	if result.ExecutionEvidence != nil {
+		if _, err := fmt.Fprintf(out, "gate execution evidence：applied=%t status=%s eventId=%s path=%s gateEventId=%s\n", result.Applied, result.ExecutionEvidence.Execution.Status, result.EventID, result.Path, result.ExecutionEvidence.Execution.GateEventID); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "gate decision：authorization=%s action=%s\n", result.ExecutionEvidence.Execution.Authorization, result.ExecutionEvidence.Gate.Action); err != nil {
+			return err
+		}
+		return writeMissionExecutorActionText(out, "executor action", result.ExecutorAction)
+	}
+	if result.Event == nil {
+		return fmt.Errorf("gate apply result omitted event")
+	}
 	if _, err := fmt.Fprintf(out, "gate ledger：applied=%t status=%s eventId=%s path=%s\n", result.Applied, result.Event.Status, result.EventID, result.Path); err != nil {
 		return err
 	}

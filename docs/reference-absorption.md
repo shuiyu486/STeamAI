@@ -37,7 +37,7 @@
 - [x] 增加 evidence/intervention ledger 草案。
 - [x] 增加 orchestration 计划和 pack authoring template。
 - [x] 将 evidence ledger 从文档推进为 Go-owned append-only JSONL（`internal/rekit/note/**` append/list + `internal/rekit/mission/**` typed facts/brief + `internal/rekit/workstream/**` consume/writeback，9 种 kind 与 decision 字段对齐 `docs/evidence-ledger.md`，见 `docs/agent-team-rollout-plan.md` §4-§5）。
-- [ ] 将 typed autonomy + `authorized-gate` 从 authorization preflight 推进为 executor/tool-adapter execution evidence closure：消费 exact target/budget/output/stop boundary，执行后写 evidence/budget/boundary-hit，不把工具业务逻辑塞入 core runtime。
+- [x] 将 typed autonomy + `authorized-gate` 从 authorization preflight 推进为 executor/tool-adapter execution evidence closure：Go `gate -Apply -GateEventId ... -ExecutionStatus ...` 消费 authorized-gate、actual budget、output refs、evidence refs、boundary hits 与 escalation，并写 observation evidence；真实工具业务逻辑仍留在 lane executor / tool adapter，不塞入 core runtime。
 - [x] 将 `ida-agent-bridge` 从 candidate tooling 推进到只读 packet contract / capability card（仍不安装、不连接、不实现 runtime-level adapter）。
 - [ ] 将 bounded dispatch 从完整 contract 推进为 Mission Commander 可验证 E2E：主 Agent实际 spawn 只读 reviewer，完成 result intake、WhatIf、ledger writeback 与 post-validation；`plan-subagents` 本身仍不自动 spawn。
 - [ ] 扩展 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native`、`generic-binary-re` 等安全领域 pack（`web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 已有最小骨架；后续按真实需求继续扩展）。
@@ -189,7 +189,7 @@ git diff --check
 |---|---|---|
 | evidence ledger | runtime 已落地（`/rekit note` 9 种 kind + overview/handoff/note-List 读层 + auto decision 字段对齐草案） | 索引优化（SQLite 仅在查询压垮 runtime 时） |
 | orchestration | `plan-subagents` planning mode 生成 route/shard/review-loop observability 与 read-only reviewer contract；显式 reviewer intake 已支持 strict WhatIf/Apply、verification-before-decision facts 写回、幂等重试与 post-validation（runtime 仍不自动 spawn 或管理 reviewer/session） | 下一步是统一 session/reviewer orchestration 与跨工具 adapter 实际调用 |
-| heavy-tool gate runtime | Go-owned/no-fallback `gate -WhatIf/-Apply` preview/request 与 `note`、`overview`、`handoff` 读写/投影链路；只写 pending/authorized gate decision，不执行 heavy-tool、不写 confirmed/authority | Phase 6 后段由 lane executor/tool adapter 消费授权并完成 evidence/budget/boundary-hit 闭环 |
+| heavy-tool gate runtime | Go-owned/no-fallback `gate -WhatIf/-Apply` preview/request/evidence 与 `note`、`overview`、`handoff` 读写/投影链路；可写 pending/authorized gate decision，也可在授权动作后写 observation execution evidence（actual budget / output refs / evidence refs / boundary hits / escalation）；不执行 heavy-tool、不写 confirmed/authority | 后续由 lane executor/tool adapter 消费授权并承担真实工具调用、隔离、停止条件和 adapter-specific validation |
 | tool adapter | policy + candidate + `ida-agent-bridge` 只读 packet contract | 后续多个真实 case 验证后，再考虑 runtime-level adapter 或其它工具 adapter |
 | 多 pack 扩展 | `_template` + `packs/web-security/` + `packs/malware-analysis/` + `packs/vuln-research/` + `packs/ctf/` + `packs/unpack-pe/` + `packs/ollvm/` + `packs/android-native/` + `packs/generic-binary-re/` | `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 已有 skeleton；后续按真实需求继续扩展领域 pack |
 

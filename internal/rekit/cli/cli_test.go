@@ -4707,7 +4707,8 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	var result struct {
-		Applied bool `json:"applied"`
+		Applied bool   `json:"applied"`
+		EventID string `json:"eventId"`
 		Event   struct {
 			Kind   string `json:"kind"`
 			Status string `json:"status"`
@@ -4732,6 +4733,54 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 0 || !slices.Equal(result.ExecutorAction.NextAgentActions, []string{"/rekit continue main"}) {
 		t.Fatalf("authorized gate executor action should remain non-blocking: %+v", result.ExecutorAction)
+	}
+	authorizedEventID := result.EventID
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-GateEventId", authorizedEventID, "-ExecutionStatus", "succeeded", "-Actor", "executor-1", "-ActualRuntimeSeconds", "25", "-ActualDiskMB", "32", "-ActualRequests", "1", "-OutputRefs", "workspace/main/debug/session-1/result.json", "-ExecutionEvidenceRefs", "workspace/main/debug/session-1/result.json", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var evidence struct {
+		Command           string `json:"command"`
+		Applied           bool   `json:"applied"`
+		Path              string `json:"path"`
+		ExecutionEvidence struct {
+			Kind    string   `json:"kind"`
+			Lane    string   `json:"lane"`
+			Status  string   `json:"status"`
+			Related []string `json:"related"`
+			Gate    struct {
+				Action        string `json:"action"`
+				Authorization struct {
+					Decision string `json:"decision"`
+				} `json:"authorization"`
+			} `json:"gate"`
+			Execution struct {
+				GateEventID   string   `json:"gateEventId"`
+				Authorization string   `json:"authorization"`
+				OutputRefs    []string `json:"outputRefs"`
+				ActualBudget  struct {
+					RuntimeSeconds int `json:"runtimeSeconds"`
+					DiskMB         int `json:"diskMB"`
+					Requests       int `json:"requests"`
+				} `json:"actualBudget"`
+			} `json:"execution"`
+		} `json:"executionEvidence"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &evidence); err != nil {
+		t.Fatalf("execution evidence stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if evidence.Command != "gate" || !evidence.Applied || evidence.Path != ".rekit/facts/observations.jsonl" || evidence.ExecutionEvidence.Kind != "observation" || evidence.ExecutionEvidence.Lane != "main" || evidence.ExecutionEvidence.Status != "succeeded" {
+		t.Fatalf("unexpected execution evidence result: %+v", evidence)
+	}
+	if strings.Join(evidence.ExecutionEvidence.Related, ",") != authorizedEventID || evidence.ExecutionEvidence.Execution.GateEventID != authorizedEventID || evidence.ExecutionEvidence.Execution.Authorization != "preauthorized" || evidence.ExecutionEvidence.Execution.ActualBudget.RuntimeSeconds != 25 || strings.Join(evidence.ExecutionEvidence.Execution.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" {
+		t.Fatalf("execution evidence did not preserve gate provenance: %+v", evidence.ExecutionEvidence)
+	}
+	observations, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(observations), `"gateEventId":"`+authorizedEventID+`"`) || !strings.Contains(string(observations), `"authorization":"preauthorized"`) || strings.Contains(string(observations), `"kind":"authority"`) || strings.Contains(string(observations), `"kind":"confirmed"`) {
+		t.Fatalf("execution evidence ledger mismatch:\n%s", string(observations))
 	}
 	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 	if err != nil {
