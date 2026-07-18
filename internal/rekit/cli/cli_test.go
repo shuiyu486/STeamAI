@@ -2238,27 +2238,15 @@ func TestRunStartPreviewDoesNotWriteBoard(t *testing.T) {
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-WhatIf"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	var result struct {
-		IsMutation bool `json:"isMutation"`
-		Applied    bool `json:"applied"`
-		Lane       struct {
-			ID        string `json:"id"`
-			Workspace string `json:"workspace"`
-		} `json:"lane"`
-		MissionBrief missionBrief `json:"missionBrief"`
-		Writes       []struct {
-			Path   string `json:"path"`
-			Action string `json:"action"`
-		} `json:"writes"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
+	result := decodeStartResult(t, out.Bytes())
 	if result.IsMutation || result.Applied || result.Lane.ID != "feature-login" || result.Lane.Workspace != "workspace/features/feature-login" {
 		t.Fatalf("unexpected start preview result: %+v", result)
 	}
 	if result.MissionBrief.Summary == "" || result.MissionBrief.Summary != "openLanes=0 ready=0 blocked=0 pendingGates=0 authorizedGates=0 openDecisions=0 interventions=0" {
 		t.Fatalf("start preview missing pre-apply mission brief: %+v", result.MissionBrief)
+	}
+	if result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 0 || result.ExecutorAction.OpenInterventions != 0 || result.ExecutorAction.OpenDecisions != 0 || result.ExecutorAction.ResumeCommand != "/rekit continue login" || result.ExecutorAction.HandoffCommand != "/rekit handoff login" {
+		t.Fatalf("start preview executor action drifted: %+v", result.ExecutorAction)
 	}
 	if len(result.Writes) != 1 || result.Writes[0].Path != ".rekit/lanes/feature-login/lane.json" || result.Writes[0].Action != "would-create-lane" {
 		t.Fatalf("unexpected start preview writes: %+v", result.Writes)
@@ -2280,6 +2268,9 @@ func TestRunStartApplyCreatesFeatureLane(t *testing.T) {
 	if result.MissionBrief.Summary == "" || !slices.Contains(result.MissionBrief.ReadyLanes, "main") || !slices.Contains(result.MissionBrief.ReadyLanes, "login") || len(result.MissionBrief.BlockedLanes) != 0 {
 		t.Fatalf("start apply JSON missing post-apply mission brief: %+v", result.MissionBrief)
 	}
+	if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 0 || result.ExecutorAction.OpenInterventions != 0 || result.ExecutorAction.OpenDecisions != 0 || result.ExecutorAction.ResumeCommand != "/rekit continue login" || result.ExecutorAction.HandoffCommand != "/rekit handoff login" {
+		t.Fatalf("start apply executor action drifted: %+v", result.ExecutorAction)
+	}
 	assertStartWrite(t, result.Writes, ".rekit/policy.yml", "create-policy")
 	assertStartWrite(t, result.Writes, ".rekit/lanes/main/lane.json", "create-lane")
 	assertStartWrite(t, result.Writes, ".rekit/lanes/feature-login/lane.json", "create-lane")
@@ -2300,6 +2291,9 @@ func TestRunStartApplyCreatesFeatureLane(t *testing.T) {
 	}
 	again := decodeStartResult(t, out.Bytes())
 	assertStartWrite(t, again.Writes, ".rekit/lanes/feature-login/lane.json", "enter-existing-lane")
+	if !again.ExecutorAction.Ready || again.ExecutorAction.Blocked || again.ExecutorAction.ResumeCommand != "/rekit continue login" || again.ExecutorAction.HandoffCommand != "/rekit handoff login" {
+		t.Fatalf("start existing-lane executor action drifted: %+v", again.ExecutorAction)
+	}
 
 	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/inbox.jsonl", "{\"eventId\":\"in-1\",\"summary\":\"review queued\"}\n")
 	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/tasks.jsonl", "{\"taskId\":\"task-1\",\"summary\":\"inspect candidate\",\"status\":\"open\"}\n{\"taskId\":\"task-2\",\"summary\":\"closed task\",\"status\":\"closed\"}\n")
@@ -2309,6 +2303,9 @@ func TestRunStartApplyCreatesFeatureLane(t *testing.T) {
 	}
 	forced := decodeStartResult(t, out.Bytes())
 	assertStartWrite(t, forced.Writes, ".rekit/lanes/feature-login/lane.json", "refresh-lane-with-force")
+	if !forced.ExecutorAction.Ready || forced.ExecutorAction.Blocked || forced.ExecutorAction.PendingGates != 0 || forced.ExecutorAction.OpenInterventions != 0 || forced.ExecutorAction.OpenDecisions != 0 {
+		t.Fatalf("start force-refresh executor action drifted: %+v", forced.ExecutorAction)
+	}
 	assertStartWrite(t, forced.Writes, ".rekit/lanes/feature-login/events.jsonl", "append-lane-refreshed")
 	resume, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "feature-login", "prompts", "RESUME.md"))
 	if err != nil {
@@ -2316,6 +2313,29 @@ func TestRunStartApplyCreatesFeatureLane(t *testing.T) {
 	}
 	if !strings.Contains(string(resume), "review queued") || !strings.Contains(string(resume), "inspect candidate") || strings.Contains(string(resume), "closed task") {
 		t.Fatalf("force refresh resume did not preserve live inbox/tasks:\n%s", string(resume))
+	}
+}
+
+func TestRunStartProjectsExecutorActionForExistingLaneBlockers(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeHandoffFixture(t, caseRoot)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	preview := decodeStartResult(t, out.Bytes())
+	if !preview.ExecutorAction.Blocked || preview.ExecutorAction.Ready || preview.ExecutorAction.PendingGates != 1 || preview.ExecutorAction.OpenInterventions != 1 || preview.ExecutorAction.OpenDecisions != 1 || !preview.ExecutorAction.ReconcileRequired || !preview.ExecutorAction.PendingGateRequired || !preview.ExecutorAction.OpenDecisionRequired || preview.ExecutorAction.ResumeCommand != "/rekit continue login" || preview.ExecutorAction.HandoffCommand != "/rekit handoff login" || !slices.Contains(preview.ExecutorAction.BlockerReasons, "pending-gate") || !slices.Contains(preview.ExecutorAction.BlockerReasons, "intervention") || !slices.Contains(preview.ExecutorAction.BlockerReasons, "open-decision") {
+		t.Fatalf("start preview existing-lane executor action drifted: %+v", preview.ExecutorAction)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"executor action：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=1", "executor requirements：reconcile=true pendingGate=true openDecision=true", "executor handoff：continue=`/rekit continue login` handoff=`/rekit handoff login`"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("start text missing %q:\n%s", expected, out.String())
+		}
 	}
 }
 
@@ -4609,12 +4629,13 @@ type promoteApplyWrite struct {
 }
 
 type startResult struct {
-	Command      string       `json:"command"`
-	IsMutation   bool         `json:"isMutation"`
-	Applied      bool         `json:"applied"`
-	Lane         startLane    `json:"lane"`
-	MissionBrief missionBrief `json:"missionBrief"`
-	Writes       []startWrite `json:"writes"`
+	Command        string                 `json:"command"`
+	IsMutation     bool                   `json:"isMutation"`
+	Applied        bool                   `json:"applied"`
+	Lane           startLane              `json:"lane"`
+	MissionBrief   missionBrief           `json:"missionBrief"`
+	ExecutorAction executorActionSnapshot `json:"executorAction"`
+	Writes         []startWrite           `json:"writes"`
 }
 
 type handoffResult struct {

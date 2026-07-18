@@ -58,20 +58,21 @@ type StartWrite struct {
 }
 
 type StartResult struct {
-	SchemaVersion        int              `json:"schemaVersion"`
-	Command              string           `json:"command"`
-	CaseRoot             string           `json:"caseRoot"`
-	RepoRoot             string           `json:"repoRoot"`
-	Pack                 string           `json:"pack"`
-	IsMutation           bool             `json:"isMutation"`
-	Applied              bool             `json:"applied"`
-	RequiresConfirmation bool             `json:"requiresConfirmation"`
-	Lane                 Lane             `json:"lane"`
-	AutonomyProfile      autonomy.Summary `json:"autonomyProfile"`
-	MissionBrief         mission.Brief    `json:"missionBrief"`
-	Writes               []StartWrite     `json:"writes"`
-	BlockedActions       []string         `json:"blockedActions"`
-	NextSteps            []string         `json:"nextSteps"`
+	SchemaVersion        int                `json:"schemaVersion"`
+	Command              string             `json:"command"`
+	CaseRoot             string             `json:"caseRoot"`
+	RepoRoot             string             `json:"repoRoot"`
+	Pack                 string             `json:"pack"`
+	IsMutation           bool               `json:"isMutation"`
+	Applied              bool               `json:"applied"`
+	RequiresConfirmation bool               `json:"requiresConfirmation"`
+	Lane                 Lane               `json:"lane"`
+	AutonomyProfile      autonomy.Summary   `json:"autonomyProfile"`
+	MissionBrief         mission.Brief      `json:"missionBrief"`
+	ExecutorAction       laneExecutorAction `json:"executorAction"`
+	Writes               []StartWrite       `json:"writes"`
+	BlockedActions       []string           `json:"blockedActions"`
+	NextSteps            []string           `json:"nextSteps"`
 }
 
 type Lane struct {
@@ -149,6 +150,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 		return StartResult{}, err
 	}
 	brief := startMissionBrief(inst.CaseRoot)
+	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
 	laneFile, err := refsf.SafeJoin(inst.CaseRoot, relJoin(".rekit", "lanes", laneID, "lane.json"))
 	if err != nil {
 		return StartResult{}, err
@@ -171,6 +173,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 		RequiresConfirmation: true,
 		Lane:                 lane,
 		MissionBrief:         brief,
+		ExecutorAction:       executorAction,
 		Writes: []StartWrite{{
 			Path:       relJoin(".rekit", "lanes", laneID, "lane.json"),
 			Kind:       "lane",
@@ -206,6 +209,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 	}
 	writes = append(writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
 	brief := startMissionBrief(inst.CaseRoot)
+	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
 	return StartResult{
 		SchemaVersion:        1,
 		Command:              "start",
@@ -218,6 +222,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 		Lane:                 lane,
 		AutonomyProfile:      autonomy.ReadSummary(inst.CaseRoot, lane.ID, m),
 		MissionBrief:         brief,
+		ExecutorAction:       executorAction,
 		Writes:               writes,
 		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
 		NextSteps: []string{
@@ -239,6 +244,14 @@ func startMissionBrief(caseRoot string) mission.Brief {
 		return mission.Brief{Summary: "unavailable: " + err.Error()}
 	}
 	return brief
+}
+
+func startExecutorAction(caseRoot string, lane Lane, brief mission.Brief) laneExecutorAction {
+	facts, err := mission.ReadFacts(caseRoot)
+	if err != nil {
+		return laneExecutorActionFor(lane, mission.Facts{}, brief)
+	}
+	return laneExecutorActionFor(lane, facts, brief)
 }
 
 func EnsureBoard(repoRoot, caseRoot, pack string) error {

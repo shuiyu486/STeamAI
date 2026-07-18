@@ -10377,3 +10377,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/workstream/handoff.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestRunHandoff|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。
+
+### Batch 339：Go-native start executor action projection
+
+状态：已完成。
+
+目标：继续 Stage 5 workstream / ledger / gate / continue / handoff / start Go 化，在 Batch 334-338 已把 `executorAction` 覆盖到 lane resume/checkpoint、continue envelope/run artifacts 与 handoff JSON/Markdown 的基础上，把同一 executor-friendly blocker/action snapshot 扩展到 start preview/apply JSON envelope 与 start text output。这样新建、进入或 force refresh lane 后，lane executor / 自动化无需再跑 continue/handoff 或读取 checkpoint，就能看到 blocked/ready、typed blocker counts、requirements 与 resume/handoff command。
+
+实施范围：
+
+- 更新 `StartResult`：新增结构化 `executorAction` 字段，与 lane checkpoint、continue 与 handoff 复用同一 `laneExecutorAction` 类型。
+- 更新 `StartPreview` 与 `StartApply`：基于当前 case facts 与 apply 后 Mission Control brief 投影 executor action；新建 lane preview 在缺 board/facts 时 fail-soft 为无 blocker、ready=false，apply 后基于刷新后的 board/facts 给出 ready/blocked 结果。
+- 更新 start text output：写出 executor blocker counts、requirements 与 resume/handoff command，让非 JSON façade flow 也能看到同一下一步动作摘要。
+- 复用 Batch 336 的 typed `mission.Facts` blocker projection，不从 formatted `blockedLanes` 字符串反解析，不改变 `authorized-gate` 非阻塞语义。
+- 扩展 CLI E2E：覆盖 start preview JSON、start apply JSON、enter-existing-lane、force refresh，以及 existing lane 同时存在 pending gate / open intervention / open decision blockers 时的 JSON 与 text executor action contract。
+- 更新 README、canonical `/rekit` skill、Agent Team usage、release readiness、Go-first convergence、batch-plan 与 CHANGELOG，记录 start executor action projection 与 no heavy-tool / no authority 边界。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不写 authority/confirmed，不改变 sync/promote review-first、不迁移 policy schema、不写真实样本、trace、dump、capture、artifact、绝对 case 路径或 case-specific 进度；start executor action 只是 JSON/text envelope handoff shortcut。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/workstream/start.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestRunStart|TestRunGoStart" -count=1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/workstream/start.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestRunStart|TestRunGoStart" -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。

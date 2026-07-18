@@ -1218,8 +1218,10 @@ func writeJSON(out io.Writer, result any) error {
 func writeStartText(out io.Writer, result workstream.StartResult) error {
 	label := workstreamTextLabel(result.Lane)
 	if !result.Applied {
-		_, err := fmt.Fprintf(out, "would create or enter feature workstream: %s\n", result.Lane.ID)
-		return err
+		if _, err := fmt.Fprintf(out, "would create or enter feature workstream: %s\n", result.Lane.ID); err != nil {
+			return err
+		}
+		return writeStartExecutorActionText(out, result)
 	}
 	if _, err := fmt.Fprintf(out, "功能支线已准备：%s\n", result.Lane.ID); err != nil {
 		return err
@@ -1230,8 +1232,24 @@ func writeStartText(out io.Writer, result workstream.StartResult) error {
 	if _, err := fmt.Fprintf(out, "接续提示：%s/prompts/RESUME.md\n", result.Lane.LaneRoot); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(out, "继续此支线：/rekit continue %s\n", label)
-	return err
+	if _, err := fmt.Fprintf(out, "继续此支线：/rekit continue %s\n", label); err != nil {
+		return err
+	}
+	return writeStartExecutorActionText(out, result)
+}
+
+func writeStartExecutorActionText(out io.Writer, result workstream.StartResult) error {
+	action := result.ExecutorAction
+	if _, err := fmt.Fprintf(out, "executor action：blocked=%t ready=%t pendingGates=%d openInterventions=%d openDecisions=%d\n", action.Blocked, action.Ready, action.PendingGates, action.OpenInterventions, action.OpenDecisions); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "executor requirements：reconcile=%t pendingGate=%t openDecision=%t\n", action.ReconcileRequired, action.PendingGateRequired, action.OpenDecisionRequired); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "executor handoff：continue=`%s` handoff=`%s`\n", action.ResumeCommand, action.HandoffCommand); err != nil {
+		return err
+	}
+	return nil
 }
 
 func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
