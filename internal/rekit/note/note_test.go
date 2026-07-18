@@ -29,7 +29,109 @@ func TestAppendWhatIfDoesNotWrite(t *testing.T) {
 	if result.Command != "note" || result.IsMutation || result.Applied || result.Reason != "what-if" || result.Path != ".rekit/facts/verifications.jsonl" || result.EventID == "" {
 		t.Fatalf("unexpected note what-if result: %+v", result)
 	}
+	if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.WouldExecutorAction == nil || result.WouldExecutorAction.Blocked || !result.WouldExecutorAction.Ready {
+		t.Fatalf("verification what-if should not change executor readiness: %+v", result)
+	}
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
+}
+
+func TestAppendWhatIfProjectsBlockerKinds(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		opt          Options
+		wantPending  int
+		wantOpen     int
+		wantDecision int
+	}{
+		{name: "candidate", opt: Options{Kind: "candidate", Lane: "main", Subject: "candidate blocker", Confidence: "high", Status: "open"}, wantDecision: 1},
+		{name: "decision", opt: Options{Kind: "decision", Lane: "main", Subject: "decision blocker", Decision: "defer"}, wantDecision: 1},
+		{name: "intervention", opt: Options{Kind: "intervention", Lane: "main", Subject: "manual stop", Action: "override", Status: "open"}, wantOpen: 1},
+		{name: "request", opt: Options{Kind: "request", Lane: "main", Subject: "debug gate", Status: "pending-gate", Risk: "high"}, wantPending: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repoRoot, caseRoot, pack := noteFixture(t)
+			result, err := Append(repoRoot, caseRoot, pack, tc.opt, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.WouldExecutorAction == nil || !result.WouldExecutorAction.Blocked || result.WouldExecutorAction.Ready {
+				t.Fatalf("unexpected current/would action: %+v", result)
+			}
+			would := result.WouldExecutorAction
+			if would.PendingGates != tc.wantPending || would.OpenInterventions != tc.wantOpen || would.OpenDecisions != tc.wantDecision {
+				t.Fatalf("unexpected blocker counts: %+v", would)
+			}
+		})
+	}
+}
+
+func TestAppendWhatIfDuplicateReturnsCurrentActionOnly(t *testing.T) {
+	repoRoot, caseRoot, pack := noteFixture(t)
+	writeNoteText(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"), `{"kind":"observation","lane":"main","eventId":"evt-preview-duplicate"}`+"\n")
+	result, err := Append(repoRoot, caseRoot, pack, Options{Kind: "candidate", Lane: "main", Subject: "duplicate candidate", Status: "open", EventID: "evt-preview-duplicate"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Applied || result.IsMutation || result.Reason != "duplicate eventId" || result.WouldExecutorAction != nil || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready {
+		t.Fatalf("duplicate what-if should return unchanged current action only: %+v", result)
+	}
+	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "candidates.jsonl"))
+}
+
+func TestAppendReturnsPostActionForAppliedBlockerKinds(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		opt          Options
+		wantPending  int
+		wantOpen     int
+		wantDecision int
+	}{
+		{name: "candidate", opt: Options{Kind: "candidate", Lane: "main", Subject: "candidate blocker", Confidence: "high", Status: "open"}, wantDecision: 1},
+		{name: "decision", opt: Options{Kind: "decision", Lane: "main", Subject: "decision blocker", Decision: "defer"}, wantDecision: 1},
+		{name: "intervention", opt: Options{Kind: "intervention", Lane: "main", Subject: "manual stop", Action: "override", Status: "open"}, wantOpen: 1},
+		{name: "request", opt: Options{Kind: "request", Lane: "main", Subject: "debug gate", Status: "pending-gate", Risk: "high"}, wantPending: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repoRoot, caseRoot, pack := noteFixture(t)
+			result, err := Append(repoRoot, caseRoot, pack, tc.opt, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Applied || !result.IsMutation || !result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.WouldExecutorAction != nil {
+				t.Fatalf("unexpected applied action: %+v", result)
+			}
+			if result.ExecutorAction.PendingGates != tc.wantPending || result.ExecutorAction.OpenInterventions != tc.wantOpen || result.ExecutorAction.OpenDecisions != tc.wantDecision {
+				t.Fatalf("unexpected applied blocker counts: %+v", result.ExecutorAction)
+			}
+		})
+	}
+}
+
+func TestAppendRejectsOversizedEventBeforeWrite(t *testing.T) {
+	for _, whatIf := range []bool{true, false} {
+		t.Run(map[bool]string{true: "what-if", false: "append"}[whatIf], func(t *testing.T) {
+			repoRoot, caseRoot, pack := noteFixture(t)
+			_, err := Append(repoRoot, caseRoot, pack, Options{Kind: "observation", Lane: "main", Subject: strings.Repeat("x", maxEventJSONBytes)}, whatIf)
+			if err == nil || !strings.Contains(err.Error(), "JSONL limit") {
+				t.Fatalf("oversized event error = %v", err)
+			}
+			assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+		})
+	}
+}
+
+func TestAppendRejectsMalformedLedgerBeforeProjectionOrWrite(t *testing.T) {
+	for _, whatIf := range []bool{true, false} {
+		t.Run(map[bool]string{true: "what-if", false: "append"}[whatIf], func(t *testing.T) {
+			repoRoot, caseRoot, pack := noteFixture(t)
+			writeNoteText(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"), "not json\n")
+			_, err := Append(repoRoot, caseRoot, pack, Options{Kind: "candidate", Lane: "main", Subject: "must fail closed", Status: "open"}, whatIf)
+			if err == nil || !strings.Contains(err.Error(), "invalid JSONL") {
+				t.Fatalf("strict ledger error = %v", err)
+			}
+			assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "candidates.jsonl"))
+		})
+	}
 }
 
 func TestAppendWritesAndListsEvent(t *testing.T) {
@@ -139,6 +241,9 @@ func TestAppendDuplicateExplicitEventIDUsesSharedLedgerEventIDs(t *testing.T) {
 	}
 	if result.Applied || result.Reason != "duplicate eventId" || result.EventID != opt.EventID {
 		t.Fatalf("unexpected duplicate append result: %+v", result)
+	}
+	if result.WouldExecutorAction != nil || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready {
+		t.Fatalf("duplicate should return the unchanged current action only: %+v", result)
 	}
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"))
 }

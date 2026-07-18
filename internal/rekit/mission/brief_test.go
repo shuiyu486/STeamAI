@@ -97,6 +97,22 @@ func TestLaneExecutorActionReadyUsesSharedMissionBrief(t *testing.T) {
 	}
 }
 
+func TestFactsWithEventCopiesAndRoutesBlockerKinds(t *testing.T) {
+	base := Facts{Candidates: []map[string]any{{"kind": "candidate", "lane": "main", "subject": "existing"}}}
+	candidate := map[string]any{"kind": "candidate", "lane": "main", "subject": "new"}
+	withCandidate := FactsWithEvent(base, "candidate", candidate)
+	if len(base.Candidates) != 1 || len(withCandidate.Candidates) != 2 || len(withCandidate.Requests) != 0 {
+		t.Fatalf("candidate projection mutated base or routed incorrectly: base=%+v projected=%+v", base, withCandidate)
+	}
+	for kind, count := range map[string]int{"request": 1, "decision": 1, "intervention": 1, "observation": 0} {
+		projected := FactsWithEvent(Facts{}, kind, map[string]any{"kind": kind, "lane": "main"})
+		got := len(projected.Requests) + len(projected.Decisions) + len(projected.Interventions) + len(projected.Candidates)
+		if got != count {
+			t.Fatalf("kind %s routed count=%d, want %d: %+v", kind, got, count, projected)
+		}
+	}
+}
+
 func TestLaneExecutorActionSnapshotsProjectOpenLanes(t *testing.T) {
 	lanes := []BoardLane{
 		{ID: "main", Status: "open", Authority: true, Workspace: "workspace/main/main"},

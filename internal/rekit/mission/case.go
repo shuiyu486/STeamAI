@@ -390,6 +390,11 @@ func BoardLaneIDs(lanes []BoardLane) []string {
 }
 
 func BoardHasLane(lanes []BoardLane, lane string, caseInsensitive bool) bool {
+	_, ok := LookupBoardLane(lanes, lane, caseInsensitive)
+	return ok
+}
+
+func LookupBoardLane(lanes []BoardLane, lane string, caseInsensitive bool) (BoardLane, bool) {
 	lane = strings.TrimSpace(lane)
 	for _, item := range lanes {
 		id := strings.TrimSpace(item.ID)
@@ -398,15 +403,15 @@ func BoardHasLane(lanes []BoardLane, lane string, caseInsensitive bool) bool {
 		}
 		if caseInsensitive {
 			if strings.EqualFold(id, lane) {
-				return true
+				return item, true
 			}
 			continue
 		}
 		if id == lane {
-			return true
+			return item, true
 		}
 	}
-	return false
+	return BoardLane{}, false
 }
 
 func PendingDecisionCount(decisions []map[string]any) int {

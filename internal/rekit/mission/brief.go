@@ -21,6 +21,26 @@ type Facts struct {
 	Interventions []map[string]any
 }
 
+func FactsWithEvent(facts Facts, kind string, event map[string]any) Facts {
+	out := Facts{
+		Candidates:    append([]map[string]any{}, facts.Candidates...),
+		Requests:      append([]map[string]any{}, facts.Requests...),
+		Decisions:     append([]map[string]any{}, facts.Decisions...),
+		Interventions: append([]map[string]any{}, facts.Interventions...),
+	}
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "candidate":
+		out.Candidates = append(out.Candidates, event)
+	case "request":
+		out.Requests = append(out.Requests, event)
+	case "decision":
+		out.Decisions = append(out.Decisions, event)
+	case "intervention":
+		out.Interventions = append(out.Interventions, event)
+	}
+	return out
+}
+
 type BuildOptions struct {
 	MaxRows            int
 	OpenDecisionAction string

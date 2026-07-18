@@ -2053,18 +2053,24 @@ func TestRunNoteAppendWritesFactEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var result struct {
-		Command    string         `json:"command"`
-		IsMutation bool           `json:"isMutation"`
-		Applied    bool           `json:"applied"`
-		EventID    string         `json:"eventId"`
-		Path       string         `json:"path"`
-		Event      map[string]any `json:"event"`
+		Command             string                  `json:"command"`
+		IsMutation          bool                    `json:"isMutation"`
+		Applied             bool                    `json:"applied"`
+		EventID             string                  `json:"eventId"`
+		Path                string                  `json:"path"`
+		Event               map[string]any          `json:"event"`
+		MissionBrief        missionBrief            `json:"missionBrief"`
+		ExecutorAction      executorActionSnapshot  `json:"executorAction"`
+		WouldExecutorAction *executorActionSnapshot `json:"wouldExecutorAction"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("note append stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if result.Command != "note" || !result.IsMutation || !result.Applied || result.EventID == "" || result.Path != ".rekit/facts/verifications.jsonl" {
 		t.Fatalf("unexpected note append result: %+v", result)
+	}
+	if result.MissionBrief.Summary == "" || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.WouldExecutorAction != nil {
+		t.Fatalf("verification append should return ready post action only: %+v", result)
 	}
 	if result.Event["kind"] != "verification" || result.Event["lane"] != "main" || result.Event["verifier"] != "manual-review" || result.Event["verdict"] != "accepted" || result.Event["target"] != "candidate-alpha" || result.Event["batchId"] != "batch-note" {
 		t.Fatalf("unexpected event fields: %+v", result.Event)
@@ -2139,20 +2145,50 @@ func TestRunNoteAppendWhatIfDoesNotWrite(t *testing.T) {
 	caseRoot := attachedCaseWithBoard(t)
 	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Kind", "observation", "-Lane", "main", "-Subject", "preview only"}, &out); err != nil {
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Kind", "candidate", "-Lane", "main", "-Subject", "preview blocker", "-Confidence", "high", "-Status", "open"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var result struct {
-		IsMutation bool   `json:"isMutation"`
-		Applied    bool   `json:"applied"`
-		Reason     string `json:"reason"`
-		Path       string `json:"path"`
+		IsMutation          bool                   `json:"isMutation"`
+		Applied             bool                   `json:"applied"`
+		Reason              string                 `json:"reason"`
+		Path                string                 `json:"path"`
+		MissionBrief        missionBrief           `json:"missionBrief"`
+		ExecutorAction      executorActionSnapshot `json:"executorAction"`
+		WouldExecutorAction executorActionSnapshot `json:"wouldExecutorAction"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("note what-if stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if result.IsMutation || result.Applied || result.Reason != "what-if" || result.Path != ".rekit/facts/observations.jsonl" {
+	if result.IsMutation || result.Applied || result.Reason != "what-if" || result.Path != ".rekit/facts/candidates.jsonl" {
 		t.Fatalf("unexpected note what-if result: %+v", result)
+	}
+	if result.MissionBrief.Summary == "" || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || !result.WouldExecutorAction.Blocked || result.WouldExecutorAction.Ready || result.WouldExecutorAction.OpenDecisions != 1 || !result.WouldExecutorAction.OpenDecisionRequired {
+		t.Fatalf("unexpected note current/would actions: %+v", result)
+	}
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
+}
+
+func TestRunNoteWhatIfDuplicateReturnsCurrentActionOnly(t *testing.T) {
+	caseRoot := attachedCaseWithBoard(t)
+	writeCaseFile(t, caseRoot, ".rekit/facts/observations.jsonl", `{"kind":"observation","lane":"main","eventId":"evt-preview-note"}`+"\n")
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Kind", "candidate", "-Lane", "main", "-Subject", "duplicate preview", "-Status", "open", "-EventId", "evt-preview-note"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Applied             bool                    `json:"applied"`
+		Reason              string                  `json:"reason"`
+		ExecutorAction      executorActionSnapshot  `json:"executorAction"`
+		WouldExecutorAction *executorActionSnapshot `json:"wouldExecutorAction"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("duplicate note what-if stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Applied || result.Reason != "duplicate eventId" || result.WouldExecutorAction != nil || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready {
+		t.Fatalf("duplicate what-if should preserve current action only: %+v", result)
 	}
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, after)
@@ -2170,14 +2206,19 @@ func TestRunNoteAppendDedupesByEventID(t *testing.T) {
 		t.Fatal(err)
 	}
 	var result struct {
-		Applied bool   `json:"applied"`
-		Reason  string `json:"reason"`
+		Applied             bool                    `json:"applied"`
+		Reason              string                  `json:"reason"`
+		ExecutorAction      executorActionSnapshot  `json:"executorAction"`
+		WouldExecutorAction *executorActionSnapshot `json:"wouldExecutorAction"`
 	}
 	if err := json.Unmarshal(second.Bytes(), &result); err != nil {
 		t.Fatalf("second note append stdout is not JSON: %v\n%s", err, second.String())
 	}
 	if result.Applied || result.Reason != "duplicate eventId" {
 		t.Fatalf("unexpected duplicate result: %+v", result)
+	}
+	if result.WouldExecutorAction != nil || !result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.OpenDecisions != 1 {
+		t.Fatalf("duplicate should preserve the current blocked action without a would delta: %+v", result)
 	}
 	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "candidates.jsonl"))
 	if err != nil {

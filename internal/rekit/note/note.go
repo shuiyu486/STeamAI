@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -14,7 +15,10 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
-const maxListRows = 20
+const (
+	maxListRows       = 20
+	maxEventJSONBytes = 60 * 1024
+)
 
 type Options struct {
 	Kind         string
@@ -41,17 +45,20 @@ type Options struct {
 }
 
 type AppendResult struct {
-	SchemaVersion int            `json:"schemaVersion"`
-	Command       string         `json:"command"`
-	CaseRoot      string         `json:"caseRoot"`
-	RepoRoot      string         `json:"repoRoot"`
-	Pack          string         `json:"pack"`
-	IsMutation    bool           `json:"isMutation"`
-	Applied       bool           `json:"applied"`
-	EventID       string         `json:"eventId"`
-	Path          string         `json:"path"`
-	Reason        string         `json:"reason,omitempty"`
-	Event         map[string]any `json:"event"`
+	SchemaVersion       int                     `json:"schemaVersion"`
+	Command             string                  `json:"command"`
+	CaseRoot            string                  `json:"caseRoot"`
+	RepoRoot            string                  `json:"repoRoot"`
+	Pack                string                  `json:"pack"`
+	IsMutation          bool                    `json:"isMutation"`
+	Applied             bool                    `json:"applied"`
+	EventID             string                  `json:"eventId"`
+	Path                string                  `json:"path"`
+	Reason              string                  `json:"reason,omitempty"`
+	Event               map[string]any          `json:"event"`
+	MissionBrief        mission.Brief           `json:"missionBrief"`
+	ExecutorAction      mission.ExecutorAction  `json:"executorAction"`
+	WouldExecutorAction *mission.ExecutorAction `json:"wouldExecutorAction,omitempty"`
 }
 
 type ListResult struct {
@@ -173,25 +180,34 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 		eventID = eventIDFor(event)
 	}
 	event["eventId"] = eventID
+	encodedEvent, err := json.Marshal(event)
+	if err != nil {
+		return AppendResult{}, err
+	}
+	if len(encodedEvent) > maxEventJSONBytes {
+		return AppendResult{}, fmt.Errorf("note event exceeds %d-byte JSONL limit", maxEventJSONBytes)
+	}
 	relPath, _, err := mission.FactPath(inst.CaseRoot, kind)
 	if err != nil {
 		return AppendResult{}, err
 	}
-	result := AppendResult{
-		SchemaVersion: 1,
-		Command:       "note",
-		CaseRoot:      inst.CaseRoot,
-		RepoRoot:      repoRoot,
-		Pack:          pack,
-		IsMutation:    !whatIf,
-		Applied:       false,
-		EventID:       eventID,
-		Path:          relPath,
-		Event:         event,
+	brief, action, facts, boardLane, err := laneExecutorSnapshot(inst.CaseRoot, lane)
+	if err != nil {
+		return AppendResult{}, err
 	}
-	if whatIf {
-		result.Reason = "what-if"
-		return result, nil
+	result := AppendResult{
+		SchemaVersion:  1,
+		Command:        "note",
+		CaseRoot:       inst.CaseRoot,
+		RepoRoot:       repoRoot,
+		Pack:           pack,
+		IsMutation:     !whatIf,
+		Applied:        false,
+		EventID:        eventID,
+		Path:           relPath,
+		Event:          event,
+		MissionBrief:   brief,
+		ExecutorAction: action,
 	}
 	exists, err := eventIDExists(inst.CaseRoot, eventID)
 	if err != nil {
@@ -201,11 +217,42 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
+	if whatIf {
+		wouldFacts := mission.FactsWithEvent(facts, kind, event)
+		wouldBrief := mission.BuildWithOptions([]mission.Lane{{ID: boardLane.ID, Label: mission.BoardLaneLabel(boardLane), Status: boardLane.Status}}, mission.LaneFacts(wouldFacts, boardLane.ID), mission.BuildOptions{MaxRows: mission.DefaultMaxRows})
+		wouldAction := mission.LaneExecutorAction(mission.Lane{ID: boardLane.ID, Label: mission.BoardLaneLabel(boardLane), Status: boardLane.Status}, wouldFacts, wouldBrief)
+		result.WouldExecutorAction = &wouldAction
+		result.Reason = "what-if"
+		return result, nil
+	}
 	if _, _, err := mission.AppendFact(inst.CaseRoot, kind, event); err != nil {
 		return AppendResult{}, err
 	}
 	result.Applied = true
+	result.MissionBrief, result.ExecutorAction, _, _, err = laneExecutorSnapshot(inst.CaseRoot, lane)
+	if err != nil {
+		return AppendResult{}, err
+	}
 	return result, nil
+}
+
+func laneExecutorSnapshot(caseRoot, laneID string) (mission.Brief, mission.ExecutorAction, mission.Facts, mission.BoardLane, error) {
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		return mission.Brief{}, mission.ExecutorAction{}, mission.Facts{}, mission.BoardLane{}, err
+	}
+	lane, ok := mission.LookupBoardLane(board.Lanes, laneID, false)
+	if !ok {
+		return mission.Brief{}, mission.ExecutorAction{}, mission.Facts{}, mission.BoardLane{}, fmt.Errorf("unknown lane %q", laneID)
+	}
+	ledgerFacts, err := mission.ReadStrictLedgerFacts(caseRoot)
+	if err != nil {
+		return mission.Brief{}, mission.ExecutorAction{}, mission.Facts{}, mission.BoardLane{}, err
+	}
+	facts := ledgerFacts.Facts
+	missionLane := mission.Lane{ID: lane.ID, Label: mission.BoardLaneLabel(lane), Status: lane.Status}
+	brief := mission.BuildWithOptions([]mission.Lane{missionLane}, mission.LaneFacts(facts, lane.ID), mission.BuildOptions{MaxRows: mission.DefaultMaxRows})
+	return brief, mission.LaneExecutorAction(missionLane, facts, brief), facts, lane, nil
 }
 
 func buildEvent(kind, lane string, opt Options) map[string]any {

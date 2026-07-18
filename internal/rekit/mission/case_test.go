@@ -102,6 +102,19 @@ func TestAssertBoardLaneUsesSharedKnownLaneErrors(t *testing.T) {
 	}
 }
 
+func TestLookupBoardLaneSharesCaseSensitivityRules(t *testing.T) {
+	lanes := []BoardLane{{ID: "main", Authority: true}, {ID: "FEATURE-Debug", Status: "open"}}
+	if lane, ok := LookupBoardLane(lanes, "main", false); !ok || lane.ID != "main" {
+		t.Fatalf("exact lookup = %+v, %t", lane, ok)
+	}
+	if _, ok := LookupBoardLane(lanes, "feature-debug", false); ok {
+		t.Fatal("case-sensitive lookup unexpectedly matched")
+	}
+	if lane, ok := LookupBoardLane(lanes, "feature-debug", true); !ok || lane.ID != "FEATURE-Debug" {
+		t.Fatalf("case-insensitive lookup = %+v, %t", lane, ok)
+	}
+}
+
 func TestAssertBoardLaneReportsMissingAndEmptyBoard(t *testing.T) {
 	missingRoot := t.TempDir()
 	if err := AssertBoardLane(missingRoot, "main", LaneGuardOptions{Command: "note"}); err == nil || !strings.Contains(err.Error(), "note requires .rekit/board.json") {

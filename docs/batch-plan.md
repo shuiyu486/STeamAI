@@ -10509,3 +10509,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/mission/brief.go internal/rekit/mission/brief_test.go internal/rekit/overview/overview.go internal/rekit/workstream/handoff.go internal/rekit/cli/cli_test.go` 与 targeted `go test ./internal/rekit/mission ./internal/rekit/overview ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneExecutorAction|TestRunOverview|TestRunHandoff|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1`；完成 durable handoff 后重跑 `go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过。`git diff --check` 仅报告 Windows LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。
+
+### Batch 343：Go-native note executor action delta
+
+状态：已完成。
+
+目标：继续 Stage 5 Mission Commander UX / ledger action snapshot 收敛，在 gate、overview 与 workstream 命令已暴露 typed `executorAction` 后，让主 Agent / lane executor 在 `note` preview、实际 append 或 duplicate no-op 后直接看到该 ledger event 对 lane readiness 的影响，不必另跑 overview/continue/handoff。
+
+实施范围：
+
+- `note.AppendResult` 新增 lane-local `missionBrief`、当前或写入后 `executorAction`，以及 WhatIf-only `wouldExecutorAction`；WhatIf 保持 no-write，actual append 在 strict ledger 写入后重新读取并返回真实 post action，duplicate eventId 只返回未改变的 current action。
+- 在 `internal/rekit/mission` 新增 immutable `FactsWithEvent` typed fact projection，并新增复用 board case-sensitivity 规则的 `LookupBoardLane`；note preview 只把 candidate/request/decision/intervention 路由到 blocker facts，observation/verification 等非 blocker kind 不改变 readiness。
+- candidate open、decision defer/open、effective open intervention 与 pending-gate request 分别投影 open-decision、intervention、pending-gate blocker；authorized/terminal/non-blocker 语义继续由 shared mission helpers 决定。
+- note action snapshot 使用 `ReadStrictLedgerFacts`，malformed facts JSONL 在 preview、duplicate scan或实际 append 前 fail-closed；不因 action projection 引入 fail-soft ledger read；event JSON 编码超过 60 KiB 时在任何 append 前拒绝，避免写入成功后 post-action strict reread 才因 scanner token 上限失败。
+- 扩展 mission/note package tests与 CLI E2E，覆盖 current/would/post action、四类 blocker counts、verification non-blocking、append/WhatIf duplicate no-op、WhatIf no-write、oversized event pre-write rejection、strict malformed ledger和 public JSON field presence。
+- 更新 README、canonical `/rekit` skill、Agent Team usage、release readiness、Go-first convergence、batch-plan 与 CHANGELOG。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不写 authority/confirmed，不改变 sync/promote review-first、facts/board/policy durable schema、existing note event schema、public command surface、policy schema 或公共 façade deletion 边界；action fields 是 additive public output，WhatIf 只做内存 projection，duplicate 仍不写 ledger。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/mission/brief.go internal/rekit/mission/brief_test.go internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/note/note.go internal/rekit/note/note_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/cli -run "TestFactsWithEvent|TestLookupBoardLane|TestAppend|TestRunNote" -count=1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/mission/brief.go internal/rekit/mission/brief_test.go internal/rekit/mission/case.go internal/rekit/mission/case_test.go internal/rekit/note/note.go internal/rekit/note/note_test.go internal/rekit/cli/cli_test.go` 与 targeted `go test ./internal/rekit/mission ./internal/rekit/note ./internal/rekit/cli -run "TestFactsWithEvent|TestLookupBoardLane|TestAppend|TestRunNote" -count=1`；完成 durable handoff 后运行 `go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过。`git diff --check` 仅报告 Windows LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade delegation/fallback。
