@@ -10278,3 +10278,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/workstream/start.go internal/rekit/workstream/lane_checkpoint_test.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneCheckpointJSONContract|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility"`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。
+
+### Batch 336：Go-native lane executor blocker projection contract
+
+状态：已完成。
+
+目标：继续 Stage 5 workstream / ledger / gate / continue Go 化，在 Batch 334/335 的 lane-local `executorAction` 与 typed checkpoint contract 基础上，让 executor blocker / requirement 不再从 formatted `missionBrief.blockedLanes` 字符串反解析，而是直接基于 typed lane facts 投影 pending gate、effective open intervention 与 open candidate/decision blocker counts。这样 display label、blocked lane 格式或 Markdown 展示变化不会静默改变 replacement executor 只读 checkpoint 时的 blocked/ready 判断。
+
+实施范围：
+
+- 更新 `writeLaneResume`：先用 `mission.LaneFacts` 构造 lane-local typed facts，再把这些 facts 传入 `laneExecutorActionFor`；pending/authorized gate snapshot 同样从 lane-local facts 过滤，保持与 Mission Control blocker scope 一致。
+- 更新 `laneExecutorAction` schema：新增 `pendingGates`、`openInterventions` 与 `openDecisions` counts，并在 `RESUME.md` 的 `## Executor action snapshot` 中写出同一组 count，方便人类与自动化 replacement executor 不解析 `blockedLanes` 字符串即可判断阻塞面。
+- 更新 `laneExecutorActionFor`：pending gate count 来自 `mission.FilterLane(..., "pending-gate")`，intervention count 来自 `mission.EffectiveOpenInterventions`，open decision count 来自 `mission.OpenDecisionItems`；`authorized-gate` 保持非阻塞，只在 gate snapshot / mission brief authorized list 中可见。
+- 新增 `internal/rekit/workstream/lane_executor_action_test.go`：覆盖 pending gate、authorized gate、effective open intervention、resolved intervention、open candidate 与 accepted candidate，锁定 typed blocker counts 与 requirements；另用 renamed Mission brief label 验证 blocker 判断不依赖 `blockedLanes` display string。
+- 扩展 `lane_checkpoint_test.go` 与 CLI E2E checkpoint decode：校验 `executorAction` 的 typed blocker counts 随 checkpoint JSON contract 持久化。
+- 更新 README、canonical `/rekit` skill、Agent Team usage、release readiness、Go-first convergence、batch-plan 与 CHANGELOG，记录 typed facts blocker projection 与 no heavy-tool / no authority 边界。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不写 authority/confirmed，不改变 sync/promote review-first、不迁移 policy schema、不写真实样本、trace、dump、capture、artifact、绝对 case 路径或 case-specific 进度；executor action blocker projection 只是稳定 lane-local handoff semantics。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/workstream/start.go internal/rekit/workstream/lane_checkpoint_test.go internal/rekit/workstream/lane_executor_action_test.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneCheckpointJSONContract|TestLaneExecutorAction|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility"
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/workstream/start.go internal/rekit/workstream/lane_checkpoint_test.go internal/rekit/workstream/lane_executor_action_test.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneCheckpointJSONContract|TestLaneExecutorAction|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility"`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。

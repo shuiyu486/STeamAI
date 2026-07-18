@@ -4483,6 +4483,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 			Blocked              bool     `json:"blocked"`
 			Ready                bool     `json:"ready"`
 			BlockerReasons       []string `json:"blockerReasons"`
+			PendingGates         int      `json:"pendingGates"`
+			OpenInterventions    int      `json:"openInterventions"`
+			OpenDecisions        int      `json:"openDecisions"`
 			OpenDecisionRequired bool     `json:"openDecisionRequired"`
 			ResumeCommand        string   `json:"resumeCommand"`
 		} `json:"executorAction"`
@@ -4495,8 +4498,8 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if checkpoint.MissionBrief.Summary != "openLanes=1 ready=0 blocked=1 pendingGates=0 authorizedGates=1 openDecisions=1 interventions=0" || !slices.Contains(checkpoint.MissionBrief.BlockedLanes, "main (open-decision)") || !containsSubstring(checkpoint.MissionBrief.OpenDecisions, "review candidate") || len(checkpoint.MissionBrief.PendingGates) != 0 {
 		t.Fatalf("lane checkpoint missing Mission Control brief snapshot: %+v", checkpoint.MissionBrief)
 	}
-	if !checkpoint.ExecutorAction.Blocked || checkpoint.ExecutorAction.Ready || !checkpoint.ExecutorAction.OpenDecisionRequired || !slices.Contains(checkpoint.ExecutorAction.BlockerReasons, "open-decision") || checkpoint.ExecutorAction.ResumeCommand != "/rekit continue main" {
-		t.Fatalf("lane checkpoint missing executor action snapshot: %+v", checkpoint.ExecutorAction)
+	if !checkpoint.ExecutorAction.Blocked || checkpoint.ExecutorAction.Ready || !checkpoint.ExecutorAction.OpenDecisionRequired || checkpoint.ExecutorAction.PendingGates != 0 || checkpoint.ExecutorAction.OpenInterventions != 0 || checkpoint.ExecutorAction.OpenDecisions != 1 || !slices.Contains(checkpoint.ExecutorAction.BlockerReasons, "open-decision") || checkpoint.ExecutorAction.ResumeCommand != "/rekit continue main" {
+		t.Fatalf("lane checkpoint missing typed executor action snapshot: %+v", checkpoint.ExecutorAction)
 	}
 	if len(checkpoint.PendingGates) != 0 || !containsSubstring(checkpoint.AuthorizedGates, "authorized debug") || !containsSubstring(checkpoint.AuthorizedGates, "auth=preauthorized") {
 		t.Fatalf("lane checkpoint missing non-blocking authorized gate visibility: %+v", checkpoint)

@@ -28,6 +28,7 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 		ExecutorAction: laneExecutorAction{
 			Blocked:              true,
 			BlockerReasons:       []string{"open-decision"},
+			OpenDecisions:        1,
 			OpenDecisionRequired: true,
 			ResumeCommand:        "/rekit continue main",
 			HandoffCommand:       "/rekit handoff main",
@@ -53,6 +54,9 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 		ExecutorAction struct {
 			Blocked              bool     `json:"blocked"`
 			BlockerReasons       []string `json:"blockerReasons"`
+			PendingGates         int      `json:"pendingGates"`
+			OpenInterventions    int      `json:"openInterventions"`
+			OpenDecisions        int      `json:"openDecisions"`
 			OpenDecisionRequired bool     `json:"openDecisionRequired"`
 			ResumeCommand        string   `json:"resumeCommand"`
 		} `json:"executorAction"`
@@ -65,7 +69,7 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 	if decoded.SchemaVersion != 1 || len(decoded.MissionBrief.AuthorizedGates) != 1 || len(decoded.MissionBrief.OpenDecisions) != 1 {
 		t.Fatalf("checkpoint mission brief contract drifted: %+v", decoded.MissionBrief)
 	}
-	if !decoded.ExecutorAction.Blocked || !decoded.ExecutorAction.OpenDecisionRequired || decoded.ExecutorAction.ResumeCommand != "/rekit continue main" || len(decoded.ExecutorAction.BlockerReasons) != 1 {
+	if !decoded.ExecutorAction.Blocked || !decoded.ExecutorAction.OpenDecisionRequired || decoded.ExecutorAction.OpenDecisions != 1 || decoded.ExecutorAction.PendingGates != 0 || decoded.ExecutorAction.OpenInterventions != 0 || decoded.ExecutorAction.ResumeCommand != "/rekit continue main" || len(decoded.ExecutorAction.BlockerReasons) != 1 {
 		t.Fatalf("checkpoint executor action contract drifted: %+v", decoded.ExecutorAction)
 	}
 	if len(decoded.AuthorizedGates) != 1 || decoded.Resume != ".rekit/lanes/main/prompts/RESUME.md" {

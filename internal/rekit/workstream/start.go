@@ -102,6 +102,9 @@ type laneExecutorAction struct {
 	Blocked              bool     `json:"blocked"`
 	Ready                bool     `json:"ready"`
 	BlockerReasons       []string `json:"blockerReasons"`
+	PendingGates         int      `json:"pendingGates"`
+	OpenInterventions    int      `json:"openInterventions"`
+	OpenDecisions        int      `json:"openDecisions"`
 	ReconcileRequired    bool     `json:"reconcileRequired"`
 	PendingGateRequired  bool     `json:"pendingGateRequired"`
 	OpenDecisionRequired bool     `json:"openDecisionRequired"`
@@ -545,11 +548,12 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	if err != nil {
 		return "", "", err
 	}
+	laneFacts := mission.LaneFacts(ledgerFacts.Facts, lane.ID)
 	brief := laneMissionBrief(lane, ledgerFacts)
-	pendingGateLines := missionLines(mission.FilterLane(ledgerFacts.Requests, lane.ID, "pending-gate"), mission.LaneGateLine)
-	authorizedGateLines := missionLines(mission.FilterLane(ledgerFacts.Requests, lane.ID, "authorized-gate"), mission.LaneGateLine)
+	pendingGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate"), mission.LaneGateLine)
+	authorizedGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "authorized-gate"), mission.LaneGateLine)
 	autonomySummary := autonomy.ReadSummary(caseRoot, lane.ID, m)
-	executorAction := laneExecutorActionFor(lane, brief)
+	executorAction := laneExecutorActionFor(lane, laneFacts, brief)
 	lines := []string{
 		"# RESUME：" + lane.ID,
 		"",
@@ -599,6 +603,9 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		"",
 		"- blocked: `"+fmt.Sprintf("%t", executorAction.Blocked)+"`",
 		"- ready: `"+fmt.Sprintf("%t", executorAction.Ready)+"`",
+		"- pending gates: `"+fmt.Sprintf("%d", executorAction.PendingGates)+"`",
+		"- open interventions: `"+fmt.Sprintf("%d", executorAction.OpenInterventions)+"`",
+		"- open decisions: `"+fmt.Sprintf("%d", executorAction.OpenDecisions)+"`",
 		"- reconcile required: `"+fmt.Sprintf("%t", executorAction.ReconcileRequired)+"`",
 		"- pending gate required: `"+fmt.Sprintf("%t", executorAction.PendingGateRequired)+"`",
 		"- open decision required: `"+fmt.Sprintf("%t", executorAction.OpenDecisionRequired)+"`",
@@ -682,28 +689,33 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	return resumePath, checkpointPath, nil
 }
 
-func laneExecutorActionFor(lane Lane, brief mission.Brief) laneExecutorAction {
+func laneExecutorActionFor(lane Lane, laneFacts mission.Facts, brief mission.Brief) laneExecutorAction {
 	label := workstreamLabel(lane)
+	laneFacts = mission.LaneFacts(laneFacts, lane.ID)
+	pendingGates := len(mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate"))
+	openInterventions := len(mission.EffectiveOpenInterventions(laneFacts.Interventions))
+	openDecisions := len(mission.OpenDecisionItems(laneFacts))
 	reasons := []string{}
-	for _, blocked := range brief.BlockedLanes {
-		if !strings.HasPrefix(blocked, label+" (") {
-			continue
-		}
-		reasonList := strings.TrimSuffix(strings.TrimPrefix(blocked, label+" ("), ")")
-		for reason := range strings.SplitSeq(reasonList, ",") {
-			if trimmed := strings.TrimSpace(reason); trimmed != "" {
-				reasons = append(reasons, trimmed)
-			}
-		}
+	if pendingGates > 0 {
+		reasons = append(reasons, "pending-gate")
+	}
+	if openInterventions > 0 {
+		reasons = append(reasons, "intervention")
+	}
+	if openDecisions > 0 {
+		reasons = append(reasons, "open-decision")
 	}
 	blocked := len(reasons) > 0
 	return laneExecutorAction{
 		Blocked:              blocked,
-		Ready:                slices.Contains(brief.ReadyLanes, label),
-		BlockerReasons:       mission.UniqueStrings(reasons),
-		ReconcileRequired:    slices.Contains(reasons, "intervention"),
-		PendingGateRequired:  slices.Contains(reasons, "pending-gate"),
-		OpenDecisionRequired: slices.Contains(reasons, "open-decision"),
+		Ready:                !blocked && slices.Contains(brief.ReadyLanes, label),
+		BlockerReasons:       reasons,
+		PendingGates:         pendingGates,
+		OpenInterventions:    openInterventions,
+		OpenDecisions:        openDecisions,
+		ReconcileRequired:    openInterventions > 0,
+		PendingGateRequired:  pendingGates > 0,
+		OpenDecisionRequired: openDecisions > 0,
 		ResumeCommand:        "/rekit continue " + label,
 		HandoffCommand:       "/rekit handoff " + label,
 		NextAgentActions:     brief.NextAgentActions,
