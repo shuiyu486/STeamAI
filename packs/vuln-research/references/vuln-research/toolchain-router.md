@@ -25,22 +25,25 @@
 ## 重型工具门禁
 
 ```yaml
-heavy_action: active-scan | fuzz | exploit-replay | live-target-validation | debug | dump | patch | data-export | network
-scope: <target aliases and authorization summary>
+gate_action: full-trace | debug | inject | patch | dump | network | symex
+domain_action: active-scan | fuzz | exploit-replay | live-target-validation | data-export
+target_ref: <exact targetScope value>
 decision_reason: <why passive/light path failed>
 tried_light_steps:
   - <step>
-budget:
-  requests: <estimate>
-  runtime_s: <estimate>
-  inputs: <max corpus or payload count>
-  rate_limit: <limit>
-outputs:
-  - <case-local sidecar path>
+requested_budget:
+  runtime_seconds: <positive integer>
+  disk_mb: <positive integer>
+  requests: <positive integer>
+output_paths:
+  - <case-relative sidecar path>
 stop_conditions:
-  - <stop condition>
-requires_user_confirmation: true
+  - <manifest/profile-covered lowercase token>
+status: pending-gate | authorized-gate
+requires_user_confirmation: true | false
 ```
+
+manifest 的静态 `requiresConfirmation: true` 只表示 action 必须经过 gate；request decision 由 autonomy preflight 动态产生：`pending-gate` 对应 `true`，`authorized-gate` 对应 `false`。`gate -Apply` 只记录 decision，不执行 heavy action。
 
 ## 维护规则
 

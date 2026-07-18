@@ -25,25 +25,26 @@
 ## 重型工具门禁
 
 ```yaml
-heavy_action: device-connect | emulator-run | frida-attach | hook-execute | network-capture | trace | dump | patch | resign | install-uninstall
-scope: <app/library/symbol aliases and authorization summary>
+gate_action: full-trace | debug | inject | patch | dump | network | symex
+domain_action: device-connect | emulator-run | frida-attach | hook-execute | network-capture | trace | resign | install-uninstall
+target_ref: <exact targetScope value>
 isolation: <emulator/device/lab/offline/network policy>
 decision_reason: <why static/passive path failed>
 tried_light_steps:
   - <step>
-budget:
-  runtime_s: <estimate>
-  apps: <max app aliases>
-  libraries: <max library aliases>
-  requests: <max network requests if any>
-  output_mb: <max output size>
-  network: <disabled | sinkholed | explicit allowlist>
-outputs:
-  - <case-local sidecar path>
+requested_budget:
+  runtime_seconds: <positive integer>
+  disk_mb: <positive integer>
+  requests: <positive integer>
+output_paths:
+  - <case-relative sidecar path>
 stop_conditions:
-  - <stop condition>
-requires_user_confirmation: true
+  - <manifest/profile-covered lowercase token>
+status: pending-gate | authorized-gate
+requires_user_confirmation: true | false
 ```
+
+manifest 的静态 `requiresConfirmation: true` 只表示 action 必须经过 gate；request decision 由 autonomy preflight 动态产生：`pending-gate` 对应 `true`，`authorized-gate` 对应 `false`。`gate -Apply` 只记录 decision，不执行 heavy action。
 
 ## 维护规则
 

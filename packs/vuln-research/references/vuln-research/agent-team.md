@@ -36,7 +36,7 @@ target_ref, bug_class, repro_ref, crash_id, patch_ref, impact_hypothesis, candid
 
 - accepted finding / root-cause / repro / patch candidate 只能进入 main 合并队列，不能直接写 confirmed / report / authority。
 - 证据不足时使用 `defer` 或 `needs-more-evidence`，并给出下一步轻量验证。
-- 需要主动扫描、fuzz、exploit replay、真实目标复现、debug、dump、patch、数据导出或外部副作用时，先登记 pending-gate request。
+- 需要主动扫描、fuzz、exploit replay、真实目标复现、debug、dump、patch、数据导出或外部副作用时，先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict validated durable autonomy profile + 覆盖本次边界的 `authorized-gate`，才允许 executor 执行。`gate -Apply` 本身只记录 request decision，不执行 heavy action。
 - 每个 shard 的失败只影响本 shard；不要阻塞无关目标、bug class 或 repro。
 
 ## 5. 证据与 sidecar

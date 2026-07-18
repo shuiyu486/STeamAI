@@ -541,9 +541,13 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff
 	assertReleaseHandoffSignal(t, handoff, "latest batch documentation")
 	assertReleaseHandoffSignal(t, handoff, "release notes freshness")
 	assertReleaseHandoffSignal(t, handoff, "known gaps summary")
+	assertReleaseHandoffKnownGap(t, handoff, "ci-release-gate")
+	assertReleaseHandoffKnownGap(t, handoff, "cross-platform-product-path")
+	assertReleaseHandoffKnownGap(t, handoff, "session-orchestration")
 	assertReleaseHandoffKnownGap(t, handoff, "dispatch")
 	assertReleaseHandoffKnownGap(t, handoff, "heavy-tool")
 	assertReleaseHandoffKnownGap(t, handoff, "authority")
+	assertReleaseHandoffKnownGap(t, handoff, "pack-memory")
 	assertReleaseHandoffKnownGap(t, handoff, "policy-schema")
 	assertReleaseHandoffKnownGap(t, handoff, "powershell-deprecation")
 	if handoff.ReleaseNotes.Path != "CHANGELOG.md" || !handoff.ReleaseNotes.Present || handoff.ReleaseNotes.Section != "Unreleased" || handoff.ReleaseNotes.LatestBatchID != handoff.LatestBatch.BatchID || !handoff.ReleaseNotes.Covered || handoff.ReleaseNotes.Summary != "release notes cover latest batch" {
@@ -909,7 +913,7 @@ func assertReleaseCheckPublicDefaultDocs(t *testing.T, docs defaultdocs.Readines
 	assertPublicDefaultPhrase(t, docs, "README.md", "用户主要指挥主 Agent / Mission Commander")
 	assertPublicDefaultPhrase(t, docs, "docs/mission-control-product-direction.md", "Lane-centric Agent Team Mission Control")
 	assertPublicDefaultPhrase(t, docs, ".claude/skills/rekit/SKILL.md", "底层 Go CLI 是 canonical runtime")
-	assertPublicDefaultPhrase(t, docs, "CLAUDE.md", "PowerShell-free / Go-native / 跨平台收敛")
+	assertPublicDefaultPhrase(t, docs, "CLAUDE.md", "PowerShell-free default/product path、Go-native、跨平台")
 	assertPublicDefaultPhrase(t, docs, "docs/autonomous-goal.md", "默认继续自主推进")
 	assertPublicDefaultPhrase(t, docs, "docs/release-readiness.md", "默认本机验证路径不依赖 PowerShell")
 	assertPublicDefaultPhrase(t, docs, "docs/go-first-convergence-plan.md", "不要把大型 PowerShell matrix 作为默认必跑")
@@ -917,7 +921,7 @@ func assertReleaseCheckPublicDefaultDocs(t *testing.T, docs defaultdocs.Readines
 	assertPublicDefaultPhrase(t, docs, "docs/powershell-deprecation.md", "Go CLI/backend 是 canonical runtime")
 	assertPublicDefaultPhrase(t, docs, "docs/vision.md", "优先运行 Go-native 检查")
 	assertPublicDefaultPhrase(t, docs, "docs/reference-absorption.md", "Go-native release readiness 子集")
-	assertPublicDefaultPhrase(t, docs, "docs/agent-team-rollout-plan.md", "公共 `/rekit` 默认路径继续向 Go-native / PowerShell-free 收敛")
+	assertPublicDefaultPhrase(t, docs, "docs/agent-team-rollout-plan.md", "公共 `/rekit` 默认路径已由 20 个 Go-owned/no-fallback public commands 支撑")
 	assertPublicDefaultPhrase(t, docs, "rekit/tests/README.md", "推荐最小回归组合")
 	for _, forbidden := range docs.ForbiddenCommands {
 		if forbidden.Present {

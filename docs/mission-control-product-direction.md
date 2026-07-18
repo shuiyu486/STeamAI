@@ -14,7 +14,9 @@
 
 用户主要和一个 **主 Agent / Mission Commander** 会话交互。主 Agent 通过 ReKit deterministic runtime 调度长期 **member lane**，而不是依赖某个旧聊天窗口。每个 lane 可以由当前 Claude Code 会话执行，也可以在上下文污染、模型切换、会话损坏或用户希望重开时，由新的 Claude Code 会话读取 handoff / packet / evidence 后接手。主 Agent 也可以启动短命 tactical subagent 处理搜索、验证、review、小修、小调研等局部任务。
 
-`/rekit`、`rekit.ps1` 与 Go backend 是底层确定性 runtime / API，不是主要用户体验。用户体验应尽量表现为自然语言 mission control：开始任务、继续推进、查看总体状态、进入某个成员 lane、接手 lane、沉淀经验。
+`/rekit` 与 Go backend 是底层确定性 runtime / API，`rekit.ps1` 只作为 retained compatibility façade；它们都不是主要用户体验。用户体验应尽量表现为自然语言 mission control：开始任务、继续推进、查看总体状态、进入某个成员 lane、接手 lane、沉淀经验。
+
+Batch 351 后，Go-owned public surface、durable lane state、显式 `reconcile`、typed autonomy preflight、Mission brief / executor action snapshot 与 bounded reviewer contract 已形成底座；当前未完成的是实际 session/reviewer orchestration、自动 intake/writeback、authorized execution evidence closure、pack-memory reconsume 和跨平台 product-path E2E。
 
 ## 执行清单
 
@@ -23,11 +25,11 @@
 - [ ] **Mission Control UX**：README、skill、case 使用文档从命令枚举转向“主 Agent 统筹 mission”的日常使用模型；底层命令保留为 runtime API。
 - [ ] **Lane protocol**：定义 durable member lane 的 packet、status、outbox、handoff、intervention、authority profile 与 reconcile 流程。
 - [ ] **Replaceable session executor**：让新 Claude Code 会话能接手旧 lane，避免长期旧会话上下文污染；成员身份绑定 lane，而不是绑定 session。
-- [ ] **Human-in-the-Lane**：用户可随时进入任意成员 lane 纠错、补充、改向、打断或硬切模型；lane 在继续时自动 reconcile 并写入状态事件。
-- [ ] **Tactical subagents**：主 Agent 可按需启动短命 subagent 做只读搜索、复核、反驳、小修、文档一致性检查或 bounded implementation。
-- [ ] **Pre-authorized lane autonomy**：支持在 lane 文档/packet 中预授权某类 heavy-tool、动态调试、patch、dump、hook、网络、exploit replay 等动作；在授权范围、预算、目标、止损和记录要求内，成员 lane 不必每一步都打断用户询问。
+- [ ] **Human-in-the-Lane**：用户可随时进入任意成员 lane 纠错、补充、改向、打断或硬切模型；当前 `continue` 对 open intervention fail-closed 并要求显式 `reconcile`，目标是让 Mission Commander 自动发现、解释并准备安全 resolution。
+- [ ] **Tactical subagents**：主 Agent 可按需启动短命 subagent 做只读搜索、复核、反驳、小修、文档一致性检查或 bounded implementation；`plan-subagents` 当前只生成调度/回写 contract，不自动 spawn。
+- [ ] **Pre-authorized lane autonomy**：lane 文档/packet 可提出 heavy-tool、动态调试、patch、dump、hook、网络、exploit replay 等授权意图；只有 strict validated durable `autonomy.json` 加 `authorized-gate` decision 才构成 executor 的确定性预授权依据。
 - [ ] **Pack-based team memory**：把 case 中复用价值高的 recipe、checklist、prompt、policy、tool adapter 与 workflow 经 review/promote 沉淀回 pack/common。
-- [ ] **Go-first deterministic substrate**：继续让 Go backend 成为状态、ledger、gate、release inventory、sync/promote 和 pack-neutral contract 的确定性 owner；PowerShell 逐步退为 façade / fallback / compatibility。
+- [ ] **Go-first deterministic substrate**：Go backend 已是 public command surface 的确定性 owner；继续完成 PowerShell-free default/product path、retained compatibility façade 收束和跨平台 product-path E2E，禁止新增 PowerShell runtime logic。
 
 ## 验证标准
 
@@ -153,7 +155,7 @@ lane 持久存在，保存 packet、status、outbox、evidence、handoff、inter
 - 硬切 `/model` 后继续；
 - 要求 lane 暂停、转向或由新会话接手。
 
-产品稳定性不依赖“用户不碰成员”，而依赖 lane 在继续时自动 reconcile：
+产品稳定性不依赖“用户不碰成员”。目标形态是 lane 在继续时自动 reconcile；当前实现会 fail-closed 并要求 Mission Commander / executor 显式执行 `reconcile`：
 
 ```text
 1. 读取当前 packet / status / evidence / intervention / outbox。
@@ -168,50 +170,38 @@ lane 持久存在，保存 packet、status、outbox、evidence、handoff、inter
 
 ## 6. 预授权 lane autonomy
 
-成员 lane 可以在其 lane 文档、task packet 或 autonomy profile 明确授权的范围内自主执行较重动作，不必每一步都再次打断用户确认。该能力用于提高自主性，尤其适合用户已明确授权的 sandbox、CTF、靶场、样本分析或内部安全评估 case。
+lane 文档与 task packet 可以表达或提议较重动作的授权意图，但不能单独作为 deterministic executor grant。当前 runtime 的确定性依据是 strict validated `.rekit/lanes/<lane>/autonomy.json`，并由 `gate -WhatIf/-Apply` 评估 action、exact target、typed budget、stop conditions、output paths、record/notify 与 grant/expiry；只有 `authorized-gate` decision 才允许 executor 在覆盖范围内不逐步打断用户确认。该能力用于提高已明确授权 sandbox、CTF、靶场、样本分析或内部安全评估 case 的自主性。
 
-推荐 profile：
+当前 durable profile field shape 可用一个 strict-valid、默认 fail-closed 的 `manual-gate` 文件表示：
 
-```yaml
-autonomy:
-  mode: manual-gate | preauthorized | autonomous
-  allowed_actions:
-    - debug
-    - dump
-    - patch
-    - hook
-    - network
-    - exploit-replay
-    - fuzz
-  target_scope:
-    - <明确目标、样本、进程、URL、IP、靶场或本地环境>
-  denied_actions:
-    - <即使 lane 自主也不能做的动作>
-  budget:
-    runtime_s: <上限>
-    disk_mb: <上限>
-    requests: <上限>
-  stop_conditions:
-    - <lowercase-slug-or_snake-token>
-  output_paths:
-    - <case-local sidecar/artifact path>
-  record_required: true
-  notify_main_on:
-    - boundary-hit
-    - new-risk
-    - destructive-change
-    - authority-write-needed
+```json
+{
+  "schemaVersion": 1,
+  "profileId": "main-manual-gate",
+  "lane": "main",
+  "mode": "manual-gate",
+  "allowedActions": [],
+  "deniedActions": [],
+  "targetScope": [],
+  "budget": {"runtimeSeconds": 0, "diskMB": 0, "requests": 0},
+  "stopConditions": [],
+  "outputPaths": [],
+  "recordRequired": true,
+  "notifyMainOn": []
+}
 ```
+
+实际文件中的 `lane` 必须与 lane ID 一致。切换为 `preauthorized` / `autonomous` 时，`allowedActions` 必须来自所选 pack 的 `heavyToolGates`，`targetScope` 只支持 `exact`，三项 budget 必须为正数，并提供非空、合法的 `stopConditions`、case-relative `outputPaths`、`notifyMainOn`、`grantedBy` 以及 RFC3339 `grantedAt` / `expiresAt`；不要把占位符或 union 字符串直接保存到 `autonomy.json`。
 
 解释：
 
-- `manual-gate`：每次 heavy action 都经 gate / 用户确认。
-- `preauthorized`：在明确范围内不逐步询问，但必须记录、止损、可回放。
-- `autonomous`：只适合完全 sandbox / mock / CTF / 明确授权的本地环境；仍需预算、target scope、stop conditions 和记录。
+- `manual-gate`：每次 heavy action 都经 gate / 用户确认；budget 可以为零。
+- `preauthorized`：在明确范围内不逐步询问，但必须记录、止损、可回放；要求非空 `allowedActions`、exact `targetScope`、正数 budget、`stopConditions`、`outputPaths`、`notifyMainOn`、`grantedBy`、`grantedAt` 与 `expiresAt`。
+- `autonomous`：只适合完全 sandbox / mock / CTF / 明确授权的本地环境；使用与 `preauthorized` 相同的 strict validation 要求。
 
 重要边界：
 
-- 预授权不是无边界授权。超出 `target_scope`、预算、side effect、stop conditions 或 lane 文档要求时必须暂停并升级。
+- 预授权不是无边界授权。超出 durable profile 的 `targetScope`、`budget`、`stopConditions`、`outputPaths`、grant/expiry 或 `authorized-gate` decision 时必须暂停并升级。
 - 所有 heavy action 必须产生 summary / sidecar / evidence ref，不把大输出直接写入 Markdown。
 - confirmed / authority 写入和 pack promote 仍比 lane 内工具执行更严格，不能因为工具执行被预授权就自动发布最终结论。
 
@@ -271,17 +261,17 @@ case observation / recipe / checklist / prompt / adapter candidate
 在发正式 goal 前，可先把这段发给新会话：
 
 ```text
-在 C:\AI\m_projects\RE\re-context-kits 继续维护项目。先读取 CLAUDE.md、docs/mission-control-product-direction.md、docs/autonomous-goal.md、docs/go-first-convergence-plan.md、docs/release-readiness.md 和 docs/batch-plan.md 最新批次。当前产品方向已经确认：re-context-kits 要收敛为 Lane-centric Agent Team Mission Control，而不是命令大全；主 Agent 统筹 durable member lanes，lane 由可替换 Claude Code session executor 执行，也可用短命 tactical subagents；用户可随时介入 lane，lane 需 reconcile 干预；在 lane 文档/packet 预授权范围内可自主执行 heavy/debug/patch/dump/hook/network/exploit-replay 等动作，但必须有 target scope、预算、止损、记录和升级边界。先只读取并确认接手，不要立刻改文件，等我发正式 goal。
+在 C:\AI\m_projects\RE\re-context-kits 继续维护项目。先读取 CLAUDE.md、docs/mission-control-product-direction.md、docs/autonomous-goal.md、docs/go-first-convergence-plan.md、docs/release-readiness.md 和 docs/batch-plan.md 的 current/最新区，并检查 git 与本地/远程 release gate 的实际状态。当前产品方向已经确认：re-context-kits 要收敛为 Lane-centric Agent Team Mission Control，而不是命令大全；主 Agent 统筹 durable member lanes，lane 由可替换 Claude Code session executor 执行，也可用短命 tactical subagents；用户可随时介入 lane，当前通过显式 reconcile 把干预写回 durable state；lane 文档/packet 只表达授权意图，实际 heavy action 必须由 strict durable autonomy profile + authorized-gate decision 覆盖 target、budget、stop conditions、output paths、记录和升级边界。先只读取并确认接手，不要立刻改文件，等我发正式 goal。
 ```
 
 ## 11. 推荐长期 goal 语句
 
 ```text
-在 C:\AI\m_projects\RE\re-context-kits 中，长期自主推进 re-context-kits 向 Lane-centric Agent Team Mission Control 收敛。每轮选择一个中大型、可验证、能降低真实维护风险或提高实际可用性的 vertical slice，不要只做一两行微批次；完成后自行审查、评估效果、做必要低风险调整，然后验证、更新 docs/batch-plan.md 或相关设计文档、必要时更新 CHANGELOG，再提交并推送 main，接着继续下一批，不要把阶段性进展当成 goal 完成。
+在 C:\AI\m_projects\RE\re-context-kits 中，长期自主推进 re-context-kits 向 Lane-centric Agent Team Mission Control 收敛。每轮选择一个 coherent、中大型、可验证、能降低真实维护风险或提高实际可用性的 vertical slice，不要只做一两行或逐字段 metadata 微批次；完成后自行审查、评估效果、做必要低风险调整，然后执行真实验证，更新 docs/batch-plan.md 的 current/active/next 区或相关设计文档，并只记录必要的 CHANGELOG。仅在当前用户 goal/session 明确授权时提交并推送指定分支；每批后重新校准运行事实和风险，长期目标未完成且无升级条件时再继续下一批。
 
-产品北极星：用户主要和主 Agent / Mission Commander 交互；主 Agent 调度 durable member lanes，而不是绑定旧聊天窗口；每个 lane 可由长期 Claude Code 会话执行，也可由新会话接手；主 Agent 可启动短命 tactical subagents 做搜索、验证、review、小修和 bounded implementation；用户可随时进入任意 lane 纠错、改向、硬切模型或要求新会话接手，lane 必须自动 reconcile 干预并写入 durable state；在 lane 文档/packet/autonomy profile 明确预授权的 target scope、预算、stop conditions、output paths 和记录要求内，成员 lane 可以自主执行 heavy-tool、动态调试、patch、dump、hook、exploit replay、网络扫描/请求回放等动作，不必每一步都打断用户，但超出范围、出现新风险、需要 confirmed/authority 或 pack promote 时必须升级。
+产品北极星：用户主要和主 Agent / Mission Commander 交互；主 Agent 调度 durable member lanes，而不是绑定旧聊天窗口；每个 lane 可由长期 Claude Code 会话执行，也可由新会话接手；主 Agent 可启动短命 tactical subagents 做搜索、验证、review、小修和 bounded implementation；用户可随时进入任意 lane 纠错、改向、硬切模型或要求新会话接手，当前 `continue` 对 open intervention fail-closed 并要求显式 `reconcile` 写入 durable state，目标是 Mission Commander 自动准备安全 resolution；lane 文档/packet 只表达授权意图，只有 strict durable autonomy profile 加 `authorized-gate` decision 完全覆盖 action、exact target、typed budget、stop conditions、output paths、record/notify 和 grant/expiry 时，成员 lane 才可不逐步打断用户地执行 heavy-tool、动态调试、patch、dump、hook、exploit replay、网络扫描/请求回放；超出范围、出现新风险、需要 confirmed/authority 或 pack promote 时必须升级。
 
-实施主线围绕七类：1) Mission Control UX：减少用户面对的命令，把 /rekit 作为 runtime API 而不是主要 UX；2) lane protocol：packet/status/outbox/handoff/intervention/autonomy profile/reconcile；3) replaceable session executor：长期成员身份绑定 lane，新会话可接手，旧会话可废弃；4) tactical subagents：主 Agent 用短命 agent 做 bounded 搜索、验证、review、小修；5) pre-authorized lane autonomy：把 heavy/debug/patch/dump/hook/network/exploit-replay 的授权边界做成可记录、可审计、可止损的 lane contract；6) pack-based team memory：把复用经验 review/promote 回 pack/common；7) Go-first deterministic substrate：继续让 Go backend 收束状态、ledger、gate、release inventory、sync/promote 和 pack-neutral contract，PowerShell 只保留 façade/fallback/compatibility。
+实施主线围绕七类：1) Mission Control UX：减少用户面对的命令，把 /rekit 作为 runtime API 而不是主要 UX；2) lane protocol：把已有 packet/status/outbox/handoff/intervention/autonomy/reconcile 底座推进为实际接手闭环；3) replaceable session executor：长期成员身份绑定 lane，并明确 session registration/takeover/ownership 的 operational contract；4) tactical subagents：实际验证主 Agent dispatch、intake、WhatIf、writeback 与 post-validation；5) pre-authorized lane autonomy：让 executor/tool adapter 消费 durable profile + authorized-gate 并回写 evidence/budget/boundary-hit；6) pack-based team memory：把复用经验 review/promote 后在 fresh case 重新消费；7) Go-first deterministic substrate：完成 PowerShell-free default/product path、retained façade 收束与跨平台 product-path E2E，禁止新增 PowerShell runtime logic。
 
-每批开始前先读 CLAUDE.md、docs/mission-control-product-direction.md、docs/autonomous-goal.md、docs/go-first-convergence-plan.md、docs/release-readiness.md 和 docs/batch-plan.md 最新批次；优先做中大型 vertical slice，并自审是否偏离 Mission Control 北极星。除新的产品方向变化、破坏性仓库操作、未授权外部副作用、runtime schema 迁移、PowerShell 删除、confirmed/authority 写入策略变化或难以判断的架构取舍外，自主判断并持续推进。
+每批开始前先读 CLAUDE.md、docs/mission-control-product-direction.md、docs/autonomous-goal.md、docs/release-readiness.md、docs/go-first-convergence-plan.md 和 docs/batch-plan.md 的 current/最新区，并检查 git、本地 gate 与远程 CI 实际状态；优先做 coherent 中大型 vertical slice，并自审是否偏离 Mission Control 北极星。除新的产品方向变化、破坏性仓库操作、未授权外部副作用、runtime schema 迁移、公共入口删除门禁不完整、confirmed/authority 写入策略变化或难以判断的架构取舍外，自主判断并持续推进。
 ```

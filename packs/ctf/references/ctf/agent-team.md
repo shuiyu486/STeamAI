@@ -36,7 +36,7 @@ challenge_ref, category, artifact_ref, flag_status, solver_ref, candidate_path
 
 - accepted solution / solver / writeup candidate 只能进入 main 合并队列，不能直接写 confirmed / report / authority。
 - 证据不足时使用 `defer` 或 `needs-more-evidence`，并给出下一步轻量验证。
-- 需要远程连接、bruteforce、fuzz、exploit replay、高流量请求、debug、dump、patch 或外部副作用时，先登记 pending-gate request。
+- 需要远程连接、bruteforce、fuzz、exploit replay、高流量请求、debug、dump、patch 或外部副作用时，先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict validated durable autonomy profile + 覆盖本次边界的 `authorized-gate`，才允许 executor 执行。`gate -Apply` 本身只记录 request decision，不执行 heavy action。
 - 每个 shard 的失败只影响本 shard；不要阻塞无关 challenge、category 或 solver candidate。
 
 ## 5. 证据与 sidecar

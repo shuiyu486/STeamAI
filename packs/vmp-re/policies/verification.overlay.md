@@ -28,9 +28,9 @@ Extends: `common/policies/verification.md`
 full trace、动态调试、Frida/注入、patch、dump、network 属于 heavy-tool 动作，触发前必须：
 
 1. 先走轻路径并记录失败原因（静态 triage、focused review、value-flow、unicorn 局部 trace）。
-2. 用 `/rekit note -Kind request -Lane <lane> -Subject <动作> -Summary <原因与目标> -Status pending-gate` 在账本记录 gate 事件，附 `tried_light_steps`、`budget`（runtime_s/disk_mb）、`stop_conditions`。
-3. 向用户说明：将做什么、为什么轻路径走不通、预算、止损、输出保存位置。
-4. 用户明确确认后执行；确认只覆盖列明 scope，不扩大授权。
-5. 执行后用 `/rekit note -Kind observation -Lane <lane> -Subject <动作> -Summary <结果摘要> -Confidence <low|medium|high>` 记录结果。
+2. 用 `/rekit gate -WhatIf` 预览 action、exact target、typed budget、output paths、stop conditions 与 autonomy evaluation；确认预览正确后再显式 `gate -Apply`，只向 request ledger 追加 `pending-gate` 或 `authorized-gate` decision，不执行 heavy-tool。
+3. `pending-gate` 时向用户说明将做什么、为何轻路径无法闭合、预算、止损和输出位置，并取得本次显式确认；`authorized-gate` 只有在 strict validated durable autonomy profile 完整覆盖本次边界时才构成 deterministic grant。
+4. lane executor / tool adapter 只在上述任一路径有效时执行，且不得扩大列明 scope；超出 action/target/budget/stop/output/record/notify 边界必须重新升级。
+5. 执行后用 `/rekit note -Kind observation -Lane <lane> -Subject <动作> -Summary <结果摘要> -Confidence <low|medium|high>` 记录结果，并写回 evidence、预算消耗和 boundary-hit。
 
-runtime 当前不强制 gate；这是 agent 行为契约，违反应由 review 暴露。未来 Phase 6 才考虑 runtime 强制确认。
+Go runtime 已强制 gate action/profile preflight 与 request decision 写入边界；它不执行实际 heavy-tool，实际执行和证据回写仍由 lane executor / tool adapter 负责。

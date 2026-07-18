@@ -11,6 +11,6 @@
 规则：
 
 - 目标名、崩溃样本、PoC/repro payload、真实请求/响应、core/minidump、pcap、trace、客户环境信息和绝对路径留在 case-local workspace 或 sidecar，不写回 pack。
-- 主动扫描、fuzz、exploit replay、真实目标复现、调试、dump、patch、数据导出和外部副作用必须有明确授权、预算和 stop condition；高风险动作先登记 pending-gate request。
+- 主动扫描、fuzz、exploit replay、真实目标复现、调试、dump、patch、数据导出和外部副作用必须有预算和 stop condition，并先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict durable autonomy profile + 对应 `authorized-gate`，才允许 executor 执行。
 - 子 agent 默认只读或仅写自己的 workspace；main agent 负责 ledger writeback、handoff、review merge 和 authority 确认。
 <!-- END vuln-research:router -->

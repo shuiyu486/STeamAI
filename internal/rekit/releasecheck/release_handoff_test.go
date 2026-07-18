@@ -116,9 +116,13 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignal(t, handoff, "latest batch documentation")
 	assertHandoffSignal(t, handoff, "release notes freshness")
 	assertHandoffSignal(t, handoff, "known gaps summary")
+	assertHandoffKnownGap(t, handoff, "ci-release-gate")
+	assertHandoffKnownGap(t, handoff, "cross-platform-product-path")
+	assertHandoffKnownGap(t, handoff, "session-orchestration")
 	assertHandoffKnownGap(t, handoff, "dispatch")
 	assertHandoffKnownGap(t, handoff, "heavy-tool")
 	assertHandoffKnownGap(t, handoff, "authority")
+	assertHandoffKnownGap(t, handoff, "pack-memory")
 	assertHandoffKnownGap(t, handoff, "policy-schema")
 	assertHandoffKnownGap(t, handoff, "powershell-deprecation")
 	if handoff.ReleaseNotes.Path != "CHANGELOG.md" || !handoff.ReleaseNotes.Present || handoff.ReleaseNotes.LatestBatchID != handoff.LatestBatch.BatchID || !handoff.ReleaseNotes.Covered || handoff.ReleaseNotes.Summary != "release notes cover latest batch" {
@@ -188,10 +192,10 @@ func TestReleaseHandoffDetectsMissingHandoffDocs(t *testing.T) {
 验证结果：fixture validation.
 `)
 	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), "## Known gaps\n\n- fixture gap\n")
-	writeFile(t, filepath.Join(repo, "README.md"), "# README\n\n用户主要指挥主 Agent / Mission Commander\nGo CLI/backend 是背后的 canonical deterministic runtime/API\n`rekit.ps1` 仅作为迁移期 legacy façade\n默认路径继续向 PowerShell-free / Go-native / 跨平台收敛\n这里不需要你手动执行底层脚本\n用户不需要把 `/rekit` 子命令当成主要交互界面\n")
+	writeFile(t, filepath.Join(repo, "README.md"), "# README\n\n用户主要指挥主 Agent / Mission Commander\nGo CLI/backend 是背后的 canonical deterministic runtime/API\n`rekit.ps1` 仅作为 retained compatibility façade\n默认路径继续向 PowerShell-free / Go-native / 跨平台收敛\n这里不需要你手动执行底层脚本\n用户不需要把 `/rekit` 子命令当成主要交互界面\n")
 	writeFile(t, filepath.Join(repo, "docs", "mission-control-product-direction.md"), "# mission control\n\nLane-centric Agent Team Mission Control\n用户主要和一个 **主 Agent / Mission Commander** 会话交互\nGo-first deterministic substrate\n")
 	writeFile(t, filepath.Join(repo, "docs", "go-first-convergence-plan.md"), "# go first\n\nGo backend 成为 rekit 的 deterministic runtime owner\n不要把大型 PowerShell matrix 作为默认必跑\nPowerShell-free / Go-native convergence\n")
-	writeFile(t, filepath.Join(repo, "docs", "powershell-deprecation.md"), "# powershell\n\nPowerShell-free / Go-native / 跨平台 convergence\nGo CLI/backend 是 canonical runtime\nPowerShell 只作为迁移期 legacy façade / fallback / parity residue\n")
+	writeFile(t, filepath.Join(repo, "docs", "powershell-deprecation.md"), "# powershell\n\nPowerShell-free default/product path / Go-native / 跨平台 convergence\nGo CLI/backend 是 canonical runtime\nPowerShell 当前只保留 `rekit/rekit.ps1` compatibility façade 与按需 parity residue\n")
 	writeFile(t, filepath.Join(repo, "CHANGELOG.md"), "# Changelog\n\n## Unreleased\n\n- Batch 999 fixture note.\n")
 	writeFile(t, filepath.Join(repo, "packs", "fixture", "manifest.yml"), `id: fixture
 name: Fixture

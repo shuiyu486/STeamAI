@@ -299,9 +299,13 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 	}
 
 	for _, gap := range []string{
+		"billing/spending limit",
+		"cross-platform",
+		"session/reviewer orchestrator",
 		"bounded dispatch",
 		"actual heavy-tool",
 		"authority/confirmed",
+		"pack-based team memory",
 		"policy schema 迁移",
 		"PowerShell-free / Go-native 收敛",
 	} {
@@ -310,6 +314,97 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 
 	for _, doc := range []string{"README.md", "CLAUDE.md", "docs/go-first-convergence-plan.md"} {
 		assertTextContains(t, readRepoText(t, repo, doc), "docs/release-readiness.md", doc+" release readiness link")
+	}
+
+	currentDocs := map[string]string{
+		"README.md":                        readRepoText(t, repo, "README.md"),
+		".claude/skills/rekit/SKILL.md":    readRepoText(t, repo, ".claude/skills/rekit/SKILL.md"),
+		"docs/reference-absorption.md":     readRepoText(t, repo, "docs/reference-absorption.md"),
+		"docs/go-runtime-migration.md":     readRepoText(t, repo, "docs/go-runtime-migration.md"),
+		"docs/case-migration.md":           readRepoText(t, repo, "docs/case-migration.md"),
+		"docs/orchestration-plan.md":       readRepoText(t, repo, "docs/orchestration-plan.md"),
+		"common/policies/agent-team.md":    readRepoText(t, repo, "common/policies/agent-team.md"),
+		"common/policies/tool-adapters.md": readRepoText(t, repo, "common/policies/tool-adapters.md"),
+		"rekit/tests/README.md":            readRepoText(t, repo, "rekit/tests/README.md"),
+	}
+	packsRoot := filepath.Join(repo, "packs")
+	if err := filepath.WalkDir(packsRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
+			return nil
+		}
+		rel, err := filepath.Rel(repo, path)
+		if err != nil {
+			return err
+		}
+		currentDocs[filepath.ToSlash(rel)] = string(readFile(t, path))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{
+		"case smoke 验证过的 runtime | `rekit/rekit.ps1`、`rekit/lib/*.ps1`",
+		"不默认接入 façade",
+		"公共 PowerShell façade 仍不委托内部命令",
+		"Go CLI 与 PowerShell fallback 均可列出全部 pack",
+		"PowerShell text preview fallback",
+		"`REKIT_GO_DISABLE=1` fallback",
+		"立即 fallback 到 PowerShell",
+		"`Add-RekitFactEvent` 9 种 kind",
+		"`rekit/lib/B3.State.ps1`（`Add-RekitFactEvent`）",
+		"`rekit/lib/B3.Auto.ps1`（`New-RekitDecision`）",
+		"`REKIT_GO_DISABLE=1` 可回退 PowerShell",
+		"`rekit/lib/B3.Commands.ps1` / future module",
+		"当前 lane 文档、task packet 或 autonomy profile 中的预授权",
+		"当前 lane 文档/packet/autonomy profile 明确预授权",
+		"`gate -Apply` 只写 pending-gate request",
+		"先登记 pending-gate request",
+		"必须先登记 pending-gate request",
+		"pending-gate request，并等待用户确认",
+		"runtime 当前不强制 gate",
+		"不绕过用户确认执行",
+		"剩余 write/text compatibility fallback",
+		"允许自动 append authority CSV",
+		"随代码一起提交推送到远程 `main`",
+	} {
+		for path, text := range currentDocs {
+			assertTextNotContains(t, text, forbidden, path+" retired current-state wording")
+		}
+	}
+	for path, phrase := range map[string]string{
+		"docs/orchestration-plan.md":                              "既无本次显式用户确认、也无有效 deterministic grant 时，不执行外部副作用",
+		"common/policies/agent-team.md":                           "strict validated `.rekit/lanes/<lane>/autonomy.json` 与覆盖本次 action",
+		"common/policies/tool-adapters.md":                        "`pending-gate=true`，`authorized-gate=false`",
+		"packs/_template/references/template/agent-team.md":       "`gate -Apply` 只记录 `pending-gate` 或 `authorized-gate` decision，不执行动作",
+		"packs/_template/references/template/toolchain-router.md": "`pending-gate` 对应 `true`，`authorized-gate` 对应 `false`",
+		"packs/vmp-re/policies/verification.overlay.md":           "Go runtime 已强制 gate action/profile preflight 与 request decision 写入边界",
+		"packs/vmp-re/references/vmp-re/toolchain-router.md":      "lane packet 只表达授权意图",
+		"rekit/tests/README.md":                                   "WhatIf 和 Apply 都不 append authority/confirmed",
+	} {
+		assertTextContains(t, currentDocs[path], phrase, path+" deterministic heavy-action authorization")
+	}
+	canonicalGateActions := stringSet([]string{"full-trace", "debug", "inject", "patch", "dump", "network", "symex"})
+	for path, text := range currentDocs {
+		if (!strings.Contains(path, "/tooling/recipes/") && !strings.HasSuffix(path, "/toolchain-router.md")) || !strings.Contains(text, "gate_action:") {
+			continue
+		}
+		for _, field := range []string{"target_ref:", "requested_budget:", "runtime_seconds:", "disk_mb:", "requests:", "output_paths:", "stop_conditions:"} {
+			assertTextContains(t, text, field, path+" strict gate request contract")
+		}
+		for line := range strings.SplitSeq(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if !strings.HasPrefix(trimmed, "gate_action:") {
+				continue
+			}
+			for action := range strings.SplitSeq(strings.TrimSpace(strings.TrimPrefix(trimmed, "gate_action:")), "|") {
+				action = strings.TrimSpace(action)
+				if action == "" || !canonicalGateActions[action] {
+					t.Fatalf("%s gate_action %q is not in canonical skeleton heavyToolGates", path, action)
+				}
+			}
+		}
 	}
 }
 

@@ -11,6 +11,6 @@
 规则：
 
 - APK/AAB/DEX/SO、hook script、device/emulator id、traffic/capture、trace、dump、patch、keystore、token、账号凭据、包名、真实端点和绝对路径留在 case-local workspace 或 sidecar，不写回 pack。
-- 设备连接、emulator run、Frida attach、hook 执行、网络请求、动态 trace、dump、patch、重签名、安装/卸载应用或外部副作用必须有明确授权、隔离、预算和 stop condition；高风险动作先登记 pending-gate request。
+- 设备连接、emulator run、Frida attach、hook 执行、网络请求、动态 trace、dump、patch、重签名、安装/卸载应用或外部副作用必须有隔离、预算和 stop condition，并先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict durable autonomy profile + 对应 `authorized-gate`，才允许 executor 执行。
 - 子 agent 默认只读或仅写自己的 workspace；main agent 负责 ledger writeback、handoff、review merge 和 authority 确认。
 <!-- END android-native:router -->

@@ -32,7 +32,7 @@ item, decision, confidence, evidence, risk, next_action, tier_used, tool_scope, 
 
 - accepted verdict 只能进入 main 合并队列，不能直接写 confirmed / authority。
 - 证据不足时用 `defer` 或 `needs-more-evidence`，并给出下一步轻量验证。
-- full-trace / debug / inject / patch / dump / network 等 heavy-tool 必须先登记 pending-gate request，并等待用户确认。
+- full-trace / debug / inject / patch / dump / network 等 heavy-tool 必须先经 `/rekit gate` preflight；`gate -Apply` 只记录 `pending-gate` 或 `authorized-gate` decision，不执行动作。只有本次显式用户确认，或 strict validated durable autonomy profile + 覆盖本次边界的 `authorized-gate`，才允许 lane executor / tool adapter 执行。
 - 每个 shard 的失败只影响本 shard；不要阻塞无关 shard。
 
 ## 5. 新 pack 改写 checklist

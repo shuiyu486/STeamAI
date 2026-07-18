@@ -87,7 +87,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 - 长期成员身份绑定 lane，不绑定旧 session；旧会话上下文污染或用户希望重开时，新会话应读取 handoff / packet / evidence 接手同一 lane。
 - 用户可随时进入 lane 打断、纠错、改向或硬切模型；lane 继续时要用 `/rekit reconcile <name> -InterventionId <eventId> -Apply` 将干预写成 append-only resolution event，并刷新 durable lane executor/resume/checkpoint/board state。
 - `plan-subagents` 只写 review artifacts，不自动 spawn reviewer；`packet.json` / `summary.md` 的 `shardHandoffs[]` 应提供每个 shard 的 read-only dispatch prompt、expected output、`reviewerResultContract`、`intakeChecklist[]`、`reviewerDecisionMappings[]`、`conflictHandling[]`、`writebackSequence[]` / `commandBindings[]`、`ledgerWritebackTemplates[]` verification / decision note `previewCommand` / `applyCommand`、required fields / allowed values、preview checks、blocked outputs、post-review merge guidance 和 main-agent merge boundary，让主 Agent 可调度短命 reviewer、按统一输出 contract 审查 evidence/conflict、将 reviewer decision 映射到 verification/main decision、按 sequence 与 command bindings 先跑 note WhatIf preview 再手动落账并复核 post-review validation，而不把写入权、authority/confirmed 决策或 heavy-tool 执行权交给 reviewer/runtime。
-- confirmed / authority 写入仍需要更严格 gate；动态调试、注入、patch、dump、hook、full trace、网络、exploit replay 等外部副作用若已在 lane 文档/packet/autonomy profile 预授权，可在 scope、预算、止损和记录要求内自主执行，否则需要人工确认。
+- confirmed / authority 写入仍需要更严格 gate；lane 文档/packet 只表达授权意图，动态调试、注入、patch、dump、hook、full trace、网络、exploit replay 等外部副作用只有在 strict durable autonomy profile + `authorized-gate` decision 完全覆盖 action、exact target、typed budget、stop conditions、output paths、record/notify 和 grant/expiry 时才可由 executor 执行，否则必须升级。
 
 ## 风险与注意事项
 

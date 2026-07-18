@@ -73,9 +73,9 @@ next_action:
 - full trace、长时间符号执行、大规模反编译导出。
 - 网络访问、扫描、请求回放、exploit replay、上传、发布或安装外部组件。
 
-授权来源可以是单次用户确认，也可以是当前 lane 文档、task packet 或 autonomy profile 中的预授权。预授权的含义是：成员 lane 在明确 target scope、allowed actions、budget、stop conditions、output paths、record_required 和 notify/escalation 条件内可以自主执行，不需要每一步再次打断用户；超出范围、出现新风险或需要 confirmed/authority/promote 时必须升级。
+lane 文档和 task packet 只能表达授权意图，不能单独构成 heavy-action grant。若没有本次具体动作的显式用户确认，确定性执行依据必须是 strict validated `.rekit/lanes/<lane>/autonomy.json` 加覆盖 action、exact target、typed budget、stop conditions、output paths、record/notify 边界的 `authorized-gate` decision；超出范围、出现新风险或需要 confirmed/authority/promote 时必须升级。
 
-每个 pack 必须在 `manifest.yml` 的 `heavyToolGates` 中声明可申请的 heavy action。Go `gate -WhatIf/-Apply` 只接受该清单里的 action，并把 manifest 的 `defaultRisk`、`requiresConfirmation` 和 `stopConditions` 写入 preview / pending-gate request；用户覆盖 `-Risk` 时必须使用 `medium`、`high` 或 `critical` 小写 scalar，覆盖 `-StopConditions` 时必须使用小写 slug/snake token 列表。`gate -Apply` 只写 pending-gate request，不执行实际 heavy action；实际执行由 lane executor / tool adapter 在当前授权 profile 内完成，并写回 evidence/ledger。
+每个 pack 必须在 `manifest.yml` 的 `heavyToolGates` 中声明可申请的 heavy action。manifest 的静态 `requiresConfirmation=true` 表示该 action 必须经过 gate，不是 ledger 中的最终确认结果；Go `gate -WhatIf/-Apply` 只接受清单里的 action，将 manifest 的 `defaultRisk` 和 `stopConditions` 带入 preview / request decision，并根据 autonomy preflight 动态设置 `gate.requiresConfirmation`：`pending-gate=true`，`authorized-gate=false`。用户覆盖 `-Risk` 时必须使用 `medium`、`high` 或 `critical` 小写 scalar，覆盖 `-StopConditions` 时必须使用小写 slug/snake token 列表。`gate -Apply` 只写 `pending-gate` 或 `authorized-gate` request decision，不执行实际 heavy action；实际执行由 lane executor / tool adapter 在当前授权边界内完成，并写回 evidence/ledger。
 
 门禁记录建议：
 
@@ -92,7 +92,8 @@ outputs:
   - <sidecar path>
 stop_conditions:
   - <lowercase-slug-or_snake-token>
-requires_user_confirmation: true
+status: pending-gate | authorized-gate
+requires_user_confirmation: true | false
 ```
 
 ## Adapter 设计原则

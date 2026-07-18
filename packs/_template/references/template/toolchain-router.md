@@ -22,20 +22,26 @@
 ## 重型工具门禁
 
 ```yaml
-heavy_action: debug | inject | patch | dump | full-trace | symex | network
+gate_action: full-trace | debug | inject | patch | dump | network | symex
+domain_action: <pack-specific operation mapped to gate_action>
+target_ref: <exact targetScope value>
 risk: medium | high | critical
 decision_reason: <why light path failed>
 tried_light_steps:
   - <step>
-budget:
-  runtime_s: <estimate>
-  disk_mb: <estimate>
-outputs:
-  - <sidecar path>
+requested_budget:
+  runtime_seconds: <positive integer>
+  disk_mb: <positive integer>
+  requests: <positive integer>
+output_paths:
+  - <case-relative sidecar path>
 stop_conditions:
-  - <lowercase-slug-or_snake-token>
-requires_user_confirmation: true
+  - <manifest/profile-covered lowercase token>
+status: pending-gate | authorized-gate
+requires_user_confirmation: true | false
 ```
+
+manifest 的静态 `requiresConfirmation: true` 只表示 action 必须经过 gate；request decision 由 autonomy preflight 动态产生：`pending-gate` 对应 `true`，`authorized-gate` 对应 `false`。`gate -Apply` 只记录 decision，不执行 heavy action。
 
 ## 维护规则
 

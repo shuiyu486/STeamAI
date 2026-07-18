@@ -11,6 +11,6 @@
 规则：
 
 - 样本、完整二进制、dump、trace、memory、patch、完整函数体、符号表、IOC、hash、客户上下文和绝对路径留在 case-local workspace 或 sidecar，不写回 pack。
-- 动态执行、调试、trace、dump、patch、批量反编译、自动重命名/注释、外部联网或写回分析数据库必须有明确授权、隔离、预算和 stop condition；高风险动作先登记 pending-gate request。
+- 动态执行、调试、trace、dump、patch、批量反编译、自动重命名/注释、外部联网或写回分析数据库必须有隔离、预算和 stop condition，并先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict durable autonomy profile + 对应 `authorized-gate`，才允许 executor 执行。
 - 子 agent 默认只读或仅写自己的 workspace；main agent 负责 ledger writeback、handoff、review merge 和 authority 确认。
 <!-- END generic-binary-re:router -->

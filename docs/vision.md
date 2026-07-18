@@ -4,7 +4,7 @@
 
 - 如果你只想使用当前仓库初始化一个安全 case（当前成熟示例是 `vmp-re` RE case），先读 `README.md` 的使用方式；本文件用于理解长期方向与阶段路线。
 - 如果你要维护或迭代本仓库，先读本文件顶部的实施摘要、执行清单、验证标准；若要让新会话长期自主推进几十轮，先读 `docs/mission-control-product-direction.md` 与 `docs/autonomous-goal.md`，再按阶段读取细节。
-- 本文件是路线图，不代表所有能力已经实现；当前已经落地的是 `/rekit`、case 绑定、工作线、handoff、sync/promote、首个成熟领域 pack `vmp-re` 和 tooling 文档底座。
+- 本文件是路线图，不代表所有能力已经实现；Batch 351 后已经落地的是 Go-owned/no-fallback public command surface、case lifecycle、durable lanes、handoff/checkpoint、显式 reconcile、typed autonomy preflight、Mission brief / executor action、review-first sync/promote、bounded reviewer contracts、首个成熟领域 pack `vmp-re` 和多领域 skeleton packs。尚未落地统一 member/reviewer session orchestration、actual heavy-tool evidence closure、pack-memory reconsume 与三平台 product-path E2E。
 - 需要具体执行时，优先选择当前阶段的最小可验证切片，不跨阶段提前重构 runtime。
 
 ## 实施摘要
@@ -44,7 +44,7 @@
 2. **分批实施**：每批只做一个可验证切片，优先保持现有模块化；不跨阶段提前重构 runtime。
 3. **批次自审**：每批完成后主动 review 自己的 diff，评估架构是否清晰、是否保持模块边界、是否引入维护风险或同步副作用。
 4. **可自行调整**：若自审发现低风险文档职责重复、链接缺失、manifest 漏同步、CHANGELOG 漏记录等问题，可直接修正并再次验证。
-5. **必须停下询问**：遇到新的产品方向变化、破坏性仓库操作、未授权外部副作用、写入 confirmed/authority、runtime schema 迁移、删除公共入口但无 Go-native 替代方案或难以判断的架构取舍时，先问用户；当前阶段 PowerShell replacement/removal 已授权按中大型可验证批次推进，但必须持续写回路线、边界和验证。动态调试、注入、patch、dump、hook、网络、exploit replay 等动作若已在当前 lane 文档/packet/autonomy profile 中明确预授权，可在 scope、预算、止损、输出路径和记录要求内由成员 lane 自主执行。
+5. **必须停下询问**：遇到新的产品方向变化、破坏性仓库操作、未授权外部副作用、写入 confirmed/authority、runtime schema 迁移、公共入口删除门禁不完整或难以判断的架构取舍时，先问用户；当前阶段 PowerShell replacement/removal 可按 coherent 可验证批次推进，但必须持续写回路线、边界和真实验证。lane 文档/packet 只表达授权意图；动态调试、注入、patch、dump、hook、网络、exploit replay 等动作只有在 strict durable autonomy profile + `authorized-gate` decision 完全覆盖时，才可在对应 scope、预算、止损、输出路径和记录要求内由 executor 执行。
 6. **计划写回文档**：后续阶段的具体实施计划应持续沉淀到本文件或相邻设计文档中，不能只留在聊天上下文里。
 7. **每批都验证**：至少运行 `git diff --check`；优先运行 Go-native 检查（如 `go run ./cmd/rekit -- -Command release-check -Format json`、`status`、`doctor` 和 `go test ./...`），涉及迁移期 façade / fallback 时再追加对应 PowerShell smoke；失败要区分本批问题和既有阻塞。
 
@@ -71,7 +71,7 @@ runtime 阶段还应增加：
 - 不把真实样本、RVA/VA、trace、dump、artifact、客户信息、目标系统信息或本机绝对路径写入模板仓库。
 - 不把外部工具变成硬依赖；优先以 tooling recipe、capability card、adapter contract 的方式接入。
 - 不让 runtime 直接包含具体工具的业务逻辑；工具细节应留在 pack tooling 或 case-local adapter。
-- 动态调试、注入、patch、dump、hook、网络、exploit replay 等高风险动作可以由 lane 文档/packet/autonomy profile 预授权；预授权必须明确 target scope、预算、输出路径、止损条件、记录要求和升级条件，超出范围时必须停下询问。
+- lane 文档/packet 可提出动态调试、注入、patch、dump、hook、网络、exploit replay 等授权意图，但不能单独授予 executor；确定性预授权必须来自 strict durable autonomy profile 与 `authorized-gate` decision，并覆盖 exact target、typed budget、output paths、stop conditions、record/notify 和 grant/expiry，超出范围时必须停下升级。
 - 自动化先做 review-first / dry-run / packet 化，再做 apply；不要绕过现有 sync/promote、confirmed/authority 和 pack promote 边界。
 
 ## 1. 项目定位
@@ -102,8 +102,8 @@ runtime 阶段还应增加：
 | 层 | 职责 | 当前映射 |
 |---|---|---|
 | Skill UI 层 | 给 Claude Code 暴露 `/rekit` 入口和用户语义 | `.claude/skills/rekit/SKILL.md`、case shim |
-| Case runtime 层 | 管理 case 绑定、工作线、状态、handoff、sync/promote | `rekit/rekit.ps1`、`rekit/lib/*.ps1` |
-| Agent Team 层 | 定义主 agent、功能支线、reviewer、工具 agent 的职责和 packet | `common/prompts/**`、`packs/*/prompts/**`、manifest `subagentRoutes` |
+| Case runtime 层 | 管理 case 绑定、工作线、状态、handoff、sync/promote | `cmd/rekit/**`、`internal/rekit/**`；`rekit/rekit.ps1` 仅 retained compatibility façade，`rekit/lib/*.ps1` 已删除 |
+| Agent Team 层 | 定义主 agent、功能支线、reviewer、工具 agent 的职责和 packet | `common/prompts/**`、`packs/*/prompts/**`、manifest `subagentRoutes`；实际 session spawn 仍由 Claude Code host / 主 Agent 负责 |
 | Pack 领域层 | 保存某类安全任务的领域知识、流程、验证标准 | `packs/vmp-re/**`（当前成熟示例） |
 | Tooling / adapter 层 | 描述外部工具能力、用法、止损条件和未来 adapter contract | `packs/<pack>/tooling/**`，当前以 `packs/vmp-re/tooling/**` 为主 |
 | Evidence ledger 层 | 保存 observation、request、candidate、publication、decision、intervention | `.rekit/facts/*.jsonl`、`.rekit/lanes/**` |
@@ -121,7 +121,9 @@ runtime 阶段还应增加：
 ```text
 re-context-kits/
   .claude/skills/rekit/        # canonical Claude Code 入口
-  rekit/                       # deterministic runtime backend
+  cmd/rekit/                   # Go-native deterministic runtime entrypoint
+  internal/rekit/              # Go-owned runtime packages
+  rekit/rekit.ps1              # retained compatibility façade，无业务 runtime/fallback
   common/                      # 跨 pack 的 policy 与 prompt
   packs/vmp-re/                # 当前首个成熟领域 pack / RE 验证场
     references/vmp-re/         # 下发到 case 的 managed docs
@@ -137,7 +139,7 @@ re-context-kits/
 - 通用 agent/team 规则：`common/policies` 或 `common/prompts`。
 - `vmp-re` 领域流程：`packs/vmp-re/references/vmp-re` 或 `packs/vmp-re/policies`；新增领域应放入对应 `packs/<pack>/`。
 - 外部工具经验：`packs/<pack>/tooling`；当前成熟内容主要在 `packs/vmp-re/tooling`。
-- runtime 自动化：`rekit/lib`，并保持 Core / State / Policy / Lane / Auto / Commands 分层。
+- runtime 自动化：`internal/rekit/**`，按 case lifecycle、mission、workstream、ledger/gate、sync/promote、subagents 与 releasecheck 职责分层；不要重新引入已删除的 `rekit/lib/*.ps1`。
 - 长期路线与架构说明：`docs`。
 
 ## 5. 阶段实施路线
@@ -295,13 +297,14 @@ packs/<pack>/
 
 **目标：** 将 candidate、confirmed、rejected、superseded、intervention、rollback、batch decision 变成更清晰的 append-only 账本模型，降低长程 RE 中的漂移和返工。
 
-**建议模块：**
+**当前模块与下一步：**
 
 - `.rekit/facts/*.jsonl`：继续作为默认 append-only 存储。
-- `rekit/lib/B3.State.ps1`：读写和聚合。
-- `rekit/lib/B3.Policy.ps1`：确认门禁。
-- `rekit/lib/B3.Auto.ps1`：低风险自动整理。
+- `internal/rekit/mission`：shared board/facts read、Mission brief 与 executor action projection。
+- `internal/rekit/note`、`internal/rekit/gate`、`internal/rekit/workstream`：ledger append、authorization decision、continue/reconcile/handoff durable flow。
+- `internal/rekit/autonomy`：strict durable profile 与 fail-closed preflight。
 - `common/policies/evidence.md`、`review-first.md`：状态和证据规则。
+- 下一步围绕 confirmed/authority 人工 gate、authorized execution evidence closure 与 batch replay/resume 设计；不要重新引入 B3 PowerShell runtime。
 
 **实施步骤：**
 
@@ -323,13 +326,14 @@ packs/<pack>/
 
 **目标：** 在前面契约稳定后，让 `/rekit` 能更主动地生成任务包、分派只读复核、收敛结论、提示人工确认和生成 handoff。
 
-**建议模块：**
+**当前模块与下一步：**
 
-- `rekit/lib/B3.Commands.ps1`：用户级命令入口。
-- `rekit/lib/B3.Auto.ps1`：自动整理和低风险动作。
-- `rekit/lib/B3.Policy.ps1`：高风险门禁。
+- `.claude/skills/rekit/SKILL.md`：Mission Commander/runtime API 语义入口。
+- `internal/rekit/subagents`：review packet、shards、result/intake/writeback contracts；当前不 spawn reviewer。
+- `internal/rekit/workstream`、`mission`、`gate`、`autonomy`：lane state、handoff/reconcile、executor action 与授权边界。
 - `packs/<pack>/manifest.yml`：agent routes、tool routes、budgets。
 - `.rekit/runs/<run-id>/`：每轮 orchestration digest 和 packet。
+- 下一步用真实 Mission Commander vertical slice 验证 route → spawn → result intake → WhatIf → ledger writeback → post-validation，并明确 member session registration/takeover ownership。
 
 **实施步骤：**
 

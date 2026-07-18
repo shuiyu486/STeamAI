@@ -25,7 +25,7 @@
 2. **工具 adapter 策略**：IDA/调试器/trace 等工具先 recipe 化、candidate 化，再逐步 adapter 化，避免成为硬依赖或大输出源。
 3. **证据与门禁模型**：evidence ledger、batch/intervention、heavy-tool gate、人工确认和可回滚的审查流程。
 
-当前已经落地的是安全 Agent Team 框架底座、文档契约、`/rekit` 工作线 runtime、review-first sync/promote、首个成熟 pack `vmp-re` 扩展、安全领域 pack 骨架 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re`、tooling candidate、`ida-agent-bridge` 只读 packet contract，以及 evidence ledger runtime（`/rekit note` 手动 append 9 种 kind 事件 + overview/handoff/note-List 读层 + auto 流程 decision 字段对齐 `docs/evidence-ledger.md` 草案）；尚未落地的是 runtime 强制 heavy-tool 执行闭环、真实工具 bridge adapter 实现、自动多 Agent dispatch（R5 判定 runtime 不自动 spawn，由主会话用 Agent 工具完成），也不能宣称已具备自动脱壳/逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
+当前已经落地的是安全 Agent Team 框架底座、文档契约、Go-owned/no-fallback `/rekit` runtime、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action、review-first sync/promote、首个成熟 pack `vmp-re` 扩展、安全领域 pack 骨架 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re`、tooling candidate、`ida-agent-bridge` 只读 packet contract、bounded reviewer result/writeback contracts，以及 evidence ledger runtime；尚未落地的是实际 member/reviewer session orchestration、runtime 强制 heavy-tool evidence closure、真实工具 bridge adapter、pack-memory reconsume 与跨平台 product-path E2E，也不能宣称已具备自动脱壳/逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
 
 ## 执行清单
 
@@ -36,10 +36,10 @@
 - [x] 将 `ida-agent-bridge` 作为 candidate tooling 记录，而非硬依赖。
 - [x] 增加 evidence/intervention ledger 草案。
 - [x] 增加 orchestration 计划和 pack authoring template。
-- [x] 将 evidence ledger 从文档推进为 runtime append-only JSONL（`/rekit note` + `Add-RekitFactEvent` 9 种 kind + overview/handoff/note-List 读层 + auto 流程 decision 字段对齐 `docs/evidence-ledger.md`，见 `docs/agent-team-rollout-plan.md` §4-§5）。
-- [ ] 将 heavy-tool gate 从文档推进为 runtime packet / confirmation flow（R6 已落 `packs/vmp-re/policies/verification.overlay.md` 用 `note -Kind request -Status pending-gate` 登记 gate 事件，runtime 不强制 gate，属 Phase 6 后段）。
+- [x] 将 evidence ledger 从文档推进为 Go-owned append-only JSONL（`internal/rekit/note/**` append/list + `internal/rekit/mission/**` typed facts/brief + `internal/rekit/workstream/**` consume/writeback，9 种 kind 与 decision 字段对齐 `docs/evidence-ledger.md`，见 `docs/agent-team-rollout-plan.md` §4-§5）。
+- [ ] 将 typed autonomy + `authorized-gate` 从 authorization preflight 推进为 executor/tool-adapter execution evidence closure：消费 exact target/budget/output/stop boundary，执行后写 evidence/budget/boundary-hit，不把工具业务逻辑塞入 core runtime。
 - [x] 将 `ida-agent-bridge` 从 candidate tooling 推进到只读 packet contract / capability card（仍不安装、不连接、不实现 runtime-level adapter）。
-- [ ] 将 bounded dispatch 从计划推进为可验证 runtime 功能（R5 已判定 runtime 不扩，spawn 是主会话职责；`plan-subagents` + `note -Kind decision` 构成支撑）。
+- [ ] 将 bounded dispatch 从完整 contract 推进为 Mission Commander 可验证 E2E：主 Agent实际 spawn 只读 reviewer，完成 result intake、WhatIf、ledger writeback 与 post-validation；`plan-subagents` 本身仍不自动 spawn。
 - [ ] 扩展 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native`、`generic-binary-re` 等安全领域 pack（`web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 已有最小骨架；后续按真实需求继续扩展）。
 
 ## 验证标准
@@ -65,7 +65,7 @@ git diff --check
 - 外部参考只能作为设计来源，不能替代本项目的 manifest、runtime 和 pack 边界。
 - `ida-agent-bridge` 当前是 candidate，不是必装工具。
 - `clark-utov` 风格的 batch/ledger/intervention 已从文档推进到 runtime ledger（`/rekit note` 9 种 kind + auto decision 字段对齐 `docs/evidence-ledger.md`），但 batch 模型（`batchId`/整体接受/回滚）与 intervention runtime 强制门禁仍未实现，不能误导为 runtime 已完整实现。
-- heavy trace、dynamic debug、inject、patch、dump、symex、网络/外部副作用可由 lane 文档/packet/autonomy profile 预授权；未授权、越界、出现新风险或需要 confirmed/authority/promote 时必须升级给用户。
+- lane 文档/packet 只表达授权意图；heavy trace、dynamic debug、inject、patch、dump、symex、网络/外部副作用只有在 strict durable autonomy profile + `authorized-gate` decision 完全覆盖时才可由 executor 执行；未授权、越界、出现新风险或需要 confirmed/authority/promote 时必须升级给用户。
 - confirmed / authority 写入仍必须经 evidence、verifier、schema、backup、diff、无冲突等 gate。
 
 ## 1. 总览表
@@ -74,7 +74,7 @@ git diff --check
 |---|---|---|---|
 | 微信文章：Agent 化逆向经验 | 多 Agent 分工、上下文管理、人工确认、handoff、证据先行 | `docs/vision.md`、`docs/agent-team-usage.md`、`common/policies/agent-team.md`、`packs/vmp-re/references/vmp-re/agent-driven-re.md` | 已落地为工作方式和 policy；自动编排仍在计划中 |
 | `TsingShui/ida-agent-bridge` | IDA sidecar/bridge、短连接查询、function index、strings/imports/xref、避免全量输出 | `packs/vmp-re/tooling/catalog.yml`、`packs/vmp-re/tooling/recipes/ida-x64dbg-mcp.md`、`packs/vmp-re/tooling/recipes/ida-agent-bridge-readonly.md`、`common/policies/tool-adapters.md` | 已作为 candidate tooling，并补只读 packet contract；未成为硬依赖 |
-| `clarkluoluo/clark-utov` | batch/ledger/intervention、agent-as-judge、轻到重门禁、可回滚记录 | `docs/evidence-ledger.md`、`docs/orchestration-plan.md`、`packs/vmp-re/references/vmp-re/toolchain-router.md`、`workflow-template.md`、`rekit/lib/B3.State.ps1`（`Add-RekitFactEvent`）、`rekit/lib/B3.Auto.ps1`（`New-RekitDecision`） | 设计契约已落地；runtime ledger 9 种 kind + decision 字段已对齐草案，batch 模型与 intervention 强制门禁待实现 |
+| `clarkluoluo/clark-utov` | batch/ledger/intervention、agent-as-judge、轻到重门禁、可回滚记录 | `docs/evidence-ledger.md`、`docs/orchestration-plan.md`、`internal/rekit/note/**`、`internal/rekit/mission/**`、`internal/rekit/workstream/**`、`packs/vmp-re/references/vmp-re/toolchain-router.md`、`workflow-template.md` | 设计契约与 Go-owned ledger/read-model/runtime 已落地；9 种 kind + decision 字段已对齐草案，batch-level replay/resume 与 candidate → verified → confirmed 机器强制 gate 待实现 |
 
 ## 2. 微信文章方向：Agent 化逆向工作流
 
@@ -153,7 +153,7 @@ git diff --check
 
 | 能力 | 落地位置 | 说明 |
 |---|---|---|
-| evidence / intervention ledger 草案 | `docs/evidence-ledger.md`、`rekit/lib/B3.State.ps1`、`rekit/lib/B3.Auto.ps1` | 草案定义 9 种事件；runtime `Add-RekitFactEvent`/`New-RekitDecision` 已对齐草案字段（`schemaVersion`/`actor`/`risk`/`related`/`decision`/`confirmedBy`/`writes` + verification/intervention 扩展字段） |
+| evidence / intervention ledger 草案 | `docs/evidence-ledger.md`、`internal/rekit/note/**`、`internal/rekit/mission/**`、`internal/rekit/workstream/**` | 草案定义 9 种事件；Go runtime 的 note append/list、typed facts/brief 与 workstream consume/writeback 已对齐核心字段和 verification/intervention 扩展字段 |
 | orchestration 计划 | `docs/orchestration-plan.md` | 定义 Planner、Dispatcher、Gate、Digest、Ledger 分阶段实现 |
 | 轻到重路线 | `packs/vmp-re/references/vmp-re/workflow-template.md` | static triage -> I/O shape -> focused trace -> value-flow -> verifier -> confirmed |
 | heavy-tool gate | `toolchain-router.md`、`common/policies/tool-adapters.md` | 重型动作必须记录原因、预算、输出、止损和确认 |
@@ -181,7 +181,7 @@ git diff --check
 | heavy-tool gate | `toolchain-router.md` | 重型动作需要确认和止损 |
 | `ida-agent-bridge` candidate | `tooling/catalog.yml`、`ida-x64dbg-mcp.md`、`ida-agent-bridge-readonly.md` | 外部工具候选，不是硬依赖；已定义只读 index packet contract |
 | pack 作者骨架 | `packs/_template/` | 后续创建新 pack 的最小模板；`web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 提供安全领域 skeleton 参考 |
-| case smoke 验证过的 runtime | `rekit/rekit.ps1`、`rekit/lib/*.ps1` | `init/attach/sync/promote` 边界已验证 |
+| case smoke 验证过的 runtime | `cmd/rekit/**`、`internal/rekit/**`；`rekit/rekit.ps1` 仅 retained compatibility façade | Go-owned/no-fallback case lifecycle、sync/promote 与 workstream 边界已有 package/smoke 覆盖；legacy `rekit/lib/*.ps1` 已删除 |
 
 ### 5.2 部分可用 / 设计已就绪
 
@@ -189,7 +189,7 @@ git diff --check
 |---|---|---|
 | evidence ledger | runtime 已落地（`/rekit note` 9 种 kind + overview/handoff/note-List 读层 + auto decision 字段对齐草案） | 索引优化（SQLite 仅在查询压垮 runtime 时） |
 | orchestration | `plan-subagents` 只读计划器 + route/shard/review-loop observability + `note -Kind decision` verdict 写回（R5 判定 runtime 不自动 spawn） | 跨工具 adapter 实际调用属 Phase 6 后段 |
-| heavy-tool gate runtime | overlay 契约 + PowerShell `note -Kind request -Status pending-gate` + Go `gate -WhatIf/-Apply` preview/request；PowerShell `overview`/`handoff`/`note -List` 已展示 Go request 的 actor/risk/target/batch/gate 详情；不执行 heavy-tool、不写 confirmed/authority、不默认接入 façade | Phase 6 后段 runtime 强制 gate 与受控执行闭环 |
+| heavy-tool gate runtime | Go-owned/no-fallback `gate -WhatIf/-Apply` preview/request 与 `note`、`overview`、`handoff` 读写/投影链路；只写 pending/authorized gate decision，不执行 heavy-tool、不写 confirmed/authority | Phase 6 后段由 lane executor/tool adapter 消费授权并完成 evidence/budget/boundary-hit 闭环 |
 | tool adapter | policy + candidate + `ida-agent-bridge` 只读 packet contract | 后续多个真实 case 验证后，再考虑 runtime-level adapter 或其它工具 adapter |
 | 多 pack 扩展 | `_template` + `packs/web-security/` + `packs/malware-analysis/` + `packs/vuln-research/` + `packs/ctf/` + `packs/unpack-pe/` + `packs/ollvm/` + `packs/android-native/` + `packs/generic-binary-re/` | `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 已有 skeleton；后续按真实需求继续扩展领域 pack |
 

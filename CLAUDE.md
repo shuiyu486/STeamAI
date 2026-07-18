@@ -34,7 +34,7 @@ BEGIN.
 
 `re-context-kits` 是面向网络安全研究与安全工程任务的 Claude Code Agent Team Mission Control 框架，用于组织主 Agent 统筹、durable member lanes、可替换 Claude Code session executors、短命 tactical subagents、领域工具链、证据账本、验证门禁和可复用安全领域 pack。
 
-最终产品方向已确认在 `docs/mission-control-product-direction.md`：用户主要指挥主 Agent / Mission Commander；`/rekit`、`rekit.ps1` 与 Go backend 是底层 deterministic runtime/API；长期成员身份绑定 lane，而不是绑定旧聊天窗口；用户可介入 lane 并由 lane reconcile 干预；在 lane 文档/packet/autonomy profile 明确预授权范围内，成员 lane 可自主执行 heavy-tool、动态调试、patch、dump、hook、网络或 exploit replay 等动作，但必须遵守 target scope、预算、止损、记录和升级边界。
+最终产品方向已确认在 `docs/mission-control-product-direction.md`：用户主要指挥主 Agent / Mission Commander；`/rekit` 与 Go backend 是底层 deterministic runtime/API，`rekit.ps1` 只作为 retained compatibility façade；长期成员身份绑定 lane，而不是绑定旧聊天窗口；用户可介入 lane，并由当前显式 `reconcile` 流程把干预写回 durable state。lane 文档/packet 可以表达预授权意图，但确定性 heavy-action 授权依据是通过 strict validation 的 `.rekit/lanes/<lane>/autonomy.json`，并由 `gate` 记录 `authorized-gate` decision；executor 仍必须遵守 target scope、预算、止损、output paths、记录和升级边界。
 
 当前阶段，本仓库主要是 Agent Team 的 context / workflow / tooling / runtime 底座；`vmp-re` 是首个成熟 pack 和验证场，不是最终边界。本仓库不是具体安全 case 或 RE case，也不是已经全自动化的脱壳器、逆向引擎、漏洞挖掘器或渗透执行器。
 
@@ -67,7 +67,7 @@ BEGIN.
 - 长期自主 goal 与新会话接手指南：`docs/autonomous-goal.md`
 - Go-first 收束与 release readiness 阶段计划：`docs/go-first-convergence-plan.md`
 - 发布门禁与当前 release readiness checklist：`docs/release-readiness.md`
-- 轻量 CI release gate：`.github/workflows/release-gate.yml`
+- 轻量 CI release gate workflow：`.github/workflows/release-gate.yml`（inventory ready 只证明定义完整；远程 jobs 是否 green 必须读取 GitHub Actions 实际结果）
 - PowerShell-free / Go-native convergence roadmap：`docs/powershell-deprecation.md`
 - 设计文档：`docs/design.md`
 - pack 编写指南：`docs/pack-authoring.md`
@@ -94,7 +94,7 @@ BEGIN.
 4. Common policies/prompts：改 `common/**`
 5. 用户文档：改 `README.md` 或 `docs/**`
 
-后续路线可以按 `docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/vision.md` 与 `docs/go-first-convergence-plan.md` 分批实施。当前阶段用户已授权优先推进 PowerShell-free / Go-native / 跨平台收敛：PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问，但必须有 Go-native 替代、文档和验证；若要删除公共入口且没有替代路径则仍需升级。每批完成后自行 review/评估并做低风险调整；只有遇到新的产品方向变化、破坏性仓库操作、未授权外部副作用、confirmed/authority 写入策略变化、runtime schema 迁移、删除公共入口但无 Go-native 替代方案或难以判断的架构取舍时，再停下来询问用户。动态调试/注入/patch/dump/hook/网络/exploit replay 等动作若已在当前 lane 文档/packet/autonomy profile 中明确预授权，可在 scope、预算、止损、输出路径和记录要求内由成员 lane 自主执行；超出授权或出现新风险时必须升级。为避免上下文压缩导致偏差，后续所有实施计划必须持续写回 `docs/batch-plan.md` 或相关设计文档，不能只留在聊天上下文中；完成后按用户要求提交并推送到远程 `main`。
+后续路线可以按 `docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/vision.md` 与 `docs/go-first-convergence-plan.md` 分批实施。当前阶段优先推进 PowerShell-free default/product path、Go-native、跨平台与 Mission Commander operational closure：禁止新增 PowerShell runtime logic；PowerShell convergence batch 应实际减少 retained residue 或完成删除门禁，其它 batch 可推进 lane、reconcile、autonomy、reviewer dispatch/intake 或 pack-memory 闭环。PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问，但必须有 Go-native 替代、文档和验证；若要删除公共入口且替代、恢复或真实 release-gate-green 条件不完整，仍需升级。每批完成后自行 review/评估并做低风险调整；只有遇到新的产品方向变化、破坏性仓库操作、未授权外部副作用、confirmed/authority 写入策略变化、runtime schema 迁移、公共入口删除门禁不完整或难以判断的架构取舍时，再停下来询问用户。lane 文档/packet 只表达授权意图；只有 strict validated durable autonomy profile 加 `authorized-gate` decision 才允许 executor 在 scope、预算、止损、output paths 和记录要求内不逐步询问地执行 heavy action。为避免上下文压缩导致偏差，后续计划必须持续写回 `docs/batch-plan.md` 的 current/active/next 区或相关设计文档；只有当前用户 goal/session 明确授权时才提交并推送到指定远程分支。
 
 不要复制 runtime 逻辑到 case shim；case-local `/rekit` 应保持 thin shim，并回到 kit 仓库中的 canonical runtime。
 
@@ -113,7 +113,7 @@ go test ./...
 go vet ./...
 ```
 
-默认远程 CI 入口是 `.github/workflows/release-gate.yml`，在 Linux、Windows、macOS 上运行 Go-native release checks；大型 pack matrix、真实临时 case smoke、PowerShell façade smoke 和 heavy-tool gate 不进入默认 CI。
+默认远程 CI workflow 是 `.github/workflows/release-gate.yml`，定义 Linux、Windows、macOS Go-native release checks；大型 pack matrix、真实临时 case smoke、PowerShell façade smoke 和 heavy-tool gate 不进入默认 CI。`release-check` 的 `ciReleaseGate.ready=true` 只验证 workflow/inventory 定义，不代表远程 jobs 已获得 runner 或实际通过；发布结论必须另外读取 GitHub Actions 实际状态。
 
 涉及 PowerShell façade / Go backend 委托时额外检查：
 

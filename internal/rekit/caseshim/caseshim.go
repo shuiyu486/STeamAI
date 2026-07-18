@@ -68,7 +68,7 @@ var requiredShimPhrases = []string{
 
 var requiredCanonicalSkillPhrases = []string{
 	"底层 Go CLI 是 canonical runtime",
-	"`rekit.ps1` 只是迁移期 legacy façade",
+	"`rekit.ps1` 只是 retained compatibility façade",
 	"case 只生成 `.claude/skills/rekit/SKILL.md` 薄 shim",
 	"底层 runtime 只作为 `/rekit` 的内部实现",
 }

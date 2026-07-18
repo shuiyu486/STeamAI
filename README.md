@@ -4,9 +4,9 @@
 
 当前阶段，它已经提供 `/rekit` case 管理、首个成熟 pack `vmp-re`、安全领域 pack 骨架 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re`、工作线协同、handoff、sync/promote 和 tooling 经验沉淀；`vmp-re` 是验证框架的第一个重点领域，不是最终边界。长期目标是逐步扩展到逆向工程、恶意样本分析、漏洞研究、Web/API 安全评估、授权测试/靶场/CTF、Android native、OLLVM 等多类安全任务。
 
-当前项目不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first、可预授权边界内自主推进的 Agent Team 底座。
+当前项目不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。lane 文档/packet 只能表达授权意图；heavy action 的确定性预授权来自 strict durable autonomy profile 与 `authorized-gate` decision。
 
-一句话：**用户主要指挥主 Agent / Mission Commander；主 Agent 调度 durable member lanes、可替换会话执行体和短命 tactical subagents；`overview` JSON/text 与 project handoff 提供逐 lane typed executor action index 和 blocker-aware 下一步，`start` / `gate` / `reconcile` envelope/text、`handoff` JSON/Markdown、`continue` envelope/run artifacts 与 lane-local `RESUME.md` / typed checkpoint 复用 Mission Control brief、基于 typed facts 的 executor action blocker counts、gate snapshot 与下一步动作；`/rekit`、Go CLI/backend 是背后的 canonical deterministic runtime/API，`rekit.ps1` 仅作为迁移期 legacy façade，默认路径继续向 PowerShell-free / Go-native / 跨平台收敛。**
+一句话：**用户主要指挥主 Agent / Mission Commander；主 Agent 调度 durable member lanes、可替换会话执行体和短命 tactical subagents；`overview` JSON/text 与 project handoff 提供逐 lane typed executor action index 和 blocker-aware 下一步，`start` / `gate` / `reconcile` envelope/text、`handoff` JSON/Markdown、`continue` envelope/run artifacts 与 lane-local `RESUME.md` / typed checkpoint 复用 Mission Control brief、基于 typed facts 的 executor action blocker counts、gate snapshot 与下一步动作；`/rekit`、Go CLI/backend 是背后的 canonical deterministic runtime/API，`rekit.ps1` 仅作为 retained compatibility façade，不承载业务 runtime，也没有 PowerShell 业务 fallback；默认路径继续向 PowerShell-free / Go-native / 跨平台收敛。**
 
 ## 项目路线
 
@@ -26,7 +26,7 @@
 - case 迁移说明：`docs/case-migration.md`
 - Go backend 渐进迁移：`docs/go-runtime-migration.md`
 - Go-first 收束与 release readiness 阶段计划：`docs/go-first-convergence-plan.md`
-- 发布门禁与当前 release readiness checklist：`docs/release-readiness.md`（机器可读 inventory 与 release handoff：`go run ./cmd/rekit -- -Command release-check -Format json`；三平台 Go-native 轻量 CI：`.github/workflows/release-gate.yml`）
+- 发布门禁与当前 release readiness checklist：`docs/release-readiness.md`（机器可读 inventory 与 release handoff：`go run ./cmd/rekit -- -Command release-check -Format json`；三平台 Go-native workflow 定义：`.github/workflows/release-gate.yml`；inventory ready 不等于远程 jobs 已实际运行并通过）
 - PowerShell-free / Go-native convergence roadmap：`docs/powershell-deprecation.md`
 
 ## 如果你在维护本仓库
@@ -174,7 +174,7 @@ claude
 
 `overview` 只是项目总览，不代表当前会话已经选择主线或支线。多条 open 工作线时，无参数 `/rekit continue` 只会列出选择，不会盲目推进。需要自动化预览时可先运行 `/rekit continue login -WhatIf -Format json` 获取只读计划和结构化 `missionBrief`。明确选择后，它会自动整理对应工作线的 case-local 状态：收集 outbox/workspace 事件、发布低风险共享事实、路由 request、验证候选并刷新接续提示；显式 `-Apply` 后 JSON、run status 与 digest 会记录 apply 后 Mission Control brief，便于 lane executor 直接判断 open decision / pending gate / authorized gate / intervention 状态。
 
-安全边界：只有 candidate 同时满足 evidence、accepted verifier、confidence 阈值、CSV schema、无冲突、backup、diff、max rows 时，才允许自动 append authority CSV；覆盖/删除 authority、冲突、schema change、外部副作用或破坏性动作仍必须问用户。
+安全边界：candidate 同时满足 evidence、accepted verifier、confidence 阈值、CSV schema、无冲突、backup、diff、max rows 时，只代表可进入 authority review。`continue -Apply` 不写 authority/confirmed；authority 写入、覆盖/删除、冲突、schema change、外部副作用或破坏性动作必须经过独立 gate 和显式用户确认。
 
 ### 3. 开一个功能支线
 
@@ -402,8 +402,8 @@ references/vmp-re/task-handoff.md
 这些入口只是为了自动化、按需 CI、排障或旧流程兼容：
 
 ```text
-cmd/rekit/main.go                  # Go-native backend CLI，默认 CI / 维护自动化入口
-rekit/rekit.ps1                    # 迁移期 legacy façade / fallback，默认 CI 不依赖
+cmd/rekit/main.go                  # Go-native backend CLI，CI workflow / 维护自动化入口
+rekit/rekit.ps1                    # retained compatibility façade；无业务 runtime、无 PowerShell fallback，默认 CI 不依赖
 rekit/tests/README.md              # smoke 维护指南与验证选择表
 rekit/tests/catalog.json            # smoke 机器可读导航目录（非自动执行器）
 rekit/tests/catalog-smoke.ps1       # smoke catalog 输出契约自测
@@ -422,11 +422,11 @@ packs/vmp-re/scripts/promote.ps1
 ## 架构边界
 
 - `/rekit` 是用户入口。
-- `rekit/rekit.ps1` 是稳定 PowerShell façade / fallback，只是 backend。
+- `rekit/rekit.ps1` 是 retained PowerShell compatibility façade，只负责参数兼容、Go delegation、no-fallback guard 与错误透传；它不承载业务 runtime，也没有 PowerShell 业务 fallback。
 - Go backend 位于 `cmd/rekit/**` 与 `internal/rekit/**`；低风险只读命令 `status`、`packs`、`doctor/validate`，attached case 的 `overview` 文本/JSON 与缺 board 时的 case-local board/facts/policy/default authority lane 初始化，`note -List` 文本/table/tsv/JSON 只读查询，attached case 的 note append / `note -WhatIf` facts JSONL 写入或预览，`gate -WhatIf` 非写入 heavy-action authorization preflight，`gate -Apply` pending-gate / authorized-gate request ledger decision 写入，attached case 的 `start` / `handoff` JSON preview、explicit apply、文本 preview 与 bare/default 工作线 flow，`continue` JSON preview、explicit apply 与文本/default preview 的 case-local facts/routing/run digest/lane resume/checkpoint/board safe subset（存在 effective open intervention 时 fail-closed，需先 `reconcile`），边界清晰的 case lifecycle 命令 `attach`、`repair`、`init/bootstrap` 的预览与显式 `-Apply`，`/rekit sync` review、`sync -Apply` 实际写入和 `sync -Apply -WhatIf -Format json` 非写入预览，以及 `/rekit promote` review、review artifact 写入、promote `-CreateCandidates` 实际候选写入、promote `-CreateCandidates -WhatIf -Format json` 非写入预览、promote `-Apply` 实际 pack source 写入和 promote `-Apply -WhatIf -Format json` 非写入预览、`reconcile` 显式 resolution 写入与 lane executor/resume/checkpoint/board 刷新默认委托 Go。`release-check`、`status`、`packs`、`doctor/validate`、`attach/repair/init/bootstrap`、`sync/update`、`promote`、`overview`、`note`、`gate`、`start`、`handoff`、`continue`、`reconcile` 与 `plan-subagents` 已 no-fallback；`REKIT_GO_DISABLE=1` 不再让 Go-default command rows 回落到 PowerShell 业务实现。`plan-subagents` review artifacts 只写 review packet/summary/combined diff 路径、不自动 spawn agent；actual heavy-tool 执行、authority/confirmed 写入和非 note/gate/continue/reconcile apply 的其它 ledger 写入命令仍不由默认 Go façade执行；文本 `sync -Apply -WhatIf`、文本 promote what-if、case lifecycle fallback 与 workstream fallback 已 no-fallback；Go `continue -Apply` 存在 effective open intervention 时 fail-closed 并要求先 `reconcile`，且不写 authority/confirmed；`gate -Apply` 只记录授权决策，不执行 heavy-tool、不写 authority/confirmed；authority/confirmed 仍需显式用户确认。
 - legacy `rekit/lib/B3.*.ps1` 工作流 runtime 已在 Batch 240 删除；工作线、ledger、gate、handoff 与 Mission Control 状态以 Go-owned `internal/rekit/**` runtime 为准。
 - `packs/<pack>/manifest.yml` 是 managed/local/tooling/budget/promote 规则的单一事实源。
 - case-local `.claude/skills/rekit/SKILL.md` 只是 thin shim，不维护业务逻辑。
 - `.re-template.yml` 只保留兼容旧入口；新状态看 `.rekit/instance.yml`。
 - 不默认安装用户级 skill。
-- 不自动 commit / push。
+- 不默认 commit / push；只有当前用户 goal/session 明确授权具体仓库和分支时才执行。

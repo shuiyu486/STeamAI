@@ -11,6 +11,6 @@
 规则：
 
 - 样本、unpacked binary、dump、trace、memory、patch、import table、完整 section bytes、IOC、hash 和绝对路径留在 case-local workspace 或 sidecar，不写回 pack。
-- 动态调试、样本执行、dump、patch、解密/解压 payload、外部联网、自动修复 import 或写 unpacked 文件必须有明确授权、隔离、预算和 stop condition；高风险动作先登记 pending-gate request。
+- 动态调试、样本执行、dump、patch、解密/解压 payload、外部联网、自动修复 import 或写 unpacked 文件必须有隔离、预算和 stop condition，并先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict durable autonomy profile + 对应 `authorized-gate`，才允许 executor 执行。
 - 子 agent 默认只读或仅写自己的 workspace；main agent 负责 ledger writeback、handoff、review merge 和 authority 确认。
 <!-- END unpack-pe:router -->

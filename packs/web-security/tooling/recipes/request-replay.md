@@ -6,23 +6,25 @@
 
 ## Gate 前置
 
-执行前必须登记 pending-gate request，至少包含：
+执行前必须先经 `/rekit gate` preflight；`gate -Apply` 只记录 `pending-gate` 或 `authorized-gate` request decision，不执行动作。只有本次显式用户确认，或 strict durable autonomy profile + 覆盖本次边界的 `authorized-gate`，才允许 executor 执行。request 至少包含：
 
 ```yaml
-action: authenticated-replay | exploit-replay | network
-scope: <authorized target and account/role summary>
-budget:
-  requests: <max requests>
-  runtime_s: <max seconds>
-  rate_limit: <requests per second>
+gate_action: network
+domain_action: authenticated-replay | exploit-replay
+target_ref: <exact targetScope value>
+requested_budget:
+  runtime_seconds: <positive integer>
+  disk_mb: <positive integer>
+  requests: <positive integer>
+output_paths:
+  - <case-relative sidecar path>
 tried_light_steps:
-  - passive triage
-  - sidecar review
+  - passive-triage
+  - sidecar-review
 stop_conditions:
-  - unexpected state change
-  - auth/session error
-  - response size above budget
-  - out-of-scope redirect or host
+  - live-target-ambiguity
+  - unexpected-outbound-request
+  - scope-drift
 ```
 
 ## 输出
@@ -36,4 +38,4 @@ stop_conditions:
 
 - 不做 DoS、bruteforce、credential stuffing、mass scan。
 - 不把完整请求/响应、凭据、token、cookie、JWT、API key 或 payload 写入 pack。
-- 不绕过用户确认执行 destructive write 或高流量动作。
+- 既无本次显式用户确认、也无 strict durable autonomy profile + 对应 `authorized-gate` 时，不执行 destructive write 或高流量动作；超出 grant 边界必须升级。

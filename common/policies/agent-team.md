@@ -150,12 +150,12 @@ created_at: <ISO 时间>
 
 用户可以随时进入任意 member lane 打断、纠错、补充上下文、改向、硬切模型或要求新会话接手。成员 lane 下一次继续时必须先 reconcile：总结用户干预，标记被废弃的假设或 candidate，更新 status / outbox / intervention event，并在影响全局计划时通知 main agent。用户不需要在切模型前手写 checkpoint。
 
-成员 lane 可以在当前 lane 文档、task packet 或 autonomy profile 明确授权的范围内自主执行较重动作，不必每一步都再次询问用户。预授权必须至少明确 target scope、allowed actions、budget、stop conditions、output paths、record_required 和 notify/escalation 条件；超出范围、出现新风险或需要最终发布/authority 时必须升级。
+lane 文档和 task packet 只能表达预授权意图，不能单独构成 heavy-action grant。成员 lane 只有在 strict validated `.rekit/lanes/<lane>/autonomy.json` 与覆盖本次 action、exact target、typed budget、stop conditions、output paths、record/notify 边界的 `authorized-gate` decision 同时有效时，才可在该范围内自主执行较重动作；否则必须先就具体动作取得显式用户确认。超出范围、出现新风险或需要最终发布/authority 时必须升级。
 
 ## 必须询问用户的情况
 
 - confirmed / authority 写入、覆盖或删除。
-- 未被当前 lane 文档/packet/autonomy profile 明确预授权的外部副作用：网络、发布、上传、安装、进程注入、patch、dump、hook、动态调试、exploit replay、扫描或 fuzz。
+- 未被 strict validated durable autonomy profile 与对应 `authorized-gate` decision 完整覆盖，也尚未获得本次显式用户确认的外部副作用：网络、发布、上传、安装、进程注入、patch、dump、hook、动态调试、exploit replay、扫描或 fuzz。
 - runtime schema 迁移或破坏兼容性的 manifest 变更。
 - 需要扩大授权范围的架构取舍。
 - 工具运行成本、输出规模、目标范围或风险明显超出当前 packet/autonomy profile。

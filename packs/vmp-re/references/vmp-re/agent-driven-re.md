@@ -29,7 +29,7 @@ Agent 可以并行、短命；工作线、证据和 handoff 必须持久。任�
 - 功能支线不能修改 confirmed CSV、routine IR、`task-handoff.md` 或共享 IDB 状态。
 - reviewer 只输出 verdict、evidence、risk、next_action，不执行写入和重型工具。
 - confirmed 写入必须能追溯到 candidate、evidence、verifier 和本轮变更 diff。
-- heavy trace、debug、inject、patch、dump 等动作必须有用户确认、预算和止损条件。
+- heavy trace、debug、inject、patch、dump 等动作必须有预算和止损条件，并由本次显式用户确认，或 strict validated durable autonomy profile + 覆盖本次边界的 `authorized-gate` decision 授权。
 - Markdown 只保存摘要和证据定位；长 trace、反汇编、反编译和 tool log 放 sidecar。
 
 ## 风险与注意事项

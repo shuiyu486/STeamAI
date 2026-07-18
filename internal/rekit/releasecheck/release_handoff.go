@@ -369,13 +369,14 @@ func releaseHandoffPackMaturityDetails(inventory ReleaseHandoffPackMaturity) []s
 func releaseHandoffKnownGaps(gaps []string) []ReleaseHandoffKnownGap {
 	out := make([]ReleaseHandoffKnownGap, 0, len(gaps))
 	for i, gap := range gaps {
+		category := knownGapCategory(gap)
 		gap = compactHandoffText(gap, 220)
 		if strings.TrimSpace(gap) == "" {
 			continue
 		}
 		out = append(out, ReleaseHandoffKnownGap{
 			Index:    i + 1,
-			Category: knownGapCategory(gap),
+			Category: category,
 			Summary:  gap,
 		})
 	}
@@ -393,20 +394,27 @@ func releaseHandoffKnownGapDetails(gaps []ReleaseHandoffKnownGap) []string {
 func knownGapCategory(gap string) string {
 	lower := strings.ToLower(gap)
 	categories := []string{}
-	if strings.Contains(lower, "bounded dispatch") {
-		categories = append(categories, "dispatch")
+	categoryPhrases := []struct {
+		category string
+		phrases  []string
+	}{
+		{category: "ci-release-gate", phrases: []string{"远程 release-gate", "billing/spending limit"}},
+		{category: "cross-platform-product-path", phrases: []string{"cross-platform", "product path"}},
+		{category: "session-orchestration", phrases: []string{"session/reviewer orchestrator", "member session"}},
+		{category: "dispatch", phrases: []string{"bounded dispatch", "reviewer"}},
+		{category: "heavy-tool", phrases: []string{"heavy-tool"}},
+		{category: "authority", phrases: []string{"authority/confirmed"}},
+		{category: "pack-memory", phrases: []string{"pack-based team memory", "pack-memory"}},
+		{category: "policy-schema", phrases: []string{"policy schema"}},
+		{category: "powershell-deprecation", phrases: []string{"powershell"}},
 	}
-	if strings.Contains(lower, "heavy-tool") {
-		categories = append(categories, "heavy-tool")
-	}
-	if strings.Contains(lower, "authority/confirmed") {
-		categories = append(categories, "authority")
-	}
-	if strings.Contains(lower, "policy schema") {
-		categories = append(categories, "policy-schema")
-	}
-	if strings.Contains(lower, "powershell") {
-		categories = append(categories, "powershell-deprecation")
+	for _, candidate := range categoryPhrases {
+		for _, phrase := range candidate.phrases {
+			if strings.Contains(lower, phrase) {
+				categories = append(categories, candidate.category)
+				break
+			}
+		}
 	}
 	if len(categories) == 0 {
 		return "general"

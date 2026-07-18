@@ -36,7 +36,7 @@ binary_ref, function_ref, artifact_ref, behavior_hint, api_ref, candidate_path
 
 - accepted function hypothesis / API behavior candidate / format finding 只能进入 main 合并队列，不能直接写 confirmed / authority / report。
 - 证据不足时使用 `defer` 或 `needs-more-evidence`，并给出下一步轻量验证。
-- 需要动态执行、调试、trace、dump、patch、批量反编译、自动重命名/注释、外部联网或写回分析数据库时，先登记 pending-gate request。
+- 需要动态执行、调试、trace、dump、patch、批量反编译、自动重命名/注释、外部联网或写回分析数据库时，先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict validated durable autonomy profile + 覆盖本次边界的 `authorized-gate`，才允许 executor 执行。`gate -Apply` 本身只记录 request decision，不执行 heavy action。
 - 每个 shard 的失败只影响本 shard；不要阻塞无关 binary、function、artifact、API 或 behavior candidate。
 
 ## 5. 证据与 sidecar

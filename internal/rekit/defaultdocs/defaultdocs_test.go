@@ -29,7 +29,7 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertPhrase(t, readiness, "README.md", "用户主要指挥主 Agent / Mission Commander")
 	assertPhrase(t, readiness, "docs/mission-control-product-direction.md", "Lane-centric Agent Team Mission Control")
 	assertPhrase(t, readiness, ".claude/skills/rekit/SKILL.md", "底层 Go CLI 是 canonical runtime")
-	assertPhrase(t, readiness, "CLAUDE.md", "PowerShell-free / Go-native / 跨平台收敛")
+	assertPhrase(t, readiness, "CLAUDE.md", "PowerShell-free default/product path、Go-native、跨平台")
 	assertPhrase(t, readiness, "docs/autonomous-goal.md", "默认继续自主推进")
 	assertPhrase(t, readiness, "docs/release-readiness.md", "默认本机验证路径不依赖 PowerShell")
 	assertPhrase(t, readiness, "docs/go-first-convergence-plan.md", "不要把大型 PowerShell matrix 作为默认必跑")
@@ -37,7 +37,7 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertPhrase(t, readiness, "docs/powershell-deprecation.md", "Go CLI/backend 是 canonical runtime")
 	assertPhrase(t, readiness, "docs/vision.md", "优先运行 Go-native 检查")
 	assertPhrase(t, readiness, "docs/reference-absorption.md", "Go-native release readiness 子集")
-	assertPhrase(t, readiness, "docs/agent-team-rollout-plan.md", "公共 `/rekit` 默认路径继续向 Go-native / PowerShell-free 收敛")
+	assertPhrase(t, readiness, "docs/agent-team-rollout-plan.md", "公共 `/rekit` 默认路径已由 20 个 Go-owned/no-fallback public commands 支撑")
 	assertPhrase(t, readiness, "rekit/tests/README.md", "推荐最小回归组合")
 	if counts.ForbiddenCommands != 0 {
 		t.Fatalf("unexpected forbidden public default commands: %+v", readiness.ForbiddenCommands)
@@ -174,7 +174,7 @@ const readyREADME = `# README
 
 用户主要指挥主 Agent / Mission Commander。
 Go CLI/backend 是背后的 canonical deterministic runtime/API。
-` + "`rekit.ps1` 仅作为迁移期 legacy façade。" + `
+` + "`rekit.ps1` 仅作为 retained compatibility façade。" + `
 默认路径继续向 PowerShell-free / Go-native / 跨平台收敛。
 这里不需要你手动执行底层脚本。
 用户不需要把 ` + "`/rekit`" + ` 子命令当成主要交互界面。
@@ -184,15 +184,15 @@ const readySkill = `# skill
 
 产品方向是 Mission Control。
 底层 Go CLI 是 canonical runtime。
-` + "`rekit.ps1` 只是迁移期 legacy façade。" + `
+` + "`rekit.ps1` 只是 retained compatibility façade。" + `
 底层 runtime 只作为 ` + "`/rekit`" + ` 的内部实现。
 `
 
 const readyClaude = `# CLAUDE
 
-PowerShell-free / Go-native / 跨平台收敛。
+PowerShell-free default/product path、Go-native、跨平台。
 PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问。
-默认远程 CI 入口是 ` + "`.github/workflows/release-gate.yml`" + `，在 Linux、Windows、macOS 上运行 Go-native release checks。
+默认远程 CI workflow 是 ` + "`.github/workflows/release-gate.yml`" + `，定义 Linux、Windows、macOS Go-native release checks。
 `
 
 const readyMissionControlProductDirection = `# mission
@@ -230,9 +230,9 @@ const readyGoRuntimeMigration = `# runtime migration
 
 const readyPowerShellDeprecation = `# powershell
 
-PowerShell-free / Go-native / 跨平台 convergence。
+PowerShell-free default/product path / Go-native / 跨平台 convergence。
 Go CLI/backend 是 canonical runtime。
-PowerShell 只作为迁移期 legacy façade / fallback / parity residue。
+PowerShell 当前只保留 ` + "`rekit/rekit.ps1`" + ` compatibility façade 与按需 parity residue。
 `
 
 const readyVision = `# vision
@@ -249,7 +249,7 @@ Go-native release readiness 子集。
 
 const readyAgentTeamRollout = `# rollout
 
-公共 ` + "`/rekit`" + ` 默认路径继续向 Go-native / PowerShell-free 收敛。
+公共 ` + "`/rekit`" + ` 默认路径已由 20 个 Go-owned/no-fallback public commands 支撑。
 Go-native ` + "`status`" + `、` + "`doctor`" + ` 与 ` + "`release-check`" + ` 不回归。
 `
 

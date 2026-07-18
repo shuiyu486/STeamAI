@@ -34,9 +34,9 @@ git diff --check
 
 - smoke 失败时先修 root cause，不跳过验证。
 - pack smoke 必须覆盖 Go/PowerShell doctor、Go init、case doctor、`plan-subagents` route packet、promote review managed-doc candidate 和 no-write 边界。
-- façade smoke 必须证明默认 Go delegation、已退休 fallback 的 no-fallback 边界、显式 Go enable、Go disable 优先级和剩余 write/text compatibility fallback 不回归；未来删除公共 façade 前，`publicFacadeRemoval.removalImpact.migrationTargets[]` 中列出的全部 public façade references 必须完成 required / Go-native preferred 迁移目标处理，`smokeMigrationTargets[]` 中列出的 façade compatibility / dependent smoke 必须迁移到 Go-native preferred 或显式退休 façade assertions。
+- façade smoke 必须证明默认 Go delegation、所有 public command/profile 的 no-fallback 边界、显式 Go enable 和 Go disable 优先级；retained PowerShell façade 只能委托 Go，不得加载 legacy runtime module 或执行 PowerShell 业务 fallback。未来删除公共 façade 前，`publicFacadeRemoval.removalImpact.migrationTargets[]` 中列出的全部 public façade references 必须完成 required / Go-native preferred 迁移目标处理，`smokeMigrationTargets[]` 中列出的 façade compatibility / dependent smoke 必须迁移到 Go-native preferred 或显式退休 façade assertions。
 - sync/promote apply smoke 只能使用临时 case / pack-safe fixture，并验证 backup、deny、pack-root containment 和 cleanup。
-- workstream / ledger smoke 不写 confirmed/authority，除非脚本专门验证 gate 且使用临时 case。
+- workstream / ledger smoke 一律不写 confirmed/authority；gate 专项测试只可在临时 case 中写 `pending-gate` / `authorized-gate` request decision，不能执行 heavy-tool 或写 authority/confirmed。
 
 ## 风险与注意事项
 
@@ -108,7 +108,7 @@ generic-binary-re-pack-smoke.ps1
 | `overview-readonly-smoke.ps1` | 改 Go overview 或 façade overview 文本/JSON | 缺 board 初始化、后续只读 overview、Go gate request 展示、默认 façade 文本/JSON 委托、`REKIT_GO_DISABLE=1` no-fallback 边界。 |
 | `start-apply-smoke.ps1` | 改 Go start 或 start façade 委托 | preview/apply scaffold、board/facts/policy/lane/workspace、默认 façade JSON preview/apply/text 委托、disabled text/JSON no-fallback、doctor。 |
 | `handoff-apply-smoke.ps1` | 改 Go handoff 或 handoff façade 委托 | project/lane handoff preview/apply、resume/checkpoint、ledger 区段、默认 façade JSON preview/apply/text 委托、disabled text/JSON no-fallback。 |
-| `continue-preflight-smoke.ps1` | 改 Go continue authority preflight gate | Go package authority append policy matrix、continue WhatIf no-write、Apply authority guard、routing、digest/status；该脚本只调 `go test`，不再 dot-source legacy `rekit/lib/*.ps1`。 |
+| `continue-preflight-smoke.ps1` | 改 Go continue authority preflight gate | Go package no-authority/no-confirmed invariant 与 blocked-append policy matrix、continue WhatIf no-write、Apply authority guard、routing、digest/status；WhatIf 和 Apply 都不 append authority/confirmed；该脚本只调 `go test`，不再 dot-source legacy `rekit/lib/*.ps1`。 |
 | `continue-whatif-smoke.ps1` / `go test ./internal/rekit/cli -run TestRunGoWorkstreamE2EStartNoteContinueHandoff` | 改 Go continue preview/apply、continue JSON/text preview/apply façade 委托或 Go workstream 闭环 | non-write preview、case-local apply writes、default façade JSON preview/apply/text delegation、disabled text/JSON no-fallback、wouldWrites/writes、blocked actions、authority guard；Go package E2E 额外覆盖 `_template` pack start → note → continue apply → handoff 闭环。 |
 | `continue-digest-smoke.ps1` | 改 continue digest/status | structured digest inputs/route/packet refs/outputs/decisions/open risks。 |
 

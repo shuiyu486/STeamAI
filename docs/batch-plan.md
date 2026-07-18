@@ -1,8 +1,63 @@
 # Batch implementation plan
 
-## 目的
+## 读取指南
 
-本文件记录后续批次计划，避免上下文压缩后只依赖聊天历史。
+先读本节的 current milestone / current batch state / next candidates，再按需跳到文件末尾查看最新完成批次；不要默认从 Batch 0 顺序重读 350+ 个历史批次。产品方向以 `docs/mission-control-product-direction.md` 为准，持续执行方式见 `docs/autonomous-goal.md`。
+
+## 实施摘要
+
+Batch 351 后，Go-owned/no-fallback public command surface、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action 与 bounded reviewer contracts 已形成底座。当前阶段从 contract/inventory field increments 转向 Mission Commander operational vertical slices、真实 release verification 与跨平台 product-path E2E。
+
+## 执行清单
+
+### Current milestone
+
+**Mission Commander operational closure and truthful release readiness**：把 durable lane/reviewer/autonomy contract 串成实际可运行、可跨会话接手、可验证的产品闭环，并区分 inventory ready、本地 gate executed 与远程 CI green。
+
+### Current batch state
+
+**Batch 352：durable docs / current-state calibration**
+
+状态：已完成。
+
+目标：校准 autonomy 授权来源、PowerShell retained façade/no-fallback 状态、Mission Commander/replaceable session executor 真实完成度、cross-platform 三级验收和 GitHub Actions billing blocker；更新核心 durable docs，避免新会话继续按 Batch 101 历史基线或 metadata 微批次推进。
+
+验证结果：
+
+```text
+go test ./internal/rekit/defaultdocs ./internal/rekit/caseshim ./internal/rekit/manifest ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/promote
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+上述本地检查全部通过；`release-check` 输出 `ready=true`，5 个 coherent known gaps，0 warnings。`git diff --check` 只有工作树 LF/CRLF conversion warning，无 whitespace error。2026-07-18 最近一次远程 release-gate run `29638716747` 的 Linux/Windows/macOS jobs 均 `steps=[]`，annotation 明确为 GitHub account payments/spending limit，故远程三平台 gate 仍未实际执行，不能称为 green。
+
+### Next candidates
+
+1. **Mission Commander bounded reviewer E2E**：实际 spawn read-only reviewer，消费 Batch 345–351 contract，完成 result intake → note WhatIf → verification/decision writeback → overview/handoff post-validation。
+2. **Cross-platform product-path E2E**：在可用 runner 上验证 direct CLI/case lifecycle/workstream，再验证 installed `/rekit` / case shim runtime discovery；先解决或升级 GitHub Actions billing blocker。
+3. **Autonomy execution evidence closure**：sandbox adapter 消费 strict durable profile + `authorized-gate`，记录 actual budget、output refs、evidence 与 boundary-hit/escalation。
+4. **Pack-memory reconsume E2E**：case reusable observation → sanitize/review/promote → fresh case 或另一 pack 消费。
+5. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
+
+### Escalation / stopping conditions
+
+产品方向变化、runtime/policy durable schema 迁移、confirmed/authority 策略变化、未授权外部副作用、公共入口删除门禁不完整或真实 release gate 无法验证时升级。完成单个 batch、inventory ready、push 成功或工作树干净都不是长期 goal 完成。
+
+## 验证标准
+
+每个 active batch 记录实际执行过的命令及结果；`release-check`/`ciReleaseGate.ready` 只算 inventory readiness，不能替代本地命令执行或远程 job conclusions。优先保持 coherent vertical slice，不用逐字段 metadata batch 维持连续推进。
+
+## 风险与注意事项
+
+- `docs/batch-plan.md` 是 active/next 的 durable source，不只是一份已完成批次日志。
+- `CHANGELOG.md` 记录必要的用户可见变化和边界；逐步 plumbing 留在 batch history。
+- 只有当前用户 goal/session 明确授权时才 commit/push 指定分支。
 
 ## 已完成批次
 
@@ -10801,3 +10856,20 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/subagents/plan.go internal/rekit/subagents/plan_test.go internal/rekit/cli/cli_test.go` 与 targeted `go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestWritePlan|TestRunPlanSubagents" -count=1`；完整 release gate 已运行 `go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`、`releaseNotesCovered=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`，均通过。`git diff --check` 仅报告 Windows LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade delegation/fallback。
+
+### Batch 352：durable docs / current-state calibration
+
+状态：已完成。
+
+目标：独立校准用户提供的长期 goal、Mission Control 产品方向和 durable docs，使 current-state、autonomy 授权来源、retained PowerShell façade/no-fallback、Mission Commander operational gaps、跨平台三级验收、commit/push 边界与远程 CI 事实一致。
+
+实施范围：
+
+- 独立校准长期 goal、仓库事实、真实完成度、风险与优先级，并将有效结论直接写回现有 durable docs。
+- 同步 README、CLAUDE、canonical `/rekit` skill、产品方向、autonomous goal、Go-first、release readiness、vision、rollout/reference/design/usage、PowerShell deprecation、case migration、orchestration plan、common Agent Team/tool-adapter policies、`vmp-re` 与 skeleton/template pack 的 agent-team/tool-router/recipe/snippet 示例、smoke 维护指南、batch plan 与 CHANGELOG 的 current-state。
+- 将 `docs/release-readiness.md` known gaps 收敛为 5 个 coherent machine-readable bullets，并同步 public-default/case-shim required phrase inventory 与 fixtures，移除已经失真的“迁移期 legacy façade”、已删除 PowerShell owner 与 fallback 当前态要求。
+- 将 autonomy 示例改成 strict-valid、默认 fail-closed 的 concrete `manual-gate` JSON，并明确 lane docs/packet 只表达授权意图；`preauthorized` / `autonomous` 必须由 strict durable profile 加 `authorized-gate` decision 覆盖 exact target、positive budget、case-relative output、record/notify、grant 与 expiry。
+
+边界：本批不改变 public command、runtime/case/policy durable schema、actual heavy-tool、authority/confirmed、sync/promote review-first 或公共 façade 删除行为；不把 `release-check` inventory ready 当作本地命令或远程 CI green；本轮未获得 commit/push 授权。
+
+验证结果：focused defaultdocs/caseshim/manifest/releasecheck/CLI/promote tests、`release-check -Format json`、status、packs、doctor、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过；`release-check ready=true`、known gaps 为 5、warnings 为 0，diff check 只有 LF/CRLF conversion warning。远程 run `29638716747` 的 Linux/Windows/macOS jobs 均 `steps=[]`，annotation 为 GitHub account payments/spending limit，故三平台 gate 未实际执行、不能称为 green。

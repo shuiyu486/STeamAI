@@ -4,19 +4,19 @@
 
 本文件定义 `rekit` PowerShell 层的冻结、替换、迁移与删除策略，配合 `docs/autonomous-goal.md`、`docs/release-readiness.md` 和 `docs/go-first-convergence-plan.md` 使用。维护者在修改 `rekit/rekit.ps1`、`rekit/lib/*.ps1`、Go façade 委托集合、fallback 逻辑、旧文本 flow、默认验证路径或跨平台入口前应先读本文件顶部区域。
 
-当前阶段目标已经从单纯 **PowerShell runtime deprecation strategy** 升级为 **PowerShell-free / Go-native / 跨平台 convergence**：Go CLI/backend 是 canonical runtime；PowerShell 只作为迁移期 legacy façade / fallback / parity residue。默认入口、默认验证、release gate、case shim 和文档路径应逐步不依赖 PowerShell。删除 PowerShell 代码不再因为“删除”本身停下询问，但必须有 Go-native 替代、文档、测试和恢复边界；删除公共入口且没有替代路径时仍需升级。
+当前阶段目标已经从单纯 **PowerShell runtime deprecation strategy** 升级为 **PowerShell-free default/product path / Go-native / 跨平台 convergence**：Go CLI/backend 是 canonical runtime；20 个 public commands 已全部 Go-default/no-fallback，legacy `rekit/lib/*.ps1` modules 已删除。PowerShell 当前只保留 `rekit/rekit.ps1` compatibility façade 与按需 parity residue；façade 不承载业务 runtime 或 PowerShell fallback。默认入口、默认验证、release gate、case shim 和文档路径应不依赖 PowerShell。删除 residue 不再因为“删除”本身停下询问，但删除 retained public façade 必须满足替代入口、public references、smoke retirement、恢复路径和真实 release-gate-green；门禁不完整时仍需升级。
 
 ## 实施摘要
 
 当前策略：
 
 - **Go-owned**：确定性状态、结构化输出、低风险写入、`release-check` inventory、release invariant、pack-neutral contract 和跨平台路径优先由 `cmd/rekit/**` 与 `internal/rekit/**` 维护。
-- **PowerShell façade**：`rekit/rekit.ps1` 只是迁移期公共兼容入口，负责 Go binary 查找、参数兼容、环境变量开关和旧 case 用户体验；默认 Go 委托与 no-fallback guard 后不再 dot-source legacy runtime modules，也不再保留 command switch fallback dispatcher；不承载新的业务语义。
-- **Legacy-only**：内部命令和非 Go-owned 写入路径暂时保留，禁止扩展新能力；`start` / `handoff` / `continue` 的文本/default 工作线 flow 已由 Go 接管，不再作为 PowerShell fallback 保留。
+- **PowerShell façade**：`rekit/rekit.ps1` 是 retained public compatibility entry，负责 Go binary 查找、参数兼容、环境变量开关和旧 case 用户体验；它不再 dot-source legacy modules、没有 command switch dispatcher，也没有 PowerShell 业务 fallback。
+- **Legacy-only historical category**：过去用于分类未迁移路径；Batch 232/240 后普通 public command fallback candidates 和 legacy runtime modules 均已清零。当前只保留 blocked/manual capabilities 与 compatibility/parity residue，不得扩展新能力。
 - **Parity smoke**：少量 PowerShell smoke 仅保留为 Windows façade / fallback 回归，不进入默认 release gate；后续应迁移到 Go CLI E2E、Go package tests 或跨平台测试。
 - **Release inventory**：Go-owned `release-check -Format json` 输出 `powerShellDeprecation`、`ciReleaseGate`、`caseShim` 与 `publicDefaultDocs`，解析本文件中的命令归属、模块状态、freeze gates 和 blocked migrations，并对照 `rekit/rekit.ps1` 默认委托集合、`rekit/lib/*.ps1` 实际模块清单、默认 CI workflow、case-local thin shim 模板与公开默认文档入口发现漂移；其中 `powerShellDeprecation.fallbackRetirement` 进一步列出 Go-default commands、no-fallback commands、fallback retirement candidate commands、blocked commands 与 removal-candidate modules，作为后续 fallback removal batch 的机器可读前置库存。
 - **删除前置条件**：对应命令已有 Go owner、Go-native 文档入口、release invariant、测试覆盖、fallback 替代或明确删除条件后，即可按独立 batch 删除或降级 PowerShell 实现。
-- **最终状态**：PowerShell 不再是默认 runtime、默认 public entrypoint、默认验证路径、release gate 依赖或 case shim 依赖；macOS/Linux/Windows 默认路径均由 Go-native runtime 支撑。
+- **最终状态**：PowerShell 不再是默认 runtime、默认 public entrypoint、默认验证路径、release gate 依赖或 case shim 依赖；repository/runtime portability、direct CLI/case E2E 与 installed `/rekit`/case-shim product path 均由 Go-native runtime 在 macOS/Linux/Windows 实际验证。
 
 ## 执行清单
 
@@ -27,7 +27,7 @@
 3. Legacy-only 路径只做 bug fix、安全边界修复、兼容性维护或替换准备；不新增功能面。
 4. 禁止新增 PowerShell runtime logic；如必须保留 PowerShell，必须写明依赖方、阻塞原因和删除条件。
 5. 默认委托变化或 fallback 删除必须同步更新本矩阵、release invariants、release-check inventory、验证说明与相关 smoke。
-6. 删除 PowerShell 代码前，先确认 Go-native 路径通过 release gate，且 README、CLAUDE、skill、case shim、tests、CI/release-check 不再把被删路径作为默认入口。
+6. 删除 PowerShell code 前，先确认 Go-native path 的本地 minimum 已实际执行，远程 Linux/Windows/macOS jobs 已实际 green，且 README、CLAUDE、skill、case shim、tests、CI/release-check 不再把被删 path 作为默认入口；`release-check` inventory ready 不能替代真实 gate execution。
 7. 每批更新 `docs/batch-plan.md`、`docs/release-readiness.md`、`docs/go-first-convergence-plan.md` 或本文件，避免只留在聊天上下文中。
 
 ## 验证标准

@@ -4,12 +4,12 @@
 
 定义未来 `/rekit` 半自动 Agent Team runtime 的实施计划。当前文件是设计计划，不表示 runtime 已实现自动分派。
 
-目标是在保持 review-first、可解释、可暂停、可回放的前提下，让 `/rekit` 能为不同安全领域 pack 生成 packet、分派只读复核、收敛结论、提示人工确认并更新 handoff。`vmp-re` 是当前首个成熟验证场，不是最终边界。
+目标是在保持 review-first、可解释、可暂停、可回放的前提下，让 `/rekit` 能为不同安全领域 pack 生成 packet、分派只读复核、收敛结论、完成 deterministic authorization preflight、在必要时提示人工确认并更新 handoff。`vmp-re` 是当前首个成熟验证场，不是最终边界。
 
 ## 非目标
 
 - 不让 runtime 直接控制所有外部安全领域工具。
-- 不绕过用户确认执行 debug、inject、patch、dump、network 或 confirmed 写入。
+- 不在缺少本次显式用户确认且缺少 strict durable autonomy profile + 对应 `authorized-gate` decision 时执行 debug、inject、patch、dump 或 network；confirmed/authority 写入仍必须显式升级。
 - 不让子 agent 写 authority 文件。
 - 不把 orchestration 做成不可解释的黑盒。
 
@@ -17,9 +17,9 @@
 
 | 层 | 职责 | 预期位置 |
 |---|---|---|
-| Planner | 根据 manifest route 和 case state 生成 packet | `rekit/lib/B3.Commands.ps1` / future module |
+| Planner | 根据 manifest route 和 case state 生成 packet | `internal/rekit/subagents/**` 与 CLI `plan-subagents` handler |
 | Dispatcher | 有界分派只读 review 或 workspace-only task | main agent / future runtime hook |
-| Gate | 判断是否允许写入、升级或询问用户 | `rekit/lib/B3.Policy.ps1` |
+| Gate | 判断是否允许写入、升级或询问用户 | `internal/rekit/gate/**` |
 | Digest | 记录每轮输入、输出、决策和风险 | `.rekit/runs/<run-id>/digest.md` |
 | Ledger | 追加 observation/candidate/decision/intervention | `.rekit/facts/*.jsonl` |
 
@@ -43,10 +43,10 @@
 
 ### O3：heavy-tool gate
 
-- 对 full trace、debug、inject、patch、dump、symex、network 生成确认问题。
-- 记录 reason、tried_light_steps、budget、outputs、stop_conditions。
-- 用户确认只覆盖列明 scope，不扩大授权。
-- 验证：无确认不执行外部副作用。
+- 对 full trace、debug、inject、patch、dump、symex、network 执行 deterministic authorization preflight：优先检查 strict validated durable autonomy profile 与覆盖本次 action、exact target、typed budget、stop/output/record/notify 边界的 `authorized-gate` decision；未完整覆盖时生成具体确认问题。
+- 记录 reason、tried_light_steps、budget、outputs、stop_conditions、profile/grant 和 gate decision。
+- 显式用户确认或 durable grant 都只覆盖列明 scope，不扩大授权；confirmed/authority/promote 仍需单独升级。
+- 验证：既无本次显式用户确认、也无有效 deterministic grant 时，不执行外部副作用。
 
 ### O4：digest / replay
 

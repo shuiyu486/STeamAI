@@ -11,6 +11,6 @@
 规则：
 
 - 目标 URL、凭据、请求/响应、HAR、pcap、Burp/ZAP 项目、漏洞细节和客户信息留在 case-local workspace 或 sidecar，不写回 pack。
-- 外部请求、主动扫描、登录尝试、fuzz、bruteforce、exploit replay、DoS 类动作必须有明确授权、预算和 stop condition；高风险动作先登记 pending-gate request。
+- 外部请求、主动扫描、登录尝试、fuzz、bruteforce、exploit replay、DoS 类动作必须有预算和 stop condition，并先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict durable autonomy profile + 对应 `authorized-gate`，才允许 executor 执行。
 - 子 agent 默认只读或仅写自己的 workspace；main agent 负责 ledger writeback、handoff、review merge 和 authority 确认。
 <!-- END web-security:router -->

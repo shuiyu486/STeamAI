@@ -6,28 +6,24 @@
 
 ## Gate 前置
 
-如果需要设备连接、emulator run、Frida attach、hook 执行、网络请求、动态 trace、dump、patch、重签名、安装/卸载应用或外部副作用，必须先登记 pending-gate request，至少包含：
+如果需要设备连接、emulator run、Frida attach、hook 执行、网络请求、动态 trace、dump、patch、重签名、安装/卸载应用或外部副作用，必须先经 `/rekit gate` preflight；`gate -Apply` 只记录 request decision，不执行动作。只有本次显式用户确认，或 strict durable autonomy profile + 覆盖本次边界的 `authorized-gate`，才允许 executor 执行。request 至少包含：
 
 ```yaml
-action: device-connect | emulator-run | frida-attach | hook-execute | network-capture | trace | dump | patch | resign | install-uninstall
-scope: <authorized app/library/symbol aliases and authorization summary>
+gate_action: full-trace | debug | inject | patch | dump | network | symex
+domain_action: device-connect | emulator-run | frida-attach | hook-execute | network-capture | trace | resign | install-uninstall
+target_ref: <exact targetScope value>
 isolation: <emulator/device/lab/offline/network policy>
-budget:
-  runtime_s: <max seconds>
-  apps: <max app aliases>
-  libraries: <max library aliases>
-  requests: <max network requests if any>
-  output_mb: <max output size>
-  network: <disabled | sinkholed | explicit allowlist>
+requested_budget:
+  runtime_seconds: <positive integer>
+  disk_mb: <positive integer>
+  requests: <positive integer>
+output_paths:
+  - <case-relative sidecar path>
 tried_light_steps:
-  - APK native triage
-  - emulator/hook sidecar review
+  - apk-native-triage
+  - emulator-hook-sidecar-review
 stop_conditions:
-  - out-of-scope app, endpoint, device, or account
-  - unexpected network egress
-  - output size above budget
-  - destructive patch or irreversible app/device state change
-  - credential, token, package, endpoint, or customer data leakage
+  - <manifest/profile-covered lowercase token>
 ```
 
 ## 输出
@@ -41,4 +37,4 @@ stop_conditions:
 
 - 不主动连接设备、运行 emulator、attach Frida、执行 hook、联网、抓包、dump、patch、重签名、安装/卸载应用或修改设备/app 状态。
 - 不把 APK/AAB/DEX/SO、hash、包名、真实 endpoint、device/emulator id、hook script、traffic/capture、dump、trace、patch、keystore、token、账号凭据、客户上下文或绝对路径写入 pack。
-- 不绕过用户确认执行动态动作、设备/app 状态写入或破坏性动作。
+- 既无本次显式用户确认、也无 strict durable autonomy profile + 对应 `authorized-gate` 时，不执行动态动作、设备/app 状态写入或破坏性动作；超出 grant 边界必须升级。

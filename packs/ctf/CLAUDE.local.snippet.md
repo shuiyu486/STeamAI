@@ -11,6 +11,6 @@
 规则：
 
 - flag、payload、solver、challenge 原始文件、pcap、dump、trace、远程靶场地址、账号凭据和绝对路径留在 case-local workspace 或 sidecar，不写回 pack。
-- 远程连接、bruteforce、fuzz、exploit replay、高流量请求、真实目标访问、debug/dump/patch 和外部副作用必须有明确授权、预算和 stop condition；高风险动作先登记 pending-gate request。
+- 远程连接、bruteforce、fuzz、exploit replay、高流量请求、真实目标访问、debug/dump/patch 和外部副作用必须有预算和 stop condition，并先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict durable autonomy profile + 对应 `authorized-gate`，才允许 executor 执行。
 - 子 agent 默认只读或仅写自己的 workspace；main agent 负责 ledger writeback、handoff、review merge 和 authority 确认。
 <!-- END ctf:router -->

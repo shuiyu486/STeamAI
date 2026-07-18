@@ -390,7 +390,7 @@ budgets:
   defaultMarkdown: ` + defaultBudget + `
 `
 	writeText(t, filepath.Join(packRoot, "manifest.yml"), manifest)
-	writeText(t, filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md"), "# skill\n\n底层 Go CLI 是 canonical runtime\n`rekit.ps1` 只是迁移期 legacy façade\ncase 只生成 `.claude/skills/rekit/SKILL.md` 薄 shim\n底层 runtime 只作为 `/rekit` 的内部实现\n")
+	writeText(t, filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md"), "# skill\n\n底层 Go CLI 是 canonical runtime\n`rekit.ps1` 只是 retained compatibility façade\ncase 只生成 `.claude/skills/rekit/SKILL.md` 薄 shim\n底层 runtime 只作为 `/rekit` 的内部实现\n")
 	writeText(t, filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md"), "# shim\n\ncase-local 薄 shim\n不包含业务逻辑\ncanonical `/rekit`\n.rekit/instance.yml\n.re-template.yml\n<templateRoot>/.claude/skills/rekit/SKILL.md\ncanonical runtime\nsync` / `promote` 默认必须 review-first\n不要在本 shim 里维护模板规则\n不要读取或修改用户级 `~/.claude/skills`\n不要在 shim 中复制逻辑\n不展示底层脚本或 CLI 命令\nGo-native backend\n")
 	writeText(t, filepath.Join(repoRoot, "common", "policies", "manifest.yml"), "policies:\n  - id: agent-team\n    path: agent-team.md\n")
 	writeText(t, filepath.Join(repoRoot, "common", "policies", "README.md"), "# policies\n")

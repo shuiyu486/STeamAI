@@ -32,25 +32,30 @@
 full trace、动态调试、注入、patch、dump、长时间符号执行等都属于重型动作。执行前先记录：
 
 ```yaml
-heavy_action: full-trace | debug | inject | patch | dump | symex
+gate_action: full-trace | debug | inject | patch | dump | network | symex
+target_ref: <exact targetScope value>
 decision_reason: <为什么轻路径无法闭合>
 tried_light_steps:
   - <已完成的静态/窄 trace/value-flow 动作>
-budget:
-  runtime_s: <估计>
-  disk_mb: <估计>
-outputs:
-  - <sidecar 输出位置>
+requested_budget:
+  runtime_seconds: <positive integer>
+  disk_mb: <positive integer>
+  requests: <positive integer>
+output_paths:
+  - <case-relative sidecar path>
 stop_conditions:
-  - <何时停止>
-authorization: manual-gate | preauthorized
+  - <manifest/profile-covered lowercase token>
+status: pending-gate | authorized-gate
+requires_user_confirmation: true | false
 ```
+
+manifest 的静态 `requiresConfirmation: true` 只表示 action 必须经过 gate；`gate_action` 必须来自当前 pack `heavyToolGates`，request decision 由 autonomy preflight 动态产生，且 `gate -Apply` 不执行 heavy action。
 
 规则：
 
 - 没有明确阻塞原因时，不把 full trace / dynamic debug 当默认开局。
 - 工具大输出只保存到 sidecar，Markdown 只写摘要和路径。
-- 会修改 IDB、patch 字节、注入进程、产生 dump 或外部副作用的动作必须有授权来源；若当前 lane packet / autonomy profile 已预授权，可在 scope、预算、止损和记录要求内自主执行，否则先确认。
+- 会修改 IDB、patch 字节、注入进程、产生 dump 或外部副作用的动作必须有授权来源；lane packet 只表达授权意图，只有本次显式用户确认，或 strict validated durable autonomy profile 加覆盖 exact action/target、typed budget、止损、output、record/notify 边界的 `authorized-gate` decision，才允许执行；超出任一边界必须重新升级。
 - 多 agent 不并发写同一个 IDB、debug session 或 confirmed 文件。
 
 ## 候选工具进入流程

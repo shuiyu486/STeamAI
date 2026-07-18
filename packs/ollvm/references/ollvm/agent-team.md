@@ -36,7 +36,7 @@ binary_ref, function_ref, obfuscation_hint, cfg_region_ref, transform_type, simp
 
 - accepted CFG hypothesis / MBA simplification / deobfuscation candidate 只能进入 main 合并队列，不能直接写 confirmed / authority / report。
 - 证据不足时使用 `defer` 或 `needs-more-evidence`，并给出下一步轻量验证。
-- 需要动态执行、调试、trace、dump、patch、批量反编译、自动重命名、自动写注释、导出反混淆二进制或外部联网时，先登记 pending-gate request。
+- 需要动态执行、调试、trace、dump、patch、批量反编译、自动重命名、自动写注释、导出反混淆二进制或外部联网时，先经 `/rekit gate` preflight；只有本次显式用户确认，或 strict validated durable autonomy profile + 覆盖本次边界的 `authorized-gate`，才允许 executor 执行。`gate -Apply` 本身只记录 request decision，不执行 heavy action。
 - 每个 shard 的失败只影响本 shard；不要阻塞无关 binary、function、CFG region 或 candidate。
 
 ## 5. 证据与 sidecar

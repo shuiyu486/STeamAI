@@ -6,15 +6,15 @@
 - 维护者开始新批次前先读本文件顶部：读取指南、实施摘要、执行清单、验证标准、风险与注意事项，再按批次读细节。
 - 本文件只写计划与契约压测方法，不替代 `common/policies/agent-team.md` 和 `common/policies/subagents.md` 的契约定义。
 - 推进姿态为 **选项 C：契约 dry-run + 临时 case 验证优先**。先压测契约，再按真实缺口决定 ledger runtime（Phase 5）与 bounded dispatch（Phase 6）的顺序。
-- 当前状态：公共 `/rekit` 默认路径继续向 Go-native / PowerShell-free 收敛；R0-R7、B/C 系列、D2-D4、Go G1-G5 已完成。Ledger runtime 支持 9 种 kind、`batchId`、overview/handoff/note-List 读层和 intervention/rollback 展示闭环；`continue` auto 流程写 `.rekit/runs/<run-id>/digest.md`，Go backend 可输出 `continue -WhatIf` 非写入 preview，并在 explicit `continue -Apply` 中写 case-local facts/routing/run digest/lane resume/checkpoint/board，同时 defer authority/confirmed。`plan-subagents` 仍是只读计划器，已输出 route/shard/review-loop observability，但不自动 spawn reviewer。Go backend 已默认接管 `sync/promote` review/apply、gate preview/request、note append/list 文本与 JSON、overview 文本/JSON 与缺 board 初始化、start/handoff JSON preview 与显式 apply，以及 continue JSON preview/explicit apply；Batch 122-124 已用 `_template` pack 的 Go package tests 锁定 start → note → continue apply → handoff、gate/dispatch 与 reviewer/decision 可见性闭环；Batch 125 已用 `generic-binary-re` Go package test 覆盖 non-feature lane、pack-specific route、candidate/gate/verification/decision、overview 与 handoff 的 pack-neutral 闭环；Batch 126 已用 `web-security` Go package test 覆盖非 RE-only route、network gate、candidate/gate/verification/decision、overview 与 handoff 的 pack-neutral 闭环；Batch 127 已新增 `web-security-agent-team-dryrun-smoke.ps1`，使用公共 `/rekit` façade 与真实临时 case 跑通 Web/API Agent Team dry-run；无 `-Apply` 的 continue/text 工作线 flow 仍由 PowerShell fallback 承担。Batch 101 后的新阶段导航见 `docs/go-first-convergence-plan.md`；后续优先 Go deterministic runtime 收口、release readiness、Agent Team 真实 dry-run 闭环与 PowerShell 收缩。
+- 当前状态：公共 `/rekit` 默认路径已由 20 个 Go-owned/no-fallback public commands 支撑，legacy `rekit/lib/*.ps1` 已删除，`rekit.ps1` 仅 retained compatibility façade。Ledger runtime 支持 9 种 kind、`batchId`、Mission brief / executor action、显式 `reconcile`、typed autonomy preflight 与 pending/authorized gate visibility；`plan-subagents` 已输出 shard handoff、reviewer result/intake/decision/writeback contracts，但不自动 spawn reviewer。安全领域 packs 已有 package E2E 或真实临时 case smoke。当前缺口是实际 member/reviewer session orchestration、result intake/writeback E2E、authorized execution evidence closure、pack-memory reconsume 与跨平台 product-path E2E；current baseline 见 `docs/go-first-convergence-plan.md` 顶部与 `docs/batch-plan.md` 的 current/active/next 区。
 
 ## 实施摘要
 
 Agent Team 当前真实状态是**契约层完整、ledger/runtime 基础已落地、Mission Control 产品方向已确认，自动编排、真实 heavy-tool 执行闭环、confirmed/authority 强制 gate 仍待推进；可替换 session executor、Human-in-the-Lane reconcile 与 durable lane autonomy preflight 已进入 Go runtime**：
 
-- 已固化：`common/policies/agent-team.md`（角色 + packet + 状态流）、`common/policies/subagents.md`（L1/L2/L3 + output contract）、manifest `subagentRoutes`、`B3` 工作线 runtime、vmp-re pack、`_template` pack。
+- 已固化：`common/policies/agent-team.md`（角色 + packet + 状态流）、`common/policies/subagents.md`（L1/L2/L3 + output contract）、manifest `subagentRoutes`、Go-owned Mission Control/workstream runtime、vmp-re pack、`_template` pack。
 - 已落地：Go-owned ledger runtime（9 种 kind、batchId、overview/handoff/note-List、run digest）、sync/promote review-first、Go review-only plan/artifacts、Go gate authorization preflight 与 pending-gate / authorized-gate request ledger decision 写入、durable lane reconcile / executor takeover、start/continue/handoff/overview autonomy profile summary、Go façade 对 read-only/case lifecycle/sync/promote/ledger/gate/start/handoff/continue/reconcile preview/apply safe subset 的默认接管，`_template` pack 的 Go package workstream、gate/dispatch 与 reviewer/decision 闭环测试，`generic-binary-re` 的 pack-neutral non-feature lane E2E 测试、`web-security` 的非 RE-only pack-neutral route/network gate E2E 测试，以及安全领域 pack 的真实临时 case Agent Team dry-run smoke。
-- 未落地：bounded dispatch 自动 spawn、candidate → verified → confirmed 的机器强制 gate、真实 heavy-tool 执行闭环、PowerShell façade 全量 shim 化、更多非 `vmp-re` pack 的真实 dry-run 脚本闭环（Batch 125/126 已覆盖 `generic-binary-re` 与 `web-security` package E2E；Batch 127 已补 `web-security` 真实临时 case dry-run，其他非 RE-only pack 尚未覆盖）。
+- 未落地：Mission Commander/member session manager、bounded reviewer 自动 spawn/intake/writeback、candidate → verified → confirmed 的机器强制 gate、真实 heavy-tool evidence closure、pack-memory promote/reconsume、retained PowerShell façade 最终处置，以及 Linux/macOS/Windows product-path E2E。
 
 本计划先用临时 case 端到端 dry-run 压测 main → feature → reviewer → confirmed 全流程，再按 dry-run 暴露的真实需求分批做 ledger runtime、gate 与 bounded dispatch。当前文档保留历史批次记录，新批次以顶部当前状态和 `docs/batch-plan.md` 最新 batch 为准。
 
@@ -49,15 +49,17 @@ R4-R6（runtime 切片阶段，按 R3 决定激活）：
 
 ## 风险与注意事项
 
-- **不要把 dry-run 当成 runtime 实现**：R0-R2 只压测契约，不往 `rekit/lib` 加编排逻辑；避免做出"跑得通但契约不够用"的返工。
+- **不要把 dry-run 当成 runtime 实现**：R0-R2 只压测契约；新增 deterministic runtime 逻辑进入 `internal/rekit/**`，不要重新引入已删除的 `rekit/lib/*.ps1`。
 - **不要在 kit 仓库伪造 case state**：临时 case 用完即删；只有验证 `init/attach/sync/promote/continue/start/handoff` 行为时才创建。
 - **dry-run 不执行真实 heavy-tool 动作**：full trace、动态调试、注入、patch、dump、网络、外部副作用一律 dry-run 或 mock，不碰真实样本。
 - **不绕过 review-first**：sync/promote 仍默认 review；confirmed/authority 写入仍需人工确认；dry-run 中的 "confirmed" 只写临时 case workspace，不写 kit 模板。
 - **不复制 runtime 逻辑到 case shim**：case-local `/rekit` 保持 thin shim。
-- **Go runtime 渐进接入**：R4-R6 初期以 PowerShell runtime 为准；当前 Go façade 已按低风险 read-only、case lifecycle、sync/promote、ledger/gate、start/handoff 显式 apply 与 continue preview/apply safe subset 逐步默认启用。新增默认委托前必须有 smoke/package test 覆盖；`REKIT_GO_DISABLE=1` 只对尚未退休的 candidate commands 保留 fallback，已退休命令直接 no-fallback。
+- **Go runtime current owner**：R4-R6 初期曾以 PowerShell runtime 为准；Batch 240 后 legacy modules 已删除，当前 20 个 public commands 全部 Go-owned/no-fallback。新增逻辑只进入 Go packages；`REKIT_GO_DISABLE=1` 不再回落到 PowerShell 业务实现。
 - **R3 是决策门，不是自动推进**：dry-run 结果可能指向 ledger 优先、dispatch 优先、或两者并行；必须显式记录决策理由，不能默认全做。
 - **schema 改动走文档先**：packet schema 缺口先回写 policy 文档，再考虑 runtime 校验；不在 dry-run 阶段做 schema 迁移。
-- **批次写回**：每批完成后回写本文件、`docs/batch-plan.md`、`CHANGELOG.md` 与 `docs/vision.md` 执行清单；后续所有实施计划必须先落到文档，并随代码提交推送到远程 `main`，不能只留在聊天上下文。
+- **批次写回**：每批完成后回写本文件、`docs/batch-plan.md` 的 active/next 区、必要的 `CHANGELOG.md` 与 `docs/vision.md` 执行清单；后续计划必须先落到 durable docs，不能只留在聊天上下文。只有当前用户 goal/session 明确授权时才提交并推送指定分支。
+
+以下 R0–G5 细节保留当时的 PowerShell → Go 迁移记录；其中 `rekit/lib/*.ps1` 路径只表示历史实施位置，不是当前实现建议。当前事实以本文顶部、`docs/go-first-convergence-plan.md` current baseline 和 `docs/release-readiness.md` 为准。
 
 ## 1. 当前 Agent Team 状态评估
 
@@ -67,9 +69,9 @@ R4-R6（runtime 切片阶段，按 R3 决定激活）：
 |---|---|---|
 | 角色与 packet 契约 | `common/policies/agent-team.md` | main/feature/tooling/reviewer/verifier/human 六角色 + task/evidence/candidate/review/stuck 五类 packet + draft→candidate→review→confirmed 状态流 |
 | 子 agent 契约 | `common/policies/subagents.md` + manifest `subagentRoutes` | L1/L2/L3 升级、bounded parallelism、output contract；vmp-re 声明 `bounded-review`、`lane-feature-analysis` 两条 route |
-| 工作线 runtime | `rekit/lib/B3.*.ps1` | manifest 驱动主线/支线/authorityFiles/handoff；`status`/`doctor`/`overview`/`continue`/`start`/`handoff` 可跑 |
+| 工作线 runtime | `internal/rekit/workstream`、`mission`、`overview`、`note`、`gate`、`autonomy` | manifest 驱动 durable lanes、Mission brief、executor action、handoff/reconcile 与 typed authorization preflight；legacy `rekit/lib/B3.*.ps1` 已删除 |
 | pack 领域层 | `packs/vmp-re/**`、`packs/_template/**` | workflow-template、toolchain-router、tooling recipes、policy overlay 齐全且通过 budget 校验 |
-| sync/promote review-first | `rekit/lib/Sync.ps1`、`Promote.ps1`、`Review.ps1` | review packet + bounded diff + sanitized preview；写入需确认 |
+| sync/promote review-first | `internal/rekit/sync`、`promote`、`review` | review packet + bounded diff + sanitized preview；写入需确认 |
 | Go runtime backend | `internal/rekit/**`、`cmd/rekit/main.go` | G1/G2.5 只读 status/doctor/manifest/case doctor + G2 sync/promote review/apply、G2.2/G2.3 gate preview/request 与 Stage 5 read/ledger/workstream layer 已逐步接入 façade；Batch 114 起 `gate -WhatIf` 默认委托 Go，Batch 115 起 `gate -Apply` pending-gate request 写入默认委托 Go，Batch 116 起 `note` append / `note -WhatIf` facts JSONL 写入/预览默认委托 Go，Batch 117 起 `start`/`handoff` JSON preview 与显式 apply 默认委托 Go，Batch 118 起 `continue -WhatIf -Format json` 非写入 preview 默认委托 Go，Batch 119 起 overview 文本/JSON 与缺 board 初始化默认委托 Go，Batch 120 起 `note -List` 文本/JSON 只读查询默认委托 Go，Batch 121 起 explicit `continue -Apply` case-local facts/routing/run digest/resume/board 写入默认委托 Go，Batch 122 起 `_template` pack package E2E 覆盖 start/note/continue/handoff 闭环，Batch 123 起 `_template` pack package E2E 覆盖 plan-subagents/gate/overview/handoff 可见性链路，Batch 124 起 `_template` pack package E2E 覆盖 candidate/verification/decision/note-list/overview/handoff 可见性链路，Batch 125 起 `generic-binary-re` package E2E 覆盖 non-feature lane、pack-specific route、candidate/gate/verification/decision/overview/handoff 的 pack-neutral 可见性链路，Batch 126 起 `web-security` package E2E 覆盖非 RE-only route、network gate、candidate/gate/verification/decision/overview/handoff 的 pack-neutral 可见性链路，Batch 127 起 `web-security-agent-team-dryrun-smoke.ps1` 覆盖公共 façade 真实临时 case dry-run，authority/confirmed 仍需人工确认 |
 
 ### 1.2 未落地

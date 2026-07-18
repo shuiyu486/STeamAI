@@ -10,7 +10,7 @@
 
 ## 实施摘要
 
-长期目标保持不变但阶段重点已更新：`re-context-kits` 应成为 Claude Code 中的多会话 Agent Team Mission Control 框架，而不是命令大全；runtime 应收敛为 Go-native deterministic substrate，而不是继续依赖 PowerShell façade/fallback。
+长期目标保持不变但阶段重点已更新：`re-context-kits` 应成为 Claude Code 中的多会话 Agent Team Mission Control 框架，而不是命令大全；Go 已是 public command surface 的 deterministic owner，当前重点是 PowerShell-free default/product path 与 Mission Commander operational closure，而不是继续扩 contract/inventory 字段或依赖 retained PowerShell compatibility façade。
 
 核心产品形态：
 
@@ -18,21 +18,21 @@
 - 主 Agent 调度 durable member lanes，而不是绑定某个旧聊天窗口。
 - 每个 lane 由可替换 Claude Code session executor 执行；旧会话上下文污染、模型变化或用户希望重开时，新会话可读取 handoff / packet / evidence 接手同一 lane。
 - 主 Agent 可启动短命 tactical subagents 做搜索、验证、review、小修和 bounded implementation。
-- 用户可随时进入任意 lane 打断、纠错、改向、硬切模型或要求新会话接手；lane 继续时必须 reconcile 干预并写入 durable state。
-- 在 lane 文档 / task packet / autonomy profile 明确预授权的 target scope、预算、stop conditions、output paths 和记录要求内，成员 lane 可自主执行 heavy-tool、动态调试、patch、dump、hook、网络、exploit replay 等动作；越界、新风险、confirmed/authority 或 pack promote 必须升级。
-- Go backend 是 canonical runtime owner，负责状态、ledger、gate、release inventory、sync/promote、pack-neutral contract 和跨平台路径；PowerShell 只允许作为迁移期 legacy/compatibility residue，不能新增 runtime logic。
+- 用户可随时进入任意 lane 打断、纠错、改向、硬切模型或要求新会话接手；当前 `continue` 对 open intervention fail-closed 并要求显式 `reconcile` 写入 durable state，目标是让 Mission Commander 自动发现并准备安全 resolution。
+- lane 文档 / task packet 只表达授权意图；只有 strict validated `.rekit/lanes/<lane>/autonomy.json` 加 `authorized-gate` decision 完全覆盖 action、exact target、typed budget、stop conditions、output paths、record/notify 和 grant/expiry 时，executor 才可不逐步询问地执行 heavy-tool、动态调试、patch、dump、hook、网络、exploit replay；越界、新风险、confirmed/authority 或 pack promote 必须升级。
+- Go backend 是 canonical runtime owner，负责状态、ledger、gate、release inventory、sync/promote、pack-neutral contract 和跨平台路径；PowerShell 只保留无业务 runtime/no-fallback 的 compatibility façade 与按需 parity residue，不能新增 runtime logic。
 
 ## 执行清单
 
 每轮自主推进按这个循环做：
 
-1. 读最近状态：`CLAUDE.md`、`docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/go-first-convergence-plan.md`、`docs/powershell-deprecation.md`、`docs/release-readiness.md`、`docs/batch-plan.md` 末尾、`CHANGELOG.md`。
-2. 从下面大方向里选一个中大型 vertical slice，优先选择能减少 PowerShell 依赖、提升 Go-native / macOS/Linux/Windows 跨平台能力或增强 Mission Control 可用性的切片。
+1. 读最近状态：`CLAUDE.md`、`docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/release-readiness.md`、`docs/go-first-convergence-plan.md`、`docs/powershell-deprecation.md`、`docs/batch-plan.md` 的 current/最新区、`CHANGELOG.md`，并检查 git、本地 gate 与远程 CI 实际状态。
+2. 从下面大方向里选一个 coherent 中大型 vertical slice，优先选择能解决真实 Mission Commander/产品路径断点、减少 retained PowerShell 依赖、提升 Go-native / macOS/Linux/Windows product-path E2E 或增强 Mission Control 可用性的切片；不要继续拆 schema-field metadata 微批次。
 3. 实施时优先 Go-native；禁止新增 PowerShell runtime logic。若迁移期必须保留 PowerShell，只能作为 legacy compatibility，并写清依赖方、阻塞原因和删除条件。
 4. 完成后自审、评估：看是否更接近 Mission Control 北极星，是否减少 PowerShell 默认路径，架构是否清晰，是否有重复逻辑，是否需要顺手做低风险调整。
 5. 自行做必要调整，不因小的低风险文档/测试/invariant 补齐而停下来问用户。
 6. 验证、更新 `docs/batch-plan.md` 或相关设计文档、必要时更新 `CHANGELOG.md`，然后按用户当前会话授权提交并推送。
-7. 如果长期目标未整体完成，默认继续自主推进，不把单个 batch、一次提交、验证通过或工作树干净视为 goal 完成。
+7. 如果长期目标未整体完成，先重新校准运行事实、active milestone 和风险；无升级条件时把下一批写入 `docs/batch-plan.md` 的 active/next 区并继续，不把单个 batch、inventory ready、一次提交、本地验证通过或工作树干净视为 goal 完成。
 
 大方向只围绕八类：
 
@@ -77,7 +77,7 @@ Mission Control 相关批次还应检查：
 
 真正需要停下询问的情况仍按根目录 `CLAUDE.md`、`docs/mission-control-product-direction.md`、`docs/release-readiness.md` 和 `docs/powershell-deprecation.md` 的既有项目边界处理：新的产品方向变化、破坏性仓库操作且无明显恢复路径、未授权外部副作用、confirmed/authority 写入策略变化、runtime schema 迁移、删除公共入口但没有 Go-native 替代方案，或其它明显不可逆行为。除此之外，默认继续自主推进；PowerShell replacement/removal 本身已获当前阶段授权，只要有 Go-native 替代、文档和验证即可按批次推进。
 
-动态调试、注入、patch、dump、hook、网络、exploit replay、fuzz 等动作若已在当前 lane 文档 / packet / autonomy profile 中明确预授权，可在 scope、预算、止损、输出路径和记录要求内自主执行；超出授权、出现新风险、需要 confirmed/authority 或需要 promote 到 pack/common 时必须升级。
+动态调试、注入、patch、dump、hook、网络、exploit replay、fuzz 等动作只有在 strict validated durable autonomy profile 与 `authorized-gate` decision 完全覆盖 action、exact target、typed budget、stop conditions、output paths、record/notify 和 grant/expiry 时，才可由 executor 在对应边界内不逐步询问地执行；lane 文档 / packet 只表达授权意图。超出授权、出现新风险、需要 confirmed/authority 或需要 promote 到 pack/common 时必须升级。
 
 ## 给新会话的接手语句
 
@@ -94,15 +94,15 @@ Mission Control 相关批次还应检查：
 ```text
 在 C:\AI\m_projects\RE\re-context-kits 中，长期、自主、连续推进项目向 docs/mission-control-product-direction.md 定义的 Lane-centric Agent Team Mission Control 收敛。
 
-当前阶段优先推进 PowerShell-free / Go-native / 跨平台收敛：让 Go CLI/backend 成为 canonical runtime，让默认入口、验证、release gate、case shim 和文档路径逐步不依赖 PowerShell；迁移期可短暂保留 PowerShell，但禁止新增 PowerShell runtime logic，每个相关 batch 都应减少 PowerShell 依赖。
+当前阶段优先推进 PowerShell-free default/product path、Go-native、跨平台与 Mission Commander operational closure：Go CLI/backend 已是 canonical runtime，所有 public commands 已 no-fallback，legacy runtime modules 已删除；后续让默认入口、验证、release gate、case shim 和文档路径不依赖 retained PowerShell façade。每批禁止新增 PowerShell runtime logic；PowerShell convergence batch 必须实际减少 residue 或完成删除门禁，其它 batch 可推进 lane、reconcile、autonomy、reviewer dispatch/intake 或 pack-memory 闭环。
 
-为防止上下文压缩导致方向偏移，每轮开始先用仓库文档校准方向，优先读取 docs/mission-control-product-direction.md、docs/autonomous-goal.md、docs/batch-plan.md、docs/go-first-convergence-plan.md、docs/powershell-deprecation.md、docs/release-readiness.md、README.md、CHANGELOG.md。若聊天摘要与仓库文档冲突，以仓库文档为准。
+为防止上下文压缩导致方向偏移，每轮开始先用仓库事实校准方向，优先读取 docs/mission-control-product-direction.md、docs/autonomous-goal.md、docs/release-readiness.md、docs/go-first-convergence-plan.md、docs/powershell-deprecation.md、docs/batch-plan.md 的 current/最新区、README.md、CHANGELOG.md，并检查 git、本地 gate 与远程 CI 实际状态。聊天摘要或 durable docs 与代码/运行结果冲突时，以代码和实际验证为准，并先修正文档。
 
-每轮选择一个中大型、可验证、能提升真实可用性或降低维护风险的 vertical slice，不做一两行微批次。优先方向包括 PowerShell replacement/removal、Go-native validation、release readiness、macOS/Linux 支持、Mission Commander 体验、lane handoff/resume、lane autonomy profile、pack-neutral dry-run 与跨 pack 可用性。
+每轮选择一个 coherent、中大型、可验证、能提升真实可用性或降低维护风险的 vertical slice，不做一两行或逐字段 metadata 微批次。优先方向包括 Mission Commander orchestration、replaceable session executor operational closure、reviewer dispatch/intake/writeback E2E、reconcile UX、authorized execution evidence closure、pack-memory promote/reconsume E2E、PowerShell retained façade 收束，以及 macOS/Linux/Windows product-path readiness。
 
 详细路线、关键决策、验证结果、下一步方向和未完成风险必须持续写回 repo docs，尤其是 docs/batch-plan.md；涉及 PowerShell、Go-native、跨平台或 release readiness 时，同步更新相关设计文档。不要只把计划和结论留在聊天上下文中。
 
-每批完成后运行必要验证，更新必要文档和 CHANGELOG，提交并推送 main；如果长期目标未整体完成，继续下一批。除产品方向变化、无替代方案的公共入口删除、schema 迁移、confirmed/authority 策略变化、未授权外部副作用或难以判断的架构取舍外，自主判断并持续推进。
+每批完成后运行必要的真实验证，更新 docs/batch-plan.md 的 active/next 状态、相关 durable docs 与必要的 CHANGELOG；仅在当前用户 goal/session 明确授权时提交并推送指定分支。若长期目标未整体完成，先重新校准实际 gate/CI 和风险，无升级条件时写入并继续下一批。除产品方向变化、公共入口删除门禁不完整、schema 迁移、confirmed/authority 策略变化、未授权外部副作用或难以判断的架构取舍外，自主判断并持续推进。
 
-不要声称长期 goal 已完成，除非 PowerShell 已退出默认 runtime/入口/验证/release gate，macOS/Linux 默认路径可用并文档化，且 Mission Commander、durable lanes、replaceable session executor、Human-in-the-Lane、lane autonomy profile、pack-based team memory 与 Go-native runtime 的核心闭环均已实现、验证并文档化。
+不要声称长期 goal 已完成，除非 PowerShell 已退出默认 runtime/入口/验证/release gate，repository/runtime portability、direct CLI/case E2E 与 installed `/rekit`/case-shim product path 均在 macOS/Linux/Windows 有实际验证，且 Mission Commander、durable lanes、replaceable session executor、Human-in-the-Lane、typed autonomy + authorized execution evidence、bounded reviewer dispatch/intake/writeback、pack-memory promote/reconsume 与 Go-native runtime 的核心闭环均已实现、验证并文档化。`release-check` inventory ready 或 workflow 定义存在不等于远程 CI jobs green。
 ```
