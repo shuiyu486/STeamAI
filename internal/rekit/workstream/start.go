@@ -44,8 +44,11 @@ askUserWhen: conflict,overwriteAuthority,deleteAuthority,confidenceBelowThreshol
 var safeLaneIDSegment = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
 
 type StartOptions struct {
-	Name  string
-	Force bool
+	Name           string
+	Force          bool
+	Actor          string
+	Executor       string
+	TakeoverReason string
 }
 
 type StartWrite struct {
@@ -91,6 +94,7 @@ type Lane struct {
 	CurrentExecutor            string         `json:"currentExecutor,omitempty"`
 	ExecutorGeneration         int            `json:"executorGeneration,omitempty"`
 	LastTakeoverAt             string         `json:"lastTakeoverAt,omitempty"`
+	LastTakeoverBy             string         `json:"lastTakeoverBy,omitempty"`
 	LastTakeoverReason         string         `json:"lastTakeoverReason,omitempty"`
 	LastReconciledIntervention string         `json:"lastReconciledIntervention,omitempty"`
 	LastReconcileAt            string         `json:"lastReconcileAt,omitempty"`
@@ -107,6 +111,9 @@ type laneCheckpoint struct {
 	Workspace                  string                `json:"workspace"`
 	CurrentExecutor            string                `json:"currentExecutor"`
 	ExecutorGeneration         int                   `json:"executorGeneration"`
+	LastTakeoverAt             string                `json:"lastTakeoverAt"`
+	LastTakeoverBy             string                `json:"lastTakeoverBy"`
+	LastTakeoverReason         string                `json:"lastTakeoverReason"`
 	LastReconciledIntervention string                `json:"lastReconciledIntervention"`
 	LastReconcileAt            string                `json:"lastReconcileAt"`
 	AutonomyProfile            autonomy.Summary      `json:"autonomyProfile"`
@@ -130,23 +137,41 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 	if err != nil {
 		return StartResult{}, err
 	}
-	lane, err := plannedLane(inst.CaseRoot, laneType, laneID, name, "")
+	claim, err := startExecutorClaim(opt, laneID)
 	if err != nil {
 		return StartResult{}, err
 	}
-	brief := startMissionBrief(inst.CaseRoot)
-	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
 	laneFile, err := refsf.SafeJoin(inst.CaseRoot, relJoin(".rekit", "lanes", laneID, "lane.json"))
+	if err != nil {
+		return StartResult{}, err
+	}
+	lane, err := plannedLane(inst.CaseRoot, laneType, laneID, name, "")
 	if err != nil {
 		return StartResult{}, err
 	}
 	action := "would-create-lane"
 	if refsf.Exists(laneFile) {
+		existingLane, err := readLane(laneFile)
+		if err != nil {
+			return StartResult{}, err
+		}
 		action = "would-enter-existing-lane"
 		if opt.Force {
 			action = "would-refresh-lane-with-force"
+			preserveLaneRuntimeState(&lane, existingLane)
+		} else {
+			lane = existingLane
 		}
 	}
+	if claim.Enabled() {
+		var changed bool
+		lane, changed = applyExecutorClaim(lane, claim, "")
+		if changed {
+			action += "-and-claim-executor"
+		}
+	}
+	brief := startMissionBrief(inst.CaseRoot)
+	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
 	return StartResult{
 		SchemaVersion:        1,
 		Command:              "start",
@@ -179,11 +204,15 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 	if err != nil {
 		return StartResult{}, err
 	}
+	claim, err := startExecutorClaim(opt, laneID)
+	if err != nil {
+		return StartResult{}, err
+	}
 	writes := []StartWrite{}
 	if err := ensureWorkstreamState(inst.CaseRoot, m, &writes); err != nil {
 		return StartResult{}, err
 	}
-	lane, laneWrites, err := writeLane(inst.CaseRoot, m, laneType, laneID, name, opt.Force)
+	lane, laneWrites, err := writeLane(inst.CaseRoot, m, laneType, laneID, name, opt.Force, claim)
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -289,6 +318,118 @@ func startContext(repoRoot, caseRoot, pack string, opt StartOptions) (instance.I
 	return inst, m, laneType, laneID, name, nil
 }
 
+type executorClaim struct {
+	Executor string
+	Actor    string
+	Reason   string
+}
+
+func (claim executorClaim) Enabled() bool {
+	return strings.TrimSpace(claim.Executor) != ""
+}
+
+func startExecutorClaim(opt StartOptions, laneID string) (executorClaim, error) {
+	executor := strings.TrimSpace(opt.Executor)
+	if executor == "" {
+		return executorClaim{}, nil
+	}
+	if strings.ContainsAny(executor, "\r\n") {
+		return executorClaim{}, fmt.Errorf("start -Executor must be a single-line session identifier")
+	}
+	actor := strings.TrimSpace(opt.Actor)
+	if actor == "" {
+		actor = "main-agent"
+	}
+	if strings.ContainsAny(actor, "\r\n") {
+		return executorClaim{}, fmt.Errorf("start -Actor must be a single-line actor identifier")
+	}
+	reason := strings.TrimSpace(opt.TakeoverReason)
+	if reason == "" {
+		reason = "explicit executor takeover for lane " + laneID
+	}
+	if strings.ContainsAny(reason, "\r\n") {
+		return executorClaim{}, fmt.Errorf("start -Reason must be a single-line takeover reason")
+	}
+	return executorClaim{Executor: executor, Actor: actor, Reason: reason}, nil
+}
+
+func applyExecutorClaim(lane Lane, claim executorClaim, now string) (Lane, bool) {
+	if !claim.Enabled() {
+		return lane, false
+	}
+	previousExecutor := strings.TrimSpace(lane.CurrentExecutor)
+	generation := max(lane.ExecutorGeneration, 0)
+	if strings.EqualFold(previousExecutor, claim.Executor) {
+		if generation == 0 {
+			lane.ExecutorGeneration = 1
+			if now != "" {
+				lane.LastTakeoverAt = now
+			}
+			lane.LastTakeoverBy = claim.Actor
+			lane.LastTakeoverReason = claim.Reason
+			return lane, true
+		}
+		return lane, false
+	}
+	generation++
+	lane.CurrentExecutor = claim.Executor
+	lane.ExecutorGeneration = generation
+	if now != "" {
+		lane.LastTakeoverAt = now
+	}
+	lane.LastTakeoverBy = claim.Actor
+	lane.LastTakeoverReason = claim.Reason
+	return lane, true
+}
+
+func preserveLaneRuntimeState(lane *Lane, existing Lane) {
+	if strings.TrimSpace(existing.Status) != "" {
+		lane.Status = existing.Status
+	}
+	if existing.Counters != nil {
+		lane.Counters = existing.Counters
+	}
+	lane.CurrentExecutor = existing.CurrentExecutor
+	lane.ExecutorGeneration = existing.ExecutorGeneration
+	lane.LastTakeoverAt = existing.LastTakeoverAt
+	lane.LastTakeoverBy = existing.LastTakeoverBy
+	lane.LastTakeoverReason = existing.LastTakeoverReason
+	lane.LastReconciledIntervention = existing.LastReconciledIntervention
+	lane.LastReconcileAt = existing.LastReconcileAt
+	if strings.TrimSpace(existing.CreatedAt) != "" {
+		lane.CreatedAt = existing.CreatedAt
+	}
+}
+
+func appendExecutorClaimEvent(laneRoot, laneRootRel string, lane Lane, previousExecutor string, claim executorClaim, now string) (StartWrite, error) {
+	eventKind := "executor-registered"
+	eventAction := "append-executor-registered"
+	summary := "executor registered: " + claim.Executor
+	if strings.TrimSpace(previousExecutor) != "" && !strings.EqualFold(previousExecutor, claim.Executor) {
+		eventKind = "executor-takeover"
+		eventAction = "append-executor-takeover"
+		summary = "executor takeover: " + claim.Executor
+	}
+	eventPath := LaneEventsJSONLPath(laneRoot)
+	event := map[string]any{
+		"eventId":            eventID(lane.ID, eventKind+"-"+claim.Executor, now),
+		"kind":               eventKind,
+		"lane":               lane.ID,
+		"time":               now,
+		"summary":            summary,
+		"previousExecutor":   previousExecutor,
+		"currentExecutor":    claim.Executor,
+		"executorGeneration": lane.ExecutorGeneration,
+		"actor":              claim.Actor,
+		"reason":             claim.Reason,
+		"sourceCommand":      "start",
+	}
+	if err := mission.AppendJSONLine(eventPath, event); err != nil {
+		return StartWrite{}, err
+	}
+	return StartWrite{Path: relJoin(laneRootRel, "events.jsonl"), Kind: "lane-event", Action: eventAction, TargetPath: eventPath}, nil
+}
+
 func ensureWorkstreamState(caseRoot string, m *manifest.Manifest, writes *[]StartWrite) error {
 	for _, rel := range []string{".rekit", ".rekit/lanes", ".rekit/facts", ".rekit/runs", ".rekit/reviews", ".rekit/backups"} {
 		path, err := refsf.SafeJoin(caseRoot, rel)
@@ -333,7 +474,7 @@ func ensureWorkstreamState(caseRoot string, m *manifest.Manifest, writes *[]Star
 		return err
 	}
 	if !refsf.Exists(authorityFile) {
-		_, laneWrites, err := writeLane(caseRoot, m, authorityType, authorityID, "", false)
+		_, laneWrites, err := writeLane(caseRoot, m, authorityType, authorityID, "", false, executorClaim{})
 		if err != nil {
 			return err
 		}
@@ -342,7 +483,7 @@ func ensureWorkstreamState(caseRoot string, m *manifest.Manifest, writes *[]Star
 	return nil
 }
 
-func writeLane(caseRoot string, m *manifest.Manifest, laneType manifest.LaneType, id, name string, force bool) (Lane, []StartWrite, error) {
+func writeLane(caseRoot string, m *manifest.Manifest, laneType manifest.LaneType, id, name string, force bool, claim executorClaim) (Lane, []StartWrite, error) {
 	laneRootRel := relJoin(".rekit", "lanes", id)
 	laneRoot, err := refsf.SafeJoin(caseRoot, laneRootRel)
 	if err != nil {
@@ -355,14 +496,40 @@ func writeLane(caseRoot string, m *manifest.Manifest, laneType manifest.LaneType
 		if err != nil {
 			return Lane{}, nil, err
 		}
+		writes := []StartWrite{{Path: relJoin(laneRootRel, "lane.json"), Kind: "lane", Action: "enter-existing-lane", TargetPath: laneFile}}
+		if claim.Enabled() {
+			now := time.Now().UTC().Format(time.RFC3339Nano)
+			previousExecutor := strings.TrimSpace(lane.CurrentExecutor)
+			updatedLane, changed := applyExecutorClaim(lane, claim, now)
+			if changed {
+				lane = updatedLane
+				lane.UpdatedAt = now
+				if err := writeJSON(laneFile, lane); err != nil {
+					return Lane{}, nil, err
+				}
+				writes[0].Action = "update-executor-claim"
+				if strings.TrimSpace(previousExecutor) != "" && !strings.EqualFold(previousExecutor, claim.Executor) {
+					writes[0].Action = "update-executor-takeover"
+				}
+				eventWrite, err := appendExecutorClaimEvent(laneRoot, laneRootRel, lane, previousExecutor, claim, now)
+				if err != nil {
+					return Lane{}, nil, err
+				}
+				writes = append(writes, eventWrite)
+				resumePath, checkpointPath, err := writeLaneResume(caseRoot, m, lane)
+				if err != nil {
+					return Lane{}, nil, err
+				}
+				writes = append(writes, StartWrite{Path: relJoin(laneRootRel, "prompts", "RESUME.md"), Kind: "lane-resume", Action: "refresh", TargetPath: resumePath})
+				writes = append(writes, StartWrite{Path: relJoin(laneRootRel, "checkpoints", "latest.json"), Kind: "lane-checkpoint", Action: "refresh", TargetPath: checkpointPath})
+			}
+		}
 		profileRel, profilePath, err := autonomy.EnsureManualProfile(caseRoot, id)
 		if err != nil {
 			return Lane{}, nil, err
 		}
-		return lane, []StartWrite{
-			{Path: relJoin(laneRootRel, "lane.json"), Kind: "lane", Action: "enter-existing-lane", TargetPath: laneFile},
-			{Path: profileRel, Kind: "autonomy-profile", Action: "ensure-manual-profile", TargetPath: profilePath},
-		}, nil
+		writes = append(writes, StartWrite{Path: profileRel, Kind: "autonomy-profile", Action: "ensure-manual-profile", TargetPath: profilePath})
+		return lane, writes, nil
 	}
 	var existingLane Lane
 	if laneExists {
@@ -425,20 +592,14 @@ func writeLane(caseRoot string, m *manifest.Manifest, laneType manifest.LaneType
 		eventKind = "lane-refreshed"
 		eventAction = "append-lane-refreshed"
 		eventSummary = "lane refreshed: " + id
-		if strings.TrimSpace(existingLane.Status) != "" {
-			lane.Status = existingLane.Status
-		}
-		if existingLane.Counters != nil {
-			lane.Counters = existingLane.Counters
-		}
-		lane.CurrentExecutor = existingLane.CurrentExecutor
-		lane.ExecutorGeneration = existingLane.ExecutorGeneration
-		lane.LastTakeoverAt = existingLane.LastTakeoverAt
-		lane.LastTakeoverReason = existingLane.LastTakeoverReason
-		lane.LastReconciledIntervention = existingLane.LastReconciledIntervention
-		lane.LastReconcileAt = existingLane.LastReconcileAt
-		if strings.TrimSpace(existingLane.CreatedAt) != "" {
-			lane.CreatedAt = existingLane.CreatedAt
+		preserveLaneRuntimeState(&lane, existingLane)
+	}
+	previousExecutor := strings.TrimSpace(lane.CurrentExecutor)
+	executorChanged := false
+	if claim.Enabled() {
+		lane, executorChanged = applyExecutorClaim(lane, claim, now)
+		if executorChanged {
+			action += "-and-executor-claim"
 		}
 	}
 	if err := writeJSON(laneFile, lane); err != nil {
@@ -456,6 +617,13 @@ func writeLane(caseRoot string, m *manifest.Manifest, laneType manifest.LaneType
 		return Lane{}, nil, err
 	}
 	writes = append(writes, StartWrite{Path: relJoin(laneRootRel, "events.jsonl"), Kind: "lane-event", Action: eventAction, TargetPath: eventPath})
+	if executorChanged {
+		eventWrite, err := appendExecutorClaimEvent(laneRoot, laneRootRel, lane, previousExecutor, claim, now)
+		if err != nil {
+			return Lane{}, nil, err
+		}
+		writes = append(writes, eventWrite)
+	}
 	resumePath, checkpointPath, err := writeLaneResume(caseRoot, m, lane)
 	if err != nil {
 		return Lane{}, nil, err
@@ -519,7 +687,7 @@ func saveBoard(caseRoot string, m *manifest.Manifest) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		lanes = append(lanes, boardLane{ID: lane.ID, Type: lane.Type, Title: lane.Title, Status: lane.Status, Authority: lane.Authority, Workspace: lane.Workspace, UpdatedAt: lane.UpdatedAt})
+		lanes = append(lanes, boardLane{ID: lane.ID, Type: lane.Type, Title: lane.Title, Status: lane.Status, Authority: lane.Authority, Workspace: lane.Workspace, CurrentExecutor: lane.CurrentExecutor, ExecutorGeneration: lane.ExecutorGeneration, LastTakeoverAt: lane.LastTakeoverAt, LastTakeoverBy: lane.LastTakeoverBy, LastTakeoverReason: lane.LastTakeoverReason, UpdatedAt: lane.UpdatedAt})
 	}
 	sort.SliceStable(lanes, func(i, j int) bool { return lanes[i].ID < lanes[j].ID })
 	path, err := refsf.SafeJoin(caseRoot, ".rekit/board.json")
@@ -565,6 +733,9 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		"workspace: `" + lane.Workspace + "`",
 		"current executor: `" + firstText(lane.CurrentExecutor, "unassigned") + "`",
 		fmt.Sprintf("executor generation: `%d`", lane.ExecutorGeneration),
+		"last takeover at: `" + firstText(lane.LastTakeoverAt, "none") + "`",
+		"last takeover by: `" + firstText(lane.LastTakeoverBy, "none") + "`",
+		"last takeover reason: `" + firstText(lane.LastTakeoverReason, "none") + "`",
 		"last reconciled intervention: `" + firstText(lane.LastReconciledIntervention, "none") + "`",
 		"autonomy mode: `" + firstText(autonomySummary.Mode, autonomy.ModeManualGate) + "`",
 		"autonomy profile: `" + firstText(autonomySummary.ProfilePath, autonomy.RelPath(lane.ID)) + "`",
@@ -673,6 +844,9 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		Workspace:                  lane.Workspace,
 		CurrentExecutor:            lane.CurrentExecutor,
 		ExecutorGeneration:         lane.ExecutorGeneration,
+		LastTakeoverAt:             lane.LastTakeoverAt,
+		LastTakeoverBy:             lane.LastTakeoverBy,
+		LastTakeoverReason:         lane.LastTakeoverReason,
 		LastReconciledIntervention: lane.LastReconciledIntervention,
 		LastReconcileAt:            lane.LastReconcileAt,
 		AutonomyProfile:            autonomySummary,

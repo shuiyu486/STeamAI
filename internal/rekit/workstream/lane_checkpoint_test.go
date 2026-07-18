@@ -10,10 +10,15 @@ import (
 
 func TestLaneCheckpointJSONContract(t *testing.T) {
 	checkpoint := laneCheckpoint{
-		SchemaVersion: 1,
-		Lane:          "main",
-		Status:        "open",
-		Workspace:     "workspace/main/main",
+		SchemaVersion:      1,
+		Lane:               "main",
+		Status:             "open",
+		Workspace:          "workspace/main/main",
+		CurrentExecutor:    "session-main",
+		ExecutorGeneration: 2,
+		LastTakeoverAt:     "2026-01-01T00:00:00Z",
+		LastTakeoverBy:     "main-agent",
+		LastTakeoverReason: "replace stale session",
 		AutonomyProfile: autonomy.Summary{
 			Mode:  autonomy.ModeManualGate,
 			Ready: true,
@@ -46,8 +51,13 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	var decoded struct {
-		SchemaVersion int `json:"schemaVersion"`
-		MissionBrief  struct {
+		SchemaVersion      int    `json:"schemaVersion"`
+		CurrentExecutor    string `json:"currentExecutor"`
+		ExecutorGeneration int    `json:"executorGeneration"`
+		LastTakeoverAt     string `json:"lastTakeoverAt"`
+		LastTakeoverBy     string `json:"lastTakeoverBy"`
+		LastTakeoverReason string `json:"lastTakeoverReason"`
+		MissionBrief       struct {
 			AuthorizedGates []string `json:"authorizedGates"`
 			OpenDecisions   []string `json:"openDecisions"`
 		} `json:"missionBrief"`
@@ -66,8 +76,8 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatalf("lane checkpoint json did not decode: %v\n%s", err, string(encoded))
 	}
-	if decoded.SchemaVersion != 1 || len(decoded.MissionBrief.AuthorizedGates) != 1 || len(decoded.MissionBrief.OpenDecisions) != 1 {
-		t.Fatalf("checkpoint mission brief contract drifted: %+v", decoded.MissionBrief)
+	if decoded.SchemaVersion != 1 || decoded.CurrentExecutor != "session-main" || decoded.ExecutorGeneration != 2 || decoded.LastTakeoverAt == "" || decoded.LastTakeoverBy != "main-agent" || decoded.LastTakeoverReason != "replace stale session" || len(decoded.MissionBrief.AuthorizedGates) != 1 || len(decoded.MissionBrief.OpenDecisions) != 1 {
+		t.Fatalf("checkpoint mission brief contract drifted: %+v", decoded)
 	}
 	if !decoded.ExecutorAction.Blocked || !decoded.ExecutorAction.OpenDecisionRequired || decoded.ExecutorAction.OpenDecisions != 1 || decoded.ExecutorAction.PendingGates != 0 || decoded.ExecutorAction.OpenInterventions != 0 || decoded.ExecutorAction.ResumeCommand != "/rekit continue main" || len(decoded.ExecutorAction.BlockerReasons) != 1 {
 		t.Fatalf("checkpoint executor action contract drifted: %+v", decoded.ExecutorAction)

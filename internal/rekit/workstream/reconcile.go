@@ -141,6 +141,7 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (Reco
 		ctx.lane.CurrentExecutor = ctx.executor
 		ctx.lane.ExecutorGeneration = generation
 		ctx.lane.LastTakeoverAt = now
+		ctx.lane.LastTakeoverBy = ctx.actor
 		ctx.lane.LastTakeoverReason = firstText(ctx.reason, "reconcile intervention "+sourceID)
 		takeoverEvent := map[string]any{
 			"eventId":              eventID(ctx.lane.ID, "executor-takeover-"+ctx.executor, now),

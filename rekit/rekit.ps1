@@ -20,6 +20,8 @@ param(
   [string]$Subject = '',
   [string]$Summary = '',
   [string]$Actor = '',
+  [string]$Executor = '',
+  [string]$Reason = '',
   [string]$Risk = '',
   [string]$TargetRef = '',
   [string]$BatchId = '',
@@ -377,7 +379,7 @@ function Get-RekitGoArgs {
       Related = ''
       Confidence = ''
       Decision = ''
-      Reason = ''
+      Reason = $Reason
       Status = ''
       BatchId = $BatchId
       TargetRef = $TargetRef
@@ -405,7 +407,12 @@ function Get-RekitGoArgs {
         $goArgs = @($goArgs) + @([string]$arg)
       }
     }
-    if ($Command -eq 'start') { Add-RekitGoSwitch ([ref]$goArgs) '-Force' $Force.IsPresent }
+    if ($Command -eq 'start') {
+      Add-RekitGoSwitch ([ref]$goArgs) '-Force' $Force.IsPresent
+      Add-RekitGoArg ([ref]$goArgs) '-Actor' $Actor
+      Add-RekitGoArg ([ref]$goArgs) '-Executor' $Executor
+      Add-RekitGoArg ([ref]$goArgs) '-Reason' $Reason
+    }
   }
   if ($Command -eq 'reconcile') {
     $reconcileArgs = Get-RekitRemainingArgMap -Tokens $RemainingArgs
@@ -413,10 +420,10 @@ function Get-RekitGoArgs {
       Lane = $Lane
       InterventionId = ''
       EventId = ''
-      Executor = ''
+      Executor = $Executor
       Actor = $Actor
       Summary = $Summary
-      Reason = ''
+      Reason = $Reason
     }
     foreach ($name in @($reconcileValues.Keys)) {
       if ([string]::IsNullOrWhiteSpace([string]$reconcileValues[$name]) -and $reconcileArgs.ContainsKey($name)) { $reconcileValues[$name] = [string]$reconcileArgs[$name] }

@@ -181,6 +181,7 @@ func Parse(args []string) (Options, error) {
 			}
 			opt.Note.Reason = args[i]
 			opt.Reconcile.Reason = args[i]
+			opt.Start.TakeoverReason = args[i]
 		case "-Status", "--status":
 			i++
 			if i >= len(args) {
@@ -236,6 +237,7 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -Executor")
 			}
 			opt.Reconcile.Executor = args[i]
+			opt.Start.Executor = args[i]
 		case "-Subject", "--subject":
 			i++
 			if i >= len(args) {
@@ -259,6 +261,7 @@ func Parse(args []string) (Options, error) {
 			opt.Gate.Actor = args[i]
 			opt.Note.Actor = args[i]
 			opt.Reconcile.Actor = args[i]
+			opt.Start.Actor = args[i]
 		case "-Risk", "--risk":
 			i++
 			if i >= len(args) {

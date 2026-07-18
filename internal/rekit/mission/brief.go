@@ -75,11 +75,16 @@ type ExecutorAction struct {
 }
 
 type LaneExecutorActionSnapshot struct {
-	Lane           string         `json:"lane"`
-	Label          string         `json:"label"`
-	Status         string         `json:"status"`
-	Workspace      string         `json:"workspace,omitempty"`
-	ExecutorAction ExecutorAction `json:"executorAction"`
+	Lane               string         `json:"lane"`
+	Label              string         `json:"label"`
+	Status             string         `json:"status"`
+	Workspace          string         `json:"workspace,omitempty"`
+	CurrentExecutor    string         `json:"currentExecutor,omitempty"`
+	ExecutorGeneration int            `json:"executorGeneration,omitempty"`
+	LastTakeoverAt     string         `json:"lastTakeoverAt,omitempty"`
+	LastTakeoverBy     string         `json:"lastTakeoverBy,omitempty"`
+	LastTakeoverReason string         `json:"lastTakeoverReason,omitempty"`
+	ExecutorAction     ExecutorAction `json:"executorAction"`
 }
 
 func Build(lanes []Lane, facts Facts, maxRows int) Brief {
@@ -158,11 +163,16 @@ func LaneExecutorActionSnapshots(lanes []BoardLane, facts Facts, brief Brief) []
 	for _, lane := range lanes {
 		label := BoardLaneLabel(lane)
 		items = append(items, LaneExecutorActionSnapshot{
-			Lane:           lane.ID,
-			Label:          label,
-			Status:         lane.Status,
-			Workspace:      lane.Workspace,
-			ExecutorAction: LaneExecutorAction(Lane{ID: lane.ID, Label: label, Status: lane.Status}, facts, brief),
+			Lane:               lane.ID,
+			Label:              label,
+			Status:             lane.Status,
+			Workspace:          lane.Workspace,
+			CurrentExecutor:    lane.CurrentExecutor,
+			ExecutorGeneration: lane.ExecutorGeneration,
+			LastTakeoverAt:     lane.LastTakeoverAt,
+			LastTakeoverBy:     lane.LastTakeoverBy,
+			LastTakeoverReason: lane.LastTakeoverReason,
+			ExecutorAction:     LaneExecutorAction(Lane{ID: lane.ID, Label: label, Status: lane.Status}, facts, brief),
 		})
 	}
 	return items

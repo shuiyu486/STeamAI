@@ -16,39 +16,42 @@ Batch 353 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 353：Go-native plan-subagents reviewer intake / real local E2E**
+**Batch 354：Replaceable lane executor explicit takeover**
 
-状态：实现、本机 E2E、adversarial hardening 与完整本地 minimum 均已完成；远程 CI 仍需真实 runner green 复核。
+状态：已完成；实现、review 修复、文档收束与完整本地 gate 均通过，提交后继续下一候选批次。
 
-目标：把 Batch 345–351 的 bounded reviewer contract 串成实际 main-agent vertical slice：主 Agent真实 spawn 一个 read-only reviewer；Go-native `plan-subagents` 以显式 `ReviewerResultPath` + WhatIf/Apply 完成 strict packet/result binding、route/output contract 与 evidence-ref validation、verification-before-decision 写回、deterministic idempotent retry 和 overview/handoff/doctor post-validation。
+目标：把可替换 Claude Code session executor 变成可显式登记、接管和交接的 durable lane state。`start` 不自动 spawn、不管理 session，只接受主 Agent提供的 session identifier，把 `currentExecutor`、`executorGeneration` 与 takeover metadata 写入 lane/board/resume/checkpoint/handoff/overview，供新会话接手时验证。
 
-边界：runtime 不自动 spawn、注册或管理 session/reviewer；主 Agent负责 dispatch、证据语义审查和显式 Apply。intake 不执行 heavy-tool、不写 authority/confirmed，不改变 sync/promote review-first、durable schema 或公共 façade 删除边界。
+边界：runtime 只记录和投影显式 executor claim，不创建/停止 Claude Code 会话，不接管 reviewer/member session，不执行 heavy-tool，不写 authority/confirmed，不改变 sync/promote review-first、durable autonomy grant 语义或公共 façade 删除边界；retained PowerShell façade 只做参数透传。
 
 完成内容：
 
-- `packet.json` 生成稳定 `packetId`；reviewer result 必须同时绑定 `packetId`、`routeId`、`shardId` 与 exact items。packet identity 覆盖完整 packet contract，intake 还会复核 repo/case/pack/manifest/route/top-level permissions 与 output contract。
-- reviewer result 采用 64 KiB、single-object、unknown-field fail-closed contract；`routeOutput` 只允许 outputContract 字段且要求非空 string，evidence refs 必须解析为 packet id 或非空 case-local bounded evidence file；不再接受任意 ledger event ID 作为 reviewer evidence。
-- `plan-subagents -ReviewerResultPath ... -WhatIf/-Apply` 成为 canonical intake/writeback path：先预览两条 note events，Apply 时固定 verification → decision 顺序，decision 引用 verification event ID；deterministic canonical intake ID 支持 duplicate Apply 与 JSON formatting/key-order 等价重试。
-- conflicts、缺证据、recommendedVerdict mismatch、low-confidence accept/reject、越权 write/heavy-tool/authority/confirmed/external-effect 请求全部 fail-closed；blocked intake 不写 facts。
-- `postValidation` 返回 overview、lane handoff preview 与 doctor rows；writeback 完成而 post-validation 失败会与 ledger commit 状态分开表达。
-- public command profile 新增专用 `case-local-review-writeback` boundary；retained `rekit.ps1` 只做参数透传、安全 guard 与 caller-CWD relative path normalization，不新增 PowerShell runtime logic。
-- adversarial hardening 后，out-of-case planning 只生成 dispatch artifacts，不再暴露可直接运行的 reviewer intake commands；`ItemsFile`、`ReviewOutputDir`、`PacketPath`、`ReviewerResultPath` 与 `DiffPath` 都按 caller CWD 规范化。
-- 本机真实 Mission Commander E2E 已创建临时 `_template` attached case，实际启动一个 read-only reviewer读取生成 packet/evidence，reviewer只返回 JSON；主 Agent写入生成路径并完成 WhatIf、Apply、duplicate Apply、overview/handoff/doctor，最终 verification/decision 各一条且 post-validation valid。
+- `start -Apply -Executor <session> -Actor <actor> -Reason <reason>` 支持首次 executor registration 与后续 takeover：新 lane 写 `executor-registered` lane event，existing lane 的不同 executor 写 `executor-takeover` lane event，同 executor 重试保持 generation 不变。
+- lane durable state 增加/补齐 `lastTakeoverBy`，并在 force refresh、reconcile takeover 与 existing lane enter 中保留或更新 `currentExecutor`、`executorGeneration`、`lastTakeoverAt`、`lastTakeoverBy`、`lastTakeoverReason`。
+- `RESUME.md`、typed `checkpoints/latest.json`、`.rekit/board.json`、overview text/JSON、`laneExecutorActions[]` 与 project/lane handoff Markdown 现在展示 current executor / generation / last takeover metadata，替换 executor 无需重扫 ledger 即可看到 owner snapshot。
+- PowerShell façade 新增 retained compatibility 参数 `-Executor` / `-Reason` 并透传 start/reconcile 到 Go backend；freeze invariants 与 façade smoke 覆盖该透传，不新增 PowerShell runtime logic。
+- CLI/workstream tests 覆盖 start executor claim、same-session idempotent retry、different-session takeover、overview executor projection 与 checkpoint takeover metadata contract。
 
-已通过的定向验证：
+已通过验证：
 
 ```text
-go test ./internal/rekit/subagents ./internal/rekit/commands ./internal/rekit/releasecheck ./internal/rekit/cli -count=1
-go test ./internal/rekit/manifest ./internal/rekit/subagents ./internal/rekit/commands ./internal/rekit/releasecheck ./internal/rekit/cli -count=1
+go test ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli ./internal/rekit/manifest -count=1
+go test ./...
+go vet ./...
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
 .\rekit\tests\facade-smoke.ps1
-# 临时 _template case：init -> start -> plan-subagents -> real read-only reviewer -> intake WhatIf -> Apply -> duplicate Apply -> overview/handoff/doctor
+.\rekit\tests\plan-subagents-smoke.ps1
+git diff --check
 ```
 
-完整本地 gate 已全部通过：`release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`facade-smoke.ps1`、`plan-subagents-smoke.ps1` 与 `git diff --check` 均通过；`release-check ready=true` 只表示 inventory/workflow 定义 ready。2026-07-18 最新远程 run `29644011190` 的 Linux/Windows/macOS jobs 仍为 `steps=[]` failure，未实际执行，不能称为三平台 jobs green；最终 commit/push 记录在本批提交后补录。
+说明：`release-check ready=true` 与 `ciReleaseGate.ready=true` 仅证明本地 inventory/workflow 定义 ready；本批未将其表述为远程 CI green。
 
 ### Next candidates
 
-1. **Replaceable session executor / reviewer orchestration**：定义并验证 session registration、ownership、takeover 与多 reviewer dispatch；保持 runtime 不宣称已自动 spawn。
+1. **Reviewer orchestration owner binding**：把 plan-subagents packet/intake 绑定到 current executor generation，并记录 reviewer session provenance；保持主 Agent负责 spawn，runtime 只校验 owner/provenance 与顺序写回。
 2. **Cross-platform product-path E2E**：在可用 runner 上验证 direct CLI/case lifecycle/workstream，再验证 installed `/rekit` / case shim runtime discovery；先解决或升级 GitHub Actions billing blocker。
 3. **Autonomy execution evidence closure**：sandbox adapter 消费 strict durable profile + `authorized-gate`，记录 actual budget、output refs、evidence 与 boundary-hit/escalation。
 4. **Pack-memory reconsume E2E**：case reusable observation → sanitize/review/promote → fresh case 或另一 pack 消费。

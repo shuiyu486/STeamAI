@@ -2,10 +2,12 @@ package overview
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
@@ -36,15 +38,20 @@ type Inventory struct {
 }
 
 type LaneSummary struct {
-	ID              string `json:"id"`
-	Label           string `json:"label"`
-	Kind            string `json:"kind"`
-	Status          string `json:"status"`
-	Workspace       string `json:"workspace"`
-	Authority       bool   `json:"authority"`
-	AutonomyMode    string `json:"autonomyMode"`
-	AutonomyReady   bool   `json:"autonomyReady"`
-	AutonomyProfile string `json:"autonomyProfile"`
+	ID                 string `json:"id"`
+	Label              string `json:"label"`
+	Kind               string `json:"kind"`
+	Status             string `json:"status"`
+	Workspace          string `json:"workspace"`
+	Authority          bool   `json:"authority"`
+	CurrentExecutor    string `json:"currentExecutor,omitempty"`
+	ExecutorGeneration int    `json:"executorGeneration,omitempty"`
+	LastTakeoverAt     string `json:"lastTakeoverAt,omitempty"`
+	LastTakeoverBy     string `json:"lastTakeoverBy,omitempty"`
+	LastTakeoverReason string `json:"lastTakeoverReason,omitempty"`
+	AutonomyMode       string `json:"autonomyMode"`
+	AutonomyReady      bool   `json:"autonomyReady"`
+	AutonomyProfile    string `json:"autonomyProfile"`
 }
 
 type MissionBrief = mission.Brief
@@ -127,7 +134,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 			kind = "主线"
 		}
 		autonomySummary := autonomy.ReadSummary(data.inst.CaseRoot, stringValue(lane, "id"), data.manifest)
-		fmt.Fprintf(&out, "- %s：%s，选择名=%s，状态=%s，工作区=%s，autonomy=%s ready=%t\n", kind, stringValue(lane, "id"), workstreamLabel(lane), stringValue(lane, "status"), stringValue(lane, "workspace"), autonomySummary.Mode, autonomySummary.Ready)
+		fmt.Fprintf(&out, "- %s：%s，选择名=%s，状态=%s，工作区=%s，executor=%s generation=%d，autonomy=%s ready=%t\n", kind, stringValue(lane, "id"), workstreamLabel(lane), stringValue(lane, "status"), stringValue(lane, "workspace"), firstText(stringValue(lane, "currentExecutor"), "unassigned"), intValue(lane, "executorGeneration"), autonomySummary.Mode, autonomySummary.Ready)
 	}
 	fmt.Fprintln(&out)
 	fmt.Fprintln(&out, "共享事实：")
@@ -168,15 +175,20 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 		laneID := stringValue(lane, "id")
 		autonomySummary := autonomy.ReadSummary(data.inst.CaseRoot, laneID, data.manifest)
 		lanes = append(lanes, LaneSummary{
-			ID:              laneID,
-			Label:           workstreamLabel(lane),
-			Kind:            kind,
-			Status:          stringValue(lane, "status"),
-			Workspace:       stringValue(lane, "workspace"),
-			Authority:       boolValue(lane, "authority"),
-			AutonomyMode:    autonomySummary.Mode,
-			AutonomyReady:   autonomySummary.Ready,
-			AutonomyProfile: autonomySummary.ProfilePath,
+			ID:                 laneID,
+			Label:              workstreamLabel(lane),
+			Kind:               kind,
+			Status:             stringValue(lane, "status"),
+			Workspace:          stringValue(lane, "workspace"),
+			Authority:          boolValue(lane, "authority"),
+			CurrentExecutor:    stringValue(lane, "currentExecutor"),
+			ExecutorGeneration: intValue(lane, "executorGeneration"),
+			LastTakeoverAt:     stringValue(lane, "lastTakeoverAt"),
+			LastTakeoverBy:     stringValue(lane, "lastTakeoverBy"),
+			LastTakeoverReason: stringValue(lane, "lastTakeoverReason"),
+			AutonomyMode:       autonomySummary.Mode,
+			AutonomyReady:      autonomySummary.Ready,
+			AutonomyProfile:    autonomySummary.ProfilePath,
 		})
 	}
 	facts := data.facts
@@ -281,10 +293,15 @@ func boardLanes(lanes []event) []mission.BoardLane {
 	items := make([]mission.BoardLane, 0, len(lanes))
 	for _, lane := range lanes {
 		items = append(items, mission.BoardLane{
-			ID:        stringValue(lane, "id"),
-			Status:    stringValue(lane, "status"),
-			Authority: boolValue(lane, "authority"),
-			Workspace: stringValue(lane, "workspace"),
+			ID:                 stringValue(lane, "id"),
+			Status:             stringValue(lane, "status"),
+			Authority:          boolValue(lane, "authority"),
+			Workspace:          stringValue(lane, "workspace"),
+			CurrentExecutor:    stringValue(lane, "currentExecutor"),
+			ExecutorGeneration: intValue(lane, "executorGeneration"),
+			LastTakeoverAt:     stringValue(lane, "lastTakeoverAt"),
+			LastTakeoverBy:     stringValue(lane, "lastTakeoverBy"),
+			LastTakeoverReason: stringValue(lane, "lastTakeoverReason"),
 		})
 	}
 	return items
@@ -313,6 +330,7 @@ func writeLaneExecutorActions(out *bytes.Buffer, actions []mission.LaneExecutorA
 	for _, item := range actions {
 		action := item.ExecutorAction
 		fmt.Fprintf(out, "- %s：blocked=%t ready=%t pendingGates=%d openInterventions=%d openDecisions=%d\n", item.Label, action.Blocked, action.Ready, action.PendingGates, action.OpenInterventions, action.OpenDecisions)
+		fmt.Fprintf(out, "  - executor: current=%s generation=%d lastTakeover=%s by=%s reason=%s\n", firstText(item.CurrentExecutor, "unassigned"), item.ExecutorGeneration, firstText(item.LastTakeoverAt, "none"), firstText(item.LastTakeoverBy, "none"), firstText(item.LastTakeoverReason, "none"))
 		fmt.Fprintf(out, "  - requirements: reconcile=%t pendingGate=%t openDecision=%t\n", action.ReconcileRequired, action.PendingGateRequired, action.OpenDecisionRequired)
 		if len(action.BlockerReasons) > 0 {
 			fmt.Fprintf(out, "  - blocker reasons: %s\n", strings.Join(action.BlockerReasons, ","))
@@ -707,13 +725,18 @@ func boardLaneEvents(lanes []mission.BoardLane) []event {
 	out := make([]event, 0, len(lanes))
 	for _, lane := range lanes {
 		out = append(out, event{
-			"id":        lane.ID,
-			"type":      lane.Type,
-			"title":     lane.Title,
-			"status":    lane.Status,
-			"authority": lane.Authority,
-			"workspace": lane.Workspace,
-			"updatedAt": lane.UpdatedAt,
+			"id":                 lane.ID,
+			"type":               lane.Type,
+			"title":              lane.Title,
+			"status":             lane.Status,
+			"authority":          lane.Authority,
+			"workspace":          lane.Workspace,
+			"currentExecutor":    lane.CurrentExecutor,
+			"executorGeneration": lane.ExecutorGeneration,
+			"lastTakeoverAt":     lane.LastTakeoverAt,
+			"lastTakeoverBy":     lane.LastTakeoverBy,
+			"lastTakeoverReason": lane.LastTakeoverReason,
+			"updatedAt":          lane.UpdatedAt,
 		})
 	}
 	return out
@@ -833,4 +856,40 @@ func boolValue(m map[string]any, key string) bool {
 	default:
 		return false
 	}
+}
+
+func intValue(m map[string]any, key string) int {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return 0
+	}
+	switch t := v.(type) {
+	case int:
+		return t
+	case int64:
+		return int(t)
+	case float64:
+		return int(t)
+	case json.Number:
+		value, err := t.Int64()
+		if err == nil {
+			return int(value)
+		}
+	case string:
+		value, err := strconv.Atoi(strings.TrimSpace(t))
+		if err == nil {
+			return value
+		}
+	}
+	return 0
+}
+
+func firstText(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

@@ -134,7 +134,7 @@ func TestLaneExecutorActionSnapshotsKeepNextActionsLaneLocal(t *testing.T) {
 func TestLaneExecutorActionSnapshotsProjectOpenLanes(t *testing.T) {
 	lanes := []BoardLane{
 		{ID: "main", Status: "open", Authority: true, Workspace: "workspace/main/main"},
-		{ID: "feature-login", Status: "open", Workspace: "workspace/features/feature-login"},
+		{ID: "feature-login", Status: "open", Workspace: "workspace/features/feature-login", CurrentExecutor: "session-login", ExecutorGeneration: 2, LastTakeoverAt: "2026-01-01T00:00:00Z", LastTakeoverBy: "main-agent", LastTakeoverReason: "replace stuck session"},
 		{ID: "feature-paused", Status: "paused", Workspace: "workspace/features/feature-paused"},
 	}
 	facts := Facts{
@@ -151,7 +151,7 @@ func TestLaneExecutorActionSnapshotsProjectOpenLanes(t *testing.T) {
 		t.Fatalf("unexpected main snapshot: %+v", items)
 	}
 	login := items[1]
-	if login.Lane != "feature-login" || login.Label != "login" || login.Workspace != "workspace/features/feature-login" || !login.ExecutorAction.Blocked || login.ExecutorAction.Ready {
+	if login.Lane != "feature-login" || login.Label != "login" || login.Workspace != "workspace/features/feature-login" || login.CurrentExecutor != "session-login" || login.ExecutorGeneration != 2 || login.LastTakeoverAt != "2026-01-01T00:00:00Z" || login.LastTakeoverBy != "main-agent" || login.LastTakeoverReason != "replace stuck session" || !login.ExecutorAction.Blocked || login.ExecutorAction.Ready {
 		t.Fatalf("unexpected login snapshot: %+v", login)
 	}
 	if login.ExecutorAction.PendingGates != 1 || login.ExecutorAction.OpenInterventions != 1 || login.ExecutorAction.OpenDecisions != 1 || !login.ExecutorAction.PendingGateRequired || !login.ExecutorAction.ReconcileRequired || !login.ExecutorAction.OpenDecisionRequired {

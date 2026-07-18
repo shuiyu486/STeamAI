@@ -1812,7 +1812,7 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "Mission Control brief：", "ready lanes", "blocked lanes", "pending gates", "debug gate", "open decisions", "candidate: handler", "interventions", "manual override", "next agent actions", "escalations", "pending-gate requires main-agent/user decision", "Lane executor actions：", "main：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=3", "requirements: reconcile=true pendingGate=true openDecision=true", "blocker reasons: pending-gate,intervention,open-decision", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "reconcile open intervention(s) before continuing the affected lane"} {
+	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "Mission Control brief：", "ready lanes", "blocked lanes", "pending gates", "debug gate", "open decisions", "candidate: handler", "interventions", "manual override", "next agent actions", "escalations", "pending-gate requires main-agent/user decision", "Lane executor actions：", "main：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=3", "executor: current=session-main generation=3 lastTakeover=2026-01-01T00:00:00Z by=main-agent reason=fixture", "requirements: reconcile=true pendingGate=true openDecision=true", "blocker reasons: pending-gate,intervention,open-decision", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "reconcile open intervention(s) before continuing the affected lane"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("overview missing %q:\n%s", expected, text)
 		}
@@ -1836,10 +1836,12 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 		Pack          string `json:"pack"`
 		IsMutation    bool   `json:"isMutation"`
 		Lanes         []struct {
-			ID        string `json:"id"`
-			Label     string `json:"label"`
-			Kind      string `json:"kind"`
-			Authority bool   `json:"authority"`
+			ID                 string `json:"id"`
+			Label              string `json:"label"`
+			Kind               string `json:"kind"`
+			Authority          bool   `json:"authority"`
+			CurrentExecutor    string `json:"currentExecutor"`
+			ExecutorGeneration int    `json:"executorGeneration"`
 		} `json:"lanes"`
 		Counts struct {
 			Observations     int `json:"observations"`
@@ -1895,7 +1897,7 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	if result.SchemaVersion != 1 || result.Command != "overview" || result.CaseRoot != caseRoot || result.Pack != "_template" || result.IsMutation || len(result.Lanes) != 1 || len(result.NextSteps) == 0 {
 		t.Fatalf("unexpected overview JSON envelope: %+v", result)
 	}
-	if result.Lanes[0].ID != "main" || result.Lanes[0].Label != "main" || result.Lanes[0].Kind != "main" || !result.Lanes[0].Authority {
+	if result.Lanes[0].ID != "main" || result.Lanes[0].Label != "main" || result.Lanes[0].Kind != "main" || !result.Lanes[0].Authority || result.Lanes[0].CurrentExecutor != "session-main" || result.Lanes[0].ExecutorGeneration != 3 {
 		t.Fatalf("unexpected overview lanes: %+v", result.Lanes)
 	}
 	if result.Counts.Observations != 1 || result.Counts.Requests != 1 || result.Counts.Candidates != 2 || result.Counts.Publications != 1 || result.Counts.PendingDecisions != 1 {
@@ -1910,7 +1912,7 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	if !slices.Contains(result.MissionBrief.BlockedLanes, "main (pending-gate,intervention,open-decision)") || !strings.Contains(result.MissionBrief.PendingGates[0], "action=debug") || !strings.Contains(result.MissionBrief.OpenDecisions[0], "candidate: handler") || !strings.Contains(result.MissionBrief.Interventions[0], "manual override") {
 		t.Fatalf("unexpected mission brief details: %+v", result.MissionBrief)
 	}
-	if len(result.LaneExecutorActions) != 1 || result.LaneExecutorActions[0].Lane != "main" || !result.LaneExecutorActions[0].ExecutorAction.Blocked || result.LaneExecutorActions[0].ExecutorAction.Ready || result.LaneExecutorActions[0].ExecutorAction.PendingGates != 1 || result.LaneExecutorActions[0].ExecutorAction.OpenInterventions != 1 || result.LaneExecutorActions[0].ExecutorAction.OpenDecisions != 3 {
+	if len(result.LaneExecutorActions) != 1 || result.LaneExecutorActions[0].Lane != "main" || result.LaneExecutorActions[0].CurrentExecutor != "session-main" || result.LaneExecutorActions[0].ExecutorGeneration != 3 || result.LaneExecutorActions[0].LastTakeoverBy != "main-agent" || result.LaneExecutorActions[0].LastTakeoverReason != "fixture" || !result.LaneExecutorActions[0].ExecutorAction.Blocked || result.LaneExecutorActions[0].ExecutorAction.Ready || result.LaneExecutorActions[0].ExecutorAction.PendingGates != 1 || result.LaneExecutorActions[0].ExecutorAction.OpenInterventions != 1 || result.LaneExecutorActions[0].ExecutorAction.OpenDecisions != 3 {
 		t.Fatalf("unexpected overview lane executor actions: %+v", result.LaneExecutorActions)
 	}
 	if !slices.Contains(result.NextSteps, "reconcile open intervention(s) before continuing the affected lane") || slices.Contains(result.NextSteps, "/rekit continue main") {
@@ -2307,14 +2309,14 @@ func TestRunStartPreviewDoesNotWriteBoard(t *testing.T) {
 	assertSnapshotEqual(t, before, after)
 }
 
-func TestRunStartApplyCreatesFeatureLane(t *testing.T) {
+func TestRunStartApplyClaimsAndTakesOverExecutor(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply"}, &out); err != nil {
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Executor", "session-1", "-Actor", "main-agent", "-Reason", "initial explicit claim"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	result := decodeStartResult(t, out.Bytes())
-	if !result.IsMutation || !result.Applied || result.Lane.ID != "feature-login" {
+	if !result.IsMutation || !result.Applied || result.Lane.ID != "feature-login" || result.Lane.CurrentExecutor != "session-1" || result.Lane.ExecutorGeneration != 1 || result.Lane.LastTakeoverBy != "main-agent" || result.Lane.LastTakeoverReason != "initial explicit claim" {
 		t.Fatalf("unexpected start apply result: %+v", result)
 	}
 	if result.MissionBrief.Summary == "" || !slices.Contains(result.MissionBrief.ReadyLanes, "main") || !slices.Contains(result.MissionBrief.ReadyLanes, "login") || len(result.MissionBrief.BlockedLanes) != 0 {
@@ -2328,7 +2330,8 @@ func TestRunStartApplyCreatesFeatureLane(t *testing.T) {
 	}
 	assertStartWrite(t, result.Writes, ".rekit/policy.yml", "create-policy")
 	assertStartWrite(t, result.Writes, ".rekit/lanes/main/lane.json", "create-lane")
-	assertStartWrite(t, result.Writes, ".rekit/lanes/feature-login/lane.json", "create-lane")
+	assertStartWrite(t, result.Writes, ".rekit/lanes/feature-login/lane.json", "create-lane-and-executor-claim")
+	assertStartWrite(t, result.Writes, ".rekit/lanes/feature-login/events.jsonl", "append-executor-registered")
 	assertStartWrite(t, result.Writes, ".rekit/board.json", "refresh")
 	for _, rel := range []string{".rekit/board.json", ".rekit/lanes/main/lane.json", ".rekit/lanes/feature-login/lane.json", ".rekit/lanes/feature-login/prompts/RESUME.md", "workspace/features/feature-login/summary.md"} {
 		if _, err := os.Stat(filepath.Join(caseRoot, filepath.FromSlash(rel))); err != nil {
@@ -2341,14 +2344,28 @@ func TestRunStartApplyCreatesFeatureLane(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply"}, &out); err != nil {
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Executor", "session-1", "-Actor", "main-agent", "-Reason", "repeat explicit claim"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	again := decodeStartResult(t, out.Bytes())
 	assertStartWrite(t, again.Writes, ".rekit/lanes/feature-login/lane.json", "enter-existing-lane")
+	if again.Lane.CurrentExecutor != "session-1" || again.Lane.ExecutorGeneration != 1 {
+		t.Fatalf("same executor claim should be idempotent: %+v", again.Lane)
+	}
 	if !again.ExecutorAction.Ready || again.ExecutorAction.Blocked || again.ExecutorAction.ResumeCommand != "/rekit continue login" || again.ExecutorAction.HandoffCommand != "/rekit handoff login" {
 		t.Fatalf("start existing-lane executor action drifted: %+v", again.ExecutorAction)
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "replace stuck session"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	takenOver := decodeStartResult(t, out.Bytes())
+	if takenOver.Lane.CurrentExecutor != "session-2" || takenOver.Lane.ExecutorGeneration != 2 || takenOver.Lane.LastTakeoverBy != "main-agent" || takenOver.Lane.LastTakeoverReason != "replace stuck session" {
+		t.Fatalf("executor takeover did not update durable lane state: %+v", takenOver.Lane)
+	}
+	assertStartWrite(t, takenOver.Writes, ".rekit/lanes/feature-login/lane.json", "update-executor-takeover")
+	assertStartWrite(t, takenOver.Writes, ".rekit/lanes/feature-login/events.jsonl", "append-executor-takeover")
 
 	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/inbox.jsonl", "{\"eventId\":\"in-1\",\"summary\":\"review queued\"}\n")
 	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/tasks.jsonl", "{\"taskId\":\"task-1\",\"summary\":\"inspect candidate\",\"status\":\"open\"}\n{\"taskId\":\"task-2\",\"summary\":\"closed task\",\"status\":\"closed\"}\n")
@@ -2431,11 +2448,19 @@ func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
 	if len(result.LaneExecutorActions) != 2 || result.ExecutorAction != nil {
 		t.Fatalf("project handoff preview missing lane executor actions: %+v", result)
 	}
-	mainAction := handoffExecutorActionFor(t, result.LaneExecutorActions, "main")
+	main := handoffLaneActionFor(t, result.LaneExecutorActions, "main")
+	if main.CurrentExecutor != "session-main" || main.ExecutorGeneration != 1 || main.LastTakeoverBy != "main-agent" || main.LastTakeoverReason != "initial main claim" {
+		t.Fatalf("project handoff preview main executor owner snapshot drifted: %+v", main)
+	}
+	mainAction := main.ExecutorAction
 	if mainAction.Blocked || !mainAction.Ready || !slices.Equal(mainAction.NextAgentActions, []string{"/rekit continue main"}) {
 		t.Fatalf("project handoff preview main executor action should stay ready and lane-local: %+v", mainAction)
 	}
-	loginAction := handoffExecutorActionFor(t, result.LaneExecutorActions, "feature-login")
+	login := handoffLaneActionFor(t, result.LaneExecutorActions, "feature-login")
+	if login.CurrentExecutor != "session-login" || login.ExecutorGeneration != 2 || login.LastTakeoverBy != "main-agent" || login.LastTakeoverReason != "replace login session" {
+		t.Fatalf("project handoff preview login executor owner snapshot drifted: %+v", login)
+	}
+	loginAction := login.ExecutorAction
 	if !loginAction.Blocked || !loginAction.ReconcileRequired || !loginAction.PendingGateRequired || !loginAction.OpenDecisionRequired || loginAction.PendingGates != 1 || loginAction.OpenInterventions != 1 || loginAction.OpenDecisions != 1 || loginAction.ResumeCommand != "/rekit continue login" {
 		t.Fatalf("project handoff preview login executor action drifted: %+v", loginAction)
 	}
@@ -2463,7 +2488,11 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if len(project.LaneExecutorActions) != 2 || project.ExecutorAction != nil {
 		t.Fatalf("project handoff JSON missing lane executor actions: %+v", project)
 	}
-	projectLoginAction := handoffExecutorActionFor(t, project.LaneExecutorActions, "feature-login")
+	projectLogin := handoffLaneActionFor(t, project.LaneExecutorActions, "feature-login")
+	if projectLogin.CurrentExecutor != "session-login" || projectLogin.ExecutorGeneration != 2 || projectLogin.LastTakeoverBy != "main-agent" || projectLogin.LastTakeoverReason != "replace login session" {
+		t.Fatalf("project handoff JSON login executor owner snapshot drifted: %+v", projectLogin)
+	}
+	projectLoginAction := projectLogin.ExecutorAction
 	if !projectLoginAction.Blocked || projectLoginAction.PendingGates != 1 || projectLoginAction.OpenInterventions != 1 || projectLoginAction.OpenDecisions != 1 || !slices.Contains(projectLoginAction.BlockerReasons, "pending-gate") || !slices.Contains(projectLoginAction.BlockerReasons, "intervention") || !slices.Contains(projectLoginAction.BlockerReasons, "open-decision") {
 		t.Fatalf("project handoff JSON login executor action drifted: %+v", projectLoginAction)
 	}
@@ -2475,7 +2504,7 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"# rekit 项目接手索引", "## Mission Control brief", "summary: openLanes=2 ready=1 blocked=1", "ready lanes:", "main", "blocked lanes:", "login (pending-gate,intervention,open-decision)", "pending gates:", "debug gate", "open decisions:", "decision subject", "interventions:", "manual override", "next agent actions:", "reconcile open intervention", "escalations:", "pending-gate requires main-agent/user decision", "## 工作线", "blocked=true", "pendingGates=1 openInterventions=1 openDecisions=1", "requirements：reconcile=true pendingGate=true openDecision=true", "next action：reconcile open intervention(s) before continuing this lane", "next action：resolve or keep deferred pending-gate request(s)", "next action：review open candidate/decision item(s)", "continue command：`/rekit continue main`", "ready 后继续：`/rekit continue login`", "/rekit handoff login"} {
+	for _, expected := range []string{"# rekit 项目接手索引", "## Mission Control brief", "summary: openLanes=2 ready=1 blocked=1", "ready lanes:", "main", "blocked lanes:", "login (pending-gate,intervention,open-decision)", "pending gates:", "debug gate", "open decisions:", "decision subject", "interventions:", "manual override", "next agent actions:", "reconcile open intervention", "escalations:", "pending-gate requires main-agent/user decision", "## 工作线", "blocked=true", "executor owner：current=session-login generation=2 lastTakeover=2026-01-02T00:00:00Z by=main-agent reason=replace login session", "pendingGates=1 openInterventions=1 openDecisions=1", "requirements：reconcile=true pendingGate=true openDecision=true", "next action：reconcile open intervention(s) before continuing this lane", "next action：resolve or keep deferred pending-gate request(s)", "next action：review open candidate/decision item(s)", "continue command：`/rekit continue main`", "ready 后继续：`/rekit continue login`", "/rekit handoff login"} {
 		if !strings.Contains(string(text), expected) {
 			t.Fatalf("project handoff missing %q:\n%s", expected, string(text))
 		}
@@ -4888,11 +4917,16 @@ type handoffResult struct {
 }
 
 type handoffLaneExecutorAction struct {
-	Lane           string                 `json:"lane"`
-	Label          string                 `json:"label"`
-	Status         string                 `json:"status"`
-	Workspace      string                 `json:"workspace"`
-	ExecutorAction executorActionSnapshot `json:"executorAction"`
+	Lane               string                 `json:"lane"`
+	Label              string                 `json:"label"`
+	Status             string                 `json:"status"`
+	Workspace          string                 `json:"workspace"`
+	CurrentExecutor    string                 `json:"currentExecutor"`
+	ExecutorGeneration int                    `json:"executorGeneration"`
+	LastTakeoverAt     string                 `json:"lastTakeoverAt"`
+	LastTakeoverBy     string                 `json:"lastTakeoverBy"`
+	LastTakeoverReason string                 `json:"lastTakeoverReason"`
+	ExecutorAction     executorActionSnapshot `json:"executorAction"`
 }
 
 type executorActionSnapshot struct {
@@ -5054,6 +5088,9 @@ type startLane struct {
 	Workspace                  string `json:"workspace"`
 	CurrentExecutor            string `json:"currentExecutor"`
 	ExecutorGeneration         int    `json:"executorGeneration"`
+	LastTakeoverAt             string `json:"lastTakeoverAt"`
+	LastTakeoverBy             string `json:"lastTakeoverBy"`
+	LastTakeoverReason         string `json:"lastTakeoverReason"`
 	LastReconciledIntervention string `json:"lastReconciledIntervention"`
 }
 
@@ -5130,15 +5167,15 @@ func decodeHandoffResult(t *testing.T, b []byte) handoffResult {
 	return result
 }
 
-func handoffExecutorActionFor(t *testing.T, items []handoffLaneExecutorAction, lane string) executorActionSnapshot {
+func handoffLaneActionFor(t *testing.T, items []handoffLaneExecutorAction, lane string) handoffLaneExecutorAction {
 	t.Helper()
 	for _, item := range items {
 		if item.Lane == lane {
-			return item.ExecutorAction
+			return item
 		}
 	}
 	t.Fatalf("handoff lane executor action for %s not found in %+v", lane, items)
-	return executorActionSnapshot{}
+	return handoffLaneExecutorAction{}
 }
 
 func containsSubstring(items []string, want string) bool {
@@ -5452,9 +5489,9 @@ func writeOverviewFixture(t *testing.T, caseRoot string) {
 	if err := os.MkdirAll(filepath.Join(lanesRoot, "main"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[{"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"captures/lanes/main"}],"factsRoot":".rekit/facts"}`
+	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[{"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"captures/lanes/main","currentExecutor":"session-main","executorGeneration":3,"lastTakeoverAt":"2026-01-01T00:00:00Z","lastTakeoverBy":"main-agent","lastTakeoverReason":"fixture"}],"factsRoot":".rekit/facts"}`
 	writeCaseFile(t, caseRoot, ".rekit/board.json", board)
-	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"captures/lanes/main"}`)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"captures/lanes/main","currentExecutor":"session-main","executorGeneration":3,"lastTakeoverAt":"2026-01-01T00:00:00Z","lastTakeoverBy":"main-agent","lastTakeoverReason":"fixture"}`)
 	writeFactFile(t, factsRoot, "observations.jsonl", []string{`{"kind":"observation","lane":"main","subject":"obs","summary":"seen"}`})
 	writeFactFile(t, factsRoot, "candidates.jsonl", []string{`{"kind":"candidate","lane":"main","subject":"handler","summary":"candidate one","confidence":"high","status":"open"}`, `{"kind":"candidate","lane":"main","subject":"handler","summary":"candidate two","confidence":"medium","status":"open"}`})
 	writeFactFile(t, factsRoot, "requests.jsonl", []string{`{"kind":"request","lane":"main","subject":"debug gate","summary":"needs confirmation","status":"pending-gate","actor":"runtime-test","risk":"high","target":"batch-overview","batchId":"batch-overview","gate":{"action":"debug","scope":"handler only","budget":"30s","triedLightSteps":["overview","static review"],"stopConditions":["timeout"]}}`})
@@ -5482,10 +5519,10 @@ func writeHandoffFixture(t *testing.T, caseRoot string) {
 			t.Fatal(err)
 		}
 	}
-	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[{"id":"main","type":"main","title":"主线","status":"open","authority":true,"workspace":"workspace/main/main"},{"id":"feature-login","type":"feature","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login"}],"factsRoot":".rekit/facts"}`
+	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[{"id":"main","type":"main","title":"主线","status":"open","authority":true,"workspace":"workspace/main/main","currentExecutor":"session-main","executorGeneration":1,"lastTakeoverAt":"2026-01-01T00:00:00Z","lastTakeoverBy":"main-agent","lastTakeoverReason":"initial main claim"},{"id":"feature-login","type":"feature","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login","currentExecutor":"session-login","executorGeneration":2,"lastTakeoverAt":"2026-01-02T00:00:00Z","lastTakeoverBy":"main-agent","lastTakeoverReason":"replace login session"}],"factsRoot":".rekit/facts"}`
 	writeCaseFile(t, caseRoot, ".rekit/board.json", board)
-	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","title":"主线","status":"open","authority":true,"workspace":"workspace/main/main","laneRoot":".rekit/lanes/main"}`)
-	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/lane.json", `{"schemaVersion":1,"id":"feature-login","type":"feature","name":"login","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login","laneRoot":".rekit/lanes/feature-login"}`)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","title":"主线","status":"open","authority":true,"workspace":"workspace/main/main","laneRoot":".rekit/lanes/main","currentExecutor":"session-main","executorGeneration":1,"lastTakeoverAt":"2026-01-01T00:00:00Z","lastTakeoverBy":"main-agent","lastTakeoverReason":"initial main claim"}`)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/lane.json", `{"schemaVersion":1,"id":"feature-login","type":"feature","name":"login","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login","laneRoot":".rekit/lanes/feature-login","currentExecutor":"session-login","executorGeneration":2,"lastTakeoverAt":"2026-01-02T00:00:00Z","lastTakeoverBy":"main-agent","lastTakeoverReason":"replace login session"}`)
 	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/inbox.jsonl", `{"eventId":"in-1","summary":"review queued"}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/tasks.jsonl", `{"taskId":"task-1","summary":"inspect candidate","status":"open"}`+"\n")
 	writeCaseFile(t, caseRoot, "workspace/features/feature-login/packet.md", "# packet\n")

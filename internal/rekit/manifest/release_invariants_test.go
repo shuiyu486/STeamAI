@@ -692,6 +692,8 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"$CallerWorkingDirectory = [System.IO.Path]::GetFullPath((Get-Location).Path)",
 		"Add-RekitGoArg ([ref]$goArgs) '-ReviewerResultPath' (Resolve-RekitCallerPath $ReviewerResultPath)",
 		"Add-RekitGoArg ([ref]$goArgs) '-ItemsFile' (Resolve-RekitCallerPath $ItemsFile)",
+		"Add-RekitGoArg ([ref]$goArgs) '-Executor' $Executor",
+		"Add-RekitGoArg ([ref]$goArgs) '-Reason' $Reason",
 	} {
 		assertTextContains(t, facade, required, "PowerShell facade freeze guard")
 	}

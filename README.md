@@ -132,10 +132,10 @@ claude
 |---|---|---|
 | `/rekit status` | 只读 | 看当前 case 绑定状态；若目录被移动，只提示，不修复；`-Format json` 输出机器可读 status envelope。 |
 | `/rekit packs` | 只读 | 维护者查看当前 kit 内所有 pack 的成熟度、schema、route、managed/tooling 和 authority lane 概览；`-Format json` 输出机器可读 inventory。 |
-| `/rekit overview` | case-local 状态 | 显示项目概览、主线/支线、共享事实统计、Mission Control brief、逐 lane `laneExecutorActions[]` 和 blocker-aware 下一步建议；文本/JSON 直接展示 blocked/ready、typed blocker counts、requirements 与 resume/handoff command，只有 ready lane 才进入 continue 建议；`authorized-gate` 作为 durable autonomy 已授权决策单独展示但不阻塞 lane；缺 `.rekit/board.json` 时由 Go 初始化 case-local board/facts/policy/default authority lane；只表示总览，不代表当前会话已选择工作线。 |
+| `/rekit overview` | case-local 状态 | 显示项目概览、主线/支线、共享事实统计、Mission Control brief、逐 lane `laneExecutorActions[]` 和 blocker-aware 下一步建议；文本/JSON 直接展示 blocked/ready、typed blocker counts、requirements、resume/handoff command 以及 current executor / generation / last takeover 摘要，只有 ready lane 才进入 continue 建议；`authorized-gate` 作为 durable autonomy 已授权决策单独展示但不阻塞 lane；缺 `.rekit/board.json` 时由 Go 初始化 case-local board/facts/policy/default authority lane；只表示总览，不代表当前会话已选择工作线。 |
 | `/rekit continue main` | case-local 自动整理 | 明确接手主线并整理相关状态；多工作线时不要用无参数 `continue` 盲猜；维护自动化可用 `-WhatIf -Format json` 经默认 Go façade 消费非写入 continue 计划，JSON envelope 含结构化 `missionBrief`，其中包含 pending gates 与非阻塞 authorized gates。 |
 | `/rekit continue <name>` | case-local 自动整理 | 明确接手某条功能支线，只整理该支线的 workspace/outbox 并刷新接续提示；`-WhatIf -Format json` 默认经 Go façade 预览收集、路由和 authority append 计划；显式 `-Apply` 的 JSON envelope、run `status.json` 与 `digest.md` 都包含同一 `missionBrief`，让 lane executor 直接看到 pending gates 与非阻塞 authorized gates。 |
-| `/rekit start <name>` | case-local 状态 | 创建或进入一个功能支线，例如 `/rekit start login`；支线只写自己的工作区；维护自动化可用 `-WhatIf -Format json` 消费非写入 start 计划和结构化 `missionBrief`，显式 `-Apply` 输出含 apply 后 `missionBrief` 的 Go JSON envelope。 |
+| `/rekit start <name>` | case-local 状态 | 创建或进入一个功能支线，例如 `/rekit start login`；支线只写自己的工作区；维护自动化可用 `-WhatIf -Format json` 消费非写入 start 计划和结构化 `missionBrief`，显式 `-Apply` 输出含 apply 后 `missionBrief` 的 Go JSON envelope；需要登记/接管当前会话时由主 Agent显式传 `-Executor <session>`、`-Actor <actor>`、`-Reason <reason>`，runtime 只写 durable executor metadata，不自动 spawn 或管理 session。 |
 | `/rekit handoff` | case-local 状态 | 生成项目级接手索引 `.rekit/handovers/latest.md`；索引和 Go JSON envelope 都包含 Mission Control brief，汇总 ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations；维护自动化可用 `-WhatIf -Format json` 消费同一结构化 `missionBrief` 与写入预览，显式 `-Apply` 输出 Go JSON envelope；不代表某个会话。 |
 | `/rekit handoff <name>` | case-local 状态 | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；lane handoff 的 Markdown 与 Go JSON `missionBrief` 使用 overview 同一 blocker 语义，pending gate、open intervention、open candidate/decision 都会让该 lane 显示为 blocked；`authorized-gate` 单独展示授权 profile / decision 但不阻塞 lane；`-WhatIf -Format json` 可预览目标工作线 handoff 写入计划，显式 `-Apply` 输出 Go JSON envelope。 |
 | `/rekit gate -WhatIf` / `/rekit gate -Apply` | case-local gate request | Go backend 的 heavy-action authorization preflight；`-WhatIf -Format json` 输出 gate decision plan 和当前 `missionBrief`，不写 ledger、不执行 heavy-tool；`-Apply -Format json` 只 append pending-gate 或 authorized-gate request ledger decision，并输出 apply 后 `missionBrief`；durable lane autonomy profile 完全覆盖时可记录 `authorized-gate`，并在 overview、handoff、continue digest/status 与 `missionBrief.authorizedGates` 中可见；否则 fail-closed 为 pending/denied decision；实际 heavy-tool 仍由 lane executor / tool adapter 在授权范围内执行并写 evidence，不写 confirmed/authority。 |
@@ -159,7 +159,7 @@ claude
 - 当前主线和功能支线；
 - 共享事实、request、candidate、publication 统计；
 - Mission Control brief：ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations；
-- 逐 lane executor action index：blocked/ready、pending gate / open intervention / open decision counts、requirements 与 resume/handoff command；
+- 逐 lane executor action index：blocked/ready、pending gate / open intervention / open decision counts、requirements、resume/handoff command 与 current executor / generation / last takeover 摘要；
 - blocker-aware 下一步：`start` / `handoff` / `continue` / `reconcile` 的 apply JSON、text 与 handoff Markdown 使用 lane-local executor actions；blocked lane 只建议 reconcile / pending gate / open decision 处理，ready lane 才建议自己的 continue，paused/closed/unready lane 回到 handoff/read-only；
 - 未决 candidate、pending-gate、authorized-gate、最近 verification / decision 等 review loop 摘要；
 - 需要人工确认的事项；
@@ -182,7 +182,7 @@ claude
 /rekit start login
 ```
 
-这会创建一个功能支线，例如 `feature-login`。需要自动化预览时可先运行 `/rekit start login -WhatIf -Format json` 获取只读写入计划和当前 `missionBrief`；显式 `/rekit start login -Apply` 由 Go façade 创建或进入工作线并输出含 apply 后 `missionBrief` 的 JSON envelope。功能支线用于专项分析、证据收集、候选结论和 request；它默认不能写 confirmed CSV、`routine_ir.*` 或 `references/vmp-re/task-handoff.md`。
+这会创建一个功能支线，例如 `feature-login`。需要自动化预览时可先运行 `/rekit start login -WhatIf -Format json` 获取只读写入计划和当前 `missionBrief`；显式 `/rekit start login -Apply` 由 Go façade 创建或进入工作线并输出含 apply 后 `missionBrief` 的 JSON envelope。若当前 Claude Code 会话要登记为该 lane 的 executor，主 Agent可在 start apply 时传 `-Executor <session-id> -Actor <actor> -Reason <reason>`；runtime 只记录 `currentExecutor` / `executorGeneration` / takeover metadata 并刷新 RESUME、checkpoint、board、overview 和 handoff，不负责创建、停止或监控会话。功能支线用于专项分析、证据收集、候选结论和 request；它默认不能写 confirmed CSV、`routine_ir.*` 或 `references/vmp-re/task-handoff.md`。
 
 主线/支线不是级别高低，而是写入权限不同：
 
