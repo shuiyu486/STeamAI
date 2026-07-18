@@ -6,6 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
 func TestCreateCandidatesWhatIfDoesNotWrite(t *testing.T) {
@@ -118,6 +123,82 @@ func TestSanitizeToolingCandidateRedactsCaseSpecificValues(t *testing.T) {
 	for _, unexpected := range []string{caseRoot, "targetalpha", "C:\\cases", "demo-trace.csv", "demo-dump.bin", "0x401000", "ctx123", "round7", "Task #99"} {
 		if strings.Contains(out, unexpected) {
 			t.Fatalf("sanitized output still contains %q:\n%s", unexpected, out)
+		}
+	}
+}
+
+func TestPackMemoryPromoteReconsumeE2E(t *testing.T) {
+	repoRoot, sourceCase, freshCase, pack := packMemoryReconsumeFixture(t)
+
+	plan, err := Plan(repoRoot, sourceCase, pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.ToolingItems) != 1 {
+		t.Fatalf("promote plan tooling items = %d, want 1", len(plan.ToolingItems))
+	}
+	if item := plan.ToolingItems[0]; item.Action != "sanitized-preview-for-llm-review" || item.SanitizedPreviewText == "" || len(item.DenyViolations) != 0 {
+		t.Fatalf("unexpected tooling promote item: %+v", item)
+	}
+
+	result, err := CreateCandidates(repoRoot, sourceCase, pack, CandidateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := assertCandidateWriteForTest(t, result.Writes, "references/template/toolchain-router.md", "create-candidate")
+	candidateText := readText(t, write.TargetPath)
+	for _, expected := range []string{"# Tooling candidate from case", "promoted-memory-tool", "<caseRoot>", "<absolutePath>", "<artifactsPath>", "<capturesPath>", "<address>", "<ctxNNN>", "Task #<n>"} {
+		if !strings.Contains(candidateText, expected) {
+			t.Fatalf("candidate missing %q:\n%s", expected, candidateText)
+		}
+	}
+	for _, unexpected := range []string{sourceCase, "C:\\cases", "sourcecase", "reusable-trace.csv", "reusable-dump.bin", "0x401000", "ctx123", "Task #42"} {
+		if strings.Contains(candidateText, unexpected) {
+			t.Fatalf("candidate still contains case-specific %q:\n%s", unexpected, candidateText)
+		}
+	}
+
+	consumedRecipeRel := "tooling/recipes/promoted-memory-tool.md"
+	consumedRecipe := filepath.Join(repoRoot, "packs", pack, filepath.FromSlash(consumedRecipeRel))
+	writeText(t, consumedRecipe, candidateText)
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ValidateSchema(); err != nil {
+		t.Fatalf("consumed tooling recipe is not manifest-valid: %v", err)
+	}
+	if _, err := doctor.Pack(repoRoot, pack); err != nil {
+		t.Fatalf("pack doctor rejected consumed memory recipe: %v", err)
+	}
+
+	if _, err := syncpkg.Apply(repoRoot, freshCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "fresh-reconsumer"}); err != nil {
+		t.Fatal(err)
+	}
+	inst, err := instance.Read(freshCase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.TemplateRoot != repoRoot || inst.TemplatePack != pack || inst.ProjectName != "fresh-reconsumer" {
+		t.Fatalf("fresh case metadata did not bind to promoted pack: %+v", inst)
+	}
+	if _, err := doctor.Case(repoRoot, freshCase, pack); err != nil {
+		t.Fatalf("fresh case doctor rejected reconsumer case: %v", err)
+	}
+	freshRouter := readText(t, filepath.Join(freshCase, filepath.FromSlash("references/template/toolchain-router.md")))
+	if strings.Contains(freshRouter, "promoted-memory-tool") {
+		t.Fatalf("fresh managed router unexpectedly consumed tooling memory before review:\n%s", freshRouter)
+	}
+	freshRecipePath := filepath.Join(inst.TemplateRoot, "packs", inst.TemplatePack, filepath.FromSlash(consumedRecipeRel))
+	freshRecipe := readText(t, freshRecipePath)
+	for _, expected := range []string{"promoted-memory-tool", "<caseRoot>", "<absolutePath>", "<artifactsPath>", "<capturesPath>", "<address>", "<ctxNNN>", "Task #<n>"} {
+		if !strings.Contains(freshRecipe, expected) {
+			t.Fatalf("fresh reconsume recipe missing %q:\n%s", expected, freshRecipe)
+		}
+	}
+	for _, unexpected := range []string{sourceCase, freshCase, "C:\\cases", "sourcecase", "freshcase", "reusable-trace.csv", "reusable-dump.bin", "0x401000", "ctx123", "Task #42"} {
+		if strings.Contains(freshRecipe, unexpected) {
+			t.Fatalf("fresh reconsume recipe leaked case-specific %q:\n%s", unexpected, freshRecipe)
 		}
 	}
 }
@@ -297,6 +378,135 @@ promoteDenyPatterns:
 	writeText(t, filepath.Join(caseRoot, filepath.FromSlash("references/template/workflow-template.md")), "# Workflow\n\nDo not promote C:\\case\\artifact\\sample-trace.csv from this case.\n")
 	writeText(t, filepath.Join(caseRoot, filepath.FromSlash("references/template/toolchain-router.md")), "# Tooling\n\nCase root: "+caseRoot+"\nAbsolute: C:\\cases\\targetalpha\\sample.exe\nArtifacts: artifacts/run/demo-trace.csv\nCaptures: captures/run/demo-dump.bin\nAddress: 0x401000\nContext: ctx123 round7 Task #99\n")
 	return repoRoot, caseRoot, pack
+}
+
+func packMemoryReconsumeFixture(t *testing.T) (repoRoot, sourceCase, freshCase, pack string) {
+	t.Helper()
+	repoRoot = t.TempDir()
+	sourceCase = filepath.Join(t.TempDir(), "sourcecase")
+	freshCase = filepath.Join(t.TempDir(), "freshcase")
+	pack = "unit-pack"
+	packRoot := filepath.Join(repoRoot, "packs", pack)
+	manifestText := `schemaVersion: 1
+name: unit-pack
+version: 0.0.1
+description: Unit test pack
+maturity: template
+
+managedFiles:
+  - references/template/README.md
+  - references/template/agent-team.md
+  - references/template/workflow-template.md
+  - references/template/toolchain-router.md
+templateFiles:
+  - references/template/task-handoff.template.md
+localNeverOverwrite:
+  - references/template/task-handoff.md
+
+promoteFiles:
+  - references/template/README.md
+  - references/template/agent-team.md
+  - references/template/workflow-template.md
+  - references/template/toolchain-router.md
+
+managedBlock:
+  file: CLAUDE.local.md
+  blockId: unit:router
+  source: CLAUDE.local.snippet.md
+
+syncPolicy:
+  managedFiles: overwrite-with-backup
+  templateFiles: create-if-missing
+  localFiles: never-overwrite
+
+workstreamDefaults:
+  defaultAuthorityLane: main
+  defaultStartLaneType: feature
+  backupRoot: .rekit/backups/sync
+  requestDefaultTargetLane: main
+  handoffPath: references/template/task-handoff.md
+
+authorityFiles:
+  - references/template/task-handoff.md
+
+laneTypes:
+  - id: main
+    title: Main
+    authority: true
+    workspaceRoot: workspace/main
+    canWrite: references/template/task-handoff.md
+    readOnly: .rekit/facts/**
+    outputs: publication,decision,observation
+  - id: feature
+    title: Feature
+    authority: false
+    workspaceRoot: workspace/features
+    canWrite: own-workspace
+    readOnly: references/template/**,.rekit/facts/**
+    outputs: observation,request,candidate,summary
+
+commonPolicies:
+  - agent-team
+policyOverlays: []
+subagentRoutes: []
+toolingFiles:
+  - tooling/README.md
+  - tooling/catalog.yml
+  - tooling/recipes/promoted-memory-tool.md
+promptFiles: []
+
+toolingCandidateSources:
+  - references/template/toolchain-router.md
+
+heavyToolGates:
+  - id: debug
+    title: Dynamic debug or attach
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout,unexpected-side-effect,scope-drift
+
+promoteDenyPatterns:
+  - "C:\\\\"
+  - "artifacts[\\\\/]"
+  - "captures[\\\\/]"
+  - "[A-Za-z0-9_.-]*trace[A-Za-z0-9_.-]*\\\\.(csv|jsonl|log|txt|bin)"
+  - "[A-Za-z0-9_.-]*dump[A-Za-z0-9_.-]*\\\\.(dmp|bin|raw|exe|dll)"
+  - "\\\\.dmp\\\\b"
+  - "0x[0-9A-Fa-f]{6,}"
+  - "ctx[0-9]+"
+  - "round[0-9]+"
+  - "Task #[0-9]+"
+
+budgets:
+  defaultMarkdown: 32768
+`
+	writeText(t, filepath.Join(packRoot, "manifest.yml"), manifestText)
+	writeText(t, filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md"), "# skill\n\n底层 Go CLI 是 canonical runtime\n`rekit.ps1` 只是 retained compatibility façade\ncase 只生成 `.claude/skills/rekit/SKILL.md` 薄 shim\n底层 runtime 只作为 `/rekit` 的内部实现\n")
+	writeText(t, filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md"), "# shim\n\ncase-local 薄 shim\n不包含业务逻辑\ncanonical `/rekit`\n.rekit/instance.yml\n.re-template.yml\n<templateRoot>/.claude/skills/rekit/SKILL.md\ncanonical runtime\nsync` / `promote` 默认必须 review-first\n不要在本 shim 里维护模板规则\n不要读取或修改用户级 `~/.claude/skills`\n不要在 shim 中复制逻辑\n不展示底层脚本或 CLI 命令\nGo-native backend\n")
+	writeText(t, filepath.Join(repoRoot, "common", "policies", "manifest.yml"), "policies:\n  - id: agent-team\n    path: agent-team.md\n")
+	writeText(t, filepath.Join(repoRoot, "common", "policies", "README.md"), "# policies\n")
+	writeText(t, filepath.Join(repoRoot, "common", "policies", "agent-team.md"), "# agent team\n")
+	writeText(t, filepath.Join(packRoot, "policies", "manifest.yml"), "overlays: []\n")
+	writeText(t, filepath.Join(packRoot, "policies", "README.md"), "# overlays\n")
+	writeText(t, filepath.Join(packRoot, "CLAUDE.local.snippet.md"), "<!-- BEGIN unit:router -->\nunit router\n<!-- END unit:router -->\n")
+	writeText(t, filepath.Join(packRoot, filepath.FromSlash("references/template/README.md")), "# README\n\nPack route.\n")
+	writeText(t, filepath.Join(packRoot, filepath.FromSlash("references/template/agent-team.md")), "# Agent team\n\nPack route.\n")
+	writeText(t, filepath.Join(packRoot, filepath.FromSlash("references/template/workflow-template.md")), "# Workflow\n\nPack route.\n")
+	writeText(t, filepath.Join(packRoot, filepath.FromSlash("references/template/toolchain-router.md")), "# Tooling\n\nPack route.\n")
+	writeText(t, filepath.Join(packRoot, filepath.FromSlash("references/template/task-handoff.template.md")), "# <PROJECT_NAME> handoff\n\nRoot: <PROJECT_ROOT>\n")
+	writeText(t, filepath.Join(packRoot, filepath.FromSlash("tooling/README.md")), "# Tooling\n\nUse recipes after review.\n")
+	writeText(t, filepath.Join(packRoot, filepath.FromSlash("tooling/catalog.yml")), "schemaVersion: 1\npack: unit-pack\ntools:\n  - id: promoted-memory-tool\n    status: candidate\n")
+	writeText(t, filepath.Join(packRoot, filepath.FromSlash("tooling/recipes/promoted-memory-tool.md")), "# Promoted memory tool\n\nPlaceholder recipe.\n")
+
+	sourceMetadata := "templateRoot: " + repoRoot + "\n" +
+		"templatePack: " + pack + "\n" +
+		"projectName: source\n" +
+		"projectRoot: " + sourceCase + "\n"
+	writeText(t, filepath.Join(sourceCase, ".rekit", "instance.yml"), sourceMetadata)
+	writeText(t, filepath.Join(sourceCase, filepath.FromSlash("references/template/toolchain-router.md")), "# Tooling\n\nPromote candidate promoted-memory-tool after sourcecase run.\nCase root: "+sourceCase+"\nAbsolute: C:\\cases\\sourcecase\\sample.exe\nArtifacts: artifacts/run/reusable-trace.csv\nCaptures: captures/run/reusable-dump.bin\nAddress: 0x401000\nContext: ctx123 Task #42\n")
+
+	return repoRoot, sourceCase, freshCase, pack
 }
 
 func promoteApplyFixture(t *testing.T, defaultBudget, caseReadme string) (repoRoot, caseRoot, pack string) {

@@ -16,27 +16,26 @@ Batch 353 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 357：Autonomy execution evidence closure（authorized gate 后证据闭环）**
+**Batch 358：Pack-memory reconsume E2E（promote tooling memory 后 fresh case 复用）**
 
-状态：已完成实现、文档更新、本地 full release gate 与按需 PowerShell façade smoke；提交后继续下一候选批次。
+状态：已完成 package E2E slice、文档更新与本地验证；提交后继续下一候选批次。
 
-目标：在不把 heavy-tool 业务逻辑塞入 core runtime 的前提下，补齐 strict durable autonomy profile + `authorized-gate` 后的 Go-native evidence closure：lane executor / tool adapter 完成授权动作后，能用 deterministic runtime 记录 actual budget、output refs、evidence refs、boundary hits、escalation 与 authorized gate provenance。
+目标：把已有 promote/sanitize primitives 串成一个可回归的 pack-memory reconsume 竖切：source case 的 reusable tooling observation 经 review/promote candidate 脱敏后，模拟人工 review 合入 pack tooling recipe，再由 fresh case 通过 attached metadata 重新消费该 pack tooling 资产。
 
-边界：本批只新增 `gate -Apply` 的 post-action execution evidence 记录模式；不执行 full-trace/debug/inject/patch/dump/network/symex，不新增 PowerShell runtime logic，不自动 spawn、注册或管理 lane executor/session，不写 authority/confirmed，不改变 sync/promote review-first、runtime durable schema 迁移策略、公共 façade deletion 门禁或远程 CI blocker 状态。execution evidence mode 必须引用已存在的 `authorized-gate` / `preauthorized` request decision，output refs 必须保持在 authorized gate 的 output paths 内；pending/denied gate、越界 output、预算超限但未记录 boundary marker 均 fail-closed。
+边界：本批只新增 package-level E2E 与文档校准；不新增 PowerShell runtime logic，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 authority/confirmed，不自动 spawn 或管理 reviewer/member/lane executor，不改变 sync/promote review-first、candidate 需要人工 review 的语义、public façade deletion 门禁或远程 CI blocker 状态。测试只使用临时 repo/case/pack fixture，不写真实 pack source、真实 case artifacts 或外部资源。
 
 完成内容：
 
-- `gate.Options` 新增 `GateEventID`、`ExecutionStatus`、actual budget、`OutputRefs`、`ExecutionEvidenceRefs`、`BoundaryHits` 与 `Escalation`，CLI 解析对应 flags，并用 `wantsGateExecutionEvidence` 在 `gate -Apply` 下选择 request decision 写入或 execution evidence 写入。
-- 新增 `gate.RecordExecution`：读取 strict request facts，要求 `-GateEventId` 指向 `authorized-gate` 且 authorization decision 为 `preauthorized`；成功时只 append `.rekit/facts/observations.jsonl` 的 `kind=observation` execution evidence event，保留 related gate event、gate details、recordRequired、notifyMainOn、actual budget、output/evidence refs、boundary hits 和 escalation。
-- execution evidence event ID 由授权 gate、actor、status、actual budget、output refs、evidence refs、boundary hits 与 escalation 等语义字段派生，支持 deterministic duplicate retry；duplicate 返回 `applied=false` / `duplicate eventId`，不重复 append。
-- validation 覆盖：execution status 限定为 `succeeded|failed|boundary-hit|escalated|aborted`；actual budget 非负；必须提供 output refs 或 evidence refs；output refs 必须 case-relative、不能逃逸 case root，且必须落在 authorized gate output paths 内；actual budget 超出 authorized requested budget 时必须记录 `-BoundaryHits` 或 `-Escalation`；`boundary-hit` / `escalated` status 也必须记录 boundary marker。
-- CLI JSON/text 输出区分 request decision result 与 execution evidence result；文本模式展示 evidence status、eventId、path、gateEventId、authorization/action 和 apply 后 executor action。README、canonical `/rekit` skill、release readiness、PowerShell deprecation、reference absorption、Go runtime migration、Agent Team rollout 与 tests guide 同步说明新 evidence 记录模式，同时保留 no heavy-tool / no authority / no confirmed 边界。
-- package tests 覆盖 authorized gate 后写 observation evidence、duplicate no-op、pending-gate 拒绝、out-of-scope output refs 拒绝、预算超限缺少 boundary marker 拒绝；CLI E2E 覆盖 authorized gate request 后用 `gate -Apply -GateEventId ... -ExecutionStatus succeeded` 写 execution evidence，并断言 observations ledger 不写 authority/confirmed。
+- 新增 `TestPackMemoryPromoteReconsumeE2E`：source case 的 `references/template/toolchain-router.md` 作为 `toolingCandidateSources`，`Plan` 产出 `sanitized-preview-for-llm-review`，`CreateCandidates` 写入 tooling candidate。
+- 测试断言 candidate 包含来源 header 与 reusable tool marker，并将 case root、Windows absolute path、artifact/capture 路径、trace/dump 文件名、地址、ctx 与 task 快照替换为占位符，且不残留 source case 私有路径或样本化输出。
+- 测试模拟人工 review 后把 sanitized candidate 合入 `tooling/recipes/promoted-memory-tool.md`，通过 `manifest.ValidateSchema` 与 `doctor.Pack` 验证合入后的 pack tooling asset 可被正式 pack 消费。
+- 测试用 `sync.Apply(... CreateLocalFiles:true, Command:"init")` 初始化 fresh case，验证 `.rekit/instance.yml` 绑定同一 `templateRoot`/`templatePack`、`doctor.Case` 通过、fresh managed router 未被 tooling recipe 静默污染，同时 pack recipe 中也不泄漏 source/fresh case 私有事实。
+- README、`docs/promote-sync.md`、`docs/design.md`、`docs/release-readiness.md`、`docs/agent-team-rollout-plan.md`、`rekit/tests/README.md` 与 CHANGELOG 同步说明：tooling candidate 仍需人工 review 后合入 catalog/recipes；fresh case 通过 `templateRoot` + `templatePack` 消费 pack tooling；`sync` 不复制 tooling files 到 case managed docs。
 
 已通过验证：
 
 ```text
-go test ./internal/rekit/gate ./internal/rekit/cli -count=1
+go test ./internal/rekit/promote -count=1
 go test ./...
 go vet ./...
 go run ./cmd/rekit -- -Command release-check -Format json
@@ -44,17 +43,16 @@ go run ./cmd/rekit -- -Command status
 go run ./cmd/rekit -- -Command packs
 go run ./cmd/rekit -- -Command doctor
 git diff --check
-.\rekit\tests\facade-smoke.ps1
 ```
 
-最终本地 gate 已执行通过；`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；远程 Linux/Windows/macOS jobs 仍需读取 GitHub Actions 实际结论。
+最终本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；远程 Linux/Windows/macOS jobs 仍需读取 GitHub Actions 实际结论。
 
 ### Next candidates
 
-1. **Pack-memory reconsume E2E**：case reusable observation → sanitize/review/promote → fresh case 或另一 pack 消费。
-2. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E 与 installed `/rekit` / case shim runtime discovery 纳入可用 runner 验证。
-3. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
-4. **Lane executor/tool-adapter runtime integration**：在保持 `/rekit` 不执行 heavy-tool 的前提下，为具体 lane executor / adapter 定义如何消费 authorized execution evidence contract、隔离真实工具调用并回填 adapter-specific validation。
+1. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E 与 installed `/rekit` / case shim runtime discovery 纳入可用 runner 验证。
+2. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
+3. **Lane executor/tool-adapter runtime integration**：在保持 `/rekit` 不执行 heavy-tool 的前提下，为具体 lane executor / adapter 定义如何消费 authorized execution evidence contract、隔离真实工具调用并回填 adapter-specific validation。
+4. **Pack-memory product UX hardening**：在 Batch 358 package E2E 之外，补真实多 pack/跨 case review UX、candidate cleanup 和人工 merge guidance 的产品级验证。
 
 ### Escalation / stopping conditions
 
@@ -10894,3 +10892,45 @@ git diff --check
 实施范围：新增 strict reviewer intake runtime/package/CLI E2E、完整 packet identity、`case-local-review-writeback` public boundary、partial-write recovery JSON、routeOutput decision/confidence binding、verification-only partial-write failure injection/retry、retained façade caller-CWD relative path normalization/guard smoke，以及 current-state docs/test catalog/CHANGELOG 写回。runtime 仍不自动 spawn、注册或管理 reviewer/member session；reviewer 不写文件/ledger；intake 不执行 heavy-tool、不写 authority/confirmed、不修改 managed/project source files；sync/promote 继续 review-first。
 
 验证结果：targeted subagents/manifest/commands/releasecheck/CLI tests与 `rekit/tests/facade-smoke.ps1` 通过；临时 `_template` case 的真实 read-only reviewer E2E 完成 WhatIf、Apply、duplicate retry、overview/handoff/doctor，verification/decision 各一条且 post-validation valid；完整本地 minimum 的 `release-check -Format json`（`ready=true`）、status、packs、doctor、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过，diff check 只有 LF/CRLF conversion warning。2026-07-18 最新远程 release-gate run `29644011190` 仍为 failure，Linux/Windows/macOS jobs 均 `steps=[]`、未实际获得 runner；结合既有 billing/spending limit annotation，不能称为三平台 CI green。
+
+### Batch 354：Replaceable lane executor minimal closure
+
+状态：已完成实现、验证、提交并推送。
+
+目标：让 durable lane 身份不绑定旧聊天窗口，`start -Apply` 可通过显式 executor/actor/reason 注册或接管当前 lane executor，并把 generation/takeover metadata 投影到 lane resume、checkpoint、board、overview 与 handoff。
+
+验证结果：已在对应批次完成本地 package/CLI/release gate 验证；详见 CHANGELOG 与 git history。
+
+### Batch 355：Reviewer orchestration owner binding
+
+状态：已完成实现、验证、提交并推送。
+
+目标：把 bounded reviewer dispatch/intake 与 lane current executor/generation 绑定，strict reviewer result 必须携带 reviewerSession，并在 intake 写入前校验 owner binding，executor takeover 后 fail-closed。
+
+验证结果：已在对应批次完成本地 package/CLI/release gate 验证；详见 CHANGELOG 与 git history。
+
+### Batch 356：Cross-platform product-path E2E local slice
+
+状态：已完成实现、验证、提交并推送。
+
+目标：让 Go runtime 在 repo-external attached case 的 cwd/executable 不能发现 repo root 时，可通过 case metadata `templateRoot` 找到 canonical repo root；日常 case commands 在 case-local cwd 可省略 `-Target`。
+
+验证结果：`go test ./internal/rekit/runtime ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check` 已通过；远程 CI green 仍需读取 GitHub Actions 实际 jobs。
+
+### Batch 357：Autonomy execution evidence closure
+
+状态：已完成实现、验证、提交并推送。
+
+目标：在 strict durable autonomy profile + `authorized-gate` 后，允许 lane executor/tool adapter 完成授权动作后用 Go runtime 记录 post-action execution evidence，包含 actual budget、output refs、evidence refs、boundary hits、escalation 与 authorized gate provenance。
+
+验证结果：`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor、`git diff --check` 与 `rekit/tests/facade-smoke.ps1` 已通过；该批不执行 heavy-tool、不写 authority/confirmed。
+
+### Batch 358：Pack-memory reconsume E2E
+
+状态：已完成 package E2E、文档更新与最终验证。
+
+目标：覆盖 case reusable tooling observation → sanitize/create candidate → reviewed recipe merge → fresh case attached metadata reconsume 的可回归 E2E。
+
+实施范围：新增 `TestPackMemoryPromoteReconsumeE2E`，使用临时 repo/source case/fresh case/pack fixture；不写真实 pack source、不执行 heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first。
+
+验证结果：已通过 `go test ./internal/rekit/promote -count=1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。

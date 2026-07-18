@@ -60,6 +60,7 @@ review 包写入 case-local 目录：
 - 用户确认后，才生成 `packs/<pack>/promote-candidates/` / `packs/<pack>/tooling/candidates/`，或显式 `-Apply` 写回正式 pack managed docs；Batch 108 起候选生成的公共 façade 默认委托 Go，Batch 112 起 actual apply 写回 pack source 也默认委托 Go。
 - 直接整文件写回 pack managed docs 不作为默认推荐路径；优先让 Claude 提炼经验片段。
 - tooling 候选不直接覆盖正式 recipe；需要人工审查后合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
+- 已合入的 tooling 资产由 pack 本身重新消费：fresh case / attached case 通过 `.rekit/instance.yml` 的 `templateRoot` + `templatePack` 找到 pack tooling 文档；`sync` 仍只处理 managed/template/managed-block/support files，不把 tooling recipes 复制进 case-local managed docs。
 
 ## 永不提升
 

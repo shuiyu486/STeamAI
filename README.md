@@ -276,7 +276,7 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 1. `-CreateCandidates`：生成 managed docs 候选或 tooling candidate。
 2. `-Apply`：按已确认内容写回 pack。
 
-`promote` 很保守：若 managed docs 含真实绝对路径、样本名、RVA/VA、ctx/round 快照、artifact/capture/trace/dump 路径，会阻止直接回流。工具链经验只有在脱敏后不再命中 deny pattern 时才写 sanitized preview；候选由你审查后合入正式 tooling 文档。
+`promote` 很保守：若 managed docs 含真实绝对路径、样本名、RVA/VA、ctx/round 快照、artifact/capture/trace/dump 路径，会阻止直接回流。工具链经验只有在脱敏后不再命中 deny pattern 时才写 sanitized preview；候选由你审查后合入正式 tooling 文档。合入 `tooling/catalog.yml` 或 `tooling/recipes/*` 后，后续 init/attached fresh case 通过 `templateRoot` + `templatePack` 读取同一 pack tooling 资产；`sync` 不把 tooling files 复制进 case managed docs，避免把候选经验静默混入 case 私有路由。
 
 `promote` 只允许作用于已经 `attach/init` 的 case，避免从普通目录误回流到 pack。
 
@@ -307,7 +307,7 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 
 | 层级 | 路径 | 内容 |
 |---|---|---|
-| 通用 tooling 资产 | `packs/vmp-re/tooling/` | 工具 catalog、recipes、脚本模板化清单、补丁/止损经验。 |
+| 通用 tooling 资产 | `packs/vmp-re/tooling/` | 工具 catalog、recipes、脚本模板化清单、补丁/止损经验；fresh case 通过 pack reference/tooling 路径重新消费，不复制成 case-local managed docs。 |
 | 当前 case 状态 | `<caseRoot>/references/vmp-re/toolchain-router.md` | 当前样本具体脚本、路径、工具结论和状态。 |
 
 通用 tooling 资产包括：

@@ -63,6 +63,7 @@
 - 同时读取 `toolingCandidateSources`，将 case 工具链经验脱敏为 tooling candidate。
 - 默认生成候选或 dry-run 输出；写回 managed docs 需要明确 `-Apply`。
 - tooling candidate 默认写入 `packs/<pack>/tooling/candidates/`，由人工审查后合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
+- 合入后的 tooling 资产留在 pack 中，fresh case 通过 attached metadata 重新消费 pack tooling；`sync` 不复制 tooling files 到 case，避免把可复用经验误写成 case-local 私有事实。
 - 目标必须是已经 `attach/init` 的 case；普通目录不会参与候选生成或写回。
 - 命中 deny patterns 时阻止，例如绝对路径、artifact/capture/trace/dump 路径、`.exe/.dll`、地址快照、round/task 状态。
 - 永不 promote `CLAUDE.local.md` 全文、`task-handoff.md`、`tools.local.yml`、`captures/**`、`artifacts/**`。
