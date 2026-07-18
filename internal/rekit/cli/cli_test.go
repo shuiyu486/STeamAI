@@ -2347,6 +2347,13 @@ func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
 	if result.MissionBrief.Summary == "" || !slices.Contains(result.MissionBrief.BlockedLanes, "login (pending-gate,intervention,open-decision)") || len(result.MissionBrief.PendingGates) == 0 || len(result.MissionBrief.OpenDecisions) == 0 || len(result.MissionBrief.Interventions) == 0 {
 		t.Fatalf("handoff preview missing structured mission brief: %+v", result.MissionBrief)
 	}
+	if len(result.LaneExecutorActions) != 2 || result.ExecutorAction != nil {
+		t.Fatalf("project handoff preview missing lane executor actions: %+v", result)
+	}
+	loginAction := handoffExecutorActionFor(t, result.LaneExecutorActions, "feature-login")
+	if !loginAction.Blocked || !loginAction.ReconcileRequired || !loginAction.PendingGateRequired || !loginAction.OpenDecisionRequired || loginAction.PendingGates != 1 || loginAction.OpenInterventions != 1 || loginAction.OpenDecisions != 1 || loginAction.ResumeCommand != "/rekit continue login" {
+		t.Fatalf("project handoff preview login executor action drifted: %+v", loginAction)
+	}
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, after)
 }
@@ -2365,12 +2372,19 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if !slices.Contains(project.MissionBrief.ReadyLanes, "main") || !slices.Contains(project.MissionBrief.BlockedLanes, "login (pending-gate,intervention,open-decision)") || !containsSubstring(project.MissionBrief.NextAgentActions, "review open candidate/decision item(s)") {
 		t.Fatalf("project handoff JSON missing structured mission brief: %+v", project.MissionBrief)
 	}
+	if len(project.LaneExecutorActions) != 2 || project.ExecutorAction != nil {
+		t.Fatalf("project handoff JSON missing lane executor actions: %+v", project)
+	}
+	projectLoginAction := handoffExecutorActionFor(t, project.LaneExecutorActions, "feature-login")
+	if !projectLoginAction.Blocked || projectLoginAction.PendingGates != 1 || projectLoginAction.OpenInterventions != 1 || projectLoginAction.OpenDecisions != 1 || !slices.Contains(projectLoginAction.BlockerReasons, "pending-gate") || !slices.Contains(projectLoginAction.BlockerReasons, "intervention") || !slices.Contains(projectLoginAction.BlockerReasons, "open-decision") {
+		t.Fatalf("project handoff JSON login executor action drifted: %+v", projectLoginAction)
+	}
 	latest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
 	text, err := os.ReadFile(latest.TargetPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"# rekit 项目接手索引", "## Mission Control brief", "summary: openLanes=2 ready=1 blocked=1", "ready lanes:", "main", "blocked lanes:", "login (pending-gate,intervention,open-decision)", "pending gates:", "debug gate", "open decisions:", "decision subject", "interventions:", "manual override", "next agent actions:", "reconcile open intervention", "escalations:", "pending-gate requires main-agent/user decision", "## 工作线", "/rekit continue main", "/rekit handoff login"} {
+	for _, expected := range []string{"# rekit 项目接手索引", "## Mission Control brief", "summary: openLanes=2 ready=1 blocked=1", "ready lanes:", "main", "blocked lanes:", "login (pending-gate,intervention,open-decision)", "pending gates:", "debug gate", "open decisions:", "decision subject", "interventions:", "manual override", "next agent actions:", "reconcile open intervention", "escalations:", "pending-gate requires main-agent/user decision", "## 工作线", "blocked=true", "pendingGates=1 openInterventions=1 openDecisions=1", "requirements：reconcile=true pendingGate=true openDecision=true", "/rekit continue main", "/rekit handoff login"} {
 		if !strings.Contains(string(text), expected) {
 			t.Fatalf("project handoff missing %q:\n%s", expected, string(text))
 		}
@@ -2387,12 +2401,15 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if !slices.Contains(lane.MissionBrief.BlockedLanes, "login (pending-gate,intervention,open-decision)") || !containsSubstring(lane.MissionBrief.PendingGates, "debug gate") || !containsSubstring(lane.MissionBrief.OpenDecisions, "decision subject") || !containsSubstring(lane.MissionBrief.NextAgentActions, "review open candidate/decision item(s)") {
 		t.Fatalf("lane handoff JSON missing structured mission brief: %+v", lane.MissionBrief)
 	}
+	if lane.ExecutorAction == nil || !lane.ExecutorAction.Blocked || lane.ExecutorAction.PendingGates != 1 || lane.ExecutorAction.OpenInterventions != 1 || lane.ExecutorAction.OpenDecisions != 1 || !lane.ExecutorAction.ReconcileRequired || !lane.ExecutorAction.PendingGateRequired || !lane.ExecutorAction.OpenDecisionRequired || lane.ExecutorAction.ResumeCommand != "/rekit continue login" || lane.ExecutorAction.HandoffCommand != "/rekit handoff login" || !slices.Contains(lane.ExecutorAction.BlockerReasons, "pending-gate") || !slices.Contains(lane.ExecutorAction.BlockerReasons, "intervention") || !slices.Contains(lane.ExecutorAction.BlockerReasons, "open-decision") {
+		t.Fatalf("lane handoff JSON executor action drifted: %+v", lane.ExecutorAction)
+	}
 	laneLatest := assertStartWrite(t, lane.Writes, ".rekit/handovers/feature-login-latest.md", "write-latest-lane-handoff")
 	laneText, err := os.ReadFile(laneLatest.TargetPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "## Mission Control brief", "blocked: true", "pending-gate:", "open intervention:", "open decision:", "next agent action:", "reconcile user intervention", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
+	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "## Mission Control brief", "blocked: true", "pending-gate:", "open intervention:", "open decision:", "next agent action:", "reconcile user intervention", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- pending gates: `1`", "- open interventions: `1`", "- open decisions: `1`", "- reconcile required: `true`", "- pending gate required: `true`", "- open decision required: `true`", "- resume command: `/rekit continue login`", "- handoff command: `/rekit handoff login`", "blocker reasons:", "pending-gate", "intervention", "open-decision", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
 		if !strings.Contains(string(laneText), expected) {
 			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
 		}
@@ -4601,14 +4618,38 @@ type startResult struct {
 }
 
 type handoffResult struct {
-	Command              string       `json:"command"`
-	IsMutation           bool         `json:"isMutation"`
-	Applied              bool         `json:"applied"`
-	RequiresConfirmation bool         `json:"requiresConfirmation"`
-	Project              bool         `json:"project"`
-	Lane                 *startLane   `json:"lane"`
-	MissionBrief         missionBrief `json:"missionBrief"`
-	Writes               []startWrite `json:"writes"`
+	Command              string                      `json:"command"`
+	IsMutation           bool                        `json:"isMutation"`
+	Applied              bool                        `json:"applied"`
+	RequiresConfirmation bool                        `json:"requiresConfirmation"`
+	Project              bool                        `json:"project"`
+	Lane                 *startLane                  `json:"lane"`
+	MissionBrief         missionBrief                `json:"missionBrief"`
+	ExecutorAction       *executorActionSnapshot     `json:"executorAction"`
+	LaneExecutorActions  []handoffLaneExecutorAction `json:"laneExecutorActions"`
+	Writes               []startWrite                `json:"writes"`
+}
+
+type handoffLaneExecutorAction struct {
+	Lane           string                 `json:"lane"`
+	Label          string                 `json:"label"`
+	Status         string                 `json:"status"`
+	Workspace      string                 `json:"workspace"`
+	ExecutorAction executorActionSnapshot `json:"executorAction"`
+}
+
+type executorActionSnapshot struct {
+	Blocked              bool     `json:"blocked"`
+	Ready                bool     `json:"ready"`
+	BlockerReasons       []string `json:"blockerReasons"`
+	PendingGates         int      `json:"pendingGates"`
+	OpenInterventions    int      `json:"openInterventions"`
+	OpenDecisions        int      `json:"openDecisions"`
+	ReconcileRequired    bool     `json:"reconcileRequired"`
+	PendingGateRequired  bool     `json:"pendingGateRequired"`
+	OpenDecisionRequired bool     `json:"openDecisionRequired"`
+	ResumeCommand        string   `json:"resumeCommand"`
+	HandoffCommand       string   `json:"handoffCommand"`
 }
 
 type missionBrief struct {
@@ -4759,6 +4800,17 @@ func decodeHandoffResult(t *testing.T, b []byte) handoffResult {
 		t.Fatalf("handoff stdout is not JSON: %v\n%s", err, string(b))
 	}
 	return result
+}
+
+func handoffExecutorActionFor(t *testing.T, items []handoffLaneExecutorAction, lane string) executorActionSnapshot {
+	t.Helper()
+	for _, item := range items {
+		if item.Lane == lane {
+			return item.ExecutorAction
+		}
+	}
+	t.Fatalf("handoff lane executor action for %s not found in %+v", lane, items)
+	return executorActionSnapshot{}
 }
 
 func containsSubstring(items []string, want string) bool {

@@ -23,21 +23,31 @@ type HandoffOptions struct {
 }
 
 type HandoffResult struct {
-	SchemaVersion        int           `json:"schemaVersion"`
-	Command              string        `json:"command"`
-	CaseRoot             string        `json:"caseRoot"`
-	RepoRoot             string        `json:"repoRoot"`
-	Pack                 string        `json:"pack"`
-	IsMutation           bool          `json:"isMutation"`
-	Applied              bool          `json:"applied"`
-	RequiresConfirmation bool          `json:"requiresConfirmation"`
-	Selector             string        `json:"selector,omitempty"`
-	Project              bool          `json:"project"`
-	Lane                 *Lane         `json:"lane,omitempty"`
-	MissionBrief         mission.Brief `json:"missionBrief"`
-	Writes               []StartWrite  `json:"writes"`
-	BlockedActions       []string      `json:"blockedActions"`
-	NextSteps            []string      `json:"nextSteps"`
+	SchemaVersion        int                         `json:"schemaVersion"`
+	Command              string                      `json:"command"`
+	CaseRoot             string                      `json:"caseRoot"`
+	RepoRoot             string                      `json:"repoRoot"`
+	Pack                 string                      `json:"pack"`
+	IsMutation           bool                        `json:"isMutation"`
+	Applied              bool                        `json:"applied"`
+	RequiresConfirmation bool                        `json:"requiresConfirmation"`
+	Selector             string                      `json:"selector,omitempty"`
+	Project              bool                        `json:"project"`
+	Lane                 *Lane                       `json:"lane,omitempty"`
+	MissionBrief         mission.Brief               `json:"missionBrief"`
+	ExecutorAction       *laneExecutorAction         `json:"executorAction,omitempty"`
+	LaneExecutorActions  []HandoffLaneExecutorAction `json:"laneExecutorActions,omitempty"`
+	Writes               []StartWrite                `json:"writes"`
+	BlockedActions       []string                    `json:"blockedActions"`
+	NextSteps            []string                    `json:"nextSteps"`
+}
+
+type HandoffLaneExecutorAction struct {
+	Lane           string             `json:"lane"`
+	Label          string             `json:"label"`
+	Status         string             `json:"status"`
+	Workspace      string             `json:"workspace"`
+	ExecutorAction laneExecutorAction `json:"executorAction"`
 }
 
 func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (HandoffResult, error) {
@@ -120,6 +130,14 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	if err != nil {
 		brief = mission.Brief{Summary: "unavailable: " + err.Error()}
 	}
+	var executorAction *laneExecutorAction
+	laneExecutorActions := []HandoffLaneExecutorAction{}
+	if lane != nil {
+		action := ctx.executorAction(*lane)
+		executorAction = &action
+	} else if ctx.project {
+		laneExecutorActions = ctx.laneExecutorActions()
+	}
 	next := []string{"PowerShell /rekit remains the public entrypoint; JSON preview/apply is Go-owned by default"}
 	if applied {
 		if ctx.project {
@@ -143,6 +161,8 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		Project:              ctx.project,
 		Lane:                 lane,
 		MissionBrief:         brief,
+		ExecutorAction:       executorAction,
+		LaneExecutorActions:  laneExecutorActions,
 		Writes:               writes,
 		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
 		NextSteps:            next,
@@ -161,6 +181,34 @@ func (ctx handoffContext) missionBrief() (mission.Brief, error) {
 		return mission.Brief{}, nil
 	}
 	return laneMissionBrief(*ctx.lane, facts), nil
+}
+
+func (ctx handoffContext) executorAction(lane Lane) laneExecutorAction {
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		brief := mission.Brief{Summary: "unavailable: " + err.Error()}
+		return laneExecutorActionFor(lane, mission.Facts{}, brief)
+	}
+	brief := laneMissionBrief(lane, facts)
+	return laneExecutorActionFor(lane, facts.Facts, brief)
+}
+
+func (ctx handoffContext) laneExecutorActions() []HandoffLaneExecutorAction {
+	items := []HandoffLaneExecutorAction{}
+	for _, row := range ctx.board.Lanes {
+		lane, err := readLaneByID(ctx.inst.CaseRoot, row.ID)
+		if err != nil {
+			continue
+		}
+		items = append(items, HandoffLaneExecutorAction{
+			Lane:           lane.ID,
+			Label:          workstreamLabel(lane),
+			Status:         lane.Status,
+			Workspace:      lane.Workspace,
+			ExecutorAction: ctx.executorAction(lane),
+		})
+	}
+	return items
 }
 
 func (ctx handoffContext) plannedWrites(apply bool) ([]StartWrite, error) {
@@ -306,11 +354,13 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		if lane.Authority {
 			kind = "主线"
 		}
-		label := workstreamLabel(lane)
 		autonomySummary := autonomy.ReadSummary(ctx.inst.CaseRoot, lane.ID, ctx.manifest)
-		fmt.Fprintf(&out, "- %s `%s`：status=%s，workspace=`%s`，autonomy=%s ready=%t\n", kind, lane.ID, lane.Status, lane.Workspace, autonomySummary.Mode, autonomySummary.Ready)
-		fmt.Fprintf(&out, "  - 接手：`/rekit continue %s`\n", label)
-		fmt.Fprintf(&out, "  - 指定交接：`/rekit handoff %s`\n", label)
+		executorAction := ctx.executorAction(lane)
+		fmt.Fprintf(&out, "- %s `%s`：status=%s，workspace=`%s`，autonomy=%s ready=%t，blocked=%t\n", kind, lane.ID, lane.Status, lane.Workspace, autonomySummary.Mode, autonomySummary.Ready, executorAction.Blocked)
+		fmt.Fprintf(&out, "  - executor blockers：pendingGates=%d openInterventions=%d openDecisions=%d reasons=%s\n", executorAction.PendingGates, executorAction.OpenInterventions, executorAction.OpenDecisions, firstText(strings.Join(executorAction.BlockerReasons, ","), "none"))
+		fmt.Fprintf(&out, "  - requirements：reconcile=%t pendingGate=%t openDecision=%t\n", executorAction.ReconcileRequired, executorAction.PendingGateRequired, executorAction.OpenDecisionRequired)
+		fmt.Fprintf(&out, "  - 接手：`%s`\n", executorAction.ResumeCommand)
+		fmt.Fprintf(&out, "  - 指定交接：`%s`\n", executorAction.HandoffCommand)
 		fmt.Fprintf(&out, "  - 接续提示：`%s`\n", resumeRel)
 	}
 	fmt.Fprintln(&out)
@@ -384,6 +434,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 		return "", nil, err
 	}
 	writeLaneMissionBrief(&out, lane, facts)
+	writeExecutorActionSection(&out, ctx.executorAction(lane))
 	writeAutonomyProfileSection(&out, ctx.inst.CaseRoot, lane, ctx.manifest)
 	writeVerificationSection(&out, facts.Verifications, lane.ID)
 	writeDecisionSection(&out, facts.Decisions, lane.ID)
@@ -653,6 +704,25 @@ func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts mission.LedgerFac
 		actions = append(actions, "continue lane with /rekit continue "+workstreamLabel(lane))
 	}
 	writeHandoffBriefList(out, "next agent action", actions)
+	fmt.Fprintln(out)
+}
+
+func writeExecutorActionSection(out *bytes.Buffer, action laneExecutorAction) {
+	fmt.Fprintln(out, "## Executor action snapshot")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "- blocked: `%t`\n", action.Blocked)
+	fmt.Fprintf(out, "- ready: `%t`\n", action.Ready)
+	fmt.Fprintf(out, "- pending gates: `%d`\n", action.PendingGates)
+	fmt.Fprintf(out, "- open interventions: `%d`\n", action.OpenInterventions)
+	fmt.Fprintf(out, "- open decisions: `%d`\n", action.OpenDecisions)
+	fmt.Fprintf(out, "- reconcile required: `%t`\n", action.ReconcileRequired)
+	fmt.Fprintf(out, "- pending gate required: `%t`\n", action.PendingGateRequired)
+	fmt.Fprintf(out, "- open decision required: `%t`\n", action.OpenDecisionRequired)
+	fmt.Fprintf(out, "- resume command: `%s`\n", action.ResumeCommand)
+	fmt.Fprintf(out, "- handoff command: `%s`\n", action.HandoffCommand)
+	writeHandoffBriefList(out, "blocker reasons", action.BlockerReasons)
+	writeHandoffBriefList(out, "executor next actions", action.NextAgentActions)
+	writeHandoffBriefList(out, "executor escalations", action.Escalations)
 	fmt.Fprintln(out)
 }
 

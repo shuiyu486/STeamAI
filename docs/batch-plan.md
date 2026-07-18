@@ -10344,3 +10344,36 @@ git diff --check
 ```
 
 验证结果：已通过 `gofmt -w internal/rekit/workstream/continue.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneExecutorAction|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunGoContinue" -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。
+
+### Batch 338：Go-native handoff executor action projection
+
+状态：已完成。
+
+目标：继续 Stage 5 workstream / ledger / gate / continue / handoff Go 化，在 Batch 334-337 已把 `executorAction` 持久化到 lane resume/checkpoint 与 continue envelope/run artifacts 的基础上，把同一 executor-friendly blocker/action snapshot 扩展到 handoff JSON envelope、project handoff lane index 与 lane handoff Markdown。这样新会话只读 handoff 也能看到 blocked/ready、typed blocker counts、requirements、resume/handoff command、next actions 与 escalations。
+
+实施范围：
+
+- 更新 `HandoffResult`：指定 lane handoff JSON 暴露 `executorAction`，项目级 handoff JSON 暴露 `laneExecutorActions[]`，每项记录 lane id、label、status、workspace 与 typed executor action snapshot。
+- 更新 project handoff Markdown：工作线索引写出每条 lane 的 blocked 状态、pending gate / open intervention / open decision counts、blocker reasons、reconcile/pending-gate/open-decision requirements，以及对应 resume/handoff command。
+- 更新 lane handoff Markdown：在 lane-local Mission Control brief 后新增 `## Executor action snapshot`，写出 blocked/ready、typed blocker counts、requirements、resume/handoff command、blocker reasons、executor next actions 与 escalations。
+- 复用 Batch 336 的 typed `mission.Facts` blocker projection，不从 formatted `blockedLanes` 字符串反解析，不改变 `authorized-gate` 非阻塞语义。
+- 扩展 CLI E2E：覆盖 project handoff preview/apply JSON、project handoff Markdown、lane handoff JSON 与 lane handoff Markdown 的 executor action contract。
+- 更新 README、canonical `/rekit` skill、Agent Team usage、release readiness、Go-first convergence、batch-plan 与 CHANGELOG，记录 handoff executor action projection 与 no heavy-tool / no authority 边界。
+
+边界：本批不新增 public command，不删除公共 `rekit/rekit.ps1` façade，不新增 PowerShell runtime logic，不执行 actual heavy-tool/debug/patch/dump/hook/network/exploit replay，不写 authority/confirmed，不改变 sync/promote review-first、不迁移 policy schema、不写真实样本、trace、dump、capture、artifact、绝对 case 路径或 case-specific 进度；handoff executor action 只是 JSON/Markdown handoff shortcut。
+
+验证计划：
+
+```text
+gofmt -w internal/rekit/workstream/handoff.go internal/rekit/cli/cli_test.go
+go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestRunHandoff|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1
+go run ./cmd/rekit -- -Command release-check -Format json
+go run ./cmd/rekit -- -Command status
+go run ./cmd/rekit -- -Command packs
+go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
+git diff --check
+```
+
+验证结果：已通过 `gofmt -w internal/rekit/workstream/handoff.go internal/rekit/cli/cli_test.go`、targeted `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestRunHandoff|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`（`ready=true`）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告既有 LF/CRLF warning，无 whitespace error；本批未运行 `facade-smoke.ps1`，因为未修改 `rekit/rekit.ps1` 或 façade fallback。
