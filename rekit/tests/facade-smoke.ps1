@@ -260,6 +260,14 @@ try {
   foreach ($expectedGateArg in @('-GateEventId evt-authorized-gate','-ExecutionStatus succeeded','-ActualRuntimeSeconds 3','-ActualDiskMB 4','-ActualRequests 1','-OutputRefs workspace/main/debug/out.json','-ExecutionEvidenceRefs workspace/main/debug/evidence.json','-BoundaryHits timeout','-Escalation "manual review"','-ExecutionReportPath workspace/main/debug/adapter-report.json')) {
     Assert-ContainsText -Text $capturedGateExecutionArgs -Expected $expectedGateArg -Label 'gate execution evidence facade args'
   }
+  $gateContractCapturePath = Join-Path $matrixRoot 'gate-execution-contract-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $gateContractCapturePath
+  $gateContractOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-GateEventId','evt-authorized-gate','-ExecutionReportContract','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $gateContractOut -Expected '"delegatedByFake":true' -Label 'default gate execution report contract delegation'
+  $capturedGateContractArgs = [System.IO.File]::ReadAllText($gateContractCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedGateArg in @('-GateEventId evt-authorized-gate','-ExecutionReportContract','-Format json')) {
+    Assert-ContainsText -Text $capturedGateContractArgs -Expected $expectedGateArg -Label 'gate execution report contract facade args'
+  }
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'start' -Label 'default start JSON preview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-apply','-Pack',$Pack,'-Apply','-Executor','matrix-session','-Actor','facade-smoke','-Reason','matrix explicit takeover') -CommandName 'start' -Label 'default start apply delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-json-apply','-Pack',$Pack,'-Apply','-Format','json') -CommandName 'start' -Label 'default start JSON apply delegation'

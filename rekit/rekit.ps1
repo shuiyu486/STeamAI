@@ -43,6 +43,7 @@ param(
   [string]$BoundaryHits = '',
   [string]$Escalation = '',
   [string]$ExecutionReportPath = '',
+  [switch]$ExecutionReportContract,
   [string]$Route = '',
   [string]$TaskType = '',
   [string]$Items = '',
@@ -235,7 +236,11 @@ function Test-RekitGoDelegationSafe {
     'gate' {
       if ($CreateCandidates -or $Review -or $Force) { return $false }
       if ($WhatIf -and $Apply) { return $false }
-      if ((-not $WhatIf) -and (-not $Apply)) { return $false }
+      if ($ExecutionReportContract) {
+        if ($WhatIf -or $Apply) { return $false }
+      } elseif ((-not $WhatIf) -and (-not $Apply)) {
+        return $false
+      }
       if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
       if ((-not [string]::IsNullOrWhiteSpace($formatValue)) -and $formatValue -ne 'json') { return $false }
@@ -371,7 +376,7 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' (Resolve-RekitCallerPath $DiffPath)
   $goFormat = $Format
   if ($Command -in @('start','handoff','continue','reconcile') -and (-not $Apply.IsPresent) -and [string]::IsNullOrWhiteSpace([string]$goFormat)) { $goFormat = 'text' }
-  if ($Command -in @('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','start','handoff','continue','reconcile')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
+  if ($Command -in @('status','packs','release-check','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
   if ($Command -in @('attach','repair','init','bootstrap','sync','update')) { Add-RekitGoArg ([ref]$goArgs) '-ProjectName' $ProjectName }
   if ($Command -in @('init','bootstrap','sync','update')) { Add-RekitGoSwitch ([ref]$goArgs) '-Force' $Force.IsPresent }
   if ($Command -eq 'note') {
@@ -469,6 +474,7 @@ function Get-RekitGoArgs {
     Add-RekitGoArg ([ref]$goArgs) '-BoundaryHits' $BoundaryHits
     Add-RekitGoArg ([ref]$goArgs) '-Escalation' $Escalation
     Add-RekitGoArg ([ref]$goArgs) '-ExecutionReportPath' $ExecutionReportPath
+    Add-RekitGoSwitch ([ref]$goArgs) '-ExecutionReportContract' $ExecutionReportContract.IsPresent
   }
   if ($Command -eq 'plan-subagents') {
     Add-RekitGoArg ([ref]$goArgs) '-Route' $Route

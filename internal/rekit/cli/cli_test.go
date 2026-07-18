@@ -68,6 +68,16 @@ func TestParseGateExecutionReportPath(t *testing.T) {
 	}
 }
 
+func TestParseGateExecutionReportContract(t *testing.T) {
+	opt, err := Parse([]string{"-Command", "gate", "-ExecutionReportContract", "-GateEventId", "evt-authorized"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.Gate.ExecutionReportContract || opt.Gate.GateEventID != "evt-authorized" {
+		t.Fatalf("unexpected gate contract options: %+v", opt.Gate)
+	}
+}
+
 func TestParsePlanSubagentsNumericOptionsRejectTrailingJunk(t *testing.T) {
 	_, err := Parse([]string{"-Command", "plan-subagents", "-ItemsPerAgent", "2x"})
 	if err == nil || !strings.Contains(err.Error(), "invalid -ItemsPerAgent") {
@@ -4745,6 +4755,32 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatalf("authorized gate executor action should remain non-blocking: %+v", result.ExecutorAction)
 	}
 	authorizedEventID := result.EventID
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ExecutionReportContract", "-GateEventId", authorizedEventID, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var contract struct {
+		Kind                string   `json:"kind"`
+		ReportKind          string   `json:"reportKind"`
+		ReportSchemaVersion int      `json:"reportSchemaVersion"`
+		GateEventID         string   `json:"gateEventId"`
+		Action              string   `json:"action"`
+		AllowedStatuses     []string `json:"allowedStatuses"`
+		AllowedOutputPaths  []string `json:"allowedOutputPaths"`
+		AuthorizedBudget    struct {
+			RuntimeSeconds int `json:"runtimeSeconds"`
+		} `json:"authorizedBudget"`
+		DeniedActions []string `json:"deniedActions"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &contract); err != nil {
+		t.Fatalf("adapter report contract stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if contract.Kind != "adapter-execution-report-contract" || contract.ReportKind != "adapter-execution-report" || contract.ReportSchemaVersion != 1 || contract.GateEventID != authorizedEventID || contract.Action != "debug" {
+		t.Fatalf("unexpected adapter report contract identity: %+v", contract)
+	}
+	if strings.Join(contract.AllowedStatuses, ",") != "succeeded,failed,boundary-hit,escalated,aborted" || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || contract.AuthorizedBudget.RuntimeSeconds != 30 || !slices.Contains(contract.DeniedActions, "heavy-tool execution") {
+		t.Fatalf("adapter report contract omitted live validation boundaries: %+v", contract)
+	}
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-GateEventId", authorizedEventID, "-ExecutionStatus", "succeeded", "-Actor", "executor-1", "-ActualRuntimeSeconds", "25", "-ActualDiskMB", "32", "-ActualRequests", "1", "-OutputRefs", "workspace/main/debug/session-1/result.json", "-ExecutionEvidenceRefs", "workspace/main/debug/session-1/result.json", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)

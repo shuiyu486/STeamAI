@@ -20,32 +20,33 @@ import (
 )
 
 type Options struct {
-	Action               string
-	Lane                 string
-	Subject              string
-	Summary              string
-	Actor                string
-	Risk                 string
-	TargetRef            string
-	BatchID              string
-	Scope                string
-	Budget               string
-	RuntimeSeconds       int
-	DiskMB               int
-	Requests             int
-	OutputPaths          string
-	TriedLightSteps      string
-	StopConditions       string
-	GateEventID          string
-	ExecutionStatus      string
-	ActualRuntimeSeconds int
-	ActualDiskMB         int
-	ActualRequests       int
-	OutputRefs           string
-	EvidenceRefs         string
-	BoundaryHits         string
-	Escalation           string
-	ExecutionReportPath  string
+	Action                  string
+	Lane                    string
+	Subject                 string
+	Summary                 string
+	Actor                   string
+	Risk                    string
+	TargetRef               string
+	BatchID                 string
+	Scope                   string
+	Budget                  string
+	RuntimeSeconds          int
+	DiskMB                  int
+	Requests                int
+	OutputPaths             string
+	TriedLightSteps         string
+	StopConditions          string
+	GateEventID             string
+	ExecutionStatus         string
+	ActualRuntimeSeconds    int
+	ActualDiskMB            int
+	ActualRequests          int
+	OutputRefs              string
+	EvidenceRefs            string
+	BoundaryHits            string
+	Escalation              string
+	ExecutionReportPath     string
+	ExecutionReportContract bool
 }
 
 type Plan struct {
@@ -111,6 +112,37 @@ type AdapterReport struct {
 	EvidenceRefs  []string        `json:"evidenceRefs,omitempty"`
 	BoundaryHits  []string        `json:"boundaryHits,omitempty"`
 	Summary       string          `json:"summary,omitempty"`
+}
+
+type AdapterExecutionReportContract struct {
+	SchemaVersion          int               `json:"schemaVersion"`
+	Command                string            `json:"command"`
+	Kind                   string            `json:"kind"`
+	CaseRoot               string            `json:"caseRoot"`
+	RepoRoot               string            `json:"repoRoot"`
+	Pack                   string            `json:"pack"`
+	IsMutation             bool              `json:"isMutation"`
+	Lane                   string            `json:"lane"`
+	Target                 string            `json:"target,omitempty"`
+	BatchID                string            `json:"batchId,omitempty"`
+	Risk                   string            `json:"risk,omitempty"`
+	Authorization          autonomy.Decision `json:"authorization"`
+	ReportKind             string            `json:"reportKind"`
+	ReportSchemaVersion    int               `json:"reportSchemaVersion"`
+	GateEventID            string            `json:"gateEventId"`
+	Action                 string            `json:"action"`
+	AllowedStatuses        []string          `json:"allowedStatuses"`
+	RequiredFields         []string          `json:"requiredFields"`
+	AllowedOutputPaths     []string          `json:"allowedOutputPaths"`
+	AuthorizedBudget       autonomy.Budget   `json:"authorizedBudget"`
+	StopConditions         []string          `json:"stopConditions,omitempty"`
+	ReportPathRule         string            `json:"reportPathRule"`
+	SummaryMaxBytes        int               `json:"summaryMaxBytes"`
+	RecordRequired         bool              `json:"recordRequired"`
+	NotifyMainOn           []string          `json:"notifyMainOn,omitempty"`
+	BoundaryStatusRequires []string          `json:"boundaryStatusRequires,omitempty"`
+	DeniedActions          []string          `json:"deniedActions,omitempty"`
+	NextSteps              []string          `json:"nextSteps,omitempty"`
 }
 
 type ApplyResult struct {
@@ -286,13 +318,32 @@ func authorizedGateEvent(repoRoot, caseRoot, pack string, opt Options) (instance
 	if err != nil {
 		return instance.Instance{}, EventPreview{}, err
 	}
-	gateEventID := strings.TrimSpace(opt.GateEventID)
-	if gateEventID == "" {
-		return instance.Instance{}, EventPreview{}, fmt.Errorf("gate execution evidence requires -GateEventId <authorized-gate-event-id>")
-	}
-	items, err := mission.ReadStrictFact(inst.CaseRoot, "request")
+	event, err := findAuthorizedGateEvent(inst.CaseRoot, strings.TrimSpace(opt.GateEventID))
 	if err != nil {
 		return instance.Instance{}, EventPreview{}, err
+	}
+	return inst, event, nil
+}
+
+func AdapterReportContract(repoRoot, caseRoot, pack string, opt Options) (AdapterExecutionReportContract, error) {
+	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
+	if err != nil {
+		return AdapterExecutionReportContract{}, err
+	}
+	event, err := findAuthorizedGateEvent(inst.CaseRoot, strings.TrimSpace(opt.GateEventID))
+	if err != nil {
+		return AdapterExecutionReportContract{}, err
+	}
+	return adapterReportContract(repoRoot, inst.CaseRoot, pack, event), nil
+}
+
+func findAuthorizedGateEvent(caseRoot, gateEventID string) (EventPreview, error) {
+	if gateEventID == "" {
+		return EventPreview{}, fmt.Errorf("gate execution evidence requires -GateEventId <authorized-gate-event-id>")
+	}
+	items, err := mission.ReadStrictFact(caseRoot, "request")
+	if err != nil {
+		return EventPreview{}, err
 	}
 	for _, item := range items {
 		if mission.Value(item, "eventId") != gateEventID {
@@ -300,21 +351,54 @@ func authorizedGateEvent(repoRoot, caseRoot, pack string, opt Options) (instance
 		}
 		data, err := json.Marshal(item)
 		if err != nil {
-			return instance.Instance{}, EventPreview{}, err
+			return EventPreview{}, err
 		}
 		var event EventPreview
 		if err := json.Unmarshal(data, &event); err != nil {
-			return instance.Instance{}, EventPreview{}, fmt.Errorf("invalid gate request event %s: %w", gateEventID, err)
+			return EventPreview{}, fmt.Errorf("invalid gate request event %s: %w", gateEventID, err)
 		}
 		if event.Status != "authorized-gate" || event.Gate.Authorization.Decision != autonomy.DecisionPreauthorized {
-			return instance.Instance{}, EventPreview{}, fmt.Errorf("gate execution evidence requires an authorized-gate request with preauthorized decision; %s has status=%s authorization=%s", gateEventID, event.Status, event.Gate.Authorization.Decision)
+			return EventPreview{}, fmt.Errorf("gate execution evidence requires an authorized-gate request with preauthorized decision; %s has status=%s authorization=%s", gateEventID, event.Status, event.Gate.Authorization.Decision)
 		}
 		if event.Lane == "" || event.Gate.Action == "" {
-			return instance.Instance{}, EventPreview{}, fmt.Errorf("authorized gate request %s is missing lane or action", gateEventID)
+			return EventPreview{}, fmt.Errorf("authorized gate request %s is missing lane or action", gateEventID)
 		}
-		return inst, event, nil
+		return event, nil
 	}
-	return instance.Instance{}, EventPreview{}, fmt.Errorf("authorized gate eventId not found: %s", gateEventID)
+	return EventPreview{}, fmt.Errorf("authorized gate eventId not found: %s", gateEventID)
+}
+
+func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) AdapterExecutionReportContract {
+	return AdapterExecutionReportContract{
+		SchemaVersion:          1,
+		Command:                "gate",
+		Kind:                   "adapter-execution-report-contract",
+		CaseRoot:               caseRoot,
+		RepoRoot:               repoRoot,
+		Pack:                   pack,
+		IsMutation:             false,
+		Lane:                   event.Lane,
+		Target:                 event.Target,
+		BatchID:                event.BatchID,
+		Risk:                   event.Risk,
+		Authorization:          event.Gate.Authorization,
+		ReportKind:             "adapter-execution-report",
+		ReportSchemaVersion:    1,
+		GateEventID:            event.EventID,
+		Action:                 event.Gate.Action,
+		AllowedStatuses:        []string{"succeeded", "failed", "boundary-hit", "escalated", "aborted"},
+		RequiredFields:         []string{"schemaVersion", "kind", "adapterId", "action", "status", "gateEventId", "actualBudget"},
+		AllowedOutputPaths:     append([]string{}, event.Gate.OutputPaths...),
+		AuthorizedBudget:       event.Gate.RequestedBudget,
+		StopConditions:         append([]string{}, event.Gate.StopConditions...),
+		ReportPathRule:         "case-relative or case-contained absolute file path under one authorized outputPath; sidecar must be <= 1048576 bytes and contain no trailing JSON data",
+		SummaryMaxBytes:        4096,
+		RecordRequired:         event.Gate.Authorization.RecordRequired,
+		NotifyMainOn:           append([]string{}, event.Gate.Authorization.NotifyMainOn...),
+		BoundaryStatusRequires: []string{"boundaryHits or escalation for boundary-hit/escalated status", "boundaryHits or escalation when actualBudget exceeds authorizedBudget"},
+		DeniedActions:          []string{"heavy-tool execution", "authority writes", "confirmed writes", "out-of-scope output refs", "full trace/dump/log embedding"},
+		NextSteps:              []string{"adapter writes bounded report under an authorized output path", "main Agent records it with gate -Apply -GateEventId ... -ExecutionReportPath ...", "review refs before any authority/confirmed outcome"},
+	}
 }
 
 func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (ExecutionEvidencePreview, error) {

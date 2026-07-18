@@ -416,6 +416,8 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExecutionReportPath")
 			}
 			opt.Gate.ExecutionReportPath = args[i]
+		case "-ExecutionReportContract", "--execution-report-contract":
+			opt.Gate.ExecutionReportContract = true
 		case "-Format", "--format":
 			i++
 			if i >= len(args) {
@@ -1615,6 +1617,22 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("unsupported gate format: %s", opt.Format)
 	}
+	if opt.Gate.ExecutionReportContract {
+		if opt.Apply || opt.WhatIf {
+			return fmt.Errorf("gate -ExecutionReportContract is read-only; omit -Apply and -WhatIf")
+		}
+		if wantsGateExecutionEvidenceDetails(opt.Gate) {
+			return fmt.Errorf("gate -ExecutionReportContract cannot be combined with execution evidence fields")
+		}
+		if format != "json" {
+			return fmt.Errorf("gate -ExecutionReportContract supports only -Format json")
+		}
+		contract, err := gate.AdapterReportContract(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
+		if err != nil {
+			return err
+		}
+		return writeJSON(out, contract)
+	}
 	executionEvidence := wantsGateExecutionEvidence(opt.Gate)
 	if opt.WhatIf {
 		if executionEvidence {
@@ -1648,7 +1666,11 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func wantsGateExecutionEvidence(opt gate.Options) bool {
-	return strings.TrimSpace(opt.GateEventID) != "" || strings.TrimSpace(opt.ExecutionStatus) != "" || opt.ActualRuntimeSeconds != 0 || opt.ActualDiskMB != 0 || opt.ActualRequests != 0 || strings.TrimSpace(opt.OutputRefs) != "" || strings.TrimSpace(opt.EvidenceRefs) != "" || strings.TrimSpace(opt.BoundaryHits) != "" || strings.TrimSpace(opt.Escalation) != "" || strings.TrimSpace(opt.ExecutionReportPath) != ""
+	return strings.TrimSpace(opt.GateEventID) != "" || wantsGateExecutionEvidenceDetails(opt)
+}
+
+func wantsGateExecutionEvidenceDetails(opt gate.Options) bool {
+	return strings.TrimSpace(opt.ExecutionStatus) != "" || opt.ActualRuntimeSeconds != 0 || opt.ActualDiskMB != 0 || opt.ActualRequests != 0 || strings.TrimSpace(opt.OutputRefs) != "" || strings.TrimSpace(opt.EvidenceRefs) != "" || strings.TrimSpace(opt.BoundaryHits) != "" || strings.TrimSpace(opt.Escalation) != "" || strings.TrimSpace(opt.ExecutionReportPath) != ""
 }
 
 func writeGatePlanText(out io.Writer, plan gate.Plan) error {

@@ -16,37 +16,40 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 360：Adapter report durable docs calibration**
+**Batch 361：Adapter execution report contract projection**
 
-状态：已完成 durable docs / release notes 校准与本地验证；远程 release-gate 仍因 runner/billing blocker 失败，不能声明远程 CI green。
+状态：已完成只读 `gate -ExecutionReportContract -GateEventId ... -Format json` slice、durable docs 更新与本地验证；远程 release-gate 仍因 runner/billing blocker 失败，不能声明远程 CI green。
 
-目标：完成 Batch 359 后的 stop-hook 文档收尾，把 Mission Control、autonomous goal、release readiness、reference absorption、PowerShell deprecation 与项目 CLAUDE 边界统一到最新事实：authorized execution evidence + bounded adapter report strict intake 已落地，pack-memory promote/reconsume package E2E 已落地；真实 session orchestration、tool-adapter live validation、pack-memory product UX 与跨平台 product-path E2E 仍未完成。
+目标：在 Batch 359 bounded adapter report intake 之外，给 lane executor / tool adapter 一个执行前可消费的 deterministic contract projection，使 adapter 无需重扫 request ledger 就能读取 authorized-gate 对应的 action、budget、output paths、allowed statuses、stop conditions、record/notify、sidecar path rule 与 denied actions。
 
-边界：本批只做 durable docs / release notes 校准与本地验证；不改 runtime schema，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 authority/confirmed，不新增 PowerShell runtime logic，不自动 spawn 或管理 member session / reviewer / lane executor，不改变 sync/promote review-first、public façade deletion 门禁或远程 CI blocker 状态。
+边界：本批只新增只读 contract projection、CLI/façade flag、tests 与文档；不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 request/observation/authority/confirmed，不新增 PowerShell runtime logic，不自动 spawn 或管理 member session / reviewer / lane executor，不改变 sync/promote review-first、public façade deletion 门禁或远程 CI blocker 状态。
 
 完成内容：
 
-- 校准项目 `CLAUDE.md` 的 Go-owned/no-fallback boundary，明确 `gate -Apply -GateEventId ... -ExecutionStatus ... -ExecutionReportPath ...` 只写 authorized execution observation evidence 与 strict validated bounded adapter report provenance。
-- 校准 Mission Control / autonomous goal / Go-first convergence durable docs，把 Batch 359 后已落地的 authorized execution evidence + adapter report intake 与 Batch 358 pack-memory promote/reconsume package E2E 从“未完成”移入当前底座。
-- 校准 release readiness 与 PowerShell deprecation docs，保持 retained façade 只透传 Go 参数、不新增 PowerShell runtime logic，并区分本地 inventory/read-only checks 与远程 CI 实际 job conclusion。
-- 校准 reference absorption map，将 bounded reviewer Mission Commander E2E、typed autonomy execution evidence closure、bounded adapter report strict intake 与 pack-memory package E2E 标记为已落地，同时保留真实 session orchestration、tool-adapter live validation、pack-memory product UX 与跨平台 product-path E2E 为后续 gap。
-- 更新 CHANGELOG 记录本批 durable docs calibration；不改 runtime schema、不执行 heavy-tool、不写 authority/confirmed。
+- 新增 `AdapterExecutionReportContract` read-only JSON envelope 与 `gate.AdapterReportContract`，复用 strict authorized-gate lookup，只接受已有 `authorized-gate` / `preauthorized` request decision。
+- 新增 CLI `-ExecutionReportContract` flag；`gate -ExecutionReportContract -GateEventId ... -Format json` 不需要 `-Apply`/`-WhatIf`，且拒绝与 execution evidence detail fields 混用。
+- Contract 输出 `reportKind=adapter-execution-report`、report schema version、allowed statuses、required report fields、authorized output paths、authorized budget、stop conditions、record/notify、boundary/escalation requirements、denied actions 与 next steps。
+- Retained `rekit.ps1` 仅透传 `-ExecutionReportContract` 到 Go backend；façade smoke 捕获新 flag，不新增 PowerShell runtime logic。
+- 更新 README、skill、tool adapter policy、release readiness、rollout、Go runtime migration、tests guide、project CLAUDE、batch-plan 与 CHANGELOG。
 
 已通过验证：
 
 ```text
-go test ./...
-go vet ./...
+.\rekit\tests\facade-smoke.ps1
+go test ./internal/rekit/cli ./internal/rekit/gate
+go vet ./internal/rekit/cli ./internal/rekit/gate
 go run ./cmd/rekit -- -Command release-check -Format json
 go run ./cmd/rekit -- -Command status
 go run ./cmd/rekit -- -Command packs
 go run ./cmd/rekit -- -Command doctor
+go test ./...
+go vet ./...
 git diff --check
-gh run list --workflow release-gate.yml --limit 5
-gh run view 29661016728 --json conclusion,event,headSha,jobs
+gh run list --limit 5
+gh run view 29661452381 --json conclusion,event,headSha,jobs
 ```
 
-本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；最新远程 release-gate run `29661016728` 对应 Batch 359 head `41720627698bf5898c5272ffa80afa3d67476084`，Linux/macOS/Windows jobs 均为 failure 且 steps 为空，仍符合已知 runner/billing blocker。
+本地 validation 已执行通过；`facade-smoke.ps1` 覆盖 default Go delegation、no-fallback 与 `-ExecutionReportContract` 透传；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；最新远程 release-gate run `29661452381` 对应 Batch 360 head `695ee5c768eeae5e1c6f637941bc326f31f76f10`，Linux/macOS/Windows jobs 均为 failure 且 steps 为空，仍符合已知 runner/billing blocker。
 
 ### Next candidates
 
@@ -10955,3 +10958,13 @@ git diff --check
 实施范围：只更新 durable docs、release notes 与 batch plan；不改 runtime schema，不执行 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic，不自动 spawn 或管理 member/reviewer/lane executor，不改变 sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态。
 
 验证结果：已通过 `go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。远程 release-gate 仍为 failure，最新 inspected run 的 Linux/macOS/Windows jobs steps 为空，不能声明远程 CI green。
+
+### Batch 361：Adapter execution report contract projection
+
+状态：已完成只读 adapter execution report contract projection、文档更新与最终验证。
+
+目标：在 Batch 359 bounded adapter report intake 之外，给 lane executor / tool adapter 一个执行前可消费的 deterministic contract projection，使 adapter 无需重扫 request ledger 即可读取 authorized-gate 对应的 action、budget、output paths、allowed statuses、stop conditions、record/notify、sidecar path rule、summary limit 与 denied actions。
+
+实施范围：新增 `AdapterExecutionReportContract`、`gate.AdapterReportContract`、CLI `-ExecutionReportContract` flag、retained façade 透传与 smoke coverage，并更新 README、skill、tool adapter policy、release readiness、rollout、Go runtime migration、tests guide、project CLAUDE、batch plan 与 CHANGELOG；不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 request/observation/authority/confirmed，不新增 PowerShell runtime logic，不自动 spawn 或管理 member session / reviewer / lane executor，不改变 sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 `go test ./internal/rekit/cli ./internal/rekit/gate`、`go vet ./internal/rekit/cli ./internal/rekit/gate`、`./rekit/tests/facade-smoke.ps1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。远程 release-gate 仍为 failure，最新 inspected run `29661452381` 的 Linux/macOS/Windows jobs steps 为空，不能声明远程 CI green。

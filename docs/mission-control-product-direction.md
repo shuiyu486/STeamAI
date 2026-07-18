@@ -16,7 +16,7 @@
 
 `/rekit` 与 Go backend 是底层确定性 runtime / API，`rekit.ps1` 只作为 retained compatibility façade；它们都不是主要用户体验。用户体验应尽量表现为自然语言 mission control：开始任务、继续推进、查看总体状态、进入某个成员 lane、接手 lane、沉淀经验。
 
-Batch 359 后，Go-owned public surface、durable lane state、显式 `reconcile`、typed autonomy preflight、Mission brief / executor action snapshot、Go-native bounded reviewer strict intake/writeback、pack-memory promote/reconsume package E2E，以及 authorized execution observation evidence + bounded adapter execution report strict intake 已形成底座；主 Agent已在本机真实 spawn 一个 read-only reviewer，并跑通 packet/result binding、evidence-ref validation、WhatIf/Apply verification-before-decision 幂等写回与 overview/handoff/doctor post-validation。runtime 仍不自动 spawn、注册或管理 reviewer/member session，也不执行 heavy-tool；当前未完成的是统一 session/reviewer orchestration、真实 lane executor / tool-adapter live validation、pack-memory product UX 与跨平台 product-path E2E。
+Batch 359 后，Go-owned public surface、durable lane state、显式 `reconcile`、typed autonomy preflight、Mission brief / executor action snapshot、Go-native bounded reviewer strict intake/writeback、pack-memory promote/reconsume package E2E，以及 authorized execution observation evidence + bounded adapter execution report strict intake/contract projection 已形成底座；主 Agent已在本机真实 spawn 一个 read-only reviewer，并跑通 packet/result binding、evidence-ref validation、WhatIf/Apply verification-before-decision 幂等写回与 overview/handoff/doctor post-validation。runtime 仍不自动 spawn、注册或管理 reviewer/member session，也不执行 heavy-tool；当前未完成的是统一 session/reviewer orchestration、真实 lane executor / tool-adapter live validation、pack-memory product UX 与跨平台 product-path E2E。
 
 ## 执行清单
 
