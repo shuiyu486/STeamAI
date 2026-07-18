@@ -97,6 +97,40 @@ func TestLaneExecutorActionReadyUsesSharedMissionBrief(t *testing.T) {
 	}
 }
 
+func TestLaneExecutorActionSnapshotsProjectOpenLanes(t *testing.T) {
+	lanes := []BoardLane{
+		{ID: "main", Status: "open", Authority: true, Workspace: "workspace/main/main"},
+		{ID: "feature-login", Status: "open", Workspace: "workspace/features/feature-login"},
+		{ID: "feature-paused", Status: "paused", Workspace: "workspace/features/feature-paused"},
+	}
+	facts := Facts{
+		Requests: []map[string]any{
+			{"kind": "request", "lane": "feature-login", "subject": "debug gate", "status": "pending-gate"},
+			{"kind": "request", "lane": "feature-login", "subject": "authorized debug", "status": "authorized-gate"},
+		},
+		Interventions: []map[string]any{{"kind": "intervention", "lane": "feature-login", "subject": "manual stop", "status": "open"}},
+		Candidates:    []map[string]any{{"kind": "candidate", "lane": "feature-login", "subject": "review candidate", "status": "open"}},
+	}
+	brief := Build(BoardLanes(lanes), facts, 10)
+	items := LaneExecutorActionSnapshots(lanes, facts, brief)
+	if len(items) != 3 || items[0].Lane != "main" || items[0].Label != "main" || !items[0].ExecutorAction.Ready || items[0].ExecutorAction.Blocked {
+		t.Fatalf("unexpected main snapshot: %+v", items)
+	}
+	login := items[1]
+	if login.Lane != "feature-login" || login.Label != "login" || login.Workspace != "workspace/features/feature-login" || !login.ExecutorAction.Blocked || login.ExecutorAction.Ready {
+		t.Fatalf("unexpected login snapshot: %+v", login)
+	}
+	if login.ExecutorAction.PendingGates != 1 || login.ExecutorAction.OpenInterventions != 1 || login.ExecutorAction.OpenDecisions != 1 || !login.ExecutorAction.PendingGateRequired || !login.ExecutorAction.ReconcileRequired || !login.ExecutorAction.OpenDecisionRequired {
+		t.Fatalf("unexpected login blockers: %+v", login.ExecutorAction)
+	}
+	if !slices.Equal(login.ExecutorAction.BlockerReasons, []string{"pending-gate", "intervention", "open-decision"}) {
+		t.Fatalf("unexpected blocker order: %+v", login.ExecutorAction.BlockerReasons)
+	}
+	if items[2].Lane != "feature-paused" || items[2].ExecutorAction.Blocked || items[2].ExecutorAction.Ready {
+		t.Fatalf("paused lane should remain visible but not ready: %+v", items[2])
+	}
+}
+
 func TestBuildDoesNotBlockOnAuthorizedGate(t *testing.T) {
 	brief := Build(
 		[]Lane{{ID: "main", Label: "main", Status: "active"}},

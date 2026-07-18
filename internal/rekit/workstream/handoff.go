@@ -23,31 +23,23 @@ type HandoffOptions struct {
 }
 
 type HandoffResult struct {
-	SchemaVersion        int                         `json:"schemaVersion"`
-	Command              string                      `json:"command"`
-	CaseRoot             string                      `json:"caseRoot"`
-	RepoRoot             string                      `json:"repoRoot"`
-	Pack                 string                      `json:"pack"`
-	IsMutation           bool                        `json:"isMutation"`
-	Applied              bool                        `json:"applied"`
-	RequiresConfirmation bool                        `json:"requiresConfirmation"`
-	Selector             string                      `json:"selector,omitempty"`
-	Project              bool                        `json:"project"`
-	Lane                 *Lane                       `json:"lane,omitempty"`
-	MissionBrief         mission.Brief               `json:"missionBrief"`
-	ExecutorAction       *laneExecutorAction         `json:"executorAction,omitempty"`
-	LaneExecutorActions  []HandoffLaneExecutorAction `json:"laneExecutorActions,omitempty"`
-	Writes               []StartWrite                `json:"writes"`
-	BlockedActions       []string                    `json:"blockedActions"`
-	NextSteps            []string                    `json:"nextSteps"`
-}
-
-type HandoffLaneExecutorAction struct {
-	Lane           string             `json:"lane"`
-	Label          string             `json:"label"`
-	Status         string             `json:"status"`
-	Workspace      string             `json:"workspace"`
-	ExecutorAction laneExecutorAction `json:"executorAction"`
+	SchemaVersion        int                                  `json:"schemaVersion"`
+	Command              string                               `json:"command"`
+	CaseRoot             string                               `json:"caseRoot"`
+	RepoRoot             string                               `json:"repoRoot"`
+	Pack                 string                               `json:"pack"`
+	IsMutation           bool                                 `json:"isMutation"`
+	Applied              bool                                 `json:"applied"`
+	RequiresConfirmation bool                                 `json:"requiresConfirmation"`
+	Selector             string                               `json:"selector,omitempty"`
+	Project              bool                                 `json:"project"`
+	Lane                 *Lane                                `json:"lane,omitempty"`
+	MissionBrief         mission.Brief                        `json:"missionBrief"`
+	ExecutorAction       *laneExecutorAction                  `json:"executorAction,omitempty"`
+	LaneExecutorActions  []mission.LaneExecutorActionSnapshot `json:"laneExecutorActions,omitempty"`
+	Writes               []StartWrite                         `json:"writes"`
+	BlockedActions       []string                             `json:"blockedActions"`
+	NextSteps            []string                             `json:"nextSteps"`
 }
 
 func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (HandoffResult, error) {
@@ -131,7 +123,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		brief = mission.Brief{Summary: "unavailable: " + err.Error()}
 	}
 	var executorAction *laneExecutorAction
-	laneExecutorActions := []HandoffLaneExecutorAction{}
+	laneExecutorActions := []mission.LaneExecutorActionSnapshot{}
 	if lane != nil {
 		action := ctx.executorAction(*lane)
 		executorAction = &action
@@ -193,22 +185,13 @@ func (ctx handoffContext) executorAction(lane Lane) laneExecutorAction {
 	return laneExecutorActionFor(lane, facts.Facts, brief)
 }
 
-func (ctx handoffContext) laneExecutorActions() []HandoffLaneExecutorAction {
-	items := []HandoffLaneExecutorAction{}
-	for _, row := range ctx.board.Lanes {
-		lane, err := readLaneByID(ctx.inst.CaseRoot, row.ID)
-		if err != nil {
-			continue
-		}
-		items = append(items, HandoffLaneExecutorAction{
-			Lane:           lane.ID,
-			Label:          workstreamLabel(lane),
-			Status:         lane.Status,
-			Workspace:      lane.Workspace,
-			ExecutorAction: ctx.executorAction(lane),
-		})
+func (ctx handoffContext) laneExecutorActions() []mission.LaneExecutorActionSnapshot {
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		return nil
 	}
-	return items
+	brief := projectMissionBrief(ctx.board.Lanes, facts)
+	return mission.LaneExecutorActionSnapshots(ctx.board.Lanes, facts.Facts, brief)
 }
 
 func (ctx handoffContext) plannedWrites(apply bool) ([]StartWrite, error) {

@@ -54,6 +54,14 @@ type ExecutorAction struct {
 	Escalations          []string `json:"escalations"`
 }
 
+type LaneExecutorActionSnapshot struct {
+	Lane           string         `json:"lane"`
+	Label          string         `json:"label"`
+	Status         string         `json:"status"`
+	Workspace      string         `json:"workspace,omitempty"`
+	ExecutorAction ExecutorAction `json:"executorAction"`
+}
+
 func Build(lanes []Lane, facts Facts, maxRows int) Brief {
 	return BuildWithOptions(lanes, facts, BuildOptions{MaxRows: maxRows})
 }
@@ -125,6 +133,21 @@ func BuildWithOptions(lanes []Lane, facts Facts, opts BuildOptions) Brief {
 	}
 }
 
+func LaneExecutorActionSnapshots(lanes []BoardLane, facts Facts, brief Brief) []LaneExecutorActionSnapshot {
+	items := make([]LaneExecutorActionSnapshot, 0, len(lanes))
+	for _, lane := range lanes {
+		label := BoardLaneLabel(lane)
+		items = append(items, LaneExecutorActionSnapshot{
+			Lane:           lane.ID,
+			Label:          label,
+			Status:         lane.Status,
+			Workspace:      lane.Workspace,
+			ExecutorAction: LaneExecutorAction(Lane{ID: lane.ID, Label: label, Status: lane.Status}, facts, brief),
+		})
+	}
+	return items
+}
+
 func LaneExecutorAction(lane Lane, facts Facts, brief Brief) ExecutorAction {
 	label := laneCommandLabel(lane)
 	laneFacts := LaneFacts(facts, lane.ID)
@@ -176,12 +199,16 @@ func laneCommandLabel(lane Lane) string {
 func OpenLanes(lanes []Lane) []Lane {
 	open := []Lane{}
 	for _, lane := range lanes {
-		status := strings.ToLower(strings.TrimSpace(lane.Status))
-		if status != "archived" && status != "paused" && status != "closed" {
+		if isOpenLaneStatus(lane.Status) {
 			open = append(open, lane)
 		}
 	}
 	return open
+}
+
+func isOpenLaneStatus(status string) bool {
+	status = strings.ToLower(strings.TrimSpace(status))
+	return status != "archived" && status != "paused" && status != "closed"
 }
 
 func OpenEvents(items []map[string]any) []map[string]any {

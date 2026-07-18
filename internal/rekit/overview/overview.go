@@ -20,18 +20,19 @@ const maxRows = 10
 type event = map[string]any
 
 type Inventory struct {
-	SchemaVersion  int              `json:"schemaVersion"`
-	Command        string           `json:"command"`
-	CaseRoot       string           `json:"caseRoot"`
-	RepoRoot       string           `json:"repoRoot"`
-	Pack           string           `json:"pack"`
-	IsMutation     bool             `json:"isMutation"`
-	AutomationMode string           `json:"automationMode"`
-	Lanes          []LaneSummary    `json:"lanes"`
-	Counts         FactCounts       `json:"counts"`
-	MissionBrief   MissionBrief     `json:"missionBrief"`
-	Sections       OverviewSections `json:"sections"`
-	NextSteps      []string         `json:"nextSteps"`
+	SchemaVersion       int                                  `json:"schemaVersion"`
+	Command             string                               `json:"command"`
+	CaseRoot            string                               `json:"caseRoot"`
+	RepoRoot            string                               `json:"repoRoot"`
+	Pack                string                               `json:"pack"`
+	IsMutation          bool                                 `json:"isMutation"`
+	AutomationMode      string                               `json:"automationMode"`
+	Lanes               []LaneSummary                        `json:"lanes"`
+	Counts              FactCounts                           `json:"counts"`
+	MissionBrief        MissionBrief                         `json:"missionBrief"`
+	LaneExecutorActions []mission.LaneExecutorActionSnapshot `json:"laneExecutorActions"`
+	Sections            OverviewSections                     `json:"sections"`
+	NextSteps           []string                             `json:"nextSteps"`
 }
 
 type LaneSummary struct {
@@ -138,7 +139,9 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	fmt.Fprintln(&out)
 
 	brief := buildMissionBrief(data.lanes, facts)
+	actions := buildLaneExecutorActions(data.lanes, facts, brief)
 	writeMissionBrief(&out, brief)
+	writeLaneExecutorActions(&out, actions)
 	writeOpenCandidates(&out, facts.Candidates)
 	writePendingGates(&out, facts.Requests)
 	writeAuthorizedGates(&out, facts.Requests)
@@ -147,7 +150,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	writeBatches(&out, facts.AllBatchEvents)
 	writeInterventions(&out, facts.Interventions)
 	writeRollbacks(&out, facts.Rollbacks)
-	writeNextSteps(&out, data.lanes)
+	writeNextSteps(&out, overviewNextSteps(brief))
 	return out.String(), nil
 }
 
@@ -177,6 +180,8 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 		})
 	}
 	facts := data.facts
+	brief := buildMissionBrief(data.lanes, facts)
+	actions := buildLaneExecutorActions(data.lanes, facts, brief)
 	return Inventory{
 		SchemaVersion:  1,
 		Command:        "overview",
@@ -193,9 +198,10 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 			Publications:     len(facts.Publications),
 			PendingDecisions: data.pending,
 		},
-		MissionBrief: buildMissionBrief(data.lanes, facts),
-		Sections:     data.sections,
-		NextSteps:    nextStepCommands(data.lanes),
+		MissionBrief:        brief,
+		LaneExecutorActions: actions,
+		Sections:            data.sections,
+		NextSteps:           overviewNextSteps(brief),
 	}, nil
 }
 
@@ -266,12 +272,26 @@ func buildOverviewSections(facts factSet) OverviewSections {
 func buildMissionBrief(lanes []event, facts factSet) MissionBrief {
 	return mission.Build(missionLanes(lanes), facts.Facts, maxRows)
 }
-func missionLanes(lanes []event) []mission.Lane {
-	boardLanes := make([]mission.BoardLane, 0, len(lanes))
+
+func buildLaneExecutorActions(lanes []event, facts factSet, brief MissionBrief) []mission.LaneExecutorActionSnapshot {
+	return mission.LaneExecutorActionSnapshots(boardLanes(lanes), facts.Facts, brief)
+}
+
+func boardLanes(lanes []event) []mission.BoardLane {
+	items := make([]mission.BoardLane, 0, len(lanes))
 	for _, lane := range lanes {
-		boardLanes = append(boardLanes, mission.BoardLane{ID: stringValue(lane, "id"), Status: stringValue(lane, "status"), Authority: boolValue(lane, "authority")})
+		items = append(items, mission.BoardLane{
+			ID:        stringValue(lane, "id"),
+			Status:    stringValue(lane, "status"),
+			Authority: boolValue(lane, "authority"),
+			Workspace: stringValue(lane, "workspace"),
+		})
 	}
-	return mission.BoardLanes(boardLanes)
+	return items
+}
+
+func missionLanes(lanes []event) []mission.Lane {
+	return mission.BoardLanes(boardLanes(lanes))
 }
 
 func writeMissionBrief(out *bytes.Buffer, brief MissionBrief) {
@@ -285,6 +305,21 @@ func writeMissionBrief(out *bytes.Buffer, brief MissionBrief) {
 	writeBriefList(out, "interventions", brief.Interventions)
 	writeBriefList(out, "next agent actions", brief.NextAgentActions)
 	writeBriefList(out, "escalations", brief.Escalations)
+	fmt.Fprintln(out)
+}
+
+func writeLaneExecutorActions(out *bytes.Buffer, actions []mission.LaneExecutorActionSnapshot) {
+	fmt.Fprintln(out, "Lane executor actions：")
+	for _, item := range actions {
+		action := item.ExecutorAction
+		fmt.Fprintf(out, "- %s：blocked=%t ready=%t pendingGates=%d openInterventions=%d openDecisions=%d\n", item.Label, action.Blocked, action.Ready, action.PendingGates, action.OpenInterventions, action.OpenDecisions)
+		fmt.Fprintf(out, "  - requirements: reconcile=%t pendingGate=%t openDecision=%t\n", action.ReconcileRequired, action.PendingGateRequired, action.OpenDecisionRequired)
+		if len(action.BlockerReasons) > 0 {
+			fmt.Fprintf(out, "  - blocker reasons: %s\n", strings.Join(action.BlockerReasons, ","))
+		}
+		fmt.Fprintf(out, "  - continue: %s\n", action.ResumeCommand)
+		fmt.Fprintf(out, "  - handoff: %s\n", action.HandoffCommand)
+	}
 	fmt.Fprintln(out)
 }
 
@@ -383,29 +418,24 @@ func cloneEvents(items []event) []map[string]any {
 	return out
 }
 
-func nextStepCommands(lanes []event) []string {
-	open := openLanes(lanes)
-	commands := []string{}
-	if len(open) == 1 {
-		commands = append(commands, "/rekit continue "+workstreamLabel(open[0]))
-	} else {
-		for _, lane := range open {
-			commands = append(commands, "/rekit continue "+workstreamLabel(lane))
-		}
-	}
-	commands = append(commands, "/rekit start <name>", "/rekit handoff", "/rekit handoff main 或 /rekit handoff <name>")
-	return commands
+func overviewNextSteps(brief MissionBrief) []string {
+	steps := append([]string{}, brief.NextAgentActions...)
+	steps = append(steps, "/rekit start <name>", "/rekit handoff", "/rekit handoff main 或 /rekit handoff <name>")
+	return uniqueStrings(steps)
 }
 
-func openLanes(lanes []event) []event {
-	open := []event{}
-	for _, lane := range lanes {
-		status := strings.ToLower(stringValue(lane, "status"))
-		if status != "archived" && status != "paused" && status != "closed" {
-			open = append(open, lane)
+func uniqueStrings(items []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" || seen[item] {
+			continue
 		}
+		seen[item] = true
+		out = append(out, item)
 	}
-	return open
+	return out
 }
 
 func readFacts(caseRoot string) (factSet, error) {
@@ -653,29 +683,11 @@ func writeRollbacks(out *bytes.Buffer, rollbacks []event) {
 	fmt.Fprintln(out)
 }
 
-func writeNextSteps(out *bytes.Buffer, lanes []event) {
+func writeNextSteps(out *bytes.Buffer, steps []string) {
 	fmt.Fprintln(out, "建议下一步：")
-	open := []event{}
-	for _, lane := range lanes {
-		status := strings.ToLower(stringValue(lane, "status"))
-		if status != "archived" && status != "paused" && status != "closed" {
-			open = append(open, lane)
-		}
+	for _, step := range steps {
+		fmt.Fprintf(out, "- %s\n", step)
 	}
-	if len(open) == 1 {
-		fmt.Fprintf(out, "- 接手当前工作线：/rekit continue %s\n", workstreamLabel(open[0]))
-	} else {
-		for _, lane := range open {
-			kind := "功能支线"
-			if boolValue(lane, "authority") {
-				kind = "主线"
-			}
-			fmt.Fprintf(out, "- 接手%s %s：/rekit continue %s\n", kind, stringValue(lane, "id"), workstreamLabel(lane))
-		}
-	}
-	fmt.Fprintln(out, "- 创建或进入功能支线：/rekit start <name>")
-	fmt.Fprintln(out, "- 生成项目级接手索引：/rekit handoff")
-	fmt.Fprintln(out, "- 生成指定工作线接手文档：/rekit handoff main 或 /rekit handoff <name>")
 }
 
 func boardEvent(board mission.Board) event {

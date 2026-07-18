@@ -1808,7 +1808,7 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "Mission Control brief：", "ready lanes", "blocked lanes", "pending gates", "debug gate", "open decisions", "candidate: handler", "interventions", "manual override", "next agent actions", "escalations", "pending-gate requires main-agent/user decision", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "/rekit continue main"} {
+	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "Mission Control brief：", "ready lanes", "blocked lanes", "pending gates", "debug gate", "open decisions", "candidate: handler", "interventions", "manual override", "next agent actions", "escalations", "pending-gate requires main-agent/user decision", "Lane executor actions：", "main：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=3", "requirements: reconcile=true pendingGate=true openDecision=true", "blocker reasons: pending-gate,intervention,open-decision", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "reconcile open intervention(s) before continuing the affected lane"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("overview missing %q:\n%s", expected, text)
 		}
@@ -1855,7 +1855,8 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 			NextAgentActions []string `json:"nextAgentActions"`
 			Escalations      []string `json:"escalations"`
 		} `json:"missionBrief"`
-		Sections struct {
+		LaneExecutorActions []handoffLaneExecutorAction `json:"laneExecutorActions"`
+		Sections            struct {
 			OpenCandidates struct {
 				Total  int              `json:"total"`
 				Shown  int              `json:"shown"`
@@ -1904,6 +1905,12 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	}
 	if !slices.Contains(result.MissionBrief.BlockedLanes, "main (pending-gate,intervention,open-decision)") || !strings.Contains(result.MissionBrief.PendingGates[0], "action=debug") || !strings.Contains(result.MissionBrief.OpenDecisions[0], "candidate: handler") || !strings.Contains(result.MissionBrief.Interventions[0], "manual override") {
 		t.Fatalf("unexpected mission brief details: %+v", result.MissionBrief)
+	}
+	if len(result.LaneExecutorActions) != 1 || result.LaneExecutorActions[0].Lane != "main" || !result.LaneExecutorActions[0].ExecutorAction.Blocked || result.LaneExecutorActions[0].ExecutorAction.Ready || result.LaneExecutorActions[0].ExecutorAction.PendingGates != 1 || result.LaneExecutorActions[0].ExecutorAction.OpenInterventions != 1 || result.LaneExecutorActions[0].ExecutorAction.OpenDecisions != 3 {
+		t.Fatalf("unexpected overview lane executor actions: %+v", result.LaneExecutorActions)
+	}
+	if !slices.Contains(result.NextSteps, "reconcile open intervention(s) before continuing the affected lane") || slices.Contains(result.NextSteps, "/rekit continue main") {
+		t.Fatalf("overview next steps should resolve blockers before continue: %+v", result.NextSteps)
 	}
 	if result.Sections.PendingGates.Events[0]["actor"] != "runtime-test" || result.Sections.Verifications.Events[0]["verdict"] != "accepted" || result.Sections.Batches.Batches[0].ID != "batch-overview" || result.Sections.Batches.Batches[0].Events != 5 || result.Sections.Batches.Batches[0].Kinds["request"] != 1 {
 		t.Fatalf("unexpected overview section details: %+v", result.Sections)
@@ -4470,8 +4477,10 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	var overview struct {
-		MissionBrief missionBrief `json:"missionBrief"`
-		Sections     struct {
+		MissionBrief        missionBrief                `json:"missionBrief"`
+		LaneExecutorActions []handoffLaneExecutorAction `json:"laneExecutorActions"`
+		NextSteps           []string                    `json:"nextSteps"`
+		Sections            struct {
 			AuthorizedGates struct {
 				Total  int              `json:"total"`
 				Events []map[string]any `json:"events"`
@@ -4486,6 +4495,12 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if overview.Sections.PendingGates.Total != 0 || overview.Sections.AuthorizedGates.Total != 1 || len(overview.Sections.AuthorizedGates.Events) != 1 || !containsSubstring(overview.MissionBrief.AuthorizedGates, "authorized debug") {
 		t.Fatalf("overview JSON missing authorized gate visibility: %+v", overview)
+	}
+	if len(overview.LaneExecutorActions) != 1 || overview.LaneExecutorActions[0].ExecutorAction.Blocked || !overview.LaneExecutorActions[0].ExecutorAction.Ready || overview.LaneExecutorActions[0].ExecutorAction.PendingGates != 0 {
+		t.Fatalf("authorized gate overview executor action should remain non-blocking: %+v", overview.LaneExecutorActions)
+	}
+	if !slices.Contains(overview.NextSteps, "/rekit continue main") {
+		t.Fatalf("authorized gate overview should keep ready lane continue action: %+v", overview.NextSteps)
 	}
 
 	out.Reset()
@@ -4738,6 +4753,8 @@ type executorActionSnapshot struct {
 	OpenDecisionRequired bool     `json:"openDecisionRequired"`
 	ResumeCommand        string   `json:"resumeCommand"`
 	HandoffCommand       string   `json:"handoffCommand"`
+	NextAgentActions     []string `json:"nextAgentActions"`
+	Escalations          []string `json:"escalations"`
 }
 
 type missionBrief struct {
