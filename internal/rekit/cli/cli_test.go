@@ -1606,6 +1606,111 @@ func TestRunInitApplyCreatesFullCase(t *testing.T) {
 	}
 }
 
+func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
+	root := repoRoot(t)
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "init", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "product-path", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(caseRoot); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Command        string `json:"command"`
+		TemplateRoot   string `json:"templateRoot"`
+		Target         string `json:"target"`
+		TargetProvided bool   `json:"targetProvided"`
+		Mode           string `json:"mode"`
+		Case           struct {
+			TemplateRoot string `json:"templateRoot"`
+			TemplatePack string `json:"templatePack"`
+			ProjectName  string `json:"projectName"`
+		} `json:"case"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("case-local status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if status.Command != "status" || status.Mode != "case" || status.TargetProvided || status.Target != caseRoot || status.TemplateRoot != root || status.Case.TemplateRoot != root || status.Case.TemplatePack != "_template" || status.Case.ProjectName != "product-path" {
+		t.Fatalf("unexpected case-local status: %+v", status)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "doctor", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var doctor struct {
+		Command string `json:"command"`
+		Mode    string `json:"mode"`
+		Valid   bool   `json:"valid"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doctor); err != nil {
+		t.Fatalf("case-local doctor stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if doctor.Command != "doctor" || doctor.Mode != "case" || !doctor.Valid {
+		t.Fatalf("unexpected case-local doctor: %+v", doctor)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Pack", "_template", "-Name", "login", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	start := decodeStartResult(t, out.Bytes())
+	if !start.IsMutation || !start.Applied || start.Lane.ID != "feature-login" || start.Lane.Workspace != "workspace/features/feature-login" {
+		t.Fatalf("unexpected case-local start result: %+v", start)
+	}
+
+	writeCaseFile(t, caseRoot, "workspace/features/feature-login/packet.md", "# packet\n\ncase-local product path packet\n")
+	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/outbox.jsonl", strings.Join([]string{
+		`{"eventId":"evt-product-path-observation","kind":"observation","subject":"product path observation","summary":"case-local cwd observed","evidence":"evidence-product-path-observation"}`,
+		`{"eventId":"evt-product-path-request","kind":"request","subject":"product path request","summary":"route product path request to main","requestId":"req-product-path-main","targetLane":"main","evidence":"evidence-product-path-request","status":"open"}`,
+	}, "\n")+"\n")
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var cont struct {
+		Command string    `json:"command"`
+		Applied bool      `json:"applied"`
+		Lane    startLane `json:"lane"`
+		Writes  []startWrite
+	}
+	if err := json.Unmarshal(out.Bytes(), &cont); err != nil {
+		t.Fatalf("case-local continue stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if cont.Command != "continue" || !cont.Applied || cont.Lane.ID != "feature-login" {
+		t.Fatalf("unexpected case-local continue result: %+v", cont)
+	}
+	assertContinueWrite(t, cont.Writes, ".rekit/facts/observations.jsonl", "append")
+	assertContinueWrite(t, cont.Writes, ".rekit/facts/requests.jsonl", "append")
+	assertContinueWrite(t, cont.Writes, ".rekit/lanes/main/tasks.jsonl", "append")
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	laneHandoff := decodeHandoffResult(t, out.Bytes())
+	if !laneHandoff.IsMutation || !laneHandoff.Applied || laneHandoff.Project || laneHandoff.Lane == nil || laneHandoff.Lane.ID != "feature-login" {
+		t.Fatalf("unexpected case-local lane handoff result: %+v", laneHandoff)
+	}
+	assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/feature-login-latest.md", "write-latest-lane-handoff")
+}
+
 func TestRunBootstrapApplyUsesBootstrapCommand(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	var out bytes.Buffer

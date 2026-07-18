@@ -36,7 +36,7 @@
 2. **CLI/case E2E**：init/attach/start/reconcile/gate/handoff 等真实临时 case flow 在对应平台通过。
 3. **installed user entrypoint readiness**：canonical `/rekit` / case shim 能定位稳定 Go runtime，用户路径不要求手动运行 raw Go CLI 或 PowerShell façade。
 
-当前 workflow 主要覆盖第 1 级；第 2、3 级仍是 product-path known gap。
+当前 workflow 主要覆盖第 1 级；本地 Go tests 已覆盖一条 CLI/case E2E product-path slice（repo 外 case metadata discovery，以及 case cwd 中无 `-Target` 执行 `status`、`doctor`、`start -Apply`、`continue -Apply`、`handoff -Apply`）；第 2 级尚未进入三平台 runner matrix，第 3 级 installed `/rekit` / case shim readiness 仍是 product-path known gap。
 
 ### 本机 release gate（推荐最小集）
 
@@ -146,7 +146,7 @@ Retained compatibility / unsupported / manual-gate 能力（详细冻结/删除�
 
 ## Known gaps
 
-- 远程 release-gate 当前未实际执行：2026-07-18 最近及抽查的 Linux/Windows/macOS jobs 因 GitHub account billing/spending limit 未获得 runner、steps 为空；`release-check` / `ciReleaseGate.ready` 仍只表示 inventory/workflow 定义 ready。现有 workflow 也主要覆盖 repository/runtime portability，CLI/case E2E 与 installed `/rekit`/case-shim product path 尚未在三平台全部验证。
+- 远程 release-gate 当前未实际执行：2026-07-18 最近及抽查的 Linux/Windows/macOS jobs 因 GitHub account billing/spending limit 未获得 runner、steps 为空；`release-check` / `ciReleaseGate.ready` 仍只表示 inventory/workflow 定义 ready。现有 workflow 也主要覆盖 repository/runtime portability；本地 Go tests 已覆盖 case metadata repo discovery 与 case-local cwd 无 `-Target` 的 `status`/`doctor`/`start`/`continue`/`handoff` product-path slice，但 CLI/case E2E 尚未进入三平台 runner matrix，installed `/rekit`/case-shim product path 仍未完整验证。
 - Mission Commander 尚无统一 session/reviewer orchestrator：durable lane、handoff/checkpoint 与 executor takeover contract 已存在，Batch 353 也已由主 Agent在本机真实 spawn 一个 read-only reviewer，并跑通显式 Go-native strict intake、WhatIf/Apply writeback 与 post-validation；但仓库 runtime 仍不启动、注册或管理可替换 Claude Code member session/reviewer。剩余缺口是 session lifecycle、托管 dispatch、跨会话 ownership/takeover 与更完整的多 reviewer orchestration，而不是单 reviewer intake/writeback contract。
 - actual heavy-tool 与 authority/confirmed 仍是独立边界：full-trace/debug/inject/patch/dump/network/symex 由 lane executor/tool adapter 在 strict durable autonomy profile + `authorized-gate` 范围内执行并回写 evidence/ledger；authority/confirmed 写入仍需人工确认，不由 Go `continue -Apply` 自动执行。
 - pack-based team memory 已有 review/sanitize/promote primitives，但尚未验证 case 经验 → promote → fresh case/另一 pack reconsume 的产品级 E2E。

@@ -16,48 +16,45 @@ Batch 353 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 355：Reviewer orchestration owner binding**
+**Batch 356：Cross-platform product-path E2E（本地 product-path slice）**
 
-状态：已完成实现与本地验证；提交后继续下一候选批次。
+状态：已完成实现与本地 full release gate；提交后继续下一候选批次。
 
-目标：把 `plan-subagents` reviewer dispatch/intake 绑定到 durable lane executor owner snapshot，使主 Agent调度短命 reviewer 后，runtime 能校验 packet 所属 lane 的 `currentExecutor` / `executorGeneration` 是否仍匹配，并把 reviewer session provenance 写入 verification-before-decision facts。
+目标：先在远程 GitHub Actions billing/spending limit blocker 尚未解除的条件下，收敛一个本地可验证的 product-path vertical slice：Go CLI 即使从 case-local 工作目录启动，也能通过 `.rekit/instance.yml` / `.re-template.yml` 的 `templateRoot` 找到 canonical repo root，并让日常 case commands 在 case 目录中省略 `-Target`。
 
-边界：主 Agent仍负责 spawn/管理 reviewer；runtime 只生成 review artifacts、校验 owner/provenance、按顺序写回 facts 与返回 post-validation，不自动 spawn、注册、停止、监控或管理 reviewer/member session；reviewer 仍 read-only；不执行 heavy-tool，不写 authority/confirmed，不改变 sync/promote review-first、durable autonomy grant 或公共 façade 删除边界；不新增 PowerShell runtime logic。
+边界：本批只改 Go runtime/CLI discovery 与 case-local command target resolution，不新增 PowerShell runtime logic，不删除 retained façade，不自动安装或启动 `/rekit`/Claude Code session，不扩大 init/attach/repair/bootstrap 这类 lifecycle 写入命令的隐式 target；远程三平台 CI green 仍受外部 billing/spending limit blocker 约束，不能把本地 slice 表述为完整跨平台 release green。
 
 完成内容：
 
-- `plan-subagents` planning result、`packet.json` 与每个 `shardHandoffs[]` 现在包含 `ownerBinding`：`targetLane`、`currentExecutor`、`executorGeneration`、last takeover metadata、binding mode、是否需要 intake 校验，以及主 Agent拥有 reviewer spawn 的边界说明。
-- planning 支持通过 `-Lane` 指定 reviewer target lane；未指定时仍回退 manifest `defaultAuthorityLane`。attached case 中若 board 存在且目标 lane 已登记 executor，则 packet 绑定当前 executor generation；out-of-case 或未分配 lane 保持 dispatch-only / unassigned mode，不冒充 durable grant。
-- reviewer result strict contract 新增必填 `reviewerSession`，dispatch prompt、summary、smoke 与 tests 同步要求短命 reviewer 返回单个 JSON object，并声明主 Agent提供/保存 reviewer session identifier。
-- reviewer intake 在写任何 ledger 前验证 `ownerBinding.targetLane`、packet identity、case/pack/route/shard/items/evidence、route output contract；当 packet 要求 owner binding 且 lane executor/generation 已变化时 fail-closed，防止旧 reviewer packet 在 executor takeover 后继续写回。
-- reviewer intake 输出 `ownerBinding` 与 `reviewerSession`，并在 verification 与 decision facts 中记录 `reviewerSession`、`ownerExecutor`、`ownerGeneration`、`ownerBindingMode`、`ownerBindingTarget`，保持 verification-before-decision 顺序、partial retry 与 idempotent duplicate 语义。
-- tests 覆盖 out-of-case owner binding、attached lane executor binding、stale owner binding 拒绝、reviewerSession contract/provenance、CLI JSON envelope 与 plan-subagents smoke owner/provenance contract。
+- `runtime.New` 在 cwd/executable 不能发现 repo root 时，会从目标 case metadata 读取 `templateRoot` 并验证它仍指向当前 kit repo root；这让 installed/direct Go CLI 可从 repo 外 case path 找回 canonical runtime。
+- case-local 工作目录现在可作为日常 case commands 的 implicit target：`overview`、`note`、`start`、`handoff`、`continue`、`reconcile`、`gate`、`sync`、`promote` 与 `plan-subagents` 在未传 `-Target` 时，会先确认当前目录 looks like attached case，避免误把 kit root 当 case。
+- `attach`、`repair`、`init` 与 `bootstrap` 仍要求显式 `-Target`，避免基于 cwd 意外创建、修复或重写 case metadata。
+- 新增 runtime unit test 覆盖从 repo 外 cwd 通过 target case metadata discovery repo root；新增 CLI product-path E2E 覆盖 `_template` 临时 case 在 case cwd 中无 `-Target` 执行 `status`、`doctor`、`start -Apply`、`continue -Apply` 与 `handoff -Apply`。
+- release readiness docs 将跨平台完成度区分为 repository/runtime portability、CLI/case E2E 与 installed user entrypoint readiness，并记录本批只关闭本地 CLI/case E2E slice；远程 Linux/Windows/macOS job conclusion 与 installed `/rekit`/case shim readiness 仍是 known gap。
 
 已通过验证：
 
 ```text
-go test ./internal/rekit/subagents ./internal/rekit/cli ./internal/rekit/note -count=1
+go test ./internal/rekit/runtime -count=1
+go test ./internal/rekit/cli -run TestRunCaseLocalProductPathUsesCaseMetadataRuntime -count=1
+go test ./internal/rekit/runtime ./internal/rekit/cli -count=1
 go test ./...
 go vet ./...
 go run ./cmd/rekit -- -Command release-check -Format json
 go run ./cmd/rekit -- -Command status
 go run ./cmd/rekit -- -Command packs
 go run ./cmd/rekit -- -Command doctor
-.\rekit\tests\facade-smoke.ps1
-.\rekit\tests\plan-subagents-smoke.ps1
 git diff --check
 ```
 
-最终本地 gate 已执行通过；`git diff --check` 仅输出 Windows 工作区 LF→CRLF 提示，未报告 whitespace error。
-
-说明：`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready；不能表述为远程 CI green。
+最终本地 gate 已执行通过；`git diff --check` 仅输出 Windows 工作区 LF→CRLF 提示，未报告 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green。
 
 ### Next candidates
 
-1. **Cross-platform product-path E2E**：在可用 runner 上验证 direct CLI/case lifecycle/workstream，再验证 installed `/rekit` / case shim runtime discovery；先解决或升级 GitHub Actions billing blocker。
-2. **Autonomy execution evidence closure**：sandbox adapter 消费 strict durable profile + `authorized-gate`，记录 actual budget、output refs、evidence 与 boundary-hit/escalation。
-3. **Pack-memory reconsume E2E**：case reusable observation → sanitize/review/promote → fresh case 或另一 pack 消费。
-4. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
+1. **Autonomy execution evidence closure**：sandbox adapter 消费 strict durable profile + `authorized-gate`，记录 actual budget、output refs、evidence 与 boundary-hit/escalation。
+2. **Pack-memory reconsume E2E**：case reusable observation → sanitize/review/promote → fresh case 或另一 pack 消费。
+3. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E 与 installed `/rekit` / case shim runtime discovery 纳入可用 runner 验证。
+4. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 
 ### Escalation / stopping conditions
 

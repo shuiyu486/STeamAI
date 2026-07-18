@@ -8,6 +8,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 )
 
 type Context struct {
@@ -24,10 +25,6 @@ func New(target, pack string) (Context, error) {
 	if err != nil {
 		return Context{}, err
 	}
-	repo, err := discoverRepoRoot(cwd)
-	if err != nil {
-		return Context{}, err
-	}
 	if pack == "" {
 		pack = defaults.DefaultPack
 	}
@@ -39,6 +36,18 @@ func New(target, pack string) (Context, error) {
 	resolvedTarget, err = refsf.FullPath(resolvedTarget)
 	if err != nil {
 		return Context{}, err
+	}
+	repo, err := discoverRepoRoot(cwd)
+	if err != nil {
+		if targetProvided {
+			repo, err = discoverRepoRoot(resolvedTarget)
+		}
+		if err != nil {
+			repo, err = repoRootFromCaseMetadata(resolvedTarget)
+		}
+		if err != nil {
+			return Context{}, err
+		}
 	}
 	return Context{RuntimeRoot: filepath.Join(repo, "rekit"), RepoRoot: repo, Cwd: cwd, Target: resolvedTarget, TargetProvided: targetProvided, Pack: pack}, nil
 }
@@ -53,6 +62,25 @@ func discoverRepoRoot(cwd string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("unable to locate rekit repo root from %s", cwd)
+}
+
+func repoRootFromCaseMetadata(target string) (string, error) {
+	inst, err := instance.Read(target)
+	if err != nil {
+		return "", err
+	}
+	repo := strings.TrimSpace(inst.TemplateRoot)
+	if repo == "" {
+		return "", fmt.Errorf("unable to locate rekit repo root from case metadata in %s", target)
+	}
+	repo, err = refsf.FullPath(repo)
+	if err != nil {
+		return "", err
+	}
+	if found, ok := findRepoRoot(repo); ok {
+		return found, nil
+	}
+	return "", fmt.Errorf("case metadata templateRoot is not a rekit repo root: %s", repo)
 }
 
 func findRepoRoot(start string) (string, bool) {

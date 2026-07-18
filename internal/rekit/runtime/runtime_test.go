@@ -1,8 +1,11 @@
 package runtime
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 )
 
@@ -22,5 +25,43 @@ func TestNewDiscoversRepoRoot(t *testing.T) {
 	}
 	if ctx.TargetProvided {
 		t.Fatal("TargetProvided = true, want false")
+	}
+}
+
+func TestNewDiscoversRepoRootFromTargetCaseMetadata(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	if err := os.MkdirAll(caseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := casebind.WriteInstance(caseRoot, repoRoot, "_template", "product-path-case"); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(outside); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	ctx, err := New(caseRoot, "_template")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctx.RepoRoot != repoRoot || ctx.RuntimeRoot != filepath.Join(repoRoot, "rekit") || ctx.Target != caseRoot || !ctx.TargetProvided || ctx.Pack != "_template" {
+		t.Fatalf("unexpected runtime context: %+v", ctx)
 	}
 }

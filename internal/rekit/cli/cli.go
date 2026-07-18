@@ -868,6 +868,16 @@ func doctorModeAndTarget(ctx runtime.Context) (string, string, error) {
 	return "", "", fmt.Errorf("target is neither this kit root nor an attached rekit case: %s", ctx.Target)
 }
 
+func commandTarget(ctx runtime.Context, command, targetName string) (string, error) {
+	if ctx.TargetProvided {
+		return ctx.Target, nil
+	}
+	if instance.LooksLikeCase(ctx.Target) && !samePath(ctx.Target, ctx.RepoRoot) {
+		return ctx.Target, nil
+	}
+	return "", fmt.Errorf("%s requires an explicit -Target %s or a case-local working directory", command, targetName)
+}
+
 func runAttach(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !ctx.TargetProvided {
 		return fmt.Errorf("attach requires an explicit -Target case directory")
@@ -963,8 +973,9 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.Force && !opt.Apply {
 		return fmt.Errorf("sync -Force is only supported with -Apply")
 	}
-	if !ctx.TargetProvided {
-		return fmt.Errorf("sync requires an explicit -Target attached case")
+	target, err := commandTarget(ctx, "sync", "attached case")
+	if err != nil {
+		return err
 	}
 	if opt.Apply {
 		if wantsReviewArtifacts(opt) {
@@ -974,9 +985,9 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		var result syncreview.ApplyResult
 		var err error
 		if opt.WhatIf {
-			result, err = syncreview.ApplyPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
+			result, err = syncreview.ApplyPreview(ctx.RepoRoot, target, ctx.Pack, applyOpt)
 		} else {
-			result, err = syncreview.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
+			result, err = syncreview.Apply(ctx.RepoRoot, target, ctx.Pack, applyOpt)
 		}
 		if err != nil {
 			return err
@@ -988,7 +999,7 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		_, err = out.Write(append(b, '\n'))
 		return err
 	}
-	plan, err := syncreview.Plan(ctx.RepoRoot, ctx.Target, ctx.Pack)
+	plan, err := syncreview.Plan(ctx.RepoRoot, target, ctx.Pack)
 	if err != nil {
 		return err
 	}
@@ -999,8 +1010,9 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runOverview(ctx runtime.Context, opt Options, out io.Writer) error {
-	if !ctx.TargetProvided {
-		return fmt.Errorf("overview requires an explicit -Target attached case")
+	target, err := commandTarget(ctx, "overview", "attached case")
+	if err != nil {
+		return err
 	}
 	format := strings.ToLower(strings.TrimSpace(opt.Format))
 	if format == "" {
@@ -1008,14 +1020,14 @@ func runOverview(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	switch format {
 	case "table", "text", "tsv":
-		text, err := overview.Render(ctx.RepoRoot, ctx.Target, ctx.Pack)
+		text, err := overview.Render(ctx.RepoRoot, target, ctx.Pack)
 		if err != nil {
 			return err
 		}
 		_, err = io.WriteString(out, text)
 		return err
 	case "json":
-		result, err := overview.BuildInventory(ctx.RepoRoot, ctx.Target, ctx.Pack)
+		result, err := overview.BuildInventory(ctx.RepoRoot, target, ctx.Pack)
 		if err != nil {
 			return err
 		}
@@ -1028,8 +1040,9 @@ func runOverview(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runNote(ctx runtime.Context, opt Options, out io.Writer) error {
-	if !ctx.TargetProvided {
-		return fmt.Errorf("note requires an explicit -Target attached case")
+	target, err := commandTarget(ctx, "note", "attached case")
+	if err != nil {
+		return err
 	}
 	if opt.Apply || opt.CreateCandidates {
 		return fmt.Errorf("note does not support -Apply or -CreateCandidates; omit write mode flags or use -WhatIf for preview")
@@ -1044,14 +1057,14 @@ func runNote(ctx runtime.Context, opt Options, out io.Writer) error {
 		}
 		switch format {
 		case "table", "text", "tsv":
-			text, err := note.List(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Note)
+			text, err := note.List(ctx.RepoRoot, target, ctx.Pack, opt.Note)
 			if err != nil {
 				return err
 			}
 			_, err = io.WriteString(out, text)
 			return err
 		case "json":
-			result, err := note.ListEvents(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Note)
+			result, err := note.ListEvents(ctx.RepoRoot, target, ctx.Pack, opt.Note)
 			if err != nil {
 				return err
 			}
@@ -1065,7 +1078,7 @@ func runNote(ctx runtime.Context, opt Options, out io.Writer) error {
 			return fmt.Errorf("unsupported note list format: %s", opt.Format)
 		}
 	}
-	result, err := note.Append(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Note, opt.WhatIf)
+	result, err := note.Append(ctx.RepoRoot, target, ctx.Pack, opt.Note, opt.WhatIf)
 	if err != nil {
 		return err
 	}
@@ -1078,8 +1091,9 @@ func runNote(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runStart(ctx runtime.Context, opt Options, out io.Writer) error {
-	if !ctx.TargetProvided {
-		return fmt.Errorf("start requires an explicit -Target attached case")
+	target, err := commandTarget(ctx, "start", "attached case")
+	if err != nil {
+		return err
 	}
 	if opt.WhatIf && opt.Apply {
 		return fmt.Errorf("start -WhatIf cannot be combined with -Apply")
@@ -1095,9 +1109,9 @@ func runStart(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	var result workstream.StartResult
 	if opt.WhatIf {
-		result, err = workstream.StartPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, startOpt)
+		result, err = workstream.StartPreview(ctx.RepoRoot, target, ctx.Pack, startOpt)
 	} else {
-		result, err = workstream.StartApply(ctx.RepoRoot, ctx.Target, ctx.Pack, startOpt)
+		result, err = workstream.StartApply(ctx.RepoRoot, target, ctx.Pack, startOpt)
 	}
 	if err != nil {
 		return err
@@ -1109,8 +1123,9 @@ func runStart(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
-	if !ctx.TargetProvided {
-		return fmt.Errorf("handoff requires an explicit -Target attached case")
+	target, err := commandTarget(ctx, "handoff", "attached case")
+	if err != nil {
+		return err
 	}
 	if opt.WhatIf && opt.Apply {
 		return fmt.Errorf("handoff -WhatIf cannot be combined with -Apply")
@@ -1124,9 +1139,9 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	var result workstream.HandoffResult
 	if opt.WhatIf {
-		result, err = workstream.HandoffPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Handoff)
+		result, err = workstream.HandoffPreview(ctx.RepoRoot, target, ctx.Pack, opt.Handoff)
 	} else {
-		result, err = workstream.HandoffApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Handoff)
+		result, err = workstream.HandoffApply(ctx.RepoRoot, target, ctx.Pack, opt.Handoff)
 	}
 	if err != nil {
 		return err
@@ -1138,8 +1153,9 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runReconcile(ctx runtime.Context, opt Options, out io.Writer) error {
-	if !ctx.TargetProvided {
-		return fmt.Errorf("reconcile requires an explicit -Target attached case")
+	target, err := commandTarget(ctx, "reconcile", "attached case")
+	if err != nil {
+		return err
 	}
 	if opt.CreateCandidates || opt.Review || opt.Force {
 		return fmt.Errorf("reconcile does not support -CreateCandidates, -Review, or -Force")
@@ -1159,9 +1175,9 @@ func runReconcile(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	var result workstream.ReconcileResult
 	if opt.WhatIf {
-		result, err = workstream.ReconcilePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Reconcile)
+		result, err = workstream.ReconcilePreview(ctx.RepoRoot, target, ctx.Pack, opt.Reconcile)
 	} else {
-		result, err = workstream.ReconcileApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Reconcile)
+		result, err = workstream.ReconcileApply(ctx.RepoRoot, target, ctx.Pack, opt.Reconcile)
 	}
 	if err != nil {
 		return err
@@ -1173,8 +1189,9 @@ func runReconcile(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runContinue(ctx runtime.Context, opt Options, out io.Writer) error {
-	if !ctx.TargetProvided {
-		return fmt.Errorf("continue requires an explicit -Target attached case")
+	target, err := commandTarget(ctx, "continue", "attached case")
+	if err != nil {
+		return err
 	}
 	if opt.CreateCandidates {
 		return fmt.Errorf("continue does not support -CreateCandidates")
@@ -1194,9 +1211,9 @@ func runContinue(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	var result workstream.ContinueResult
 	if opt.WhatIf {
-		result, err = workstream.ContinuePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
+		result, err = workstream.ContinuePreview(ctx.RepoRoot, target, ctx.Pack, opt.Continue)
 	} else {
-		result, err = workstream.ContinueApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
+		result, err = workstream.ContinueApply(ctx.RepoRoot, target, ctx.Pack, opt.Continue)
 	}
 	if err != nil {
 		return err
@@ -1419,8 +1436,9 @@ func handoffLatestPath(result workstream.HandoffResult) string {
 var intakeReviewerResult = subagents.IntakeReviewerResult
 
 func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
-	if !ctx.TargetProvided {
-		return fmt.Errorf("plan-subagents requires an explicit -Target directory")
+	target, err := commandTarget(ctx, "plan-subagents", "directory")
+	if err != nil {
+		return err
 	}
 	if strings.TrimSpace(opt.ReviewerResultPath) != "" {
 		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" {
@@ -1436,7 +1454,7 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		if format != "" && format != "json" {
 			return fmt.Errorf("plan-subagents reviewer intake supports only -Format json")
 		}
-		result, err := intakeReviewerResult(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerIntakeOptions{PacketPath: opt.PacketPath, ReviewerResultPath: opt.ReviewerResultPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
+		result, err := intakeReviewerResult(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerIntakeOptions{PacketPath: opt.PacketPath, ReviewerResultPath: opt.ReviewerResultPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
 		if err != nil {
 			if result.WritebackStatus != "" {
 				if writeErr := writeJSON(out, result); writeErr != nil {
@@ -1450,7 +1468,7 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.Apply || opt.WhatIf || opt.CreateCandidates {
 		return fmt.Errorf("plan-subagents planning only writes review artifacts; use -ReviewerResultPath with -WhatIf or -Apply for main-agent reviewer intake")
 	}
-	result, err := subagents.WritePlan(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.Options{Route: opt.Route, TaskType: opt.TaskType, Items: opt.Items, ItemsFile: opt.ItemsFile, ItemsPerAgent: opt.ItemsPerAgent, MaxParallel: opt.MaxParallel, ReviewOutputDir: opt.ReviewOutputDir, PacketPath: opt.PacketPath, DiffPath: opt.DiffPath, Lane: opt.Note.Lane})
+	result, err := subagents.WritePlan(ctx.RepoRoot, target, ctx.Pack, subagents.Options{Route: opt.Route, TaskType: opt.TaskType, Items: opt.Items, ItemsFile: opt.ItemsFile, ItemsPerAgent: opt.ItemsPerAgent, MaxParallel: opt.MaxParallel, ReviewOutputDir: opt.ReviewOutputDir, PacketPath: opt.PacketPath, DiffPath: opt.DiffPath, Lane: opt.Note.Lane})
 	if err != nil {
 		return err
 	}
@@ -1463,8 +1481,9 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
-	if !ctx.TargetProvided {
-		return fmt.Errorf("promote review requires an explicit -Target attached case")
+	target, err := commandTarget(ctx, "promote", "attached case")
+	if err != nil {
+		return err
 	}
 	if opt.Apply {
 		if opt.CreateCandidates {
@@ -1473,7 +1492,7 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		if wantsReviewArtifacts(opt) {
 			return fmt.Errorf("promote -Apply cannot be combined with review artifact options")
 		}
-		result, err := promote.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, promote.ApplyOptions{WhatIf: opt.WhatIf})
+		result, err := promote.Apply(ctx.RepoRoot, target, ctx.Pack, promote.ApplyOptions{WhatIf: opt.WhatIf})
 		if err != nil {
 			return err
 		}
@@ -1491,7 +1510,7 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		if wantsReviewArtifacts(opt) {
 			return fmt.Errorf("promote -CreateCandidates cannot be combined with review artifact options")
 		}
-		result, err := promote.CreateCandidates(ctx.RepoRoot, ctx.Target, ctx.Pack, promote.CandidateOptions{WhatIf: opt.WhatIf})
+		result, err := promote.CreateCandidates(ctx.RepoRoot, target, ctx.Pack, promote.CandidateOptions{WhatIf: opt.WhatIf})
 		if err != nil {
 			return err
 		}
@@ -1502,7 +1521,7 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		_, err = out.Write(append(b, '\n'))
 		return err
 	}
-	plan, err := promote.Plan(ctx.RepoRoot, ctx.Target, ctx.Pack)
+	plan, err := promote.Plan(ctx.RepoRoot, target, ctx.Pack)
 	if err != nil {
 		return err
 	}
@@ -1513,8 +1532,9 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
-	if !ctx.TargetProvided {
-		return fmt.Errorf("gate requires an explicit -Target attached case")
+	target, err := commandTarget(ctx, "gate", "attached case")
+	if err != nil {
+		return err
 	}
 	if opt.WhatIf && opt.Apply {
 		return fmt.Errorf("gate -WhatIf cannot be combined with -Apply")
@@ -1524,7 +1544,7 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 		return fmt.Errorf("unsupported gate format: %s", opt.Format)
 	}
 	if opt.WhatIf {
-		plan, err := gate.PlanDryRun(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Gate)
+		plan, err := gate.PlanDryRun(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
 		if err != nil {
 			return err
 		}
@@ -1536,7 +1556,7 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !opt.Apply {
 		return fmt.Errorf("gate write requires -Apply; use -WhatIf for dry-run preview")
 	}
-	result, err := gate.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Gate)
+	result, err := gate.Apply(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
 	if err != nil {
 		return err
 	}
