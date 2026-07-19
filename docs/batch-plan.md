@@ -16,24 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 395：Mission Commander lane handoff consumption closure
+### Batch 396：Authorized execution evidence handoff consumption follow-through
 
-状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
+状态：已完成本地实现与验证，提交/推送和远程 release-gate inspection 待记录。
 
-目标：把 project handoff、lane handoff 与 lane `RESUME.md` 中已有的 `missionCommanderAction` 进一步做成替换 executor / 新会话可直接消费的文本接手层，避免只能看到 state/prompt 或必须回到 JSON 才能取得 primary command、follow-up 与 boundary。
+目标：把 `gate -Apply -GateEventId ...` 已记录的 bounded observation evidence 接续到 project/lane handoff、lane `RESUME.md` 与 typed checkpoint，让替换 executor 不必回扫 observations/request ledger 就能看到哪些 authorized execution evidence 需要 review output/evidence refs、哪些 escalation/boundary-hit 需要 main review。
 
-边界：只增强 handoff/resume/checkpoint 的 guidance 投影；`handoff -Apply` 仍只写 case-local handoff/resume/checkpoint files，不创建 board/facts/lane、不执行 continue、不执行 heavy-tool、不写 authority/confirmed；blocked lane 继续不得推荐 continue；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+边界：只投影已存在 observation/request facts 的 review queue；`handoff -Apply` 与 resume refresh 仍只写 case-local handoff/resume/checkpoint files，不新增 observation/request/authority/confirmed，不执行 heavy-tool、不 replay adapter、不运行 continue、不创建 board/facts/lane；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- project handoff 逐 lane 行新增 `commander primary`、`commander follow-up` 与 `commander boundary`，ready lane 直接显示 `/rekit continue <lane>`，blocked lane 直接显示 reconcile/gate/open-decision 的首选命令和边界。
-- lane handoff 的 `Executor action snapshot` 新增 `commander primary command`，与已有 follow-up/boundary 列表组成完整 consumption checklist。
-- lane `RESUME.md` 的 executor action snapshot 同步新增 `commander primary command`，让替换 executor 从 durable resume 直接恢复首选命令。
-- CLI coverage 锁定 project handoff ready/blocked lane 的 primary/follow-up/boundary、lane handoff JSON/text 的 blocked lane reconcile guidance，以及 `RESUME.md` 中 primary/follow-up/boundary 的一致投影。
+- `HandoffResult` JSON 与 lane checkpoint 新增 `executionEvidenceReview[]`，从 preauthorized authorized-gate execution observation 中投影 eventId、gateEventId、status、action、target、outputRefs/evidenceRefs、boundaryHits/escalation、review command、handoff command 与 boundary。
+- project handoff 逐 lane 文本新增 execution evidence review 行；lane handoff 新增 `## execution evidence review` section；lane `RESUME.md` 的 Heavy-action gate decisions 后新增 execution evidence review checklist。
+- review queue 明确 observation evidence 已记录、不得 replay heavy tool、review refs before authority/confirmed、no authority/confirmed；boundary-hit/escalated/escalation evidence 额外标记 main review before autonomous continuation。
+- CLI/workstream coverage 锁定 succeeded execution evidence 与 adapter escalated evidence 在 project/lane handoff JSON/text、RESUME.md 和 checkpoint 中的一致投影。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunHandoffApplyWritesProjectAndLane -count=1`、`go test ./internal/rekit/workstream -count=1`、`go test ./internal/rekit/cli -run 'TestRunHandoffPreviewDoesNotWrite|TestRunProjectHandoffMissionBriefBlocksOpenDecisions|TestRunHandoffMissionBriefBlocksOpenDecisions' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `ebb912f Add lane handoff commander commands`；远程 release-gate run `29690064794` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run 'TestLaneCheckpointJSONContract|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunHandoffApplyWritesProjectAndLane' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。
 
-上一批摘要：Batch 394 已完成 pack-memory reconsume Mission Commander follow-through；`promote -CreateCandidates` review plan 现在投影 `missionCommanderAction`，详见 `docs/batch-history.md`。
+上一批摘要：Batch 395 已完成 Mission Commander lane handoff consumption closure；project/lane handoff 与 lane `RESUME.md` 已投影 commander primary/follow-up/boundary，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

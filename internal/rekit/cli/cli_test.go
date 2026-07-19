@@ -5626,12 +5626,15 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if !containsSubstring(project.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(project.MissionBrief.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(project.MissionBrief.AuthorizedGates, "stopConditions=timeout") || !containsSubstring(project.MissionBrief.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(project.MissionBrief.AuthorizedGates, "reportContract="+reportContract) || len(project.MissionBrief.PendingGates) != 0 {
 		t.Fatalf("project handoff JSON missing authorized gate visibility: %+v", project.MissionBrief)
 	}
+	if len(project.ExecutionEvidenceReview) != 2 || project.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || project.ExecutionEvidenceReview[0].Status != "succeeded" || !containsSubstring(project.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/session-1/result.json") || !containsSubstring(project.ExecutionEvidenceReview[0].EvidenceRefs, "workspace/main/debug/session-1/result.json") || project.ExecutionEvidenceReview[0].HandoffCommand != "/rekit handoff main" || !containsSubstring(project.ExecutionEvidenceReview[0].Boundary, "do not replay heavy tool") || project.ExecutionEvidenceReview[1].Status != "escalated" || project.ExecutionEvidenceReview[1].Escalation != "adapter escalated from CLI E2E" || !containsSubstring(project.ExecutionEvidenceReview[1].Boundary, "requires main review") {
+		t.Fatalf("project handoff JSON missing execution evidence review queue: %+v", project.ExecutionEvidenceReview)
+	}
 	projectLatest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
 	projectText, err := os.ReadFile(projectLatest.TargetPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "next action：/rekit continue main", "continue command：`/rekit continue main`"} {
+	for _, expected := range []string{"authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "next action：/rekit continue main", "continue command：`/rekit continue main`", "execution evidence review：execution evidence for authorized debug status=succeeded gateEventId=" + authorizedEventID, "execution evidence review：execution evidence for authorized debug status=escalated gateEventId=" + authorizedEventID, "evidence review command：`review outputRefs/evidenceRefs for gateEventId " + authorizedEventID + "`", "evidence handoff：`/rekit handoff main`", "evidence boundary：observation evidence is already recorded; do not replay heavy tool", "evidence boundary：boundary/escalation requires main review before autonomous continuation"} {
 		if !strings.Contains(string(projectText), expected) {
 			t.Fatalf("project handoff missing %q:\n%s", expected, string(projectText))
 		}
@@ -5645,12 +5648,15 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if !containsSubstring(lane.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(lane.MissionBrief.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(lane.MissionBrief.AuthorizedGates, "stopConditions=timeout") || !containsSubstring(lane.MissionBrief.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(lane.MissionBrief.AuthorizedGates, "reportContract="+reportContract) || len(lane.MissionBrief.PendingGates) != 0 {
 		t.Fatalf("lane handoff JSON missing authorized gate visibility: %+v", lane.MissionBrief)
 	}
+	if len(lane.ExecutionEvidenceReview) != 2 || lane.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || lane.ExecutionEvidenceReview[0].Status != "succeeded" || lane.ExecutionEvidenceReview[1].Status != "escalated" || !containsSubstring(lane.ExecutionEvidenceReview[1].Boundary, "requires main review") {
+		t.Fatalf("lane handoff JSON missing execution evidence review queue: %+v", lane.ExecutionEvidenceReview)
+	}
 	laneLatest := assertStartWrite(t, lane.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
 	laneText, err := os.ReadFile(laneLatest.TargetPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"然后执行 `/rekit continue main`", "authorized-gate:", "## authorized-gate", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "next agent action:", "/rekit continue main"} {
+	for _, expected := range []string{"然后执行 `/rekit continue main`", "authorized-gate:", "## authorized-gate", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "next agent action:", "/rekit continue main", "## execution evidence review", "status=succeeded | gateEventId=" + authorizedEventID, "status=escalated | gateEventId=" + authorizedEventID, "review command: `review outputRefs/evidenceRefs for gateEventId " + authorizedEventID + "`", "handoff command: `/rekit handoff main`", "review boundary:", "observation evidence is already recorded; do not replay heavy tool", "boundary/escalation requires main review before autonomous continuation"} {
 		if !strings.Contains(string(laneText), expected) {
 			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
 		}
@@ -5714,7 +5720,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Mission Control brief", "openLanes=1 ready=0 blocked=1", "- blocked lanes:", "main (open-decision)", "- open decisions:", "review candidate", "- next agent actions:", "review open candidate/decision item(s) with evidence and authority boundary", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "- blocker reasons:", "open-decision", "## Heavy-action gate decisions", "- authorized-gate:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "profile=prof-main-debug", "- pending-gate: none"} {
+	for _, expected := range []string{"## Mission Control brief", "openLanes=1 ready=0 blocked=1", "- blocked lanes:", "main (open-decision)", "- open decisions:", "review candidate", "- next agent actions:", "review open candidate/decision item(s) with evidence and authority boundary", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "- blocker reasons:", "open-decision", "## Heavy-action gate decisions", "- authorized-gate:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "profile=prof-main-debug", "- pending-gate: none", "- execution evidence review:", "status=succeeded | gateEventId=" + authorizedEventID, "status=escalated | gateEventId=" + authorizedEventID, "outputRefs: workspace/main/debug/session-1/result.json", "evidenceRefs: workspace/main/debug/session-1/result.json", "review command: `review outputRefs/evidenceRefs for gateEventId " + authorizedEventID + "`", "handoff command: `/rekit handoff main`", "boundary: observation evidence is already recorded; do not replay heavy tool", "boundary: boundary/escalation requires main review before autonomous continuation"} {
 		if !strings.Contains(string(resume), expected) {
 			t.Fatalf("lane resume missing %q:\n%s", expected, string(resume))
 		}
@@ -5741,8 +5747,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 			OpenDecisionRequired bool     `json:"openDecisionRequired"`
 			ResumeCommand        string   `json:"resumeCommand"`
 		} `json:"executorAction"`
-		PendingGates    []string `json:"pendingGates"`
-		AuthorizedGates []string `json:"authorizedGates"`
+		PendingGates            []string                      `json:"pendingGates"`
+		AuthorizedGates         []string                      `json:"authorizedGates"`
+		ExecutionEvidenceReview []executionEvidenceReviewItem `json:"executionEvidenceReview"`
 	}
 	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
 		t.Fatalf("lane checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
@@ -5755,6 +5762,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if len(checkpoint.PendingGates) != 0 || !containsSubstring(checkpoint.AuthorizedGates, "authorized debug") || !containsSubstring(checkpoint.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(checkpoint.AuthorizedGates, "stopConditions=timeout") || !containsSubstring(checkpoint.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(checkpoint.AuthorizedGates, "reportContract="+reportContract) || !containsSubstring(checkpoint.AuthorizedGates, "auth=preauthorized") {
 		t.Fatalf("lane checkpoint missing non-blocking authorized gate visibility: %+v", checkpoint)
+	}
+	if len(checkpoint.ExecutionEvidenceReview) != 2 || checkpoint.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || checkpoint.ExecutionEvidenceReview[0].Status != "succeeded" || !containsSubstring(checkpoint.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/session-1/result.json") || checkpoint.ExecutionEvidenceReview[0].HandoffCommand != "/rekit handoff main" || checkpoint.ExecutionEvidenceReview[1].Status != "escalated" || !containsSubstring(checkpoint.ExecutionEvidenceReview[1].Boundary, "requires main review") {
+		t.Fatalf("lane checkpoint missing execution evidence review queue: %+v", checkpoint.ExecutionEvidenceReview)
 	}
 }
 
@@ -6497,17 +6507,18 @@ type startResult struct {
 }
 
 type handoffResult struct {
-	Command              string                      `json:"command"`
-	IsMutation           bool                        `json:"isMutation"`
-	Applied              bool                        `json:"applied"`
-	RequiresConfirmation bool                        `json:"requiresConfirmation"`
-	Project              bool                        `json:"project"`
-	Lane                 *startLane                  `json:"lane"`
-	MissionBrief         missionBrief                `json:"missionBrief"`
-	ExecutorAction       *executorActionSnapshot     `json:"executorAction"`
-	LaneExecutorActions  []handoffLaneExecutorAction `json:"laneExecutorActions"`
-	Writes               []startWrite                `json:"writes"`
-	NextSteps            []string                    `json:"nextSteps"`
+	Command                 string                        `json:"command"`
+	IsMutation              bool                          `json:"isMutation"`
+	Applied                 bool                          `json:"applied"`
+	RequiresConfirmation    bool                          `json:"requiresConfirmation"`
+	Project                 bool                          `json:"project"`
+	Lane                    *startLane                    `json:"lane"`
+	MissionBrief            missionBrief                  `json:"missionBrief"`
+	ExecutorAction          *executorActionSnapshot       `json:"executorAction"`
+	LaneExecutorActions     []handoffLaneExecutorAction   `json:"laneExecutorActions"`
+	ExecutionEvidenceReview []executionEvidenceReviewItem `json:"executionEvidenceReview"`
+	Writes                  []startWrite                  `json:"writes"`
+	NextSteps               []string                      `json:"nextSteps"`
 }
 
 type handoffLaneExecutorAction struct {
@@ -6521,6 +6532,20 @@ type handoffLaneExecutorAction struct {
 	LastTakeoverBy     string                 `json:"lastTakeoverBy"`
 	LastTakeoverReason string                 `json:"lastTakeoverReason"`
 	ExecutorAction     executorActionSnapshot `json:"executorAction"`
+}
+
+type executionEvidenceReviewItem struct {
+	EventID        string   `json:"eventId"`
+	GateEventID    string   `json:"gateEventId"`
+	Subject        string   `json:"subject"`
+	Status         string   `json:"status"`
+	Action         string   `json:"action"`
+	OutputRefs     []string `json:"outputRefs"`
+	EvidenceRefs   []string `json:"evidenceRefs"`
+	Escalation     string   `json:"escalation"`
+	ReviewCommand  string   `json:"reviewCommand"`
+	HandoffCommand string   `json:"handoffCommand"`
+	Boundary       []string `json:"boundary"`
 }
 
 type executorActionSnapshot struct {

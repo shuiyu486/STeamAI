@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 395：Mission Commander lane handoff consumption closure
+
+状态：已完成 project/lane handoff 与 lane `RESUME.md` commander primary/follow-up/boundary 投影、durable docs、full local validation、commit/push 与远程 release-gate inspection。
+
+目标：把 project handoff、lane handoff 与 lane `RESUME.md` 中已有的 `missionCommanderAction` 进一步做成替换 executor / 新会话可直接消费的文本接手层，避免只能看到 state/prompt 或必须回到 JSON 才能取得 primary command、follow-up 与 boundary。
+
+实施范围：project handoff 逐 lane 行新增 `commander primary`、`commander follow-up` 与 `commander boundary`，ready lane 直接显示 `/rekit continue <lane>`，blocked lane 直接显示 reconcile/gate/open-decision 的首选命令和边界；lane handoff 的 `Executor action snapshot` 新增 `commander primary command`，与已有 follow-up/boundary 列表组成完整 consumption checklist；lane `RESUME.md` 的 executor action snapshot 同步新增 `commander primary command`。`handoff -Apply` 仍只写 case-local handoff/resume/checkpoint files，不创建 board/facts/lane、不执行 continue、不执行 heavy-tool、不写 authority/confirmed；blocked lane 继续不得推荐 continue；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunHandoffApplyWritesProjectAndLane -count=1`、`go test ./internal/rekit/workstream -count=1`、`go test ./internal/rekit/cli -run 'TestRunHandoffPreviewDoesNotWrite|TestRunProjectHandoffMissionBriefBlocksOpenDecisions|TestRunHandoffMissionBriefBlocksOpenDecisions' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `ebb912f Add lane handoff commander commands` 与 docs follow-up `2a4ce71 Record Batch 395 release gate inspection`；远程 release-gate runs `29690064794` / `29690093523` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+
 ### Batch 394：Pack-memory reconsume Mission Commander follow-through
 
 状态：已完成 pack-memory candidate review `missionCommanderAction` 投影、durable docs、full local validation、commit/push 与远程 release-gate inspection。

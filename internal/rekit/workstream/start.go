@@ -105,28 +105,46 @@ type Lane struct {
 
 type laneExecutorAction = mission.ExecutorAction
 
+type ExecutionEvidenceReviewItem struct {
+	EventID        string   `json:"eventId,omitempty"`
+	GateEventID    string   `json:"gateEventId,omitempty"`
+	Subject        string   `json:"subject,omitempty"`
+	Summary        string   `json:"summary,omitempty"`
+	Status         string   `json:"status,omitempty"`
+	Action         string   `json:"action,omitempty"`
+	Target         string   `json:"target,omitempty"`
+	OutputRefs     []string `json:"outputRefs,omitempty"`
+	EvidenceRefs   []string `json:"evidenceRefs,omitempty"`
+	BoundaryHits   []string `json:"boundaryHits,omitempty"`
+	Escalation     string   `json:"escalation,omitempty"`
+	ReviewCommand  string   `json:"reviewCommand"`
+	HandoffCommand string   `json:"handoffCommand"`
+	Boundary       []string `json:"boundary"`
+}
+
 type laneCheckpoint struct {
-	SchemaVersion              int                   `json:"schemaVersion"`
-	Lane                       string                `json:"lane"`
-	Status                     string                `json:"status"`
-	Workspace                  string                `json:"workspace"`
-	CurrentExecutor            string                `json:"currentExecutor"`
-	ExecutorGeneration         int                   `json:"executorGeneration"`
-	LastTakeoverAt             string                `json:"lastTakeoverAt"`
-	LastTakeoverBy             string                `json:"lastTakeoverBy"`
-	LastTakeoverReason         string                `json:"lastTakeoverReason"`
-	LastReconciledIntervention string                `json:"lastReconciledIntervention"`
-	LastReconcileAt            string                `json:"lastReconcileAt"`
-	AutonomyProfile            autonomy.Summary      `json:"autonomyProfile"`
-	MissionBrief               mission.Brief         `json:"missionBrief"`
-	ExecutorAction             laneExecutorAction    `json:"executorAction"`
-	PendingGates               []string              `json:"pendingGates"`
-	AuthorizedGates            []string              `json:"authorizedGates"`
-	OpenInterventions          []InterventionSummary `json:"openInterventions"`
-	Inbox                      int                   `json:"inbox"`
-	Tasks                      int                   `json:"tasks"`
-	UpdatedAt                  string                `json:"updatedAt"`
-	Resume                     string                `json:"resume"`
+	SchemaVersion              int                           `json:"schemaVersion"`
+	Lane                       string                        `json:"lane"`
+	Status                     string                        `json:"status"`
+	Workspace                  string                        `json:"workspace"`
+	CurrentExecutor            string                        `json:"currentExecutor"`
+	ExecutorGeneration         int                           `json:"executorGeneration"`
+	LastTakeoverAt             string                        `json:"lastTakeoverAt"`
+	LastTakeoverBy             string                        `json:"lastTakeoverBy"`
+	LastTakeoverReason         string                        `json:"lastTakeoverReason"`
+	LastReconciledIntervention string                        `json:"lastReconciledIntervention"`
+	LastReconcileAt            string                        `json:"lastReconcileAt"`
+	AutonomyProfile            autonomy.Summary              `json:"autonomyProfile"`
+	MissionBrief               mission.Brief                 `json:"missionBrief"`
+	ExecutorAction             laneExecutorAction            `json:"executorAction"`
+	PendingGates               []string                      `json:"pendingGates"`
+	AuthorizedGates            []string                      `json:"authorizedGates"`
+	ExecutionEvidenceReview    []ExecutionEvidenceReviewItem `json:"executionEvidenceReview,omitempty"`
+	OpenInterventions          []InterventionSummary         `json:"openInterventions"`
+	Inbox                      int                           `json:"inbox"`
+	Tasks                      int                           `json:"tasks"`
+	UpdatedAt                  string                        `json:"updatedAt"`
+	Resume                     string                        `json:"resume"`
 }
 
 type board = mission.Board
@@ -788,6 +806,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	brief := laneMissionBrief(lane, ledgerFacts)
 	pendingGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate"), mission.LaneGateLine)
 	authorizedGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "authorized-gate"), mission.LaneGateLine)
+	executionEvidenceReview := laneExecutionEvidenceReview(lane, ledgerFacts.Observations)
 	autonomySummary := autonomy.ReadSummary(caseRoot, lane.ID, m)
 	executorAction := laneExecutorActionFor(lane, laneFacts, brief)
 	lines := []string{
@@ -866,6 +885,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	)
 	lines = appendResumeList(lines, "pending-gate", pendingGateLines)
 	lines = appendResumeList(lines, "authorized-gate", authorizedGateLines)
+	lines = appendResumeExecutionEvidenceReview(lines, executionEvidenceReview)
 	lines = append(lines,
 		"",
 		"## 最近 inbox",
@@ -924,6 +944,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		ExecutorAction:             executorAction,
 		PendingGates:               pendingGateLines,
 		AuthorizedGates:            authorizedGateLines,
+		ExecutionEvidenceReview:    executionEvidenceReview,
 		OpenInterventions:          openInterventions,
 		Inbox:                      len(inbox),
 		Tasks:                      len(tasks),
@@ -1030,6 +1051,140 @@ func lastObjects(items []map[string]any, limit int) []map[string]any {
 		return items
 	}
 	return items[len(items)-limit:]
+}
+
+func laneExecutionEvidenceReview(lane Lane, observations []map[string]any) []ExecutionEvidenceReviewItem {
+	label := workstreamLabel(lane)
+	return executionEvidenceReviewItems(observations, lane.ID, func(string) string { return label })
+}
+
+func executionEvidenceReviewItems(observations []map[string]any, laneID string, labelFor func(string) string) []ExecutionEvidenceReviewItem {
+	items := []ExecutionEvidenceReviewItem{}
+	for _, observation := range observations {
+		if !strings.EqualFold(firstObjectText(observation, "kind"), "observation") {
+			continue
+		}
+		lane := firstObjectText(observation, "lane")
+		if laneID != "" && lane != laneID {
+			continue
+		}
+		execution := objectMap(observation["execution"])
+		gateEventID := firstObjectText(execution, "gateEventId")
+		if gateEventID == "" {
+			continue
+		}
+		authorization := firstObjectText(execution, "authorization")
+		if authorization == "" {
+			gate := objectMap(observation["gate"])
+			authorization = firstObjectText(objectMap(gate["authorization"]), "decision")
+		}
+		if !strings.EqualFold(authorization, "preauthorized") {
+			continue
+		}
+		label := lane
+		if labelFor != nil {
+			label = labelFor(lane)
+		}
+		if label == "" {
+			label = mission.BoardLaneLabel(mission.BoardLane{ID: lane})
+		}
+		status := firstObjectText(observation, "status")
+		if status == "" {
+			status = firstObjectText(execution, "status")
+		}
+		gate := objectMap(observation["gate"])
+		boundary := []string{
+			"observation evidence is already recorded; do not replay heavy tool",
+			"review outputRefs/evidenceRefs before any authority/confirmed outcome",
+			"no authority/confirmed writes",
+		}
+		boundaryHits := objectStringList(execution["boundaryHits"])
+		escalation := firstObjectText(execution, "escalation")
+		if status == "boundary-hit" || status == "escalated" || len(boundaryHits) > 0 || escalation != "" {
+			boundary = append(boundary, "boundary/escalation requires main review before autonomous continuation")
+		}
+		items = append(items, ExecutionEvidenceReviewItem{
+			EventID:        firstObjectText(observation, "eventId"),
+			GateEventID:    gateEventID,
+			Subject:        firstObjectText(observation, "subject"),
+			Summary:        firstObjectText(observation, "summary"),
+			Status:         status,
+			Action:         firstObjectText(gate, "action"),
+			Target:         firstObjectText(observation, "target"),
+			OutputRefs:     objectStringList(execution["outputRefs"]),
+			EvidenceRefs:   objectStringList(observation["evidenceRefs"]),
+			BoundaryHits:   boundaryHits,
+			Escalation:     escalation,
+			ReviewCommand:  "review outputRefs/evidenceRefs for gateEventId " + gateEventID,
+			HandoffCommand: "/rekit handoff " + label,
+			Boundary:       boundary,
+		})
+	}
+	if len(items) > maxHandoffRows {
+		return items[len(items)-maxHandoffRows:]
+	}
+	return items
+}
+
+func appendResumeExecutionEvidenceReview(lines []string, items []ExecutionEvidenceReviewItem) []string {
+	if len(items) == 0 {
+		return append(lines, "- execution evidence review: none")
+	}
+	lines = append(lines, "- execution evidence review:")
+	for _, item := range items {
+		lines = append(lines, "  - "+firstText(item.Subject, item.Summary, item.EventID)+" | status="+item.Status+" | gateEventId="+item.GateEventID+" | action="+firstText(item.Action, "none"))
+		if refs := strings.Join(item.OutputRefs, ","); refs != "" {
+			lines = append(lines, "    - outputRefs: "+refs)
+		}
+		if refs := strings.Join(item.EvidenceRefs, ","); refs != "" {
+			lines = append(lines, "    - evidenceRefs: "+refs)
+		}
+		lines = append(lines, "    - review command: `"+item.ReviewCommand+"`")
+		lines = append(lines, "    - handoff command: `"+item.HandoffCommand+"`")
+		for _, boundary := range mission.LimitStrings(item.Boundary, maxHandoffRows) {
+			lines = append(lines, "    - boundary: "+boundary)
+		}
+	}
+	return lines
+}
+
+func objectMap(value any) map[string]any {
+	if item, ok := value.(map[string]any); ok {
+		return item
+	}
+	return nil
+}
+
+func objectStringList(value any) []string {
+	switch t := value.(type) {
+	case []string:
+		return append([]string{}, t...)
+	case []any:
+		items := []string{}
+		for _, item := range t {
+			if text := objectText(item); text != "" {
+				items = append(items, text)
+			}
+		}
+		return items
+	case string:
+		text := strings.TrimSpace(t)
+		if text == "" {
+			return nil
+		}
+		items := []string{}
+		for _, part := range strings.Split(text, ",") {
+			if trimmed := strings.TrimSpace(part); trimmed != "" {
+				items = append(items, trimmed)
+			}
+		}
+		return items
+	default:
+		if text := objectText(value); text != "" {
+			return []string{text}
+		}
+		return nil
+	}
 }
 
 func appendResumeList(lines []string, label string, items []string) []string {

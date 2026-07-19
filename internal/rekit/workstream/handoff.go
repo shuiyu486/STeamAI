@@ -23,23 +23,24 @@ type HandoffOptions struct {
 }
 
 type HandoffResult struct {
-	SchemaVersion        int                                  `json:"schemaVersion"`
-	Command              string                               `json:"command"`
-	CaseRoot             string                               `json:"caseRoot"`
-	RepoRoot             string                               `json:"repoRoot"`
-	Pack                 string                               `json:"pack"`
-	IsMutation           bool                                 `json:"isMutation"`
-	Applied              bool                                 `json:"applied"`
-	RequiresConfirmation bool                                 `json:"requiresConfirmation"`
-	Selector             string                               `json:"selector,omitempty"`
-	Project              bool                                 `json:"project"`
-	Lane                 *Lane                                `json:"lane,omitempty"`
-	MissionBrief         mission.Brief                        `json:"missionBrief"`
-	ExecutorAction       *laneExecutorAction                  `json:"executorAction,omitempty"`
-	LaneExecutorActions  []mission.LaneExecutorActionSnapshot `json:"laneExecutorActions,omitempty"`
-	Writes               []StartWrite                         `json:"writes"`
-	BlockedActions       []string                             `json:"blockedActions"`
-	NextSteps            []string                             `json:"nextSteps"`
+	SchemaVersion           int                                  `json:"schemaVersion"`
+	Command                 string                               `json:"command"`
+	CaseRoot                string                               `json:"caseRoot"`
+	RepoRoot                string                               `json:"repoRoot"`
+	Pack                    string                               `json:"pack"`
+	IsMutation              bool                                 `json:"isMutation"`
+	Applied                 bool                                 `json:"applied"`
+	RequiresConfirmation    bool                                 `json:"requiresConfirmation"`
+	Selector                string                               `json:"selector,omitempty"`
+	Project                 bool                                 `json:"project"`
+	Lane                    *Lane                                `json:"lane,omitempty"`
+	MissionBrief            mission.Brief                        `json:"missionBrief"`
+	ExecutorAction          *laneExecutorAction                  `json:"executorAction,omitempty"`
+	LaneExecutorActions     []mission.LaneExecutorActionSnapshot `json:"laneExecutorActions,omitempty"`
+	ExecutionEvidenceReview []ExecutionEvidenceReviewItem        `json:"executionEvidenceReview,omitempty"`
+	Writes                  []StartWrite                         `json:"writes"`
+	BlockedActions          []string                             `json:"blockedActions"`
+	NextSteps               []string                             `json:"nextSteps"`
 }
 
 func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (HandoffResult, error) {
@@ -124,11 +125,14 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	}
 	var executorAction *laneExecutorAction
 	laneExecutorActions := []mission.LaneExecutorActionSnapshot{}
+	executionEvidenceReview := []ExecutionEvidenceReviewItem{}
 	if lane != nil {
 		action := ctx.executorAction(*lane)
 		executorAction = &action
+		executionEvidenceReview = ctx.executionEvidenceReview(*lane)
 	} else if ctx.project {
 		laneExecutorActions = ctx.laneExecutorActions()
+		executionEvidenceReview = ctx.projectExecutionEvidenceReview()
 	}
 	next := []string{"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default"}
 	if applied {
@@ -141,23 +145,24 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		next = append(next, "review this plan, then re-run handoff with -Apply to write case-local handoff files")
 	}
 	return HandoffResult{
-		SchemaVersion:        1,
-		Command:              "handoff",
-		CaseRoot:             ctx.inst.CaseRoot,
-		RepoRoot:             ctx.manifest.RepoRoot,
-		Pack:                 ctx.manifest.Pack,
-		IsMutation:           mutating,
-		Applied:              applied,
-		RequiresConfirmation: confirm,
-		Selector:             ctx.selector,
-		Project:              ctx.project,
-		Lane:                 lane,
-		MissionBrief:         brief,
-		ExecutorAction:       executorAction,
-		LaneExecutorActions:  laneExecutorActions,
-		Writes:               writes,
-		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
-		NextSteps:            next,
+		SchemaVersion:           1,
+		Command:                 "handoff",
+		CaseRoot:                ctx.inst.CaseRoot,
+		RepoRoot:                ctx.manifest.RepoRoot,
+		Pack:                    ctx.manifest.Pack,
+		IsMutation:              mutating,
+		Applied:                 applied,
+		RequiresConfirmation:    confirm,
+		Selector:                ctx.selector,
+		Project:                 ctx.project,
+		Lane:                    lane,
+		MissionBrief:            brief,
+		ExecutorAction:          executorAction,
+		LaneExecutorActions:     laneExecutorActions,
+		ExecutionEvidenceReview: executionEvidenceReview,
+		Writes:                  writes,
+		BlockedActions:          []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
+		NextSteps:               next,
 	}
 }
 
@@ -355,6 +360,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		fmt.Fprintf(&out, "  - commander primary：`%s`\n", executorAction.MissionCommanderAction.PrimaryCommand)
 		writeProjectLaneCommanderList(&out, "commander follow-up", executorAction.MissionCommanderAction.FollowUpCommands)
 		writeProjectLaneCommanderList(&out, "commander boundary", executorAction.MissionCommanderAction.Boundary)
+		writeProjectLaneExecutionEvidenceReview(&out, ctx.executionEvidenceReview(lane))
 		fmt.Fprintf(&out, "  - 接续提示：`%s`\n", resumeRel)
 	}
 	fmt.Fprintln(&out)
@@ -385,6 +391,21 @@ func writeProjectLaneCommanderList(out *bytes.Buffer, label string, items []stri
 	}
 	for _, item := range mission.LimitStrings(items, maxHandoffRows) {
 		fmt.Fprintf(out, "  - %s：%s\n", label, item)
+	}
+}
+
+func writeProjectLaneExecutionEvidenceReview(out *bytes.Buffer, items []ExecutionEvidenceReviewItem) {
+	if len(items) == 0 {
+		fmt.Fprintln(out, "  - execution evidence review：none")
+		return
+	}
+	for _, item := range items {
+		fmt.Fprintf(out, "  - execution evidence review：%s status=%s gateEventId=%s action=%s\n", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, firstText(item.Action, "none"))
+		fmt.Fprintf(out, "  - evidence review command：`%s`\n", item.ReviewCommand)
+		fmt.Fprintf(out, "  - evidence handoff：`%s`\n", item.HandoffCommand)
+		for _, boundary := range mission.LimitStrings(item.Boundary, maxHandoffRows) {
+			fmt.Fprintf(out, "  - evidence boundary：%s\n", boundary)
+		}
 	}
 }
 
@@ -466,6 +487,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	writeDecisionSection(&out, facts.Decisions, lane.ID)
 	writePendingGateSection(&out, facts.Requests, lane.ID)
 	writeAuthorizedGateSection(&out, facts.Requests, lane.ID)
+	writeExecutionEvidenceReviewSection(&out, ctx.executionEvidenceReview(lane))
 	writeInterventionSection(&out, facts.Interventions, lane.ID)
 	writeRollbackSection(&out, facts.Rollbacks, lane.ID)
 	fmt.Fprintln(&out, "## 边界")
@@ -668,6 +690,30 @@ func writeWorkspacePackets(out *bytes.Buffer, caseRoot string, lane Lane) error 
 	return nil
 }
 
+func (ctx handoffContext) projectExecutionEvidenceReview() []ExecutionEvidenceReviewItem {
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		return nil
+	}
+	return executionEvidenceReviewItems(facts.Observations, "", ctx.laneCommandLabel)
+}
+
+func (ctx handoffContext) executionEvidenceReview(lane Lane) []ExecutionEvidenceReviewItem {
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		return nil
+	}
+	return laneExecutionEvidenceReview(lane, facts.Observations)
+}
+
+func (ctx handoffContext) laneCommandLabel(laneID string) string {
+	lane, err := readLaneByID(ctx.inst.CaseRoot, laneID)
+	if err == nil {
+		return workstreamLabel(lane)
+	}
+	return mission.BoardLaneLabel(mission.BoardLane{ID: laneID})
+}
+
 func readHandoffFacts(caseRoot string) (mission.LedgerFacts, error) {
 	return mission.ReadLedgerFacts(caseRoot)
 }
@@ -845,6 +891,21 @@ func writeAuthorizedGateSection(out *bytes.Buffer, requests []map[string]any, la
 	fmt.Fprintln(out)
 	for _, g := range lastObjects(items, maxHandoffRows) {
 		fmt.Fprintf(out, "- %s | %s%s\n", firstObjectText(g, "subject"), firstObjectText(g, "summary"), gateRequestDetail(g, true, true))
+	}
+	fmt.Fprintln(out)
+}
+
+func writeExecutionEvidenceReviewSection(out *bytes.Buffer, items []ExecutionEvidenceReviewItem) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "## execution evidence review")
+	fmt.Fprintln(out)
+	for _, item := range items {
+		fmt.Fprintf(out, "- %s | status=%s | gateEventId=%s | action=%s | outputRefs=%s | evidenceRefs=%s\n", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, item.Action, firstText(strings.Join(item.OutputRefs, ","), "none"), firstText(strings.Join(item.EvidenceRefs, ","), "none"))
+		fmt.Fprintf(out, "  - review command: `%s`\n", item.ReviewCommand)
+		fmt.Fprintf(out, "  - handoff command: `%s`\n", item.HandoffCommand)
+		writeHandoffBriefList(out, "review boundary", item.Boundary)
 	}
 	fmt.Fprintln(out)
 }
