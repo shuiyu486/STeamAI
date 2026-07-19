@@ -1765,21 +1765,18 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 		if wantsGateExecutionEvidenceDetails(opt.Gate) {
 			return fmt.Errorf("gate -ExecutionReportContract cannot be combined with execution evidence fields")
 		}
-		if format != "json" {
-			return fmt.Errorf("gate -ExecutionReportContract supports only -Format json")
-		}
 		contract, err := gate.AdapterReportContract(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
 		if err != nil {
 			return err
 		}
-		return writeJSON(out, contract)
+		if format == "json" {
+			return writeJSON(out, contract)
+		}
+		return writeGateAdapterReportContractText(out, contract)
 	}
 	if opt.Gate.ValidateExecutionReport {
 		if opt.Apply || opt.WhatIf {
 			return fmt.Errorf("gate -ValidateExecutionReport is read-only; omit -Apply and -WhatIf")
-		}
-		if format != "json" {
-			return fmt.Errorf("gate -ValidateExecutionReport supports only -Format json")
 		}
 		if strings.TrimSpace(opt.Gate.ExecutionReportPath) == "" {
 			return fmt.Errorf("gate -ValidateExecutionReport requires -ExecutionReportPath")
@@ -1792,7 +1789,10 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		return writeJSON(out, validation)
+		if format == "json" {
+			return writeJSON(out, validation)
+		}
+		return writeGateAdapterReportValidationText(out, validation)
 	}
 	executionEvidence := wantsGateExecutionEvidence(opt.Gate)
 	if opt.WhatIf {
@@ -1850,6 +1850,64 @@ func writeGatePlanText(out io.Writer, plan gate.Plan) error {
 		return err
 	}
 	return writeMissionExecutorActionText(out, "would executor action", plan.WouldExecutorAction)
+}
+
+func writeGateAdapterReportContractText(out io.Writer, contract gate.AdapterExecutionReportContract) error {
+	if _, err := fmt.Fprintf(out, "gate adapter report contract：gateEventId=%s action=%s lane=%s reportPath=%s mutation=%t\n", contract.GateEventID, contract.Action, contract.Lane, contract.DefaultReportPath, contract.IsMutation); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "gate adapter report contract validation：readOnly=true recordRequired=%t allowedStatuses=%s\n", contract.RecordRequired, strings.Join(contract.AllowedStatuses, ",")); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "gate adapter report contract outputPaths：%s\n", strings.Join(contract.AllowedOutputPaths, ",")); err != nil {
+		return err
+	}
+	if strings.TrimSpace(contract.LiveValidation.CaseRelativeValidateCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report validate command：%s\n", contract.LiveValidation.CaseRelativeValidateCommand); err != nil {
+			return err
+		}
+	} else if strings.TrimSpace(contract.LiveValidation.ValidateCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report validate command：%s\n", contract.LiveValidation.ValidateCommand); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(contract.LiveValidation.CaseRelativeRecordCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report record command：%s\n", contract.LiveValidation.CaseRelativeRecordCommand); err != nil {
+			return err
+		}
+	} else if strings.TrimSpace(contract.LiveValidation.RecordCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report record command：%s\n", contract.LiveValidation.RecordCommand); err != nil {
+			return err
+		}
+	}
+	if err := writeMissionCommanderActionText(out, "adapter report commander action", mission.ExecutorAction{MissionCommanderAction: contract.MissionCommanderAction}); err != nil {
+		return err
+	}
+	return writeMissionCommanderNextActionsText(out, contract.MissionCommanderNextActions)
+}
+
+func writeGateAdapterReportValidationText(out io.Writer, validation gate.AdapterExecutionReportValidation) error {
+	if _, err := fmt.Fprintf(out, "gate adapter report validation：valid=%t gateEventId=%s reportPath=%s mutation=%t applied=%t\n", validation.Valid, validation.GateEventID, validation.ReportPath, validation.IsMutation, validation.Applied); err != nil {
+		return err
+	}
+	if strings.TrimSpace(validation.FailureCode) != "" || strings.TrimSpace(validation.FailureStage) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report validation failure：code=%s stage=%s error=%s\n", validation.FailureCode, validation.FailureStage, validation.Error); err != nil {
+			return err
+		}
+	} else if strings.TrimSpace(validation.Error) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report validation error：%s\n", validation.Error); err != nil {
+			return err
+		}
+	}
+	for _, hint := range validation.RepairHints {
+		if _, err := fmt.Fprintf(out, "gate adapter report repair hint：action=%s recordBlocked=%t rerunValidation=%t detail=%s\n", hint.RepairAction, hint.RecordBlocked, hint.RerunValidation, hint.Detail); err != nil {
+			return err
+		}
+	}
+	if err := writeMissionCommanderActionText(out, "adapter report validation commander action", mission.ExecutorAction{MissionCommanderAction: validation.MissionCommanderAction}); err != nil {
+		return err
+	}
+	return writeMissionCommanderNextActionsText(out, validation.MissionCommanderNextActions)
 }
 
 func writeGateApplyText(out io.Writer, result gate.ApplyResult) error {

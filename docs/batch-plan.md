@@ -16,24 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 411：Adapter report contract / validation next-action closure
+### Batch 412：Adapter report text next-action handoff closure
 
-状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；待提交/推送与远程 release-gate inspection。
 
-目标：Batch 392 已让 `gate -ExecutionReportContract` 与 `gate -ValidateExecutionReport` 输出 adapter sidecar `missionCommanderAction`，但主 Agent / replacement executor 仍需从 commander action、nextSteps、repairHints、liveValidation record/validate args 手工拼接 “read-only validate → valid=true 后 record → handoff” 或 “repair → rerun validation” 顺序。本批把 adapter report contract / validation 的可执行顺序收口为 `missionCommanderNextActions[]`。
+目标：Batch 411 已让 `gate -ExecutionReportContract` 与 `gate -ValidateExecutionReport` JSON 输出 `missionCommanderNextActions[]`，但主 Agent / replacement executor 在非 JSON 工作流中仍需切回 JSON 才能消费 adapter report validate/record/repair 顺序。本批把 adapter report contract / validation 的 Mission Commander next-action handoff 同步投影到 CLI text/table/tsv 兼容文本输出。
 
-边界：只增强 `gate -ExecutionReportContract` / `gate -ValidateExecutionReport` JSON projection、package/CLI tests 与 durable docs；validation 仍 read-only，不写 observations/authority/confirmed；contract 阶段的 record command 只作为 blocked handoff，必须等 valid=true 并替换 `<executor-id>`；runtime 不执行 heavy-tool、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+边界：只增强 `gate -ExecutionReportContract` / `gate -ValidateExecutionReport` CLI 文本投影、CLI tests 与 durable docs；JSON contract 不改变；validation 仍 read-only，不写 observations/authority/confirmed；contract 文本中的 record command 只作为 blocked handoff，必须等 valid=true 并替换 `<executor-id>`；invalid sidecar validation 文本不得推荐 `-Apply` record；runtime 不执行 heavy-tool、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- `AdapterExecutionReportContract` 与 `AdapterExecutionReportValidation` 新增 `missionCommanderNextActions[]`。
-- contract 阶段输出 read-only validation primary action、blocked record follow-up 与 handoff follow-up；record follow-up 明确 `do not record evidence until validation returns valid=true` 与 `replace <executor-id>` boundary。
-- validation valid=true 阶段输出 record observation evidence next action 与 handoff next action；invalid/missing path 阶段输出 repair hint next action 与 rerun read-only validation next action，不输出 record `-Apply`。
-- package 与 CLI coverage 锁定 contract/validation JSON projection、nested workspace case-relative product path、repair hints、no observations on validation、no authority/confirmed、no heavy-tool 与 no premature record boundaries。
+- `gate -ExecutionReportContract -Format text/table/tsv` 输出 adapter report contract identity、read-only validation metadata、authorized outputPaths、case-relative validate/record command、Mission Commander action 与 `mission commander next action` lines。
+- `gate -ValidateExecutionReport -Format text/table/tsv` 输出 validation identity、failure/repair hints、Mission Commander action 与 `mission commander next action` lines。
+- contract 文本将 record follow-up 标记 blocked，并同步 `do not record evidence until validation returns valid=true` 与 `replace <executor-id>` boundary；valid=true validation 文本只给 record + handoff；invalid sidecar validation 文本只给 repair hint + rerun read-only validation，不给 record `-Apply`。
+- CLI coverage 锁定 text output、nested authorized output workspace handoff、invalid boundary repair、read-only no observations/no authority/confirmed、no-heavy-tool 与 no premature record boundaries。
 
-验证结果：已通过 focused `go test ./internal/rekit/gate ./internal/rekit/cli -run "TestAdapterReportContractDescribesAuthorizedGateBoundaries|TestValidateAdapterExecutionReportReadOnlyPreflight|TestValidateAdapterExecutionReportMissingPathExposesMissionCommanderRepair|TestValidateAdapterExecutionReportReturnsInvalidEnvelopeReadOnly|TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、affected vet `go vet ./internal/rekit/gate ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `03d4884 Add adapter report next actions`；远程 release-gate run `29703217267` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunGateAdapterReportTextOutputsNextActions|TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、affected vet `go vet ./internal/rekit/gate ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。
 
-上一批摘要：Batch 410 已完成 duplicate execution evidence idempotent `missionCommanderNextActions[]`，详见 `docs/batch-history.md`。
+上一批摘要：Batch 411 已完成 adapter report contract / validation JSON `missionCommanderNextActions[]`，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
