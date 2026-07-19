@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 396：Authorized execution evidence handoff consumption follow-through
 
-状态：已完成本地实现与验证，提交/推送和远程 release-gate inspection 待记录。
+状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
 
 目标：把 `gate -Apply -GateEventId ...` 已记录的 bounded observation evidence 接续到 project/lane handoff、lane `RESUME.md` 与 typed checkpoint，让替换 executor 不必回扫 observations/request ledger 就能看到哪些 authorized execution evidence 需要 review output/evidence refs、哪些 escalation/boundary-hit 需要 main review。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - review queue 明确 observation evidence 已记录、不得 replay heavy tool、review refs before authority/confirmed、no authority/confirmed；boundary-hit/escalated/escalation evidence 额外标记 main review before autonomous continuation。
 - CLI/workstream coverage 锁定 succeeded execution evidence 与 adapter escalated evidence 在 project/lane handoff JSON/text、RESUME.md 和 checkpoint 中的一致投影。
 
-验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run 'TestLaneCheckpointJSONContract|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunHandoffApplyWritesProjectAndLane' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。
+验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run 'TestLaneCheckpointJSONContract|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunHandoffApplyWritesProjectAndLane' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `3f31ee7 Add execution evidence review handoffs`；远程 release-gate run `29691207309` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 395 已完成 Mission Commander lane handoff consumption closure；project/lane handoff 与 lane `RESUME.md` 已投影 commander primary/follow-up/boundary，详见 `docs/batch-history.md`。
 
