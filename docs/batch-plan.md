@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 405：Handoff Mission Commander next-action projection follow-through
 
-状态：已完成本地实现、durable docs 与 focused validation；full local validation、提交/推送与远程 release-gate inspection 正在执行。
+状态：已完成本地实现、durable docs、full local validation、提交/推送与远程 release-gate inspection。
 
 目标：Batch 404 已让 overview 暴露 `missionCommanderNextActions[]`，但 project/lane handoff JSON/Markdown 仍需要主 Agent 或 replacement executor 从 `executionEvidenceReview[]`、`laneExecutorActions[]`、`executorAction` 与 `nextSteps[]` 手工拼接执行顺序。本批把 next-action item shape 与 builder 提升到 `mission` package，并让 overview 与 handoff 复用同一 Mission Commander next-action 投影。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - project handoff Markdown 逐 lane 输出 `commander next action`；lane handoff Markdown 新增 `## Mission Commander next actions` section。
 - CLI coverage 锁定 preview/apply handoff JSON/Markdown、blocked reconcile action、evidence review priority、autonomous `continue` suppression 与 shared builder 行为。
 
-验证结果：已通过 focused `go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -run "TestRunHandoff|TestRunOverview|TestLaneExecutorAction|TestMission" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。提交/推送与远程 release-gate inspection 正在执行。
+验证结果：已通过 focused `go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -run "TestRunHandoff|TestRunOverview|TestLaneExecutorAction|TestMission" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `a0ff0d5 Add handoff commander next actions`；远程 release-gate run `29698408380` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 404 已完成 overview JSON/text `missionCommanderNextActions[]`，把 evidence review commander actions 与 lane commander primary actions 收口为主 Agent 可直接消费的 next-action list，详见 `docs/batch-history.md`。
 
