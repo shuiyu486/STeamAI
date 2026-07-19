@@ -5285,6 +5285,97 @@ func TestRunGateTextOutputsExecutorActions(t *testing.T) {
 	}
 }
 
+func TestRunGateDuplicateExecutionEvidenceProjectsIdempotentNextActions(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeAuthorizedGateVisibilityFixture(t, caseRoot)
+	var out bytes.Buffer
+	if err := Run([]string{
+		"-Command", "gate",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Apply",
+		"-Action", "debug",
+		"-Lane", "main",
+		"-Actor", "runtime-test",
+		"-Subject", "authorized debug",
+		"-TargetRef", "target-alpha",
+		"-Scope", "handler only",
+		"-RuntimeSeconds", "30",
+		"-DiskMB", "64",
+		"-Requests", "1",
+		"-OutputPaths", "workspace/main/debug/session-1",
+		"-StopConditions", "timeout",
+		"-Format", "json",
+	}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var applied struct {
+		EventID string `json:"eventId"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("authorized gate apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	recordArgs := []string{
+		"-Command", "gate",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Apply",
+		"-GateEventId", applied.EventID,
+		"-ExecutionStatus", "succeeded",
+		"-Actor", "executor-1",
+		"-ActualRuntimeSeconds", "25",
+		"-OutputRefs", "workspace/main/debug/session-1/duplicate-result.json",
+		"-Format", "json",
+	}
+	out.Reset()
+	if err := Run(recordArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run(recordArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var duplicate struct {
+		Applied                     bool                             `json:"applied"`
+		Reason                      string                           `json:"reason"`
+		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		ExecutionEvidenceReview     []executionEvidenceReviewItem    `json:"executionEvidenceReview"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &duplicate); err != nil {
+		t.Fatalf("duplicate execution evidence stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if duplicate.Applied || duplicate.Reason != "duplicate eventId" || duplicate.MissionCommanderAction.State != "evidence-already-recorded" || containsSubstring(duplicate.MissionCommanderAction.FollowUpCommands, "/rekit continue") || !containsSubstring(duplicate.MissionCommanderAction.Boundary, "did not append observation evidence") {
+		t.Fatalf("duplicate execution evidence omitted idempotent commander action: %+v", duplicate)
+	}
+	if len(duplicate.ExecutionEvidenceReview) != 1 || duplicate.ExecutionEvidenceReview[0].MissionCommanderAction.State != "evidence-already-recorded" || len(duplicate.MissionCommanderNextActions) != 2 || duplicate.MissionCommanderNextActions[0].State != "evidence-already-recorded" || duplicate.MissionCommanderNextActions[0].Command != "/rekit handoff main" || duplicate.MissionCommanderNextActions[1].Command != "/rekit overview" || cliNextActionContainsCommand(duplicate.MissionCommanderNextActions, "/rekit continue") || cliNextActionContainsSource(duplicate.MissionCommanderNextActions, "missionCommanderActions") || !cliNextActionBoundaryContains(duplicate.MissionCommanderNextActions, "did not append observation evidence") {
+		t.Fatalf("duplicate execution evidence next actions should be review-only and idempotent: review=%+v next=%+v", duplicate.ExecutionEvidenceReview, duplicate.MissionCommanderNextActions)
+	}
+
+	out.Reset()
+	textArgs := append([]string{}, recordArgs...)
+	textArgs[len(textArgs)-1] = "text"
+	if err := Run(textArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"gate execution evidence：applied=false status=succeeded",
+		"evidence commander action：state=evidence-already-recorded primary=`/rekit handoff main`",
+		"evidence commander action boundary：duplicate record did not append observation evidence",
+		"mission commander next action：state=evidence-already-recorded source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`",
+		"mission commander next action：state=evidence-already-recorded source=executionEvidenceReview.followUp blocked=false requiresReview=true command=`/rekit overview`",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("duplicate execution evidence text missing %q:\n%s", expected, out.String())
+		}
+	}
+	for _, unexpected := range []string{"/rekit continue main -WhatIf", "source=missionCommanderActions"} {
+		if strings.Contains(out.String(), unexpected) {
+			t.Fatalf("duplicate execution evidence text should not contain %q:\n%s", unexpected, out.String())
+		}
+	}
+}
+
 func TestRunGateExecutionEvidenceTextOutputsNextActions(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeAuthorizedGateVisibilityFixture(t, caseRoot)
@@ -7114,6 +7205,33 @@ func handoffLaneActionFor(t *testing.T, items []handoffLaneExecutorAction, lane 
 	}
 	t.Fatalf("handoff lane executor action for %s not found in %+v", lane, items)
 	return handoffLaneExecutorAction{}
+}
+
+func cliNextActionContainsCommand(items []missionCommanderNextActionItem, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item.Command, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func cliNextActionContainsSource(items []missionCommanderNextActionItem, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item.Source, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func cliNextActionBoundaryContains(items []missionCommanderNextActionItem, want string) bool {
+	for _, item := range items {
+		if containsSubstring(item.Boundary, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsSubstring(items []string, want string) bool {

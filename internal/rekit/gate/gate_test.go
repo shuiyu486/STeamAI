@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 func TestPlanDryRunDoesNotWriteRequestLedger(t *testing.T) {
@@ -435,8 +437,14 @@ func TestRecordExecutionDuplicateDoesNotAppend(t *testing.T) {
 	if !first.Applied || second.Applied || second.EventID != first.EventID || second.Reason != "duplicate eventId" {
 		t.Fatalf("unexpected duplicate execution results: first=%+v second=%+v", first, second)
 	}
-	if second.MissionCommanderAction.State != "evidence-already-recorded" || !gateContainsSubstring(second.MissionCommanderAction.Boundary, "did not append observation evidence") || gateContainsSubstring(second.MissionCommanderAction.FollowUpCommands, "-Apply") {
+	if second.MissionCommanderAction.State != "evidence-already-recorded" || !gateContainsSubstring(second.MissionCommanderAction.Boundary, "did not append observation evidence") || gateContainsSubstring(second.MissionCommanderAction.FollowUpCommands, "-Apply") || gateContainsSubstring(second.MissionCommanderAction.FollowUpCommands, "/rekit continue") {
 		t.Fatalf("duplicate execution evidence omitted idempotent Mission Commander handoff: %+v", second.MissionCommanderAction)
+	}
+	if len(second.ExecutionEvidenceReview) != 1 || second.ExecutionEvidenceReview[0].MissionCommanderAction.State != "evidence-already-recorded" || !gateContainsSubstring(second.ExecutionEvidenceReview[0].MissionCommanderAction.Boundary, "did not append observation evidence") {
+		t.Fatalf("duplicate execution evidence review omitted idempotent state: %+v", second.ExecutionEvidenceReview)
+	}
+	if len(second.MissionCommanderNextActions) != 2 || second.MissionCommanderNextActions[0].State != "evidence-already-recorded" || second.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || second.MissionCommanderNextActions[0].Command != "/rekit handoff main" || second.MissionCommanderNextActions[1].Command != "/rekit overview" || gateNextActionContainsCommand(second.MissionCommanderNextActions, "/rekit continue") || gateNextActionContainsSource(second.MissionCommanderNextActions, "missionCommanderActions") || !gateNextActionBoundaryContains(second.MissionCommanderNextActions, "did not append observation evidence") {
+		t.Fatalf("duplicate execution evidence next actions should be review-only and idempotent: %+v", second.MissionCommanderNextActions)
 	}
 	lines := readGateLines(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if len(lines) != 1 {
@@ -1476,6 +1484,33 @@ func assertGateNotExists(t *testing.T, path string) {
 	if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
 		t.Fatalf("path exists or stat failed unexpectedly for %s: %v", path, err)
 	}
+}
+
+func gateNextActionContainsCommand(items []mission.MissionCommanderNextActionItem, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item.Command, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func gateNextActionContainsSource(items []mission.MissionCommanderNextActionItem, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item.Source, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func gateNextActionBoundaryContains(items []mission.MissionCommanderNextActionItem, want string) bool {
+	for _, item := range items {
+		if gateContainsSubstring(item.Boundary, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func gateContainsSubstring(items []string, want string) bool {

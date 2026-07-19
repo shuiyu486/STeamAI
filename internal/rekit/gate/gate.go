@@ -674,8 +674,8 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 		result.MissionBrief = gateMissionBrief(inst.CaseRoot)
 		result.ExecutorAction = gateExecutorAction(inst.CaseRoot, execution.Lane, result.MissionBrief)
 		result.MissionCommanderAction = executionCommanderAction(execution, result.Applied, true)
-		result.ExecutionEvidenceReview = gateExecutionEvidenceReviewFromObservation(execution)
-		result.MissionCommanderNextActions = gateMissionCommanderNextActions(execution.Lane, result.ExecutorAction, result.ExecutionEvidenceReview)
+		result.ExecutionEvidenceReview = gateDuplicateExecutionEvidenceReviewFromObservation(execution, result.MissionCommanderAction)
+		result.MissionCommanderNextActions = gateMissionCommanderNextActions(execution.Lane, mission.ExecutorAction{}, result.ExecutionEvidenceReview)
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
@@ -1609,6 +1609,14 @@ func executionNeedsMainReview(event ExecutionEvidencePreview) bool {
 }
 
 func gateExecutionEvidenceReviewFromObservation(event ExecutionEvidencePreview) []mission.ExecutionEvidenceReviewItem {
+	return gateExecutionEvidenceReviewWithAction(event, mission.MissionCommanderAction{})
+}
+
+func gateDuplicateExecutionEvidenceReviewFromObservation(event ExecutionEvidencePreview, commander mission.MissionCommanderAction) []mission.ExecutionEvidenceReviewItem {
+	return gateExecutionEvidenceReviewWithAction(event, commander)
+}
+
+func gateExecutionEvidenceReviewWithAction(event ExecutionEvidencePreview, commander mission.MissionCommanderAction) []mission.ExecutionEvidenceReviewItem {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return nil
@@ -1622,6 +1630,10 @@ func gateExecutionEvidenceReviewFromObservation(event ExecutionEvidencePreview) 
 	})
 	if !ok {
 		return nil
+	}
+	if commander.PrimaryCommand != "" {
+		item.Boundary = append([]string{}, commander.Boundary...)
+		item.MissionCommanderAction = commander
 	}
 	return []mission.ExecutionEvidenceReviewItem{item}
 }
