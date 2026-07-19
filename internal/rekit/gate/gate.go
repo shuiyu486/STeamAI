@@ -509,21 +509,22 @@ func adapterReportRepairNextSteps(hints []AdapterReportRepairHint) []string {
 }
 
 type ApplyResult struct {
-	SchemaVersion     int                       `json:"schemaVersion"`
-	Command           string                    `json:"command"`
-	CaseRoot          string                    `json:"caseRoot"`
-	RepoRoot          string                    `json:"repoRoot"`
-	Pack              string                    `json:"pack"`
-	IsMutation        bool                      `json:"isMutation"`
-	Applied           bool                      `json:"applied"`
-	EventID           string                    `json:"eventId"`
-	Path              string                    `json:"path"`
-	Reason            string                    `json:"reason,omitempty"`
-	Event             *EventPreview             `json:"event,omitempty"`
-	ExecutionEvidence *ExecutionEvidencePreview `json:"executionEvidence,omitempty"`
-	MissionBrief      mission.Brief             `json:"missionBrief"`
-	ExecutorAction    mission.ExecutorAction    `json:"executorAction"`
-	NextSteps         []string                  `json:"nextSteps"`
+	SchemaVersion          int                            `json:"schemaVersion"`
+	Command                string                         `json:"command"`
+	CaseRoot               string                         `json:"caseRoot"`
+	RepoRoot               string                         `json:"repoRoot"`
+	Pack                   string                         `json:"pack"`
+	IsMutation             bool                           `json:"isMutation"`
+	Applied                bool                           `json:"applied"`
+	EventID                string                         `json:"eventId"`
+	Path                   string                         `json:"path"`
+	Reason                 string                         `json:"reason,omitempty"`
+	Event                  *EventPreview                  `json:"event,omitempty"`
+	ExecutionEvidence      *ExecutionEvidencePreview      `json:"executionEvidence,omitempty"`
+	MissionBrief           mission.Brief                  `json:"missionBrief"`
+	ExecutorAction         mission.ExecutorAction         `json:"executorAction"`
+	MissionCommanderAction mission.MissionCommanderAction `json:"missionCommanderAction"`
+	NextSteps              []string                       `json:"nextSteps"`
 }
 
 type EventPreview struct {
@@ -614,6 +615,7 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 	if exists {
 		result.MissionBrief = gateMissionBrief(inst.CaseRoot)
 		result.ExecutorAction = gateExecutorAction(inst.CaseRoot, preview.Lane, result.MissionBrief)
+		result.MissionCommanderAction = result.ExecutorAction.MissionCommanderAction
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
@@ -623,6 +625,7 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 	result.Applied = true
 	result.MissionBrief = gateMissionBrief(inst.CaseRoot)
 	result.ExecutorAction = gateExecutorAction(inst.CaseRoot, preview.Lane, result.MissionBrief)
+	result.MissionCommanderAction = result.ExecutorAction.MissionCommanderAction
 	return result, nil
 }
 
@@ -668,6 +671,7 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 	if known[execution.EventID] {
 		result.MissionBrief = gateMissionBrief(inst.CaseRoot)
 		result.ExecutorAction = gateExecutorAction(inst.CaseRoot, execution.Lane, result.MissionBrief)
+		result.MissionCommanderAction = executionCommanderAction(execution, result.Applied, true)
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
@@ -677,6 +681,7 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 	result.Applied = true
 	result.MissionBrief = gateMissionBrief(inst.CaseRoot)
 	result.ExecutorAction = gateExecutorAction(inst.CaseRoot, execution.Lane, result.MissionBrief)
+	result.MissionCommanderAction = executionCommanderAction(execution, result.Applied, false)
 	return result, nil
 }
 
@@ -1535,16 +1540,66 @@ func adapterEventIDSeed(report *AdapterReport) string {
 }
 
 func executionNextSteps(event ExecutionEvidencePreview) []string {
-	if event.Status == "boundary-hit" || event.Status == "escalated" || event.Execution.Escalation != "" || len(event.Execution.BoundaryHits) > 0 {
+	label := mission.BoardLaneLabel(mission.BoardLane{ID: event.Lane})
+	if executionNeedsMainReview(event) {
 		return []string{
 			"Execution evidence recorded a boundary hit or escalation; stop autonomous work on this action and notify the main Agent.",
+			"Mission Commander handoff: /rekit handoff " + label,
 			"Review output refs and evidence refs before recording any authority/confirmed outcome.",
 		}
 	}
 	return []string{
 		"Execution evidence recorded the authorized action outcome; /rekit did not execute the heavy tool.",
+		"Mission Commander handoff: /rekit handoff " + label,
 		"Review output refs and evidence refs before recording any authority/confirmed outcome.",
 	}
+}
+
+func executionCommanderAction(event ExecutionEvidencePreview, applied, duplicate bool) mission.MissionCommanderAction {
+	label := mission.BoardLaneLabel(mission.BoardLane{ID: event.Lane})
+	if strings.TrimSpace(label) == "" {
+		label = "main"
+	}
+	state := "ready-for-evidence-review"
+	prompt := fmt.Sprintf("authorized gate `%s` 的 observation evidence 已记录；先 review output/evidence refs，再考虑任何 authority/confirmed outcome。", event.Execution.GateEventID)
+	if duplicate {
+		state = "evidence-already-recorded"
+		prompt = fmt.Sprintf("authorized gate `%s` 的 observation evidence 已存在（duplicate eventId）；不要重复记录，直接 review output/evidence refs。", event.Execution.GateEventID)
+	}
+	if executionNeedsMainReview(event) {
+		state = "needs-main-escalation"
+		prompt = fmt.Sprintf("authorized gate `%s` 的 observation evidence 记录了 boundary/escalation；停止该 action 的自主推进并通知 main Agent。", event.Execution.GateEventID)
+		if duplicate {
+			prompt = fmt.Sprintf("authorized gate `%s` 的 boundary/escalation observation evidence 已存在（duplicate eventId）；不要重复记录，继续 main review。", event.Execution.GateEventID)
+		}
+	}
+	boundary := []string{
+		"record command writes bounded observation evidence only",
+		"/rekit did not execute the heavy tool",
+		"review outputRefs/evidenceRefs before any authority/confirmed outcome",
+		"no authority/confirmed writes",
+	}
+	if duplicate {
+		boundary[0] = "duplicate record did not append observation evidence"
+	}
+	if executionNeedsMainReview(event) {
+		boundary = append(boundary, "stop autonomous work on this action until main review")
+	}
+	followUp := []string{"/rekit overview"}
+	if applied && !executionNeedsMainReview(event) {
+		followUp = append(followUp, "/rekit continue "+label+" -WhatIf")
+	}
+	return mission.MissionCommanderAction{
+		State:            state,
+		Prompt:           prompt,
+		PrimaryCommand:   "/rekit handoff " + label,
+		FollowUpCommands: followUp,
+		Boundary:         boundary,
+	}
+}
+
+func executionNeedsMainReview(event ExecutionEvidencePreview) bool {
+	return event.Status == "boundary-hit" || event.Status == "escalated" || event.Execution.Escalation != "" || len(event.Execution.BoundaryHits) > 0
 }
 
 func gateEventMap(event EventPreview) map[string]any {

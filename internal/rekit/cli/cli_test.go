@@ -5382,6 +5382,21 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if strings.Join(evidence.ExecutionEvidence.Related, ",") != authorizedEventID || evidence.ExecutionEvidence.Execution.GateEventID != authorizedEventID || evidence.ExecutionEvidence.Execution.Authorization != "preauthorized" || evidence.ExecutionEvidence.Execution.ActualBudget.RuntimeSeconds != 25 || strings.Join(evidence.ExecutionEvidence.Execution.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" {
 		t.Fatalf("execution evidence did not preserve gate provenance: %+v", evidence.ExecutionEvidence)
 	}
+	var evidenceCommander struct {
+		MissionCommanderAction struct {
+			State            string   `json:"state"`
+			PrimaryCommand   string   `json:"primaryCommand"`
+			FollowUpCommands []string `json:"followUpCommands"`
+			Boundary         []string `json:"boundary"`
+		} `json:"missionCommanderAction"`
+		NextSteps []string `json:"nextSteps"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &evidenceCommander); err != nil {
+		t.Fatalf("execution evidence commander envelope is not JSON: %v\n%s", err, out.String())
+	}
+	if evidenceCommander.MissionCommanderAction.State != "ready-for-evidence-review" || evidenceCommander.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(evidenceCommander.MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || !containsSubstring(evidenceCommander.MissionCommanderAction.Boundary, "bounded observation evidence") || !containsSubstring(evidenceCommander.MissionCommanderAction.Boundary, "did not execute the heavy tool") || !containsSubstring(evidenceCommander.NextSteps, "/rekit handoff main") {
+		t.Fatalf("execution evidence omitted Mission Commander review handoff: action=%+v next=%+v", evidenceCommander.MissionCommanderAction, evidenceCommander.NextSteps)
+	}
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-escalation.json", `{
   "schemaVersion": 1,
   "kind": "adapter-execution-report",
@@ -5507,6 +5522,21 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if !adapterEvidence.Applied || adapterEvidence.ExecutionEvidence.Status != "escalated" || adapterEvidence.ExecutionEvidence.Execution.Escalation != "adapter escalated from CLI E2E" || adapterEvidence.ExecutionEvidence.Execution.Adapter.AdapterID != "cli-adapter" || adapterEvidence.ExecutionEvidence.Execution.Adapter.Escalation != "adapter escalated from CLI E2E" {
 		t.Fatalf("adapter execution report evidence drifted: %+v", adapterEvidence)
+	}
+	var adapterEvidenceCommander struct {
+		MissionCommanderAction struct {
+			State            string   `json:"state"`
+			PrimaryCommand   string   `json:"primaryCommand"`
+			FollowUpCommands []string `json:"followUpCommands"`
+			Boundary         []string `json:"boundary"`
+		} `json:"missionCommanderAction"`
+		NextSteps []string `json:"nextSteps"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &adapterEvidenceCommander); err != nil {
+		t.Fatalf("adapter execution evidence commander envelope is not JSON: %v\n%s", err, out.String())
+	}
+	if adapterEvidenceCommander.MissionCommanderAction.State != "needs-main-escalation" || adapterEvidenceCommander.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || containsSubstring(adapterEvidenceCommander.MissionCommanderAction.FollowUpCommands, "/rekit continue") || !containsSubstring(adapterEvidenceCommander.MissionCommanderAction.Boundary, "stop autonomous work") || !containsSubstring(adapterEvidenceCommander.MissionCommanderAction.Boundary, "no authority/confirmed") || !containsSubstring(adapterEvidenceCommander.NextSteps, "boundary hit or escalation") {
+		t.Fatalf("adapter execution evidence omitted Mission Commander escalation handoff: action=%+v next=%+v", adapterEvidenceCommander.MissionCommanderAction, adapterEvidenceCommander.NextSteps)
 	}
 	observations, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if err != nil {

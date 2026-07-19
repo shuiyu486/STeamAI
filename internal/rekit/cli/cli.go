@@ -1823,6 +1823,9 @@ func writeGateApplyText(out io.Writer, result gate.ApplyResult) error {
 		if _, err := fmt.Fprintf(out, "gate decision：authorization=%s action=%s\n", result.ExecutionEvidence.Execution.Authorization, result.ExecutionEvidence.Gate.Action); err != nil {
 			return err
 		}
+		if err := writeMissionCommanderActionText(out, "evidence commander action", mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}); err != nil {
+			return err
+		}
 		return writeMissionExecutorActionText(out, "executor action", result.ExecutorAction)
 	}
 	if result.Event == nil {

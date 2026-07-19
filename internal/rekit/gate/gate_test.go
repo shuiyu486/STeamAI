@@ -401,6 +401,13 @@ func TestRecordExecutionWritesObservationForAuthorizedGate(t *testing.T) {
 	if strings.Join(result.ExecutionEvidence.Related, ",") != authorized.EventID || strings.Join(result.ExecutionEvidence.Execution.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" || strings.Join(result.ExecutionEvidence.EvidenceRefs, ",") != "workspace/main/debug/session-1/result.json" {
 		t.Fatalf("execution evidence refs drifted: %+v", result.ExecutionEvidence)
 	}
+	commander := result.MissionCommanderAction
+	if commander.State != "ready-for-evidence-review" || commander.PrimaryCommand != "/rekit handoff main" || !strings.Contains(commander.Prompt, authorized.EventID) || !gateContainsSubstring(commander.FollowUpCommands, "/rekit continue main -WhatIf") || !gateContainsSubstring(commander.Boundary, "bounded observation evidence") || !gateContainsSubstring(commander.Boundary, "did not execute the heavy tool") || !gateContainsSubstring(commander.Boundary, "no authority/confirmed") {
+		t.Fatalf("execution evidence omitted Mission Commander review handoff: %+v", commander)
+	}
+	if !gateContainsSubstring(result.NextSteps, "/rekit handoff main") || !gateContainsSubstring(result.NextSteps, "Review output refs") {
+		t.Fatalf("execution evidence next steps omitted handoff/review guidance: %+v", result.NextSteps)
+	}
 	observed := readSingleExecutionEvidence(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if observed.EventID != result.EventID || observed.Execution.GateEventID != authorized.EventID || observed.Gate.Authorization.Decision != "preauthorized" {
 		t.Fatalf("observation ledger mismatch: %+v", observed)
@@ -427,6 +434,9 @@ func TestRecordExecutionDuplicateDoesNotAppend(t *testing.T) {
 	}
 	if !first.Applied || second.Applied || second.EventID != first.EventID || second.Reason != "duplicate eventId" {
 		t.Fatalf("unexpected duplicate execution results: first=%+v second=%+v", first, second)
+	}
+	if second.MissionCommanderAction.State != "evidence-already-recorded" || !gateContainsSubstring(second.MissionCommanderAction.Boundary, "did not append observation evidence") || gateContainsSubstring(second.MissionCommanderAction.FollowUpCommands, "-Apply") {
+		t.Fatalf("duplicate execution evidence omitted idempotent Mission Commander handoff: %+v", second.MissionCommanderAction)
 	}
 	lines := readGateLines(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if len(lines) != 1 {
@@ -1104,8 +1114,12 @@ func TestRecordExecutionAcceptsAdapterReportEscalation(t *testing.T) {
 	if result.ExecutionEvidence.Execution.Adapter == nil || result.ExecutionEvidence.Execution.Adapter.Escalation != "new risk needs Mission Commander review" {
 		t.Fatalf("adapter escalation provenance missing: %+v", result.ExecutionEvidence.Execution.Adapter)
 	}
-	if strings.Join(result.NextSteps, "\n") == "" || !strings.Contains(strings.Join(result.NextSteps, "\n"), "boundary hit or escalation") {
+	if strings.Join(result.NextSteps, "\n") == "" || !strings.Contains(strings.Join(result.NextSteps, "\n"), "boundary hit or escalation") || !gateContainsSubstring(result.NextSteps, "/rekit handoff main") {
 		t.Fatalf("escalation next steps missing: %+v", result.NextSteps)
+	}
+	commander := result.MissionCommanderAction
+	if commander.State != "needs-main-escalation" || commander.PrimaryCommand != "/rekit handoff main" || !strings.Contains(commander.Prompt, "boundary/escalation") || gateContainsSubstring(commander.FollowUpCommands, "/rekit continue") || !gateContainsSubstring(commander.Boundary, "stop autonomous work") || !gateContainsSubstring(commander.Boundary, "no authority/confirmed") {
+		t.Fatalf("escalation evidence omitted Mission Commander escalation handoff: %+v", commander)
 	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
