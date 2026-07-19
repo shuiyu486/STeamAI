@@ -58,7 +58,7 @@ review 包写入 case-local 目录：
 - review 同时扫描 `toolingCandidateSources`，生成脱敏 preview 供 Claude 判断是否值得吸收。
 - 命中 `promoteDenyPatterns` 的 managed docs 只在 packet 中记录 metadata 和 deny pattern；不要输出 raw diff，避免把 case-specific 信息带回模板审查材料。
 - 用户确认后，才生成 `packs/<pack>/promote-candidates/` / `packs/<pack>/tooling/candidates/`，或显式 `-Apply` 写回正式 pack managed docs；Batch 108 起候选生成的公共 façade 默认委托 Go，Batch 112 起 actual apply 写回 pack source 也默认委托 Go。
-- `promote -CreateCandidates` JSON 的 `reviewPlan` 是 Mission Commander 的候选审查 handoff：按 item 给出 `reviewDecision`、candidate path、merge / reject / cleanup guidance、cleanup targets、runtime boundary 与 completion criteria；`-WhatIf` 只预览这些路径，不创建候选文件。
+- `promote -CreateCandidates` JSON 的 `reviewPlan` 是 Mission Commander 的候选审查 handoff：按 item 给出 `reviewDecision`、candidate path、merge / reject / cleanup guidance、cleanup targets、main Agent execution plan、runtime boundary 与 completion criteria；`-WhatIf` 只预览这些路径，不创建候选文件。`mainAgentExecutionPlan[]` 只给出 review / materialize / cleanup / doctor / reconsume 的 bounded commands、expected、evidence 与 boundary，runtime 不执行 merge、cleanup、`init` 或 `doctor`。
 - 直接整文件写回 pack managed docs 不作为默认推荐路径；优先让 Claude 提炼经验片段。
 - tooling 候选不直接覆盖正式 recipe；需要人工审查后合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
 - 已合入的 tooling 资产由 pack 本身重新消费：fresh case / attached case 通过 `.rekit/instance.yml` 的 `templateRoot` + `templatePack` 找到 pack tooling 文档；`sync` 仍只处理 managed/template/managed-block/support files，不把 tooling recipes 复制进 case-local managed docs。

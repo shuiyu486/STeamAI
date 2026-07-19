@@ -4720,6 +4720,9 @@ func TestRunPromoteCreateCandidatesWhatIf(t *testing.T) {
 	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) == 0 || !containsSubstring(result.ReviewPlan.RuntimeBoundary, "when not WhatIf") {
 		t.Fatalf("unexpected promote candidates what-if review plan: %+v", result.ReviewPlan)
 	}
+	if !candidateJSONExecutionPlanContains(result.ReviewPlan.MainAgentExecutionPlan, "materialize-candidates", "promote -Target <attached-case>") || !candidateJSONExecutionPlanContains(result.ReviewPlan.MainAgentExecutionPlan, "review-decisions", "authority/confirmed") || !candidateJSONExecutionPlanContains(result.ReviewPlan.MainAgentExecutionPlan, "cleanup-rejected-or-merged-candidates", "indexPath") {
+		t.Fatalf("promote what-if review plan missing main agent execution handoff: %+v", result.ReviewPlan.MainAgentExecutionPlan)
+	}
 	commander := result.ReviewPlan.MissionCommanderAction
 	if commander.State != "preview-pack-memory-candidates" || commander.PrimaryCommand != "review reviewPlan.reviewItems" || !strings.Contains(commander.Prompt, "WhatIf preview") || !containsSubstring(commander.FollowUpCommands, "promote -CreateCandidates") || !containsSubstring(commander.Boundary, "WhatIf did not write") || !containsSubstring(commander.Boundary, "no authority/confirmed") || !containsSubstring(commander.Boundary, "no heavy-tool") {
 		t.Fatalf("promote what-if omitted Mission Commander preview handoff: %+v", commander)
@@ -4784,6 +4787,9 @@ func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
 	}
 	if len(result.ReviewPlan.CleanupTargets) == 0 || !strings.Contains(result.ReviewPlan.CleanupTargets[0].CleanupWhen, "update or remove indexPath") {
 		t.Fatalf("candidate cleanup guidance missing index cleanup: %+v", result.ReviewPlan.CleanupTargets)
+	}
+	if !candidateJSONExecutionPlanContains(result.ReviewPlan.MainAgentExecutionPlan, "review-decisions", "references/template/README.md") || !candidateJSONExecutionPlanContains(result.ReviewPlan.MainAgentExecutionPlan, "cleanup-rejected-or-merged-candidates", "indexPath") || !candidateJSONExecutionPlanContains(result.ReviewPlan.MainAgentExecutionPlan, "pack-doctor-after-accepted-merge", "doctor -Pack _template") || !candidateJSONExecutionPlanContains(result.ReviewPlan.MainAgentExecutionPlan, "fresh-case-reconsume-after-tooling-merge", "fresh-case") || !candidateJSONExecutionPlanContains(result.ReviewPlan.MainAgentExecutionPlan, "attached-case-reconsume-after-tooling-merge", "attached-case") {
+		t.Fatalf("promote create-candidates missing main agent execution plan: %+v", result.ReviewPlan.MainAgentExecutionPlan)
 	}
 	if workflowWrite.TargetPath != filepath.Join(repoRoot(t), "packs", "_template", filepath.FromSlash("references/template/workflow-template.md")) {
 		t.Fatalf("blocked write target = %q, want pack source", workflowWrite.TargetPath)
@@ -6864,6 +6870,16 @@ type candidateReviewPlan struct {
 		VerificationCommands []string `json:"verificationCommands"`
 		Boundary             []string `json:"boundary"`
 	} `json:"decisionChecklist"`
+	MainAgentExecutionPlan []struct {
+		Name      string   `json:"name"`
+		When      string   `json:"when"`
+		AppliesTo []string `json:"appliesTo"`
+		Actions   []string `json:"actions"`
+		Commands  []string `json:"commands"`
+		Expected  string   `json:"expected"`
+		Evidence  []string `json:"evidence"`
+		Boundary  []string `json:"boundary"`
+	} `json:"mainAgentExecutionPlan"`
 	ReviewItems        []candidateReviewItem `json:"reviewItems"`
 	RuntimeBoundary    []string              `json:"runtimeBoundary"`
 	CompletionCriteria []string              `json:"completionCriteria"`
@@ -6992,6 +7008,33 @@ func candidateJSONReconsumeChecklistContains(items []struct {
 }, name string) bool {
 	for _, item := range items {
 		if item.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func candidateJSONExecutionPlanContains(items []struct {
+	Name      string   `json:"name"`
+	When      string   `json:"when"`
+	AppliesTo []string `json:"appliesTo"`
+	Actions   []string `json:"actions"`
+	Commands  []string `json:"commands"`
+	Expected  string   `json:"expected"`
+	Evidence  []string `json:"evidence"`
+	Boundary  []string `json:"boundary"`
+}, name, want string) bool {
+	for _, item := range items {
+		if item.Name != name {
+			continue
+		}
+		fields := []string{item.When, item.Expected}
+		fields = append(fields, item.AppliesTo...)
+		fields = append(fields, item.Actions...)
+		fields = append(fields, item.Commands...)
+		fields = append(fields, item.Evidence...)
+		fields = append(fields, item.Boundary...)
+		if containsSubstring(fields, want) {
 			return true
 		}
 	}

@@ -16,24 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 402：Execution evidence review handoff text suppression closure
+### Batch 403：Pack-memory main Agent execution plan closure
 
-状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
+状态：已完成本地实现与 full local validation；提交/推送与远程 release-gate inspection 待执行。
 
-目标：Batch 401 已让 overview 与 project/lane handoff JSON `nextSteps[]` 抑制 escalated evidence 场景下的 autonomous continue；本批补齐人类/替换 executor 最常读的 Markdown 层，避免 project handoff 逐 lane 文本和 lane handoff 新会话开场仍把 ready lane continue 显示为当前动作。
+目标：Batch 398 已提供 per-item `decisionChecklist[]`、cleanup targets 与 reconsume checklist，但主 Agent 仍需把 WhatIf materialize、逐项 review、cleanup、pack doctor、fresh/attached reconsume 自行排序。本批在 `promote -CreateCandidates` JSON 中新增可直接消费的 `mainAgentExecutionPlan[]`，把 pack-memory candidate 生成后的执行顺序收口为 bounded checklist。
 
-边界：只增强已记录 observation evidence 的只读 handoff 文本消费顺序；不 replay heavy-tool、不运行 adapter、不执行 continue、不新增 observation/request、不写 authority/confirmed；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+边界：只增强 `promote -CreateCandidates` JSON review plan 与 tests/docs；不执行 candidate merge、不执行 `promote -Apply`、不执行 cleanup/init/doctor、不写 authority/confirmed、不执行 heavy-tool、不把 case artifact 或真实 case state 写入 kit；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- project handoff 逐 lane 行在 execution evidence review queue 存在时先输出 `evidence next action`，复用 Batch 401 的 review / handoff / main-review stop guidance。
-- 当 review queue 含 boundary-hit/escalated/escalation evidence 时，project handoff 不再把 `next action：/rekit continue <lane>` / `continue command` 展示为当前动作，而改为 `evidence review 后继续候选`。
-- lane handoff 新会话开场在 ready lane + escalated evidence 时要求先 review execution evidence、通知 main Agent，并明确当前不要执行 `/rekit continue <lane>`。
-- CLI coverage 锁定 project handoff Markdown 和 lane handoff Markdown 的 evidence-first text consumption，同时保留 nested evidence item 的 commander state/primary/follow-up/boundary 投影。
+- `CandidateReviewPlan` 新增 `mainAgentExecutionPlan[]`，step shape 包含 name/when/appliesTo/actions/commands/expected/evidence/boundary。
+- WhatIf preview 输出 `materialize-candidates` step，提示确认 scope 后 rerun create-candidates，并强调 WhatIf 未写 candidate files 或 indexPath。
+- actual candidate review 输出 `review-decisions`、`cleanup-rejected-or-merged-candidates`、`pack-doctor-after-accepted-merge`；存在 pending tooling candidate 时追加 `fresh-case-reconsume-after-tooling-merge` 与 `attached-case-reconsume-after-tooling-merge`。
+- runtime boundary 明确 `mainAgentExecutionPlan` 只是 guidance，runtime 不执行 merge、cleanup、`init` 或 `doctor`。
+- package 与 CLI coverage 锁定 WhatIf/actual candidate JSON 的 execution plan、indexPath cleanup、fresh/attached reconsume command handoff 与 no authority/confirmed / no heavy-tool / no case artifact promotion boundaries。
 
-验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunHandoffApplyWritesProjectAndLane" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `1ad2394 Suppress handoff continue for evidence escalation`；远程 release-gate run `29695788359` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/promote ./internal/rekit/cli -run "TestCreateCandidates|TestPackMemoryPromoteReconsumeE2E|TestRunPromoteCreateCandidates" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
 
-上一批摘要：Batch 401 已完成 execution evidence review next steps consumption follow-through；overview 与 project/lane handoff JSON `nextSteps[]` 已提升 evidence review guidance，详见 `docs/batch-history.md`。
+上一批摘要：Batch 402 已完成 execution evidence review handoff text suppression closure；project/lane handoff Markdown 已把 escalated evidence 场景下的 ready lane continue 降级为 review 后候选，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

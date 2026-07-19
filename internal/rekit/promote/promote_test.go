@@ -32,6 +32,9 @@ func TestCreateCandidatesWhatIfDoesNotWrite(t *testing.T) {
 	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 || result.ReviewPlan.Reconsume.Mode != "pack-memory-reconsume-after-merge" {
 		t.Fatalf("unexpected what-if review plan: %+v", result.ReviewPlan)
 	}
+	if !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "materialize-candidates", "promote -Target <attached-case>") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "review-decisions", "authority/confirmed") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "cleanup-rejected-or-merged-candidates", "indexPath") {
+		t.Fatalf("what-if review plan missing executable main agent handoff: %+v", result.ReviewPlan.MainAgentExecutionPlan)
+	}
 	commander := result.ReviewPlan.MissionCommanderAction
 	if commander.State != "preview-pack-memory-candidates" || commander.PrimaryCommand != "review reviewPlan.reviewItems" || !strings.Contains(commander.Prompt, "WhatIf preview") || !promoteContainsSubstring(commander.FollowUpCommands, "promote -CreateCandidates") || !promoteContainsSubstring(commander.Boundary, "WhatIf did not write") || !promoteContainsSubstring(commander.Boundary, "no authority/confirmed") || !promoteContainsSubstring(commander.Boundary, "no heavy-tool") {
 		t.Fatalf("what-if review plan omitted Mission Commander candidate preview handoff: %+v", commander)
@@ -108,6 +111,12 @@ func TestCreateCandidatesWritesIndexAndSanitizedTooling(t *testing.T) {
 	}(), "\n")
 	if !strings.Contains(cleanup, "update or remove indexPath") {
 		t.Fatalf("review plan cleanup targets missing index cleanup guidance: %+v", result.ReviewPlan.CleanupTargets)
+	}
+	if !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "review-decisions", "references/template/README.md") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "cleanup-rejected-or-merged-candidates", "indexPath") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "pack-doctor-after-accepted-merge", "doctor -Pack "+pack) || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "fresh-case-reconsume-after-tooling-merge", "fresh-case") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "attached-case-reconsume-after-tooling-merge", "attached-case") {
+		t.Fatalf("review plan missing main agent execution plan: %+v", result.ReviewPlan.MainAgentExecutionPlan)
+	}
+	if !strings.Contains(strings.Join(result.ReviewPlan.RuntimeBoundary, "\n"), "runtime does not execute merge, cleanup, init, or doctor") {
+		t.Fatalf("review plan runtime boundary missing execution-plan no-run guard: %+v", result.ReviewPlan.RuntimeBoundary)
 	}
 
 	var index []candidateIndexEntry
@@ -203,6 +212,9 @@ func TestPackMemoryPromoteReconsumeE2E(t *testing.T) {
 	}
 	if result.ReviewPlan.MissionCommanderAction.State != "ready-to-review-pack-memory-candidates" || !promoteContainsSubstring(result.ReviewPlan.MissionCommanderAction.FollowUpCommands, "doctor -Target <fresh-case>") || !promoteContainsSubstring(result.ReviewPlan.MissionCommanderAction.Boundary, "verify fresh or attached case reconsume") {
 		t.Fatalf("pack-memory reconsume omitted Mission Commander follow-through: %+v", result.ReviewPlan.MissionCommanderAction)
+	}
+	if !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "fresh-case-reconsume-after-tooling-merge", "init -Target <fresh-case>") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "attached-case-reconsume-after-tooling-merge", "doctor -Target <attached-case>") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "fresh-case-reconsume-after-tooling-merge", "sync does not copy tooling recipes") {
+		t.Fatalf("pack-memory execution plan omitted reconsume command handoff: %+v", result.ReviewPlan.MainAgentExecutionPlan)
 	}
 	candidateText := readText(t, write.TargetPath)
 	for _, expected := range []string{"# Tooling candidate from case", "promoted-memory-tool", "<caseRoot>", "<absolutePath>", "<artifactsPath>", "<capturesPath>", "<address>", "<ctxNNN>", "Task #<n>"} {
@@ -752,6 +764,24 @@ func candidateDecisionChecklistContainsForTest(items []CandidateDecisionChecklis
 func candidateReconsumeChecklistContainsForTest(items []CandidateReconsumeVerification, name string) bool {
 	for _, item := range items {
 		if item.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func candidateExecutionPlanContainsForTest(items []CandidateExecutionStep, name, want string) bool {
+	for _, item := range items {
+		if item.Name != name {
+			continue
+		}
+		fields := []string{item.When, item.Expected}
+		fields = append(fields, item.AppliesTo...)
+		fields = append(fields, item.Actions...)
+		fields = append(fields, item.Commands...)
+		fields = append(fields, item.Evidence...)
+		fields = append(fields, item.Boundary...)
+		if promoteContainsSubstring(fields, want) {
 			return true
 		}
 	}
