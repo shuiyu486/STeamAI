@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 404：Mission Commander overview next-action consumption closure
+
+状态：已完成 overview next-action consumption、本地实现、durable docs 与本地验证；commit/push 与远程 release-gate inspection 待补。
+
+目标：Batch 397/399/401 已让 overview 同时暴露 `missionCommanderActions[]`、`executionEvidenceReview[]` 与 evidence-first `nextSteps[]`，但主 Agent 或替换 executor 仍需从多个结构手工拼接执行顺序。本批在 overview text/JSON 新增 `missionCommanderNextActions[]`，把 evidence review commander actions 与 lane commander primary actions 收口为可直接消费的 next-action list。
+
+实施范围：overview JSON `Inventory` 新增 `missionCommanderNextActions[]`，每项包含 lane/label/state/command/source/blocked/requiresReview/reasons/boundary；overview text 新增 `Mission Commander next actions` section，让主 Agent 不解析 JSON 也能看到 evidence review、overview follow-up 与 blocked reconcile action；next-action builder 优先投影 `executionEvidenceReview[]` 的 commander primary/follow-up，mission blocked 或 evidence main-review 时抑制 `/rekit continue` follow-up，避免已记录 observation evidence 未 review 前继续 autonomous lane；当 evidence review 不需要 main review 时，再追加 `missionCommanderActions[]` 的 lane primary command，blocked lane action 带 `requiresReview=true` 与 blocker reasons。CLI coverage 锁定 overview read-only text/JSON projection、evidence review priority、blocked reconcile action、continue suppression 与 no-replay boundary。该批只增强 overview read-only projection、CLI tests 与 durable docs；不执行 `continue`、不 replay heavy-tool、不写 observation/request/authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 focused `go test ./internal/rekit/overview ./internal/rekit/cli -run "TestRunOverview" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待完成。
+
 ### Batch 403：Pack-memory main Agent execution plan closure
 
 状态：已完成 pack-memory main Agent execution plan、本地验证、durable docs、commit/push 与远程 release-gate inspection。

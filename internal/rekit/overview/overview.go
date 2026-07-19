@@ -22,21 +22,22 @@ const maxRows = 10
 type event = map[string]any
 
 type Inventory struct {
-	SchemaVersion           int                                      `json:"schemaVersion"`
-	Command                 string                                   `json:"command"`
-	CaseRoot                string                                   `json:"caseRoot"`
-	RepoRoot                string                                   `json:"repoRoot"`
-	Pack                    string                                   `json:"pack"`
-	IsMutation              bool                                     `json:"isMutation"`
-	AutomationMode          string                                   `json:"automationMode"`
-	Lanes                   []LaneSummary                            `json:"lanes"`
-	Counts                  FactCounts                               `json:"counts"`
-	MissionBrief            MissionBrief                             `json:"missionBrief"`
-	LaneExecutorActions     []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions"`
-	MissionCommanderActions []MissionCommanderActionIndexItem        `json:"missionCommanderActions"`
-	ExecutionEvidenceReview []workstream.ExecutionEvidenceReviewItem `json:"executionEvidenceReview"`
-	Sections                OverviewSections                         `json:"sections"`
-	NextSteps               []string                                 `json:"nextSteps"`
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Command                     string                                   `json:"command"`
+	CaseRoot                    string                                   `json:"caseRoot"`
+	RepoRoot                    string                                   `json:"repoRoot"`
+	Pack                        string                                   `json:"pack"`
+	IsMutation                  bool                                     `json:"isMutation"`
+	AutomationMode              string                                   `json:"automationMode"`
+	Lanes                       []LaneSummary                            `json:"lanes"`
+	Counts                      FactCounts                               `json:"counts"`
+	MissionBrief                MissionBrief                             `json:"missionBrief"`
+	LaneExecutorActions         []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions"`
+	MissionCommanderActions     []MissionCommanderActionIndexItem        `json:"missionCommanderActions"`
+	MissionCommanderNextActions []MissionCommanderNextActionItem         `json:"missionCommanderNextActions"`
+	ExecutionEvidenceReview     []workstream.ExecutionEvidenceReviewItem `json:"executionEvidenceReview"`
+	Sections                    OverviewSections                         `json:"sections"`
+	NextSteps                   []string                                 `json:"nextSteps"`
 }
 
 type LaneSummary struct {
@@ -67,6 +68,18 @@ type MissionCommanderActionIndexItem struct {
 	FollowUpCommands []string                       `json:"followUpCommands,omitempty"`
 	Boundary         []string                       `json:"boundary,omitempty"`
 	Action           mission.MissionCommanderAction `json:"action"`
+}
+
+type MissionCommanderNextActionItem struct {
+	Lane           string   `json:"lane,omitempty"`
+	Label          string   `json:"label,omitempty"`
+	State          string   `json:"state"`
+	Command        string   `json:"command"`
+	Source         string   `json:"source"`
+	Blocked        bool     `json:"blocked,omitempty"`
+	RequiresReview bool     `json:"requiresReview,omitempty"`
+	Reasons        []string `json:"reasons,omitempty"`
+	Boundary       []string `json:"boundary,omitempty"`
 }
 
 type MissionBrief = mission.Brief
@@ -166,6 +179,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	writeMissionBrief(&out, brief)
 	writeLaneExecutorActions(&out, actions)
 	writeMissionCommanderActionIndex(&out, missionCommanderActionIndex(actions))
+	writeMissionCommanderNextActions(&out, missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief)))
 	writeExecutionEvidenceReview(&out, evidenceReview)
 	writeOpenCandidates(&out, facts.Candidates)
 	writePendingGates(&out, facts.Requests)
@@ -229,12 +243,13 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 			Publications:     len(facts.Publications),
 			PendingDecisions: data.pending,
 		},
-		MissionBrief:            brief,
-		LaneExecutorActions:     actions,
-		MissionCommanderActions: missionCommanderActionIndex(actions),
-		ExecutionEvidenceReview: evidenceReview,
-		Sections:                data.sections,
-		NextSteps:               overviewNextSteps(brief, evidenceReview),
+		MissionBrief:                brief,
+		LaneExecutorActions:         actions,
+		MissionCommanderActions:     missionCommanderActionIndex(actions),
+		MissionCommanderNextActions: missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief)),
+		ExecutionEvidenceReview:     evidenceReview,
+		Sections:                    data.sections,
+		NextSteps:                   overviewNextSteps(brief, evidenceReview),
 	}, nil
 }
 
@@ -418,6 +433,21 @@ func writeMissionCommanderActionIndex(out *bytes.Buffer, items []MissionCommande
 	fmt.Fprintln(out)
 }
 
+func writeMissionCommanderNextActions(out *bytes.Buffer, items []MissionCommanderNextActionItem) {
+	fmt.Fprintln(out, "Mission Commander next actions：")
+	if len(items) == 0 {
+		fmt.Fprintln(out, "- none")
+		fmt.Fprintln(out)
+		return
+	}
+	for _, item := range items {
+		fmt.Fprintf(out, "- %s：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", firstText(item.Label, item.Lane, "project"), item.State, item.Source, item.Blocked, item.RequiresReview, item.Command)
+		writeActionIndexList(out, "reasons", item.Reasons)
+		writeActionIndexList(out, "boundary", item.Boundary)
+	}
+	fmt.Fprintln(out)
+}
+
 func writeExecutionEvidenceReview(out *bytes.Buffer, items []workstream.ExecutionEvidenceReviewItem) {
 	fmt.Fprintln(out, "Execution evidence review：")
 	if len(items) == 0 {
@@ -547,8 +577,126 @@ func cloneEvents(items []event) []map[string]any {
 	return out
 }
 
+func missionCommanderNextActions(actions []mission.LaneExecutorActionSnapshot, evidenceReview []workstream.ExecutionEvidenceReviewItem, blocked bool) []MissionCommanderNextActionItem {
+	items := []MissionCommanderNextActionItem{}
+	evidenceNeedsMainReview := workstream.ExecutionEvidenceReviewNeedsMainReview(evidenceReview)
+	for _, item := range evidenceReview {
+		reasons := []string{}
+		if item.GateEventID != "" {
+			reasons = append(reasons, "review execution evidence for gateEventId "+item.GateEventID)
+		}
+		if item.ReviewCommand != "" {
+			reasons = append(reasons, item.ReviewCommand)
+		}
+		if evidenceNeedsMainReview {
+			reasons = append(reasons, "boundary hit or escalation in execution evidence; stop autonomous continuation and notify main Agent")
+		}
+		if item.MissionCommanderAction.PrimaryCommand != "" {
+			items = append(items, MissionCommanderNextActionItem{
+				Lane:           evidenceReviewLane(item),
+				Label:          evidenceReviewLabel(item),
+				State:          item.MissionCommanderAction.State,
+				Command:        item.MissionCommanderAction.PrimaryCommand,
+				Source:         "executionEvidenceReview",
+				Blocked:        evidenceNeedsMainReview,
+				RequiresReview: true,
+				Reasons:        reasons,
+				Boundary:       append([]string{}, item.MissionCommanderAction.Boundary...),
+			})
+		}
+		for _, followUp := range item.MissionCommanderAction.FollowUpCommands {
+			if strings.Contains(followUp, "/rekit continue") && (blocked || evidenceNeedsMainReview) {
+				continue
+			}
+			items = append(items, MissionCommanderNextActionItem{
+				Lane:           evidenceReviewLane(item),
+				Label:          evidenceReviewLabel(item),
+				State:          item.MissionCommanderAction.State,
+				Command:        followUp,
+				Source:         "executionEvidenceReview.followUp",
+				Blocked:        evidenceNeedsMainReview,
+				RequiresReview: true,
+				Reasons:        reasons,
+				Boundary:       append([]string{}, item.MissionCommanderAction.Boundary...),
+			})
+		}
+	}
+	if evidenceNeedsMainReview {
+		return uniqueCommanderNextActions(items)
+	}
+	for _, item := range actions {
+		action := item.ExecutorAction.MissionCommanderAction
+		if action.PrimaryCommand == "" {
+			continue
+		}
+		items = append(items, MissionCommanderNextActionItem{
+			Lane:           item.Lane,
+			Label:          item.Label,
+			State:          action.State,
+			Command:        action.PrimaryCommand,
+			Source:         "missionCommanderActions",
+			Blocked:        item.ExecutorAction.Blocked,
+			RequiresReview: item.ExecutorAction.Blocked,
+			Reasons:        commanderActionReasons(item),
+			Boundary:       append([]string{}, action.Boundary...),
+		})
+	}
+	return uniqueCommanderNextActions(items)
+}
+
+func commanderActionReasons(item mission.LaneExecutorActionSnapshot) []string {
+	reasons := append([]string{}, item.ExecutorAction.BlockerReasons...)
+	if len(reasons) == 0 && item.ExecutorAction.Ready {
+		reasons = append(reasons, "ready lane primary action")
+	}
+	if len(reasons) == 0 {
+		reasons = append(reasons, "read-only handoff")
+	}
+	return reasons
+}
+
+func evidenceReviewLabel(item workstream.ExecutionEvidenceReviewItem) string {
+	if item.GateEventID != "" {
+		return item.GateEventID
+	}
+	return firstText(item.Subject, item.EventID, item.Summary)
+}
+
+func evidenceReviewLane(item workstream.ExecutionEvidenceReviewItem) string {
+	command := strings.TrimSpace(item.MissionCommanderAction.PrimaryCommand)
+	if command == "" {
+		command = strings.TrimSpace(item.HandoffCommand)
+	}
+	if lane, ok := strings.CutPrefix(command, "/rekit handoff "); ok {
+		return strings.TrimSpace(lane)
+	}
+	return ""
+}
+
+func uniqueCommanderNextActions(items []MissionCommanderNextActionItem) []MissionCommanderNextActionItem {
+	seen := map[string]bool{}
+	out := []MissionCommanderNextActionItem{}
+	for _, item := range items {
+		item.Command = strings.TrimSpace(item.Command)
+		if item.Command == "" {
+			continue
+		}
+		key := item.Source + "\x00" + item.Lane + "\x00" + item.Command
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	return out
+}
+
+func overviewBlocked(brief MissionBrief) bool {
+	return len(brief.BlockedLanes) > 0 || len(brief.PendingGates) > 0 || len(brief.OpenDecisions) > 0 || len(brief.Interventions) > 0
+}
+
 func overviewNextSteps(brief MissionBrief, evidenceReview []workstream.ExecutionEvidenceReviewItem) []string {
-	blocked := len(brief.BlockedLanes) > 0 || len(brief.PendingGates) > 0 || len(brief.OpenDecisions) > 0 || len(brief.Interventions) > 0
+	blocked := overviewBlocked(brief)
 	steps := append([]string{}, workstream.ExecutionEvidenceReviewNextSteps(evidenceReview, !blocked)...)
 	if !workstream.ExecutionEvidenceReviewNeedsMainReview(evidenceReview) {
 		steps = append(steps, brief.NextAgentActions...)

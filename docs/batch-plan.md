@@ -16,25 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 403：Pack-memory main Agent execution plan closure
+### Batch 404：Mission Commander overview next-action consumption closure
 
-状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
+状态：已完成本地实现、durable docs 与本地验证；提交/推送与远程 release-gate inspection 待完成。
 
-目标：Batch 398 已提供 per-item `decisionChecklist[]`、cleanup targets 与 reconsume checklist，但主 Agent 仍需把 WhatIf materialize、逐项 review、cleanup、pack doctor、fresh/attached reconsume 自行排序。本批在 `promote -CreateCandidates` JSON 中新增可直接消费的 `mainAgentExecutionPlan[]`，把 pack-memory candidate 生成后的执行顺序收口为 bounded checklist。
+目标：Batch 397/399/401 已让 overview 同时暴露 `missionCommanderActions[]`、`executionEvidenceReview[]` 与 evidence-first `nextSteps[]`，但主 Agent 或替换 executor 仍需从多个结构手工拼接执行顺序。本批在 overview text/JSON 新增 `missionCommanderNextActions[]`，把 evidence review commander actions 与 lane commander primary actions 收口为可直接消费的 next-action list。
 
-边界：只增强 `promote -CreateCandidates` JSON review plan 与 tests/docs；不执行 candidate merge、不执行 `promote -Apply`、不执行 cleanup/init/doctor、不写 authority/confirmed、不执行 heavy-tool、不把 case artifact 或真实 case state 写入 kit；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+边界：只增强 overview read-only projection、CLI tests 与 durable docs；不执行 `continue`、不 replay heavy-tool、不写 observation/request/authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- `CandidateReviewPlan` 新增 `mainAgentExecutionPlan[]`，step shape 包含 name/when/appliesTo/actions/commands/expected/evidence/boundary。
-- WhatIf preview 输出 `materialize-candidates` step，提示确认 scope 后 rerun create-candidates，并强调 WhatIf 未写 candidate files 或 indexPath。
-- actual candidate review 输出 `review-decisions`、`cleanup-rejected-or-merged-candidates`、`pack-doctor-after-accepted-merge`；存在 pending tooling candidate 时追加 `fresh-case-reconsume-after-tooling-merge` 与 `attached-case-reconsume-after-tooling-merge`。
-- runtime boundary 明确 `mainAgentExecutionPlan` 只是 guidance，runtime 不执行 merge、cleanup、`init` 或 `doctor`。
-- package 与 CLI coverage 锁定 WhatIf/actual candidate JSON 的 execution plan、indexPath cleanup、fresh/attached reconsume command handoff 与 no authority/confirmed / no heavy-tool / no case artifact promotion boundaries。
+- overview JSON `Inventory` 新增 `missionCommanderNextActions[]`，每项包含 lane/label/state/command/source/blocked/requiresReview/reasons/boundary。
+- overview text 新增 `Mission Commander next actions` section，让主 Agent 不解析 JSON 也能看到 evidence review、overview follow-up 与 blocked reconcile action。
+- next-action builder 优先投影 `executionEvidenceReview[]` 的 commander primary/follow-up；mission blocked 或 evidence main-review 时抑制 `/rekit continue` follow-up，避免已记录 observation evidence 未 review 前继续 autonomous lane。
+- 当 evidence review 不需要 main review 时，再追加 `missionCommanderActions[]` 的 lane primary command；blocked lane action 带 `requiresReview=true` 与 blocker reasons。
+- CLI coverage 锁定 overview read-only text/JSON projection、evidence review priority、blocked reconcile action、continue suppression 与 no-replay boundary。
 
-验证结果：已通过 focused `go test ./internal/rekit/promote ./internal/rekit/cli -run "TestCreateCandidates|TestPackMemoryPromoteReconsumeE2E|TestRunPromoteCreateCandidates" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `4de3897 Add pack memory execution plan`；远程 release-gate run `29696503754` 为 completed failure，macOS/Linux/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/overview ./internal/rekit/cli -run "TestRunOverview" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待完成。
 
-上一批摘要：Batch 402 已完成 execution evidence review handoff text suppression closure；project/lane handoff Markdown 已把 escalated evidence 场景下的 ready lane continue 降级为 review 后候选，详见 `docs/batch-history.md`。
+上一批摘要：Batch 403 已完成 pack-memory main Agent execution plan closure；`promote -CreateCandidates` 的 `reviewPlan.mainAgentExecutionPlan[]` 已把 candidate review/cleanup/doctor/reconsume handoff 收口为 bounded checklist，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

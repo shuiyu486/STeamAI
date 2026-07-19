@@ -2182,6 +2182,11 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 			t.Fatalf("overview missing Mission Commander action index %q:\n%s", expected, text)
 		}
 	}
+	for _, expected := range []string{"Mission Commander next actions：", "gate-auth-1：state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`", "source=executionEvidenceReview.followUp", "command=`/rekit overview`", "review execution evidence for gateEventId gate-auth-1", "observation evidence is already recorded; do not replay heavy tool", "main：state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile main -InterventionId <eventId> -Apply`"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("overview missing Mission Commander next actions %q:\n%s", expected, text)
+		}
+	}
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, after)
 }
@@ -2226,10 +2231,11 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 			NextAgentActions []string `json:"nextAgentActions"`
 			Escalations      []string `json:"escalations"`
 		} `json:"missionBrief"`
-		LaneExecutorActions     []handoffLaneExecutorAction   `json:"laneExecutorActions"`
-		MissionCommanderActions []missionCommanderActionItem  `json:"missionCommanderActions"`
-		ExecutionEvidenceReview []executionEvidenceReviewItem `json:"executionEvidenceReview"`
-		Sections                struct {
+		LaneExecutorActions         []handoffLaneExecutorAction      `json:"laneExecutorActions"`
+		MissionCommanderActions     []missionCommanderActionItem     `json:"missionCommanderActions"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		ExecutionEvidenceReview     []executionEvidenceReviewItem    `json:"executionEvidenceReview"`
+		Sections                    struct {
 			OpenCandidates struct {
 				Total  int              `json:"total"`
 				Shown  int              `json:"shown"`
@@ -2284,6 +2290,9 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	}
 	if len(result.MissionCommanderActions) != 1 || result.MissionCommanderActions[0].Lane != "main" || result.MissionCommanderActions[0].Label != "main" || !result.MissionCommanderActions[0].Blocked || result.MissionCommanderActions[0].Ready || result.MissionCommanderActions[0].PrimaryCommand != "/rekit reconcile main -InterventionId <eventId> -Apply" || result.MissionCommanderActions[0].Action.State != "needs-reconcile" || !containsSubstring(result.MissionCommanderActions[0].FollowUpCommands, "/rekit continue main -WhatIf") || !containsSubstring(result.MissionCommanderActions[0].Boundary, "do not run continue") || !slices.Contains(result.MissionCommanderActions[0].BlockerReasons, "intervention") {
 		t.Fatalf("overview JSON missing Mission Commander action index: %+v", result.MissionCommanderActions)
+	}
+	if len(result.MissionCommanderNextActions) != 3 || result.MissionCommanderNextActions[0].Command != "/rekit handoff main" || result.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || !result.MissionCommanderNextActions[0].RequiresReview || result.MissionCommanderNextActions[1].Command != "/rekit overview" || containsMissionCommanderNextCommand(result.MissionCommanderNextActions, "/rekit continue main") || !containsMissionCommanderNextCommand(result.MissionCommanderNextActions, "/rekit reconcile main -InterventionId <eventId> -Apply") || !containsSubstring(result.MissionCommanderNextActions[0].Reasons, "gate-auth-1") || !containsSubstring(result.MissionCommanderNextActions[0].Boundary, "do not replay heavy tool") {
+		t.Fatalf("overview JSON missing consumable Mission Commander next actions: %+v", result.MissionCommanderNextActions)
 	}
 	if len(result.ExecutionEvidenceReview) != 1 || result.ExecutionEvidenceReview[0].GateEventID != "gate-auth-1" || result.ExecutionEvidenceReview[0].Action != "debug" || !containsSubstring(result.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/out.txt") || !containsSubstring(result.ExecutionEvidenceReview[0].EvidenceRefs, "evidence/debug.json") || !containsSubstring(result.ExecutionEvidenceReview[0].Boundary, "do not replay heavy tool") || result.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || result.ExecutionEvidenceReview[0].MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(result.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") {
 		t.Fatalf("overview JSON missing execution evidence review queue: %+v", result.ExecutionEvidenceReview)
@@ -6615,6 +6624,18 @@ type missionCommanderActionItem struct {
 	Action           missionCommanderActionSnapshot `json:"action"`
 }
 
+type missionCommanderNextActionItem struct {
+	Lane           string   `json:"lane"`
+	Label          string   `json:"label"`
+	State          string   `json:"state"`
+	Command        string   `json:"command"`
+	Source         string   `json:"source"`
+	Blocked        bool     `json:"blocked"`
+	RequiresReview bool     `json:"requiresReview"`
+	Reasons        []string `json:"reasons"`
+	Boundary       []string `json:"boundary"`
+}
+
 type missionBrief struct {
 	Summary          string   `json:"summary"`
 	ReadyLanes       []string `json:"readyLanes"`
@@ -6962,6 +6983,15 @@ func handoffLaneActionFor(t *testing.T, items []handoffLaneExecutorAction, lane 
 func containsSubstring(items []string, want string) bool {
 	for _, item := range items {
 		if strings.Contains(item, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsMissionCommanderNextCommand(items []missionCommanderNextActionItem, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item.Command, want) {
 			return true
 		}
 	}
