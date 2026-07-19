@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 **Batch 377：Mission brief authorized-gate boundary visibility**
 
-状态：已完成 Mission brief / overview / project-lane handoff / continue artifacts / lane checkpoint 中 authorized-gate requestedBudget、outputPaths 与 stopConditions 可见性补强、package/CLI product-path coverage、durable docs 更新与本地 validation；commit/push 与远程 release-gate inspection 在本批收尾后回写。
+状态：已完成 Mission brief / overview / project-lane handoff / continue artifacts / lane checkpoint 中 authorized-gate requestedBudget、outputPaths 与 stopConditions 可见性补强、package/CLI product-path coverage、durable docs 更新、本地 validation、commit/push 与远程 release-gate inspection；实现提交为 `5612f51 Show authorized gate execution boundaries`（HEAD `5612f5117d7c85d2929ae1a03e95d1558dbd4863`），远程 release-gate run `29674698294` 已完成但结论为 failure，Linux/macOS/Windows jobs 均为 failure 且 `steps: []`，符合既有 runner/billing blocker 模式，不能声明远程 CI green。
 
 目标：在 Batch 376 的 adapter evidence ref boundary hardening 之后，补齐 Mission Commander / replaceable lane executor 接手闭环中的展示断点：非阻塞 `authorized-gate` 不能只显示授权 decision/profile，还应在 handoff、overview、continue digest/status、lane `RESUME.md` 与 checkpoint 中直接暴露本次实际授权的 typed budget、authorized output paths 与 stop conditions，避免替换 executor 接手 actual heavy action 前必须重扫 raw request ledger 才能看到边界。
 
@@ -50,7 +50,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 focused mission/CLI、mission/workstream/gate/CLI package set、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate run 结果待本批收尾后回写；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
+本地 focused mission/CLI、mission/workstream/gate/CLI package set、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `5612f51 Show authorized gate execution boundaries`（HEAD `5612f5117d7c85d2929ae1a03e95d1558dbd4863`）。远程 release-gate run `29674698294` 已完成，结论为 failure；Linux/macOS/Windows `Go release checks` jobs 均为 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
 
 ### Next candidates
 
