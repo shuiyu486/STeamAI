@@ -42,7 +42,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 `go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待本批提交后写回。
+本地 `go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `3b41361 Calibrate Mission Control operational cadence`（HEAD `3b413616dbd0d085eaac52de85c8069b64a3d861`）。远程 release-gate run `29678772913` 已完成，结论为 failure；Linux/macOS/Windows `Go release checks` jobs 均为 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 ### Next candidates
 
