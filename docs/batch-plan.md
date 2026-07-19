@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 406：Lane-local Mission Commander next-action projection follow-through
 
-状态：已完成本地实现、durable docs 与 full local validation；提交/推送与远程 release-gate inspection 正在执行。
+状态：已完成本地实现、durable docs、full local validation、提交/推送与远程 release-gate inspection。
 
 目标：Batch 405 已让 overview 与 project/lane handoff 复用 `missionCommanderNextActions[]`，但 replacement executor 接手 lane-local `RESUME.md` 或 typed `checkpoints/latest.json` 时仍需要从 `executionEvidenceReview[]` 与 `executorAction` 手工拼接 evidence review/handoff/overview 顺序。本批把同一 shared next-action builder 投影到 lane-local resume/checkpoint。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - shared lane commander snapshot helper 从 handoff-local 命名收敛为 workstream-lane helper，供 handoff 与 resume/checkpoint 共同使用。
 - CLI/workstream coverage 锁定 resume Markdown、checkpoint JSON contract、boundary-hit/escalated evidence 优先级与 autonomous `continue` suppression。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility -count=1`、`go test ./internal/rekit/workstream -run TestLaneCheckpointJSONContract -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。提交/推送与远程 release-gate inspection 正在执行。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility -count=1`、`go test ./internal/rekit/workstream -run TestLaneCheckpointJSONContract -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `957c0c6 Add lane checkpoint commander next actions`；远程 release-gate run `29698950001` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 405 已完成 overview 与 project/lane handoff `missionCommanderNextActions[]` shared builder 投影，详见 `docs/batch-history.md`。
 
