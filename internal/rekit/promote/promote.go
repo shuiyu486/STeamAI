@@ -13,6 +13,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 )
 
@@ -64,17 +65,18 @@ type CandidateWrite struct {
 }
 
 type CandidateReviewPlan struct {
-	Mode               string                     `json:"mode"`
-	Scope              string                     `json:"scope"`
-	CandidateRoot      string                     `json:"candidateRoot"`
-	ToolingRoot        string                     `json:"toolingRoot"`
-	IndexPath          string                     `json:"indexPath,omitempty"`
-	ItemCount          int                        `json:"itemCount"`
-	ReviewItems        []CandidateReviewItem      `json:"reviewItems"`
-	CleanupTargets     []CandidateCleanupTarget   `json:"cleanupTargets"`
-	Reconsume          CandidateReconsumeGuidance `json:"reconsume"`
-	RuntimeBoundary    []string                   `json:"runtimeBoundary"`
-	CompletionCriteria []string                   `json:"completionCriteria"`
+	Mode                   string                         `json:"mode"`
+	Scope                  string                         `json:"scope"`
+	CandidateRoot          string                         `json:"candidateRoot"`
+	ToolingRoot            string                         `json:"toolingRoot"`
+	IndexPath              string                         `json:"indexPath,omitempty"`
+	ItemCount              int                            `json:"itemCount"`
+	ReviewItems            []CandidateReviewItem          `json:"reviewItems"`
+	CleanupTargets         []CandidateCleanupTarget       `json:"cleanupTargets"`
+	Reconsume              CandidateReconsumeGuidance     `json:"reconsume"`
+	MissionCommanderAction mission.MissionCommanderAction `json:"missionCommanderAction"`
+	RuntimeBoundary        []string                       `json:"runtimeBoundary"`
+	CompletionCriteria     []string                       `json:"completionCriteria"`
 }
 
 type CandidateReviewItem struct {
@@ -504,7 +506,52 @@ func candidateReviewPlan(result CandidateResult, whatIf bool) CandidateReviewPla
 		}
 	}
 	plan.ItemCount = len(plan.ReviewItems)
+	plan.MissionCommanderAction = candidateReviewMissionCommanderAction(result, whatIf)
 	return plan
+}
+
+func candidateReviewMissionCommanderAction(result CandidateResult, whatIf bool) mission.MissionCommanderAction {
+	state := "ready-to-review-pack-memory-candidates"
+	prompt := fmt.Sprintf("pack `%s` 的 promote candidates 已生成；逐项 review reviewPlan.reviewItems，merge/reject 后 cleanup，并验证 reconsume。", result.Pack)
+	if whatIf {
+		state = "preview-pack-memory-candidates"
+		prompt = fmt.Sprintf("pack `%s` 的 promote candidate review plan 仍是 WhatIf preview；确认 scope 后再决定是否 rerun without -WhatIf。", result.Pack)
+	}
+	if result.Blocked > 0 {
+		prompt += " blocked item 不可直接合入，先修 source/manifest 或记录 reject。"
+	}
+	followUp := []string{
+		"go run ./cmd/rekit -- -Command doctor -Pack " + result.Pack,
+		"go run ./cmd/rekit -- -Command init -Target <fresh-case> -Pack " + result.Pack + " -ProjectName <name> -Apply",
+		"go run ./cmd/rekit -- -Command doctor -Target <fresh-case> -Pack " + result.Pack,
+	}
+	if whatIf {
+		followUp = append([]string{"/rekit promote -CreateCandidates -Pack " + result.Pack + " -Format json"}, followUp...)
+	}
+	boundary := []string{
+		"reviewPlan does not merge candidates into pack sources",
+		"promote -Apply is not a candidate-scoped accept path",
+		"delete rejected or superseded candidate files and update or remove indexPath",
+		"accepted tooling candidates require manual tooling/catalog.yml or tooling/recipes/* merge",
+		"verify fresh or attached case reconsume after accepted tooling merges",
+		"no authority/confirmed writes",
+		"no heavy-tool execution",
+	}
+	if whatIf {
+		boundary = append([]string{"WhatIf did not write candidate files or indexPath"}, boundary...)
+	}
+	if result.Created == 0 && result.Blocked > 0 {
+		state = "blocked-pack-memory-candidates"
+		prompt = fmt.Sprintf("pack `%s` 的 promote candidate review plan 只有 blocked/no-op item；不要合入，先修 source/manifest 或记录 reject。", result.Pack)
+		followUp = []string{"go run ./cmd/rekit -- -Command doctor -Pack " + result.Pack}
+	}
+	return mission.MissionCommanderAction{
+		State:            state,
+		Prompt:           prompt,
+		PrimaryCommand:   "review reviewPlan.reviewItems",
+		FollowUpCommands: followUp,
+		Boundary:         boundary,
+	}
 }
 
 func candidateReviewItem(result CandidateResult, write CandidateWrite) CandidateReviewItem {

@@ -32,6 +32,10 @@ func TestCreateCandidatesWhatIfDoesNotWrite(t *testing.T) {
 	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 || result.ReviewPlan.Reconsume.Mode != "pack-memory-reconsume-after-merge" {
 		t.Fatalf("unexpected what-if review plan: %+v", result.ReviewPlan)
 	}
+	commander := result.ReviewPlan.MissionCommanderAction
+	if commander.State != "preview-pack-memory-candidates" || commander.PrimaryCommand != "review reviewPlan.reviewItems" || !strings.Contains(commander.Prompt, "WhatIf preview") || !promoteContainsSubstring(commander.FollowUpCommands, "promote -CreateCandidates") || !promoteContainsSubstring(commander.Boundary, "WhatIf did not write") || !promoteContainsSubstring(commander.Boundary, "no authority/confirmed") || !promoteContainsSubstring(commander.Boundary, "no heavy-tool") {
+		t.Fatalf("what-if review plan omitted Mission Commander candidate preview handoff: %+v", commander)
+	}
 	assertCandidateReviewItemForTest(t, result.ReviewPlan.ReviewItems, "references/template/README.md", "pending-review")
 	assertCandidateReviewItemForTest(t, result.ReviewPlan.ReviewItems, "references/template/workflow-template.md", "blocked")
 	if !strings.Contains(strings.Join(result.ReviewPlan.RuntimeBoundary, "\n"), "when not WhatIf") {
@@ -86,6 +90,10 @@ func TestCreateCandidatesWritesIndexAndSanitizedTooling(t *testing.T) {
 	}
 	if toolingReview.CleanupPath != toolingWrite.TargetPath || !strings.Contains(toolingReview.MergeTargetHint, "tooling/catalog.yml") || !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "tooling/recipes") {
 		t.Fatalf("tooling review/reconsume guidance drifted: item=%+v reconsume=%+v", toolingReview, result.ReviewPlan.Reconsume)
+	}
+	commander := result.ReviewPlan.MissionCommanderAction
+	if commander.State != "ready-to-review-pack-memory-candidates" || commander.PrimaryCommand != "review reviewPlan.reviewItems" || !strings.Contains(commander.Prompt, "已生成") || !promoteContainsSubstring(commander.FollowUpCommands, "doctor -Pack "+pack) || !promoteContainsSubstring(commander.FollowUpCommands, "init -Target <fresh-case>") || !promoteContainsSubstring(commander.Boundary, "promote -Apply is not a candidate-scoped accept path") || !promoteContainsSubstring(commander.Boundary, "accepted tooling candidates require manual") || !promoteContainsSubstring(commander.Boundary, "verify fresh or attached case reconsume") || !promoteContainsSubstring(commander.Boundary, "no authority/confirmed") || !promoteContainsSubstring(commander.Boundary, "no heavy-tool") {
+		t.Fatalf("review plan omitted Mission Commander reconsume handoff: %+v", commander)
 	}
 	criteria := strings.Join(result.ReviewPlan.CompletionCriteria, "\n")
 	if !strings.Contains(criteria, "fresh or attached case reconsume") || !strings.Contains(criteria, "promote -Apply is not a candidate-scoped accept path") || !strings.Contains(criteria, "indexPath is updated or removed") {
@@ -189,6 +197,9 @@ func TestPackMemoryPromoteReconsumeE2E(t *testing.T) {
 	}
 	if !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "fresh case") || !strings.Contains(strings.Join(result.ReviewPlan.Reconsume.Boundary, "\n"), "no tooling recipe copy") {
 		t.Fatalf("pack-memory reconsume guidance drifted: %+v", result.ReviewPlan.Reconsume)
+	}
+	if result.ReviewPlan.MissionCommanderAction.State != "ready-to-review-pack-memory-candidates" || !promoteContainsSubstring(result.ReviewPlan.MissionCommanderAction.FollowUpCommands, "doctor -Target <fresh-case>") || !promoteContainsSubstring(result.ReviewPlan.MissionCommanderAction.Boundary, "verify fresh or attached case reconsume") {
+		t.Fatalf("pack-memory reconsume omitted Mission Commander follow-through: %+v", result.ReviewPlan.MissionCommanderAction)
 	}
 	candidateText := readText(t, write.TargetPath)
 	for _, expected := range []string{"# Tooling candidate from case", "promoted-memory-tool", "<caseRoot>", "<absolutePath>", "<artifactsPath>", "<capturesPath>", "<address>", "<ctxNNN>", "Task #<n>"} {
@@ -706,6 +717,15 @@ func assertCandidateReviewItemForTest(t *testing.T, items []CandidateReviewItem,
 	}
 	t.Fatalf("candidate review item %s/%s not found in %+v", path, decision, items)
 	return CandidateReviewItem{}
+}
+
+func promoteContainsSubstring(items []string, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func writeText(t *testing.T, path, text string) {

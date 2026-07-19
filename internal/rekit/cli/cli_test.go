@@ -4694,6 +4694,10 @@ func TestRunPromoteCreateCandidatesWhatIf(t *testing.T) {
 	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) == 0 || !containsSubstring(result.ReviewPlan.RuntimeBoundary, "when not WhatIf") {
 		t.Fatalf("unexpected promote candidates what-if review plan: %+v", result.ReviewPlan)
 	}
+	commander := result.ReviewPlan.MissionCommanderAction
+	if commander.State != "preview-pack-memory-candidates" || commander.PrimaryCommand != "review reviewPlan.reviewItems" || !strings.Contains(commander.Prompt, "WhatIf preview") || !containsSubstring(commander.FollowUpCommands, "promote -CreateCandidates") || !containsSubstring(commander.Boundary, "WhatIf did not write") || !containsSubstring(commander.Boundary, "no authority/confirmed") || !containsSubstring(commander.Boundary, "no heavy-tool") {
+		t.Fatalf("promote what-if omitted Mission Commander preview handoff: %+v", commander)
+	}
 	if _, err := os.Stat(result.Writes[0].TargetPath); !os.IsNotExist(err) {
 		t.Fatalf("promote candidates what-if created %s", result.Writes[0].TargetPath)
 	}
@@ -4747,6 +4751,10 @@ func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
 	}
 	if toolingReview.CleanupPath != toolingWrite.TargetPath || !strings.Contains(toolingReview.MergeTargetHint, "tooling/catalog.yml") || !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "tooling/recipes") || !containsSubstring(result.ReviewPlan.CompletionCriteria, "fresh or attached case reconsume") || !containsSubstring(result.ReviewPlan.CompletionCriteria, "promote -Apply is not a candidate-scoped accept path") || !containsSubstring(result.ReviewPlan.CompletionCriteria, "indexPath is updated or removed") {
 		t.Fatalf("tooling candidate review/reconsume guidance drifted: item=%+v reconsume=%+v criteria=%+v", toolingReview, result.ReviewPlan.Reconsume, result.ReviewPlan.CompletionCriteria)
+	}
+	commander := result.ReviewPlan.MissionCommanderAction
+	if commander.State != "ready-to-review-pack-memory-candidates" || commander.PrimaryCommand != "review reviewPlan.reviewItems" || !strings.Contains(commander.Prompt, "已生成") || !containsSubstring(commander.FollowUpCommands, "doctor -Pack _template") || !containsSubstring(commander.FollowUpCommands, "init -Target <fresh-case>") || !containsSubstring(commander.Boundary, "promote -Apply is not a candidate-scoped accept path") || !containsSubstring(commander.Boundary, "accepted tooling candidates require manual") || !containsSubstring(commander.Boundary, "verify fresh or attached case reconsume") || !containsSubstring(commander.Boundary, "no authority/confirmed") || !containsSubstring(commander.Boundary, "no heavy-tool") {
+		t.Fatalf("promote create-candidates omitted Mission Commander reconsume handoff: %+v", commander)
 	}
 	if len(result.ReviewPlan.CleanupTargets) == 0 || !strings.Contains(result.ReviewPlan.CleanupTargets[0].CleanupWhen, "update or remove indexPath") {
 		t.Fatalf("candidate cleanup guidance missing index cleanup: %+v", result.ReviewPlan.CleanupTargets)
@@ -6747,9 +6755,10 @@ type candidateResult struct {
 }
 
 type candidateReviewPlan struct {
-	Mode           string `json:"mode"`
-	ItemCount      int    `json:"itemCount"`
-	CleanupTargets []struct {
+	Mode                   string                         `json:"mode"`
+	ItemCount              int                            `json:"itemCount"`
+	MissionCommanderAction missionCommanderActionSnapshot `json:"missionCommanderAction"`
+	CleanupTargets         []struct {
 		Path          string `json:"path"`
 		Kind          string `json:"kind"`
 		CandidatePath string `json:"candidatePath"`
