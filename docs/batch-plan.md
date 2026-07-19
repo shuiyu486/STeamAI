@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 **Batch 384：Adapter repair contract guidance closure**
 
-状态：进行中；已让 `gate -ExecutionReportContract` 输出 `validationRepairHints[]` runtime projection，并补 package/CLI focused coverage；durable docs 与 full release gate 正在同步执行。
+状态：已完成；`gate -ExecutionReportContract` 已输出 `validationRepairHints[]` runtime projection，并补 package/CLI focused coverage、durable docs、本地 release gate、commit/push 与远程 release-gate inspection。
 
 目标：在 Batch 383 已把 `repairHints[]` 加入 invalid validation envelope 后，补齐 replacement lane executor / tool adapter 执行前仍只能从 validation failure codes 推断 repair actions 的断点：只读 adapter execution report contract 应直接暴露 stable `validationRepairHints[]`，让 executor 在执行 heavy/tool adapter 前即可知道缺 report path、path/read/decode/schema/identity/refs/budget/boundary/summary 失败对应的 repair action、相关字段、允许 output paths / stop conditions、size limit、record blocked 与 rerun validation 标记。
 
@@ -45,7 +45,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 focused gate/CLI、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。最终 commit/push 与远程 release-gate inspection 仍在本批后续步骤中完成后写回。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
+本地 focused gate/CLI、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `b9d5839 Add adapter contract repair hints`（HEAD `b9d58398b590783308737a97cff996dfb5223f3d`）。远程 release-gate run `29678057910` 已完成，结论为 failure；Linux/macOS/Windows `Go release checks` jobs 均为 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
 
 ### Next candidates
 
