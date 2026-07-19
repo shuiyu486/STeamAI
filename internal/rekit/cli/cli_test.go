@@ -5484,14 +5484,19 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 		BoundaryStatusRequires []string `json:"boundaryStatusRequires"`
 		StatusSummaryRequires  []string `json:"statusSummaryRequires"`
 		LiveValidation         struct {
-			AuthorizedWorkspaces []string `json:"authorizedWorkspaces"`
-			ReportFileName       string   `json:"reportFileName"`
-			ValidateCommand      string   `json:"validateCommand"`
-			RecordCommand        string   `json:"recordCommand"`
-			ValidateArgs         []string `json:"validateArgs"`
-			RecordArgs           []string `json:"recordArgs"`
-			ReplayBehavior       string   `json:"replayBehavior"`
-			SidecarTemplate      struct {
+			AuthorizedWorkspaces        []string `json:"authorizedWorkspaces"`
+			ReportFileName              string   `json:"reportFileName"`
+			CaseRelativeReportPath      string   `json:"caseRelativeReportPath"`
+			ValidateCommand             string   `json:"validateCommand"`
+			RecordCommand               string   `json:"recordCommand"`
+			ValidateArgs                []string `json:"validateArgs"`
+			RecordArgs                  []string `json:"recordArgs"`
+			CaseRelativeValidateCommand string   `json:"caseRelativeValidateCommand"`
+			CaseRelativeRecordCommand   string   `json:"caseRelativeRecordCommand"`
+			CaseRelativeValidateArgs    []string `json:"caseRelativeValidateArgs"`
+			CaseRelativeRecordArgs      []string `json:"caseRelativeRecordArgs"`
+			ReplayBehavior              string   `json:"replayBehavior"`
+			SidecarTemplate             struct {
 				Action       string   `json:"action"`
 				GateEventID  string   `json:"gateEventId"`
 				EvidenceRefs []string `json:"evidenceRefs"`
@@ -5507,7 +5512,7 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	if !containsSubstring(contract.RefPathRequires, "evidenceRefs must stay under authorized outputPaths") || !containsSubstring(contract.BoundaryStatusRequires, "authorized stopConditions") || !containsSubstring(contract.StatusSummaryRequires, "failed/boundary-hit/escalated/aborted") {
 		t.Fatalf("nested workspace adapter report contract omitted live enforcement rules: %+v", contract)
 	}
-	if strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" || strings.Join(contract.LiveValidation.RecordArgs, " ") != "-Command gate -Pack _template -Apply -GateEventId "+applied.EventID+" -ExecutionReportPath adapter-report.json -Actor <executor-id> -Format json" || contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") || contract.LiveValidation.RecordCommand != "rekit "+strings.Join(contract.LiveValidation.RecordArgs, " ") || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != applied.EventID || !containsSubstring(contract.LiveValidation.SidecarTemplate.EvidenceRefs, "authorized outputPaths") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
+	if strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || contract.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" || strings.Join(contract.LiveValidation.RecordArgs, " ") != "-Command gate -Pack _template -Apply -GateEventId "+applied.EventID+" -ExecutionReportPath adapter-report.json -Actor <executor-id> -Format json" || contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") || contract.LiveValidation.RecordCommand != "rekit "+strings.Join(contract.LiveValidation.RecordArgs, " ") || strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json" || strings.Join(contract.LiveValidation.CaseRelativeRecordArgs, " ") != "-Command gate -Pack _template -Apply -GateEventId "+applied.EventID+" -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Actor <executor-id> -Format json" || contract.LiveValidation.CaseRelativeValidateCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") || contract.LiveValidation.CaseRelativeRecordCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeRecordArgs, " ") || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != applied.EventID || !containsSubstring(contract.LiveValidation.SidecarTemplate.EvidenceRefs, "authorized outputPaths") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
 		t.Fatalf("nested workspace adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
 	}
 
@@ -5535,6 +5540,26 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	}
 	afterValidation := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, afterValidation)
+
+	out.Reset()
+	if err := Run(contract.LiveValidation.CaseRelativeValidateArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var caseRelativeValidation struct {
+		Kind       string `json:"kind"`
+		Valid      bool   `json:"valid"`
+		IsMutation bool   `json:"isMutation"`
+		Applied    bool   `json:"applied"`
+		ReportPath string `json:"reportPath"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &caseRelativeValidation); err != nil {
+		t.Fatalf("case-relative adapter report validation stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if caseRelativeValidation.Kind != "adapter-execution-report-validation" || !caseRelativeValidation.Valid || caseRelativeValidation.IsMutation || caseRelativeValidation.Applied || caseRelativeValidation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" {
+		t.Fatalf("unexpected case-relative adapter report validation: %+v", caseRelativeValidation)
+	}
+	afterCaseRelativeValidation := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, afterCaseRelativeValidation)
 
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/bad-evidence-refs-report.json", `{
   "schemaVersion": 1,

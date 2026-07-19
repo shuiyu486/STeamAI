@@ -430,7 +430,7 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if !strings.Contains(strings.Join(contract.BoundaryStatusRequires, ","), "authorized stopConditions") || !strings.Contains(strings.Join(contract.StatusSummaryRequires, ","), "failed/boundary-hit/escalated/aborted") {
 		t.Fatalf("adapter report contract omitted status enforcement rules: %+v", contract)
 	}
-	if !strings.Contains(contract.LiveValidation.InvocationCwd, "authorizedWorkspaces") || strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != authorized.EventID || contract.LiveValidation.SidecarTemplate.Kind != "adapter-execution-report" || !strings.Contains(strings.Join(contract.LiveValidation.SidecarTemplate.EvidenceRefs, ","), "authorized outputPaths") || !strings.Contains(strings.Join(contract.LiveValidation.Notes, ","), "outputRefs/evidenceRefs") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
+	if !strings.Contains(contract.LiveValidation.InvocationCwd, "authorizedWorkspaces") || !strings.Contains(contract.LiveValidation.InvocationCwd, "caseRelativeReportPath") || strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || contract.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != authorized.EventID || contract.LiveValidation.SidecarTemplate.Kind != "adapter-execution-report" || !strings.Contains(strings.Join(contract.LiveValidation.SidecarTemplate.EvidenceRefs, ","), "authorized outputPaths") || !strings.Contains(strings.Join(contract.LiveValidation.Notes, ","), "outputRefs/evidenceRefs") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
 		t.Fatalf("adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
 	}
 	if strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" {
@@ -444,6 +444,18 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	}
 	if contract.LiveValidation.RecordCommand != "rekit "+strings.Join(contract.LiveValidation.RecordArgs, " ") {
 		t.Fatalf("adapter report contract record command drifted: %q", contract.LiveValidation.RecordCommand)
+	}
+	if strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json" {
+		t.Fatalf("adapter report contract case-relative validate args drifted: %+v", contract.LiveValidation.CaseRelativeValidateArgs)
+	}
+	if contract.LiveValidation.CaseRelativeValidateCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") {
+		t.Fatalf("adapter report contract case-relative validate command drifted: %q", contract.LiveValidation.CaseRelativeValidateCommand)
+	}
+	if strings.Join(contract.LiveValidation.CaseRelativeRecordArgs, " ") != "-Command gate -Pack "+pack+" -Apply -GateEventId "+authorized.EventID+" -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Actor <executor-id> -Format json" {
+		t.Fatalf("adapter report contract case-relative record args drifted: %+v", contract.LiveValidation.CaseRelativeRecordArgs)
+	}
+	if contract.LiveValidation.CaseRelativeRecordCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeRecordArgs, " ") {
+		t.Fatalf("adapter report contract case-relative record command drifted: %q", contract.LiveValidation.CaseRelativeRecordCommand)
 	}
 	stages := map[string]bool{}
 	for _, stage := range contract.ValidationFailureStages {

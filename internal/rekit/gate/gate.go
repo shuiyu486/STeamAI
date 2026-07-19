@@ -156,16 +156,21 @@ type AdapterExecutionReportContract struct {
 }
 
 type AdapterReportLiveValidation struct {
-	InvocationCwd        string                       `json:"invocationCwd"`
-	AuthorizedWorkspaces []string                     `json:"authorizedWorkspaces,omitempty"`
-	ReportFileName       string                       `json:"reportFileName"`
-	SidecarTemplate      AdapterReportSidecarTemplate `json:"sidecarTemplate"`
-	ValidateCommand      string                       `json:"validateCommand"`
-	RecordCommand        string                       `json:"recordCommand"`
-	ValidateArgs         []string                     `json:"validateArgs"`
-	RecordArgs           []string                     `json:"recordArgs"`
-	ReplayBehavior       string                       `json:"replayBehavior"`
-	Notes                []string                     `json:"notes,omitempty"`
+	InvocationCwd               string                       `json:"invocationCwd"`
+	AuthorizedWorkspaces        []string                     `json:"authorizedWorkspaces,omitempty"`
+	ReportFileName              string                       `json:"reportFileName"`
+	CaseRelativeReportPath      string                       `json:"caseRelativeReportPath,omitempty"`
+	SidecarTemplate             AdapterReportSidecarTemplate `json:"sidecarTemplate"`
+	ValidateCommand             string                       `json:"validateCommand"`
+	RecordCommand               string                       `json:"recordCommand"`
+	ValidateArgs                []string                     `json:"validateArgs"`
+	RecordArgs                  []string                     `json:"recordArgs"`
+	CaseRelativeValidateCommand string                       `json:"caseRelativeValidateCommand,omitempty"`
+	CaseRelativeRecordCommand   string                       `json:"caseRelativeRecordCommand,omitempty"`
+	CaseRelativeValidateArgs    []string                     `json:"caseRelativeValidateArgs,omitempty"`
+	CaseRelativeRecordArgs      []string                     `json:"caseRelativeRecordArgs,omitempty"`
+	ReplayBehavior              string                       `json:"replayBehavior"`
+	Notes                       []string                     `json:"notes,omitempty"`
 }
 
 type AdapterReportSidecarTemplate struct {
@@ -603,12 +608,24 @@ func adapterReportDefaultPath(outputPaths []string) string {
 
 func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportLiveValidation {
 	reportFileName := "adapter-report.json"
+	caseRelativeReportPath := adapterReportDefaultPath(event.Gate.OutputPaths)
 	validateArgs := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", reportFileName, "-Format", "json"}
 	recordArgs := []string{"-Command", "gate", "-Pack", pack, "-Apply", "-GateEventId", event.EventID, "-ExecutionReportPath", reportFileName, "-Actor", "<executor-id>", "-Format", "json"}
+	caseRelativeValidateArgs := []string{}
+	caseRelativeRecordArgs := []string{}
+	caseRelativeValidateCommand := ""
+	caseRelativeRecordCommand := ""
+	if caseRelativeReportPath != "" {
+		caseRelativeValidateArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-Format", "json"}
+		caseRelativeRecordArgs = []string{"-Command", "gate", "-Pack", pack, "-Apply", "-GateEventId", event.EventID, "-ExecutionReportPath", caseRelativeReportPath, "-Actor", "<executor-id>", "-Format", "json"}
+		caseRelativeValidateCommand = "rekit " + strings.Join(caseRelativeValidateArgs, " ")
+		caseRelativeRecordCommand = "rekit " + strings.Join(caseRelativeRecordArgs, " ")
+	}
 	return AdapterReportLiveValidation{
-		InvocationCwd:        "authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target",
-		AuthorizedWorkspaces: normalizedGatePaths(event.Gate.OutputPaths),
-		ReportFileName:       reportFileName,
+		InvocationCwd:          "authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target; or use caseRelativeReportPath with case-relative commands from any case-local cwd",
+		AuthorizedWorkspaces:   normalizedGatePaths(event.Gate.OutputPaths),
+		ReportFileName:         reportFileName,
+		CaseRelativeReportPath: caseRelativeReportPath,
 		SidecarTemplate: AdapterReportSidecarTemplate{
 			SchemaVersion: 1,
 			Kind:          "adapter-execution-report",
@@ -623,11 +640,15 @@ func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportL
 			Escalation:    "<bounded escalation when status/budget requires it>",
 			Summary:       "<bounded summary; required for failed/boundary-hit/escalated/aborted>",
 		},
-		ValidateCommand: "rekit " + strings.Join(validateArgs, " "),
-		RecordCommand:   "rekit " + strings.Join(recordArgs, " "),
-		ValidateArgs:    validateArgs,
-		RecordArgs:      recordArgs,
-		ReplayBehavior:  "repeating RecordArgs with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations",
+		ValidateCommand:             "rekit " + strings.Join(validateArgs, " "),
+		RecordCommand:               "rekit " + strings.Join(recordArgs, " "),
+		ValidateArgs:                validateArgs,
+		RecordArgs:                  recordArgs,
+		CaseRelativeValidateCommand: caseRelativeValidateCommand,
+		CaseRelativeRecordCommand:   caseRelativeRecordCommand,
+		CaseRelativeValidateArgs:    caseRelativeValidateArgs,
+		CaseRelativeRecordArgs:      caseRelativeRecordArgs,
+		ReplayBehavior:              "repeating RecordArgs with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations",
 		Notes: []string{
 			"ValidateArgs is read-only: isMutation=false, applied=false, and no observations/authority/confirmed writes.",
 			"RecordArgs records observation evidence only after strict sidecar validation; it never executes the heavy tool.",
