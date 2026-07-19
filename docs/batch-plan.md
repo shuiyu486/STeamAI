@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 410：Authorized execution duplicate/idempotent review projection closure
 
-状态：已完成本地实现、durable docs 与本机验证；待提交、推送与远程 release-gate inspection。
+状态：已完成本地实现、durable docs、本机验证、提交/推送与远程 release-gate inspection。
 
 目标：Batch 408 已让 `gate -Apply -GateEventId ...` execution evidence record result 立即输出 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]`，但 duplicate eventId 路径虽然顶层 `missionCommanderAction` 已是 `evidence-already-recorded`，即时 review queue / next-action projection 仍可能从 normal observation review 语义重建，导致主 Agent 看到 normal `/rekit continue ... -WhatIf` 或 lane-level continue 候选。本批把 duplicate no-append / no-replay 语义贯穿到即时 review queue、next actions 与 CLI text。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - CLI text coverage 锁定 duplicate record 输出 `applied=false`、`evidence-already-recorded`、review-only `mission commander next action` lines 与 no-append boundary。
 - package coverage 锁定 duplicate no-append、no-continue、review queue idempotent state、next-action source/order/boundary 与 no authority/confirmed。
 
-验证结果：已通过 focused `go test ./internal/rekit/gate ./internal/rekit/cli -run "TestRecordExecutionDuplicateDoesNotAppend|TestRunGateDuplicateExecutionEvidenceProjectsIdempotentNextActions|TestRunGateExecutionEvidenceTextOutputsNextActions|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs` 与 `go run ./cmd/rekit -- -Command doctor`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 待最终 docs edit 后运行。
+验证结果：已通过 focused `go test ./internal/rekit/gate ./internal/rekit/cli -run "TestRecordExecutionDuplicateDoesNotAppend|TestRunGateDuplicateExecutionEvidenceProjectsIdempotentNextActions|TestRunGateExecutionEvidenceTextOutputsNextActions|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `32e59c3 Add duplicate evidence idempotent next actions`；远程 release-gate run `29702472573` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 409 已完成 pack-memory cleanup/reconsume `missionCommanderNextActions[]` 与 Go CLI text output，详见 `docs/batch-history.md`。
 
