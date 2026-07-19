@@ -11172,13 +11172,13 @@ git diff --check
 
 ### Batch 402：Execution evidence review handoff text suppression closure
 
-状态：已完成 project/lane handoff Markdown evidence-first consumption、本地验证与 durable docs；commit/push 与远程 release-gate inspection 待收尾记录。
+状态：已完成 project/lane handoff Markdown evidence-first consumption、本地验证、durable docs、commit/push 与远程 release-gate inspection。
 
 目标：Batch 401 已让 overview 与 project/lane handoff JSON `nextSteps[]` 抑制 escalated evidence 场景下的 autonomous continue；本批补齐人类/替换 executor 最常读的 Markdown 层，避免 project handoff 逐 lane 文本和 lane handoff 新会话开场仍把 ready lane continue 显示为当前动作。
 
 实施范围：project handoff 逐 lane 行在 execution evidence review queue 存在时先输出 `evidence next action`；当 queue 含 boundary-hit/escalated/escalation evidence 时，不再输出 `next action：/rekit continue <lane>` / `continue command` 作为当前动作，而改为 `evidence review 后继续候选` 并说明当前因 evidence boundary/escalation 不推荐 autonomous continue。lane handoff 新会话开场同样在 ready lane + escalated evidence 时要求先 review execution evidence、通知 main Agent，并明确当前不要执行 continue，同时列出 evidence next action。该批只增强已记录 observation evidence 的只读 handoff 文本消费顺序；不 replay heavy-tool、不运行 adapter、不执行 continue、不新增 observation/request、不写 authority/confirmed；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
 
-验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunHandoffApplyWritesProjectAndLane" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待记录。
+验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunHandoffApplyWritesProjectAndLane" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `1ad2394 Suppress handoff continue for evidence escalation`；远程 release-gate run `29695788359` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 ### Batch 401：Execution evidence review next steps consumption follow-through
 
