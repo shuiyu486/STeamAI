@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 409：Pack-memory cleanup / reconsume next-action command UX closure
 
-状态：已完成本地实现、durable docs、full local validation；提交/推送与远程 release-gate inspection 待记录。
+状态：已完成本地实现、durable docs、full local validation、提交/推送与远程 release-gate inspection。
 
 目标：Batch 398/403 已让 `promote -CreateCandidates` 的 `reviewPlan` 暴露 decision checklist、cleanup targets、reconsume verification checklist 与 main-agent execution plan，但主 Agent 仍需在 `decisionChecklist[]`、`cleanupTargets[]`、`mainAgentExecutionPlan[]` 与 `reconsume.verificationChecklist[]` 间手工拼接执行顺序。本批把 pack-memory candidate review / cleanup / reconsume 收口为 `missionCommanderNextActions[]` 与 Go CLI text output 的可消费 next-action command UX。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `promote -CreateCandidates -WhatIf -Format text` 继续 fail-closed，保持既有 WhatIf JSON-only preview 边界。
 - package 与 CLI coverage 锁定 WhatIf/actual JSON projection、actual text output、indexPath cleanup、fresh/attached reconsume commands、no authority/confirmed、no heavy-tool 与 runtime-does-not-execute boundaries。
 
-验证结果：已通过 focused `go test ./internal/rekit/promote ./internal/rekit/cli -run "TestCreateCandidatesWhatIfDoesNotWrite|TestPackMemoryPromoteReconsumeE2E|TestRunPromoteCreateCandidatesWhatIf|TestRunPromoteCreateCandidatesWritesCandidates|TestRunPromoteCreateCandidatesRejectsReviewArtifacts" -count=1`、affected package `go test ./internal/rekit/promote ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。提交/推送与远程 release-gate inspection 待记录。
+验证结果：已通过 focused `go test ./internal/rekit/promote ./internal/rekit/cli -run "TestCreateCandidatesWhatIfDoesNotWrite|TestPackMemoryPromoteReconsumeE2E|TestRunPromoteCreateCandidatesWhatIf|TestRunPromoteCreateCandidatesWritesCandidates|TestRunPromoteCreateCandidatesRejectsReviewArtifacts" -count=1`、affected package `go test ./internal/rekit/promote ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `8ba5004 Add promote candidate next actions`；远程 release-gate run `29701613676` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 408 已完成 `gate -Apply -GateEventId ...` execution evidence record result 的 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]` 即时投影，详见 `docs/batch-history.md`。
 
