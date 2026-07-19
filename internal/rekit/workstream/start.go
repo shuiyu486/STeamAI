@@ -106,20 +106,21 @@ type Lane struct {
 type laneExecutorAction = mission.ExecutorAction
 
 type ExecutionEvidenceReviewItem struct {
-	EventID        string   `json:"eventId,omitempty"`
-	GateEventID    string   `json:"gateEventId,omitempty"`
-	Subject        string   `json:"subject,omitempty"`
-	Summary        string   `json:"summary,omitempty"`
-	Status         string   `json:"status,omitempty"`
-	Action         string   `json:"action,omitempty"`
-	Target         string   `json:"target,omitempty"`
-	OutputRefs     []string `json:"outputRefs,omitempty"`
-	EvidenceRefs   []string `json:"evidenceRefs,omitempty"`
-	BoundaryHits   []string `json:"boundaryHits,omitempty"`
-	Escalation     string   `json:"escalation,omitempty"`
-	ReviewCommand  string   `json:"reviewCommand"`
-	HandoffCommand string   `json:"handoffCommand"`
-	Boundary       []string `json:"boundary"`
+	EventID                string                         `json:"eventId,omitempty"`
+	GateEventID            string                         `json:"gateEventId,omitempty"`
+	Subject                string                         `json:"subject,omitempty"`
+	Summary                string                         `json:"summary,omitempty"`
+	Status                 string                         `json:"status,omitempty"`
+	Action                 string                         `json:"action,omitempty"`
+	Target                 string                         `json:"target,omitempty"`
+	OutputRefs             []string                       `json:"outputRefs,omitempty"`
+	EvidenceRefs           []string                       `json:"evidenceRefs,omitempty"`
+	BoundaryHits           []string                       `json:"boundaryHits,omitempty"`
+	Escalation             string                         `json:"escalation,omitempty"`
+	ReviewCommand          string                         `json:"reviewCommand"`
+	HandoffCommand         string                         `json:"handoffCommand"`
+	Boundary               []string                       `json:"boundary"`
+	MissionCommanderAction mission.MissionCommanderAction `json:"missionCommanderAction"`
 }
 
 type laneCheckpoint struct {
@@ -1088,6 +1089,9 @@ func ExecutionEvidenceReviewItems(observations []map[string]any, laneID string, 
 		if label == "" {
 			label = mission.BoardLaneLabel(mission.BoardLane{ID: lane})
 		}
+		if label == "" {
+			label = "main"
+		}
 		status := firstObjectText(observation, "status")
 		if status == "" {
 			status = firstObjectText(execution, "status")
@@ -1103,7 +1107,7 @@ func ExecutionEvidenceReviewItems(observations []map[string]any, laneID string, 
 		if status == "boundary-hit" || status == "escalated" || len(boundaryHits) > 0 || escalation != "" {
 			boundary = append(boundary, "boundary/escalation requires main review before autonomous continuation")
 		}
-		items = append(items, ExecutionEvidenceReviewItem{
+		item := ExecutionEvidenceReviewItem{
 			EventID:        firstObjectText(observation, "eventId"),
 			GateEventID:    gateEventID,
 			Subject:        firstObjectText(observation, "subject"),
@@ -1118,12 +1122,49 @@ func ExecutionEvidenceReviewItems(observations []map[string]any, laneID string, 
 			ReviewCommand:  "review outputRefs/evidenceRefs for gateEventId " + gateEventID,
 			HandoffCommand: "/rekit handoff " + label,
 			Boundary:       boundary,
-		})
+		}
+		item.MissionCommanderAction = executionEvidenceReviewCommanderAction(item, label)
+		items = append(items, item)
 	}
 	if len(items) > maxHandoffRows {
 		return items[len(items)-maxHandoffRows:]
 	}
 	return items
+}
+
+func executionEvidenceReviewCommanderAction(item ExecutionEvidenceReviewItem, label string) mission.MissionCommanderAction {
+	state := "ready-for-evidence-review"
+	prompt := "authorized gate `" + item.GateEventID + "` 的 observation evidence 已记录；先 review output/evidence refs，再考虑任何 authority/confirmed outcome。"
+	if executionEvidenceReviewNeedsMainReview(item) {
+		state = "needs-main-escalation"
+		prompt = "authorized gate `" + item.GateEventID + "` 的 observation evidence 记录了 boundary/escalation；停止该 action 的自主推进并通知 main Agent。"
+	}
+	boundary := append([]string{}, item.Boundary...)
+	if len(boundary) == 0 {
+		boundary = []string{
+			"observation evidence is already recorded; do not replay heavy tool",
+			"review outputRefs/evidenceRefs before any authority/confirmed outcome",
+			"no authority/confirmed writes",
+		}
+	}
+	followUp := []string{"/rekit overview"}
+	if label == "" {
+		label = "main"
+	}
+	if !executionEvidenceReviewNeedsMainReview(item) {
+		followUp = append(followUp, "/rekit continue "+label+" -WhatIf")
+	}
+	return mission.MissionCommanderAction{
+		State:            state,
+		Prompt:           prompt,
+		PrimaryCommand:   item.HandoffCommand,
+		FollowUpCommands: followUp,
+		Boundary:         boundary,
+	}
+}
+
+func executionEvidenceReviewNeedsMainReview(item ExecutionEvidenceReviewItem) bool {
+	return item.Status == "boundary-hit" || item.Status == "escalated" || item.Escalation != "" || len(item.BoundaryHits) > 0
 }
 
 func appendResumeExecutionEvidenceReview(lines []string, items []ExecutionEvidenceReviewItem) []string {
@@ -1141,6 +1182,11 @@ func appendResumeExecutionEvidenceReview(lines []string, items []ExecutionEviden
 		}
 		lines = append(lines, "    - review command: `"+item.ReviewCommand+"`")
 		lines = append(lines, "    - handoff command: `"+item.HandoffCommand+"`")
+		lines = append(lines, "    - commander state: "+item.MissionCommanderAction.State)
+		lines = append(lines, "    - commander primary: `"+item.MissionCommanderAction.PrimaryCommand+"`")
+		for _, followUp := range mission.LimitStrings(item.MissionCommanderAction.FollowUpCommands, maxHandoffRows) {
+			lines = append(lines, "    - commander follow-up: "+followUp)
+		}
 		for _, boundary := range mission.LimitStrings(item.Boundary, maxHandoffRows) {
 			lines = append(lines, "    - boundary: "+boundary)
 		}

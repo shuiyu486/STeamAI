@@ -50,6 +50,12 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 			ReviewCommand:  "review outputRefs/evidenceRefs for gateEventId evt-authorized",
 			HandoffCommand: "/rekit handoff main",
 			Boundary:       []string{"observation evidence is already recorded; do not replay heavy tool", "review outputRefs/evidenceRefs before any authority/confirmed outcome"},
+			MissionCommanderAction: mission.MissionCommanderAction{
+				State:            "ready-for-evidence-review",
+				PrimaryCommand:   "/rekit handoff main",
+				FollowUpCommands: []string{"/rekit overview", "/rekit continue main -WhatIf"},
+				Boundary:         []string{"observation evidence is already recorded; do not replay heavy tool", "review outputRefs/evidenceRefs before any authority/confirmed outcome"},
+			},
 		}},
 		OpenInterventions: []InterventionSummary{},
 		Inbox:             2,
@@ -81,9 +87,13 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 			OpenDecisionRequired bool     `json:"openDecisionRequired"`
 			ResumeCommand        string   `json:"resumeCommand"`
 		} `json:"executorAction"`
-		AuthorizedGates         []string                      `json:"authorizedGates"`
-		ExecutionEvidenceReview []ExecutionEvidenceReviewItem `json:"executionEvidenceReview"`
-		Resume                  string                        `json:"resume"`
+		AuthorizedGates         []string `json:"authorizedGates"`
+		ExecutionEvidenceReview []struct {
+			GateEventID            string                         `json:"gateEventId"`
+			HandoffCommand         string                         `json:"handoffCommand"`
+			MissionCommanderAction mission.MissionCommanderAction `json:"missionCommanderAction"`
+		} `json:"executionEvidenceReview"`
+		Resume string `json:"resume"`
 	}
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatalf("lane checkpoint json did not decode: %v\n%s", err, string(encoded))
@@ -94,7 +104,7 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 	if !decoded.ExecutorAction.Blocked || !decoded.ExecutorAction.OpenDecisionRequired || decoded.ExecutorAction.OpenDecisions != 1 || decoded.ExecutorAction.PendingGates != 0 || decoded.ExecutorAction.OpenInterventions != 0 || decoded.ExecutorAction.ResumeCommand != "/rekit continue main" || len(decoded.ExecutorAction.BlockerReasons) != 1 {
 		t.Fatalf("checkpoint executor action contract drifted: %+v", decoded.ExecutorAction)
 	}
-	if len(decoded.AuthorizedGates) != 1 || len(decoded.ExecutionEvidenceReview) != 1 || decoded.ExecutionEvidenceReview[0].GateEventID != "evt-authorized" || decoded.ExecutionEvidenceReview[0].HandoffCommand != "/rekit handoff main" || decoded.Resume != ".rekit/lanes/main/prompts/RESUME.md" {
+	if len(decoded.AuthorizedGates) != 1 || len(decoded.ExecutionEvidenceReview) != 1 || decoded.ExecutionEvidenceReview[0].GateEventID != "evt-authorized" || decoded.ExecutionEvidenceReview[0].HandoffCommand != "/rekit handoff main" || decoded.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || decoded.ExecutionEvidenceReview[0].MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || decoded.Resume != ".rekit/lanes/main/prompts/RESUME.md" {
 		t.Fatalf("checkpoint shortcut fields drifted: %+v", decoded)
 	}
 }

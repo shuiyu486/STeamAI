@@ -403,6 +403,10 @@ func writeProjectLaneExecutionEvidenceReview(out *bytes.Buffer, items []Executio
 		fmt.Fprintf(out, "  - execution evidence review：%s status=%s gateEventId=%s action=%s\n", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, firstText(item.Action, "none"))
 		fmt.Fprintf(out, "  - evidence review command：`%s`\n", item.ReviewCommand)
 		fmt.Fprintf(out, "  - evidence handoff：`%s`\n", item.HandoffCommand)
+		fmt.Fprintf(out, "  - evidence commander：state=%s primary=`%s`\n", item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand)
+		for _, followUp := range mission.LimitStrings(item.MissionCommanderAction.FollowUpCommands, maxHandoffRows) {
+			fmt.Fprintf(out, "  - evidence commander follow-up：%s\n", followUp)
+		}
 		for _, boundary := range mission.LimitStrings(item.Boundary, maxHandoffRows) {
 			fmt.Fprintf(out, "  - evidence boundary：%s\n", boundary)
 		}
@@ -905,6 +909,9 @@ func writeExecutionEvidenceReviewSection(out *bytes.Buffer, items []ExecutionEvi
 		fmt.Fprintf(out, "- %s | status=%s | gateEventId=%s | action=%s | outputRefs=%s | evidenceRefs=%s\n", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, item.Action, firstText(strings.Join(item.OutputRefs, ","), "none"), firstText(strings.Join(item.EvidenceRefs, ","), "none"))
 		fmt.Fprintf(out, "  - review command: `%s`\n", item.ReviewCommand)
 		fmt.Fprintf(out, "  - handoff command: `%s`\n", item.HandoffCommand)
+		fmt.Fprintf(out, "  - commander state: %s\n", item.MissionCommanderAction.State)
+		fmt.Fprintf(out, "  - commander primary: `%s`\n", item.MissionCommanderAction.PrimaryCommand)
+		writeHandoffBriefList(out, "commander follow-up", item.MissionCommanderAction.FollowUpCommands)
 		writeHandoffBriefList(out, "review boundary", item.Boundary)
 	}
 	fmt.Fprintln(out)
