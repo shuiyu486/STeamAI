@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 **Batch 382：Adapter live-validation replay and actor guidance closure**
 
-状态：已强化 `gate -ExecutionReportContract` 中 `liveValidation.replayBehavior` 与 notes 的 replay/actor guidance，durable docs 已同步且 full local validation 已通过，待 commit/push 与远程 release-gate inspection。
+状态：已强化 `gate -ExecutionReportContract` 中 `liveValidation.replayBehavior` 与 notes 的 replay/actor guidance，durable docs 已同步且 full local validation、commit/push 与远程 release-gate inspection 已完成；实现/docs 提交为 `39f04e9 Clarify adapter handoff replay guidance`（HEAD `39f04e98ed20f7063448426c47b5ba1bf1164067`），远程 release-gate run `29676993068` 已完成但结论为 failure，Linux/macOS/Windows jobs 均为 failure 且 `steps: []`，符合既有 runner/billing blocker 模式，不能声明远程 CI green。
 
 目标：在 Batch 380/381 已完成 case-relative validate/record handoff projection 与 actual record product path 后，补齐 contract guidance 仍只泛称 `RecordArgs` replay、未显式说明 `CaseRelativeRecordArgs` 以及 `<executor-id>` 替换要求的断点：replacement lane executor / tool adapter 在读取 contract 时应能直接知道两类 record handoff 的 idempotent replay 语义和执行前 actor placeholder replacement 要求，避免误以为 case-relative record path 需要不同 replay 处理或可以原样运行 placeholder。
 
@@ -48,7 +48,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 focused gate/CLI、full gate+CLI package tests、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。待 commit/push 与远程 release-gate run/job inspection；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
+本地 focused gate/CLI、full gate+CLI package tests、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `39f04e9 Clarify adapter handoff replay guidance`（HEAD `39f04e98ed20f7063448426c47b5ba1bf1164067`）。远程 release-gate run `29676993068` 已完成，结论为 failure；Linux/macOS/Windows `Go release checks` jobs 均为 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
 
 ### Next candidates
 
