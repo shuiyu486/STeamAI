@@ -440,7 +440,7 @@ func writeProjectLaneMissionCommanderNextActions(out *bytes.Buffer, items []miss
 		fmt.Fprintln(out, "  - commander next action：none")
 		return
 	}
-	for _, item := range mission.LimitStrings(missionCommanderNextActionLines(items), maxHandoffRows) {
+	for _, item := range missionCommanderNextActionLines(limitMissionCommanderNextActionItems(items, maxHandoffRows)) {
 		fmt.Fprintf(out, "  - commander next action：%s\n", item)
 	}
 }
@@ -453,7 +453,7 @@ func writeLaneMissionCommanderNextActions(out *bytes.Buffer, items []mission.Mis
 		fmt.Fprintln(out)
 		return
 	}
-	for _, item := range mission.LimitStrings(missionCommanderNextActionLines(items), maxHandoffRows) {
+	for _, item := range missionCommanderNextActionLines(limitMissionCommanderNextActionItems(items, maxHandoffRows)) {
 		fmt.Fprintf(out, "- %s\n", item)
 	}
 	fmt.Fprintln(out)
@@ -463,8 +463,21 @@ func missionCommanderNextActionLines(items []mission.MissionCommanderNextActionI
 	lines := make([]string, 0, len(items))
 	for _, item := range items {
 		lines = append(lines, fmt.Sprintf("state=%s source=%s blocked=%t requiresReview=%t command=`%s`", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command))
+		for _, reason := range item.Reasons {
+			lines = append(lines, "reason: "+reason)
+		}
+		for _, boundary := range item.Boundary {
+			lines = append(lines, "boundary: "+boundary)
+		}
 	}
 	return lines
+}
+
+func limitMissionCommanderNextActionItems(items []mission.MissionCommanderNextActionItem, n int) []mission.MissionCommanderNextActionItem {
+	if n <= 0 || len(items) <= n {
+		return items
+	}
+	return items[len(items)-n:]
 }
 
 func writeProjectLaneCommanderList(out *bytes.Buffer, label string, items []string) {

@@ -120,6 +120,52 @@ func TestLaneExecutorActionReadyUsesSharedMissionBrief(t *testing.T) {
 	}
 }
 
+func TestMissionCommanderNextActionsIncludeLaneFollowUps(t *testing.T) {
+	items := MissionCommanderNextActions([]LaneExecutorActionSnapshot{
+		{
+			Lane:  "main",
+			Label: "main",
+			ExecutorAction: ExecutorAction{
+				Ready: true,
+				MissionCommanderAction: MissionCommanderAction{
+					State:            "ready-to-continue",
+					PrimaryCommand:   "/rekit continue main",
+					FollowUpCommands: []string{"/rekit handoff main"},
+					Boundary:         []string{"no authority/confirmed writes"},
+				},
+			},
+		},
+		{
+			Lane:  "feature-login",
+			Label: "login",
+			ExecutorAction: ExecutorAction{
+				Blocked:        true,
+				BlockerReasons: []string{"intervention"},
+				MissionCommanderAction: MissionCommanderAction{
+					State:            "needs-reconcile",
+					PrimaryCommand:   "/rekit reconcile login -InterventionId <eventId> -Apply",
+					FollowUpCommands: []string{"/rekit continue login -WhatIf", "/rekit handoff login"},
+					Boundary:         []string{"do not run continue for blocked lanes"},
+				},
+			},
+		},
+	}, nil, false)
+
+	if len(items) != 5 || items[0].Source != "missionCommanderActions" || items[0].Command != "/rekit continue main" || items[1].Source != "missionCommanderActions" || items[1].Command != "/rekit reconcile login -InterventionId <eventId> -Apply" {
+		t.Fatalf("unexpected primary action ordering: %+v", items)
+	}
+	if !slices.ContainsFunc(items, func(item MissionCommanderNextActionItem) bool {
+		return item.Source == "missionCommanderActions.followUp" && item.Command == "/rekit handoff main" && !item.Blocked && !item.RequiresReview && containsSubstring(item.Reasons, "follow Mission Commander handoff after primary action")
+	}) {
+		t.Fatalf("ready lane follow-up handoff missing: %+v", items)
+	}
+	if !slices.ContainsFunc(items, func(item MissionCommanderNextActionItem) bool {
+		return item.Source == "missionCommanderActions.followUp" && item.Command == "/rekit continue login -WhatIf" && item.Blocked && item.RequiresReview && containsSubstring(item.Reasons, "run as -WhatIf first") && containsSubstring(item.Boundary, "do not run continue")
+	}) {
+		t.Fatalf("blocked lane continue follow-up should remain blocked with reason/boundary: %+v", items)
+	}
+}
+
 func TestFactsWithEventCopiesAndRoutesBlockerKinds(t *testing.T) {
 	base := Facts{Candidates: []map[string]any{{"kind": "candidate", "lane": "main", "subject": "existing"}}}
 	candidate := map[string]any{"kind": "candidate", "lane": "main", "subject": "new"}

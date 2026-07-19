@@ -262,6 +262,22 @@ func MissionCommanderNextActions(actions []LaneExecutorActionSnapshot, evidenceR
 			Boundary:       append([]string{}, action.Boundary...),
 		})
 	}
+	for _, item := range actions {
+		action := item.ExecutorAction.MissionCommanderAction
+		for _, followUp := range action.FollowUpCommands {
+			items = append(items, MissionCommanderNextActionItem{
+				Lane:           item.Lane,
+				Label:          item.Label,
+				State:          action.State,
+				Command:        followUp,
+				Source:         "missionCommanderActions.followUp",
+				Blocked:        item.ExecutorAction.Blocked,
+				RequiresReview: item.ExecutorAction.Blocked,
+				Reasons:        commanderActionFollowUpReasons(item.ExecutorAction, followUp),
+				Boundary:       append([]string{}, action.Boundary...),
+			})
+		}
+	}
 	return UniqueCommanderNextActions(items)
 }
 
@@ -280,6 +296,19 @@ func commanderActionReasons(action ExecutorAction) []string {
 	}
 	if len(reasons) == 0 {
 		reasons = append(reasons, "read-only handoff")
+	}
+	return reasons
+}
+
+func commanderActionFollowUpReasons(action ExecutorAction, command string) []string {
+	reasons := commanderActionReasons(action)
+	if action.Blocked {
+		reasons = append(reasons, "follow-up is available only after resolving current lane blockers")
+		if strings.Contains(command, "/rekit continue") {
+			reasons = append(reasons, "run as -WhatIf first; do not continue autonomously while lane remains blocked")
+		}
+	} else {
+		reasons = append(reasons, "follow Mission Commander handoff after primary action")
 	}
 	return reasons
 }
