@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 417：Start / replaceable executor takeover Mission Commander next-action projection closure
 
-状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待执行。
+状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 387 已跑通 replaceable session executor takeover，Batch 391 让 `start` nested `executorAction.missionCommanderAction` 暴露 start/apply/continue guidance，Batch 404/405/407/413 又把 overview、handoff、continue、resume/checkpoint 的 Mission Commander next actions 收口到共享 list；但 `start -WhatIf/-Apply -Format json` 顶层仍缺 `missionCommanderAction` / `missionCommanderNextActions[]`，CLI text 也不打印 next-action list，替换 executor 仍需从 nested `executorAction.missionCommanderAction` 与 `nextSteps[]` 手工拼接“preview 后 apply、apply 后 continue/handoff、blocked lane 先 reconcile/gate/decision”的顺序。本批把 start / takeover 的 immediate product-path guidance 收口到顶层 Mission Commander projection。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `start -Apply` 直接投影 ready lane 的 continue/handoff 或 blocked lane 的 reconcile/gate/decision next actions；CLI text 同步打印 `mission commander next action` lines，避免文本/default consumption 回查 JSON 或手工拼接。
 - package/CLI coverage 锁定 new lane preview、existing main replacement takeover preview、apply continue projection、blocked lane text projection、ready/blocked next-action source、no authority/confirmed/no-heavy-tool/no PowerShell runtime logic 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/workstream -run "TestLaneExecutorAction|TestStartMissionCommanderNextActions" -count=1`、`go test ./internal/rekit/cli -run "TestRunStart|TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath" -count=1`、affected package `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `go test ./internal/rekit/workstream -run "TestLaneExecutorAction|TestStartMissionCommanderNextActions" -count=1`、`go test ./internal/rekit/cli -run "TestRunStart|TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath" -count=1`、affected package `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `88cd4bd Add start commander next actions`；远程 release-gate run `29708680337` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 416 已完成 Plan-subagents planning Mission Commander dispatch guidance closure，详见 `docs/batch-history.md`。
 
