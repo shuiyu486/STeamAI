@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 395：Mission Commander lane handoff consumption closure
 
-状态：已完成本地实现与 focused tests；提交/推送在本批收尾执行。
+状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
 
 目标：把 project handoff、lane handoff 与 lane `RESUME.md` 中已有的 `missionCommanderAction` 进一步做成替换 executor / 新会话可直接消费的文本接手层，避免只能看到 state/prompt 或必须回到 JSON 才能取得 primary command、follow-up 与 boundary。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - lane `RESUME.md` 的 executor action snapshot 同步新增 `commander primary command`，让替换 executor 从 durable resume 直接恢复首选命令。
 - CLI coverage 锁定 project handoff ready/blocked lane 的 primary/follow-up/boundary、lane handoff JSON/text 的 blocked lane reconcile guidance，以及 `RESUME.md` 中 primary/follow-up/boundary 的一致投影。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunHandoffApplyWritesProjectAndLane -count=1`、`go test ./internal/rekit/workstream -count=1`、`go test ./internal/rekit/cli -run 'TestRunHandoffPreviewDoesNotWrite|TestRunProjectHandoffMissionBriefBlocksOpenDecisions|TestRunHandoffMissionBriefBlocksOpenDecisions' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error；提交/推送在本批收尾执行。远程 release-gate 仍按既有 GitHub runner/billing known gap 处理，不能把 inventory readiness 声明为远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunHandoffApplyWritesProjectAndLane -count=1`、`go test ./internal/rekit/workstream -count=1`、`go test ./internal/rekit/cli -run 'TestRunHandoffPreviewDoesNotWrite|TestRunProjectHandoffMissionBriefBlocksOpenDecisions|TestRunHandoffMissionBriefBlocksOpenDecisions' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `ebb912f Add lane handoff commander commands`；远程 release-gate run `29690064794` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 394 已完成 pack-memory reconsume Mission Commander follow-through；`promote -CreateCandidates` review plan 现在投影 `missionCommanderAction`，详见 `docs/batch-history.md`。
 
