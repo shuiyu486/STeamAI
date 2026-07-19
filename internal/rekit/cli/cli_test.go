@@ -2177,6 +2177,11 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 			t.Fatalf("overview missing %q:\n%s", expected, text)
 		}
 	}
+	for _, expected := range []string{"Mission Commander action index：", "main：state=needs-reconcile blocked=true ready=false primary=`/rekit reconcile main -InterventionId <eventId> -Apply`", "follow-up:", "/rekit continue main -WhatIf", "/rekit handoff main", "boundary:", "no authority/confirmed writes", "do not run continue for blocked lanes"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("overview missing Mission Commander action index %q:\n%s", expected, text)
+		}
+	}
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, after)
 }
@@ -2221,8 +2226,9 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 			NextAgentActions []string `json:"nextAgentActions"`
 			Escalations      []string `json:"escalations"`
 		} `json:"missionBrief"`
-		LaneExecutorActions []handoffLaneExecutorAction `json:"laneExecutorActions"`
-		Sections            struct {
+		LaneExecutorActions     []handoffLaneExecutorAction  `json:"laneExecutorActions"`
+		MissionCommanderActions []missionCommanderActionItem `json:"missionCommanderActions"`
+		Sections                struct {
 			OpenCandidates struct {
 				Total  int              `json:"total"`
 				Shown  int              `json:"shown"`
@@ -2274,6 +2280,9 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	}
 	if len(result.LaneExecutorActions) != 1 || result.LaneExecutorActions[0].Lane != "main" || result.LaneExecutorActions[0].CurrentExecutor != "session-main" || result.LaneExecutorActions[0].ExecutorGeneration != 3 || result.LaneExecutorActions[0].LastTakeoverBy != "main-agent" || result.LaneExecutorActions[0].LastTakeoverReason != "fixture" || !result.LaneExecutorActions[0].ExecutorAction.Blocked || result.LaneExecutorActions[0].ExecutorAction.Ready || result.LaneExecutorActions[0].ExecutorAction.PendingGates != 1 || result.LaneExecutorActions[0].ExecutorAction.OpenInterventions != 1 || result.LaneExecutorActions[0].ExecutorAction.OpenDecisions != 3 {
 		t.Fatalf("unexpected overview lane executor actions: %+v", result.LaneExecutorActions)
+	}
+	if len(result.MissionCommanderActions) != 1 || result.MissionCommanderActions[0].Lane != "main" || result.MissionCommanderActions[0].Label != "main" || !result.MissionCommanderActions[0].Blocked || result.MissionCommanderActions[0].Ready || result.MissionCommanderActions[0].PrimaryCommand != "/rekit reconcile main -InterventionId <eventId> -Apply" || result.MissionCommanderActions[0].Action.State != "needs-reconcile" || !containsSubstring(result.MissionCommanderActions[0].FollowUpCommands, "/rekit continue main -WhatIf") || !containsSubstring(result.MissionCommanderActions[0].Boundary, "do not run continue") || !slices.Contains(result.MissionCommanderActions[0].BlockerReasons, "intervention") {
+		t.Fatalf("overview JSON missing Mission Commander action index: %+v", result.MissionCommanderActions)
 	}
 	commander := result.LaneExecutorActions[0].ExecutorAction.MissionCommanderAction
 	if commander.State != "needs-reconcile" || commander.PrimaryCommand != "/rekit reconcile main -InterventionId <eventId> -Apply" || !containsSubstring(commander.FollowUpCommands, "/rekit continue main -WhatIf") || !containsSubstring(commander.Boundary, "do not run continue") {
@@ -6571,6 +6580,19 @@ type missionCommanderActionSnapshot struct {
 	PrimaryCommand   string   `json:"primaryCommand"`
 	FollowUpCommands []string `json:"followUpCommands"`
 	Boundary         []string `json:"boundary"`
+}
+
+type missionCommanderActionItem struct {
+	Lane             string                         `json:"lane"`
+	Label            string                         `json:"label"`
+	Status           string                         `json:"status"`
+	Blocked          bool                           `json:"blocked"`
+	Ready            bool                           `json:"ready"`
+	BlockerReasons   []string                       `json:"blockerReasons"`
+	PrimaryCommand   string                         `json:"primaryCommand"`
+	FollowUpCommands []string                       `json:"followUpCommands"`
+	Boundary         []string                       `json:"boundary"`
+	Action           missionCommanderActionSnapshot `json:"action"`
 }
 
 type missionBrief struct {

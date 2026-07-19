@@ -22,19 +22,20 @@ const maxRows = 10
 type event = map[string]any
 
 type Inventory struct {
-	SchemaVersion       int                                  `json:"schemaVersion"`
-	Command             string                               `json:"command"`
-	CaseRoot            string                               `json:"caseRoot"`
-	RepoRoot            string                               `json:"repoRoot"`
-	Pack                string                               `json:"pack"`
-	IsMutation          bool                                 `json:"isMutation"`
-	AutomationMode      string                               `json:"automationMode"`
-	Lanes               []LaneSummary                        `json:"lanes"`
-	Counts              FactCounts                           `json:"counts"`
-	MissionBrief        MissionBrief                         `json:"missionBrief"`
-	LaneExecutorActions []mission.LaneExecutorActionSnapshot `json:"laneExecutorActions"`
-	Sections            OverviewSections                     `json:"sections"`
-	NextSteps           []string                             `json:"nextSteps"`
+	SchemaVersion           int                                  `json:"schemaVersion"`
+	Command                 string                               `json:"command"`
+	CaseRoot                string                               `json:"caseRoot"`
+	RepoRoot                string                               `json:"repoRoot"`
+	Pack                    string                               `json:"pack"`
+	IsMutation              bool                                 `json:"isMutation"`
+	AutomationMode          string                               `json:"automationMode"`
+	Lanes                   []LaneSummary                        `json:"lanes"`
+	Counts                  FactCounts                           `json:"counts"`
+	MissionBrief            MissionBrief                         `json:"missionBrief"`
+	LaneExecutorActions     []mission.LaneExecutorActionSnapshot `json:"laneExecutorActions"`
+	MissionCommanderActions []MissionCommanderActionIndexItem    `json:"missionCommanderActions"`
+	Sections                OverviewSections                     `json:"sections"`
+	NextSteps               []string                             `json:"nextSteps"`
 }
 
 type LaneSummary struct {
@@ -52,6 +53,19 @@ type LaneSummary struct {
 	AutonomyMode       string `json:"autonomyMode"`
 	AutonomyReady      bool   `json:"autonomyReady"`
 	AutonomyProfile    string `json:"autonomyProfile"`
+}
+
+type MissionCommanderActionIndexItem struct {
+	Lane             string                         `json:"lane"`
+	Label            string                         `json:"label"`
+	Status           string                         `json:"status"`
+	Blocked          bool                           `json:"blocked"`
+	Ready            bool                           `json:"ready"`
+	BlockerReasons   []string                       `json:"blockerReasons,omitempty"`
+	PrimaryCommand   string                         `json:"primaryCommand,omitempty"`
+	FollowUpCommands []string                       `json:"followUpCommands,omitempty"`
+	Boundary         []string                       `json:"boundary,omitempty"`
+	Action           mission.MissionCommanderAction `json:"action"`
 }
 
 type MissionBrief = mission.Brief
@@ -149,6 +163,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
 	writeMissionBrief(&out, brief)
 	writeLaneExecutorActions(&out, actions)
+	writeMissionCommanderActionIndex(&out, missionCommanderActionIndex(actions))
 	writeOpenCandidates(&out, facts.Candidates)
 	writePendingGates(&out, facts.Requests)
 	writeAuthorizedGates(&out, facts.Requests)
@@ -210,10 +225,11 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 			Publications:     len(facts.Publications),
 			PendingDecisions: data.pending,
 		},
-		MissionBrief:        brief,
-		LaneExecutorActions: actions,
-		Sections:            data.sections,
-		NextSteps:           overviewNextSteps(brief),
+		MissionBrief:            brief,
+		LaneExecutorActions:     actions,
+		MissionCommanderActions: missionCommanderActionIndex(actions),
+		Sections:                data.sections,
+		NextSteps:               overviewNextSteps(brief),
 	}, nil
 }
 
@@ -340,6 +356,56 @@ func writeLaneExecutorActions(out *bytes.Buffer, actions []mission.LaneExecutorA
 		fmt.Fprintf(out, "  - commander: state=%s prompt=%s\n", action.MissionCommanderAction.State, action.MissionCommanderAction.Prompt)
 	}
 	fmt.Fprintln(out)
+}
+
+func missionCommanderActionIndex(actions []mission.LaneExecutorActionSnapshot) []MissionCommanderActionIndexItem {
+	items := make([]MissionCommanderActionIndexItem, 0, len(actions))
+	for _, item := range actions {
+		action := item.ExecutorAction.MissionCommanderAction
+		items = append(items, MissionCommanderActionIndexItem{
+			Lane:             item.Lane,
+			Label:            item.Label,
+			Status:           item.Status,
+			Blocked:          item.ExecutorAction.Blocked,
+			Ready:            item.ExecutorAction.Ready,
+			BlockerReasons:   append([]string{}, item.ExecutorAction.BlockerReasons...),
+			PrimaryCommand:   action.PrimaryCommand,
+			FollowUpCommands: append([]string{}, action.FollowUpCommands...),
+			Boundary:         append([]string{}, action.Boundary...),
+			Action:           action,
+		})
+	}
+	return items
+}
+
+func writeMissionCommanderActionIndex(out *bytes.Buffer, items []MissionCommanderActionIndexItem) {
+	fmt.Fprintln(out, "Mission Commander action index：")
+	if len(items) == 0 {
+		fmt.Fprintln(out, "- none")
+		fmt.Fprintln(out)
+		return
+	}
+	for _, item := range items {
+		fmt.Fprintf(out, "- %s：state=%s blocked=%t ready=%t primary=`%s`\n", item.Label, item.Action.State, item.Blocked, item.Ready, item.PrimaryCommand)
+		fmt.Fprintf(out, "  - prompt: %s\n", item.Action.Prompt)
+		writeActionIndexList(out, "follow-up", item.FollowUpCommands)
+		writeActionIndexList(out, "boundary", item.Boundary)
+		if len(item.BlockerReasons) > 0 {
+			fmt.Fprintf(out, "  - blocker reasons: %s\n", strings.Join(item.BlockerReasons, ","))
+		}
+	}
+	fmt.Fprintln(out)
+}
+
+func writeActionIndexList(out *bytes.Buffer, label string, items []string) {
+	if len(items) == 0 {
+		fmt.Fprintf(out, "  - %s: none\n", label)
+		return
+	}
+	fmt.Fprintf(out, "  - %s:\n", label)
+	for _, item := range items {
+		fmt.Fprintf(out, "    - %s\n", item)
+	}
 }
 
 func writeBriefList(out *bytes.Buffer, label string, items []string) {
