@@ -478,6 +478,25 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 			t.Fatalf("adapter report contract failure code %q stage = %q, want %q; codes=%+v", code, codes[code], stage, contract.ValidationFailureCodes)
 		}
 	}
+	hints := map[string]AdapterReportRepairHint{}
+	for _, hint := range contract.ValidationRepairHints {
+		if hint.RepairAction == "" || !hint.RecordBlocked || !hint.RerunValidation || hint.Detail == "" {
+			t.Fatalf("adapter report contract omitted stable repair hint fields: %+v", hint)
+		}
+		hints[hint.Code] = hint
+	}
+	for code, action := range map[string]string{"": "provide-execution-report-path", "report-path-out-of-scope": "move-report-under-authorized-output-path", "report-json-invalid": "fix-report-json", "gate-event-mismatch": "match-authorized-gate-event", "evidence-refs-out-of-scope": "move-evidence-refs-under-authorized-output-paths", "boundary-marker-missing": "add-boundary-marker", "status-summary-missing": "add-required-status-summary"} {
+		hint, ok := hints[code]
+		if !ok {
+			t.Fatalf("adapter report contract omitted repair hint %q: %+v", code, contract.ValidationRepairHints)
+		}
+		if hint.RepairAction != action {
+			t.Fatalf("adapter report contract repair hint %q action = %q, want %q; hints=%+v", code, hint.RepairAction, action, contract.ValidationRepairHints)
+		}
+	}
+	if strings.Join(hints["report-path-out-of-scope"].AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || strings.Join(hints["boundary-marker-missing"].AllowedStopConditions, ",") != "timeout" || hints["status-summary-missing"].MaxBytes != 4096 {
+		t.Fatalf("adapter report contract repair hints omitted boundaries: %+v", contract.ValidationRepairHints)
+	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))

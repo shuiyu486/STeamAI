@@ -5018,6 +5018,15 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 			Code  string `json:"code"`
 			Stage string `json:"stage"`
 		} `json:"validationFailureCodes"`
+		ValidationRepairHints []struct {
+			Code                  string   `json:"code"`
+			RepairAction          string   `json:"repairAction"`
+			AllowedOutputPaths    []string `json:"allowedOutputPaths"`
+			AllowedStopConditions []string `json:"allowedStopConditions"`
+			MaxBytes              int      `json:"maxBytes"`
+			RecordBlocked         bool     `json:"recordBlocked"`
+			RerunValidation       bool     `json:"rerunValidation"`
+		} `json:"validationRepairHints"`
 		SummaryMaxBytes    int `json:"summaryMaxBytes"`
 		EscalationMaxBytes int `json:"escalationMaxBytes"`
 		AuthorizedBudget   struct {
@@ -5045,6 +5054,24 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if !slices.Contains(contractStages, "decode") || !slices.Contains(contractStages, "boundary") || !slices.Contains(contractCodes, "report-json-invalid:decode") || !slices.Contains(contractCodes, "evidence-refs-out-of-scope:refs") || !slices.Contains(contractCodes, "boundary-marker-missing:boundary") || !slices.Contains(contractCodes, "boundary-hits-not-authorized:boundary") || !slices.Contains(contractCodes, "status-summary-missing:summary") {
 		t.Fatalf("adapter report contract omitted validation failure taxonomy: stages=%v codes=%v", contractStages, contractCodes)
+	}
+	contractRepairHints := map[string]int{}
+	for i, hint := range contract.ValidationRepairHints {
+		contractRepairHints[hint.Code] = i
+	}
+	requiredContractHints := []string{"", "report-json-invalid", "evidence-refs-out-of-scope", "boundary-marker-missing", "status-summary-missing"}
+	for _, code := range requiredContractHints {
+		if _, ok := contractRepairHints[code]; !ok {
+			t.Fatalf("adapter report contract omitted validation repair hint %q: %+v", code, contract.ValidationRepairHints)
+		}
+	}
+	missingReportPathHint := contract.ValidationRepairHints[contractRepairHints[""]]
+	reportJSONHint := contract.ValidationRepairHints[contractRepairHints["report-json-invalid"]]
+	evidenceRefsHint := contract.ValidationRepairHints[contractRepairHints["evidence-refs-out-of-scope"]]
+	boundaryHint := contract.ValidationRepairHints[contractRepairHints["boundary-marker-missing"]]
+	summaryHint := contract.ValidationRepairHints[contractRepairHints["status-summary-missing"]]
+	if missingReportPathHint.RepairAction != "provide-execution-report-path" || reportJSONHint.RepairAction != "fix-report-json" || evidenceRefsHint.RepairAction != "move-evidence-refs-under-authorized-output-paths" || boundaryHint.RepairAction != "add-boundary-marker" || strings.Join(evidenceRefsHint.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || strings.Join(boundaryHint.AllowedStopConditions, ",") != "timeout" || summaryHint.MaxBytes != 4096 || !boundaryHint.RecordBlocked || !boundaryHint.RerunValidation {
+		t.Fatalf("adapter report contract omitted validation repair hints: %+v", contract.ValidationRepairHints)
 	}
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-GateEventId", authorizedEventID, "-ExecutionStatus", "succeeded", "-Actor", "executor-1", "-ActualRuntimeSeconds", "25", "-ActualDiskMB", "32", "-ActualRequests", "1", "-OutputRefs", "workspace/main/debug/session-1/result.json", "-ExecutionEvidenceRefs", "workspace/main/debug/session-1/result.json", "-Format", "json"}, &out); err != nil {

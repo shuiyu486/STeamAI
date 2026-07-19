@@ -150,6 +150,7 @@ type AdapterExecutionReportContract struct {
 	EscalationMaxBytes      int                                   `json:"escalationMaxBytes"`
 	ValidationFailureStages []AdapterReportValidationFailureStage `json:"validationFailureStages,omitempty"`
 	ValidationFailureCodes  []AdapterReportValidationFailureCode  `json:"validationFailureCodes,omitempty"`
+	ValidationRepairHints   []AdapterReportRepairHint             `json:"validationRepairHints,omitempty"`
 	DeniedActions           []string                              `json:"deniedActions,omitempty"`
 	LiveValidation          AdapterReportLiveValidation           `json:"liveValidation"`
 	NextSteps               []string                              `json:"nextSteps,omitempty"`
@@ -315,6 +316,14 @@ func adapterReportMissingPathRepairHints(gateEvent EventPreview) []AdapterReport
 		RerunValidation:    true,
 		Detail:             "provide -ExecutionReportPath under an authorized output path before recording evidence",
 	}}
+}
+
+func adapterReportContractRepairHints(gateEvent EventPreview) []AdapterReportRepairHint {
+	hints := adapterReportMissingPathRepairHints(gateEvent)
+	for _, failure := range adapterReportValidationFailureCodes() {
+		hints = append(hints, adapterReportRepairHints(gateEvent, failure.Code, failure.Stage)...)
+	}
+	return hints
 }
 
 func adapterReportRepairHints(gateEvent EventPreview, code, stage string) []AdapterReportRepairHint {
@@ -779,6 +788,7 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) 
 		StatusSummaryRequires:   []string{"summary for failed/boundary-hit/escalated/aborted status"},
 		ValidationFailureStages: adapterReportValidationFailureStages(),
 		ValidationFailureCodes:  adapterReportValidationFailureCodes(),
+		ValidationRepairHints:   adapterReportContractRepairHints(event),
 		DeniedActions:           []string{"heavy-tool execution", "authority writes", "confirmed writes", "out-of-scope output refs", "full trace/dump/log embedding"},
 		LiveValidation:          adapterReportLiveValidation(pack, event),
 		NextSteps:               []string{"adapter writes bounded report under an authorized output path", "preflight the sidecar with gate -ValidateExecutionReport -GateEventId ... -ExecutionReportPath ... -Format json", "main Agent records valid reports with gate -Apply -GateEventId ... -ExecutionReportPath ...", "review refs before any authority/confirmed outcome"},

@@ -16,21 +16,20 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 383：Adapter validation repair hints closure**
+**Batch 384：Adapter repair contract guidance closure**
 
-状态：已为 `gate -ValidateExecutionReport` invalid adapter execution report validation envelope 增加 `repairHints[]` runtime projection、package/CLI coverage 与 durable docs，并完成 full local validation、commit/push 与远程 release-gate inspection；实现/docs 提交为 `25bb986 Add adapter validation repair hints`（HEAD `25bb9867f5a13f7c128abe5382bfe5b49c69e1d0`），远程 release-gate run `29677561741` 已完成但结论为 failure，Linux/macOS/Windows jobs 均为 failure 且 `steps: []`，符合既有 runner/billing blocker 模式，不能声明远程 CI green。
+状态：进行中；已让 `gate -ExecutionReportContract` 输出 `validationRepairHints[]` runtime projection，并补 package/CLI focused coverage；durable docs 与 full release gate 正在同步执行。
 
-目标：在 Batch 368/369 已有 stable `failureCode` / `failureStage` 与 contract taxonomy 后，补齐 replacement lane executor / tool adapter 仍需解析 free-form error 或手工映射修复动作的断点：invalid validation envelope 应直接给出机器可读 repair action、相关字段、允许的 output paths / stop conditions、size limit、record blocked 与 rerun validation 标记，让 executor 能按 path/decode/schema/identity/refs/budget/boundary/summary 修 sidecar 或升级 main Agent。
+目标：在 Batch 383 已把 `repairHints[]` 加入 invalid validation envelope 后，补齐 replacement lane executor / tool adapter 执行前仍只能从 validation failure codes 推断 repair actions 的断点：只读 adapter execution report contract 应直接暴露 stable `validationRepairHints[]`，让 executor 在执行 heavy/tool adapter 前即可知道缺 report path、path/read/decode/schema/identity/refs/budget/boundary/summary 失败对应的 repair action、相关字段、允许 output paths / stop conditions、size limit、record blocked 与 rerun validation 标记。
 
-边界：本批只补 read-only invalid validation envelope 的机器可读 repair hints、package/CLI assertions、durable docs 与验证；不新增 PowerShell runtime logic、不修改 public 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 observations/authority/confirmed（validation path 仍 read-only；existing evidence apply 仍只写 observations）、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；actual tool execution 仍由 lane executor / tool adapter 在 strict durable autonomy profile + `authorized-gate` 范围内承担。
+边界：本批只补 read-only adapter execution report contract 的机器可读 validation repair hints、package/CLI assertions、durable docs 与验证；不新增 PowerShell runtime logic、不修改 public 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 observations/authority/confirmed（contract path 仍 read-only；existing validation path 仍 read-only；existing evidence apply 仍只写 observations）、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；actual tool execution 仍由 lane executor / tool adapter 在 strict durable autonomy profile + `authorized-gate` 范围内承担。
 
 已完成内容：
 
-- `AdapterExecutionReportValidation` 新增 `repairHints[]`，invalid sidecar validation envelope 在 `failureCode` / `failureStage` 之外提供机器可读修复提示。
-- `repairHints[]` 按 stable failure code 投影 `repairAction`、相关 `fields`、允许的 `allowedOutputPaths` / `allowedStopConditions`、`maxBytes`、`recordBlocked`、`rerunValidation` 与需要升级时的 `escalateToMain`。
-- 缺 `-ExecutionReportPath`、path/read/decode/schema/identity/refs/budget/boundary/summary 等失败都返回 deterministic repair action，并让 `nextSteps[]` 带出 `repairAction: ...`，executor 不需要解析 free-form error。
-- Gate package tests 覆盖 invalid envelope repair hints、path repair allowed output paths、boundary repair allowed stop conditions / escalation marker、summary max bytes 与 no-observation-write invariant。
-- CLI E2E 覆盖 invalid boundary sidecar 与 nested authorized workspace invalid evidence refs 的 `repairHints[]` JSON 投影，并继续锁定 read-only validation 不写 observations。
+- `AdapterExecutionReportContract` 新增 `validationRepairHints[]`，让只读 contract 在 validation failure stages/codes 之外提供预期 repair guidance。
+- `validationRepairHints[]` 复用 invalid validation envelope 的 repair hint 结构，覆盖缺 `-ExecutionReportPath` 与所有 stable failure codes，并投影 `repairAction`、相关 `fields`、允许的 `allowedOutputPaths` / `allowedStopConditions`、`maxBytes`、`recordBlocked`、`rerunValidation` 与需要升级时的 `escalateToMain`。
+- Gate package test 覆盖 contract repair hints 的 stable action mapping、allowed output paths、allowed stop conditions、summary max bytes、record blocked / rerun validation 与 no-observation-write invariant。
+- CLI E2E 覆盖 `gate -ExecutionReportContract -GateEventId ... -Format json` 的 `validationRepairHints[]` JSON projection，并继续锁定 contract read-only boundaries。
 - 同步 root CLAUDE、README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、tests guide、CHANGELOG 与本文件。
 
 已通过验证：
@@ -46,7 +45,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 focused gate/CLI、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `25bb986 Add adapter validation repair hints`（HEAD `25bb9867f5a13f7c128abe5382bfe5b49c69e1d0`）。远程 release-gate run `29677561741` 已完成，结论为 failure；Linux/macOS/Windows `Go release checks` jobs 均为 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
+本地 focused gate/CLI、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。最终 commit/push 与远程 release-gate inspection 仍在本批后续步骤中完成后写回。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
 
 ### Next candidates
 
