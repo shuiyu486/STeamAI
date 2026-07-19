@@ -427,6 +427,9 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if strings.Join(contract.StopConditions, ",") != "timeout" || contract.SummaryMaxBytes != 4096 || contract.EscalationMaxBytes != 4096 || !contract.RecordRequired || !strings.Contains(strings.Join(contract.DeniedActions, ","), "heavy-tool execution") || !strings.Contains(contract.ReportPathRule, "current-workspace relative") {
 		t.Fatalf("adapter report contract omitted live validation rules: %+v", contract)
 	}
+	if !strings.Contains(strings.Join(contract.BoundaryStatusRequires, ","), "authorized stopConditions") || !strings.Contains(strings.Join(contract.StatusSummaryRequires, ","), "failed/boundary-hit/escalated/aborted") {
+		t.Fatalf("adapter report contract omitted status enforcement rules: %+v", contract)
+	}
 	if !strings.Contains(contract.LiveValidation.InvocationCwd, "authorized output workspace") || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != authorized.EventID || contract.LiveValidation.SidecarTemplate.Kind != "adapter-execution-report" || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
 		t.Fatalf("adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
 	}
@@ -458,7 +461,7 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 		}
 		codes[code.Code] = code.Stage
 	}
-	for code, stage := range map[string]string{"report-path-out-of-scope": "path", "report-json-invalid": "decode", "gate-event-mismatch": "identity", "output-refs-out-of-scope": "refs", "budget-marker-missing": "budget", "boundary-marker-missing": "boundary"} {
+	for code, stage := range map[string]string{"report-path-out-of-scope": "path", "report-json-invalid": "decode", "gate-event-mismatch": "identity", "output-refs-out-of-scope": "refs", "budget-marker-missing": "budget", "boundary-marker-missing": "boundary", "boundary-hits-not-authorized": "boundary", "status-summary-missing": "summary"} {
 		if codes[code] != stage {
 			t.Fatalf("adapter report contract failure code %q stage = %q, want %q; codes=%+v", code, codes[code], stage, contract.ValidationFailureCodes)
 		}
@@ -669,6 +672,44 @@ func TestValidateAdapterExecutionReportInvalidEnvelopeFailureCodes(t *testing.T)
 			wantCode:   "budget-marker-missing",
 			wantStage:  "budget",
 			wantError:  "actualBudget exceeds authorized request",
+			wantReport: true,
+		},
+		{
+			name: "boundary hit outside authorized stop conditions",
+			path: "workspace/main/debug/session-1/boundary-not-authorized-report.json",
+			body: `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "boundary-hit",
+  "gateEventId": "` + authorized.EventID + `",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "boundaryHits": ["scope-drift"],
+  "summary": "Adapter hit an out-of-contract boundary"
+}`,
+			wantCode:   "boundary-hits-not-authorized",
+			wantStage:  "boundary",
+			wantError:  "boundaryHits must be covered by authorized gate stopConditions",
+			wantReport: true,
+		},
+		{
+			name: "failed status summary missing",
+			path: "workspace/main/debug/session-1/failed-summary-missing-report.json",
+			body: `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "failed",
+  "gateEventId": "` + authorized.EventID + `",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"]
+}`,
+			wantCode:   "status-summary-missing",
+			wantStage:  "summary",
+			wantError:  "requires a bounded summary",
 			wantReport: true,
 		},
 	}
@@ -911,7 +952,8 @@ func TestRecordExecutionRejectsAdapterReportExplicitEscalationMismatch(t *testin
   "gateEventId": "`+authorized.EventID+`",
   "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
   "outputRefs": ["workspace/main/debug/session-1/result.json"],
-  "escalation": "adapter escalation"
+  "escalation": "adapter escalation",
+  "summary": "Adapter escalated before completion"
 }`)
 
 	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", Escalation: "explicit escalation", ExecutionReportPath: reportPath})
@@ -937,12 +979,81 @@ func TestRecordExecutionRejectsAdapterReportExplicitStatusMismatch(t *testing.T)
   "status": "failed",
   "gateEventId": "`+authorized.EventID+`",
   "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
-  "outputRefs": ["workspace/main/debug/session-1/result.json"]
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "summary": "Adapter failed before completion"
 }`)
 
 	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionStatus: "succeeded", ExecutionReportPath: reportPath})
 	if err == nil || !strings.Contains(err.Error(), "status") {
 		t.Fatalf("RecordExecution error = %v, want adapter status mismatch", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+}
+
+func TestRecordExecutionRejectsAdapterReportBoundaryHitsOutsideAuthorizedStopConditions(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "boundary-not-authorized-report.json")
+	writeGateText(t, reportPath, `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "boundary-hit",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "boundaryHits": ["scope-drift"],
+  "summary": "Adapter hit a stop condition outside this gate"
+}`)
+
+	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionReportPath: reportPath})
+	if err == nil || !strings.Contains(err.Error(), "boundaryHits must be covered by authorized gate stopConditions") {
+		t.Fatalf("RecordExecution error = %v, want boundaryHits stopCondition coverage rejection", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+}
+
+func TestRecordExecutionRejectsExplicitBoundaryHitsOutsideAuthorizedStopConditions(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionStatus: "boundary-hit", ActualRuntimeSeconds: 24, ActualDiskMB: 32, ActualRequests: 1, OutputRefs: "workspace/main/debug/session-1/result.json", BoundaryHits: "scope-drift"})
+	if err == nil || !strings.Contains(err.Error(), "boundaryHits must be covered by authorized gate stopConditions") {
+		t.Fatalf("RecordExecution error = %v, want explicit boundaryHits stopCondition coverage rejection", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+}
+
+func TestRecordExecutionRejectsAdapterReportFailureWithoutSummary(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "failed-without-summary-report.json")
+	writeGateText(t, reportPath, `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "failed",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"]
+}`)
+
+	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionReportPath: reportPath})
+	if err == nil || !strings.Contains(err.Error(), "requires a bounded summary") {
+		t.Fatalf("RecordExecution error = %v, want failed status summary rejection", err)
 	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
@@ -990,7 +1101,7 @@ func TestRecordExecutionRejectsOutOfScopeOutputRefs(t *testing.T) {
 func TestRecordExecutionRequiresBoundaryMarkerWhenBudgetExceeded(t *testing.T) {
 	repoRoot, caseRoot, pack := gateFixture(t)
 	writePreauthorizedProfile(t, caseRoot)
-	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout,budget-exhausted"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1018,7 +1129,7 @@ func writePreauthorizedProfile(t *testing.T, caseRoot string) {
   "deniedActions": ["symex"],
   "targetScope": [{"match":"exact","value":"target-alpha"}],
   "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},
-  "stopConditions": ["timeout", "scope-drift"],
+  "stopConditions": ["timeout", "scope-drift", "budget-exhausted"],
   "outputPaths": ["workspace/main/debug"],
   "recordRequired": true,
   "notifyMainOn": ["boundary-hit", "new-risk"],

@@ -144,6 +144,7 @@ type AdapterExecutionReportContract struct {
 	RecordRequired          bool                                  `json:"recordRequired"`
 	NotifyMainOn            []string                              `json:"notifyMainOn,omitempty"`
 	BoundaryStatusRequires  []string                              `json:"boundaryStatusRequires,omitempty"`
+	StatusSummaryRequires   []string                              `json:"statusSummaryRequires,omitempty"`
 	EscalationMaxBytes      int                                   `json:"escalationMaxBytes"`
 	ValidationFailureStages []AdapterReportValidationFailureStage `json:"validationFailureStages,omitempty"`
 	ValidationFailureCodes  []AdapterReportValidationFailureCode  `json:"validationFailureCodes,omitempty"`
@@ -243,8 +244,8 @@ func adapterReportValidationFailureStages() []AdapterReportValidationFailureStag
 		{Stage: "identity", Description: "Authorized gate action and gateEventId binding checks."},
 		{Stage: "refs", Description: "Case-relative output/evidence refs and authorized output path scope checks."},
 		{Stage: "budget", Description: "Actual budget non-negative values and budget-overrun marker checks."},
-		{Stage: "boundary", Description: "Boundary hit tokens, boundary/escalated status marker, and escalation size checks."},
-		{Stage: "summary", Description: "Bounded summary size checks."},
+		{Stage: "boundary", Description: "Boundary hit token syntax, authorized stopCondition coverage, boundary/escalated status marker, and escalation size checks."},
+		{Stage: "summary", Description: "Required failure/boundary/escalation/abort summary and bounded summary size checks."},
 	}
 }
 
@@ -270,8 +271,10 @@ func adapterReportValidationFailureCodes() []AdapterReportValidationFailureCode 
 		{Code: "actual-budget-negative", Stage: "budget", Description: "Execution report actualBudget values must be non-negative."},
 		{Code: "budget-marker-missing", Stage: "budget", Description: "Budget overrun reports must include boundaryHits or escalation."},
 		{Code: "boundary-hits-invalid", Stage: "boundary", Description: "Execution report boundaryHits must use supported stop-condition tokens."},
+		{Code: "boundary-hits-not-authorized", Stage: "boundary", Description: "Execution report boundaryHits must be covered by the authorized gate stopConditions."},
 		{Code: "escalation-too-large", Stage: "boundary", Description: "Execution report escalation must stay within the bounded size limit."},
 		{Code: "boundary-marker-missing", Stage: "boundary", Description: "Boundary-hit/escalated reports must include boundaryHits or escalation."},
+		{Code: "status-summary-missing", Stage: "summary", Description: "Failed, boundary-hit, escalated, or aborted reports must include a bounded summary."},
 		{Code: "summary-too-large", Stage: "summary", Description: "Execution report summary must stay within the bounded size limit."},
 	}
 }
@@ -574,7 +577,8 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) 
 		EscalationMaxBytes:      4096,
 		RecordRequired:          event.Gate.Authorization.RecordRequired,
 		NotifyMainOn:            append([]string{}, event.Gate.Authorization.NotifyMainOn...),
-		BoundaryStatusRequires:  []string{"boundaryHits or escalation for boundary-hit/escalated status", "boundaryHits or escalation when actualBudget exceeds authorizedBudget"},
+		BoundaryStatusRequires:  []string{"boundaryHits or escalation for boundary-hit/escalated status", "boundaryHits or escalation when actualBudget exceeds authorizedBudget", "boundaryHits must be one of authorized stopConditions"},
+		StatusSummaryRequires:   []string{"summary for failed/boundary-hit/escalated/aborted status"},
 		ValidationFailureStages: adapterReportValidationFailureStages(),
 		ValidationFailureCodes:  adapterReportValidationFailureCodes(),
 		DeniedActions:           []string{"heavy-tool execution", "authority writes", "confirmed writes", "out-of-scope output refs", "full trace/dump/log embedding"},
@@ -598,9 +602,9 @@ func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportL
 			ActualBudget:  autonomy.Budget{},
 			OutputRefs:    []string{"<case-relative output under authorized outputPaths>"},
 			EvidenceRefs:  []string{"<case-relative bounded evidence ref>"},
-			BoundaryHits:  []string{"<stop-condition-token when status/budget requires it>"},
+			BoundaryHits:  []string{"<authorized stopCondition token when status/budget requires it>"},
 			Escalation:    "<bounded escalation when status/budget requires it>",
-			Summary:       "<bounded summary>",
+			Summary:       "<bounded summary; required for failed/boundary-hit/escalated/aborted>",
 		},
 		ValidateCommand: "rekit " + strings.Join(validateArgs, " "),
 		RecordCommand:   "rekit " + strings.Join(recordArgs, " "),
@@ -610,6 +614,7 @@ func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportL
 		Notes: []string{
 			"ValidateArgs is read-only: isMutation=false, applied=false, and no observations/authority/confirmed writes.",
 			"RecordArgs records observation evidence only after strict sidecar validation; it never executes the heavy tool.",
+			"Use only authorized stopConditions in boundaryHits; failed/boundary-hit/escalated/aborted reports require a bounded summary.",
 			"Keep full trace/dump/log data in sidecar artifacts referenced by outputRefs/evidenceRefs, not in this report.",
 		},
 	}
@@ -680,6 +685,9 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (Ex
 		if len(boundaryHits) > 0 && len(adapterReport.BoundaryHits) > 0 && strings.Join(boundaryHits, ",") != strings.Join(adapterReport.BoundaryHits, ",") {
 			return ExecutionEvidencePreview{}, fmt.Errorf("adapter execution report boundaryHits do not match explicit BoundaryHits")
 		}
+		if len(boundaryHits) > 0 && !boundaryHitsWithinGate(gateEvent.Gate.StopConditions, boundaryHits) {
+			return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence boundaryHits must be covered by authorized gate stopConditions")
+		}
 		if len(boundaryHits) == 0 {
 			boundaryHits = append([]string{}, adapterReport.BoundaryHits...)
 		}
@@ -692,6 +700,9 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (Ex
 		if escalation == "" {
 			escalation = adapterReport.Escalation
 		}
+	}
+	if len(boundaryHits) > 0 && !boundaryHitsWithinGate(gateEvent.Gate.StopConditions, boundaryHits) {
+		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence boundaryHits must be covered by authorized gate stopConditions")
 	}
 	if exceedsGateBudget(gateEvent.Gate.RequestedBudget, actual) && len(boundaryHits) == 0 && escalation == "" {
 		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence actual budget exceeds authorized request; record -BoundaryHits or -Escalation")
@@ -920,6 +931,9 @@ func validateAdapterExecutionReport(caseRoot string, gateEvent EventPreview, rep
 		if err := validateStopConditions("adapter execution report boundaryHits", report.BoundaryHits); err != nil {
 			return adapterReportValidationErrorf("boundary-hits-invalid", "boundary", "%w", err)
 		}
+		if !boundaryHitsWithinGate(gateEvent.Gate.StopConditions, report.BoundaryHits) {
+			return adapterReportValidationErrorf("boundary-hits-not-authorized", "boundary", "adapter execution report boundaryHits must be covered by authorized gate stopConditions")
+		}
 	}
 	report.Escalation = strings.TrimSpace(report.Escalation)
 	if len(report.Escalation) > 4096 {
@@ -932,6 +946,9 @@ func validateAdapterExecutionReport(caseRoot string, gateEvent EventPreview, rep
 		return adapterReportValidationErrorf("budget-marker-missing", "budget", "adapter execution report actualBudget exceeds authorized request; record boundaryHits or escalation")
 	}
 	report.Summary = strings.TrimSpace(report.Summary)
+	if requiresAdapterReportSummary(report.Status) && report.Summary == "" {
+		return adapterReportValidationErrorf("status-summary-missing", "summary", "adapter execution report status %s requires a bounded summary", report.Status)
+	}
 	if len(report.Summary) > 4096 {
 		return adapterReportValidationErrorf("summary-too-large", "summary", "adapter execution report summary is too large")
 	}
@@ -977,6 +994,15 @@ func validExecutionStatus(status string) bool {
 	}
 }
 
+func requiresAdapterReportSummary(status string) bool {
+	switch status {
+	case "failed", "boundary-hit", "escalated", "aborted":
+		return true
+	default:
+		return false
+	}
+}
+
 func parseBoundaryHits(value string) ([]string, error) {
 	items := splitList(value)
 	if len(items) == 0 {
@@ -990,6 +1016,28 @@ func parseBoundaryHits(value string) ([]string, error) {
 
 func exceedsGateBudget(allowed, actual autonomy.Budget) bool {
 	return (allowed.RuntimeSeconds > 0 && actual.RuntimeSeconds > allowed.RuntimeSeconds) || (allowed.DiskMB > 0 && actual.DiskMB > allowed.DiskMB) || (allowed.Requests > 0 && actual.Requests > allowed.Requests)
+}
+
+func boundaryHitsWithinGate(allowed, hits []string) bool {
+	if len(hits) == 0 {
+		return true
+	}
+	allowedSet := map[string]bool{}
+	for _, item := range allowed {
+		item = strings.ToLower(strings.TrimSpace(item))
+		if item != "" {
+			allowedSet[item] = true
+		}
+	}
+	if len(allowedSet) == 0 {
+		return false
+	}
+	for _, hit := range hits {
+		if !allowedSet[strings.ToLower(strings.TrimSpace(hit))] {
+			return false
+		}
+	}
+	return true
 }
 
 func outputRefsWithinGate(allowed, refs []string) bool {

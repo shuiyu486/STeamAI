@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action、bounded reviewer dispatch → strict intake → verification-before-decision writeback → post-validation 的本机闭环、pack-memory promote/reconsume package E2E，以及 authorized execution observation evidence + bounded adapter execution report strict intake 已形成底座。当前阶段继续从 contract/inventory field increments 转向 replaceable session executor / reviewer orchestration、lane executor / tool-adapter live validation、pack-memory product UX、真实 release verification 与跨平台 product-path E2E。
+Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action、bounded reviewer dispatch → strict intake → verification-before-decision writeback → post-validation 的本机闭环、pack-memory promote/reconsume package E2E，以及 authorized execution observation evidence + bounded adapter execution report strict intake（含 authorized stopCondition boundaryHits 与 status summary enforcement）已形成底座。当前阶段继续从 contract/inventory field increments 转向 replaceable session executor / reviewer orchestration、lane executor / tool-adapter live validation、pack-memory product UX、真实 release verification 与跨平台 product-path E2E。
 
 ## 执行清单
 
@@ -16,27 +16,31 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 374：Adapter live-validation command handoff**
+**Batch 375：Adapter report stop-condition and status summary enforcement**
 
-状态：已完成 `liveValidation` command-string projection、package/CLI/façade coverage、durable docs 更新、本地 validation、commit/push 与远程 release-gate inspection。
+状态：已完成 adapter report authorized stopCondition boundaryHits enforcement、failed/boundary/escalated/aborted bounded summary enforcement、contract/taxonomy projection、package/CLI/façade coverage、durable docs 更新与本地 validation。
 
-目标：在 Batch 373 的 `liveValidation` sidecar template + args handoff 之后，补齐可直接展示/复制的 `validateCommand` 与 `recordCommand` 字段，并保持结构化 `validateArgs` / `recordArgs` 作为自动化入口；command strings 必须与 args 同源，仍指向 authorized output workspace cwd 中的 workspace-relative `adapter-report.json` preflight→record flow。
+目标：在 Batch 373/374 的 `liveValidation` handoff 之后，把 sidecar enforcement 从“形状与路径正确”推进到“boundary/status 可执行”：`boundaryHits` 必须落在本次 `authorized-gate` request 的 `stopConditions` 内，`failed` / `boundary-hit` / `escalated` / `aborted` sidecar 必须提供 bounded `summary`，避免 lane executor / tool adapter 把未授权 stop condition 或无摘要失败状态写入 observation evidence。
 
-边界：本批只补 deterministic contract projection、package/CLI/façade coverage、durable docs 与验证；不新增 PowerShell 业务 runtime、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 observations/authority/confirmed（contract/read-only path）、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；actual tool execution、tool-specific validation 与 stop-condition enforcement 仍由 lane executor / tool adapter 在 authorized-gate 范围内承担。
+边界：本批只补 deterministic strict intake、contract/taxonomy projection、package/CLI/façade coverage、durable docs 与验证；不新增 PowerShell 业务 runtime、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；actual tool execution、tool-specific validation 与 stop-condition enforcement 仍由 lane executor / tool adapter 在 authorized-gate 范围内承担。
 
 已完成内容：
 
-- `AdapterReportLiveValidation` 新增 `validateCommand` 与 `recordCommand`，由对应 args 数组生成，避免 command string 与 automation args 漂移。
-- package test 覆盖 validate/record command string 与 args 一致性。
-- CLI E2E 覆盖 nested authorized output workspace cwd 无 `-Target` 的 contract command strings + args JSON。
-- `facade-smoke.ps1` 覆盖 retained public façade product path 中 contract `validateCommand` / `recordCommand` projection。
+- `AdapterExecutionReportContract` 新增 `statusSummaryRequires`，`boundaryStatusRequires` 明确 `boundaryHits must be one of authorized stopConditions`。
+- `adapterReportValidationFailureCodes` 新增 `boundary-hits-not-authorized` 与 `status-summary-missing`，failure stage 分别为 `boundary` / `summary`。
+- `ValidateAdapterExecutionReport` / `RecordExecution` strict intake 拒绝未被 gate request `stopConditions` 覆盖的 sidecar 或 explicit `BoundaryHits`，并拒绝缺少 bounded summary 的 failed/boundary/escalated/aborted sidecar。
+- `liveValidation.sidecarTemplate` 与 notes 提醒 executor 使用 authorized stopCondition token，并为 failed/boundary/escalated/aborted 状态提供 bounded summary。
+- package tests 覆盖 contract projection、invalid envelope taxonomy、sidecar evidence apply fail-closed、explicit boundaryHits fail-closed 与 no observation/authority/confirmed writes。
+- CLI E2E 覆盖 nested authorized output workspace cwd 无 `-Target` 的 contract live enforcement projection。
+- `facade-smoke.ps1` 覆盖 retained public façade product path 中 contract status summary / authorized stopCondition rule projection。
 - 同步 README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、tests guide、CHANGELOG 与本文件。
 
 已通过验证：
 
 ```text
-go test ./internal/rekit/gate -run "TestAdapterReportContractDescribesAuthorizedGateBoundaries" -count=1
-go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace" -count=1
+go test ./internal/rekit/gate -run "TestAdapterReportContractDescribesAuthorizedGateBoundaries|TestValidateAdapterExecutionReportInvalidEnvelopeFailureCodes|TestRecordExecutionRejectsAdapterReportBoundaryHitsOutsideAuthorizedStopConditions|TestRecordExecutionRejectsExplicitBoundaryHitsOutsideAuthorizedStopConditions|TestRecordExecutionRejectsAdapterReportFailureWithoutSummary|TestRecordExecutionRejectsAdapterReportExplicitStatusMismatch" -count=1
+go test ./internal/rekit/gate -count=1
+go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace|TestRunGateApplyAppendsAuthorizedGateRequestVisibility" -count=1
 ./rekit/tests/facade-smoke.ps1
 go test ./...
 go vet ./...
@@ -47,12 +51,12 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已 commit/push 为 `c8a4987 Add adapter live validation commands`；远程 release-gate run `29672035011` 为 completed failure，Linux/macOS/Windows jobs steps 为空，仍是 runner/billing blocker 形态，不能声明远程 CI green。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready。
+本地 focused gate/CLI、full gate package、façade smoke、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。尚需最终 commit/push 与远程 release-gate inspection；不能声明远程 CI green。
 
 ### Next candidates
 
 1. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E、`status.caseShim` readiness 和完整 installed user entrypoint E2E 纳入可用 runner 验证。
-2. **Lane executor/tool-adapter live validation hardening**：在 read-only report contract / validation / invalid envelope taxonomy 之外，为具体 lane executor / adapter 补真实工具调用隔离、停止条件执行和 adapter-specific live validation 的产品级闭环。
+2. **Lane executor/tool-adapter live validation hardening**：在 read-only report contract / validation / invalid envelope taxonomy、authorized stopCondition boundaryHits 与 status summary enforcement 之外，为具体 lane executor / adapter 补真实工具调用隔离、停止条件执行和 adapter-specific live validation 的产品级闭环。
 3. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 4. **Pack-memory product UX hardening**：在 Batch 358 package E2E 之外，补真实多 pack/跨 case review UX、candidate cleanup 和人工 merge guidance 的产品级验证。
 
@@ -11096,3 +11100,13 @@ git diff --check
 实施范围：`AdapterReportLiveValidation` 新增 `validateCommand` 与 `recordCommand`，由对应 args 数组生成，避免 command string 与 automation args 漂移；package test 覆盖 validate/record command string 与 args 一致性；CLI E2E 覆盖 nested authorized output workspace cwd 无 `-Target` 的 contract command strings + args JSON；`facade-smoke.ps1` 覆盖 retained public façade product path 中 contract `validateCommand` / `recordCommand` projection；README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、tests guide 与 CHANGELOG 同步更新。不新增 PowerShell runtime logic、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 observations/authority/confirmed（contract/read-only path）、不改变 sync/promote review-first、case durable schema、公共入口删除门禁或远程 CI blocker 状态。
 
 验证结果：已通过 `go test ./internal/rekit/gate -run "TestAdapterReportContractDescribesAuthorizedGateBoundaries" -count=1`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace" -count=1`、`./rekit/tests/facade-smoke.ps1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。已 commit/push 为 `c8a4987 Add adapter live validation commands`；远程 release-gate run `29672035011` 为 completed failure，Linux/macOS/Windows jobs steps 为空，仍是 runner/billing blocker 形态，不能声明远程 CI green；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready。
+
+### Batch 375：Adapter report stop-condition and status summary enforcement
+
+状态：已完成本地 implementation 与 validation，等待 commit/push 后记录远程 release-gate inspection。
+
+目标：把 adapter sidecar strict intake 从路径/shape/budget/marker 校验继续收紧到 boundary/status 可执行性：`boundaryHits` 必须被本次 authorized gate request 的 `stopConditions` 覆盖，`failed` / `boundary-hit` / `escalated` / `aborted` sidecar 必须提供 bounded `summary`，避免 tool adapter 把 lane profile 中未被当前 gate request 采用的 stop condition 或无摘要失败状态落入 observation evidence。
+
+实施范围：`AdapterExecutionReportContract` 新增 `statusSummaryRequires`，`boundaryStatusRequires` 补 authorized stopCondition rule；adapter validation failure taxonomy 新增 `boundary-hits-not-authorized` / `status-summary-missing`；read-only validation 与 evidence apply 共用 strict intake 并 fail-closed；explicit `BoundaryHits` evidence flags 同样受本次 gate stopConditions 约束；`liveValidation` sidecar template / notes、package tests、CLI E2E、façade smoke 与 durable docs 同步更新。不新增 PowerShell runtime logic、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema、公共入口删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 focused gate tests、full gate package tests、focused CLI tests、`./rekit/tests/facade-smoke.ps1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。尚未 commit/push 或检查远程 release-gate；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready。
