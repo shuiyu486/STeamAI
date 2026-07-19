@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 407：Continue Mission Commander next-action projection follow-through
+
+状态：已完成 continue next-action projection、本地验证与 durable docs；commit/push 与远程 release-gate inspection 待记录。
+
+目标：Batch 406 已让 lane-local `RESUME.md` 与 typed `checkpoints/latest.json` 暴露 `missionCommanderNextActions[]`，但 `/rekit continue` JSON envelope、run `status.json` 与 run `digest.md` 仍需要主 Agent 从 `executionEvidenceReview[]`、`executorAction`、resume/checkpoint 或 handoff 手工拼接 evidence review/handoff/overview 顺序。本批把同一 shared next-action builder 投影到 continue result/run artifacts。
+
+实施范围：`/rekit continue` JSON envelope 新增 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]`，与 overview/handoff/resume/checkpoint 使用同一 item shape；continue run `status.json` 同步写出 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]`；continue run `digest.md` 新增 `## Mission Commander next actions` section，展示 state/source/blocked/requiresReview/command、reasons 与 boundary；continue preview/apply/intervention-blocked result 复用 `mission.MissionCommanderNextActions(...)`，保持 evidence-first ordering、blocked reason、continue suppression 与 no-replay boundary 语义。CLI coverage 锁定 continue JSON、run status、run digest、boundary-hit/escalated evidence 优先级与 autonomous `continue` suppression。该批只增强 continue result/run artifact read-only projection、shared builder reuse、CLI tests 与 durable docs；不 replay heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态；除既有 continue case-local fact/run/resume/checkpoint/board writes 外不新增写入路径。
+
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility -count=1`、`go test ./internal/rekit/workstream -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待记录。
+
 ### Batch 406：Lane-local Mission Commander next-action projection follow-through
 
 状态：已完成 lane-local next-action projection、本地验证、durable docs、commit/push 与远程 release-gate inspection。

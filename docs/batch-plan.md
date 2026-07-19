@@ -16,25 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 406：Lane-local Mission Commander next-action projection follow-through
+### Batch 407：Continue Mission Commander next-action projection follow-through
 
-状态：已完成本地实现、durable docs、full local validation、提交/推送与远程 release-gate inspection。
+状态：已完成本地实现、durable docs 与 full local validation；提交/推送与远程 release-gate inspection 正在执行。
 
-目标：Batch 405 已让 overview 与 project/lane handoff 复用 `missionCommanderNextActions[]`，但 replacement executor 接手 lane-local `RESUME.md` 或 typed `checkpoints/latest.json` 时仍需要从 `executionEvidenceReview[]` 与 `executorAction` 手工拼接 evidence review/handoff/overview 顺序。本批把同一 shared next-action builder 投影到 lane-local resume/checkpoint。
+目标：Batch 406 已让 lane-local `RESUME.md` 与 typed `checkpoints/latest.json` 暴露 `missionCommanderNextActions[]`，但 `/rekit continue` JSON envelope、run `status.json` 与 run `digest.md` 仍需要主 Agent 从 `executionEvidenceReview[]`、`executorAction`、resume/checkpoint 或 handoff 手工拼接 evidence review/handoff/overview 顺序。本批把同一 shared next-action builder 投影到 continue result/run artifacts。
 
-边界：只增强 lane-local resume/checkpoint projection、shared builder reuse、CLI/workstream tests 与 durable docs；不执行 `continue`、不 replay heavy-tool、不写 observation/request/authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+边界：只增强 continue result/run artifact read-only projection、shared builder reuse、CLI tests 与 durable docs；不 replay heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态；除既有 continue case-local fact/run/resume/checkpoint/board writes 外不新增写入路径。
 
 已完成内容：
 
-- lane `RESUME.md` 新增 `## Mission Commander next actions` section，展示 state/source/blocked/requiresReview/command、reasons 与 boundary。
-- typed `checkpoints/latest.json` 新增 `missionCommanderNextActions[]`，让 replacement executor 可从 lane-local JSON 直接读取 ordered next-action list。
-- lane-local projection 复用 `mission.MissionCommanderNextActions(...)`，与 overview/handoff 保持同一 evidence-first ordering、blocked reason、continue suppression 与 no-replay boundary 语义。
-- shared lane commander snapshot helper 从 handoff-local 命名收敛为 workstream-lane helper，供 handoff 与 resume/checkpoint 共同使用。
-- CLI/workstream coverage 锁定 resume Markdown、checkpoint JSON contract、boundary-hit/escalated evidence 优先级与 autonomous `continue` suppression。
+- `/rekit continue` JSON envelope 新增 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]`，与 overview/handoff/resume/checkpoint 使用同一 item shape。
+- continue run `status.json` 同步写出 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]`，方便主 Agent 从 run artifact 恢复下一步。
+- continue run `digest.md` 新增 `## Mission Commander next actions` section，展示 state/source/blocked/requiresReview/command、reasons 与 boundary。
+- continue preview/apply/intervention-blocked result 复用 `mission.MissionCommanderNextActions(...)`，保持 evidence-first ordering、blocked reason、continue suppression 与 no-replay boundary 语义。
+- CLI coverage 锁定 continue JSON、run status、run digest、boundary-hit/escalated evidence 优先级与 autonomous `continue` suppression。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility -count=1`、`go test ./internal/rekit/workstream -run TestLaneCheckpointJSONContract -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `957c0c6 Add lane checkpoint commander next actions`；远程 release-gate run `29698950001` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility -count=1`、`go test ./internal/rekit/workstream -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。提交/推送与远程 release-gate inspection 正在执行。
 
-上一批摘要：Batch 405 已完成 overview 与 project/lane handoff `missionCommanderNextActions[]` shared builder 投影，详见 `docs/batch-history.md`。
+上一批摘要：Batch 406 已完成 lane-local `RESUME.md` 与 typed `checkpoints/latest.json` 的 `missionCommanderNextActions[]` 投影，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

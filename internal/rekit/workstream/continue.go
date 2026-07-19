@@ -29,33 +29,35 @@ type ContinueOptions struct {
 }
 
 type ContinueResult struct {
-	SchemaVersion        int                    `json:"schemaVersion"`
-	Command              string                 `json:"command"`
-	CaseRoot             string                 `json:"caseRoot"`
-	RepoRoot             string                 `json:"repoRoot"`
-	Pack                 string                 `json:"pack"`
-	IsMutation           bool                   `json:"isMutation"`
-	Applied              bool                   `json:"applied"`
-	RequiresConfirmation bool                   `json:"requiresConfirmation"`
-	Selector             string                 `json:"selector"`
-	Lane                 Lane                   `json:"lane"`
-	AutonomyProfile      autonomy.Summary       `json:"autonomyProfile"`
-	RunID                string                 `json:"runId"`
-	BatchID              string                 `json:"batchId"`
-	Summary              ContinueSummary        `json:"summary"`
-	MissionBrief         mission.Brief          `json:"missionBrief"`
-	ExecutorAction       laneExecutorAction     `json:"executorAction"`
-	Inputs               []string               `json:"inputs"`
-	PacketRefs           []string               `json:"packetRefs"`
-	Events               []ContinueEventPreview `json:"events"`
-	OpenRisks            []string               `json:"openRisks"`
-	Blocked              bool                   `json:"blocked"`
-	ReconcileRequired    bool                   `json:"reconcileRequired"`
-	OpenInterventions    []InterventionSummary  `json:"openInterventions,omitempty"`
-	WouldWrites          []StartWrite           `json:"wouldWrites"`
-	Writes               []StartWrite           `json:"writes,omitempty"`
-	BlockedActions       []string               `json:"blockedActions"`
-	NextSteps            []string               `json:"nextSteps"`
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Command                     string                                   `json:"command"`
+	CaseRoot                    string                                   `json:"caseRoot"`
+	RepoRoot                    string                                   `json:"repoRoot"`
+	Pack                        string                                   `json:"pack"`
+	IsMutation                  bool                                     `json:"isMutation"`
+	Applied                     bool                                     `json:"applied"`
+	RequiresConfirmation        bool                                     `json:"requiresConfirmation"`
+	Selector                    string                                   `json:"selector"`
+	Lane                        Lane                                     `json:"lane"`
+	AutonomyProfile             autonomy.Summary                         `json:"autonomyProfile"`
+	RunID                       string                                   `json:"runId"`
+	BatchID                     string                                   `json:"batchId"`
+	Summary                     ContinueSummary                          `json:"summary"`
+	MissionBrief                mission.Brief                            `json:"missionBrief"`
+	ExecutorAction              laneExecutorAction                       `json:"executorAction"`
+	ExecutionEvidenceReview     []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	Inputs                      []string                                 `json:"inputs"`
+	PacketRefs                  []string                                 `json:"packetRefs"`
+	Events                      []ContinueEventPreview                   `json:"events"`
+	OpenRisks                   []string                                 `json:"openRisks"`
+	Blocked                     bool                                     `json:"blocked"`
+	ReconcileRequired           bool                                     `json:"reconcileRequired"`
+	OpenInterventions           []InterventionSummary                    `json:"openInterventions,omitempty"`
+	WouldWrites                 []StartWrite                             `json:"wouldWrites"`
+	Writes                      []StartWrite                             `json:"writes,omitempty"`
+	BlockedActions              []string                                 `json:"blockedActions"`
+	NextSteps                   []string                                 `json:"nextSteps"`
 }
 
 type ContinueSummary struct {
@@ -136,25 +138,29 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	if err != nil {
 		return ContinueResult{}, err
 	}
+	executorAction := ctx.executorAction()
+	executionEvidenceReview := ctx.executionEvidenceReview()
 	result := ContinueResult{
-		SchemaVersion:        1,
-		Command:              "continue",
-		CaseRoot:             ctx.inst.CaseRoot,
-		RepoRoot:             ctx.manifest.RepoRoot,
-		Pack:                 ctx.manifest.Pack,
-		IsMutation:           false,
-		Applied:              false,
-		RequiresConfirmation: true,
-		Selector:             ctx.selector,
-		Lane:                 ctx.lane,
-		AutonomyProfile:      autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
-		RunID:                continuePreviewRunID,
-		BatchID:              "batch-" + continuePreviewRunID,
-		MissionBrief:         ctx.missionBrief(),
-		ExecutorAction:       ctx.executorAction(),
-		Inputs:               uniqueStrings(inputs),
-		PacketRefs:           uniqueStrings(packets),
-		BlockedActions:       []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
+		SchemaVersion:               1,
+		Command:                     "continue",
+		CaseRoot:                    ctx.inst.CaseRoot,
+		RepoRoot:                    ctx.manifest.RepoRoot,
+		Pack:                        ctx.manifest.Pack,
+		IsMutation:                  false,
+		Applied:                     false,
+		RequiresConfirmation:        true,
+		Selector:                    ctx.selector,
+		Lane:                        ctx.lane,
+		AutonomyProfile:             autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
+		RunID:                       continuePreviewRunID,
+		BatchID:                     "batch-" + continuePreviewRunID,
+		MissionBrief:                ctx.missionBrief(),
+		ExecutorAction:              executorAction,
+		ExecutionEvidenceReview:     executionEvidenceReview,
+		MissionCommanderNextActions: ctx.missionCommanderNextActions(executorAction, executionEvidenceReview),
+		Inputs:                      uniqueStrings(inputs),
+		PacketRefs:                  uniqueStrings(packets),
+		BlockedActions:              []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
 		NextSteps: []string{
 			"review this preview, then re-run continue with -Apply when the case-local facts/route/digest writes are acceptable",
 			"use /rekit as the Mission Commander entrypoint; JSON preview and explicit apply are Go-owned by default",
@@ -321,6 +327,8 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 	result.Writes = append(result.Writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
 	result.MissionBrief = ctx.missionBrief()
 	result.ExecutorAction = ctx.executorAction()
+	result.ExecutionEvidenceReview = ctx.executionEvidenceReview()
+	result.MissionCommanderNextActions = ctx.missionCommanderNextActions(result.ExecutorAction, result.ExecutionEvidenceReview)
 	result.NextSteps = workstreamNextSteps(result.ExecutorAction, true)
 	statusPath, digestPath, err := writeContinueRunArtifacts(runRoot, result)
 	if err != nil {
@@ -397,6 +405,18 @@ func (ctx continueContext) executorAction() laneExecutorAction {
 	return laneExecutorActionFor(ctx.lane, facts.Facts, brief)
 }
 
+func (ctx continueContext) executionEvidenceReview() []ExecutionEvidenceReviewItem {
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		return nil
+	}
+	return laneExecutionEvidenceReview(ctx.lane, facts.Observations)
+}
+
+func (ctx continueContext) missionCommanderNextActions(action laneExecutorAction, evidenceReview []ExecutionEvidenceReviewItem) []mission.MissionCommanderNextActionItem {
+	return mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(ctx.lane, action)}, evidenceReview, action.Blocked)
+}
+
 func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResult, error) {
 	open, err := openLaneInterventionSummaries(ctx.inst.CaseRoot, ctx.lane.ID)
 	if err != nil {
@@ -406,30 +426,33 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 		return ContinueResult{}, nil
 	}
 	executorAction := ctx.executorAction()
+	executionEvidenceReview := ctx.executionEvidenceReview()
 	return ContinueResult{
-		SchemaVersion:        1,
-		Command:              "continue",
-		CaseRoot:             ctx.inst.CaseRoot,
-		RepoRoot:             ctx.manifest.RepoRoot,
-		Pack:                 ctx.manifest.Pack,
-		IsMutation:           apply,
-		Applied:              false,
-		RequiresConfirmation: false,
-		Selector:             ctx.selector,
-		Lane:                 ctx.lane,
-		AutonomyProfile:      autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
-		RunID:                continuePreviewRunID,
-		BatchID:              "batch-" + continuePreviewRunID,
-		MissionBrief:         ctx.missionBrief(),
-		ExecutorAction:       executorAction,
-		OpenRisks:            interventionRiskLines(open),
-		Blocked:              true,
-		ReconcileRequired:    true,
-		OpenInterventions:    open,
-		WouldWrites:          []StartWrite{},
-		Writes:               []StartWrite{},
-		BlockedActions:       []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
-		NextSteps:            executorAction.NextAgentActions,
+		SchemaVersion:               1,
+		Command:                     "continue",
+		CaseRoot:                    ctx.inst.CaseRoot,
+		RepoRoot:                    ctx.manifest.RepoRoot,
+		Pack:                        ctx.manifest.Pack,
+		IsMutation:                  apply,
+		Applied:                     false,
+		RequiresConfirmation:        false,
+		Selector:                    ctx.selector,
+		Lane:                        ctx.lane,
+		AutonomyProfile:             autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
+		RunID:                       continuePreviewRunID,
+		BatchID:                     "batch-" + continuePreviewRunID,
+		MissionBrief:                ctx.missionBrief(),
+		ExecutorAction:              executorAction,
+		ExecutionEvidenceReview:     executionEvidenceReview,
+		MissionCommanderNextActions: ctx.missionCommanderNextActions(executorAction, executionEvidenceReview),
+		OpenRisks:                   interventionRiskLines(open),
+		Blocked:                     true,
+		ReconcileRequired:           true,
+		OpenInterventions:           open,
+		WouldWrites:                 []StartWrite{},
+		Writes:                      []StartWrite{},
+		BlockedActions:              []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
+		NextSteps:                   executorAction.NextAgentActions,
 	}, nil
 }
 
@@ -679,7 +702,7 @@ func writeContinueRunArtifacts(runRoot string, result ContinueResult) (string, s
 		return "", "", err
 	}
 	statusPath := filepath.Join(runRoot, "status.json")
-	status := map[string]any{"schemaVersion": 1, "runId": result.RunID, "batchId": result.BatchID, "summary": result.Summary, "autonomyProfile": result.AutonomyProfile, "missionBrief": result.MissionBrief, "executorAction": result.ExecutorAction, "inputs": result.Inputs, "packetRefs": result.PacketRefs, "openRisks": result.OpenRisks, "time": isoNow()}
+	status := map[string]any{"schemaVersion": 1, "runId": result.RunID, "batchId": result.BatchID, "summary": result.Summary, "autonomyProfile": result.AutonomyProfile, "missionBrief": result.MissionBrief, "executorAction": result.ExecutorAction, "executionEvidenceReview": result.ExecutionEvidenceReview, "missionCommanderNextActions": result.MissionCommanderNextActions, "inputs": result.Inputs, "packetRefs": result.PacketRefs, "openRisks": result.OpenRisks, "time": isoNow()}
 	if err := writeJSON(statusPath, status); err != nil {
 		return "", "", err
 	}
@@ -736,6 +759,7 @@ func continueDigestText(result ContinueResult) string {
 	)
 	lines = appendMissionBriefDigestList(lines, "commander follow-up commands", result.ExecutorAction.MissionCommanderAction.FollowUpCommands)
 	lines = appendMissionBriefDigestList(lines, "commander boundary", result.ExecutorAction.MissionCommanderAction.Boundary)
+	lines = appendContinueMissionCommanderNextActions(lines, result.MissionCommanderNextActions)
 	lines = appendMissionBriefDigestList(lines, "blocker reasons", result.ExecutorAction.BlockerReasons)
 	lines = appendMissionBriefDigestList(lines, "executor next actions", result.ExecutorAction.NextAgentActions)
 	lines = appendMissionBriefDigestList(lines, "executor escalations", result.ExecutorAction.Escalations)
@@ -788,6 +812,23 @@ func continueDigestText(result ContinueResult) string {
 	}
 	lines = append(lines, "")
 	return strings.Join(lines, "\r\n")
+}
+
+func appendContinueMissionCommanderNextActions(lines []string, items []mission.MissionCommanderNextActionItem) []string {
+	lines = append(lines, "", "## Mission Commander next actions", "")
+	if len(items) == 0 {
+		return append(lines, "- none")
+	}
+	shown := items
+	if maxHandoffRows > 0 && len(shown) > maxHandoffRows {
+		shown = shown[len(shown)-maxHandoffRows:]
+	}
+	for _, item := range shown {
+		lines = append(lines, fmt.Sprintf("- state=%s source=%s blocked=%t requiresReview=%t command=`%s`", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command))
+		lines = appendMissionBriefDigestList(lines, "reasons", item.Reasons)
+		lines = appendMissionBriefDigestList(lines, "boundary", item.Boundary)
+	}
+	return lines
 }
 
 func appendMissionBriefDigestList(lines []string, label string, items []string) []string {

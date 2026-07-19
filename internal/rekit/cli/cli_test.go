@@ -5733,8 +5733,10 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 			OpenDecisionRequired bool     `json:"openDecisionRequired"`
 			ResumeCommand        string   `json:"resumeCommand"`
 		} `json:"executorAction"`
-		Writes    []startWrite `json:"writes"`
-		NextSteps []string     `json:"nextSteps"`
+		ExecutionEvidenceReview     []executionEvidenceReviewItem    `json:"executionEvidenceReview"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		Writes                      []startWrite                     `json:"writes"`
+		NextSteps                   []string                         `json:"nextSteps"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &cont); err != nil {
 		t.Fatalf("continue apply stdout is not JSON: %v\n%s", err, out.String())
@@ -5745,6 +5747,12 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if !cont.ExecutorAction.Blocked || cont.ExecutorAction.Ready || !cont.ExecutorAction.OpenDecisionRequired || cont.ExecutorAction.PendingGates != 0 || cont.ExecutorAction.OpenInterventions != 0 || cont.ExecutorAction.OpenDecisions != 1 || !slices.Contains(cont.ExecutorAction.BlockerReasons, "open-decision") || cont.ExecutorAction.ResumeCommand != "/rekit continue main" {
 		t.Fatalf("continue JSON missing executor action snapshot: %+v", cont.ExecutorAction)
 	}
+	if len(cont.ExecutionEvidenceReview) != 2 || cont.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || cont.ExecutionEvidenceReview[1].Status != "escalated" {
+		t.Fatalf("continue JSON missing execution evidence review queue: %+v", cont.ExecutionEvidenceReview)
+	}
+	if len(cont.MissionCommanderNextActions) != 2 || cont.MissionCommanderNextActions[0].Lane != "main" || cont.MissionCommanderNextActions[0].Command != "/rekit handoff main" || cont.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || !cont.MissionCommanderNextActions[0].RequiresReview || cont.MissionCommanderNextActions[1].Command != "/rekit overview" || containsMissionCommanderNextCommand(cont.MissionCommanderNextActions, "/rekit continue main") || containsMissionCommanderNextCommand(cont.MissionCommanderNextActions, "/rekit continue main -WhatIf") {
+		t.Fatalf("continue JSON missing Mission Commander next actions: %+v", cont.MissionCommanderNextActions)
+	}
 	if slices.Contains(cont.NextSteps, "/rekit continue main") || !containsSubstring(cont.NextSteps, "review open candidate/decision") {
 		t.Fatalf("authorized-gate continue should stay blocked only by open decision: %+v", cont.NextSteps)
 	}
@@ -5754,14 +5762,14 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(status), `"authorizedGates"`) || !strings.Contains(string(status), `"executorAction"`) || !strings.Contains(string(status), `"openDecisions": 1`) || !strings.Contains(string(status), "authorized debug") || !strings.Contains(string(status), "outputPaths=workspace/main/debug/session-1") || !strings.Contains(string(status), "stopConditions=timeout") || !strings.Contains(string(status), "eventId="+authorizedEventID) || !strings.Contains(string(status), "reportContract="+reportContract) || strings.Contains(string(status), "pending-gate requires main-agent/user decision") {
+	if !strings.Contains(string(status), `"authorizedGates"`) || !strings.Contains(string(status), `"executorAction"`) || !strings.Contains(string(status), `"executionEvidenceReview"`) || !strings.Contains(string(status), `"missionCommanderNextActions"`) || !strings.Contains(string(status), `"openDecisions": 1`) || !strings.Contains(string(status), "authorized debug") || !strings.Contains(string(status), "outputPaths=workspace/main/debug/session-1") || !strings.Contains(string(status), "stopConditions=timeout") || !strings.Contains(string(status), "eventId="+authorizedEventID) || !strings.Contains(string(status), "reportContract="+reportContract) || strings.Contains(string(status), "pending-gate requires main-agent/user decision") {
 		t.Fatalf("continue status missing non-blocking authorized gate visibility or executor action:\n%s", string(status))
 	}
 	digest, err := os.ReadFile(digestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"- authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "## Executor action snapshot", "- open decisions: `1`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "- blocker reasons:", "open-decision"} {
+	for _, expected := range []string{"- authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "## Executor action snapshot", "- open decisions: `1`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "## Mission Commander next actions", "state=ready-for-evidence-review source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff main`", "state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=true requiresReview=true command=`/rekit overview`", "review execution evidence for gateEventId " + authorizedEventID, "boundary hit or escalation in execution evidence", "- blocker reasons:", "open-decision"} {
 		if !strings.Contains(string(digest), expected) {
 			t.Fatalf("continue digest missing %q:\n%s", expected, string(digest))
 		}
