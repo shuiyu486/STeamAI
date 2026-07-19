@@ -57,6 +57,15 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 				Boundary:         []string{"observation evidence is already recorded; do not replay heavy tool", "review outputRefs/evidenceRefs before any authority/confirmed outcome"},
 			},
 		}},
+		MissionCommanderNextActions: []mission.MissionCommanderNextActionItem{{
+			Lane:           "main",
+			State:          "ready-for-evidence-review",
+			Command:        "/rekit handoff main",
+			Source:         "executionEvidenceReview",
+			RequiresReview: true,
+			Reasons:        []string{"review execution evidence for gateEventId evt-authorized"},
+			Boundary:       []string{"observation evidence is already recorded; do not replay heavy tool"},
+		}},
 		OpenInterventions: []InterventionSummary{},
 		Inbox:             2,
 		Tasks:             3,
@@ -93,7 +102,8 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 			HandoffCommand         string                         `json:"handoffCommand"`
 			MissionCommanderAction mission.MissionCommanderAction `json:"missionCommanderAction"`
 		} `json:"executionEvidenceReview"`
-		Resume string `json:"resume"`
+		MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		Resume                      string                                   `json:"resume"`
 	}
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatalf("lane checkpoint json did not decode: %v\n%s", err, string(encoded))
@@ -106,5 +116,8 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 	}
 	if len(decoded.AuthorizedGates) != 1 || len(decoded.ExecutionEvidenceReview) != 1 || decoded.ExecutionEvidenceReview[0].GateEventID != "evt-authorized" || decoded.ExecutionEvidenceReview[0].HandoffCommand != "/rekit handoff main" || decoded.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || decoded.ExecutionEvidenceReview[0].MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || decoded.Resume != ".rekit/lanes/main/prompts/RESUME.md" {
 		t.Fatalf("checkpoint shortcut fields drifted: %+v", decoded)
+	}
+	if len(decoded.MissionCommanderNextActions) != 1 || decoded.MissionCommanderNextActions[0].Lane != "main" || decoded.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || decoded.MissionCommanderNextActions[0].Command != "/rekit handoff main" || !decoded.MissionCommanderNextActions[0].RequiresReview {
+		t.Fatalf("checkpoint Mission Commander next actions drifted: %+v", decoded.MissionCommanderNextActions)
 	}
 }

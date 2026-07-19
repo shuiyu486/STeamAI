@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 406：Lane-local Mission Commander next-action projection follow-through
+
+状态：已完成 lane-local next-action projection、本地验证与 durable docs；commit/push 与远程 release-gate inspection 待记录。
+
+目标：Batch 405 已让 overview 与 project/lane handoff 复用 `missionCommanderNextActions[]`，但 replacement executor 接手 lane-local `RESUME.md` 或 typed `checkpoints/latest.json` 时仍需要从 `executionEvidenceReview[]` 与 `executorAction` 手工拼接 evidence review/handoff/overview 顺序。本批把同一 shared next-action builder 投影到 lane-local resume/checkpoint。
+
+实施范围：lane `RESUME.md` 新增 `## Mission Commander next actions` section，展示 state/source/blocked/requiresReview/command、reasons 与 boundary；typed `checkpoints/latest.json` 新增 `missionCommanderNextActions[]`，让 replacement executor 可从 lane-local JSON 直接读取 ordered next-action list；lane-local projection 复用 `mission.MissionCommanderNextActions(...)`，与 overview/handoff 保持同一 evidence-first ordering、blocked reason、continue suppression 与 no-replay boundary 语义；shared lane commander snapshot helper 从 handoff-local 命名收敛为 workstream-lane helper，供 handoff 与 resume/checkpoint 共同使用。CLI/workstream coverage 锁定 resume Markdown、checkpoint JSON contract、boundary-hit/escalated evidence 优先级与 autonomous `continue` suppression。该批只增强 lane-local resume/checkpoint projection、shared builder reuse、CLI/workstream tests 与 durable docs；不执行 `continue`、不 replay heavy-tool、不写 observation/request/authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility -count=1`、`go test ./internal/rekit/workstream -run TestLaneCheckpointJSONContract -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待记录。
+
 ### Batch 405：Handoff Mission Commander next-action projection follow-through
 
 状态：已完成 handoff next-action projection、本地验证、durable docs、commit/push 与远程 release-gate inspection。

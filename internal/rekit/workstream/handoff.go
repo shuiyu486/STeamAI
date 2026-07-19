@@ -139,7 +139,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	includeEvidenceContinue := executorAction != nil && !executorAction.Blocked
 	commanderActions := laneExecutorActions
 	if lane != nil && executorAction != nil {
-		commanderActions = []mission.LaneExecutorActionSnapshot{handoffLaneCommanderActionSnapshot(*lane, *executorAction)}
+		commanderActions = []mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(*lane, *executorAction)}
 	}
 	missionCommanderNext := mission.MissionCommanderNextActions(commanderActions, executionEvidenceReview, handoffHasBlockedAction(commanderActions))
 	next := []string{"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default"}
@@ -210,7 +210,7 @@ func (ctx handoffContext) laneExecutorActions() []mission.LaneExecutorActionSnap
 	return mission.LaneExecutorActionSnapshots(ctx.board.Lanes, facts.Facts, brief)
 }
 
-func handoffLaneCommanderActionSnapshot(lane Lane, action laneExecutorAction) mission.LaneExecutorActionSnapshot {
+func laneCommanderActionSnapshot(lane Lane, action laneExecutorAction) mission.LaneExecutorActionSnapshot {
 	return mission.LaneExecutorActionSnapshot{
 		Lane:               lane.ID,
 		Label:              workstreamLabel(lane),
@@ -386,7 +386,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		fmt.Fprintf(&out, "  - executor blockers：pendingGates=%d openInterventions=%d openDecisions=%d reasons=%s\n", executorAction.PendingGates, executorAction.OpenInterventions, executorAction.OpenDecisions, firstText(strings.Join(executorAction.BlockerReasons, ","), "none"))
 		fmt.Fprintf(&out, "  - requirements：reconcile=%t pendingGate=%t openDecision=%t\n", executorAction.ReconcileRequired, executorAction.PendingGateRequired, executorAction.OpenDecisionRequired)
 		writeProjectLaneEvidenceNextSteps(&out, executionEvidenceReview, executorAction.Ready && !executorAction.Blocked)
-		writeProjectLaneMissionCommanderNextActions(&out, mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{handoffLaneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked))
+		writeProjectLaneMissionCommanderNextActions(&out, mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked))
 		if !evidenceNeedsMainReview {
 			writeProjectLaneNextActions(&out, executorAction.NextAgentActions)
 		}
@@ -575,7 +575,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 		return "", nil, err
 	}
 	writeLaneMissionBrief(&out, lane, facts, executorAction)
-	writeLaneMissionCommanderNextActions(&out, mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{handoffLaneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked))
+	writeLaneMissionCommanderNextActions(&out, mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked))
 	writeExecutorActionSection(&out, executorAction)
 	writeAutonomyProfileSection(&out, ctx.inst.CaseRoot, lane, ctx.manifest)
 	writeVerificationSection(&out, facts.Verifications, lane.ID)

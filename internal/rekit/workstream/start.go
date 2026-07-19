@@ -108,28 +108,29 @@ type laneExecutorAction = mission.ExecutorAction
 type ExecutionEvidenceReviewItem = mission.ExecutionEvidenceReviewItem
 
 type laneCheckpoint struct {
-	SchemaVersion              int                           `json:"schemaVersion"`
-	Lane                       string                        `json:"lane"`
-	Status                     string                        `json:"status"`
-	Workspace                  string                        `json:"workspace"`
-	CurrentExecutor            string                        `json:"currentExecutor"`
-	ExecutorGeneration         int                           `json:"executorGeneration"`
-	LastTakeoverAt             string                        `json:"lastTakeoverAt"`
-	LastTakeoverBy             string                        `json:"lastTakeoverBy"`
-	LastTakeoverReason         string                        `json:"lastTakeoverReason"`
-	LastReconciledIntervention string                        `json:"lastReconciledIntervention"`
-	LastReconcileAt            string                        `json:"lastReconcileAt"`
-	AutonomyProfile            autonomy.Summary              `json:"autonomyProfile"`
-	MissionBrief               mission.Brief                 `json:"missionBrief"`
-	ExecutorAction             laneExecutorAction            `json:"executorAction"`
-	PendingGates               []string                      `json:"pendingGates"`
-	AuthorizedGates            []string                      `json:"authorizedGates"`
-	ExecutionEvidenceReview    []ExecutionEvidenceReviewItem `json:"executionEvidenceReview,omitempty"`
-	OpenInterventions          []InterventionSummary         `json:"openInterventions"`
-	Inbox                      int                           `json:"inbox"`
-	Tasks                      int                           `json:"tasks"`
-	UpdatedAt                  string                        `json:"updatedAt"`
-	Resume                     string                        `json:"resume"`
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Lane                        string                                   `json:"lane"`
+	Status                      string                                   `json:"status"`
+	Workspace                   string                                   `json:"workspace"`
+	CurrentExecutor             string                                   `json:"currentExecutor"`
+	ExecutorGeneration          int                                      `json:"executorGeneration"`
+	LastTakeoverAt              string                                   `json:"lastTakeoverAt"`
+	LastTakeoverBy              string                                   `json:"lastTakeoverBy"`
+	LastTakeoverReason          string                                   `json:"lastTakeoverReason"`
+	LastReconciledIntervention  string                                   `json:"lastReconciledIntervention"`
+	LastReconcileAt             string                                   `json:"lastReconcileAt"`
+	AutonomyProfile             autonomy.Summary                         `json:"autonomyProfile"`
+	MissionBrief                mission.Brief                            `json:"missionBrief"`
+	ExecutorAction              laneExecutorAction                       `json:"executorAction"`
+	PendingGates                []string                                 `json:"pendingGates"`
+	AuthorizedGates             []string                                 `json:"authorizedGates"`
+	ExecutionEvidenceReview     []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	OpenInterventions           []InterventionSummary                    `json:"openInterventions"`
+	Inbox                       int                                      `json:"inbox"`
+	Tasks                       int                                      `json:"tasks"`
+	UpdatedAt                   string                                   `json:"updatedAt"`
+	Resume                      string                                   `json:"resume"`
 }
 
 type board = mission.Board
@@ -794,6 +795,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	executionEvidenceReview := laneExecutionEvidenceReview(lane, ledgerFacts.Observations)
 	autonomySummary := autonomy.ReadSummary(caseRoot, lane.ID, m)
 	executorAction := laneExecutorActionFor(lane, laneFacts, brief)
+	missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
 	lines := []string{
 		"# RESUME：" + lane.ID,
 		"",
@@ -860,6 +862,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	)
 	lines = appendResumeList(lines, "commander follow-up commands", executorAction.MissionCommanderAction.FollowUpCommands)
 	lines = appendResumeList(lines, "commander boundary", executorAction.MissionCommanderAction.Boundary)
+	lines = appendResumeMissionCommanderNextActions(lines, missionCommanderNextActions)
 	lines = appendResumeList(lines, "blocker reasons", executorAction.BlockerReasons)
 	lines = appendResumeList(lines, "executor next actions", executorAction.NextAgentActions)
 	lines = appendResumeList(lines, "executor escalations", executorAction.Escalations)
@@ -913,28 +916,29 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	}
 	checkpointPath := filepath.Join(laneRoot, "checkpoints", "latest.json")
 	checkpoint := laneCheckpoint{
-		SchemaVersion:              1,
-		Lane:                       lane.ID,
-		Status:                     lane.Status,
-		Workspace:                  lane.Workspace,
-		CurrentExecutor:            lane.CurrentExecutor,
-		ExecutorGeneration:         lane.ExecutorGeneration,
-		LastTakeoverAt:             lane.LastTakeoverAt,
-		LastTakeoverBy:             lane.LastTakeoverBy,
-		LastTakeoverReason:         lane.LastTakeoverReason,
-		LastReconciledIntervention: lane.LastReconciledIntervention,
-		LastReconcileAt:            lane.LastReconcileAt,
-		AutonomyProfile:            autonomySummary,
-		MissionBrief:               brief,
-		ExecutorAction:             executorAction,
-		PendingGates:               pendingGateLines,
-		AuthorizedGates:            authorizedGateLines,
-		ExecutionEvidenceReview:    executionEvidenceReview,
-		OpenInterventions:          openInterventions,
-		Inbox:                      len(inbox),
-		Tasks:                      len(tasks),
-		UpdatedAt:                  time.Now().UTC().Format(time.RFC3339Nano),
-		Resume:                     relativePath(caseRoot, resumePath),
+		SchemaVersion:               1,
+		Lane:                        lane.ID,
+		Status:                      lane.Status,
+		Workspace:                   lane.Workspace,
+		CurrentExecutor:             lane.CurrentExecutor,
+		ExecutorGeneration:          lane.ExecutorGeneration,
+		LastTakeoverAt:              lane.LastTakeoverAt,
+		LastTakeoverBy:              lane.LastTakeoverBy,
+		LastTakeoverReason:          lane.LastTakeoverReason,
+		LastReconciledIntervention:  lane.LastReconciledIntervention,
+		LastReconcileAt:             lane.LastReconcileAt,
+		AutonomyProfile:             autonomySummary,
+		MissionBrief:                brief,
+		ExecutorAction:              executorAction,
+		PendingGates:                pendingGateLines,
+		AuthorizedGates:             authorizedGateLines,
+		ExecutionEvidenceReview:     executionEvidenceReview,
+		MissionCommanderNextActions: missionCommanderNextActions,
+		OpenInterventions:           openInterventions,
+		Inbox:                       len(inbox),
+		Tasks:                       len(tasks),
+		UpdatedAt:                   time.Now().UTC().Format(time.RFC3339Nano),
+		Resume:                      relativePath(caseRoot, resumePath),
 	}
 	if err := writeJSON(checkpointPath, checkpoint); err != nil {
 		return "", "", err
@@ -1180,6 +1184,23 @@ func ExecutionEvidenceReviewNextSteps(items []ExecutionEvidenceReviewItem, inclu
 		}
 	}
 	return mission.UniqueStrings(next)
+}
+
+func appendResumeMissionCommanderNextActions(lines []string, items []mission.MissionCommanderNextActionItem) []string {
+	lines = append(lines, "", "## Mission Commander next actions", "")
+	if len(items) == 0 {
+		return append(lines, "- none")
+	}
+	shown := items
+	if maxHandoffRows > 0 && len(shown) > maxHandoffRows {
+		shown = shown[len(shown)-maxHandoffRows:]
+	}
+	for _, item := range shown {
+		lines = append(lines, fmt.Sprintf("- state=%s source=%s blocked=%t requiresReview=%t command=`%s`", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command))
+		lines = appendResumeList(lines, "reasons", item.Reasons)
+		lines = appendResumeList(lines, "boundary", item.Boundary)
+	}
+	return lines
 }
 
 func appendResumeExecutionEvidenceReview(lines []string, items []ExecutionEvidenceReviewItem) []string {
