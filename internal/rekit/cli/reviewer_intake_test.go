@@ -154,13 +154,22 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 }
 
 type reviewerIntakeCLIResult struct {
-	Command           string `json:"command"`
-	Mode              string `json:"mode"`
-	IsMutation        bool   `json:"isMutation"`
-	Applied           bool   `json:"applied"`
-	WritebackStatus   string `json:"writebackStatus"`
-	ReadyForWriteback bool   `json:"readyForWriteback"`
-	Verification      *struct {
+	Command               string `json:"command"`
+	Mode                  string `json:"mode"`
+	IsMutation            bool   `json:"isMutation"`
+	Applied               bool   `json:"applied"`
+	WritebackStatus       string `json:"writebackStatus"`
+	ReadyForWriteback     bool   `json:"readyForWriteback"`
+	OrchestrationSnapshot struct {
+		Mode              string   `json:"mode"`
+		ReviewerCount     int      `json:"reviewerCount"`
+		DispatchIndex     int      `json:"dispatchIndex"`
+		DispatchTotal     int      `json:"dispatchTotal"`
+		ShardStatusBefore string   `json:"shardStatusBefore"`
+		ShardStatusAfter  string   `json:"shardStatusAfter"`
+		NextDispatches    []string `json:"nextDispatches"`
+	} `json:"orchestrationSnapshot"`
+	Verification *struct {
 		Applied bool           `json:"applied"`
 		EventID string         `json:"eventId"`
 		Event   map[string]any `json:"event"`

@@ -10,6 +10,7 @@
 
 ## 项目路线
 
+- 新会话与维护文档的按需路由入口：`docs/context-routing.md`
 - 新架构使用与旧 case 兼容：`docs/agent-team-usage.md`
 - 参考资料吸收映射：`docs/reference-absorption.md`
 - 长期愿景与阶段实施方案：`docs/vision.md`
@@ -31,7 +32,7 @@
 
 ## 如果你在维护本仓库
 
-本仓库本身不是具体安全 case，也不是具体 RE case。维护时优先看根目录 `CLAUDE.md` 和 `docs/vision.md`，再按职责修改：
+本仓库本身不是具体安全 case，也不是具体 RE case。维护时先看根目录 `CLAUDE.md` 与 `docs/context-routing.md`，再按需路由到对应顶部章节；不要默认串读或扩写全部 durable docs。
 
 - `/rekit` skill：`.claude/skills/rekit/SKILL.md`
 - runtime：`rekit/rekit.ps1` façade、`cmd/rekit/**`、`internal/rekit/**`；legacy `rekit/lib/*.ps1` 已删除，历史语义以 Go runtime 为准。

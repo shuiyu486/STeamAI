@@ -324,6 +324,9 @@ func TestIntakeReviewerResultWhatIfAndApply(t *testing.T) {
 	if preview.Verification.Applied || preview.Decision.Applied || preview.Verification.Reason != "what-if" || preview.Decision.Reason != "what-if" || preview.Verification.Event["verdict"] != "accepted" || preview.Decision.Event["decision"] != "accept" || preview.Verification.Event["reviewerSession"] != "reviewer-session-1" || preview.Verification.Event["ownerBindingMode"] != "unassigned-lane" || preview.Verification.Event["ownerBindingTarget"] != "devirt-main" {
 		t.Fatalf("unexpected writeback previews: verification=%+v decision=%+v", preview.Verification, preview.Decision)
 	}
+	if preview.OrchestrationSnapshot.Mode != "manual-main-agent-intake" || preview.OrchestrationSnapshot.DispatchIndex != 1 || preview.OrchestrationSnapshot.DispatchTotal != 1 || preview.OrchestrationSnapshot.ShardStatusAfter != "previewed" || !preview.OrchestrationSnapshot.PreviewRequiredFirst || !slices.Contains(preview.OrchestrationSnapshot.RuntimeBoundary, "runtime does not spawn subagents") {
+		t.Fatalf("unexpected orchestration snapshot: %+v", preview.OrchestrationSnapshot)
+	}
 	if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != beforeVerifications {
 		t.Fatalf("preview changed verifications ledger:\n%s", got)
 	}

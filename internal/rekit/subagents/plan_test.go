@@ -31,6 +31,12 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if len(result.ShardHandoffs) != 2 {
 		t.Fatalf("ShardHandoffs = %+v, want 2", result.ShardHandoffs)
 	}
+	if result.ReviewerOrchestration.Mode != "dispatch-only-unattached-target" || result.ReviewerOrchestration.ReviewerCount != 2 || result.ReviewerOrchestration.MaxParallel != 5 || len(result.ReviewerOrchestration.Dispatches) != 2 || len(result.ReviewerOrchestration.Lifecycle) != 5 || result.ReviewerOrchestration.Dispatches[0].ShardID != "shard-01" || !strings.Contains(result.ReviewerOrchestration.Lifecycle[0].Action, "does not spawn") {
+		t.Fatalf("unexpected reviewer orchestration: %+v", result.ReviewerOrchestration)
+	}
+	if !slices.Contains(result.ReviewerOrchestration.Lifecycle[2].MustPass, "do not expect readyForWriteback or postValidation until the target is an attached rekit case") || slices.Contains(result.ReviewerOrchestration.Lifecycle[2].MustPass, "isMutation=false") || !slices.Contains(result.ReviewerOrchestration.Lifecycle[3].MustPass, "no verification or decision ledger events are expected for dispatch-only artifacts") || slices.Contains(result.ReviewerOrchestration.Lifecycle[3].MustPass, "verification event precedes linked decision event") {
+		t.Fatalf("out-of-case lifecycle advertised runnable intake gates: %+v", result.ReviewerOrchestration.Lifecycle)
+	}
 	assertShardHandoff(t, result.ShardHandoffs[0], "shard-01", []string{"alpha", "beta"})
 
 	packetBytes, err := os.ReadFile(result.PacketPath)
@@ -47,16 +53,37 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if packet.OwnerBinding != result.OwnerBinding || packet.ShardHandoffs[0].OwnerBinding != result.OwnerBinding {
 		t.Fatalf("packet did not preserve owner binding: result=%+v packet=%+v", result.OwnerBinding, packet.OwnerBinding)
 	}
+	if packet.ReviewerOrchestration.Mode != result.ReviewerOrchestration.Mode || packet.ReviewerOrchestration.PacketPath != result.PacketPath || packet.ReviewerOrchestration.Dispatches[0].ReviewerResultPath != packet.ShardHandoffs[0].ReviewerResultPath {
+		t.Fatalf("packet did not preserve reviewer orchestration: result=%+v packet=%+v", result.ReviewerOrchestration, packet.ReviewerOrchestration)
+	}
 	assertShardHandoff(t, packet.ShardHandoffs[0], "shard-01", []string{"alpha", "beta"})
 
 	summary, err := os.ReadFile(result.SummaryPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"### shard handoff prompts", "read-only reviewer", "Do not write files", "reviewer result root:", "main-agent result path=", "expected output=`item,decision", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "n/a: reviewer intake requires an attached rekit case", "out-of-case review artifacts are dispatch-only", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"### reviewer orchestration", "orchestration-step:", "reviewer-dispatch:", "### shard handoff prompts", "read-only reviewer", "Do not write files", "reviewer result root:", "main-agent result path=", "expected output=`item,decision", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "n/a: reviewer intake requires an attached rekit case", "out-of-case review artifacts are dispatch-only", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
+	}
+}
+
+func TestPacketIdentityMatchesLegacyPacketWithoutReviewerOrchestration(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	result, err := WritePlan(repoRoot, t.TempDir(), defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", ReviewOutputDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readPlanPacket(t, result.PacketPath)
+	packet.PacketID = legacyPacketIdentity(packet)
+	packet.ReviewerOrchestration = ReviewerOrchestrationPlan{}
+	if !packetIdentityMatches(packet) {
+		t.Fatalf("legacy packet identity without reviewerOrchestration should remain intake-compatible: %+v", packet)
+	}
+	packet.ReviewerOrchestration.Mode = "tampered"
+	if packetIdentityMatches(packet) {
+		t.Fatalf("legacy packet identity should not cover non-empty reviewerOrchestration tampering: %+v", packet.ReviewerOrchestration)
 	}
 }
 
@@ -83,6 +110,9 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 	packet := readPlanPacket(t, result.PacketPath)
 	if packet.OwnerBinding != result.OwnerBinding || !strings.Contains(packet.ShardHandoffs[0].DispatchPrompt, "currentExecutor=session-plan") || !slices.Contains(packet.ShardHandoffs[0].ReviewerResultContract.RequiredFields, "reviewerSession") {
 		t.Fatalf("packet omitted attached owner binding: %+v", packet)
+	}
+	if result.ReviewerOrchestration.Mode != "manual-main-agent-intake" || result.ReviewerOrchestration.TargetLane != "feature-intake" || result.ReviewerOrchestration.Dispatches[0].PreviewCommand == "" || strings.Contains(result.ReviewerOrchestration.Dispatches[0].PreviewCommand, "n/a:") {
+		t.Fatalf("attached case reviewer orchestration did not expose runnable intake: %+v", result.ReviewerOrchestration)
 	}
 	summary, err := os.ReadFile(result.SummaryPath)
 	if err != nil {

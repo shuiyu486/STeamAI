@@ -10,7 +10,7 @@
 
 ## 上下文路由 / 渐进式披露
 
-先读 `docs/context-routing.md`，再按需读其它文档顶部区域。不要默认串读所有 durable docs，也不要默认读取 `docs/batch-history.md` 全文。
+先读 `docs/context-routing.md`，再按需读其它文档顶部区域。不要默认串读所有 durable docs，也不要默认读取 `docs/batch-history.md` 全文。修改、创建或维护文档时也要保持按需路由与渐进披露：顶部短执行区，细节按章节/专文路由，不把历史、长日志或完整设计重新塞回 active docs。
 
 每轮默认最小集：
 

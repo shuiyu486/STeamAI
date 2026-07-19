@@ -18,6 +18,12 @@
 4. `CHANGELOG.md` 顶部 `Unreleased`：确认最新用户可见变化是否覆盖当前 batch。
 5. 真实状态：`git status --short`、必要的 focused tests、本机 release gate；远程 CI 只在需要 release 判断时检查。
 
+### 文档维护时
+
+- 修改或新建 durable docs 时，同样保持按需路由：顶部保留短 `读取指南` / `实施摘要` / `执行清单` / `验证标准` / `风险与注意事项`，细节按章节或专文渐进披露。
+- 只在 `docs/context-routing.md`、`README.md` 或根 `CLAUDE.md` 放短路由指针；不要把历史、完整实施日志或长设计细节并回 active docs。
+- `CHANGELOG.md` 只记录用户可见变化与关键边界；旧批次细节继续按 Batch ID 归档到 `docs/batch-history.md`。
+
 ### 按需路由
 
 | 需要判断什么 | 读什么 | 不要默认读什么 |

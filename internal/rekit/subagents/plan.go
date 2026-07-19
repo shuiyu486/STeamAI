@@ -33,50 +33,52 @@ type Options struct {
 }
 
 type Result struct {
-	SchemaVersion         int            `json:"schemaVersion"`
-	Command               string         `json:"command"`
-	PlanRoot              string         `json:"planRoot"`
-	RepoRoot              string         `json:"repoRoot"`
-	Pack                  string         `json:"pack"`
-	IsMutation            bool           `json:"isMutation"`
-	WritesReviewArtifacts bool           `json:"writesReviewArtifacts"`
-	ReviewRequired        bool           `json:"reviewRequired"`
-	ReviewRoot            string         `json:"reviewRoot"`
-	PacketPath            string         `json:"packetPath"`
-	SummaryPath           string         `json:"summaryPath"`
-	CombinedDiffPath      string         `json:"combinedDiffPath"`
-	ItemCount             int            `json:"itemCount"`
-	ShardCount            int            `json:"shardCount"`
-	TargetLane            string         `json:"targetLane"`
-	OwnerBinding          OwnerBinding   `json:"ownerBinding"`
-	ShardHandoffs         []ShardHandoff `json:"shardHandoffs"`
-	Observability         Observability  `json:"observability"`
-	ReviewLoop            ReviewLoop     `json:"reviewLoop"`
+	SchemaVersion         int                       `json:"schemaVersion"`
+	Command               string                    `json:"command"`
+	PlanRoot              string                    `json:"planRoot"`
+	RepoRoot              string                    `json:"repoRoot"`
+	Pack                  string                    `json:"pack"`
+	IsMutation            bool                      `json:"isMutation"`
+	WritesReviewArtifacts bool                      `json:"writesReviewArtifacts"`
+	ReviewRequired        bool                      `json:"reviewRequired"`
+	ReviewRoot            string                    `json:"reviewRoot"`
+	PacketPath            string                    `json:"packetPath"`
+	SummaryPath           string                    `json:"summaryPath"`
+	CombinedDiffPath      string                    `json:"combinedDiffPath"`
+	ItemCount             int                       `json:"itemCount"`
+	ShardCount            int                       `json:"shardCount"`
+	TargetLane            string                    `json:"targetLane"`
+	OwnerBinding          OwnerBinding              `json:"ownerBinding"`
+	ReviewerOrchestration ReviewerOrchestrationPlan `json:"reviewerOrchestration"`
+	ShardHandoffs         []ShardHandoff            `json:"shardHandoffs"`
+	Observability         Observability             `json:"observability"`
+	ReviewLoop            ReviewLoop                `json:"reviewLoop"`
 }
 
 type Packet struct {
-	SchemaVersion             int            `json:"schemaVersion"`
-	PacketID                  string         `json:"packetId"`
-	Command                   string         `json:"command"`
-	IsMutation                bool           `json:"isMutation"`
-	WritesReviewArtifacts     bool           `json:"writesReviewArtifacts"`
-	PlanRoot                  string         `json:"planRoot"`
-	RepoRoot                  string         `json:"repoRoot"`
-	Pack                      string         `json:"pack"`
-	ManifestPath              string         `json:"manifestPath"`
-	TargetLane                string         `json:"targetLane"`
-	OwnerBinding              OwnerBinding   `json:"ownerBinding"`
-	Route                     Route          `json:"route"`
-	Input                     Input          `json:"input"`
-	ShardPolicy               ShardPolicy    `json:"shardPolicy"`
-	Shards                    []Shard        `json:"shards"`
-	ShardHandoffs             []ShardHandoff `json:"shardHandoffs"`
-	MainAgentResponsibilities string         `json:"mainAgentResponsibilities"`
-	SubagentPermissions       string         `json:"subagentPermissions"`
-	OutputContract            string         `json:"outputContract"`
-	ReviewRequired            bool           `json:"reviewRequired"`
-	Observability             Observability  `json:"observability"`
-	ReviewLoop                ReviewLoop     `json:"reviewLoop"`
+	SchemaVersion             int                       `json:"schemaVersion"`
+	PacketID                  string                    `json:"packetId"`
+	Command                   string                    `json:"command"`
+	IsMutation                bool                      `json:"isMutation"`
+	WritesReviewArtifacts     bool                      `json:"writesReviewArtifacts"`
+	PlanRoot                  string                    `json:"planRoot"`
+	RepoRoot                  string                    `json:"repoRoot"`
+	Pack                      string                    `json:"pack"`
+	ManifestPath              string                    `json:"manifestPath"`
+	TargetLane                string                    `json:"targetLane"`
+	OwnerBinding              OwnerBinding              `json:"ownerBinding"`
+	Route                     Route                     `json:"route"`
+	Input                     Input                     `json:"input"`
+	ShardPolicy               ShardPolicy               `json:"shardPolicy"`
+	Shards                    []Shard                   `json:"shards"`
+	ShardHandoffs             []ShardHandoff            `json:"shardHandoffs"`
+	ReviewerOrchestration     ReviewerOrchestrationPlan `json:"reviewerOrchestration"`
+	MainAgentResponsibilities string                    `json:"mainAgentResponsibilities"`
+	SubagentPermissions       string                    `json:"subagentPermissions"`
+	OutputContract            string                    `json:"outputContract"`
+	ReviewRequired            bool                      `json:"reviewRequired"`
+	Observability             Observability             `json:"observability"`
+	ReviewLoop                ReviewLoop                `json:"reviewLoop"`
 }
 
 type OwnerBinding struct {
@@ -127,6 +129,42 @@ type ReviewLoop struct {
 	VerdictWriteback   string   `json:"verdictWriteback"`
 	CompletionCriteria []string `json:"completionCriteria"`
 	FailureHandling    string   `json:"failureHandling"`
+}
+
+type ReviewerOrchestrationPlan struct {
+	Mode               string                      `json:"mode"`
+	Scope              string                      `json:"scope"`
+	TargetLane         string                      `json:"targetLane"`
+	OwnerBinding       OwnerBinding                `json:"ownerBinding"`
+	PacketPath         string                      `json:"packetPath"`
+	ResultRoot         string                      `json:"resultRoot"`
+	ReviewerCount      int                         `json:"reviewerCount"`
+	MaxParallel        int                         `json:"maxParallel"`
+	Dispatches         []ReviewerDispatch          `json:"dispatches"`
+	Lifecycle          []ReviewerOrchestrationStep `json:"lifecycle"`
+	RuntimeBoundary    []string                    `json:"runtimeBoundary"`
+	CompletionCriteria []string                    `json:"completionCriteria"`
+}
+
+type ReviewerDispatch struct {
+	ShardID            string   `json:"shardId"`
+	ReviewerRole       string   `json:"reviewerRole"`
+	Status             string   `json:"status"`
+	Items              []string `json:"items"`
+	DispatchPrompt     string   `json:"dispatchPrompt"`
+	ReviewerResultPath string   `json:"reviewerResultPath"`
+	PreviewCommand     string   `json:"previewCommand"`
+	ApplyCommand       string   `json:"applyCommand"`
+}
+
+type ReviewerOrchestrationStep struct {
+	Step          string   `json:"step"`
+	Owner         string   `json:"owner"`
+	Action        string   `json:"action"`
+	Inputs        []string `json:"inputs"`
+	MustPass      []string `json:"mustPass"`
+	NextOnSuccess string   `json:"nextOnSuccess"`
+	NextOnFailure string   `json:"nextOnFailure"`
 }
 
 type Route struct {
@@ -299,6 +337,7 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	}
 	targetLane := ownerBinding.TargetLane
 	shardHandoffs := newShardHandoffs(shards, route, observability, reviewLoop, planRoot, m.Pack, ownerBinding, caseTarget)
+	orchestration := newReviewerOrchestration(shardHandoffs, observability, reviewLoop, ownerBinding, maxParallel, caseTarget)
 	packet := Packet{
 		SchemaVersion:             1,
 		Command:                   commandName,
@@ -315,6 +354,7 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 		ShardPolicy:               ShardPolicy{Basis: route.ShardBasis, TargetItemsPerAgent: itemsPerAgent, MaxParallel: maxParallel},
 		Shards:                    shards,
 		ShardHandoffs:             shardHandoffs,
+		ReviewerOrchestration:     orchestration,
 		MainAgentResponsibilities: route.MainAgentOwns,
 		SubagentPermissions:       route.SubagentPermissions,
 		OutputContract:            route.OutputContract,
@@ -326,10 +366,10 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	if err := writeJSON(paths.PacketPath, packet); err != nil {
 		return Result{}, err
 	}
-	if err := os.WriteFile(paths.SummaryPath, []byte(summaryText(route, opt.TaskType, len(items), len(shards), itemsPerAgent, maxParallel, observability, reviewLoop, ownerBinding, shardHandoffs)), 0o644); err != nil {
+	if err := os.WriteFile(paths.SummaryPath, []byte(summaryText(route, opt.TaskType, len(items), len(shards), itemsPerAgent, maxParallel, observability, reviewLoop, ownerBinding, shardHandoffs, orchestration)), 0o644); err != nil {
 		return Result{}, err
 	}
-	return Result{SchemaVersion: 1, Command: commandName, PlanRoot: planRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, IsMutation: false, WritesReviewArtifacts: true, ReviewRequired: true, ReviewRoot: paths.Root, PacketPath: paths.PacketPath, SummaryPath: paths.SummaryPath, CombinedDiffPath: paths.CombinedDiffPath, ItemCount: len(items), ShardCount: len(shards), TargetLane: targetLane, OwnerBinding: ownerBinding, ShardHandoffs: shardHandoffs, Observability: observability, ReviewLoop: reviewLoop}, nil
+	return Result{SchemaVersion: 1, Command: commandName, PlanRoot: planRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, IsMutation: false, WritesReviewArtifacts: true, ReviewRequired: true, ReviewRoot: paths.Root, PacketPath: paths.PacketPath, SummaryPath: paths.SummaryPath, CombinedDiffPath: paths.CombinedDiffPath, ItemCount: len(items), ShardCount: len(shards), TargetLane: targetLane, OwnerBinding: ownerBinding, ReviewerOrchestration: orchestration, ShardHandoffs: shardHandoffs, Observability: observability, ReviewLoop: reviewLoop}, nil
 }
 
 func resolveOwnerBinding(planRoot string, m *manifest.Manifest, opt Options, intakeAvailable bool) (OwnerBinding, error) {
@@ -444,6 +484,81 @@ func packetIdentity(packet Packet) string {
 	packet.RepoRoot = filepath.Clean(packet.RepoRoot)
 	packet.Pack = strings.TrimSpace(packet.Pack)
 	encoded, err := json.Marshal(packet)
+	if err != nil {
+		panic(err)
+	}
+	sum := sha256.Sum256(encoded)
+	return "packet-" + hex.EncodeToString(sum[:])[:16]
+}
+
+func packetIdentityMatches(packet Packet) bool {
+	id := strings.TrimSpace(packet.PacketID)
+	if id == "" {
+		return false
+	}
+	if id == packetIdentity(packet) {
+		return true
+	}
+	return reviewerOrchestrationEmpty(packet.ReviewerOrchestration) && id == legacyPacketIdentity(packet)
+}
+
+func reviewerOrchestrationEmpty(plan ReviewerOrchestrationPlan) bool {
+	return plan.Mode == "" && plan.Scope == "" && plan.TargetLane == "" && plan.OwnerBinding == (OwnerBinding{}) && plan.PacketPath == "" && plan.ResultRoot == "" && plan.ReviewerCount == 0 && plan.MaxParallel == 0 && len(plan.Dispatches) == 0 && len(plan.Lifecycle) == 0 && len(plan.RuntimeBoundary) == 0 && len(plan.CompletionCriteria) == 0
+}
+
+func legacyPacketIdentity(packet Packet) string {
+	packet.PacketID = ""
+	packet.PlanRoot = filepath.Clean(packet.PlanRoot)
+	packet.RepoRoot = filepath.Clean(packet.RepoRoot)
+	packet.Pack = strings.TrimSpace(packet.Pack)
+	legacy := struct {
+		SchemaVersion             int            `json:"schemaVersion"`
+		PacketID                  string         `json:"packetId"`
+		Command                   string         `json:"command"`
+		IsMutation                bool           `json:"isMutation"`
+		WritesReviewArtifacts     bool           `json:"writesReviewArtifacts"`
+		PlanRoot                  string         `json:"planRoot"`
+		RepoRoot                  string         `json:"repoRoot"`
+		Pack                      string         `json:"pack"`
+		ManifestPath              string         `json:"manifestPath"`
+		TargetLane                string         `json:"targetLane"`
+		OwnerBinding              OwnerBinding   `json:"ownerBinding"`
+		Route                     Route          `json:"route"`
+		Input                     Input          `json:"input"`
+		ShardPolicy               ShardPolicy    `json:"shardPolicy"`
+		Shards                    []Shard        `json:"shards"`
+		ShardHandoffs             []ShardHandoff `json:"shardHandoffs"`
+		MainAgentResponsibilities string         `json:"mainAgentResponsibilities"`
+		SubagentPermissions       string         `json:"subagentPermissions"`
+		OutputContract            string         `json:"outputContract"`
+		ReviewRequired            bool           `json:"reviewRequired"`
+		Observability             Observability  `json:"observability"`
+		ReviewLoop                ReviewLoop     `json:"reviewLoop"`
+	}{
+		SchemaVersion:             packet.SchemaVersion,
+		PacketID:                  packet.PacketID,
+		Command:                   packet.Command,
+		IsMutation:                packet.IsMutation,
+		WritesReviewArtifacts:     packet.WritesReviewArtifacts,
+		PlanRoot:                  packet.PlanRoot,
+		RepoRoot:                  packet.RepoRoot,
+		Pack:                      packet.Pack,
+		ManifestPath:              packet.ManifestPath,
+		TargetLane:                packet.TargetLane,
+		OwnerBinding:              packet.OwnerBinding,
+		Route:                     packet.Route,
+		Input:                     packet.Input,
+		ShardPolicy:               packet.ShardPolicy,
+		Shards:                    packet.Shards,
+		ShardHandoffs:             packet.ShardHandoffs,
+		MainAgentResponsibilities: packet.MainAgentResponsibilities,
+		SubagentPermissions:       packet.SubagentPermissions,
+		OutputContract:            packet.OutputContract,
+		ReviewRequired:            packet.ReviewRequired,
+		Observability:             packet.Observability,
+		ReviewLoop:                packet.ReviewLoop,
+	}
+	encoded, err := json.Marshal(legacy)
 	if err != nil {
 		panic(err)
 	}
@@ -725,6 +840,101 @@ func postReviewMergeSteps() []string {
 	}
 }
 
+func newReviewerOrchestration(handoffs []ShardHandoff, observability Observability, reviewLoop ReviewLoop, ownerBinding OwnerBinding, maxParallel int, intakeAvailable bool) ReviewerOrchestrationPlan {
+	mode := "manual-main-agent-intake"
+	scope := "dispatch read-only reviewers, collect one JSON result per shard, then run reviewer-intake preview/apply for each shard"
+	if !intakeAvailable {
+		mode = "dispatch-only-unattached-target"
+		scope = "dispatch read-only reviewers and collect JSON results only; attach or init the target before reviewer-intake writeback"
+	}
+	dispatches := make([]ReviewerDispatch, 0, len(handoffs))
+	for _, handoff := range handoffs {
+		dispatches = append(dispatches, ReviewerDispatch{
+			ShardID:            handoff.ShardID,
+			ReviewerRole:       "read-only-reviewer",
+			Status:             handoff.Status,
+			Items:              append([]string{}, handoff.Items...),
+			DispatchPrompt:     handoff.DispatchPrompt,
+			ReviewerResultPath: handoff.ReviewerResultPath,
+			PreviewCommand:     handoff.ReviewerIntakeCommands.PreviewCommand,
+			ApplyCommand:       handoff.ReviewerIntakeCommands.ApplyCommand,
+		})
+	}
+	return ReviewerOrchestrationPlan{
+		Mode:               mode,
+		Scope:              scope,
+		TargetLane:         ownerBinding.TargetLane,
+		OwnerBinding:       ownerBinding,
+		PacketPath:         observability.PacketPath,
+		ResultRoot:         observability.ResultRoot,
+		ReviewerCount:      len(handoffs),
+		MaxParallel:        maxParallel,
+		Dispatches:         dispatches,
+		Lifecycle:          reviewerOrchestrationLifecycle(intakeAvailable),
+		RuntimeBoundary:    append([]string{}, observability.BlockedActions...),
+		CompletionCriteria: append([]string{}, reviewLoop.CompletionCriteria...),
+	}
+}
+
+func reviewerOrchestrationLifecycle(intakeAvailable bool) []ReviewerOrchestrationStep {
+	steps := []ReviewerOrchestrationStep{
+		{
+			Step:          "dispatch-reviewers",
+			Owner:         "main-agent",
+			Action:        "launch bounded read-only reviewers from reviewerOrchestration.dispatches[]; runtime records the plan but does not spawn, stop, monitor, or manage reviewer sessions",
+			Inputs:        []string{"reviewerOrchestration.dispatches[].dispatchPrompt", "ownerBinding", "packetPath"},
+			MustPass:      []string{"one reviewerSession is assigned per reviewer result", "reviewers receive only read-only boundary and shard items", "no reviewer writes files or ledgers"},
+			NextOnSuccess: "collect-results",
+			NextOnFailure: "retry-or-split-failed-shards",
+		},
+		{
+			Step:          "collect-results",
+			Owner:         "main-agent",
+			Action:        "place each single reviewer JSON object at its reviewerResultPath and keep shard order independent",
+			Inputs:        []string{"reviewerResultContract", "reviewerOrchestration.dispatches[].reviewerResultPath"},
+			MustPass:      []string{"each result is a single JSON object", "packetId/routeId/shardId/items match the packet", "routeOutput uses only outputContract fields"},
+			NextOnSuccess: "preview-intake",
+			NextOnFailure: "discard-invalid-result",
+		},
+		{
+			Step:          "preview-intake",
+			Owner:         "main-agent",
+			Action:        "run each dispatch previewCommand before any applyCommand and inspect verification/decision/postValidation",
+			Inputs:        []string{"packetPath", "reviewerResultPath", "targetLane", "actor"},
+			MustPass:      []string{"isMutation=false", "applied=false", "readyForWriteback=true", "postValidation is valid when target is an attached case"},
+			NextOnSuccess: "apply-intake",
+			NextOnFailure: "stop-before-ledger-write",
+		},
+		{
+			Step:          "apply-intake",
+			Owner:         "main-agent",
+			Action:        "run applyCommand for every previewed shard; runtime appends verification before linked main decision and keeps retries idempotent",
+			Inputs:        []string{"preview-intake output", "reviewerIntakeCommands.applyCommand"},
+			MustPass:      []string{"verification event precedes linked decision event", "duplicate replay returns already-complete without duplicate ledger rows", "authority/confirmed and heavy-tool outputs remain absent"},
+			NextOnSuccess: "post-review-validation",
+			NextOnFailure: "retry-same-intake-to-complete-writeback",
+		},
+		{
+			Step:          "post-review-validation",
+			Owner:         "main-agent",
+			Action:        "consume postValidation overview/handoff/doctor snapshots before handing off or continuing the lane",
+			Inputs:        []string{"overview", "handoff", "doctor"},
+			MustPass:      []string{"lane handoff reflects reviewer verification and main decision facts", "blocked lane does not recommend continue until blockers are resolved", "reviewer output is never treated as a direct ledger event"},
+			NextOnSuccess: "handoff-or-continue-ready-lane",
+			NextOnFailure: "open-main-agent-blocker",
+		},
+	}
+	if !intakeAvailable {
+		steps[2].Action = "defer reviewer-intake until the target is attached or initialized as a rekit case"
+		steps[2].MustPass = []string{"previewCommand is n/a for dispatch-only out-of-case review artifacts", "do not expect readyForWriteback or postValidation until the target is an attached rekit case"}
+		steps[2].NextOnSuccess = "attach-or-init-target"
+		steps[3].Action = "do not apply reviewer intake from out-of-case dispatch-only packets"
+		steps[3].MustPass = []string{"applyCommand is n/a until target case attachment is available", "no verification or decision ledger events are expected for dispatch-only artifacts"}
+		steps[3].NextOnSuccess = "attach-or-init-target"
+	}
+	return steps
+}
+
 func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, reviewLoop ReviewLoop, ownerBinding OwnerBinding, resultPath string) string {
 	contract := reviewerResultContract()
 	lines := []string{
@@ -907,7 +1117,7 @@ func writeJSON(path string, v any) error {
 	return os.WriteFile(path, append(b, '\n'), 0o644)
 }
 
-func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAgent, maxParallel int, observability Observability, reviewLoop ReviewLoop, ownerBinding OwnerBinding, shardHandoffs []ShardHandoff) string {
+func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAgent, maxParallel int, observability Observability, reviewLoop ReviewLoop, ownerBinding OwnerBinding, shardHandoffs []ShardHandoff, orchestration ReviewerOrchestrationPlan) string {
 	lines := []string{
 		"# rekit subagent plan",
 		"",
@@ -953,6 +1163,22 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 	)
 	for _, action := range observability.BlockedActions {
 		lines = append(lines, "- "+action)
+	}
+	lines = append(lines,
+		"",
+		"### reviewer orchestration",
+		"",
+		"- mode: `"+orchestration.Mode+"`",
+		"- scope: `"+orchestration.Scope+"`",
+		fmt.Sprintf("- reviewer count: `%d`", orchestration.ReviewerCount),
+		fmt.Sprintf("- max parallel: `%d`", orchestration.MaxParallel),
+		"- result root: `"+orchestration.ResultRoot+"`",
+	)
+	for _, step := range orchestration.Lifecycle {
+		lines = append(lines, fmt.Sprintf("- orchestration-step: `%s`; owner=`%s`; action=`%s`; inputs=`%s`; must-pass=`%s`; next-success=`%s`; next-failure=`%s`", step.Step, step.Owner, step.Action, strings.Join(step.Inputs, ","), strings.Join(step.MustPass, "; "), step.NextOnSuccess, step.NextOnFailure))
+	}
+	for _, dispatch := range orchestration.Dispatches {
+		lines = append(lines, fmt.Sprintf("- reviewer-dispatch: `%s`; role=`%s`; status=`%s`; result=`%s`; preview=`%s`; apply=`%s`", dispatch.ShardID, dispatch.ReviewerRole, dispatch.Status, dispatch.ReviewerResultPath, dispatch.PreviewCommand, dispatch.ApplyCommand))
 	}
 	lines = append(lines,
 		"",

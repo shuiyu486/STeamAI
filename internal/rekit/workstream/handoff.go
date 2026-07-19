@@ -770,7 +770,11 @@ func writeVerificationSection(out *bytes.Buffer, verifications []map[string]any,
 		if by != "" {
 			byTag = " | by=" + by
 		}
-		fmt.Fprintf(out, "- %s | verifier=%s | verdict=%s | target=%s%s%s\n", subj, firstObjectText(v, "verifier"), firstObjectText(v, "verdict"), firstObjectText(v, "target"), byTag, batchTag(v))
+		reviewerTag := ""
+		if reviewer := firstObjectText(v, "reviewerSession"); reviewer != "" {
+			reviewerTag = " | reviewerSession=" + reviewer
+		}
+		fmt.Fprintf(out, "- %s | verifier=%s | verdict=%s | target=%s%s%s%s\n", subj, firstObjectText(v, "verifier"), firstObjectText(v, "verdict"), firstObjectText(v, "target"), byTag, reviewerTag, batchTag(v))
 	}
 	fmt.Fprintln(out)
 }
@@ -790,7 +794,11 @@ func writeDecisionSection(out *bytes.Buffer, decisions []map[string]any, laneID 
 		if by != "" {
 			byTag = " | by=" + by
 		}
-		fmt.Fprintf(out, "- %s | decision=%s%s | reason=%s\n", subj, dec, byTag, firstObjectText(d, "reason"))
+		reviewerTag := ""
+		if reviewer := firstObjectText(d, "reviewerSession"); reviewer != "" {
+			reviewerTag = " | reviewerSession=" + reviewer
+		}
+		fmt.Fprintf(out, "- %s | decision=%s%s%s | reason=%s\n", subj, dec, byTag, reviewerTag, firstObjectText(d, "reason"))
 	}
 	fmt.Fprintln(out)
 }
