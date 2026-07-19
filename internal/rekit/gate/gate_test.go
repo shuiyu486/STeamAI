@@ -579,6 +579,9 @@ func TestValidateAdapterExecutionReportReturnsInvalidEnvelopeReadOnly(t *testing
 	if validation.Error == "" || !strings.Contains(validation.Error, "requires boundaryHits or escalation") || len(validation.Errors) != 1 || validation.Contract.GateEventID != authorized.EventID {
 		t.Fatalf("invalid validation envelope omitted error or contract: %+v", validation)
 	}
+	if len(validation.RepairHints) != 1 || validation.RepairHints[0].RepairAction != "add-boundary-marker" || validation.RepairHints[0].Code != "boundary-marker-missing" || validation.RepairHints[0].Stage != "boundary" || !validation.RepairHints[0].RecordBlocked || !validation.RepairHints[0].RerunValidation || strings.Join(validation.RepairHints[0].AllowedStopConditions, ",") != "timeout" || !strings.Contains(strings.Join(validation.NextSteps, ","), "repairAction: add-boundary-marker") {
+		t.Fatalf("invalid validation envelope omitted repair hints: %+v", validation)
+	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
 
@@ -755,6 +758,18 @@ func TestValidateAdapterExecutionReportInvalidEnvelopeFailureCodes(t *testing.T)
 			}
 			if validation.Kind != "adapter-execution-report-validation" || validation.IsMutation || validation.Applied || validation.Valid || validation.ReportPath != tc.path || validation.FailureCode != tc.wantCode || validation.FailureStage != tc.wantStage || validation.Error == "" || !strings.Contains(validation.Error, tc.wantError) || len(validation.Errors) != 1 || validation.Contract.GateEventID != authorized.EventID {
 				t.Fatalf("unexpected invalid adapter report validation envelope: %+v", validation)
+			}
+			if len(validation.RepairHints) != 1 || validation.RepairHints[0].Code != tc.wantCode || validation.RepairHints[0].Stage != tc.wantStage || validation.RepairHints[0].RepairAction == "" || !validation.RepairHints[0].RecordBlocked || !validation.RepairHints[0].RerunValidation || !strings.Contains(strings.Join(validation.NextSteps, ","), "repairAction: "+validation.RepairHints[0].RepairAction) {
+				t.Fatalf("invalid adapter report validation omitted repair hints: %+v", validation)
+			}
+			if tc.wantCode == "report-path-out-of-scope" && strings.Join(validation.RepairHints[0].AllowedOutputPaths, ",") != "workspace/main/debug/session-1" {
+				t.Fatalf("path repair hint omitted allowed output paths: %+v", validation.RepairHints[0])
+			}
+			if tc.wantCode == "boundary-hits-not-authorized" && (strings.Join(validation.RepairHints[0].AllowedStopConditions, ",") != "timeout" || !validation.RepairHints[0].EscalateToMain) {
+				t.Fatalf("boundary repair hint omitted stop conditions or escalation marker: %+v", validation.RepairHints[0])
+			}
+			if tc.wantCode == "status-summary-missing" && validation.RepairHints[0].MaxBytes != 4096 {
+				t.Fatalf("summary repair hint omitted max bytes: %+v", validation.RepairHints[0])
 			}
 			if tc.wantReport && validation.Report == nil {
 				t.Fatalf("invalid adapter report validation omitted partial report: %+v", validation)

@@ -199,6 +199,21 @@ type AdapterReportValidationFailureCode struct {
 	Description string `json:"description"`
 }
 
+type AdapterReportRepairHint struct {
+	Code                  string   `json:"code,omitempty"`
+	Stage                 string   `json:"stage,omitempty"`
+	RepairAction          string   `json:"repairAction"`
+	Fields                []string `json:"fields,omitempty"`
+	AllowedValues         []string `json:"allowedValues,omitempty"`
+	AllowedOutputPaths    []string `json:"allowedOutputPaths,omitempty"`
+	AllowedStopConditions []string `json:"allowedStopConditions,omitempty"`
+	MaxBytes              int      `json:"maxBytes,omitempty"`
+	RecordBlocked         bool     `json:"recordBlocked"`
+	RerunValidation       bool     `json:"rerunValidation"`
+	EscalateToMain        bool     `json:"escalateToMain,omitempty"`
+	Detail                string   `json:"detail"`
+}
+
 type AdapterExecutionReportValidation struct {
 	SchemaVersion int                            `json:"schemaVersion"`
 	Command       string                         `json:"command"`
@@ -213,6 +228,7 @@ type AdapterExecutionReportValidation struct {
 	Errors        []string                       `json:"errors,omitempty"`
 	FailureCode   string                         `json:"failureCode,omitempty"`
 	FailureStage  string                         `json:"failureStage,omitempty"`
+	RepairHints   []AdapterReportRepairHint      `json:"repairHints,omitempty"`
 	GateEventID   string                         `json:"gateEventId"`
 	ReportPath    string                         `json:"reportPath,omitempty"`
 	Report        *AdapterReport                 `json:"report,omitempty"`
@@ -287,6 +303,174 @@ func adapterReportValidationFailureCodes() []AdapterReportValidationFailureCode 
 		{Code: "status-summary-missing", Stage: "summary", Description: "Failed, boundary-hit, escalated, or aborted reports must include a bounded summary."},
 		{Code: "summary-too-large", Stage: "summary", Description: "Execution report summary must stay within the bounded size limit."},
 	}
+}
+
+func adapterReportMissingPathRepairHints(gateEvent EventPreview) []AdapterReportRepairHint {
+	return []AdapterReportRepairHint{{
+		Stage:              "path",
+		RepairAction:       "provide-execution-report-path",
+		Fields:             []string{"executionReportPath"},
+		AllowedOutputPaths: normalizedGatePaths(gateEvent.Gate.OutputPaths),
+		RecordBlocked:      true,
+		RerunValidation:    true,
+		Detail:             "provide -ExecutionReportPath under an authorized output path before recording evidence",
+	}}
+}
+
+func adapterReportRepairHints(gateEvent EventPreview, code, stage string) []AdapterReportRepairHint {
+	if strings.TrimSpace(code) == "" {
+		return []AdapterReportRepairHint{{
+			Stage:           stage,
+			RepairAction:    "escalate-validation-error",
+			RecordBlocked:   true,
+			RerunValidation: true,
+			EscalateToMain:  true,
+			Detail:          "validation failed without a stable failureCode; escalate the bounded sidecar and validation error to the main Agent",
+		}}
+	}
+	hint := AdapterReportRepairHint{Code: code, Stage: stage, RecordBlocked: true, RerunValidation: true}
+	switch code {
+	case "path-list":
+		hint.RepairAction = "use-single-report-path"
+		hint.Fields = []string{"executionReportPath"}
+		hint.Detail = "pass exactly one -ExecutionReportPath value"
+	case "path-invalid":
+		hint.RepairAction = "fix-report-path-containment"
+		hint.Fields = []string{"executionReportPath"}
+		hint.Detail = "use a case-relative, current-workspace relative, or case-contained absolute report path"
+	case "report-path-out-of-scope":
+		hint.RepairAction = "move-report-under-authorized-output-path"
+		hint.Fields = []string{"executionReportPath"}
+		hint.AllowedOutputPaths = normalizedGatePaths(gateEvent.Gate.OutputPaths)
+		hint.Detail = "store the bounded sidecar under one authorized output path"
+	case "report-not-readable":
+		hint.RepairAction = "create-readable-report-file"
+		hint.Fields = []string{"executionReportPath"}
+		hint.AllowedOutputPaths = normalizedGatePaths(gateEvent.Gate.OutputPaths)
+		hint.Detail = "write a readable adapter execution report sidecar at the requested path"
+	case "report-path-directory":
+		hint.RepairAction = "use-report-file-not-directory"
+		hint.Fields = []string{"executionReportPath"}
+		hint.Detail = "point -ExecutionReportPath at the sidecar JSON file, not a directory"
+	case "report-too-large":
+		hint.RepairAction = "shrink-report-sidecar"
+		hint.Fields = []string{"executionReportPath"}
+		hint.MaxBytes = 1 << 20
+		hint.Detail = "keep the sidecar <= 1048576 bytes and move full trace/dump/log data into referenced artifacts"
+	case "report-json-invalid":
+		hint.RepairAction = "fix-report-json"
+		hint.Fields = []string{"schemaVersion", "kind", "adapterId", "action", "status", "gateEventId", "actualBudget", "outputRefs", "evidenceRefs", "boundaryHits", "escalation", "summary"}
+		hint.Detail = "emit one valid JSON object using only adapter-execution-report fields"
+	case "report-trailing-data":
+		hint.RepairAction = "remove-trailing-json-data"
+		hint.Detail = "keep exactly one JSON object in the sidecar with no trailing data"
+	case "schema-version":
+		hint.RepairAction = "set-schema-version"
+		hint.Fields = []string{"schemaVersion"}
+		hint.AllowedValues = []string{"1"}
+		hint.Detail = "set schemaVersion to 1"
+	case "kind":
+		hint.RepairAction = "set-report-kind"
+		hint.Fields = []string{"kind"}
+		hint.AllowedValues = []string{"adapter-execution-report"}
+		hint.Detail = "set kind to adapter-execution-report"
+	case "adapter-id-missing":
+		hint.RepairAction = "set-adapter-id"
+		hint.Fields = []string{"adapterId"}
+		hint.Detail = "set adapterId to the executor/tool adapter identifier"
+	case "status":
+		hint.RepairAction = "set-valid-status"
+		hint.Fields = []string{"status"}
+		hint.AllowedValues = []string{"succeeded", "failed", "boundary-hit", "escalated", "aborted"}
+		hint.Detail = "set status to one allowed adapter execution status"
+	case "action-mismatch":
+		hint.RepairAction = "match-authorized-action"
+		hint.Fields = []string{"action"}
+		hint.AllowedValues = []string{gateEvent.Gate.Action}
+		hint.Detail = "set action to the authorized gate action"
+	case "gate-event-mismatch":
+		hint.RepairAction = "match-authorized-gate-event"
+		hint.Fields = []string{"gateEventId"}
+		hint.AllowedValues = []string{gateEvent.EventID}
+		hint.Detail = "set gateEventId to the authorized-gate eventId being validated"
+	case "output-refs-invalid":
+		hint.RepairAction = "make-output-refs-case-relative"
+		hint.Fields = []string{"outputRefs"}
+		hint.Detail = "keep outputRefs case-relative and inside the case root"
+	case "output-refs-out-of-scope":
+		hint.RepairAction = "move-output-refs-under-authorized-output-paths"
+		hint.Fields = []string{"outputRefs"}
+		hint.AllowedOutputPaths = normalizedGatePaths(gateEvent.Gate.OutputPaths)
+		hint.Detail = "keep outputRefs under authorized outputPaths"
+	case "evidence-refs-invalid":
+		hint.RepairAction = "make-evidence-refs-case-relative"
+		hint.Fields = []string{"evidenceRefs"}
+		hint.Detail = "keep evidenceRefs case-relative and inside the case root"
+	case "evidence-refs-out-of-scope":
+		hint.RepairAction = "move-evidence-refs-under-authorized-output-paths"
+		hint.Fields = []string{"evidenceRefs"}
+		hint.AllowedOutputPaths = normalizedGatePaths(gateEvent.Gate.OutputPaths)
+		hint.Detail = "keep evidenceRefs under authorized outputPaths"
+	case "actual-budget-negative":
+		hint.RepairAction = "set-non-negative-actual-budget"
+		hint.Fields = []string{"actualBudget.runtimeSeconds", "actualBudget.diskMB", "actualBudget.requests"}
+		hint.Detail = "set all actualBudget values to zero or positive integers"
+	case "budget-marker-missing":
+		hint.RepairAction = "record-budget-boundary-marker"
+		hint.Fields = []string{"actualBudget", "boundaryHits", "escalation"}
+		hint.AllowedStopConditions = append([]string{}, gateEvent.Gate.StopConditions...)
+		hint.Detail = "when actualBudget exceeds the authorized budget, add authorized boundaryHits or a bounded escalation"
+	case "boundary-hits-invalid":
+		hint.RepairAction = "use-valid-boundary-hit-tokens"
+		hint.Fields = []string{"boundaryHits"}
+		hint.AllowedStopConditions = append([]string{}, gateEvent.Gate.StopConditions...)
+		hint.Detail = "replace boundaryHits with supported stop-condition tokens"
+	case "boundary-hits-not-authorized":
+		hint.RepairAction = "use-authorized-boundary-hit-tokens-or-escalate"
+		hint.Fields = []string{"boundaryHits", "escalation"}
+		hint.AllowedStopConditions = append([]string{}, gateEvent.Gate.StopConditions...)
+		hint.EscalateToMain = true
+		hint.Detail = "use only authorized stopConditions in boundaryHits, or replace the marker with a bounded escalation for main Agent review"
+	case "escalation-too-large":
+		hint.RepairAction = "shrink-escalation-summary"
+		hint.Fields = []string{"escalation"}
+		hint.MaxBytes = 4096
+		hint.Detail = "keep escalation <= 4096 bytes and reference larger evidence as outputRefs/evidenceRefs"
+	case "boundary-marker-missing":
+		hint.RepairAction = "add-boundary-marker"
+		hint.Fields = []string{"boundaryHits", "escalation"}
+		hint.AllowedStopConditions = append([]string{}, gateEvent.Gate.StopConditions...)
+		hint.Detail = "boundary-hit or escalated status requires authorized boundaryHits or a bounded escalation"
+	case "status-summary-missing":
+		hint.RepairAction = "add-required-status-summary"
+		hint.Fields = []string{"summary"}
+		hint.MaxBytes = 4096
+		hint.Detail = "failed, boundary-hit, escalated, or aborted status requires a bounded summary"
+	case "summary-too-large":
+		hint.RepairAction = "shrink-status-summary"
+		hint.Fields = []string{"summary"}
+		hint.MaxBytes = 4096
+		hint.Detail = "keep summary <= 4096 bytes and reference larger evidence as outputRefs/evidenceRefs"
+	default:
+		hint.RepairAction = "escalate-validation-error"
+		hint.EscalateToMain = true
+		hint.Detail = "validation failed with an unknown failureCode; escalate the bounded sidecar and validation error to the main Agent"
+	}
+	return []AdapterReportRepairHint{hint}
+}
+
+func adapterReportRepairNextSteps(hints []AdapterReportRepairHint) []string {
+	if len(hints) == 0 {
+		return []string{"report is invalid for read-only preflight", "fix the bounded adapter execution report sidecar and rerun gate -ValidateExecutionReport", "do not record it with gate -Apply until valid=true"}
+	}
+	steps := []string{"report is invalid for read-only preflight"}
+	for _, hint := range hints {
+		if hint.RepairAction != "" {
+			steps = append(steps, "repairAction: "+hint.RepairAction)
+		}
+	}
+	steps = append(steps, "rerun gate -ValidateExecutionReport before recording evidence", "do not record it with gate -Apply until valid=true")
+	return steps
 }
 
 type ApplyResult struct {
@@ -513,14 +697,16 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 			validation.FailureCode = validationErr.Code
 			validation.FailureStage = validationErr.Stage
 		}
-		validation.NextSteps = []string{"report is invalid for read-only preflight", "fix the bounded adapter execution report sidecar and rerun gate -ValidateExecutionReport", "do not record it with gate -Apply until valid=true"}
+		validation.RepairHints = adapterReportRepairHints(gateEvent, validation.FailureCode, validation.FailureStage)
+		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		return validation, nil
 	}
 	if adapterReport == nil {
 		validation.Valid = false
 		validation.Error = "gate execution report validation requires -ExecutionReportPath"
 		validation.Errors = []string{validation.Error}
-		validation.NextSteps = []string{"provide -ExecutionReportPath under an authorized output path", "rerun gate -ValidateExecutionReport before recording evidence"}
+		validation.RepairHints = adapterReportMissingPathRepairHints(gateEvent)
+		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		return validation, nil
 	}
 	validation.Valid = true

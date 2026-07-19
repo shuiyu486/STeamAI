@@ -5161,10 +5161,20 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		Errors       []string `json:"errors"`
 		FailureCode  string   `json:"failureCode"`
 		FailureStage string   `json:"failureStage"`
-		IsMutation   bool     `json:"isMutation"`
-		Applied      bool     `json:"applied"`
-		ReportPath   string   `json:"reportPath"`
-		Report       *struct {
+		RepairHints  []struct {
+			Code                  string   `json:"code"`
+			Stage                 string   `json:"stage"`
+			RepairAction          string   `json:"repairAction"`
+			Fields                []string `json:"fields"`
+			AllowedStopConditions []string `json:"allowedStopConditions"`
+			RecordBlocked         bool     `json:"recordBlocked"`
+			RerunValidation       bool     `json:"rerunValidation"`
+		} `json:"repairHints"`
+		NextSteps  []string `json:"nextSteps"`
+		IsMutation bool     `json:"isMutation"`
+		Applied    bool     `json:"applied"`
+		ReportPath string   `json:"reportPath"`
+		Report     *struct {
 			Status string `json:"status"`
 		} `json:"report"`
 	}
@@ -5173,6 +5183,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if invalidAdapterValidation.Valid || invalidAdapterValidation.Error == "" || !strings.Contains(invalidAdapterValidation.Error, "requires boundaryHits or escalation") || len(invalidAdapterValidation.Errors) != 1 || invalidAdapterValidation.FailureCode != "boundary-marker-missing" || invalidAdapterValidation.FailureStage != "boundary" || invalidAdapterValidation.IsMutation || invalidAdapterValidation.Applied || invalidAdapterValidation.ReportPath != "workspace/main/debug/session-1/adapter-invalid.json" || invalidAdapterValidation.Report == nil || invalidAdapterValidation.Report.Status != "boundary-hit" {
 		t.Fatalf("invalid adapter execution report validation drifted: %+v", invalidAdapterValidation)
+	}
+	if len(invalidAdapterValidation.RepairHints) != 1 || invalidAdapterValidation.RepairHints[0].Code != "boundary-marker-missing" || invalidAdapterValidation.RepairHints[0].Stage != "boundary" || invalidAdapterValidation.RepairHints[0].RepairAction != "add-boundary-marker" || strings.Join(invalidAdapterValidation.RepairHints[0].AllowedStopConditions, ",") != "timeout" || !invalidAdapterValidation.RepairHints[0].RecordBlocked || !invalidAdapterValidation.RepairHints[0].RerunValidation || !strings.Contains(strings.Join(invalidAdapterValidation.NextSteps, ","), "repairAction: add-boundary-marker") {
+		t.Fatalf("invalid adapter execution report validation omitted repair hints: %+v", invalidAdapterValidation)
 	}
 	observationsAfterInvalidValidation, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if err != nil {
@@ -5582,14 +5595,23 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 		Applied      bool   `json:"applied"`
 		FailureCode  string `json:"failureCode"`
 		FailureStage string `json:"failureStage"`
-		Error        string `json:"error"`
-		ReportPath   string `json:"reportPath"`
+		RepairHints  []struct {
+			RepairAction       string   `json:"repairAction"`
+			AllowedOutputPaths []string `json:"allowedOutputPaths"`
+			RecordBlocked      bool     `json:"recordBlocked"`
+			RerunValidation    bool     `json:"rerunValidation"`
+		} `json:"repairHints"`
+		Error      string `json:"error"`
+		ReportPath string `json:"reportPath"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &invalidValidation); err != nil {
 		t.Fatalf("nested workspace invalid evidenceRefs validation stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if invalidValidation.Valid || invalidValidation.IsMutation || invalidValidation.Applied || invalidValidation.FailureCode != "evidence-refs-out-of-scope" || invalidValidation.FailureStage != "refs" || !strings.Contains(invalidValidation.Error, "evidenceRefs must stay within authorized gate outputPaths") || invalidValidation.ReportPath != "workspace/main/debug/session-1/bad-evidence-refs-report.json" {
 		t.Fatalf("unexpected nested workspace invalid evidenceRefs validation: %+v", invalidValidation)
+	}
+	if len(invalidValidation.RepairHints) != 1 || invalidValidation.RepairHints[0].RepairAction != "move-evidence-refs-under-authorized-output-paths" || strings.Join(invalidValidation.RepairHints[0].AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || !invalidValidation.RepairHints[0].RecordBlocked || !invalidValidation.RepairHints[0].RerunValidation {
+		t.Fatalf("nested workspace invalid evidenceRefs validation omitted repair hints: %+v", invalidValidation)
 	}
 	afterInvalidValidation := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, afterInvalidValidation)
