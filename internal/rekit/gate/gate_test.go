@@ -427,6 +427,27 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if strings.Join(contract.StopConditions, ",") != "timeout" || contract.SummaryMaxBytes != 4096 || contract.EscalationMaxBytes != 4096 || !contract.RecordRequired || !strings.Contains(strings.Join(contract.DeniedActions, ","), "heavy-tool execution") {
 		t.Fatalf("adapter report contract omitted live validation rules: %+v", contract)
 	}
+	stages := map[string]bool{}
+	for _, stage := range contract.ValidationFailureStages {
+		stages[stage.Stage] = stage.Description != ""
+	}
+	for _, stage := range []string{"path", "read", "decode", "schema", "identity", "refs", "budget", "boundary", "summary"} {
+		if !stages[stage] {
+			t.Fatalf("adapter report contract omitted validation failure stage %q: %+v", stage, contract.ValidationFailureStages)
+		}
+	}
+	codes := map[string]string{}
+	for _, code := range contract.ValidationFailureCodes {
+		if code.Description == "" {
+			t.Fatalf("adapter report contract omitted failure code description: %+v", code)
+		}
+		codes[code.Code] = code.Stage
+	}
+	for code, stage := range map[string]string{"report-path-out-of-scope": "path", "report-json-invalid": "decode", "gate-event-mismatch": "identity", "output-refs-out-of-scope": "refs", "budget-marker-missing": "budget", "boundary-marker-missing": "boundary"} {
+		if codes[code] != stage {
+			t.Fatalf("adapter report contract failure code %q stage = %q, want %q; codes=%+v", code, codes[code], stage, contract.ValidationFailureCodes)
+		}
+	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))

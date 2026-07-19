@@ -4990,17 +4990,24 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	var contract struct {
-		Kind                   string   `json:"kind"`
-		ReportKind             string   `json:"reportKind"`
-		ReportSchemaVersion    int      `json:"reportSchemaVersion"`
-		GateEventID            string   `json:"gateEventId"`
-		Action                 string   `json:"action"`
-		AllowedStatuses        []string `json:"allowedStatuses"`
-		AllowedOutputPaths     []string `json:"allowedOutputPaths"`
-		BoundaryStatusRequires []string `json:"boundaryStatusRequires"`
-		SummaryMaxBytes        int      `json:"summaryMaxBytes"`
-		EscalationMaxBytes     int      `json:"escalationMaxBytes"`
-		AuthorizedBudget       struct {
+		Kind                    string   `json:"kind"`
+		ReportKind              string   `json:"reportKind"`
+		ReportSchemaVersion     int      `json:"reportSchemaVersion"`
+		GateEventID             string   `json:"gateEventId"`
+		Action                  string   `json:"action"`
+		AllowedStatuses         []string `json:"allowedStatuses"`
+		AllowedOutputPaths      []string `json:"allowedOutputPaths"`
+		BoundaryStatusRequires  []string `json:"boundaryStatusRequires"`
+		ValidationFailureStages []struct {
+			Stage string `json:"stage"`
+		} `json:"validationFailureStages"`
+		ValidationFailureCodes []struct {
+			Code  string `json:"code"`
+			Stage string `json:"stage"`
+		} `json:"validationFailureCodes"`
+		SummaryMaxBytes    int `json:"summaryMaxBytes"`
+		EscalationMaxBytes int `json:"escalationMaxBytes"`
+		AuthorizedBudget   struct {
 			RuntimeSeconds int `json:"runtimeSeconds"`
 		} `json:"authorizedBudget"`
 		DeniedActions []string `json:"deniedActions"`
@@ -5013,6 +5020,17 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if strings.Join(contract.AllowedStatuses, ",") != "succeeded,failed,boundary-hit,escalated,aborted" || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || contract.AuthorizedBudget.RuntimeSeconds != 30 || contract.SummaryMaxBytes != 4096 || contract.EscalationMaxBytes != 4096 || !containsSubstring(contract.BoundaryStatusRequires, "boundaryHits or escalation") || !slices.Contains(contract.DeniedActions, "heavy-tool execution") {
 		t.Fatalf("adapter report contract omitted live validation boundaries: %+v", contract)
+	}
+	contractStages := []string{}
+	for _, stage := range contract.ValidationFailureStages {
+		contractStages = append(contractStages, stage.Stage)
+	}
+	contractCodes := []string{}
+	for _, code := range contract.ValidationFailureCodes {
+		contractCodes = append(contractCodes, code.Code+":"+code.Stage)
+	}
+	if !slices.Contains(contractStages, "decode") || !slices.Contains(contractStages, "boundary") || !slices.Contains(contractCodes, "report-json-invalid:decode") || !slices.Contains(contractCodes, "boundary-marker-missing:boundary") {
+		t.Fatalf("adapter report contract omitted validation failure taxonomy: stages=%v codes=%v", contractStages, contractCodes)
 	}
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-GateEventId", authorizedEventID, "-ExecutionStatus", "succeeded", "-Actor", "executor-1", "-ActualRuntimeSeconds", "25", "-ActualDiskMB", "32", "-ActualRequests", "1", "-OutputRefs", "workspace/main/debug/session-1/result.json", "-ExecutionEvidenceRefs", "workspace/main/debug/session-1/result.json", "-Format", "json"}, &out); err != nil {

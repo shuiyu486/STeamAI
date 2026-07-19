@@ -16,21 +16,21 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 368：Adapter validation failure taxonomy**
+**Batch 369：Adapter validation taxonomy contract projection**
 
-状态：已完成 `gate -ValidateExecutionReport` invalid sidecar 的 stable failure taxonomy、Go package/CLI coverage 与 durable docs 更新；远程 release-gate 仍需在 push 后检查，已知环境存在 runner/billing blocker，不能在本地直接声明远程 CI green。
+状态：已完成 `gate -ExecutionReportContract` read-only contract 的 validation failure taxonomy projection、Go package/CLI coverage 与 durable docs 更新；远程 release-gate 仍需在 push 后检查，已知环境存在 runner/billing blocker，不能在本地直接声明远程 CI green。
 
-目标：在 Batch 367 的 machine-readable `valid=false` envelope 之外，让 lane executor / tool adapter 不再解析 free-form `error` 文本来判断修复动作；invalid sidecar envelope 应稳定暴露 `failureCode` 与 `failureStage`，覆盖 path/read/decode/schema/identity/refs/budget/boundary/summary 等 strict intake 阶段，同时继续保留 no-write、partial report 与 contract/path 上下文。
+目标：在 Batch 368 的 invalid envelope `failureCode` / `failureStage` 之外，让 lane executor / tool adapter 执行前即可读取同一 taxonomy contract，不必从源码、文档散点或失败样例反推 `gate -ValidateExecutionReport` 可能返回的 stable failure code/stage；contract 应列出 path/read/decode/schema/identity/refs/budget/boundary/summary 阶段与 code/stage/description 映射。
 
-边界：本批只调整 Go validation envelope taxonomy、package/CLI tests 与 durable docs；不新增 PowerShell runtime logic，不修改 façade 参数面，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 observations/authority/confirmed，不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；无法定位 authorized gate、flag 组合错误、缺 `-ExecutionReportPath` 或非 JSON format 仍保持 CLI error 边界。
+边界：本批只调整 Go read-only contract projection、package/CLI tests 与 durable docs；不新增 PowerShell runtime logic，不修改 façade 参数面，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 observations/authority/confirmed，不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；实际 adapter-specific live validation 与工具隔离仍由 lane executor / tool adapter 承担。
 
 已完成内容：
 
-- `AdapterExecutionReportValidation` 新增 optional `failureCode` 与 `failureStage`，在 `valid=false` 时与 `error` / `errors[]` 并列输出，供 adapter 机器消费。
-- 新增 internal `adapterReportValidationError` taxonomy wrapper；`readAdapterExecutionReport` 与 `validateAdapterExecutionReport` 把 report path list/invalid/out-of-scope、read/open/stat/size、JSON decode/trailing data、schema/action/status/gateEventId、actual budget、output/evidence refs、boundary hits、boundary marker、budget marker 与 summary/escalation size 等失败映射为 stable code/stage。
-- 保持 Batch 367 行为：authorized gate 已找到且 sidecar/path strict intake 失败时返回 JSON `valid=false` 而非 CLI error；decode 成功后的 trailing/strict-validation failure 仍保留 partial normalized `AdapterReport`；read-only validation 不写 observations ledger。
-- package tests 覆盖 report path out-of-scope、malformed JSON、trailing data、gateEventId mismatch、out-of-scope outputRefs、budget marker missing 的 failureCode/failureStage、partial report 保留与 no-observation-write invariant；CLI E2E 锁定 boundary marker missing 的 `failureCode=boundary-marker-missing` / `failureStage=boundary`。
-- README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、tests guide、CLAUDE、batch plan 与 CHANGELOG 已同步说明 invalid sidecar failure taxonomy。
+- `AdapterExecutionReportContract` 新增 `validationFailureStages[]` 与 `validationFailureCodes[]`，每个 code 都带 `code`、`stage`、bounded description；字段仅随 contract/read-only JSON 输出，不改变 mutating evidence schema。
+- `adapterReportContract` 投影完整 taxonomy：path、read、decode、schema、identity、refs、budget、boundary、summary 阶段，以及 path-list/path-invalid/report-path-out-of-scope、report-not-readable/directory/too-large、report-json-invalid/trailing-data、schema/kind/adapter/status/action/gateEventId、output/evidence refs、actual budget、budget marker、boundary hits/escalation/boundary marker、summary size 等 stable failure codes。
+- Contract `nextSteps` 明确先用 `gate -ValidateExecutionReport ... -Format json` preflight sidecar，再用 `gate -Apply -GateEventId ... -ExecutionReportPath ...` 记录 valid report；contract 仍 `isMutation=false`，不写 ledger、不执行工具、不写 authority/confirmed。
+- package tests 覆盖 contract 中所有关键 stages、failure code -> stage 映射、description 非空与 no-observation-write invariant；CLI E2E 覆盖 `-ExecutionReportContract` JSON 输出 taxonomy rows。
+- README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、tests guide、CLAUDE、batch plan 与 CHANGELOG 已同步说明 contract projection 会暴露 validation failure taxonomy。
 
 已通过验证：
 
@@ -46,7 +46,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；远程 release-gate 需在 push 后读取最新 run。本批未运行 façade smoke，因为没有修改 retained `rekit.ps1` 参数面或 safe-delegation guard，Batch 366 已覆盖 `-ValidateExecutionReport` façade 参数透传。
+本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；远程 release-gate 需在 push 后读取最新 run。本批未运行 façade smoke，因为没有修改 retained `rekit.ps1` 参数面或 safe-delegation guard，Batch 366 已覆盖 `-ExecutionReportContract` / `-ValidateExecutionReport` façade 参数透传。
 
 ### Next candidates
 

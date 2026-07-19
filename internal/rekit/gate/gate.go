@@ -117,35 +117,48 @@ type AdapterReport struct {
 }
 
 type AdapterExecutionReportContract struct {
-	SchemaVersion          int               `json:"schemaVersion"`
-	Command                string            `json:"command"`
-	Kind                   string            `json:"kind"`
-	CaseRoot               string            `json:"caseRoot"`
-	RepoRoot               string            `json:"repoRoot"`
-	Pack                   string            `json:"pack"`
-	IsMutation             bool              `json:"isMutation"`
-	Lane                   string            `json:"lane"`
-	Target                 string            `json:"target,omitempty"`
-	BatchID                string            `json:"batchId,omitempty"`
-	Risk                   string            `json:"risk,omitempty"`
-	Authorization          autonomy.Decision `json:"authorization"`
-	ReportKind             string            `json:"reportKind"`
-	ReportSchemaVersion    int               `json:"reportSchemaVersion"`
-	GateEventID            string            `json:"gateEventId"`
-	Action                 string            `json:"action"`
-	AllowedStatuses        []string          `json:"allowedStatuses"`
-	RequiredFields         []string          `json:"requiredFields"`
-	AllowedOutputPaths     []string          `json:"allowedOutputPaths"`
-	AuthorizedBudget       autonomy.Budget   `json:"authorizedBudget"`
-	StopConditions         []string          `json:"stopConditions,omitempty"`
-	ReportPathRule         string            `json:"reportPathRule"`
-	SummaryMaxBytes        int               `json:"summaryMaxBytes"`
-	RecordRequired         bool              `json:"recordRequired"`
-	NotifyMainOn           []string          `json:"notifyMainOn,omitempty"`
-	BoundaryStatusRequires []string          `json:"boundaryStatusRequires,omitempty"`
-	EscalationMaxBytes     int               `json:"escalationMaxBytes"`
-	DeniedActions          []string          `json:"deniedActions,omitempty"`
-	NextSteps              []string          `json:"nextSteps,omitempty"`
+	SchemaVersion           int                                   `json:"schemaVersion"`
+	Command                 string                                `json:"command"`
+	Kind                    string                                `json:"kind"`
+	CaseRoot                string                                `json:"caseRoot"`
+	RepoRoot                string                                `json:"repoRoot"`
+	Pack                    string                                `json:"pack"`
+	IsMutation              bool                                  `json:"isMutation"`
+	Lane                    string                                `json:"lane"`
+	Target                  string                                `json:"target,omitempty"`
+	BatchID                 string                                `json:"batchId,omitempty"`
+	Risk                    string                                `json:"risk,omitempty"`
+	Authorization           autonomy.Decision                     `json:"authorization"`
+	ReportKind              string                                `json:"reportKind"`
+	ReportSchemaVersion     int                                   `json:"reportSchemaVersion"`
+	GateEventID             string                                `json:"gateEventId"`
+	Action                  string                                `json:"action"`
+	AllowedStatuses         []string                              `json:"allowedStatuses"`
+	RequiredFields          []string                              `json:"requiredFields"`
+	AllowedOutputPaths      []string                              `json:"allowedOutputPaths"`
+	AuthorizedBudget        autonomy.Budget                       `json:"authorizedBudget"`
+	StopConditions          []string                              `json:"stopConditions,omitempty"`
+	ReportPathRule          string                                `json:"reportPathRule"`
+	SummaryMaxBytes         int                                   `json:"summaryMaxBytes"`
+	RecordRequired          bool                                  `json:"recordRequired"`
+	NotifyMainOn            []string                              `json:"notifyMainOn,omitempty"`
+	BoundaryStatusRequires  []string                              `json:"boundaryStatusRequires,omitempty"`
+	EscalationMaxBytes      int                                   `json:"escalationMaxBytes"`
+	ValidationFailureStages []AdapterReportValidationFailureStage `json:"validationFailureStages,omitempty"`
+	ValidationFailureCodes  []AdapterReportValidationFailureCode  `json:"validationFailureCodes,omitempty"`
+	DeniedActions           []string                              `json:"deniedActions,omitempty"`
+	NextSteps               []string                              `json:"nextSteps,omitempty"`
+}
+
+type AdapterReportValidationFailureStage struct {
+	Stage       string `json:"stage"`
+	Description string `json:"description"`
+}
+
+type AdapterReportValidationFailureCode struct {
+	Code        string `json:"code"`
+	Stage       string `json:"stage"`
+	Description string `json:"description"`
 }
 
 type AdapterExecutionReportValidation struct {
@@ -191,6 +204,48 @@ func (e *adapterReportValidationError) Unwrap() error {
 
 func adapterReportValidationErrorf(code, stage, format string, args ...any) error {
 	return &adapterReportValidationError{Code: code, Stage: stage, Err: fmt.Errorf(format, args...)}
+}
+
+func adapterReportValidationFailureStages() []AdapterReportValidationFailureStage {
+	return []AdapterReportValidationFailureStage{
+		{Stage: "path", Description: "Report path list, case-root containment, and authorized output path scope checks."},
+		{Stage: "read", Description: "Report file existence, file type, size, and read/open checks."},
+		{Stage: "decode", Description: "JSON decoding, unknown field rejection, and trailing data checks."},
+		{Stage: "schema", Description: "Report schemaVersion, kind, adapterId, and status checks."},
+		{Stage: "identity", Description: "Authorized gate action and gateEventId binding checks."},
+		{Stage: "refs", Description: "Case-relative output/evidence refs and authorized output path scope checks."},
+		{Stage: "budget", Description: "Actual budget non-negative values and budget-overrun marker checks."},
+		{Stage: "boundary", Description: "Boundary hit tokens, boundary/escalated status marker, and escalation size checks."},
+		{Stage: "summary", Description: "Bounded summary size checks."},
+	}
+}
+
+func adapterReportValidationFailureCodes() []AdapterReportValidationFailureCode {
+	return []AdapterReportValidationFailureCode{
+		{Code: "path-list", Stage: "path", Description: "Execution report path must be a single file path."},
+		{Code: "path-invalid", Stage: "path", Description: "Execution report path must be case-contained and case-relative or case-contained absolute."},
+		{Code: "report-path-out-of-scope", Stage: "path", Description: "Execution report path must stay within one authorized output path."},
+		{Code: "report-not-readable", Stage: "read", Description: "Execution report file could not be stat/open/read."},
+		{Code: "report-path-directory", Stage: "read", Description: "Execution report path names a directory instead of a file."},
+		{Code: "report-too-large", Stage: "read", Description: "Execution report sidecar exceeds 1048576 bytes."},
+		{Code: "report-json-invalid", Stage: "decode", Description: "Execution report JSON could not be decoded or contains unknown fields."},
+		{Code: "report-trailing-data", Stage: "decode", Description: "Execution report contains trailing JSON data after the first object."},
+		{Code: "schema-version", Stage: "schema", Description: "Execution report schemaVersion must be 1."},
+		{Code: "kind", Stage: "schema", Description: "Execution report kind must be adapter-execution-report."},
+		{Code: "adapter-id-missing", Stage: "schema", Description: "Execution report must include adapterId."},
+		{Code: "status", Stage: "schema", Description: "Execution report status must be one of the allowed statuses."},
+		{Code: "action-mismatch", Stage: "identity", Description: "Execution report action must match the authorized gate action."},
+		{Code: "gate-event-mismatch", Stage: "identity", Description: "Execution report gateEventId must match the authorized gate eventId."},
+		{Code: "output-refs-invalid", Stage: "refs", Description: "Execution report outputRefs must be case-relative refs."},
+		{Code: "output-refs-out-of-scope", Stage: "refs", Description: "Execution report outputRefs must stay within authorized output paths."},
+		{Code: "evidence-refs-invalid", Stage: "refs", Description: "Execution report evidenceRefs must be case-relative refs."},
+		{Code: "actual-budget-negative", Stage: "budget", Description: "Execution report actualBudget values must be non-negative."},
+		{Code: "budget-marker-missing", Stage: "budget", Description: "Budget overrun reports must include boundaryHits or escalation."},
+		{Code: "boundary-hits-invalid", Stage: "boundary", Description: "Execution report boundaryHits must use supported stop-condition tokens."},
+		{Code: "escalation-too-large", Stage: "boundary", Description: "Execution report escalation must stay within the bounded size limit."},
+		{Code: "boundary-marker-missing", Stage: "boundary", Description: "Boundary-hit/escalated reports must include boundaryHits or escalation."},
+		{Code: "summary-too-large", Stage: "summary", Description: "Execution report summary must stay within the bounded size limit."},
+	}
 }
 
 type ApplyResult struct {
@@ -465,35 +520,37 @@ func findAuthorizedGateEvent(caseRoot, gateEventID string) (EventPreview, error)
 
 func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) AdapterExecutionReportContract {
 	return AdapterExecutionReportContract{
-		SchemaVersion:          1,
-		Command:                "gate",
-		Kind:                   "adapter-execution-report-contract",
-		CaseRoot:               caseRoot,
-		RepoRoot:               repoRoot,
-		Pack:                   pack,
-		IsMutation:             false,
-		Lane:                   event.Lane,
-		Target:                 event.Target,
-		BatchID:                event.BatchID,
-		Risk:                   event.Risk,
-		Authorization:          event.Gate.Authorization,
-		ReportKind:             "adapter-execution-report",
-		ReportSchemaVersion:    1,
-		GateEventID:            event.EventID,
-		Action:                 event.Gate.Action,
-		AllowedStatuses:        []string{"succeeded", "failed", "boundary-hit", "escalated", "aborted"},
-		RequiredFields:         []string{"schemaVersion", "kind", "adapterId", "action", "status", "gateEventId", "actualBudget"},
-		AllowedOutputPaths:     append([]string{}, event.Gate.OutputPaths...),
-		AuthorizedBudget:       event.Gate.RequestedBudget,
-		StopConditions:         append([]string{}, event.Gate.StopConditions...),
-		ReportPathRule:         "case-relative or case-contained absolute file path under one authorized outputPath; sidecar must be <= 1048576 bytes and contain no trailing JSON data",
-		SummaryMaxBytes:        4096,
-		EscalationMaxBytes:     4096,
-		RecordRequired:         event.Gate.Authorization.RecordRequired,
-		NotifyMainOn:           append([]string{}, event.Gate.Authorization.NotifyMainOn...),
-		BoundaryStatusRequires: []string{"boundaryHits or escalation for boundary-hit/escalated status", "boundaryHits or escalation when actualBudget exceeds authorizedBudget"},
-		DeniedActions:          []string{"heavy-tool execution", "authority writes", "confirmed writes", "out-of-scope output refs", "full trace/dump/log embedding"},
-		NextSteps:              []string{"adapter writes bounded report under an authorized output path", "main Agent records it with gate -Apply -GateEventId ... -ExecutionReportPath ...", "review refs before any authority/confirmed outcome"},
+		SchemaVersion:           1,
+		Command:                 "gate",
+		Kind:                    "adapter-execution-report-contract",
+		CaseRoot:                caseRoot,
+		RepoRoot:                repoRoot,
+		Pack:                    pack,
+		IsMutation:              false,
+		Lane:                    event.Lane,
+		Target:                  event.Target,
+		BatchID:                 event.BatchID,
+		Risk:                    event.Risk,
+		Authorization:           event.Gate.Authorization,
+		ReportKind:              "adapter-execution-report",
+		ReportSchemaVersion:     1,
+		GateEventID:             event.EventID,
+		Action:                  event.Gate.Action,
+		AllowedStatuses:         []string{"succeeded", "failed", "boundary-hit", "escalated", "aborted"},
+		RequiredFields:          []string{"schemaVersion", "kind", "adapterId", "action", "status", "gateEventId", "actualBudget"},
+		AllowedOutputPaths:      append([]string{}, event.Gate.OutputPaths...),
+		AuthorizedBudget:        event.Gate.RequestedBudget,
+		StopConditions:          append([]string{}, event.Gate.StopConditions...),
+		ReportPathRule:          "case-relative or case-contained absolute file path under one authorized outputPath; sidecar must be <= 1048576 bytes and contain no trailing JSON data",
+		SummaryMaxBytes:         4096,
+		EscalationMaxBytes:      4096,
+		RecordRequired:          event.Gate.Authorization.RecordRequired,
+		NotifyMainOn:            append([]string{}, event.Gate.Authorization.NotifyMainOn...),
+		BoundaryStatusRequires:  []string{"boundaryHits or escalation for boundary-hit/escalated status", "boundaryHits or escalation when actualBudget exceeds authorizedBudget"},
+		ValidationFailureStages: adapterReportValidationFailureStages(),
+		ValidationFailureCodes:  adapterReportValidationFailureCodes(),
+		DeniedActions:           []string{"heavy-tool execution", "authority writes", "confirmed writes", "out-of-scope output refs", "full trace/dump/log embedding"},
+		NextSteps:               []string{"adapter writes bounded report under an authorized output path", "preflight the sidecar with gate -ValidateExecutionReport -GateEventId ... -ExecutionReportPath ... -Format json", "main Agent records valid reports with gate -Apply -GateEventId ... -ExecutionReportPath ...", "review refs before any authority/confirmed outcome"},
 	}
 }
 
