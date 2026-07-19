@@ -16,27 +16,29 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 381：Case-relative adapter record handoff product-path closure**
+**Batch 382：Adapter live-validation replay and actor guidance closure**
 
-状态：已完成 CLI product-path coverage、durable docs 同步、full local validation、commit/push 与远程 release-gate inspection，使 `gate -ExecutionReportContract` 输出的 `liveValidation.caseRelativeRecordArgs` 可从 case-local cwd 直接记录 bounded observation evidence；实现/docs 提交为 `e875353 Cover case-relative adapter record handoff`（HEAD `e87535340adfeac4628f14e4870ff724e5a98ebf`），远程 release-gate run `29676773006` 已完成但结论为 failure，Linux/macOS/Windows jobs 均为 failure 且 `steps: []`，符合既有 runner/billing blocker 模式，不能声明远程 CI green。
+状态：已强化 `gate -ExecutionReportContract` 中 `liveValidation.replayBehavior` 与 notes 的 replay/actor guidance，durable docs 已同步且 full local validation 已通过，待 commit/push 与远程 release-gate inspection。
 
-目标：在 Batch 380 已投影 `caseRelativeReportPath`、case-relative validate/record commands + args，并实际执行 case-relative validation handoff 后，补齐 record handoff 只被断言字符串、没有被作为实际 product path 执行的断点：replacement lane executor / tool adapter 应能从任意 case-local cwd 直接消费 contract 的 `caseRelativeRecordArgs`，替换 `<executor-id>` 后写入 observations ledger，并保留 adapter provenance、normalized report path、actual budget/output refs 与 replay guard。
+目标：在 Batch 380/381 已完成 case-relative validate/record handoff projection 与 actual record product path 后，补齐 contract guidance 仍只泛称 `RecordArgs` replay、未显式说明 `CaseRelativeRecordArgs` 以及 `<executor-id>` 替换要求的断点：replacement lane executor / tool adapter 在读取 contract 时应能直接知道两类 record handoff 的 idempotent replay 语义和执行前 actor placeholder replacement 要求，避免误以为 case-relative record path 需要不同 replay 处理或可以原样运行 placeholder。
 
-边界：本批只补 CLI E2E 覆盖、durable docs 与验证；不新增 PowerShell runtime logic、不修改 public 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed（record path 仍只写 observation evidence）、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；actual tool execution 仍由 lane executor / tool adapter 在 strict durable autonomy profile + `authorized-gate` 范围内承担。
+边界：本批只补 contract wording、package/CLI assertions、durable docs 与验证；不新增 PowerShell runtime logic、不修改 public 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 observations/authority/confirmed（contract/read-only path；existing evidence apply 仍只写 observations）、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；actual tool execution 仍由 lane executor / tool adapter 在 strict durable autonomy profile + `authorized-gate` 范围内承担。
 
 已完成内容：
 
-- `TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace` 在读取 contract、执行 workspace-relative validation 与 case-relative validation 后，切换到 case-local cwd（`workspace/main`），直接消费 `contract.LiveValidation.CaseRelativeRecordArgs`。
-- 测试将 handoff 中的 `<executor-id>` 替换为实际 executor，验证 `gate -Apply -GateEventId ... -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json` 写入 `.rekit/facts/observations.jsonl`。
-- 断言 recorded observation 保留 `executionReportPath=workspace/main/debug/session-1/adapter-report.json`、adapter id/status、actual budget、output refs 与 authorization provenance，并继续不写 `authority.jsonl` / `confirmed.jsonl`。
-- 复用同一 case-relative record args 重放，断言返回 `duplicate eventId` 且 observations ledger 不重复 append。
-- `CHANGELOG.md` 已记录 Batch 381 用户可见覆盖闭环。
+- `liveValidation.replayBehavior` 明确重复运行 `RecordArgs` 或 `CaseRelativeRecordArgs` 且 sidecar 相同会返回 `applied=false` / `reason=duplicate eventId`，不会追加 observations。
+- `liveValidation.notes` 明确 `ValidateArgs` 与 `CaseRelativeValidateArgs` 都是 read-only no-write handoff。
+- `liveValidation.notes` 明确运行 `RecordArgs` 或 `CaseRelativeRecordArgs` 前必须替换 `<executor-id>`，两类 record handoff 均只在 strict sidecar validation 后写 observation evidence，且不执行 heavy tool。
+- Gate package test 覆盖 `CaseRelativeRecordArgs` replay wording 与 notes 中的 case-relative record guidance。
+- CLI nested workspace E2E 覆盖 contract JSON 中的 case-relative replay wording，并继续覆盖 case-relative record product path、duplicate replay、不写 authority/confirmed。
+- 同步 root CLAUDE、README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、tests guide、CHANGELOG 与本文件。
 
 已通过验证：
 
 ```text
+go test ./internal/rekit/gate -run TestAdapterReportContractDescribesAuthorizedGateBoundaries -count=1
 go test ./internal/rekit/cli -run TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace -count=1
-go test ./internal/rekit/cli -count=1
+go test ./internal/rekit/gate ./internal/rekit/cli -count=1
 go test ./...
 go vet ./...
 go run ./cmd/rekit -- -Command release-check -Format json
@@ -46,7 +48,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 focused CLI、full CLI package tests、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `e875353 Cover case-relative adapter record handoff`（HEAD `e87535340adfeac4628f14e4870ff724e5a98ebf`）。远程 release-gate run `29676773006` 已完成，结论为 failure；Linux/macOS/Windows `Go release checks` jobs 均为 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
+本地 focused gate/CLI、full gate+CLI package tests、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。待 commit/push 与远程 release-gate run/job inspection；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
 
 ### Next candidates
 
@@ -11155,3 +11157,13 @@ git diff --check
 实施范围：`AdapterReportLiveValidation` 新增 `caseRelativeReportPath`、`caseRelativeValidateCommand`、`caseRelativeRecordCommand`、`caseRelativeValidateArgs` 与 `caseRelativeRecordArgs`，由同一 `defaultReportPath` 和 args source 派生；`adapterReportLiveValidation` 保留 workspace-relative `reportFileName=adapter-report.json`、`validateArgs` 与 `recordArgs`，并在存在默认 report path 时追加 case-relative preflight / record handoff；Gate package test 覆盖 case-relative report path、case-relative validate/record args 与 command strings；CLI nested workspace E2E 覆盖 contract JSON projection，并实际运行 `caseRelativeValidateArgs` 验证 sidecar normalization 为 case-relative report path、`isMutation=false`、`applied=false` 和 no-write invariant；root CLAUDE、README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、agent-team rollout、reference absorption、tests guide、CHANGELOG 与本文件同步更新。不新增 PowerShell runtime logic、不修改 public 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 observations/authority/confirmed（contract/read-only validation path；existing evidence apply 仍只写 observations）、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态。
 
 验证结果：已通过 focused gate/CLI、full gate+CLI package tests、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `58fcffc Add adapter case-relative report handoff`（HEAD `58fcffc6d4fa4f60660f8f1399f08951808b7f03`）；Batch 380 docs writeback 后最终 HEAD 为 `7fbedac700aaaf15ff23a943b124ef3d5e14c05c`。远程 release-gate run `29676528111`（headSha `58fcffc6d4fa4f60660f8f1399f08951808b7f03`）与 docs writeback run `29676570568`（headSha `7fbedac700aaaf15ff23a943b124ef3d5e14c05c`）均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready。
+
+### Batch 381：Case-relative adapter record handoff product-path closure
+
+状态：已完成 CLI product-path coverage、durable docs 同步、full local validation、commit/push 与远程 release-gate inspection。
+
+目标：在 Batch 380 已投影 `caseRelativeReportPath`、case-relative validate/record commands + args，并实际执行 case-relative validation handoff 后，补齐 record handoff 只被断言字符串、没有被作为实际 product path 执行的断点：replacement lane executor / tool adapter 应能从任意 case-local cwd 直接消费 contract 的 `caseRelativeRecordArgs`，替换 `<executor-id>` 后写入 observations ledger，并保留 adapter provenance、normalized report path、actual budget/output refs 与 replay guard。
+
+实施范围：`TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace` 在读取 contract、执行 workspace-relative validation 与 case-relative validation 后，切换到 case-local cwd（`workspace/main`），直接消费 `contract.LiveValidation.CaseRelativeRecordArgs`；测试将 handoff 中的 `<executor-id>` 替换为实际 executor，验证写入 `.rekit/facts/observations.jsonl`，保留 case-relative `executionReportPath`、adapter id/status、actual budget、output refs 与 authorization provenance，并继续不写 `authority.jsonl` / `confirmed.jsonl`；复用同一 case-relative record args 重放，断言返回 `duplicate eventId` 且 observations ledger 不重复 append；CHANGELOG 与 tests guide 同步更新。不新增 PowerShell runtime logic、不修改 public 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed（record path 仍只写 observation evidence）、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 `go test ./internal/rekit/cli -run TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace -count=1`、`go test ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `e875353 Cover case-relative adapter record handoff`（HEAD `e87535340adfeac4628f14e4870ff724e5a98ebf`）；Batch 381 docs writeback 后最终 HEAD 为 `2ffef3a4aded329e96dc18728624259d1a5f4d64`。远程 release-gate run `29676773006`（headSha `e87535340adfeac4628f14e4870ff724e5a98ebf`）与 docs writeback run `29676795463`（headSha `2ffef3a4aded329e96dc18728624259d1a5f4d64`）均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready。

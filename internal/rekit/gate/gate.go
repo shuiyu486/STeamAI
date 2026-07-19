@@ -648,10 +648,10 @@ func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportL
 		CaseRelativeRecordCommand:   caseRelativeRecordCommand,
 		CaseRelativeValidateArgs:    caseRelativeValidateArgs,
 		CaseRelativeRecordArgs:      caseRelativeRecordArgs,
-		ReplayBehavior:              "repeating RecordArgs with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations",
+		ReplayBehavior:              "repeating RecordArgs or CaseRelativeRecordArgs with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations",
 		Notes: []string{
-			"ValidateArgs is read-only: isMutation=false, applied=false, and no observations/authority/confirmed writes.",
-			"RecordArgs records observation evidence only after strict sidecar validation; it never executes the heavy tool.",
+			"ValidateArgs and CaseRelativeValidateArgs are read-only: isMutation=false, applied=false, and no observations/authority/confirmed writes.",
+			"Replace <executor-id> before running RecordArgs or CaseRelativeRecordArgs; both record observation evidence only after strict sidecar validation and never execute the heavy tool.",
 			"Use only authorized stopConditions in boundaryHits; failed/boundary-hit/escalated/aborted reports require a bounded summary.",
 			"Keep outputRefs/evidenceRefs case-relative and under authorized outputPaths so validation and record paths enforce the same artifact boundary.",
 			"Keep full trace/dump/log data in sidecar artifacts referenced by outputRefs/evidenceRefs, not in this report.",
