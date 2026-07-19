@@ -5503,6 +5503,7 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	}
 	var evidence struct {
 		Applied           bool   `json:"applied"`
+		EventID           string `json:"eventId"`
 		Path              string `json:"path"`
 		ExecutionEvidence struct {
 			Kind      string   `json:"kind"`
@@ -5529,7 +5530,7 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	if err := json.Unmarshal(out.Bytes(), &evidence); err != nil {
 		t.Fatalf("nested workspace adapter execution evidence stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if !evidence.Applied || evidence.Path != ".rekit/facts/observations.jsonl" || evidence.ExecutionEvidence.Kind != "observation" || evidence.ExecutionEvidence.Status != "succeeded" || evidence.ExecutionEvidence.Summary != "Adapter report from nested output workspace" {
+	if !evidence.Applied || evidence.EventID == "" || evidence.Path != ".rekit/facts/observations.jsonl" || evidence.ExecutionEvidence.Kind != "observation" || evidence.ExecutionEvidence.Status != "succeeded" || evidence.ExecutionEvidence.Summary != "Adapter report from nested output workspace" {
 		t.Fatalf("unexpected nested workspace adapter execution evidence: %+v", evidence)
 	}
 	if strings.Join(evidence.ExecutionEvidence.Related, ",") != applied.EventID || evidence.ExecutionEvidence.Execution.GateEventID != applied.EventID || evidence.ExecutionEvidence.Execution.Authorization != "preauthorized" || evidence.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || strings.Join(evidence.ExecutionEvidence.Execution.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" || evidence.ExecutionEvidence.Execution.ActualBudget.RuntimeSeconds != 20 || evidence.ExecutionEvidence.Execution.ActualBudget.DiskMB != 32 || evidence.ExecutionEvidence.Execution.ActualBudget.Requests != 1 || evidence.ExecutionEvidence.Execution.Adapter.AdapterID != "nested-cli-adapter" || evidence.ExecutionEvidence.Execution.Adapter.Status != "succeeded" {
@@ -5544,6 +5545,31 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	}
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("nested workspace adapter evidence wrote authority ledger or stat failed: %v", err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-Actor", "executor-1", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var replay struct {
+		Applied bool   `json:"applied"`
+		EventID string `json:"eventId"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &replay); err != nil {
+		t.Fatalf("nested workspace adapter replay stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if replay.Applied || replay.EventID != evidence.EventID || replay.Reason != "duplicate eventId" {
+		t.Fatalf("nested workspace adapter replay should be idempotent: first=%+v replay=%+v", evidence, replay)
+	}
+	replayedObservations, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(replayedObservations) != string(observations) {
+		t.Fatalf("nested workspace adapter replay appended observations:\nbefore=%s\nafter=%s", string(observations), string(replayedObservations))
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("nested workspace adapter replay wrote authority ledger or stat failed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("nested workspace adapter evidence wrote confirmed ledger or stat failed: %v", err)
@@ -5649,7 +5675,8 @@ func TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge(t *testing.T) 
 		t.Fatal(err)
 	}
 	var evidence struct {
-		Applied           bool `json:"applied"`
+		Applied           bool   `json:"applied"`
+		EventID           string `json:"eventId"`
 		ExecutionEvidence struct {
 			Status    string `json:"status"`
 			Execution struct {
@@ -5663,11 +5690,37 @@ func TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge(t *testing.T) 
 	if err := json.Unmarshal(out.Bytes(), &evidence); err != nil {
 		t.Fatalf("caller cwd bridge adapter execution evidence stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if !evidence.Applied || evidence.ExecutionEvidence.Status != "succeeded" || evidence.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || evidence.ExecutionEvidence.Execution.Adapter.AdapterID != "caller-cwd-bridge-adapter" {
+	if !evidence.Applied || evidence.EventID == "" || evidence.ExecutionEvidence.Status != "succeeded" || evidence.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || evidence.ExecutionEvidence.Execution.Adapter.AdapterID != "caller-cwd-bridge-adapter" {
 		t.Fatalf("unexpected caller cwd bridge adapter execution evidence: %+v", evidence)
 	}
+	observations, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-Actor", "executor-1", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var replay struct {
+		Applied bool   `json:"applied"`
+		EventID string `json:"eventId"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &replay); err != nil {
+		t.Fatalf("caller cwd bridge adapter replay stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if replay.Applied || replay.EventID != evidence.EventID || replay.Reason != "duplicate eventId" {
+		t.Fatalf("caller cwd bridge adapter replay should be idempotent: first=%+v replay=%+v", evidence, replay)
+	}
+	replayedObservations, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(replayedObservations) != string(observations) {
+		t.Fatalf("caller cwd bridge adapter replay appended observations:\nbefore=%s\nafter=%s", string(observations), string(replayedObservations))
+	}
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
-		t.Fatalf("caller cwd bridge adapter evidence wrote authority ledger or stat failed: %v", err)
+		t.Fatalf("caller cwd bridge adapter replay wrote authority ledger or stat failed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("caller cwd bridge adapter evidence wrote confirmed ledger or stat failed: %v", err)

@@ -16,24 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 371：Nested adapter report evidence product path**
+**Batch 372：Adapter evidence replay guard product path**
 
-状态：已完成 nested authorized output workspace cwd 的 adapter report evidence product-path coverage、durable docs 更新与本地完整 validation；Batch 370 已完成 commit/push（`edea197 Support nested adapter report preflight`）并检查远程 release-gate run `29669908155`，该 run 的 Linux/macOS/Windows jobs 仍为 steps 为空的 runner/billing blocker 形态，不能声明远程 CI green。
+状态：已完成 adapter report evidence replay guard coverage、durable docs 更新与本地 validation；Batch 371 已完成 commit/push（`0970159 Cover nested adapter report evidence path`）并检查远程 release-gate run `29670515951`，该 run 的 Linux/macOS/Windows jobs 仍为 steps 为空的 runner/billing blocker 形态，不能声明远程 CI green。
 
-目标：在 Batch 370 的 nested authorized output workspace cwd read-only contract / validation product path 之后，补齐同一 cwd 中无显式 `-Target`、使用 workspace-relative `adapter-report.json` 调用 `gate -Apply -GateEventId <authorized-gate-event-id> -ExecutionReportPath adapter-report.json -Actor <executor> -Format json` 记录 post-action observation evidence 的 CLI/façade product path；最终 evidence 中的 `executionReportPath` 仍必须规范化为 case-relative path，并强制落在 authorized gate output paths 内。
+目标：在 Batch 371 的 nested authorized output workspace cwd evidence apply product path 之后，补齐重复提交同一个 workspace-relative `adapter-report.json` 的 replay/idempotency 覆盖：再次调用 `gate -Apply -GateEventId <authorized-gate-event-id> -ExecutionReportPath adapter-report.json -Actor <executor> -Format json` 应返回 `duplicate eventId`、`applied=false`，并且不重复 append `.rekit/facts/observations.jsonl`，仍不写 authority/confirmed。
 
-边界：本批只补 CLI/façade product-path coverage、durable docs 与验证；Go runtime 已有 `ExecutionReportCwd` evidence wiring 和 cwd-relative strict intake，不新增 PowerShell 业务 runtime、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；实际 adapter-specific live validation、真实工具隔离和 stop-condition 执行仍由 lane executor / tool adapter 承担。
+边界：本批只补 package/CLI/façade replay guard coverage、durable docs 与验证；Go runtime 已有 deterministic `executionEventID` duplicate handling，不新增 PowerShell 业务 runtime、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；实际 adapter-specific live validation、真实工具隔离和 stop-condition 执行仍由 lane executor / tool adapter 承担。
 
 已完成内容：
 
-- 扩展 CLI E2E：从 nested authorized output workspace cwd 中无 `-Target` 先跑只读 contract/validation，再用 `-Apply -GateEventId ... -ExecutionReportPath adapter-report.json -Actor ... -Format json` 写 observation evidence，断言 `executionReportPath` 规范化、adapter provenance/summary/budget/output refs 保留、observations ledger 写入、authority/confirmed 未写。
-- 扩展 `REKIT_CALLER_CWD` bridge CLI E2E：模拟 retained façade 从 repo root 调 Go backend 时的 caller cwd bridge，覆盖 evidence apply 消费 workspace-relative sidecar path 且不写 authority/confirmed。
-- 扩展 `facade-smoke.ps1`：真实 self-contained case 中从 authorized output workspace cwd 无 `-Target` 调用 evidence apply，并用 fake backend matrix 捕获 nested evidence apply 透传、不注入 `-Target`。
+- 扩展 package test：cwd-relative adapter report evidence replay 返回 `duplicate eventId`，observations ledger 保持单行。
+- 扩展 CLI E2E：nested authorized output workspace cwd 与 `REKIT_CALLER_CWD` bridge 的 sidecar-only evidence apply replay 返回 duplicate，observations ledger 不变，authority/confirmed 未写。
+- 扩展 `facade-smoke.ps1`：真实 self-contained case 中从 authorized output workspace cwd 无 `-Target` 重复调用 evidence apply，断言 duplicate response 与 observation 单行；fake backend nested evidence apply 透传仍不注入 `-Target`。
 - 同步 README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、tests guide、CHANGELOG 与本文件。
 
 已通过验证：
 
 ```text
+go test ./internal/rekit/gate -run "TestRecordExecutionAcceptsCwdRelativeAdapterReportForAuthorizedGate" -count=1
 go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace|TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge" -count=1
 ./rekit/tests/facade-smoke.ps1
 go test ./...
@@ -11057,10 +11058,20 @@ git diff --check
 
 ### Batch 371：Nested adapter report evidence product path
 
-状态：已完成 nested authorized output workspace cwd 的 adapter report evidence product-path coverage、文档更新与最终验证。
+状态：已完成 nested authorized output workspace cwd 的 adapter report evidence product-path coverage、文档更新、最终验证、commit/push 与远程 release-gate inspection。
 
 目标：在 Batch 370 的 read-only contract / validation product path 之后，补齐同一 cwd 中无显式 `-Target`、使用 workspace-relative `adapter-report.json` 调用 `gate -Apply -GateEventId <authorized-gate-event-id> -ExecutionReportPath adapter-report.json -Actor <executor> -Format json` 记录 post-action observation evidence 的 CLI/façade product path；最终 evidence 中的 `executionReportPath` 仍规范化为 case-relative path，并强制落在 authorized gate output paths 内。
 
 实施范围：CLI E2E 覆盖 nested authorized output workspace cwd 和 `REKIT_CALLER_CWD` bridge 的 sidecar-only evidence apply；`facade-smoke.ps1` 覆盖真实 self-contained case 的 nested evidence apply，以及 fake backend nested evidence apply 透传且不注入 `-Target`；README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、tests guide 与 CHANGELOG 同步更新。不新增 PowerShell runtime logic、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema、公共入口删除门禁或远程 CI blocker 状态。
 
-验证结果：已通过 `go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace|TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge" -count=1`、`./rekit/tests/facade-smoke.ps1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。远程 release-gate 需在 push 后检查；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明 inventory/workflow 定义 ready，不能声明远程 CI green。
+验证结果：已通过 `go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace|TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge" -count=1`、`./rekit/tests/facade-smoke.ps1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。已 commit/push 为 `0970159 Cover nested adapter report evidence path`；远程 release-gate run `29670515951` 为 completed failure，Linux/macOS/Windows jobs steps 为空，仍是 runner/billing blocker 形态，不能声明远程 CI green。
+
+### Batch 372：Adapter evidence replay guard product path
+
+状态：已完成 adapter report evidence replay guard coverage、durable docs 更新与本地 validation。
+
+目标：在 Batch 371 的 nested authorized output workspace cwd evidence apply product path 之后，补齐重复提交同一个 workspace-relative `adapter-report.json` 的 replay/idempotency 覆盖：再次调用 `gate -Apply -GateEventId <authorized-gate-event-id> -ExecutionReportPath adapter-report.json -Actor <executor> -Format json` 应返回 `duplicate eventId`、`applied=false`，并且不重复 append `.rekit/facts/observations.jsonl`，仍不写 authority/confirmed。
+
+实施范围：package test 覆盖 cwd-relative adapter report evidence replay；CLI E2E 覆盖 nested authorized output workspace cwd 与 `REKIT_CALLER_CWD` bridge 的 sidecar-only evidence replay；`facade-smoke.ps1` 覆盖真实 self-contained case 的 nested evidence replay，并保持 fake backend nested evidence apply 透传且不注入 `-Target`；README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、tests guide 与 CHANGELOG 同步更新。不新增 PowerShell runtime logic、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema、公共入口删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 `go test ./internal/rekit/gate -run "TestRecordExecutionAcceptsCwdRelativeAdapterReportForAuthorizedGate" -count=1`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace|TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge" -count=1`、`./rekit/tests/facade-smoke.ps1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。远程 release-gate 需在 push 后检查；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能声明远程 CI green。

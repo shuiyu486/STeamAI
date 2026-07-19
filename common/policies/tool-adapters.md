@@ -85,7 +85,7 @@ lane executor / tool adapter 完成 `authorized-gate` 覆盖的实际动作后�
 }
 ```
 
-Go runtime 可先只读校验该 report，也可在正式记录时读取并校验该 report 后写 observation evidence：`schemaVersion`、`kind`、`action`、`status`、`gateEventId`、actual budget、case-relative refs、authorized output path 边界、boundary token 与 bounded escalation 都会 fail-closed 校验；`boundary-hit` / `escalated` status 或 actual budget 超出授权预算时，sidecar 本身必须包含 `boundaryHits` 或 `escalation` marker，不能只靠外部命令参数补齐；它仍不执行 heavy-tool、不写 authority/confirmed。
+Go runtime 可先只读校验该 report，也可在正式记录时读取并校验该 report 后写 observation evidence；重复提交同一 sidecar 会返回 `duplicate eventId` 并保持 observations ledger 不重复 append：`schemaVersion`、`kind`、`action`、`status`、`gateEventId`、actual budget、case-relative refs、authorized output path 边界、boundary token 与 bounded escalation 都会 fail-closed 校验；`boundary-hit` / `escalated` status 或 actual budget 超出授权预算时，sidecar 本身必须包含 `boundaryHits` 或 `escalation` marker，不能只靠外部命令参数补齐；它仍不执行 heavy-tool、不写 authority/confirmed。
 
 能用脚本统计的不手工复制长表；需要 LLM 判断时先抽取小样本、摘要或 bounded diff。
 

@@ -748,6 +748,17 @@ func TestRecordExecutionAcceptsCwdRelativeAdapterReportForAuthorizedGate(t *test
 	if !result.Applied || result.ExecutionEvidence == nil || result.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || result.ExecutionEvidence.Execution.Adapter == nil || result.ExecutionEvidence.Execution.Adapter.AdapterID != "unit-adapter" {
 		t.Fatalf("unexpected cwd-relative adapter execution evidence result: %+v", result)
 	}
+	second, err := RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionReportCwd: workspace, ExecutionReportPath: "adapter-report.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Applied || second.EventID != result.EventID || second.Reason != "duplicate eventId" {
+		t.Fatalf("cwd-relative adapter execution evidence replay should be idempotent: first=%+v second=%+v", result, second)
+	}
+	lines := readGateLines(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if len(lines) != 1 {
+		t.Fatalf("cwd-relative adapter execution evidence replay wrote %d lines, want 1: %q", len(lines), lines)
+	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }

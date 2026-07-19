@@ -238,6 +238,7 @@ try {
       $nestedContractOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Pack',$Pack,'-GateEventId',([string]$gateApply.eventId),'-ExecutionReportContract','-Format','json')
       $nestedValidationOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Pack',$Pack,'-GateEventId',([string]$gateApply.eventId),'-ValidateExecutionReport','-ExecutionReportPath','adapter-report.json','-Format','json')
       $nestedEvidenceOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Pack',$Pack,'-Apply','-GateEventId',([string]$gateApply.eventId),'-ExecutionReportPath','adapter-report.json','-Actor','facade-smoke-adapter','-Format','json')
+      $nestedEvidenceReplayOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Pack',$Pack,'-Apply','-GateEventId',([string]$gateApply.eventId),'-ExecutionReportPath','adapter-report.json','-Actor','facade-smoke-adapter','-Format','json')
     } finally {
       Pop-Location
     }
@@ -251,7 +252,11 @@ try {
     Assert-ContainsText -Text $nestedEvidenceOut -Expected '"path": ".rekit/facts/observations.jsonl"' -Label 'facade nested workspace evidence product path'
     Assert-ContainsText -Text $nestedEvidenceOut -Expected '"executionReportPath": "workspace/main/debug/session-1/adapter-report.json"' -Label 'facade nested workspace evidence product path'
     Assert-ContainsText -Text $nestedEvidenceOut -Expected '"adapterId": "facade-smoke-adapter"' -Label 'facade nested workspace evidence product path'
+    Assert-ContainsText -Text $nestedEvidenceReplayOut -Expected '"applied": false' -Label 'facade nested workspace evidence replay'
+    Assert-ContainsText -Text $nestedEvidenceReplayOut -Expected '"reason": "duplicate eventId"' -Label 'facade nested workspace evidence replay'
     $observationsText = [System.IO.File]::ReadAllText((Join-Path $CaseRoot '.rekit\facts\observations.jsonl'), [System.Text.Encoding]::UTF8)
+    $adapterEvidenceLines = @($observationsText -split "`n" | Where-Object { $_ -like '*"adapterId":"facade-smoke-adapter"*' })
+    if ($adapterEvidenceLines.Count -ne 1) { throw "facade nested workspace evidence replay appended $($adapterEvidenceLines.Count) adapter evidence lines; expected 1" }
     Assert-ContainsText -Text $observationsText -Expected '"executionReportPath":"workspace/main/debug/session-1/adapter-report.json"' -Label 'facade nested workspace evidence ledger'
     Assert-ContainsText -Text $observationsText -Expected '"adapterId":"facade-smoke-adapter"' -Label 'facade nested workspace evidence ledger'
     if (Test-Path -LiteralPath (Join-Path $CaseRoot '.rekit\facts\authority.jsonl')) { throw 'facade nested workspace evidence wrote authority ledger' }
