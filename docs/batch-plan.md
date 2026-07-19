@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 **Batch 373：Adapter live-validation contract handoff**
 
-状态：已完成 `liveValidation` contract projection、package/CLI/façade coverage、durable docs 更新与本地 validation；仍需 commit/push 与远程 release-gate inspection。
+状态：已完成 `liveValidation` contract projection、package/CLI/façade coverage、durable docs 更新、本地 validation、commit/push 与远程 release-gate inspection。
 
 目标：在 Batch 369–372 的 contract taxonomy、nested workspace validation/evidence apply 与 replay guard 之后，把 `gate -ExecutionReportContract` 从边界说明推进为 lane executor / tool adapter 可直接消费的 live-validation handoff：contract JSON 应包含 bounded sidecar template、workspace-relative validate/record args、duplicate replay behavior 与 no-write/no-heavy-tool notes，让 executor 在 authorized output workspace cwd 中不重扫 ledger、不手工拼接命令即可执行 preflight→record 闭环。
 
@@ -47,7 +47,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。仍需 commit/push 并检查最新远程 release-gate run；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能声明远程 CI green。
+本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已 commit/push 为 `84bb4b5 Project adapter live validation handoff`；远程 release-gate run `29671694351` 为 completed failure，Linux/macOS/Windows jobs steps 为空，仍是 runner/billing blocker 形态，不能声明远程 CI green。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready。
 
 ### Next candidates
 
