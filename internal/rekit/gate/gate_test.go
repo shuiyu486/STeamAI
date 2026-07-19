@@ -457,7 +457,7 @@ func TestValidateAdapterExecutionReportReadOnlyPreflight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if validation.Kind != "adapter-execution-report-validation" || validation.IsMutation || validation.Applied || !validation.Valid || validation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || validation.Report.AdapterID != "unit-adapter" {
+	if validation.Kind != "adapter-execution-report-validation" || validation.IsMutation || validation.Applied || !validation.Valid || validation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || validation.Report == nil || validation.Report.AdapterID != "unit-adapter" {
 		t.Fatalf("unexpected adapter report validation result: %+v", validation)
 	}
 	if validation.Contract.Kind != "adapter-execution-report-contract" || validation.Contract.GateEventID != authorized.EventID || validation.Contract.AuthorizedBudget.RuntimeSeconds != 30 {
@@ -468,7 +468,7 @@ func TestValidateAdapterExecutionReportReadOnlyPreflight(t *testing.T) {
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }
 
-func TestValidateAdapterExecutionReportRejectsInvalidReportReadOnly(t *testing.T) {
+func TestValidateAdapterExecutionReportReturnsInvalidEnvelopeReadOnly(t *testing.T) {
 	repoRoot, caseRoot, pack := gateFixture(t)
 	writePreauthorizedProfile(t, caseRoot)
 	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
@@ -487,9 +487,15 @@ func TestValidateAdapterExecutionReportRejectsInvalidReportReadOnly(t *testing.T
   "outputRefs": ["workspace/main/debug/session-1/result.json"]
 }`)
 
-	_, err = ValidateAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: reportPath})
-	if err == nil || !strings.Contains(err.Error(), "requires boundaryHits or escalation") {
-		t.Fatalf("ValidateAdapterExecutionReport error = %v, want boundary marker rejection", err)
+	validation, err := ValidateAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: reportPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validation.Kind != "adapter-execution-report-validation" || validation.IsMutation || validation.Applied || validation.Valid || validation.ReportPath != "workspace/main/debug/session-1/bad-report.json" || validation.Report == nil || validation.Report.Status != "boundary-hit" {
+		t.Fatalf("unexpected invalid adapter report validation envelope: %+v", validation)
+	}
+	if validation.Error == "" || !strings.Contains(validation.Error, "requires boundaryHits or escalation") || len(validation.Errors) != 1 || validation.Contract.GateEventID != authorized.EventID {
+		t.Fatalf("invalid validation envelope omitted error or contract: %+v", validation)
 	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }

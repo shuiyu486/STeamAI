@@ -5084,8 +5084,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		Valid      bool   `json:"valid"`
 		IsMutation bool   `json:"isMutation"`
 		Applied    bool   `json:"applied"`
+		Error      string `json:"error"`
 		ReportPath string `json:"reportPath"`
-		Report     struct {
+		Report     *struct {
 			AdapterID  string `json:"adapterId"`
 			Escalation string `json:"escalation"`
 		} `json:"report"`
@@ -5097,7 +5098,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &adapterValidation); err != nil {
 		t.Fatalf("adapter execution report validation stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if adapterValidation.Kind != "adapter-execution-report-validation" || !adapterValidation.Valid || adapterValidation.IsMutation || adapterValidation.Applied || adapterValidation.ReportPath != "workspace/main/debug/session-1/adapter-escalation.json" || adapterValidation.Report.AdapterID != "cli-adapter" || adapterValidation.Report.Escalation != "adapter escalated from CLI E2E" || adapterValidation.Contract.GateEventID != authorizedEventID || adapterValidation.Contract.Action != "debug" {
+	if adapterValidation.Kind != "adapter-execution-report-validation" || !adapterValidation.Valid || adapterValidation.IsMutation || adapterValidation.Applied || adapterValidation.Error != "" || adapterValidation.ReportPath != "workspace/main/debug/session-1/adapter-escalation.json" || adapterValidation.Report == nil || adapterValidation.Report.AdapterID != "cli-adapter" || adapterValidation.Report.Escalation != "adapter escalated from CLI E2E" || adapterValidation.Contract.GateEventID != authorizedEventID || adapterValidation.Contract.Action != "debug" {
 		t.Fatalf("adapter execution report validation drifted: %+v", adapterValidation)
 	}
 	observationsAfterValidation, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
@@ -5106,6 +5107,45 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if string(observationsAfterValidation) != string(observationsBeforeValidation) {
 		t.Fatalf("read-only adapter validation changed observations before record:\nbefore=%s\nafter=%s", string(observationsBeforeValidation), string(observationsAfterValidation))
+	}
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-invalid.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "cli-adapter",
+  "action": "debug",
+  "status": "boundary-hit",
+  "gateEventId": "`+authorizedEventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/adapter-result.json"],
+  "summary": "Adapter reported a boundary hit without marker"
+}`)
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ValidateExecutionReport", "-GateEventId", authorizedEventID, "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-invalid.json", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var invalidAdapterValidation struct {
+		Valid      bool     `json:"valid"`
+		Error      string   `json:"error"`
+		Errors     []string `json:"errors"`
+		IsMutation bool     `json:"isMutation"`
+		Applied    bool     `json:"applied"`
+		ReportPath string   `json:"reportPath"`
+		Report     *struct {
+			Status string `json:"status"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &invalidAdapterValidation); err != nil {
+		t.Fatalf("invalid adapter execution report validation stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if invalidAdapterValidation.Valid || invalidAdapterValidation.Error == "" || !strings.Contains(invalidAdapterValidation.Error, "requires boundaryHits or escalation") || len(invalidAdapterValidation.Errors) != 1 || invalidAdapterValidation.IsMutation || invalidAdapterValidation.Applied || invalidAdapterValidation.ReportPath != "workspace/main/debug/session-1/adapter-invalid.json" || invalidAdapterValidation.Report == nil || invalidAdapterValidation.Report.Status != "boundary-hit" {
+		t.Fatalf("invalid adapter execution report validation drifted: %+v", invalidAdapterValidation)
+	}
+	observationsAfterInvalidValidation, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(observationsAfterInvalidValidation) != string(observationsBeforeValidation) {
+		t.Fatalf("invalid read-only adapter validation changed observations before record:\nbefore=%s\nafter=%s", string(observationsBeforeValidation), string(observationsAfterInvalidValidation))
 	}
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-GateEventId", authorizedEventID, "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-escalation.json", "-Actor", "executor-1", "-Format", "json"}, &out); err != nil {

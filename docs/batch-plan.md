@@ -16,21 +16,21 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 366：Adapter report read-only validation preflight**
+**Batch 367：Adapter report validation invalid envelope**
 
-状态：已完成 adapter execution report read-only validation preflight、CLI/package/façade coverage 与 durable docs 更新；远程 release-gate 仍需在 push 后检查，已知环境存在 runner/billing blocker，不能在本地直接声明远程 CI green。
+状态：已完成 `gate -ValidateExecutionReport` invalid sidecar 的 machine-readable read-only failure envelope、Go package/CLI coverage 与 durable docs 更新；远程 release-gate 仍需在 push 后检查，已知环境存在 runner/billing blocker，不能在本地直接声明远程 CI green。
 
-目标：在 Batch 359/361/365 的 adapter report contract 与 strict intake 之外，让 lane executor / tool adapter 在把 bounded `adapter-execution-report` 记录进 observations ledger 之前，先用只读路径复用正式 intake 校验，确认 sidecar 位于 authorized output paths、schema/action/status/gateEventId/budget/ref/boundary/escalation 均可接受。
+目标：在 Batch 366 的 read-only validation preflight 之外，让 lane executor / tool adapter 在 sidecar strict intake 失败时仍能消费 deterministic JSON，而不是只能解析 CLI stderr / non-zero error；authorized gate 已找到且 report path/sidecar 校验失败时，validation 结果应以 `valid=false` 暴露失败原因、contract/path 上下文和可用的 partial normalized report，同时保持 no-write。
 
-边界：本批只新增 Go read-only validation API、CLI/façade flag、package/CLI/façade tests 与 durable docs；不新增 PowerShell runtime logic，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 observations/authority/confirmed，不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；真实工具调用隔离、停止条件执行和 adapter-specific live validation 仍由 lane executor / tool adapter 在授权边界内承担。
+边界：本批只调整 Go validation API / CLI tests 与 durable docs；不新增 PowerShell runtime logic，不修改 façade 参数面，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 observations/authority/confirmed，不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；无法定位 authorized gate、flag 组合错误、缺 `-ExecutionReportPath` 或非 JSON format 仍保持 CLI error 边界。
 
 已完成内容：
 
-- `gate.ValidateAdapterExecutionReport` 复用 `authorizedGateEvent`、`readAdapterExecutionReport` 与 `validateAdapterExecutionReport`，返回 `adapter-execution-report-validation` JSON envelope，包含 `isMutation=false`、`applied=false`、`valid=true`、normalized report、contract boundaries 与 next steps。
-- CLI 新增 `-ValidateExecutionReport` / `--validate-execution-report`，拒绝 `-Apply`、`-WhatIf`、`-ExecutionReportContract`、非 JSON format，以及除 `-ExecutionReportPath` 外的 execution evidence fields；该路径不写 observations ledger。
-- retained `rekit.ps1` 仅新增参数透传与 safe-delegation guard，`facade-smoke.ps1` 用 fake Go backend 捕获 `-ValidateExecutionReport` 参数，未新增 PowerShell 业务 runtime。
-- package tests 覆盖 read-only validation happy path 与 invalid sidecar fail-closed；CLI E2E 在正式 record 前验证 validation 不改变 observations ledger；parse test 覆盖新 flag。
-- README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go-first convergence、agent-team rollout、Go runtime migration、tests guide、CLAUDE 与 CHANGELOG 已同步说明只读 validation preflight。
+- `AdapterExecutionReportValidation` 新增 optional `error`、`errors[]`、optional `reportPath` 与 pointer `report`，允许 valid 与 invalid sidecar 共用同一个 `adapter-execution-report-validation` envelope。
+- `gate.ValidateAdapterExecutionReport` 先构造 non-mutating validation envelope 与 adapter report contract；`readAdapterExecutionReport` 返回 sidecar validation error 时不再让 read-only preflight 直接失败，而是输出 `valid=false`、error、errors、next steps、report path 与可用 partial report。
+- `readAdapterExecutionReport` 在文件存在但 stat/open/decode/trailing-data/strict-validation 失败时尽量保留 case-relative report path；decode 成功后的 trailing/strict-validation failure 会返回 partial `AdapterReport`，便于 adapter 修正 boundary/escalation、budget 或 refs 问题。
+- package tests 覆盖 invalid `boundary-hit` sidecar 返回 `valid=false` envelope、error/errors/path/partial report/contract 保留与 observations ledger no-write invariant；CLI E2E 覆盖 invalid sidecar stdout 仍是 JSON，并在正式 record 前保持 observations ledger 不变。
+- README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go-first convergence、Go runtime migration、Agent Team rollout、reference absorption、autonomous goal、tests guide、CLAUDE 与 CHANGELOG 已同步说明 invalid sidecar `valid=false` envelope。
 
 已通过验证：
 
@@ -43,17 +43,16 @@ go run ./cmd/rekit -- -Command release-check -Format json
 go run ./cmd/rekit -- -Command status
 go run ./cmd/rekit -- -Command packs
 go run ./cmd/rekit -- -Command doctor
-.\rekit\tests\facade-smoke.ps1
 git diff --check
 ```
 
-本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；远程 release-gate 需在 push 后读取最新 run。Batch 365 push 后已知 run `29664863650` 对应 head `e82ecbf946e4053cac79580296352f881dedca05`，conclusion=failure 且 Linux/macOS/Windows jobs steps 为空，仍符合 runner/billing blocker。
+本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。`release-check ready=true` 与 `ciReleaseGate.ready=true` 仍只证明本地 inventory/workflow 定义 ready，不能表述为远程 CI green；远程 release-gate 需在 push 后读取最新 run。本批未运行 façade smoke，因为没有修改 retained `rekit.ps1` 参数面或 safe-delegation guard，Batch 366 已覆盖 `-ValidateExecutionReport` façade 参数透传。
 
 ### Next candidates
 
 1. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E、`status.caseShim` readiness 和完整 installed user entrypoint E2E 纳入可用 runner 验证。
-2. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
-3. **Lane executor/tool-adapter live validation hardening**：在 Batch 366 read-only report validation preflight 之外，为具体 lane executor / adapter 补真实工具调用隔离、停止条件执行和 adapter-specific live validation 的产品级闭环。
+2. **Lane executor/tool-adapter live validation hardening**：在 read-only report contract / validation / invalid envelope 之外，为具体 lane executor / adapter 补真实工具调用隔离、停止条件执行和 adapter-specific live validation 的产品级闭环。
+3. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 4. **Pack-memory product UX hardening**：在 Batch 358 package E2E 之外，补真实多 pack/跨 case review UX、candidate cleanup 和人工 merge guidance 的产品级验证。
 
 ### Escalation / stopping conditions

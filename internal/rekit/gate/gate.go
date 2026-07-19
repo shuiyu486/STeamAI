@@ -158,9 +158,11 @@ type AdapterExecutionReportValidation struct {
 	IsMutation    bool                           `json:"isMutation"`
 	Applied       bool                           `json:"applied"`
 	Valid         bool                           `json:"valid"`
+	Error         string                         `json:"error,omitempty"`
+	Errors        []string                       `json:"errors,omitempty"`
 	GateEventID   string                         `json:"gateEventId"`
-	ReportPath    string                         `json:"reportPath"`
-	Report        AdapterReport                  `json:"report"`
+	ReportPath    string                         `json:"reportPath,omitempty"`
+	Report        *AdapterReport                 `json:"report,omitempty"`
 	Contract      AdapterExecutionReportContract `json:"contract"`
 	NextSteps     []string                       `json:"nextSteps"`
 }
@@ -362,14 +364,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 	if err != nil {
 		return AdapterExecutionReportValidation{}, err
 	}
-	reportRel, adapterReport, err := readAdapterExecutionReport(inst.CaseRoot, gateEvent, opt.ExecutionReportPath)
-	if err != nil {
-		return AdapterExecutionReportValidation{}, err
-	}
-	if adapterReport == nil {
-		return AdapterExecutionReportValidation{}, fmt.Errorf("gate execution report validation requires -ExecutionReportPath")
-	}
-	return AdapterExecutionReportValidation{
+	validation := AdapterExecutionReportValidation{
 		SchemaVersion: 1,
 		Command:       "gate",
 		Kind:          "adapter-execution-report-validation",
@@ -378,13 +373,33 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		Pack:          pack,
 		IsMutation:    false,
 		Applied:       false,
-		Valid:         true,
 		GateEventID:   gateEvent.EventID,
-		ReportPath:    reportRel,
-		Report:        *adapterReport,
 		Contract:      adapterReportContract(repoRoot, inst.CaseRoot, pack, gateEvent),
-		NextSteps:     []string{"report is valid for read-only preflight", "record it after the authorized action with gate -Apply -GateEventId ... -ExecutionReportPath ...", "review refs before any authority/confirmed outcome"},
-	}, nil
+	}
+	reportRel, adapterReport, err := readAdapterExecutionReport(inst.CaseRoot, gateEvent, opt.ExecutionReportPath)
+	if reportRel != "" {
+		validation.ReportPath = reportRel
+	}
+	if adapterReport != nil {
+		validation.Report = adapterReport
+	}
+	if err != nil {
+		validation.Valid = false
+		validation.Error = err.Error()
+		validation.Errors = []string{err.Error()}
+		validation.NextSteps = []string{"report is invalid for read-only preflight", "fix the bounded adapter execution report sidecar and rerun gate -ValidateExecutionReport", "do not record it with gate -Apply until valid=true"}
+		return validation, nil
+	}
+	if adapterReport == nil {
+		validation.Valid = false
+		validation.Error = "gate execution report validation requires -ExecutionReportPath"
+		validation.Errors = []string{validation.Error}
+		validation.NextSteps = []string{"provide -ExecutionReportPath under an authorized output path", "rerun gate -ValidateExecutionReport before recording evidence"}
+		return validation, nil
+	}
+	validation.Valid = true
+	validation.NextSteps = []string{"report is valid for read-only preflight", "record it after the authorized action with gate -Apply -GateEventId ... -ExecutionReportPath ...", "review refs before any authority/confirmed outcome"}
+	return validation, nil
 }
 
 func findAuthorizedGateEvent(caseRoot, gateEventID string) (EventPreview, error) {
@@ -595,38 +610,38 @@ func readAdapterExecutionReport(caseRoot string, gateEvent EventPreview, value s
 		return "", nil, err
 	}
 	if !outputRefsWithinGate(gateEvent.Gate.OutputPaths, []string{relPath}) {
-		return "", nil, fmt.Errorf("gate execution report path must stay within authorized gate outputPaths")
+		return relPath, nil, fmt.Errorf("gate execution report path must stay within authorized gate outputPaths")
 	}
 	st, err := os.Stat(fullPath)
 	if err != nil {
-		return "", nil, fmt.Errorf("read adapter execution report %s: %w", relPath, err)
+		return relPath, nil, fmt.Errorf("read adapter execution report %s: %w", relPath, err)
 	}
 	if st.IsDir() {
-		return "", nil, fmt.Errorf("adapter execution report path is a directory: %s", relPath)
+		return relPath, nil, fmt.Errorf("adapter execution report path is a directory: %s", relPath)
 	}
 	if st.Size() > 1<<20 {
-		return "", nil, fmt.Errorf("adapter execution report is too large: %s %d > %d", relPath, st.Size(), 1<<20)
+		return relPath, nil, fmt.Errorf("adapter execution report is too large: %s %d > %d", relPath, st.Size(), 1<<20)
 	}
 	f, err := os.Open(fullPath)
 	if err != nil {
-		return "", nil, fmt.Errorf("read adapter execution report %s: %w", relPath, err)
+		return relPath, nil, fmt.Errorf("read adapter execution report %s: %w", relPath, err)
 	}
 	defer f.Close()
 	var report AdapterReport
 	dec := json.NewDecoder(io.LimitReader(f, 1<<20))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&report); err != nil {
-		return "", nil, fmt.Errorf("invalid adapter execution report %s: %w", relPath, err)
+		return relPath, nil, fmt.Errorf("invalid adapter execution report %s: %w", relPath, err)
 	}
 	var trailing any
 	if err := dec.Decode(&trailing); err != io.EOF {
 		if err == nil {
-			return "", nil, fmt.Errorf("invalid adapter execution report %s: trailing data", relPath)
+			return relPath, &report, fmt.Errorf("invalid adapter execution report %s: trailing data", relPath)
 		}
-		return "", nil, fmt.Errorf("invalid adapter execution report %s: trailing data: %w", relPath, err)
+		return relPath, &report, fmt.Errorf("invalid adapter execution report %s: trailing data: %w", relPath, err)
 	}
 	if err := validateAdapterExecutionReport(caseRoot, gateEvent, &report); err != nil {
-		return "", nil, err
+		return relPath, &report, err
 	}
 	return relPath, &report, nil
 }
