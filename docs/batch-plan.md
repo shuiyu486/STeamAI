@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 412：Adapter report text next-action handoff closure
 
-状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；待提交/推送与远程 release-gate inspection。
+状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 411 已让 `gate -ExecutionReportContract` 与 `gate -ValidateExecutionReport` JSON 输出 `missionCommanderNextActions[]`，但主 Agent / replacement executor 在非 JSON 工作流中仍需切回 JSON 才能消费 adapter report validate/record/repair 顺序。本批把 adapter report contract / validation 的 Mission Commander next-action handoff 同步投影到 CLI text/table/tsv 兼容文本输出。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - contract 文本将 record follow-up 标记 blocked，并同步 `do not record evidence until validation returns valid=true` 与 `replace <executor-id>` boundary；valid=true validation 文本只给 record + handoff；invalid sidecar validation 文本只给 repair hint + rerun read-only validation，不给 record `-Apply`。
 - CLI coverage 锁定 text output、nested authorized output workspace handoff、invalid boundary repair、read-only no observations/no authority/confirmed、no-heavy-tool 与 no premature record boundaries。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunGateAdapterReportTextOutputsNextActions|TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、affected vet `go vet ./internal/rekit/gate ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunGateAdapterReportTextOutputsNextActions|TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、affected vet `go vet ./internal/rekit/gate ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `aec9d90 Add adapter report text next actions`；远程 release-gate run `29703932854` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 411 已完成 adapter report contract / validation JSON `missionCommanderNextActions[]`，详见 `docs/batch-history.md`。
 
