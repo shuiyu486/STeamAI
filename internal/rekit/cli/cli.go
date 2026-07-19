@@ -1383,6 +1383,19 @@ func workstreamFormat(format string) (string, error) {
 	}
 }
 
+func promoteCandidatesFormat(format string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(format))
+	if value == "" {
+		return "json", nil
+	}
+	switch value {
+	case "text", "json":
+		return value, nil
+	default:
+		return "", fmt.Errorf("unsupported format: %s", format)
+	}
+}
+
 func writeJSON(out io.Writer, result any) error {
 	b, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
@@ -1704,16 +1717,21 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		if wantsReviewArtifacts(opt) {
 			return fmt.Errorf("promote -CreateCandidates cannot be combined with review artifact options")
 		}
+		format, err := promoteCandidatesFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported promote create-candidates format: %s", opt.Format)
+		}
+		if opt.WhatIf && format != "json" {
+			return fmt.Errorf("promote -CreateCandidates -WhatIf supports only -Format json")
+		}
 		result, err := promote.CreateCandidates(ctx.RepoRoot, target, ctx.Pack, promote.CandidateOptions{WhatIf: opt.WhatIf})
 		if err != nil {
 			return err
 		}
-		b, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			return err
+		if format == "json" {
+			return writeJSON(out, result)
 		}
-		_, err = out.Write(append(b, '\n'))
-		return err
+		return writePromoteCandidatesText(out, result)
 	}
 	plan, err := promote.Plan(ctx.RepoRoot, target, ctx.Pack)
 	if err != nil {
@@ -1873,6 +1891,47 @@ func writeMissionExecutorActionText(out io.Writer, prefix string, action mission
 		return err
 	}
 	return writeMissionCommanderActionText(out, prefix+" commander action", action)
+}
+
+func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) error {
+	if _, err := fmt.Fprintf(out, "promote candidates：applied=%t created=%d blocked=%d cleanup=%t\n", result.Applied, result.Created, result.Blocked, result.RequiresCleanup); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "promote candidates review plan：mode=%s items=%d candidateRoot=%s toolingRoot=%s indexPath=%s\n", result.ReviewPlan.Mode, result.ReviewPlan.ItemCount, result.CandidateRoot, result.ToolingRoot, result.IndexPath); err != nil {
+		return err
+	}
+	for _, item := range result.ReviewPlan.CleanupTargets {
+		if _, err := fmt.Fprintf(out, "promote candidates cleanup target：path=%s candidatePath=%s indexPath=%s when=%s\n", item.Path, item.CandidatePath, item.IndexPath, item.CleanupWhen); err != nil {
+			return err
+		}
+		for _, action := range item.CleanupActions {
+			if _, err := fmt.Fprintf(out, "promote candidates cleanup action：%s\n", action); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := fmt.Fprintf(out, "promote candidates reconsume：mode=%s\n", result.ReviewPlan.Reconsume.Mode); err != nil {
+		return err
+	}
+	for _, check := range result.ReviewPlan.Reconsume.VerificationChecklist {
+		if _, err := fmt.Fprintf(out, "promote candidates reconsume check：name=%s expected=%s\n", check.Name, check.Expected); err != nil {
+			return err
+		}
+		for _, command := range check.Commands {
+			if _, err := fmt.Fprintf(out, "promote candidates reconsume command：%s\n", command); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range check.Boundary {
+			if _, err := fmt.Fprintf(out, "promote candidates reconsume boundary：%s\n", boundary); err != nil {
+				return err
+			}
+		}
+	}
+	if err := writeMissionCommanderActionText(out, "promote candidates commander action", mission.ExecutorAction{MissionCommanderAction: result.ReviewPlan.MissionCommanderAction}); err != nil {
+		return err
+	}
+	return writeMissionCommanderNextActionsText(out, result.ReviewPlan.MissionCommanderNextActions)
 }
 
 func writeReviewPlan(out io.Writer, plan review.Plan) error {

@@ -16,25 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 408：Gate execution evidence next-action immediate projection closure
+### Batch 409：Pack-memory cleanup / reconsume next-action command UX closure
 
-状态：已完成本地实现、durable docs、full local validation、提交/推送与远程 release-gate inspection。
+状态：已完成本地实现、durable docs、full local validation；提交/推送与远程 release-gate inspection 待记录。
 
-目标：Batch 407 已让 continue result/run artifacts 暴露 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]`，但 `gate -Apply -GateEventId ...` 刚记录 authorized execution observation evidence 后，主 Agent 仍需再跑 overview/handoff/continue/resume/checkpoint 才能拿到同一 evidence review queue 与 ordered next-action list。本批把刚记录的 bounded observation evidence 立即投影到 gate execution evidence result JSON 与 CLI text。
+目标：Batch 398/403 已让 `promote -CreateCandidates` 的 `reviewPlan` 暴露 decision checklist、cleanup targets、reconsume verification checklist 与 main-agent execution plan，但主 Agent 仍需在 `decisionChecklist[]`、`cleanupTargets[]`、`mainAgentExecutionPlan[]` 与 `reconsume.verificationChecklist[]` 间手工拼接执行顺序。本批把 pack-memory candidate review / cleanup / reconsume 收口为 `missionCommanderNextActions[]` 与 Go CLI text output 的可消费 next-action command UX。
 
-边界：只增强 gate execution evidence record result projection、shared mission builder reuse、CLI tests 与 durable docs；不 replay heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态；除既有 `gate -Apply -GateEventId ...` observation evidence append/idempotent no-op 外不新增写入路径。
+边界：只增强 `promote -CreateCandidates` result projection、Go CLI text output、package/CLI tests 与 durable docs；runtime 只输出 guidance，不执行 candidate merge、cleanup、init、doctor 或 `promote -Apply`；不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态；WhatIf 仍只支持 JSON preview。
 
 已完成内容：
 
-- `mission` package 新增共享 `ExecutionEvidenceReviewItems(...)` / `ExecutionEvidenceReviewItemFromObservation(...)` builder，workstream 复用同一 parser，避免 gate 与 handoff/resume/checkpoint 维护并行 evidence review item logic。
-- `gate -Apply -GateEventId ...` execution evidence record JSON 新增 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]`，把刚记录的 observation evidence 直接投影为 evidence-first handoff/overview/continue ordering。
-- execution evidence CLI text 新增 `mission commander next action` lines，展示 state/source/blocked/requiresReview/command、reasons 与 boundary。
-- normal succeeded evidence record 保留 evidence review primary `/rekit handoff main`、`/rekit overview` 与 review 后 `continue -WhatIf`，并追加 lane ready commander action；boundary-hit/escalated evidence 继续抑制 autonomous continue。
-- CLI coverage 锁定 normal execution evidence JSON/text projection、adapter escalation suppression、no-heavy/no-authority boundary 与 shared builder behavior。
+- `promote.CandidateReviewPlan` 新增 `missionCommanderNextActions[]`，直接输出 review decision、candidate cleanup、pack doctor、fresh-case init/doctor 与 attached-case doctor 的 ordered next-action list。
+- `missionCommanderNextActions[]` 为每项携带 `source`、`reasons`、`boundary` 与 concrete `command`，cleanup action 明确受限于 candidateRoot/toolingRoot/indexPath，pack doctor/fresh/attached reconsume 明确是 accepted merge 后的验证 handoff。
+- `promote -CreateCandidates -Format text`（非 WhatIf）现在输出 promote candidates summary、cleanup target/action、reconsume check/command/boundary、pack-memory commander action 与 `mission commander next action` lines，避免主 Agent 为人工 checklist 只读消费而解析完整 JSON。
+- `promote -CreateCandidates -WhatIf -Format text` 继续 fail-closed，保持既有 WhatIf JSON-only preview 边界。
+- package 与 CLI coverage 锁定 WhatIf/actual JSON projection、actual text output、indexPath cleanup、fresh/attached reconsume commands、no authority/confirmed、no heavy-tool 与 runtime-does-not-execute boundaries。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunGateExecutionEvidenceTextOutputsNextActions|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/mission ./internal/rekit/workstream -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `c800e1e Add gate evidence next actions`；远程 release-gate run `29700552809` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/promote ./internal/rekit/cli -run "TestCreateCandidatesWhatIfDoesNotWrite|TestPackMemoryPromoteReconsumeE2E|TestRunPromoteCreateCandidatesWhatIf|TestRunPromoteCreateCandidatesWritesCandidates|TestRunPromoteCreateCandidatesRejectsReviewArtifacts" -count=1`、affected package `go test ./internal/rekit/promote ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。提交/推送与远程 release-gate inspection 待记录。
 
-上一批摘要：Batch 407 已完成 `/rekit continue` JSON/run artifacts 的 `missionCommanderNextActions[]` 投影，详见 `docs/batch-history.md`。
+上一批摘要：Batch 408 已完成 `gate -Apply -GateEventId ...` execution evidence record result 的 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]` 即时投影，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

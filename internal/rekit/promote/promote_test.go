@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
@@ -34,6 +36,9 @@ func TestCreateCandidatesWhatIfDoesNotWrite(t *testing.T) {
 	}
 	if !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "materialize-candidates", "promote -Target <attached-case>") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "review-decisions", "authority/confirmed") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "cleanup-rejected-or-merged-candidates", "indexPath") {
 		t.Fatalf("what-if review plan missing executable main agent handoff: %+v", result.ReviewPlan.MainAgentExecutionPlan)
+	}
+	if !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.decisionChecklist", "review reviewPlan.decisionChecklist") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.cleanupTargets", "delete candidatePath") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.reconsume.verificationChecklist", "doctor -Pack "+pack) || !candidateNextActionBoundaryContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "WhatIf did not write") {
+		t.Fatalf("what-if review plan missing Mission Commander next actions: %+v", result.ReviewPlan.MissionCommanderNextActions)
 	}
 	commander := result.ReviewPlan.MissionCommanderAction
 	if commander.State != "preview-pack-memory-candidates" || commander.PrimaryCommand != "review reviewPlan.reviewItems" || !strings.Contains(commander.Prompt, "WhatIf preview") || !promoteContainsSubstring(commander.FollowUpCommands, "promote -CreateCandidates") || !promoteContainsSubstring(commander.Boundary, "WhatIf did not write") || !promoteContainsSubstring(commander.Boundary, "no authority/confirmed") || !promoteContainsSubstring(commander.Boundary, "no heavy-tool") {
@@ -215,6 +220,9 @@ func TestPackMemoryPromoteReconsumeE2E(t *testing.T) {
 	}
 	if !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "fresh-case-reconsume-after-tooling-merge", "init -Target <fresh-case>") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "attached-case-reconsume-after-tooling-merge", "doctor -Target <attached-case>") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "fresh-case-reconsume-after-tooling-merge", "sync does not copy tooling recipes") {
 		t.Fatalf("pack-memory execution plan omitted reconsume command handoff: %+v", result.ReviewPlan.MainAgentExecutionPlan)
+	}
+	if !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.decisionChecklist", "review reviewPlan.decisionChecklist") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.cleanupTargets", "update/remove indexPath") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.reconsume.verificationChecklist", "init -Target <fresh-case>") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.reconsume.verificationChecklist", "doctor -Target <attached-case>") || !candidateNextActionBoundaryContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "runtime does not execute") {
+		t.Fatalf("pack-memory review plan omitted Mission Commander next-action command UX: %+v", result.ReviewPlan.MissionCommanderNextActions)
 	}
 	candidateText := readText(t, write.TargetPath)
 	for _, expected := range []string{"# Tooling candidate from case", "promoted-memory-tool", "<caseRoot>", "<absolutePath>", "<artifactsPath>", "<capturesPath>", "<address>", "<ctxNNN>", "Task #<n>"} {
@@ -741,6 +749,24 @@ func promoteContainsSubstring(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func candidateNextActionContainsForTest(items []mission.MissionCommanderNextActionItem, source, want string) bool {
+	return slices.ContainsFunc(items, func(item mission.MissionCommanderNextActionItem) bool {
+		if item.Source != source {
+			return false
+		}
+		fields := []string{item.Lane, item.Label, item.State, item.Command}
+		fields = append(fields, item.Reasons...)
+		fields = append(fields, item.Boundary...)
+		return promoteContainsSubstring(fields, want)
+	})
+}
+
+func candidateNextActionBoundaryContainsForTest(items []mission.MissionCommanderNextActionItem, want string) bool {
+	return slices.ContainsFunc(items, func(item mission.MissionCommanderNextActionItem) bool {
+		return promoteContainsSubstring(item.Boundary, want)
+	})
 }
 
 func candidateDecisionChecklistContainsForTest(items []CandidateDecisionChecklist, path, want string) bool {

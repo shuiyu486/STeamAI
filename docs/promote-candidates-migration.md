@@ -10,7 +10,7 @@
 
 G3.6 先固化候选生成语义、sanitization 规则、阻断条件和验证资产；G3.7 在 Go backend 中新增显式 `promote -CreateCandidates` 写入路径。`promote -CreateCandidates` 会在 kit pack 内创建 candidate 文件和 `promote-candidates/index.json`，比 review artifact 更接近 pack 写入；Batch 107 起 `promote -CreateCandidates -WhatIf -Format json` 这种非写入机器预览纳入默认 PowerShell façade 委托安全集合，Batch 108 起实际 candidate/index/tooling candidate 写入也默认委托 Go。
 
-当前 Go backend 已具备 promote review-only plan、bounded diff、tooling sanitized preview，以及 `promote.CreateCandidates` helper。裸 `promote` 继续 review-only；`-CreateCandidates -WhatIf` 输出非写入 JSON preview；无 `-WhatIf` 时写 candidate/index/tooling candidate，并已在 Batch 108 纳入默认 façade 委托；`promote -Apply` 由独立 apply 路径处理，并已在 Batch 112 纳入默认 façade 委托。
+当前 Go backend 已具备 promote review-only plan、bounded diff、tooling sanitized preview，以及 `promote.CreateCandidates` helper。裸 `promote` 继续 review-only；`-CreateCandidates -WhatIf` 输出非写入 JSON preview；无 `-WhatIf` 时写 candidate/index/tooling candidate，并已在 Batch 108 纳入默认 façade 委托；Batch 390+ 的 `reviewPlan` 进一步暴露 candidate review / cleanup / reconsume guidance，Batch 409 新增 `missionCommanderNextActions[]` 与 Go CLI text 输出，把 decision checklist、candidate cleanup、pack doctor、fresh/attached case reconsume 验证投影为主 Agent 可直接消费的 bounded next-action command UX；`promote -Apply` 由独立 apply 路径处理，并已在 Batch 112 纳入默认 façade 委托。
 
 ## 执行清单
 
@@ -27,6 +27,7 @@ G3.6 先固化候选生成语义、sanitization 规则、阻断条件和验证�
 - [x] Batch 229 退休 `promote` PowerShell fallback；文本 promote what-if、disabled JSON preview 与 disabled actual candidate/apply façade 均报 no-fallback error。
 - [x] Batch 109 新增 `internal/rekit/promote` package tests，覆盖 what-if no-write、candidate/index/tooling candidate 写入、sanitization、unique candidate path 与 restore helper。
 - [x] Batch 112 后，`promote -Apply` 实际 pack source 写入也已由独立 apply 迁移文档收口为默认 Go façade；本文件仍只维护 candidate 写入边界。
+- [x] Batch 409 将 `promote -CreateCandidates` 的 `reviewPlan.missionCommanderNextActions[]` 与 Go CLI text 输出纳入产品 UX，直接展示 review decision、cleanup target、pack doctor、fresh-case init/doctor 与 attached-case doctor 的 bounded next actions；runtime 仍只输出 guidance，不执行 merge、cleanup、init 或 doctor。
 
 ## 验证标准
 
@@ -56,7 +57,7 @@ git diff --check
 - `promote -CreateCandidates` 写入 kit pack root 下的 `promote-candidates/**`；测试必须 cleanup，不能把临时 candidates 提交进仓库。
 - candidate 内容来自 case managed docs，必须先过 deny pattern；不能把 case-specific 进度、绝对路径、trace、dump、capture、artifact 或真实样本信息写入 pack。
 - tooling candidate 需要 sanitization 后再次过 deny pattern；sanitization 失败时必须 blocked，不得生成 candidate。
-- `promote -CreateCandidates` 仍只生成候选，不覆盖 pack managed docs，不写 authority/confirmed，不执行 heavy-tool。
+- `promote -CreateCandidates` 仍只生成候选，不覆盖 pack managed docs，不写 authority/confirmed，不执行 heavy-tool；`reviewPlan.missionCommanderNextActions[]` 与 CLI text 只投影主 Agent 后续 review/cleanup/reconsume guidance，runtime 不执行这些命令。
 - PowerShell façade 默认委托 `promote -CreateCandidates` 实际写入；Batch 229 起公共 `/rekit` 文本 what-if、disabled promote façade 与 Go delegation 不可用均直接 no-fallback；`promote -Apply` 实际 pack source 写入由 `docs/promote-apply-migration.md` 维护，Batch 112 起也默认委托 Go。
 
 ## PowerShell 历史语义基线

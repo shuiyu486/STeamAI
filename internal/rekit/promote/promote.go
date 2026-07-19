@@ -65,20 +65,21 @@ type CandidateWrite struct {
 }
 
 type CandidateReviewPlan struct {
-	Mode                   string                         `json:"mode"`
-	Scope                  string                         `json:"scope"`
-	CandidateRoot          string                         `json:"candidateRoot"`
-	ToolingRoot            string                         `json:"toolingRoot"`
-	IndexPath              string                         `json:"indexPath,omitempty"`
-	ItemCount              int                            `json:"itemCount"`
-	ReviewItems            []CandidateReviewItem          `json:"reviewItems"`
-	DecisionChecklist      []CandidateDecisionChecklist   `json:"decisionChecklist"`
-	CleanupTargets         []CandidateCleanupTarget       `json:"cleanupTargets"`
-	MainAgentExecutionPlan []CandidateExecutionStep       `json:"mainAgentExecutionPlan"`
-	Reconsume              CandidateReconsumeGuidance     `json:"reconsume"`
-	MissionCommanderAction mission.MissionCommanderAction `json:"missionCommanderAction"`
-	RuntimeBoundary        []string                       `json:"runtimeBoundary"`
-	CompletionCriteria     []string                       `json:"completionCriteria"`
+	Mode                        string                                   `json:"mode"`
+	Scope                       string                                   `json:"scope"`
+	CandidateRoot               string                                   `json:"candidateRoot"`
+	ToolingRoot                 string                                   `json:"toolingRoot"`
+	IndexPath                   string                                   `json:"indexPath,omitempty"`
+	ItemCount                   int                                      `json:"itemCount"`
+	ReviewItems                 []CandidateReviewItem                    `json:"reviewItems"`
+	DecisionChecklist           []CandidateDecisionChecklist             `json:"decisionChecklist"`
+	CleanupTargets              []CandidateCleanupTarget                 `json:"cleanupTargets"`
+	MainAgentExecutionPlan      []CandidateExecutionStep                 `json:"mainAgentExecutionPlan"`
+	Reconsume                   CandidateReconsumeGuidance               `json:"reconsume"`
+	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	RuntimeBoundary             []string                                 `json:"runtimeBoundary"`
+	CompletionCriteria          []string                                 `json:"completionCriteria"`
 }
 
 type CandidateReviewItem struct {
@@ -575,6 +576,7 @@ func candidateReviewPlan(result CandidateResult, whatIf bool) CandidateReviewPla
 	plan.ItemCount = len(plan.ReviewItems)
 	plan.MainAgentExecutionPlan = candidateMainAgentExecutionPlan(result, plan, whatIf)
 	plan.MissionCommanderAction = candidateReviewMissionCommanderAction(result, whatIf)
+	plan.MissionCommanderNextActions = candidateMissionCommanderNextActions(result, plan, whatIf)
 	return plan
 }
 
@@ -637,6 +639,84 @@ func candidateMainAgentExecutionPlan(result CandidateResult, plan CandidateRevie
 		})
 	}
 	return steps
+}
+
+func candidateMissionCommanderNextActions(result CandidateResult, plan CandidateReviewPlan, whatIf bool) []mission.MissionCommanderNextActionItem {
+	items := []mission.MissionCommanderNextActionItem{}
+	mode := "pack-memory-candidates"
+	if whatIf {
+		mode = "pack-memory-candidates-preview"
+	}
+	baseBoundary := []string{
+		"reviewPlan guidance only; runtime does not execute merge, cleanup, init, or doctor commands",
+		"do not write authority/confirmed",
+		"do not execute heavy tools",
+	}
+	if whatIf {
+		baseBoundary = append([]string{"WhatIf did not write candidate files or indexPath"}, baseBoundary...)
+	}
+	items = append(items, mission.MissionCommanderNextActionItem{
+		State:          mode + ":review-decisions",
+		Command:        "review reviewPlan.decisionChecklist",
+		Source:         "reviewPlan.decisionChecklist",
+		RequiresReview: true,
+		Reasons:        []string{"choose accept, reject, or superseded for every pending-review candidate before merge or cleanup"},
+		Boundary:       append([]string{}, baseBoundary...),
+	})
+	for _, target := range plan.CleanupTargets {
+		label := target.Path
+		if label == "" {
+			label = target.CandidatePath
+		}
+		reasons := []string{"cleanup candidate after reject, superseded decision, or accepted merge into another pack source"}
+		if target.IndexPath != "" {
+			reasons = append(reasons, "update or remove indexPath after deleting candidatePath")
+		}
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Lane:           target.Path,
+			Label:          label,
+			State:          mode + ":cleanup-candidate",
+			Command:        "delete candidatePath and update/remove indexPath",
+			Source:         "reviewPlan.cleanupTargets",
+			RequiresReview: true,
+			Reasons:        reasons,
+			Boundary: append(append([]string{}, baseBoundary...),
+				"cleanup is limited to candidateRoot/toolingRoot and indexPath",
+				"do not delete pack source files",
+			),
+		})
+	}
+	items = append(items, mission.MissionCommanderNextActionItem{
+		State:    mode + ":pack-doctor",
+		Command:  "go run ./cmd/rekit -- -Command doctor -Pack " + result.Pack,
+		Source:   "reviewPlan.reconsume.verificationChecklist",
+		Reasons:  []string{"run after accepted managed-doc or tooling candidate merge"},
+		Boundary: []string{"doctor validates pack state only", "do not create case-local artifacts while checking pack"},
+	})
+	if candidateHasToolingPendingReview(plan.ReviewItems) {
+		items = append(items, mission.MissionCommanderNextActionItem{
+			State:    mode + ":fresh-case-init",
+			Command:  "go run ./cmd/rekit -- -Command init -Target <fresh-case> -Pack " + result.Pack + " -ProjectName <name> -Apply",
+			Source:   "reviewPlan.reconsume.verificationChecklist",
+			Reasons:  []string{"create a temporary fresh case before validating accepted tooling candidate reconsume"},
+			Boundary: []string{"use a temporary fresh case only", "do not create real case state in the kit repo"},
+		})
+		items = append(items, mission.MissionCommanderNextActionItem{
+			State:    mode + ":fresh-case-doctor",
+			Command:  "go run ./cmd/rekit -- -Command doctor -Target <fresh-case> -Pack " + result.Pack,
+			Source:   "reviewPlan.reconsume.verificationChecklist",
+			Reasons:  []string{"verify accepted tooling candidate reconsumes from pack tooling in a fresh case"},
+			Boundary: []string{"use a temporary fresh case only", "sync does not copy tooling recipes into case-local managed docs"},
+		})
+		items = append(items, mission.MissionCommanderNextActionItem{
+			State:    mode + ":attached-case-reconsume",
+			Command:  "go run ./cmd/rekit -- -Command doctor -Target <attached-case> -Pack " + result.Pack,
+			Source:   "reviewPlan.reconsume.verificationChecklist",
+			Reasons:  []string{"verify an attached case resolves pack tooling after accepted tooling merge"},
+			Boundary: []string{"do not overwrite case-local files while checking reconsume"},
+		})
+	}
+	return mission.UniqueCommanderNextActions(items)
 }
 
 func candidateExecutionAppliesTo(items []CandidateReviewItem) []string {
