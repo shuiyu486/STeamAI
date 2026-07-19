@@ -3016,6 +3016,11 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if strings.Contains(string(text), "continue command：`/rekit continue login`") {
 		t.Fatalf("project handoff should not present blocked lane continue as its current next action:\n%s", string(text))
 	}
+	for _, expected := range []string{"commander primary：`/rekit continue main`", "commander follow-up：/rekit handoff main", "commander primary：`/rekit reconcile login -InterventionId <eventId> -Apply`", "commander follow-up：/rekit continue login -WhatIf", "commander boundary：do not run continue for blocked lanes"} {
+		if !strings.Contains(string(text), expected) {
+			t.Fatalf("project handoff missing Mission Commander consumption %q:\n%s", expected, string(text))
+		}
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
@@ -3031,6 +3036,9 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if lane.ExecutorAction == nil || !lane.ExecutorAction.Blocked || lane.ExecutorAction.PendingGates != 1 || lane.ExecutorAction.OpenInterventions != 1 || lane.ExecutorAction.OpenDecisions != 1 || !lane.ExecutorAction.ReconcileRequired || !lane.ExecutorAction.PendingGateRequired || !lane.ExecutorAction.OpenDecisionRequired || lane.ExecutorAction.ResumeCommand != "/rekit continue login" || lane.ExecutorAction.HandoffCommand != "/rekit handoff login" || !slices.Contains(lane.ExecutorAction.BlockerReasons, "pending-gate") || !slices.Contains(lane.ExecutorAction.BlockerReasons, "intervention") || !slices.Contains(lane.ExecutorAction.BlockerReasons, "open-decision") {
 		t.Fatalf("lane handoff JSON executor action drifted: %+v", lane.ExecutorAction)
 	}
+	if lane.ExecutorAction.MissionCommanderAction.State != "needs-reconcile" || lane.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit reconcile login -InterventionId <eventId> -Apply" || !containsSubstring(lane.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue login -WhatIf") || !containsSubstring(lane.ExecutorAction.MissionCommanderAction.Boundary, "do not run continue for blocked lanes") {
+		t.Fatalf("lane handoff JSON omitted Mission Commander action consumption: %+v", lane.ExecutorAction.MissionCommanderAction)
+	}
 	if slices.Contains(lane.ExecutorAction.NextAgentActions, "/rekit continue login") || !containsSubstring(lane.ExecutorAction.NextAgentActions, "reconcile open intervention") || !containsSubstring(lane.NextSteps, "reconcile open intervention") || slices.Contains(lane.NextSteps, "/rekit continue login") {
 		t.Fatalf("lane handoff JSON should expose blocker-aware next steps only: action=%+v next=%+v", lane.ExecutorAction.NextAgentActions, lane.NextSteps)
 	}
@@ -3039,7 +3047,7 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "先处理下列 blocker，不要执行 `/rekit continue login`", "## Mission Control brief", "blocked: true", "pending-gate:", "open intervention:", "open decision:", "next agent action:", "reconcile open intervention(s) before continuing this lane", "resolve or keep deferred pending-gate request(s)", "review open candidate/decision item(s)", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- pending gates: `1`", "- open interventions: `1`", "- open decisions: `1`", "- reconcile required: `true`", "- pending gate required: `true`", "- open decision required: `true`", "- resume command: `/rekit continue login`", "- handoff command: `/rekit handoff login`", "blocker reasons:", "pending-gate", "intervention", "open-decision", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
+	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "先处理下列 blocker，不要执行 `/rekit continue login`", "## Mission Control brief", "blocked: true", "pending-gate:", "open intervention:", "open decision:", "next agent action:", "reconcile open intervention(s) before continuing this lane", "resolve or keep deferred pending-gate request(s)", "review open candidate/decision item(s)", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- pending gates: `1`", "- open interventions: `1`", "- open decisions: `1`", "- reconcile required: `true`", "- pending gate required: `true`", "- open decision required: `true`", "- resume command: `/rekit continue login`", "- handoff command: `/rekit handoff login`", "- commander primary command: `/rekit reconcile login -InterventionId <eventId> -Apply`", "commander follow-up commands:", "/rekit continue login -WhatIf", "commander boundary:", "do not run continue for blocked lanes", "blocker reasons:", "pending-gate", "intervention", "open-decision", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
 		if !strings.Contains(string(laneText), expected) {
 			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
 		}
@@ -3051,8 +3059,10 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(resume), "review queued") || !strings.Contains(string(resume), "inspect candidate") {
-		t.Fatalf("lane resume missing live inbox/tasks:\n%s", string(resume))
+	for _, expected := range []string{"review queued", "inspect candidate", "- commander primary command: `/rekit reconcile login -InterventionId <eventId> -Apply`", "commander follow-up commands:", "/rekit continue login -WhatIf", "commander boundary:", "do not run continue for blocked lanes"} {
+		if !strings.Contains(string(resume), expected) {
+			t.Fatalf("lane resume missing %q:\n%s", expected, string(resume))
+		}
 	}
 }
 

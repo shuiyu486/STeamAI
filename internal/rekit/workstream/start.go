@@ -852,6 +852,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		"- handoff command: `"+executorAction.HandoffCommand+"`",
 		"- commander state: `"+executorAction.MissionCommanderAction.State+"`",
 		"- commander prompt: "+executorAction.MissionCommanderAction.Prompt,
+		"- commander primary command: `"+executorAction.MissionCommanderAction.PrimaryCommand+"`",
 	)
 	lines = appendResumeList(lines, "commander follow-up commands", executorAction.MissionCommanderAction.FollowUpCommands)
 	lines = appendResumeList(lines, "commander boundary", executorAction.MissionCommanderAction.Boundary)

@@ -352,6 +352,9 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		fmt.Fprintf(&out, "  - 指定交接：`%s`\n", executorAction.HandoffCommand)
 		fmt.Fprintf(&out, "  - commander state：%s\n", executorAction.MissionCommanderAction.State)
 		fmt.Fprintf(&out, "  - commander prompt：%s\n", executorAction.MissionCommanderAction.Prompt)
+		fmt.Fprintf(&out, "  - commander primary：`%s`\n", executorAction.MissionCommanderAction.PrimaryCommand)
+		writeProjectLaneCommanderList(&out, "commander follow-up", executorAction.MissionCommanderAction.FollowUpCommands)
+		writeProjectLaneCommanderList(&out, "commander boundary", executorAction.MissionCommanderAction.Boundary)
 		fmt.Fprintf(&out, "  - 接续提示：`%s`\n", resumeRel)
 	}
 	fmt.Fprintln(&out)
@@ -372,6 +375,16 @@ func writeProjectLaneNextActions(out *bytes.Buffer, actions []string) {
 	}
 	for _, action := range actions {
 		fmt.Fprintf(out, "  - next action：%s\n", action)
+	}
+}
+
+func writeProjectLaneCommanderList(out *bytes.Buffer, label string, items []string) {
+	if len(items) == 0 {
+		fmt.Fprintf(out, "  - %s：none\n", label)
+		return
+	}
+	for _, item := range mission.LimitStrings(items, maxHandoffRows) {
+		fmt.Fprintf(out, "  - %s：%s\n", label, item)
 	}
 }
 
@@ -722,6 +735,7 @@ func writeExecutorActionSection(out *bytes.Buffer, action laneExecutorAction) {
 	fmt.Fprintf(out, "- handoff command: `%s`\n", action.HandoffCommand)
 	fmt.Fprintf(out, "- commander state: `%s`\n", action.MissionCommanderAction.State)
 	fmt.Fprintf(out, "- commander prompt: %s\n", action.MissionCommanderAction.Prompt)
+	fmt.Fprintf(out, "- commander primary command: `%s`\n", action.MissionCommanderAction.PrimaryCommand)
 	writeHandoffBriefList(out, "commander follow-up commands", action.MissionCommanderAction.FollowUpCommands)
 	writeHandoffBriefList(out, "commander boundary", action.MissionCommanderAction.Boundary)
 	writeHandoffBriefList(out, "blocker reasons", action.BlockerReasons)
