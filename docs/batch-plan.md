@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 394：Pack-memory reconsume Mission Commander follow-through
 
-状态：已完成本地实现与 focused/full tests；提交/推送在本批收尾执行。
+状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
 
 目标：把 `promote -CreateCandidates` 生成的 pack-memory candidate review plan 继续收口为结构化 `missionCommanderAction`，让主 Agent 不必从 `reviewItems`、`reconsume`、`cleanupTargets` 与 `completionCriteria` 手工拼接下一步，尤其是 tooling candidate 被接受后的 fresh/attached case reconsume 验证。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - blocked/no-op candidate plan 投影 `blocked-pack-memory-candidates`，要求不要合入，先修 source/manifest 或记录 reject。
 - package 与 CLI coverage 锁定 WhatIf no-write preview handoff、actual candidate review handoff、tooling reconsume follow-through、manual tooling merge、candidate cleanup、no authority/confirmed 与 no heavy-tool boundaries。
 
-验证结果：已通过 focused `go test ./internal/rekit/promote -run 'TestCreateCandidatesWhatIfDoesNotWrite|TestCreateCandidatesWritesIndexAndSanitizedTooling|TestPackMemoryPromoteReconsumeE2E' -count=1`、`go test ./internal/rekit/cli -run 'TestRunPromoteCreateCandidatesWhatIf|TestRunPromoteCreateCandidatesWritesCandidates' -count=1`、`go test ./internal/rekit/promote ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error；提交/推送在本批收尾执行。远程 release-gate 仍按既有 GitHub runner/billing known gap 处理，不能把 inventory readiness 声明为远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/promote -run 'TestCreateCandidatesWhatIfDoesNotWrite|TestCreateCandidatesWritesIndexAndSanitizedTooling|TestPackMemoryPromoteReconsumeE2E' -count=1`、`go test ./internal/rekit/cli -run 'TestRunPromoteCreateCandidatesWhatIf|TestRunPromoteCreateCandidatesWritesCandidates' -count=1`、`go test ./internal/rekit/promote ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `a57ed84 Add pack memory commander review actions`；远程 release-gate run `29689604852` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 393 已完成 authorized execution evidence Mission Commander closure；execution evidence record result 现在投影 evidence-specific `missionCommanderAction`，详见 `docs/batch-history.md`。
 
