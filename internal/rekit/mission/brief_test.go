@@ -169,7 +169,22 @@ func TestBuildDoesNotBlockOnAuthorizedGate(t *testing.T) {
 	brief := Build(
 		[]Lane{{ID: "main", Label: "main", Status: "active"}},
 		Facts{Requests: []map[string]any{
-			{"kind": "request", "lane": "main", "subject": "authorized debug", "status": "authorized-gate", "risk": "high", "gate": map[string]any{"action": "debug"}},
+			{
+				"kind":    "request",
+				"lane":    "main",
+				"subject": "authorized debug",
+				"status":  "authorized-gate",
+				"risk":    "high",
+				"target":  "sample.bin",
+				"gate": map[string]any{
+					"action":          "debug",
+					"scope":           "single target",
+					"requestedBudget": map[string]any{"runtimeSeconds": 120, "diskMB": 64, "requests": 1},
+					"outputPaths":     []any{"workspace/main/debug/session-1"},
+					"stopConditions":  []any{"timeout", "budget-exhausted"},
+					"authorization":   map[string]any{"decision": "preauthorized", "profileId": "profile-main"},
+				},
+			},
 		}},
 		10,
 	)
@@ -179,8 +194,57 @@ func TestBuildDoesNotBlockOnAuthorizedGate(t *testing.T) {
 	if len(brief.PendingGates) != 0 || !slices.Contains(brief.ReadyLanes, "main") {
 		t.Fatalf("authorized gate should not block as pending gate: %+v", brief)
 	}
-	if len(brief.AuthorizedGates) != 1 || !containsSubstring(brief.AuthorizedGates, "authorized debug") || !containsSubstring(brief.AuthorizedGates, "action=debug") {
-		t.Fatalf("authorized gate should be visible and non-blocking: %+v", brief)
+	for _, want := range []string{
+		"authorized debug",
+		"action=debug",
+		"scope=single target",
+		"requestedBudget=runtimeSeconds=120,diskMB=64,requests=1",
+		"outputPaths=workspace/main/debug/session-1",
+		"stopConditions=timeout,budget-exhausted",
+		"auth=preauthorized",
+		"profile=profile-main",
+	} {
+		if len(brief.AuthorizedGates) != 1 || !containsSubstring(brief.AuthorizedGates, want) {
+			t.Fatalf("authorized gate should include %q boundary detail: %+v", want, brief)
+		}
+	}
+}
+
+func TestLaneGateLineIncludesAuthorizedExecutionBoundaries(t *testing.T) {
+	line := LaneGateLine(map[string]any{
+		"kind":    "request",
+		"lane":    "feature-login",
+		"subject": "authorized debug",
+		"status":  "authorized-gate",
+		"target":  "sample.bin",
+		"risk":    "high",
+		"gate": map[string]any{
+			"action":          "debug",
+			"scope":           "single target",
+			"requestedBudget": map[string]any{"runtimeSeconds": 45, "diskMB": 16, "requests": 2},
+			"outputPaths":     []any{"workspace/features/feature-login/debug/session-1"},
+			"stopConditions":  []any{"timeout", "new-risk"},
+			"authorization":   map[string]any{"decision": "preauthorized", "profileId": "profile-login"},
+		},
+	})
+	for _, want := range []string{
+		"authorized debug",
+		"action=debug",
+		"scope=single target",
+		"requestedBudget=runtimeSeconds=45,diskMB=16,requests=2",
+		"outputPaths=workspace/features/feature-login/debug/session-1",
+		"stopConditions=timeout,new-risk",
+		"auth=preauthorized",
+		"profile=profile-login",
+		"risk=high",
+		"target=sample.bin",
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("lane gate line missing %q: %q", want, line)
+		}
+	}
+	if strings.Contains(line, "lane=feature-login") {
+		t.Fatalf("lane-specific gate line should omit lane field: %q", line)
 	}
 }
 

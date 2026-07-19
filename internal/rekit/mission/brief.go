@@ -1,6 +1,7 @@
 package mission
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -379,30 +380,32 @@ func GateLine(item map[string]any) string {
 	AddPart(&parts, "lane", Value(item, "lane"))
 	AddPart(&parts, "risk", Value(item, "risk"))
 	AddPart(&parts, "target", Value(item, "target"))
-	if gate, ok := item["gate"].(map[string]any); ok {
-		AddPart(&parts, "action", Value(gate, "action"))
-		AddPart(&parts, "scope", Value(gate, "scope"))
-		if auth, ok := gate["authorization"].(map[string]any); ok {
-			AddPart(&parts, "auth", Value(auth, "decision"))
-			AddPart(&parts, "profile", Value(auth, "profileId"))
-		}
-	}
+	addGateParts(&parts, item)
 	return strings.Join(parts, " | ")
 }
 
 func LaneGateLine(item map[string]any) string {
 	parts := []string{Subject(item)}
-	if gate, ok := item["gate"].(map[string]any); ok {
-		AddPart(&parts, "action", Value(gate, "action"))
-		AddPart(&parts, "scope", Value(gate, "scope"))
-		if auth, ok := gate["authorization"].(map[string]any); ok {
-			AddPart(&parts, "auth", Value(auth, "decision"))
-			AddPart(&parts, "profile", Value(auth, "profileId"))
-		}
-	}
+	addGateParts(&parts, item)
 	AddPart(&parts, "risk", Value(item, "risk"))
 	AddPart(&parts, "target", Value(item, "target"))
 	return strings.Join(parts, " | ")
+}
+
+func addGateParts(parts *[]string, item map[string]any) {
+	gate, ok := item["gate"].(map[string]any)
+	if !ok {
+		return
+	}
+	AddPart(parts, "action", Value(gate, "action"))
+	AddPart(parts, "scope", Value(gate, "scope"))
+	AddPart(parts, "requestedBudget", budgetLine(gate["requestedBudget"]))
+	AddPart(parts, "outputPaths", Value(gate, "outputPaths"))
+	AddPart(parts, "stopConditions", Value(gate, "stopConditions"))
+	if auth, ok := gate["authorization"].(map[string]any); ok {
+		AddPart(parts, "auth", Value(auth, "decision"))
+		AddPart(parts, "profile", Value(auth, "profileId"))
+	}
 }
 
 func InterventionLine(item map[string]any) string {
@@ -513,6 +516,38 @@ func Subject(item map[string]any) string {
 	return FirstText(Value(item, "subject"), Value(item, "summary"), Value(item, "kind"), "item")
 }
 
+func budgetLine(value any) string {
+	budget := map[string]any{}
+	switch t := value.(type) {
+	case map[string]any:
+		budget = t
+	default:
+		data, err := json.Marshal(t)
+		if err != nil {
+			return ""
+		}
+		if err := json.Unmarshal(data, &budget); err != nil {
+			return ""
+		}
+	}
+	runtimeSeconds := Value(budget, "runtimeSeconds")
+	diskMB := Value(budget, "diskMB")
+	requests := Value(budget, "requests")
+	if emptyBudgetValue(runtimeSeconds) && emptyBudgetValue(diskMB) && emptyBudgetValue(requests) {
+		return ""
+	}
+	parts := []string{}
+	AddPart(&parts, "runtimeSeconds", runtimeSeconds)
+	AddPart(&parts, "diskMB", diskMB)
+	AddPart(&parts, "requests", requests)
+	return strings.Join(parts, ",")
+}
+
+func emptyBudgetValue(value string) bool {
+	value = strings.TrimSpace(value)
+	return value == "" || value == "0" || value == "0.0"
+}
+
 func AddPart(parts *[]string, key, value string) {
 	if strings.TrimSpace(value) != "" {
 		*parts = append(*parts, key+"="+strings.TrimSpace(value))
@@ -536,6 +571,15 @@ func Value(m map[string]any, key string) string {
 	switch t := v.(type) {
 	case string:
 		return t
+	case []string:
+		parts := []string{}
+		for _, item := range t {
+			text := strings.TrimSpace(item)
+			if text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, ",")
 	case []any:
 		parts := []string{}
 		for _, item := range t {

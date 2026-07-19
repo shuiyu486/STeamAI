@@ -245,7 +245,7 @@ REKIT_GO_EXE=...    # 可选：指定已构建的 rekit-go.exe；未指定时优
 - kit-root 与 attached case `doctor` / `validate`（支持默认文本和 `-Format json` 验证 rows envelope）；
 - attached case 的 `overview` 文本与 `overview -Format json` envelope；缺 board 时可初始化 case-local board/facts/policy/default authority lane，后续读取保持只读；
 - attached case 的 `note -List` 文本/table/tsv 与 `note -List -Format json` 只读 ledger event 查询，以及 `note` append / `note -WhatIf` ledger event JSON envelope（只写 facts JSONL 或 preview，不写 authority/confirmed）；
-- `gate -WhatIf` 非写入 heavy-action authorization preflight 与 `gate -Apply` pending-gate / authorized-gate request ledger decision 写入；
+- `gate -WhatIf` 非写入 heavy-action authorization preflight 与 `gate -Apply` pending-gate / authorized-gate request ledger decision 写入；authorized-gate 在 Mission brief / overview / handoff / continue-facing artifacts 中作为非阻塞授权决策展示，并直接投影 requested budget、authorized output paths 与 stop conditions；
 - attached case 的 `start -WhatIf -Format json` 非写入 preview、`start -Apply` lane scaffold 写入、`handoff -WhatIf -Format json` 非写入 preview 与 `handoff -Apply` handoff 文件写入；
 - attached case 的 `continue -WhatIf -Format json` 非写入 preview 与 explicit `continue -Apply` case-local facts/routing/run digest/lane resume/checkpoint/board 写入；存在 effective open intervention 时 fail-closed，要求先 reconcile；
 - case lifecycle `attach`、`repair`、`init/bootstrap` 预览与显式 `-Apply`；
