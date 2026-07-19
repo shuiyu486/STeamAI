@@ -16,24 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 414：Note append Mission Commander action-delta closure
+### Batch 415：Reviewer-intake Mission Commander writeback guidance closure
 
 状态：已完成本地实现、durable docs、affected package validation、full local validation、commit/push 与远程 release-gate inspection。
 
-目标：Batch 343 已让 `note -WhatIf` / append / duplicate JSON 输出 current/would/post `executorAction` delta；Batch 391/404/413 又把 executor action 的 `missionCommanderAction` 与 `missionCommanderNextActions[]` 作为主 Agent / replacement executor 的直接消费入口。本批把 note append 的 action-delta 也同步提升到 Mission Commander 层，避免主 Agent 在 reviewer writeback、manual note preview 或 duplicate retry 后仍需从 nested executor action 手工反推 commander state、primary/follow-up 与 blocked next-action 顺序。
+目标：Batch 389 已形成 bounded reviewer dispatch → strict intake → verification-before-decision writeback → post-validation 的本机闭环，Batch 414 又让 nested `note.AppendResult` 暴露 note-level commander delta；但 `plan-subagents -ReviewerResultPath ... -WhatIf/-Apply -Format json` 顶层 reviewer-intake envelope 仍没有直接告诉主 Agent preview 后应 apply、partial writeback 应幂等 retry、blocked/collision 应停写，或 complete/already-complete 后应按 postValidation handoff 的哪个 Mission Commander next action 接续。本批把 reviewer-intake writeback lifecycle 收口到 top-level Mission Commander action guidance。
 
-边界：只增强 `note.AppendResult` JSON projection、note/CLI tests 与 durable docs；不改变 note 既有 append 模型（非 `-WhatIf` append 会写 fact，note 不支持 `-Apply`）、不新增 text output contract、不改变 case durable schema；duplicate eventId 仍是 no-op；runtime 不执行 heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、公共 façade 删除门禁或远程 CI blocker 状态。
+边界：只增强 reviewer-intake JSON projection、package/CLI tests 与 durable docs；不改变 reviewer result strict contract、verification-before-decision append 顺序、note append 模型、case durable schema 或 text output contract；runtime 不自动 spawn reviewer、不执行 heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、公共 façade 删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- `note.AppendResult` 现在输出 current/post `missionCommanderAction` 与 `missionCommanderNextActions[]`；`-WhatIf` additionally 输出 would `missionCommanderAction` 与 `wouldMissionCommanderNextActions[]`。
-- blocker-kind what-if 保留 current ready commander projection，同时把 would blocked primary/follow-up 投影为 blocked/requiresReview next actions；actual blocker append 返回 post blocked commander projection。
-- duplicate eventId 仍只返回 unchanged current executor/commander projection，不生成 `wouldExecutorAction`、`wouldMissionCommanderAction` 或 would next actions，避免 duplicate no-op 被误读为可执行 delta。
-- note package 与 CLI coverage 锁定 verification no-op readiness、candidate/decision/intervention/request blocker delta、applied blocker post action、duplicate no-op、ready/blocked `missionCommanderActions` / `missionCommanderActions.followUp` next-action source 与 no authority/confirmed/no-heavy-tool/no-write-when-what-if 边界。
+- `ReviewerIntakeResult` 现在输出 top-level `missionCommanderAction` 与 `missionCommanderNextActions[]`，覆盖 `previewed`、`blocked`、`event-id-collision`、`verification-recorded`、`complete`、`already-complete` 与 `complete-post-validation-failed` 写回状态。
+- `previewed` 状态给出 same intake `-Apply -Format json` primary command 与 handoff follow-up；`verification-recorded` partial recovery 明确重跑相同 apply command，不要求主 Agent 手写缺失 decision event。
+- `complete` / `already-complete` 会提升 returned lane handoff `postValidation.missionCommanderNextActions[]` 为 `reviewerIntake.postValidation.*` source，让主 Agent 直接按 post-validation handoff/continue ordering 接续。
+- package 与 CLI coverage 锁定 preview apply guidance、post-validation next actions、duplicate already-complete、blocked fail-closed、partial recovery JSON 与 no authority/confirmed/no-heavy-tool 边界；nested verification/decision `note.AppendResult` 仍保留 Batch 414 note-level current/would/post commander delta。
 
-验证结果：已通过 focused/affected `go test ./internal/rekit/note ./internal/rekit/cli -run "TestAppend|TestRunNote" -count=1`、affected package `go test ./internal/rekit/note ./internal/rekit/cli -count=1`、`go test ./internal/rekit/note ./internal/rekit/cli ./internal/rekit/mission -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `251a6d1 Add note commander action delta`；远程 release-gate run `29705581464` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/subagents -run "TestIntakeReviewerResult" -count=1`、`go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerIntake" -count=1`、affected package `go test ./internal/rekit/subagents ./internal/rekit/cli -count=1`、affected package set `go test ./internal/rekit/subagents ./internal/rekit/cli ./internal/rekit/note ./internal/rekit/mission -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `824a415 Add reviewer intake commander guidance`；远程 release-gate run `29706981086` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
-上一批摘要：Batch 413 已完成 Mission Commander lane follow-up next-action closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 414 已完成 Note append Mission Commander action-delta closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
