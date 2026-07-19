@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 401：Execution evidence review next steps consumption follow-through
 
-状态：已完成本地实现与验证；提交/推送与远程 release-gate inspection 待收尾记录。
+状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
 
 目标：把 Batch 399/400 已投影到 overview / handoff 的 `executionEvidenceReview[]` 与 per-item `missionCommanderAction` 提升到 top-level `nextSteps[]`，让主 Agent 或替换 executor 不必进入 nested evidence item 才知道应先 review output/evidence refs、执行 evidence handoff，或在 boundary/escalated evidence 出现时停止 autonomous continuation 并通知 main Agent。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - project/lane handoff JSON 的 `nextSteps[]` 同样提升 execution evidence review guidance；当 review queue 含 boundary-hit/escalated/escalation evidence 时，top-level next steps 抑制 autonomous `continue`，即使 authorized-gate 作为 durable autonomy decision 仍不阻塞 lane executor readiness。
 - CLI/workstream coverage 锁定 blocked overview、普通 evidence、escalated evidence 与 project/lane handoff top-level nextSteps 的 evidence review priority。
 
-验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -run "TestLaneCheckpointJSONContract|TestRunOverviewJsonEmitsReadOnlyInventory|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunHandoffApplyWritesProjectAndLane" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。提交/推送与远程 release-gate inspection 待记录。
+验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -run "TestLaneCheckpointJSONContract|TestRunOverviewJsonEmitsReadOnlyInventory|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunHandoffApplyWritesProjectAndLane" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `a12d31c Promote execution evidence review next steps`；远程 release-gate run `29695236206` 为 completed failure，macOS/Windows/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 400 已完成 execution evidence review Mission Commander action closure；`executionEvidenceReview[]` items 已直接携带 `missionCommanderAction`，详见 `docs/batch-history.md`。
 
