@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -34,6 +35,12 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if result.ReviewerOrchestration.Mode != "dispatch-only-unattached-target" || result.ReviewerOrchestration.ReviewerCount != 2 || result.ReviewerOrchestration.MaxParallel != 5 || len(result.ReviewerOrchestration.Dispatches) != 2 || len(result.ReviewerOrchestration.Lifecycle) != 5 || result.ReviewerOrchestration.Dispatches[0].ShardID != "shard-01" || !strings.Contains(result.ReviewerOrchestration.Lifecycle[0].Action, "does not spawn") {
 		t.Fatalf("unexpected reviewer orchestration: %+v", result.ReviewerOrchestration)
 	}
+	if result.MissionCommanderAction.State != "reviewer-dispatch-only-target-unattached" || result.ReviewerOrchestration.MissionCommanderAction == nil || result.ReviewerOrchestration.MissionCommanderAction.State != result.MissionCommanderAction.State || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.dispatch", "dispatch read-only reviewer for shard-01", false, true) || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.dispatchOnly.attachTarget", "/rekit init", false, true) {
+		t.Fatalf("out-of-case plan omitted Mission Commander dispatch-only guidance: action=%+v next=%+v orchestration=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions, result.ReviewerOrchestration)
+	}
+	if len(result.ReviewerOrchestration.MissionCommanderNextActions) != len(result.MissionCommanderNextActions) {
+		t.Fatalf("orchestration did not mirror top-level Mission Commander next actions: result=%+v orchestration=%+v", result.MissionCommanderNextActions, result.ReviewerOrchestration.MissionCommanderNextActions)
+	}
 	if !slices.Contains(result.ReviewerOrchestration.Lifecycle[2].MustPass, "do not expect readyForWriteback or postValidation until the target is an attached rekit case") || slices.Contains(result.ReviewerOrchestration.Lifecycle[2].MustPass, "isMutation=false") || !slices.Contains(result.ReviewerOrchestration.Lifecycle[3].MustPass, "no verification or decision ledger events are expected for dispatch-only artifacts") || slices.Contains(result.ReviewerOrchestration.Lifecycle[3].MustPass, "verification event precedes linked decision event") {
 		t.Fatalf("out-of-case lifecycle advertised runnable intake gates: %+v", result.ReviewerOrchestration.Lifecycle)
 	}
@@ -53,7 +60,7 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if packet.OwnerBinding != result.OwnerBinding || packet.ShardHandoffs[0].OwnerBinding != result.OwnerBinding {
 		t.Fatalf("packet did not preserve owner binding: result=%+v packet=%+v", result.OwnerBinding, packet.OwnerBinding)
 	}
-	if packet.ReviewerOrchestration.Mode != result.ReviewerOrchestration.Mode || packet.ReviewerOrchestration.PacketPath != result.PacketPath || packet.ReviewerOrchestration.Dispatches[0].ReviewerResultPath != packet.ShardHandoffs[0].ReviewerResultPath {
+	if packet.ReviewerOrchestration.Mode != result.ReviewerOrchestration.Mode || packet.ReviewerOrchestration.PacketPath != result.PacketPath || packet.ReviewerOrchestration.Dispatches[0].ReviewerResultPath != packet.ShardHandoffs[0].ReviewerResultPath || packet.ReviewerOrchestration.MissionCommanderAction == nil || len(packet.ReviewerOrchestration.MissionCommanderNextActions) != len(result.MissionCommanderNextActions) {
 		t.Fatalf("packet did not preserve reviewer orchestration: result=%+v packet=%+v", result.ReviewerOrchestration, packet.ReviewerOrchestration)
 	}
 	assertShardHandoff(t, packet.ShardHandoffs[0], "shard-01", []string{"alpha", "beta"})
@@ -62,7 +69,7 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"### reviewer orchestration", "orchestration-step:", "reviewer-dispatch:", "### shard handoff prompts", "read-only reviewer", "Do not write files", "reviewer result root:", "main-agent result path=", "expected output=`item,decision", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "n/a: reviewer intake requires an attached rekit case", "out-of-case review artifacts are dispatch-only", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"### reviewer orchestration", "mission commander action:", "mission commander next action:", "orchestration-step:", "reviewer-dispatch:", "### shard handoff prompts", "read-only reviewer", "Do not write files", "reviewer result root:", "main-agent result path=", "expected output=`item,decision", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "n/a: reviewer intake requires an attached rekit case", "out-of-case review artifacts are dispatch-only", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -114,6 +121,9 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 	if result.ReviewerOrchestration.Mode != "manual-main-agent-intake" || result.ReviewerOrchestration.TargetLane != "feature-intake" || result.ReviewerOrchestration.Dispatches[0].PreviewCommand == "" || strings.Contains(result.ReviewerOrchestration.Dispatches[0].PreviewCommand, "n/a:") {
 		t.Fatalf("attached case reviewer orchestration did not expose runnable intake: %+v", result.ReviewerOrchestration)
 	}
+	if result.MissionCommanderAction.State != "ready-for-reviewer-dispatch" || result.ReviewerOrchestration.MissionCommanderAction == nil || result.ReviewerOrchestration.MissionCommanderAction.PrimaryCommand != result.MissionCommanderAction.PrimaryCommand || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.dispatch", "dispatch read-only reviewer for shard-01", false, true) || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.intake.preview", "-WhatIf -Format json", true, true) || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.intake.apply", "-Apply -Format json", true, true) {
+		t.Fatalf("attached case plan omitted Mission Commander reviewer dispatch/intake guidance: action=%+v next=%+v orchestration=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions, result.ReviewerOrchestration)
+	}
 	summary, err := os.ReadFile(result.SummaryPath)
 	if err != nil {
 		t.Fatal(err)
@@ -131,6 +141,9 @@ func TestWritePlanNoItemsKeepsEmptyShardHandoffs(t *testing.T) {
 	}
 	if result.ItemCount != 0 || result.ShardCount != 0 || len(result.ShardHandoffs) != 0 {
 		t.Fatalf("unexpected empty plan: %+v", result)
+	}
+	if result.MissionCommanderAction.State != "reviewer-plan-empty" || len(result.MissionCommanderNextActions) != 1 || result.MissionCommanderNextActions[0].Source != "reviewerOrchestration.plan" {
+		t.Fatalf("empty plan omitted Mission Commander replanning guidance: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	summary, err := os.ReadFile(result.SummaryPath)
 	if err != nil {
@@ -152,6 +165,12 @@ func readPlanPacket(t *testing.T, path string) Packet {
 		t.Fatal(err)
 	}
 	return packet
+}
+
+func hasPlanCommanderNextAction(items []mission.MissionCommanderNextActionItem, source, commandPart string, blocked, requiresReview bool) bool {
+	return slices.ContainsFunc(items, func(item mission.MissionCommanderNextActionItem) bool {
+		return item.Source == source && strings.Contains(item.Command, commandPart) && item.Blocked == blocked && item.RequiresReview == requiresReview
+	})
 }
 
 func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantItems []string) {

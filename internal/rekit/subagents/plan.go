@@ -33,26 +33,28 @@ type Options struct {
 }
 
 type Result struct {
-	SchemaVersion         int                       `json:"schemaVersion"`
-	Command               string                    `json:"command"`
-	PlanRoot              string                    `json:"planRoot"`
-	RepoRoot              string                    `json:"repoRoot"`
-	Pack                  string                    `json:"pack"`
-	IsMutation            bool                      `json:"isMutation"`
-	WritesReviewArtifacts bool                      `json:"writesReviewArtifacts"`
-	ReviewRequired        bool                      `json:"reviewRequired"`
-	ReviewRoot            string                    `json:"reviewRoot"`
-	PacketPath            string                    `json:"packetPath"`
-	SummaryPath           string                    `json:"summaryPath"`
-	CombinedDiffPath      string                    `json:"combinedDiffPath"`
-	ItemCount             int                       `json:"itemCount"`
-	ShardCount            int                       `json:"shardCount"`
-	TargetLane            string                    `json:"targetLane"`
-	OwnerBinding          OwnerBinding              `json:"ownerBinding"`
-	ReviewerOrchestration ReviewerOrchestrationPlan `json:"reviewerOrchestration"`
-	ShardHandoffs         []ShardHandoff            `json:"shardHandoffs"`
-	Observability         Observability             `json:"observability"`
-	ReviewLoop            ReviewLoop                `json:"reviewLoop"`
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Command                     string                                   `json:"command"`
+	PlanRoot                    string                                   `json:"planRoot"`
+	RepoRoot                    string                                   `json:"repoRoot"`
+	Pack                        string                                   `json:"pack"`
+	IsMutation                  bool                                     `json:"isMutation"`
+	WritesReviewArtifacts       bool                                     `json:"writesReviewArtifacts"`
+	ReviewRequired              bool                                     `json:"reviewRequired"`
+	ReviewRoot                  string                                   `json:"reviewRoot"`
+	PacketPath                  string                                   `json:"packetPath"`
+	SummaryPath                 string                                   `json:"summaryPath"`
+	CombinedDiffPath            string                                   `json:"combinedDiffPath"`
+	ItemCount                   int                                      `json:"itemCount"`
+	ShardCount                  int                                      `json:"shardCount"`
+	TargetLane                  string                                   `json:"targetLane"`
+	OwnerBinding                OwnerBinding                             `json:"ownerBinding"`
+	ReviewerOrchestration       ReviewerOrchestrationPlan                `json:"reviewerOrchestration"`
+	ShardHandoffs               []ShardHandoff                           `json:"shardHandoffs"`
+	Observability               Observability                            `json:"observability"`
+	ReviewLoop                  ReviewLoop                               `json:"reviewLoop"`
+	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 }
 
 type Packet struct {
@@ -132,18 +134,20 @@ type ReviewLoop struct {
 }
 
 type ReviewerOrchestrationPlan struct {
-	Mode               string                      `json:"mode"`
-	Scope              string                      `json:"scope"`
-	TargetLane         string                      `json:"targetLane"`
-	OwnerBinding       OwnerBinding                `json:"ownerBinding"`
-	PacketPath         string                      `json:"packetPath"`
-	ResultRoot         string                      `json:"resultRoot"`
-	ReviewerCount      int                         `json:"reviewerCount"`
-	MaxParallel        int                         `json:"maxParallel"`
-	Dispatches         []ReviewerDispatch          `json:"dispatches"`
-	Lifecycle          []ReviewerOrchestrationStep `json:"lifecycle"`
-	RuntimeBoundary    []string                    `json:"runtimeBoundary"`
-	CompletionCriteria []string                    `json:"completionCriteria"`
+	Mode                        string                                   `json:"mode"`
+	Scope                       string                                   `json:"scope"`
+	TargetLane                  string                                   `json:"targetLane"`
+	OwnerBinding                OwnerBinding                             `json:"ownerBinding"`
+	PacketPath                  string                                   `json:"packetPath"`
+	ResultRoot                  string                                   `json:"resultRoot"`
+	ReviewerCount               int                                      `json:"reviewerCount"`
+	MaxParallel                 int                                      `json:"maxParallel"`
+	Dispatches                  []ReviewerDispatch                       `json:"dispatches"`
+	Lifecycle                   []ReviewerOrchestrationStep              `json:"lifecycle"`
+	RuntimeBoundary             []string                                 `json:"runtimeBoundary"`
+	CompletionCriteria          []string                                 `json:"completionCriteria"`
+	MissionCommanderAction      *mission.MissionCommanderAction          `json:"missionCommanderAction,omitempty"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 }
 
 type ReviewerDispatch struct {
@@ -338,6 +342,10 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	targetLane := ownerBinding.TargetLane
 	shardHandoffs := newShardHandoffs(shards, route, observability, reviewLoop, planRoot, m.Pack, ownerBinding, caseTarget)
 	orchestration := newReviewerOrchestration(shardHandoffs, observability, reviewLoop, ownerBinding, maxParallel, caseTarget)
+	commanderAction := reviewerPlanMissionCommanderAction(planRoot, m.Pack, orchestration, caseTarget)
+	commanderNextActions := reviewerPlanMissionCommanderNextActions(planRoot, m.Pack, orchestration, commanderAction, caseTarget)
+	orchestration.MissionCommanderAction = &commanderAction
+	orchestration.MissionCommanderNextActions = commanderNextActions
 	packet := Packet{
 		SchemaVersion:             1,
 		Command:                   commandName,
@@ -369,7 +377,7 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	if err := os.WriteFile(paths.SummaryPath, []byte(summaryText(route, opt.TaskType, len(items), len(shards), itemsPerAgent, maxParallel, observability, reviewLoop, ownerBinding, shardHandoffs, orchestration)), 0o644); err != nil {
 		return Result{}, err
 	}
-	return Result{SchemaVersion: 1, Command: commandName, PlanRoot: planRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, IsMutation: false, WritesReviewArtifacts: true, ReviewRequired: true, ReviewRoot: paths.Root, PacketPath: paths.PacketPath, SummaryPath: paths.SummaryPath, CombinedDiffPath: paths.CombinedDiffPath, ItemCount: len(items), ShardCount: len(shards), TargetLane: targetLane, OwnerBinding: ownerBinding, ReviewerOrchestration: orchestration, ShardHandoffs: shardHandoffs, Observability: observability, ReviewLoop: reviewLoop}, nil
+	return Result{SchemaVersion: 1, Command: commandName, PlanRoot: planRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, IsMutation: false, WritesReviewArtifacts: true, ReviewRequired: true, ReviewRoot: paths.Root, PacketPath: paths.PacketPath, SummaryPath: paths.SummaryPath, CombinedDiffPath: paths.CombinedDiffPath, ItemCount: len(items), ShardCount: len(shards), TargetLane: targetLane, OwnerBinding: ownerBinding, ReviewerOrchestration: orchestration, ShardHandoffs: shardHandoffs, Observability: observability, ReviewLoop: reviewLoop, MissionCommanderAction: commanderAction, MissionCommanderNextActions: commanderNextActions}, nil
 }
 
 func resolveOwnerBinding(planRoot string, m *manifest.Manifest, opt Options, intakeAvailable bool) (OwnerBinding, error) {
@@ -503,7 +511,7 @@ func packetIdentityMatches(packet Packet) bool {
 }
 
 func reviewerOrchestrationEmpty(plan ReviewerOrchestrationPlan) bool {
-	return plan.Mode == "" && plan.Scope == "" && plan.TargetLane == "" && plan.OwnerBinding == (OwnerBinding{}) && plan.PacketPath == "" && plan.ResultRoot == "" && plan.ReviewerCount == 0 && plan.MaxParallel == 0 && len(plan.Dispatches) == 0 && len(plan.Lifecycle) == 0 && len(plan.RuntimeBoundary) == 0 && len(plan.CompletionCriteria) == 0
+	return plan.Mode == "" && plan.Scope == "" && plan.TargetLane == "" && plan.OwnerBinding == (OwnerBinding{}) && plan.PacketPath == "" && plan.ResultRoot == "" && plan.ReviewerCount == 0 && plan.MaxParallel == 0 && len(plan.Dispatches) == 0 && len(plan.Lifecycle) == 0 && len(plan.RuntimeBoundary) == 0 && len(plan.CompletionCriteria) == 0 && plan.MissionCommanderAction == nil && len(plan.MissionCommanderNextActions) == 0
 }
 
 func legacyPacketIdentity(packet Packet) string {
@@ -876,6 +884,160 @@ func newReviewerOrchestration(handoffs []ShardHandoff, observability Observabili
 	}
 }
 
+func reviewerPlanMissionCommanderAction(planRoot, pack string, orchestration ReviewerOrchestrationPlan, intakeAvailable bool) mission.MissionCommanderAction {
+	boundary := reviewerPlanCommanderBoundary(intakeAvailable)
+	primary := reviewerPlanDispatchCommand(orchestration, 0)
+	if len(orchestration.Dispatches) == 0 {
+		return mission.MissionCommanderAction{
+			State:          "reviewer-plan-empty",
+			Prompt:         "plan-subagents 未生成 reviewer dispatch；补充 review items 后重新规划。",
+			PrimaryCommand: "/rekit plan-subagents -Target " + quoteCommandArg(planRoot) + " -Pack " + quoteCommandArg(pack) + " -Items <items>",
+			Boundary:       boundary,
+		}
+	}
+	if !intakeAvailable {
+		return mission.MissionCommanderAction{
+			State:            "reviewer-dispatch-only-target-unattached",
+			Prompt:           fmt.Sprintf("plan-subagents 已生成 %d 个 read-only reviewer dispatch，但 target 尚不是 attached rekit case；只能先收集 reviewer JSON，intake writeback 需 init/attach 后再执行。", orchestration.ReviewerCount),
+			PrimaryCommand:   primary,
+			FollowUpCommands: []string{"/rekit init -Target " + quoteCommandArg(planRoot) + " -Pack " + quoteCommandArg(pack) + " -WhatIf"},
+			Boundary:         boundary,
+		}
+	}
+	return mission.MissionCommanderAction{
+		State:            "ready-for-reviewer-dispatch",
+		Prompt:           fmt.Sprintf("plan-subagents 已为 lane `%s` 生成 %d 个 read-only reviewer dispatch；主 Agent 先分发 reviewer、收集 JSON result，再逐 shard 运行 reviewer-intake preview/apply。", orchestration.TargetLane, orchestration.ReviewerCount),
+		PrimaryCommand:   primary,
+		FollowUpCommands: reviewerPlanPreviewCommands(orchestration),
+		Boundary:         boundary,
+	}
+}
+
+func reviewerPlanMissionCommanderNextActions(planRoot, pack string, orchestration ReviewerOrchestrationPlan, action mission.MissionCommanderAction, intakeAvailable bool) []mission.MissionCommanderNextActionItem {
+	items := []mission.MissionCommanderNextActionItem{}
+	label := reviewerPlanLaneLabel(orchestration.TargetLane)
+	boundary := append([]string{}, action.Boundary...)
+	if action.PrimaryCommand != "" && len(orchestration.Dispatches) == 0 {
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Lane:           orchestration.TargetLane,
+			Label:          label,
+			State:          action.State,
+			Command:        action.PrimaryCommand,
+			Source:         "reviewerOrchestration.plan",
+			Blocked:        action.State == "reviewer-plan-empty",
+			RequiresReview: true,
+			Reasons: []string{
+				"top-level plan guidance points at the first reviewer dispatch before any reviewer-intake writeback",
+			},
+			Boundary: boundary,
+		})
+	}
+	for idx, dispatch := range orchestration.Dispatches {
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Lane:           orchestration.TargetLane,
+			Label:          label,
+			State:          action.State,
+			Command:        reviewerPlanDispatchCommand(orchestration, idx),
+			Source:         "reviewerOrchestration.dispatch",
+			RequiresReview: true,
+			Reasons: []string{
+				"plan-subagents only wrote review artifacts; main agent owns reviewer spawn and merge",
+				"send reviewerOrchestration.dispatches[].dispatchPrompt to a read-only reviewer and collect one JSON result",
+			},
+			Boundary: boundary,
+		})
+		if !intakeAvailable {
+			continue
+		}
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Lane:           orchestration.TargetLane,
+			Label:          label,
+			State:          "ready-for-reviewer-intake-preview",
+			Command:        dispatch.PreviewCommand,
+			Source:         "reviewerOrchestration.intake.preview",
+			Blocked:        true,
+			RequiresReview: true,
+			Reasons: []string{
+				"run only after the read-only reviewer result is written to " + dispatch.ReviewerResultPath,
+				"preview must return isMutation=false, applied=false, readyForWriteback=true, and valid postValidation before apply",
+			},
+			Boundary: boundary,
+		})
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Lane:           orchestration.TargetLane,
+			Label:          label,
+			State:          "ready-for-reviewer-intake-apply-after-preview",
+			Command:        dispatch.ApplyCommand,
+			Source:         "reviewerOrchestration.intake.apply",
+			Blocked:        true,
+			RequiresReview: true,
+			Reasons: []string{
+				"run only after reviewer-intake preview returns writebackStatus=previewed and cited evidenceRefs were inspected",
+				"reviewer-intake apply writes verification-before-decision facts; retry the identical command for partial recovery",
+			},
+			Boundary: boundary,
+		})
+	}
+	if !intakeAvailable && len(orchestration.Dispatches) > 0 {
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Lane:           orchestration.TargetLane,
+			Label:          label,
+			State:          "needs-attached-rekit-case-before-reviewer-intake",
+			Command:        "/rekit init -Target " + quoteCommandArg(planRoot) + " -Pack " + quoteCommandArg(pack) + " -WhatIf",
+			Source:         "reviewerOrchestration.dispatchOnly.attachTarget",
+			RequiresReview: true,
+			Reasons: []string{
+				"out-of-case review artifacts are dispatch-only; reviewer intake/writeback is unavailable until the target is an attached rekit case",
+				"confirm the target should become a rekit case before running init or attach writes",
+			},
+			Boundary: boundary,
+		})
+	}
+	return mission.UniqueCommanderNextActions(items)
+}
+
+func reviewerPlanPreviewCommands(orchestration ReviewerOrchestrationPlan) []string {
+	commands := []string{}
+	for _, dispatch := range orchestration.Dispatches {
+		if strings.TrimSpace(dispatch.PreviewCommand) != "" {
+			commands = append(commands, dispatch.PreviewCommand)
+		}
+	}
+	return commands
+}
+
+func reviewerPlanDispatchCommand(orchestration ReviewerOrchestrationPlan, idx int) string {
+	if idx < 0 || idx >= len(orchestration.Dispatches) {
+		return ""
+	}
+	dispatch := orchestration.Dispatches[idx]
+	return "dispatch read-only reviewer for " + dispatch.ShardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt; collect JSON at " + quoteCommandArg(dispatch.ReviewerResultPath)
+}
+
+func reviewerPlanCommanderBoundary(intakeAvailable bool) []string {
+	boundary := []string{
+		"runtime only writes review artifacts; it does not spawn, stop, monitor, or manage reviewer sessions",
+		"reviewers are read-only and must not write files, append ledgers, run heavy tools, or change authority/confirmed state",
+		"main agent owns reviewer output validation, evidence review, ledger writeback, and lane handoff",
+	}
+	if intakeAvailable {
+		boundary = append(boundary,
+			"run reviewer-intake -WhatIf before -Apply for every reviewer result",
+			"do not apply reviewer intake while strict validation, blockedReasons, or evidence review are unresolved",
+		)
+	} else {
+		boundary = append(boundary,
+			"out-of-case plan packets are dispatch-only and must not be presented as runnable reviewer intake writeback",
+			"confirm before initializing or attaching the target as a rekit case",
+		)
+	}
+	return mission.UniqueStrings(boundary)
+}
+
+func reviewerPlanLaneLabel(lane string) string {
+	return mission.BoardLaneLabel(mission.BoardLane{ID: lane})
+}
+
 func reviewerOrchestrationLifecycle(intakeAvailable bool) []ReviewerOrchestrationStep {
 	steps := []ReviewerOrchestrationStep{
 		{
@@ -1174,6 +1336,22 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 		fmt.Sprintf("- max parallel: `%d`", orchestration.MaxParallel),
 		"- result root: `"+orchestration.ResultRoot+"`",
 	)
+	if orchestration.MissionCommanderAction != nil {
+		action := *orchestration.MissionCommanderAction
+		lines = append(lines, fmt.Sprintf("- mission commander action: state=`%s`; primary=`%s`; follow-up=`%s`; prompt=`%s`", action.State, action.PrimaryCommand, strings.Join(action.FollowUpCommands, "; "), action.Prompt))
+		for _, boundary := range action.Boundary {
+			lines = append(lines, "  - mission commander boundary: "+boundary)
+		}
+	}
+	for _, item := range orchestration.MissionCommanderNextActions {
+		lines = append(lines, fmt.Sprintf("- mission commander next action: state=`%s`; source=`%s`; blocked=`%t`; requiresReview=`%t`; command=`%s`", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command))
+		for _, reason := range item.Reasons {
+			lines = append(lines, "  - mission commander reason: "+reason)
+		}
+		for _, boundary := range item.Boundary {
+			lines = append(lines, "  - mission commander boundary: "+boundary)
+		}
+	}
 	for _, step := range orchestration.Lifecycle {
 		lines = append(lines, fmt.Sprintf("- orchestration-step: `%s`; owner=`%s`; action=`%s`; inputs=`%s`; must-pass=`%s`; next-success=`%s`; next-failure=`%s`", step.Step, step.Owner, step.Action, strings.Join(step.Inputs, ","), strings.Join(step.MustPass, "; "), step.NextOnSuccess, step.NextOnFailure))
 	}

@@ -16,24 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 415：Reviewer-intake Mission Commander writeback guidance closure
+### Batch 416：Plan-subagents planning Mission Commander dispatch guidance closure
 
-状态：已完成本地实现、durable docs、affected package validation、full local validation、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待本批收尾。
 
-目标：Batch 389 已形成 bounded reviewer dispatch → strict intake → verification-before-decision writeback → post-validation 的本机闭环，Batch 414 又让 nested `note.AppendResult` 暴露 note-level commander delta；但 `plan-subagents -ReviewerResultPath ... -WhatIf/-Apply -Format json` 顶层 reviewer-intake envelope 仍没有直接告诉主 Agent preview 后应 apply、partial writeback 应幂等 retry、blocked/collision 应停写，或 complete/already-complete 后应按 postValidation handoff 的哪个 Mission Commander next action 接续。本批把 reviewer-intake writeback lifecycle 收口到 top-level Mission Commander action guidance。
+目标：Batch 389 已让 `plan-subagents` planning result / `packet.json` / `summary.md` 输出 reviewer orchestration lifecycle、dispatches、result root 与 intake commands，Batch 415 又让 reviewer-intake envelope 输出 top-level Mission Commander guidance；但 planning 阶段仍要求主 Agent 从 `reviewerOrchestration.dispatches[]`、`shardHandoffs[]`、`reviewerIntakeCommands`、lifecycle 与 summary 文本手工拼接“先 dispatch reviewer → 收集 JSON → preview → apply”，且 attached-case 与 out-of-case dispatch-only 的 next-action 边界不够直接。本批把 planning 阶段的 reviewer dispatch/intake ordering 收口到 Mission Commander action guidance。
 
-边界：只增强 reviewer-intake JSON projection、package/CLI tests 与 durable docs；不改变 reviewer result strict contract、verification-before-decision append 顺序、note append 模型、case durable schema 或 text output contract；runtime 不自动 spawn reviewer、不执行 heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、公共 façade 删除门禁或远程 CI blocker 状态。
+边界：只增强 planning JSON/text projection、package/CLI tests 与 durable docs；不改变 reviewer result strict contract、reviewer-intake writeback、verification-before-decision append 顺序、note append 模型或 case durable schema；runtime 不自动 spawn reviewer、不执行 reviewer-intake writeback、不执行 init/apply、不执行 heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、公共 façade 删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- `ReviewerIntakeResult` 现在输出 top-level `missionCommanderAction` 与 `missionCommanderNextActions[]`，覆盖 `previewed`、`blocked`、`event-id-collision`、`verification-recorded`、`complete`、`already-complete` 与 `complete-post-validation-failed` 写回状态。
-- `previewed` 状态给出 same intake `-Apply -Format json` primary command 与 handoff follow-up；`verification-recorded` partial recovery 明确重跑相同 apply command，不要求主 Agent 手写缺失 decision event。
-- `complete` / `already-complete` 会提升 returned lane handoff `postValidation.missionCommanderNextActions[]` 为 `reviewerIntake.postValidation.*` source，让主 Agent 直接按 post-validation handoff/continue ordering 接续。
-- package 与 CLI coverage 锁定 preview apply guidance、post-validation next actions、duplicate already-complete、blocked fail-closed、partial recovery JSON 与 no authority/confirmed/no-heavy-tool 边界；nested verification/decision `note.AppendResult` 仍保留 Batch 414 note-level current/would/post commander delta。
+- `subagents.Result` 现在输出 top-level `missionCommanderAction` 与 `missionCommanderNextActions[]`，`ReviewerOrchestrationPlan` 同步嵌入 nested `missionCommanderAction` / `missionCommanderNextActions[]` 并写入 `packet.json` 与 `summary.md`。
+- attached-case planning 输出 `ready-for-reviewer-dispatch` primary dispatch guidance，并为每个 shard 输出 `reviewerOrchestration.dispatch`、blocked/requiresReview 的 `reviewerOrchestration.intake.preview` 与 `reviewerOrchestration.intake.apply` next actions。
+- preview/apply reasons 明确 reviewer JSON 必须先放入 result path、preview valid 且 evidenceRefs 经主 Agent复核后才能 apply；out-of-case planning 只输出 dispatch-only 与 `init -WhatIf` handoff，不把 reviewer intake/writeback 当作可立即执行。
+- empty plan 输出 `reviewer-plan-empty` replan guidance；package/CLI coverage 锁定 top-level/nested packet projection、summary text、empty plan、out-of-case、attached-case product path、no auto-spawn/no-heavy-tool/no authority/confirmed 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/subagents -run "TestIntakeReviewerResult" -count=1`、`go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerIntake" -count=1`、affected package `go test ./internal/rekit/subagents ./internal/rekit/cli -count=1`、affected package set `go test ./internal/rekit/subagents ./internal/rekit/cli ./internal/rekit/note ./internal/rekit/mission -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `824a415 Add reviewer intake commander guidance`；远程 release-gate run `29706981086` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/subagents -run "TestWritePlan" -count=1`、`go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerOrchestrationE2E" -count=1`、affected package `go test ./internal/rekit/subagents ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待收尾；远程 CI 仍按既有 GitHub Actions runner/billing blocker 处理，不能仅凭 local release-check 声明 green。
 
-上一批摘要：Batch 414 已完成 Note append Mission Commander action-delta closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 415 已完成 Reviewer-intake Mission Commander writeback guidance closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

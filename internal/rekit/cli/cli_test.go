@@ -3765,7 +3765,10 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if plan.ReviewerOrchestration.Mode != "manual-main-agent-intake" || plan.ReviewerOrchestration.TargetLane != "feature-login" || plan.ReviewerOrchestration.ReviewerCount != 2 || plan.ReviewerOrchestration.MaxParallel != 2 || len(plan.ReviewerOrchestration.Dispatches) != 2 || len(plan.ReviewerOrchestration.Lifecycle) != 5 {
 		t.Fatalf("unexpected reviewer orchestration plan: %+v", plan.ReviewerOrchestration)
 	}
-	if packet.OwnerBinding.CurrentExecutor != "session-login" || packet.OwnerBinding.ExecutorGeneration != 1 || !packet.OwnerBinding.RequiredForIntake || packet.ReviewerOrchestration.Dispatches[0].ReviewerResultPath != packet.ShardHandoffs[0].ReviewerResultPath || !strings.Contains(packet.ReviewerOrchestration.Dispatches[0].PreviewCommand, "-WhatIf -Format json") || !strings.Contains(packet.ReviewerOrchestration.Lifecycle[0].Action, "does not spawn") {
+	if plan.MissionCommanderAction.State != "ready-for-reviewer-dispatch" || plan.ReviewerOrchestration.MissionCommanderAction == nil || plan.ReviewerOrchestration.MissionCommanderAction.PrimaryCommand != plan.MissionCommanderAction.PrimaryCommand || !containsMissionCommanderNextAction(plan.MissionCommanderNextActions, "reviewerOrchestration.dispatch", plan.MissionCommanderAction.PrimaryCommand, false, true) || !containsMissionCommanderNextAction(plan.MissionCommanderNextActions, "reviewerOrchestration.intake.preview", plan.ReviewerOrchestration.Dispatches[0].PreviewCommand, true, true) || !containsMissionCommanderNextAction(plan.MissionCommanderNextActions, "reviewerOrchestration.intake.apply", plan.ReviewerOrchestration.Dispatches[0].ApplyCommand, true, true) {
+		t.Fatalf("plan-subagents omitted top-level Mission Commander reviewer plan guidance: action=%+v next=%+v orchestration=%+v", plan.MissionCommanderAction, plan.MissionCommanderNextActions, plan.ReviewerOrchestration)
+	}
+	if packet.OwnerBinding.CurrentExecutor != "session-login" || packet.OwnerBinding.ExecutorGeneration != 1 || !packet.OwnerBinding.RequiredForIntake || packet.ReviewerOrchestration.Dispatches[0].ReviewerResultPath != packet.ShardHandoffs[0].ReviewerResultPath || !strings.Contains(packet.ReviewerOrchestration.Dispatches[0].PreviewCommand, "-WhatIf -Format json") || !strings.Contains(packet.ReviewerOrchestration.Lifecycle[0].Action, "does not spawn") || packet.ReviewerOrchestration.MissionCommanderAction == nil || len(packet.ReviewerOrchestration.MissionCommanderNextActions) != len(plan.MissionCommanderNextActions) {
 		t.Fatalf("unexpected reviewer orchestration packet: %+v", packet)
 	}
 
@@ -7065,21 +7068,23 @@ type missionBrief struct {
 }
 
 type planSubagentsResult struct {
-	Command               string                     `json:"command"`
-	IsMutation            bool                       `json:"isMutation"`
-	WritesReviewArtifacts bool                       `json:"writesReviewArtifacts"`
-	ReviewRequired        bool                       `json:"reviewRequired"`
-	ReviewRoot            string                     `json:"reviewRoot"`
-	PacketPath            string                     `json:"packetPath"`
-	SummaryPath           string                     `json:"summaryPath"`
-	ItemCount             int                        `json:"itemCount"`
-	ShardCount            int                        `json:"shardCount"`
-	TargetLane            string                     `json:"targetLane"`
-	OwnerBinding          planSubagentsOwnerBinding  `json:"ownerBinding"`
-	ReviewerOrchestration planSubagentsOrchestration `json:"reviewerOrchestration"`
-	ShardHandoffs         []planSubagentsHandoff     `json:"shardHandoffs"`
-	Observability         planSubagentsObservables   `json:"observability"`
-	ReviewLoop            planSubagentsReviewLoop    `json:"reviewLoop"`
+	Command                     string                           `json:"command"`
+	IsMutation                  bool                             `json:"isMutation"`
+	WritesReviewArtifacts       bool                             `json:"writesReviewArtifacts"`
+	ReviewRequired              bool                             `json:"reviewRequired"`
+	ReviewRoot                  string                           `json:"reviewRoot"`
+	PacketPath                  string                           `json:"packetPath"`
+	SummaryPath                 string                           `json:"summaryPath"`
+	ItemCount                   int                              `json:"itemCount"`
+	ShardCount                  int                              `json:"shardCount"`
+	TargetLane                  string                           `json:"targetLane"`
+	OwnerBinding                planSubagentsOwnerBinding        `json:"ownerBinding"`
+	ReviewerOrchestration       planSubagentsOrchestration       `json:"reviewerOrchestration"`
+	ShardHandoffs               []planSubagentsHandoff           `json:"shardHandoffs"`
+	Observability               planSubagentsObservables         `json:"observability"`
+	ReviewLoop                  planSubagentsReviewLoop          `json:"reviewLoop"`
+	MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+	MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
 }
 
 type planSubagentsOwnerBinding struct {
@@ -7141,8 +7146,10 @@ type planSubagentsOrchestration struct {
 		NextOnSuccess string   `json:"nextOnSuccess"`
 		NextOnFailure string   `json:"nextOnFailure"`
 	} `json:"lifecycle"`
-	RuntimeBoundary    []string `json:"runtimeBoundary"`
-	CompletionCriteria []string `json:"completionCriteria"`
+	RuntimeBoundary             []string                         `json:"runtimeBoundary"`
+	CompletionCriteria          []string                         `json:"completionCriteria"`
+	MissionCommanderAction      *missionCommanderActionSnapshot  `json:"missionCommanderAction"`
+	MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
 }
 
 type planSubagentsHandoff struct {
