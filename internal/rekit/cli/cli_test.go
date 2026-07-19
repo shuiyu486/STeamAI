@@ -5787,7 +5787,15 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 		RefPathRequires        []string `json:"refPathRequires"`
 		BoundaryStatusRequires []string `json:"boundaryStatusRequires"`
 		StatusSummaryRequires  []string `json:"statusSummaryRequires"`
-		LiveValidation         struct {
+		MissionCommanderAction struct {
+			State            string   `json:"state"`
+			Prompt           string   `json:"prompt"`
+			PrimaryCommand   string   `json:"primaryCommand"`
+			FollowUpCommands []string `json:"followUpCommands"`
+			Boundary         []string `json:"boundary"`
+		} `json:"missionCommanderAction"`
+		NextSteps      []string `json:"nextSteps"`
+		LiveValidation struct {
 			AuthorizedWorkspaces        []string `json:"authorizedWorkspaces"`
 			ReportFileName              string   `json:"reportFileName"`
 			CaseRelativeReportPath      string   `json:"caseRelativeReportPath"`
@@ -5823,6 +5831,11 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	if !containsSubstring(contract.RefPathRequires, "evidenceRefs must stay under authorized outputPaths") || !containsSubstring(contract.BoundaryStatusRequires, "authorized stopConditions") || !containsSubstring(contract.StatusSummaryRequires, "failed/boundary-hit/escalated/aborted") {
 		t.Fatalf("nested workspace adapter report contract omitted live enforcement rules: %+v", contract)
 	}
+	wantCaseRelativeValidate := "/rekit gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json"
+	wantCaseRelativeRecord := "/rekit gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Actor <executor-id> -Format json"
+	if contract.MissionCommanderAction.State != "needs-adapter-report-validation" || contract.MissionCommanderAction.PrimaryCommand != wantCaseRelativeValidate || !containsSubstring(contract.MissionCommanderAction.FollowUpCommands, wantCaseRelativeRecord) || !containsSubstring(contract.MissionCommanderAction.Boundary, "read-only") || !containsSubstring(contract.MissionCommanderAction.Boundary, "never executes the heavy tool") || !containsSubstring(contract.NextSteps, wantCaseRelativeValidate) || !containsSubstring(contract.NextSteps, wantCaseRelativeRecord) {
+		t.Fatalf("nested workspace adapter report contract omitted Mission Commander handoff: action=%+v next=%+v", contract.MissionCommanderAction, contract.NextSteps)
+	}
 	if strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || contract.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" || strings.Join(contract.LiveValidation.RecordArgs, " ") != "-Command gate -Pack _template -Apply -GateEventId "+applied.EventID+" -ExecutionReportPath adapter-report.json -Actor <executor-id> -Format json" || contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") || contract.LiveValidation.RecordCommand != "rekit "+strings.Join(contract.LiveValidation.RecordArgs, " ") || strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json" || strings.Join(contract.LiveValidation.CaseRelativeRecordArgs, " ") != "-Command gate -Pack _template -Apply -GateEventId "+applied.EventID+" -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Actor <executor-id> -Format json" || contract.LiveValidation.CaseRelativeValidateCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") || contract.LiveValidation.CaseRelativeRecordCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeRecordArgs, " ") || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != applied.EventID || !containsSubstring(contract.LiveValidation.SidecarTemplate.EvidenceRefs, "authorized outputPaths") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "CaseRelativeRecordArgs") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
 		t.Fatalf("nested workspace adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
 	}
@@ -5848,6 +5861,21 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	}
 	if validation.Kind != "adapter-execution-report-validation" || validation.CaseRoot != caseRoot || !validation.Valid || validation.IsMutation || validation.Applied || validation.Error != "" || validation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || validation.Report == nil || validation.Report.AdapterID != "nested-cli-adapter" {
 		t.Fatalf("unexpected nested workspace adapter report validation: %+v", validation)
+	}
+	var validationCommander struct {
+		MissionCommanderAction struct {
+			State            string   `json:"state"`
+			PrimaryCommand   string   `json:"primaryCommand"`
+			FollowUpCommands []string `json:"followUpCommands"`
+			Boundary         []string `json:"boundary"`
+		} `json:"missionCommanderAction"`
+		NextSteps []string `json:"nextSteps"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &validationCommander); err != nil {
+		t.Fatalf("nested workspace validation commander envelope is not JSON: %v\n%s", err, out.String())
+	}
+	if validationCommander.MissionCommanderAction.State != "ready-to-record-evidence" || validationCommander.MissionCommanderAction.PrimaryCommand != wantCaseRelativeRecord || !containsSubstring(validationCommander.MissionCommanderAction.FollowUpCommands, "/rekit handoff main") || !containsSubstring(validationCommander.MissionCommanderAction.Boundary, "bounded observation evidence") || !containsSubstring(validationCommander.NextSteps, wantCaseRelativeRecord) {
+		t.Fatalf("nested workspace adapter report validation omitted Mission Commander record handoff: action=%+v next=%+v", validationCommander.MissionCommanderAction, validationCommander.NextSteps)
 	}
 	afterValidation := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, afterValidation)

@@ -155,6 +155,7 @@ type AdapterExecutionReportContract struct {
 	ValidationRepairHints   []AdapterReportRepairHint             `json:"validationRepairHints,omitempty"`
 	DeniedActions           []string                              `json:"deniedActions,omitempty"`
 	LiveValidation          AdapterReportLiveValidation           `json:"liveValidation"`
+	MissionCommanderAction  mission.MissionCommanderAction        `json:"missionCommanderAction"`
 	NextSteps               []string                              `json:"nextSteps,omitempty"`
 }
 
@@ -239,26 +240,27 @@ type AdapterReportRepairHint struct {
 }
 
 type AdapterExecutionReportValidation struct {
-	SchemaVersion  int                            `json:"schemaVersion"`
-	Command        string                         `json:"command"`
-	Kind           string                         `json:"kind"`
-	CaseRoot       string                         `json:"caseRoot"`
-	RepoRoot       string                         `json:"repoRoot"`
-	Pack           string                         `json:"pack"`
-	IsMutation     bool                           `json:"isMutation"`
-	Applied        bool                           `json:"applied"`
-	Valid          bool                           `json:"valid"`
-	Error          string                         `json:"error,omitempty"`
-	Errors         []string                       `json:"errors,omitempty"`
-	FailureCode    string                         `json:"failureCode,omitempty"`
-	FailureStage   string                         `json:"failureStage,omitempty"`
-	RepairHints    []AdapterReportRepairHint      `json:"repairHints,omitempty"`
-	GateEventID    string                         `json:"gateEventId"`
-	ReportPath     string                         `json:"reportPath,omitempty"`
-	Report         *AdapterReport                 `json:"report,omitempty"`
-	AdapterContext *AdapterContext                `json:"adapterContext,omitempty"`
-	Contract       AdapterExecutionReportContract `json:"contract"`
-	NextSteps      []string                       `json:"nextSteps"`
+	SchemaVersion          int                            `json:"schemaVersion"`
+	Command                string                         `json:"command"`
+	Kind                   string                         `json:"kind"`
+	CaseRoot               string                         `json:"caseRoot"`
+	RepoRoot               string                         `json:"repoRoot"`
+	Pack                   string                         `json:"pack"`
+	IsMutation             bool                           `json:"isMutation"`
+	Applied                bool                           `json:"applied"`
+	Valid                  bool                           `json:"valid"`
+	Error                  string                         `json:"error,omitempty"`
+	Errors                 []string                       `json:"errors,omitempty"`
+	FailureCode            string                         `json:"failureCode,omitempty"`
+	FailureStage           string                         `json:"failureStage,omitempty"`
+	RepairHints            []AdapterReportRepairHint      `json:"repairHints,omitempty"`
+	GateEventID            string                         `json:"gateEventId"`
+	ReportPath             string                         `json:"reportPath,omitempty"`
+	Report                 *AdapterReport                 `json:"report,omitempty"`
+	AdapterContext         *AdapterContext                `json:"adapterContext,omitempty"`
+	Contract               AdapterExecutionReportContract `json:"contract"`
+	MissionCommanderAction mission.MissionCommanderAction `json:"missionCommanderAction"`
+	NextSteps              []string                       `json:"nextSteps"`
 }
 
 type adapterReportValidationError struct {
@@ -750,6 +752,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 			validation.FailureStage = validationErr.Stage
 		}
 		validation.RepairHints = adapterReportRepairHints(gateEvent, validation.FailureCode, validation.FailureStage)
+		validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, false, validation.RepairHints)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		return validation, nil
 	}
@@ -758,11 +761,13 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.Error = "gate execution report validation requires -ExecutionReportPath"
 		validation.Errors = []string{validation.Error}
 		validation.RepairHints = adapterReportMissingPathRepairHints(gateEvent)
+		validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, false, validation.RepairHints)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		return validation, nil
 	}
 	validation.Valid = true
-	validation.NextSteps = []string{"report is valid for read-only preflight", "record it after the authorized action with gate -Apply -GateEventId ... -ExecutionReportPath ...", "review refs before any authority/confirmed outcome"}
+	validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, true, nil)
+	validation.NextSteps = adapterReportValidationNextSteps(pack, gateEvent, validation.ReportPath)
 	return validation, nil
 }
 
@@ -798,6 +803,7 @@ func findAuthorizedGateEvent(caseRoot, gateEventID string) (EventPreview, error)
 }
 
 func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, m *manifest.Manifest) AdapterExecutionReportContract {
+	liveValidation := adapterReportLiveValidation(m, pack, event)
 	return AdapterExecutionReportContract{
 		SchemaVersion:           1,
 		Command:                 "gate",
@@ -833,8 +839,124 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, 
 		ValidationFailureCodes:  adapterReportValidationFailureCodes(),
 		ValidationRepairHints:   adapterReportContractRepairHints(event),
 		DeniedActions:           []string{"heavy-tool execution", "authority writes", "confirmed writes", "out-of-scope output refs", "full trace/dump/log embedding"},
-		LiveValidation:          adapterReportLiveValidation(m, pack, event),
-		NextSteps:               []string{"adapter writes bounded report under an authorized output path", "preflight the sidecar with gate -ValidateExecutionReport -GateEventId ... -ExecutionReportPath ... -Format json", "main Agent records valid reports with gate -Apply -GateEventId ... -ExecutionReportPath ...", "review refs before any authority/confirmed outcome"},
+		LiveValidation:          liveValidation,
+		MissionCommanderAction:  adapterReportContractCommanderAction(event, pack, liveValidation),
+		NextSteps:               adapterReportContractNextSteps(pack, event, liveValidation),
+	}
+}
+
+func adapterReportContractCommanderAction(event EventPreview, pack string, liveValidation AdapterReportLiveValidation) mission.MissionCommanderAction {
+	reportPath := strings.TrimSpace(liveValidation.CaseRelativeReportPath)
+	if reportPath == "" {
+		reportPath = "<reportPath-under-authorized-outputPath>"
+	}
+	validateCommand := adapterReportValidateSlashCommand(pack, event.EventID, reportPath)
+	recordCommand := adapterReportRecordSlashCommand(pack, event.EventID, reportPath)
+	return mission.MissionCommanderAction{
+		State:          "needs-adapter-report-validation",
+		Prompt:         fmt.Sprintf("按 authorized gate `%s` 接手：先让 executor/tool adapter 在授权 outputPath 写 bounded sidecar，再用 read-only validation 预检；valid=true 后才 record observation evidence。", event.EventID),
+		PrimaryCommand: validateCommand,
+		FollowUpCommands: []string{
+			recordCommand,
+			"/rekit handoff " + mission.BoardLaneLabel(mission.BoardLane{ID: event.Lane}),
+		},
+		Boundary: adapterReportCommanderBoundary(),
+	}
+}
+
+func adapterReportContractNextSteps(pack string, event EventPreview, liveValidation AdapterReportLiveValidation) []string {
+	reportPath := strings.TrimSpace(liveValidation.CaseRelativeReportPath)
+	if reportPath == "" {
+		reportPath = "<reportPath-under-authorized-outputPath>"
+	}
+	return []string{
+		"adapter writes bounded report under authorized output path: " + reportPath,
+		"preflight read-only: " + adapterReportValidateSlashCommand(pack, event.EventID, reportPath),
+		"after valid=true record observation evidence: " + adapterReportRecordSlashCommand(pack, event.EventID, reportPath),
+		"replace <executor-id> before record; /rekit records evidence only and never executes the heavy tool",
+		"review refs before any authority/confirmed outcome",
+	}
+}
+
+func adapterReportValidationCommanderAction(pack string, gateEvent EventPreview, reportPath string, valid bool, hints []AdapterReportRepairHint) mission.MissionCommanderAction {
+	reportPath = strings.TrimSpace(reportPath)
+	if reportPath == "" {
+		reportPath = adapterReportDefaultPath(gateEvent.Gate.OutputPaths)
+	}
+	if reportPath == "" {
+		reportPath = "<reportPath-under-authorized-outputPath>"
+	}
+	if valid {
+		return mission.MissionCommanderAction{
+			State:          "ready-to-record-evidence",
+			Prompt:         fmt.Sprintf("authorized gate `%s` 的 sidecar 已 valid=true；替换 `<executor-id>` 后只记录 observation evidence，再 review refs。", gateEvent.EventID),
+			PrimaryCommand: adapterReportRecordSlashCommand(pack, gateEvent.EventID, reportPath),
+			FollowUpCommands: []string{
+				"/rekit handoff " + mission.BoardLaneLabel(mission.BoardLane{ID: gateEvent.Lane}),
+			},
+			Boundary: adapterReportCommanderBoundary(),
+		}
+	}
+	return mission.MissionCommanderAction{
+		State:          adapterReportRepairState(hints),
+		Prompt:         fmt.Sprintf("authorized gate `%s` 的 sidecar 尚未 valid=true；先按 repair hints 修复，再重新运行 read-only validation。", gateEvent.EventID),
+		PrimaryCommand: adapterReportValidateSlashCommand(pack, gateEvent.EventID, reportPath),
+		Boundary:       append(adapterReportCommanderBoundary(), "do not record evidence until validation returns valid=true"),
+	}
+}
+
+func adapterReportValidationNextSteps(pack string, gateEvent EventPreview, reportPath string) []string {
+	return []string{
+		"report is valid for read-only preflight",
+		"record observation evidence: " + adapterReportRecordSlashCommand(pack, gateEvent.EventID, reportPath),
+		"review refs before any authority/confirmed outcome",
+	}
+}
+
+func adapterReportRepairState(hints []AdapterReportRepairHint) string {
+	for _, hint := range hints {
+		if hint.RepairAction == "provide-execution-report-path" {
+			return "needs-execution-report-path"
+		}
+		if hint.EscalateToMain {
+			return "needs-main-escalation"
+		}
+	}
+	return "repair-adapter-report"
+}
+
+func adapterReportValidateSlashCommand(pack, gateEventID, reportPath string) string {
+	return adapterReportSlashCommand([]string{"gate", "-Pack", pack, "-GateEventId", gateEventID, "-ValidateExecutionReport", "-ExecutionReportPath", reportPath, "-Format", "json"})
+}
+
+func adapterReportRecordSlashCommand(pack, gateEventID, reportPath string) string {
+	return adapterReportSlashCommand([]string{"gate", "-Pack", pack, "-Apply", "-GateEventId", gateEventID, "-ExecutionReportPath", reportPath, "-Actor", "<executor-id>", "-Format", "json"})
+}
+
+func adapterReportSlashCommand(args []string) string {
+	parts := append([]string{"/rekit"}, args...)
+	for i, part := range parts {
+		parts[i] = quoteAdapterReportCommandArg(part)
+	}
+	return strings.Join(parts, " ")
+}
+
+func quoteAdapterReportCommandArg(arg string) string {
+	if arg == "" {
+		return `""`
+	}
+	if !strings.ContainsAny(arg, " \t\"") {
+		return arg
+	}
+	return `"` + strings.ReplaceAll(arg, `"`, `\"`) + `"`
+}
+
+func adapterReportCommanderBoundary() []string {
+	return []string{
+		"validation is read-only: no observations/authority/confirmed writes",
+		"record command writes bounded observation evidence only after valid=true",
+		"/rekit never executes the heavy tool",
+		"no authority/confirmed writes",
 	}
 }
 

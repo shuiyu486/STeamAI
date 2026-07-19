@@ -500,6 +500,18 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if contract.LiveValidation.CaseRelativeRecordCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeRecordArgs, " ") {
 		t.Fatalf("adapter report contract case-relative record command drifted: %q", contract.LiveValidation.CaseRelativeRecordCommand)
 	}
+	commander := contract.MissionCommanderAction
+	wantValidate := "/rekit gate -Pack " + pack + " -GateEventId " + authorized.EventID + " -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json"
+	wantRecord := "/rekit gate -Pack " + pack + " -Apply -GateEventId " + authorized.EventID + " -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Actor <executor-id> -Format json"
+	if commander.State != "needs-adapter-report-validation" || commander.PrimaryCommand != wantValidate || !strings.Contains(commander.Prompt, authorized.EventID) || !strings.Contains(commander.Prompt, "valid=true") {
+		t.Fatalf("adapter report contract omitted Mission Commander validation handoff: %+v", commander)
+	}
+	if !gateContainsSubstring(commander.FollowUpCommands, wantRecord) || !gateContainsSubstring(commander.FollowUpCommands, "/rekit handoff main") || !gateContainsSubstring(commander.Boundary, "read-only") || !gateContainsSubstring(commander.Boundary, "bounded observation evidence") || !gateContainsSubstring(commander.Boundary, "never executes the heavy tool") || !gateContainsSubstring(commander.Boundary, "no authority/confirmed") {
+		t.Fatalf("adapter report contract omitted Mission Commander follow-up boundaries: %+v", commander)
+	}
+	if !gateContainsSubstring(contract.NextSteps, wantValidate) || !gateContainsSubstring(contract.NextSteps, wantRecord) || !gateContainsSubstring(contract.NextSteps, "valid=true") || !gateContainsSubstring(contract.NextSteps, "never executes the heavy tool") {
+		t.Fatalf("adapter report contract omitted concrete Mission Commander next steps: %+v", contract.NextSteps)
+	}
 	stages := map[string]bool{}
 	for _, stage := range contract.ValidationFailureStages {
 		stages[stage.Stage] = stage.Description != ""
@@ -636,6 +648,14 @@ func TestValidateAdapterExecutionReportReadOnlyPreflight(t *testing.T) {
 	if validation.Contract.Kind != "adapter-execution-report-contract" || validation.Contract.GateEventID != authorized.EventID || validation.Contract.AuthorizedBudget.RuntimeSeconds != 30 {
 		t.Fatalf("validation omitted adapter contract boundaries: %+v", validation.Contract)
 	}
+	commander := validation.MissionCommanderAction
+	wantRecord := "/rekit gate -Pack " + pack + " -Apply -GateEventId " + authorized.EventID + " -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Actor <executor-id> -Format json"
+	if commander.State != "ready-to-record-evidence" || commander.PrimaryCommand != wantRecord || !strings.Contains(commander.Prompt, "valid=true") || !gateContainsSubstring(commander.FollowUpCommands, "/rekit handoff main") {
+		t.Fatalf("valid adapter report validation omitted Mission Commander record handoff: %+v", commander)
+	}
+	if !gateContainsSubstring(commander.Boundary, "read-only") || !gateContainsSubstring(commander.Boundary, "bounded observation evidence") || !gateContainsSubstring(commander.Boundary, "never executes the heavy tool") || !gateContainsSubstring(validation.NextSteps, wantRecord) {
+		t.Fatalf("valid adapter report validation omitted Mission Commander boundaries: commander=%+v next=%+v", commander, validation.NextSteps)
+	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
@@ -672,6 +692,32 @@ func TestValidateAdapterExecutionReportAcceptsCwdRelativeAuthorizedPath(t *testi
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
 
+func TestValidateAdapterExecutionReportMissingPathExposesMissionCommanderRepair(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	validation, err := ValidateAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validation.Kind != "adapter-execution-report-validation" || validation.IsMutation || validation.Applied || validation.Valid || validation.Error != "gate execution report validation requires -ExecutionReportPath" || validation.ReportPath != "" || validation.Report != nil || validation.Contract.GateEventID != authorized.EventID {
+		t.Fatalf("unexpected missing-path adapter report validation envelope: %+v", validation)
+	}
+	if len(validation.RepairHints) != 1 || validation.RepairHints[0].RepairAction != "provide-execution-report-path" || !validation.RepairHints[0].RecordBlocked || !validation.RepairHints[0].RerunValidation {
+		t.Fatalf("missing-path validation omitted repair hint: %+v", validation.RepairHints)
+	}
+	commander := validation.MissionCommanderAction
+	wantValidate := "/rekit gate -Pack " + pack + " -GateEventId " + authorized.EventID + " -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json"
+	if commander.State != "needs-execution-report-path" || commander.PrimaryCommand != wantValidate || !strings.Contains(commander.Prompt, "valid=true") || gateContainsSubstring(commander.FollowUpCommands, "-Apply") || !gateContainsSubstring(commander.Boundary, "do not record evidence until validation returns valid=true") {
+		t.Fatalf("missing-path validation omitted Mission Commander repair handoff: %+v", commander)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+}
+
 func TestValidateAdapterExecutionReportReturnsInvalidEnvelopeReadOnly(t *testing.T) {
 	repoRoot, caseRoot, pack := gateFixture(t)
 	writePreauthorizedProfile(t, caseRoot)
@@ -703,6 +749,11 @@ func TestValidateAdapterExecutionReportReturnsInvalidEnvelopeReadOnly(t *testing
 	}
 	if len(validation.RepairHints) != 1 || validation.RepairHints[0].RepairAction != "add-boundary-marker" || validation.RepairHints[0].Code != "boundary-marker-missing" || validation.RepairHints[0].Stage != "boundary" || !validation.RepairHints[0].RecordBlocked || !validation.RepairHints[0].RerunValidation || strings.Join(validation.RepairHints[0].AllowedStopConditions, ",") != "timeout" || !strings.Contains(strings.Join(validation.NextSteps, ","), "repairAction: add-boundary-marker") {
 		t.Fatalf("invalid validation envelope omitted repair hints: %+v", validation)
+	}
+	commander := validation.MissionCommanderAction
+	wantValidate := "/rekit gate -Pack " + pack + " -GateEventId " + authorized.EventID + " -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/bad-report.json -Format json"
+	if commander.State != "repair-adapter-report" || commander.PrimaryCommand != wantValidate || !strings.Contains(commander.Prompt, "valid=true") || gateContainsSubstring(commander.FollowUpCommands, "-Apply") || !gateContainsSubstring(commander.Boundary, "do not record evidence until validation returns valid=true") {
+		t.Fatalf("invalid adapter report validation omitted Mission Commander repair handoff: %+v", commander)
 	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
@@ -884,11 +935,20 @@ func TestValidateAdapterExecutionReportInvalidEnvelopeFailureCodes(t *testing.T)
 			if len(validation.RepairHints) != 1 || validation.RepairHints[0].Code != tc.wantCode || validation.RepairHints[0].Stage != tc.wantStage || validation.RepairHints[0].RepairAction == "" || !validation.RepairHints[0].RecordBlocked || !validation.RepairHints[0].RerunValidation || !strings.Contains(strings.Join(validation.NextSteps, ","), "repairAction: "+validation.RepairHints[0].RepairAction) {
 				t.Fatalf("invalid adapter report validation omitted repair hints: %+v", validation)
 			}
+			wantState := "repair-adapter-report"
+			if validation.RepairHints[0].EscalateToMain {
+				wantState = "needs-main-escalation"
+			}
+			commander := validation.MissionCommanderAction
+			wantValidate := "/rekit gate -Pack " + pack + " -GateEventId " + authorized.EventID + " -ValidateExecutionReport -ExecutionReportPath " + tc.path + " -Format json"
+			if commander.State != wantState || commander.PrimaryCommand != wantValidate || !strings.Contains(commander.Prompt, "valid=true") || gateContainsSubstring(commander.FollowUpCommands, "-Apply") || !gateContainsSubstring(commander.Boundary, "do not record evidence until validation returns valid=true") {
+				t.Fatalf("invalid adapter report validation omitted Mission Commander repair handoff: %+v", commander)
+			}
 			if tc.wantCode == "report-path-out-of-scope" && strings.Join(validation.RepairHints[0].AllowedOutputPaths, ",") != "workspace/main/debug/session-1" {
 				t.Fatalf("path repair hint omitted allowed output paths: %+v", validation.RepairHints[0])
 			}
-			if tc.wantCode == "boundary-hits-not-authorized" && (strings.Join(validation.RepairHints[0].AllowedStopConditions, ",") != "timeout" || !validation.RepairHints[0].EscalateToMain) {
-				t.Fatalf("boundary repair hint omitted stop conditions or escalation marker: %+v", validation.RepairHints[0])
+			if tc.wantCode == "boundary-hits-not-authorized" && (strings.Join(validation.RepairHints[0].AllowedStopConditions, ",") != "timeout" || !validation.RepairHints[0].EscalateToMain || commander.State != "needs-main-escalation") {
+				t.Fatalf("boundary repair hint omitted stop conditions, escalation marker, or commander state: hint=%+v commander=%+v", validation.RepairHints[0], commander)
 			}
 			if tc.wantCode == "status-summary-missing" && validation.RepairHints[0].MaxBytes != 4096 {
 				t.Fatalf("summary repair hint omitted max bytes: %+v", validation.RepairHints[0])
@@ -1402,4 +1462,13 @@ func assertGateNotExists(t *testing.T, path string) {
 	if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
 		t.Fatalf("path exists or stat failed unexpectedly for %s: %v", path, err)
 	}
+}
+
+func gateContainsSubstring(items []string, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item, want) {
+			return true
+		}
+	}
+	return false
 }

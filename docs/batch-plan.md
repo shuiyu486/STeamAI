@@ -16,32 +16,31 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 391：Mission Commander Windows product UX closure
+### Batch 392：Lane/tool-adapter live validation UX closure
 
-状态：已完成；本地 Windows product path 已把 `overview`、`start`、`continue`、`handoff`、`gate` 与 `reconcile` 的 lane executor action 收口为主 Agent 可直接消费的结构化 Mission Commander guidance，提交/推送在本批收尾执行。
+状态：已完成本地实现与验证；提交/推送在本批收尾执行。
 
-目标：在既有 typed `executorAction` / lane-local blocker projection 基础上，补齐主 Agent 和替换 executor 的自然语言接手层：JSON/text/handoff/resume/checkpoint 不只展示 blocked/ready/counts，还要明确当前 state、首选命令、后续命令和不可越界边界，减少用户记命令和跨会话接手摩擦。
+目标：把 authorized-gate → adapter execution report contract → read-only validation → record observation evidence 的主 Agent 接手路径继续收口为结构化 `missionCommanderAction`，让 lane executor / tool adapter 不必从 `liveValidation`、repair hints 与 next steps 手工拼命令或推断边界。
 
-边界：`missionCommanderAction` 只投影 guidance，不自动执行命令、不 spawn/停止/监控 session、不执行 heavy-tool、不写 authority/confirmed；`gate -Apply` 仍只写 request decision 或 bounded observation evidence；`continue -Apply` 仍不写 authority/confirmed；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+边界：`missionCommanderAction` 只投影 guidance，不执行 heavy-tool、不写 observations/authority/confirmed；`gate -ValidateExecutionReport` 仍 read-only；`gate -Apply -GateEventId ... -ExecutionReportPath ...` 仍只在 valid sidecar 后记录 bounded observation evidence，不写 authority/confirmed；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- `mission.ExecutorAction` 新增 `missionCommanderAction`，包含 `state`、自然语言 `prompt`、`primaryCommand`、`followUpCommands[]` 与 `boundary[]`。
-- lane action state 现在按 typed blocker 优先级投影：open intervention → `needs-reconcile`，pending gate → `needs-gate-decision`，open candidate/decision → `needs-open-decision-review`，ready lane → `ready-to-continue`，paused/closed/archived lane → `lane-not-open`。
-- `start` preview 新建 lane 或 executor claim/takeover 场景覆盖为 `needs-start-apply`，并保留完整 `-Executor` / `-Actor` / `-Reason` apply command，避免尚未落账 owner provenance 时误导用户直接 continue。
-- overview text/JSON、start/continue/gate/reconcile CLI text/JSON、project/lane handoff、continue digest/status、lane `RESUME.md` 与 typed `checkpoints/latest.json` 现在投影同一 Mission Commander action snapshot。
-- stale “PowerShell public entrypoint” 文案继续收敛为 `/rekit` Mission Commander entrypoint，不新增 PowerShell runtime 逻辑。
-- package 与 CLI coverage 锁定 ready/blocker/start-preview/takeover/gate/handoff/overview product path，确保 blocked lane 不建议 continue、ready lane 才给 lane-local continue、feature lane pending-gate 使用 canonical `gate -Lane`，且 gate guidance 不表示执行 heavy-tool。
+- `AdapterExecutionReportContract` 与 `AdapterExecutionReportValidation` 新增 `missionCommanderAction`，复用 Mission Commander state/prompt/primary/follow-up/boundary 形状。
+- contract 阶段投影 `needs-adapter-report-validation`，primary command 是 concrete read-only validation，follow-up 包含 valid=true 后的 concrete record evidence command 与 lane handoff，boundary 明确 validation read-only、record 只写 bounded observation evidence、`/rekit` never executes heavy tool、no authority/confirmed。
+- validation 阶段按结果投影：valid sidecar → `ready-to-record-evidence`；缺 `-ExecutionReportPath` → `needs-execution-report-path`；一般 repair hint → `repair-adapter-report`；需要 main escalation 的 repair hint → `needs-main-escalation`。
+- `NextSteps` 与 `missionCommanderAction` 同步使用 case-relative report path，保留 `<executor-id>` placeholder replacement 与 valid=true-before-record 语义。
+- package 与 CLI coverage 锁定 contract handoff、valid preflight record handoff、missing path repair、invalid sidecar repair、boundary escalation state、nested workspace JSON product path，以及 no-observations/no-authority/no-confirmed invariants。
 
-验证结果：已通过 focused `go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli -count=1`、`go test ./internal/rekit/sync ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -count=1`、`go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli ./internal/rekit/gate ./internal/rekit/sync -count=1`、`go test ./internal/rekit/cli -run 'TestRunOverview|TestRunHandoff|TestRunGate|TestRunStart|TestRunReplaceableSession' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。远程 release-gate 仍按既有 GitHub runner/billing known gap 处理，不能把 inventory readiness 声明为远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/gate -count=1`、`go test ./internal/rekit/cli -run 'TestRunGate|TestRunNestedWorkspaceAdapterReportProductPath|TestRunGenericBinaryReAdapterLiveValidationProductPath' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。远程 release-gate 仍按既有 GitHub runner/billing known gap 处理，不能把 inventory readiness 声明为远程 CI green。
 
-上一批摘要：Batch 390 已完成 pack-memory product UX hardening；`promote -CreateCandidates` 现在提供 candidate review plan、merge/reject/cleanup/reconsume guidance 与 cleanup target，详见 `docs/batch-history.md`。
+上一批摘要：Batch 391 已完成 Mission Commander Windows product UX closure；lane executor action 现在投影 `missionCommanderAction` state/prompt/primary/follow-up/boundary，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
-1. **Lane/tool-adapter live validation UX closure**：继续把 authorized-gate contract、adapter sidecar validation、record handoff 与 lane executor 接手提示做成更少命令记忆、更强 post-validation 的 Windows 本机闭环。
-2. **Authorized execution evidence Mission Commander closure**：把 authorized-gate → execution report contract → validate → record evidence 的下一步提示继续压缩为主 Agent 可直接执行/交接的 bounded checklist，同时保持 no-heavy-tool/no-authority boundary。
-3. **Pack-memory reconsume / tooling candidate follow-through**：围绕真实 pack tooling candidate 被人工合入后的 fresh/attached case reconsume，把 review plan 与后续 case consumption 的 Mission Commander提示继续做成可验证 product path。
+1. **Authorized execution evidence Mission Commander closure**：把 authorized-gate → execution report contract → validate → record evidence 的下一步提示继续压缩为主 Agent 可直接执行/交接的 bounded checklist，同时保持 no-heavy-tool/no-authority boundary。
+2. **Pack-memory reconsume / tooling candidate follow-through**：围绕真实 pack tooling candidate 被人工合入后的 fresh/attached case reconsume，把 review plan 与后续 case consumption 的 Mission Commander提示继续做成可验证 product path。
+3. **Mission Commander lane handoff consumption closure**：继续让 overview/handoff/continue/gate/start 输出的 action guidance 在替换 executor 或新会话中可直接消费，优先选择能用 Windows 本机 product path 验证的闭环。
 4. **Cross-platform product-path E2E（降优先级）**：在本地 CLI/case E2E 已覆盖 nested cwd / case shim 的基础上，仅保持可在 runner 可用时执行的三平台 matrix 候选和 known gap 记录；不要在 GitHub runner/billing blocker 未解除前让它阻塞 Windows 本机迭代。
 5. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 
