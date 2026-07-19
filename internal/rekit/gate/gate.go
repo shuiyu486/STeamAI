@@ -155,6 +155,8 @@ type AdapterExecutionReportContract struct {
 type AdapterReportLiveValidation struct {
 	InvocationCwd   string                       `json:"invocationCwd"`
 	SidecarTemplate AdapterReportSidecarTemplate `json:"sidecarTemplate"`
+	ValidateCommand string                       `json:"validateCommand"`
+	RecordCommand   string                       `json:"recordCommand"`
 	ValidateArgs    []string                     `json:"validateArgs"`
 	RecordArgs      []string                     `json:"recordArgs"`
 	ReplayBehavior  string                       `json:"replayBehavior"`
@@ -582,6 +584,8 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) 
 }
 
 func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportLiveValidation {
+	validateArgs := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", "adapter-report.json", "-Format", "json"}
+	recordArgs := []string{"-Command", "gate", "-Pack", pack, "-Apply", "-GateEventId", event.EventID, "-ExecutionReportPath", "adapter-report.json", "-Actor", "<executor-id>", "-Format", "json"}
 	return AdapterReportLiveValidation{
 		InvocationCwd: "authorized output workspace; use a workspace-relative sidecar file name such as adapter-report.json and omit -Target",
 		SidecarTemplate: AdapterReportSidecarTemplate{
@@ -598,9 +602,11 @@ func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportL
 			Escalation:    "<bounded escalation when status/budget requires it>",
 			Summary:       "<bounded summary>",
 		},
-		ValidateArgs:   []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", "adapter-report.json", "-Format", "json"},
-		RecordArgs:     []string{"-Command", "gate", "-Pack", pack, "-Apply", "-GateEventId", event.EventID, "-ExecutionReportPath", "adapter-report.json", "-Actor", "<executor-id>", "-Format", "json"},
-		ReplayBehavior: "repeating RecordArgs with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations",
+		ValidateCommand: "rekit " + strings.Join(validateArgs, " "),
+		RecordCommand:   "rekit " + strings.Join(recordArgs, " "),
+		ValidateArgs:    validateArgs,
+		RecordArgs:      recordArgs,
+		ReplayBehavior:  "repeating RecordArgs with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations",
 		Notes: []string{
 			"ValidateArgs is read-only: isMutation=false, applied=false, and no observations/authority/confirmed writes.",
 			"RecordArgs records observation evidence only after strict sidecar validation; it never executes the heavy tool.",

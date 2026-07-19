@@ -245,6 +245,8 @@ try {
     Assert-ContainsText -Text $nestedContractOut -Expected '"kind": "adapter-execution-report-contract"' -Label 'facade nested workspace contract product path'
     Assert-ContainsText -Text $nestedContractOut -Expected '"isMutation": false' -Label 'facade nested workspace contract product path'
     Assert-ContainsText -Text $nestedContractOut -Expected '"liveValidation": {' -Label 'facade nested workspace contract live-validation handoff'
+    Assert-ContainsText -Text $nestedContractOut -Expected '"validateCommand": "rekit -Command gate' -Label 'facade nested workspace contract live-validation handoff'
+    Assert-ContainsText -Text $nestedContractOut -Expected '"recordCommand": "rekit -Command gate' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"validateArgs": ' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"recordArgs": ' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"replayBehavior": "repeating RecordArgs with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations"' -Label 'facade nested workspace contract live-validation handoff'

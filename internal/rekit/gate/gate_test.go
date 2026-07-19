@@ -433,8 +433,14 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" {
 		t.Fatalf("adapter report contract validate args drifted: %+v", contract.LiveValidation.ValidateArgs)
 	}
+	if contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") {
+		t.Fatalf("adapter report contract validate command drifted: %q", contract.LiveValidation.ValidateCommand)
+	}
 	if strings.Join(contract.LiveValidation.RecordArgs, " ") != "-Command gate -Pack "+pack+" -Apply -GateEventId "+authorized.EventID+" -ExecutionReportPath adapter-report.json -Actor <executor-id> -Format json" {
 		t.Fatalf("adapter report contract record args drifted: %+v", contract.LiveValidation.RecordArgs)
+	}
+	if contract.LiveValidation.RecordCommand != "rekit "+strings.Join(contract.LiveValidation.RecordArgs, " ") {
+		t.Fatalf("adapter report contract record command drifted: %q", contract.LiveValidation.RecordCommand)
 	}
 	stages := map[string]bool{}
 	for _, stage := range contract.ValidationFailureStages {
