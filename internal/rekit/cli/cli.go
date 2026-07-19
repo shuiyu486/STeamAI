@@ -1420,8 +1420,37 @@ func writeStartText(out io.Writer, result workstream.StartResult) error {
 }
 
 func writeExecutorNextActionsText(out io.Writer, action mission.ExecutorAction) error {
+	if err := writeMissionCommanderActionText(out, "executor commander action", action); err != nil {
+		return err
+	}
 	for _, next := range action.NextAgentActions {
 		if _, err := fmt.Fprintf(out, "executor next action：%s\n", next); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeMissionCommanderActionText(out io.Writer, prefix string, action mission.ExecutorAction) error {
+	commander := action.MissionCommanderAction
+	if strings.TrimSpace(commander.State) == "" {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s：state=%s primary=`%s`\n", prefix, commander.State, commander.PrimaryCommand); err != nil {
+		return err
+	}
+	if strings.TrimSpace(commander.Prompt) != "" {
+		if _, err := fmt.Fprintf(out, "%s prompt：%s\n", prefix, commander.Prompt); err != nil {
+			return err
+		}
+	}
+	for _, command := range commander.FollowUpCommands {
+		if _, err := fmt.Fprintf(out, "%s follow-up：%s\n", prefix, command); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range commander.Boundary {
+		if _, err := fmt.Fprintf(out, "%s boundary：%s\n", prefix, boundary); err != nil {
 			return err
 		}
 	}
@@ -1439,7 +1468,7 @@ func writeStartExecutorActionText(out io.Writer, result workstream.StartResult) 
 	if _, err := fmt.Fprintf(out, "executor handoff：continue=`%s` handoff=`%s`\n", action.ResumeCommand, action.HandoffCommand); err != nil {
 		return err
 	}
-	return nil
+	return writeMissionCommanderActionText(out, "executor commander action", action)
 }
 
 func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
@@ -1499,7 +1528,7 @@ func writeReconcileExecutorActionText(out io.Writer, result workstream.Reconcile
 	if _, err := fmt.Fprintf(out, "executor handoff：continue=`%s` handoff=`%s`\n", action.ResumeCommand, action.HandoffCommand); err != nil {
 		return err
 	}
-	return nil
+	return writeMissionCommanderActionText(out, "executor commander action", action)
 }
 
 func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
@@ -1818,7 +1847,7 @@ func writeMissionExecutorActionText(out io.Writer, prefix string, action mission
 	if _, err := fmt.Fprintf(out, "%s handoff：continue=`%s` handoff=`%s`\n", prefix, action.ResumeCommand, action.HandoffCommand); err != nil {
 		return err
 	}
-	return nil
+	return writeMissionCommanderActionText(out, prefix+" commander action", action)
 }
 
 func writeReviewPlan(out io.Writer, plan review.Plan) error {

@@ -60,19 +60,28 @@ type Brief struct {
 }
 
 type ExecutorAction struct {
-	Blocked              bool     `json:"blocked"`
-	Ready                bool     `json:"ready"`
-	BlockerReasons       []string `json:"blockerReasons"`
-	PendingGates         int      `json:"pendingGates"`
-	OpenInterventions    int      `json:"openInterventions"`
-	OpenDecisions        int      `json:"openDecisions"`
-	ReconcileRequired    bool     `json:"reconcileRequired"`
-	PendingGateRequired  bool     `json:"pendingGateRequired"`
-	OpenDecisionRequired bool     `json:"openDecisionRequired"`
-	ResumeCommand        string   `json:"resumeCommand"`
-	HandoffCommand       string   `json:"handoffCommand"`
-	NextAgentActions     []string `json:"nextAgentActions"`
-	Escalations          []string `json:"escalations"`
+	Blocked                bool                   `json:"blocked"`
+	Ready                  bool                   `json:"ready"`
+	BlockerReasons         []string               `json:"blockerReasons"`
+	PendingGates           int                    `json:"pendingGates"`
+	OpenInterventions      int                    `json:"openInterventions"`
+	OpenDecisions          int                    `json:"openDecisions"`
+	ReconcileRequired      bool                   `json:"reconcileRequired"`
+	PendingGateRequired    bool                   `json:"pendingGateRequired"`
+	OpenDecisionRequired   bool                   `json:"openDecisionRequired"`
+	ResumeCommand          string                 `json:"resumeCommand"`
+	HandoffCommand         string                 `json:"handoffCommand"`
+	NextAgentActions       []string               `json:"nextAgentActions"`
+	Escalations            []string               `json:"escalations"`
+	MissionCommanderAction MissionCommanderAction `json:"missionCommanderAction"`
+}
+
+type MissionCommanderAction struct {
+	State            string   `json:"state"`
+	Prompt           string   `json:"prompt"`
+	PrimaryCommand   string   `json:"primaryCommand,omitempty"`
+	FollowUpCommands []string `json:"followUpCommands,omitempty"`
+	Boundary         []string `json:"boundary,omitempty"`
 }
 
 type LaneExecutorActionSnapshot struct {
@@ -198,19 +207,20 @@ func LaneExecutorAction(lane Lane, facts Facts, brief Brief) ExecutorAction {
 	blocked := len(reasons) > 0
 	ready := !blocked && slices.Contains(brief.ReadyLanes, label)
 	return ExecutorAction{
-		Blocked:              blocked,
-		Ready:                ready,
-		BlockerReasons:       reasons,
-		PendingGates:         pendingGates,
-		OpenInterventions:    openInterventions,
-		OpenDecisions:        openDecisions,
-		ReconcileRequired:    openInterventions > 0,
-		PendingGateRequired:  pendingGates > 0,
-		OpenDecisionRequired: openDecisions > 0,
-		ResumeCommand:        "/rekit continue " + label,
-		HandoffCommand:       "/rekit handoff " + label,
-		NextAgentActions:     LaneExecutorNextActions(label, ready, pendingGates, openInterventions, openDecisions),
-		Escalations:          LaneExecutorEscalations(pendingGates, openInterventions, openDecisions),
+		Blocked:                blocked,
+		Ready:                  ready,
+		BlockerReasons:         reasons,
+		PendingGates:           pendingGates,
+		OpenInterventions:      openInterventions,
+		OpenDecisions:          openDecisions,
+		ReconcileRequired:      openInterventions > 0,
+		PendingGateRequired:    pendingGates > 0,
+		OpenDecisionRequired:   openDecisions > 0,
+		ResumeCommand:          "/rekit continue " + label,
+		HandoffCommand:         "/rekit handoff " + label,
+		NextAgentActions:       LaneExecutorNextActions(label, ready, pendingGates, openInterventions, openDecisions),
+		Escalations:            LaneExecutorEscalations(pendingGates, openInterventions, openDecisions),
+		MissionCommanderAction: LaneMissionCommanderAction(label, lane.ID, lane.Status, ready, pendingGates, openInterventions, openDecisions),
 	}
 }
 
@@ -246,6 +256,62 @@ func LaneExecutorEscalations(pendingGates, openInterventions, openDecisions int)
 		escalations = append(escalations, "authority/confirmed outcome remains deferred until explicitly approved")
 	}
 	return escalations
+}
+
+func LaneMissionCommanderAction(label, laneID, status string, ready bool, pendingGates, openInterventions, openDecisions int) MissionCommanderAction {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = "main"
+	}
+	gateLane := strings.TrimSpace(laneID)
+	if gateLane == "" {
+		gateLane = label
+	}
+	status = strings.ToLower(strings.TrimSpace(status))
+	action := MissionCommanderAction{
+		State:          "read-only-handoff",
+		Prompt:         fmt.Sprintf("按 `%s` 接手，先阅读/刷新交接；当前不要继续执行该 lane。", label),
+		PrimaryCommand: "/rekit handoff " + label,
+		Boundary: []string{
+			"no authority/confirmed writes",
+			"no heavy-tool execution",
+			"do not run continue for blocked lanes",
+		},
+	}
+	if status == "paused" || status == "closed" || status == "archived" {
+		action.State = "lane-not-open"
+		action.Prompt = fmt.Sprintf("按 `%s` 接手，先阅读交接；该 lane status=%s，当前不要继续执行。", label, status)
+		return action
+	}
+	if openInterventions > 0 {
+		action.State = "needs-reconcile"
+		action.Prompt = fmt.Sprintf("按 `%s` 接手，先 reconcile open intervention，再重新查看 executor action。", label)
+		action.PrimaryCommand = "/rekit reconcile " + label + " -InterventionId <eventId> -Apply"
+		action.FollowUpCommands = []string{"/rekit continue " + label + " -WhatIf", "/rekit handoff " + label}
+		return action
+	}
+	if pendingGates > 0 {
+		action.State = "needs-gate-decision"
+		action.Prompt = fmt.Sprintf("按 `%s` 接手，先处理 pending-gate；gate 只记录授权决策，不执行 heavy-tool。", label)
+		action.PrimaryCommand = "/rekit handoff " + label
+		action.FollowUpCommands = []string{"/rekit gate <action> -Lane " + gateLane + " -Apply -Actor <actor>", "/rekit continue " + label + " -WhatIf"}
+		return action
+	}
+	if openDecisions > 0 {
+		action.State = "needs-open-decision-review"
+		action.Prompt = fmt.Sprintf("按 `%s` 接手，先 review open candidate/decision 与 evidence/authority boundary，再决定是否继续。", label)
+		action.PrimaryCommand = "/rekit handoff " + label
+		action.FollowUpCommands = []string{"/rekit continue " + label + " -WhatIf"}
+		return action
+	}
+	if ready {
+		action.State = "ready-to-continue"
+		action.Prompt = fmt.Sprintf("按 `%s` 接手，然后继续该 lane。", label)
+		action.PrimaryCommand = "/rekit continue " + label
+		action.FollowUpCommands = []string{"/rekit handoff " + label}
+		return action
+	}
+	return action
 }
 
 func laneCommandLabel(lane Lane) string {

@@ -337,6 +337,7 @@ func writeLaneExecutorActions(out *bytes.Buffer, actions []mission.LaneExecutorA
 		}
 		fmt.Fprintf(out, "  - continue: %s\n", action.ResumeCommand)
 		fmt.Fprintf(out, "  - handoff: %s\n", action.HandoffCommand)
+		fmt.Fprintf(out, "  - commander: state=%s prompt=%s\n", action.MissionCommanderAction.State, action.MissionCommanderAction.Prompt)
 	}
 	fmt.Fprintln(out)
 }

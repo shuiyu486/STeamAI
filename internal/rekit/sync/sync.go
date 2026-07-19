@@ -309,7 +309,7 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 		writes = append(writes, WriteResult{Path: ".gitignore", Kind: "support-file", Action: action, SourcePath: gitignoreSource, TargetPath: gitignoreTarget})
 	}
 	writes = append(writes, WriteResult{Path: ".rekit/state.json", Kind: "sync-state", Action: casebind.ActionFor(filepath.Join(caseFull, ".rekit", "state.json")), TargetPath: filepath.Join(caseFull, ".rekit", "state.json")})
-	return InitPlan{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, ProjectName: projectName, IsMutation: false, ReviewRequired: true, RequiresConfirmation: true, BackupRoot: backupRoot, Writes: writes, BlockedActions: []string{"pack writes", "promote", "authority/confirmed writes", "heavy-tool execution", "board/facts/lanes migration"}, NextSteps: []string{"review this plan, then re-run " + command + " with -Apply to initialize the case", "PowerShell /rekit remains the public entrypoint; this is a manual Go CLI path"}}, nil
+	return InitPlan{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, ProjectName: projectName, IsMutation: false, ReviewRequired: true, RequiresConfirmation: true, BackupRoot: backupRoot, Writes: writes, BlockedActions: []string{"pack writes", "promote", "authority/confirmed writes", "heavy-tool execution", "board/facts/lanes migration"}, NextSteps: []string{"review this plan, then re-run " + command + " with -Apply to initialize the case", "use /rekit as the Mission Commander entrypoint; this remains a review-first Go runtime path"}}, nil
 }
 
 func readApplyInstance(caseRoot, repoRoot, pack string, createLocalFiles bool) (instance.Instance, error) {

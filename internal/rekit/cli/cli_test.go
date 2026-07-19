@@ -2172,7 +2172,7 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "Mission Control brief：", "ready lanes", "blocked lanes", "pending gates", "debug gate", "open decisions", "candidate: handler", "interventions", "manual override", "next agent actions", "escalations", "pending-gate requires main-agent/user decision", "Lane executor actions：", "main：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=3", "executor: current=session-main generation=3 lastTakeover=2026-01-01T00:00:00Z by=main-agent reason=fixture", "requirements: reconcile=true pendingGate=true openDecision=true", "blocker reasons: pending-gate,intervention,open-decision", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "reconcile open intervention(s) before continuing the affected lane"} {
+	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "Mission Control brief：", "ready lanes", "blocked lanes", "pending gates", "debug gate", "open decisions", "candidate: handler", "interventions", "manual override", "next agent actions", "escalations", "pending-gate requires main-agent/user decision", "Lane executor actions：", "main：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=3", "executor: current=session-main generation=3 lastTakeover=2026-01-01T00:00:00Z by=main-agent reason=fixture", "requirements: reconcile=true pendingGate=true openDecision=true", "blocker reasons: pending-gate,intervention,open-decision", "commander: state=needs-reconcile", "先 reconcile open intervention", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "reconcile open intervention(s) before continuing the affected lane"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("overview missing %q:\n%s", expected, text)
 		}
@@ -2274,6 +2274,10 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	}
 	if len(result.LaneExecutorActions) != 1 || result.LaneExecutorActions[0].Lane != "main" || result.LaneExecutorActions[0].CurrentExecutor != "session-main" || result.LaneExecutorActions[0].ExecutorGeneration != 3 || result.LaneExecutorActions[0].LastTakeoverBy != "main-agent" || result.LaneExecutorActions[0].LastTakeoverReason != "fixture" || !result.LaneExecutorActions[0].ExecutorAction.Blocked || result.LaneExecutorActions[0].ExecutorAction.Ready || result.LaneExecutorActions[0].ExecutorAction.PendingGates != 1 || result.LaneExecutorActions[0].ExecutorAction.OpenInterventions != 1 || result.LaneExecutorActions[0].ExecutorAction.OpenDecisions != 3 {
 		t.Fatalf("unexpected overview lane executor actions: %+v", result.LaneExecutorActions)
+	}
+	commander := result.LaneExecutorActions[0].ExecutorAction.MissionCommanderAction
+	if commander.State != "needs-reconcile" || commander.PrimaryCommand != "/rekit reconcile main -InterventionId <eventId> -Apply" || !containsSubstring(commander.FollowUpCommands, "/rekit continue main -WhatIf") || !containsSubstring(commander.Boundary, "do not run continue") {
+		t.Fatalf("overview lane executor action missing Mission Commander blocker handoff: %+v", commander)
 	}
 	if !slices.Contains(result.NextSteps, "reconcile open intervention(s) before continuing the affected lane") || slices.Contains(result.NextSteps, "/rekit continue main") {
 		t.Fatalf("overview next steps should resolve blockers before continue: %+v", result.NextSteps)
@@ -2649,11 +2653,11 @@ func TestRunStartPreviewDoesNotWriteBoard(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-WhatIf"}, &out); err != nil {
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-WhatIf", "-Executor", "session-preview", "-Actor", "main-agent", "-Reason", "preview claim"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	result := decodeStartResult(t, out.Bytes())
-	if result.IsMutation || result.Applied || result.Lane.ID != "feature-login" || result.Lane.Workspace != "workspace/features/feature-login" {
+	if result.IsMutation || result.Applied || result.Lane.ID != "feature-login" || result.Lane.Workspace != "workspace/features/feature-login" || result.Lane.CurrentExecutor != "session-preview" || result.Lane.ExecutorGeneration != 1 || result.Lane.LastTakeoverBy != "main-agent" || result.Lane.LastTakeoverReason != "preview claim" {
 		t.Fatalf("unexpected start preview result: %+v", result)
 	}
 	if result.MissionBrief.Summary == "" || result.MissionBrief.Summary != "openLanes=0 ready=0 blocked=0 pendingGates=0 authorizedGates=0 openDecisions=0 interventions=0" {
@@ -2662,7 +2666,10 @@ func TestRunStartPreviewDoesNotWriteBoard(t *testing.T) {
 	if result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 0 || result.ExecutorAction.OpenInterventions != 0 || result.ExecutorAction.OpenDecisions != 0 || result.ExecutorAction.ResumeCommand != "/rekit continue login" || result.ExecutorAction.HandoffCommand != "/rekit handoff login" {
 		t.Fatalf("start preview executor action drifted: %+v", result.ExecutorAction)
 	}
-	if len(result.Writes) != 1 || result.Writes[0].Path != ".rekit/lanes/feature-login/lane.json" || result.Writes[0].Action != "would-create-lane" {
+	if result.ExecutorAction.MissionCommanderAction.State != "needs-start-apply" || result.ExecutorAction.MissionCommanderAction.PrimaryCommand != `/rekit start login -Apply -Executor session-preview -Actor main-agent -Reason "preview claim"` || !containsSubstring(result.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue login") || !containsSubstring(result.ExecutorAction.MissionCommanderAction.Boundary, "case-local lane/board/resume/checkpoint") {
+		t.Fatalf("start preview should expose full start-apply Mission Commander handoff: %+v", result.ExecutorAction.MissionCommanderAction)
+	}
+	if len(result.Writes) != 1 || result.Writes[0].Path != ".rekit/lanes/feature-login/lane.json" || result.Writes[0].Action != "would-create-lane-and-claim-executor" {
 		t.Fatalf("unexpected start preview writes: %+v", result.Writes)
 	}
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
@@ -2684,6 +2691,9 @@ func TestRunStartApplyClaimsAndTakesOverExecutor(t *testing.T) {
 	}
 	if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 0 || result.ExecutorAction.OpenInterventions != 0 || result.ExecutorAction.OpenDecisions != 0 || result.ExecutorAction.ResumeCommand != "/rekit continue login" || result.ExecutorAction.HandoffCommand != "/rekit handoff login" {
 		t.Fatalf("start apply executor action drifted: %+v", result.ExecutorAction)
+	}
+	if result.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || result.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue login" || !containsSubstring(result.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit handoff login") {
+		t.Fatalf("start apply should expose ready Mission Commander handoff: %+v", result.ExecutorAction.MissionCommanderAction)
 	}
 	if !slices.Equal(result.NextSteps, []string{"run doctor after apply", "/rekit continue login"}) {
 		t.Fatalf("start apply next steps should recommend ready lane continue: %+v", result.NextSteps)
@@ -2769,6 +2779,9 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if preview.IsMutation || preview.Applied || preview.Lane.ID != "main" || preview.Lane.CurrentExecutor != "session-main-preview" || preview.Lane.ExecutorGeneration != 2 || len(preview.Writes) != 1 || preview.Writes[0].Path != ".rekit/lanes/main/lane.json" || preview.Writes[0].Action != "would-enter-existing-lane-and-claim-executor" {
 		t.Fatalf("-Name main preview should resolve existing main lane for replacement takeover: %+v", preview)
 	}
+	if preview.ExecutorAction.MissionCommanderAction.State != "needs-start-apply" || preview.ExecutorAction.MissionCommanderAction.PrimaryCommand != `/rekit start main -Apply -Executor session-main-preview -Actor mission-commander -Reason "preview replacement from handoff"` || !containsSubstring(preview.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue main") {
+		t.Fatalf("-Name main preview should require applying executor takeover before continue: %+v", preview.ExecutorAction.MissionCommanderAction)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main", "-Executor", "session-main-replacement", "-Actor", "mission-commander", "-Reason", "replace stale main session from handoff"}, &out); err != nil {
@@ -2780,6 +2793,9 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	}
 	if takeover.ExecutorAction.Blocked || !takeover.ExecutorAction.Ready || takeover.ExecutorAction.ResumeCommand != "/rekit continue main" || takeover.ExecutorAction.HandoffCommand != "/rekit handoff main" || !slices.Contains(takeover.NextSteps, "/rekit continue main") {
 		t.Fatalf("main executor takeover should leave replacement session ready to continue: action=%+v next=%+v", takeover.ExecutorAction, takeover.NextSteps)
+	}
+	if takeover.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || takeover.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" {
+		t.Fatalf("main executor takeover should expose Mission Commander continue handoff: %+v", takeover.ExecutorAction.MissionCommanderAction)
 	}
 	assertStartWrite(t, takeover.Writes, ".rekit/lanes/main/lane.json", "update-executor-takeover")
 	assertStartWrite(t, takeover.Writes, ".rekit/lanes/main/events.jsonl", "append-executor-takeover")
@@ -2803,11 +2819,14 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if checkpoint.CurrentExecutor != "session-main-replacement" || checkpoint.ExecutorGeneration != 2 || checkpoint.LastTakeoverBy != "mission-commander" || checkpoint.LastTakeoverReason != "replace stale main session from handoff" || !checkpoint.ExecutorAction.Ready || checkpoint.ExecutorAction.ResumeCommand != "/rekit continue main" {
 		t.Fatalf("checkpoint omitted replacement executor takeover state: %+v", checkpoint)
 	}
+	if checkpoint.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || checkpoint.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" {
+		t.Fatalf("checkpoint omitted Mission Commander continue handoff: %+v", checkpoint.ExecutorAction.MissionCommanderAction)
+	}
 	resumeBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "prompts", "RESUME.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"current executor: `session-main-replacement`", "executor generation: `2`", "last takeover by: `mission-commander`", "resume command: `/rekit continue main`"} {
+	for _, expected := range []string{"current executor: `session-main-replacement`", "executor generation: `2`", "last takeover by: `mission-commander`", "resume command: `/rekit continue main`", "commander state: `ready-to-continue`", "commander prompt: 按 `main` 接手，然后继续该 lane。"} {
 		if !strings.Contains(string(resumeBytes), expected) {
 			t.Fatalf("resume missing %q after takeover:\n%s", expected, string(resumeBytes))
 		}
@@ -2827,6 +2846,9 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	laneHandoff := decodeHandoffResult(t, out.Bytes())
 	if !laneHandoff.IsMutation || !laneHandoff.Applied || laneHandoff.Project || laneHandoff.Lane == nil || laneHandoff.Lane.ID != "main" || laneHandoff.Lane.CurrentExecutor != "session-main-replacement" || laneHandoff.Lane.ExecutorGeneration != 2 || laneHandoff.ExecutorAction == nil || !laneHandoff.ExecutorAction.Ready || laneHandoff.ExecutorAction.ResumeCommand != "/rekit continue main" {
 		t.Fatalf("lane handoff should preserve replacement executor owner and next action: %+v", laneHandoff)
+	}
+	if laneHandoff.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || laneHandoff.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" {
+		t.Fatalf("lane handoff should expose Mission Commander continue handoff: %+v", laneHandoff.ExecutorAction.MissionCommanderAction)
 	}
 	laneLatest := assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
 	laneHandoffText, err := os.ReadFile(laneLatest.TargetPath)
@@ -2852,6 +2874,9 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	}
 	if continuation.IsMutation || continuation.Applied || continuation.Lane.CurrentExecutor != "session-main-replacement" || continuation.Lane.ExecutorGeneration != 2 || !continuation.ExecutorAction.Ready || continuation.ExecutorAction.ResumeCommand != "/rekit continue main" {
 		t.Fatalf("replacement executor cannot continue from durable handoff state: %+v", continuation)
+	}
+	if continuation.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || continuation.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" {
+		t.Fatalf("continue what-if should expose Mission Commander continue handoff: %+v", continuation.ExecutorAction.MissionCommanderAction)
 	}
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("executor takeover wrote authority ledger or stat failed: %v", err)
@@ -2929,6 +2954,9 @@ func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
 	if mainAction.Blocked || !mainAction.Ready || !slices.Equal(mainAction.NextAgentActions, []string{"/rekit continue main"}) {
 		t.Fatalf("project handoff preview main executor action should stay ready and lane-local: %+v", mainAction)
 	}
+	if mainAction.MissionCommanderAction.State != "ready-to-continue" || mainAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" {
+		t.Fatalf("project handoff preview main action missing Mission Commander continue handoff: %+v", mainAction.MissionCommanderAction)
+	}
 	login := handoffLaneActionFor(t, result.LaneExecutorActions, "feature-login")
 	if login.CurrentExecutor != "session-login" || login.ExecutorGeneration != 2 || login.LastTakeoverBy != "main-agent" || login.LastTakeoverReason != "replace login session" {
 		t.Fatalf("project handoff preview login executor owner snapshot drifted: %+v", login)
@@ -2939,6 +2967,9 @@ func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
 	}
 	if slices.Contains(loginAction.NextAgentActions, "/rekit continue main") || slices.Contains(loginAction.NextAgentActions, "/rekit continue login") || !containsSubstring(loginAction.NextAgentActions, "reconcile open intervention") || !containsSubstring(loginAction.NextAgentActions, "pending-gate") || !containsSubstring(loginAction.NextAgentActions, "candidate/decision") {
 		t.Fatalf("project handoff preview login next actions should be blocker resolution only: %+v", loginAction.NextAgentActions)
+	}
+	if loginAction.MissionCommanderAction.State != "needs-reconcile" || loginAction.MissionCommanderAction.PrimaryCommand != "/rekit reconcile login -InterventionId <eventId> -Apply" || !containsSubstring(loginAction.MissionCommanderAction.Boundary, "do not run continue") {
+		t.Fatalf("project handoff preview login action missing Mission Commander blocker handoff: %+v", loginAction.MissionCommanderAction)
 	}
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, after)
@@ -5115,6 +5146,9 @@ func TestRunGateApplyAppendsPendingGateRequest(t *testing.T) {
 	if !result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 1 || !result.ExecutorAction.PendingGateRequired || result.ExecutorAction.ResumeCommand != "/rekit continue main" {
 		t.Fatalf("gate apply executor action drifted: %+v", result.ExecutorAction)
 	}
+	if result.ExecutorAction.MissionCommanderAction.State != "needs-gate-decision" || result.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(result.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit gate <action> -Lane main -Apply -Actor <actor>") || !containsSubstring(result.ExecutorAction.MissionCommanderAction.Boundary, "do not run continue") {
+		t.Fatalf("gate apply should expose pending-gate Mission Commander handoff: %+v", result.ExecutorAction.MissionCommanderAction)
+	}
 	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 	if err != nil {
 		t.Fatal(err)
@@ -5135,6 +5169,8 @@ func TestRunGateTextOutputsExecutorActions(t *testing.T) {
 		"would executor action：blocked=true ready=false pendingGates=1 openInterventions=0 openDecisions=0",
 		"would executor action requirements：reconcile=false pendingGate=true openDecision=false",
 		"would executor action handoff：continue=`/rekit continue main` handoff=`/rekit handoff main`",
+		"would executor action commander action：state=needs-gate-decision primary=`/rekit handoff main`",
+		"would executor action commander action follow-up：/rekit gate <action> -Lane main -Apply -Actor <actor>",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("gate what-if text missing %q:\n%s", expected, out.String())
@@ -5150,6 +5186,8 @@ func TestRunGateTextOutputsExecutorActions(t *testing.T) {
 		"executor action：blocked=true ready=false pendingGates=1 openInterventions=0 openDecisions=0",
 		"executor action requirements：reconcile=false pendingGate=true openDecision=false",
 		"executor action handoff：continue=`/rekit continue main` handoff=`/rekit handoff main`",
+		"executor action commander action：state=needs-gate-decision primary=`/rekit handoff main`",
+		"executor action commander action follow-up：/rekit gate <action> -Lane main -Apply -Actor <actor>",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("gate apply text missing %q:\n%s", expected, out.String())
@@ -6410,19 +6448,28 @@ type handoffLaneExecutorAction struct {
 }
 
 type executorActionSnapshot struct {
-	Blocked              bool     `json:"blocked"`
-	Ready                bool     `json:"ready"`
-	BlockerReasons       []string `json:"blockerReasons"`
-	PendingGates         int      `json:"pendingGates"`
-	OpenInterventions    int      `json:"openInterventions"`
-	OpenDecisions        int      `json:"openDecisions"`
-	ReconcileRequired    bool     `json:"reconcileRequired"`
-	PendingGateRequired  bool     `json:"pendingGateRequired"`
-	OpenDecisionRequired bool     `json:"openDecisionRequired"`
-	ResumeCommand        string   `json:"resumeCommand"`
-	HandoffCommand       string   `json:"handoffCommand"`
-	NextAgentActions     []string `json:"nextAgentActions"`
-	Escalations          []string `json:"escalations"`
+	Blocked                bool                           `json:"blocked"`
+	Ready                  bool                           `json:"ready"`
+	BlockerReasons         []string                       `json:"blockerReasons"`
+	PendingGates           int                            `json:"pendingGates"`
+	OpenInterventions      int                            `json:"openInterventions"`
+	OpenDecisions          int                            `json:"openDecisions"`
+	ReconcileRequired      bool                           `json:"reconcileRequired"`
+	PendingGateRequired    bool                           `json:"pendingGateRequired"`
+	OpenDecisionRequired   bool                           `json:"openDecisionRequired"`
+	ResumeCommand          string                         `json:"resumeCommand"`
+	HandoffCommand         string                         `json:"handoffCommand"`
+	NextAgentActions       []string                       `json:"nextAgentActions"`
+	Escalations            []string                       `json:"escalations"`
+	MissionCommanderAction missionCommanderActionSnapshot `json:"missionCommanderAction"`
+}
+
+type missionCommanderActionSnapshot struct {
+	State            string   `json:"state"`
+	Prompt           string   `json:"prompt"`
+	PrimaryCommand   string   `json:"primaryCommand"`
+	FollowUpCommands []string `json:"followUpCommands"`
+	Boundary         []string `json:"boundary"`
 }
 
 type missionBrief struct {

@@ -86,6 +86,25 @@ func TestLaneExecutorActionUsesSharedTypedBlockerProjection(t *testing.T) {
 	if !action.PendingGateRequired || !action.ReconcileRequired || !action.OpenDecisionRequired || action.ResumeCommand != "/rekit continue login" || action.HandoffCommand != "/rekit handoff login" {
 		t.Fatalf("unexpected executor requirements: %+v", action)
 	}
+	commander := action.MissionCommanderAction
+	if commander.State != "needs-reconcile" || commander.PrimaryCommand != "/rekit reconcile login -InterventionId <eventId> -Apply" || !slices.Contains(commander.FollowUpCommands, "/rekit continue login -WhatIf") || !slices.Contains(commander.Boundary, "do not run continue for blocked lanes") {
+		t.Fatalf("blocked executor should expose Mission Commander reconcile handoff: %+v", commander)
+	}
+}
+
+func TestLaneExecutorActionPendingGateUsesCanonicalLaneForGateCommand(t *testing.T) {
+	facts := Facts{
+		Requests: []map[string]any{{"kind": "request", "lane": "feature-login", "subject": "debug gate", "status": "pending-gate", "risk": "high"}},
+	}
+	brief := BuildWithOptions([]Lane{{ID: "feature-login", Label: "login", Status: "active"}}, facts, BuildOptions{MaxRows: 10})
+	action := LaneExecutorAction(Lane{ID: "feature-login", Label: "login", Status: "active"}, facts, brief)
+	commander := action.MissionCommanderAction
+	if commander.State != "needs-gate-decision" || commander.PrimaryCommand != "/rekit handoff login" {
+		t.Fatalf("pending gate should expose gate decision handoff: %+v", commander)
+	}
+	if !slices.Contains(commander.FollowUpCommands, "/rekit gate <action> -Lane feature-login -Apply -Actor <actor>") || !slices.Contains(commander.FollowUpCommands, "/rekit continue login -WhatIf") {
+		t.Fatalf("pending gate follow-up should use canonical gate lane and display continue selector: %+v", commander)
+	}
 }
 
 func TestLaneExecutorActionReadyUsesSharedMissionBrief(t *testing.T) {
@@ -94,6 +113,10 @@ func TestLaneExecutorActionReadyUsesSharedMissionBrief(t *testing.T) {
 	action := LaneExecutorAction(Lane{ID: "feature-login", Label: "login", Status: "active"}, facts, brief)
 	if action.Blocked || !action.Ready || len(action.BlockerReasons) != 0 || action.ResumeCommand != "/rekit continue login" || action.HandoffCommand != "/rekit handoff login" {
 		t.Fatalf("unexpected ready executor action: %+v", action)
+	}
+	commander := action.MissionCommanderAction
+	if commander.State != "ready-to-continue" || commander.PrimaryCommand != "/rekit continue login" || !strings.Contains(commander.Prompt, "继续该 lane") || !slices.Contains(commander.FollowUpCommands, "/rekit handoff login") {
+		t.Fatalf("ready executor should expose Mission Commander continue handoff: %+v", commander)
 	}
 }
 
@@ -128,6 +151,12 @@ func TestLaneExecutorActionSnapshotsKeepNextActionsLaneLocal(t *testing.T) {
 	}
 	if !loginAction.Blocked || loginAction.Ready || !slices.Equal(loginAction.NextAgentActions, []string{"review open candidate/decision item(s) with evidence and authority boundary"}) || slices.Contains(loginAction.NextAgentActions, "/rekit continue main") || !slices.Equal(loginAction.Escalations, []string{"authority/confirmed outcome remains deferred until explicitly approved"}) {
 		t.Fatalf("blocked login lane action leaked another lane recommendation: %+v", loginAction)
+	}
+	if mainAction.MissionCommanderAction.State != "ready-to-continue" || mainAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" {
+		t.Fatalf("ready main lane action missing Mission Commander handoff: %+v", mainAction.MissionCommanderAction)
+	}
+	if loginAction.MissionCommanderAction.State != "needs-open-decision-review" || loginAction.MissionCommanderAction.PrimaryCommand != "/rekit handoff login" || !strings.Contains(loginAction.MissionCommanderAction.Prompt, "candidate/decision") {
+		t.Fatalf("blocked login lane action missing Mission Commander decision review handoff: %+v", loginAction.MissionCommanderAction)
 	}
 }
 

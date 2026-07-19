@@ -157,7 +157,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		BlockedActions:       []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
 		NextSteps: []string{
 			"review this preview, then re-run continue with -Apply when the case-local facts/route/digest writes are acceptable",
-			"PowerShell /rekit remains the public entrypoint; JSON preview and explicit apply are Go-owned by default",
+			"use /rekit as the Mission Commander entrypoint; JSON preview and explicit apply are Go-owned by default",
 		},
 	}
 	for _, raw := range rawEvents {
@@ -731,7 +731,11 @@ func continueDigestText(result ContinueResult) string {
 		"- open decision required: `"+fmt.Sprintf("%t", result.ExecutorAction.OpenDecisionRequired)+"`",
 		"- resume command: `"+result.ExecutorAction.ResumeCommand+"`",
 		"- handoff command: `"+result.ExecutorAction.HandoffCommand+"`",
+		"- commander state: `"+result.ExecutorAction.MissionCommanderAction.State+"`",
+		"- commander prompt: "+result.ExecutorAction.MissionCommanderAction.Prompt,
 	)
+	lines = appendMissionBriefDigestList(lines, "commander follow-up commands", result.ExecutorAction.MissionCommanderAction.FollowUpCommands)
+	lines = appendMissionBriefDigestList(lines, "commander boundary", result.ExecutorAction.MissionCommanderAction.Boundary)
 	lines = appendMissionBriefDigestList(lines, "blocker reasons", result.ExecutorAction.BlockerReasons)
 	lines = appendMissionBriefDigestList(lines, "executor next actions", result.ExecutorAction.NextAgentActions)
 	lines = appendMissionBriefDigestList(lines, "executor escalations", result.ExecutorAction.Escalations)

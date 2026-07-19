@@ -88,7 +88,7 @@ func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (han
 	}
 	b, err := readBoard(inst.CaseRoot)
 	if os.IsNotExist(err) {
-		return handoffContext{}, fmt.Errorf("handoff requires existing .rekit/board.json; run start -Apply or PowerShell /rekit overview once to initialize the case-local board")
+		return handoffContext{}, fmt.Errorf("handoff requires existing .rekit/board.json; run start -Apply or /rekit overview once to initialize the case-local board")
 	}
 	if err != nil {
 		return handoffContext{}, err
@@ -130,7 +130,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	} else if ctx.project {
 		laneExecutorActions = ctx.laneExecutorActions()
 	}
-	next := []string{"PowerShell /rekit remains the public entrypoint; JSON preview/apply is Go-owned by default"}
+	next := []string{"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default"}
 	if applied {
 		if ctx.project {
 			next = append(next, "open .rekit/handovers/latest.md in the case to continue")
@@ -350,6 +350,8 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 			fmt.Fprintf(&out, "  - ready 后继续：`%s`\n", executorAction.ResumeCommand)
 		}
 		fmt.Fprintf(&out, "  - 指定交接：`%s`\n", executorAction.HandoffCommand)
+		fmt.Fprintf(&out, "  - commander state：%s\n", executorAction.MissionCommanderAction.State)
+		fmt.Fprintf(&out, "  - commander prompt：%s\n", executorAction.MissionCommanderAction.Prompt)
 		fmt.Fprintf(&out, "  - 接续提示：`%s`\n", resumeRel)
 	}
 	fmt.Fprintln(&out)
@@ -718,6 +720,10 @@ func writeExecutorActionSection(out *bytes.Buffer, action laneExecutorAction) {
 	fmt.Fprintf(out, "- open decision required: `%t`\n", action.OpenDecisionRequired)
 	fmt.Fprintf(out, "- resume command: `%s`\n", action.ResumeCommand)
 	fmt.Fprintf(out, "- handoff command: `%s`\n", action.HandoffCommand)
+	fmt.Fprintf(out, "- commander state: `%s`\n", action.MissionCommanderAction.State)
+	fmt.Fprintf(out, "- commander prompt: %s\n", action.MissionCommanderAction.Prompt)
+	writeHandoffBriefList(out, "commander follow-up commands", action.MissionCommanderAction.FollowUpCommands)
+	writeHandoffBriefList(out, "commander boundary", action.MissionCommanderAction.Boundary)
 	writeHandoffBriefList(out, "blocker reasons", action.BlockerReasons)
 	writeHandoffBriefList(out, "executor next actions", action.NextAgentActions)
 	writeHandoffBriefList(out, "executor escalations", action.Escalations)

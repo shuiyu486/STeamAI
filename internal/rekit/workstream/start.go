@@ -173,6 +173,9 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 	}
 	brief := startMissionBrief(inst.CaseRoot)
 	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
+	if strings.HasPrefix(action, "would-create-lane") || strings.Contains(action, "claim-executor") {
+		executorAction.MissionCommanderAction = startApplyCommanderAction(lane, opt, claim)
+	}
 	return StartResult{
 		SchemaVersion:        1,
 		Command:              "start",
@@ -195,7 +198,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 		BlockedActions:  []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
 		NextSteps: []string{
 			"review this plan, then re-run start with -Apply to create or enter the workstream",
-			"PowerShell /rekit remains the public entrypoint; JSON preview/apply is Go-owned by default",
+			"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default",
 		},
 	}, nil
 }
@@ -250,6 +253,48 @@ func workstreamNextSteps(action laneExecutorAction, includeDoctor bool) []string
 		next = append(next, "run doctor after apply")
 	}
 	return append(next, action.NextAgentActions...)
+}
+
+func startApplyCommanderAction(lane Lane, opt StartOptions, claim executorClaim) mission.MissionCommanderAction {
+	label := workstreamLabel(lane)
+	return mission.MissionCommanderAction{
+		State:          "needs-start-apply",
+		Prompt:         fmt.Sprintf("按 `%s` 创建、进入或接管 lane；先 review start plan，再 apply。", label),
+		PrimaryCommand: startApplyCommand(label, opt, claim),
+		FollowUpCommands: []string{
+			"/rekit continue " + label,
+			"/rekit handoff " + label,
+		},
+		Boundary: []string{
+			"no authority/confirmed writes",
+			"no heavy-tool execution",
+			"start apply only writes case-local lane/board/resume/checkpoint state",
+		},
+	}
+}
+
+func startApplyCommand(label string, opt StartOptions, claim executorClaim) string {
+	parts := []string{"/rekit", "start", label, "-Apply"}
+	if opt.Force {
+		parts = append(parts, "-Force")
+	}
+	if claim.Enabled() {
+		parts = append(parts, "-Executor", claim.Executor, "-Actor", claim.Actor, "-Reason", claim.Reason)
+	}
+	for i, part := range parts {
+		parts[i] = quoteCommandArg(part)
+	}
+	return strings.Join(parts, " ")
+}
+
+func quoteCommandArg(arg string) string {
+	if arg == "" {
+		return `""`
+	}
+	if !strings.ContainsAny(arg, " \t\"") {
+		return arg
+	}
+	return `"` + strings.ReplaceAll(arg, `"`, `\"`) + `"`
 }
 
 func startMissionBrief(caseRoot string) mission.Brief {
@@ -805,7 +850,11 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		"- open decision required: `"+fmt.Sprintf("%t", executorAction.OpenDecisionRequired)+"`",
 		"- resume command: `"+executorAction.ResumeCommand+"`",
 		"- handoff command: `"+executorAction.HandoffCommand+"`",
+		"- commander state: `"+executorAction.MissionCommanderAction.State+"`",
+		"- commander prompt: "+executorAction.MissionCommanderAction.Prompt,
 	)
+	lines = appendResumeList(lines, "commander follow-up commands", executorAction.MissionCommanderAction.FollowUpCommands)
+	lines = appendResumeList(lines, "commander boundary", executorAction.MissionCommanderAction.Boundary)
 	lines = appendResumeList(lines, "blocker reasons", executorAction.BlockerReasons)
 	lines = appendResumeList(lines, "executor next actions", executorAction.NextAgentActions)
 	lines = appendResumeList(lines, "executor escalations", executorAction.Escalations)
