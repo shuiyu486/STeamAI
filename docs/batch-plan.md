@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 **Batch 379：Mission brief authorized-gate report contract handoff**
 
-状态：已完成 Mission Commander / replaceable lane executor handoff closure 的 runtime/code coverage、durable docs 更新与本地 validation；commit/push 与远程 release-gate inspection 待执行。
+状态：已完成 Mission Commander / replaceable lane executor handoff closure 的 runtime/code coverage、durable docs 更新、本地 validation、commit/push 与远程 release-gate inspection；实现/docs 提交为 `e7bed37 Expose authorized gate report handoff`（HEAD `e7bed37119661aad1767e3cbacdbf5daf01f6d82`），远程 release-gate run `29675943531` 已完成但结论为 failure，Linux/macOS/Windows jobs 均为 failure 且 `steps: []`，符合既有 runner/billing blocker 模式，不能声明远程 CI green。
 
 目标：在 Batch 377 已让 authorized-gate line 显示 requested budget / output paths / stop conditions、Batch 378 已让 adapter execution report contract 显示 default workspace handoff 后，补齐 Mission brief 自身仍不暴露 gate event id / report contract command 的断点：替换 executor 在 overview、project/lane handoff、continue digest/status、lane `RESUME.md` 或 checkpoint 中看到 authorized-gate boundary 后，应能直接复制 `gate -ExecutionReportContract -GateEventId <id> -Format json`，不必重扫 raw request ledger 或依赖 `gate -Apply` JSON stdout 才知道 event id。
 
@@ -48,7 +48,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 focused mission/CLI、mission/workstream/gate/CLI package set、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。仍需 commit/push 并读取远程 release-gate 实际 job conclusions。
+本地 focused mission/CLI、mission/workstream/gate/CLI package set、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `e7bed37 Expose authorized gate report handoff`（HEAD `e7bed37119661aad1767e3cbacdbf5daf01f6d82`）。远程 release-gate run `29675943531` 已完成，结论为 failure；Linux/macOS/Windows `Go release checks` jobs 均为 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
 
 ### Next candidates
 
