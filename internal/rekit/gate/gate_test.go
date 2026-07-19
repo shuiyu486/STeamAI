@@ -427,6 +427,15 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if strings.Join(contract.StopConditions, ",") != "timeout" || contract.SummaryMaxBytes != 4096 || contract.EscalationMaxBytes != 4096 || !contract.RecordRequired || !strings.Contains(strings.Join(contract.DeniedActions, ","), "heavy-tool execution") || !strings.Contains(contract.ReportPathRule, "current-workspace relative") {
 		t.Fatalf("adapter report contract omitted live validation rules: %+v", contract)
 	}
+	if !strings.Contains(contract.LiveValidation.InvocationCwd, "authorized output workspace") || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != authorized.EventID || contract.LiveValidation.SidecarTemplate.Kind != "adapter-execution-report" || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
+		t.Fatalf("adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
+	}
+	if strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" {
+		t.Fatalf("adapter report contract validate args drifted: %+v", contract.LiveValidation.ValidateArgs)
+	}
+	if strings.Join(contract.LiveValidation.RecordArgs, " ") != "-Command gate -Pack "+pack+" -Apply -GateEventId "+authorized.EventID+" -ExecutionReportPath adapter-report.json -Actor <executor-id> -Format json" {
+		t.Fatalf("adapter report contract record args drifted: %+v", contract.LiveValidation.RecordArgs)
+	}
 	stages := map[string]bool{}
 	for _, stage := range contract.ValidationFailureStages {
 		stages[stage.Stage] = stage.Description != ""

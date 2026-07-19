@@ -148,7 +148,32 @@ type AdapterExecutionReportContract struct {
 	ValidationFailureStages []AdapterReportValidationFailureStage `json:"validationFailureStages,omitempty"`
 	ValidationFailureCodes  []AdapterReportValidationFailureCode  `json:"validationFailureCodes,omitempty"`
 	DeniedActions           []string                              `json:"deniedActions,omitempty"`
+	LiveValidation          AdapterReportLiveValidation           `json:"liveValidation"`
 	NextSteps               []string                              `json:"nextSteps,omitempty"`
+}
+
+type AdapterReportLiveValidation struct {
+	InvocationCwd   string                       `json:"invocationCwd"`
+	SidecarTemplate AdapterReportSidecarTemplate `json:"sidecarTemplate"`
+	ValidateArgs    []string                     `json:"validateArgs"`
+	RecordArgs      []string                     `json:"recordArgs"`
+	ReplayBehavior  string                       `json:"replayBehavior"`
+	Notes           []string                     `json:"notes,omitempty"`
+}
+
+type AdapterReportSidecarTemplate struct {
+	SchemaVersion int             `json:"schemaVersion"`
+	Kind          string          `json:"kind"`
+	AdapterID     string          `json:"adapterId"`
+	Action        string          `json:"action"`
+	Status        string          `json:"status"`
+	GateEventID   string          `json:"gateEventId"`
+	ActualBudget  autonomy.Budget `json:"actualBudget"`
+	OutputRefs    []string        `json:"outputRefs"`
+	EvidenceRefs  []string        `json:"evidenceRefs"`
+	BoundaryHits  []string        `json:"boundaryHits"`
+	Escalation    string          `json:"escalation"`
+	Summary       string          `json:"summary"`
 }
 
 type AdapterReportValidationFailureStage struct {
@@ -551,7 +576,36 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) 
 		ValidationFailureStages: adapterReportValidationFailureStages(),
 		ValidationFailureCodes:  adapterReportValidationFailureCodes(),
 		DeniedActions:           []string{"heavy-tool execution", "authority writes", "confirmed writes", "out-of-scope output refs", "full trace/dump/log embedding"},
+		LiveValidation:          adapterReportLiveValidation(pack, event),
 		NextSteps:               []string{"adapter writes bounded report under an authorized output path", "preflight the sidecar with gate -ValidateExecutionReport -GateEventId ... -ExecutionReportPath ... -Format json", "main Agent records valid reports with gate -Apply -GateEventId ... -ExecutionReportPath ...", "review refs before any authority/confirmed outcome"},
+	}
+}
+
+func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportLiveValidation {
+	return AdapterReportLiveValidation{
+		InvocationCwd: "authorized output workspace; use a workspace-relative sidecar file name such as adapter-report.json and omit -Target",
+		SidecarTemplate: AdapterReportSidecarTemplate{
+			SchemaVersion: 1,
+			Kind:          "adapter-execution-report",
+			AdapterID:     "<adapter-id>",
+			Action:        event.Gate.Action,
+			Status:        "succeeded|failed|boundary-hit|escalated|aborted",
+			GateEventID:   event.EventID,
+			ActualBudget:  autonomy.Budget{},
+			OutputRefs:    []string{"<case-relative output under authorized outputPaths>"},
+			EvidenceRefs:  []string{"<case-relative bounded evidence ref>"},
+			BoundaryHits:  []string{"<stop-condition-token when status/budget requires it>"},
+			Escalation:    "<bounded escalation when status/budget requires it>",
+			Summary:       "<bounded summary>",
+		},
+		ValidateArgs:   []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", "adapter-report.json", "-Format", "json"},
+		RecordArgs:     []string{"-Command", "gate", "-Pack", pack, "-Apply", "-GateEventId", event.EventID, "-ExecutionReportPath", "adapter-report.json", "-Actor", "<executor-id>", "-Format", "json"},
+		ReplayBehavior: "repeating RecordArgs with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations",
+		Notes: []string{
+			"ValidateArgs is read-only: isMutation=false, applied=false, and no observations/authority/confirmed writes.",
+			"RecordArgs records observation evidence only after strict sidecar validation; it never executes the heavy tool.",
+			"Keep full trace/dump/log data in sidecar artifacts referenced by outputRefs/evidenceRefs, not in this report.",
+		},
 	}
 }
 

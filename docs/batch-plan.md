@@ -16,26 +16,27 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 372：Adapter evidence replay guard product path**
+**Batch 373：Adapter live-validation contract handoff**
 
-状态：已完成 adapter report evidence replay guard coverage、durable docs 更新、本地 validation、commit/push 与远程 release-gate inspection；Batch 372 已完成 commit/push（`7b50e9e Guard adapter report evidence replay`）并检查远程 release-gate run `29671055355`，该 run 的 Linux/macOS/Windows jobs 仍为 steps 为空的 runner/billing blocker 形态，不能声明远程 CI green。
+状态：已完成 `liveValidation` contract projection、package/CLI/façade coverage、durable docs 更新与本地 validation；仍需 commit/push 与远程 release-gate inspection。
 
-目标：在 Batch 371 的 nested authorized output workspace cwd evidence apply product path 之后，补齐重复提交同一个 workspace-relative `adapter-report.json` 的 replay/idempotency 覆盖：再次调用 `gate -Apply -GateEventId <authorized-gate-event-id> -ExecutionReportPath adapter-report.json -Actor <executor> -Format json` 应返回 `duplicate eventId`、`applied=false`，并且不重复 append `.rekit/facts/observations.jsonl`，仍不写 authority/confirmed。
+目标：在 Batch 369–372 的 contract taxonomy、nested workspace validation/evidence apply 与 replay guard 之后，把 `gate -ExecutionReportContract` 从边界说明推进为 lane executor / tool adapter 可直接消费的 live-validation handoff：contract JSON 应包含 bounded sidecar template、workspace-relative validate/record args、duplicate replay behavior 与 no-write/no-heavy-tool notes，让 executor 在 authorized output workspace cwd 中不重扫 ledger、不手工拼接命令即可执行 preflight→record 闭环。
 
-边界：本批只补 package/CLI/façade replay guard coverage、durable docs 与验证；Go runtime 已有 deterministic `executionEventID` duplicate handling，不新增 PowerShell 业务 runtime、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；实际 adapter-specific live validation、真实工具隔离和 stop-condition 执行仍由 lane executor / tool adapter 承担。
+边界：本批只补 deterministic contract projection、package/CLI/façade coverage、durable docs 与验证；不新增 PowerShell 业务 runtime、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 observations/authority/confirmed（contract/read-only path）、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；actual tool execution、tool-specific validation 与 stop-condition enforcement 仍由 lane executor / tool adapter 在 authorized-gate 范围内承担。
 
 已完成内容：
 
-- 扩展 package test：cwd-relative adapter report evidence replay 返回 `duplicate eventId`，observations ledger 保持单行。
-- 扩展 CLI E2E：nested authorized output workspace cwd 与 `REKIT_CALLER_CWD` bridge 的 sidecar-only evidence apply replay 返回 duplicate，observations ledger 不变，authority/confirmed 未写。
-- 扩展 `facade-smoke.ps1`：真实 self-contained case 中从 authorized output workspace cwd 无 `-Target` 重复调用 evidence apply，断言 duplicate response 与 observation 单行；fake backend nested evidence apply 透传仍不注入 `-Target`。
+- `AdapterExecutionReportContract` 新增 `liveValidation` envelope，包含 `sidecarTemplate`、`validateArgs`、`recordArgs`、`replayBehavior` 与 notes。
+- package test 覆盖 live-validation handoff 的 action/gateEventId/template、workspace-relative validate/record args 与 replay behavior。
+- CLI E2E 覆盖 nested authorized output workspace cwd 无 `-Target` 的 contract `liveValidation` JSON。
+- `facade-smoke.ps1` 覆盖 retained public façade product path 中 contract `liveValidation` projection。
 - 同步 README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、tests guide、CHANGELOG 与本文件。
 
 已通过验证：
 
 ```text
-go test ./internal/rekit/gate -run "TestRecordExecutionAcceptsCwdRelativeAdapterReportForAuthorizedGate" -count=1
-go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace|TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge" -count=1
+go test ./internal/rekit/gate -run "TestAdapterReportContractDescribesAuthorizedGateBoundaries" -count=1
+go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace" -count=1
 ./rekit/tests/facade-smoke.ps1
 go test ./...
 go vet ./...
@@ -46,7 +47,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已 commit/push 为 `7b50e9e Guard adapter report evidence replay`；远程 release-gate run `29671055355` 为 completed failure，Linux/macOS/Windows jobs steps 为空，仍是 runner/billing blocker 形态，不能声明远程 CI green。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready。
+本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。仍需 commit/push 并检查最新远程 release-gate run；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能声明远程 CI green。
 
 ### Next candidates
 
@@ -11075,3 +11076,13 @@ git diff --check
 实施范围：package test 覆盖 cwd-relative adapter report evidence replay；CLI E2E 覆盖 nested authorized output workspace cwd 与 `REKIT_CALLER_CWD` bridge 的 sidecar-only evidence replay；`facade-smoke.ps1` 覆盖真实 self-contained case 的 nested evidence replay，并保持 fake backend nested evidence apply 透传且不注入 `-Target`；README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、tests guide 与 CHANGELOG 同步更新。不新增 PowerShell runtime logic、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema、公共入口删除门禁或远程 CI blocker 状态。
 
 验证结果：已通过 `go test ./internal/rekit/gate -run "TestRecordExecutionAcceptsCwdRelativeAdapterReportForAuthorizedGate" -count=1`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace|TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge" -count=1`、`./rekit/tests/facade-smoke.ps1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。已 commit/push 为 `7b50e9e Guard adapter report evidence replay`；远程 release-gate run `29671055355` 为 completed failure，Linux/macOS/Windows jobs steps 为空，仍是 runner/billing blocker 形态，不能声明远程 CI green；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready。
+
+### Batch 373：Adapter live-validation contract handoff
+
+状态：已完成 `liveValidation` contract projection、package/CLI/façade coverage、durable docs 更新与本地 validation。
+
+目标：在 Batch 369–372 的 contract taxonomy、nested workspace validation/evidence apply 与 replay guard 之后，把 `gate -ExecutionReportContract` 从边界说明推进为 lane executor / tool adapter 可直接消费的 live-validation handoff：contract JSON 包含 bounded sidecar template、workspace-relative validate/record args、duplicate replay behavior 与 no-write/no-heavy-tool notes，让 executor 在 authorized output workspace cwd 中不重扫 ledger、不手工拼接命令即可执行 preflight→record 闭环。
+
+实施范围：`AdapterExecutionReportContract` 新增 `liveValidation` envelope；package test 覆盖 action/gateEventId/template、workspace-relative validate/record args 与 replay behavior；CLI E2E 覆盖 nested authorized output workspace cwd 无 `-Target` 的 contract `liveValidation` JSON；`facade-smoke.ps1` 覆盖 retained public façade product path 中 contract `liveValidation` projection；README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、tests guide 与 CHANGELOG 同步更新。不新增 PowerShell runtime logic、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 observations/authority/confirmed（contract/read-only path）、不改变 sync/promote review-first、case durable schema、公共入口删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 `go test ./internal/rekit/gate -run "TestAdapterReportContractDescribesAuthorizedGateBoundaries" -count=1`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace" -count=1`、`./rekit/tests/facade-smoke.ps1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。远程 release-gate 需在 push 后检查；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能声明远程 CI green。
