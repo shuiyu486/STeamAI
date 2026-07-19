@@ -5535,8 +5535,15 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 			CaseRelativeRecordCommand   string   `json:"caseRelativeRecordCommand"`
 			CaseRelativeValidateArgs    []string `json:"caseRelativeValidateArgs"`
 			CaseRelativeRecordArgs      []string `json:"caseRelativeRecordArgs"`
-			ReplayBehavior              string   `json:"replayBehavior"`
-			SidecarTemplate             struct {
+			AdapterCandidates           []struct {
+				ID                  string   `json:"id"`
+				Status              string   `json:"status"`
+				GateActions         []string `json:"gateActions"`
+				ToolingCatalogPath  string   `json:"toolingCatalogPath"`
+				RecordOnlyAfterGate bool     `json:"recordOnlyAfterGate"`
+			} `json:"adapterCandidates"`
+			ReplayBehavior  string `json:"replayBehavior"`
+			SidecarTemplate struct {
 				Action       string   `json:"action"`
 				GateEventID  string   `json:"gateEventId"`
 				EvidenceRefs []string `json:"evidenceRefs"`
@@ -5729,6 +5736,189 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	}
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("nested workspace adapter evidence wrote confirmed ledger or stat failed: %v", err)
+	}
+}
+
+func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "generic-binary-re")
+	for _, dir := range []string{".rekit/facts", ".rekit/lanes/main", "workspace/main/debug/session-1"} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"lanes":[{"id":"main","type":"main","workspace":"workspace/main"}],"factsRoot":".rekit/facts"}`)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","status":"open","authority":true,"workspace":"workspace/main","laneRoot":".rekit/lanes/main"}`)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/autonomy.json", `{
+  "schemaVersion": 1,
+  "profileId": "prof-main-debug",
+  "lane": "main",
+  "mode": "preauthorized",
+  "allowedActions": ["debug"],
+  "deniedActions": ["symex"],
+  "targetScope": [{"match":"exact","value":"target-alpha"}],
+  "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},
+  "stopConditions": ["timeout"],
+  "outputPaths": ["workspace/main/debug"],
+  "recordRequired": true,
+  "notifyMainOn": ["boundary-hit"],
+  "grantedBy": "user",
+  "grantedAt": "2026-01-01T00:00:00Z",
+  "expiresAt": "2999-01-01T00:00:00Z"
+}`)
+
+	var out bytes.Buffer
+	if err := Run([]string{
+		"-Command", "gate",
+		"-Target", caseRoot,
+		"-Pack", "generic-binary-re",
+		"-Apply",
+		"-Action", "debug",
+		"-Lane", "main",
+		"-Actor", "runtime-test",
+		"-Subject", "authorized generic binary debug",
+		"-TargetRef", "target-alpha",
+		"-RuntimeSeconds", "30",
+		"-DiskMB", "64",
+		"-Requests", "1",
+		"-OutputPaths", "workspace/main/debug/session-1",
+		"-StopConditions", "timeout",
+		"-Format", "json",
+	}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var applied struct {
+		Applied bool   `json:"applied"`
+		EventID string `json:"eventId"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("authorized generic-binary-re gate stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !applied.Applied || applied.EventID == "" {
+		t.Fatalf("unexpected generic-binary-re gate apply result: %+v", applied)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "generic-binary-re", "-ExecutionReportContract", "-GateEventId", applied.EventID, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var contract struct {
+		Kind           string `json:"kind"`
+		LiveValidation struct {
+			AdapterCandidates []struct {
+				ID                  string   `json:"id"`
+				Status              string   `json:"status"`
+				Entry               string   `json:"entry"`
+				Purpose             string   `json:"purpose"`
+				SideEffects         []string `json:"sideEffects"`
+				GateActions         []string `json:"gateActions"`
+				ToolingCatalogPath  string   `json:"toolingCatalogPath"`
+				ReportGuidance      []string `json:"reportGuidance"`
+				EvidenceGuidance    []string `json:"evidenceGuidance"`
+				StopConditionHints  []string `json:"stopConditionHints"`
+				RecordOnlyAfterGate bool     `json:"recordOnlyAfterGate"`
+			} `json:"adapterCandidates"`
+			CaseRelativeValidateArgs []string `json:"caseRelativeValidateArgs"`
+			CaseRelativeRecordArgs   []string `json:"caseRelativeRecordArgs"`
+		} `json:"liveValidation"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &contract); err != nil {
+		t.Fatalf("generic-binary-re adapter contract stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if contract.Kind != "adapter-execution-report-contract" || len(contract.LiveValidation.AdapterCandidates) != 1 {
+		t.Fatalf("generic-binary-re contract omitted concrete adapter candidate: %+v", contract)
+	}
+	candidate := contract.LiveValidation.AdapterCandidates[0]
+	if candidate.ID != "dynamic-debug-or-writeback-action" || candidate.Status != "cautious" || candidate.ToolingCatalogPath != "tooling/catalog.yml" || !slices.Contains(candidate.GateActions, "debug") || !candidate.RecordOnlyAfterGate {
+		t.Fatalf("generic-binary-re adapter candidate identity drifted: %+v", candidate)
+	}
+	if !strings.Contains(candidate.Entry, "dynamic-debug") || !strings.Contains(candidate.Purpose, "bounded debug") || !containsSubstring(candidate.ReportGuidance, "adapterId") || !containsSubstring(candidate.EvidenceGuidance, "ValidateArgs") || strings.Join(candidate.StopConditionHints, ",") != "timeout,unexpected-side-effect,scope-drift" {
+		t.Fatalf("generic-binary-re adapter candidate omitted operational guidance: %+v", candidate)
+	}
+
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "dynamic-debug-or-writeback-action",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+applied.EventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/debug/session-1/result.json"],
+  "summary": "Generic binary adapter completed bounded debug handoff"
+}`)
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.json", `{"ok":true}`)
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(filepath.Join(caseRoot, "workspace", "main")); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	out.Reset()
+	if err := Run(contract.LiveValidation.CaseRelativeValidateArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var validation struct {
+		Valid          bool `json:"valid"`
+		IsMutation     bool `json:"isMutation"`
+		Applied        bool `json:"applied"`
+		AdapterContext struct {
+			Candidates []struct {
+				ID string `json:"id"`
+			} `json:"candidates"`
+			Selected *struct {
+				ID string `json:"id"`
+			} `json:"selected"`
+		} `json:"adapterContext"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &validation); err != nil {
+		t.Fatalf("generic-binary-re adapter validation stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !validation.Valid || validation.IsMutation || validation.Applied || len(validation.AdapterContext.Candidates) != 1 || validation.AdapterContext.Selected == nil || validation.AdapterContext.Selected.ID != candidate.ID {
+		t.Fatalf("generic-binary-re adapter validation omitted selected candidate context: %+v", validation)
+	}
+
+	recordArgs := append([]string{}, contract.LiveValidation.CaseRelativeRecordArgs...)
+	for i, arg := range recordArgs {
+		if arg == "<executor-id>" {
+			recordArgs[i] = "executor-1"
+		}
+	}
+	out.Reset()
+	if err := Run(recordArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var evidence struct {
+		Applied           bool `json:"applied"`
+		ExecutionEvidence struct {
+			Execution struct {
+				ExecutionReportPath string `json:"executionReportPath"`
+				AdapterContext      *struct {
+					ID string `json:"id"`
+				} `json:"adapterContext"`
+				Adapter struct {
+					AdapterID string `json:"adapterId"`
+				} `json:"adapter"`
+			} `json:"execution"`
+		} `json:"executionEvidence"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &evidence); err != nil {
+		t.Fatalf("generic-binary-re adapter evidence stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !evidence.Applied || evidence.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || evidence.ExecutionEvidence.Execution.Adapter.AdapterID != candidate.ID || evidence.ExecutionEvidence.Execution.AdapterContext == nil || evidence.ExecutionEvidence.Execution.AdapterContext.ID != candidate.ID {
+		t.Fatalf("generic-binary-re adapter evidence omitted selected candidate provenance: %+v", evidence)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("generic-binary-re adapter evidence wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("generic-binary-re adapter evidence wrote confirmed ledger or stat failed: %v", err)
 	}
 }
 

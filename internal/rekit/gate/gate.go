@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -88,18 +89,19 @@ type ExecutionEvidencePreview struct {
 }
 
 type ExecutionEvidenceDetails struct {
-	Status              string          `json:"status"`
-	ActualBudget        autonomy.Budget `json:"actualBudget"`
-	OutputRefs          []string        `json:"outputRefs,omitempty"`
-	BoundaryHits        []string        `json:"boundaryHits,omitempty"`
-	Escalation          string          `json:"escalation,omitempty"`
-	GateEventID         string          `json:"gateEventId"`
-	GateStatus          string          `json:"gateStatus"`
-	Authorization       string          `json:"authorization"`
-	RecordRequired      bool            `json:"recordRequired"`
-	NotifyMainOn        []string        `json:"notifyMainOn,omitempty"`
-	ExecutionReportPath string          `json:"executionReportPath,omitempty"`
-	Adapter             *AdapterReport  `json:"adapter,omitempty"`
+	Status              string                `json:"status"`
+	ActualBudget        autonomy.Budget       `json:"actualBudget"`
+	OutputRefs          []string              `json:"outputRefs,omitempty"`
+	BoundaryHits        []string              `json:"boundaryHits,omitempty"`
+	Escalation          string                `json:"escalation,omitempty"`
+	GateEventID         string                `json:"gateEventId"`
+	GateStatus          string                `json:"gateStatus"`
+	Authorization       string                `json:"authorization"`
+	RecordRequired      bool                  `json:"recordRequired"`
+	NotifyMainOn        []string              `json:"notifyMainOn,omitempty"`
+	ExecutionReportPath string                `json:"executionReportPath,omitempty"`
+	AdapterContext      *AdapterToolCandidate `json:"adapterContext,omitempty"`
+	Adapter             *AdapterReport        `json:"adapter,omitempty"`
 }
 
 type AdapterReport struct {
@@ -170,8 +172,24 @@ type AdapterReportLiveValidation struct {
 	CaseRelativeRecordCommand   string                       `json:"caseRelativeRecordCommand,omitempty"`
 	CaseRelativeValidateArgs    []string                     `json:"caseRelativeValidateArgs,omitempty"`
 	CaseRelativeRecordArgs      []string                     `json:"caseRelativeRecordArgs,omitempty"`
+	AdapterCandidates           []AdapterToolCandidate       `json:"adapterCandidates,omitempty"`
+	SelectedAdapter             *AdapterToolCandidate        `json:"selectedAdapter,omitempty"`
 	ReplayBehavior              string                       `json:"replayBehavior"`
 	Notes                       []string                     `json:"notes,omitempty"`
+}
+
+type AdapterToolCandidate struct {
+	ID                  string   `json:"id"`
+	Status              string   `json:"status,omitempty"`
+	Entry               string   `json:"entry,omitempty"`
+	Purpose             string   `json:"purpose,omitempty"`
+	SideEffects         []string `json:"sideEffects,omitempty"`
+	GateActions         []string `json:"gateActions,omitempty"`
+	ToolingCatalogPath  string   `json:"toolingCatalogPath,omitempty"`
+	ReportGuidance      []string `json:"reportGuidance,omitempty"`
+	EvidenceGuidance    []string `json:"evidenceGuidance,omitempty"`
+	StopConditionHints  []string `json:"stopConditionHints,omitempty"`
+	RecordOnlyAfterGate bool     `json:"recordOnlyAfterGate"`
 }
 
 type AdapterReportSidecarTemplate struct {
@@ -192,6 +210,11 @@ type AdapterReportSidecarTemplate struct {
 type AdapterReportValidationFailureStage struct {
 	Stage       string `json:"stage"`
 	Description string `json:"description"`
+}
+
+type AdapterContext struct {
+	Candidates []AdapterToolCandidate `json:"candidates,omitempty"`
+	Selected   *AdapterToolCandidate  `json:"selected,omitempty"`
 }
 
 type AdapterReportValidationFailureCode struct {
@@ -216,25 +239,26 @@ type AdapterReportRepairHint struct {
 }
 
 type AdapterExecutionReportValidation struct {
-	SchemaVersion int                            `json:"schemaVersion"`
-	Command       string                         `json:"command"`
-	Kind          string                         `json:"kind"`
-	CaseRoot      string                         `json:"caseRoot"`
-	RepoRoot      string                         `json:"repoRoot"`
-	Pack          string                         `json:"pack"`
-	IsMutation    bool                           `json:"isMutation"`
-	Applied       bool                           `json:"applied"`
-	Valid         bool                           `json:"valid"`
-	Error         string                         `json:"error,omitempty"`
-	Errors        []string                       `json:"errors,omitempty"`
-	FailureCode   string                         `json:"failureCode,omitempty"`
-	FailureStage  string                         `json:"failureStage,omitempty"`
-	RepairHints   []AdapterReportRepairHint      `json:"repairHints,omitempty"`
-	GateEventID   string                         `json:"gateEventId"`
-	ReportPath    string                         `json:"reportPath,omitempty"`
-	Report        *AdapterReport                 `json:"report,omitempty"`
-	Contract      AdapterExecutionReportContract `json:"contract"`
-	NextSteps     []string                       `json:"nextSteps"`
+	SchemaVersion  int                            `json:"schemaVersion"`
+	Command        string                         `json:"command"`
+	Kind           string                         `json:"kind"`
+	CaseRoot       string                         `json:"caseRoot"`
+	RepoRoot       string                         `json:"repoRoot"`
+	Pack           string                         `json:"pack"`
+	IsMutation     bool                           `json:"isMutation"`
+	Applied        bool                           `json:"applied"`
+	Valid          bool                           `json:"valid"`
+	Error          string                         `json:"error,omitempty"`
+	Errors         []string                       `json:"errors,omitempty"`
+	FailureCode    string                         `json:"failureCode,omitempty"`
+	FailureStage   string                         `json:"failureStage,omitempty"`
+	RepairHints    []AdapterReportRepairHint      `json:"repairHints,omitempty"`
+	GateEventID    string                         `json:"gateEventId"`
+	ReportPath     string                         `json:"reportPath,omitempty"`
+	Report         *AdapterReport                 `json:"report,omitempty"`
+	AdapterContext *AdapterContext                `json:"adapterContext,omitempty"`
+	Contract       AdapterExecutionReportContract `json:"contract"`
+	NextSteps      []string                       `json:"nextSteps"`
 }
 
 type adapterReportValidationError struct {
@@ -608,7 +632,11 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	execution, err := executionEvidence(inst.CaseRoot, gateEvent, opt)
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	execution, err := executionEvidence(inst.CaseRoot, gateEvent, opt, m)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -671,7 +699,11 @@ func AdapterReportContract(repoRoot, caseRoot, pack string, opt Options) (Adapte
 	if err != nil {
 		return AdapterExecutionReportContract{}, err
 	}
-	return adapterReportContract(repoRoot, inst.CaseRoot, pack, event), nil
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return AdapterExecutionReportContract{}, err
+	}
+	return adapterReportContract(repoRoot, inst.CaseRoot, pack, event, m), nil
 }
 
 func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options) (AdapterExecutionReportValidation, error) {
@@ -679,6 +711,11 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 	if err != nil {
 		return AdapterExecutionReportValidation{}, err
 	}
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return AdapterExecutionReportValidation{}, err
+	}
+	adapterCandidates := adapterToolCandidates(m, gateEvent)
 	validation := AdapterExecutionReportValidation{
 		SchemaVersion: 1,
 		Command:       "gate",
@@ -689,7 +726,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		IsMutation:    false,
 		Applied:       false,
 		GateEventID:   gateEvent.EventID,
-		Contract:      adapterReportContract(repoRoot, inst.CaseRoot, pack, gateEvent),
+		Contract:      adapterReportContract(repoRoot, inst.CaseRoot, pack, gateEvent, m),
 	}
 	reportRel, adapterReport, err := readAdapterExecutionReport(inst.CaseRoot, gateEvent, opt.ExecutionReportCwd, opt.ExecutionReportPath)
 	if reportRel != "" {
@@ -697,6 +734,12 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 	}
 	if adapterReport != nil {
 		validation.Report = adapterReport
+	}
+	if len(adapterCandidates) > 0 || adapterReport != nil {
+		validation.AdapterContext = &AdapterContext{Candidates: adapterCandidates}
+		if adapterReport != nil {
+			validation.AdapterContext.Selected = selectedAdapterToolCandidate(m, gateEvent, adapterReport.AdapterID)
+		}
 	}
 	if err != nil {
 		validation.Valid = false
@@ -754,7 +797,7 @@ func findAuthorizedGateEvent(caseRoot, gateEventID string) (EventPreview, error)
 	return EventPreview{}, fmt.Errorf("authorized gate eventId not found: %s", gateEventID)
 }
 
-func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) AdapterExecutionReportContract {
+func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, m *manifest.Manifest) AdapterExecutionReportContract {
 	return AdapterExecutionReportContract{
 		SchemaVersion:           1,
 		Command:                 "gate",
@@ -790,7 +833,7 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) 
 		ValidationFailureCodes:  adapterReportValidationFailureCodes(),
 		ValidationRepairHints:   adapterReportContractRepairHints(event),
 		DeniedActions:           []string{"heavy-tool execution", "authority writes", "confirmed writes", "out-of-scope output refs", "full trace/dump/log embedding"},
-		LiveValidation:          adapterReportLiveValidation(pack, event),
+		LiveValidation:          adapterReportLiveValidation(m, pack, event),
 		NextSteps:               []string{"adapter writes bounded report under an authorized output path", "preflight the sidecar with gate -ValidateExecutionReport -GateEventId ... -ExecutionReportPath ... -Format json", "main Agent records valid reports with gate -Apply -GateEventId ... -ExecutionReportPath ...", "review refs before any authority/confirmed outcome"},
 	}
 }
@@ -802,9 +845,10 @@ func adapterReportDefaultPath(outputPaths []string) string {
 	return ""
 }
 
-func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportLiveValidation {
+func adapterReportLiveValidation(m *manifest.Manifest, pack string, event EventPreview) AdapterReportLiveValidation {
 	reportFileName := "adapter-report.json"
 	caseRelativeReportPath := adapterReportDefaultPath(event.Gate.OutputPaths)
+	adapterCandidates := adapterToolCandidates(m, event)
 	validateArgs := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", reportFileName, "-Format", "json"}
 	recordArgs := []string{"-Command", "gate", "-Pack", pack, "-Apply", "-GateEventId", event.EventID, "-ExecutionReportPath", reportFileName, "-Actor", "<executor-id>", "-Format", "json"}
 	caseRelativeValidateArgs := []string{}
@@ -825,7 +869,7 @@ func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportL
 		SidecarTemplate: AdapterReportSidecarTemplate{
 			SchemaVersion: 1,
 			Kind:          "adapter-execution-report",
-			AdapterID:     "<adapter-id>",
+			AdapterID:     sidecarAdapterID(adapterCandidates),
 			Action:        event.Gate.Action,
 			Status:        "succeeded|failed|boundary-hit|escalated|aborted",
 			GateEventID:   event.EventID,
@@ -844,6 +888,8 @@ func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportL
 		CaseRelativeRecordCommand:   caseRelativeRecordCommand,
 		CaseRelativeValidateArgs:    caseRelativeValidateArgs,
 		CaseRelativeRecordArgs:      caseRelativeRecordArgs,
+		AdapterCandidates:           adapterCandidates,
+		SelectedAdapter:             selectedAdapterToolCandidate(m, event, sidecarAdapterID(adapterCandidates)),
 		ReplayBehavior:              "repeating RecordArgs or CaseRelativeRecordArgs with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations",
 		Notes: []string{
 			"ValidateArgs and CaseRelativeValidateArgs are read-only: isMutation=false, applied=false, and no observations/authority/confirmed writes.",
@@ -855,10 +901,14 @@ func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportL
 	}
 }
 
-func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (ExecutionEvidencePreview, error) {
+func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options, m *manifest.Manifest) (ExecutionEvidencePreview, error) {
 	reportRel, adapterReport, err := readAdapterExecutionReport(caseRoot, gateEvent, opt.ExecutionReportCwd, opt.ExecutionReportPath)
 	if err != nil {
 		return ExecutionEvidencePreview{}, err
+	}
+	var adapterContext *AdapterToolCandidate
+	if adapterReport != nil {
+		adapterContext = selectedAdapterToolCandidate(m, gateEvent, adapterReport.AdapterID)
 	}
 	status := strings.ToLower(strings.TrimSpace(opt.ExecutionStatus))
 	if status == "" && adapterReport != nil {
@@ -988,6 +1038,7 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (Ex
 			RecordRequired:      gateEvent.Gate.Authorization.RecordRequired,
 			NotifyMainOn:        append([]string{}, gateEvent.Gate.Authorization.NotifyMainOn...),
 			ExecutionReportPath: reportRel,
+			AdapterContext:      adapterContext,
 			Adapter:             adapterReport,
 		},
 	}, nil
@@ -1653,6 +1704,204 @@ func splitList(value string) []string {
 		}
 	}
 	return out
+}
+
+func sidecarAdapterID(candidates []AdapterToolCandidate) string {
+	if len(candidates) == 0 {
+		return "<adapter-id>"
+	}
+	return candidates[0].ID
+}
+
+func selectedAdapterToolCandidate(m *manifest.Manifest, event EventPreview, adapterID string) *AdapterToolCandidate {
+	adapterID = strings.TrimSpace(adapterID)
+	if adapterID == "" || adapterID == "<adapter-id>" {
+		return nil
+	}
+	for _, candidate := range adapterToolCandidates(m, event) {
+		if strings.EqualFold(candidate.ID, adapterID) {
+			selected := candidate
+			return &selected
+		}
+	}
+	return nil
+}
+
+func adapterToolCandidates(m *manifest.Manifest, event EventPreview) []AdapterToolCandidate {
+	if m == nil {
+		return nil
+	}
+	action := strings.ToLower(strings.TrimSpace(event.Gate.Action))
+	if action == "" {
+		return nil
+	}
+	gate, ok := m.HeavyToolGate(action)
+	if !ok {
+		return nil
+	}
+	rows := map[string]AdapterToolCandidate{}
+	for _, rel := range m.ToolingFiles {
+		rel = strings.TrimSpace(rel)
+		if rel == "" || !strings.HasSuffix(strings.ToLower(rel), "catalog.yml") {
+			continue
+		}
+		path, err := m.SourcePath(rel)
+		if err != nil {
+			continue
+		}
+		items, err := manifest.ObjectListFromFile(path, "tools")
+		if err != nil {
+			continue
+		}
+		for _, item := range items {
+			candidate := adapterToolCandidateFromCatalogItem(item, rel, action, gate)
+			if candidate.ID == "" {
+				continue
+			}
+			key := strings.ToLower(candidate.ID)
+			if existing, ok := rows[key]; ok && adapterToolCandidateRank(existing) <= adapterToolCandidateRank(candidate) {
+				continue
+			}
+			rows[key] = candidate
+		}
+	}
+	out := make([]AdapterToolCandidate, 0, len(rows))
+	for _, candidate := range rows {
+		out = append(out, candidate)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := adapterToolCandidateRank(out[i])
+		right := adapterToolCandidateRank(out[j])
+		if left != right {
+			return left < right
+		}
+		return strings.ToLower(out[i].ID) < strings.ToLower(out[j].ID)
+	})
+	return out
+}
+
+func adapterToolCandidateFromCatalogItem(item map[string]string, catalogPath, action string, gate manifest.HeavyToolGate) AdapterToolCandidate {
+	id := strings.TrimSpace(item["id"])
+	if id == "" {
+		return AdapterToolCandidate{}
+	}
+	status := strings.TrimSpace(item["status"])
+	entry := strings.TrimSpace(item["entry"])
+	purpose := strings.TrimSpace(item["purpose"])
+	sideEffectsText := strings.TrimSpace(item["sideEffects"])
+	sideEffects := adapterCatalogSideEffects(sideEffectsText)
+	matchesAction := strings.EqualFold(id, action) || sideEffectsContain(sideEffects, action) || sideEffectsOverlap(sideEffects, gate.SideEffects) || adapterCatalogTextLooksActionSpecific(action, id, entry, sideEffectsText)
+	if !matchesAction && !strings.EqualFold(status, "auxiliary") && !adapterCatalogTextNegatesAction(action, purpose) {
+		matchesAction = adapterCatalogTextLooksActionSpecific(action, purpose)
+	}
+	if !matchesAction {
+		return AdapterToolCandidate{}
+	}
+	candidate := AdapterToolCandidate{
+		ID:                  id,
+		Status:              status,
+		Entry:               entry,
+		Purpose:             purpose,
+		SideEffects:         sideEffects,
+		GateActions:         []string{action},
+		ToolingCatalogPath:  catalogPath,
+		ReportGuidance:      adapterReportGuidance(action),
+		EvidenceGuidance:    adapterEvidenceGuidance(),
+		StopConditionHints:  append([]string{}, gate.StopConditions...),
+		RecordOnlyAfterGate: true,
+	}
+	return candidate
+}
+
+func adapterToolCandidateRank(candidate AdapterToolCandidate) int {
+	status := strings.ToLower(strings.TrimSpace(candidate.Status))
+	switch status {
+	case "mainline", "mainline-template", "supported":
+		return 0
+	case "cautious", "candidate":
+		return 1
+	case "auxiliary":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func adapterCatalogSideEffects(value string) []string {
+	items := splitList(value)
+	if len(items) > 1 {
+		return items
+	}
+	if strings.TrimSpace(value) == "" || strings.EqualFold(strings.TrimSpace(value), "none") {
+		return nil
+	}
+	return []string{strings.TrimSpace(value)}
+}
+
+func adapterCatalogTextLooksActionSpecific(action string, fields ...string) bool {
+	needle := strings.ToLower(strings.TrimSpace(action))
+	if needle == "" {
+		return false
+	}
+	for _, field := range fields {
+		text := strings.ToLower(strings.ReplaceAll(field, "_", "-"))
+		if strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func adapterCatalogTextNegatesAction(action, field string) bool {
+	text := strings.ToLower(strings.ReplaceAll(field, "_", "-"))
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "debug":
+		return strings.Contains(text, "without executing") || strings.Contains(text, "without debugging") || strings.Contains(text, "without") && strings.Contains(text, "debugging")
+	default:
+		return strings.Contains(text, "without "+strings.ToLower(strings.TrimSpace(action)))
+	}
+}
+
+func sideEffectsContain(sideEffects []string, action string) bool {
+	action = strings.ToLower(strings.TrimSpace(action))
+	for _, effect := range sideEffects {
+		if strings.EqualFold(strings.TrimSpace(effect), action) {
+			return true
+		}
+	}
+	return false
+}
+
+func sideEffectsOverlap(candidate, gate []string) bool {
+	seen := map[string]bool{}
+	for _, effect := range gate {
+		key := strings.ToLower(strings.TrimSpace(effect))
+		if key != "" {
+			seen[key] = true
+		}
+	}
+	for _, effect := range candidate {
+		if seen[strings.ToLower(strings.TrimSpace(effect))] {
+			return true
+		}
+	}
+	return false
+}
+
+func adapterReportGuidance(action string) []string {
+	return []string{
+		"select a pack tooling adapter whose purpose and sideEffects match authorized gate action " + action,
+		"set sidecar adapterId to the selected adapter id so validation and record evidence preserve concrete adapter provenance",
+		"write only bounded summary and case-relative refs in the sidecar; keep full tool output in authorized outputRefs/evidenceRefs",
+	}
+}
+
+func adapterEvidenceGuidance() []string {
+	return []string{
+		"preflight with ValidateArgs or CaseRelativeValidateArgs before recording evidence",
+		"record with RecordArgs or CaseRelativeRecordArgs only after the action stayed within authorized target, budget, output paths, and stop conditions",
+		"do not write authority/confirmed or run any heavy tool through /rekit",
+	}
 }
 
 func parseOutputPaths(caseRoot, value string) ([]string, error) {

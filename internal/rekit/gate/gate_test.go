@@ -271,6 +271,46 @@ heavyToolGates:
 	return repoRoot, caseRoot, pack
 }
 
+func gateToolingFixture(t *testing.T) (repoRoot, caseRoot, pack string) {
+	repoRoot, caseRoot, pack = gateFixture(t)
+	writeGateText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), `name: vmp-re
+managedFiles:
+  - references/vmp-re/README.md
+toolingFiles:
+  - tooling/catalog.yml
+heavyToolGates:
+  - id: debug
+    title: Dynamic debug or attach
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout,unexpected-side-effect,scope-drift
+  - id: symex
+    title: Long symbolic execution
+    sideEffects: symex,filesystem-write
+    defaultRisk: medium
+    requiresConfirmation: true
+    stopConditions: path-explosion,budget-exhausted,output-exceeds-bounded-evidence-packet
+`)
+	writeGateText(t, filepath.Join(repoRoot, "packs", pack, "tooling", "catalog.yml"), `schemaVersion: 1
+pack: vmp-re
+purpose: tooling fixture
+
+tools:
+  - id: static-summary-sidecar
+    status: mainline-template
+    entry: saved summary sidecar
+    purpose: Review saved metadata without side effects.
+    sideEffects: none
+  - id: dynamic-debug-or-writeback-action
+    status: cautious
+    entry: <caseRoot>/tools/dynamic-debug-or-writeback-action
+    purpose: Execute a bounded debug, trace, dump, patch, rename/comment, bulk decompile, database writeback, or networked verification step.
+    sideEffects: process execution, debugger state, trace files, database writes, binary patches, filesystem writes
+`)
+	return repoRoot, caseRoot, pack
+}
+
 func TestPlanDryRunUsesPreauthorizedLaneAutonomyProfile(t *testing.T) {
 	repoRoot, caseRoot, pack := gateFixture(t)
 	writeGateText(t, filepath.Join(caseRoot, ".rekit", "lanes", "main", "autonomy.json"), `{
@@ -433,6 +473,9 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if !strings.Contains(contract.LiveValidation.InvocationCwd, "authorizedWorkspaces") || !strings.Contains(contract.LiveValidation.InvocationCwd, "caseRelativeReportPath") || strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || contract.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != authorized.EventID || contract.LiveValidation.SidecarTemplate.Kind != "adapter-execution-report" || !strings.Contains(strings.Join(contract.LiveValidation.SidecarTemplate.EvidenceRefs, ","), "authorized outputPaths") || !strings.Contains(strings.Join(contract.LiveValidation.Notes, ","), "outputRefs/evidenceRefs") || !strings.Contains(strings.Join(contract.LiveValidation.Notes, ","), "CaseRelativeRecordArgs") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "CaseRelativeRecordArgs") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
 		t.Fatalf("adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
 	}
+	if len(contract.LiveValidation.AdapterCandidates) != 0 {
+		t.Fatalf("fixture without tooling catalog should not invent adapter candidates: %+v", contract.LiveValidation.AdapterCandidates)
+	}
 	if strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" {
 		t.Fatalf("adapter report contract validate args drifted: %+v", contract.LiveValidation.ValidateArgs)
 	}
@@ -498,6 +541,66 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 		t.Fatalf("adapter report contract repair hints omitted boundaries: %+v", contract.ValidationRepairHints)
 	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
+func TestAdapterReportContractProjectsPackToolingCandidateOperationalClosure(t *testing.T) {
+	repoRoot, caseRoot, pack := gateToolingFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized pack tooling debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	contract, err := AdapterReportContract(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contract.LiveValidation.AdapterCandidates) != 1 {
+		t.Fatalf("adapter report contract should project the concrete pack tooling candidate: %+v", contract.LiveValidation.AdapterCandidates)
+	}
+	candidate := contract.LiveValidation.AdapterCandidates[0]
+	if candidate.ID != "dynamic-debug-or-writeback-action" || candidate.Status != "cautious" || candidate.ToolingCatalogPath != "tooling/catalog.yml" || strings.Join(candidate.GateActions, ",") != "debug" || !candidate.RecordOnlyAfterGate {
+		t.Fatalf("unexpected adapter tooling candidate identity: %+v", candidate)
+	}
+	if !strings.Contains(candidate.Entry, "dynamic-debug-or-writeback-action") || !strings.Contains(candidate.Purpose, "bounded debug") || !strings.Contains(strings.Join(candidate.SideEffects, ","), "debugger state") || !strings.Contains(strings.Join(candidate.ReportGuidance, ","), "adapterId") || !strings.Contains(strings.Join(candidate.EvidenceGuidance, ","), "ValidateArgs") || strings.Join(candidate.StopConditionHints, ",") != "timeout,unexpected-side-effect,scope-drift" {
+		t.Fatalf("adapter tooling candidate omitted operational handoff guidance: %+v", candidate)
+	}
+	if contract.LiveValidation.SidecarTemplate.AdapterID != candidate.ID || contract.LiveValidation.SelectedAdapter == nil || contract.LiveValidation.SelectedAdapter.ID != candidate.ID || contract.LiveValidation.SidecarTemplate.Action != "debug" {
+		t.Fatalf("adapter sidecar template drifted: %+v", contract.LiveValidation)
+	}
+
+	reportPath := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "adapter-report.json")
+	writeGateText(t, reportPath, `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "dynamic-debug-or-writeback-action",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/debug/session-1/result.json"],
+  "summary": "Adapter completed bounded debug handoff without running heavy tool through rekit"
+}`)
+	writeGateText(t, filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "result.json"), `{"ok":true}`)
+	validation, err := ValidateAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: reportPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validation.Valid || validation.IsMutation || validation.Applied || validation.Report == nil || validation.Report.AdapterID != candidate.ID || len(validation.Contract.LiveValidation.AdapterCandidates) != 1 || validation.AdapterContext == nil || len(validation.AdapterContext.Candidates) != 1 || validation.AdapterContext.Selected == nil || validation.AdapterContext.Selected.ID != candidate.ID {
+		t.Fatalf("adapter candidate sidecar should validate read-only before record: %+v", validation)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+
+	recorded, err := RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionReportPath: reportPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recorded.Applied || recorded.ExecutionEvidence == nil || recorded.ExecutionEvidence.Execution.Adapter == nil || recorded.ExecutionEvidence.Execution.Adapter.AdapterID != candidate.ID || recorded.ExecutionEvidence.Execution.AdapterContext == nil || recorded.ExecutionEvidence.Execution.AdapterContext.ID != candidate.ID || recorded.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" {
+		t.Fatalf("adapter candidate sidecar should record bounded observation evidence: %+v", recorded)
+	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }
