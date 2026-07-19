@@ -527,6 +527,9 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if !gateContainsSubstring(commander.FollowUpCommands, wantRecord) || !gateContainsSubstring(commander.FollowUpCommands, "/rekit handoff main") || !gateContainsSubstring(commander.Boundary, "read-only") || !gateContainsSubstring(commander.Boundary, "bounded observation evidence") || !gateContainsSubstring(commander.Boundary, "never executes the heavy tool") || !gateContainsSubstring(commander.Boundary, "no authority/confirmed") {
 		t.Fatalf("adapter report contract omitted Mission Commander follow-up boundaries: %+v", commander)
 	}
+	if len(contract.MissionCommanderNextActions) != 3 || contract.MissionCommanderNextActions[0].State != "needs-adapter-report-validation" || contract.MissionCommanderNextActions[0].Source != "adapterReportContract.missionCommanderAction" || contract.MissionCommanderNextActions[0].Command != wantValidate || contract.MissionCommanderNextActions[1].Command != wantRecord || !contract.MissionCommanderNextActions[1].Blocked || contract.MissionCommanderNextActions[2].Command != "/rekit handoff main" || !gateNextActionBoundaryContains(contract.MissionCommanderNextActions, "do not record evidence until validation returns valid=true") || !gateNextActionBoundaryContains(contract.MissionCommanderNextActions, "replace <executor-id>") {
+		t.Fatalf("adapter report contract omitted Mission Commander next actions: %+v", contract.MissionCommanderNextActions)
+	}
 	if !gateContainsSubstring(contract.NextSteps, wantValidate) || !gateContainsSubstring(contract.NextSteps, wantRecord) || !gateContainsSubstring(contract.NextSteps, "valid=true") || !gateContainsSubstring(contract.NextSteps, "never executes the heavy tool") {
 		t.Fatalf("adapter report contract omitted concrete Mission Commander next steps: %+v", contract.NextSteps)
 	}
@@ -671,6 +674,9 @@ func TestValidateAdapterExecutionReportReadOnlyPreflight(t *testing.T) {
 	if commander.State != "ready-to-record-evidence" || commander.PrimaryCommand != wantRecord || !strings.Contains(commander.Prompt, "valid=true") || !gateContainsSubstring(commander.FollowUpCommands, "/rekit handoff main") {
 		t.Fatalf("valid adapter report validation omitted Mission Commander record handoff: %+v", commander)
 	}
+	if len(validation.MissionCommanderNextActions) != 2 || validation.MissionCommanderNextActions[0].State != "ready-to-record-evidence" || validation.MissionCommanderNextActions[0].Source != "adapterReportValidation.missionCommanderAction" || validation.MissionCommanderNextActions[0].Command != wantRecord || validation.MissionCommanderNextActions[1].Command != "/rekit handoff main" || !gateNextActionBoundaryContains(validation.MissionCommanderNextActions, "replace <executor-id>") {
+		t.Fatalf("valid adapter report validation omitted record next actions: %+v", validation.MissionCommanderNextActions)
+	}
 	if !gateContainsSubstring(commander.Boundary, "read-only") || !gateContainsSubstring(commander.Boundary, "bounded observation evidence") || !gateContainsSubstring(commander.Boundary, "never executes the heavy tool") || !gateContainsSubstring(validation.NextSteps, wantRecord) {
 		t.Fatalf("valid adapter report validation omitted Mission Commander boundaries: commander=%+v next=%+v", commander, validation.NextSteps)
 	}
@@ -733,6 +739,9 @@ func TestValidateAdapterExecutionReportMissingPathExposesMissionCommanderRepair(
 	if commander.State != "needs-execution-report-path" || commander.PrimaryCommand != wantValidate || !strings.Contains(commander.Prompt, "valid=true") || gateContainsSubstring(commander.FollowUpCommands, "-Apply") || !gateContainsSubstring(commander.Boundary, "do not record evidence until validation returns valid=true") {
 		t.Fatalf("missing-path validation omitted Mission Commander repair handoff: %+v", commander)
 	}
+	if len(validation.MissionCommanderNextActions) != 2 || validation.MissionCommanderNextActions[0].Source != "adapterReportValidation.repairHints" || validation.MissionCommanderNextActions[0].Command != "provide-execution-report-path" || validation.MissionCommanderNextActions[1].Command != wantValidate || !gateNextActionBoundaryContains(validation.MissionCommanderNextActions, "do not record evidence until validation returns valid=true") {
+		t.Fatalf("missing-path validation omitted repair next actions: %+v", validation.MissionCommanderNextActions)
+	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
 
@@ -772,6 +781,9 @@ func TestValidateAdapterExecutionReportReturnsInvalidEnvelopeReadOnly(t *testing
 	wantValidate := "/rekit gate -Pack " + pack + " -GateEventId " + authorized.EventID + " -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/bad-report.json -Format json"
 	if commander.State != "repair-adapter-report" || commander.PrimaryCommand != wantValidate || !strings.Contains(commander.Prompt, "valid=true") || gateContainsSubstring(commander.FollowUpCommands, "-Apply") || !gateContainsSubstring(commander.Boundary, "do not record evidence until validation returns valid=true") {
 		t.Fatalf("invalid adapter report validation omitted Mission Commander repair handoff: %+v", commander)
+	}
+	if len(validation.MissionCommanderNextActions) != 2 || validation.MissionCommanderNextActions[0].Source != "adapterReportValidation.repairHints" || validation.MissionCommanderNextActions[0].Command != "add-boundary-marker" || validation.MissionCommanderNextActions[1].Command != wantValidate || !gateNextActionBoundaryContains(validation.MissionCommanderNextActions, "do not record evidence until validation returns valid=true") {
+		t.Fatalf("invalid adapter report validation omitted repair next actions: %+v", validation.MissionCommanderNextActions)
 	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }

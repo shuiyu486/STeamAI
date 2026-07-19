@@ -120,43 +120,44 @@ type AdapterReport struct {
 }
 
 type AdapterExecutionReportContract struct {
-	SchemaVersion           int                                   `json:"schemaVersion"`
-	Command                 string                                `json:"command"`
-	Kind                    string                                `json:"kind"`
-	CaseRoot                string                                `json:"caseRoot"`
-	RepoRoot                string                                `json:"repoRoot"`
-	Pack                    string                                `json:"pack"`
-	IsMutation              bool                                  `json:"isMutation"`
-	Lane                    string                                `json:"lane"`
-	Target                  string                                `json:"target,omitempty"`
-	BatchID                 string                                `json:"batchId,omitempty"`
-	Risk                    string                                `json:"risk,omitempty"`
-	Authorization           autonomy.Decision                     `json:"authorization"`
-	ReportKind              string                                `json:"reportKind"`
-	ReportSchemaVersion     int                                   `json:"reportSchemaVersion"`
-	GateEventID             string                                `json:"gateEventId"`
-	Action                  string                                `json:"action"`
-	AllowedStatuses         []string                              `json:"allowedStatuses"`
-	RequiredFields          []string                              `json:"requiredFields"`
-	AllowedOutputPaths      []string                              `json:"allowedOutputPaths"`
-	DefaultReportPath       string                                `json:"defaultReportPath,omitempty"`
-	AuthorizedBudget        autonomy.Budget                       `json:"authorizedBudget"`
-	StopConditions          []string                              `json:"stopConditions,omitempty"`
-	ReportPathRule          string                                `json:"reportPathRule"`
-	RefPathRequires         []string                              `json:"refPathRequires,omitempty"`
-	SummaryMaxBytes         int                                   `json:"summaryMaxBytes"`
-	RecordRequired          bool                                  `json:"recordRequired"`
-	NotifyMainOn            []string                              `json:"notifyMainOn,omitempty"`
-	BoundaryStatusRequires  []string                              `json:"boundaryStatusRequires,omitempty"`
-	StatusSummaryRequires   []string                              `json:"statusSummaryRequires,omitempty"`
-	EscalationMaxBytes      int                                   `json:"escalationMaxBytes"`
-	ValidationFailureStages []AdapterReportValidationFailureStage `json:"validationFailureStages,omitempty"`
-	ValidationFailureCodes  []AdapterReportValidationFailureCode  `json:"validationFailureCodes,omitempty"`
-	ValidationRepairHints   []AdapterReportRepairHint             `json:"validationRepairHints,omitempty"`
-	DeniedActions           []string                              `json:"deniedActions,omitempty"`
-	LiveValidation          AdapterReportLiveValidation           `json:"liveValidation"`
-	MissionCommanderAction  mission.MissionCommanderAction        `json:"missionCommanderAction"`
-	NextSteps               []string                              `json:"nextSteps,omitempty"`
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Command                     string                                   `json:"command"`
+	Kind                        string                                   `json:"kind"`
+	CaseRoot                    string                                   `json:"caseRoot"`
+	RepoRoot                    string                                   `json:"repoRoot"`
+	Pack                        string                                   `json:"pack"`
+	IsMutation                  bool                                     `json:"isMutation"`
+	Lane                        string                                   `json:"lane"`
+	Target                      string                                   `json:"target,omitempty"`
+	BatchID                     string                                   `json:"batchId,omitempty"`
+	Risk                        string                                   `json:"risk,omitempty"`
+	Authorization               autonomy.Decision                        `json:"authorization"`
+	ReportKind                  string                                   `json:"reportKind"`
+	ReportSchemaVersion         int                                      `json:"reportSchemaVersion"`
+	GateEventID                 string                                   `json:"gateEventId"`
+	Action                      string                                   `json:"action"`
+	AllowedStatuses             []string                                 `json:"allowedStatuses"`
+	RequiredFields              []string                                 `json:"requiredFields"`
+	AllowedOutputPaths          []string                                 `json:"allowedOutputPaths"`
+	DefaultReportPath           string                                   `json:"defaultReportPath,omitempty"`
+	AuthorizedBudget            autonomy.Budget                          `json:"authorizedBudget"`
+	StopConditions              []string                                 `json:"stopConditions,omitempty"`
+	ReportPathRule              string                                   `json:"reportPathRule"`
+	RefPathRequires             []string                                 `json:"refPathRequires,omitempty"`
+	SummaryMaxBytes             int                                      `json:"summaryMaxBytes"`
+	RecordRequired              bool                                     `json:"recordRequired"`
+	NotifyMainOn                []string                                 `json:"notifyMainOn,omitempty"`
+	BoundaryStatusRequires      []string                                 `json:"boundaryStatusRequires,omitempty"`
+	StatusSummaryRequires       []string                                 `json:"statusSummaryRequires,omitempty"`
+	EscalationMaxBytes          int                                      `json:"escalationMaxBytes"`
+	ValidationFailureStages     []AdapterReportValidationFailureStage    `json:"validationFailureStages,omitempty"`
+	ValidationFailureCodes      []AdapterReportValidationFailureCode     `json:"validationFailureCodes,omitempty"`
+	ValidationRepairHints       []AdapterReportRepairHint                `json:"validationRepairHints,omitempty"`
+	DeniedActions               []string                                 `json:"deniedActions,omitempty"`
+	LiveValidation              AdapterReportLiveValidation              `json:"liveValidation"`
+	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	NextSteps                   []string                                 `json:"nextSteps,omitempty"`
 }
 
 type AdapterReportLiveValidation struct {
@@ -240,27 +241,28 @@ type AdapterReportRepairHint struct {
 }
 
 type AdapterExecutionReportValidation struct {
-	SchemaVersion          int                            `json:"schemaVersion"`
-	Command                string                         `json:"command"`
-	Kind                   string                         `json:"kind"`
-	CaseRoot               string                         `json:"caseRoot"`
-	RepoRoot               string                         `json:"repoRoot"`
-	Pack                   string                         `json:"pack"`
-	IsMutation             bool                           `json:"isMutation"`
-	Applied                bool                           `json:"applied"`
-	Valid                  bool                           `json:"valid"`
-	Error                  string                         `json:"error,omitempty"`
-	Errors                 []string                       `json:"errors,omitempty"`
-	FailureCode            string                         `json:"failureCode,omitempty"`
-	FailureStage           string                         `json:"failureStage,omitempty"`
-	RepairHints            []AdapterReportRepairHint      `json:"repairHints,omitempty"`
-	GateEventID            string                         `json:"gateEventId"`
-	ReportPath             string                         `json:"reportPath,omitempty"`
-	Report                 *AdapterReport                 `json:"report,omitempty"`
-	AdapterContext         *AdapterContext                `json:"adapterContext,omitempty"`
-	Contract               AdapterExecutionReportContract `json:"contract"`
-	MissionCommanderAction mission.MissionCommanderAction `json:"missionCommanderAction"`
-	NextSteps              []string                       `json:"nextSteps"`
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Command                     string                                   `json:"command"`
+	Kind                        string                                   `json:"kind"`
+	CaseRoot                    string                                   `json:"caseRoot"`
+	RepoRoot                    string                                   `json:"repoRoot"`
+	Pack                        string                                   `json:"pack"`
+	IsMutation                  bool                                     `json:"isMutation"`
+	Applied                     bool                                     `json:"applied"`
+	Valid                       bool                                     `json:"valid"`
+	Error                       string                                   `json:"error,omitempty"`
+	Errors                      []string                                 `json:"errors,omitempty"`
+	FailureCode                 string                                   `json:"failureCode,omitempty"`
+	FailureStage                string                                   `json:"failureStage,omitempty"`
+	RepairHints                 []AdapterReportRepairHint                `json:"repairHints,omitempty"`
+	GateEventID                 string                                   `json:"gateEventId"`
+	ReportPath                  string                                   `json:"reportPath,omitempty"`
+	Report                      *AdapterReport                           `json:"report,omitempty"`
+	AdapterContext              *AdapterContext                          `json:"adapterContext,omitempty"`
+	Contract                    AdapterExecutionReportContract           `json:"contract"`
+	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	NextSteps                   []string                                 `json:"nextSteps"`
 }
 
 type adapterReportValidationError struct {
@@ -764,6 +766,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		}
 		validation.RepairHints = adapterReportRepairHints(gateEvent, validation.FailureCode, validation.FailureStage)
 		validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, false, validation.RepairHints)
+		validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, false, validation.RepairHints)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		return validation, nil
 	}
@@ -773,11 +776,13 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.Errors = []string{validation.Error}
 		validation.RepairHints = adapterReportMissingPathRepairHints(gateEvent)
 		validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, false, validation.RepairHints)
+		validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, false, validation.RepairHints)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		return validation, nil
 	}
 	validation.Valid = true
 	validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, true, nil)
+	validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, true, nil)
 	validation.NextSteps = adapterReportValidationNextSteps(pack, gateEvent, validation.ReportPath)
 	return validation, nil
 }
@@ -815,44 +820,46 @@ func findAuthorizedGateEvent(caseRoot, gateEventID string) (EventPreview, error)
 
 func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, m *manifest.Manifest) AdapterExecutionReportContract {
 	liveValidation := adapterReportLiveValidation(m, pack, event)
+	commander := adapterReportContractCommanderAction(event, pack, liveValidation)
 	return AdapterExecutionReportContract{
-		SchemaVersion:           1,
-		Command:                 "gate",
-		Kind:                    "adapter-execution-report-contract",
-		CaseRoot:                caseRoot,
-		RepoRoot:                repoRoot,
-		Pack:                    pack,
-		IsMutation:              false,
-		Lane:                    event.Lane,
-		Target:                  event.Target,
-		BatchID:                 event.BatchID,
-		Risk:                    event.Risk,
-		Authorization:           event.Gate.Authorization,
-		ReportKind:              "adapter-execution-report",
-		ReportSchemaVersion:     1,
-		GateEventID:             event.EventID,
-		Action:                  event.Gate.Action,
-		AllowedStatuses:         []string{"succeeded", "failed", "boundary-hit", "escalated", "aborted"},
-		RequiredFields:          []string{"schemaVersion", "kind", "adapterId", "action", "status", "gateEventId", "actualBudget"},
-		AllowedOutputPaths:      append([]string{}, event.Gate.OutputPaths...),
-		AuthorizedBudget:        event.Gate.RequestedBudget,
-		StopConditions:          append([]string{}, event.Gate.StopConditions...),
-		DefaultReportPath:       adapterReportDefaultPath(event.Gate.OutputPaths),
-		ReportPathRule:          "case-relative, current-workspace relative, or case-contained absolute file path under one authorized outputPath; sidecar must be <= 1048576 bytes and contain no trailing JSON data",
-		RefPathRequires:         []string{"outputRefs and evidenceRefs must be case-relative", "outputRefs and evidenceRefs must stay under authorized outputPaths"},
-		SummaryMaxBytes:         4096,
-		EscalationMaxBytes:      4096,
-		RecordRequired:          event.Gate.Authorization.RecordRequired,
-		NotifyMainOn:            append([]string{}, event.Gate.Authorization.NotifyMainOn...),
-		BoundaryStatusRequires:  []string{"boundaryHits or escalation for boundary-hit/escalated status", "boundaryHits or escalation when actualBudget exceeds authorizedBudget", "boundaryHits must be one of authorized stopConditions"},
-		StatusSummaryRequires:   []string{"summary for failed/boundary-hit/escalated/aborted status"},
-		ValidationFailureStages: adapterReportValidationFailureStages(),
-		ValidationFailureCodes:  adapterReportValidationFailureCodes(),
-		ValidationRepairHints:   adapterReportContractRepairHints(event),
-		DeniedActions:           []string{"heavy-tool execution", "authority writes", "confirmed writes", "out-of-scope output refs", "full trace/dump/log embedding"},
-		LiveValidation:          liveValidation,
-		MissionCommanderAction:  adapterReportContractCommanderAction(event, pack, liveValidation),
-		NextSteps:               adapterReportContractNextSteps(pack, event, liveValidation),
+		SchemaVersion:               1,
+		Command:                     "gate",
+		Kind:                        "adapter-execution-report-contract",
+		CaseRoot:                    caseRoot,
+		RepoRoot:                    repoRoot,
+		Pack:                        pack,
+		IsMutation:                  false,
+		Lane:                        event.Lane,
+		Target:                      event.Target,
+		BatchID:                     event.BatchID,
+		Risk:                        event.Risk,
+		Authorization:               event.Gate.Authorization,
+		ReportKind:                  "adapter-execution-report",
+		ReportSchemaVersion:         1,
+		GateEventID:                 event.EventID,
+		Action:                      event.Gate.Action,
+		AllowedStatuses:             []string{"succeeded", "failed", "boundary-hit", "escalated", "aborted"},
+		RequiredFields:              []string{"schemaVersion", "kind", "adapterId", "action", "status", "gateEventId", "actualBudget"},
+		AllowedOutputPaths:          append([]string{}, event.Gate.OutputPaths...),
+		AuthorizedBudget:            event.Gate.RequestedBudget,
+		StopConditions:              append([]string{}, event.Gate.StopConditions...),
+		DefaultReportPath:           adapterReportDefaultPath(event.Gate.OutputPaths),
+		ReportPathRule:              "case-relative, current-workspace relative, or case-contained absolute file path under one authorized outputPath; sidecar must be <= 1048576 bytes and contain no trailing JSON data",
+		RefPathRequires:             []string{"outputRefs and evidenceRefs must be case-relative", "outputRefs and evidenceRefs must stay under authorized outputPaths"},
+		SummaryMaxBytes:             4096,
+		EscalationMaxBytes:          4096,
+		RecordRequired:              event.Gate.Authorization.RecordRequired,
+		NotifyMainOn:                append([]string{}, event.Gate.Authorization.NotifyMainOn...),
+		BoundaryStatusRequires:      []string{"boundaryHits or escalation for boundary-hit/escalated status", "boundaryHits or escalation when actualBudget exceeds authorizedBudget", "boundaryHits must be one of authorized stopConditions"},
+		StatusSummaryRequires:       []string{"summary for failed/boundary-hit/escalated/aborted status"},
+		ValidationFailureStages:     adapterReportValidationFailureStages(),
+		ValidationFailureCodes:      adapterReportValidationFailureCodes(),
+		ValidationRepairHints:       adapterReportContractRepairHints(event),
+		DeniedActions:               []string{"heavy-tool execution", "authority writes", "confirmed writes", "out-of-scope output refs", "full trace/dump/log embedding"},
+		LiveValidation:              liveValidation,
+		MissionCommanderAction:      commander,
+		MissionCommanderNextActions: adapterReportContractCommanderNextActions(event, commander),
+		NextSteps:                   adapterReportContractNextSteps(pack, event, liveValidation),
 	}
 }
 
@@ -873,6 +880,122 @@ func adapterReportContractCommanderAction(event EventPreview, pack string, liveV
 		},
 		Boundary: adapterReportCommanderBoundary(),
 	}
+}
+
+func adapterReportContractCommanderNextActions(event EventPreview, commander mission.MissionCommanderAction) []mission.MissionCommanderNextActionItem {
+	label := gateCommanderActionLabel(event.Lane)
+	items := []mission.MissionCommanderNextActionItem{}
+	if commander.PrimaryCommand != "" {
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Lane:           event.Lane,
+			Label:          label,
+			State:          commander.State,
+			Command:        commander.PrimaryCommand,
+			Source:         "adapterReportContract.missionCommanderAction",
+			RequiresReview: true,
+			Reasons:        []string{"run read-only validation before recording observation evidence", "adapter sidecar must be valid=true before record"},
+			Boundary:       append([]string{}, commander.Boundary...),
+		})
+	}
+	for _, followUp := range commander.FollowUpCommands {
+		boundary := append([]string{}, commander.Boundary...)
+		reasons := []string{"follow adapter report contract handoff after validation"}
+		blocked := false
+		if strings.Contains(followUp, "-Apply") {
+			blocked = true
+			reasons = append(reasons, "run only after validation returns valid=true", "replace <executor-id> before recording evidence")
+			boundary = append(boundary, "do not record evidence until validation returns valid=true", "replace <executor-id> before running record command")
+		}
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Lane:           event.Lane,
+			Label:          label,
+			State:          commander.State,
+			Command:        followUp,
+			Source:         "adapterReportContract.missionCommanderAction.followUp",
+			Blocked:        blocked,
+			RequiresReview: true,
+			Reasons:        reasons,
+			Boundary:       boundary,
+		})
+	}
+	return mission.UniqueCommanderNextActions(items)
+}
+
+func adapterReportValidationCommanderNextActions(event EventPreview, commander mission.MissionCommanderAction, valid bool, hints []AdapterReportRepairHint) []mission.MissionCommanderNextActionItem {
+	label := gateCommanderActionLabel(event.Lane)
+	items := []mission.MissionCommanderNextActionItem{}
+	if valid {
+		if commander.PrimaryCommand != "" {
+			items = append(items, mission.MissionCommanderNextActionItem{
+				Lane:           event.Lane,
+				Label:          label,
+				State:          commander.State,
+				Command:        commander.PrimaryCommand,
+				Source:         "adapterReportValidation.missionCommanderAction",
+				RequiresReview: true,
+				Reasons:        []string{"validation returned valid=true", "replace <executor-id> before recording bounded observation evidence"},
+				Boundary:       append(append([]string{}, commander.Boundary...), "replace <executor-id> before running record command"),
+			})
+		}
+		for _, followUp := range commander.FollowUpCommands {
+			items = append(items, mission.MissionCommanderNextActionItem{
+				Lane:           event.Lane,
+				Label:          label,
+				State:          commander.State,
+				Command:        followUp,
+				Source:         "adapterReportValidation.missionCommanderAction.followUp",
+				RequiresReview: true,
+				Reasons:        []string{"handoff after recording or reviewing valid adapter report evidence"},
+				Boundary:       append([]string{}, commander.Boundary...),
+			})
+		}
+		return mission.UniqueCommanderNextActions(items)
+	}
+	for _, hint := range hints {
+		if strings.TrimSpace(hint.RepairAction) == "" {
+			continue
+		}
+		reasons := []string{"repair invalid adapter execution report before record", hint.Detail}
+		if hint.RerunValidation {
+			reasons = append(reasons, "rerun read-only validation after repair")
+		}
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Lane:           event.Lane,
+			Label:          label,
+			State:          commander.State,
+			Command:        hint.RepairAction,
+			Source:         "adapterReportValidation.repairHints",
+			Blocked:        hint.EscalateToMain,
+			RequiresReview: true,
+			Reasons:        reasons,
+			Boundary:       append([]string{}, commander.Boundary...),
+		})
+	}
+	if commander.PrimaryCommand != "" {
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Lane:           event.Lane,
+			Label:          label,
+			State:          commander.State,
+			Command:        commander.PrimaryCommand,
+			Source:         "adapterReportValidation.missionCommanderAction",
+			Blocked:        commander.State == "needs-main-escalation",
+			RequiresReview: true,
+			Reasons:        []string{"rerun read-only validation after repairing the adapter report", "do not record evidence until validation returns valid=true"},
+			Boundary:       append([]string{}, commander.Boundary...),
+		})
+	}
+	return mission.UniqueCommanderNextActions(items)
+}
+
+func gateCommanderActionLabel(laneID string) string {
+	label := mission.BoardLaneLabel(mission.BoardLane{ID: laneID})
+	if strings.TrimSpace(label) == "" {
+		label = strings.TrimSpace(laneID)
+	}
+	if label == "" {
+		label = "main"
+	}
+	return label
 }
 
 func adapterReportContractNextSteps(pack string, event EventPreview, liveValidation AdapterReportLiveValidation) []string {

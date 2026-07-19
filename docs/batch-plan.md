@@ -16,24 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 410：Authorized execution duplicate/idempotent review projection closure
+### Batch 411：Adapter report contract / validation next-action closure
 
-状态：已完成本地实现、durable docs、本机验证、提交/推送与远程 release-gate inspection。
+状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；待提交/推送与远程 release-gate inspection。
 
-目标：Batch 408 已让 `gate -Apply -GateEventId ...` execution evidence record result 立即输出 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]`，但 duplicate eventId 路径虽然顶层 `missionCommanderAction` 已是 `evidence-already-recorded`，即时 review queue / next-action projection 仍可能从 normal observation review 语义重建，导致主 Agent 看到 normal `/rekit continue ... -WhatIf` 或 lane-level continue 候选。本批把 duplicate no-append / no-replay 语义贯穿到即时 review queue、next actions 与 CLI text。
+目标：Batch 392 已让 `gate -ExecutionReportContract` 与 `gate -ValidateExecutionReport` 输出 adapter sidecar `missionCommanderAction`，但主 Agent / replacement executor 仍需从 commander action、nextSteps、repairHints、liveValidation record/validate args 手工拼接 “read-only validate → valid=true 后 record → handoff” 或 “repair → rerun validation” 顺序。本批把 adapter report contract / validation 的可执行顺序收口为 `missionCommanderNextActions[]`。
 
-边界：只增强 `gate -Apply -GateEventId ...` duplicate execution evidence result projection、package/CLI tests 与 durable docs；duplicate path 仍是 idempotent no-op，不追加 observations；runtime 不执行 heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+边界：只增强 `gate -ExecutionReportContract` / `gate -ValidateExecutionReport` JSON projection、package/CLI tests 与 durable docs；validation 仍 read-only，不写 observations/authority/confirmed；contract 阶段的 record command 只作为 blocked handoff，必须等 valid=true 并替换 `<executor-id>`；runtime 不执行 heavy-tool、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- duplicate execution evidence path 现在用顶层 duplicate-specific commander action 覆盖即时 `executionEvidenceReview[].missionCommanderAction`，并把 `duplicate record did not append observation evidence` boundary 同步到 review item。
-- duplicate `missionCommanderNextActions[]` 只保留 evidence review handoff 与 `/rekit overview` follow-up，不再混入 normal evidence review 的 `/rekit continue ... -WhatIf` 或 lane-level `missionCommanderActions` continue 建议。
-- CLI text coverage 锁定 duplicate record 输出 `applied=false`、`evidence-already-recorded`、review-only `mission commander next action` lines 与 no-append boundary。
-- package coverage 锁定 duplicate no-append、no-continue、review queue idempotent state、next-action source/order/boundary 与 no authority/confirmed。
+- `AdapterExecutionReportContract` 与 `AdapterExecutionReportValidation` 新增 `missionCommanderNextActions[]`。
+- contract 阶段输出 read-only validation primary action、blocked record follow-up 与 handoff follow-up；record follow-up 明确 `do not record evidence until validation returns valid=true` 与 `replace <executor-id>` boundary。
+- validation valid=true 阶段输出 record observation evidence next action 与 handoff next action；invalid/missing path 阶段输出 repair hint next action 与 rerun read-only validation next action，不输出 record `-Apply`。
+- package 与 CLI coverage 锁定 contract/validation JSON projection、nested workspace case-relative product path、repair hints、no observations on validation、no authority/confirmed、no heavy-tool 与 no premature record boundaries。
 
-验证结果：已通过 focused `go test ./internal/rekit/gate ./internal/rekit/cli -run "TestRecordExecutionDuplicateDoesNotAppend|TestRunGateDuplicateExecutionEvidenceProjectsIdempotentNextActions|TestRunGateExecutionEvidenceTextOutputsNextActions|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `32e59c3 Add duplicate evidence idempotent next actions`；远程 release-gate run `29702472573` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/gate ./internal/rekit/cli -run "TestAdapterReportContractDescribesAuthorizedGateBoundaries|TestValidateAdapterExecutionReportReadOnlyPreflight|TestValidateAdapterExecutionReportMissingPathExposesMissionCommanderRepair|TestValidateAdapterExecutionReportReturnsInvalidEnvelopeReadOnly|TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、affected vet `go vet ./internal/rekit/gate ./internal/rekit/cli`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。
 
-上一批摘要：Batch 409 已完成 pack-memory cleanup/reconsume `missionCommanderNextActions[]` 与 Go CLI text output，详见 `docs/batch-history.md`。
+上一批摘要：Batch 410 已完成 duplicate execution evidence idempotent `missionCommanderNextActions[]`，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
