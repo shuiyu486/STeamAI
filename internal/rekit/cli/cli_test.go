@@ -4660,6 +4660,9 @@ func TestRunPromoteCreateCandidatesWhatIf(t *testing.T) {
 		t.Fatalf("unexpected promote candidates what-if result: %+v", result)
 	}
 	assertCandidateWrite(t, result.Writes, "references/template/README.md", "would-create-candidate")
+	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) == 0 || !containsSubstring(result.ReviewPlan.RuntimeBoundary, "when not WhatIf") {
+		t.Fatalf("unexpected promote candidates what-if review plan: %+v", result.ReviewPlan)
+	}
 	if _, err := os.Stat(result.Writes[0].TargetPath); !os.IsNotExist(err) {
 		t.Fatalf("promote candidates what-if created %s", result.Writes[0].TargetPath)
 	}
@@ -4699,6 +4702,24 @@ func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
 	}
 	assertFileExists(t, readmeWrite.TargetPath)
 	assertFileExists(t, toolingWrite.TargetPath)
+	if result.ReviewPlan.Mode != "candidate-review" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 || result.ReviewPlan.Reconsume.Mode != "pack-memory-reconsume-after-merge" {
+		t.Fatalf("unexpected promote candidates review plan: %+v", result.ReviewPlan)
+	}
+	readmeReview := assertCandidateReviewItem(t, result.ReviewPlan.ReviewItems, "references/template/README.md", "pending-review")
+	toolingReview := assertCandidateReviewItem(t, result.ReviewPlan.ReviewItems, "references/template/toolchain-router.md", "pending-review")
+	assertCandidateReviewItem(t, result.ReviewPlan.ReviewItems, "references/template/workflow-template.md", "blocked")
+	if readmeReview.CleanupPath != readmeWrite.TargetPath || !strings.Contains(readmeReview.MergeTargetHint, "pack managed doc") || strings.Contains(readmeReview.MergeTargetHint, "rerun promote -Apply") {
+		t.Fatalf("managed candidate review guidance drifted: %+v", readmeReview)
+	}
+	if !containsSubstring(readmeReview.MainAgentActions, "update or remove indexPath") {
+		t.Fatalf("managed candidate review guidance missing index cleanup: %+v", readmeReview.MainAgentActions)
+	}
+	if toolingReview.CleanupPath != toolingWrite.TargetPath || !strings.Contains(toolingReview.MergeTargetHint, "tooling/catalog.yml") || !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "tooling/recipes") || !containsSubstring(result.ReviewPlan.CompletionCriteria, "fresh or attached case reconsume") || !containsSubstring(result.ReviewPlan.CompletionCriteria, "promote -Apply is not a candidate-scoped accept path") || !containsSubstring(result.ReviewPlan.CompletionCriteria, "indexPath is updated or removed") {
+		t.Fatalf("tooling candidate review/reconsume guidance drifted: item=%+v reconsume=%+v criteria=%+v", toolingReview, result.ReviewPlan.Reconsume, result.ReviewPlan.CompletionCriteria)
+	}
+	if len(result.ReviewPlan.CleanupTargets) == 0 || !strings.Contains(result.ReviewPlan.CleanupTargets[0].CleanupWhen, "update or remove indexPath") {
+		t.Fatalf("candidate cleanup guidance missing index cleanup: %+v", result.ReviewPlan.CleanupTargets)
+	}
 	if workflowWrite.TargetPath != filepath.Join(repoRoot(t), "packs", "_template", filepath.FromSlash("references/template/workflow-template.md")) {
 		t.Fatalf("blocked write target = %q, want pack source", workflowWrite.TargetPath)
 	}
@@ -6607,16 +6628,47 @@ type startWrite struct {
 }
 
 type candidateResult struct {
-	Command         string           `json:"command"`
-	IsMutation      bool             `json:"isMutation"`
-	Applied         bool             `json:"applied"`
-	CandidateRoot   string           `json:"candidateRoot"`
-	ToolingRoot     string           `json:"toolingRoot"`
-	IndexPath       string           `json:"indexPath"`
-	Created         int              `json:"created"`
-	Blocked         int              `json:"blocked"`
-	RequiresCleanup bool             `json:"requiresCleanup"`
-	Writes          []candidateWrite `json:"writes"`
+	Command         string              `json:"command"`
+	IsMutation      bool                `json:"isMutation"`
+	Applied         bool                `json:"applied"`
+	CandidateRoot   string              `json:"candidateRoot"`
+	ToolingRoot     string              `json:"toolingRoot"`
+	IndexPath       string              `json:"indexPath"`
+	Created         int                 `json:"created"`
+	Blocked         int                 `json:"blocked"`
+	RequiresCleanup bool                `json:"requiresCleanup"`
+	ReviewPlan      candidateReviewPlan `json:"reviewPlan"`
+	Writes          []candidateWrite    `json:"writes"`
+}
+
+type candidateReviewPlan struct {
+	Mode           string `json:"mode"`
+	ItemCount      int    `json:"itemCount"`
+	CleanupTargets []struct {
+		Path          string `json:"path"`
+		Kind          string `json:"kind"`
+		CandidatePath string `json:"candidatePath"`
+		CleanupWhen   string `json:"cleanupWhen"`
+	} `json:"cleanupTargets"`
+	Reconsume struct {
+		Mode     string   `json:"mode"`
+		Tooling  string   `json:"tooling"`
+		Commands []string `json:"commands"`
+		Boundary []string `json:"boundary"`
+	} `json:"reconsume"`
+	ReviewItems        []candidateReviewItem `json:"reviewItems"`
+	RuntimeBoundary    []string              `json:"runtimeBoundary"`
+	CompletionCriteria []string              `json:"completionCriteria"`
+}
+
+type candidateReviewItem struct {
+	Path             string   `json:"path"`
+	Kind             string   `json:"kind"`
+	ReviewDecision   string   `json:"reviewDecision"`
+	CandidatePath    string   `json:"candidatePath"`
+	MergeTargetHint  string   `json:"mergeTargetHint"`
+	CleanupPath      string   `json:"cleanupPath"`
+	MainAgentActions []string `json:"mainAgentActions"`
 }
 
 type candidateWrite struct {
@@ -6788,6 +6840,24 @@ func assertCandidateWrite(t *testing.T, writes []candidateWrite, path, action st
 	}
 	t.Fatalf("candidate write %s with action %q not found in %+v", path, action, writes)
 	return candidateWrite{}
+}
+
+func assertCandidateReviewItem(t *testing.T, items []candidateReviewItem, path, decision string) candidateReviewItem {
+	t.Helper()
+	for _, item := range items {
+		if item.Path != path || item.ReviewDecision != decision {
+			continue
+		}
+		if decision == "pending-review" && (item.CandidatePath == "" || item.CleanupPath == "") {
+			t.Fatalf("candidate review item %s missing candidate/cleanup path: %+v", path, item)
+		}
+		if len(item.MainAgentActions) == 0 {
+			t.Fatalf("candidate review item %s missing main agent actions: %+v", path, item)
+		}
+		return item
+	}
+	t.Fatalf("candidate review item %s with decision %q not found in %+v", path, decision, items)
+	return candidateReviewItem{}
 }
 
 func assertPromoteApplyWrite(t *testing.T, writes []promoteApplyWrite, path, action string) promoteApplyWrite {

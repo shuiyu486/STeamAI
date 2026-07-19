@@ -16,36 +16,34 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 389：reviewer orchestration E2E
+### Batch 390：pack-memory product UX hardening
 
-状态：已完成；本地 Windows product path 已覆盖 Mission Commander 侧多 reviewer dispatch/result/intake/writeback 与 lane handoff provenance，提交/推送在本批收尾执行。
+状态：已完成；本地 Windows product path 已覆盖 `promote -CreateCandidates` 候选审查、merge/reject/cleanup/reconsume guidance，提交/推送在本批收尾执行。
 
-目标：在既有 `plan-subagents` planning artifacts 与 reviewer-intake strict writeback 之上，补齐主 Agent 可连续消费的多 reviewer orchestration：packet/summary/result JSON 要展示 dispatch lifecycle、每个 shard 的 reviewer result path、preview/apply intake command、owner binding 与 post-validation 状态；intake 写回后 lane handoff 要能直接看到 reviewer session provenance。
+目标：在 Batch 358 pack-memory reconsume package E2E 之上，补齐 Mission Commander 可直接消费的 candidate review UX：`promote -CreateCandidates` JSON 要把 managed-doc candidate、tooling candidate、blocked item、cleanup target、人工 merge/reject 路径与 fresh/attached case reconsume guidance 结构化输出，避免主 Agent 从 generic `NextSteps` 手工推断。
 
-边界：runtime 仍不自动 spawn 或管理 reviewer/session；reviewer 不写文件或 ledger；intake 不写 authority/confirmed、不执行 heavy-tool、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态；本批不新增 PowerShell runtime logic。
+边界：runtime 仍不自动合并 candidate、不删除 candidate、不把 `promote -Apply` 当作 candidate-scoped accept path；tooling candidate 仍需人工 review 后合入 `tooling/catalog.yml` 或 `tooling/recipes/*`；不新增 PowerShell runtime logic、不执行 heavy-tool、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- `plan-subagents` result 与 `packet.json` 新增 `reviewerOrchestration` envelope，投影 mode、target lane、owner binding、result root、多 shard dispatches、max parallel、lifecycle、runtime boundary 与 completion criteria。
-- `summary.md` 新增短 `reviewer orchestration` section，列出 lifecycle step 与 reviewer-dispatch，仍只作为主 Agent 调度短命 read-only reviewer 的 handoff，不把 runtime 变成自动 spawner。
-- reviewer-intake result 新增 `orchestrationSnapshot`，在 WhatIf / Apply / already-complete / blocked / partial-write 状态中返回 dispatch index、total、before/after shard status 与 remaining dispatches，便于 Mission Commander 顺序收集和重试。
-- packet identity 继续覆盖新增 orchestration 字段；Batch 389 前已生成、缺少 `reviewerOrchestration` 的旧 packet 仍可按 legacy identity intake，但非空 orchestration tamper 不会被 legacy fallback 绕过。
-- verification / decision ledger 与 lane handoff 显示 `reviewerSession` 和 owner binding provenance，让替换 executor 或新会话无需重扫 reviewer result 文件即可看到 reviewer verdict 与 main merge decision 来源。
-- CLI E2E 覆盖 attached case 中 `feature-login` owner executor、两 shard / 两 reviewer result、一 accept 一 reject、WhatIf→Apply 顺序写回、ledger provenance 与 lane handoff reviewer session projection。
-- 文档维护规则同步补充：修改/创建/维护 durable docs 时也保持按需路由和渐进披露，顶部短执行区，细节按章节/专文路由，不把历史和长日志重新塞回 active docs。
+- `promote.CandidateResult` 新增 `reviewPlan` envelope，投影 mode、candidate/tooling roots、index path、per-item `reviewItems[]`、`cleanupTargets[]`、runtime boundary、completion criteria 与 pack-memory `reconsume` guidance。
+- managed-doc candidates 现在给出 `candidatePath`、`packTarget`、candidate-safe merge hint、reject/cleanup action，并明确 `promote -Apply` 不是已接受 candidate 的 scoped apply 路径。
+- tooling candidates 现在给出合入 `tooling/catalog.yml` / `tooling/recipes/*` 的 guidance、case-specific residue 检查、fresh/attached case reconsume 验证要求，并继续说明 `sync` 不复制 tooling recipes 到 case-local managed docs。
+- cleanup guidance 现在覆盖 candidate 文件和 `indexPath`：reject / superseded / merge elsewhere 后应删除候选并更新或删除 stale index entry，避免后续 review 被过期 index 误导。
+- WhatIf 输出 `candidate-review-preview`，只展示如果实际生成候选后如何 review/cleanup，不创建 candidate/index/tooling 文件。
+- package 与 CLI tests 覆盖 WhatIf no-write、candidate/index/tooling candidate、blocked deny item、managed-doc/tooling merge hints、index cleanup guidance 与 fresh-case reconsume guidance。
 
-验证结果：已通过 `go test ./internal/rekit/subagents -count=1`、`go test ./internal/rekit/cli -run TestRunPlanSubagents -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error；远程 release-gate 仍是既有 runner/billing known gap，未作为本机 batch blocker。
+验证结果：已通过 `go test ./internal/rekit/promote -count=1`、`go test ./internal/rekit/cli -run TestRunPromoteCreateCandidates -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error；远程 release-gate 仍是既有 runner/billing known gap，未作为本机 batch blocker。
 
-上一批摘要：Batch 388 已完成 context routing / progressive disclosure；`docs/context-routing.md`、压缩后的 `docs/batch-plan.md`、根 `CLAUDE.md` 与 `releaseHandoff.readFirst[]` 已把默认读取路径收缩到短 current state，旧批次归档到 `docs/batch-history.md` 按需搜索。
+上一批摘要：Batch 389 已完成 reviewer orchestration E2E；`plan-subagents` / reviewer-intake / lane handoff 已覆盖 Mission Commander 侧多 reviewer dispatch/result/intake/writeback 与 reviewer session provenance，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
-1. **Pack-memory product UX hardening**：在 Batch 358 package E2E 之外，补真实多 pack/跨 case review UX、candidate cleanup、promote/reconsume guidance 和人工 merge/reject/cleanup 路径。
-2. **Mission Commander Windows product UX closure**：围绕当前用户单机 Windows 使用，把 overview/handoff/continue/start/gate 的自然语言 Mission Commander 操作路径继续收口，优先减少用户记命令和跨会话接手摩擦。
-3. **Lane/tool-adapter live validation UX closure**：继续把 authorized-gate contract、adapter sidecar validation、record handoff 与 lane executor 接手提示做成更少命令记忆、更强 post-validation 的 Windows 本机闭环。
-4. **Cross-platform product-path E2E（降优先级）**：在本地 CLI/case E2E 已覆盖 nested cwd / case shim 的基础上，仅保持可在 runner 可用时执行的三平台 matrix 候选和 known gap 记录；不要在 GitHub runner/billing blocker 未解除前让它阻塞 Windows 本机迭代。
-5. **Remote release-gate unblock / product-path matrix（blocked / low priority）**：GitHub Actions billing/spending limit 解除后，再读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E、`status.caseShim` readiness 和完整 installed user entrypoint E2E 纳入可用 runner 验证。
-6. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
+1. **Mission Commander Windows product UX closure**：围绕当前用户单机 Windows 使用，把 overview/handoff/continue/start/gate 的自然语言 Mission Commander 操作路径继续收口，优先减少用户记命令和跨会话接手摩擦。
+2. **Lane/tool-adapter live validation UX closure**：继续把 authorized-gate contract、adapter sidecar validation、record handoff 与 lane executor 接手提示做成更少命令记忆、更强 post-validation 的 Windows 本机闭环。
+3. **Cross-platform product-path E2E（降优先级）**：在本地 CLI/case E2E 已覆盖 nested cwd / case shim 的基础上，仅保持可在 runner 可用时执行的三平台 matrix 候选和 known gap 记录；不要在 GitHub runner/billing blocker 未解除前让它阻塞 Windows 本机迭代。
+4. **Remote release-gate unblock / product-path matrix（blocked / low priority）**：GitHub Actions billing/spending limit 解除后，再读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E、`status.caseShim` readiness 和完整 installed user entrypoint E2E 纳入可用 runner 验证。
+5. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 
 ### Escalation / stopping conditions
 

@@ -29,6 +29,14 @@ func TestCreateCandidatesWhatIfDoesNotWrite(t *testing.T) {
 	assertCandidateWriteForTest(t, result.Writes, "references/template/README.md", "would-create-candidate")
 	assertCandidateWriteForTest(t, result.Writes, "references/template/workflow-template.md", "blocked-deny-pattern")
 	assertCandidateWriteForTest(t, result.Writes, "references/template/toolchain-router.md", "would-create-candidate")
+	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 || result.ReviewPlan.Reconsume.Mode != "pack-memory-reconsume-after-merge" {
+		t.Fatalf("unexpected what-if review plan: %+v", result.ReviewPlan)
+	}
+	assertCandidateReviewItemForTest(t, result.ReviewPlan.ReviewItems, "references/template/README.md", "pending-review")
+	assertCandidateReviewItemForTest(t, result.ReviewPlan.ReviewItems, "references/template/workflow-template.md", "blocked")
+	if !strings.Contains(strings.Join(result.ReviewPlan.RuntimeBoundary, "\n"), "when not WhatIf") {
+		t.Fatalf("what-if review plan should explain write boundary: %+v", result.ReviewPlan.RuntimeBoundary)
+	}
 	for _, write := range result.Writes {
 		if write.Action == "would-create-candidate" {
 			assertNotExists(t, write.TargetPath)
@@ -64,6 +72,35 @@ func TestCreateCandidatesWritesIndexAndSanitizedTooling(t *testing.T) {
 	assertExists(t, readmeWrite.TargetPath)
 	assertExists(t, toolingWrite.TargetPath)
 	assertExists(t, result.IndexPath)
+	if result.ReviewPlan.Mode != "candidate-review" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 {
+		t.Fatalf("unexpected candidate review plan: %+v", result.ReviewPlan)
+	}
+	readmeReview := assertCandidateReviewItemForTest(t, result.ReviewPlan.ReviewItems, "references/template/README.md", "pending-review")
+	toolingReview := assertCandidateReviewItemForTest(t, result.ReviewPlan.ReviewItems, "references/template/toolchain-router.md", "pending-review")
+	assertCandidateReviewItemForTest(t, result.ReviewPlan.ReviewItems, "references/template/workflow-template.md", "blocked")
+	if readmeReview.CleanupPath != readmeWrite.TargetPath || !strings.Contains(readmeReview.MergeTargetHint, "pack managed doc") || strings.Contains(readmeReview.MergeTargetHint, "rerun promote -Apply") {
+		t.Fatalf("managed doc review guidance drifted: %+v", readmeReview)
+	}
+	if !strings.Contains(strings.Join(readmeReview.MainAgentActions, "\n"), "update or remove indexPath") {
+		t.Fatalf("managed doc review guidance missing index cleanup: %+v", readmeReview.MainAgentActions)
+	}
+	if toolingReview.CleanupPath != toolingWrite.TargetPath || !strings.Contains(toolingReview.MergeTargetHint, "tooling/catalog.yml") || !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "tooling/recipes") {
+		t.Fatalf("tooling review/reconsume guidance drifted: item=%+v reconsume=%+v", toolingReview, result.ReviewPlan.Reconsume)
+	}
+	criteria := strings.Join(result.ReviewPlan.CompletionCriteria, "\n")
+	if !strings.Contains(criteria, "fresh or attached case reconsume") || !strings.Contains(criteria, "promote -Apply is not a candidate-scoped accept path") || !strings.Contains(criteria, "indexPath is updated or removed") {
+		t.Fatalf("review plan missing candidate-safe completion criteria: %+v", result.ReviewPlan.CompletionCriteria)
+	}
+	cleanup := strings.Join(func() []string {
+		items := []string{}
+		for _, target := range result.ReviewPlan.CleanupTargets {
+			items = append(items, target.CleanupWhen)
+		}
+		return items
+	}(), "\n")
+	if !strings.Contains(cleanup, "update or remove indexPath") {
+		t.Fatalf("review plan cleanup targets missing index cleanup guidance: %+v", result.ReviewPlan.CleanupTargets)
+	}
 
 	var index []candidateIndexEntry
 	b, err := os.ReadFile(result.IndexPath)
@@ -146,6 +183,13 @@ func TestPackMemoryPromoteReconsumeE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	write := assertCandidateWriteForTest(t, result.Writes, "references/template/toolchain-router.md", "create-candidate")
+	reviewItem := assertCandidateReviewItemForTest(t, result.ReviewPlan.ReviewItems, "references/template/toolchain-router.md", "pending-review")
+	if reviewItem.CandidatePath != write.TargetPath || reviewItem.CleanupPath != write.TargetPath || !strings.Contains(reviewItem.MergeTargetHint, "tooling/recipes") {
+		t.Fatalf("pack-memory tooling candidate guidance drifted: %+v", reviewItem)
+	}
+	if !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "fresh case") || !strings.Contains(strings.Join(result.ReviewPlan.Reconsume.Boundary, "\n"), "no tooling recipe copy") {
+		t.Fatalf("pack-memory reconsume guidance drifted: %+v", result.ReviewPlan.Reconsume)
+	}
 	candidateText := readText(t, write.TargetPath)
 	for _, expected := range []string{"# Tooling candidate from case", "promoted-memory-tool", "<caseRoot>", "<absolutePath>", "<artifactsPath>", "<capturesPath>", "<address>", "<ctxNNN>", "Task #<n>"} {
 		if !strings.Contains(candidateText, expected) {
@@ -645,6 +689,23 @@ func assertCandidateWriteForTest(t *testing.T, writes []CandidateWrite, path, ac
 	}
 	t.Fatalf("candidate write %s/%s not found in %+v", path, action, writes)
 	return CandidateWrite{}
+}
+
+func assertCandidateReviewItemForTest(t *testing.T, items []CandidateReviewItem, path, decision string) CandidateReviewItem {
+	t.Helper()
+	for _, item := range items {
+		if item.Path == path && item.ReviewDecision == decision {
+			if decision == "pending-review" && (item.CandidatePath == "" || item.CleanupPath == "") {
+				t.Fatalf("candidate review item %s missing candidate/cleanup path: %+v", path, item)
+			}
+			if len(item.MainAgentActions) == 0 {
+				t.Fatalf("candidate review item %s missing main agent actions: %+v", path, item)
+			}
+			return item
+		}
+	}
+	t.Fatalf("candidate review item %s/%s not found in %+v", path, decision, items)
+	return CandidateReviewItem{}
 }
 
 func writeText(t *testing.T, path, text string) {
