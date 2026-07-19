@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 **Batch 380：Adapter live-validation case-relative handoff closure**
 
-状态：已完成 `liveValidation.caseRelativeReportPath` 与 case-relative validate/record command/args 的 runtime projection、package/CLI product-path coverage、durable docs 同步和 full local validation，待 commit/push 与远程 release-gate inspection。
+状态：已完成 `liveValidation.caseRelativeReportPath` 与 case-relative validate/record command/args 的 runtime projection、package/CLI product-path coverage、durable docs 同步、full local validation、commit/push 与远程 release-gate inspection；实现/docs 提交为 `58fcffc Add adapter case-relative report handoff`（HEAD `58fcffc6d4fa4f60660f8f1399f08951808b7f03`），远程 release-gate run `29676528111` 已完成但结论为 failure，Linux/macOS/Windows jobs 均为 failure 且 `steps: []`，符合既有 runner/billing blocker 模式，不能声明远程 CI green。
 
 目标：在 Batch 378 已让 contract 显示 `defaultReportPath`、`liveValidation.authorizedWorkspaces[]` 与 `reportFileName`，Batch 379 已让 Mission brief authorized-gate line 显示 `eventId` / `reportContract` 之后，补齐 executor 仍需切换到 authorized output workspace 或自行拼接 case-relative sidecar path 的断点：`gate -ExecutionReportContract` 应同时给出 workspace-relative 与 case-relative validate/record handoff，让 replacement lane executor / tool adapter 可从任意 case-local cwd 直接执行只读 preflight 或 record command。
 
@@ -48,7 +48,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 focused gate/CLI、full gate+CLI package tests、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。待 commit/push 与远程 release-gate run/job inspection；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
+本地 focused gate/CLI、full gate+CLI package tests、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `58fcffc Add adapter case-relative report handoff`（HEAD `58fcffc6d4fa4f60660f8f1399f08951808b7f03`）。远程 release-gate run `29676528111` 已完成，结论为 failure；Linux/macOS/Windows `Go release checks` jobs 均为 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
 
 ### Next candidates
 
