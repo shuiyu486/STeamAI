@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 399：Mission Commander overview execution evidence review consumption closure
 
-状态：已完成本地实现与验证，提交/推送与远程 release-gate inspection 待本批文档落盘后执行。
+状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
 
 目标：让 `overview` 继续作为主 Agent 的项目级操作面板，把已记录的 authorized execution observation evidence review queue 提升到 overview JSON/text 顶层；主 Agent 或替换 executor 不必先运行 project/lane handoff、lane handoff、RESUME 或回扫 observations ledger 才能发现待 review 的 execution evidence。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - workstream evidence review helper 导出复用，并修复 project handoff 旧 helper 名调用；`objectStringList` 使用 `strings.SplitSeq` 清理 stringsseq 诊断。
 - CLI coverage 锁定 overview text/JSON 的 evidence review queue，并继续断言 overview read-only；note list fixture 保持兼容。
 
-验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -run "TestRunOverview|TestRunHandoff|TestLaneCheckpoint" -count=1`、focused `go test ./internal/rekit/cli -run "TestRunOverview|TestRunNoteList" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。远程 release-gate 状态待 push 后 inspection；在已知 GitHub Actions runner/billing blocker 解除前不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -run "TestRunOverview|TestRunHandoff|TestLaneCheckpoint" -count=1`、focused `go test ./internal/rekit/cli -run "TestRunOverview|TestRunNoteList" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `e4a1c27 Add overview execution evidence review`；远程 release-gate run `29693674056` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 398 已完成 pack-memory cleanup / reconsume command execution UX follow-through；`promote -CreateCandidates` review plan 已提供 `decisionChecklist[]`、candidate cleanup target 与 reconsume verification checklist，详见 `docs/batch-history.md`。
 
