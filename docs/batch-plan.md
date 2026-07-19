@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 413：Mission Commander lane follow-up next-action closure
 
-状态：已完成本地实现、durable docs、affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待执行。
+状态：已完成本地实现、durable docs、affected package validation、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 404/405/407 已把 overview、handoff、continue、resume/checkpoint 与 gate evidence record 的 evidence review next actions 和 lane commander primary action 收口到 `missionCommanderNextActions[]`，但 lane commander follow-up commands 仍只存在于 `missionCommanderAction.followUpCommands` 或 Markdown 旁路里，主 Agent / replacement executor 仍需手工拼接 “primary 后 handoff” 与 “blocked lane 先 reconcile，再 -WhatIf/handoff” 条件。本批把 lane-level follow-up 同步投影为 ordered next-action items，并让 handoff Markdown 同步打印 reason/boundary。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - project/lane handoff Markdown 的 `commander next action` / `Mission Commander next actions` 文本同步打印 next-action reason/boundary lines，让 replacement executor 不回查 JSON 也能理解 follow-up 条件。
 - CLI/package coverage 锁定 overview text/JSON、project/lane handoff preview/apply、gate execution evidence result、shared mission builder、handoff Markdown reason/boundary 与 blocked lane no autonomous continue boundary。
 
-验证结果：已通过 affected package `go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 affected package `go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `c6c1004 Add lane follow-up next actions`；远程 release-gate run `29704703374` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 412 已完成 adapter report contract / validation text next-action handoff，详见 `docs/batch-history.md`。
 
