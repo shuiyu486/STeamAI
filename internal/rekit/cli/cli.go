@@ -1457,6 +1457,25 @@ func writeMissionCommanderActionText(out io.Writer, prefix string, action missio
 	return nil
 }
 
+func writeMissionCommanderNextActionsText(out io.Writer, items []mission.MissionCommanderNextActionItem) error {
+	for _, item := range items {
+		if _, err := fmt.Fprintf(out, "mission commander next action：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+			return err
+		}
+		for _, reason := range item.Reasons {
+			if _, err := fmt.Fprintf(out, "mission commander next action reason：%s\n", reason); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range item.Boundary {
+			if _, err := fmt.Fprintf(out, "mission commander next action boundary：%s\n", boundary); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func writeStartExecutorActionText(out io.Writer, result workstream.StartResult) error {
 	action := result.ExecutorAction
 	if _, err := fmt.Fprintf(out, "executor action：blocked=%t ready=%t pendingGates=%d openInterventions=%d openDecisions=%d\n", action.Blocked, action.Ready, action.PendingGates, action.OpenInterventions, action.OpenDecisions); err != nil {
@@ -1824,6 +1843,9 @@ func writeGateApplyText(out io.Writer, result gate.ApplyResult) error {
 			return err
 		}
 		if err := writeMissionCommanderActionText(out, "evidence commander action", mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}); err != nil {
+			return err
+		}
+		if err := writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions); err != nil {
 			return err
 		}
 		return writeMissionExecutorActionText(out, "executor action", result.ExecutorAction)

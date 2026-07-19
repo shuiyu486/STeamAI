@@ -509,22 +509,24 @@ func adapterReportRepairNextSteps(hints []AdapterReportRepairHint) []string {
 }
 
 type ApplyResult struct {
-	SchemaVersion          int                            `json:"schemaVersion"`
-	Command                string                         `json:"command"`
-	CaseRoot               string                         `json:"caseRoot"`
-	RepoRoot               string                         `json:"repoRoot"`
-	Pack                   string                         `json:"pack"`
-	IsMutation             bool                           `json:"isMutation"`
-	Applied                bool                           `json:"applied"`
-	EventID                string                         `json:"eventId"`
-	Path                   string                         `json:"path"`
-	Reason                 string                         `json:"reason,omitempty"`
-	Event                  *EventPreview                  `json:"event,omitempty"`
-	ExecutionEvidence      *ExecutionEvidencePreview      `json:"executionEvidence,omitempty"`
-	MissionBrief           mission.Brief                  `json:"missionBrief"`
-	ExecutorAction         mission.ExecutorAction         `json:"executorAction"`
-	MissionCommanderAction mission.MissionCommanderAction `json:"missionCommanderAction"`
-	NextSteps              []string                       `json:"nextSteps"`
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Command                     string                                   `json:"command"`
+	CaseRoot                    string                                   `json:"caseRoot"`
+	RepoRoot                    string                                   `json:"repoRoot"`
+	Pack                        string                                   `json:"pack"`
+	IsMutation                  bool                                     `json:"isMutation"`
+	Applied                     bool                                     `json:"applied"`
+	EventID                     string                                   `json:"eventId"`
+	Path                        string                                   `json:"path"`
+	Reason                      string                                   `json:"reason,omitempty"`
+	Event                       *EventPreview                            `json:"event,omitempty"`
+	ExecutionEvidence           *ExecutionEvidencePreview                `json:"executionEvidence,omitempty"`
+	MissionBrief                mission.Brief                            `json:"missionBrief"`
+	ExecutorAction              mission.ExecutorAction                   `json:"executorAction"`
+	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	ExecutionEvidenceReview     []mission.ExecutionEvidenceReviewItem    `json:"executionEvidenceReview,omitempty"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	NextSteps                   []string                                 `json:"nextSteps"`
 }
 
 type EventPreview struct {
@@ -672,6 +674,8 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 		result.MissionBrief = gateMissionBrief(inst.CaseRoot)
 		result.ExecutorAction = gateExecutorAction(inst.CaseRoot, execution.Lane, result.MissionBrief)
 		result.MissionCommanderAction = executionCommanderAction(execution, result.Applied, true)
+		result.ExecutionEvidenceReview = gateExecutionEvidenceReviewFromObservation(execution)
+		result.MissionCommanderNextActions = gateMissionCommanderNextActions(execution.Lane, result.ExecutorAction, result.ExecutionEvidenceReview)
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
@@ -682,6 +686,8 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 	result.MissionBrief = gateMissionBrief(inst.CaseRoot)
 	result.ExecutorAction = gateExecutorAction(inst.CaseRoot, execution.Lane, result.MissionBrief)
 	result.MissionCommanderAction = executionCommanderAction(execution, result.Applied, false)
+	result.ExecutionEvidenceReview = gateExecutionEvidenceReviewFromObservation(execution)
+	result.MissionCommanderNextActions = gateMissionCommanderNextActions(execution.Lane, result.ExecutorAction, result.ExecutionEvidenceReview)
 	return result, nil
 }
 
@@ -1600,6 +1606,35 @@ func executionCommanderAction(event ExecutionEvidencePreview, applied, duplicate
 
 func executionNeedsMainReview(event ExecutionEvidencePreview) bool {
 	return event.Status == "boundary-hit" || event.Status == "escalated" || event.Execution.Escalation != "" || len(event.Execution.BoundaryHits) > 0
+}
+
+func gateExecutionEvidenceReviewFromObservation(event ExecutionEvidencePreview) []mission.ExecutionEvidenceReviewItem {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return nil
+	}
+	var observation map[string]any
+	if err := json.Unmarshal(data, &observation); err != nil {
+		return nil
+	}
+	item, ok := mission.ExecutionEvidenceReviewItemFromObservation(observation, event.Lane, func(laneID string) string {
+		return mission.BoardLaneLabel(mission.BoardLane{ID: laneID})
+	})
+	if !ok {
+		return nil
+	}
+	return []mission.ExecutionEvidenceReviewItem{item}
+}
+
+func gateMissionCommanderNextActions(laneID string, action mission.ExecutorAction, evidenceReview []mission.ExecutionEvidenceReviewItem) []mission.MissionCommanderNextActionItem {
+	label := mission.BoardLaneLabel(mission.BoardLane{ID: laneID})
+	if strings.TrimSpace(label) == "" {
+		label = strings.TrimSpace(laneID)
+	}
+	if label == "" {
+		label = "main"
+	}
+	return mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{{Lane: laneID, Label: label, ExecutorAction: action}}, evidenceReview, action.Blocked)
 }
 
 func gateEventMap(event EventPreview) map[string]any {

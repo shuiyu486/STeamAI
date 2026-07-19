@@ -16,31 +16,31 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 407：Continue Mission Commander next-action projection follow-through
+### Batch 408：Gate execution evidence next-action immediate projection closure
 
-状态：已完成本地实现、durable docs、full local validation、提交/推送与远程 release-gate inspection。
+状态：已完成本地实现、durable docs 与 full local validation；提交/推送与远程 release-gate inspection 正在执行。
 
-目标：Batch 406 已让 lane-local `RESUME.md` 与 typed `checkpoints/latest.json` 暴露 `missionCommanderNextActions[]`，但 `/rekit continue` JSON envelope、run `status.json` 与 run `digest.md` 仍需要主 Agent 从 `executionEvidenceReview[]`、`executorAction`、resume/checkpoint 或 handoff 手工拼接 evidence review/handoff/overview 顺序。本批把同一 shared next-action builder 投影到 continue result/run artifacts。
+目标：Batch 407 已让 continue result/run artifacts 暴露 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]`，但 `gate -Apply -GateEventId ...` 刚记录 authorized execution observation evidence 后，主 Agent 仍需再跑 overview/handoff/continue/resume/checkpoint 才能拿到同一 evidence review queue 与 ordered next-action list。本批把刚记录的 bounded observation evidence 立即投影到 gate execution evidence result JSON 与 CLI text。
 
-边界：只增强 continue result/run artifact read-only projection、shared builder reuse、CLI tests 与 durable docs；不 replay heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态；除既有 continue case-local fact/run/resume/checkpoint/board writes 外不新增写入路径。
+边界：只增强 gate execution evidence record result projection、shared mission builder reuse、CLI tests 与 durable docs；不 replay heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态；除既有 `gate -Apply -GateEventId ...` observation evidence append/idempotent no-op 外不新增写入路径。
 
 已完成内容：
 
-- `/rekit continue` JSON envelope 新增 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]`，与 overview/handoff/resume/checkpoint 使用同一 item shape。
-- continue run `status.json` 同步写出 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]`，方便主 Agent 从 run artifact 恢复下一步。
-- continue run `digest.md` 新增 `## Mission Commander next actions` section，展示 state/source/blocked/requiresReview/command、reasons 与 boundary。
-- continue preview/apply/intervention-blocked result 复用 `mission.MissionCommanderNextActions(...)`，保持 evidence-first ordering、blocked reason、continue suppression 与 no-replay boundary 语义。
-- CLI coverage 锁定 continue JSON、run status、run digest、boundary-hit/escalated evidence 优先级与 autonomous `continue` suppression。
+- `mission` package 新增共享 `ExecutionEvidenceReviewItems(...)` / `ExecutionEvidenceReviewItemFromObservation(...)` builder，workstream 复用同一 parser，避免 gate 与 handoff/resume/checkpoint 维护并行 evidence review item logic。
+- `gate -Apply -GateEventId ...` execution evidence record JSON 新增 `executionEvidenceReview[]` 与 `missionCommanderNextActions[]`，把刚记录的 observation evidence 直接投影为 evidence-first handoff/overview/continue ordering。
+- execution evidence CLI text 新增 `mission commander next action` lines，展示 state/source/blocked/requiresReview/command、reasons 与 boundary。
+- normal succeeded evidence record 保留 evidence review primary `/rekit handoff main`、`/rekit overview` 与 review 后 `continue -WhatIf`，并追加 lane ready commander action；boundary-hit/escalated evidence 继续抑制 autonomous continue。
+- CLI coverage 锁定 normal execution evidence JSON/text projection、adapter escalation suppression、no-heavy/no-authority boundary 与 shared builder behavior。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility -count=1`、`go test ./internal/rekit/workstream -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `4b68016 Add continue commander next actions`；远程 release-gate run `29699327156` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunGateExecutionEvidenceTextOutputsNextActions|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/mission ./internal/rekit/workstream -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。提交/推送与远程 release-gate inspection 正在执行。
 
-上一批摘要：Batch 406 已完成 lane-local `RESUME.md` 与 typed `checkpoints/latest.json` 的 `missionCommanderNextActions[]` 投影，详见 `docs/batch-history.md`。
+上一批摘要：Batch 407 已完成 `/rekit continue` JSON/run artifacts 的 `missionCommanderNextActions[]` 投影，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
-1. **Authorized execution evidence handoff consumption follow-through**：围绕新 `missionCommanderAction` 在 lane handoff / resume / checkpoint 中的 consumption，补齐替换 executor 从 authorized-gate 到 evidence review 的可复制闭环。
-2. **Pack-memory cleanup / reconsume command execution UX**：围绕 accepted/rejected candidate 决策后的 cleanup target 与 fresh/attached case verification，继续收口为主 Agent 可执行的 bounded checklist。
-3. **Mission Commander overview action consumption closure**：继续让 overview JSON/text 的 lane action index 和 commander action 可被替换 executor 直接消费，优先选择 Windows 本机 product-path coverage。
+1. **Pack-memory cleanup / reconsume command execution UX**：围绕 accepted/rejected candidate 决策后的 cleanup target 与 fresh/attached case verification，继续收口为主 Agent 可执行的 bounded checklist。
+2. **Mission Commander overview action consumption closure**：继续让 overview JSON/text 的 lane action index 和 commander action 可被替换 executor 直接消费，优先选择 Windows 本机 product-path coverage。
+3. **Authorized execution duplicate/idempotent review projection**：围绕 duplicate execution evidence record 的 `evidence-already-recorded` 语义，补齐 next-action projection 与 no-replay/no-append 文本/JSON coverage（如仍有真实消费断点）。
 4. **Cross-platform product-path E2E（降优先级）**：在本地 CLI/case E2E 已覆盖 nested cwd / case shim 的基础上，仅保持可在 runner 可用时执行的三平台 matrix 候选和 known gap 记录；不要在 GitHub runner/billing blocker 未解除前让它阻塞 Windows 本机迭代。
 5. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 
