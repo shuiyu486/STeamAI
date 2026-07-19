@@ -5494,8 +5494,60 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	if validation.Kind != "adapter-execution-report-validation" || validation.CaseRoot != caseRoot || !validation.Valid || validation.IsMutation || validation.Applied || validation.Error != "" || validation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || validation.Report == nil || validation.Report.AdapterID != "nested-cli-adapter" {
 		t.Fatalf("unexpected nested workspace adapter report validation: %+v", validation)
 	}
-	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
-	assertSnapshotEqual(t, before, after)
+	afterValidation := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, afterValidation)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-Actor", "executor-1", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var evidence struct {
+		Applied           bool   `json:"applied"`
+		Path              string `json:"path"`
+		ExecutionEvidence struct {
+			Kind      string   `json:"kind"`
+			Status    string   `json:"status"`
+			Summary   string   `json:"summary"`
+			Related   []string `json:"related"`
+			Execution struct {
+				GateEventID         string   `json:"gateEventId"`
+				Authorization       string   `json:"authorization"`
+				ExecutionReportPath string   `json:"executionReportPath"`
+				OutputRefs          []string `json:"outputRefs"`
+				ActualBudget        struct {
+					RuntimeSeconds int `json:"runtimeSeconds"`
+					DiskMB         int `json:"diskMB"`
+					Requests       int `json:"requests"`
+				} `json:"actualBudget"`
+				Adapter struct {
+					AdapterID string `json:"adapterId"`
+					Status    string `json:"status"`
+				} `json:"adapter"`
+			} `json:"execution"`
+		} `json:"executionEvidence"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &evidence); err != nil {
+		t.Fatalf("nested workspace adapter execution evidence stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !evidence.Applied || evidence.Path != ".rekit/facts/observations.jsonl" || evidence.ExecutionEvidence.Kind != "observation" || evidence.ExecutionEvidence.Status != "succeeded" || evidence.ExecutionEvidence.Summary != "Adapter report from nested output workspace" {
+		t.Fatalf("unexpected nested workspace adapter execution evidence: %+v", evidence)
+	}
+	if strings.Join(evidence.ExecutionEvidence.Related, ",") != applied.EventID || evidence.ExecutionEvidence.Execution.GateEventID != applied.EventID || evidence.ExecutionEvidence.Execution.Authorization != "preauthorized" || evidence.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || strings.Join(evidence.ExecutionEvidence.Execution.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" || evidence.ExecutionEvidence.Execution.ActualBudget.RuntimeSeconds != 20 || evidence.ExecutionEvidence.Execution.ActualBudget.DiskMB != 32 || evidence.ExecutionEvidence.Execution.ActualBudget.Requests != 1 || evidence.ExecutionEvidence.Execution.Adapter.AdapterID != "nested-cli-adapter" || evidence.ExecutionEvidence.Execution.Adapter.Status != "succeeded" {
+		t.Fatalf("nested workspace adapter evidence did not preserve report provenance: %+v", evidence.ExecutionEvidence)
+	}
+	observations, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(observations), `"executionReportPath":"workspace/main/debug/session-1/adapter-report.json"`) || !strings.Contains(string(observations), `"adapterId":"nested-cli-adapter"`) || strings.Contains(string(observations), `"kind":"authority"`) || strings.Contains(string(observations), `"kind":"confirmed"`) {
+		t.Fatalf("nested workspace execution evidence ledger mismatch:\n%s", string(observations))
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("nested workspace adapter evidence wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("nested workspace adapter evidence wrote confirmed ledger or stat failed: %v", err)
+	}
 }
 
 func TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge(t *testing.T) {
@@ -5589,8 +5641,37 @@ func TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge(t *testing.T) 
 	if validation.Kind != "adapter-execution-report-validation" || validation.CaseRoot != caseRoot || !validation.Valid || validation.IsMutation || validation.Applied || validation.Error != "" || validation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || validation.Report == nil || validation.Report.AdapterID != "caller-cwd-bridge-adapter" {
 		t.Fatalf("unexpected caller cwd bridge validation: %+v", validation)
 	}
-	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
-	assertSnapshotEqual(t, before, after)
+	afterValidation := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, afterValidation)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-Actor", "executor-1", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var evidence struct {
+		Applied           bool `json:"applied"`
+		ExecutionEvidence struct {
+			Status    string `json:"status"`
+			Execution struct {
+				ExecutionReportPath string `json:"executionReportPath"`
+				Adapter             struct {
+					AdapterID string `json:"adapterId"`
+				} `json:"adapter"`
+			} `json:"execution"`
+		} `json:"executionEvidence"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &evidence); err != nil {
+		t.Fatalf("caller cwd bridge adapter execution evidence stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !evidence.Applied || evidence.ExecutionEvidence.Status != "succeeded" || evidence.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || evidence.ExecutionEvidence.Execution.Adapter.AdapterID != "caller-cwd-bridge-adapter" {
+		t.Fatalf("unexpected caller cwd bridge adapter execution evidence: %+v", evidence)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("caller cwd bridge adapter evidence wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("caller cwd bridge adapter evidence wrote confirmed ledger or stat failed: %v", err)
+	}
 }
 
 func TestRunGateApplyIsIdempotentByEventID(t *testing.T) {

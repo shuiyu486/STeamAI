@@ -237,6 +237,7 @@ try {
     try {
       $nestedContractOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Pack',$Pack,'-GateEventId',([string]$gateApply.eventId),'-ExecutionReportContract','-Format','json')
       $nestedValidationOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Pack',$Pack,'-GateEventId',([string]$gateApply.eventId),'-ValidateExecutionReport','-ExecutionReportPath','adapter-report.json','-Format','json')
+      $nestedEvidenceOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Pack',$Pack,'-Apply','-GateEventId',([string]$gateApply.eventId),'-ExecutionReportPath','adapter-report.json','-Actor','facade-smoke-adapter','-Format','json')
     } finally {
       Pop-Location
     }
@@ -246,6 +247,15 @@ try {
     Assert-ContainsText -Text $nestedValidationOut -Expected '"valid": true' -Label 'facade nested workspace validation product path'
     Assert-ContainsText -Text $nestedValidationOut -Expected '"applied": false' -Label 'facade nested workspace validation product path'
     Assert-ContainsText -Text $nestedValidationOut -Expected '"reportPath": "workspace/main/debug/session-1/adapter-report.json"' -Label 'facade nested workspace validation product path'
+    Assert-ContainsText -Text $nestedEvidenceOut -Expected '"applied": true' -Label 'facade nested workspace evidence product path'
+    Assert-ContainsText -Text $nestedEvidenceOut -Expected '"path": ".rekit/facts/observations.jsonl"' -Label 'facade nested workspace evidence product path'
+    Assert-ContainsText -Text $nestedEvidenceOut -Expected '"executionReportPath": "workspace/main/debug/session-1/adapter-report.json"' -Label 'facade nested workspace evidence product path'
+    Assert-ContainsText -Text $nestedEvidenceOut -Expected '"adapterId": "facade-smoke-adapter"' -Label 'facade nested workspace evidence product path'
+    $observationsText = [System.IO.File]::ReadAllText((Join-Path $CaseRoot '.rekit\facts\observations.jsonl'), [System.Text.Encoding]::UTF8)
+    Assert-ContainsText -Text $observationsText -Expected '"executionReportPath":"workspace/main/debug/session-1/adapter-report.json"' -Label 'facade nested workspace evidence ledger'
+    Assert-ContainsText -Text $observationsText -Expected '"adapterId":"facade-smoke-adapter"' -Label 'facade nested workspace evidence ledger'
+    if (Test-Path -LiteralPath (Join-Path $CaseRoot '.rekit\facts\authority.jsonl')) { throw 'facade nested workspace evidence wrote authority ledger' }
+    if (Test-Path -LiteralPath (Join-Path $CaseRoot '.rekit\facts\confirmed.jsonl')) { throw 'facade nested workspace evidence wrote confirmed ledger' }
   }
 
   # Explicit enable delegates the remaining expanded preview/review safe set.
@@ -357,6 +367,20 @@ try {
     Assert-ContainsText -Text $capturedGateNestedValidationArgs -Expected $expectedGateArg -Label 'nested gate execution report validation facade args'
   }
   Assert-NotContainsText -Text $capturedGateNestedValidationArgs -Unexpected '-Target ' -Label 'nested gate execution report validation omits facade target'
+  $gateNestedEvidenceCapturePath = Join-Path $matrixRoot 'gate-nested-evidence-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $gateNestedEvidenceCapturePath
+  Push-Location $workspaceRoot
+  try {
+    $gateNestedEvidenceOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Pack',$Pack,'-Apply','-GateEventId','evt-authorized-gate','-ExecutionReportPath','adapter-report.json','-Actor','facade-smoke','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  } finally {
+    Pop-Location
+  }
+  Assert-ContainsText -Text $gateNestedEvidenceOut -Expected '"delegatedByFake":true' -Label 'nested gate execution report evidence delegation'
+  $capturedGateNestedEvidenceArgs = [System.IO.File]::ReadAllText($gateNestedEvidenceCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedGateArg in @('-Apply','-GateEventId evt-authorized-gate','-ExecutionReportPath adapter-report.json','-Actor facade-smoke','-Format json')) {
+    Assert-ContainsText -Text $capturedGateNestedEvidenceArgs -Expected $expectedGateArg -Label 'nested gate execution report evidence facade args'
+  }
+  Assert-NotContainsText -Text $capturedGateNestedEvidenceArgs -Unexpected '-Target ' -Label 'nested gate execution report evidence omits facade target'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'start' -Label 'default start JSON preview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-apply','-Pack',$Pack,'-Apply','-Executor','matrix-session','-Actor','facade-smoke','-Reason','matrix explicit takeover') -CommandName 'start' -Label 'default start apply delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-json-apply','-Pack',$Pack,'-Apply','-Format','json') -CommandName 'start' -Label 'default start JSON apply delegation'

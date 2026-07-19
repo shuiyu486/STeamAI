@@ -66,7 +66,7 @@ lane executor / tool adapter 执行前可以由主 Agent 在 case-local 或 auth
 
 lane executor / tool adapter 完成 `authorized-gate` 覆盖的实际动作并写出 sidecar 后，主 Agent 可以在 case-local 或 authorized output workspace cwd 中先调用 `gate -ValidateExecutionReport -GateEventId <id> -ExecutionReportPath <path> -Format json` 做只读 strict validation preflight；`<path>` 可以是 case-relative、case-contained absolute，或相对当前 authorized output workspace 的 sidecar 文件名。该路径复用正式 intake 的 path/schema/action/status/gateEventId/budget/ref/boundary/escalation 校验，输出 `isMutation=false` / `applied=false` 且 `valid=true` 或 `valid=false` 的 envelope；invalid sidecar 会保留 `error`、`errors[]`、stable `failureCode`、`failureStage`、`reportPath`、可用时的 partial normalized `report` 与 contract boundaries，供 adapter 按 path/decode/schema/identity/refs/budget/boundary/summary 等阶段修正后重跑，不写 observations ledger、不执行工具、不写 authority/confirmed。
 
-lane executor / tool adapter 完成 `authorized-gate` 覆盖的实际动作后，可以额外写一个 bounded JSON sidecar，并由主 Agent 通过 `gate -Apply -GateEventId <id> -ExecutionReportPath <path>` 记录 observation evidence。该 sidecar 必须留在 case 内、位于本次 authorized gate 的 output paths 下，且只包含 refs/summary/bounded escalation，不包含完整 trace/dump/log：
+lane executor / tool adapter 完成 `authorized-gate` 覆盖的实际动作后，可以额外写一个 bounded JSON sidecar，并由主 Agent 在 case-local 或 authorized output workspace cwd 中通过 `gate -Apply -GateEventId <id> -ExecutionReportPath <path>` 记录 observation evidence；省略 `-Target` 时 Go runtime 会向上解析 attached case root，`<path>` 可以是 case-relative、case-contained absolute，或相对当前 authorized output workspace 的 sidecar 文件名。该 sidecar 必须留在 case 内、位于本次 authorized gate 的 output paths 下，且只包含 refs/summary/bounded escalation，不包含完整 trace/dump/log：
 
 ```json
 {
