@@ -98,6 +98,7 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -Name")
 			}
 			opt.Start.Name = args[i]
+			opt.Start.Selector = args[i]
 		case "-Review", "--review":
 			opt.Review = true
 		case "-Apply", "--apply":
@@ -476,8 +477,10 @@ func Parse(args []string) (Options, error) {
 			} else if strings.EqualFold(opt.Command, "start") && args[i] != "" && args[i][0] != '-' {
 				if opt.Start.Name == "" {
 					opt.Start.Name = args[i]
+					opt.Start.Selector = args[i]
 				} else {
 					opt.Start.Name += "-" + args[i]
+					opt.Start.Selector += "-" + args[i]
 				}
 			} else if strings.EqualFold(opt.Command, "handoff") && args[i] != "" && args[i][0] != '-' {
 				if opt.Handoff.Selector == "" {

@@ -16,25 +16,26 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 386：adapter-specific live validation operational slice**
+**Batch 387：replaceable session executor takeover E2E**
 
-状态：已完成；adapter contract 不再只提供 generic validation handoff，而是能从 pack `tooling/catalog.yml` 与本次 authorized gate action 投影具体 adapter/tool candidate，并把 concrete adapter provenance 贯穿到 read-only validation envelope 与 observation evidence。
+状态：已完成；核心 runtime、CLI product-path test、durable docs 与本地 release gate 已完成并通过，提交/推送在本批收尾执行。
 
-目标：补齐 pack/tooling catalog → authorized-gate contract → sidecar template → validate preflight → evidence record 的产品级闭环，让 Mission Commander / replacement lane executor 在接手 authorized heavy-action boundary 时可以看到具体可选 adapter、默认 sidecar `adapterId`、case-local validate/record args 与 evidence provenance，而不是继续依赖通用 contract 文本或手工反查 pack tooling。
+目标：让 replacement Claude Code session / executor 可从 project handoff 看到已有 `main` lane executor owner 后，直接用 `start main -Apply -Executor <new-session> -Actor <actor> -Reason <reason>` 接手同一 durable lane，而不是误创建 `feature-main`；接手后刷新 lane `RESUME.md`、typed checkpoint、events、handoff 与 `continue main -WhatIf` 可见的 executor action。
 
-边界：本批只扩展 Go-native gate contract / validation / evidence projection 与对应 package/CLI product-path coverage；不新增 PowerShell runtime logic、不新增 public 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema、公共入口删除门禁或远程 CI blocker 状态。
+边界：本批只修改 Go-native start/CLI selector resolution 与对应 CLI product-path coverage；不新增 PowerShell runtime logic、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema、公共入口删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- `gate -ExecutionReportContract -GateEventId ... -Format json` 现在把 pack `tooling/catalog.yml` 中匹配本次 `heavyToolGates` action 的 concrete adapter 投影为 `liveValidation.adapterCandidates[]`，并给出默认 `selectedAdapter` / sidecar `adapterId`、report guidance、evidence guidance、stop-condition hints 与 `recordOnlyAfterGate` 边界。
-- `gate -ValidateExecutionReport -GateEventId ... -ExecutionReportPath ... -Format json` 的 read-only envelope 在可用时输出 `adapterContext.candidates[]` 与 `adapterContext.selected`，方便主 Agent 在记录 evidence 前确认 sidecar `adapterId` 对应具体 pack tooling candidate。
-- `gate -Apply -GateEventId ... -ExecutionReportPath ...` 写入 observation execution evidence 时保留 `execution.adapterContext` 与原 sidecar `execution.adapter` provenance，形成 bounded sidecar → strict validation → durable observation evidence 的可追踪链路。
-- 新增 package-level tooling fixture closure 和真实 `generic-binary-re` CLI product-path test，覆盖 authorized-gate contract、case-local `CaseRelativeValidateArgs`、`CaseRelativeRecordArgs`、bounded sidecar intake、observation evidence 记录，以及 no authority/confirmed invariant。
-- 同步 README、canonical `/rekit` skill、tool adapter policy、release readiness、Go runtime migration、PowerShell deprecation、tests guide 与 CHANGELOG，明确 adapter-specific live validation 已落地但 `/rekit` 仍不执行 heavy-tool。
+- `StartOptions` 增加 `Selector`，`startContext` 在有 selector 时优先通过 existing board/lane resolver 解析已有工作线；`main` 会解析到 durable authority lane `main`，已有 `feature-login`/`login` 仍解析到对应 feature lane，无法解析时保留原有 default feature lane creation 行为。
+- CLI positional `start main` 与显式 `-Name main` 都会填充 selector；replacement takeover preview 与 apply 均能进入 existing lane，而不是新建并行 lane。
+- 新增 CLI product-path coverage：project handoff → `start main -Apply -Executor session-main-replacement` → lane `RESUME.md` / `checkpoints/latest.json` / `events.jsonl` refresh → lane handoff → `continue main -WhatIf`，并断言 no authority/confirmed。
+- README、canonical `/rekit` skill、release readiness、autonomous goal、Go-first plan、PowerShell deprecation、CLAUDE 与 CHANGELOG 已同步 Windows 本机优先和 replacement executor takeover 行为；远程 Linux/macOS/Windows CI 仍作为 runner/billing blocker 记录，不再作为近期本机迭代效率主约束。
 
 已通过验证：
 
 ```text
+gofmt -w "internal/rekit/workstream/start.go" "internal/rekit/cli/cli.go" "internal/rekit/cli/cli_test.go"
+go test ./internal/rekit/workstream ./internal/rekit/cli
 go test ./...
 go vet ./...
 go run ./cmd/rekit -- -Command release-check -Format json
@@ -44,15 +45,15 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 `go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。提交与远程 release-gate 结果在 push 后写回；最近已检查的远程 release-gate runs 仍为 failure 且 jobs `steps: []`，属于既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+本地 `go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。远程 release-gate 仍受 GitHub runner/billing blocker 影响，不能声明远程 CI green；该 blocker 已按用户当前 Windows 单机使用偏好降为低优先级 known gap。
 
 ### Next candidates
 
-1. **Replaceable session executor takeover E2E**：用临时 case 验证新 Claude Code session/executor 可仅依赖 lane handoff / packet / evidence / authorized-gate report contract 接手同一 lane，刷新 continue/handoff/checkpoint，并保持 no authority/confirmed / no heavy-tool 边界。
-2. **Reviewer orchestration E2E**：在现有 reviewer-intake strict writeback 之上，补 Mission Commander 侧多 reviewer dispatch/result/intake/writeback 的更完整 product path；runtime 仍不自动 spawn 时，至少要让主 Agent handoff、packet、result contract 与 post-validation 可连续消费。
-3. **Pack-memory product UX hardening**：在 Batch 358 package E2E 之外，补真实多 pack/跨 case review UX、candidate cleanup、promote/reconsume guidance 和人工 merge/reject/cleanup 路径。
-4. **Cross-platform product-path E2E**：在本地 CLI/case E2E 已覆盖 nested cwd / case shim 的基础上，把可在 runner 可用时执行的 product-path checks 梳理成默认三平台 matrix 候选，避免把 `ciReleaseGate.ready` 误读为真实 green。
-5. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E、`status.caseShim` readiness 和完整 installed user entrypoint E2E 纳入可用 runner验证。
+1. **Reviewer orchestration E2E**：在现有 reviewer-intake strict writeback 之上，补 Mission Commander 侧多 reviewer dispatch/result/intake/writeback 的更完整 Windows 本机 product path；runtime 仍不自动 spawn 时，至少要让主 Agent handoff、packet、result contract 与 post-validation 可连续消费。
+2. **Pack-memory product UX hardening**：在 Batch 358 package E2E 之外，补真实多 pack/跨 case review UX、candidate cleanup、promote/reconsume guidance 和人工 merge/reject/cleanup 路径。
+3. **Mission Commander Windows product UX closure**：围绕当前用户单机 Windows 使用，把 overview/handoff/continue/start/gate 的自然语言 Mission Commander 操作路径继续收口，优先减少用户记命令和跨会话接手摩擦。
+4. **Cross-platform product-path E2E（降优先级）**：在本地 CLI/case E2E 已覆盖 nested cwd / case shim 的基础上，仅保持可在 runner 可用时执行的三平台 matrix 候选和 known gap 记录；不要在 GitHub runner/billing blocker 未解除前让它阻塞 Windows 本机迭代。
+5. **Remote release-gate unblock / product-path matrix（blocked / low priority）**：GitHub Actions billing/spending limit 解除后，再读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E、`status.caseShim` readiness 和完整 installed user entrypoint E2E 纳入可用 runner 验证。
 6. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 
 ### Escalation / stopping conditions

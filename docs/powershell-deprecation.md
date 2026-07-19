@@ -50,7 +50,7 @@ PowerShell-free / Go-native convergence 相关变更至少满足：
 - 不用 Go 默认委托绕过 review-first、backup、deny、restore、gate 或人工确认。
 - 不把 actual heavy-tool、authority/confirmed 写入、policy schema 迁移、外部副作用纳入自动迁移。
 - 不默认运行大型 matrix；只在 pack helper/matrix 或跨 pack skeleton 变更时选择运行。
-- 不为了保留 Windows 兼容而牺牲 macOS/Linux 默认路径；Windows 兼容应由 Go runtime 或明确 legacy shim 支撑。
+- 当前用户短期只要求 Windows 本机稳定可用；因此 Windows product path 可优先于远程 Linux/macOS matrix，但不能为 Windows 兼容重新引入 PowerShell runtime logic 或破坏后续 macOS/Linux Go-native portability。
 
 ## 命令归属矩阵
 

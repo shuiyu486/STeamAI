@@ -27,7 +27,7 @@
 每轮自主推进按这个循环做：
 
 1. 读最近状态：`CLAUDE.md`、`docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/release-readiness.md`、`docs/go-first-convergence-plan.md`、`docs/powershell-deprecation.md`、`docs/batch-plan.md` 的 current/最新区、`CHANGELOG.md`，并检查 git、本地 gate 与远程 CI 实际状态。
-2. 从下面大方向里选一个 coherent 中大型 vertical slice，优先选择能解决真实 Mission Commander/产品路径断点、减少 retained PowerShell 依赖、提升 Go-native / macOS/Linux/Windows product-path E2E 或增强 Mission Control 可用性的切片；不要继续拆 schema-field metadata 微批次，也不要让多个连续批次只扩 contract / inventory 字段而缺少 executor/reviewer/Mission Commander/pack-memory/product-path 的实际闭环。
+2. 从下面大方向里选一个 coherent 中大型 vertical slice，优先选择能解决真实 Mission Commander/产品路径断点、提升当前 Windows 本机 Go-native product-path 稳定性、减少 retained PowerShell 依赖或增强 Mission Control 可用性的切片；macOS/Linux/远程三平台 CI 在 runner/billing blocker 解除前只作为 release known gap 和可延后 readiness 工作，不要让它挤占 Windows 本机可验证的 executor/reviewer/Mission Commander/pack-memory/product-path 闭环；不要继续拆 schema-field metadata 微批次，也不要让多个连续批次只扩 contract / inventory 字段而缺少 executor/reviewer/Mission Commander/pack-memory/product-path 的实际闭环。
 3. 实施时优先 Go-native；禁止新增 PowerShell runtime logic。若迁移期必须保留 PowerShell，只能作为 legacy compatibility，并写清依赖方、阻塞原因和删除条件。
 4. 完成后自审、评估：看是否更接近 Mission Control 北极星，是否减少 PowerShell 默认路径，架构是否清晰，是否有重复逻辑，是否需要顺手做低风险调整。
 5. 自行做必要调整，不因小的低风险文档/测试/invariant 补齐而停下来问用户。
@@ -43,7 +43,7 @@
 5. **Pre-authorized lane autonomy**：把 heavy/debug/patch/dump/hook/network/exploit-replay 的授权边界做成可记录、可审计、可止损的 lane contract。
 6. **Pack-based team memory**：把复用经验 review/promote 回 pack/common，使 Agent Team 越用越强。
 7. **Go-first deterministic substrate / PowerShell-free Go-native convergence**：继续收束 Go backend ownership、release readiness、PowerShell replacement/removal、pack-neutral hardening 和 policy / ledger hardening。
-8. **Cross-platform readiness**：让默认入口、验证、release gate、case shim 和文档路径逐步不依赖 PowerShell，并面向 macOS/Linux/Windows 可用性收敛。
+8. **Cross-platform readiness**：让默认入口、验证、release gate、case shim 和文档路径逐步不依赖 PowerShell；短期以 Windows 本机稳定可用为优先，远程 Linux/macOS/Windows CI 与 macOS/Linux product-path 在 runner/billing blocker 解除或需要发布前再提高优先级。
 
 ## 验证标准
 
@@ -98,7 +98,7 @@ Mission Control 相关批次还应检查：
 
 为防止上下文压缩导致方向偏移，每轮开始先用仓库事实校准方向，优先读取 docs/mission-control-product-direction.md、docs/autonomous-goal.md、docs/release-readiness.md、docs/go-first-convergence-plan.md、docs/powershell-deprecation.md、docs/batch-plan.md 的 current/最新区、README.md、CHANGELOG.md，并检查 git、本地 gate 与远程 CI 实际状态。聊天摘要或 durable docs 与代码/运行结果冲突时，以代码和实际验证为准，并先修正文档。
 
-每轮选择一个 coherent、中大型、可验证、能提升真实可用性或降低维护风险的 vertical slice，不做一两行或逐字段 metadata 微批次。优先方向包括 Mission Commander orchestration、replaceable session executor operational closure、reviewer orchestration hardening、reconcile UX、lane executor / tool-adapter live validation hardening、pack-memory product UX、PowerShell retained façade 收束，以及 macOS/Linux/Windows product-path readiness。
+每轮选择一个 coherent、中大型、可验证、能提升真实可用性或降低维护风险的 vertical slice，不做一两行或逐字段 metadata 微批次。优先方向包括 Mission Commander orchestration、replaceable session executor operational closure、reviewer orchestration hardening、reconcile UX、lane executor / tool-adapter live validation hardening、pack-memory product UX、PowerShell retained façade 收束，以及 Windows 本机 product-path readiness；macOS/Linux/远程三平台 CI 在 GitHub runner/billing blocker 解除前保持 known gap 记录，不作为近期迭代效率的主要约束。
 
 详细路线、关键决策、验证结果、下一步方向和未完成风险必须持续写回 repo docs，尤其是 docs/batch-plan.md；涉及 PowerShell、Go-native、跨平台或 release readiness 时，同步更新相关设计文档。不要只把计划和结论留在聊天上下文中。
 

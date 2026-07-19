@@ -45,6 +45,7 @@ var safeLaneIDSegment = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`
 
 type StartOptions struct {
 	Name           string
+	Selector       string
 	Force          bool
 	Actor          string
 	Executor       string
@@ -300,22 +301,41 @@ func startContext(repoRoot, caseRoot, pack string, opt StartOptions) (instance.I
 		return instance.Instance{}, nil, manifest.LaneType{}, "", "", err
 	}
 	name := strings.TrimSpace(opt.Name)
+	selector := strings.TrimSpace(opt.Selector)
 	if name == "" {
-		return instance.Instance{}, nil, manifest.LaneType{}, "", "", fmt.Errorf("start requires a feature name, e.g. /rekit start login")
+		name = selector
+	}
+	if name == "" {
+		return instance.Instance{}, nil, manifest.LaneType{}, "", "", fmt.Errorf("start requires a feature name or lane selector, e.g. /rekit start login")
 	}
 	laneTypeID := strings.TrimSpace(m.WorkstreamDefaults["defaultStartLaneType"])
 	if laneTypeID == "" {
 		laneTypeID = defaultStartLaneType(m)
 	}
+	resolvedLaneID := ""
+	if selector != "" {
+		if b, err := readBoard(inst.CaseRoot); err == nil {
+			if strings.TrimSpace(b.DefaultAuthorityLane) == "" {
+				b.DefaultAuthorityLane = m.WorkstreamDefaults["defaultAuthorityLane"]
+			}
+			if lane, err := resolveHandoffLane(inst.CaseRoot, b, selector); err == nil {
+				laneTypeID = lane.Type
+				resolvedLaneID = lane.ID
+				name = lane.Name
+			}
+		}
+	}
 	laneType, err := m.LaneType(laneTypeID)
 	if err != nil {
 		return instance.Instance{}, nil, manifest.LaneType{}, "", "", err
 	}
-	laneID := laneID(laneType.ID, name)
-	if laneID == "" {
+	if resolvedLaneID == "" {
+		resolvedLaneID = laneID(laneType.ID, name)
+	}
+	if resolvedLaneID == "" {
 		return instance.Instance{}, nil, manifest.LaneType{}, "", "", fmt.Errorf("start produced an empty lane id for %q", name)
 	}
-	return inst, m, laneType, laneID, name, nil
+	return inst, m, laneType, resolvedLaneID, name, nil
 }
 
 type executorClaim struct {

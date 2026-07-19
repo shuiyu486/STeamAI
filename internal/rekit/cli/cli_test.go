@@ -2743,6 +2743,119 @@ func TestRunStartApplyClaimsAndTakesOverExecutor(t *testing.T) {
 	}
 }
 
+func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeHandoffFixture(t, caseRoot)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	project := decodeHandoffResult(t, out.Bytes())
+	mainBefore := handoffLaneActionFor(t, project.LaneExecutorActions, "main")
+	if mainBefore.CurrentExecutor != "session-main" || mainBefore.ExecutorGeneration != 1 || !mainBefore.ExecutorAction.Ready || mainBefore.ExecutorAction.ResumeCommand != "/rekit continue main" {
+		t.Fatalf("initial project handoff should expose ready main executor owner: %+v", mainBefore)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "main", "-WhatIf", "-Executor", "session-main-preview", "-Actor", "mission-commander", "-Reason", "preview replacement from handoff"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	preview := decodeStartResult(t, out.Bytes())
+	if preview.IsMutation || preview.Applied || preview.Lane.ID != "main" || preview.Lane.CurrentExecutor != "session-main-preview" || preview.Lane.ExecutorGeneration != 2 || len(preview.Writes) != 1 || preview.Writes[0].Path != ".rekit/lanes/main/lane.json" || preview.Writes[0].Action != "would-enter-existing-lane-and-claim-executor" {
+		t.Fatalf("-Name main preview should resolve existing main lane for replacement takeover: %+v", preview)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main", "-Executor", "session-main-replacement", "-Actor", "mission-commander", "-Reason", "replace stale main session from handoff"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	takeover := decodeStartResult(t, out.Bytes())
+	if !takeover.IsMutation || !takeover.Applied || takeover.Lane.ID != "main" || takeover.Lane.CurrentExecutor != "session-main-replacement" || takeover.Lane.ExecutorGeneration != 2 || takeover.Lane.LastTakeoverBy != "mission-commander" || takeover.Lane.LastTakeoverReason != "replace stale main session from handoff" {
+		t.Fatalf("main executor takeover did not update durable lane state: %+v", takeover)
+	}
+	if takeover.ExecutorAction.Blocked || !takeover.ExecutorAction.Ready || takeover.ExecutorAction.ResumeCommand != "/rekit continue main" || takeover.ExecutorAction.HandoffCommand != "/rekit handoff main" || !slices.Contains(takeover.NextSteps, "/rekit continue main") {
+		t.Fatalf("main executor takeover should leave replacement session ready to continue: action=%+v next=%+v", takeover.ExecutorAction, takeover.NextSteps)
+	}
+	assertStartWrite(t, takeover.Writes, ".rekit/lanes/main/lane.json", "update-executor-takeover")
+	assertStartWrite(t, takeover.Writes, ".rekit/lanes/main/events.jsonl", "append-executor-takeover")
+	assertStartWrite(t, takeover.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh")
+	assertStartWrite(t, takeover.Writes, ".rekit/lanes/main/checkpoints/latest.json", "refresh")
+
+	checkpointBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "checkpoints", "latest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		CurrentExecutor    string                 `json:"currentExecutor"`
+		ExecutorGeneration int                    `json:"executorGeneration"`
+		LastTakeoverBy     string                 `json:"lastTakeoverBy"`
+		LastTakeoverReason string                 `json:"lastTakeoverReason"`
+		ExecutorAction     executorActionSnapshot `json:"executorAction"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
+	}
+	if checkpoint.CurrentExecutor != "session-main-replacement" || checkpoint.ExecutorGeneration != 2 || checkpoint.LastTakeoverBy != "mission-commander" || checkpoint.LastTakeoverReason != "replace stale main session from handoff" || !checkpoint.ExecutorAction.Ready || checkpoint.ExecutorAction.ResumeCommand != "/rekit continue main" {
+		t.Fatalf("checkpoint omitted replacement executor takeover state: %+v", checkpoint)
+	}
+	resumeBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "prompts", "RESUME.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"current executor: `session-main-replacement`", "executor generation: `2`", "last takeover by: `mission-commander`", "resume command: `/rekit continue main`"} {
+		if !strings.Contains(string(resumeBytes), expected) {
+			t.Fatalf("resume missing %q after takeover:\n%s", expected, string(resumeBytes))
+		}
+	}
+	events, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "events.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(events), `"kind":"executor-takeover"`) || !strings.Contains(string(events), `"previousExecutor":"session-main"`) || !strings.Contains(string(events), `"currentExecutor":"session-main-replacement"`) {
+		t.Fatalf("lane event log omitted executor takeover provenance:\n%s", string(events))
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	laneHandoff := decodeHandoffResult(t, out.Bytes())
+	if !laneHandoff.IsMutation || !laneHandoff.Applied || laneHandoff.Project || laneHandoff.Lane == nil || laneHandoff.Lane.ID != "main" || laneHandoff.Lane.CurrentExecutor != "session-main-replacement" || laneHandoff.Lane.ExecutorGeneration != 2 || laneHandoff.ExecutorAction == nil || !laneHandoff.ExecutorAction.Ready || laneHandoff.ExecutorAction.ResumeCommand != "/rekit continue main" {
+		t.Fatalf("lane handoff should preserve replacement executor owner and next action: %+v", laneHandoff)
+	}
+	laneLatest := assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
+	laneHandoffText, err := os.ReadFile(laneLatest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(laneHandoffText), "current executor：session-main-replacement") || !strings.Contains(string(laneHandoffText), "executor generation：2") || !strings.Contains(string(laneHandoffText), "直接说：按 `.rekit/handovers/main-latest.md` 接手，然后执行 `/rekit continue main`。") {
+		t.Fatalf("lane handoff omitted replacement executor handoff text:\n%s", string(laneHandoffText))
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continuation struct {
+		IsMutation     bool                   `json:"isMutation"`
+		Applied        bool                   `json:"applied"`
+		Lane           startLane              `json:"lane"`
+		ExecutorAction executorActionSnapshot `json:"executorAction"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continuation); err != nil {
+		t.Fatalf("continue what-if did not decode: %v\n%s", err, out.String())
+	}
+	if continuation.IsMutation || continuation.Applied || continuation.Lane.CurrentExecutor != "session-main-replacement" || continuation.Lane.ExecutorGeneration != 2 || !continuation.ExecutorAction.Ready || continuation.ExecutorAction.ResumeCommand != "/rekit continue main" {
+		t.Fatalf("replacement executor cannot continue from durable handoff state: %+v", continuation)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("executor takeover wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("executor takeover wrote confirmed ledger or stat failed: %v", err)
+	}
+}
+
 func TestRunStartProjectsExecutorActionForExistingLaneBlockers(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeHandoffFixture(t, caseRoot)
