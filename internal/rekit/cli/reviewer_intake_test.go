@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
 )
@@ -66,6 +67,9 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	if preview.Verification.Applied || preview.Decision.Applied || preview.Verification.Event["verdict"] != "accepted" || preview.Decision.Event["decision"] != "accept" {
 		t.Fatalf("unexpected reviewer intake event previews: verification=%+v decision=%+v", preview.Verification, preview.Decision)
 	}
+	if preview.MissionCommanderAction.State != "ready-for-reviewer-intake-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed", preview.MissionCommanderAction.PrimaryCommand, false, true) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed.followUp", "/rekit handoff main", false, true) {
+		t.Fatalf("preview omitted reviewer intake Mission Commander guidance: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
@@ -74,6 +78,9 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	applied := decodeReviewerIntakeResult(t, out.Bytes())
 	if !applied.IsMutation || !applied.Applied || applied.WritebackStatus != "complete" || applied.Verification == nil || applied.Decision == nil || !applied.Verification.Applied || !applied.Decision.Applied || applied.PostValidation == nil || !applied.PostValidation.Valid || applied.PostValidation.Handoff.ExecutorAction == nil {
 		t.Fatalf("unexpected reviewer intake apply: %+v", applied)
+	}
+	if applied.MissionCommanderAction.State != "reviewer-intake-writeback-complete" || len(applied.MissionCommanderNextActions) == 0 || !strings.HasPrefix(applied.MissionCommanderNextActions[0].Source, "reviewerIntake.postValidation.") {
+		t.Fatalf("apply omitted reviewer intake Mission Commander guidance: action=%+v next=%+v", applied.MissionCommanderAction, applied.MissionCommanderNextActions)
 	}
 	if applied.PostValidation.Overview.Sections.Verifications.Total != 1 || applied.PostValidation.Overview.Sections.Decisions.Total != 1 || applied.PostValidation.Handoff.Lane == nil || applied.PostValidation.Handoff.Lane.ID != packet.TargetLane {
 		t.Fatalf("post-review validation omitted ledger/handoff state: %+v", applied.PostValidation)
@@ -130,14 +137,28 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 	}
 	originalIntake := intakeReviewerResult
 	intakeReviewerResult = func(repoRoot, caseRoot, pack string, opt subagents.ReviewerIntakeOptions) (subagents.ReviewerIntakeResult, error) {
+		primary := "/rekit plan-subagents -Target \"" + caseRoot + "\" -Pack \"" + pack + "\" -PacketPath \"" + opt.PacketPath + "\" -ReviewerResultPath \"" + opt.ReviewerResultPath + "\" -Lane \"" + opt.Lane + "\" -Actor \"" + opt.Actor + "\" -Apply -Format json"
 		return subagents.ReviewerIntakeResult{
 			SchemaVersion:   1,
 			Command:         "plan-subagents",
 			Mode:            "reviewer-intake",
 			WritebackStatus: "verification-recorded",
+			Lane:            opt.Lane,
 			Verification:    &note.AppendResult{Applied: true, EventID: "evt-review-test-verification"},
 			Decision:        &note.AppendResult{Applied: false, EventID: "evt-review-test-decision"},
-			NextSteps:       []string{"retry the identical reviewer intake apply"},
+			MissionCommanderAction: mission.MissionCommanderAction{
+				State:          "reviewer-intake-partial-writeback",
+				PrimaryCommand: primary,
+				Boundary:       []string{"retry the identical apply command; do not hand-write the missing decision event"},
+			},
+			MissionCommanderNextActions: []mission.MissionCommanderNextActionItem{{
+				Lane:           opt.Lane,
+				State:          "reviewer-intake-partial-writeback",
+				Command:        primary,
+				Source:         "reviewerIntake.verification-recorded",
+				RequiresReview: true,
+			}},
+			NextSteps: []string{"retry the identical reviewer intake apply"},
 		}, fmt.Errorf("injected decision append failure; writebackStatus=verification-recorded")
 	}
 	defer func() { intakeReviewerResult = originalIntake }()
@@ -150,6 +171,9 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 	partial := decodeReviewerIntakeResult(t, out.Bytes())
 	if partial.WritebackStatus != "verification-recorded" || partial.Verification == nil || !partial.Verification.Applied || partial.Decision == nil || partial.Decision.Applied {
 		t.Fatalf("CLI omitted reviewer intake partial recovery JSON: %+v", partial)
+	}
+	if partial.MissionCommanderAction.State != "reviewer-intake-partial-writeback" || !strings.Contains(partial.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || !containsMissionCommanderNextAction(partial.MissionCommanderNextActions, "reviewerIntake.verification-recorded", partial.MissionCommanderAction.PrimaryCommand, false, true) {
+		t.Fatalf("CLI omitted partial recovery Mission Commander retry guidance: action=%+v next=%+v", partial.MissionCommanderAction, partial.MissionCommanderNextActions)
 	}
 }
 
@@ -169,7 +193,9 @@ type reviewerIntakeCLIResult struct {
 		ShardStatusAfter  string   `json:"shardStatusAfter"`
 		NextDispatches    []string `json:"nextDispatches"`
 	} `json:"orchestrationSnapshot"`
-	Verification *struct {
+	MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+	MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+	Verification                *struct {
 		Applied bool           `json:"applied"`
 		EventID string         `json:"eventId"`
 		Event   map[string]any `json:"event"`

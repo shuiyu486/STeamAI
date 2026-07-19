@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
@@ -324,6 +325,9 @@ func TestIntakeReviewerResultWhatIfAndApply(t *testing.T) {
 	if preview.Verification.Applied || preview.Decision.Applied || preview.Verification.Reason != "what-if" || preview.Decision.Reason != "what-if" || preview.Verification.Event["verdict"] != "accepted" || preview.Decision.Event["decision"] != "accept" || preview.Verification.Event["reviewerSession"] != "reviewer-session-1" || preview.Verification.Event["ownerBindingMode"] != "unassigned-lane" || preview.Verification.Event["ownerBindingTarget"] != "devirt-main" {
 		t.Fatalf("unexpected writeback previews: verification=%+v decision=%+v", preview.Verification, preview.Decision)
 	}
+	if preview.MissionCommanderAction.State != "ready-for-reviewer-intake-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || !hasReviewerIntakeCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed", preview.MissionCommanderAction.PrimaryCommand, false, true) || !hasReviewerIntakeCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed.followUp", "/rekit handoff devirt-main", false, true) {
+		t.Fatalf("preview omitted reviewer intake Mission Commander apply guidance: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
+	}
 	if preview.OrchestrationSnapshot.Mode != "manual-main-agent-intake" || preview.OrchestrationSnapshot.DispatchIndex != 1 || preview.OrchestrationSnapshot.DispatchTotal != 1 || preview.OrchestrationSnapshot.ShardStatusAfter != "previewed" || !preview.OrchestrationSnapshot.PreviewRequiredFirst || !slices.Contains(preview.OrchestrationSnapshot.RuntimeBoundary, "runtime does not spawn subagents") {
 		t.Fatalf("unexpected orchestration snapshot: %+v", preview.OrchestrationSnapshot)
 	}
@@ -341,6 +345,9 @@ func TestIntakeReviewerResultWhatIfAndApply(t *testing.T) {
 	if !applied.IsMutation || !applied.Applied || applied.WritebackStatus != "complete" || !applied.ReadyForWriteback || applied.Verification == nil || applied.Decision == nil || !applied.Verification.Applied || !applied.Decision.Applied || applied.PostValidation == nil || !applied.PostValidation.Valid {
 		t.Fatalf("unexpected intake apply: %+v", applied)
 	}
+	if applied.MissionCommanderAction.State != "reviewer-intake-writeback-complete" || len(applied.MissionCommanderNextActions) == 0 || !strings.HasPrefix(applied.MissionCommanderNextActions[0].Source, "reviewerIntake.postValidation.") {
+		t.Fatalf("apply omitted post-validation Mission Commander guidance: action=%+v next=%+v", applied.MissionCommanderAction, applied.MissionCommanderNextActions)
+	}
 	verificationLedger := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
 	decisionLedger := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"))
 	if strings.Count(verificationLedger, applied.Verification.EventID) != 1 || strings.Count(decisionLedger, applied.Decision.EventID) != 1 || !strings.Contains(decisionLedger, applied.Verification.EventID) || !strings.Contains(verificationLedger, "reviewer-session-1") || !strings.Contains(verificationLedger, "ownerBindingMode") {
@@ -353,6 +360,9 @@ func TestIntakeReviewerResultWhatIfAndApply(t *testing.T) {
 	}
 	if duplicate.Applied || duplicate.WritebackStatus != "already-complete" || duplicate.Verification.Reason != "duplicate eventId" || duplicate.Decision.Reason != "duplicate eventId" {
 		t.Fatalf("repeat intake should be idempotent: %+v", duplicate)
+	}
+	if duplicate.MissionCommanderAction.State != "reviewer-intake-already-complete" || len(duplicate.MissionCommanderNextActions) == 0 || !strings.HasPrefix(duplicate.MissionCommanderNextActions[0].Source, "reviewerIntake.postValidation.") {
+		t.Fatalf("duplicate omitted already-complete Mission Commander guidance: action=%+v next=%+v", duplicate.MissionCommanderAction, duplicate.MissionCommanderNextActions)
 	}
 }
 
@@ -374,6 +384,9 @@ func TestIntakeReviewerResultBlocksConflictsWithoutWrites(t *testing.T) {
 	}
 	if result.IsMutation || result.Applied || result.WritebackStatus != "blocked" || result.ReadyForWriteback || !result.ReviewRequired || len(result.BlockedReasons) == 0 || result.Verification != nil || result.Decision != nil || result.PostValidation == nil {
 		t.Fatalf("conflicted result did not fail closed: %+v", result)
+	}
+	if result.MissionCommanderAction.State != "reviewer-intake-blocked" || !hasReviewerIntakeCommanderNextAction(result.MissionCommanderNextActions, "reviewerIntake.blocked", result.MissionCommanderAction.PrimaryCommand, true, true) {
+		t.Fatalf("blocked intake omitted blocked Mission Commander preview guidance: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
 		t.Fatalf("blocked intake wrote verification ledger:\n%s", got)
@@ -429,6 +442,12 @@ func TestIntakeReviewerResultRecoversPartialVerificationWrite(t *testing.T) {
 	if got := strings.Count(readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl")), recovered.Decision.EventID); got != 1 {
 		t.Fatalf("decision append count after recovery = %d, want 1", got)
 	}
+}
+
+func hasReviewerIntakeCommanderNextAction(items []mission.MissionCommanderNextActionItem, source, command string, blocked, requiresReview bool) bool {
+	return slices.ContainsFunc(items, func(item mission.MissionCommanderNextActionItem) bool {
+		return item.Source == source && item.Command == command && item.Blocked == blocked && item.RequiresReview == requiresReview
+	})
 }
 
 func reviewerResultForPlan(t *testing.T, packetPath, decision, verdict string, conflicts []string) []byte {

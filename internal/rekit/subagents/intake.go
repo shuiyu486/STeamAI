@@ -57,33 +57,36 @@ type ReviewerIntakeOptions struct {
 }
 
 type ReviewerIntakeResult struct {
-	SchemaVersion         int                         `json:"schemaVersion"`
-	Command               string                      `json:"command"`
-	Mode                  string                      `json:"mode"`
-	CaseRoot              string                      `json:"caseRoot"`
-	RepoRoot              string                      `json:"repoRoot"`
-	Pack                  string                      `json:"pack"`
-	IsMutation            bool                        `json:"isMutation"`
-	Applied               bool                        `json:"applied"`
-	WritebackStatus       string                      `json:"writebackStatus"`
-	ReadyForWriteback     bool                        `json:"readyForWriteback"`
-	ReviewRequired        bool                        `json:"reviewRequired"`
-	PacketPath            string                      `json:"packetPath"`
-	ReviewerResultPath    string                      `json:"reviewerResultPath"`
-	IntakeID              string                      `json:"intakeId"`
-	Lane                  string                      `json:"lane"`
-	ShardID               string                      `json:"shardId"`
-	OwnerBinding          OwnerBinding                `json:"ownerBinding"`
-	ReviewerSession       string                      `json:"reviewerSession"`
-	ReviewerResult        ReviewerResult              `json:"reviewerResult"`
-	VerificationVerdict   string                      `json:"verificationVerdict"`
-	MainDecision          string                      `json:"mainDecision"`
-	BlockedReasons        []string                    `json:"blockedReasons"`
-	OrchestrationSnapshot ReviewerOrchestrationIntake `json:"orchestrationSnapshot"`
-	Verification          *note.AppendResult          `json:"verification,omitempty"`
-	Decision              *note.AppendResult          `json:"decision,omitempty"`
-	PostValidation        *ReviewerPostValidation     `json:"postValidation,omitempty"`
-	NextSteps             []string                    `json:"nextSteps"`
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Command                     string                                   `json:"command"`
+	Mode                        string                                   `json:"mode"`
+	CaseRoot                    string                                   `json:"caseRoot"`
+	RepoRoot                    string                                   `json:"repoRoot"`
+	Pack                        string                                   `json:"pack"`
+	IsMutation                  bool                                     `json:"isMutation"`
+	Applied                     bool                                     `json:"applied"`
+	WritebackStatus             string                                   `json:"writebackStatus"`
+	ReadyForWriteback           bool                                     `json:"readyForWriteback"`
+	ReviewRequired              bool                                     `json:"reviewRequired"`
+	PacketPath                  string                                   `json:"packetPath"`
+	ReviewerResultPath          string                                   `json:"reviewerResultPath"`
+	IntakeID                    string                                   `json:"intakeId"`
+	Lane                        string                                   `json:"lane"`
+	ShardID                     string                                   `json:"shardId"`
+	Actor                       string                                   `json:"actor"`
+	OwnerBinding                OwnerBinding                             `json:"ownerBinding"`
+	ReviewerSession             string                                   `json:"reviewerSession"`
+	ReviewerResult              ReviewerResult                           `json:"reviewerResult"`
+	VerificationVerdict         string                                   `json:"verificationVerdict"`
+	MainDecision                string                                   `json:"mainDecision"`
+	BlockedReasons              []string                                 `json:"blockedReasons"`
+	OrchestrationSnapshot       ReviewerOrchestrationIntake              `json:"orchestrationSnapshot"`
+	Verification                *note.AppendResult                       `json:"verification,omitempty"`
+	Decision                    *note.AppendResult                       `json:"decision,omitempty"`
+	PostValidation              *ReviewerPostValidation                  `json:"postValidation,omitempty"`
+	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	NextSteps                   []string                                 `json:"nextSteps"`
 }
 
 type ReviewerPostValidation struct {
@@ -211,6 +214,7 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		IntakeID:              intakeID,
 		Lane:                  lane,
 		ShardID:               shard.ID,
+		Actor:                 actor,
 		OwnerBinding:          packet.OwnerBinding,
 		ReviewerSession:       reviewerResult.ReviewerSession,
 		ReviewerResult:        reviewerResult,
@@ -229,7 +233,7 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 			return ReviewerIntakeResult{}, validationErr
 		}
 		result.PostValidation = &validation
-		return result, nil
+		return finalizeReviewerIntakeResult(result), nil
 	}
 
 	verificationOpt, decisionOpt := reviewerNoteOptions(packet, reviewerResult, mapping, lane, actor, intakeID, packetPath, resultPath)
@@ -248,14 +252,14 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		result.OrchestrationSnapshot.ShardStatusAfter = result.WritebackStatus
 		result.ReadyForWriteback = false
 		result.BlockedReasons = append(result.BlockedReasons, err.Error())
-		return result, err
+		return finalizeReviewerIntakeResult(result), err
 	}
 	if err := ensureExpectedAppendResult(caseRoot, "decision", decisionPreview); err != nil {
 		result.WritebackStatus = "event-id-collision"
 		result.OrchestrationSnapshot.ShardStatusAfter = result.WritebackStatus
 		result.ReadyForWriteback = false
 		result.BlockedReasons = append(result.BlockedReasons, err.Error())
-		return result, err
+		return finalizeReviewerIntakeResult(result), err
 	}
 	if opt.WhatIf {
 		result.IsMutation = false
@@ -271,7 +275,7 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 			return ReviewerIntakeResult{}, err
 		}
 		result.PostValidation = &validation
-		return result, nil
+		return finalizeReviewerIntakeResult(result), nil
 	}
 
 	unlock, err := acquireReviewerIntakeLock(caseRoot, reviewerShardLockID(packet, reviewerResult, lane))
@@ -295,7 +299,7 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 			return ReviewerIntakeResult{}, validationErr
 		}
 		result.PostValidation = &validation
-		return result, nil
+		return finalizeReviewerIntakeResult(result), nil
 	}
 
 	verificationApply, err := appendReviewerNote(repoRoot, caseRoot, pack, verificationOpt, false)
@@ -306,7 +310,7 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 			result.WritebackStatus = "verification-recorded"
 			result.OrchestrationSnapshot.ShardStatusAfter = result.WritebackStatus
 			result.NextSteps = []string{"retry the identical reviewer intake apply; deterministic event IDs will preserve the verification event and complete the missing decision idempotently"}
-			return result, fmt.Errorf("append reviewer verification note after event %s; writebackStatus=%s and retry is safe: %w", verificationApply.EventID, result.WritebackStatus, err)
+			return finalizeReviewerIntakeResult(result), fmt.Errorf("append reviewer verification note after event %s; writebackStatus=%s and retry is safe: %w", verificationApply.EventID, result.WritebackStatus, err)
 		}
 		return ReviewerIntakeResult{}, fmt.Errorf("append reviewer verification note: %w", err)
 	}
@@ -315,7 +319,7 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		result.OrchestrationSnapshot.ShardStatusAfter = result.WritebackStatus
 		result.ReadyForWriteback = false
 		result.BlockedReasons = append(result.BlockedReasons, err.Error())
-		return result, err
+		return finalizeReviewerIntakeResult(result), err
 	}
 	result.Applied = verificationApply.Applied
 	result.WritebackStatus = "verification-recorded"
@@ -324,14 +328,14 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 	result.Decision = &decisionApply
 	if err != nil {
 		result.NextSteps = []string{"retry the identical reviewer intake apply; deterministic event IDs will preserve the verification event and complete the missing decision idempotently"}
-		return result, fmt.Errorf("append main decision note after verification event %s; writebackStatus=%s and retry is safe: %w", verificationApply.EventID, result.WritebackStatus, err)
+		return finalizeReviewerIntakeResult(result), fmt.Errorf("append main decision note after verification event %s; writebackStatus=%s and retry is safe: %w", verificationApply.EventID, result.WritebackStatus, err)
 	}
 	if err := ensureExpectedAppendResult(caseRoot, "decision", decisionApply); err != nil {
 		result.WritebackStatus = "event-id-collision"
 		result.OrchestrationSnapshot.ShardStatusAfter = result.WritebackStatus
 		result.ReadyForWriteback = false
 		result.BlockedReasons = append(result.BlockedReasons, err.Error())
-		return result, err
+		return finalizeReviewerIntakeResult(result), err
 	}
 	result.Applied = verificationApply.Applied || decisionApply.Applied
 	result.WritebackStatus = "complete"
@@ -343,11 +347,224 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 	if err != nil {
 		result.WritebackStatus = "complete-post-validation-failed"
 		result.NextSteps = []string{"ledger writeback completed; rerun the identical reviewer intake apply or run overview/handoff/doctor to recover post-validation snapshots"}
-		return result, fmt.Errorf("reviewer ledger writeback completed but post-validation failed; writebackStatus=%s: %w", result.WritebackStatus, err)
+		return finalizeReviewerIntakeResult(result), fmt.Errorf("reviewer ledger writeback completed but post-validation failed; writebackStatus=%s: %w", result.WritebackStatus, err)
 	}
 	result.PostValidation = &validation
 	result.NextSteps = []string{"consume postValidation overview/handoff/doctor snapshots", "continue or hand off the lane only when postValidation shows the expected blocker state"}
-	return result, nil
+	return finalizeReviewerIntakeResult(result), nil
+}
+
+func finalizeReviewerIntakeResult(result ReviewerIntakeResult) ReviewerIntakeResult {
+	action := reviewerIntakeMissionCommanderAction(result)
+	result.MissionCommanderAction = action
+	result.MissionCommanderNextActions = reviewerIntakeMissionCommanderNextActions(result, action)
+	return result
+}
+
+func reviewerIntakeMissionCommanderAction(result ReviewerIntakeResult) mission.MissionCommanderAction {
+	status := strings.TrimSpace(result.WritebackStatus)
+	label := reviewerIntakeLaneLabel(result.Lane)
+	previewCommand := reviewerIntakeCommand(result, false)
+	applyCommand := reviewerIntakeCommand(result, true)
+	handoffCommand := "/rekit handoff " + label
+	continuePreviewCommand := "/rekit continue " + label + " -WhatIf"
+	boundary := reviewerIntakeCommanderBoundary(result)
+	switch status {
+	case "previewed":
+		return mission.MissionCommanderAction{
+			State:            "ready-for-reviewer-intake-apply",
+			Prompt:           fmt.Sprintf("reviewer intake `%s` 已通过 WhatIf；主 Agent 复核 verification/decision/postValidation 后可 apply。", result.IntakeID),
+			PrimaryCommand:   applyCommand,
+			FollowUpCommands: []string{handoffCommand},
+			Boundary:         boundary,
+		}
+	case "complete":
+		primary, followUp := reviewerIntakePostValidationCommands(result)
+		if primary == "" {
+			primary = handoffCommand
+		}
+		return mission.MissionCommanderAction{
+			State:            "reviewer-intake-writeback-complete",
+			Prompt:           fmt.Sprintf("reviewer intake `%s` 已完成 verification-before-decision writeback；按 postValidation 的 lane next action 接续。", result.IntakeID),
+			PrimaryCommand:   primary,
+			FollowUpCommands: followUp,
+			Boundary:         boundary,
+		}
+	case "already-complete":
+		primary, followUp := reviewerIntakePostValidationCommands(result)
+		if primary == "" {
+			primary = handoffCommand
+			followUp = append(followUp, continuePreviewCommand)
+		}
+		return mission.MissionCommanderAction{
+			State:            "reviewer-intake-already-complete",
+			Prompt:           fmt.Sprintf("reviewer intake `%s` 已由 deterministic event IDs 完成；不要重复写 ledger，直接消费 postValidation。", result.IntakeID),
+			PrimaryCommand:   primary,
+			FollowUpCommands: followUp,
+			Boundary:         append(boundary, "duplicate reviewer intake does not append verification or decision events"),
+		}
+	case "verification-recorded":
+		return mission.MissionCommanderAction{
+			State:            "reviewer-intake-partial-writeback",
+			Prompt:           fmt.Sprintf("reviewer intake `%s` 已记录 verification 但 decision 尚未完成；重跑同一个 apply command 以幂等恢复。", result.IntakeID),
+			PrimaryCommand:   applyCommand,
+			FollowUpCommands: []string{handoffCommand},
+			Boundary:         append(boundary, "retry the identical apply command; do not hand-write the missing decision event"),
+		}
+	case "blocked", "event-id-collision":
+		state := "reviewer-intake-blocked"
+		if status == "event-id-collision" {
+			state = "reviewer-intake-event-id-collision"
+		}
+		return mission.MissionCommanderAction{
+			State:          state,
+			Prompt:         fmt.Sprintf("reviewer intake `%s` 当前不可写回；先解决 blockedReasons，再重新预览。", result.IntakeID),
+			PrimaryCommand: previewCommand,
+			Boundary:       append(boundary, "do not apply reviewer intake while blockedReasons are present"),
+		}
+	case "complete-post-validation-failed":
+		return mission.MissionCommanderAction{
+			State:            "reviewer-intake-post-validation-failed",
+			Prompt:           fmt.Sprintf("reviewer intake `%s` ledger writeback 已完成但 postValidation 失败；先恢复 overview/handoff/doctor snapshot。", result.IntakeID),
+			PrimaryCommand:   "/rekit overview",
+			FollowUpCommands: []string{handoffCommand, applyCommand},
+			Boundary:         append(boundary, "do not continue the lane until postValidation is available"),
+		}
+	default:
+		return mission.MissionCommanderAction{
+			State:            "reviewer-intake-" + textOr(status, "validated"),
+			Prompt:           fmt.Sprintf("reviewer intake `%s` 已校验；先运行 WhatIf 预览，再决定是否 apply。", result.IntakeID),
+			PrimaryCommand:   previewCommand,
+			FollowUpCommands: []string{applyCommand},
+			Boundary:         boundary,
+		}
+	}
+}
+
+func reviewerIntakeMissionCommanderNextActions(result ReviewerIntakeResult, action mission.MissionCommanderAction) []mission.MissionCommanderNextActionItem {
+	status := strings.TrimSpace(result.WritebackStatus)
+	if status == "complete" || status == "already-complete" {
+		if items := reviewerIntakePostValidationNextActions(result); len(items) > 0 {
+			return mission.UniqueCommanderNextActions(items)
+		}
+	}
+	items := []mission.MissionCommanderNextActionItem{}
+	blocked := reviewerIntakeNextActionBlocked(result)
+	requiresReview := reviewerIntakeNextActionRequiresReview(result)
+	if action.PrimaryCommand != "" {
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Lane:           result.Lane,
+			Label:          reviewerIntakeLaneLabel(result.Lane),
+			State:          action.State,
+			Command:        action.PrimaryCommand,
+			Source:         "reviewerIntake." + textOr(status, "validated"),
+			Blocked:        blocked,
+			RequiresReview: requiresReview,
+			Reasons:        reviewerIntakeNextActionReasons(result),
+			Boundary:       append([]string{}, action.Boundary...),
+		})
+	}
+	for _, command := range action.FollowUpCommands {
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Lane:           result.Lane,
+			Label:          reviewerIntakeLaneLabel(result.Lane),
+			State:          action.State,
+			Command:        command,
+			Source:         "reviewerIntake." + textOr(status, "validated") + ".followUp",
+			Blocked:        blocked,
+			RequiresReview: requiresReview,
+			Reasons:        append(reviewerIntakeNextActionReasons(result), "follow-up is available only after the reviewer intake primary action is satisfied"),
+			Boundary:       append([]string{}, action.Boundary...),
+		})
+	}
+	return mission.UniqueCommanderNextActions(items)
+}
+
+func reviewerIntakePostValidationNextActions(result ReviewerIntakeResult) []mission.MissionCommanderNextActionItem {
+	if result.PostValidation == nil {
+		return nil
+	}
+	items := []mission.MissionCommanderNextActionItem{}
+	for _, item := range result.PostValidation.Handoff.MissionCommanderNextActions {
+		copyItem := item
+		copyItem.Source = "reviewerIntake.postValidation." + textOr(item.Source, "handoff")
+		copyItem.Reasons = append([]string{"post-review validation passed; consume returned overview/handoff/doctor snapshots"}, item.Reasons...)
+		items = append(items, copyItem)
+	}
+	return items
+}
+
+func reviewerIntakePostValidationCommands(result ReviewerIntakeResult) (string, []string) {
+	items := reviewerIntakePostValidationNextActions(result)
+	if len(items) == 0 {
+		return "", nil
+	}
+	primary := items[0].Command
+	followUp := []string{}
+	for _, item := range items[1:] {
+		followUp = append(followUp, item.Command)
+	}
+	return primary, mission.UniqueStrings(followUp)
+}
+
+func reviewerIntakeNextActionBlocked(result ReviewerIntakeResult) bool {
+	switch strings.TrimSpace(result.WritebackStatus) {
+	case "blocked", "event-id-collision", "complete-post-validation-failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func reviewerIntakeNextActionRequiresReview(result ReviewerIntakeResult) bool {
+	switch strings.TrimSpace(result.WritebackStatus) {
+	case "complete", "already-complete":
+		return false
+	default:
+		return true
+	}
+}
+
+func reviewerIntakeNextActionReasons(result ReviewerIntakeResult) []string {
+	reasons := []string{}
+	if result.IntakeID != "" {
+		reasons = append(reasons, "reviewer intake "+result.IntakeID)
+	}
+	reasons = append(reasons, result.BlockedReasons...)
+	switch strings.TrimSpace(result.WritebackStatus) {
+	case "previewed":
+		reasons = append(reasons, "WhatIf preview passed; apply only after main-agent evidence review")
+	case "verification-recorded":
+		reasons = append(reasons, "verification event was recorded; identical retry completes missing decision idempotently")
+	case "complete", "already-complete":
+		reasons = append(reasons, "verification-before-decision writeback is complete")
+	}
+	return mission.UniqueStrings(reasons)
+}
+
+func reviewerIntakeCommanderBoundary(result ReviewerIntakeResult) []string {
+	boundary := []string{
+		"reviewer intake is main-agent owned; reviewer output alone is not a ledger event",
+		"run -WhatIf and inspect cited evidenceRefs before -Apply",
+		"do not write authority/confirmed state from reviewer intake",
+		"do not execute heavy tools from reviewer intake",
+	}
+	if result.WritebackStatus == "previewed" {
+		boundary = append(boundary, "apply only if verification and decision previews match the reviewed shard")
+	}
+	return mission.UniqueStrings(boundary)
+}
+
+func reviewerIntakeCommand(result ReviewerIntakeResult, apply bool) string {
+	mode := "-WhatIf"
+	if apply {
+		mode = "-Apply"
+	}
+	return "/rekit plan-subagents -Target " + quoteCommandArg(result.CaseRoot) + " -Pack " + quoteCommandArg(result.Pack) + " -PacketPath " + quoteCommandArg(result.PacketPath) + " -ReviewerResultPath " + quoteCommandArg(result.ReviewerResultPath) + " -Lane " + quoteCommandArg(result.Lane) + " -Actor " + quoteCommandArg(textOr(result.Actor, "<main-agent>")) + " " + mode + " -Format json"
+}
+
+func reviewerIntakeLaneLabel(lane string) string {
+	return mission.BoardLaneLabel(mission.BoardLane{ID: lane})
 }
 
 func readBoundedFile(path, label string, limit int64) ([]byte, error) {
