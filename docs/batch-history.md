@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 398：Pack-memory cleanup / reconsume command execution UX follow-through
+
+状态：已完成 pack-memory candidate decision/cleanup/reconsume checklist、durable docs、full local validation、commit/push 与远程 release-gate inspection。
+
+目标：把 `promote -CreateCandidates` 在 candidate 生成之后的主 Agent操作从“看 reviewItems/reconsume 自行拼步骤”收口为可直接执行的 bounded checklist：逐 item 决定 accept/reject/superseded，按 candidate cleanup target 删除或更新 index，并在 accepted tooling merge 后按明确 command sequence 验证 pack doctor、fresh case reconsume 与 attached case reconsume。
+
+实施范围：`CandidateReviewPlan` 新增 `decisionChecklist[]`，逐 item 暴露 reviewAction、acceptActions、rejectActions、cleanupActions、verificationCommands 与 boundary；`cleanupTargets[]` 新增 `indexPath` 与 `cleanupActions[]`；`reconsume` 新增 `verificationChecklist[]`，明确 pack doctor、fresh-case reconsume、attached-case reconsume 的 commands、expected、evidence 与 boundary。该批只增强 `promote -CreateCandidates` JSON review plan 与 tests/docs；不执行 candidate merge、不执行 `promote -Apply`、不写 authority/confirmed、不执行 heavy-tool、不把 case artifact 或真实 case state 写入 kit；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 focused `go test ./internal/rekit/promote ./internal/rekit/cli -run 'TestCreateCandidates|TestPackMemoryPromoteReconsumeE2E|TestRunPromoteCreateCandidates' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `bc742d2 Add pack memory candidate checklists`；远程 release-gate run `29692792206` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+
 ### Batch 397：Mission Commander overview action consumption closure
 
 状态：已完成 overview commander action index、durable docs、full local validation、commit/push 与远程 release-gate inspection。

@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 398：Pack-memory cleanup / reconsume command execution UX follow-through
 
-状态：已完成本地实现与验证，待提交/推送与远程 release-gate inspection。
+状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
 
 目标：把 `promote -CreateCandidates` 在 candidate 生成之后的主 Agent操作从“看 reviewItems/reconsume 自行拼步骤”收口为可直接执行的 bounded checklist：逐 item 决定 accept/reject/superseded，按 candidate cleanup target 删除或更新 index，并在 accepted tooling merge 后按明确 command sequence 验证 pack doctor、fresh case reconsume 与 attached case reconsume。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `reconsume` 新增 `verificationChecklist[]`，明确 pack doctor、fresh-case reconsume、attached-case reconsume 的 commands、expected、evidence 与 boundary。
 - promote package 与 CLI JSON coverage 锁定 WhatIf/actual candidate review checklist、tooling candidate fresh-case reconsume、candidate cleanup action 与 no authority/confirmed / no heavy-tool / no case artifact promotion boundaries。
 
-验证结果：已通过 focused `go test ./internal/rekit/promote ./internal/rekit/cli -run 'TestCreateCandidates|TestPackMemoryPromoteReconsumeE2E|TestRunPromoteCreateCandidates' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。
+验证结果：已通过 focused `go test ./internal/rekit/promote ./internal/rekit/cli -run 'TestCreateCandidates|TestPackMemoryPromoteReconsumeE2E|TestRunPromoteCreateCandidates' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `bc742d2 Add pack memory candidate checklists`；远程 release-gate run `29692792206` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 397 已完成 Mission Commander overview action consumption closure；overview JSON/text 已提供顶层 `missionCommanderActions[]` action index，详见 `docs/batch-history.md`。
 
