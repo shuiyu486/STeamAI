@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -1165,6 +1166,37 @@ func executionEvidenceReviewCommanderAction(item ExecutionEvidenceReviewItem, la
 
 func executionEvidenceReviewNeedsMainReview(item ExecutionEvidenceReviewItem) bool {
 	return item.Status == "boundary-hit" || item.Status == "escalated" || item.Escalation != "" || len(item.BoundaryHits) > 0
+}
+
+func ExecutionEvidenceReviewNeedsMainReview(items []ExecutionEvidenceReviewItem) bool {
+	return slices.ContainsFunc(items, executionEvidenceReviewNeedsMainReview)
+}
+
+func ExecutionEvidenceReviewNextSteps(items []ExecutionEvidenceReviewItem, includeContinueFollowUp bool) []string {
+	next := []string{}
+	needsMainReview := ExecutionEvidenceReviewNeedsMainReview(items)
+	for _, item := range items {
+		if item.GateEventID != "" {
+			next = append(next, "review execution evidence for gateEventId "+item.GateEventID+": "+item.ReviewCommand)
+		} else if item.ReviewCommand != "" {
+			next = append(next, "review execution evidence: "+item.ReviewCommand)
+		}
+		if executionEvidenceReviewNeedsMainReview(item) {
+			next = append(next, "boundary hit or escalation in execution evidence; stop autonomous continuation and notify main Agent")
+		}
+		if item.MissionCommanderAction.PrimaryCommand != "" {
+			next = append(next, item.MissionCommanderAction.PrimaryCommand)
+		} else if item.HandoffCommand != "" {
+			next = append(next, item.HandoffCommand)
+		}
+		for _, followUp := range item.MissionCommanderAction.FollowUpCommands {
+			if strings.Contains(followUp, "/rekit continue") && (!includeContinueFollowUp || needsMainReview) {
+				continue
+			}
+			next = append(next, followUp)
+		}
+	}
+	return mission.UniqueStrings(next)
 }
 
 func appendResumeExecutionEvidenceReview(lines []string, items []ExecutionEvidenceReviewItem) []string {

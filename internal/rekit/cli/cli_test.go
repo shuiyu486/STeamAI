@@ -2288,6 +2288,9 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	if len(result.ExecutionEvidenceReview) != 1 || result.ExecutionEvidenceReview[0].GateEventID != "gate-auth-1" || result.ExecutionEvidenceReview[0].Action != "debug" || !containsSubstring(result.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/out.txt") || !containsSubstring(result.ExecutionEvidenceReview[0].EvidenceRefs, "evidence/debug.json") || !containsSubstring(result.ExecutionEvidenceReview[0].Boundary, "do not replay heavy tool") || result.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || result.ExecutionEvidenceReview[0].MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(result.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") {
 		t.Fatalf("overview JSON missing execution evidence review queue: %+v", result.ExecutionEvidenceReview)
 	}
+	if !containsSubstring(result.NextSteps, "review execution evidence for gateEventId gate-auth-1") || !slices.Contains(result.NextSteps, "/rekit handoff main") || containsSubstring(result.NextSteps, "/rekit continue main") {
+		t.Fatalf("overview next steps should promote execution evidence review without recommending blocked-lane continue: %+v", result.NextSteps)
+	}
 	commander := result.LaneExecutorActions[0].ExecutorAction.MissionCommanderAction
 	if commander.State != "needs-reconcile" || commander.PrimaryCommand != "/rekit reconcile main -InterventionId <eventId> -Apply" || !containsSubstring(commander.FollowUpCommands, "/rekit continue main -WhatIf") || !containsSubstring(commander.Boundary, "do not run continue") {
 		t.Fatalf("overview lane executor action missing Mission Commander blocker handoff: %+v", commander)
@@ -5627,8 +5630,8 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if len(overview.LaneExecutorActions) != 1 || overview.LaneExecutorActions[0].ExecutorAction.Blocked || !overview.LaneExecutorActions[0].ExecutorAction.Ready || overview.LaneExecutorActions[0].ExecutorAction.PendingGates != 0 || !slices.Equal(overview.LaneExecutorActions[0].ExecutorAction.NextAgentActions, []string{"/rekit continue main"}) {
 		t.Fatalf("authorized gate overview executor action should remain non-blocking: %+v", overview.LaneExecutorActions)
 	}
-	if !slices.Contains(overview.NextSteps, "/rekit continue main") {
-		t.Fatalf("authorized gate overview should keep ready lane continue action: %+v", overview.NextSteps)
+	if !containsSubstring(overview.NextSteps, "review execution evidence for gateEventId "+authorizedEventID) || !slices.Contains(overview.NextSteps, "/rekit handoff main") || containsSubstring(overview.NextSteps, "/rekit continue main") || !containsSubstring(overview.NextSteps, "boundary hit or escalation") {
+		t.Fatalf("authorized gate overview should prioritize evidence review and suppress autonomous continue while escalation exists: %+v", overview.NextSteps)
 	}
 
 	out.Reset()
@@ -5641,6 +5644,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if len(project.ExecutionEvidenceReview) != 2 || project.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || project.ExecutionEvidenceReview[0].Status != "succeeded" || !containsSubstring(project.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/session-1/result.json") || !containsSubstring(project.ExecutionEvidenceReview[0].EvidenceRefs, "workspace/main/debug/session-1/result.json") || project.ExecutionEvidenceReview[0].HandoffCommand != "/rekit handoff main" || !containsSubstring(project.ExecutionEvidenceReview[0].Boundary, "do not replay heavy tool") || project.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || !containsSubstring(project.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || project.ExecutionEvidenceReview[1].Status != "escalated" || project.ExecutionEvidenceReview[1].Escalation != "adapter escalated from CLI E2E" || !containsSubstring(project.ExecutionEvidenceReview[1].Boundary, "requires main review") || project.ExecutionEvidenceReview[1].MissionCommanderAction.State != "needs-main-escalation" || containsSubstring(project.ExecutionEvidenceReview[1].MissionCommanderAction.FollowUpCommands, "/rekit continue main") {
 		t.Fatalf("project handoff JSON missing execution evidence review queue: %+v", project.ExecutionEvidenceReview)
+	}
+	if !containsSubstring(project.NextSteps, "review execution evidence for gateEventId "+authorizedEventID) || !slices.Contains(project.NextSteps, "/rekit handoff main") || containsSubstring(project.NextSteps, "/rekit continue main") || !containsSubstring(project.NextSteps, "boundary hit or escalation") {
+		t.Fatalf("project handoff next steps should route through evidence review before continuation: %+v", project.NextSteps)
 	}
 	projectLatest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
 	projectText, err := os.ReadFile(projectLatest.TargetPath)
@@ -5663,6 +5669,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if len(lane.ExecutionEvidenceReview) != 2 || lane.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || lane.ExecutionEvidenceReview[0].Status != "succeeded" || lane.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || lane.ExecutionEvidenceReview[1].Status != "escalated" || !containsSubstring(lane.ExecutionEvidenceReview[1].Boundary, "requires main review") || lane.ExecutionEvidenceReview[1].MissionCommanderAction.State != "needs-main-escalation" {
 		t.Fatalf("lane handoff JSON missing execution evidence review queue: %+v", lane.ExecutionEvidenceReview)
+	}
+	if !containsSubstring(lane.NextSteps, "review execution evidence for gateEventId "+authorizedEventID) || !slices.Contains(lane.NextSteps, "/rekit handoff main") || containsSubstring(lane.NextSteps, "/rekit continue main") || !containsSubstring(lane.NextSteps, "boundary hit or escalation") {
+		t.Fatalf("lane handoff next steps should route through evidence review before continuation: %+v", lane.NextSteps)
 	}
 	laneLatest := assertStartWrite(t, lane.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
 	laneText, err := os.ReadFile(laneLatest.TargetPath)

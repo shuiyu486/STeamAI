@@ -134,16 +134,20 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		laneExecutorActions = ctx.laneExecutorActions()
 		executionEvidenceReview = ctx.projectExecutionEvidenceReview()
 	}
+	evidenceNeedsMainReview := ExecutionEvidenceReviewNeedsMainReview(executionEvidenceReview)
+	includeEvidenceContinue := executorAction != nil && !executorAction.Blocked
 	next := []string{"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default"}
+	next = append(next, ExecutionEvidenceReviewNextSteps(executionEvidenceReview, includeEvidenceContinue)...)
 	if applied {
 		if ctx.project {
 			next = append(next, "open .rekit/handovers/latest.md in the case to continue")
-		} else if executorAction != nil {
+		} else if executorAction != nil && !evidenceNeedsMainReview {
 			next = append(next, executorAction.NextAgentActions...)
 		}
 	} else {
 		next = append(next, "review this plan, then re-run handoff with -Apply to write case-local handoff files")
 	}
+	next = mission.UniqueStrings(next)
 	return HandoffResult{
 		SchemaVersion:           1,
 		Command:                 "handoff",

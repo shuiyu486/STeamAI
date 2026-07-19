@@ -175,7 +175,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	writeBatches(&out, facts.AllBatchEvents)
 	writeInterventions(&out, facts.Interventions)
 	writeRollbacks(&out, facts.Rollbacks)
-	writeNextSteps(&out, overviewNextSteps(brief))
+	writeNextSteps(&out, overviewNextSteps(brief, evidenceReview))
 	return out.String(), nil
 }
 
@@ -234,7 +234,7 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 		MissionCommanderActions: missionCommanderActionIndex(actions),
 		ExecutionEvidenceReview: evidenceReview,
 		Sections:                data.sections,
-		NextSteps:               overviewNextSteps(brief),
+		NextSteps:               overviewNextSteps(brief, evidenceReview),
 	}, nil
 }
 
@@ -547,8 +547,12 @@ func cloneEvents(items []event) []map[string]any {
 	return out
 }
 
-func overviewNextSteps(brief MissionBrief) []string {
-	steps := append([]string{}, brief.NextAgentActions...)
+func overviewNextSteps(brief MissionBrief, evidenceReview []workstream.ExecutionEvidenceReviewItem) []string {
+	blocked := len(brief.BlockedLanes) > 0 || len(brief.PendingGates) > 0 || len(brief.OpenDecisions) > 0 || len(brief.Interventions) > 0
+	steps := append([]string{}, workstream.ExecutionEvidenceReviewNextSteps(evidenceReview, !blocked)...)
+	if !workstream.ExecutionEvidenceReviewNeedsMainReview(evidenceReview) {
+		steps = append(steps, brief.NextAgentActions...)
+	}
 	steps = append(steps, "/rekit start <name>", "/rekit handoff", "/rekit handoff main 或 /rekit handoff <name>")
 	return uniqueStrings(steps)
 }
