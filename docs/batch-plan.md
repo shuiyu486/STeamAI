@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 416：Plan-subagents planning Mission Commander dispatch guidance closure
 
-状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待本批收尾。
+状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 389 已让 `plan-subagents` planning result / `packet.json` / `summary.md` 输出 reviewer orchestration lifecycle、dispatches、result root 与 intake commands，Batch 415 又让 reviewer-intake envelope 输出 top-level Mission Commander guidance；但 planning 阶段仍要求主 Agent 从 `reviewerOrchestration.dispatches[]`、`shardHandoffs[]`、`reviewerIntakeCommands`、lifecycle 与 summary 文本手工拼接“先 dispatch reviewer → 收集 JSON → preview → apply”，且 attached-case 与 out-of-case dispatch-only 的 next-action 边界不够直接。本批把 planning 阶段的 reviewer dispatch/intake ordering 收口到 Mission Commander action guidance。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - preview/apply reasons 明确 reviewer JSON 必须先放入 result path、preview valid 且 evidenceRefs 经主 Agent复核后才能 apply；out-of-case planning 只输出 dispatch-only 与 `init -WhatIf` handoff，不把 reviewer intake/writeback 当作可立即执行。
 - empty plan 输出 `reviewer-plan-empty` replan guidance；package/CLI coverage 锁定 top-level/nested packet projection、summary text、empty plan、out-of-case、attached-case product path、no auto-spawn/no-heavy-tool/no authority/confirmed 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/subagents -run "TestWritePlan" -count=1`、`go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerOrchestrationE2E" -count=1`、affected package `go test ./internal/rekit/subagents ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待收尾；远程 CI 仍按既有 GitHub Actions runner/billing blocker 处理，不能仅凭 local release-check 声明 green。
+验证结果：已通过 focused `go test ./internal/rekit/subagents -run "TestWritePlan" -count=1`、`go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerOrchestrationE2E" -count=1`、affected package `go test ./internal/rekit/subagents ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `15f726c Add plan-subagents commander guidance`；远程 release-gate run `29708088455` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 415 已完成 Reviewer-intake Mission Commander writeback guidance closure，详见 `docs/batch-history.md`。
 
