@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 **Batch 376：Adapter evidence ref boundary hardening**
 
-状态：已完成 adapter report / explicit execution evidence evidenceRefs authorized outputPath enforcement、contract/taxonomy projection、package/CLI/façade coverage、durable docs 更新与本地 validation；等待 commit/push 后记录远程 release-gate inspection。
+状态：已完成 adapter report / explicit execution evidence evidenceRefs authorized outputPath enforcement、contract/taxonomy projection、package/CLI/façade coverage、durable docs 更新、本地 validation、commit/push 与远程 release-gate inspection。
 
 目标：在 Batch 375 的 stopCondition / status summary enforcement 之后，补齐 evidence ref 边界闭环：bounded adapter sidecar 与 explicit `-ExecutionEvidenceRefs` 不能再引用 authorized output paths 之外的 case-local artifact，避免 lane executor / tool adapter 把越界 sidecar、trace、log 或证据位置写入 observation evidence。
 
@@ -54,7 +54,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 focused gate/CLI、full gate package、façade smoke、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。尚需 commit/push 与远程 release-gate inspection；不能声明远程 CI green。
+本地 focused gate/CLI、full gate package、façade smoke、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已 commit/push 为 `68f331d Enforce adapter evidence ref boundaries`。远程 release-gate run `29673821417`（headSha `68f331d25f58dcc4dfacdd6e372a6c7121a0bc2e`）为 completed failure；Linux、Windows、macOS jobs 均为 failure 且 `steps: []`，仍是既有 runner/billing blocker 形态，不能声明远程 CI green。
 
 ### Next candidates
 
