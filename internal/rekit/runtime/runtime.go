@@ -21,7 +21,11 @@ type Context struct {
 }
 
 func New(target, pack string) (Context, error) {
-	cwd, err := refsf.FullPath("")
+	return NewWithCwd(target, pack, "")
+}
+
+func NewWithCwd(target, pack, cwdOverride string) (Context, error) {
+	cwd, err := refsf.FullPath(cwdOverride)
 	if err != nil {
 		return Context{}, err
 	}
@@ -32,8 +36,11 @@ func New(target, pack string) (Context, error) {
 	resolvedTarget := cwd
 	if targetProvided {
 		resolvedTarget = target
+		if !filepath.IsAbs(resolvedTarget) {
+			resolvedTarget = filepath.Join(cwd, resolvedTarget)
+		}
 	}
-	resolvedTarget, err = refsf.FullPath(resolvedTarget)
+	resolvedTarget, err = filepath.Abs(resolvedTarget)
 	if err != nil {
 		return Context{}, err
 	}

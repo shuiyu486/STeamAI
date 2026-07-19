@@ -28,6 +28,29 @@ func TestNewDiscoversRepoRoot(t *testing.T) {
 	}
 }
 
+func TestNewWithCwdUsesCallerCwdOverride(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	nested := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := casebind.WriteInstance(caseRoot, repoRoot, "_template", "caller-cwd-product-path-case"); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, err := NewWithCwd("", "_template", nested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctx.RepoRoot != repoRoot || ctx.RuntimeRoot != filepath.Join(repoRoot, "rekit") || ctx.Cwd != nested || ctx.Target != caseRoot || ctx.TargetProvided || ctx.Pack != "_template" {
+		t.Fatalf("unexpected caller cwd runtime context: %+v", ctx)
+	}
+}
+
 func TestNewDiscoversRepoRootFromTargetCaseMetadata(t *testing.T) {
 	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {

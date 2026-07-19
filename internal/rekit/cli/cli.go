@@ -509,12 +509,19 @@ func Parse(args []string) (Options, error) {
 	return opt, nil
 }
 
+func runtimeCwdOverride(opt Options) string {
+	if opt.Command != commands.Gate || strings.TrimSpace(opt.Target) != "" {
+		return ""
+	}
+	return strings.TrimSpace(os.Getenv("REKIT_CALLER_CWD"))
+}
+
 func Run(args []string, stdout io.Writer) error {
 	opt, err := Parse(args)
 	if err != nil {
 		return err
 	}
-	ctx, err := runtime.New(opt.Target, opt.Pack)
+	ctx, err := runtime.NewWithCwd(opt.Target, opt.Pack, runtimeCwdOverride(opt))
 	if err != nil {
 		return err
 	}
@@ -1711,6 +1718,7 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 		if wantsGateExecutionEvidenceDetailsExceptReportPath(opt.Gate) {
 			return fmt.Errorf("gate -ValidateExecutionReport cannot be combined with execution evidence fields other than -ExecutionReportPath")
 		}
+		opt.Gate.ExecutionReportCwd = ctx.Cwd
 		validation, err := gate.ValidateAdapterExecutionReport(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
 		if err != nil {
 			return err
@@ -1736,6 +1744,7 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	var result gate.ApplyResult
 	if executionEvidence {
+		opt.Gate.ExecutionReportCwd = ctx.Cwd
 		result, err = gate.RecordExecution(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
 	} else {
 		result, err = gate.Apply(ctx.RepoRoot, target, ctx.Pack, opt.Gate)

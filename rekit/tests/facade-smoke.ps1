@@ -76,6 +76,32 @@ function Write-CapturingFakeGoBackend {
   [System.IO.File]::WriteAllText($Path, $script, [System.Text.UTF8Encoding]::new($false))
 }
 
+function Write-PreauthorizedGateProfile {
+  param([Parameter(Mandatory=$true)][string]$CaseRoot)
+  $laneRoot = Join-Path $CaseRoot '.rekit\lanes\main'
+  New-Item -ItemType Directory -Path $laneRoot -Force | Out-Null
+  $profileLines = @(
+    '{',
+    '  "schemaVersion": 1,',
+    '  "profileId": "facade-smoke-main-debug",',
+    '  "lane": "main",',
+    '  "mode": "preauthorized",',
+    '  "allowedActions": ["debug"],',
+    '  "deniedActions": ["symex"],',
+    '  "targetScope": [{"match":"exact","value":"target-alpha"}],',
+    '  "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},',
+    '  "stopConditions": ["timeout"],',
+    '  "outputPaths": ["workspace/main/debug"],',
+    '  "recordRequired": true,',
+    '  "notifyMainOn": ["boundary-hit", "new-risk"],',
+    '  "grantedBy": "facade-smoke",',
+    '  "grantedAt": "2026-01-01T00:00:00Z",',
+    '  "expiresAt": "2999-01-01T00:00:00Z"',
+    '}'
+  )
+  [System.IO.File]::WriteAllText((Join-Path $laneRoot 'autonomy.json'), ([string]::Join("`n", $profileLines) + "`n"), [System.Text.UTF8Encoding]::new($false))
+}
+
 function Assert-FakeDelegation {
   param(
     [Parameter(Mandatory=$true)][string[]]$Arguments,
@@ -142,6 +168,7 @@ try {
     Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$CaseRoot,'-Pack',$Pack,'-ProjectName',"facade-smoke-$suffix",'-Apply') | Out-Null
     Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack) | Out-Null
     Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject',"facade-smoke-$suffix",'-Summary','seed observation for facade smoke','-Actor','facade-smoke') | Out-Null
+    Write-PreauthorizedGateProfile -CaseRoot $CaseRoot
   } elseif ([string]::Equals($Pack, 'vmp-re', [System.StringComparison]::OrdinalIgnoreCase)) {
     $gateLane = 'feature-handler-0x40a010'
   }
@@ -196,6 +223,30 @@ try {
   $gateOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane,'-Subject','facade smoke default gate')
   Assert-ContainsText -Text $gateOut -Expected '"isMutation": false' -Label 'default go gate dry-run'
   Assert-ContainsText -Text $gateOut -Expected '"status": "pending-gate"' -Label 'default go gate dry-run'
+
+  if ($usingSelfContainedCase) {
+    $workspaceRoot = Join-Path $CaseRoot 'workspace\main\debug\session-1'
+    New-Item -ItemType Directory -Path $workspaceRoot -Force | Out-Null
+    $gateApplyOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane','main','-Actor','facade-smoke','-Subject','facade smoke authorized gate','-TargetRef','target-alpha','-BatchId','facade-smoke-nested-output','-Scope','handler only','-RuntimeSeconds','30','-DiskMB','64','-Requests','1','-OutputPaths','workspace/main/debug/session-1','-StopConditions','timeout','-Format','json')
+    $gateApply = $gateApplyOut | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace([string]$gateApply.eventId)) { throw "facade nested product path gate apply did not return eventId. Output:`n$gateApplyOut" }
+    $adapterReport = '{"schemaVersion":1,"kind":"adapter-execution-report","adapterId":"facade-smoke-adapter","action":"debug","status":"succeeded","gateEventId":"' + [string]$gateApply.eventId + '","actualBudget":{"runtimeSeconds":20,"diskMB":32,"requests":1},"outputRefs":["workspace/main/debug/session-1/result.json"],"summary":"facade smoke adapter report"}'
+    [System.IO.File]::WriteAllText((Join-Path $workspaceRoot 'adapter-report.json'), $adapterReport, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText((Join-Path $workspaceRoot 'result.json'), '{"ok":true}', [System.Text.UTF8Encoding]::new($false))
+    Push-Location $workspaceRoot
+    try {
+      $nestedContractOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Pack',$Pack,'-GateEventId',([string]$gateApply.eventId),'-ExecutionReportContract','-Format','json')
+      $nestedValidationOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Pack',$Pack,'-GateEventId',([string]$gateApply.eventId),'-ValidateExecutionReport','-ExecutionReportPath','adapter-report.json','-Format','json')
+    } finally {
+      Pop-Location
+    }
+    Assert-ContainsText -Text $nestedContractOut -Expected '"kind": "adapter-execution-report-contract"' -Label 'facade nested workspace contract product path'
+    Assert-ContainsText -Text $nestedContractOut -Expected '"isMutation": false' -Label 'facade nested workspace contract product path'
+    Assert-ContainsText -Text $nestedValidationOut -Expected '"kind": "adapter-execution-report-validation"' -Label 'facade nested workspace validation product path'
+    Assert-ContainsText -Text $nestedValidationOut -Expected '"valid": true' -Label 'facade nested workspace validation product path'
+    Assert-ContainsText -Text $nestedValidationOut -Expected '"applied": false' -Label 'facade nested workspace validation product path'
+    Assert-ContainsText -Text $nestedValidationOut -Expected '"reportPath": "workspace/main/debug/session-1/adapter-report.json"' -Label 'facade nested workspace validation product path'
+  }
 
   # Explicit enable delegates the remaining expanded preview/review safe set.
   $goEnv = @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = '' }
@@ -268,6 +319,22 @@ try {
   foreach ($expectedGateArg in @('-GateEventId evt-authorized-gate','-ExecutionReportContract','-Format json')) {
     Assert-ContainsText -Text $capturedGateContractArgs -Expected $expectedGateArg -Label 'gate execution report contract facade args'
   }
+  $workspaceRoot = Join-Path $CaseRoot 'workspace\main\debug\session-1'
+  New-Item -ItemType Directory -Path $workspaceRoot -Force | Out-Null
+  $gateNestedContractCapturePath = Join-Path $matrixRoot 'gate-nested-contract-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $gateNestedContractCapturePath
+  Push-Location $workspaceRoot
+  try {
+    $gateNestedContractOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Pack',$Pack,'-GateEventId','evt-authorized-gate','-ExecutionReportContract','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  } finally {
+    Pop-Location
+  }
+  Assert-ContainsText -Text $gateNestedContractOut -Expected '"delegatedByFake":true' -Label 'nested gate execution report contract delegation'
+  $capturedGateNestedContractArgs = [System.IO.File]::ReadAllText($gateNestedContractCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedGateArg in @('-GateEventId evt-authorized-gate','-ExecutionReportContract','-Format json')) {
+    Assert-ContainsText -Text $capturedGateNestedContractArgs -Expected $expectedGateArg -Label 'nested gate execution report contract facade args'
+  }
+  Assert-NotContainsText -Text $capturedGateNestedContractArgs -Unexpected '-Target ' -Label 'nested gate execution report contract omits facade target'
   $gateValidationCapturePath = Join-Path $matrixRoot 'gate-execution-validation-args.txt'
   Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $gateValidationCapturePath
   $gateValidationOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-GateEventId','evt-authorized-gate','-ValidateExecutionReport','-ExecutionReportPath','workspace/main/debug/adapter-report.json','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
@@ -276,6 +343,20 @@ try {
   foreach ($expectedGateArg in @('-GateEventId evt-authorized-gate','-ValidateExecutionReport','-ExecutionReportPath workspace/main/debug/adapter-report.json','-Format json')) {
     Assert-ContainsText -Text $capturedGateValidationArgs -Expected $expectedGateArg -Label 'gate execution report validation facade args'
   }
+  $gateNestedValidationCapturePath = Join-Path $matrixRoot 'gate-nested-validation-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $gateNestedValidationCapturePath
+  Push-Location $workspaceRoot
+  try {
+    $gateNestedValidationOut = Invoke-RekitSmoke -Arguments @('-Command','gate','-Pack',$Pack,'-GateEventId','evt-authorized-gate','-ValidateExecutionReport','-ExecutionReportPath','adapter-report.json','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  } finally {
+    Pop-Location
+  }
+  Assert-ContainsText -Text $gateNestedValidationOut -Expected '"delegatedByFake":true' -Label 'nested gate execution report validation delegation'
+  $capturedGateNestedValidationArgs = [System.IO.File]::ReadAllText($gateNestedValidationCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedGateArg in @('-GateEventId evt-authorized-gate','-ValidateExecutionReport','-ExecutionReportPath adapter-report.json','-Format json')) {
+    Assert-ContainsText -Text $capturedGateNestedValidationArgs -Expected $expectedGateArg -Label 'nested gate execution report validation facade args'
+  }
+  Assert-NotContainsText -Text $capturedGateNestedValidationArgs -Unexpected '-Target ' -Label 'nested gate execution report validation omits facade target'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-lane','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'start' -Label 'default start JSON preview delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-apply','-Pack',$Pack,'-Apply','-Executor','matrix-session','-Actor','facade-smoke','-Reason','matrix explicit takeover') -CommandName 'start' -Label 'default start apply delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'matrix-json-apply','-Pack',$Pack,'-Apply','-Format','json') -CommandName 'start' -Label 'default start JSON apply delegation'

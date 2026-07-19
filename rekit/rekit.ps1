@@ -77,6 +77,24 @@ function Test-RekitLooksLikeCase {
   return (Test-Path -LiteralPath (Join-Path $Path '.rekit\instance.yml')) -or (Test-Path -LiteralPath (Join-Path $Path '.re-template.yml'))
 }
 
+function Resolve-RekitCaseRoot {
+  param([string]$Path)
+  if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
+  try {
+    $dir = [System.IO.Path]::GetFullPath($Path)
+  } catch {
+    return ''
+  }
+  if (Test-Path -LiteralPath $dir -PathType Leaf) { $dir = Split-Path -Parent $dir }
+  while (-not [string]::IsNullOrWhiteSpace($dir)) {
+    if (Test-RekitLooksLikeCase $dir) { return $dir }
+    $parent = Split-Path -Parent $dir
+    if ([string]::IsNullOrWhiteSpace($parent) -or [string]::Equals($parent, $dir, [System.StringComparison]::OrdinalIgnoreCase)) { return '' }
+    $dir = $parent
+  }
+  return ''
+}
+
 function Resolve-RekitActionTargetAndArgs {
   param(
     [string]$Value,
@@ -246,6 +264,10 @@ function Test-RekitGoDelegationSafe {
       if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
       if ((-not [string]::IsNullOrWhiteSpace($formatValue)) -and $formatValue -ne 'json') { return $false }
+      if ([string]::IsNullOrWhiteSpace($Target)) {
+        $caseRoot = Resolve-RekitCaseRoot $CallerWorkingDirectory
+        return (-not [string]::IsNullOrWhiteSpace($caseRoot))
+      }
       $caseRoot = Resolve-RekitTarget $Target
       return (Test-RekitLooksLikeCase $caseRoot)
     }
@@ -350,7 +372,11 @@ function Add-RekitGoSwitch {
 function Get-RekitGoTarget {
   switch ($Command) {
     { $_ -in @('status','packs','release-check') } { return (Resolve-RekitTarget $Target) }
-    { $_ -in @('attach','repair','init','bootstrap','overview','note','sync','update','promote','gate','plan-subagents') } { return (Resolve-RekitTarget $Target) }
+    'gate' {
+      if ([string]::IsNullOrWhiteSpace($Target)) { return '' }
+      return (Resolve-RekitTarget $Target)
+    }
+    { $_ -in @('attach','repair','init','bootstrap','overview','note','sync','update','promote','plan-subagents') } { return (Resolve-RekitTarget $Target) }
     { $_ -in @('doctor','validate') } {
       if (-not [string]::IsNullOrWhiteSpace($Target)) { return (Resolve-RekitTarget $Target) }
       $cwd = Resolve-RekitTarget ''
@@ -496,6 +522,10 @@ function Get-RekitGoArgs {
 function Invoke-RekitGoBackend {
   param([Parameter(Mandatory=$true)]$Invocation)
   $goArgs = Get-RekitGoArgs
+  $oldCallerCwd = [Environment]::GetEnvironmentVariable('REKIT_CALLER_CWD', 'Process')
+  $callerCwd = ''
+  if ($Command -eq 'gate' -and [string]::IsNullOrWhiteSpace($Target)) { $callerCwd = $CallerWorkingDirectory }
+  if (-not [string]::IsNullOrWhiteSpace($callerCwd)) { [Environment]::SetEnvironmentVariable('REKIT_CALLER_CWD', $callerCwd, 'Process') }
   Push-Location $Invocation.WorkingDirectory
   try {
     $argv = @($Invocation.Prefix) + @($goArgs)
@@ -503,6 +533,7 @@ function Invoke-RekitGoBackend {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   } finally {
     Pop-Location
+    [Environment]::SetEnvironmentVariable('REKIT_CALLER_CWD', $oldCallerCwd, 'Process')
   }
 }
 

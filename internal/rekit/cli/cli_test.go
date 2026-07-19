@@ -5391,6 +5391,208 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 }
 
+func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeAuthorizedGateVisibilityFixture(t, caseRoot)
+	var out bytes.Buffer
+	if err := Run([]string{
+		"-Command", "gate",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Apply",
+		"-Action", "debug",
+		"-Lane", "main",
+		"-Actor", "runtime-test",
+		"-Subject", "authorized debug",
+		"-TargetRef", "target-alpha",
+		"-BatchId", "batch-nested-output-workspace",
+		"-Scope", "handler only",
+		"-RuntimeSeconds", "30",
+		"-DiskMB", "64",
+		"-Requests", "1",
+		"-OutputPaths", "workspace/main/debug/session-1",
+		"-StopConditions", "timeout",
+		"-Format", "json",
+	}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var applied struct {
+		EventID string `json:"eventId"`
+		Applied bool   `json:"applied"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("authorized gate apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !applied.Applied || applied.EventID == "" {
+		t.Fatalf("unexpected authorized gate result: %+v", applied)
+	}
+
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "nested-cli-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+applied.EventID+`",
+  "actualBudget": {"runtimeSeconds": 20, "diskMB": 32, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "summary": "Adapter report from nested output workspace"
+}`)
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.json", `{"ok":true}`)
+	workspace := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1")
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-ExecutionReportContract", "-GateEventId", applied.EventID, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var contract struct {
+		Kind               string   `json:"kind"`
+		CaseRoot           string   `json:"caseRoot"`
+		GateEventID        string   `json:"gateEventId"`
+		IsMutation         bool     `json:"isMutation"`
+		AllowedOutputPaths []string `json:"allowedOutputPaths"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &contract); err != nil {
+		t.Fatalf("nested workspace adapter report contract stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if contract.Kind != "adapter-execution-report-contract" || contract.CaseRoot != caseRoot || contract.GateEventID != applied.EventID || contract.IsMutation || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" {
+		t.Fatalf("unexpected nested workspace adapter report contract: %+v", contract)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-ValidateExecutionReport", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var validation struct {
+		Kind       string `json:"kind"`
+		CaseRoot   string `json:"caseRoot"`
+		Valid      bool   `json:"valid"`
+		IsMutation bool   `json:"isMutation"`
+		Applied    bool   `json:"applied"`
+		Error      string `json:"error"`
+		ReportPath string `json:"reportPath"`
+		Report     *struct {
+			AdapterID string `json:"adapterId"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &validation); err != nil {
+		t.Fatalf("nested workspace adapter report validation stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if validation.Kind != "adapter-execution-report-validation" || validation.CaseRoot != caseRoot || !validation.Valid || validation.IsMutation || validation.Applied || validation.Error != "" || validation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || validation.Report == nil || validation.Report.AdapterID != "nested-cli-adapter" {
+		t.Fatalf("unexpected nested workspace adapter report validation: %+v", validation)
+	}
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
+}
+
+func TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeAuthorizedGateVisibilityFixture(t, caseRoot)
+	var out bytes.Buffer
+	if err := Run([]string{
+		"-Command", "gate",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Apply",
+		"-Action", "debug",
+		"-Lane", "main",
+		"-Actor", "runtime-test",
+		"-Subject", "authorized debug via caller cwd bridge",
+		"-TargetRef", "target-alpha",
+		"-BatchId", "batch-caller-cwd-bridge",
+		"-Scope", "handler only",
+		"-RuntimeSeconds", "30",
+		"-DiskMB", "64",
+		"-Requests", "1",
+		"-OutputPaths", "workspace/main/debug/session-1",
+		"-StopConditions", "timeout",
+		"-Format", "json",
+	}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var applied struct {
+		EventID string `json:"eventId"`
+		Applied bool   `json:"applied"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("authorized gate apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !applied.Applied || applied.EventID == "" {
+		t.Fatalf("unexpected authorized gate result: %+v", applied)
+	}
+
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "caller-cwd-bridge-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+applied.EventID+`",
+  "actualBudget": {"runtimeSeconds": 20, "diskMB": 32, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "summary": "Adapter report through facade caller cwd bridge"
+}`)
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.json", `{"ok":true}`)
+	workspace := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1")
+	t.Setenv("REKIT_CALLER_CWD", workspace)
+
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-ExecutionReportContract", "-GateEventId", applied.EventID, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var contract struct {
+		Kind        string `json:"kind"`
+		CaseRoot    string `json:"caseRoot"`
+		GateEventID string `json:"gateEventId"`
+		IsMutation  bool   `json:"isMutation"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &contract); err != nil {
+		t.Fatalf("caller cwd bridge contract stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if contract.Kind != "adapter-execution-report-contract" || contract.CaseRoot != caseRoot || contract.GateEventID != applied.EventID || contract.IsMutation {
+		t.Fatalf("unexpected caller cwd bridge contract: %+v", contract)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-ValidateExecutionReport", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var validation struct {
+		Kind       string `json:"kind"`
+		CaseRoot   string `json:"caseRoot"`
+		Valid      bool   `json:"valid"`
+		IsMutation bool   `json:"isMutation"`
+		Applied    bool   `json:"applied"`
+		Error      string `json:"error"`
+		ReportPath string `json:"reportPath"`
+		Report     *struct {
+			AdapterID string `json:"adapterId"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &validation); err != nil {
+		t.Fatalf("caller cwd bridge validation stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if validation.Kind != "adapter-execution-report-validation" || validation.CaseRoot != caseRoot || !validation.Valid || validation.IsMutation || validation.Applied || validation.Error != "" || validation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || validation.Report == nil || validation.Report.AdapterID != "caller-cwd-bridge-adapter" {
+		t.Fatalf("unexpected caller cwd bridge validation: %+v", validation)
+	}
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
+}
+
 func TestRunGateApplyIsIdempotentByEventID(t *testing.T) {
 	caseRoot := attachedCaseWithBoard(t)
 	args := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Action", "debug", "-Lane", "main", "-Actor", "runtime-test", "-Subject", "debug gate"}

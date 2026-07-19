@@ -46,6 +46,7 @@ type Options struct {
 	BoundaryHits            string
 	Escalation              string
 	ExecutionReportPath     string
+	ExecutionReportCwd      string
 	ExecutionReportContract bool
 	ValidateExecutionReport bool
 }
@@ -208,7 +209,7 @@ func adapterReportValidationErrorf(code, stage, format string, args ...any) erro
 
 func adapterReportValidationFailureStages() []AdapterReportValidationFailureStage {
 	return []AdapterReportValidationFailureStage{
-		{Stage: "path", Description: "Report path list, case-root containment, and authorized output path scope checks."},
+		{Stage: "path", Description: "Report path list, case-root containment, cwd-relative resolution, and authorized output path scope checks."},
 		{Stage: "read", Description: "Report file existence, file type, size, and read/open checks."},
 		{Stage: "decode", Description: "JSON decoding, unknown field rejection, and trailing data checks."},
 		{Stage: "schema", Description: "Report schemaVersion, kind, adapterId, and status checks."},
@@ -223,7 +224,7 @@ func adapterReportValidationFailureStages() []AdapterReportValidationFailureStag
 func adapterReportValidationFailureCodes() []AdapterReportValidationFailureCode {
 	return []AdapterReportValidationFailureCode{
 		{Code: "path-list", Stage: "path", Description: "Execution report path must be a single file path."},
-		{Code: "path-invalid", Stage: "path", Description: "Execution report path must be case-contained and case-relative or case-contained absolute."},
+		{Code: "path-invalid", Stage: "path", Description: "Execution report path must be case-contained and case-relative, current-workspace relative, or case-contained absolute."},
 		{Code: "report-path-out-of-scope", Stage: "path", Description: "Execution report path must stay within one authorized output path."},
 		{Code: "report-not-readable", Stage: "read", Description: "Execution report file could not be stat/open/read."},
 		{Code: "report-path-directory", Stage: "read", Description: "Execution report path names a directory instead of a file."},
@@ -457,7 +458,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		GateEventID:   gateEvent.EventID,
 		Contract:      adapterReportContract(repoRoot, inst.CaseRoot, pack, gateEvent),
 	}
-	reportRel, adapterReport, err := readAdapterExecutionReport(inst.CaseRoot, gateEvent, opt.ExecutionReportPath)
+	reportRel, adapterReport, err := readAdapterExecutionReport(inst.CaseRoot, gateEvent, opt.ExecutionReportCwd, opt.ExecutionReportPath)
 	if reportRel != "" {
 		validation.ReportPath = reportRel
 	}
@@ -541,7 +542,7 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) 
 		AllowedOutputPaths:      append([]string{}, event.Gate.OutputPaths...),
 		AuthorizedBudget:        event.Gate.RequestedBudget,
 		StopConditions:          append([]string{}, event.Gate.StopConditions...),
-		ReportPathRule:          "case-relative or case-contained absolute file path under one authorized outputPath; sidecar must be <= 1048576 bytes and contain no trailing JSON data",
+		ReportPathRule:          "case-relative, current-workspace relative, or case-contained absolute file path under one authorized outputPath; sidecar must be <= 1048576 bytes and contain no trailing JSON data",
 		SummaryMaxBytes:         4096,
 		EscalationMaxBytes:      4096,
 		RecordRequired:          event.Gate.Authorization.RecordRequired,
@@ -555,7 +556,7 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) 
 }
 
 func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (ExecutionEvidencePreview, error) {
-	reportRel, adapterReport, err := readAdapterExecutionReport(caseRoot, gateEvent, opt.ExecutionReportPath)
+	reportRel, adapterReport, err := readAdapterExecutionReport(caseRoot, gateEvent, opt.ExecutionReportCwd, opt.ExecutionReportPath)
 	if err != nil {
 		return ExecutionEvidencePreview{}, err
 	}
@@ -684,7 +685,7 @@ func actualBudgetFieldMismatch(explicit, reported autonomy.Budget) bool {
 	return (explicit.RuntimeSeconds != 0 && explicit.RuntimeSeconds != reported.RuntimeSeconds) || (explicit.DiskMB != 0 && explicit.DiskMB != reported.DiskMB) || (explicit.Requests != 0 && explicit.Requests != reported.Requests)
 }
 
-func readAdapterExecutionReport(caseRoot string, gateEvent EventPreview, value string) (string, *AdapterReport, error) {
+func readAdapterExecutionReport(caseRoot string, gateEvent EventPreview, cwd, value string) (string, *AdapterReport, error) {
 	path := strings.TrimSpace(value)
 	if path == "" {
 		return "", nil, nil
@@ -697,7 +698,14 @@ func readAdapterExecutionReport(caseRoot string, gateEvent EventPreview, value s
 		return "", nil, adapterReportValidationErrorf("path-invalid", "path", "%w", err)
 	}
 	if !outputRefsWithinGate(gateEvent.Gate.OutputPaths, []string{relPath}) {
-		return relPath, nil, adapterReportValidationErrorf("report-path-out-of-scope", "path", "gate execution report path must stay within authorized gate outputPaths")
+		if cwdFullPath, cwdRelPath, ok, err := cwdAuthorizedExecutionReportPath(caseRoot, gateEvent, cwd, path); err != nil {
+			return "", nil, adapterReportValidationErrorf("path-invalid", "path", "%w", err)
+		} else if ok {
+			fullPath = cwdFullPath
+			relPath = cwdRelPath
+		} else {
+			return relPath, nil, adapterReportValidationErrorf("report-path-out-of-scope", "path", "gate execution report path must stay within authorized gate outputPaths")
+		}
 	}
 	st, err := os.Stat(fullPath)
 	if err != nil {
@@ -735,28 +743,7 @@ func readAdapterExecutionReport(caseRoot string, gateEvent EventPreview, value s
 
 func executionReportPath(caseRoot, value string) (string, string, error) {
 	if filepath.IsAbs(value) {
-		caseAbs, err := filepath.Abs(caseRoot)
-		if err != nil {
-			return "", "", err
-		}
-		fullAbs, err := filepath.Abs(value)
-		if err != nil {
-			return "", "", err
-		}
-		caseClean := strings.TrimRight(filepath.Clean(caseAbs), string(filepath.Separator))
-		fullClean := strings.TrimRight(filepath.Clean(fullAbs), string(filepath.Separator))
-		prefix := caseClean + string(filepath.Separator)
-		if !strings.EqualFold(fullClean, caseClean) && !strings.HasPrefix(strings.ToLower(fullClean), strings.ToLower(prefix)) {
-			return "", "", fmt.Errorf("gate execution report path must stay within case root: %s", value)
-		}
-		rel, err := filepath.Rel(caseClean, fullClean)
-		if err != nil {
-			return "", "", err
-		}
-		if rel == "." {
-			return "", "", fmt.Errorf("gate execution report path must name a file under case root")
-		}
-		return fullClean, filepath.ToSlash(rel), nil
+		return caseContainedPath(caseRoot, value)
 	}
 	clean, err := validateCaseRelativePath(caseRoot, "gate execution report path", value)
 	if err != nil {
@@ -767,6 +754,67 @@ func executionReportPath(caseRoot, value string) (string, string, error) {
 		return "", "", fmt.Errorf("gate execution report path escapes case root: %s", value)
 	}
 	return fullPath, clean, nil
+}
+
+func cwdRelativeCasePath(caseRoot, cwd, value string) (string, string, bool, error) {
+	cwdAbs, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", "", false, err
+	}
+	caseAbs, err := filepath.Abs(caseRoot)
+	if err != nil {
+		return "", "", false, err
+	}
+	caseClean := strings.TrimRight(filepath.Clean(caseAbs), string(filepath.Separator))
+	cwdClean := strings.TrimRight(filepath.Clean(cwdAbs), string(filepath.Separator))
+	prefix := caseClean + string(filepath.Separator)
+	if !strings.EqualFold(cwdClean, caseClean) && !strings.HasPrefix(strings.ToLower(cwdClean), strings.ToLower(prefix)) {
+		return "", "", false, nil
+	}
+	full, rel, err := caseContainedPath(caseClean, filepath.Join(cwdClean, filepath.FromSlash(value)))
+	if err != nil {
+		return "", "", false, err
+	}
+	return full, rel, true, nil
+}
+
+func cwdAuthorizedExecutionReportPath(caseRoot string, gateEvent EventPreview, cwd, value string) (string, string, bool, error) {
+	if strings.TrimSpace(cwd) == "" || filepath.IsAbs(value) {
+		return "", "", false, nil
+	}
+	full, rel, ok, err := cwdRelativeCasePath(caseRoot, cwd, value)
+	if err != nil || !ok {
+		return "", "", ok, err
+	}
+	if !outputRefsWithinGate(gateEvent.Gate.OutputPaths, []string{rel}) {
+		return "", "", false, nil
+	}
+	return full, rel, true, nil
+}
+
+func caseContainedPath(caseRoot, value string) (string, string, error) {
+	caseAbs, err := filepath.Abs(caseRoot)
+	if err != nil {
+		return "", "", err
+	}
+	fullAbs, err := filepath.Abs(value)
+	if err != nil {
+		return "", "", err
+	}
+	caseClean := strings.TrimRight(filepath.Clean(caseAbs), string(filepath.Separator))
+	fullClean := strings.TrimRight(filepath.Clean(fullAbs), string(filepath.Separator))
+	prefix := caseClean + string(filepath.Separator)
+	if !strings.EqualFold(fullClean, caseClean) && !strings.HasPrefix(strings.ToLower(fullClean), strings.ToLower(prefix)) {
+		return "", "", fmt.Errorf("gate execution report path must stay within case root: %s", value)
+	}
+	rel, err := filepath.Rel(caseClean, fullClean)
+	if err != nil {
+		return "", "", err
+	}
+	if rel == "." {
+		return "", "", fmt.Errorf("gate execution report path must name a file under case root")
+	}
+	return fullClean, filepath.ToSlash(rel), nil
 }
 
 func validateAdapterExecutionReport(caseRoot string, gateEvent EventPreview, report *AdapterReport) error {
