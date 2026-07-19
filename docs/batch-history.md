@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 397：Mission Commander overview action consumption closure
+
+状态：已完成 overview commander action index、durable docs、full local validation、commit/push 与远程 release-gate inspection。
+
+目标：让 `overview` 成为主 Agent 的项目级操作面板，而不只是 readable summary：在已有 `laneExecutorActions[]` 嵌套 action snapshot 的基础上，提供顶层 Mission Commander action index，让替换 executor 或新会话无需遍历 nested JSON 或从 text prompt 手工提取 primary/follow-up/boundary。
+
+实施范围：`overview.Inventory` 新增 `missionCommanderActions[]`，逐 lane 提升 label/status/blocked/ready/blockerReasons、primaryCommand、followUpCommands、boundary 与完整 `missionCommanderAction`；text output 新增 `Mission Commander action index：` section，直接显示每条 lane 的 state、primary command、prompt、follow-up、boundary 与 blocker reasons。`overview` 仍保持 read-only：不写 case（除缺 board 的既有初始化路径外）、不执行 continue、不执行 heavy-tool、不写 observation/request/authority/confirmed；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 focused `go test ./internal/rekit/overview ./internal/rekit/cli -run 'TestRunOverviewEmitsReadOnlySummary|TestRunOverviewJsonEmitsReadOnlyInventory' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `43be419 Add overview commander action index` 与 docs follow-up `9b6cdfc Record Batch 397 release gate inspection`；远程 release-gate runs `29691630206` / `29691663881` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+
 ### Batch 396：Authorized execution evidence handoff consumption follow-through
 
 状态：已完成 authorized execution observation evidence review queue 的 handoff/resume/checkpoint 投影、durable docs、full local validation、commit/push 与远程 release-gate inspection。

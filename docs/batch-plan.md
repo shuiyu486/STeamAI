@@ -16,23 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 397：Mission Commander overview action consumption closure
+### Batch 398：Pack-memory cleanup / reconsume command execution UX follow-through
 
-状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
+状态：已完成本地实现与验证，待提交/推送与远程 release-gate inspection。
 
-目标：让 `overview` 成为主 Agent 的项目级操作面板，而不只是 readable summary：在已有 `laneExecutorActions[]` 嵌套 action snapshot 的基础上，提供顶层 Mission Commander action index，让替换 executor 或新会话无需遍历 nested JSON 或从 text prompt 手工提取 primary/follow-up/boundary。
+目标：把 `promote -CreateCandidates` 在 candidate 生成之后的主 Agent操作从“看 reviewItems/reconsume 自行拼步骤”收口为可直接执行的 bounded checklist：逐 item 决定 accept/reject/superseded，按 candidate cleanup target 删除或更新 index，并在 accepted tooling merge 后按明确 command sequence 验证 pack doctor、fresh case reconsume 与 attached case reconsume。
 
-边界：只增强 overview read-only JSON/text output；`overview` 不写 case（除缺 board 的既有初始化路径外）、不执行 continue、不执行 heavy-tool、不写 observation/request/authority/confirmed；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+边界：只增强 `promote -CreateCandidates` JSON review plan 与 tests/docs；不执行 candidate merge、不执行 `promote -Apply`、不写 authority/confirmed、不执行 heavy-tool、不把 case artifact 或真实 case state 写入 kit；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- `overview.Inventory` 新增 `missionCommanderActions[]`，逐 lane 提升 label/status/blocked/ready/blockerReasons、primaryCommand、followUpCommands、boundary 与完整 `missionCommanderAction`。
-- text output 新增 `Mission Commander action index：` section，直接显示每条 lane 的 state、primary command、prompt、follow-up、boundary 与 blocker reasons。
-- CLI coverage 锁定 read-only overview text/JSON 的 commander action index，并保持 blocker-first next steps 不推荐 blocked lane continue。
+- `CandidateReviewPlan` 新增 `decisionChecklist[]`，逐 item 暴露 reviewAction、acceptActions、rejectActions、cleanupActions、verificationCommands 与 boundary。
+- `cleanupTargets[]` 新增 `indexPath` 与 `cleanupActions[]`，让 rejected/superseded/merged candidate 的删除和 index 维护不再只藏在自然语言 `CleanupWhen` 中。
+- `reconsume` 新增 `verificationChecklist[]`，明确 pack doctor、fresh-case reconsume、attached-case reconsume 的 commands、expected、evidence 与 boundary。
+- promote package 与 CLI JSON coverage 锁定 WhatIf/actual candidate review checklist、tooling candidate fresh-case reconsume、candidate cleanup action 与 no authority/confirmed / no heavy-tool / no case artifact promotion boundaries。
 
-验证结果：已通过 focused `go test ./internal/rekit/overview ./internal/rekit/cli -run 'TestRunOverviewEmitsReadOnlySummary|TestRunOverviewJsonEmitsReadOnlyInventory' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `43be419 Add overview commander action index`；远程 release-gate run `29691630206` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/promote ./internal/rekit/cli -run 'TestCreateCandidates|TestPackMemoryPromoteReconsumeE2E|TestRunPromoteCreateCandidates' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。
 
-上一批摘要：Batch 396 已完成 authorized execution evidence handoff consumption follow-through；project/lane handoff、lane `RESUME.md` 与 checkpoint 已投影 execution evidence review queue，详见 `docs/batch-history.md`。
+上一批摘要：Batch 397 已完成 Mission Commander overview action consumption closure；overview JSON/text 已提供顶层 `missionCommanderActions[]` action index，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

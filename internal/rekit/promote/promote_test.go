@@ -29,7 +29,7 @@ func TestCreateCandidatesWhatIfDoesNotWrite(t *testing.T) {
 	assertCandidateWriteForTest(t, result.Writes, "references/template/README.md", "would-create-candidate")
 	assertCandidateWriteForTest(t, result.Writes, "references/template/workflow-template.md", "blocked-deny-pattern")
 	assertCandidateWriteForTest(t, result.Writes, "references/template/toolchain-router.md", "would-create-candidate")
-	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 || result.ReviewPlan.Reconsume.Mode != "pack-memory-reconsume-after-merge" {
+	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 || result.ReviewPlan.Reconsume.Mode != "pack-memory-reconsume-after-merge" {
 		t.Fatalf("unexpected what-if review plan: %+v", result.ReviewPlan)
 	}
 	commander := result.ReviewPlan.MissionCommanderAction
@@ -76,7 +76,7 @@ func TestCreateCandidatesWritesIndexAndSanitizedTooling(t *testing.T) {
 	assertExists(t, readmeWrite.TargetPath)
 	assertExists(t, toolingWrite.TargetPath)
 	assertExists(t, result.IndexPath)
-	if result.ReviewPlan.Mode != "candidate-review" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 {
+	if result.ReviewPlan.Mode != "candidate-review" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 {
 		t.Fatalf("unexpected candidate review plan: %+v", result.ReviewPlan)
 	}
 	readmeReview := assertCandidateReviewItemForTest(t, result.ReviewPlan.ReviewItems, "references/template/README.md", "pending-review")
@@ -195,7 +195,10 @@ func TestPackMemoryPromoteReconsumeE2E(t *testing.T) {
 	if reviewItem.CandidatePath != write.TargetPath || reviewItem.CleanupPath != write.TargetPath || !strings.Contains(reviewItem.MergeTargetHint, "tooling/recipes") {
 		t.Fatalf("pack-memory tooling candidate guidance drifted: %+v", reviewItem)
 	}
-	if !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "fresh case") || !strings.Contains(strings.Join(result.ReviewPlan.Reconsume.Boundary, "\n"), "no tooling recipe copy") {
+	if len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || !candidateDecisionChecklistContainsForTest(result.ReviewPlan.DecisionChecklist, "references/template/toolchain-router.md", "fresh-case-reconsume") {
+		t.Fatalf("pack-memory decision checklist missing tooling reconsume handoff: %+v", result.ReviewPlan.DecisionChecklist)
+	}
+	if !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "fresh case") || !strings.Contains(strings.Join(result.ReviewPlan.Reconsume.Boundary, "\n"), "no tooling recipe copy") || !candidateReconsumeChecklistContainsForTest(result.ReviewPlan.Reconsume.VerificationChecklist, "fresh-case-reconsume") {
 		t.Fatalf("pack-memory reconsume guidance drifted: %+v", result.ReviewPlan.Reconsume)
 	}
 	if result.ReviewPlan.MissionCommanderAction.State != "ready-to-review-pack-memory-candidates" || !promoteContainsSubstring(result.ReviewPlan.MissionCommanderAction.FollowUpCommands, "doctor -Target <fresh-case>") || !promoteContainsSubstring(result.ReviewPlan.MissionCommanderAction.Boundary, "verify fresh or attached case reconsume") {
@@ -722,6 +725,33 @@ func assertCandidateReviewItemForTest(t *testing.T, items []CandidateReviewItem,
 func promoteContainsSubstring(items []string, want string) bool {
 	for _, item := range items {
 		if strings.Contains(item, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func candidateDecisionChecklistContainsForTest(items []CandidateDecisionChecklist, path, want string) bool {
+	for _, item := range items {
+		if item.Path != path {
+			continue
+		}
+		fields := []string{item.ReviewAction}
+		fields = append(fields, item.AcceptActions...)
+		fields = append(fields, item.RejectActions...)
+		fields = append(fields, item.CleanupActions...)
+		fields = append(fields, item.VerificationCommands...)
+		fields = append(fields, item.Boundary...)
+		if promoteContainsSubstring(fields, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func candidateReconsumeChecklistContainsForTest(items []CandidateReconsumeVerification, name string) bool {
+	for _, item := range items {
+		if item.Name == name {
 			return true
 		}
 	}

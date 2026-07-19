@@ -4710,7 +4710,7 @@ func TestRunPromoteCreateCandidatesWhatIf(t *testing.T) {
 		t.Fatalf("unexpected promote candidates what-if result: %+v", result)
 	}
 	assertCandidateWrite(t, result.Writes, "references/template/README.md", "would-create-candidate")
-	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) == 0 || !containsSubstring(result.ReviewPlan.RuntimeBoundary, "when not WhatIf") {
+	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) == 0 || !containsSubstring(result.ReviewPlan.RuntimeBoundary, "when not WhatIf") {
 		t.Fatalf("unexpected promote candidates what-if review plan: %+v", result.ReviewPlan)
 	}
 	commander := result.ReviewPlan.MissionCommanderAction
@@ -4756,7 +4756,7 @@ func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
 	}
 	assertFileExists(t, readmeWrite.TargetPath)
 	assertFileExists(t, toolingWrite.TargetPath)
-	if result.ReviewPlan.Mode != "candidate-review" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 || result.ReviewPlan.Reconsume.Mode != "pack-memory-reconsume-after-merge" {
+	if result.ReviewPlan.Mode != "candidate-review" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 || result.ReviewPlan.Reconsume.Mode != "pack-memory-reconsume-after-merge" {
 		t.Fatalf("unexpected promote candidates review plan: %+v", result.ReviewPlan)
 	}
 	readmeReview := assertCandidateReviewItem(t, result.ReviewPlan.ReviewItems, "references/template/README.md", "pending-review")
@@ -4768,7 +4768,7 @@ func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
 	if !containsSubstring(readmeReview.MainAgentActions, "update or remove indexPath") {
 		t.Fatalf("managed candidate review guidance missing index cleanup: %+v", readmeReview.MainAgentActions)
 	}
-	if toolingReview.CleanupPath != toolingWrite.TargetPath || !strings.Contains(toolingReview.MergeTargetHint, "tooling/catalog.yml") || !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "tooling/recipes") || !containsSubstring(result.ReviewPlan.CompletionCriteria, "fresh or attached case reconsume") || !containsSubstring(result.ReviewPlan.CompletionCriteria, "promote -Apply is not a candidate-scoped accept path") || !containsSubstring(result.ReviewPlan.CompletionCriteria, "indexPath is updated or removed") {
+	if toolingReview.CleanupPath != toolingWrite.TargetPath || !strings.Contains(toolingReview.MergeTargetHint, "tooling/catalog.yml") || !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "tooling/recipes") || !candidateJSONDecisionChecklistContains(result.ReviewPlan.DecisionChecklist, "references/template/toolchain-router.md", "fresh-case-reconsume") || !candidateJSONReconsumeChecklistContains(result.ReviewPlan.Reconsume.VerificationChecklist, "fresh-case-reconsume") || !containsSubstring(result.ReviewPlan.CompletionCriteria, "fresh or attached case reconsume") || !containsSubstring(result.ReviewPlan.CompletionCriteria, "promote -Apply is not a candidate-scoped accept path") || !containsSubstring(result.ReviewPlan.CompletionCriteria, "indexPath is updated or removed") {
 		t.Fatalf("tooling candidate review/reconsume guidance drifted: item=%+v reconsume=%+v criteria=%+v", toolingReview, result.ReviewPlan.Reconsume, result.ReviewPlan.CompletionCriteria)
 	}
 	commander := result.ReviewPlan.MissionCommanderAction
@@ -6816,17 +6816,40 @@ type candidateReviewPlan struct {
 	ItemCount              int                            `json:"itemCount"`
 	MissionCommanderAction missionCommanderActionSnapshot `json:"missionCommanderAction"`
 	CleanupTargets         []struct {
-		Path          string `json:"path"`
-		Kind          string `json:"kind"`
-		CandidatePath string `json:"candidatePath"`
-		CleanupWhen   string `json:"cleanupWhen"`
+		Path           string   `json:"path"`
+		Kind           string   `json:"kind"`
+		CandidatePath  string   `json:"candidatePath"`
+		IndexPath      string   `json:"indexPath"`
+		CleanupWhen    string   `json:"cleanupWhen"`
+		CleanupActions []string `json:"cleanupActions"`
 	} `json:"cleanupTargets"`
 	Reconsume struct {
-		Mode     string   `json:"mode"`
-		Tooling  string   `json:"tooling"`
-		Commands []string `json:"commands"`
-		Boundary []string `json:"boundary"`
+		Mode                  string   `json:"mode"`
+		Tooling               string   `json:"tooling"`
+		Commands              []string `json:"commands"`
+		Boundary              []string `json:"boundary"`
+		VerificationChecklist []struct {
+			Name     string   `json:"name"`
+			When     string   `json:"when"`
+			Commands []string `json:"commands"`
+			Expected string   `json:"expected"`
+			Evidence []string `json:"evidence"`
+			Boundary []string `json:"boundary"`
+		} `json:"verificationChecklist"`
 	} `json:"reconsume"`
+	DecisionChecklist []struct {
+		Path                 string   `json:"path"`
+		Kind                 string   `json:"kind"`
+		ReviewDecision       string   `json:"reviewDecision"`
+		CandidatePath        string   `json:"candidatePath"`
+		PackTarget           string   `json:"packTarget"`
+		ReviewAction         string   `json:"reviewAction"`
+		AcceptActions        []string `json:"acceptActions"`
+		RejectActions        []string `json:"rejectActions"`
+		CleanupActions       []string `json:"cleanupActions"`
+		VerificationCommands []string `json:"verificationCommands"`
+		Boundary             []string `json:"boundary"`
+	} `json:"decisionChecklist"`
 	ReviewItems        []candidateReviewItem `json:"reviewItems"`
 	RuntimeBoundary    []string              `json:"runtimeBoundary"`
 	CompletionCriteria []string              `json:"completionCriteria"`
@@ -6909,6 +6932,52 @@ func handoffLaneActionFor(t *testing.T, items []handoffLaneExecutorAction, lane 
 func containsSubstring(items []string, want string) bool {
 	for _, item := range items {
 		if strings.Contains(item, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func candidateJSONDecisionChecklistContains(items []struct {
+	Path                 string   `json:"path"`
+	Kind                 string   `json:"kind"`
+	ReviewDecision       string   `json:"reviewDecision"`
+	CandidatePath        string   `json:"candidatePath"`
+	PackTarget           string   `json:"packTarget"`
+	ReviewAction         string   `json:"reviewAction"`
+	AcceptActions        []string `json:"acceptActions"`
+	RejectActions        []string `json:"rejectActions"`
+	CleanupActions       []string `json:"cleanupActions"`
+	VerificationCommands []string `json:"verificationCommands"`
+	Boundary             []string `json:"boundary"`
+}, path, want string) bool {
+	for _, item := range items {
+		if item.Path != path {
+			continue
+		}
+		fields := []string{item.ReviewAction}
+		fields = append(fields, item.AcceptActions...)
+		fields = append(fields, item.RejectActions...)
+		fields = append(fields, item.CleanupActions...)
+		fields = append(fields, item.VerificationCommands...)
+		fields = append(fields, item.Boundary...)
+		if containsSubstring(fields, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func candidateJSONReconsumeChecklistContains(items []struct {
+	Name     string   `json:"name"`
+	When     string   `json:"when"`
+	Commands []string `json:"commands"`
+	Expected string   `json:"expected"`
+	Evidence []string `json:"evidence"`
+	Boundary []string `json:"boundary"`
+}, name string) bool {
+	for _, item := range items {
+		if item.Name == name {
 			return true
 		}
 	}
