@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 414：Note append Mission Commander action-delta closure
 
-状态：已完成本地实现、durable docs、affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待执行。
+状态：已完成本地实现、durable docs、affected package validation、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 343 已让 `note -WhatIf` / append / duplicate JSON 输出 current/would/post `executorAction` delta；Batch 391/404/413 又把 executor action 的 `missionCommanderAction` 与 `missionCommanderNextActions[]` 作为主 Agent / replacement executor 的直接消费入口。本批把 note append 的 action-delta 也同步提升到 Mission Commander 层，避免主 Agent 在 reviewer writeback、manual note preview 或 duplicate retry 后仍需从 nested executor action 手工反推 commander state、primary/follow-up 与 blocked next-action 顺序。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - duplicate eventId 仍只返回 unchanged current executor/commander projection，不生成 `wouldExecutorAction`、`wouldMissionCommanderAction` 或 would next actions，避免 duplicate no-op 被误读为可执行 delta。
 - note package 与 CLI coverage 锁定 verification no-op readiness、candidate/decision/intervention/request blocker delta、applied blocker post action、duplicate no-op、ready/blocked `missionCommanderActions` / `missionCommanderActions.followUp` next-action source 与 no authority/confirmed/no-heavy-tool/no-write-when-what-if 边界。
 
-验证结果：已通过 focused/affected `go test ./internal/rekit/note ./internal/rekit/cli -run "TestAppend|TestRunNote" -count=1`、affected package `go test ./internal/rekit/note ./internal/rekit/cli -count=1`、`go test ./internal/rekit/note ./internal/rekit/cli ./internal/rekit/mission -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行；远程 Linux/macOS/Windows CI 若仍为 jobs `steps: []` failure，将按既有 GitHub Actions runner/billing blocker 记录，不声明远程 CI green。
+验证结果：已通过 focused/affected `go test ./internal/rekit/note ./internal/rekit/cli -run "TestAppend|TestRunNote" -count=1`、affected package `go test ./internal/rekit/note ./internal/rekit/cli -count=1`、`go test ./internal/rekit/note ./internal/rekit/cli ./internal/rekit/mission -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `251a6d1 Add note commander action delta`；远程 release-gate run `29705581464` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 413 已完成 Mission Commander lane follow-up next-action closure，详见 `docs/batch-history.md`。
 
