@@ -16,21 +16,21 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 367：Adapter report validation invalid envelope**
+**Batch 368：Adapter validation failure taxonomy**
 
-状态：已完成 `gate -ValidateExecutionReport` invalid sidecar 的 machine-readable read-only failure envelope、Go package/CLI coverage 与 durable docs 更新；远程 release-gate 仍需在 push 后检查，已知环境存在 runner/billing blocker，不能在本地直接声明远程 CI green。
+状态：已完成 `gate -ValidateExecutionReport` invalid sidecar 的 stable failure taxonomy、Go package/CLI coverage 与 durable docs 更新；远程 release-gate 仍需在 push 后检查，已知环境存在 runner/billing blocker，不能在本地直接声明远程 CI green。
 
-目标：在 Batch 366 的 read-only validation preflight 之外，让 lane executor / tool adapter 在 sidecar strict intake 失败时仍能消费 deterministic JSON，而不是只能解析 CLI stderr / non-zero error；authorized gate 已找到且 report path/sidecar 校验失败时，validation 结果应以 `valid=false` 暴露失败原因、contract/path 上下文和可用的 partial normalized report，同时保持 no-write。
+目标：在 Batch 367 的 machine-readable `valid=false` envelope 之外，让 lane executor / tool adapter 不再解析 free-form `error` 文本来判断修复动作；invalid sidecar envelope 应稳定暴露 `failureCode` 与 `failureStage`，覆盖 path/read/decode/schema/identity/refs/budget/boundary/summary 等 strict intake 阶段，同时继续保留 no-write、partial report 与 contract/path 上下文。
 
-边界：本批只调整 Go validation API / CLI tests 与 durable docs；不新增 PowerShell runtime logic，不修改 façade 参数面，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 observations/authority/confirmed，不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；无法定位 authorized gate、flag 组合错误、缺 `-ExecutionReportPath` 或非 JSON format 仍保持 CLI error 边界。
+边界：本批只调整 Go validation envelope taxonomy、package/CLI tests 与 durable docs；不新增 PowerShell runtime logic，不修改 façade 参数面，不执行 heavy-tool/debug/inject/patch/dump/network/symex，不写 observations/authority/confirmed，不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；无法定位 authorized gate、flag 组合错误、缺 `-ExecutionReportPath` 或非 JSON format 仍保持 CLI error 边界。
 
 已完成内容：
 
-- `AdapterExecutionReportValidation` 新增 optional `error`、`errors[]`、optional `reportPath` 与 pointer `report`，允许 valid 与 invalid sidecar 共用同一个 `adapter-execution-report-validation` envelope。
-- `gate.ValidateAdapterExecutionReport` 先构造 non-mutating validation envelope 与 adapter report contract；`readAdapterExecutionReport` 返回 sidecar validation error 时不再让 read-only preflight 直接失败，而是输出 `valid=false`、error、errors、next steps、report path 与可用 partial report。
-- `readAdapterExecutionReport` 在文件存在但 stat/open/decode/trailing-data/strict-validation 失败时尽量保留 case-relative report path；decode 成功后的 trailing/strict-validation failure 会返回 partial `AdapterReport`，便于 adapter 修正 boundary/escalation、budget 或 refs 问题。
-- package tests 覆盖 invalid `boundary-hit` sidecar 返回 `valid=false` envelope、error/errors/path/partial report/contract 保留与 observations ledger no-write invariant；CLI E2E 覆盖 invalid sidecar stdout 仍是 JSON，并在正式 record 前保持 observations ledger 不变。
-- README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go-first convergence、Go runtime migration、Agent Team rollout、reference absorption、autonomous goal、tests guide、CLAUDE 与 CHANGELOG 已同步说明 invalid sidecar `valid=false` envelope。
+- `AdapterExecutionReportValidation` 新增 optional `failureCode` 与 `failureStage`，在 `valid=false` 时与 `error` / `errors[]` 并列输出，供 adapter 机器消费。
+- 新增 internal `adapterReportValidationError` taxonomy wrapper；`readAdapterExecutionReport` 与 `validateAdapterExecutionReport` 把 report path list/invalid/out-of-scope、read/open/stat/size、JSON decode/trailing data、schema/action/status/gateEventId、actual budget、output/evidence refs、boundary hits、boundary marker、budget marker 与 summary/escalation size 等失败映射为 stable code/stage。
+- 保持 Batch 367 行为：authorized gate 已找到且 sidecar/path strict intake 失败时返回 JSON `valid=false` 而非 CLI error；decode 成功后的 trailing/strict-validation failure 仍保留 partial normalized `AdapterReport`；read-only validation 不写 observations ledger。
+- package tests 覆盖 report path out-of-scope、malformed JSON、trailing data、gateEventId mismatch、out-of-scope outputRefs、budget marker missing 的 failureCode/failureStage、partial report 保留与 no-observation-write invariant；CLI E2E 锁定 boundary marker missing 的 `failureCode=boundary-marker-missing` / `failureStage=boundary`。
+- README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、tests guide、CLAUDE、batch plan 与 CHANGELOG 已同步说明 invalid sidecar failure taxonomy。
 
 已通过验证：
 
@@ -51,7 +51,7 @@ git diff --check
 ### Next candidates
 
 1. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E、`status.caseShim` readiness 和完整 installed user entrypoint E2E 纳入可用 runner 验证。
-2. **Lane executor/tool-adapter live validation hardening**：在 read-only report contract / validation / invalid envelope 之外，为具体 lane executor / adapter 补真实工具调用隔离、停止条件执行和 adapter-specific live validation 的产品级闭环。
+2. **Lane executor/tool-adapter live validation hardening**：在 read-only report contract / validation / invalid envelope taxonomy 之外，为具体 lane executor / adapter 补真实工具调用隔离、停止条件执行和 adapter-specific live validation 的产品级闭环。
 3. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 4. **Pack-memory product UX hardening**：在 Batch 358 package E2E 之外，补真实多 pack/跨 case review UX、candidate cleanup 和人工 merge guidance 的产品级验证。
 

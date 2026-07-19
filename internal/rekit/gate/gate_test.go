@@ -500,6 +500,134 @@ func TestValidateAdapterExecutionReportReturnsInvalidEnvelopeReadOnly(t *testing
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
 
+func TestValidateAdapterExecutionReportInvalidEnvelopeFailureCodes(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name       string
+		path       string
+		body       string
+		wantCode   string
+		wantStage  string
+		wantError  string
+		wantReport bool
+	}{
+		{
+			name:      "report path outside authorized outputs",
+			path:      "workspace/main/other/out-of-scope-report.json",
+			wantCode:  "report-path-out-of-scope",
+			wantStage: "path",
+			wantError: "must stay within authorized gate outputPaths",
+		},
+		{
+			name:      "malformed json",
+			path:      "workspace/main/debug/session-1/malformed-report.json",
+			body:      `{"schemaVersion": 1,`,
+			wantCode:  "report-json-invalid",
+			wantStage: "decode",
+			wantError: "invalid adapter execution report",
+		},
+		{
+			name: "trailing json data",
+			path: "workspace/main/debug/session-1/trailing-report.json",
+			body: `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "` + authorized.EventID + `",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"]
+}
+{}`,
+			wantCode:   "report-trailing-data",
+			wantStage:  "decode",
+			wantError:  "trailing data",
+			wantReport: true,
+		},
+		{
+			name: "gate event mismatch",
+			path: "workspace/main/debug/session-1/wrong-gate-report.json",
+			body: `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "evt-other",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"]
+}`,
+			wantCode:   "gate-event-mismatch",
+			wantStage:  "identity",
+			wantError:  "does not match authorized gate eventId",
+			wantReport: true,
+		},
+		{
+			name: "output refs out of scope",
+			path: "workspace/main/debug/session-1/out-of-scope-refs-report.json",
+			body: `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "` + authorized.EventID + `",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/other/result.json"]
+}`,
+			wantCode:   "output-refs-out-of-scope",
+			wantStage:  "refs",
+			wantError:  "outputRefs must stay within authorized gate outputPaths",
+			wantReport: true,
+		},
+		{
+			name: "budget marker missing",
+			path: "workspace/main/debug/session-1/budget-marker-missing-report.json",
+			body: `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "` + authorized.EventID + `",
+  "actualBudget": {"runtimeSeconds": 31, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"]
+}`,
+			wantCode:   "budget-marker-missing",
+			wantStage:  "budget",
+			wantError:  "actualBudget exceeds authorized request",
+			wantReport: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.body != "" {
+				writeGateText(t, filepath.Join(caseRoot, filepath.FromSlash(tc.path)), tc.body)
+			}
+			validation, err := ValidateAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: tc.path})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if validation.Kind != "adapter-execution-report-validation" || validation.IsMutation || validation.Applied || validation.Valid || validation.ReportPath != tc.path || validation.FailureCode != tc.wantCode || validation.FailureStage != tc.wantStage || validation.Error == "" || !strings.Contains(validation.Error, tc.wantError) || len(validation.Errors) != 1 || validation.Contract.GateEventID != authorized.EventID {
+				t.Fatalf("unexpected invalid adapter report validation envelope: %+v", validation)
+			}
+			if tc.wantReport && validation.Report == nil {
+				t.Fatalf("invalid adapter report validation omitted partial report: %+v", validation)
+			}
+			if !tc.wantReport && validation.Report != nil {
+				t.Fatalf("invalid adapter report validation included unexpected report: %+v", validation)
+			}
+		})
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+}
+
 func TestRecordExecutionAcceptsAdapterReportForAuthorizedGate(t *testing.T) {
 	repoRoot, caseRoot, pack := gateFixture(t)
 	writePreauthorizedProfile(t, caseRoot)

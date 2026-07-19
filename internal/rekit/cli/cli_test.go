@@ -5124,20 +5124,22 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	var invalidAdapterValidation struct {
-		Valid      bool     `json:"valid"`
-		Error      string   `json:"error"`
-		Errors     []string `json:"errors"`
-		IsMutation bool     `json:"isMutation"`
-		Applied    bool     `json:"applied"`
-		ReportPath string   `json:"reportPath"`
-		Report     *struct {
+		Valid        bool     `json:"valid"`
+		Error        string   `json:"error"`
+		Errors       []string `json:"errors"`
+		FailureCode  string   `json:"failureCode"`
+		FailureStage string   `json:"failureStage"`
+		IsMutation   bool     `json:"isMutation"`
+		Applied      bool     `json:"applied"`
+		ReportPath   string   `json:"reportPath"`
+		Report       *struct {
 			Status string `json:"status"`
 		} `json:"report"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &invalidAdapterValidation); err != nil {
 		t.Fatalf("invalid adapter execution report validation stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if invalidAdapterValidation.Valid || invalidAdapterValidation.Error == "" || !strings.Contains(invalidAdapterValidation.Error, "requires boundaryHits or escalation") || len(invalidAdapterValidation.Errors) != 1 || invalidAdapterValidation.IsMutation || invalidAdapterValidation.Applied || invalidAdapterValidation.ReportPath != "workspace/main/debug/session-1/adapter-invalid.json" || invalidAdapterValidation.Report == nil || invalidAdapterValidation.Report.Status != "boundary-hit" {
+	if invalidAdapterValidation.Valid || invalidAdapterValidation.Error == "" || !strings.Contains(invalidAdapterValidation.Error, "requires boundaryHits or escalation") || len(invalidAdapterValidation.Errors) != 1 || invalidAdapterValidation.FailureCode != "boundary-marker-missing" || invalidAdapterValidation.FailureStage != "boundary" || invalidAdapterValidation.IsMutation || invalidAdapterValidation.Applied || invalidAdapterValidation.ReportPath != "workspace/main/debug/session-1/adapter-invalid.json" || invalidAdapterValidation.Report == nil || invalidAdapterValidation.Report.Status != "boundary-hit" {
 		t.Fatalf("invalid adapter execution report validation drifted: %+v", invalidAdapterValidation)
 	}
 	observationsAfterInvalidValidation, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))

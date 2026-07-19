@@ -160,11 +160,37 @@ type AdapterExecutionReportValidation struct {
 	Valid         bool                           `json:"valid"`
 	Error         string                         `json:"error,omitempty"`
 	Errors        []string                       `json:"errors,omitempty"`
+	FailureCode   string                         `json:"failureCode,omitempty"`
+	FailureStage  string                         `json:"failureStage,omitempty"`
 	GateEventID   string                         `json:"gateEventId"`
 	ReportPath    string                         `json:"reportPath,omitempty"`
 	Report        *AdapterReport                 `json:"report,omitempty"`
 	Contract      AdapterExecutionReportContract `json:"contract"`
 	NextSteps     []string                       `json:"nextSteps"`
+}
+
+type adapterReportValidationError struct {
+	Code  string
+	Stage string
+	Err   error
+}
+
+func (e *adapterReportValidationError) Error() string {
+	if e == nil || e.Err == nil {
+		return ""
+	}
+	return e.Err.Error()
+}
+
+func (e *adapterReportValidationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func adapterReportValidationErrorf(code, stage, format string, args ...any) error {
+	return &adapterReportValidationError{Code: code, Stage: stage, Err: fmt.Errorf(format, args...)}
 }
 
 type ApplyResult struct {
@@ -387,6 +413,10 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.Valid = false
 		validation.Error = err.Error()
 		validation.Errors = []string{err.Error()}
+		if validationErr, ok := err.(*adapterReportValidationError); ok {
+			validation.FailureCode = validationErr.Code
+			validation.FailureStage = validationErr.Stage
+		}
 		validation.NextSteps = []string{"report is invalid for read-only preflight", "fix the bounded adapter execution report sidecar and rerun gate -ValidateExecutionReport", "do not record it with gate -Apply until valid=true"}
 		return validation, nil
 	}
@@ -603,42 +633,42 @@ func readAdapterExecutionReport(caseRoot string, gateEvent EventPreview, value s
 		return "", nil, nil
 	}
 	if len(splitList(path)) != 1 {
-		return "", nil, fmt.Errorf("gate execution report path must be a single file path")
+		return "", nil, adapterReportValidationErrorf("path-list", "path", "gate execution report path must be a single file path")
 	}
 	fullPath, relPath, err := executionReportPath(caseRoot, path)
 	if err != nil {
-		return "", nil, err
+		return "", nil, adapterReportValidationErrorf("path-invalid", "path", "%w", err)
 	}
 	if !outputRefsWithinGate(gateEvent.Gate.OutputPaths, []string{relPath}) {
-		return relPath, nil, fmt.Errorf("gate execution report path must stay within authorized gate outputPaths")
+		return relPath, nil, adapterReportValidationErrorf("report-path-out-of-scope", "path", "gate execution report path must stay within authorized gate outputPaths")
 	}
 	st, err := os.Stat(fullPath)
 	if err != nil {
-		return relPath, nil, fmt.Errorf("read adapter execution report %s: %w", relPath, err)
+		return relPath, nil, adapterReportValidationErrorf("report-not-readable", "read", "read adapter execution report %s: %w", relPath, err)
 	}
 	if st.IsDir() {
-		return relPath, nil, fmt.Errorf("adapter execution report path is a directory: %s", relPath)
+		return relPath, nil, adapterReportValidationErrorf("report-path-directory", "read", "adapter execution report path is a directory: %s", relPath)
 	}
 	if st.Size() > 1<<20 {
-		return relPath, nil, fmt.Errorf("adapter execution report is too large: %s %d > %d", relPath, st.Size(), 1<<20)
+		return relPath, nil, adapterReportValidationErrorf("report-too-large", "read", "adapter execution report is too large: %s %d > %d", relPath, st.Size(), 1<<20)
 	}
 	f, err := os.Open(fullPath)
 	if err != nil {
-		return relPath, nil, fmt.Errorf("read adapter execution report %s: %w", relPath, err)
+		return relPath, nil, adapterReportValidationErrorf("report-not-readable", "read", "read adapter execution report %s: %w", relPath, err)
 	}
 	defer f.Close()
 	var report AdapterReport
 	dec := json.NewDecoder(io.LimitReader(f, 1<<20))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&report); err != nil {
-		return relPath, nil, fmt.Errorf("invalid adapter execution report %s: %w", relPath, err)
+		return relPath, nil, adapterReportValidationErrorf("report-json-invalid", "decode", "invalid adapter execution report %s: %w", relPath, err)
 	}
 	var trailing any
 	if err := dec.Decode(&trailing); err != io.EOF {
 		if err == nil {
-			return relPath, &report, fmt.Errorf("invalid adapter execution report %s: trailing data", relPath)
+			return relPath, &report, adapterReportValidationErrorf("report-trailing-data", "decode", "invalid adapter execution report %s: trailing data", relPath)
 		}
-		return relPath, &report, fmt.Errorf("invalid adapter execution report %s: trailing data: %w", relPath, err)
+		return relPath, &report, adapterReportValidationErrorf("report-trailing-data", "decode", "invalid adapter execution report %s: trailing data: %w", relPath, err)
 	}
 	if err := validateAdapterExecutionReport(caseRoot, gateEvent, &report); err != nil {
 		return relPath, &report, err
@@ -684,61 +714,61 @@ func executionReportPath(caseRoot, value string) (string, string, error) {
 
 func validateAdapterExecutionReport(caseRoot string, gateEvent EventPreview, report *AdapterReport) error {
 	if report.SchemaVersion != 1 {
-		return fmt.Errorf("adapter execution report schemaVersion has unsupported value: %d", report.SchemaVersion)
+		return adapterReportValidationErrorf("schema-version", "schema", "adapter execution report schemaVersion has unsupported value: %d", report.SchemaVersion)
 	}
 	if strings.TrimSpace(report.Kind) != "adapter-execution-report" {
-		return fmt.Errorf("adapter execution report kind has unsupported value: %s", report.Kind)
+		return adapterReportValidationErrorf("kind", "schema", "adapter execution report kind has unsupported value: %s", report.Kind)
 	}
 	report.AdapterID = strings.TrimSpace(report.AdapterID)
 	if report.AdapterID == "" {
-		return fmt.Errorf("adapter execution report is missing adapterId")
+		return adapterReportValidationErrorf("adapter-id-missing", "schema", "adapter execution report is missing adapterId")
 	}
 	report.Action = strings.ToLower(strings.TrimSpace(report.Action))
 	if report.Action != gateEvent.Gate.Action {
-		return fmt.Errorf("adapter execution report action %q does not match authorized gate action %q", report.Action, gateEvent.Gate.Action)
+		return adapterReportValidationErrorf("action-mismatch", "identity", "adapter execution report action %q does not match authorized gate action %q", report.Action, gateEvent.Gate.Action)
 	}
 	report.Status = strings.ToLower(strings.TrimSpace(report.Status))
 	if !validExecutionStatus(report.Status) {
-		return fmt.Errorf("adapter execution report status has unsupported value: %s", report.Status)
+		return adapterReportValidationErrorf("status", "schema", "adapter execution report status has unsupported value: %s", report.Status)
 	}
 	report.GateEventID = strings.TrimSpace(report.GateEventID)
 	if report.GateEventID != gateEvent.EventID {
-		return fmt.Errorf("adapter execution report gateEventId %q does not match authorized gate eventId %q", report.GateEventID, gateEvent.EventID)
+		return adapterReportValidationErrorf("gate-event-mismatch", "identity", "adapter execution report gateEventId %q does not match authorized gate eventId %q", report.GateEventID, gateEvent.EventID)
 	}
 	if report.ActualBudget.RuntimeSeconds < 0 || report.ActualBudget.DiskMB < 0 || report.ActualBudget.Requests < 0 {
-		return fmt.Errorf("adapter execution report actualBudget values must be non-negative")
+		return adapterReportValidationErrorf("actual-budget-negative", "budget", "adapter execution report actualBudget values must be non-negative")
 	}
 	outputRefs, err := validateCaseRelativePaths(caseRoot, "adapter execution report outputRefs", report.OutputRefs)
 	if err != nil {
-		return err
+		return adapterReportValidationErrorf("output-refs-invalid", "refs", "%w", err)
 	}
 	if len(outputRefs) > 0 && !outputRefsWithinGate(gateEvent.Gate.OutputPaths, outputRefs) {
-		return fmt.Errorf("adapter execution report outputRefs must stay within authorized gate outputPaths")
+		return adapterReportValidationErrorf("output-refs-out-of-scope", "refs", "adapter execution report outputRefs must stay within authorized gate outputPaths")
 	}
 	report.OutputRefs = outputRefs
 	evidenceRefs, err := validateCaseRelativePaths(caseRoot, "adapter execution report evidenceRefs", report.EvidenceRefs)
 	if err != nil {
-		return err
+		return adapterReportValidationErrorf("evidence-refs-invalid", "refs", "%w", err)
 	}
 	report.EvidenceRefs = evidenceRefs
 	if len(report.BoundaryHits) > 0 {
 		if err := validateStopConditions("adapter execution report boundaryHits", report.BoundaryHits); err != nil {
-			return err
+			return adapterReportValidationErrorf("boundary-hits-invalid", "boundary", "%w", err)
 		}
 	}
 	report.Escalation = strings.TrimSpace(report.Escalation)
 	if len(report.Escalation) > 4096 {
-		return fmt.Errorf("adapter execution report escalation is too large")
+		return adapterReportValidationErrorf("escalation-too-large", "boundary", "adapter execution report escalation is too large")
 	}
 	if (report.Status == "boundary-hit" || report.Status == "escalated") && len(report.BoundaryHits) == 0 && report.Escalation == "" {
-		return fmt.Errorf("adapter execution report status %s requires boundaryHits or escalation", report.Status)
+		return adapterReportValidationErrorf("boundary-marker-missing", "boundary", "adapter execution report status %s requires boundaryHits or escalation", report.Status)
 	}
 	if exceedsGateBudget(gateEvent.Gate.RequestedBudget, report.ActualBudget) && len(report.BoundaryHits) == 0 && report.Escalation == "" {
-		return fmt.Errorf("adapter execution report actualBudget exceeds authorized request; record boundaryHits or escalation")
+		return adapterReportValidationErrorf("budget-marker-missing", "budget", "adapter execution report actualBudget exceeds authorized request; record boundaryHits or escalation")
 	}
 	report.Summary = strings.TrimSpace(report.Summary)
 	if len(report.Summary) > 4096 {
-		return fmt.Errorf("adapter execution report summary is too large")
+		return adapterReportValidationErrorf("summary-too-large", "summary", "adapter execution report summary is too large")
 	}
 	return nil
 }
