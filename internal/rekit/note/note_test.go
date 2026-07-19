@@ -32,6 +32,12 @@ func TestAppendWhatIfDoesNotWrite(t *testing.T) {
 	if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.WouldExecutorAction == nil || result.WouldExecutorAction.Blocked || !result.WouldExecutorAction.Ready {
 		t.Fatalf("verification what-if should not change executor readiness: %+v", result)
 	}
+	if result.MissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) {
+		t.Fatalf("current commander projection drifted: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
+	}
+	if result.WouldMissionCommanderAction == nil || result.WouldMissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) || !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) {
+		t.Fatalf("would commander projection drifted: action=%+v next=%+v", result.WouldMissionCommanderAction, result.WouldMissionCommanderNextActions)
+	}
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
 }
 
@@ -61,6 +67,19 @@ func TestAppendWhatIfProjectsBlockerKinds(t *testing.T) {
 			if would.PendingGates != tc.wantPending || would.OpenInterventions != tc.wantOpen || would.OpenDecisions != tc.wantDecision {
 				t.Fatalf("unexpected blocker counts: %+v", would)
 			}
+
+			if result.MissionCommanderAction.State != "ready-to-continue" || result.WouldMissionCommanderAction == nil || result.WouldMissionCommanderAction.State == "ready-to-continue" {
+				t.Fatalf("blocker what-if should expose current and would commander action delta: current=%+v would=%+v", result.MissionCommanderAction, result.WouldMissionCommanderAction)
+			}
+			if !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) {
+				t.Fatalf("current commander next action missing ready continue: %+v", result.MissionCommanderNextActions)
+			}
+			if !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions", result.WouldMissionCommanderAction.PrimaryCommand, true, true) {
+				t.Fatalf("would commander next action missing blocked primary: action=%+v next=%+v", result.WouldMissionCommanderAction, result.WouldMissionCommanderNextActions)
+			}
+			if !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) {
+				t.Fatalf("would commander next action missing blocked continue what-if follow-up: %+v", result.WouldMissionCommanderNextActions)
+			}
 		})
 	}
 }
@@ -72,8 +91,11 @@ func TestAppendWhatIfDuplicateReturnsCurrentActionOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Applied || result.IsMutation || result.Reason != "duplicate eventId" || result.WouldExecutorAction != nil || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready {
+	if result.Applied || result.IsMutation || result.Reason != "duplicate eventId" || result.WouldExecutorAction != nil || result.WouldMissionCommanderAction != nil || len(result.WouldMissionCommanderNextActions) != 0 || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready {
 		t.Fatalf("duplicate what-if should return unchanged current action only: %+v", result)
+	}
+	if result.MissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) {
+		t.Fatalf("duplicate should preserve current commander projection only: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "candidates.jsonl"))
 }
@@ -102,6 +124,15 @@ func TestAppendReturnsPostActionForAppliedBlockerKinds(t *testing.T) {
 			}
 			if result.ExecutorAction.PendingGates != tc.wantPending || result.ExecutorAction.OpenInterventions != tc.wantOpen || result.ExecutorAction.OpenDecisions != tc.wantDecision {
 				t.Fatalf("unexpected applied blocker counts: %+v", result.ExecutorAction)
+			}
+			if result.MissionCommanderAction.State == "ready-to-continue" || result.WouldMissionCommanderAction != nil || len(result.WouldMissionCommanderNextActions) != 0 {
+				t.Fatalf("applied blocker note should expose post commander action only: action=%+v would=%+v", result.MissionCommanderAction, result.WouldMissionCommanderAction)
+			}
+			if !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", result.MissionCommanderAction.PrimaryCommand, true, true) {
+				t.Fatalf("post commander next action missing blocked primary: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
+			}
+			if !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) {
+				t.Fatalf("post commander next action missing blocked continue what-if follow-up: %+v", result.MissionCommanderNextActions)
 			}
 		})
 	}
@@ -242,8 +273,11 @@ func TestAppendDuplicateExplicitEventIDUsesSharedLedgerEventIDs(t *testing.T) {
 	if result.Applied || result.Reason != "duplicate eventId" || result.EventID != opt.EventID {
 		t.Fatalf("unexpected duplicate append result: %+v", result)
 	}
-	if result.WouldExecutorAction != nil || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready {
+	if result.WouldExecutorAction != nil || result.WouldMissionCommanderAction != nil || len(result.WouldMissionCommanderNextActions) != 0 || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready {
 		t.Fatalf("duplicate should return the unchanged current action only: %+v", result)
+	}
+	if result.MissionCommanderAction.State != "ready-to-continue" || !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) {
+		t.Fatalf("duplicate should preserve current commander projection only: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"))
 }
@@ -260,6 +294,15 @@ func TestAppendRejectsInvalidKindAndUnknownLaneWithoutWrite(t *testing.T) {
 		t.Fatalf("unknown lane error = %v", err)
 	}
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+}
+
+func hasNoteCommanderNextAction(items []mission.MissionCommanderNextActionItem, source, command string, blocked, requiresReview bool) bool {
+	for _, item := range items {
+		if item.Source == source && item.Command == command && item.Blocked == blocked && item.RequiresReview == requiresReview {
+			return true
+		}
+	}
+	return false
 }
 
 func noteFixture(t *testing.T) (repoRoot, caseRoot, pack string) {

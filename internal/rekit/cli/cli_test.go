@@ -2448,15 +2448,19 @@ func TestRunNoteAppendWritesFactEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var result struct {
-		Command             string                  `json:"command"`
-		IsMutation          bool                    `json:"isMutation"`
-		Applied             bool                    `json:"applied"`
-		EventID             string                  `json:"eventId"`
-		Path                string                  `json:"path"`
-		Event               map[string]any          `json:"event"`
-		MissionBrief        missionBrief            `json:"missionBrief"`
-		ExecutorAction      executorActionSnapshot  `json:"executorAction"`
-		WouldExecutorAction *executorActionSnapshot `json:"wouldExecutorAction"`
+		Command                          string                           `json:"command"`
+		IsMutation                       bool                             `json:"isMutation"`
+		Applied                          bool                             `json:"applied"`
+		EventID                          string                           `json:"eventId"`
+		Path                             string                           `json:"path"`
+		Event                            map[string]any                   `json:"event"`
+		MissionBrief                     missionBrief                     `json:"missionBrief"`
+		ExecutorAction                   executorActionSnapshot           `json:"executorAction"`
+		MissionCommanderAction           missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions      []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		WouldExecutorAction              *executorActionSnapshot          `json:"wouldExecutorAction"`
+		WouldMissionCommanderAction      *missionCommanderActionSnapshot  `json:"wouldMissionCommanderAction"`
+		WouldMissionCommanderNextActions []missionCommanderNextActionItem `json:"wouldMissionCommanderNextActions"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("note append stdout is not JSON: %v\n%s", err, out.String())
@@ -2464,8 +2468,11 @@ func TestRunNoteAppendWritesFactEvent(t *testing.T) {
 	if result.Command != "note" || !result.IsMutation || !result.Applied || result.EventID == "" || result.Path != ".rekit/facts/verifications.jsonl" {
 		t.Fatalf("unexpected note append result: %+v", result)
 	}
-	if result.MissionBrief.Summary == "" || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.WouldExecutorAction != nil {
+	if result.MissionBrief.Summary == "" || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.WouldExecutorAction != nil || result.WouldMissionCommanderAction != nil || len(result.WouldMissionCommanderNextActions) != 0 {
 		t.Fatalf("verification append should return ready post action only: %+v", result)
+	}
+	if result.MissionCommanderAction.State != "ready-to-continue" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) {
+		t.Fatalf("verification append should expose post commander projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	if result.Event["kind"] != "verification" || result.Event["lane"] != "main" || result.Event["verifier"] != "manual-review" || result.Event["verdict"] != "accepted" || result.Event["target"] != "candidate-alpha" || result.Event["batchId"] != "batch-note" {
 		t.Fatalf("unexpected event fields: %+v", result.Event)
@@ -2544,13 +2551,17 @@ func TestRunNoteAppendWhatIfDoesNotWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	var result struct {
-		IsMutation          bool                   `json:"isMutation"`
-		Applied             bool                   `json:"applied"`
-		Reason              string                 `json:"reason"`
-		Path                string                 `json:"path"`
-		MissionBrief        missionBrief           `json:"missionBrief"`
-		ExecutorAction      executorActionSnapshot `json:"executorAction"`
-		WouldExecutorAction executorActionSnapshot `json:"wouldExecutorAction"`
+		IsMutation                       bool                             `json:"isMutation"`
+		Applied                          bool                             `json:"applied"`
+		Reason                           string                           `json:"reason"`
+		Path                             string                           `json:"path"`
+		MissionBrief                     missionBrief                     `json:"missionBrief"`
+		ExecutorAction                   executorActionSnapshot           `json:"executorAction"`
+		MissionCommanderAction           missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions      []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		WouldExecutorAction              executorActionSnapshot           `json:"wouldExecutorAction"`
+		WouldMissionCommanderAction      missionCommanderActionSnapshot   `json:"wouldMissionCommanderAction"`
+		WouldMissionCommanderNextActions []missionCommanderNextActionItem `json:"wouldMissionCommanderNextActions"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("note what-if stdout is not JSON: %v\n%s", err, out.String())
@@ -2560,6 +2571,12 @@ func TestRunNoteAppendWhatIfDoesNotWrite(t *testing.T) {
 	}
 	if result.MissionBrief.Summary == "" || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || !result.WouldExecutorAction.Blocked || result.WouldExecutorAction.Ready || result.WouldExecutorAction.OpenDecisions != 1 || !result.WouldExecutorAction.OpenDecisionRequired {
 		t.Fatalf("unexpected note current/would actions: %+v", result)
+	}
+	if result.MissionCommanderAction.State != "ready-to-continue" || result.WouldMissionCommanderAction.State != "needs-open-decision-review" {
+		t.Fatalf("note what-if should expose current/would commander action delta: current=%+v would=%+v", result.MissionCommanderAction, result.WouldMissionCommanderAction)
+	}
+	if !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) || !containsMissionCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions", "/rekit handoff main", true, true) || !containsMissionCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) {
+		t.Fatalf("note what-if commander next actions drifted: current=%+v would=%+v", result.MissionCommanderNextActions, result.WouldMissionCommanderNextActions)
 	}
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, after)
@@ -2574,16 +2591,23 @@ func TestRunNoteWhatIfDuplicateReturnsCurrentActionOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	var result struct {
-		Applied             bool                    `json:"applied"`
-		Reason              string                  `json:"reason"`
-		ExecutorAction      executorActionSnapshot  `json:"executorAction"`
-		WouldExecutorAction *executorActionSnapshot `json:"wouldExecutorAction"`
+		Applied                          bool                             `json:"applied"`
+		Reason                           string                           `json:"reason"`
+		ExecutorAction                   executorActionSnapshot           `json:"executorAction"`
+		MissionCommanderAction           missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions      []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		WouldExecutorAction              *executorActionSnapshot          `json:"wouldExecutorAction"`
+		WouldMissionCommanderAction      *missionCommanderActionSnapshot  `json:"wouldMissionCommanderAction"`
+		WouldMissionCommanderNextActions []missionCommanderNextActionItem `json:"wouldMissionCommanderNextActions"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("duplicate note what-if stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if result.Applied || result.Reason != "duplicate eventId" || result.WouldExecutorAction != nil || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready {
+	if result.Applied || result.Reason != "duplicate eventId" || result.WouldExecutorAction != nil || result.WouldMissionCommanderAction != nil || len(result.WouldMissionCommanderNextActions) != 0 || result.ExecutorAction.Blocked || !result.ExecutorAction.Ready {
 		t.Fatalf("duplicate what-if should preserve current action only: %+v", result)
+	}
+	if result.MissionCommanderAction.State != "ready-to-continue" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) {
+		t.Fatalf("duplicate what-if should preserve current commander projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, after)
@@ -2601,10 +2625,14 @@ func TestRunNoteAppendDedupesByEventID(t *testing.T) {
 		t.Fatal(err)
 	}
 	var result struct {
-		Applied             bool                    `json:"applied"`
-		Reason              string                  `json:"reason"`
-		ExecutorAction      executorActionSnapshot  `json:"executorAction"`
-		WouldExecutorAction *executorActionSnapshot `json:"wouldExecutorAction"`
+		Applied                          bool                             `json:"applied"`
+		Reason                           string                           `json:"reason"`
+		ExecutorAction                   executorActionSnapshot           `json:"executorAction"`
+		MissionCommanderAction           missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions      []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		WouldExecutorAction              *executorActionSnapshot          `json:"wouldExecutorAction"`
+		WouldMissionCommanderAction      *missionCommanderActionSnapshot  `json:"wouldMissionCommanderAction"`
+		WouldMissionCommanderNextActions []missionCommanderNextActionItem `json:"wouldMissionCommanderNextActions"`
 	}
 	if err := json.Unmarshal(second.Bytes(), &result); err != nil {
 		t.Fatalf("second note append stdout is not JSON: %v\n%s", err, second.String())
@@ -2612,8 +2640,11 @@ func TestRunNoteAppendDedupesByEventID(t *testing.T) {
 	if result.Applied || result.Reason != "duplicate eventId" {
 		t.Fatalf("unexpected duplicate result: %+v", result)
 	}
-	if result.WouldExecutorAction != nil || !result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.OpenDecisions != 1 {
+	if result.WouldExecutorAction != nil || result.WouldMissionCommanderAction != nil || len(result.WouldMissionCommanderNextActions) != 0 || !result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.OpenDecisions != 1 {
 		t.Fatalf("duplicate should preserve the current blocked action without a would delta: %+v", result)
+	}
+	if result.MissionCommanderAction.State != "needs-open-decision-review" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit handoff main", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) {
+		t.Fatalf("duplicate append should preserve blocked commander projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "candidates.jsonl"))
 	if err != nil {

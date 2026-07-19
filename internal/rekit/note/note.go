@@ -55,20 +55,24 @@ type Options struct {
 }
 
 type AppendResult struct {
-	SchemaVersion       int                     `json:"schemaVersion"`
-	Command             string                  `json:"command"`
-	CaseRoot            string                  `json:"caseRoot"`
-	RepoRoot            string                  `json:"repoRoot"`
-	Pack                string                  `json:"pack"`
-	IsMutation          bool                    `json:"isMutation"`
-	Applied             bool                    `json:"applied"`
-	EventID             string                  `json:"eventId"`
-	Path                string                  `json:"path"`
-	Reason              string                  `json:"reason,omitempty"`
-	Event               map[string]any          `json:"event"`
-	MissionBrief        mission.Brief           `json:"missionBrief"`
-	ExecutorAction      mission.ExecutorAction  `json:"executorAction"`
-	WouldExecutorAction *mission.ExecutorAction `json:"wouldExecutorAction,omitempty"`
+	SchemaVersion                    int                                      `json:"schemaVersion"`
+	Command                          string                                   `json:"command"`
+	CaseRoot                         string                                   `json:"caseRoot"`
+	RepoRoot                         string                                   `json:"repoRoot"`
+	Pack                             string                                   `json:"pack"`
+	IsMutation                       bool                                     `json:"isMutation"`
+	Applied                          bool                                     `json:"applied"`
+	EventID                          string                                   `json:"eventId"`
+	Path                             string                                   `json:"path"`
+	Reason                           string                                   `json:"reason,omitempty"`
+	Event                            map[string]any                           `json:"event"`
+	MissionBrief                     mission.Brief                            `json:"missionBrief"`
+	ExecutorAction                   mission.ExecutorAction                   `json:"executorAction"`
+	MissionCommanderAction           mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	WouldExecutorAction              *mission.ExecutorAction                  `json:"wouldExecutorAction,omitempty"`
+	WouldMissionCommanderAction      *mission.MissionCommanderAction          `json:"wouldMissionCommanderAction,omitempty"`
+	WouldMissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"wouldMissionCommanderNextActions,omitempty"`
 }
 
 type ListResult struct {
@@ -206,18 +210,20 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 		return AppendResult{}, err
 	}
 	result := AppendResult{
-		SchemaVersion:  1,
-		Command:        "note",
-		CaseRoot:       inst.CaseRoot,
-		RepoRoot:       repoRoot,
-		Pack:           pack,
-		IsMutation:     !whatIf,
-		Applied:        false,
-		EventID:        eventID,
-		Path:           relPath,
-		Event:          event,
-		MissionBrief:   brief,
-		ExecutorAction: action,
+		SchemaVersion:               1,
+		Command:                     "note",
+		CaseRoot:                    inst.CaseRoot,
+		RepoRoot:                    repoRoot,
+		Pack:                        pack,
+		IsMutation:                  !whatIf,
+		Applied:                     false,
+		EventID:                     eventID,
+		Path:                        relPath,
+		Event:                       event,
+		MissionBrief:                brief,
+		ExecutorAction:              action,
+		MissionCommanderAction:      action.MissionCommanderAction,
+		MissionCommanderNextActions: noteMissionCommanderNextActions(boardLane, action),
 	}
 	exists, err := eventIDExists(inst.CaseRoot, eventID)
 	if err != nil {
@@ -232,6 +238,8 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 		wouldBrief := mission.BuildWithOptions([]mission.Lane{{ID: boardLane.ID, Label: mission.BoardLaneLabel(boardLane), Status: boardLane.Status}}, mission.LaneFacts(wouldFacts, boardLane.ID), mission.BuildOptions{MaxRows: mission.DefaultMaxRows})
 		wouldAction := mission.LaneExecutorAction(mission.Lane{ID: boardLane.ID, Label: mission.BoardLaneLabel(boardLane), Status: boardLane.Status}, wouldFacts, wouldBrief)
 		result.WouldExecutorAction = &wouldAction
+		result.WouldMissionCommanderAction = &wouldAction.MissionCommanderAction
+		result.WouldMissionCommanderNextActions = noteMissionCommanderNextActions(boardLane, wouldAction)
 		result.Reason = "what-if"
 		return result, nil
 	}
@@ -239,11 +247,23 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 		return AppendResult{}, err
 	}
 	result.Applied = true
-	result.MissionBrief, result.ExecutorAction, _, _, err = laneExecutorSnapshot(inst.CaseRoot, lane)
+	result.MissionBrief, result.ExecutorAction, _, boardLane, err = laneExecutorSnapshot(inst.CaseRoot, lane)
 	if err != nil {
 		return result, err
 	}
+	result.MissionCommanderAction = result.ExecutorAction.MissionCommanderAction
+	result.MissionCommanderNextActions = noteMissionCommanderNextActions(boardLane, result.ExecutorAction)
 	return result, nil
+}
+
+func noteMissionCommanderNextActions(lane mission.BoardLane, action mission.ExecutorAction) []mission.MissionCommanderNextActionItem {
+	return mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{{
+		Lane:           lane.ID,
+		Label:          mission.BoardLaneLabel(lane),
+		Status:         lane.Status,
+		Workspace:      lane.Workspace,
+		ExecutorAction: action,
+	}}, nil, action.Blocked)
 }
 
 func laneExecutorSnapshot(caseRoot, laneID string) (mission.Brief, mission.ExecutorAction, mission.Facts, mission.BoardLane, error) {

@@ -16,24 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 413：Mission Commander lane follow-up next-action closure
+### Batch 414：Note append Mission Commander action-delta closure
 
-状态：已完成本地实现、durable docs、affected package validation、full local validation、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、durable docs、affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待执行。
 
-目标：Batch 404/405/407 已把 overview、handoff、continue、resume/checkpoint 与 gate evidence record 的 evidence review next actions 和 lane commander primary action 收口到 `missionCommanderNextActions[]`，但 lane commander follow-up commands 仍只存在于 `missionCommanderAction.followUpCommands` 或 Markdown 旁路里，主 Agent / replacement executor 仍需手工拼接 “primary 后 handoff” 与 “blocked lane 先 reconcile，再 -WhatIf/handoff” 条件。本批把 lane-level follow-up 同步投影为 ordered next-action items，并让 handoff Markdown 同步打印 reason/boundary。
+目标：Batch 343 已让 `note -WhatIf` / append / duplicate JSON 输出 current/would/post `executorAction` delta；Batch 391/404/413 又把 executor action 的 `missionCommanderAction` 与 `missionCommanderNextActions[]` 作为主 Agent / replacement executor 的直接消费入口。本批把 note append 的 action-delta 也同步提升到 Mission Commander 层，避免主 Agent 在 reviewer writeback、manual note preview 或 duplicate retry 后仍需从 nested executor action 手工反推 commander state、primary/follow-up 与 blocked next-action 顺序。
 
-边界：只增强共享 `mission.MissionCommanderNextActions(...)` builder、project/lane handoff Markdown 文本投影、CLI/package tests 与 durable docs；不改变 JSON schema 字段名或 case durable schema；blocked lane follow-up 仍是 blocked/requiresReview guidance，不推荐 autonomous continue；runtime 不执行 heavy-tool、不写 observations/authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、公共 façade 删除门禁或远程 CI blocker 状态。
+边界：只增强 `note.AppendResult` JSON projection、note/CLI tests 与 durable docs；不改变 note 既有 append 模型（非 `-WhatIf` append 会写 fact，note 不支持 `-Apply`）、不新增 text output contract、不改变 case durable schema；duplicate eventId 仍是 no-op；runtime 不执行 heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变 sync/promote review-first、公共 façade 删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- `mission.MissionCommanderNextActions(...)` 现在为 lane-level `missionCommanderAction.followUpCommands` 追加 `source=missionCommanderActions.followUp` next-action items，保留 evidence review source-first 与 blocked/evidence escalation continue suppression。
-- ready lane follow-up 以 `blocked=false`/`requiresReview=false` 输出 primary action 后 handoff；blocked lane follow-up 以 `blocked=true`/`requiresReview=true` 输出，并附带 `follow-up is available only after resolving current lane blockers`、`run as -WhatIf first` reason 与 `do not run continue for blocked lanes` boundary。
-- project/lane handoff Markdown 的 `commander next action` / `Mission Commander next actions` 文本同步打印 next-action reason/boundary lines，让 replacement executor 不回查 JSON 也能理解 follow-up 条件。
-- CLI/package coverage 锁定 overview text/JSON、project/lane handoff preview/apply、gate execution evidence result、shared mission builder、handoff Markdown reason/boundary 与 blocked lane no autonomous continue boundary。
+- `note.AppendResult` 现在输出 current/post `missionCommanderAction` 与 `missionCommanderNextActions[]`；`-WhatIf` additionally 输出 would `missionCommanderAction` 与 `wouldMissionCommanderNextActions[]`。
+- blocker-kind what-if 保留 current ready commander projection，同时把 would blocked primary/follow-up 投影为 blocked/requiresReview next actions；actual blocker append 返回 post blocked commander projection。
+- duplicate eventId 仍只返回 unchanged current executor/commander projection，不生成 `wouldExecutorAction`、`wouldMissionCommanderAction` 或 would next actions，避免 duplicate no-op 被误读为可执行 delta。
+- note package 与 CLI coverage 锁定 verification no-op readiness、candidate/decision/intervention/request blocker delta、applied blocker post action、duplicate no-op、ready/blocked `missionCommanderActions` / `missionCommanderActions.followUp` next-action source 与 no authority/confirmed/no-heavy-tool/no-write-when-what-if 边界。
 
-验证结果：已通过 affected package `go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `c6c1004 Add lane follow-up next actions`；远程 release-gate run `29704703374` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused/affected `go test ./internal/rekit/note ./internal/rekit/cli -run "TestAppend|TestRunNote" -count=1`、affected package `go test ./internal/rekit/note ./internal/rekit/cli -count=1`、`go test ./internal/rekit/note ./internal/rekit/cli ./internal/rekit/mission -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行；远程 Linux/macOS/Windows CI 若仍为 jobs `steps: []` failure，将按既有 GitHub Actions runner/billing blocker 记录，不声明远程 CI green。
 
-上一批摘要：Batch 412 已完成 adapter report contract / validation text next-action handoff，详见 `docs/batch-history.md`。
+上一批摘要：Batch 413 已完成 Mission Commander lane follow-up next-action closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
