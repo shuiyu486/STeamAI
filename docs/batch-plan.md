@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 **Batch 374：Adapter live-validation command handoff**
 
-状态：已完成 `liveValidation` command-string projection、package/CLI/façade coverage、durable docs 更新与本地 validation；仍需 commit/push 与远程 release-gate inspection。
+状态：已完成 `liveValidation` command-string projection、package/CLI/façade coverage、durable docs 更新、本地 validation、commit/push 与远程 release-gate inspection。
 
 目标：在 Batch 373 的 `liveValidation` sidecar template + args handoff 之后，补齐可直接展示/复制的 `validateCommand` 与 `recordCommand` 字段，并保持结构化 `validateArgs` / `recordArgs` 作为自动化入口；command strings 必须与 args 同源，仍指向 authorized output workspace cwd 中的 workspace-relative `adapter-report.json` preflight→record flow。
 
@@ -47,7 +47,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。仍需 commit/push 并检查最新远程 release-gate run；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能声明远程 CI green。
+本地 validation 已执行通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已 commit/push 为 `c8a4987 Add adapter live validation commands`；远程 release-gate run `29672035011` 为 completed failure，Linux/macOS/Windows jobs steps 为空，仍是 runner/billing blocker 形态，不能声明远程 CI green。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready。
 
 ### Next candidates
 
@@ -11089,10 +11089,10 @@ git diff --check
 
 ### Batch 374：Adapter live-validation command handoff
 
-状态：已完成 `liveValidation` command-string projection、package/CLI/façade coverage、durable docs 更新与本地 validation。
+状态：已完成 `liveValidation` command-string projection、package/CLI/façade coverage、durable docs 更新、本地 validation、commit/push 与远程 release-gate inspection。
 
 目标：在 Batch 373 的 `liveValidation` sidecar template + args handoff 之后，补齐可直接展示/复制的 `validateCommand` 与 `recordCommand` 字段，并保持结构化 `validateArgs` / `recordArgs` 作为自动化入口；command strings 必须与 args 同源，仍指向 authorized output workspace cwd 中的 workspace-relative `adapter-report.json` preflight→record flow。
 
 实施范围：`AdapterReportLiveValidation` 新增 `validateCommand` 与 `recordCommand`，由对应 args 数组生成，避免 command string 与 automation args 漂移；package test 覆盖 validate/record command string 与 args 一致性；CLI E2E 覆盖 nested authorized output workspace cwd 无 `-Target` 的 contract command strings + args JSON；`facade-smoke.ps1` 覆盖 retained public façade product path 中 contract `validateCommand` / `recordCommand` projection；README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、tests guide 与 CHANGELOG 同步更新。不新增 PowerShell runtime logic、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 observations/authority/confirmed（contract/read-only path）、不改变 sync/promote review-first、case durable schema、公共入口删除门禁或远程 CI blocker 状态。
 
-验证结果：已通过 `go test ./internal/rekit/gate -run "TestAdapterReportContractDescribesAuthorizedGateBoundaries" -count=1`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace" -count=1`、`./rekit/tests/facade-smoke.ps1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。远程 release-gate 需在 push 后检查；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能声明远程 CI green。
+验证结果：已通过 `go test ./internal/rekit/gate -run "TestAdapterReportContractDescribesAuthorizedGateBoundaries" -count=1`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace" -count=1`、`./rekit/tests/facade-smoke.ps1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。已 commit/push 为 `c8a4987 Add adapter live validation commands`；远程 release-gate run `29672035011` 为 completed failure，Linux/macOS/Windows jobs steps 为空，仍是 runner/billing blocker 形态，不能声明远程 CI green；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready。
