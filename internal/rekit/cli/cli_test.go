@@ -393,6 +393,8 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	assertReleaseCheckCommand(t, result.RequiredCommands, "go test ./...")
 	assertReleaseCheckCommand(t, result.RequiredCommands, "go vet ./...")
 	assertReleaseCheckCommand(t, result.RequiredCommands, "git diff --check")
+	assertReleaseCheckDocument(t, result.Documents, "docs/context-routing.md")
+	assertReleaseCheckDocument(t, result.Documents, "docs/batch-plan.md")
 	assertReleaseCheckDocument(t, result.Documents, "docs/release-readiness.md")
 	assertReleaseCheckDocument(t, result.Documents, "docs/mission-control-product-direction.md")
 	assertReleaseCheckDocument(t, result.Documents, "docs/autonomous-goal.md")
@@ -528,15 +530,12 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected release handoff summary: %+v", handoff)
 	}
-	if counts.ReadFirst != 7 || counts.Signals != 12 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
+	if counts.ReadFirst != 4 || counts.Signals != 12 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
-	assertReleaseHandoffReadFirst(t, handoff, "docs/release-readiness.md")
-	assertReleaseHandoffReadFirst(t, handoff, "docs/mission-control-product-direction.md")
-	assertReleaseHandoffReadFirst(t, handoff, "docs/autonomous-goal.md")
-	assertReleaseHandoffReadFirst(t, handoff, "docs/go-first-convergence-plan.md")
-	assertReleaseHandoffReadFirst(t, handoff, "docs/powershell-deprecation.md")
+	assertReleaseHandoffReadFirst(t, handoff, "docs/context-routing.md")
 	assertReleaseHandoffReadFirst(t, handoff, "docs/batch-plan.md")
+	assertReleaseHandoffReadFirst(t, handoff, "docs/release-readiness.md")
 	assertReleaseHandoffReadFirst(t, handoff, "CHANGELOG.md")
 	assertReleaseHandoffSignal(t, handoff, "release-check inventory")
 	assertReleaseHandoffSignal(t, handoff, "CI release gate")
@@ -977,12 +976,14 @@ func assertReleaseCheckPublicDefaultDocs(t *testing.T, docs defaultdocs.Readines
 	if !docs.Ready || docs.Summary != "public default docs readiness ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected public default docs readiness inventory: %+v", docs)
 	}
-	if counts.Documents != 13 || counts.RequiredPhrases == 0 || counts.Boundaries == 0 {
+	if counts.Documents != 15 || counts.RequiredPhrases == 0 || counts.Boundaries == 0 {
 		t.Fatalf("public default docs readiness omitted required sections: %+v", docs)
 	}
 	assertPublicDefaultDoc(t, docs, "README.md")
 	assertPublicDefaultDoc(t, docs, ".claude/skills/rekit/SKILL.md")
 	assertPublicDefaultDoc(t, docs, "CLAUDE.md")
+	assertPublicDefaultDoc(t, docs, "docs/context-routing.md")
+	assertPublicDefaultDoc(t, docs, "docs/batch-plan.md")
 	assertPublicDefaultDoc(t, docs, "docs/mission-control-product-direction.md")
 	assertPublicDefaultDoc(t, docs, "docs/autonomous-goal.md")
 	assertPublicDefaultDoc(t, docs, "docs/release-readiness.md")
@@ -996,6 +997,8 @@ func assertReleaseCheckPublicDefaultDocs(t *testing.T, docs defaultdocs.Readines
 	assertPublicDefaultPhrase(t, docs, "README.md", "用户主要指挥主 Agent / Mission Commander")
 	assertPublicDefaultPhrase(t, docs, "docs/mission-control-product-direction.md", "Lane-centric Agent Team Mission Control")
 	assertPublicDefaultPhrase(t, docs, ".claude/skills/rekit/SKILL.md", "底层 Go CLI 是 canonical runtime")
+	assertPublicDefaultPhrase(t, docs, "docs/context-routing.md", "按需路由")
+	assertPublicDefaultPhrase(t, docs, "docs/batch-plan.md", "完整历史已拆到 `docs/batch-history.md`")
 	assertPublicDefaultPhrase(t, docs, "CLAUDE.md", "PowerShell-free default/product path、Go-native、跨平台")
 	assertPublicDefaultPhrase(t, docs, "docs/autonomous-goal.md", "默认继续自主推进")
 	assertPublicDefaultPhrase(t, docs, "docs/release-readiness.md", "默认本机验证路径不依赖 PowerShell")
@@ -1191,6 +1194,8 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"go run ./cmd/rekit -- -Command doctor kind=go-run path=cmd/rekit",
 		"go test ./... kind=go-check",
 		"documents:",
+		"docs/context-routing.md",
+		"docs/batch-plan.md",
 		"docs/release-readiness.md",
 		"docs/mission-control-product-direction.md",
 		"docs/autonomous-goal.md",
@@ -1200,13 +1205,13 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"commands=14 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=20 candidates=0 removalModules=0 retiredModules=13 facadeRuntime=true legacyImports=false dispatcher=false publicFacade=true retained=true facadeCommands=20 noFallback=20 moduleRemoval=true removalCandidates=0 retired=13 facadeDeps=0 undocumented=0 moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0",
 		"Go-native public surface: Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true default=status commands=20 handlers=20 symbols=20 profiles=20 boundaries=7 boundaryRows=7 policyRows=5 policyViolations=0 facadeRemovalReady=true facadePrerequisites=5 readOnly=5 mutating=15 writesCase=14 writesKit=1 reviewFirst=3 applyRequired=13 heavyTool=0 authorityConfirmed=0 readOnlyCommands=doctor,packs,release-check,status,validate reviewFirstCommands=promote,sync,update writesKitCommands=promote caseLocalApplyCommands=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWritebackCommands=plan-subagents kitReviewFirstCommands=promote alternative=go run ./cmd/rekit -- -Command <command> unsupportedDiagnostic=true",
 		"case shim: case shim readiness ok ready=true",
-		"public default docs: public default docs readiness ok ready=true documents=13",
+		"public default docs: public default docs readiness ok ready=true documents=15",
 		"public facade removal: public facade removal prerequisites ok ready=true prerequisites=8 removalPlan=true planChecks=9 replacementEntrypoints=4 replacementValidationCommands=32 deletionGates=5 deletionGateValidationCommands=40 deletionGateExitCriteria=15 deletionGateFailureSignals=15 deletionGateEscalationTriggers=15 deletionGateEscalationEvidence=15 deletionGateEscalationRecipients=15 deletionGateEscalationHandoffSteps=15 deletionGateEscalationDecisionOptions=15 deletionGateEscalationRetryConditions=15 deletionGateEscalationStopConditions=15 deletionGateEscalationResolutionArtifacts=15 deletionGateEscalationClosureChecks=15 deletionGateEscalationReopenConditions=15 deletionGateEscalationLedgerEvents=15 deletionGateEscalationStateTransitions=15 deletionGateEscalationBoundaryGuards=15 deletionGateEscalationAuditChecks=15 deletionGateVerificationArtifacts=15 deletionGateBlockedExecutionSteps=10 deletionGateRemediationActions=15 recoverySteps=4 recoveryValidationCommands=32 documentationTargets=9 documentationValidationCommands=72 executionSteps=5 executionFailureSignals=15 executionRemediationActions=15 executionVerificationArtifacts=15 executionLedgerEvents=15 executionStateTransitions=15 executionEscalationTriggers=15 executionEscalationEvidence=15 executionEscalationRecipients=15 executionEscalationHandoffSteps=15 executionEscalationDecisionOptions=15 executionEscalationRetryConditions=15 executionEscalationStopConditions=15 executionEscalationResolutionArtifacts=15 executionEscalationClosureChecks=15 executionEscalationReopenConditions=15 executionEscalationLedgerEvents=15 executionEscalationStateTransitions=15 executionEscalationBoundaryGuards=15 executionEscalationAuditChecks=15 executionBoundaryGuards=15 executionAuditChecks=15 executionValidationCommands=40 boundaryChecks=6 boundaryValidationCommands=48 removalImpact=true impactReferences=",
 		"workItems=",
 		"validationCommands=",
 		"migrationTargets=74 migrationValidationCommands=592",
 		"smokeMigrationTargets=29 smokeMigrationValidationCommands=232",
-		"release handoff: release handoff summary ok ready=true readFirst=7 signals=12 knownGaps=5 packMaturity=10",
+		"release handoff: release handoff summary ok ready=true readFirst=4 signals=12 knownGaps=5 packMaturity=10",
 		"releaseNotes=true",
 		"latest=Batch ",
 		"known gaps:",

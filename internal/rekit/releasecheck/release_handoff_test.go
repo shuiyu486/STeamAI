@@ -20,15 +20,12 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected release handoff inventory: %+v", handoff)
 	}
-	if counts.ReadFirst != 7 || counts.Signals != 12 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
+	if counts.ReadFirst != 4 || counts.Signals != 12 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
-	assertHandoffReadFirst(t, handoff, "docs/release-readiness.md")
-	assertHandoffReadFirst(t, handoff, "docs/mission-control-product-direction.md")
-	assertHandoffReadFirst(t, handoff, "docs/autonomous-goal.md")
-	assertHandoffReadFirst(t, handoff, "docs/go-first-convergence-plan.md")
-	assertHandoffReadFirst(t, handoff, "docs/powershell-deprecation.md")
+	assertHandoffReadFirst(t, handoff, "docs/context-routing.md")
 	assertHandoffReadFirst(t, handoff, "docs/batch-plan.md")
+	assertHandoffReadFirst(t, handoff, "docs/release-readiness.md")
 	assertHandoffReadFirst(t, handoff, "CHANGELOG.md")
 	assertHandoffSignal(t, handoff, "release-check inventory")
 	assertHandoffSignal(t, handoff, "CI release gate")
@@ -211,7 +208,7 @@ description: Fixture pack.
 	if result.ReleaseHandoff.Ready || result.Ready {
 		t.Fatalf("release handoff unexpectedly ready despite missing docs: %+v", result.ReleaseHandoff)
 	}
-	assertWarningContains(t, result.ReleaseHandoff.Warnings, "docs/autonomous-goal.md")
+	assertWarningContains(t, result.ReleaseHandoff.Warnings, "docs/context-routing.md")
 	assertWarningContains(t, result.Warnings, "release handoff read-first document missing")
 }
 

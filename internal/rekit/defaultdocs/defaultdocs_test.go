@@ -16,6 +16,8 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertDocument(t, readiness, "README.md")
 	assertDocument(t, readiness, ".claude/skills/rekit/SKILL.md")
 	assertDocument(t, readiness, "CLAUDE.md")
+	assertDocument(t, readiness, "docs/context-routing.md")
+	assertDocument(t, readiness, "docs/batch-plan.md")
 	assertDocument(t, readiness, "docs/mission-control-product-direction.md")
 	assertDocument(t, readiness, "docs/autonomous-goal.md")
 	assertDocument(t, readiness, "docs/release-readiness.md")
@@ -29,6 +31,9 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertPhrase(t, readiness, "README.md", "用户主要指挥主 Agent / Mission Commander")
 	assertPhrase(t, readiness, "docs/mission-control-product-direction.md", "Lane-centric Agent Team Mission Control")
 	assertPhrase(t, readiness, ".claude/skills/rekit/SKILL.md", "底层 Go CLI 是 canonical runtime")
+	assertPhrase(t, readiness, "docs/context-routing.md", "按需路由")
+	assertPhrase(t, readiness, "docs/context-routing.md", "不要默认读取 `docs/batch-history.md` 全文")
+	assertPhrase(t, readiness, "docs/batch-plan.md", "完整历史已拆到 `docs/batch-history.md`")
 	assertPhrase(t, readiness, "CLAUDE.md", "PowerShell-free default/product path、Go-native、跨平台")
 	assertPhrase(t, readiness, "docs/autonomous-goal.md", "默认继续自主推进")
 	assertPhrase(t, readiness, "docs/release-readiness.md", "默认本机验证路径不依赖 PowerShell")
@@ -130,6 +135,8 @@ func writeReadyDocs(t *testing.T, repo string) {
 	writeFile(t, filepath.Join(repo, "README.md"), readyREADME)
 	writeFile(t, filepath.Join(repo, ".claude", "skills", "rekit", "SKILL.md"), readySkill)
 	writeFile(t, filepath.Join(repo, "CLAUDE.md"), readyClaude)
+	writeFile(t, filepath.Join(repo, "docs", "context-routing.md"), readyContextRouting)
+	writeFile(t, filepath.Join(repo, "docs", "batch-plan.md"), readyBatchPlan)
 	writeFile(t, filepath.Join(repo, "docs", "mission-control-product-direction.md"), readyMissionControlProductDirection)
 	writeFile(t, filepath.Join(repo, "docs", "autonomous-goal.md"), readyAutonomousGoal)
 	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), readyReleaseReadiness)
@@ -193,6 +200,18 @@ const readyClaude = `# CLAUDE
 PowerShell-free default/product path、Go-native、跨平台。
 PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问。
 默认远程 CI workflow 是 ` + "`.github/workflows/release-gate.yml`" + `，定义 Linux、Windows、macOS Go-native release checks。
+`
+
+const readyContextRouting = `# context routing
+
+按需路由。
+渐进式披露。
+不要默认读取 ` + "`docs/batch-history.md`" + ` 全文。
+`
+
+const readyBatchPlan = `# batch plan
+
+完整历史已拆到 ` + "`docs/batch-history.md`" + `。
 `
 
 const readyMissionControlProductDirection = `# mission

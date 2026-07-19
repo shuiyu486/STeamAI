@@ -110,6 +110,8 @@ var requiredCommands = []string{
 }
 
 var requiredDocuments = []DocumentCheck{
+	{Path: "docs/context-routing.md", Purpose: "progressive-disclosure router and read-first policy"},
+	{Path: "docs/batch-plan.md", Purpose: "current batch state and next candidates"},
 	{Path: "docs/release-readiness.md", Purpose: "release gate and known gaps"},
 	{Path: "docs/mission-control-product-direction.md", Purpose: "Mission Control product north star"},
 	{Path: "docs/autonomous-goal.md", Purpose: "long-term autonomous goal and handoff guide"},
