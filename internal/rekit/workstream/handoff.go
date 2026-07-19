@@ -348,13 +348,22 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		}
 		autonomySummary := autonomy.ReadSummary(ctx.inst.CaseRoot, lane.ID, ctx.manifest)
 		executorAction := ctx.executorAction(lane)
+		executionEvidenceReview := ctx.executionEvidenceReview(lane)
+		evidenceNeedsMainReview := ExecutionEvidenceReviewNeedsMainReview(executionEvidenceReview)
 		fmt.Fprintf(&out, "- %s `%s`：status=%s，workspace=`%s`，autonomy=%s ready=%t，blocked=%t\n", kind, lane.ID, lane.Status, lane.Workspace, autonomySummary.Mode, autonomySummary.Ready, executorAction.Blocked)
 		fmt.Fprintf(&out, "  - executor owner：current=%s generation=%d lastTakeover=%s by=%s reason=%s\n", firstText(lane.CurrentExecutor, "unassigned"), lane.ExecutorGeneration, firstText(lane.LastTakeoverAt, "none"), firstText(lane.LastTakeoverBy, "none"), firstText(lane.LastTakeoverReason, "none"))
 		fmt.Fprintf(&out, "  - executor blockers：pendingGates=%d openInterventions=%d openDecisions=%d reasons=%s\n", executorAction.PendingGates, executorAction.OpenInterventions, executorAction.OpenDecisions, firstText(strings.Join(executorAction.BlockerReasons, ","), "none"))
 		fmt.Fprintf(&out, "  - requirements：reconcile=%t pendingGate=%t openDecision=%t\n", executorAction.ReconcileRequired, executorAction.PendingGateRequired, executorAction.OpenDecisionRequired)
-		writeProjectLaneNextActions(&out, executorAction.NextAgentActions)
+		writeProjectLaneEvidenceNextSteps(&out, executionEvidenceReview, executorAction.Ready && !executorAction.Blocked)
+		if !evidenceNeedsMainReview {
+			writeProjectLaneNextActions(&out, executorAction.NextAgentActions)
+		}
 		if executorAction.Ready {
-			fmt.Fprintf(&out, "  - continue command：`%s`\n", executorAction.ResumeCommand)
+			if evidenceNeedsMainReview {
+				fmt.Fprintf(&out, "  - evidence review 后继续候选：`%s`（当前因 evidence boundary/escalation 不推荐 autonomous continue）\n", executorAction.ResumeCommand)
+			} else {
+				fmt.Fprintf(&out, "  - continue command：`%s`\n", executorAction.ResumeCommand)
+			}
 		} else {
 			fmt.Fprintf(&out, "  - ready 后继续：`%s`\n", executorAction.ResumeCommand)
 		}
@@ -364,7 +373,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		fmt.Fprintf(&out, "  - commander primary：`%s`\n", executorAction.MissionCommanderAction.PrimaryCommand)
 		writeProjectLaneCommanderList(&out, "commander follow-up", executorAction.MissionCommanderAction.FollowUpCommands)
 		writeProjectLaneCommanderList(&out, "commander boundary", executorAction.MissionCommanderAction.Boundary)
-		writeProjectLaneExecutionEvidenceReview(&out, ctx.executionEvidenceReview(lane))
+		writeProjectLaneExecutionEvidenceReview(&out, executionEvidenceReview)
 		fmt.Fprintf(&out, "  - 接续提示：`%s`\n", resumeRel)
 	}
 	fmt.Fprintln(&out)
@@ -385,6 +394,12 @@ func writeProjectLaneNextActions(out *bytes.Buffer, actions []string) {
 	}
 	for _, action := range actions {
 		fmt.Fprintf(out, "  - next action：%s\n", action)
+	}
+}
+
+func writeProjectLaneEvidenceNextSteps(out *bytes.Buffer, items []ExecutionEvidenceReviewItem, includeContinueFollowUp bool) {
+	for _, action := range ExecutionEvidenceReviewNextSteps(items, includeContinueFollowUp) {
+		fmt.Fprintf(out, "  - evidence next action：%s\n", action)
 	}
 }
 
@@ -438,6 +453,8 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	}
 	label := workstreamLabel(lane)
 	executorAction := ctx.executorAction(lane)
+	executionEvidenceReview := ctx.executionEvidenceReview(lane)
+	evidenceNeedsMainReview := ExecutionEvidenceReviewNeedsMainReview(executionEvidenceReview)
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "# rekit 工作线接手：%s\n", lane.ID)
 	fmt.Fprintln(&out)
@@ -454,7 +471,12 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	fmt.Fprintln(&out, "## 新会话开场")
 	fmt.Fprintln(&out)
 	if executorAction.Ready {
-		fmt.Fprintf(&out, "直接说：按 `%s` 接手，然后执行 `%s`。\n", relativePath(ctx.inst.CaseRoot, latestPath), executorAction.ResumeCommand)
+		if evidenceNeedsMainReview {
+			fmt.Fprintf(&out, "直接说：按 `%s` 接手，先 review execution evidence 并通知 main Agent；当前不要执行 `%s`。\n", relativePath(ctx.inst.CaseRoot, latestPath), executorAction.ResumeCommand)
+			writeHandoffBriefList(&out, "evidence next action", ExecutionEvidenceReviewNextSteps(executionEvidenceReview, false))
+		} else {
+			fmt.Fprintf(&out, "直接说：按 `%s` 接手，然后执行 `%s`。\n", relativePath(ctx.inst.CaseRoot, latestPath), executorAction.ResumeCommand)
+		}
 	} else if executorAction.Blocked {
 		fmt.Fprintf(&out, "直接说：按 `%s` 接手，先处理下列 blocker，不要执行 `/rekit continue %s`。\n", relativePath(ctx.inst.CaseRoot, latestPath), label)
 		writeHandoffBriefList(&out, "next agent action", executorAction.NextAgentActions)
@@ -495,7 +517,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	writeDecisionSection(&out, facts.Decisions, lane.ID)
 	writePendingGateSection(&out, facts.Requests, lane.ID)
 	writeAuthorizedGateSection(&out, facts.Requests, lane.ID)
-	writeExecutionEvidenceReviewSection(&out, ctx.executionEvidenceReview(lane))
+	writeExecutionEvidenceReviewSection(&out, executionEvidenceReview)
 	writeInterventionSection(&out, facts.Interventions, lane.ID)
 	writeRollbackSection(&out, facts.Rollbacks, lane.ID)
 	fmt.Fprintln(&out, "## 边界")
