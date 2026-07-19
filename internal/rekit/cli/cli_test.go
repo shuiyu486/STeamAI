@@ -5475,16 +5475,19 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 		GateEventID            string   `json:"gateEventId"`
 		IsMutation             bool     `json:"isMutation"`
 		AllowedOutputPaths     []string `json:"allowedOutputPaths"`
+		DefaultReportPath      string   `json:"defaultReportPath"`
 		RefPathRequires        []string `json:"refPathRequires"`
 		BoundaryStatusRequires []string `json:"boundaryStatusRequires"`
 		StatusSummaryRequires  []string `json:"statusSummaryRequires"`
 		LiveValidation         struct {
-			ValidateCommand string   `json:"validateCommand"`
-			RecordCommand   string   `json:"recordCommand"`
-			ValidateArgs    []string `json:"validateArgs"`
-			RecordArgs      []string `json:"recordArgs"`
-			ReplayBehavior  string   `json:"replayBehavior"`
-			SidecarTemplate struct {
+			AuthorizedWorkspaces []string `json:"authorizedWorkspaces"`
+			ReportFileName       string   `json:"reportFileName"`
+			ValidateCommand      string   `json:"validateCommand"`
+			RecordCommand        string   `json:"recordCommand"`
+			ValidateArgs         []string `json:"validateArgs"`
+			RecordArgs           []string `json:"recordArgs"`
+			ReplayBehavior       string   `json:"replayBehavior"`
+			SidecarTemplate      struct {
 				Action       string   `json:"action"`
 				GateEventID  string   `json:"gateEventId"`
 				EvidenceRefs []string `json:"evidenceRefs"`
@@ -5494,13 +5497,13 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	if err := json.Unmarshal(out.Bytes(), &contract); err != nil {
 		t.Fatalf("nested workspace adapter report contract stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if contract.Kind != "adapter-execution-report-contract" || contract.CaseRoot != caseRoot || contract.GateEventID != applied.EventID || contract.IsMutation || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" {
+	if contract.Kind != "adapter-execution-report-contract" || contract.CaseRoot != caseRoot || contract.GateEventID != applied.EventID || contract.IsMutation || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || contract.DefaultReportPath != "workspace/main/debug/session-1/adapter-report.json" {
 		t.Fatalf("unexpected nested workspace adapter report contract: %+v", contract)
 	}
 	if !containsSubstring(contract.RefPathRequires, "evidenceRefs must stay under authorized outputPaths") || !containsSubstring(contract.BoundaryStatusRequires, "authorized stopConditions") || !containsSubstring(contract.StatusSummaryRequires, "failed/boundary-hit/escalated/aborted") {
 		t.Fatalf("nested workspace adapter report contract omitted live enforcement rules: %+v", contract)
 	}
-	if strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" || strings.Join(contract.LiveValidation.RecordArgs, " ") != "-Command gate -Pack _template -Apply -GateEventId "+applied.EventID+" -ExecutionReportPath adapter-report.json -Actor <executor-id> -Format json" || contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") || contract.LiveValidation.RecordCommand != "rekit "+strings.Join(contract.LiveValidation.RecordArgs, " ") || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != applied.EventID || !containsSubstring(contract.LiveValidation.SidecarTemplate.EvidenceRefs, "authorized outputPaths") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
+	if strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" || strings.Join(contract.LiveValidation.RecordArgs, " ") != "-Command gate -Pack _template -Apply -GateEventId "+applied.EventID+" -ExecutionReportPath adapter-report.json -Actor <executor-id> -Format json" || contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") || contract.LiveValidation.RecordCommand != "rekit "+strings.Join(contract.LiveValidation.RecordArgs, " ") || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != applied.EventID || !containsSubstring(contract.LiveValidation.SidecarTemplate.EvidenceRefs, "authorized outputPaths") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
 		t.Fatalf("nested workspace adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
 	}
 

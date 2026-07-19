@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action、bounded reviewer dispatch → strict intake → verification-before-decision writeback → post-validation 的本机闭环、pack-memory promote/reconsume package E2E，以及 authorized execution observation evidence + bounded adapter execution report strict intake（含 authorized stopCondition boundaryHits 与 status summary enforcement）已形成底座。当前阶段继续从 contract/inventory field increments 转向 replaceable session executor / reviewer orchestration、lane executor / tool-adapter live validation、pack-memory product UX、真实 release verification 与跨平台 product-path E2E。
+Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action、bounded reviewer dispatch → strict intake → verification-before-decision writeback → post-validation 的本机闭环、pack-memory promote/reconsume package E2E，以及 authorized execution observation evidence + bounded adapter execution report strict intake（含 authorized stopCondition boundaryHits、status summary enforcement 与 machine-readable workspace handoff）已形成底座。当前阶段继续从 contract/inventory field increments 转向 replaceable session executor / reviewer orchestration、lane executor / tool-adapter live validation、pack-memory product UX、真实 release verification 与跨平台 product-path E2E。
 
 ## 执行清单
 
@@ -16,31 +16,29 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 377：Mission brief authorized-gate boundary visibility**
+**Batch 378：Adapter live-validation workspace handoff closure**
 
-状态：已完成 Mission brief / overview / project-lane handoff / continue artifacts / lane checkpoint 中 authorized-gate requestedBudget、outputPaths 与 stopConditions 可见性补强、package/CLI product-path coverage、durable docs 更新、本地 validation、commit/push 与远程 release-gate inspection；实现提交为 `5612f51 Show authorized gate execution boundaries`（HEAD `5612f5117d7c85d2929ae1a03e95d1558dbd4863`），远程 release-gate run `29674698294` 已完成但结论为 failure，Linux/macOS/Windows jobs 均为 failure 且 `steps: []`，符合既有 runner/billing blocker 模式，不能声明远程 CI green。
+状态：已完成 adapter execution report contract 的 machine-readable authorized workspace handoff、package/CLI product-path coverage、durable docs 更新与本地 validation；commit/push 与远程 release-gate inspection 待本批收尾后回写。
 
-目标：在 Batch 376 的 adapter evidence ref boundary hardening 之后，补齐 Mission Commander / replaceable lane executor 接手闭环中的展示断点：非阻塞 `authorized-gate` 不能只显示授权 decision/profile，还应在 handoff、overview、continue digest/status、lane `RESUME.md` 与 checkpoint 中直接暴露本次实际授权的 typed budget、authorized output paths 与 stop conditions，避免替换 executor 接手 actual heavy action 前必须重扫 raw request ledger 才能看到边界。
+目标：在 Batch 377 的 Mission brief authorized-gate boundary visibility 之后，补齐可替换 lane executor / tool adapter 消费 `gate -ExecutionReportContract` 时仍需从英文 `invocationCwd` 文本和 `allowedOutputPaths` 自行拼接 sidecar path 的断点：contract 应直接给出 `defaultReportPath`、`liveValidation.authorizedWorkspaces[]` 与 `liveValidation.reportFileName`，让 executor 能以机器可读字段选择授权 workspace、写入默认 sidecar、运行 workspace-relative preflight→record，而不是解析说明文本或重扫 raw request ledger。
 
-边界：本批只补 deterministic Mission brief projection、package/CLI product-path coverage、durable docs 与验证；不新增 PowerShell runtime logic、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；actual tool execution 仍由 lane executor / tool adapter 在 strict durable autonomy profile + `authorized-gate` 范围内承担。
+边界：本批只补 deterministic contract projection、package/CLI product-path coverage、durable docs 与验证；不新增 PowerShell runtime logic、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 observations/authority/confirmed（contract/read-only path；existing evidence apply 仍只写 observations）、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；actual tool execution 仍由 lane executor / tool adapter 在 strict durable autonomy profile + `authorized-gate` 范围内承担。
 
 已完成内容：
 
-- `mission.GateLine` 与 `mission.LaneGateLine` 共用 gate detail projection，保留既有 action/scope/auth/profile，同时新增 `requestedBudget`、`outputPaths` 与 `stopConditions`。
-- 新增 bounded budget formatter，支持 typed struct / JSON-decoded map 的 `runtimeSeconds`、`diskMB`、`requests` 投影，并避免 zero-value requestedBudget 污染历史/手写 gate line。
-- `mission.Value` 现在显式支持 `[]string`，让 request ledger 由 typed event decode 后的 output paths / stop conditions 在 Mission brief 中稳定显示。
-- Mission package tests 覆盖 project authorized gate line 与 lane-local gate line 的 boundary detail，并保持 authorized-gate 非阻塞与 lane-specific line 不重复 lane 字段。
-- CLI product-path E2E 覆盖 `gate -Apply` 后 Mission brief、overview JSON/text、project handoff、lane handoff、continue JSON/status/digest、lane `RESUME.md` 与 checkpoint 中的 authorized-gate boundary visibility。
-- 同步 README、canonical `/rekit` skill、release readiness、PowerShell deprecation、Go runtime migration、tests guide、CHANGELOG 与本文件。
-
-Batch 376 主实现已完成并记录在历史区。
+- `AdapterExecutionReportContract` 新增 `defaultReportPath`，由首个 authorized `outputPaths` 派生出默认 `adapter-report.json` case-relative sidecar path。
+- `AdapterReportLiveValidation` 新增 `authorizedWorkspaces[]` 与 `reportFileName`，让 executor 不解析 `invocationCwd` 文本即可定位 workspace-relative sidecar flow。
+- `liveValidation.validateArgs` / `recordArgs` 继续使用同一 `reportFileName`，`validateCommand` / `recordCommand` 仍从 args 同源生成，避免 command string 与 automation args 漂移。
+- Package test 覆盖 default report path、authorized workspaces、report file name 与既有 live-validation command handoff；CLI nested workspace E2E 覆盖 JSON projection 和 no-`Target` product path。
+- 同步 root CLAUDE、README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、agent-team rollout、reference absorption、tests guide、CHANGELOG 与本文件。
+- 将 Batch 377 从 current 区归档到近期历史区，并保留实现 commit、docs writeback HEAD 与远程 release-gate blocker 事实。
 
 已通过验证：
 
 ```text
-go test ./internal/rekit/mission -run "TestBuildDoesNotBlockOnAuthorizedGate|TestLaneGateLineIncludesAuthorizedExecutionBoundaries" -count=1
-go test ./internal/rekit/cli -run "TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1
-go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/gate ./internal/rekit/cli -count=1
+go test ./internal/rekit/gate -run "TestAdapterReportContractDescribesAuthorizedGateBoundaries|TestValidateAdapterExecutionReportReadOnlyPreflight|TestRecordExecution" -count=1
+go test ./internal/rekit/cli -run "TestRunGo(GateDispatchE2EPlanGateOverviewHandoff|GenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff|WebSecurityPackNeutralE2EStartPlanGateOverviewHandoff|GateApplyAppendsAuthorizedGateRequestVisibility)|TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace" -count=1
+go test ./internal/rekit/gate ./internal/rekit/cli -count=1
 go test ./...
 go vet ./...
 go run ./cmd/rekit -- -Command release-check -Format json
@@ -50,7 +48,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 focused mission/CLI、mission/workstream/gate/CLI package set、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `5612f51 Show authorized gate execution boundaries`（HEAD `5612f5117d7c85d2929ae1a03e95d1558dbd4863`）。远程 release-gate run `29674698294` 已完成，结论为 failure；Linux/macOS/Windows `Go release checks` jobs 均为 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
+本地 focused gate/CLI、full gate+CLI package tests、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate run 结果待本批收尾后回写；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
 
 ### Next candidates
 
@@ -11119,3 +11117,13 @@ git diff --check
 实施范围：`AdapterExecutionReportContract` 新增 `refPathRequires`，明确 `outputRefs` / `evidenceRefs` 必须 case-relative 且位于 authorized `outputPaths` 内；adapter validation failure taxonomy 新增 `evidence-refs-out-of-scope`；read-only validation 与 evidence apply 共用 strict intake 并 fail-closed；explicit `-ExecutionEvidenceRefs` 同样先做 case-relative 校验，再要求落在 authorized output paths 内；`liveValidation` sidecar template / notes、package tests、CLI E2E、façade smoke 与 durable docs 同步更新。不新增 PowerShell runtime logic、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema、公共入口删除门禁或远程 CI blocker 状态。
 
 验证结果：已通过 focused gate tests、full gate package tests、focused CLI tests、`./rekit/tests/facade-smoke.ps1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。主实现已 commit/push 为 `68f331d Enforce adapter evidence ref boundaries`；Batch 376 docs writeback 后最终 HEAD 为 `bb0f3550a6b3eeba5ace70c09d239299347be2fb`。远程 release-gate run `29673848008`（headSha `bb0f3550a6b3eeba5ace70c09d239299347be2fb`）为 completed failure，Linux/macOS/Windows jobs steps 为空，仍是 runner/billing blocker 形态，不能声明远程 CI green；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready。
+
+### Batch 377：Mission brief authorized-gate boundary visibility
+
+状态：已完成 Mission brief / overview / project-lane handoff / continue artifacts / lane checkpoint 中 authorized-gate requestedBudget、outputPaths 与 stopConditions 可见性补强、package/CLI product-path coverage、durable docs 更新、本地 validation、commit/push 与远程 release-gate inspection。
+
+目标：在 Batch 376 的 adapter evidence ref boundary hardening 之后，补齐 Mission Commander / replaceable lane executor 接手闭环中的展示断点：非阻塞 `authorized-gate` 不能只显示授权 decision/profile，还应在 handoff、overview、continue digest/status、lane `RESUME.md` 与 checkpoint 中直接暴露本次实际授权的 typed budget、authorized output paths 与 stop conditions，避免替换 executor 接手 actual heavy action 前必须重扫 raw request ledger 才能看到边界。
+
+实施范围：`mission.GateLine` 与 `mission.LaneGateLine` 共用 gate detail projection，保留既有 action/scope/auth/profile，同时新增 `requestedBudget`、`outputPaths` 与 `stopConditions`；新增 bounded budget formatter，支持 typed struct / JSON-decoded map 的 `runtimeSeconds`、`diskMB`、`requests` 投影，并避免 zero-value requestedBudget 污染历史/手写 gate line；`mission.Value` 显式支持 `[]string`；Mission package tests 覆盖 project/lane authorized gate boundary detail，CLI product-path E2E 覆盖 `gate -Apply` 后 Mission brief、overview JSON/text、project handoff、lane handoff、continue JSON/status/digest、lane `RESUME.md` 与 checkpoint 中的 authorized-gate boundary visibility；README、canonical `/rekit` skill、release readiness、PowerShell deprecation、Go runtime migration、tests guide、CHANGELOG 与本文件同步更新。不新增 PowerShell runtime logic、不修改 façade 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema、公共入口删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 `go test ./internal/rekit/mission -run "TestBuildDoesNotBlockOnAuthorizedGate|TestLaneGateLineIncludesAuthorizedExecutionBoundaries" -count=1`、`go test ./internal/rekit/cli -run "TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1`、`go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、release-check/status/packs/doctor 与 `git diff --check`；diff check 只有 LF/CRLF conversion warning。主实现已 commit/push 为 `5612f51 Show authorized gate execution boundaries`（HEAD `5612f5117d7c85d2929ae1a03e95d1558dbd4863`）；Batch 377 docs writeback 后最终 HEAD 为 `7424830642af5ade31239262aab769489fd8743e`。远程 release-gate run `29674698294`（headSha `5612f5117d7c85d2929ae1a03e95d1558dbd4863`）与 docs writeback run `29674825513`（headSha `7424830642af5ade31239262aab769489fd8743e`）均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 runner/billing blocker，不能声明远程 CI green；`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready。

@@ -137,6 +137,7 @@ type AdapterExecutionReportContract struct {
 	AllowedStatuses         []string                              `json:"allowedStatuses"`
 	RequiredFields          []string                              `json:"requiredFields"`
 	AllowedOutputPaths      []string                              `json:"allowedOutputPaths"`
+	DefaultReportPath       string                                `json:"defaultReportPath,omitempty"`
 	AuthorizedBudget        autonomy.Budget                       `json:"authorizedBudget"`
 	StopConditions          []string                              `json:"stopConditions,omitempty"`
 	ReportPathRule          string                                `json:"reportPathRule"`
@@ -155,14 +156,16 @@ type AdapterExecutionReportContract struct {
 }
 
 type AdapterReportLiveValidation struct {
-	InvocationCwd   string                       `json:"invocationCwd"`
-	SidecarTemplate AdapterReportSidecarTemplate `json:"sidecarTemplate"`
-	ValidateCommand string                       `json:"validateCommand"`
-	RecordCommand   string                       `json:"recordCommand"`
-	ValidateArgs    []string                     `json:"validateArgs"`
-	RecordArgs      []string                     `json:"recordArgs"`
-	ReplayBehavior  string                       `json:"replayBehavior"`
-	Notes           []string                     `json:"notes,omitempty"`
+	InvocationCwd        string                       `json:"invocationCwd"`
+	AuthorizedWorkspaces []string                     `json:"authorizedWorkspaces,omitempty"`
+	ReportFileName       string                       `json:"reportFileName"`
+	SidecarTemplate      AdapterReportSidecarTemplate `json:"sidecarTemplate"`
+	ValidateCommand      string                       `json:"validateCommand"`
+	RecordCommand        string                       `json:"recordCommand"`
+	ValidateArgs         []string                     `json:"validateArgs"`
+	RecordArgs           []string                     `json:"recordArgs"`
+	ReplayBehavior       string                       `json:"replayBehavior"`
+	Notes                []string                     `json:"notes,omitempty"`
 }
 
 type AdapterReportSidecarTemplate struct {
@@ -574,6 +577,7 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) 
 		AllowedOutputPaths:      append([]string{}, event.Gate.OutputPaths...),
 		AuthorizedBudget:        event.Gate.RequestedBudget,
 		StopConditions:          append([]string{}, event.Gate.StopConditions...),
+		DefaultReportPath:       adapterReportDefaultPath(event.Gate.OutputPaths),
 		ReportPathRule:          "case-relative, current-workspace relative, or case-contained absolute file path under one authorized outputPath; sidecar must be <= 1048576 bytes and contain no trailing JSON data",
 		RefPathRequires:         []string{"outputRefs and evidenceRefs must be case-relative", "outputRefs and evidenceRefs must stay under authorized outputPaths"},
 		SummaryMaxBytes:         4096,
@@ -590,11 +594,21 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) 
 	}
 }
 
+func adapterReportDefaultPath(outputPaths []string) string {
+	for _, outputPath := range normalizedGatePaths(outputPaths) {
+		return strings.TrimRight(outputPath, "/") + "/adapter-report.json"
+	}
+	return ""
+}
+
 func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportLiveValidation {
-	validateArgs := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", "adapter-report.json", "-Format", "json"}
-	recordArgs := []string{"-Command", "gate", "-Pack", pack, "-Apply", "-GateEventId", event.EventID, "-ExecutionReportPath", "adapter-report.json", "-Actor", "<executor-id>", "-Format", "json"}
+	reportFileName := "adapter-report.json"
+	validateArgs := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", reportFileName, "-Format", "json"}
+	recordArgs := []string{"-Command", "gate", "-Pack", pack, "-Apply", "-GateEventId", event.EventID, "-ExecutionReportPath", reportFileName, "-Actor", "<executor-id>", "-Format", "json"}
 	return AdapterReportLiveValidation{
-		InvocationCwd: "authorized output workspace; use a workspace-relative sidecar file name such as adapter-report.json and omit -Target",
+		InvocationCwd:        "authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target",
+		AuthorizedWorkspaces: normalizedGatePaths(event.Gate.OutputPaths),
+		ReportFileName:       reportFileName,
 		SidecarTemplate: AdapterReportSidecarTemplate{
 			SchemaVersion: 1,
 			Kind:          "adapter-execution-report",
