@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 397：Mission Commander overview action consumption closure
 
-状态：已完成本地实现与验证，提交/推送和远程 release-gate inspection 待记录。
+状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
 
 目标：让 `overview` 成为主 Agent 的项目级操作面板，而不只是 readable summary：在已有 `laneExecutorActions[]` 嵌套 action snapshot 的基础上，提供顶层 Mission Commander action index，让替换 executor 或新会话无需遍历 nested JSON 或从 text prompt 手工提取 primary/follow-up/boundary。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - text output 新增 `Mission Commander action index：` section，直接显示每条 lane 的 state、primary command、prompt、follow-up、boundary 与 blocker reasons。
 - CLI coverage 锁定 read-only overview text/JSON 的 commander action index，并保持 blocker-first next steps 不推荐 blocked lane continue。
 
-验证结果：已通过 focused `go test ./internal/rekit/overview ./internal/rekit/cli -run 'TestRunOverviewEmitsReadOnlySummary|TestRunOverviewJsonEmitsReadOnlyInventory' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。
+验证结果：已通过 focused `go test ./internal/rekit/overview ./internal/rekit/cli -run 'TestRunOverviewEmitsReadOnlySummary|TestRunOverviewJsonEmitsReadOnlyInventory' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `43be419 Add overview commander action index`；远程 release-gate run `29691630206` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 396 已完成 authorized execution evidence handoff consumption follow-through；project/lane handoff、lane `RESUME.md` 与 checkpoint 已投影 execution evidence review queue，详见 `docs/batch-history.md`。
 
