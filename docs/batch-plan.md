@@ -16,24 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 398：Pack-memory cleanup / reconsume command execution UX follow-through
+### Batch 399：Mission Commander overview execution evidence review consumption closure
 
-状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
+状态：已完成本地实现与验证，提交/推送与远程 release-gate inspection 待本批文档落盘后执行。
 
-目标：把 `promote -CreateCandidates` 在 candidate 生成之后的主 Agent操作从“看 reviewItems/reconsume 自行拼步骤”收口为可直接执行的 bounded checklist：逐 item 决定 accept/reject/superseded，按 candidate cleanup target 删除或更新 index，并在 accepted tooling merge 后按明确 command sequence 验证 pack doctor、fresh case reconsume 与 attached case reconsume。
+目标：让 `overview` 继续作为主 Agent 的项目级操作面板，把已记录的 authorized execution observation evidence review queue 提升到 overview JSON/text 顶层；主 Agent 或替换 executor 不必先运行 project/lane handoff、lane handoff、RESUME 或回扫 observations ledger 才能发现待 review 的 execution evidence。
 
-边界：只增强 `promote -CreateCandidates` JSON review plan 与 tests/docs；不执行 candidate merge、不执行 `promote -Apply`、不写 authority/confirmed、不执行 heavy-tool、不把 case artifact 或真实 case state 写入 kit；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+边界：只投影已存在的 preauthorized `authorized-gate` observation evidence；不 replay heavy-tool、不运行 adapter、不执行 continue、不新增 observation/request、不写 authority/confirmed；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- `CandidateReviewPlan` 新增 `decisionChecklist[]`，逐 item 暴露 reviewAction、acceptActions、rejectActions、cleanupActions、verificationCommands 与 boundary。
-- `cleanupTargets[]` 新增 `indexPath` 与 `cleanupActions[]`，让 rejected/superseded/merged candidate 的删除和 index 维护不再只藏在自然语言 `CleanupWhen` 中。
-- `reconsume` 新增 `verificationChecklist[]`，明确 pack doctor、fresh-case reconsume、attached-case reconsume 的 commands、expected、evidence 与 boundary。
-- promote package 与 CLI JSON coverage 锁定 WhatIf/actual candidate review checklist、tooling candidate fresh-case reconsume、candidate cleanup action 与 no authority/confirmed / no heavy-tool / no case artifact promotion boundaries。
+- `overview.Inventory` 新增顶层 `executionEvidenceReview[]`，复用 workstream 的 `ExecutionEvidenceReviewItems` 投影 gate eventId、status、action、target、outputRefs/evidenceRefs、boundaryHits/escalation、review command、handoff command 与 boundary。
+- overview text 新增 `Execution evidence review：` section，让主 Agent 在项目总览中直接看到 no-replay、review refs before authority/confirmed 与 no authority/confirmed boundaries。
+- workstream evidence review helper 导出复用，并修复 project handoff 旧 helper 名调用；`objectStringList` 使用 `strings.SplitSeq` 清理 stringsseq 诊断。
+- CLI coverage 锁定 overview text/JSON 的 evidence review queue，并继续断言 overview read-only；note list fixture 保持兼容。
 
-验证结果：已通过 focused `go test ./internal/rekit/promote ./internal/rekit/cli -run 'TestCreateCandidates|TestPackMemoryPromoteReconsumeE2E|TestRunPromoteCreateCandidates' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `bc742d2 Add pack memory candidate checklists`；远程 release-gate run `29692792206` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -run "TestRunOverview|TestRunHandoff|TestLaneCheckpoint" -count=1`、focused `go test ./internal/rekit/cli -run "TestRunOverview|TestRunNoteList" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。远程 release-gate 状态待 push 后 inspection；在已知 GitHub Actions runner/billing blocker 解除前不能声明远程 CI green。
 
-上一批摘要：Batch 397 已完成 Mission Commander overview action consumption closure；overview JSON/text 已提供顶层 `missionCommanderActions[]` action index，详见 `docs/batch-history.md`。
+上一批摘要：Batch 398 已完成 pack-memory cleanup / reconsume command execution UX follow-through；`promote -CreateCandidates` review plan 已提供 `decisionChecklist[]`、candidate cleanup target 与 reconsume verification checklist，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

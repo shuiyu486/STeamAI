@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 399：Mission Commander overview execution evidence review consumption closure
+
+状态：已完成 overview execution evidence review queue 顶层投影、durable docs、full local validation；提交/推送与远程 release-gate inspection 待执行。
+
+目标：让 `overview` 继续作为主 Agent 的项目级操作面板，把已记录的 authorized execution observation evidence review queue 提升到 overview JSON/text 顶层；主 Agent 或替换 executor 不必先运行 project/lane handoff、lane handoff、RESUME 或回扫 observations ledger 才能发现待 review 的 execution evidence。
+
+实施范围：`overview.Inventory` 新增 `executionEvidenceReview[]`，复用 workstream 的 exported `ExecutionEvidenceReviewItems` 从 preauthorized authorized-gate observation evidence 投影 eventId、gateEventId、status、action、target、outputRefs/evidenceRefs、boundaryHits/escalation、review command、handoff command 与 boundary；overview text 新增 `Execution evidence review：` section。workstream project handoff 改用导出的 helper，并用 `strings.SplitSeq` 清理 stringsseq 诊断。CLI coverage 锁定 overview text/JSON evidence review queue，同时保持 overview read-only、不 replay heavy-tool、不执行 adapter/continue、不新增 observation/request、不写 authority/confirmed；不新增 PowerShell runtime logic、不改变 sync/promote review-first、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态。
+
+验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -run "TestRunOverview|TestRunHandoff|TestLaneCheckpoint" -count=1`、focused `go test ./internal/rekit/cli -run "TestRunOverview|TestRunNoteList" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。提交/推送与远程 release-gate inspection 待本批文档落盘后执行；远程 CI green 仍必须以 GitHub Actions 实际 job conclusions 为准。
+
 ### Batch 398：Pack-memory cleanup / reconsume command execution UX follow-through
 
 状态：已完成 pack-memory candidate decision/cleanup/reconsume checklist、durable docs、full local validation、commit/push 与远程 release-gate inspection。

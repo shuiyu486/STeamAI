@@ -2172,7 +2172,7 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "Mission Control brief：", "ready lanes", "blocked lanes", "pending gates", "debug gate", "open decisions", "candidate: handler", "interventions", "manual override", "next agent actions", "escalations", "pending-gate requires main-agent/user decision", "Lane executor actions：", "main：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=3", "executor: current=session-main generation=3 lastTakeover=2026-01-01T00:00:00Z by=main-agent reason=fixture", "requirements: reconcile=true pendingGate=true openDecision=true", "blocker reasons: pending-gate,intervention,open-decision", "commander: state=needs-reconcile", "先 reconcile open intervention", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "reconcile open intervention(s) before continuing the affected lane"} {
+	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "Mission Control brief：", "ready lanes", "blocked lanes", "pending gates", "debug gate", "open decisions", "candidate: handler", "interventions", "manual override", "next agent actions", "escalations", "pending-gate requires main-agent/user decision", "Lane executor actions：", "main：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=3", "executor: current=session-main generation=3 lastTakeover=2026-01-01T00:00:00Z by=main-agent reason=fixture", "requirements: reconcile=true pendingGate=true openDecision=true", "blocker reasons: pending-gate,intervention,open-decision", "commander: state=needs-reconcile", "先 reconcile open intervention", "Execution evidence review：", "gate-auth-1", "outputRefs: workspace/main/debug/out.txt", "evidenceRefs: evidence/debug.json", "observation evidence is already recorded; do not replay heavy tool", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "reconcile open intervention(s) before continuing the affected lane"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("overview missing %q:\n%s", expected, text)
 		}
@@ -2226,8 +2226,9 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 			NextAgentActions []string `json:"nextAgentActions"`
 			Escalations      []string `json:"escalations"`
 		} `json:"missionBrief"`
-		LaneExecutorActions     []handoffLaneExecutorAction  `json:"laneExecutorActions"`
-		MissionCommanderActions []missionCommanderActionItem `json:"missionCommanderActions"`
+		LaneExecutorActions     []handoffLaneExecutorAction   `json:"laneExecutorActions"`
+		MissionCommanderActions []missionCommanderActionItem  `json:"missionCommanderActions"`
+		ExecutionEvidenceReview []executionEvidenceReviewItem `json:"executionEvidenceReview"`
 		Sections                struct {
 			OpenCandidates struct {
 				Total  int              `json:"total"`
@@ -2283,6 +2284,9 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	}
 	if len(result.MissionCommanderActions) != 1 || result.MissionCommanderActions[0].Lane != "main" || result.MissionCommanderActions[0].Label != "main" || !result.MissionCommanderActions[0].Blocked || result.MissionCommanderActions[0].Ready || result.MissionCommanderActions[0].PrimaryCommand != "/rekit reconcile main -InterventionId <eventId> -Apply" || result.MissionCommanderActions[0].Action.State != "needs-reconcile" || !containsSubstring(result.MissionCommanderActions[0].FollowUpCommands, "/rekit continue main -WhatIf") || !containsSubstring(result.MissionCommanderActions[0].Boundary, "do not run continue") || !slices.Contains(result.MissionCommanderActions[0].BlockerReasons, "intervention") {
 		t.Fatalf("overview JSON missing Mission Commander action index: %+v", result.MissionCommanderActions)
+	}
+	if len(result.ExecutionEvidenceReview) != 1 || result.ExecutionEvidenceReview[0].GateEventID != "gate-auth-1" || result.ExecutionEvidenceReview[0].Action != "debug" || !containsSubstring(result.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/out.txt") || !containsSubstring(result.ExecutionEvidenceReview[0].EvidenceRefs, "evidence/debug.json") || !containsSubstring(result.ExecutionEvidenceReview[0].Boundary, "do not replay heavy tool") {
+		t.Fatalf("overview JSON missing execution evidence review queue: %+v", result.ExecutionEvidenceReview)
 	}
 	commander := result.LaneExecutorActions[0].ExecutorAction.MissionCommanderAction
 	if commander.State != "needs-reconcile" || commander.PrimaryCommand != "/rekit reconcile main -InterventionId <eventId> -Apply" || !containsSubstring(commander.FollowUpCommands, "/rekit continue main -WhatIf") || !containsSubstring(commander.Boundary, "do not run continue") {
@@ -7357,7 +7361,7 @@ func writeOverviewFixture(t *testing.T, caseRoot string) {
 	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[{"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"captures/lanes/main","currentExecutor":"session-main","executorGeneration":3,"lastTakeoverAt":"2026-01-01T00:00:00Z","lastTakeoverBy":"main-agent","lastTakeoverReason":"fixture"}],"factsRoot":".rekit/facts"}`
 	writeCaseFile(t, caseRoot, ".rekit/board.json", board)
 	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"captures/lanes/main","currentExecutor":"session-main","executorGeneration":3,"lastTakeoverAt":"2026-01-01T00:00:00Z","lastTakeoverBy":"main-agent","lastTakeoverReason":"fixture"}`)
-	writeFactFile(t, factsRoot, "observations.jsonl", []string{`{"kind":"observation","lane":"main","subject":"obs","summary":"seen"}`})
+	writeFactFile(t, factsRoot, "observations.jsonl", []string{`{"kind":"observation","eventId":"obs-auth-1","lane":"main","subject":"obs","summary":"preauthorized adapter output ready for review","status":"complete","target":"target-alpha","evidenceRefs":["evidence/debug.json"],"execution":{"gateEventId":"gate-auth-1","authorization":"preauthorized","status":"complete","outputRefs":["workspace/main/debug/out.txt"]},"gate":{"action":"debug","authorization":{"decision":"preauthorized"}}}`})
 	writeFactFile(t, factsRoot, "candidates.jsonl", []string{`{"kind":"candidate","lane":"main","subject":"handler","summary":"candidate one","confidence":"high","status":"open"}`, `{"kind":"candidate","lane":"main","subject":"handler","summary":"candidate two","confidence":"medium","status":"open"}`})
 	writeFactFile(t, factsRoot, "requests.jsonl", []string{`{"kind":"request","lane":"main","subject":"debug gate","summary":"needs confirmation","status":"pending-gate","actor":"runtime-test","risk":"high","target":"batch-overview","batchId":"batch-overview","gate":{"action":"debug","scope":"handler only","budget":"30s","triedLightSteps":["overview","static review"],"stopConditions":["timeout"]}}`})
 	writeFactFile(t, factsRoot, "publications.jsonl", []string{`{"kind":"publication","lane":"main","subject":"pub","summary":"published"}`})

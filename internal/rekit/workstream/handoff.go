@@ -695,7 +695,7 @@ func (ctx handoffContext) projectExecutionEvidenceReview() []ExecutionEvidenceRe
 	if err != nil {
 		return nil
 	}
-	return executionEvidenceReviewItems(facts.Observations, "", ctx.laneCommandLabel)
+	return ExecutionEvidenceReviewItems(facts.Observations, "", ctx.laneCommandLabel)
 }
 
 func (ctx handoffContext) executionEvidenceReview(lane Lane) []ExecutionEvidenceReviewItem {

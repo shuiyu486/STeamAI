@@ -22,20 +22,21 @@ const maxRows = 10
 type event = map[string]any
 
 type Inventory struct {
-	SchemaVersion           int                                  `json:"schemaVersion"`
-	Command                 string                               `json:"command"`
-	CaseRoot                string                               `json:"caseRoot"`
-	RepoRoot                string                               `json:"repoRoot"`
-	Pack                    string                               `json:"pack"`
-	IsMutation              bool                                 `json:"isMutation"`
-	AutomationMode          string                               `json:"automationMode"`
-	Lanes                   []LaneSummary                        `json:"lanes"`
-	Counts                  FactCounts                           `json:"counts"`
-	MissionBrief            MissionBrief                         `json:"missionBrief"`
-	LaneExecutorActions     []mission.LaneExecutorActionSnapshot `json:"laneExecutorActions"`
-	MissionCommanderActions []MissionCommanderActionIndexItem    `json:"missionCommanderActions"`
-	Sections                OverviewSections                     `json:"sections"`
-	NextSteps               []string                             `json:"nextSteps"`
+	SchemaVersion           int                                      `json:"schemaVersion"`
+	Command                 string                                   `json:"command"`
+	CaseRoot                string                                   `json:"caseRoot"`
+	RepoRoot                string                                   `json:"repoRoot"`
+	Pack                    string                                   `json:"pack"`
+	IsMutation              bool                                     `json:"isMutation"`
+	AutomationMode          string                                   `json:"automationMode"`
+	Lanes                   []LaneSummary                            `json:"lanes"`
+	Counts                  FactCounts                               `json:"counts"`
+	MissionBrief            MissionBrief                             `json:"missionBrief"`
+	LaneExecutorActions     []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions"`
+	MissionCommanderActions []MissionCommanderActionIndexItem        `json:"missionCommanderActions"`
+	ExecutionEvidenceReview []workstream.ExecutionEvidenceReviewItem `json:"executionEvidenceReview"`
+	Sections                OverviewSections                         `json:"sections"`
+	NextSteps               []string                                 `json:"nextSteps"`
 }
 
 type LaneSummary struct {
@@ -161,9 +162,11 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 
 	brief := buildMissionBrief(data.lanes, facts)
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
+	evidenceReview := overviewExecutionEvidenceReview(data.lanes, facts)
 	writeMissionBrief(&out, brief)
 	writeLaneExecutorActions(&out, actions)
 	writeMissionCommanderActionIndex(&out, missionCommanderActionIndex(actions))
+	writeExecutionEvidenceReview(&out, evidenceReview)
 	writeOpenCandidates(&out, facts.Candidates)
 	writePendingGates(&out, facts.Requests)
 	writeAuthorizedGates(&out, facts.Requests)
@@ -209,6 +212,7 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 	facts := data.facts
 	brief := buildMissionBrief(data.lanes, facts)
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
+	evidenceReview := overviewExecutionEvidenceReview(data.lanes, facts)
 	return Inventory{
 		SchemaVersion:  1,
 		Command:        "overview",
@@ -228,6 +232,7 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 		MissionBrief:            brief,
 		LaneExecutorActions:     actions,
 		MissionCommanderActions: missionCommanderActionIndex(actions),
+		ExecutionEvidenceReview: evidenceReview,
 		Sections:                data.sections,
 		NextSteps:               overviewNextSteps(brief),
 	}, nil
@@ -303,6 +308,22 @@ func buildMissionBrief(lanes []event, facts factSet) MissionBrief {
 
 func buildLaneExecutorActions(lanes []event, facts factSet, brief MissionBrief) []mission.LaneExecutorActionSnapshot {
 	return mission.LaneExecutorActionSnapshots(boardLanes(lanes), facts.Facts, brief)
+}
+
+func overviewExecutionEvidenceReview(lanes []event, facts factSet) []workstream.ExecutionEvidenceReviewItem {
+	labels := map[string]string{}
+	for _, lane := range lanes {
+		laneID := stringValue(lane, "id")
+		if laneID != "" {
+			labels[laneID] = workstreamLabel(lane)
+		}
+	}
+	return workstream.ExecutionEvidenceReviewItems(facts.Observations, "", func(laneID string) string {
+		if label := labels[laneID]; label != "" {
+			return label
+		}
+		return mission.BoardLaneLabel(mission.BoardLane{ID: laneID})
+	})
 }
 
 func boardLanes(lanes []event) []mission.BoardLane {
@@ -393,6 +414,27 @@ func writeMissionCommanderActionIndex(out *bytes.Buffer, items []MissionCommande
 		if len(item.BlockerReasons) > 0 {
 			fmt.Fprintf(out, "  - blocker reasons: %s\n", strings.Join(item.BlockerReasons, ","))
 		}
+	}
+	fmt.Fprintln(out)
+}
+
+func writeExecutionEvidenceReview(out *bytes.Buffer, items []workstream.ExecutionEvidenceReviewItem) {
+	fmt.Fprintln(out, "Execution evidence review：")
+	if len(items) == 0 {
+		fmt.Fprintln(out, "- none")
+		fmt.Fprintln(out)
+		return
+	}
+	for _, item := range items {
+		fmt.Fprintf(out, "- %s：status=%s gateEventId=%s action=%s laneHandoff=`%s`\n", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, firstText(item.Action, "none"), item.HandoffCommand)
+		if refs := strings.Join(item.OutputRefs, ","); refs != "" {
+			fmt.Fprintf(out, "  - outputRefs: %s\n", refs)
+		}
+		if refs := strings.Join(item.EvidenceRefs, ","); refs != "" {
+			fmt.Fprintf(out, "  - evidenceRefs: %s\n", refs)
+		}
+		fmt.Fprintf(out, "  - review command: `%s`\n", item.ReviewCommand)
+		writeActionIndexList(out, "boundary", item.Boundary)
 	}
 	fmt.Fprintln(out)
 }

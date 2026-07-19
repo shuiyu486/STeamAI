@@ -1055,10 +1055,10 @@ func lastObjects(items []map[string]any, limit int) []map[string]any {
 
 func laneExecutionEvidenceReview(lane Lane, observations []map[string]any) []ExecutionEvidenceReviewItem {
 	label := workstreamLabel(lane)
-	return executionEvidenceReviewItems(observations, lane.ID, func(string) string { return label })
+	return ExecutionEvidenceReviewItems(observations, lane.ID, func(string) string { return label })
 }
 
-func executionEvidenceReviewItems(observations []map[string]any, laneID string, labelFor func(string) string) []ExecutionEvidenceReviewItem {
+func ExecutionEvidenceReviewItems(observations []map[string]any, laneID string, labelFor func(string) string) []ExecutionEvidenceReviewItem {
 	items := []ExecutionEvidenceReviewItem{}
 	for _, observation := range observations {
 		if !strings.EqualFold(firstObjectText(observation, "kind"), "observation") {
@@ -1173,7 +1173,7 @@ func objectStringList(value any) []string {
 			return nil
 		}
 		items := []string{}
-		for _, part := range strings.Split(text, ",") {
+		for part := range strings.SplitSeq(text, ",") {
 			if trimmed := strings.TrimSpace(part); trimmed != "" {
 				items = append(items, trimmed)
 			}
