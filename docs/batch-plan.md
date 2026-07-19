@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 403：Pack-memory main Agent execution plan closure
 
-状态：已完成本地实现与 full local validation；提交/推送与远程 release-gate inspection 待执行。
+状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
 
 目标：Batch 398 已提供 per-item `decisionChecklist[]`、cleanup targets 与 reconsume checklist，但主 Agent 仍需把 WhatIf materialize、逐项 review、cleanup、pack doctor、fresh/attached reconsume 自行排序。本批在 `promote -CreateCandidates` JSON 中新增可直接消费的 `mainAgentExecutionPlan[]`，把 pack-memory candidate 生成后的执行顺序收口为 bounded checklist。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - runtime boundary 明确 `mainAgentExecutionPlan` 只是 guidance，runtime 不执行 merge、cleanup、`init` 或 `doctor`。
 - package 与 CLI coverage 锁定 WhatIf/actual candidate JSON 的 execution plan、indexPath cleanup、fresh/attached reconsume command handoff 与 no authority/confirmed / no heavy-tool / no case artifact promotion boundaries。
 
-验证结果：已通过 focused `go test ./internal/rekit/promote ./internal/rekit/cli -run "TestCreateCandidates|TestPackMemoryPromoteReconsumeE2E|TestRunPromoteCreateCandidates" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `go test ./internal/rekit/promote ./internal/rekit/cli -run "TestCreateCandidates|TestPackMemoryPromoteReconsumeE2E|TestRunPromoteCreateCandidates" -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、ciReady=true、warnings=0、errors=0、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `4de3897 Add pack memory execution plan`；远程 release-gate run `29696503754` 为 completed failure，macOS/Linux/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 402 已完成 execution evidence review handoff text suppression closure；project/lane handoff Markdown 已把 escalated evidence 场景下的 ready lane continue 降级为 review 后候选，详见 `docs/batch-history.md`。
 
