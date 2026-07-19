@@ -2725,6 +2725,9 @@ func TestRunStartPreviewDoesNotWriteBoard(t *testing.T) {
 	if result.ExecutorAction.MissionCommanderAction.State != "needs-start-apply" || result.ExecutorAction.MissionCommanderAction.PrimaryCommand != `/rekit start login -Apply -Executor session-preview -Actor main-agent -Reason "preview claim"` || !containsSubstring(result.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue login") || !containsSubstring(result.ExecutorAction.MissionCommanderAction.Boundary, "case-local lane/board/resume/checkpoint") {
 		t.Fatalf("start preview should expose full start-apply Mission Commander handoff: %+v", result.ExecutorAction.MissionCommanderAction)
 	}
+	if result.MissionCommanderAction.State != "needs-start-apply" || result.MissionCommanderAction.PrimaryCommand != result.ExecutorAction.MissionCommanderAction.PrimaryCommand || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", `/rekit start login -Apply -Executor session-preview -Actor main-agent -Reason "preview claim"`, false, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login", true, true) {
+		t.Fatalf("start preview should expose top-level Mission Commander start-apply projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
+	}
 	if len(result.Writes) != 1 || result.Writes[0].Path != ".rekit/lanes/feature-login/lane.json" || result.Writes[0].Action != "would-create-lane-and-claim-executor" {
 		t.Fatalf("unexpected start preview writes: %+v", result.Writes)
 	}
@@ -2750,6 +2753,9 @@ func TestRunStartApplyClaimsAndTakesOverExecutor(t *testing.T) {
 	}
 	if result.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || result.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue login" || !containsSubstring(result.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit handoff login") {
 		t.Fatalf("start apply should expose ready Mission Commander handoff: %+v", result.ExecutorAction.MissionCommanderAction)
+	}
+	if result.MissionCommanderAction.State != "ready-to-continue" || result.MissionCommanderAction.PrimaryCommand != "/rekit continue login" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue login", false, false) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", false, false) {
+		t.Fatalf("start apply should expose top-level Mission Commander continue projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	if !slices.Equal(result.NextSteps, []string{"run doctor after apply", "/rekit continue login"}) {
 		t.Fatalf("start apply next steps should recommend ready lane continue: %+v", result.NextSteps)
@@ -2838,6 +2844,9 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if preview.ExecutorAction.MissionCommanderAction.State != "needs-start-apply" || preview.ExecutorAction.MissionCommanderAction.PrimaryCommand != `/rekit start main -Apply -Executor session-main-preview -Actor mission-commander -Reason "preview replacement from handoff"` || !containsSubstring(preview.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue main") {
 		t.Fatalf("-Name main preview should require applying executor takeover before continue: %+v", preview.ExecutorAction.MissionCommanderAction)
 	}
+	if preview.MissionCommanderAction.State != "needs-start-apply" || preview.MissionCommanderAction.PrimaryCommand != preview.ExecutorAction.MissionCommanderAction.PrimaryCommand || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions", `/rekit start main -Apply -Executor session-main-preview -Actor mission-commander -Reason "preview replacement from handoff"`, false, true) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main", true, true) {
+		t.Fatalf("-Name main preview should expose top-level Mission Commander takeover projection: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main", "-Executor", "session-main-replacement", "-Actor", "mission-commander", "-Reason", "replace stale main session from handoff"}, &out); err != nil {
@@ -2852,6 +2861,9 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	}
 	if takeover.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || takeover.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" {
 		t.Fatalf("main executor takeover should expose Mission Commander continue handoff: %+v", takeover.ExecutorAction.MissionCommanderAction)
+	}
+	if takeover.MissionCommanderAction.State != "ready-to-continue" || takeover.MissionCommanderAction.PrimaryCommand != "/rekit continue main" || !containsMissionCommanderNextAction(takeover.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) || !containsMissionCommanderNextAction(takeover.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) {
+		t.Fatalf("main executor takeover should expose top-level Mission Commander continue projection: action=%+v next=%+v", takeover.MissionCommanderAction, takeover.MissionCommanderNextActions)
 	}
 	assertStartWrite(t, takeover.Writes, ".rekit/lanes/main/lane.json", "update-executor-takeover")
 	assertStartWrite(t, takeover.Writes, ".rekit/lanes/main/events.jsonl", "append-executor-takeover")
@@ -2961,7 +2973,7 @@ func TestRunStartProjectsExecutorActionForExistingLaneBlockers(t *testing.T) {
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"executor next action：reconcile open intervention(s) before continuing this lane", "executor next action：resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool", "executor next action：review open candidate/decision item(s) with evidence and authority boundary", "executor action：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=1", "executor requirements：reconcile=true pendingGate=true openDecision=true", "executor handoff：continue=`/rekit continue login` handoff=`/rekit handoff login`"} {
+	for _, expected := range []string{"executor next action：reconcile open intervention(s) before continuing this lane", "executor next action：resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool", "executor next action：review open candidate/decision item(s) with evidence and authority boundary", "executor action：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=1", "executor requirements：reconcile=true pendingGate=true openDecision=true", "executor handoff：continue=`/rekit continue login` handoff=`/rekit handoff login`", "mission commander next action：state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile login -InterventionId <eventId> -Apply`", "mission commander next action：state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -WhatIf`", "mission commander next action reason：follow-up is available only after resolving current lane blockers", "mission commander next action boundary：do not run continue for blocked lanes"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("start text missing %q:\n%s", expected, out.String())
 		}
@@ -6951,14 +6963,16 @@ type promoteApplyWrite struct {
 }
 
 type startResult struct {
-	Command        string                 `json:"command"`
-	IsMutation     bool                   `json:"isMutation"`
-	Applied        bool                   `json:"applied"`
-	Lane           startLane              `json:"lane"`
-	MissionBrief   missionBrief           `json:"missionBrief"`
-	ExecutorAction executorActionSnapshot `json:"executorAction"`
-	Writes         []startWrite           `json:"writes"`
-	NextSteps      []string               `json:"nextSteps"`
+	Command                     string                           `json:"command"`
+	IsMutation                  bool                             `json:"isMutation"`
+	Applied                     bool                             `json:"applied"`
+	Lane                        startLane                        `json:"lane"`
+	MissionBrief                missionBrief                     `json:"missionBrief"`
+	ExecutorAction              executorActionSnapshot           `json:"executorAction"`
+	MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+	MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+	Writes                      []startWrite                     `json:"writes"`
+	NextSteps                   []string                         `json:"nextSteps"`
 }
 
 type handoffResult struct {

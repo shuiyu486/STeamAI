@@ -61,21 +61,23 @@ type StartWrite struct {
 }
 
 type StartResult struct {
-	SchemaVersion        int                `json:"schemaVersion"`
-	Command              string             `json:"command"`
-	CaseRoot             string             `json:"caseRoot"`
-	RepoRoot             string             `json:"repoRoot"`
-	Pack                 string             `json:"pack"`
-	IsMutation           bool               `json:"isMutation"`
-	Applied              bool               `json:"applied"`
-	RequiresConfirmation bool               `json:"requiresConfirmation"`
-	Lane                 Lane               `json:"lane"`
-	AutonomyProfile      autonomy.Summary   `json:"autonomyProfile"`
-	MissionBrief         mission.Brief      `json:"missionBrief"`
-	ExecutorAction       laneExecutorAction `json:"executorAction"`
-	Writes               []StartWrite       `json:"writes"`
-	BlockedActions       []string           `json:"blockedActions"`
-	NextSteps            []string           `json:"nextSteps"`
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Command                     string                                   `json:"command"`
+	CaseRoot                    string                                   `json:"caseRoot"`
+	RepoRoot                    string                                   `json:"repoRoot"`
+	Pack                        string                                   `json:"pack"`
+	IsMutation                  bool                                     `json:"isMutation"`
+	Applied                     bool                                     `json:"applied"`
+	RequiresConfirmation        bool                                     `json:"requiresConfirmation"`
+	Lane                        Lane                                     `json:"lane"`
+	AutonomyProfile             autonomy.Summary                         `json:"autonomyProfile"`
+	MissionBrief                mission.Brief                            `json:"missionBrief"`
+	ExecutorAction              laneExecutorAction                       `json:"executorAction"`
+	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	Writes                      []StartWrite                             `json:"writes"`
+	BlockedActions              []string                                 `json:"blockedActions"`
+	NextSteps                   []string                                 `json:"nextSteps"`
 }
 
 type Lane struct {
@@ -180,18 +182,21 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 	if strings.HasPrefix(action, "would-create-lane") || strings.Contains(action, "claim-executor") {
 		executorAction.MissionCommanderAction = startApplyCommanderAction(lane, opt, claim)
 	}
+	commanderNextActions := startMissionCommanderNextActions(lane, executorAction)
 	return StartResult{
-		SchemaVersion:        1,
-		Command:              "start",
-		CaseRoot:             inst.CaseRoot,
-		RepoRoot:             m.RepoRoot,
-		Pack:                 m.Pack,
-		IsMutation:           false,
-		Applied:              false,
-		RequiresConfirmation: true,
-		Lane:                 lane,
-		MissionBrief:         brief,
-		ExecutorAction:       executorAction,
+		SchemaVersion:               1,
+		Command:                     "start",
+		CaseRoot:                    inst.CaseRoot,
+		RepoRoot:                    m.RepoRoot,
+		Pack:                        m.Pack,
+		IsMutation:                  false,
+		Applied:                     false,
+		RequiresConfirmation:        true,
+		Lane:                        lane,
+		MissionBrief:                brief,
+		ExecutorAction:              executorAction,
+		MissionCommanderAction:      executorAction.MissionCommanderAction,
+		MissionCommanderNextActions: commanderNextActions,
 		Writes: []StartWrite{{
 			Path:       relJoin(".rekit", "lanes", laneID, "lane.json"),
 			Kind:       "lane",
@@ -232,22 +237,25 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 	writes = append(writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
 	brief := startMissionBrief(inst.CaseRoot)
 	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
+	commanderNextActions := startMissionCommanderNextActions(lane, executorAction)
 	return StartResult{
-		SchemaVersion:        1,
-		Command:              "start",
-		CaseRoot:             inst.CaseRoot,
-		RepoRoot:             m.RepoRoot,
-		Pack:                 m.Pack,
-		IsMutation:           true,
-		Applied:              true,
-		RequiresConfirmation: false,
-		Lane:                 lane,
-		AutonomyProfile:      autonomy.ReadSummary(inst.CaseRoot, lane.ID, m),
-		MissionBrief:         brief,
-		ExecutorAction:       executorAction,
-		Writes:               writes,
-		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
-		NextSteps:            workstreamNextSteps(executorAction, true),
+		SchemaVersion:               1,
+		Command:                     "start",
+		CaseRoot:                    inst.CaseRoot,
+		RepoRoot:                    m.RepoRoot,
+		Pack:                        m.Pack,
+		IsMutation:                  true,
+		Applied:                     true,
+		RequiresConfirmation:        false,
+		Lane:                        lane,
+		AutonomyProfile:             autonomy.ReadSummary(inst.CaseRoot, lane.ID, m),
+		MissionBrief:                brief,
+		ExecutorAction:              executorAction,
+		MissionCommanderAction:      executorAction.MissionCommanderAction,
+		MissionCommanderNextActions: commanderNextActions,
+		Writes:                      writes,
+		BlockedActions:              []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
+		NextSteps:                   workstreamNextSteps(executorAction, true),
 	}, nil
 }
 
@@ -257,6 +265,22 @@ func workstreamNextSteps(action laneExecutorAction, includeDoctor bool) []string
 		next = append(next, "run doctor after apply")
 	}
 	return append(next, action.NextAgentActions...)
+}
+
+func startMissionCommanderNextActions(lane Lane, action laneExecutorAction) []mission.MissionCommanderNextActionItem {
+	items := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, action)}, nil, action.Blocked)
+	if action.MissionCommanderAction.State != "needs-start-apply" {
+		return items
+	}
+	for idx := range items {
+		items[idx].RequiresReview = true
+		items[idx].Reasons = append(items[idx].Reasons, "review start preview before applying case-local lane/board/resume/checkpoint writes")
+		if items[idx].Source == "missionCommanderActions.followUp" {
+			items[idx].Blocked = true
+			items[idx].Reasons = append(items[idx].Reasons, "run only after start apply succeeds and the refreshed executor action remains ready")
+		}
+	}
+	return items
 }
 
 func startApplyCommanderAction(lane Lane, opt StartOptions, claim executorClaim) mission.MissionCommanderAction {

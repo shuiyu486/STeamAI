@@ -62,3 +62,45 @@ func TestLaneExecutorActionReadyUsesMissionBriefReadyLane(t *testing.T) {
 		t.Fatalf("ready lane should recommend only its own continue command: %+v", action.NextAgentActions)
 	}
 }
+
+func TestStartMissionCommanderNextActionsRequireReviewBeforeApply(t *testing.T) {
+	lane := Lane{ID: "feature-login", Name: "login", Status: "open"}
+	action := laneExecutorAction{
+		MissionCommanderAction: startApplyCommanderAction(lane, StartOptions{}, executorClaim{}),
+	}
+	items := startMissionCommanderNextActions(lane, action)
+	if !hasStartCommanderNextAction(items, "missionCommanderActions", "/rekit start login -Apply", false, true) {
+		t.Fatalf("start preview should expose review-owned apply action: %+v", items)
+	}
+	if !hasStartCommanderNextAction(items, "missionCommanderActions.followUp", "/rekit continue login", true, true) {
+		t.Fatalf("start preview follow-up should remain blocked until apply succeeds: %+v", items)
+	}
+	if !hasStartCommanderNextAction(items, "missionCommanderActions.followUp", "/rekit handoff login", true, true) {
+		t.Fatalf("start preview handoff follow-up should remain blocked until apply succeeds: %+v", items)
+	}
+}
+
+func TestStartMissionCommanderNextActionsKeepReadyApplyConsumable(t *testing.T) {
+	lane := Lane{ID: "feature-login", Name: "login", Status: "open"}
+	action := laneExecutorAction{
+		Ready: true,
+		MissionCommanderAction: mission.MissionCommanderAction{
+			State:            "ready-to-continue",
+			PrimaryCommand:   "/rekit continue login",
+			FollowUpCommands: []string{"/rekit handoff login"},
+		},
+	}
+	items := startMissionCommanderNextActions(lane, action)
+	if !hasStartCommanderNextAction(items, "missionCommanderActions", "/rekit continue login", false, false) {
+		t.Fatalf("ready start apply should expose consumable continue action: %+v", items)
+	}
+	if !hasStartCommanderNextAction(items, "missionCommanderActions.followUp", "/rekit handoff login", false, false) {
+		t.Fatalf("ready start apply should expose consumable handoff follow-up: %+v", items)
+	}
+}
+
+func hasStartCommanderNextAction(items []mission.MissionCommanderNextActionItem, source, command string, blocked, requiresReview bool) bool {
+	return slices.ContainsFunc(items, func(item mission.MissionCommanderNextActionItem) bool {
+		return item.Source == source && item.Command == command && item.Blocked == blocked && item.RequiresReview == requiresReview
+	})
+}

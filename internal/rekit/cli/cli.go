@@ -1500,7 +1500,10 @@ func writeStartExecutorActionText(out io.Writer, result workstream.StartResult) 
 	if _, err := fmt.Fprintf(out, "executor handoff：continue=`%s` handoff=`%s`\n", action.ResumeCommand, action.HandoffCommand); err != nil {
 		return err
 	}
-	return writeMissionCommanderActionText(out, "executor commander action", action)
+	if err := writeMissionCommanderActionText(out, "executor commander action", action); err != nil {
+		return err
+	}
+	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
 func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
