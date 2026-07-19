@@ -5011,7 +5011,8 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		AuthorizedBudget   struct {
 			RuntimeSeconds int `json:"runtimeSeconds"`
 		} `json:"authorizedBudget"`
-		DeniedActions []string `json:"deniedActions"`
+		RefPathRequires []string `json:"refPathRequires"`
+		DeniedActions   []string `json:"deniedActions"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &contract); err != nil {
 		t.Fatalf("adapter report contract stdout is not JSON: %v\n%s", err, out.String())
@@ -5019,7 +5020,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if contract.Kind != "adapter-execution-report-contract" || contract.ReportKind != "adapter-execution-report" || contract.ReportSchemaVersion != 1 || contract.GateEventID != authorizedEventID || contract.Action != "debug" {
 		t.Fatalf("unexpected adapter report contract identity: %+v", contract)
 	}
-	if strings.Join(contract.AllowedStatuses, ",") != "succeeded,failed,boundary-hit,escalated,aborted" || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || contract.AuthorizedBudget.RuntimeSeconds != 30 || contract.SummaryMaxBytes != 4096 || contract.EscalationMaxBytes != 4096 || !containsSubstring(contract.BoundaryStatusRequires, "boundaryHits or escalation") || !containsSubstring(contract.BoundaryStatusRequires, "authorized stopConditions") || !containsSubstring(contract.StatusSummaryRequires, "failed/boundary-hit/escalated/aborted") || !slices.Contains(contract.DeniedActions, "heavy-tool execution") {
+	if strings.Join(contract.AllowedStatuses, ",") != "succeeded,failed,boundary-hit,escalated,aborted" || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || contract.AuthorizedBudget.RuntimeSeconds != 30 || contract.SummaryMaxBytes != 4096 || contract.EscalationMaxBytes != 4096 || !containsSubstring(contract.RefPathRequires, "evidenceRefs must stay under authorized outputPaths") || !containsSubstring(contract.BoundaryStatusRequires, "boundaryHits or escalation") || !containsSubstring(contract.BoundaryStatusRequires, "authorized stopConditions") || !containsSubstring(contract.StatusSummaryRequires, "failed/boundary-hit/escalated/aborted") || !slices.Contains(contract.DeniedActions, "heavy-tool execution") {
 		t.Fatalf("adapter report contract omitted live validation boundaries: %+v", contract)
 	}
 	contractStages := []string{}
@@ -5030,7 +5031,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	for _, code := range contract.ValidationFailureCodes {
 		contractCodes = append(contractCodes, code.Code+":"+code.Stage)
 	}
-	if !slices.Contains(contractStages, "decode") || !slices.Contains(contractStages, "boundary") || !slices.Contains(contractCodes, "report-json-invalid:decode") || !slices.Contains(contractCodes, "boundary-marker-missing:boundary") || !slices.Contains(contractCodes, "boundary-hits-not-authorized:boundary") || !slices.Contains(contractCodes, "status-summary-missing:summary") {
+	if !slices.Contains(contractStages, "decode") || !slices.Contains(contractStages, "boundary") || !slices.Contains(contractCodes, "report-json-invalid:decode") || !slices.Contains(contractCodes, "evidence-refs-out-of-scope:refs") || !slices.Contains(contractCodes, "boundary-marker-missing:boundary") || !slices.Contains(contractCodes, "boundary-hits-not-authorized:boundary") || !slices.Contains(contractCodes, "status-summary-missing:summary") {
 		t.Fatalf("adapter report contract omitted validation failure taxonomy: stages=%v codes=%v", contractStages, contractCodes)
 	}
 	out.Reset()
@@ -5465,6 +5466,7 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 		GateEventID            string   `json:"gateEventId"`
 		IsMutation             bool     `json:"isMutation"`
 		AllowedOutputPaths     []string `json:"allowedOutputPaths"`
+		RefPathRequires        []string `json:"refPathRequires"`
 		BoundaryStatusRequires []string `json:"boundaryStatusRequires"`
 		StatusSummaryRequires  []string `json:"statusSummaryRequires"`
 		LiveValidation         struct {
@@ -5474,8 +5476,9 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 			RecordArgs      []string `json:"recordArgs"`
 			ReplayBehavior  string   `json:"replayBehavior"`
 			SidecarTemplate struct {
-				Action      string `json:"action"`
-				GateEventID string `json:"gateEventId"`
+				Action       string   `json:"action"`
+				GateEventID  string   `json:"gateEventId"`
+				EvidenceRefs []string `json:"evidenceRefs"`
 			} `json:"sidecarTemplate"`
 		} `json:"liveValidation"`
 	}
@@ -5485,10 +5488,10 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	if contract.Kind != "adapter-execution-report-contract" || contract.CaseRoot != caseRoot || contract.GateEventID != applied.EventID || contract.IsMutation || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" {
 		t.Fatalf("unexpected nested workspace adapter report contract: %+v", contract)
 	}
-	if !containsSubstring(contract.BoundaryStatusRequires, "authorized stopConditions") || !containsSubstring(contract.StatusSummaryRequires, "failed/boundary-hit/escalated/aborted") {
+	if !containsSubstring(contract.RefPathRequires, "evidenceRefs must stay under authorized outputPaths") || !containsSubstring(contract.BoundaryStatusRequires, "authorized stopConditions") || !containsSubstring(contract.StatusSummaryRequires, "failed/boundary-hit/escalated/aborted") {
 		t.Fatalf("nested workspace adapter report contract omitted live enforcement rules: %+v", contract)
 	}
-	if strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" || strings.Join(contract.LiveValidation.RecordArgs, " ") != "-Command gate -Pack _template -Apply -GateEventId "+applied.EventID+" -ExecutionReportPath adapter-report.json -Actor <executor-id> -Format json" || contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") || contract.LiveValidation.RecordCommand != "rekit "+strings.Join(contract.LiveValidation.RecordArgs, " ") || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != applied.EventID || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
+	if strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" || strings.Join(contract.LiveValidation.RecordArgs, " ") != "-Command gate -Pack _template -Apply -GateEventId "+applied.EventID+" -ExecutionReportPath adapter-report.json -Actor <executor-id> -Format json" || contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") || contract.LiveValidation.RecordCommand != "rekit "+strings.Join(contract.LiveValidation.RecordArgs, " ") || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != applied.EventID || !containsSubstring(contract.LiveValidation.SidecarTemplate.EvidenceRefs, "authorized outputPaths") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
 		t.Fatalf("nested workspace adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
 	}
 
@@ -5516,6 +5519,39 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	}
 	afterValidation := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, afterValidation)
+
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/bad-evidence-refs-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "nested-cli-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+applied.EventID+`",
+  "actualBudget": {"runtimeSeconds": 20, "diskMB": 32, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/other/evidence.json"]
+}`)
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-ValidateExecutionReport", "-GateEventId", applied.EventID, "-ExecutionReportPath", "bad-evidence-refs-report.json", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var invalidValidation struct {
+		Valid        bool   `json:"valid"`
+		IsMutation   bool   `json:"isMutation"`
+		Applied      bool   `json:"applied"`
+		FailureCode  string `json:"failureCode"`
+		FailureStage string `json:"failureStage"`
+		Error        string `json:"error"`
+		ReportPath   string `json:"reportPath"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &invalidValidation); err != nil {
+		t.Fatalf("nested workspace invalid evidenceRefs validation stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if invalidValidation.Valid || invalidValidation.IsMutation || invalidValidation.Applied || invalidValidation.FailureCode != "evidence-refs-out-of-scope" || invalidValidation.FailureStage != "refs" || !strings.Contains(invalidValidation.Error, "evidenceRefs must stay within authorized gate outputPaths") || invalidValidation.ReportPath != "workspace/main/debug/session-1/bad-evidence-refs-report.json" {
+		t.Fatalf("unexpected nested workspace invalid evidenceRefs validation: %+v", invalidValidation)
+	}
+	afterInvalidValidation := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, afterInvalidValidation)
 
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-Actor", "executor-1", "-Format", "json"}, &out); err != nil {

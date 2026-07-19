@@ -140,6 +140,7 @@ type AdapterExecutionReportContract struct {
 	AuthorizedBudget        autonomy.Budget                       `json:"authorizedBudget"`
 	StopConditions          []string                              `json:"stopConditions,omitempty"`
 	ReportPathRule          string                                `json:"reportPathRule"`
+	RefPathRequires         []string                              `json:"refPathRequires,omitempty"`
 	SummaryMaxBytes         int                                   `json:"summaryMaxBytes"`
 	RecordRequired          bool                                  `json:"recordRequired"`
 	NotifyMainOn            []string                              `json:"notifyMainOn,omitempty"`
@@ -268,6 +269,7 @@ func adapterReportValidationFailureCodes() []AdapterReportValidationFailureCode 
 		{Code: "output-refs-invalid", Stage: "refs", Description: "Execution report outputRefs must be case-relative refs."},
 		{Code: "output-refs-out-of-scope", Stage: "refs", Description: "Execution report outputRefs must stay within authorized output paths."},
 		{Code: "evidence-refs-invalid", Stage: "refs", Description: "Execution report evidenceRefs must be case-relative refs."},
+		{Code: "evidence-refs-out-of-scope", Stage: "refs", Description: "Execution report evidenceRefs must stay within authorized output paths."},
 		{Code: "actual-budget-negative", Stage: "budget", Description: "Execution report actualBudget values must be non-negative."},
 		{Code: "budget-marker-missing", Stage: "budget", Description: "Budget overrun reports must include boundaryHits or escalation."},
 		{Code: "boundary-hits-invalid", Stage: "boundary", Description: "Execution report boundaryHits must use supported stop-condition tokens."},
@@ -573,6 +575,7 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview) 
 		AuthorizedBudget:        event.Gate.RequestedBudget,
 		StopConditions:          append([]string{}, event.Gate.StopConditions...),
 		ReportPathRule:          "case-relative, current-workspace relative, or case-contained absolute file path under one authorized outputPath; sidecar must be <= 1048576 bytes and contain no trailing JSON data",
+		RefPathRequires:         []string{"outputRefs and evidenceRefs must be case-relative", "outputRefs and evidenceRefs must stay under authorized outputPaths"},
 		SummaryMaxBytes:         4096,
 		EscalationMaxBytes:      4096,
 		RecordRequired:          event.Gate.Authorization.RecordRequired,
@@ -601,7 +604,7 @@ func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportL
 			GateEventID:   event.EventID,
 			ActualBudget:  autonomy.Budget{},
 			OutputRefs:    []string{"<case-relative output under authorized outputPaths>"},
-			EvidenceRefs:  []string{"<case-relative bounded evidence ref>"},
+			EvidenceRefs:  []string{"<case-relative bounded evidence ref under authorized outputPaths>"},
 			BoundaryHits:  []string{"<authorized stopCondition token when status/budget requires it>"},
 			Escalation:    "<bounded escalation when status/budget requires it>",
 			Summary:       "<bounded summary; required for failed/boundary-hit/escalated/aborted>",
@@ -615,6 +618,7 @@ func adapterReportLiveValidation(pack string, event EventPreview) AdapterReportL
 			"ValidateArgs is read-only: isMutation=false, applied=false, and no observations/authority/confirmed writes.",
 			"RecordArgs records observation evidence only after strict sidecar validation; it never executes the heavy tool.",
 			"Use only authorized stopConditions in boundaryHits; failed/boundary-hit/escalated/aborted reports require a bounded summary.",
+			"Keep outputRefs/evidenceRefs case-relative and under authorized outputPaths so validation and record paths enforce the same artifact boundary.",
 			"Keep full trace/dump/log data in sidecar artifacts referenced by outputRefs/evidenceRefs, not in this report.",
 		},
 	}
@@ -665,7 +669,10 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (Ex
 	if len(outputRefs) > 0 && !outputRefsWithinGate(gateEvent.Gate.OutputPaths, outputRefs) {
 		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence outputRefs must stay within authorized gate outputPaths")
 	}
-	evidenceRefs := splitList(opt.EvidenceRefs)
+	evidenceRefs, err := validateCaseRelativePaths(caseRoot, "gate execution evidence evidenceRefs", splitList(opt.EvidenceRefs))
+	if err != nil {
+		return ExecutionEvidencePreview{}, err
+	}
 	if adapterReport != nil {
 		if len(evidenceRefs) > 0 && len(adapterReport.EvidenceRefs) > 0 && strings.Join(normalizedGatePaths(evidenceRefs), ",") != strings.Join(normalizedGatePaths(adapterReport.EvidenceRefs), ",") {
 			return ExecutionEvidencePreview{}, fmt.Errorf("adapter execution report evidenceRefs do not match explicit ExecutionEvidenceRefs")
@@ -673,6 +680,9 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options) (Ex
 		if len(evidenceRefs) == 0 {
 			evidenceRefs = append([]string{}, adapterReport.EvidenceRefs...)
 		}
+	}
+	if len(evidenceRefs) > 0 && !outputRefsWithinGate(gateEvent.Gate.OutputPaths, evidenceRefs) {
+		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence evidenceRefs must stay within authorized gate outputPaths")
 	}
 	if len(outputRefs) == 0 && len(evidenceRefs) == 0 && reportRel == "" {
 		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence requires -OutputRefs, -ExecutionEvidenceRefs, or -ExecutionReportPath")
@@ -925,6 +935,9 @@ func validateAdapterExecutionReport(caseRoot string, gateEvent EventPreview, rep
 	evidenceRefs, err := validateCaseRelativePaths(caseRoot, "adapter execution report evidenceRefs", report.EvidenceRefs)
 	if err != nil {
 		return adapterReportValidationErrorf("evidence-refs-invalid", "refs", "%w", err)
+	}
+	if len(evidenceRefs) > 0 && !outputRefsWithinGate(gateEvent.Gate.OutputPaths, evidenceRefs) {
+		return adapterReportValidationErrorf("evidence-refs-out-of-scope", "refs", "adapter execution report evidenceRefs must stay within authorized gate outputPaths")
 	}
 	report.EvidenceRefs = evidenceRefs
 	if len(report.BoundaryHits) > 0 {

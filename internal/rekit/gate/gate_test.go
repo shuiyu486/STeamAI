@@ -424,13 +424,13 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if strings.Join(contract.AllowedStatuses, ",") != "succeeded,failed,boundary-hit,escalated,aborted" || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || contract.AuthorizedBudget.RuntimeSeconds != 30 {
 		t.Fatalf("adapter report contract omitted authorized boundaries: %+v", contract)
 	}
-	if strings.Join(contract.StopConditions, ",") != "timeout" || contract.SummaryMaxBytes != 4096 || contract.EscalationMaxBytes != 4096 || !contract.RecordRequired || !strings.Contains(strings.Join(contract.DeniedActions, ","), "heavy-tool execution") || !strings.Contains(contract.ReportPathRule, "current-workspace relative") {
+	if strings.Join(contract.StopConditions, ",") != "timeout" || contract.SummaryMaxBytes != 4096 || contract.EscalationMaxBytes != 4096 || !contract.RecordRequired || !strings.Contains(strings.Join(contract.DeniedActions, ","), "heavy-tool execution") || !strings.Contains(contract.ReportPathRule, "current-workspace relative") || !strings.Contains(strings.Join(contract.RefPathRequires, ","), "evidenceRefs must stay under authorized outputPaths") {
 		t.Fatalf("adapter report contract omitted live validation rules: %+v", contract)
 	}
 	if !strings.Contains(strings.Join(contract.BoundaryStatusRequires, ","), "authorized stopConditions") || !strings.Contains(strings.Join(contract.StatusSummaryRequires, ","), "failed/boundary-hit/escalated/aborted") {
 		t.Fatalf("adapter report contract omitted status enforcement rules: %+v", contract)
 	}
-	if !strings.Contains(contract.LiveValidation.InvocationCwd, "authorized output workspace") || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != authorized.EventID || contract.LiveValidation.SidecarTemplate.Kind != "adapter-execution-report" || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
+	if !strings.Contains(contract.LiveValidation.InvocationCwd, "authorized output workspace") || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != authorized.EventID || contract.LiveValidation.SidecarTemplate.Kind != "adapter-execution-report" || !strings.Contains(strings.Join(contract.LiveValidation.SidecarTemplate.EvidenceRefs, ","), "authorized outputPaths") || !strings.Contains(strings.Join(contract.LiveValidation.Notes, ","), "outputRefs/evidenceRefs") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
 		t.Fatalf("adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
 	}
 	if strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" {
@@ -461,7 +461,7 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 		}
 		codes[code.Code] = code.Stage
 	}
-	for code, stage := range map[string]string{"report-path-out-of-scope": "path", "report-json-invalid": "decode", "gate-event-mismatch": "identity", "output-refs-out-of-scope": "refs", "budget-marker-missing": "budget", "boundary-marker-missing": "boundary", "boundary-hits-not-authorized": "boundary", "status-summary-missing": "summary"} {
+	for code, stage := range map[string]string{"report-path-out-of-scope": "path", "report-json-invalid": "decode", "gate-event-mismatch": "identity", "output-refs-out-of-scope": "refs", "evidence-refs-out-of-scope": "refs", "budget-marker-missing": "budget", "boundary-marker-missing": "boundary", "boundary-hits-not-authorized": "boundary", "status-summary-missing": "summary"} {
 		if codes[code] != stage {
 			t.Fatalf("adapter report contract failure code %q stage = %q, want %q; codes=%+v", code, codes[code], stage, contract.ValidationFailureCodes)
 		}
@@ -654,6 +654,25 @@ func TestValidateAdapterExecutionReportInvalidEnvelopeFailureCodes(t *testing.T)
 			wantCode:   "output-refs-out-of-scope",
 			wantStage:  "refs",
 			wantError:  "outputRefs must stay within authorized gate outputPaths",
+			wantReport: true,
+		},
+		{
+			name: "evidence refs out of scope",
+			path: "workspace/main/debug/session-1/out-of-scope-evidence-refs-report.json",
+			body: `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "` + authorized.EventID + `",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/other/evidence.json"]
+}`,
+			wantCode:   "evidence-refs-out-of-scope",
+			wantStage:  "refs",
+			wantError:  "evidenceRefs must stay within authorized gate outputPaths",
 			wantReport: true,
 		},
 		{
@@ -1084,6 +1103,33 @@ func TestRecordExecutionRejectsOutOfScopeAdapterReportRefs(t *testing.T) {
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
 
+func TestRecordExecutionRejectsOutOfScopeAdapterReportEvidenceRefs(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "bad-evidence-refs-report.json")
+	writeGateText(t, reportPath, `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/other/evidence.json"]
+}`)
+
+	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionReportPath: reportPath})
+	if err == nil || !strings.Contains(err.Error(), "evidenceRefs must stay within authorized gate outputPaths") {
+		t.Fatalf("RecordExecution error = %v, want adapter evidenceRef boundary rejection", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+}
+
 func TestRecordExecutionRejectsOutOfScopeOutputRefs(t *testing.T) {
 	repoRoot, caseRoot, pack := gateFixture(t)
 	writePreauthorizedProfile(t, caseRoot)
@@ -1094,6 +1140,20 @@ func TestRecordExecutionRejectsOutOfScopeOutputRefs(t *testing.T) {
 	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionStatus: "succeeded", OutputRefs: "workspace/main/other/result.json"})
 	if err == nil || !strings.Contains(err.Error(), "outputRefs must stay within authorized gate outputPaths") {
 		t.Fatalf("RecordExecution error = %v, want outputRef boundary rejection", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+}
+
+func TestRecordExecutionRejectsOutOfScopeEvidenceRefs(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionStatus: "succeeded", OutputRefs: "workspace/main/debug/session-1/result.json", EvidenceRefs: "workspace/main/other/evidence.json"})
+	if err == nil || !strings.Contains(err.Error(), "evidenceRefs must stay within authorized gate outputPaths") {
+		t.Fatalf("RecordExecution error = %v, want evidenceRef boundary rejection", err)
 	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }

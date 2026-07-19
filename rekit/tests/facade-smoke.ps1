@@ -249,6 +249,8 @@ try {
     Assert-ContainsText -Text $nestedContractOut -Expected '"recordCommand": "rekit -Command gate' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"validateArgs": ' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"recordArgs": ' -Label 'facade nested workspace contract live-validation handoff'
+    Assert-ContainsText -Text $nestedContractOut -Expected '"refPathRequires": ' -Label 'facade nested workspace contract live-validation handoff'
+    Assert-ContainsText -Text $nestedContractOut -Expected 'evidenceRefs must stay under authorized outputPaths' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"statusSummaryRequires": ' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected 'boundaryHits must be one of authorized stopConditions' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"replayBehavior": "repeating RecordArgs with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations"' -Label 'facade nested workspace contract live-validation handoff'
