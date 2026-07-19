@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 **Batch 375：Adapter report stop-condition and status summary enforcement**
 
-状态：已完成 adapter report authorized stopCondition boundaryHits enforcement、failed/boundary/escalated/aborted bounded summary enforcement、contract/taxonomy projection、package/CLI/façade coverage、durable docs 更新与本地 validation。
+状态：已完成 adapter report authorized stopCondition boundaryHits enforcement、failed/boundary/escalated/aborted bounded summary enforcement、contract/taxonomy projection、package/CLI/façade coverage、durable docs 更新、本地 validation、commit/push 与远程 release-gate inspection。
 
 目标：在 Batch 373/374 的 `liveValidation` handoff 之后，把 sidecar enforcement 从“形状与路径正确”推进到“boundary/status 可执行”：`boundaryHits` 必须落在本次 `authorized-gate` request 的 `stopConditions` 内，`failed` / `boundary-hit` / `escalated` / `aborted` sidecar 必须提供 bounded `summary`，避免 lane executor / tool adapter 把未授权 stop condition 或无摘要失败状态写入 observation evidence。
 
@@ -51,7 +51,7 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 focused gate/CLI、full gate package、façade smoke、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。尚需最终 commit/push 与远程 release-gate inspection；不能声明远程 CI green。
+本地 focused gate/CLI、full gate package、façade smoke、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。主实现已提交并推送为 `7176b2d Enforce adapter report boundary summaries`。远程 release-gate run `29673028340`（headSha `7176b2d8245cb721285fbcd1bc721d89f5ce8149`）已完成但 conclusion 为 `failure`；Windows、Linux、macOS jobs 均为 failure 且 `steps: []`，仍是既有 runner/billing blocker 形态，不能声明远程 CI green。
 
 ### Next candidates
 
