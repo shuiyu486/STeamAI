@@ -2996,6 +2996,9 @@ func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
 	if loginAction.MissionCommanderAction.State != "needs-reconcile" || loginAction.MissionCommanderAction.PrimaryCommand != "/rekit reconcile login -InterventionId <eventId> -Apply" || !containsSubstring(loginAction.MissionCommanderAction.Boundary, "do not run continue") {
 		t.Fatalf("project handoff preview login action missing Mission Commander blocker handoff: %+v", loginAction.MissionCommanderAction)
 	}
+	if len(result.MissionCommanderNextActions) != 2 || result.MissionCommanderNextActions[0].Command != "/rekit continue main" || result.MissionCommanderNextActions[0].Source != "missionCommanderActions" || result.MissionCommanderNextActions[0].RequiresReview || !containsSubstring(result.MissionCommanderNextActions[0].Reasons, "ready lane primary action") || result.MissionCommanderNextActions[1].Command != "/rekit reconcile login -InterventionId <eventId> -Apply" || !result.MissionCommanderNextActions[1].Blocked || !result.MissionCommanderNextActions[1].RequiresReview || !containsSubstring(result.MissionCommanderNextActions[1].Reasons, "intervention") || !containsSubstring(result.MissionCommanderNextActions[1].Boundary, "do not run continue") {
+		t.Fatalf("project handoff preview missing Mission Commander next actions: %+v", result.MissionCommanderNextActions)
+	}
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, after)
 }
@@ -3028,6 +3031,9 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if slices.Contains(projectLoginAction.NextAgentActions, "/rekit continue main") || slices.Contains(projectLoginAction.NextAgentActions, "/rekit continue login") || !containsSubstring(projectLoginAction.NextAgentActions, "reconcile open intervention") {
 		t.Fatalf("project handoff JSON login next actions should remain lane-local and blocker-aware: %+v", projectLoginAction.NextAgentActions)
 	}
+	if len(project.MissionCommanderNextActions) != 2 || project.MissionCommanderNextActions[0].Command != "/rekit continue main" || project.MissionCommanderNextActions[0].Source != "missionCommanderActions" || project.MissionCommanderNextActions[0].Blocked || project.MissionCommanderNextActions[0].RequiresReview || project.MissionCommanderNextActions[1].Command != "/rekit reconcile login -InterventionId <eventId> -Apply" || project.MissionCommanderNextActions[1].Source != "missionCommanderActions" || !project.MissionCommanderNextActions[1].Blocked || !project.MissionCommanderNextActions[1].RequiresReview || !containsSubstring(project.MissionCommanderNextActions[1].Reasons, "pending-gate") || !containsSubstring(project.MissionCommanderNextActions[1].Boundary, "do not run continue") {
+		t.Fatalf("project handoff JSON missing consumable Mission Commander next actions: %+v", project.MissionCommanderNextActions)
+	}
 	latest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
 	text, err := os.ReadFile(latest.TargetPath)
 	if err != nil {
@@ -3041,7 +3047,7 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if strings.Contains(string(text), "continue command：`/rekit continue login`") {
 		t.Fatalf("project handoff should not present blocked lane continue as its current next action:\n%s", string(text))
 	}
-	for _, expected := range []string{"commander primary：`/rekit continue main`", "commander follow-up：/rekit handoff main", "commander primary：`/rekit reconcile login -InterventionId <eventId> -Apply`", "commander follow-up：/rekit continue login -WhatIf", "commander boundary：do not run continue for blocked lanes"} {
+	for _, expected := range []string{"commander next action：state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main`", "commander next action：state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile login -InterventionId <eventId> -Apply`", "commander primary：`/rekit continue main`", "commander follow-up：/rekit handoff main", "commander primary：`/rekit reconcile login -InterventionId <eventId> -Apply`", "commander follow-up：/rekit continue login -WhatIf", "commander boundary：do not run continue for blocked lanes"} {
 		if !strings.Contains(string(text), expected) {
 			t.Fatalf("project handoff missing Mission Commander consumption %q:\n%s", expected, string(text))
 		}
@@ -3064,6 +3070,9 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if lane.ExecutorAction.MissionCommanderAction.State != "needs-reconcile" || lane.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit reconcile login -InterventionId <eventId> -Apply" || !containsSubstring(lane.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue login -WhatIf") || !containsSubstring(lane.ExecutorAction.MissionCommanderAction.Boundary, "do not run continue for blocked lanes") {
 		t.Fatalf("lane handoff JSON omitted Mission Commander action consumption: %+v", lane.ExecutorAction.MissionCommanderAction)
 	}
+	if len(lane.MissionCommanderNextActions) != 1 || lane.MissionCommanderNextActions[0].Lane != "feature-login" || lane.MissionCommanderNextActions[0].Label != "login" || lane.MissionCommanderNextActions[0].Command != "/rekit reconcile login -InterventionId <eventId> -Apply" || lane.MissionCommanderNextActions[0].Source != "missionCommanderActions" || !lane.MissionCommanderNextActions[0].Blocked || !lane.MissionCommanderNextActions[0].RequiresReview || !containsSubstring(lane.MissionCommanderNextActions[0].Reasons, "open-decision") || !containsSubstring(lane.MissionCommanderNextActions[0].Boundary, "do not run continue") {
+		t.Fatalf("lane handoff JSON missing Mission Commander next action: %+v", lane.MissionCommanderNextActions)
+	}
 	if slices.Contains(lane.ExecutorAction.NextAgentActions, "/rekit continue login") || !containsSubstring(lane.ExecutorAction.NextAgentActions, "reconcile open intervention") || !containsSubstring(lane.NextSteps, "reconcile open intervention") || slices.Contains(lane.NextSteps, "/rekit continue login") {
 		t.Fatalf("lane handoff JSON should expose blocker-aware next steps only: action=%+v next=%+v", lane.ExecutorAction.NextAgentActions, lane.NextSteps)
 	}
@@ -3072,7 +3081,7 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "先处理下列 blocker，不要执行 `/rekit continue login`", "## Mission Control brief", "blocked: true", "pending-gate:", "open intervention:", "open decision:", "next agent action:", "reconcile open intervention(s) before continuing this lane", "resolve or keep deferred pending-gate request(s)", "review open candidate/decision item(s)", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- pending gates: `1`", "- open interventions: `1`", "- open decisions: `1`", "- reconcile required: `true`", "- pending gate required: `true`", "- open decision required: `true`", "- resume command: `/rekit continue login`", "- handoff command: `/rekit handoff login`", "- commander primary command: `/rekit reconcile login -InterventionId <eventId> -Apply`", "commander follow-up commands:", "/rekit continue login -WhatIf", "commander boundary:", "do not run continue for blocked lanes", "blocker reasons:", "pending-gate", "intervention", "open-decision", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
+	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "先处理下列 blocker，不要执行 `/rekit continue login`", "## Mission Control brief", "blocked: true", "pending-gate:", "open intervention:", "open decision:", "next agent action:", "reconcile open intervention(s) before continuing this lane", "resolve or keep deferred pending-gate request(s)", "review open candidate/decision item(s)", "## Mission Commander next actions", "state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile login -InterventionId <eventId> -Apply`", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- pending gates: `1`", "- open interventions: `1`", "- open decisions: `1`", "- reconcile required: `true`", "- pending gate required: `true`", "- open decision required: `true`", "- resume command: `/rekit continue login`", "- handoff command: `/rekit handoff login`", "- commander primary command: `/rekit reconcile login -InterventionId <eventId> -Apply`", "commander follow-up commands:", "/rekit continue login -WhatIf", "commander boundary:", "do not run continue for blocked lanes", "blocker reasons:", "pending-gate", "intervention", "open-decision", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
 		if !strings.Contains(string(laneText), expected) {
 			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
 		}
@@ -5663,6 +5672,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if !containsSubstring(project.NextSteps, "review execution evidence for gateEventId "+authorizedEventID) || !slices.Contains(project.NextSteps, "/rekit handoff main") || containsSubstring(project.NextSteps, "/rekit continue main") || !containsSubstring(project.NextSteps, "boundary hit or escalation") {
 		t.Fatalf("project handoff next steps should route through evidence review before continuation: %+v", project.NextSteps)
 	}
+	if len(project.MissionCommanderNextActions) != 2 || project.MissionCommanderNextActions[0].Command != "/rekit handoff main" || project.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || !project.MissionCommanderNextActions[0].RequiresReview || !containsSubstring(project.MissionCommanderNextActions[0].Reasons, authorizedEventID) || !containsSubstring(project.MissionCommanderNextActions[0].Boundary, "do not replay heavy tool") || project.MissionCommanderNextActions[1].Command != "/rekit overview" || containsMissionCommanderNextCommand(project.MissionCommanderNextActions, "/rekit continue main") {
+		t.Fatalf("project handoff JSON should prioritize evidence next actions and suppress continue: %+v", project.MissionCommanderNextActions)
+	}
 	projectLatest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
 	projectText, err := os.ReadFile(projectLatest.TargetPath)
 	if err != nil {
@@ -5688,12 +5700,15 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if !containsSubstring(lane.NextSteps, "review execution evidence for gateEventId "+authorizedEventID) || !slices.Contains(lane.NextSteps, "/rekit handoff main") || containsSubstring(lane.NextSteps, "/rekit continue main") || !containsSubstring(lane.NextSteps, "boundary hit or escalation") {
 		t.Fatalf("lane handoff next steps should route through evidence review before continuation: %+v", lane.NextSteps)
 	}
+	if len(lane.MissionCommanderNextActions) != 2 || lane.MissionCommanderNextActions[0].Lane != "main" || lane.MissionCommanderNextActions[0].Command != "/rekit handoff main" || lane.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || !lane.MissionCommanderNextActions[0].RequiresReview || lane.MissionCommanderNextActions[1].Command != "/rekit overview" || containsMissionCommanderNextCommand(lane.MissionCommanderNextActions, "/rekit continue main") || containsMissionCommanderNextCommand(lane.MissionCommanderNextActions, "/rekit continue main -WhatIf") {
+		t.Fatalf("lane handoff JSON should prioritize evidence next actions and suppress continue: %+v", lane.MissionCommanderNextActions)
+	}
 	laneLatest := assertStartWrite(t, lane.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
 	laneText, err := os.ReadFile(laneLatest.TargetPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"当前不要执行 `/rekit continue main`", "evidence next action:", "boundary hit or escalation in execution evidence", "authorized-gate:", "## authorized-gate", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "## execution evidence review", "status=succeeded | gateEventId=" + authorizedEventID, "status=escalated | gateEventId=" + authorizedEventID, "review command: `review outputRefs/evidenceRefs for gateEventId " + authorizedEventID + "`", "handoff command: `/rekit handoff main`", "commander state: ready-for-evidence-review", "commander state: needs-main-escalation", "commander primary: `/rekit handoff main`", "commander follow-up:", "/rekit overview", "/rekit continue main -WhatIf", "review boundary:", "observation evidence is already recorded; do not replay heavy tool", "boundary/escalation requires main review before autonomous continuation"} {
+	for _, expected := range []string{"当前不要执行 `/rekit continue main`", "evidence next action:", "boundary hit or escalation in execution evidence", "## Mission Commander next actions", "state=ready-for-evidence-review source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff main`", "state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=true requiresReview=true command=`/rekit overview`", "authorized-gate:", "## authorized-gate", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "## execution evidence review", "status=succeeded | gateEventId=" + authorizedEventID, "status=escalated | gateEventId=" + authorizedEventID, "review command: `review outputRefs/evidenceRefs for gateEventId " + authorizedEventID + "`", "handoff command: `/rekit handoff main`", "commander state: ready-for-evidence-review", "commander state: needs-main-escalation", "commander primary: `/rekit handoff main`", "commander follow-up:", "/rekit overview", "/rekit continue main -WhatIf", "review boundary:", "observation evidence is already recorded; do not replay heavy tool", "boundary/escalation requires main review before autonomous continuation"} {
 		if !strings.Contains(string(laneText), expected) {
 			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
 		}
@@ -6544,18 +6559,19 @@ type startResult struct {
 }
 
 type handoffResult struct {
-	Command                 string                        `json:"command"`
-	IsMutation              bool                          `json:"isMutation"`
-	Applied                 bool                          `json:"applied"`
-	RequiresConfirmation    bool                          `json:"requiresConfirmation"`
-	Project                 bool                          `json:"project"`
-	Lane                    *startLane                    `json:"lane"`
-	MissionBrief            missionBrief                  `json:"missionBrief"`
-	ExecutorAction          *executorActionSnapshot       `json:"executorAction"`
-	LaneExecutorActions     []handoffLaneExecutorAction   `json:"laneExecutorActions"`
-	ExecutionEvidenceReview []executionEvidenceReviewItem `json:"executionEvidenceReview"`
-	Writes                  []startWrite                  `json:"writes"`
-	NextSteps               []string                      `json:"nextSteps"`
+	Command                     string                           `json:"command"`
+	IsMutation                  bool                             `json:"isMutation"`
+	Applied                     bool                             `json:"applied"`
+	RequiresConfirmation        bool                             `json:"requiresConfirmation"`
+	Project                     bool                             `json:"project"`
+	Lane                        *startLane                       `json:"lane"`
+	MissionBrief                missionBrief                     `json:"missionBrief"`
+	ExecutorAction              *executorActionSnapshot          `json:"executorAction"`
+	LaneExecutorActions         []handoffLaneExecutorAction      `json:"laneExecutorActions"`
+	ExecutionEvidenceReview     []executionEvidenceReviewItem    `json:"executionEvidenceReview"`
+	MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+	Writes                      []startWrite                     `json:"writes"`
+	NextSteps                   []string                         `json:"nextSteps"`
 }
 
 type handoffLaneExecutorAction struct {

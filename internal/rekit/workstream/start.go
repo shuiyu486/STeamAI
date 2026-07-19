@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -106,23 +105,7 @@ type Lane struct {
 
 type laneExecutorAction = mission.ExecutorAction
 
-type ExecutionEvidenceReviewItem struct {
-	EventID                string                         `json:"eventId,omitempty"`
-	GateEventID            string                         `json:"gateEventId,omitempty"`
-	Subject                string                         `json:"subject,omitempty"`
-	Summary                string                         `json:"summary,omitempty"`
-	Status                 string                         `json:"status,omitempty"`
-	Action                 string                         `json:"action,omitempty"`
-	Target                 string                         `json:"target,omitempty"`
-	OutputRefs             []string                       `json:"outputRefs,omitempty"`
-	EvidenceRefs           []string                       `json:"evidenceRefs,omitempty"`
-	BoundaryHits           []string                       `json:"boundaryHits,omitempty"`
-	Escalation             string                         `json:"escalation,omitempty"`
-	ReviewCommand          string                         `json:"reviewCommand"`
-	HandoffCommand         string                         `json:"handoffCommand"`
-	Boundary               []string                       `json:"boundary"`
-	MissionCommanderAction mission.MissionCommanderAction `json:"missionCommanderAction"`
-}
+type ExecutionEvidenceReviewItem = mission.ExecutionEvidenceReviewItem
 
 type laneCheckpoint struct {
 	SchemaVersion              int                           `json:"schemaVersion"`
@@ -1165,11 +1148,11 @@ func executionEvidenceReviewCommanderAction(item ExecutionEvidenceReviewItem, la
 }
 
 func executionEvidenceReviewNeedsMainReview(item ExecutionEvidenceReviewItem) bool {
-	return item.Status == "boundary-hit" || item.Status == "escalated" || item.Escalation != "" || len(item.BoundaryHits) > 0
+	return mission.ExecutionEvidenceReviewItemNeedsMainReview(item)
 }
 
 func ExecutionEvidenceReviewNeedsMainReview(items []ExecutionEvidenceReviewItem) bool {
-	return slices.ContainsFunc(items, executionEvidenceReviewNeedsMainReview)
+	return mission.ExecutionEvidenceReviewNeedsMainReview(items)
 }
 
 func ExecutionEvidenceReviewNextSteps(items []ExecutionEvidenceReviewItem, includeContinueFollowUp bool) []string {

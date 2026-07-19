@@ -84,6 +84,36 @@ type MissionCommanderAction struct {
 	Boundary         []string `json:"boundary,omitempty"`
 }
 
+type MissionCommanderNextActionItem struct {
+	Lane           string   `json:"lane,omitempty"`
+	Label          string   `json:"label,omitempty"`
+	State          string   `json:"state"`
+	Command        string   `json:"command"`
+	Source         string   `json:"source"`
+	Blocked        bool     `json:"blocked,omitempty"`
+	RequiresReview bool     `json:"requiresReview,omitempty"`
+	Reasons        []string `json:"reasons,omitempty"`
+	Boundary       []string `json:"boundary,omitempty"`
+}
+
+type ExecutionEvidenceReviewItem struct {
+	EventID                string                 `json:"eventId,omitempty"`
+	GateEventID            string                 `json:"gateEventId,omitempty"`
+	Subject                string                 `json:"subject,omitempty"`
+	Summary                string                 `json:"summary,omitempty"`
+	Status                 string                 `json:"status,omitempty"`
+	Action                 string                 `json:"action,omitempty"`
+	Target                 string                 `json:"target,omitempty"`
+	OutputRefs             []string               `json:"outputRefs,omitempty"`
+	EvidenceRefs           []string               `json:"evidenceRefs,omitempty"`
+	BoundaryHits           []string               `json:"boundaryHits,omitempty"`
+	Escalation             string                 `json:"escalation,omitempty"`
+	ReviewCommand          string                 `json:"reviewCommand"`
+	HandoffCommand         string                 `json:"handoffCommand"`
+	Boundary               []string               `json:"boundary"`
+	MissionCommanderAction MissionCommanderAction `json:"missionCommanderAction"`
+}
+
 type LaneExecutorActionSnapshot struct {
 	Lane               string         `json:"lane"`
 	Label              string         `json:"label"`
@@ -166,6 +196,128 @@ func BuildWithOptions(lanes []Lane, facts Facts, opts BuildOptions) Brief {
 		NextAgentActions: nextActions,
 		Escalations:      escalations,
 	}
+}
+
+func MissionCommanderNextActions(actions []LaneExecutorActionSnapshot, evidenceReview []ExecutionEvidenceReviewItem, blocked bool) []MissionCommanderNextActionItem {
+	items := []MissionCommanderNextActionItem{}
+	evidenceNeedsMainReview := ExecutionEvidenceReviewNeedsMainReview(evidenceReview)
+	for _, item := range evidenceReview {
+		reasons := []string{}
+		if item.GateEventID != "" {
+			reasons = append(reasons, "review execution evidence for gateEventId "+item.GateEventID)
+		}
+		if item.ReviewCommand != "" {
+			reasons = append(reasons, item.ReviewCommand)
+		}
+		if evidenceNeedsMainReview {
+			reasons = append(reasons, "boundary hit or escalation in execution evidence; stop autonomous continuation and notify main Agent")
+		}
+		if item.MissionCommanderAction.PrimaryCommand != "" {
+			items = append(items, MissionCommanderNextActionItem{
+				Lane:           evidenceReviewLane(item),
+				Label:          evidenceReviewLabel(item),
+				State:          item.MissionCommanderAction.State,
+				Command:        item.MissionCommanderAction.PrimaryCommand,
+				Source:         "executionEvidenceReview",
+				Blocked:        evidenceNeedsMainReview,
+				RequiresReview: true,
+				Reasons:        reasons,
+				Boundary:       append([]string{}, item.MissionCommanderAction.Boundary...),
+			})
+		}
+		for _, followUp := range item.MissionCommanderAction.FollowUpCommands {
+			if strings.Contains(followUp, "/rekit continue") && (blocked || evidenceNeedsMainReview) {
+				continue
+			}
+			items = append(items, MissionCommanderNextActionItem{
+				Lane:           evidenceReviewLane(item),
+				Label:          evidenceReviewLabel(item),
+				State:          item.MissionCommanderAction.State,
+				Command:        followUp,
+				Source:         "executionEvidenceReview.followUp",
+				Blocked:        evidenceNeedsMainReview,
+				RequiresReview: true,
+				Reasons:        reasons,
+				Boundary:       append([]string{}, item.MissionCommanderAction.Boundary...),
+			})
+		}
+	}
+	if evidenceNeedsMainReview {
+		return UniqueCommanderNextActions(items)
+	}
+	for _, item := range actions {
+		action := item.ExecutorAction.MissionCommanderAction
+		if action.PrimaryCommand == "" {
+			continue
+		}
+		items = append(items, MissionCommanderNextActionItem{
+			Lane:           item.Lane,
+			Label:          item.Label,
+			State:          action.State,
+			Command:        action.PrimaryCommand,
+			Source:         "missionCommanderActions",
+			Blocked:        item.ExecutorAction.Blocked,
+			RequiresReview: item.ExecutorAction.Blocked,
+			Reasons:        commanderActionReasons(item.ExecutorAction),
+			Boundary:       append([]string{}, action.Boundary...),
+		})
+	}
+	return UniqueCommanderNextActions(items)
+}
+
+func ExecutionEvidenceReviewNeedsMainReview(items []ExecutionEvidenceReviewItem) bool {
+	return slices.ContainsFunc(items, ExecutionEvidenceReviewItemNeedsMainReview)
+}
+
+func ExecutionEvidenceReviewItemNeedsMainReview(item ExecutionEvidenceReviewItem) bool {
+	return item.Status == "boundary-hit" || item.Status == "escalated" || item.Escalation != "" || len(item.BoundaryHits) > 0
+}
+
+func commanderActionReasons(action ExecutorAction) []string {
+	reasons := append([]string{}, action.BlockerReasons...)
+	if len(reasons) == 0 && action.Ready {
+		reasons = append(reasons, "ready lane primary action")
+	}
+	if len(reasons) == 0 {
+		reasons = append(reasons, "read-only handoff")
+	}
+	return reasons
+}
+
+func evidenceReviewLabel(item ExecutionEvidenceReviewItem) string {
+	if item.GateEventID != "" {
+		return item.GateEventID
+	}
+	return FirstText(item.Subject, item.EventID, item.Summary)
+}
+
+func evidenceReviewLane(item ExecutionEvidenceReviewItem) string {
+	command := strings.TrimSpace(item.MissionCommanderAction.PrimaryCommand)
+	if command == "" {
+		command = strings.TrimSpace(item.HandoffCommand)
+	}
+	if lane, ok := strings.CutPrefix(command, "/rekit handoff "); ok {
+		return strings.TrimSpace(lane)
+	}
+	return ""
+}
+
+func UniqueCommanderNextActions(items []MissionCommanderNextActionItem) []MissionCommanderNextActionItem {
+	seen := map[string]bool{}
+	out := []MissionCommanderNextActionItem{}
+	for _, item := range items {
+		item.Command = strings.TrimSpace(item.Command)
+		if item.Command == "" {
+			continue
+		}
+		key := item.Source + "\x00" + item.Lane + "\x00" + item.Command
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	return out
 }
 
 func LaneExecutorActionSnapshots(lanes []BoardLane, facts Facts, brief Brief) []LaneExecutorActionSnapshot {
