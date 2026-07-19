@@ -16,26 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-**Batch 384：Adapter repair contract guidance closure**
+**Batch 385：Mission Control operational-slice cadence calibration**
 
-状态：已完成；`gate -ExecutionReportContract` 已输出 `validationRepairHints[]` runtime projection，并补 package/CLI focused coverage、durable docs、本地 release gate、commit/push 与远程 release-gate inspection。
+状态：已完成；已把用户确认的节奏校准写回 durable docs，防止后续上下文压缩或新会话接手时继续滑回 contract / inventory / metadata 字段微批次。
 
-目标：在 Batch 383 已把 `repairHints[]` 加入 invalid validation envelope 后，补齐 replacement lane executor / tool adapter 执行前仍只能从 validation failure codes 推断 repair actions 的断点：只读 adapter execution report contract 应直接暴露 stable `validationRepairHints[]`，让 executor 在执行 heavy/tool adapter 前即可知道缺 report path、path/read/decode/schema/identity/refs/budget/boundary/summary 失败对应的 repair action、相关字段、允许 output paths / stop conditions、size limit、record blocked 与 rerun validation 标记。
+目标：把当前长期 goal 从“继续补 contract 字段”重新锚定为 Mission Commander operational closure：后续每批必须围绕 Mission Commander orchestration、replaceable session executor、reviewer dispatch/intake/writeback E2E、authorized execution evidence closure、adapter-specific live validation、pack-memory promote/reconsume product UX、跨平台 product-path E2E 或 retained PowerShell façade 收束中的一个真实产品断点形成 coherent vertical slice。新增 contract / inventory / metadata 字段只能作为这些闭环的必要支撑，并必须由 package、CLI、临时 case或 product-path 验证证明其解决真实执行、接手、调度、记录或发布断点，不能再独立成连续批次。
 
-边界：本批只补 read-only adapter execution report contract 的机器可读 validation repair hints、package/CLI assertions、durable docs 与验证；不新增 PowerShell runtime logic、不修改 public 参数面、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 observations/authority/confirmed（contract path 仍 read-only；existing validation path 仍 read-only；existing evidence apply 仍只写 observations）、不改变 sync/promote review-first、case durable schema migration、公共入口删除门禁或远程 CI blocker 状态；actual tool execution 仍由 lane executor / tool adapter 在 strict durable autonomy profile + `authorized-gate` 范围内承担。
+边界：本批只修改 durable docs 与 goal guidance，不改 runtime schema、不新增 public 参数面、不新增 PowerShell runtime logic、不执行 heavy-tool/debug/inject/patch/dump/network/symex、不写 authority/confirmed、不改变 sync/promote review-first、case durable schema、公共入口删除门禁或远程 CI blocker 状态。Batch 384 的 adapter contract repair hints 已完成并记录在 CHANGELOG；后续 adapter/tooling 工作应转为 adapter-specific live validation operational slice，而不是继续逐字段扩 contract。
 
 已完成内容：
 
-- `AdapterExecutionReportContract` 新增 `validationRepairHints[]`，让只读 contract 在 validation failure stages/codes 之外提供预期 repair guidance。
-- `validationRepairHints[]` 复用 invalid validation envelope 的 repair hint 结构，覆盖缺 `-ExecutionReportPath` 与所有 stable failure codes，并投影 `repairAction`、相关 `fields`、允许的 `allowedOutputPaths` / `allowedStopConditions`、`maxBytes`、`recordBlocked`、`rerunValidation` 与需要升级时的 `escalateToMain`。
-- Gate package test 覆盖 contract repair hints 的 stable action mapping、allowed output paths、allowed stop conditions、summary max bytes、record blocked / rerun validation 与 no-observation-write invariant。
-- CLI E2E 覆盖 `gate -ExecutionReportContract -GateEventId ... -Format json` 的 `validationRepairHints[]` JSON projection，并继续锁定 contract read-only boundaries。
-- 同步 root CLAUDE、README、canonical `/rekit` skill、tool adapter policy、release readiness、PowerShell deprecation、Go runtime migration、tests guide、CHANGELOG 与本文件。
+- 将 current/next 计划切到 operational-slice cadence calibration，明确 contract / inventory / metadata 字段只能服务中大型产品闭环。
+- 在 autonomous goal、Mission Control 产品方向、release readiness、项目 CLAUDE 与 CHANGELOG 中同步节奏校准，供后续新会话和上下文压缩恢复时读取。
+- 保留下一批候选为 adapter-specific live validation，但要求它覆盖 pack/tool metadata → authorized-gate contract → sidecar template → validate → record evidence 的实际 executor handoff，而不是继续单字段批次。
 
 已通过验证：
 
 ```text
-go test ./internal/rekit/gate ./internal/rekit/cli -count=1
 go test ./...
 go vet ./...
 go run ./cmd/rekit -- -Command release-check -Format json
@@ -45,14 +42,16 @@ go run ./cmd/rekit -- -Command doctor
 git diff --check
 ```
 
-本地 focused gate/CLI、`go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `b9d5839 Add adapter contract repair hints`（HEAD `b9d58398b590783308737a97cff996dfb5223f3d`）。远程 release-gate run `29678057910` 已完成，结论为 failure；Linux/macOS/Windows `Go release checks` jobs 均为 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。`release-check ready=true` 与 `ciReleaseGate.ready=true` 只证明本地 inventory/workflow 定义 ready，不能替代远程 jobs 实际 conclusion。
+本地 `go test ./...`、`go vet ./...`、release-check、status、packs、doctor 与 `git diff --check` 已通过；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待本批提交后写回。
 
 ### Next candidates
 
-1. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E、`status.caseShim` readiness 和完整 installed user entrypoint E2E 纳入可用 runner 验证。
-2. **Lane executor/tool-adapter adapter-specific live validation**：在 generic contract 已有 workspace-relative / case-relative handoff、read-only validation、invalid envelope taxonomy、authorized stopCondition boundaryHits、status summary 与 ref boundary enforcement 后，为具体 lane executor / adapter 补真实工具调用隔离、停止条件执行和 adapter-specific live validation 的产品级闭环。
-3. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
-4. **Pack-memory product UX hardening**：在 Batch 358 package E2E 之外，补真实多 pack/跨 case review UX、candidate cleanup 和人工 merge guidance 的产品级验证。
+1. **Adapter-specific live validation operational slice**：在 generic contract 已有 workspace-relative / case-relative handoff、read-only validation、invalid envelope taxonomy、authorized stopCondition boundaryHits、status summary、ref boundary enforcement 与 repair guidance 后，为具体 pack/tool adapter 补 pack tooling metadata → authorized-gate contract → sidecar template → validate → record evidence 的产品级闭环；必须证明 executor 能从具体 adapter guidance 接手，而不是只新增字段。
+2. **Replaceable session executor takeover E2E**：用临时 case 验证新 Claude Code session/executor 可仅依赖 lane handoff / packet / evidence / authorized-gate report contract 接手同一 lane，刷新 continue/handoff/checkpoint，并保持 no authority/confirmed / no heavy-tool 边界。
+3. **Reviewer orchestration E2E**：在现有 reviewer-intake strict writeback 之上，补 Mission Commander 侧多 reviewer dispatch/result/intake/writeback 的更完整 product path；runtime 仍不自动 spawn 时，至少要让主 Agent handoff、packet、result contract 与 post-validation 可连续消费。
+4. **Pack-memory product UX hardening**：在 Batch 358 package E2E 之外，补真实多 pack/跨 case review UX、candidate cleanup、promote/reconsume guidance 和人工 merge/reject/cleanup 路径。
+5. **Remote release-gate unblock / product-path matrix**：GitHub Actions billing/spending limit 解除后，读取真实 Linux/Windows/macOS job conclusions，并把 CLI/case E2E、`status.caseShim` readiness 和完整 installed user entrypoint E2E 纳入可用 runner验证。
+6. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 
 ### Escalation / stopping conditions
 

@@ -6,7 +6,7 @@
 
 如果用户已经在聊天里给出 goal，以用户聊天里的 goal 为准；若聊天摘要与仓库文档冲突，以仓库文档为准。本文件用于防止方向偏移：继续把 `re-context-kits` 收敛为 **Lane-centric Agent Team Mission Control**，并把当前阶段重点切到 **PowerShell-free / Go-native / 跨平台** convergence。最终产品北极星见 `docs/mission-control-product-direction.md`，具体路线写回 `docs/batch-plan.md`、`docs/go-first-convergence-plan.md`、`docs/powershell-deprecation.md` 与 `docs/release-readiness.md`。
 
-后续每批不需要过度拆小，也不要只做一两行微调。默认做一个中大型、能验证、能降低真实维护风险或提升实际可用性的 vertical slice。
+后续每批不需要过度拆小，也不要只做一两行微调。默认做一个中大型、能验证、能降低真实维护风险或提升实际可用性的 vertical slice。当前节奏校准：不要再连续推进单字段 contract / inventory / metadata 微批次；每批必须是用户或 Mission Commander 能感知的 operational slice。若确实需要新增 contract 字段，必须嵌入 Mission Commander orchestration、replaceable session executor、reviewer dispatch/intake/writeback E2E、authorized execution evidence closure、adapter-specific live validation、pack-memory promote/reconsume product UX 或跨平台 product-path E2E，并由 package / CLI / 临时 case / product-path 验证证明其解决真实断点。
 
 ## 实施摘要
 
@@ -27,7 +27,7 @@
 每轮自主推进按这个循环做：
 
 1. 读最近状态：`CLAUDE.md`、`docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/release-readiness.md`、`docs/go-first-convergence-plan.md`、`docs/powershell-deprecation.md`、`docs/batch-plan.md` 的 current/最新区、`CHANGELOG.md`，并检查 git、本地 gate 与远程 CI 实际状态。
-2. 从下面大方向里选一个 coherent 中大型 vertical slice，优先选择能解决真实 Mission Commander/产品路径断点、减少 retained PowerShell 依赖、提升 Go-native / macOS/Linux/Windows product-path E2E 或增强 Mission Control 可用性的切片；不要继续拆 schema-field metadata 微批次。
+2. 从下面大方向里选一个 coherent 中大型 vertical slice，优先选择能解决真实 Mission Commander/产品路径断点、减少 retained PowerShell 依赖、提升 Go-native / macOS/Linux/Windows product-path E2E 或增强 Mission Control 可用性的切片；不要继续拆 schema-field metadata 微批次，也不要让多个连续批次只扩 contract / inventory 字段而缺少 executor/reviewer/Mission Commander/pack-memory/product-path 的实际闭环。
 3. 实施时优先 Go-native；禁止新增 PowerShell runtime logic。若迁移期必须保留 PowerShell，只能作为 legacy compatibility，并写清依赖方、阻塞原因和删除条件。
 4. 完成后自审、评估：看是否更接近 Mission Control 北极星，是否减少 PowerShell 默认路径，架构是否清晰，是否有重复逻辑，是否需要顺手做低风险调整。
 5. 自行做必要调整，不因小的低风险文档/测试/invariant 补齐而停下来问用户。

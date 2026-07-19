@@ -6,7 +6,7 @@
 
 如果你是新会话或上下文压缩后的 AI，先读本文件顶部，再读 `docs/autonomous-goal.md`、`docs/go-first-convergence-plan.md` 与 `docs/batch-plan.md` 最新批次。实现时以本文件的产品方向为北极星，以现有 Go-first / release readiness 文档为落地路线。
 
-本文档描述目标形态，不代表所有能力都已实现。新增能力必须按可验证 vertical slice 落地，并持续写回 `docs/batch-plan.md` 或相邻设计文档。
+本文档描述目标形态，不代表所有能力都已实现。新增能力必须按可验证 vertical slice 落地，并持续写回 `docs/batch-plan.md` 或相邻设计文档。后续不要连续推进单字段 contract / inventory / metadata 微批次；任何新增 contract 字段都必须服务 Mission Commander orchestration、replaceable session executor、reviewer writeback、authorized execution evidence、adapter-specific live validation、pack-memory UX 或跨平台 product path 等可运行闭环，并由 package / CLI / 临时 case / product-path 验证证明其解决真实产品断点。
 
 ## 实施摘要
 
