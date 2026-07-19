@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 393：Authorized execution evidence Mission Commander closure
 
-状态：已完成本地实现与验证；提交/推送在本批收尾执行。
+状态：已完成本地实现与验证、提交/推送与远程 release-gate inspection。
 
 目标：把 authorized-gate → execution report contract / adapter validation → record observation evidence 的最终记录结果继续收口为结构化 `missionCommanderAction`，让主 Agent 不必从 generic executor action 或 next steps 手工判断 evidence review、duplicate idempotency 与 boundary/escalation 处理。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - adapter report 或 explicit fields 记录出 `boundary-hit` / `escalated` / escalation / boundaryHits 时投影 `needs-main-escalation`，不推荐 continue，要求停止该 action 的 autonomous work 并通知 main Agent。
 - CLI text output 对 execution evidence branch 也输出 evidence commander action；package 与 CLI coverage 锁定 normal record、duplicate no-append、adapter escalation、handoff/next steps 与 no-heavy/no-authority/no-confirmed invariants。
 
-验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error；远程 release-gate 仍按既有 GitHub runner/billing known gap 处理，不能把 inventory readiness 声明为远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions`；远程 release-gate run `29689101874` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 392 已完成 lane/tool-adapter live validation UX closure；adapter execution report contract/validation 现在投影 `missionCommanderAction`，详见 `docs/batch-history.md`。
 
