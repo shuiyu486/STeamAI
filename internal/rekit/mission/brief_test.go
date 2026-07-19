@@ -170,6 +170,7 @@ func TestBuildDoesNotBlockOnAuthorizedGate(t *testing.T) {
 		[]Lane{{ID: "main", Label: "main", Status: "active"}},
 		Facts{Requests: []map[string]any{
 			{
+				"eventId": "evt-authorized-main",
 				"kind":    "request",
 				"lane":    "main",
 				"subject": "authorized debug",
@@ -201,6 +202,8 @@ func TestBuildDoesNotBlockOnAuthorizedGate(t *testing.T) {
 		"requestedBudget=runtimeSeconds=120,diskMB=64,requests=1",
 		"outputPaths=workspace/main/debug/session-1",
 		"stopConditions=timeout,budget-exhausted",
+		"eventId=evt-authorized-main",
+		"reportContract=/rekit gate -ExecutionReportContract -GateEventId evt-authorized-main -Format json",
 		"auth=preauthorized",
 		"profile=profile-main",
 	} {
@@ -212,6 +215,7 @@ func TestBuildDoesNotBlockOnAuthorizedGate(t *testing.T) {
 
 func TestLaneGateLineIncludesAuthorizedExecutionBoundaries(t *testing.T) {
 	line := LaneGateLine(map[string]any{
+		"eventId": "evt-authorized-login",
 		"kind":    "request",
 		"lane":    "feature-login",
 		"subject": "authorized debug",
@@ -234,6 +238,8 @@ func TestLaneGateLineIncludesAuthorizedExecutionBoundaries(t *testing.T) {
 		"requestedBudget=runtimeSeconds=45,diskMB=16,requests=2",
 		"outputPaths=workspace/features/feature-login/debug/session-1",
 		"stopConditions=timeout,new-risk",
+		"eventId=evt-authorized-login",
+		"reportContract=/rekit gate -ExecutionReportContract -GateEventId evt-authorized-login -Format json",
 		"auth=preauthorized",
 		"profile=profile-login",
 		"risk=high",

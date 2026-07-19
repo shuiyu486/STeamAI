@@ -402,6 +402,10 @@ func addGateParts(parts *[]string, item map[string]any) {
 	AddPart(parts, "requestedBudget", budgetLine(gate["requestedBudget"]))
 	AddPart(parts, "outputPaths", Value(gate, "outputPaths"))
 	AddPart(parts, "stopConditions", Value(gate, "stopConditions"))
+	if eventID := Value(item, "eventId"); eventID != "" && Value(item, "status") == "authorized-gate" {
+		AddPart(parts, "eventId", eventID)
+		AddPart(parts, "reportContract", "/rekit gate -ExecutionReportContract -GateEventId "+eventID+" -Format json")
+	}
 	if auth, ok := gate["authorization"].(map[string]any); ok {
 		AddPart(parts, "auth", Value(auth, "decision"))
 		AddPart(parts, "profile", Value(auth, "profileId"))

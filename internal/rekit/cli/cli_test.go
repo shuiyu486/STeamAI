@@ -4981,10 +4981,14 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if len(result.MissionBrief.PendingGates) != 0 || !slices.Contains(result.MissionBrief.ReadyLanes, "main") || len(result.MissionBrief.BlockedLanes) != 0 || !containsSubstring(result.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(result.MissionBrief.AuthorizedGates, "auth=preauthorized") {
 		t.Fatalf("authorized gate mission brief should be visible and non-blocking: %+v", result.MissionBrief)
 	}
+	authorizedEventID := result.EventID
+	reportContract := "/rekit gate -ExecutionReportContract -GateEventId " + authorizedEventID + " -Format json"
 	for _, want := range []string{
 		"requestedBudget=runtimeSeconds=30,diskMB=64,requests=1",
 		"outputPaths=workspace/main/debug/session-1",
 		"stopConditions=timeout",
+		"eventId=" + authorizedEventID,
+		"reportContract=" + reportContract,
 	} {
 		if !containsSubstring(result.MissionBrief.AuthorizedGates, want) {
 			t.Fatalf("authorized gate mission brief omitted %q: %+v", want, result.MissionBrief)
@@ -4993,7 +4997,6 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 0 || !slices.Equal(result.ExecutorAction.NextAgentActions, []string{"/rekit continue main"}) {
 		t.Fatalf("authorized gate executor action should remain non-blocking: %+v", result.ExecutorAction)
 	}
-	authorizedEventID := result.EventID
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ExecutionReportContract", "-GateEventId", authorizedEventID, "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
@@ -5221,7 +5224,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	overviewText := out.String()
-	for _, expected := range []string{"authorized gates:", "authorized debug", "authorized-gate（durable autonomy 已授权，非阻塞）", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "auth=preauthorized", "profile=prof-main-debug"} {
+	for _, expected := range []string{"authorized gates:", "authorized debug", "authorized-gate（durable autonomy 已授权，非阻塞）", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "profile=prof-main-debug"} {
 		if !strings.Contains(overviewText, expected) {
 			t.Fatalf("overview missing %q:\n%s", expected, overviewText)
 		}
@@ -5253,7 +5256,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
 		t.Fatalf("overview JSON did not decode: %v\n%s", err, out.String())
 	}
-	if overview.Sections.PendingGates.Total != 0 || overview.Sections.AuthorizedGates.Total != 1 || len(overview.Sections.AuthorizedGates.Events) != 1 || !containsSubstring(overview.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(overview.MissionBrief.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(overview.MissionBrief.AuthorizedGates, "stopConditions=timeout") {
+	if overview.Sections.PendingGates.Total != 0 || overview.Sections.AuthorizedGates.Total != 1 || len(overview.Sections.AuthorizedGates.Events) != 1 || !containsSubstring(overview.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(overview.MissionBrief.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(overview.MissionBrief.AuthorizedGates, "stopConditions=timeout") || !containsSubstring(overview.MissionBrief.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(overview.MissionBrief.AuthorizedGates, "reportContract="+reportContract) {
 		t.Fatalf("overview JSON missing authorized gate visibility: %+v", overview)
 	}
 	if len(overview.LaneExecutorActions) != 1 || overview.LaneExecutorActions[0].ExecutorAction.Blocked || !overview.LaneExecutorActions[0].ExecutorAction.Ready || overview.LaneExecutorActions[0].ExecutorAction.PendingGates != 0 || !slices.Equal(overview.LaneExecutorActions[0].ExecutorAction.NextAgentActions, []string{"/rekit continue main"}) {
@@ -5268,7 +5271,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := decodeHandoffResult(t, out.Bytes())
-	if !containsSubstring(project.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(project.MissionBrief.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(project.MissionBrief.AuthorizedGates, "stopConditions=timeout") || len(project.MissionBrief.PendingGates) != 0 {
+	if !containsSubstring(project.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(project.MissionBrief.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(project.MissionBrief.AuthorizedGates, "stopConditions=timeout") || !containsSubstring(project.MissionBrief.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(project.MissionBrief.AuthorizedGates, "reportContract="+reportContract) || len(project.MissionBrief.PendingGates) != 0 {
 		t.Fatalf("project handoff JSON missing authorized gate visibility: %+v", project.MissionBrief)
 	}
 	projectLatest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
@@ -5276,7 +5279,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "auth=preauthorized", "next action：/rekit continue main", "continue command：`/rekit continue main`"} {
+	for _, expected := range []string{"authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "next action：/rekit continue main", "continue command：`/rekit continue main`"} {
 		if !strings.Contains(string(projectText), expected) {
 			t.Fatalf("project handoff missing %q:\n%s", expected, string(projectText))
 		}
@@ -5287,7 +5290,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	lane := decodeHandoffResult(t, out.Bytes())
-	if !containsSubstring(lane.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(lane.MissionBrief.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(lane.MissionBrief.AuthorizedGates, "stopConditions=timeout") || len(lane.MissionBrief.PendingGates) != 0 {
+	if !containsSubstring(lane.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(lane.MissionBrief.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(lane.MissionBrief.AuthorizedGates, "stopConditions=timeout") || !containsSubstring(lane.MissionBrief.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(lane.MissionBrief.AuthorizedGates, "reportContract="+reportContract) || len(lane.MissionBrief.PendingGates) != 0 {
 		t.Fatalf("lane handoff JSON missing authorized gate visibility: %+v", lane.MissionBrief)
 	}
 	laneLatest := assertStartWrite(t, lane.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
@@ -5295,7 +5298,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"然后执行 `/rekit continue main`", "authorized-gate:", "## authorized-gate", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "auth=preauthorized", "next agent action:", "/rekit continue main"} {
+	for _, expected := range []string{"然后执行 `/rekit continue main`", "authorized-gate:", "## authorized-gate", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "next agent action:", "/rekit continue main"} {
 		if !strings.Contains(string(laneText), expected) {
 			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
 		}
@@ -5326,7 +5329,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &cont); err != nil {
 		t.Fatalf("continue apply stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if !containsSubstring(cont.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(cont.MissionBrief.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(cont.MissionBrief.AuthorizedGates, "stopConditions=timeout") || len(cont.MissionBrief.PendingGates) != 0 {
+	if !containsSubstring(cont.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(cont.MissionBrief.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(cont.MissionBrief.AuthorizedGates, "stopConditions=timeout") || !containsSubstring(cont.MissionBrief.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(cont.MissionBrief.AuthorizedGates, "reportContract="+reportContract) || len(cont.MissionBrief.PendingGates) != 0 {
 		t.Fatalf("continue JSON missing authorized gate visibility: %+v", cont.MissionBrief)
 	}
 	if !cont.ExecutorAction.Blocked || cont.ExecutorAction.Ready || !cont.ExecutorAction.OpenDecisionRequired || cont.ExecutorAction.PendingGates != 0 || cont.ExecutorAction.OpenInterventions != 0 || cont.ExecutorAction.OpenDecisions != 1 || !slices.Contains(cont.ExecutorAction.BlockerReasons, "open-decision") || cont.ExecutorAction.ResumeCommand != "/rekit continue main" {
@@ -5341,14 +5344,14 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(status), `"authorizedGates"`) || !strings.Contains(string(status), `"executorAction"`) || !strings.Contains(string(status), `"openDecisions": 1`) || !strings.Contains(string(status), "authorized debug") || !strings.Contains(string(status), "outputPaths=workspace/main/debug/session-1") || !strings.Contains(string(status), "stopConditions=timeout") || strings.Contains(string(status), "pending-gate requires main-agent/user decision") {
+	if !strings.Contains(string(status), `"authorizedGates"`) || !strings.Contains(string(status), `"executorAction"`) || !strings.Contains(string(status), `"openDecisions": 1`) || !strings.Contains(string(status), "authorized debug") || !strings.Contains(string(status), "outputPaths=workspace/main/debug/session-1") || !strings.Contains(string(status), "stopConditions=timeout") || !strings.Contains(string(status), "eventId="+authorizedEventID) || !strings.Contains(string(status), "reportContract="+reportContract) || strings.Contains(string(status), "pending-gate requires main-agent/user decision") {
 		t.Fatalf("continue status missing non-blocking authorized gate visibility or executor action:\n%s", string(status))
 	}
 	digest, err := os.ReadFile(digestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"- authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "auth=preauthorized", "## Executor action snapshot", "- open decisions: `1`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "- blocker reasons:", "open-decision"} {
+	for _, expected := range []string{"- authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "## Executor action snapshot", "- open decisions: `1`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "- blocker reasons:", "open-decision"} {
 		if !strings.Contains(string(digest), expected) {
 			t.Fatalf("continue digest missing %q:\n%s", expected, string(digest))
 		}
@@ -5359,7 +5362,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Mission Control brief", "openLanes=1 ready=0 blocked=1", "- blocked lanes:", "main (open-decision)", "- open decisions:", "review candidate", "- next agent actions:", "review open candidate/decision item(s) with evidence and authority boundary", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "- blocker reasons:", "open-decision", "## Heavy-action gate decisions", "- authorized-gate:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "auth=preauthorized", "profile=prof-main-debug", "- pending-gate: none"} {
+	for _, expected := range []string{"## Mission Control brief", "openLanes=1 ready=0 blocked=1", "- blocked lanes:", "main (open-decision)", "- open decisions:", "review candidate", "- next agent actions:", "review open candidate/decision item(s) with evidence and authority boundary", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "- blocker reasons:", "open-decision", "## Heavy-action gate decisions", "- authorized-gate:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "profile=prof-main-debug", "- pending-gate: none"} {
 		if !strings.Contains(string(resume), expected) {
 			t.Fatalf("lane resume missing %q:\n%s", expected, string(resume))
 		}
@@ -5370,10 +5373,11 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	var checkpoint struct {
 		MissionBrief struct {
-			Summary       string   `json:"summary"`
-			BlockedLanes  []string `json:"blockedLanes"`
-			OpenDecisions []string `json:"openDecisions"`
-			PendingGates  []string `json:"pendingGates"`
+			Summary         string   `json:"summary"`
+			BlockedLanes    []string `json:"blockedLanes"`
+			OpenDecisions   []string `json:"openDecisions"`
+			PendingGates    []string `json:"pendingGates"`
+			AuthorizedGates []string `json:"authorizedGates"`
 		} `json:"missionBrief"`
 		ExecutorAction struct {
 			Blocked              bool     `json:"blocked"`
@@ -5391,13 +5395,13 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
 		t.Fatalf("lane checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
 	}
-	if checkpoint.MissionBrief.Summary != "openLanes=1 ready=0 blocked=1 pendingGates=0 authorizedGates=1 openDecisions=1 interventions=0" || !slices.Contains(checkpoint.MissionBrief.BlockedLanes, "main (open-decision)") || !containsSubstring(checkpoint.MissionBrief.OpenDecisions, "review candidate") || len(checkpoint.MissionBrief.PendingGates) != 0 {
+	if checkpoint.MissionBrief.Summary != "openLanes=1 ready=0 blocked=1 pendingGates=0 authorizedGates=1 openDecisions=1 interventions=0" || !slices.Contains(checkpoint.MissionBrief.BlockedLanes, "main (open-decision)") || !containsSubstring(checkpoint.MissionBrief.OpenDecisions, "review candidate") || len(checkpoint.MissionBrief.PendingGates) != 0 || !containsSubstring(checkpoint.MissionBrief.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(checkpoint.MissionBrief.AuthorizedGates, "reportContract="+reportContract) {
 		t.Fatalf("lane checkpoint missing Mission Control brief snapshot: %+v", checkpoint.MissionBrief)
 	}
 	if !checkpoint.ExecutorAction.Blocked || checkpoint.ExecutorAction.Ready || !checkpoint.ExecutorAction.OpenDecisionRequired || checkpoint.ExecutorAction.PendingGates != 0 || checkpoint.ExecutorAction.OpenInterventions != 0 || checkpoint.ExecutorAction.OpenDecisions != 1 || !slices.Contains(checkpoint.ExecutorAction.BlockerReasons, "open-decision") || checkpoint.ExecutorAction.ResumeCommand != "/rekit continue main" {
 		t.Fatalf("lane checkpoint missing typed executor action snapshot: %+v", checkpoint.ExecutorAction)
 	}
-	if len(checkpoint.PendingGates) != 0 || !containsSubstring(checkpoint.AuthorizedGates, "authorized debug") || !containsSubstring(checkpoint.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(checkpoint.AuthorizedGates, "stopConditions=timeout") || !containsSubstring(checkpoint.AuthorizedGates, "auth=preauthorized") {
+	if len(checkpoint.PendingGates) != 0 || !containsSubstring(checkpoint.AuthorizedGates, "authorized debug") || !containsSubstring(checkpoint.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(checkpoint.AuthorizedGates, "stopConditions=timeout") || !containsSubstring(checkpoint.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(checkpoint.AuthorizedGates, "reportContract="+reportContract) || !containsSubstring(checkpoint.AuthorizedGates, "auth=preauthorized") {
 		t.Fatalf("lane checkpoint missing non-blocking authorized gate visibility: %+v", checkpoint)
 	}
 }
