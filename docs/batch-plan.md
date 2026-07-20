@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 436：adapter report validation repair hint text detail closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs；待 commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate 仍为既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 424/432 已让 `gate -ValidateExecutionReport -Format text` 输出 validation/follow-through/Mission Commander action queue/next actions，但 invalid sidecar 的 `repairHints[]` text 仍只打印 action、recordBlocked、rerunValidation 与 detail。replacement executor 仍需解析 JSON 才能看到 stable code/stage、fields、allowed values、authorized output paths、authorized stop conditions、max byte limit 与 escalateToMain。本批把 repair hint detail 直接投影到 validation text path。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - invalid `boundary-marker-missing` product path text 现在直接显示 `fields=boundaryHits,escalation`、`allowedStopConditions=timeout` 与 bounded escalation detail，让 terminal executor 不必解析 JSON 即可修复 sidecar 并重跑 read-only validation。
 - CLI coverage 锁定 invalid adapter report validation repair hint detail，以及既有 validation follow-through/action queue/next-action、no premature record/no observation/no authority/confirmed/no-heavy 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunGateAdapterReportTextOutputsNextActions' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`。待完成 commit/push 与远程 release-gate inspection。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunGateAdapterReportTextOutputsNextActions' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `4bbec58 Add adapter validation repair hint text`；远程 release-gate run `29722955842` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 435 已完成 plan-subagents reviewer orchestration lifecycle text closure，详见 `docs/batch-history.md`。
 
