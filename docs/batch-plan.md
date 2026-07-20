@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 444：sync/promote review plan text handoff closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs；正在 commit/push 与远程 release-gate inspection；远程 release-gate 预计仍为既有 GitHub Actions runner/billing blocker，需以实际 run 为准。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29727533584` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：`sync` / `promote` non-apply review-first path 默认输出 JSON，且此前显式 `-Format text` 也没有 terminal review plan handoff。Mission Commander / replacement executor 若只在终端查看 review scope，仍需要解析 JSON 才能看到 changed/blocked summary、每个 item 的 action/risk/recommendation、paths、hashes、deny violations 与 tooling replacement counts。本批把 sync/promote review plan 投影到 text path。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - text output 继续打印可用 paths、hashes、deny violations 与 sorted replacement counts，让 terminal executor 可直接复核 sync managed/template/block scope 与 promote candidate/block/tooling sanitization scope。
 - CLI coverage 锁定 sync/promote review plan text item detail，并保留 existing default JSON review plan compatibility。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunSyncAndPromoteReviewPlanTextOutputsItems|TestRunSyncReviewEmitsNonMutatingPlan|TestRunPromoteReviewEmitsNonMutatingPlan' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。尚待 commit/push 与远程 release-gate inspection。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunSyncAndPromoteReviewPlanTextOutputsItems|TestRunSyncReviewEmitsNonMutatingPlan|TestRunPromoteReviewEmitsNonMutatingPlan' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `397d943 Add review plan text handoff`；远程 release-gate run `29727533584` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 443 已完成 update apply command identity parity，详见 `docs/batch-history.md`。
 
