@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 422：Workstream / replacement executor action queue closure
 
-状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待本批收尾执行。
+状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 417/418/407/405/406 已让 `start` / `reconcile` / `continue` / `handoff` / lane-local resume/checkpoint 输出 top-level 或 durable `missionCommanderNextActions[]`；Batch 420/421 又把 overview 与 gate adapter/report/execution evidence paths 收口成共享 action queue。但 workstream / replacement executor product path 仍要求主 Agent 从 `missionCommanderNextActions[]` 手工计算 current action、unblocked/blocked/review-required/follow-up buckets。本批把 shared `MissionCommanderActionQueue` 延伸到 start/continue/handoff/reconcile、lane resume/checkpoint、continue run artifacts 与 handoff Markdown。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - project handoff 的逐 lane 行现在先显示 per-lane action queue，再列 `commander next action`，让 replacement executor 不必解析完整 JSON 才能知道当前可执行/阻塞/review/follow-up 分桶。
 - coverage 锁定 start preview/apply、blocked existing lane、project/lane handoff preview/apply、blocked continue、reconcile preview/apply、lane checkpoint JSON contract 与 shared queue counts/current/follow-up semantics。
 
-验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneCheckpointJSONContract|TestRunStart|TestRunHandoff|TestRunContinue|TestRunReconcile" -count=1`、affected package `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 将在本批收尾执行；远程预计仍受既有 GitHub Actions runner/billing blocker 影响，不能用 inventory ready 代替远程 green。
+验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneCheckpointJSONContract|TestRunStart|TestRunHandoff|TestRunContinue|TestRunReconcile" -count=1`、affected package `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `0491733 Add workstream commander action queues`；远程 release-gate run `29712919248` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 421 已完成 Authorized execution adapter/report action queue closure，详见 `docs/batch-history.md`。
 
