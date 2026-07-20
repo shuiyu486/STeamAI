@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 454：reviewer dispatch prompt skeleton closure
+
+状态：已完成 reviewer dispatch prompt skeleton closure、本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection。
+
+目标：Batch 453 已让 `plan-subagents -Format text` 在 terminal handoff 中输出可复制 reviewer result skeleton 与 routeOutput field hints；但真正交给 short-lived read-only reviewer 的 packet shard prompt / `dispatchPrompt` 仍可能沿用“只返回 route output contract”的旧心智模型，诱导 reviewer 返回 routeOutput alone，而不是 strict `ReviewerResult` 单对象。Batch 454 将同一 skeleton / field-hint / binding guidance 前移到 dispatch prompt 本身。
+
+实施范围：packet shard prompt 不再要求 “Return the route output contract only”，改为要求返回一个 reviewer result JSON object，并明确不要只返回 routeOutput、不要写文件或粘贴长日志；`shardHandoffs[].dispatchPrompt` 直接要求单个 reviewer result JSON object，内嵌 strict reviewer result contract、required result fields、routeOutput required field hints、reviewer result JSON skeleton、packet/route/shard/session replacement guidance、top-level decision/confidence 与 routeOutput 绑定说明，以及 no-write/no-heavy/no ledger/no authority/confirmed 边界。该批只增强 `plan-subagents` packet shard prompt、`dispatchPrompt`、focused CLI coverage 与 durable docs；不改变 reviewer-intake JSON contract、packet/result validation、packet identity/hash、review artifacts 写入、verification-before-decision writeback、默认 JSON compatibility，不自动 spawn reviewer、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
+
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsWritesReviewArtifacts -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `f2de56e Add reviewer dispatch prompt skeleton`；远程 release-gate run `29738897043` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+
 ### Batch 453：reviewer dispatch result skeleton text closure
 
 状态：已完成 reviewer dispatch result skeleton text closure、本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection。

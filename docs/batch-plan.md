@@ -16,25 +16,26 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 453：reviewer dispatch result skeleton text closure
+### Batch 454：reviewer dispatch prompt skeleton closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29737685707` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29738897043` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
-目标：Batch 433/435 已让 `plan-subagents -Format text` 输出 reviewer orchestration lifecycle 与 shard handoff，Batch 452 已让 reviewer-intake text 复用 nested note handoff；但 planning text 中 reviewer result contract 仍主要以 compact `required=` 与 `expected=` 呈现，Mission Commander / replacement executor 在 dispatch read-only reviewer 或准备 strict intake 时仍可能需要打开 `packet.json` / `summary.md` 或解析 planning JSON，才能构造包含 packetId、routeId、shardId、items 与 routeOutput 字段的单对象 reviewer result。Batch 453 让 planning text 直接输出可复制 reviewer result skeleton 与 routeOutput required field hints。
+目标：Batch 453 已让 `plan-subagents -Format text` 在 terminal handoff 中输出可复制 reviewer result skeleton 与 routeOutput field hints；但真正交给 short-lived read-only reviewer 的 packet shard prompt / `dispatchPrompt` 仍可能沿用“只返回 route output contract”的旧心智模型，诱导 reviewer 返回 routeOutput alone，而不是 strict `ReviewerResult` 单对象。Batch 454 将同一 skeleton / field-hint / binding guidance 前移到 dispatch prompt 本身。
 
-边界：只增强 `plan-subagents -Format text` planning/shard handoff 输出、focused CLI coverage 与 durable docs；不改变 reviewer-intake JSON contract、packet/result validation、packet identity/hash、review artifacts 写入、verification-before-decision writeback、默认 JSON compatibility，不自动 spawn reviewer、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
+边界：只增强 `plan-subagents` packet shard prompt、`shardHandoffs[].dispatchPrompt`、focused CLI coverage 与 durable docs；不改变 reviewer-intake JSON contract、packet/result validation、packet identity/hash、review artifacts 写入、verification-before-decision writeback、默认 JSON compatibility，不自动 spawn reviewer、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
 
 已完成内容：
 
-- 每个 shard handoff 在 strict `reviewerResultContract` 后输出 `plan-subagents reviewer result skeleton`，包含 packetId、routeId、shardId、items、reviewerSession、decision/confidence/summary、evidenceRefs、risks、conflicts、recommendedVerdict 与 routeOutput。
-- skeleton 由 runtime 从刚写出的 packet 读取 packetId/routeId 并填入当前 shard items 与 reviewerResultPath；读取失败时保留 `packet.packetId` / `packet.route.id` 占位，避免阻断既有 text handoff。
-- routeOutput 现在按 route `outputContract` 逐字段打印 `plan-subagents reviewer result routeOutput field`，并对 `item`、`decision`、`confidence`、`evidence`、`risk`、`next_action`、`tier_used`、`tool_scope`、`defer_reason` 给出 bounded valueHint。
-- `tool_scope` skeleton 默认 `read-only`，`next_action` 默认 defer/main-agent evidence review，避免 reviewer output 暗示写文件、ledger append、heavy tool 或外部副作用。
-- CLI coverage 锁定 planning text skeleton、routeOutput field hints、existing reviewer orchestration/shard handoff lines 与 reviewer intake text compatibility。
+- packet shard prompt 不再要求 “Return the route output contract only”，改为要求返回一个 reviewer result JSON object，并明确不要只返回 routeOutput、不要写文件或粘贴长日志。
+- `dispatchPrompt` 直接要求 “Return exactly one reviewer result JSON object; do not return routeOutput alone”，并输出 strict reviewer result contract、required result fields、allowed decisions 与 no-write/no-heavy/no ledger/no authority/confirmed 边界。
+- `dispatchPrompt` 内嵌 reviewer result JSON skeleton，包含 packetId、routeId、shardId、items、reviewerSession、decision/confidence/summary、evidenceRefs、risks、conflicts、recommendedVerdict 与 routeOutput。
+- routeOutput field hints 现在在 prompt 内按 route `outputContract` 展开，对 `item`、`decision`、`confidence`、`evidence`、`risk`、`next_action`、`tier_used`、`tool_scope`、`defer_reason` 给出 bounded valueHint。
+- prompt 明确将占位 `packet.packetId` 替换为 packet packetId，并保持 top-level `decision/confidence` 与 `routeOutput.decision/confidence` 一致、`routeOutput.evidence` 包含在 `evidenceRefs` 内。
+- CLI coverage 锁定 packet shard prompt 不再出现旧式 route-output-only 指令，并锁定 dispatchPrompt skeleton、routeOutput hints 与 no-write/no-heavy 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsWritesReviewArtifacts -count=1`、focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsWritesReviewArtifacts|TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `97b4c3b Add reviewer result skeleton text` 与 docs follow-up `ff56aa4 Record Batch 453 release gate inspection`；远程 release-gate runs `29737685707` / `29737833864` 均为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsWritesReviewArtifacts -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `f2de56e Add reviewer dispatch prompt skeleton`；远程 release-gate run `29738897043` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
-上一批摘要：Batch 452 已完成 reviewer intake nested note text reuse closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 453 已完成 reviewer dispatch result skeleton text closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
