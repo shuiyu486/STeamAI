@@ -378,7 +378,7 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	if err := writeJSON(paths.PacketPath, packet); err != nil {
 		return Result{}, err
 	}
-	if err := os.WriteFile(paths.SummaryPath, []byte(summaryText(route, opt.TaskType, len(items), len(shards), itemsPerAgent, maxParallel, observability, reviewLoop, ownerBinding, shardHandoffs, orchestration)), 0o644); err != nil {
+	if err := os.WriteFile(paths.SummaryPath, []byte(summaryText(packet.PacketID, route, opt.TaskType, len(items), len(shards), itemsPerAgent, maxParallel, observability, reviewLoop, ownerBinding, shardHandoffs, orchestration)), 0o644); err != nil {
 		return Result{}, err
 	}
 	return Result{SchemaVersion: 1, Command: commandName, PlanRoot: planRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, IsMutation: false, WritesReviewArtifacts: true, ReviewRequired: true, ReviewRoot: paths.Root, PacketPath: paths.PacketPath, SummaryPath: paths.SummaryPath, CombinedDiffPath: paths.CombinedDiffPath, ItemCount: len(items), ShardCount: len(shards), TargetLane: targetLane, OwnerBinding: ownerBinding, ReviewerOrchestration: orchestration, ShardHandoffs: shardHandoffs, Observability: observability, ReviewLoop: reviewLoop, MissionCommanderAction: commanderAction, MissionCommanderNextActions: commanderNextActions, MissionCommanderActionQueue: commanderActionQueue}, nil
@@ -1106,6 +1106,19 @@ func reviewerOrchestrationLifecycle(intakeAvailable bool) []ReviewerOrchestratio
 }
 
 func reviewerResultPromptSkeleton(shard Shard, route Route) string {
+	return reviewerResultSkeletonJSON("packet.packetId", shard, route, reviewerRouteOutputPromptSkeleton(splitCSV(route.OutputContract), shard.Items))
+}
+
+func reviewerResultSummarySkeleton(packetID string, handoff ShardHandoff, route Route) string {
+	shard := Shard{ID: handoff.ShardID, Items: append([]string{}, handoff.Items...)}
+	return reviewerResultSkeletonJSON(packetID, shard, route, reviewerRouteOutputSummarySkeleton(splitCSV(handoff.ExpectedOutput), handoff.Items, packetID))
+}
+
+func reviewerResultSkeletonJSON(packetID string, shard Shard, route Route, routeOutput map[string]string) string {
+	evidenceRef := strings.TrimSpace(packetID)
+	if evidenceRef == "" {
+		evidenceRef = "packet.packetId"
+	}
 	skeleton := struct {
 		PacketID           string            `json:"packetId"`
 		RouteID            string            `json:"routeId"`
@@ -1121,7 +1134,7 @@ func reviewerResultPromptSkeleton(shard Shard, route Route) string {
 		RecommendedVerdict string            `json:"recommendedVerdict"`
 		RouteOutput        map[string]string `json:"routeOutput"`
 	}{
-		PacketID:           "packet.packetId",
+		PacketID:           evidenceRef,
 		RouteID:            route.ID,
 		ShardID:            shard.ID,
 		Items:              append([]string{}, shard.Items...),
@@ -1129,11 +1142,11 @@ func reviewerResultPromptSkeleton(shard Shard, route Route) string {
 		Decision:           "needs-more-evidence",
 		Confidence:         "medium",
 		Summary:            "fill summary for this shard",
-		EvidenceRefs:       []string{"packet.packetId"},
+		EvidenceRefs:       []string{evidenceRef},
 		Risks:              []string{},
 		Conflicts:          []string{},
 		RecommendedVerdict: "needs-more-evidence",
-		RouteOutput:        reviewerRouteOutputPromptSkeleton(splitCSV(route.OutputContract), shard.Items),
+		RouteOutput:        routeOutput,
 	}
 	b, err := json.Marshal(skeleton)
 	if err != nil {
@@ -1143,6 +1156,18 @@ func reviewerResultPromptSkeleton(shard Shard, route Route) string {
 }
 
 func reviewerRouteOutputPromptSkeleton(fields []string, items []string) map[string]string {
+	return reviewerRouteOutputSkeleton(fields, items, "packet.packetId")
+}
+
+func reviewerRouteOutputSummarySkeleton(fields []string, items []string, packetID string) map[string]string {
+	return reviewerRouteOutputSkeleton(fields, items, packetID)
+}
+
+func reviewerRouteOutputSkeleton(fields []string, items []string, evidenceRef string) map[string]string {
+	evidenceRef = strings.TrimSpace(evidenceRef)
+	if evidenceRef == "" {
+		evidenceRef = "packet.packetId"
+	}
 	routeOutput := map[string]string{}
 	for _, field := range fields {
 		switch field {
@@ -1153,7 +1178,7 @@ func reviewerRouteOutputPromptSkeleton(fields []string, items []string) map[stri
 		case "confidence":
 			routeOutput[field] = "medium"
 		case "evidence":
-			routeOutput[field] = "packet.packetId"
+			routeOutput[field] = evidenceRef
 		case "risk":
 			routeOutput[field] = "unknown"
 		case "next_action":
@@ -1172,8 +1197,15 @@ func reviewerRouteOutputPromptSkeleton(fields []string, items []string) map[stri
 }
 
 func reviewerRouteOutputFieldHints(outputContract string, items []string) string {
-	fields := splitCSV(outputContract)
-	skeleton := reviewerRouteOutputPromptSkeleton(fields, items)
+	return reviewerRouteOutputFieldHintsFor(splitCSV(outputContract), items, "packet.packetId")
+}
+
+func reviewerRouteOutputSummaryFieldHints(outputContract string, items []string, packetID string) string {
+	return reviewerRouteOutputFieldHintsFor(splitCSV(outputContract), items, packetID)
+}
+
+func reviewerRouteOutputFieldHintsFor(fields []string, items []string, evidenceRef string) string {
+	skeleton := reviewerRouteOutputSkeleton(fields, items, evidenceRef)
 	hints := make([]string, 0, len(fields))
 	for _, field := range fields {
 		hints = append(hints, field+"="+skeleton[field])
@@ -1366,7 +1398,7 @@ func writeJSON(path string, v any) error {
 	return os.WriteFile(path, append(b, '\n'), 0o644)
 }
 
-func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAgent, maxParallel int, observability Observability, reviewLoop ReviewLoop, ownerBinding OwnerBinding, shardHandoffs []ShardHandoff, orchestration ReviewerOrchestrationPlan) string {
+func summaryText(packetID string, route Route, taskType string, itemCount, shardCount, itemsPerAgent, maxParallel int, observability Observability, reviewLoop ReviewLoop, ownerBinding OwnerBinding, shardHandoffs []ShardHandoff, orchestration ReviewerOrchestrationPlan) string {
 	lines := []string{
 		"# rekit subagent plan",
 		"",
@@ -1463,6 +1495,10 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 	} else {
 		for _, handoff := range shardHandoffs {
 			lines = append(lines, fmt.Sprintf("- %s: `%s`; expected output=`%s`; main-agent result path=`%s`", handoff.ShardID, handoff.DispatchPrompt, handoff.ExpectedOutput, handoff.ReviewerResultPath))
+			lines = append(lines, "  - reviewer result path: `"+handoff.ReviewerResultPath+"`")
+			lines = append(lines, "  - reviewer result skeleton: `"+reviewerResultSummarySkeleton(packetID, handoff, route)+"`")
+			lines = append(lines, "  - reviewer routeOutput field hints: `"+reviewerRouteOutputSummaryFieldHints(handoff.ExpectedOutput, handoff.Items, packetID)+"`")
+			lines = append(lines, fmt.Sprintf("  - reviewer result binding: packetId=`%s`; routeId=`%s`; shardId=`%s`; keep routeOutput decision/confidence aligned with top-level fields and routeOutput evidence inside evidenceRefs", packetID, route.ID, handoff.ShardID))
 			contract := handoff.ReviewerResultContract
 			lines = append(lines, fmt.Sprintf("  - reviewer result contract: output=`%s`; required=`%s`; allowed decisions=`%s`", contract.OutputFormat, strings.Join(contract.RequiredFields, ","), strings.Join(contract.AllowedDecisions, ",")))
 			for _, rule := range contract.EvidenceRules {

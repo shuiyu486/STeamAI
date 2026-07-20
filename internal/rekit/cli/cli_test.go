@@ -5273,7 +5273,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing summary: %v", err)
 	}
-	for _, expected := range []string{"## bounded dispatch observability", "### reviewer orchestration", "mission commander action queue:", "orchestration-step:", "reviewer-dispatch:", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "-ReviewerResultPath", "-WhatIf -Format json", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"## bounded dispatch observability", "### reviewer orchestration", "mission commander action queue:", "orchestration-step:", "reviewer-dispatch:", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result path:", "reviewer result skeleton:", "\"packetId\":\"packet-", "reviewer routeOutput field hints:", "tool_scope=read-only", "reviewer result binding: packetId=`packet-", "routeOutput evidence inside evidenceRefs", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "-ReviewerResultPath", "-WhatIf -Format json", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
