@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 452：reviewer intake nested note text reuse closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs，尚未完成 commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29735629073` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 451 已让 standalone `note -Format text` 输出 append/WhatIf 的 current/would/post commander delta，但 reviewer-intake text 仍只打印 compact verification/decision event lines；Mission Commander / replacement executor 在 `plan-subagents ... -ReviewerResultPath ... -Format text` 的 preview、partial recovery 或 already-complete 路径里仍可能需要解析 nested JSON 才能看到 `note.AppendResult` 的 note-level Mission brief、executor action 与 would/duplicate guidance。Batch 452 让 reviewer-intake text 直接复用 note text handoff。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - partial recovery fixture 保持缺失 event body 时不额外输出 misleading nested handoff，现有 retry boundary 与 text lines 兼容。
 - CLI coverage 锁定 reviewer-intake WhatIf text、already-complete duplicate text、partial recovery text 与 existing reviewer-intake JSON compatibility。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `4453deb Reuse note text in reviewer intake`；远程 release-gate run `29735629073` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 451 已完成 note append explicit text handoff closure，详见 `docs/batch-history.md`。
 
