@@ -1180,11 +1180,17 @@ func appendResumeExecutionEvidenceFollowThrough(lines []string, follow mission.E
 	lines = append(lines, "    - follow-through: state="+follow.State+" gateEventId="+follow.GateEventID+" outcomes="+fmt.Sprintf("%d", len(follow.Outcomes)))
 	for _, outcome := range limitExecutionEvidenceOutcomes(follow.Outcomes, maxHandoffRows) {
 		lines = append(lines, "      - outcome: name="+outcome.Name+" state="+outcome.State+" command=`"+outcome.Command+"` expected="+outcome.Expected)
+		if strings.TrimSpace(outcome.When) != "" {
+			lines = append(lines, "        - when: "+outcome.When)
+		}
 		for _, action := range mission.LimitStrings(outcome.Actions, maxHandoffRows) {
 			lines = append(lines, "        - action: "+action)
 		}
 		for _, command := range mission.LimitStrings(outcome.VerificationCommands, maxHandoffRows) {
 			lines = append(lines, "        - verification: "+command)
+		}
+		for _, evidence := range mission.LimitStrings(outcome.Evidence, maxHandoffRows) {
+			lines = append(lines, "        - evidence: "+evidence)
 		}
 	}
 	if strings.TrimSpace(follow.ActionQueue.Summary) != "" {
