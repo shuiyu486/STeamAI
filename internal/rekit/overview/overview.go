@@ -35,6 +35,7 @@ type Inventory struct {
 	LaneExecutorActions         []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions"`
 	MissionCommanderActions     []MissionCommanderActionIndexItem        `json:"missionCommanderActions"`
 	MissionCommanderNextActions []MissionCommanderNextActionItem         `json:"missionCommanderNextActions"`
+	MissionCommanderActionQueue MissionCommanderActionQueue              `json:"missionCommanderActionQueue"`
 	ExecutionEvidenceReview     []workstream.ExecutionEvidenceReviewItem `json:"executionEvidenceReview"`
 	Sections                    OverviewSections                         `json:"sections"`
 	NextSteps                   []string                                 `json:"nextSteps"`
@@ -71,6 +72,24 @@ type MissionCommanderActionIndexItem struct {
 }
 
 type MissionCommanderNextActionItem = mission.MissionCommanderNextActionItem
+
+type MissionCommanderActionQueue struct {
+	Summary               string                            `json:"summary"`
+	Counts                MissionCommanderActionQueueCounts `json:"counts"`
+	CurrentAction         *MissionCommanderNextActionItem   `json:"currentAction,omitempty"`
+	UnblockedActions      []MissionCommanderNextActionItem  `json:"unblockedActions,omitempty"`
+	BlockedActions        []MissionCommanderNextActionItem  `json:"blockedActions,omitempty"`
+	ReviewRequiredActions []MissionCommanderNextActionItem  `json:"reviewRequiredActions,omitempty"`
+	FollowUpActions       []MissionCommanderNextActionItem  `json:"followUpActions,omitempty"`
+}
+
+type MissionCommanderActionQueueCounts struct {
+	Total          int `json:"total"`
+	Unblocked      int `json:"unblocked"`
+	Blocked        int `json:"blocked"`
+	RequiresReview int `json:"requiresReview"`
+	FollowUp       int `json:"followUp"`
+}
 
 type MissionBrief = mission.Brief
 
@@ -166,10 +185,13 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	brief := buildMissionBrief(data.lanes, facts)
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
 	evidenceReview := overviewExecutionEvidenceReview(data.lanes, facts)
+	nextActions := missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief))
+	actionQueue := missionCommanderActionQueue(nextActions)
 	writeMissionBrief(&out, brief)
 	writeLaneExecutorActions(&out, actions)
 	writeMissionCommanderActionIndex(&out, missionCommanderActionIndex(actions))
-	writeMissionCommanderNextActions(&out, missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief)))
+	writeMissionCommanderActionQueue(&out, actionQueue)
+	writeMissionCommanderNextActions(&out, nextActions)
 	writeExecutionEvidenceReview(&out, evidenceReview)
 	writeOpenCandidates(&out, facts.Candidates)
 	writePendingGates(&out, facts.Requests)
@@ -217,6 +239,7 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 	brief := buildMissionBrief(data.lanes, facts)
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
 	evidenceReview := overviewExecutionEvidenceReview(data.lanes, facts)
+	nextActions := missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief))
 	return Inventory{
 		SchemaVersion:  1,
 		Command:        "overview",
@@ -236,7 +259,8 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 		MissionBrief:                brief,
 		LaneExecutorActions:         actions,
 		MissionCommanderActions:     missionCommanderActionIndex(actions),
-		MissionCommanderNextActions: missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief)),
+		MissionCommanderNextActions: nextActions,
+		MissionCommanderActionQueue: missionCommanderActionQueue(nextActions),
 		ExecutionEvidenceReview:     evidenceReview,
 		Sections:                    data.sections,
 		NextSteps:                   overviewNextSteps(brief, evidenceReview),
@@ -435,6 +459,78 @@ func writeMissionCommanderNextActions(out *bytes.Buffer, items []MissionCommande
 		writeActionIndexList(out, "reasons", item.Reasons)
 		writeActionIndexList(out, "boundary", item.Boundary)
 	}
+	fmt.Fprintln(out)
+}
+
+func missionCommanderActionQueue(items []MissionCommanderNextActionItem) MissionCommanderActionQueue {
+	queue := MissionCommanderActionQueue{}
+	for _, item := range items {
+		queue.Counts.Total++
+		if item.Blocked {
+			queue.Counts.Blocked++
+			queue.BlockedActions = append(queue.BlockedActions, item)
+		} else {
+			queue.Counts.Unblocked++
+			queue.UnblockedActions = append(queue.UnblockedActions, item)
+		}
+		if item.RequiresReview {
+			queue.Counts.RequiresReview++
+			queue.ReviewRequiredActions = append(queue.ReviewRequiredActions, item)
+		}
+		if missionCommanderNextActionIsFollowUp(item) {
+			queue.Counts.FollowUp++
+			queue.FollowUpActions = append(queue.FollowUpActions, item)
+		}
+	}
+	if current, ok := firstMissionCommanderCurrentAction(queue.UnblockedActions); ok {
+		queue.CurrentAction = missionCommanderNextActionPtr(current)
+	} else if len(items) > 0 {
+		queue.CurrentAction = missionCommanderNextActionPtr(items[0])
+	}
+	queue.Summary = missionCommanderActionQueueSummary(queue)
+	return queue
+}
+
+func firstMissionCommanderCurrentAction(items []MissionCommanderNextActionItem) (MissionCommanderNextActionItem, bool) {
+	for _, item := range items {
+		if !missionCommanderNextActionIsFollowUp(item) {
+			return item, true
+		}
+	}
+	if len(items) == 0 {
+		return MissionCommanderNextActionItem{}, false
+	}
+	return items[0], true
+}
+
+func missionCommanderNextActionIsFollowUp(item MissionCommanderNextActionItem) bool {
+	return strings.Contains(item.Source, ".followUp")
+}
+
+func missionCommanderNextActionPtr(item MissionCommanderNextActionItem) *MissionCommanderNextActionItem {
+	copy := item
+	return &copy
+}
+
+func missionCommanderActionQueueSummary(queue MissionCommanderActionQueue) string {
+	current := "none"
+	if queue.CurrentAction != nil {
+		current = queue.CurrentAction.Command
+	}
+	return fmt.Sprintf("total=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d current=%s", queue.Counts.Total, queue.Counts.Unblocked, queue.Counts.Blocked, queue.Counts.RequiresReview, queue.Counts.FollowUp, current)
+}
+
+func writeMissionCommanderActionQueue(out *bytes.Buffer, queue MissionCommanderActionQueue) {
+	fmt.Fprintln(out, "Mission Commander action queue：")
+	fmt.Fprintf(out, "- summary: %s\n", queue.Summary)
+	fmt.Fprintf(out, "- counts: total=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d\n", queue.Counts.Total, queue.Counts.Unblocked, queue.Counts.Blocked, queue.Counts.RequiresReview, queue.Counts.FollowUp)
+	if queue.CurrentAction == nil {
+		fmt.Fprintln(out, "- current: none")
+		fmt.Fprintln(out)
+		return
+	}
+	item := *queue.CurrentAction
+	fmt.Fprintf(out, "- current: %s state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", firstText(item.Label, item.Lane, "project"), item.State, item.Source, item.Blocked, item.RequiresReview, item.Command)
 	fmt.Fprintln(out)
 }
 

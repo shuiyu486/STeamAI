@@ -2182,6 +2182,11 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 			t.Fatalf("overview missing Mission Commander action index %q:\n%s", expected, text)
 		}
 	}
+	for _, expected := range []string{"Mission Commander action queue：", "summary: total=5 unblocked=2 blocked=3 requiresReview=5 followUp=3 current=/rekit handoff main", "counts: total=5 unblocked=2 blocked=3 requiresReview=5 followUp=3", "current: gate-auth-1 state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("overview missing Mission Commander action queue %q:\n%s", expected, text)
+		}
+	}
 	for _, expected := range []string{"Mission Commander next actions：", "gate-auth-1：state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`", "source=executionEvidenceReview.followUp", "command=`/rekit overview`", "review execution evidence for gateEventId gate-auth-1", "observation evidence is already recorded; do not replay heavy tool", "main：state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile main -InterventionId <eventId> -Apply`", "main：state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue main -WhatIf`", "follow-up is available only after resolving current lane blockers", "run as -WhatIf first; do not continue autonomously while lane remains blocked"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("overview missing Mission Commander next actions %q:\n%s", expected, text)
@@ -2234,8 +2239,23 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 		LaneExecutorActions         []handoffLaneExecutorAction      `json:"laneExecutorActions"`
 		MissionCommanderActions     []missionCommanderActionItem     `json:"missionCommanderActions"`
 		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
-		ExecutionEvidenceReview     []executionEvidenceReviewItem    `json:"executionEvidenceReview"`
-		Sections                    struct {
+		MissionCommanderActionQueue struct {
+			Summary string `json:"summary"`
+			Counts  struct {
+				Total          int `json:"total"`
+				Unblocked      int `json:"unblocked"`
+				Blocked        int `json:"blocked"`
+				RequiresReview int `json:"requiresReview"`
+				FollowUp       int `json:"followUp"`
+			} `json:"counts"`
+			CurrentAction         *missionCommanderNextActionItem  `json:"currentAction"`
+			UnblockedActions      []missionCommanderNextActionItem `json:"unblockedActions"`
+			BlockedActions        []missionCommanderNextActionItem `json:"blockedActions"`
+			ReviewRequiredActions []missionCommanderNextActionItem `json:"reviewRequiredActions"`
+			FollowUpActions       []missionCommanderNextActionItem `json:"followUpActions"`
+		} `json:"missionCommanderActionQueue"`
+		ExecutionEvidenceReview []executionEvidenceReviewItem `json:"executionEvidenceReview"`
+		Sections                struct {
 			OpenCandidates struct {
 				Total  int              `json:"total"`
 				Shown  int              `json:"shown"`
@@ -2293,6 +2313,10 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	}
 	if len(result.MissionCommanderNextActions) != 5 || result.MissionCommanderNextActions[0].Command != "/rekit handoff main" || result.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || !result.MissionCommanderNextActions[0].RequiresReview || result.MissionCommanderNextActions[1].Command != "/rekit overview" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit reconcile main -InterventionId <eventId> -Apply", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", true, true) || !containsSubstring(result.MissionCommanderNextActions[0].Reasons, "gate-auth-1") || !containsSubstring(result.MissionCommanderNextActions[0].Boundary, "do not replay heavy tool") || !containsSubstring(result.MissionCommanderNextActions[3].Reasons, "after resolving current lane blockers") || !containsSubstring(result.MissionCommanderNextActions[3].Boundary, "do not run continue") {
 		t.Fatalf("overview JSON missing consumable Mission Commander next actions: %+v", result.MissionCommanderNextActions)
+	}
+	queue := result.MissionCommanderActionQueue
+	if queue.Summary != "total=5 unblocked=2 blocked=3 requiresReview=5 followUp=3 current=/rekit handoff main" || queue.Counts.Total != 5 || queue.Counts.Unblocked != 2 || queue.Counts.Blocked != 3 || queue.Counts.RequiresReview != 5 || queue.Counts.FollowUp != 3 || queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit handoff main" || queue.CurrentAction.Source != "executionEvidenceReview" || len(queue.UnblockedActions) != 2 || len(queue.BlockedActions) != 3 || len(queue.ReviewRequiredActions) != 5 || len(queue.FollowUpActions) != 3 {
+		t.Fatalf("overview JSON missing Mission Commander action queue: %+v", queue)
 	}
 	if len(result.ExecutionEvidenceReview) != 1 || result.ExecutionEvidenceReview[0].GateEventID != "gate-auth-1" || result.ExecutionEvidenceReview[0].Action != "debug" || !containsSubstring(result.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/out.txt") || !containsSubstring(result.ExecutionEvidenceReview[0].EvidenceRefs, "evidence/debug.json") || !containsSubstring(result.ExecutionEvidenceReview[0].Boundary, "do not replay heavy tool") || result.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || result.ExecutionEvidenceReview[0].MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(result.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") {
 		t.Fatalf("overview JSON missing execution evidence review queue: %+v", result.ExecutionEvidenceReview)
