@@ -440,18 +440,19 @@ func TestRunStatusJsonCase(t *testing.T) {
 			Warnings                     []string `json:"warnings"`
 		} `json:"caseShim"`
 		CaseMission struct {
-			Ready            bool     `json:"ready"`
-			Summary          string   `json:"summary"`
-			LaneCount        int      `json:"laneCount"`
-			ReadyLaneCount   int      `json:"readyLaneCount"`
-			BlockedLaneCount int      `json:"blockedLaneCount"`
-			ReadyLanes       []string `json:"readyLanes"`
-			BlockedLanes     []string `json:"blockedLanes"`
-			PendingGates     []string `json:"pendingGates"`
-			AuthorizedGates  []string `json:"authorizedGates"`
-			OpenDecisions    []string `json:"openDecisions"`
-			Interventions    []string `json:"interventions"`
-			FactCounts       *struct {
+			Ready               bool                        `json:"ready"`
+			Summary             string                      `json:"summary"`
+			LaneCount           int                         `json:"laneCount"`
+			ReadyLaneCount      int                         `json:"readyLaneCount"`
+			BlockedLaneCount    int                         `json:"blockedLaneCount"`
+			ReadyLanes          []string                    `json:"readyLanes"`
+			BlockedLanes        []string                    `json:"blockedLanes"`
+			LaneExecutorActions []handoffLaneExecutorAction `json:"laneExecutorActions"`
+			PendingGates        []string                    `json:"pendingGates"`
+			AuthorizedGates     []string                    `json:"authorizedGates"`
+			OpenDecisions       []string                    `json:"openDecisions"`
+			Interventions       []string                    `json:"interventions"`
+			FactCounts          *struct {
 				Observations     int `json:"observations"`
 				Requests         int `json:"requests"`
 				Candidates       int `json:"candidates"`
@@ -486,8 +487,18 @@ func TestRunStatusJsonCase(t *testing.T) {
 	if !status.CaseShim.Ready || status.CaseShim.Summary != "case shim readiness ok" || status.CaseShim.InstalledShimPath != status.Case.ShimPath || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate || status.CaseShim.RequiredPhrases == 0 || status.CaseShim.CanonicalSkillPhrases == 0 || status.CaseShim.ForbiddenStrings == 0 || status.CaseShim.Boundaries == 0 || len(status.CaseShim.Warnings) != 0 {
 		t.Fatalf("unexpected case shim status JSON: %+v", status.CaseShim)
 	}
-	if !status.CaseMission.Ready || !strings.Contains(status.CaseMission.Summary, "openLanes=") || status.CaseMission.LaneCount == 0 || status.CaseMission.ReadyLaneCount == 0 || !containsSubstring(status.CaseMission.ReadyLanes, "login") || len(status.CaseMission.BlockedLanes) != 0 || len(status.CaseMission.PendingGates) != 0 || len(status.CaseMission.OpenDecisions) != 0 || len(status.CaseMission.Interventions) != 0 || status.CaseMission.FactCounts == nil || status.CaseMission.Sections == nil || status.CaseMission.HandoffPreviewCommand == "" || status.CaseMission.HandoffApplyCommand == "" || status.CaseMission.ContinueRequiresExplicitApply == "" || len(status.CaseMission.MissionBriefNextActions) == 0 {
+	if !status.CaseMission.Ready || !strings.Contains(status.CaseMission.Summary, "openLanes=") || status.CaseMission.LaneCount == 0 || status.CaseMission.ReadyLaneCount == 0 || !containsSubstring(status.CaseMission.ReadyLanes, "login") || len(status.CaseMission.BlockedLanes) != 0 || len(status.CaseMission.LaneExecutorActions) == 0 || len(status.CaseMission.PendingGates) != 0 || len(status.CaseMission.OpenDecisions) != 0 || len(status.CaseMission.Interventions) != 0 || status.CaseMission.FactCounts == nil || status.CaseMission.Sections == nil || status.CaseMission.HandoffPreviewCommand == "" || status.CaseMission.HandoffApplyCommand == "" || status.CaseMission.ContinueRequiresExplicitApply == "" || len(status.CaseMission.MissionBriefNextActions) == 0 {
 		t.Fatalf("unexpected case mission status JSON: %+v", status.CaseMission)
+	}
+	foundLoginLane := false
+	for _, lane := range status.CaseMission.LaneExecutorActions {
+		if lane.Lane == "feature-login" && lane.Label == "login" && lane.ExecutorAction.Ready && !lane.ExecutorAction.Blocked && lane.ExecutorAction.MissionCommanderAction.PrimaryCommand != "" {
+			foundLoginLane = true
+			break
+		}
+	}
+	if !foundLoginLane {
+		t.Fatalf("case mission should expose ready feature lane executor action: %+v", status.CaseMission.LaneExecutorActions)
 	}
 	if status.CaseMission.FactCounts.Observations != 0 || status.CaseMission.FactCounts.Requests != 0 || status.CaseMission.FactCounts.Candidates != 0 || status.CaseMission.FactCounts.Publications != 0 || status.CaseMission.FactCounts.PendingDecisions != 0 || status.CaseMission.Sections.OpenCandidates.Total != 0 || status.CaseMission.Sections.PendingGates.Total != 0 {
 		t.Fatalf("ready case mission should expose empty ledger/progress counts: %+v", status.CaseMission)
@@ -515,6 +526,8 @@ func TestRunStatusJsonCase(t *testing.T) {
 		"status case mission queue action：bucket=current lane=feature-login label=login state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=/rekit continue login",
 		"status case mission queue action：bucket=followUp lane=feature-login label=login state=ready-to-continue source=missionCommanderActions.followUp blocked=false requiresReview=false command=/rekit handoff login",
 		"status case mission queue action reason：bucket=followUp lane=feature-login reason=follow Mission Commander handoff after primary action",
+		"status case mission lane action：lane=feature-login label=login status=open workspace=workspace/features/feature-login executor=session-1 generation=1 ready=true blocked=false pendingGates=0 openInterventions=0 openDecisions=0 resume=/rekit continue login handoff=/rekit handoff login commanderState=ready-to-continue commanderPrimary=/rekit continue login",
+		"status case mission lane boundary：lane=feature-login boundary=no authority/confirmed writes",
 		"status case mission ready lane：login",
 		"status case mission next action：lane=feature-login",
 		"command=/rekit handoff login",
@@ -597,13 +610,14 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	}
 	var status struct {
 		CaseMission struct {
-			Ready           bool     `json:"ready"`
-			BlockedLanes    []string `json:"blockedLanes"`
-			PendingGates    []string `json:"pendingGates"`
-			AuthorizedGates []string `json:"authorizedGates"`
-			OpenDecisions   []string `json:"openDecisions"`
-			Interventions   []string `json:"interventions"`
-			FactCounts      *struct {
+			Ready               bool                        `json:"ready"`
+			BlockedLanes        []string                    `json:"blockedLanes"`
+			LaneExecutorActions []handoffLaneExecutorAction `json:"laneExecutorActions"`
+			PendingGates        []string                    `json:"pendingGates"`
+			AuthorizedGates     []string                    `json:"authorizedGates"`
+			OpenDecisions       []string                    `json:"openDecisions"`
+			Interventions       []string                    `json:"interventions"`
+			FactCounts          *struct {
 				Observations     int `json:"observations"`
 				Requests         int `json:"requests"`
 				Candidates       int `json:"candidates"`
@@ -631,8 +645,12 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
 	}
-	if status.CaseMission.Ready || status.CaseMission.ExecutionEvidenceReviewCount != 1 || len(status.CaseMission.ExecutionEvidenceReview) != 1 || !containsSubstring(status.CaseMission.BlockedLanes, "main (pending-gate,intervention,open-decision)") || !containsSubstring(status.CaseMission.PendingGates, "action=debug") || len(status.CaseMission.AuthorizedGates) != 0 || !containsSubstring(status.CaseMission.OpenDecisions, "candidate: handler") || !containsSubstring(status.CaseMission.Interventions, "manual override") || status.CaseMission.FactCounts == nil || status.CaseMission.Sections == nil {
+	if status.CaseMission.Ready || status.CaseMission.ExecutionEvidenceReviewCount != 1 || len(status.CaseMission.ExecutionEvidenceReview) != 1 || !containsSubstring(status.CaseMission.BlockedLanes, "main (pending-gate,intervention,open-decision)") || len(status.CaseMission.LaneExecutorActions) != 1 || !containsSubstring(status.CaseMission.PendingGates, "action=debug") || len(status.CaseMission.AuthorizedGates) != 0 || !containsSubstring(status.CaseMission.OpenDecisions, "candidate: handler") || !containsSubstring(status.CaseMission.Interventions, "manual override") || status.CaseMission.FactCounts == nil || status.CaseMission.Sections == nil {
 		t.Fatalf("unexpected case mission blocker/evidence review summary: %+v", status.CaseMission)
+	}
+	laneAction := status.CaseMission.LaneExecutorActions[0]
+	if laneAction.Lane != "main" || laneAction.Label != "main" || !laneAction.ExecutorAction.Blocked || laneAction.ExecutorAction.Ready || laneAction.ExecutorAction.PendingGates != 1 || laneAction.ExecutorAction.OpenInterventions != 1 || laneAction.ExecutorAction.OpenDecisions != 3 || !containsSubstring(laneAction.ExecutorAction.BlockerReasons, "pending-gate") || laneAction.ExecutorAction.MissionCommanderAction.State != "needs-reconcile" {
+		t.Fatalf("unexpected blocked lane executor action: %+v", laneAction)
 	}
 	counts := status.CaseMission.FactCounts
 	if counts.Observations != 1 || counts.Requests != 1 || counts.Candidates != 2 || counts.Publications != 1 || counts.PendingDecisions != 1 || status.CaseMission.Sections.OpenCandidates.Total != 2 || status.CaseMission.Sections.OpenCandidates.Shown != 2 || status.CaseMission.Sections.PendingGates.Total != 1 || status.CaseMission.Sections.PendingGates.Shown != 1 || status.CaseMission.Sections.Batches.Total != 1 || status.CaseMission.Sections.Batches.Shown != 1 {
@@ -657,6 +675,11 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 		"status case mission queue action boundary：bucket=reviewRequired lane=main boundary=observation evidence is already recorded; do not replay heavy tool",
 		"status case mission queue action：bucket=blocked lane=main label=main",
 		"status case mission blocked lane：main (pending-gate,intervention,open-decision)",
+		"status case mission lane action：lane=main label=main status=open workspace=captures/lanes/main executor=session-main generation=3 ready=false blocked=true pendingGates=1 openInterventions=1 openDecisions=3 resume=/rekit continue main handoff=/rekit handoff main commanderState=needs-reconcile commanderPrimary=/rekit reconcile main -InterventionId <eventId> -Apply",
+		"status case mission lane blocker：lane=main reason=pending-gate",
+		"status case mission lane blocker：lane=main reason=intervention",
+		"status case mission lane blocker：lane=main reason=open-decision",
+		"status case mission lane boundary：lane=main boundary=do not run continue for blocked lanes",
 		"status case mission pending gate：debug gate | lane=main | risk=high | target=batch-overview | action=debug | scope=handler only | stopConditions=timeout",
 		"status case mission open decision：candidate: handler | lane=main | status=open | summary=candidate one",
 		"status case mission intervention：manual override | lane=main | action=override | status=open | target=batch-overview",
@@ -687,8 +710,8 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "status case mission queue action：bucket=current lane=main label=gate-auth-1 state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=/rekit handoff main") || !strings.Contains(out.String(), "status case mission queue action：bucket=blocked lane=main label=main") || !strings.Contains(out.String(), "status case mission blocked lane：main (pending-gate,intervention,open-decision)") || !strings.Contains(out.String(), "status case mission pending gate：debug gate | lane=main") || !strings.Contains(out.String(), "status case mission facts：observations=1 requests=1 candidates=2 publications=1 pendingDecisions=1") || !strings.Contains(out.String(), "status case mission section：name=openCandidates total=2 shown=2") || !strings.Contains(out.String(), "status case mission batch：index=1 id=batch-overview events=5") || !strings.Contains(out.String(), "status case mission evidence review：eventId=obs-auth-1 gateEventId=gate-auth-1") || !strings.Contains(out.String(), "status case mission evidence outcome evidence：eventId=obs-auth-1 name=recorded-evidence-review evidence=evidence/debug.json") {
-		t.Fatalf("status case default text missing queue/ledger/blocker/evidence review handoff:\n%s", out.String())
+	if !strings.Contains(out.String(), "status case mission queue action：bucket=current lane=main label=gate-auth-1 state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=/rekit handoff main") || !strings.Contains(out.String(), "status case mission queue action：bucket=blocked lane=main label=main") || !strings.Contains(out.String(), "status case mission blocked lane：main (pending-gate,intervention,open-decision)") || !strings.Contains(out.String(), "status case mission lane action：lane=main label=main status=open workspace=captures/lanes/main executor=session-main generation=3 ready=false blocked=true pendingGates=1 openInterventions=1 openDecisions=3") || !strings.Contains(out.String(), "status case mission lane blocker：lane=main reason=pending-gate") || !strings.Contains(out.String(), "status case mission pending gate：debug gate | lane=main") || !strings.Contains(out.String(), "status case mission facts：observations=1 requests=1 candidates=2 publications=1 pendingDecisions=1") || !strings.Contains(out.String(), "status case mission section：name=openCandidates total=2 shown=2") || !strings.Contains(out.String(), "status case mission batch：index=1 id=batch-overview events=5") || !strings.Contains(out.String(), "status case mission evidence review：eventId=obs-auth-1 gateEventId=gate-auth-1") || !strings.Contains(out.String(), "status case mission evidence outcome evidence：eventId=obs-auth-1 name=recorded-evidence-review evidence=evidence/debug.json") {
+		t.Fatalf("status case default text missing lane/queue/ledger/blocker/evidence review handoff:\n%s", out.String())
 	}
 	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 }

@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 469：case status queue bucket handoff closure
+### Batch 470：case status lane executor handoff closure
 
-状态：已完成 case-mode status queue bucket handoff runtime slice、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29762451803` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 case-mode status lane executor handoff runtime slice、durable docs 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本批收尾执行。
 
-目标：Batch 468 让 case-mode `status` 能直接展示 ledger/progress，但 Mission Commander action queue 仍只在 summary 中显示 current/total/blocked/requiresReview 数量，replacement executor 若只看 terminal status 仍需要解析 JSON 或从 next action 列表手工重组 current/unblocked/blocked/reviewRequired/followUp buckets。Batch 469 把 queue buckets 投影到 case-mode `status` text/default text，直接展示 current action、每个 bucket 的 action/reason/boundary，方便新会话第一屏判断 evidence review、blocked reconcile、review-required 与 follow-up 顺序。
+目标：Batch 469 让 case-mode `status` text/default text 能直接展示 Mission Commander queue buckets，但每条 lane 的 workspace、current executor/generation、ready/blocked、blocker counts、resume/handoff 与 commander primary 仍需要回退 `overview` 或 `handoff`。Batch 470 把 overview 的 lane executor snapshots 投影到 case-mode `status`，让 replacement executor 第一屏就能判断每条 lane 的 ownership、工作区、阻塞原因与首选 handoff/continue/reconcile 命令。
 
-边界：只增强 case-mode `status` 的 read-only queue bucket text projection，不改变 `caseMission` JSON contract、Mission Commander queue builder、overview/handoff/continue 语义，不写 case facts/board/authority/confirmed，不执行 continue/handoff/heavy-tool，不 replay adapter，不新增 PowerShell runtime logic，不改变 release blocker。
+边界：只增强 case-mode `status` 的 read-only lane executor projection，不改变 Mission Commander queue builder、overview/handoff/continue 语义，不写 case facts/board/authority/confirmed，不执行 continue/handoff/heavy-tool，不 replay adapter，不新增 PowerShell runtime logic，不改变 release blocker。
 
 已完成内容：
 
-- `status -Format text` 和默认 status text 在 case mode 新增 `status case mission queue` summary，输出 total/unblocked/blocked/requiresReview/followUp/current。
-- `status -Format text` 和默认 status text 输出 current、unblocked、blocked、reviewRequired 与 followUp bucket action lines，并为每条 queue action 输出 reason/boundary lines。
-- ready case queue bucket 与 blocked/evidence review queue bucket 均被 focused coverage 锁定；existing ledger/blocker/evidence review handoff 与 `.rekit` snapshot no-write invariant 保持不变。
+- `status -Format json` 的 `caseMission` 新增 `laneExecutorActions`，复用 overview inventory 的 typed lane executor snapshots。
+- `status -Format text` 和默认 status text 在 case mode 输出 `status case mission lane action`，包含 lane/label/status/workspace/executor/generation、ready/blocked、pending gate/open intervention/open decision counts、resume/handoff、commander state/primary。
+- `status -Format text` 和默认 status text 输出 lane blocker reason 与 commander boundary lines；ready lane 与 blocked/evidence review lane 均被 focused coverage 锁定，existing queue/ledger/blocker/evidence review handoff 与 `.rekit` snapshot no-write invariant 保持不变。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunStatusCaseMissionDoesNotInitializeMissingBoard|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `860d819 Add case status queue handoff`；远程 release-gate run `29762451803` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunStatusCaseMissionDoesNotInitializeMissingBoard|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。
 
-上一批摘要：Batch 468 已完成 case status ledger progress handoff closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 469 已完成 case status queue bucket handoff closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

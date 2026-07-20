@@ -1249,6 +1249,7 @@ type statusCaseMission struct {
 	BlockedLaneCount              int                                      `json:"blockedLaneCount"`
 	ReadyLanes                    []string                                 `json:"readyLanes,omitempty"`
 	BlockedLanes                  []string                                 `json:"blockedLanes,omitempty"`
+	LaneExecutorActions           []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions,omitempty"`
 	PendingGates                  []string                                 `json:"pendingGates,omitempty"`
 	AuthorizedGates               []string                                 `json:"authorizedGates,omitempty"`
 	OpenDecisions                 []string                                 `json:"openDecisions,omitempty"`
@@ -1390,6 +1391,9 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 			return err
 		}
 	}
+	if err := writeStatusCaseMissionLaneExecutorText(out, summary.LaneExecutorActions); err != nil {
+		return err
+	}
 	for _, gate := range summary.PendingGates {
 		if _, err := fmt.Fprintf(out, "status case mission pending gate：%s\n", gate); err != nil {
 			return err
@@ -1488,6 +1492,26 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 	}
 	if _, err := fmt.Fprintf(out, "status case mission handoff：preview=%s apply=%s continueBoundary=%s\n", summary.HandoffPreviewCommand, summary.HandoffApplyCommand, summary.ContinueRequiresExplicitApply); err != nil {
 		return err
+	}
+	return nil
+}
+
+func writeStatusCaseMissionLaneExecutorText(out io.Writer, actions []mission.LaneExecutorActionSnapshot) error {
+	for _, item := range actions {
+		action := item.ExecutorAction
+		if _, err := fmt.Fprintf(out, "status case mission lane action：lane=%s label=%s status=%s workspace=%s executor=%s generation=%d ready=%t blocked=%t pendingGates=%d openInterventions=%d openDecisions=%d resume=%s handoff=%s commanderState=%s commanderPrimary=%s\n", item.Lane, item.Label, item.Status, item.Workspace, item.CurrentExecutor, item.ExecutorGeneration, action.Ready, action.Blocked, action.PendingGates, action.OpenInterventions, action.OpenDecisions, action.ResumeCommand, action.HandoffCommand, action.MissionCommanderAction.State, action.MissionCommanderAction.PrimaryCommand); err != nil {
+			return err
+		}
+		for _, reason := range action.BlockerReasons {
+			if _, err := fmt.Fprintf(out, "status case mission lane blocker：lane=%s reason=%s\n", item.Lane, reason); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range action.MissionCommanderAction.Boundary {
+			if _, err := fmt.Fprintf(out, "status case mission lane boundary：lane=%s boundary=%s\n", item.Lane, boundary); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -1729,6 +1753,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		AuthorizedGates:               append([]string{}, inventory.MissionBrief.AuthorizedGates...),
 		OpenDecisions:                 append([]string{}, inventory.MissionBrief.OpenDecisions...),
 		Interventions:                 append([]string{}, inventory.MissionBrief.Interventions...),
+		LaneExecutorActions:           append([]mission.LaneExecutorActionSnapshot{}, inventory.LaneExecutorActions...),
 		FactCounts:                    &inventory.Counts,
 		Sections:                      &inventory.Sections,
 		ExecutionEvidenceReviewCount:  len(inventory.ExecutionEvidenceReview),
