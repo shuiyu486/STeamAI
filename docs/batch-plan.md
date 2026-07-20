@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 450：overview explicit text operational handoff closure
 
-状态：已完成本地实现、focused 与 full local validation；正在记录 durable docs、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29734075751` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：`overview` 是 Mission Commander / replacement executor 接手 case-local 状态的高频入口；此前 `overview -Format text` 与 `table`/`tsv` 共用 legacy prose render，虽然人类可读，但不如 JSON 直接暴露 lane summaries、fact counts、Mission Commander action queue、next action buckets、execution evidence review 与 section totals。Batch 450 把 overview inventory 投影到 explicit text terminal handoff，同时保留 legacy table/tsv render。
 
@@ -33,7 +33,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - explicit text 输出 execution evidence review summary/items/follow-through/outcomes/boundaries、overview section counts/events、batch section items 与 next steps。
 - CLI coverage 锁定 nested case-local `overview -Format text`、不 emit JSON object、legacy table compatibility 与 existing JSON inventory compatibility。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunReleaseCheckJsonInventory' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待完成，远程 CI 仍不能在未检查真实 GitHub Actions run 前声明 green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunReleaseCheckJsonInventory' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `5d5cd49 Add overview text handoff`；远程 release-gate run `29734075751` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 449 已完成 release-check public surface/deprecation text inventory closure，详见 `docs/batch-history.md`。
 
