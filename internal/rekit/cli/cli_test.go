@@ -450,15 +450,16 @@ func TestRunStatusJsonCase(t *testing.T) {
 		TargetProvided bool   `json:"targetProvided"`
 		Mode           string `json:"mode"`
 		Case           struct {
-			CaseRoot            string `json:"caseRoot"`
-			MetadataSource      string `json:"metadataSource"`
-			TemplatePack        string `json:"templatePack"`
-			PackMatchesMetadata bool   `json:"packMatchesMetadata"`
-			PackDiagnostic      string `json:"packDiagnostic"`
-			ProjectName         string `json:"projectName"`
-			Moved               bool   `json:"moved"`
-			ShimPath            string `json:"shimPath"`
-			ShimMatchesTemplate bool   `json:"shimMatchesTemplate"`
+			CaseRoot            string   `json:"caseRoot"`
+			MetadataSource      string   `json:"metadataSource"`
+			TemplatePack        string   `json:"templatePack"`
+			PackMatchesMetadata bool     `json:"packMatchesMetadata"`
+			PackDiagnostic      string   `json:"packDiagnostic"`
+			NextSteps           []string `json:"nextSteps"`
+			ProjectName         string   `json:"projectName"`
+			Moved               bool     `json:"moved"`
+			ShimPath            string   `json:"shimPath"`
+			ShimMatchesTemplate bool     `json:"shimMatchesTemplate"`
 		} `json:"case"`
 		Manifest any `json:"manifest"`
 		CaseShim struct {
@@ -471,6 +472,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 			ForbiddenStrings             int      `json:"forbiddenStrings"`
 			Boundaries                   int      `json:"boundaries"`
 			Warnings                     []string `json:"warnings"`
+			NextSteps                    []string `json:"nextSteps"`
 		} `json:"caseShim"`
 		CaseMission struct {
 			Ready               bool                        `json:"ready"`
@@ -514,10 +516,10 @@ func TestRunStatusJsonCase(t *testing.T) {
 	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Pack != "_template" || status.PackSource != "explicit" || !status.TargetProvided || status.Mode != "case" || status.Manifest != nil {
 		t.Fatalf("unexpected case status JSON envelope: %+v", status)
 	}
-	if status.Case.CaseRoot != caseRoot || status.Case.MetadataSource != "instance" || status.Case.TemplatePack != "_template" || !status.Case.PackMatchesMetadata || !strings.Contains(status.Case.PackDiagnostic, "pack matches case metadata templatePack") || status.Case.ProjectName != "demo" || status.Case.Moved || status.Case.ShimPath == "" || !status.Case.ShimMatchesTemplate {
+	if status.Case.CaseRoot != caseRoot || status.Case.MetadataSource != "instance" || status.Case.TemplatePack != "_template" || !status.Case.PackMatchesMetadata || !strings.Contains(status.Case.PackDiagnostic, "pack matches case metadata templatePack") || len(status.Case.NextSteps) != 0 || status.Case.ProjectName != "demo" || status.Case.Moved || status.Case.ShimPath == "" || !status.Case.ShimMatchesTemplate {
 		t.Fatalf("unexpected case status JSON: %+v", status.Case)
 	}
-	if !status.CaseShim.Ready || status.CaseShim.Summary != "case shim readiness ok" || status.CaseShim.InstalledShimPath != status.Case.ShimPath || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate || status.CaseShim.RequiredPhrases == 0 || status.CaseShim.CanonicalSkillPhrases == 0 || status.CaseShim.ForbiddenStrings == 0 || status.CaseShim.Boundaries == 0 || len(status.CaseShim.Warnings) != 0 {
+	if !status.CaseShim.Ready || status.CaseShim.Summary != "case shim readiness ok" || status.CaseShim.InstalledShimPath != status.Case.ShimPath || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate || status.CaseShim.RequiredPhrases == 0 || status.CaseShim.CanonicalSkillPhrases == 0 || status.CaseShim.ForbiddenStrings == 0 || status.CaseShim.Boundaries == 0 || len(status.CaseShim.Warnings) != 0 || len(status.CaseShim.NextSteps) != 0 {
 		t.Fatalf("unexpected case shim status JSON: %+v", status.CaseShim)
 	}
 	if !status.CaseMission.Ready || !strings.Contains(status.CaseMission.Summary, "openLanes=") || status.CaseMission.LaneCount == 0 || status.CaseMission.ReadyLaneCount == 0 || !containsSubstring(status.CaseMission.ReadyLanes, "login") || len(status.CaseMission.BlockedLanes) != 0 || len(status.CaseMission.LaneExecutorActions) == 0 || len(status.CaseMission.PendingGates) != 0 || len(status.CaseMission.OpenDecisions) != 0 || len(status.CaseMission.Interventions) != 0 || status.CaseMission.FactCounts == nil || status.CaseMission.Sections == nil || status.CaseMission.HandoffPreviewCommand == "" || status.CaseMission.HandoffApplyCommand == "" || status.CaseMission.ContinueRequiresExplicitApply == "" || len(status.CaseMission.MissionBriefNextActions) == 0 {
@@ -767,12 +769,13 @@ func TestRunStatusJsonCaseShimDrift(t *testing.T) {
 			Summary                      string   `json:"summary"`
 			InstalledShimMatchesTemplate *bool    `json:"installedShimMatchesTemplate"`
 			Warnings                     []string `json:"warnings"`
+			NextSteps                    []string `json:"nextSteps"`
 		} `json:"caseShim"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
 	}
-	if status.Case.ShimMatchesTemplate || status.CaseShim.Ready || status.CaseShim.Summary != "case shim readiness has warnings" || status.CaseShim.InstalledShimMatchesTemplate == nil || *status.CaseShim.InstalledShimMatchesTemplate {
+	if status.Case.ShimMatchesTemplate || status.CaseShim.Ready || status.CaseShim.Summary != "case shim readiness has warnings" || status.CaseShim.InstalledShimMatchesTemplate == nil || *status.CaseShim.InstalledShimMatchesTemplate || !containsSubstring(status.CaseShim.NextSteps, `/rekit repair -Target "`+caseRoot+`" -Pack _template -WhatIf -Format text previews case-local thin-shim refresh; run repair -Apply only after explicit confirmation`) {
 		t.Fatalf("unexpected drift status: %+v", status)
 	}
 	foundDrift := false
@@ -795,10 +798,60 @@ func TestRunStatusJsonCaseShimDrift(t *testing.T) {
 		"matchesTemplate=false",
 		"warnings=1",
 		"status case shim warning：case-local /rekit shim differs from canonical thin shim template",
+		`status case shim next step：/rekit repair -Target "` + caseRoot + `" -Pack _template -WhatIf -Format text previews case-local thin-shim refresh; run repair -Apply only after explicit confirmation`,
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status drift text missing %q:\n%s", expected, out.String())
 		}
+	}
+}
+
+func TestRunStatusMovedCaseNextSteps(t *testing.T) {
+	caseRoot := movedAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Case struct {
+			Moved     bool     `json:"moved"`
+			NextSteps []string `json:"nextSteps"`
+		} `json:"case"`
+		CaseShim struct {
+			NextSteps []string `json:"nextSteps"`
+		} `json:"caseShim"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("moved case status JSON did not decode: %v\n%s", err, out.String())
+	}
+	wantRepair := `/rekit repair -Target "` + caseRoot + `" -Pack _template -WhatIf -Format text previews moved-case metadata and thin-shim refresh; run repair -Apply only after explicit confirmation`
+	if !status.Case.Moved || !containsSubstring(status.Case.NextSteps, wantRepair) {
+		t.Fatalf("moved case status omitted repair next step: %+v", status.Case)
+	}
+	if !containsSubstring(status.CaseShim.NextSteps, `/rekit repair -Target "`+caseRoot+`" -Pack _template -WhatIf -Format text previews case-local thin-shim refresh; run repair -Apply only after explicit confirmation`) {
+		t.Fatalf("moved case status omitted shim repair next step: %+v", status.CaseShim)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status case：root=" + caseRoot,
+		"moved=true",
+		"status case next step：" + wantRepair,
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("moved case status text missing %q:\n%s", expected, out.String())
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "case next step: "+wantRepair) || !strings.Contains(out.String(), "detected moved case metadata") {
+		t.Fatalf("moved case default status missing repair handoff:\n%s", out.String())
 	}
 }
 
@@ -2167,6 +2220,7 @@ type installedCaseShimStatus struct {
 		Ready                        bool     `json:"ready"`
 		InstalledShimMatchesTemplate *bool    `json:"installedShimMatchesTemplate"`
 		Warnings                     []string `json:"warnings"`
+		NextSteps                    []string `json:"nextSteps"`
 	} `json:"caseShim"`
 }
 
@@ -2500,11 +2554,12 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 		TargetProvided bool   `json:"targetProvided"`
 		Mode           string `json:"mode"`
 		Case           struct {
-			TemplateRoot        string `json:"templateRoot"`
-			TemplatePack        string `json:"templatePack"`
-			PackMatchesMetadata bool   `json:"packMatchesMetadata"`
-			PackDiagnostic      string `json:"packDiagnostic"`
-			ProjectName         string `json:"projectName"`
+			TemplateRoot        string   `json:"templateRoot"`
+			TemplatePack        string   `json:"templatePack"`
+			PackMatchesMetadata bool     `json:"packMatchesMetadata"`
+			PackDiagnostic      string   `json:"packDiagnostic"`
+			NextSteps           []string `json:"nextSteps"`
+			ProjectName         string   `json:"projectName"`
 		} `json:"case"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
@@ -2521,7 +2576,7 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("case-local mismatched-pack status stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if status.Pack != "generic-binary-re" || status.PackSource != "explicit" || status.Case.TemplatePack != "_template" || status.Case.PackMatchesMetadata || !strings.Contains(status.Case.PackDiagnostic, `explicit pack "generic-binary-re" differs from case metadata templatePack "_template"`) {
+	if status.Pack != "generic-binary-re" || status.PackSource != "explicit" || status.Case.TemplatePack != "_template" || status.Case.PackMatchesMetadata || !strings.Contains(status.Case.PackDiagnostic, `explicit pack "generic-binary-re" differs from case metadata templatePack "_template"`) || !containsSubstring(status.Case.NextSteps, `/rekit status -Target "`+caseRoot+`" -Format text uses case metadata templatePack "_template"; keep explicit -Pack "generic-binary-re" only after confirming the override`) {
 		t.Fatalf("unexpected case-local mismatched-pack status: %+v", status)
 	}
 
@@ -2533,6 +2588,7 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 		"status：mutation=false mode=case targetProvided=false pack=generic-binary-re packSource=explicit",
 		"templatePack=_template packMatchesMetadata=false",
 		`status case pack diagnostic：explicit pack "generic-binary-re" differs from case metadata templatePack "_template"`,
+		`status case next step：/rekit status -Target "` + caseRoot + `" -Format text uses case metadata templatePack "_template"; keep explicit -Pack "generic-binary-re" only after confirming the override`,
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("case-local mismatched-pack status text missing %q:\n%s", expected, out.String())

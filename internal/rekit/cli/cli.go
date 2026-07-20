@@ -1207,18 +1207,19 @@ type statusInventory struct {
 }
 
 type statusCase struct {
-	CaseRoot            string `json:"caseRoot"`
-	MetadataSource      string `json:"metadataSource"`
-	InstancePath        string `json:"instancePath"`
-	TemplateRoot        string `json:"templateRoot"`
-	TemplatePack        string `json:"templatePack"`
-	PackMatchesMetadata bool   `json:"packMatchesMetadata"`
-	PackDiagnostic      string `json:"packDiagnostic,omitempty"`
-	ProjectName         string `json:"projectName"`
-	ProjectRoot         string `json:"projectRoot"`
-	Moved               bool   `json:"moved"`
-	ShimPath            string `json:"shimPath"`
-	ShimMatchesTemplate bool   `json:"shimMatchesTemplate"`
+	CaseRoot            string   `json:"caseRoot"`
+	MetadataSource      string   `json:"metadataSource"`
+	InstancePath        string   `json:"instancePath"`
+	TemplateRoot        string   `json:"templateRoot"`
+	TemplatePack        string   `json:"templatePack"`
+	PackMatchesMetadata bool     `json:"packMatchesMetadata"`
+	PackDiagnostic      string   `json:"packDiagnostic,omitempty"`
+	NextSteps           []string `json:"nextSteps,omitempty"`
+	ProjectName         string   `json:"projectName"`
+	ProjectRoot         string   `json:"projectRoot"`
+	Moved               bool     `json:"moved"`
+	ShimPath            string   `json:"shimPath"`
+	ShimMatchesTemplate bool     `json:"shimMatchesTemplate"`
 }
 
 type statusCaseShim struct {
@@ -1233,6 +1234,7 @@ type statusCaseShim struct {
 	ForbiddenStrings      int      `json:"forbiddenStrings"`
 	Boundaries            int      `json:"boundaries"`
 	Warnings              []string `json:"warnings,omitempty"`
+	NextSteps             []string `json:"nextSteps,omitempty"`
 }
 
 type statusManifestSummary struct {
@@ -1336,6 +1338,42 @@ func statusPackDiagnostic(pack, templatePack, packSource string) string {
 	return fmt.Sprintf("%s pack %q differs from case metadata templatePack %q", packSource, pack, templatePack)
 }
 
+func statusCaseNextSteps(inst instance.Instance, pack, packSource string) []string {
+	steps := []string{}
+	repairPack := statusRepairPack(inst, pack)
+	if inst.Moved() {
+		steps = append(steps, fmt.Sprintf("/rekit repair -Target %s -Pack %s -WhatIf -Format text previews moved-case metadata and thin-shim refresh; run repair -Apply only after explicit confirmation", statusQuoteCommandArg(inst.CaseRoot), repairPack))
+	}
+	if !statusPackMatchesMetadata(pack, inst.TemplatePack) {
+		if packSource == "explicit" && strings.TrimSpace(inst.TemplatePack) != "" {
+			steps = append(steps, fmt.Sprintf("/rekit status -Target %s -Format text uses case metadata templatePack %q; keep explicit -Pack %q only after confirming the override", statusQuoteCommandArg(inst.CaseRoot), inst.TemplatePack, pack))
+		} else {
+			steps = append(steps, fmt.Sprintf("/rekit repair -Target %s -Pack %s -WhatIf -Format text previews metadata pack alignment; run repair -Apply only after explicit confirmation", statusQuoteCommandArg(inst.CaseRoot), repairPack))
+		}
+	}
+	return steps
+}
+
+func statusCaseShimNextSteps(shim statusCaseShim, caseRoot, pack string) []string {
+	if strings.TrimSpace(caseRoot) == "" || shim.Ready {
+		return nil
+	}
+	if shim.InstalledShimMatches != nil && !*shim.InstalledShimMatches {
+		return []string{fmt.Sprintf("/rekit repair -Target %s -Pack %s -WhatIf -Format text previews case-local thin-shim refresh; run repair -Apply only after explicit confirmation", statusQuoteCommandArg(caseRoot), pack)}
+	}
+	if len(shim.Warnings) > 0 {
+		return []string{"inspect canonical /rekit skill and case-shim template before refreshing attached cases"}
+	}
+	return nil
+}
+
+func statusRepairPack(inst instance.Instance, activePack string) string {
+	if pack := strings.TrimSpace(inst.TemplatePack); pack != "" {
+		return pack
+	}
+	return strings.TrimSpace(activePack)
+}
+
 func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) error {
 	caseShim := buildStatusCaseShim(ctx.RepoRoot, "")
 	fmt.Fprintf(out, "rekit go backend: %s\n", ctx.RuntimeRoot)
@@ -1354,7 +1392,13 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 		fmt.Fprintf(out, "case templatePack: %s\n", inst.TemplatePack)
 		fmt.Fprintf(out, "case pack matches metadata: %t\n", statusPackMatchesMetadata(ctx.Pack, inst.TemplatePack))
 		fmt.Fprintf(out, "case pack diagnostic: %s\n", statusPackDiagnostic(ctx.Pack, inst.TemplatePack, packSource))
+		for _, step := range statusCaseNextSteps(inst, ctx.Pack, packSource) {
+			fmt.Fprintf(out, "case next step: %s\n", step)
+		}
 		fmt.Fprintf(out, "case shim: %s ready=%t installed=%s matchesTemplate=%t\n", caseShim.Summary, caseShim.Ready, caseShim.InstalledShimPath, boolPtrValue(caseShim.InstalledShimMatches))
+		for _, step := range statusCaseShimNextSteps(caseShim, inst.CaseRoot, statusRepairPack(inst, ctx.Pack)) {
+			fmt.Fprintf(out, "case shim next step: %s\n", step)
+		}
 		if inst.Moved() {
 			fmt.Fprintln(out, "detected moved case metadata")
 		}
@@ -1402,6 +1446,11 @@ func runStatusText(ctx runtime.Context, packSource string, out io.Writer) error 
 				return err
 			}
 		}
+		for _, step := range status.Case.NextSteps {
+			if _, err := fmt.Fprintf(out, "status case next step：%s\n", step); err != nil {
+				return err
+			}
+		}
 	}
 	if err := writeStatusCaseShimText(out, status.CaseShim); err != nil {
 		return err
@@ -1418,6 +1467,11 @@ func writeStatusCaseShimText(out io.Writer, shim statusCaseShim) error {
 	}
 	for _, warning := range shim.Warnings {
 		if _, err := fmt.Fprintf(out, "status case shim warning：%s\n", warning); err != nil {
+			return err
+		}
+	}
+	for _, step := range shim.NextSteps {
+		if _, err := fmt.Fprintf(out, "status case shim next step：%s\n", step); err != nil {
 			return err
 		}
 	}
@@ -1739,6 +1793,7 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 		status.Mode = "case"
 		caseShim := buildStatusCaseShim(ctx.RepoRoot, inst.CaseRoot)
 		status.CaseShim = caseShim
+		status.CaseShim.NextSteps = statusCaseShimNextSteps(caseShim, inst.CaseRoot, statusRepairPack(inst, ctx.Pack))
 		status.Case = &statusCase{
 			CaseRoot:            inst.CaseRoot,
 			MetadataSource:      inst.Source,
@@ -1747,6 +1802,7 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 			TemplatePack:        inst.TemplatePack,
 			PackMatchesMetadata: statusPackMatchesMetadata(ctx.Pack, inst.TemplatePack),
 			PackDiagnostic:      statusPackDiagnostic(ctx.Pack, inst.TemplatePack, packSource),
+			NextSteps:           statusCaseNextSteps(inst, ctx.Pack, packSource),
 			ProjectName:         inst.ProjectName,
 			ProjectRoot:         inst.ProjectRoot,
 			Moved:               inst.Moved(),

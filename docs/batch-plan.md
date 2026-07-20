@@ -16,24 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 479：status pack mismatch diagnostic closure
+### Batch 480：status remediation handoff closure
 
-状态：已完成 status pack mismatch diagnostic implementation、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29770550347` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 status remediation handoff implementation、durable docs、完整本地 release minimum；commit/push 与远程 release-gate inspection 进行中。
 
-目标：Batch 478 已让 status 第一屏显示 pack 来源，但当用户显式传入不同于 case metadata `templatePack` 的 `-Pack` 时，新会话仍要人工对比 `packSource=explicit`、`pack` 与 `case.templatePack` 才能判断是否误用。Batch 479 在 case status 中直接投影 pack/metadata 一致性与诊断，显式 pack 不一致时说明 explicit `-Pack` 仍是本次 status run 的权威来源。
+目标：Batch 478/479 已让 status 显示 pack 来源与 pack/metadata mismatch 诊断，但新会话看到 mismatch、moved case metadata 或 case-local shim drift 后仍要凭经验选择下一步。Batch 480 在只读 status 中直接给出 bounded remediation handoff：可复制的 status recheck 或 `repair -WhatIf -Format text` preview，并明确任何 `repair -Apply` 仍需显式确认。
 
-边界：只增强只读 status diagnostic；不改变显式 `-Pack` 优先级、attached case metadata default、runtime default-pack placeholder、sync/promote/workstream/gate 语义或 durable schema；不执行 heavy-tool，不 replay adapter，不写 authority/confirmed，不新增 PowerShell runtime logic，不改变 release blocker。
+边界：只增强只读 status handoff；不改变显式 `-Pack` 优先级、attached case metadata default、runtime default-pack placeholder、repair 写入确认、sync/promote/workstream/gate 语义或 durable schema；不执行 repair/heavy-tool，不 replay adapter，不写 authority/confirmed，不新增 PowerShell runtime logic，不改变 release blocker。
 
 已完成内容：
 
-- `statusCase` 新增 `packMatchesMetadata` 与 `packDiagnostic`；`status -Format json` 直接暴露 case metadata pack 是否与当前 active pack 一致。
-- `status -Format text` case line 新增 `packMatchesMetadata=...`，并输出 `status case pack diagnostic：...`；默认 table/tsv legacy status 输出 `case pack matches metadata` 与 `case pack diagnostic` 行。
-- `TestRunStatusJsonCase` 与 `TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 覆盖 metadata match、explicit mismatched pack JSON/text、default status match 与 no-pack case metadata match。
-- `/rekit` skill 与 Agent Team 使用指南同步说明显式 pack 与 metadata 不一致时 status 只诊断、不静默改写。
+- `statusCase` 新增 `nextSteps`，在 moved metadata 或 pack mismatch 时输出 bounded next steps；explicit pack mismatch 推荐无显式 pack 的 status recheck，保留 explicit `-Pack` 优先级说明。
+- `statusCaseShim` 新增 `nextSteps`，在 installed shim drift/missing 时推荐 `repair -WhatIf -Format text` 预览 case-local thin shim refresh；healthy case 保持无 next step。
+- `status -Format text` 输出 `status case next step：...` / `status case shim next step：...`；默认 table/tsv legacy status 输出 `case next step:` / `case shim next step:`。
+- `TestRunStatusJsonCase`、`TestRunStatusJsonCaseShimDrift`、`TestRunStatusMovedCaseNextSteps`、`TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 与 installed shim product-path coverage 锁定 healthy no-next-step、explicit mismatch guidance、moved metadata repair preview guidance 与 shim drift repair preview guidance。
+- `/rekit` skill、Agent Team 使用指南与 CHANGELOG 同步说明 status 只读检测并给出 bounded next steps，`repair -Apply` 仍需显式确认。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `8c9d90a Add status pack mismatch diagnostic`；远程 release-gate run `29770550347` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunStatusJsonCaseShimDrift|TestRunStatusMovedCaseNextSteps|TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunInstalledCaseShimProductPathStatusAndRefresh" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。commit/push 与远程 release-gate inspection 待完成。
 
-上一批摘要：Batch 478 已完成 status pack source handoff closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 479 已完成 status pack mismatch diagnostic closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
