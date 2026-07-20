@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 452：reviewer intake nested note text reuse closure
+
+状态：已完成 reviewer intake nested note text reuse closure、本地实现、focused 与 full local validation、durable docs，尚未完成 commit/push 与远程 release-gate inspection。
+
+目标：Batch 451 已让 standalone `note -Format text` 输出 append/WhatIf 的 current/would/post commander delta，但 reviewer-intake text 仍只打印 compact verification/decision event lines；Mission Commander / replacement executor 在 `plan-subagents ... -ReviewerResultPath ... -Format text` 的 preview、partial recovery 或 already-complete 路径里仍可能需要解析 nested JSON 才能看到 `note.AppendResult` 的 note-level Mission brief、executor action 与 would/duplicate guidance。Batch 452 让 reviewer-intake text 直接复用 note text handoff。
+
+实施范围：reviewer-intake text 在 verification / decision checkpoint 后输出 `reviewer intake <label> note handoff` summary（mutation/applied/reason/eventId/path），并复用 Batch 451 `writeNoteAppendText` 输出 nested note 的事件字段/evidence refs、Mission brief、当前 executor action、当前 Mission Commander next actions 与 WhatIf would-action delta；already-complete duplicate preview 现在在 text output 中直接暴露 duplicate eventId reason 与原 note path；partial recovery fixture 保持缺失 event body 时不额外输出 misleading nested handoff，现有 retry boundary 与 text lines 兼容。该批只增强 reviewer-intake `-Format text` nested note handoff、focused CLI coverage 与 durable docs；不改变 reviewer-intake JSON contract、verification-before-decision writeback、packet/result validation、partial retry/idempotency semantics、note event schema、默认 JSON compatibility，不自动 spawn reviewer、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
+
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待执行。
+
 ### Batch 451：note append explicit text handoff closure
 
 状态：已完成 note append explicit text handoff closure、本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection。

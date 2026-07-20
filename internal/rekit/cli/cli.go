@@ -2989,6 +2989,19 @@ func writePlanSubagentsReviewerIntakeCheckpointText(out io.Writer, result subage
 	return err
 }
 
+func writePlanSubagentsReviewerIntakeNoteText(out io.Writer, label string, result note.AppendResult) error {
+	if len(result.Event) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "reviewer intake %s note handoff：mutation=%t applied=%t reason=%s eventId=%s path=%s\n", label, result.IsMutation, result.Applied, textOr(result.Reason, "none"), result.EventID, result.Path); err != nil {
+		return err
+	}
+	if err := writeNoteAppendText(out, result); err != nil {
+		return err
+	}
+	return nil
+}
+
 func writePlanSubagentsReviewerIntakeText(out io.Writer, result subagents.ReviewerIntakeResult) error {
 	if _, err := fmt.Fprintf(out, "plan-subagents reviewer intake：status=%s mutation=%t applied=%t readyForWriteback=%t lane=%s shard=%s intakeId=%s\n", result.WritebackStatus, result.IsMutation, result.Applied, result.ReadyForWriteback, result.Lane, result.ShardID, result.IntakeID); err != nil {
 		return err
@@ -3014,12 +3027,18 @@ func writePlanSubagentsReviewerIntakeText(out io.Writer, result subagents.Review
 		if err := writePlanSubagentsReviewerIntakeEventText(out, "verification", *result.Verification); err != nil {
 			return err
 		}
+		if err := writePlanSubagentsReviewerIntakeNoteText(out, "verification", *result.Verification); err != nil {
+			return err
+		}
 	}
 	if result.Decision != nil {
 		if _, err := fmt.Fprintf(out, "reviewer intake decision：applied=%t eventId=%s reason=%s\n", result.Decision.Applied, result.Decision.EventID, result.Decision.Reason); err != nil {
 			return err
 		}
 		if err := writePlanSubagentsReviewerIntakeEventText(out, "decision", *result.Decision); err != nil {
+			return err
+		}
+		if err := writePlanSubagentsReviewerIntakeNoteText(out, "decision", *result.Decision); err != nil {
 			return err
 		}
 	}
