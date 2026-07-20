@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 469：case status queue bucket handoff closure
 
-状态：已完成 case-mode status queue bucket handoff runtime slice、durable docs 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本批收尾执行。
+状态：已完成 case-mode status queue bucket handoff runtime slice、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29762451803` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 468 让 case-mode `status` 能直接展示 ledger/progress，但 Mission Commander action queue 仍只在 summary 中显示 current/total/blocked/requiresReview 数量，replacement executor 若只看 terminal status 仍需要解析 JSON 或从 next action 列表手工重组 current/unblocked/blocked/reviewRequired/followUp buckets。Batch 469 把 queue buckets 投影到 case-mode `status` text/default text，直接展示 current action、每个 bucket 的 action/reason/boundary，方便新会话第一屏判断 evidence review、blocked reconcile、review-required 与 follow-up 顺序。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `status -Format text` 和默认 status text 输出 current、unblocked、blocked、reviewRequired 与 followUp bucket action lines，并为每条 queue action 输出 reason/boundary lines。
 - ready case queue bucket 与 blocked/evidence review queue bucket 均被 focused coverage 锁定；existing ledger/blocker/evidence review handoff 与 `.rekit` snapshot no-write invariant 保持不变。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunStatusCaseMissionDoesNotInitializeMissingBoard|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunStatusCaseMissionDoesNotInitializeMissingBoard|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `860d819 Add case status queue handoff`；远程 release-gate run `29762451803` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 468 已完成 case status ledger progress handoff closure，详见 `docs/batch-history.md`。
 
