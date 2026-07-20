@@ -1802,6 +1802,97 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	return writePlanSubagentsText(out, result)
 }
 
+func planSubagentsTextInline(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func writePlanSubagentsShardHandoffText(out io.Writer, handoffs []subagents.ShardHandoff) error {
+	for _, handoff := range handoffs {
+		if _, err := fmt.Fprintf(out, "plan-subagents shard handoff：shard=%s status=%s reviewerResultPath=%s items=%s expected=%s\n", handoff.ShardID, handoff.Status, handoff.ReviewerResultPath, strings.Join(handoff.Items, ","), planSubagentsTextInline(handoff.ExpectedOutput)); err != nil {
+			return err
+		}
+		if strings.TrimSpace(handoff.DispatchPrompt) != "" {
+			if _, err := fmt.Fprintf(out, "plan-subagents shard dispatch prompt：shard=%s prompt=%s\n", handoff.ShardID, planSubagentsTextInline(handoff.DispatchPrompt)); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range handoff.ReadOnlyBoundary {
+			if _, err := fmt.Fprintf(out, "plan-subagents shard boundary：shard=%s boundary=%s\n", handoff.ShardID, boundary); err != nil {
+				return err
+			}
+		}
+		contract := handoff.ReviewerResultContract
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer result contract：shard=%s format=%s required=%s decisions=%s\n", handoff.ShardID, contract.OutputFormat, strings.Join(contract.RequiredFields, ","), strings.Join(contract.AllowedDecisions, ",")); err != nil {
+			return err
+		}
+		for _, rule := range contract.EvidenceRules {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer result evidence rule：shard=%s rule=%s\n", handoff.ShardID, rule); err != nil {
+				return err
+			}
+		}
+		for _, signal := range contract.ConflictSignals {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer result conflict signal：shard=%s signal=%s\n", handoff.ShardID, signal); err != nil {
+				return err
+			}
+		}
+		commands := handoff.ReviewerIntakeCommands
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer intake command：shard=%s purpose=%s preview=`%s` apply=`%s` required=%s\n", handoff.ShardID, commands.Purpose, commands.PreviewCommand, commands.ApplyCommand, strings.Join(commands.RequiredFields, ",")); err != nil {
+			return err
+		}
+		for _, check := range commands.PreviewChecks {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer intake preview check：shard=%s check=%s\n", handoff.ShardID, check); err != nil {
+				return err
+			}
+		}
+		for _, blocked := range commands.BlockedOutputs {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer intake blocked output：shard=%s blocked=%s\n", handoff.ShardID, blocked); err != nil {
+				return err
+			}
+		}
+		for _, item := range handoff.IntakeChecklist {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer intake checklist：shard=%s item=%s\n", handoff.ShardID, item); err != nil {
+				return err
+			}
+		}
+		for _, mapping := range handoff.ReviewerDecisionMappings {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer decision map：shard=%s reviewer=%s verification=%s main=%s applyWhen=%s fallback=%s\n", handoff.ShardID, mapping.ReviewerDecision, mapping.VerificationVerdict, mapping.MainDecision, strings.Join(mapping.ApplyWhen, ","), mapping.Fallback); err != nil {
+				return err
+			}
+		}
+		for _, handling := range handoff.ConflictHandling {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer conflict handling：shard=%s handling=%s\n", handoff.ShardID, handling); err != nil {
+				return err
+			}
+		}
+		for _, step := range handoff.WritebackSequence {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer writeback step：shard=%s step=%s owner=%s uses=%s blockedBy=%s nextOnSuccess=%s nextOnFailure=%s\n", handoff.ShardID, step.Step, step.Owner, strings.Join(step.Uses, ","), strings.Join(step.BlockedBy, ","), step.NextOnSuccess, step.NextOnFailure); err != nil {
+				return err
+			}
+			for _, binding := range step.CommandBindings {
+				if _, err := fmt.Fprintf(out, "plan-subagents reviewer writeback command binding：shard=%s step=%s binding=%s kind=%s command=`%s` required=%s expected=%s\n", handoff.ShardID, step.Step, binding.Binding, binding.Kind, binding.Command, strings.Join(binding.RequiredFields, ","), binding.ExpectedOutput); err != nil {
+					return err
+				}
+			}
+		}
+		for _, item := range handoff.PostReviewMerge {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer post-review：shard=%s item=%s\n", handoff.ShardID, item); err != nil {
+				return err
+			}
+		}
+		for _, item := range handoff.CompletionCriteria {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer completion：shard=%s item=%s\n", handoff.ShardID, item); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(handoff.FailureHandling) != "" {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer failure handling：shard=%s handling=%s\n", handoff.ShardID, handoff.FailureHandling); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func writePlanSubagentsText(out io.Writer, result subagents.Result) error {
 	if _, err := fmt.Fprintf(out, "plan-subagents：writesReviewArtifacts=%t reviewRequired=%t items=%d shards=%d packet=%s summary=%s\n", result.WritesReviewArtifacts, result.ReviewRequired, result.ItemCount, result.ShardCount, result.PacketPath, result.SummaryPath); err != nil {
 		return err
@@ -1813,6 +1904,9 @@ func writePlanSubagentsText(out io.Writer, result subagents.Result) error {
 		if _, err := fmt.Fprintf(out, "plan-subagents reviewer dispatch：shard=%s status=%s reviewerResultPath=%s preview=`%s` apply=`%s`\n", dispatch.ShardID, dispatch.Status, dispatch.ReviewerResultPath, dispatch.PreviewCommand, dispatch.ApplyCommand); err != nil {
 			return err
 		}
+	}
+	if err := writePlanSubagentsShardHandoffText(out, result.ShardHandoffs); err != nil {
+		return err
 	}
 	if err := writeMissionCommanderActionText(out, "plan-subagents commander action", mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}); err != nil {
 		return err
