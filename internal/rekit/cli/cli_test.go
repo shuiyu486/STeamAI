@@ -453,6 +453,8 @@ func TestRunStatusJsonCase(t *testing.T) {
 			CaseRoot            string `json:"caseRoot"`
 			MetadataSource      string `json:"metadataSource"`
 			TemplatePack        string `json:"templatePack"`
+			PackMatchesMetadata bool   `json:"packMatchesMetadata"`
+			PackDiagnostic      string `json:"packDiagnostic"`
 			ProjectName         string `json:"projectName"`
 			Moved               bool   `json:"moved"`
 			ShimPath            string `json:"shimPath"`
@@ -512,7 +514,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Pack != "_template" || status.PackSource != "explicit" || !status.TargetProvided || status.Mode != "case" || status.Manifest != nil {
 		t.Fatalf("unexpected case status JSON envelope: %+v", status)
 	}
-	if status.Case.CaseRoot != caseRoot || status.Case.MetadataSource != "instance" || status.Case.TemplatePack != "_template" || status.Case.ProjectName != "demo" || status.Case.Moved || status.Case.ShimPath == "" || !status.Case.ShimMatchesTemplate {
+	if status.Case.CaseRoot != caseRoot || status.Case.MetadataSource != "instance" || status.Case.TemplatePack != "_template" || !status.Case.PackMatchesMetadata || !strings.Contains(status.Case.PackDiagnostic, "pack matches case metadata templatePack") || status.Case.ProjectName != "demo" || status.Case.Moved || status.Case.ShimPath == "" || !status.Case.ShimMatchesTemplate {
 		t.Fatalf("unexpected case status JSON: %+v", status.Case)
 	}
 	if !status.CaseShim.Ready || status.CaseShim.Summary != "case shim readiness ok" || status.CaseShim.InstalledShimPath != status.Case.ShimPath || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate || status.CaseShim.RequiredPhrases == 0 || status.CaseShim.CanonicalSkillPhrases == 0 || status.CaseShim.ForbiddenStrings == 0 || status.CaseShim.Boundaries == 0 || len(status.CaseShim.Warnings) != 0 {
@@ -546,7 +548,8 @@ func TestRunStatusJsonCase(t *testing.T) {
 		"status：mutation=false mode=case targetProvided=true pack=_template packSource=explicit",
 		"status case：root=",
 		"metadataSource=instance",
-		"templatePack=_template projectName=demo",
+		"templatePack=_template packMatchesMetadata=true projectName=demo",
+		"status case pack diagnostic：pack matches case metadata templatePack",
 		"moved=false",
 		"status case shim：summary=case shim readiness ok ready=true",
 		"matchesTemplate=true",
@@ -2497,9 +2500,11 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 		TargetProvided bool   `json:"targetProvided"`
 		Mode           string `json:"mode"`
 		Case           struct {
-			TemplateRoot string `json:"templateRoot"`
-			TemplatePack string `json:"templatePack"`
-			ProjectName  string `json:"projectName"`
+			TemplateRoot        string `json:"templateRoot"`
+			TemplatePack        string `json:"templatePack"`
+			PackMatchesMetadata bool   `json:"packMatchesMetadata"`
+			PackDiagnostic      string `json:"packDiagnostic"`
+			ProjectName         string `json:"projectName"`
 		} `json:"case"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
@@ -2507,6 +2512,34 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 	}
 	if status.Command != "status" || status.Mode != "case" || status.Pack != "_template" || status.PackSource != "explicit" || status.TargetProvided || status.Target != caseRoot || status.TemplateRoot != root || status.Case.TemplateRoot != root || status.Case.TemplatePack != "_template" || status.Case.ProjectName != "product-path" {
 		t.Fatalf("unexpected case-local status: %+v", status)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("case-local mismatched-pack status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if status.Pack != "generic-binary-re" || status.PackSource != "explicit" || status.Case.TemplatePack != "_template" || status.Case.PackMatchesMetadata || !strings.Contains(status.Case.PackDiagnostic, `explicit pack "generic-binary-re" differs from case metadata templatePack "_template"`) {
+		t.Fatalf("unexpected case-local mismatched-pack status: %+v", status)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "generic-binary-re", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status：mutation=false mode=case targetProvided=false pack=generic-binary-re packSource=explicit",
+		"templatePack=_template packMatchesMetadata=false",
+		`status case pack diagnostic：explicit pack "generic-binary-re" differs from case metadata templatePack "_template"`,
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("case-local mismatched-pack status text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("case-local mismatched-pack status text should not emit JSON object:\n%s", out.String())
 	}
 
 	out.Reset()
@@ -2617,6 +2650,8 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 		"case: " + caseRoot,
 		"case templateRoot: " + root,
 		"case templatePack: _template",
+		"case pack matches metadata: true",
+		"case pack diagnostic: pack matches case metadata templatePack",
 		"status case mission：summary=",
 		"status case mission queue：total=",
 		"status case mission queue action：bucket=current",

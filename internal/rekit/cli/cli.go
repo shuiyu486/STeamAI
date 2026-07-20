@@ -1212,6 +1212,8 @@ type statusCase struct {
 	InstancePath        string `json:"instancePath"`
 	TemplateRoot        string `json:"templateRoot"`
 	TemplatePack        string `json:"templatePack"`
+	PackMatchesMetadata bool   `json:"packMatchesMetadata"`
+	PackDiagnostic      string `json:"packDiagnostic,omitempty"`
 	ProjectName         string `json:"projectName"`
 	ProjectRoot         string `json:"projectRoot"`
 	Moved               bool   `json:"moved"`
@@ -1317,6 +1319,23 @@ func statusPackSource(ctx runtime.Context, opt Options) string {
 	return "repo-default"
 }
 
+func statusPackMatchesMetadata(pack, templatePack string) bool {
+	return strings.TrimSpace(pack) == strings.TrimSpace(templatePack)
+}
+
+func statusPackDiagnostic(pack, templatePack, packSource string) string {
+	if statusPackMatchesMetadata(pack, templatePack) {
+		return "pack matches case metadata templatePack"
+	}
+	if strings.TrimSpace(templatePack) == "" {
+		return fmt.Sprintf("%s pack %q is active because case metadata templatePack is empty", packSource, pack)
+	}
+	if packSource == "explicit" {
+		return fmt.Sprintf("explicit pack %q differs from case metadata templatePack %q; explicit -Pack remains authoritative for this status run", pack, templatePack)
+	}
+	return fmt.Sprintf("%s pack %q differs from case metadata templatePack %q", packSource, pack, templatePack)
+}
+
 func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) error {
 	caseShim := buildStatusCaseShim(ctx.RepoRoot, "")
 	fmt.Fprintf(out, "rekit go backend: %s\n", ctx.RuntimeRoot)
@@ -1333,6 +1352,8 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 		fmt.Fprintf(out, "case metadata: %s %s\n", inst.Source, inst.InstancePath)
 		fmt.Fprintf(out, "case templateRoot: %s\n", inst.TemplateRoot)
 		fmt.Fprintf(out, "case templatePack: %s\n", inst.TemplatePack)
+		fmt.Fprintf(out, "case pack matches metadata: %t\n", statusPackMatchesMetadata(ctx.Pack, inst.TemplatePack))
+		fmt.Fprintf(out, "case pack diagnostic: %s\n", statusPackDiagnostic(ctx.Pack, inst.TemplatePack, packSource))
 		fmt.Fprintf(out, "case shim: %s ready=%t installed=%s matchesTemplate=%t\n", caseShim.Summary, caseShim.Ready, caseShim.InstalledShimPath, boolPtrValue(caseShim.InstalledShimMatches))
 		if inst.Moved() {
 			fmt.Fprintln(out, "detected moved case metadata")
@@ -1373,8 +1394,13 @@ func runStatusText(ctx runtime.Context, packSource string, out io.Writer) error 
 		}
 	}
 	if status.Case != nil {
-		if _, err := fmt.Fprintf(out, "status case：root=%s metadataSource=%s instance=%s templateRoot=%s templatePack=%s projectName=%s projectRoot=%s moved=%t\n", status.Case.CaseRoot, status.Case.MetadataSource, status.Case.InstancePath, status.Case.TemplateRoot, status.Case.TemplatePack, status.Case.ProjectName, status.Case.ProjectRoot, status.Case.Moved); err != nil {
+		if _, err := fmt.Fprintf(out, "status case：root=%s metadataSource=%s instance=%s templateRoot=%s templatePack=%s packMatchesMetadata=%t projectName=%s projectRoot=%s moved=%t\n", status.Case.CaseRoot, status.Case.MetadataSource, status.Case.InstancePath, status.Case.TemplateRoot, status.Case.TemplatePack, status.Case.PackMatchesMetadata, status.Case.ProjectName, status.Case.ProjectRoot, status.Case.Moved); err != nil {
 			return err
+		}
+		if strings.TrimSpace(status.Case.PackDiagnostic) != "" {
+			if _, err := fmt.Fprintf(out, "status case pack diagnostic：%s\n", status.Case.PackDiagnostic); err != nil {
+				return err
+			}
 		}
 	}
 	if err := writeStatusCaseShimText(out, status.CaseShim); err != nil {
@@ -1719,6 +1745,8 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 			InstancePath:        inst.InstancePath,
 			TemplateRoot:        inst.TemplateRoot,
 			TemplatePack:        inst.TemplatePack,
+			PackMatchesMetadata: statusPackMatchesMetadata(ctx.Pack, inst.TemplatePack),
+			PackDiagnostic:      statusPackDiagnostic(ctx.Pack, inst.TemplatePack, packSource),
 			ProjectName:         inst.ProjectName,
 			ProjectRoot:         inst.ProjectRoot,
 			Moved:               inst.Moved(),

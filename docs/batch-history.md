@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 478：status pack source handoff closure
+
+状态：已完成 status pack source handoff implementation、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection。
+
+目标：Batch 475-477 已让 attached case / nested lane workspace 在未显式传 `-Pack` 时使用 case metadata `templatePack`，并覆盖核心 command suite 与写入预览/review-first 入口。Batch 478 将该解析结果直接投影到 `status` 第一屏，让新会话能立即判断当前 pack 来自显式参数、case metadata，还是 kit-mode repo default，降低“为什么当前 pack 是这个值”的排障成本。
+
+实施范围：`statusInventory` 新增 `packSource`，`status -Format json` 输出 `explicit`、`case-metadata` 或 `repo-default`；`status -Format text` 第一行新增 `packSource=...`；默认 table/tsv legacy status 增加 `pack source: ...` 行。`TestRunStatusJsonKit`、`TestRunStatusJsonDefaultPackContract`、`TestRunStatusJsonCase` 与 `TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 覆盖 kit explicit、kit repo-default、case explicit、nested case metadata no-pack、text 与 default status pack source。`/rekit` skill 与 Agent Team 使用指南同步说明 status 会显示 pack 来源。该批只增强只读 status handoff 与本机 product-path coverage；不改变 case metadata pack override、runtime default-pack placeholder、sync/promote/workstream/gate 语义或 durable schema；不执行 heavy-tool，不 replay adapter，不写 authority/confirmed，不新增 PowerShell runtime logic，不改变 release blocker。
+
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunStatusJsonDefaultPackContract|TestRunStatusJsonCase|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `1689d28 Add status pack source handoff` 与 release inspection follow-up `863aa0b Record Batch 478 release gate inspection`；远程 release-gate runs `29769665895` / `29769811136` 均为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+
 ### Batch 477：write/review no-pack product-path smoke closure
 
 状态：已完成 write/review no-explicit-pack smoke slice、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection。

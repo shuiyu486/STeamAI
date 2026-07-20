@@ -100,7 +100,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 
 ## 验证标准
 
-- `/rekit`（无子命令，默认 status）和 `/rekit status` 都能正确显示 kit/case 绑定与 pack 来源；attached case 或 nested lane workspace 中未显式传 `-Pack` 时，应使用 case metadata 的 `templatePack`，并在 status 中显示 `packSource=case-metadata`；显式 `-Pack` 显示 `packSource=explicit`，kit-mode 默认 pack 显示 `packSource=repo-default`。
+- `/rekit`（无子命令，默认 status）和 `/rekit status` 都能正确显示 kit/case 绑定与 pack 来源；attached case 或 nested lane workspace 中未显式传 `-Pack` 时，应使用 case metadata 的 `templatePack`，并在 status 中显示 `packSource=case-metadata`；显式 `-Pack` 显示 `packSource=explicit`，kit-mode 默认 pack 显示 `packSource=repo-default`；case 模式还应显示 pack 是否匹配 metadata `templatePack`，显式 pack 不一致时输出诊断但仍保持显式 `-Pack` 优先。
 - `/rekit doctor` 通过，且 managed docs、policy、tooling 文件预算未超限。
 - 旧 case 同步前先看到 `.rekit/reviews/<timestamp>-sync/summary.md`、`packet.json` 和 bounded diff。
 - `release-check -Format text` 应直接输出 release-check summary、CI release gate inventory + `inventory-ready-not-remote-ci-green` boundary、required commands/docs、heavy action inventory、Go-native public surface command groups/profiles/boundaries/policies/facade prerequisites、PowerShell deprecation command/module/freeze/blocked/retired/public façade/reference inventory、public façade removal prerequisites/plan/deletion gates/execution/boundary/recovery/docs/impact migration targets、case shim readiness、public default docs readiness、release handoff readFirst/signals/latest batch/release notes/pack maturity/validation/known gaps/next actions 与 full known-gap detail，保持 default/table/tsv compatibility、JSON inventory compatibility、read-only/no authority/confirmed/no-heavy/no PowerShell runtime logic，并明确 `ciReleaseGate.ready` 只表示 workflow/inventory ready，不能替代真实远程 CI green。
