@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 432：adapter report contract live-validation text closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs；准备 commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate 仍为既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 421/424 已让 adapter report contract/validation JSON 与 text 输出 Mission Commander action queue、follow-through 和 next-action lines，但 `gate -ExecutionReportContract -Format text` 仍未投影 nested `liveValidation`，replacement executor 需要解析 JSON 才能看到 invocation cwd、authorized workspaces、sidecar template、adapter candidates、replay behavior 和 read-only/strict-record notes。本批把 contract live-validation handoff 直接投影到 text path。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - text path 同步输出 pack tooling adapter candidates 的 id/status/entry/purpose/sideEffects/report guidance/evidence guidance/stopCondition hints/recordOnlyAfterGate，以及 read-only/strict-record notes。
 - CLI coverage 锁定 default contract text、nested output workspace text、generic-binary-re adapter candidate product-path text，以及既有 validation/record next-action、read-only/no observation/no authority/confirmed/no-heavy 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunGateAdapterReportTextOutputsNextActions|TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace|TestRunGateProjectsPackToolingAdapterCandidateProductPath' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings；commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunGateAdapterReportTextOutputsNextActions|TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace|TestRunGateProjectsPackToolingAdapterCandidateProductPath' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `19373e4 Add adapter report live validation text`；远程 release-gate run `29720859800` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 431 已完成 promote candidates review checklist text closure，详见 `docs/batch-history.md`。
 
