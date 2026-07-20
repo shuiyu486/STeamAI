@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 476：case command-suite no-pack smoke closure
 
-状态：已完成 case-local command-suite no-explicit-pack smoke slice、durable docs 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本批收尾执行。
+状态：已完成 case-local command-suite no-explicit-pack smoke slice、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29767889887` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 475 让 attached case 在未显式传 `-Pack` 时使用 case metadata `templatePack`，但首个 product smoke 主要锁定默认 status。Batch 476 把同一 nested lane cwd product path 扩展到核心 case-local command suite，确认真实新会话只运行 `/rekit <command>`、不记 pack 名时，`doctor`、`overview`、`handoff`、`continue`、`gate` 与 reviewer planning handoff 都使用正确 pack。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - 新 smoke 断言各 command 使用 `pack=_template` / `_template:lane-feature-analysis`，并保留 case root、feature lane、Mission Commander overview text 与 read-only/WhatIf 边界。
 - `handoffResult` test fixture 增加 `Pack` 解码字段，便于直接验证 handoff preview 的 metadata pack default；Batch 475 已更新用户-facing skill/usage 说明，本批无需重复扩写 README 或 skill 文案。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunCaseLocalProductPathUsesCaseMetadataRuntime -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunCaseLocalProductPathUsesCaseMetadataRuntime -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 无 whitespace error。已提交并推送 `860ced2 Add no-pack case command suite smoke`；远程 release-gate run `29767889887` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 475 已完成 case metadata pack default entry closure，详见 `docs/batch-history.md`。
 
