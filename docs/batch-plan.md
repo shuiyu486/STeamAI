@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 443：update apply command identity parity
 
-状态：已完成本地实现、focused 与 full local validation；正在记录 durable docs、commit/push 与远程 release-gate inspection；远程 release-gate 预计仍为既有 GitHub Actions runner/billing blocker，需以实际 run 为准。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29726873856` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：`sync` 与 `update` 共享 Go-native apply path，但 Batch 442 后 `update -Apply/-WhatIf` 的 apply/text handoff 与 preview nextStep 仍可能显示 `sync` command identity。Mission Commander / replacement executor 在 update product path 中会看到 sync-prefixed guidance，容易把 update handoff 误判为另一个 command。本批让 shared sync/update apply path 保留真实 `opt.Command`。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `update -Apply -WhatIf -Format text` 现在输出 `update apply` summary、`update apply write` detail 与 update-specific nextStep，不泄漏 `sync apply` prefix。
 - CLI coverage 锁定 update WhatIf text、update WhatIf JSON command identity 与 existing sync apply compatibility。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunSyncApplyWritesManagedContent|TestRunUpdateApplyUsesUpdateCommandIdentity' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs` 与 `go run ./cmd/rekit -- -Command doctor`；`release-check ready=true`，`doctor` 报告 `pack validation ok`。尚待最终 `git diff --check`、commit/push 与远程 release-gate inspection。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunSyncApplyWritesManagedContent|TestRunUpdateApplyUsesUpdateCommandIdentity' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `3c5f607 Preserve update apply command identity`；远程 release-gate run `29726873856` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 442 已完成 sync apply text handoff closure，详见 `docs/batch-history.md`。
 
