@@ -2705,6 +2705,113 @@ func planSubagentsTextValue(value, fallback string) string {
 	return value
 }
 
+type planSubagentsReviewerResultSkeleton struct {
+	PacketID           string            `json:"packetId"`
+	RouteID            string            `json:"routeId"`
+	ShardID            string            `json:"shardId"`
+	Items              []string          `json:"items"`
+	ReviewerSession    string            `json:"reviewerSession"`
+	Decision           string            `json:"decision"`
+	Confidence         string            `json:"confidence"`
+	Summary            string            `json:"summary"`
+	EvidenceRefs       []string          `json:"evidenceRefs"`
+	Risks              []string          `json:"risks"`
+	Conflicts          []string          `json:"conflicts"`
+	RecommendedVerdict string            `json:"recommendedVerdict"`
+	RouteOutput        map[string]string `json:"routeOutput"`
+}
+
+func planSubagentsReviewerResultIdentity(result subagents.Result) (string, string) {
+	packetID := "packet.packetId"
+	routeID := "packet.route.id"
+	data, err := os.ReadFile(result.PacketPath)
+	if err != nil {
+		return packetID, routeID
+	}
+	var packet struct {
+		PacketID string `json:"packetId"`
+		Route    struct {
+			ID string `json:"id"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal(data, &packet); err != nil {
+		return packetID, routeID
+	}
+	if strings.TrimSpace(packet.PacketID) != "" {
+		packetID = strings.TrimSpace(packet.PacketID)
+	}
+	if strings.TrimSpace(packet.Route.ID) != "" {
+		routeID = strings.TrimSpace(packet.Route.ID)
+	}
+	return packetID, routeID
+}
+
+func planSubagentsOutputContractFields(output string) []string {
+	fields := []string{}
+	seen := map[string]bool{}
+	for _, field := range strings.FieldsFunc(output, func(r rune) bool { return r == ',' || r == ';' || r == '\n' || r == '\r' || r == '\t' }) {
+		field = strings.TrimSpace(field)
+		if field == "" || seen[field] {
+			continue
+		}
+		seen[field] = true
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+func planSubagentsReviewerRouteOutputSkeleton(fields []string, items []string, evidenceRef string) map[string]string {
+	routeOutput := map[string]string{}
+	for _, field := range fields {
+		switch field {
+		case "item":
+			routeOutput[field] = strings.Join(items, ",")
+		case "decision":
+			routeOutput[field] = "needs-more-evidence"
+		case "confidence":
+			routeOutput[field] = "medium"
+		case "evidence":
+			routeOutput[field] = evidenceRef
+		case "risk":
+			routeOutput[field] = "unknown"
+		case "next_action":
+			routeOutput[field] = "defer for main-agent evidence review"
+		case "tier_used":
+			routeOutput[field] = "reviewer"
+		case "tool_scope":
+			routeOutput[field] = "read-only"
+		case "defer_reason":
+			routeOutput[field] = "fill defer reason"
+		default:
+			routeOutput[field] = "fill " + field
+		}
+	}
+	return routeOutput
+}
+
+func planSubagentsReviewerResultSkeletonJSON(packetID, routeID string, handoff subagents.ShardHandoff) string {
+	skeleton := planSubagentsReviewerResultSkeleton{
+		PacketID:           packetID,
+		RouteID:            routeID,
+		ShardID:            handoff.ShardID,
+		Items:              append([]string{}, handoff.Items...),
+		ReviewerSession:    "reviewer-session-id",
+		Decision:           "needs-more-evidence",
+		Confidence:         "medium",
+		Summary:            "fill summary for this shard",
+		EvidenceRefs:       []string{packetID},
+		Risks:              []string{},
+		Conflicts:          []string{},
+		RecommendedVerdict: "needs-more-evidence",
+		RouteOutput:        planSubagentsReviewerRouteOutputSkeleton(planSubagentsOutputContractFields(handoff.ExpectedOutput), handoff.Items, packetID),
+	}
+	b, err := json.Marshal(skeleton)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
 func writePlanSubagentsReviewerOrchestrationText(out io.Writer, orchestration subagents.ReviewerOrchestrationPlan, targetLane string) error {
 	if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration：mode=%s targetLane=%s reviewers=%d maxParallel=%d resultRoot=%s\n", orchestration.Mode, targetLane, orchestration.ReviewerCount, orchestration.MaxParallel, orchestration.ResultRoot); err != nil {
 		return err
@@ -2743,8 +2850,9 @@ func writePlanSubagentsReviewerOrchestrationText(out io.Writer, orchestration su
 	return nil
 }
 
-func writePlanSubagentsShardHandoffText(out io.Writer, handoffs []subagents.ShardHandoff) error {
-	for _, handoff := range handoffs {
+func writePlanSubagentsShardHandoffText(out io.Writer, result subagents.Result) error {
+	packetID, routeID := planSubagentsReviewerResultIdentity(result)
+	for _, handoff := range result.ShardHandoffs {
 		if _, err := fmt.Fprintf(out, "plan-subagents shard handoff：shard=%s status=%s reviewerResultPath=%s items=%s expected=%s\n", handoff.ShardID, handoff.Status, handoff.ReviewerResultPath, strings.Join(handoff.Items, ","), planSubagentsTextInline(handoff.ExpectedOutput)); err != nil {
 			return err
 		}
@@ -2785,6 +2893,16 @@ func writePlanSubagentsShardHandoffText(out io.Writer, handoffs []subagents.Shar
 		contract := handoff.ReviewerResultContract
 		if _, err := fmt.Fprintf(out, "plan-subagents reviewer result contract：shard=%s format=%s required=%s decisions=%s\n", handoff.ShardID, contract.OutputFormat, strings.Join(contract.RequiredFields, ","), strings.Join(contract.AllowedDecisions, ",")); err != nil {
 			return err
+		}
+		fields := planSubagentsOutputContractFields(handoff.ExpectedOutput)
+		routeOutput := planSubagentsReviewerRouteOutputSkeleton(fields, handoff.Items, packetID)
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer result skeleton：shard=%s packetId=%s routeId=%s reviewerResultPath=%s json=%s\n", handoff.ShardID, packetID, routeID, handoff.ReviewerResultPath, planSubagentsReviewerResultSkeletonJSON(packetID, routeID, handoff)); err != nil {
+			return err
+		}
+		for _, field := range fields {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer result routeOutput field：shard=%s field=%s required=true valueHint=%s\n", handoff.ShardID, field, routeOutput[field]); err != nil {
+				return err
+			}
 		}
 		for _, rule := range contract.EvidenceRules {
 			if _, err := fmt.Fprintf(out, "plan-subagents reviewer result evidence rule：shard=%s rule=%s\n", handoff.ShardID, rule); err != nil {
@@ -2861,7 +2979,7 @@ func writePlanSubagentsText(out io.Writer, result subagents.Result) error {
 	if err := writePlanSubagentsReviewerOrchestrationText(out, result.ReviewerOrchestration, result.TargetLane); err != nil {
 		return err
 	}
-	if err := writePlanSubagentsShardHandoffText(out, result.ShardHandoffs); err != nil {
+	if err := writePlanSubagentsShardHandoffText(out, result); err != nil {
 		return err
 	}
 	if err := writeMissionCommanderActionText(out, "plan-subagents commander action", mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}); err != nil {

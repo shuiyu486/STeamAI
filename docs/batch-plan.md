@@ -16,25 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 452：reviewer intake nested note text reuse closure
+### Batch 453：reviewer dispatch result skeleton text closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29735629073` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation、durable docs；commit/push 与远程 release-gate inspection 待执行。
 
-目标：Batch 451 已让 standalone `note -Format text` 输出 append/WhatIf 的 current/would/post commander delta，但 reviewer-intake text 仍只打印 compact verification/decision event lines；Mission Commander / replacement executor 在 `plan-subagents ... -ReviewerResultPath ... -Format text` 的 preview、partial recovery 或 already-complete 路径里仍可能需要解析 nested JSON 才能看到 `note.AppendResult` 的 note-level Mission brief、executor action 与 would/duplicate guidance。Batch 452 让 reviewer-intake text 直接复用 note text handoff。
+目标：Batch 433/435 已让 `plan-subagents -Format text` 输出 reviewer orchestration lifecycle 与 shard handoff，Batch 452 已让 reviewer-intake text 复用 nested note handoff；但 planning text 中 reviewer result contract 仍主要以 compact `required=` 与 `expected=` 呈现，Mission Commander / replacement executor 在 dispatch read-only reviewer 或准备 strict intake 时仍可能需要打开 `packet.json` / `summary.md` 或解析 planning JSON，才能构造包含 packetId、routeId、shardId、items 与 routeOutput 字段的单对象 reviewer result。Batch 453 让 planning text 直接输出可复制 reviewer result skeleton 与 routeOutput required field hints。
 
-边界：只增强 `plan-subagents` reviewer-intake `-Format text` 的 nested verification/decision note handoff、focused CLI coverage 与 durable docs；不改变 reviewer-intake JSON contract、verification-before-decision writeback、packet/result validation、partial retry/idempotency semantics、note event schema、默认 JSON compatibility，不自动 spawn reviewer、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
+边界：只增强 `plan-subagents -Format text` planning/shard handoff 输出、focused CLI coverage 与 durable docs；不改变 reviewer-intake JSON contract、packet/result validation、packet identity/hash、review artifacts 写入、verification-before-decision writeback、默认 JSON compatibility，不自动 spawn reviewer、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
 
 已完成内容：
 
-- reviewer-intake text 在 verification / decision checkpoint 后输出 `reviewer intake <label> note handoff` summary（mutation/applied/reason/eventId/path）。
-- nested note handoff 复用 Batch 451 `writeNoteAppendText`，输出事件字段/evidence refs、Mission brief、当前 executor action、当前 Mission Commander next actions 与 WhatIf would-action delta。
-- already-complete duplicate preview 现在在 text output 中直接暴露 duplicate eventId reason 与原 note path，避免手工打开 JSON envelope。
-- partial recovery fixture 保持缺失 event body 时不额外输出 misleading nested handoff，现有 retry boundary 与 text lines 兼容。
-- CLI coverage 锁定 reviewer-intake WhatIf text、already-complete duplicate text、partial recovery text 与 existing reviewer-intake JSON compatibility。
+- 每个 shard handoff 在 strict `reviewerResultContract` 后输出 `plan-subagents reviewer result skeleton`，包含 packetId、routeId、shardId、items、reviewerSession、decision/confidence/summary、evidenceRefs、risks、conflicts、recommendedVerdict 与 routeOutput。
+- skeleton 由 runtime 从刚写出的 packet 读取 packetId/routeId 并填入当前 shard items 与 reviewerResultPath；读取失败时保留 `packet.packetId` / `packet.route.id` 占位，避免阻断既有 text handoff。
+- routeOutput 现在按 route `outputContract` 逐字段打印 `plan-subagents reviewer result routeOutput field`，并对 `item`、`decision`、`confidence`、`evidence`、`risk`、`next_action`、`tier_used`、`tool_scope`、`defer_reason` 给出 bounded valueHint。
+- `tool_scope` skeleton 默认 `read-only`，`next_action` 默认 defer/main-agent evidence review，避免 reviewer output 暗示写文件、ledger append、heavy tool 或外部副作用。
+- CLI coverage 锁定 planning text skeleton、routeOutput field hints、existing reviewer orchestration/shard handoff lines 与 reviewer intake text compatibility。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `4453deb Reuse note text in reviewer intake`；远程 release-gate run `29735629073` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsWritesReviewArtifacts -count=1`、focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsWritesReviewArtifacts|TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待记录。
 
-上一批摘要：Batch 451 已完成 note append explicit text handoff closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 452 已完成 reviewer intake nested note text reuse closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
