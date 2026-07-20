@@ -1806,10 +1806,42 @@ func planSubagentsTextInline(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
 
+func planSubagentsTextValue(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
 func writePlanSubagentsShardHandoffText(out io.Writer, handoffs []subagents.ShardHandoff) error {
 	for _, handoff := range handoffs {
 		if _, err := fmt.Fprintf(out, "plan-subagents shard handoff：shard=%s status=%s reviewerResultPath=%s items=%s expected=%s\n", handoff.ShardID, handoff.Status, handoff.ReviewerResultPath, strings.Join(handoff.Items, ","), planSubagentsTextInline(handoff.ExpectedOutput)); err != nil {
 			return err
+		}
+		binding := handoff.OwnerBinding
+		if _, err := fmt.Fprintf(out, "plan-subagents shard owner binding：shard=%s targetLane=%s mode=%s currentExecutor=%s generation=%d requiredForIntake=%t spawnOwner=%s\n", handoff.ShardID, binding.TargetLane, binding.BindingMode, planSubagentsTextValue(binding.CurrentExecutor, "unassigned"), binding.ExecutorGeneration, binding.RequiredForIntake, binding.MainAgentSpawnOwner); err != nil {
+			return err
+		}
+		if strings.TrimSpace(binding.LastTakeoverAt) != "" || strings.TrimSpace(binding.LastTakeoverBy) != "" || strings.TrimSpace(binding.LastTakeoverReason) != "" {
+			if _, err := fmt.Fprintf(out, "plan-subagents shard owner takeover：shard=%s at=%s by=%s reason=%s\n", handoff.ShardID, binding.LastTakeoverAt, binding.LastTakeoverBy, binding.LastTakeoverReason); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(binding.RuntimeSessionBoundary) != "" {
+			if _, err := fmt.Fprintf(out, "plan-subagents shard owner boundary：shard=%s boundary=%s\n", handoff.ShardID, binding.RuntimeSessionBoundary); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(handoff.ReviewerWriteback) != "" {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer writeback：shard=%s handoff=%s\n", handoff.ShardID, planSubagentsTextInline(handoff.ReviewerWriteback)); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(handoff.MainAgentNextAction) != "" {
+			if _, err := fmt.Fprintf(out, "plan-subagents shard next action：shard=%s action=%s\n", handoff.ShardID, planSubagentsTextInline(handoff.MainAgentNextAction)); err != nil {
+				return err
+			}
 		}
 		if strings.TrimSpace(handoff.DispatchPrompt) != "" {
 			if _, err := fmt.Fprintf(out, "plan-subagents shard dispatch prompt：shard=%s prompt=%s\n", handoff.ShardID, planSubagentsTextInline(handoff.DispatchPrompt)); err != nil {
@@ -1865,11 +1897,11 @@ func writePlanSubagentsShardHandoffText(out io.Writer, handoffs []subagents.Shar
 			}
 		}
 		for _, step := range handoff.WritebackSequence {
-			if _, err := fmt.Fprintf(out, "plan-subagents reviewer writeback step：shard=%s step=%s owner=%s uses=%s blockedBy=%s nextOnSuccess=%s nextOnFailure=%s\n", handoff.ShardID, step.Step, step.Owner, strings.Join(step.Uses, ","), strings.Join(step.BlockedBy, ","), step.NextOnSuccess, step.NextOnFailure); err != nil {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer writeback step：shard=%s step=%s owner=%s uses=%s mustPass=%s blockedBy=%s nextOnSuccess=%s nextOnFailure=%s\n", handoff.ShardID, step.Step, step.Owner, strings.Join(step.Uses, ","), strings.Join(step.MustPass, ","), strings.Join(step.BlockedBy, ","), step.NextOnSuccess, step.NextOnFailure); err != nil {
 				return err
 			}
 			for _, binding := range step.CommandBindings {
-				if _, err := fmt.Fprintf(out, "plan-subagents reviewer writeback command binding：shard=%s step=%s binding=%s kind=%s command=`%s` required=%s expected=%s\n", handoff.ShardID, step.Step, binding.Binding, binding.Kind, binding.Command, strings.Join(binding.RequiredFields, ","), binding.ExpectedOutput); err != nil {
+				if _, err := fmt.Fprintf(out, "plan-subagents reviewer writeback command binding：shard=%s step=%s binding=%s source=%s kind=%s command=`%s` required=%s expected=%s\n", handoff.ShardID, step.Step, binding.Binding, binding.Source, binding.Kind, binding.Command, strings.Join(binding.RequiredFields, ","), binding.ExpectedOutput); err != nil {
 					return err
 				}
 			}
