@@ -404,6 +404,10 @@ func TestRunStatusJsonDefaultPackContract(t *testing.T) {
 func TestRunStatusJsonCase(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Executor", "session-1", "-Actor", "mission-commander", "-Reason", "status case mission coverage"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -435,6 +439,18 @@ func TestRunStatusJsonCase(t *testing.T) {
 			Boundaries                   int      `json:"boundaries"`
 			Warnings                     []string `json:"warnings"`
 		} `json:"caseShim"`
+		CaseMission struct {
+			Ready                         bool     `json:"ready"`
+			Summary                       string   `json:"summary"`
+			LaneCount                     int      `json:"laneCount"`
+			ReadyLaneCount                int      `json:"readyLaneCount"`
+			BlockedLaneCount              int      `json:"blockedLaneCount"`
+			ExecutionEvidenceReviewCount  int      `json:"executionEvidenceReviewCount"`
+			HandoffPreviewCommand         string   `json:"handoffPreviewCommand"`
+			HandoffApplyCommand           string   `json:"handoffApplyCommand"`
+			ContinueRequiresExplicitApply string   `json:"continueRequiresExplicitApply"`
+			MissionBriefNextActions       []string `json:"missionBriefNextActions"`
+		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
@@ -447,6 +463,9 @@ func TestRunStatusJsonCase(t *testing.T) {
 	}
 	if !status.CaseShim.Ready || status.CaseShim.Summary != "case shim readiness ok" || status.CaseShim.InstalledShimPath != status.Case.ShimPath || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate || status.CaseShim.RequiredPhrases == 0 || status.CaseShim.CanonicalSkillPhrases == 0 || status.CaseShim.ForbiddenStrings == 0 || status.CaseShim.Boundaries == 0 || len(status.CaseShim.Warnings) != 0 {
 		t.Fatalf("unexpected case shim status JSON: %+v", status.CaseShim)
+	}
+	if !status.CaseMission.Ready || !strings.Contains(status.CaseMission.Summary, "openLanes=") || status.CaseMission.LaneCount == 0 || status.CaseMission.ReadyLaneCount == 0 || status.CaseMission.HandoffPreviewCommand == "" || status.CaseMission.HandoffApplyCommand == "" || status.CaseMission.ContinueRequiresExplicitApply == "" || len(status.CaseMission.MissionBriefNextActions) == 0 {
+		t.Fatalf("unexpected case mission status JSON: %+v", status.CaseMission)
 	}
 
 	out.Reset()
@@ -462,6 +481,13 @@ func TestRunStatusJsonCase(t *testing.T) {
 		"status case shim：summary=case shim readiness ok ready=true",
 		"matchesTemplate=true",
 		"warnings=0",
+		"status case mission：summary=openLanes=",
+		"ready=true lanes=",
+		"status case mission next action：lane=feature-login",
+		"command=/rekit handoff login",
+		"status case mission brief next action：/rekit continue login",
+		"status case mission handoff：preview=/rekit handoff -Target",
+		"continueBoundary=status is read-only; run continue with -WhatIf first",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status case text missing %q:\n%s", expected, out.String())
@@ -469,6 +495,62 @@ func TestRunStatusJsonCase(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "{\n") {
 		t.Fatalf("status case text should not emit JSON:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"case:",
+		"status case mission：summary=openLanes=",
+		"status case mission next action：lane=feature-login",
+		"status case mission handoff：preview=/rekit handoff -Target",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status case default text missing %q:\n%s", expected, out.String())
+		}
+	}
+}
+
+func TestRunStatusCaseMissionDoesNotInitializeMissingBoard(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			Ready                   bool     `json:"ready"`
+			Summary                 string   `json:"summary"`
+			MissionBriefNextActions []string `json:"missionBriefNextActions"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if status.CaseMission.Ready || !strings.Contains(status.CaseMission.Summary, "case board missing") || len(status.CaseMission.MissionBriefNextActions) == 0 || !strings.Contains(status.CaseMission.MissionBriefNextActions[0], "overview") {
+		t.Fatalf("unexpected missing-board mission summary: %+v", status.CaseMission)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "board.json")); !os.IsNotExist(err) {
+		t.Fatalf("status should not initialize missing board, err=%v", err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status case mission：summary=case board missing",
+		"ready=false lanes=0",
+		"status case mission brief next action：run /rekit overview -Target",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("missing-board status text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "board.json")); !os.IsNotExist(err) {
+		t.Fatalf("status text should not initialize missing board, err=%v", err)
 	}
 }
 

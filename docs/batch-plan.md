@@ -16,23 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 464：status project handoff closure
+### Batch 465：case status Mission Commander handoff closure
 
-状态：已完成 status project handoff runtime slice、本地验证恢复、durable docs 更新、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29757012511` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 case-mode status Mission Commander handoff runtime slice、durable docs 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本批收尾执行。远程 release-gate 若仍为 `steps: []` failure，继续记录为既有 GitHub Actions runner/billing blocker，不声明远程 CI green。
 
-目标：新会话接手时，最自然的第一步通常是运行 `status`，但 kit-mode `status -Format json/text` 过去只展示 runtime root、pack manifest 与 case shim readiness，仍需要再跑 `release-check` 或打开 batch docs 才能知道最新批次、read-first 路由、known gaps、验证命令和下一步。Batch 464 把 release handoff 的短 project handoff 投影到 kit-mode `status`，让接手会话只看 status 输出就能定位当前进度、证据/阻塞类别、最小验证门禁和下一步路由。
+目标：Batch 464 让 kit-mode `status` 能直接接手项目级状态，但 case-local 新会话仍需要运行 `overview` 或 `handoff` 才能看到 lane ready/blocked、Mission Commander action queue、evidence review 和 continue/handoff 边界。Batch 465 把 case-mode `status` 也升级为 read-only Mission Commander handoff，让新会话只运行 `status` 就能看到当前 case 进度、可执行/阻塞 action、证据 review 数量、handoff 命令和 continue 必须先 WhatIf 的边界。
 
-边界：只增强 kit-mode `status` 的 read-only project handoff 投影，并修复 Go-first 文档缺少 Mission Control 北极星链接导致的本地测试不变量失败；不改变 case-mode status、release-check contract、sync/promote、workstream/ledger/gate 语义、pack content、PowerShell façade、远程 CI blocker，不执行 heavy-tool、不写 authority/confirmed。
+边界：只增强 case-mode `status` 的 read-only mission summary，不改变 overview/handoff/continue 语义，不自动初始化 missing board，不执行 continue/handoff，不写 case facts/board/authority/confirmed，不执行 heavy-tool，不新增 PowerShell runtime logic，不改变 release blocker。
 
 已完成内容：
 
-- `status -Format json` 新增 `projectHandoff`，复用 `releasecheck.ReleaseHandoff` 的 `readFirst`、latest batch、known gaps、next actions 与 validation commands。
-- `status -Format text` 新增 `status project handoff`、latest batch goal/validation、read-first、known gap、validation command 与 next action lines，避免新会话必须解析 release-check JSON 才能接手。
-- `internal/rekit/cli` coverage 锁定 kit-mode status JSON/text handoff、read-first 路由、known gaps、validation commands 与 next actions；`docs/go-first-convergence-plan.md` 顶部恢复 `docs/mission-control-product-direction.md` 链接，修复 manifest 不变量测试。
+- `status -Format json` 在 case mode 新增 `caseMission`，复用 overview 的 Mission brief、Mission Commander action queue、next actions、execution evidence review count、handoff preview/apply command 与 continue boundary。
+- `status -Format text` 和默认 status text 在 case mode 直接输出 `status case mission`、逐条 next action reason/boundary、Mission brief next actions、escalations 与 handoff command，使 replacement executor 不必先跑 overview 才能接手。
+- missing board 场景保持 read-only：`status` 只提示运行 `overview` 或 `start -Apply` 初始化 Mission Commander state，不静默创建 `.rekit/board.json`。
+- `internal/rekit/cli` coverage 锁定 case status JSON/text/default text mission handoff，以及 missing-board no-write invariant。
 
-验证结果：已通过 focused `go test ./internal/rekit/manifest -run TestAutonomousGoalGuideInvariants -count=1`、`go test ./internal/rekit/cli -run TestRunStatusJsonKit -count=1`、`go run ./cmd/rekit -- -Command status -Format json`、`go run ./cmd/rekit -- -Command status -Format text` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `b3a7845 Add status project handoff`；远程 release-gate run `29757012511` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunStatusCaseMissionDoesNotInitializeMissingBoard|TestRunStatusJsonKit" -count=1`、`go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunStatusCaseMissionDoesNotInitializeMissingBoard|TestRunStatusJsonKit|TestRunOverviewInitializesMissingBoard" -count=1`、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command status -Format json` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待收尾执行。
 
-上一批摘要：Batch 463 已完成 documentation routing pressure reduction closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 464 已完成 status project handoff closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

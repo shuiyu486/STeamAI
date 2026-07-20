@@ -1190,6 +1190,7 @@ type statusInventory struct {
 	Manifest       *statusManifestSummary `json:"manifest"`
 	CaseShim       statusCaseShim         `json:"caseShim"`
 	ProjectHandoff *statusProjectHandoff  `json:"projectHandoff,omitempty"`
+	CaseMission    *statusCaseMission     `json:"caseMission,omitempty"`
 }
 
 type statusCase struct {
@@ -1240,6 +1241,22 @@ type statusProjectHandoff struct {
 	ValidationCommands []string `json:"validationCommands"`
 }
 
+type statusCaseMission struct {
+	Ready                         bool                                     `json:"ready"`
+	Summary                       string                                   `json:"summary"`
+	LaneCount                     int                                      `json:"laneCount"`
+	ReadyLaneCount                int                                      `json:"readyLaneCount"`
+	BlockedLaneCount              int                                      `json:"blockedLaneCount"`
+	ExecutionEvidenceReviewCount  int                                      `json:"executionEvidenceReviewCount"`
+	MissionCommanderActionQueue   mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	MissionCommanderNextActions   []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions"`
+	MissionBriefNextActions       []string                                 `json:"missionBriefNextActions"`
+	Escalations                   []string                                 `json:"escalations"`
+	HandoffPreviewCommand         string                                   `json:"handoffPreviewCommand"`
+	HandoffApplyCommand           string                                   `json:"handoffApplyCommand"`
+	ContinueRequiresExplicitApply string                                   `json:"continueRequiresExplicitApply"`
+}
+
 func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
 	format := strings.ToLower(strings.TrimSpace(opt.Format))
 	if format == "" {
@@ -1282,7 +1299,11 @@ func runStatusLegacyText(ctx runtime.Context, out io.Writer) error {
 		if inst.Moved() {
 			fmt.Fprintln(out, "detected moved case metadata")
 		}
-		return nil
+		caseMission, err := buildStatusCaseMission(ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
+		if err != nil {
+			return err
+		}
+		return writeStatusCaseMissionText(out, caseMission)
 	}
 	fmt.Fprintf(out, "case shim: %s ready=%t\n", caseShim.Summary, caseShim.Ready)
 	m, err := manifest.Load(ctx.RepoRoot, ctx.Pack)
@@ -1321,6 +1342,9 @@ func runStatusText(ctx runtime.Context, out io.Writer) error {
 	if err := writeStatusCaseShimText(out, status.CaseShim); err != nil {
 		return err
 	}
+	if err := writeStatusCaseMissionText(out, status.CaseMission); err != nil {
+		return err
+	}
 	return writeStatusProjectHandoffText(out, status.ProjectHandoff)
 }
 
@@ -1334,6 +1358,62 @@ func writeStatusCaseShimText(out io.Writer, shim statusCaseShim) error {
 		}
 	}
 	return nil
+}
+
+func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error {
+	if summary == nil {
+		return nil
+	}
+	queue := summary.MissionCommanderActionQueue
+	if _, err := fmt.Fprintf(out, "status case mission：summary=%s ready=%t lanes=%d readyLanes=%d blockedLanes=%d evidenceReview=%d queueCurrent=%s queueTotal=%d queueBlocked=%d queueRequiresReview=%d nextActions=%d escalations=%d\n", summary.Summary, summary.Ready, summary.LaneCount, summary.ReadyLaneCount, summary.BlockedLaneCount, summary.ExecutionEvidenceReviewCount, statusMissionCurrentActionLabel(queue.CurrentAction), queue.Counts.Total, queue.Counts.Blocked, queue.Counts.RequiresReview, len(summary.MissionCommanderNextActions), len(summary.Escalations)); err != nil {
+		return err
+	}
+	for _, action := range summary.MissionCommanderNextActions {
+		if _, err := fmt.Fprintf(out, "status case mission next action：lane=%s label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s\n", action.Lane, action.Label, action.State, action.Source, action.Blocked, action.RequiresReview, action.Command); err != nil {
+			return err
+		}
+		for _, reason := range action.Reasons {
+			if _, err := fmt.Fprintf(out, "status case mission next action reason：lane=%s reason=%s\n", action.Lane, reason); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range action.Boundary {
+			if _, err := fmt.Fprintf(out, "status case mission next action boundary：lane=%s boundary=%s\n", action.Lane, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, action := range summary.MissionBriefNextActions {
+		if _, err := fmt.Fprintf(out, "status case mission brief next action：%s\n", action); err != nil {
+			return err
+		}
+	}
+	for _, escalation := range summary.Escalations {
+		if _, err := fmt.Fprintf(out, "status case mission escalation：%s\n", escalation); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(out, "status case mission handoff：preview=%s apply=%s continueBoundary=%s\n", summary.HandoffPreviewCommand, summary.HandoffApplyCommand, summary.ContinueRequiresExplicitApply); err != nil {
+		return err
+	}
+	return nil
+}
+
+func statusMissionCurrentActionLabel(action *mission.MissionCommanderNextActionItem) string {
+	if action == nil {
+		return "none"
+	}
+	return textOr(statusFirstText(action.Label, action.Lane, action.State), "current")
+}
+
+func statusFirstText(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff) error {
@@ -1409,6 +1489,10 @@ func buildStatusInventory(ctx runtime.Context) (statusInventory, error) {
 			ShimPath:            caseShim.InstalledShimPath,
 			ShimMatchesTemplate: boolPtrValue(caseShim.InstalledShimMatches),
 		}
+		status.CaseMission, err = buildStatusCaseMission(ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
+		if err != nil {
+			return statusInventory{}, err
+		}
 		return status, nil
 	}
 	m, err := manifest.Load(ctx.RepoRoot, ctx.Pack)
@@ -1428,6 +1512,47 @@ func buildStatusInventory(ctx runtime.Context) (statusInventory, error) {
 	}
 	status.ProjectHandoff = buildStatusProjectHandoff(release.ReleaseHandoff)
 	return status, nil
+}
+
+func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission, error) {
+	previewCommand := fmt.Sprintf("/rekit handoff -Target %s -Format text", statusQuoteCommandArg(caseRoot))
+	applyCommand := fmt.Sprintf("/rekit handoff -Target %s -Apply -Format text", statusQuoteCommandArg(caseRoot))
+	continueBoundary := "status is read-only; run continue with -WhatIf first, then -Apply only after reviewing blockers/evidence"
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "board.json")); os.IsNotExist(err) {
+		return &statusCaseMission{
+			Ready:                         false,
+			Summary:                       "case board missing; run overview or start -Apply to initialize Mission Commander state",
+			HandoffPreviewCommand:         previewCommand,
+			HandoffApplyCommand:           applyCommand,
+			ContinueRequiresExplicitApply: continueBoundary,
+			MissionBriefNextActions:       []string{"run /rekit overview -Target " + statusQuoteCommandArg(caseRoot) + " -Format text to initialize the case-local board before continuing"},
+		}, nil
+	} else if err != nil {
+		return nil, err
+	}
+	inventory, err := overview.BuildInventory(repoRoot, caseRoot, pack)
+	if err != nil {
+		return nil, err
+	}
+	return &statusCaseMission{
+		Ready:                         inventory.MissionCommanderActionQueue.CurrentAction != nil && inventory.MissionCommanderActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
+		Summary:                       inventory.MissionBrief.Summary,
+		LaneCount:                     len(inventory.Lanes),
+		ReadyLaneCount:                len(inventory.MissionBrief.ReadyLanes),
+		BlockedLaneCount:              len(inventory.MissionBrief.BlockedLanes),
+		ExecutionEvidenceReviewCount:  len(inventory.ExecutionEvidenceReview),
+		MissionCommanderActionQueue:   inventory.MissionCommanderActionQueue,
+		MissionCommanderNextActions:   append([]mission.MissionCommanderNextActionItem{}, inventory.MissionCommanderNextActions...),
+		MissionBriefNextActions:       append([]string{}, inventory.MissionBrief.NextAgentActions...),
+		Escalations:                   append([]string{}, inventory.MissionBrief.Escalations...),
+		HandoffPreviewCommand:         previewCommand,
+		HandoffApplyCommand:           applyCommand,
+		ContinueRequiresExplicitApply: continueBoundary,
+	}, nil
+}
+
+func statusQuoteCommandArg(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
 func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProjectHandoff {

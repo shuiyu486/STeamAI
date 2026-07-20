@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 464：status project handoff closure
+
+状态：已完成 status project handoff runtime slice、本地验证恢复、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection。
+
+目标：新会话接手时，最自然的第一步通常是运行 `status`，但 kit-mode `status -Format json/text` 过去只展示 runtime root、pack manifest 与 case shim readiness，仍需要再跑 `release-check` 或打开 batch docs 才能知道最新批次、read-first 路由、known gaps、验证命令和下一步。Batch 464 把 release handoff 的短 project handoff 投影到 kit-mode `status`，让接手会话只看 status 输出就能定位当前进度、证据/阻塞类别、最小验证门禁和下一步路由。
+
+实施范围：`status -Format json` 新增 `projectHandoff`，复用 `releasecheck.ReleaseHandoff` 的 `readFirst`、latest batch、known gaps、next actions 与 validation commands；`status -Format text` 和默认 kit-mode status text 新增 `status project handoff`、latest batch goal/validation、read-first、known gap、validation command 与 next action lines；`docs/go-first-convergence-plan.md` 顶部恢复 `docs/mission-control-product-direction.md` 链接，修复 manifest 不变量测试。该批只增强 read-only status handoff 与文档链接，不改 case-mode status、release-check contract、sync/promote/workstream/ledger/gate 语义，不执行 heavy-tool、不写 authority/confirmed、不改变 release blocker 状态。
+
+验证结果：已通过 focused `go test ./internal/rekit/manifest -run TestAutonomousGoalGuideInvariants -count=1`、`go test ./internal/rekit/cli -run TestRunStatusJsonKit -count=1`、`go run ./cmd/rekit -- -Command status -Format json`、`go run ./cmd/rekit -- -Command status -Format text` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `b3a7845 Add status project handoff` 与 release inspection follow-up `9a31fd4 Record Batch 464 release gate inspection`；远程 release-gate runs `29757012511` / `29757095251` 均为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+
 ### Batch 463：documentation routing pressure reduction closure
 
 状态：已完成 documentation routing pressure reduction closure、本地文档审计、durable docs、验证、commit/push 与远程 release-gate inspection。
