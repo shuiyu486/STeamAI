@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 418：Reconcile Mission Commander top-level next-action projection closure
 
-状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待收尾记录。
+状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 340 已让 `reconcile` preview/apply 暴露 executor action snapshot，Batch 391 让 nested `executorAction.missionCommanderAction` 给出 generic reconcile guidance，Batch 404/405/407/413 又把 overview、handoff、continue、resume/checkpoint 的 Mission Commander next actions 收口到共享 list；但 `reconcile -WhatIf/-Apply -Format json` 顶层仍缺 `missionCommanderAction` / `missionCommanderNextActions[]`，CLI text 也不打印 next-action list。主 Agent 在 Human-in-the-Lane intervention resolution 前后仍需从 nested `executorAction.missionCommanderAction`、`nextSteps[]` 和 selected intervention 手工拼接 concrete apply command、preview→apply→continue/handoff 顺序。本批把 reconcile 的 immediate product-path guidance 收口到顶层 Mission Commander projection。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `reconcile -Apply` 直接投影 refreshed lane 的 continue/handoff 或 blocked lane 的 reconcile/gate/decision next actions；CLI text 同步打印 `mission commander next action` lines，避免文本/default consumption 回查 JSON 或手工拼接。
 - CLI coverage 锁定 open intervention preview、concrete apply command、text next-action projection、apply 后 ready continue/handoff projection、case-local intervention/lane/resume/checkpoint/board write boundary、no authority/confirmed/no-heavy-tool/no PowerShell runtime logic 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunContinueBlocksUntilReconcileClosesIntervention" -count=1`、affected package `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunContinueBlocksUntilReconcileClosesIntervention" -count=1`、affected package `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `6540d09 Add reconcile commander next actions`；远程 release-gate run `29709261308` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 417 已完成 start / replaceable executor takeover Mission Commander next-action projection closure，详见 `docs/batch-history.md`。
 
