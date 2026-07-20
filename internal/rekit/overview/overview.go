@@ -483,10 +483,30 @@ func writeExecutionEvidenceReview(out *bytes.Buffer, items []workstream.Executio
 		}
 		fmt.Fprintf(out, "  - review command: `%s`\n", item.ReviewCommand)
 		fmt.Fprintf(out, "  - commander: state=%s primary=`%s`\n", item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand)
+		writeExecutionEvidenceFollowThrough(out, item.FollowThrough)
 		writeActionIndexList(out, "commander follow-up", item.MissionCommanderAction.FollowUpCommands)
 		writeActionIndexList(out, "boundary", item.Boundary)
 	}
 	fmt.Fprintln(out)
+}
+
+func writeExecutionEvidenceFollowThrough(out *bytes.Buffer, follow mission.ExecutionEvidenceFollowThrough) {
+	if strings.TrimSpace(follow.State) == "" && len(follow.Outcomes) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "  - follow-through: state=%s gateEventId=%s outcomes=%d\n", follow.State, follow.GateEventID, len(follow.Outcomes))
+	for _, outcome := range follow.Outcomes {
+		fmt.Fprintf(out, "    - outcome: name=%s state=%s command=`%s` expected=%s\n", outcome.Name, outcome.State, outcome.Command, outcome.Expected)
+		for _, action := range outcome.Actions {
+			fmt.Fprintf(out, "      - action: %s\n", action)
+		}
+		for _, command := range outcome.VerificationCommands {
+			fmt.Fprintf(out, "      - verification: %s\n", command)
+		}
+	}
+	if strings.TrimSpace(follow.ActionQueue.Summary) != "" {
+		fmt.Fprintf(out, "    - queue: %s\n", follow.ActionQueue.Summary)
+	}
 }
 
 func writeActionIndexList(out *bytes.Buffer, label string, items []string) {

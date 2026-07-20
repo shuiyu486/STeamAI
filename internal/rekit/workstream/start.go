@@ -1162,6 +1162,7 @@ func appendResumeExecutionEvidenceReview(lines []string, items []ExecutionEviden
 		lines = append(lines, "    - handoff command: `"+item.HandoffCommand+"`")
 		lines = append(lines, "    - commander state: "+item.MissionCommanderAction.State)
 		lines = append(lines, "    - commander primary: `"+item.MissionCommanderAction.PrimaryCommand+"`")
+		lines = appendResumeExecutionEvidenceFollowThrough(lines, item.FollowThrough)
 		for _, followUp := range mission.LimitStrings(item.MissionCommanderAction.FollowUpCommands, maxHandoffRows) {
 			lines = append(lines, "    - commander follow-up: "+followUp)
 		}
@@ -1170,6 +1171,33 @@ func appendResumeExecutionEvidenceReview(lines []string, items []ExecutionEviden
 		}
 	}
 	return lines
+}
+
+func appendResumeExecutionEvidenceFollowThrough(lines []string, follow mission.ExecutionEvidenceFollowThrough) []string {
+	if strings.TrimSpace(follow.State) == "" && len(follow.Outcomes) == 0 {
+		return lines
+	}
+	lines = append(lines, "    - follow-through: state="+follow.State+" gateEventId="+follow.GateEventID+" outcomes="+fmt.Sprintf("%d", len(follow.Outcomes)))
+	for _, outcome := range limitExecutionEvidenceOutcomes(follow.Outcomes, maxHandoffRows) {
+		lines = append(lines, "      - outcome: name="+outcome.Name+" state="+outcome.State+" command=`"+outcome.Command+"` expected="+outcome.Expected)
+		for _, action := range mission.LimitStrings(outcome.Actions, maxHandoffRows) {
+			lines = append(lines, "        - action: "+action)
+		}
+		for _, command := range mission.LimitStrings(outcome.VerificationCommands, maxHandoffRows) {
+			lines = append(lines, "        - verification: "+command)
+		}
+	}
+	if strings.TrimSpace(follow.ActionQueue.Summary) != "" {
+		lines = append(lines, "      - queue: "+follow.ActionQueue.Summary)
+	}
+	return lines
+}
+
+func limitExecutionEvidenceOutcomes(items []mission.ExecutionEvidenceOutcome, limit int) []mission.ExecutionEvidenceOutcome {
+	if limit > 0 && len(items) > limit {
+		return items[:limit]
+	}
+	return items
 }
 
 func appendResumeList(lines []string, label string, items []string) []string {

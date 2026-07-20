@@ -1956,6 +1956,7 @@ func gateExecutionEvidenceReviewWithAction(event ExecutionEvidencePreview, comma
 	if commander.PrimaryCommand != "" {
 		item.Boundary = append([]string{}, commander.Boundary...)
 		item.MissionCommanderAction = commander
+		item.FollowThrough = mission.ExecutionEvidenceReviewFollowThrough(item)
 	}
 	return []mission.ExecutionEvidenceReviewItem{item}
 }

@@ -115,21 +115,42 @@ type MissionCommanderActionQueueCounts struct {
 }
 
 type ExecutionEvidenceReviewItem struct {
-	EventID                string                 `json:"eventId,omitempty"`
-	GateEventID            string                 `json:"gateEventId,omitempty"`
-	Subject                string                 `json:"subject,omitempty"`
-	Summary                string                 `json:"summary,omitempty"`
-	Status                 string                 `json:"status,omitempty"`
-	Action                 string                 `json:"action,omitempty"`
-	Target                 string                 `json:"target,omitempty"`
-	OutputRefs             []string               `json:"outputRefs,omitempty"`
-	EvidenceRefs           []string               `json:"evidenceRefs,omitempty"`
-	BoundaryHits           []string               `json:"boundaryHits,omitempty"`
-	Escalation             string                 `json:"escalation,omitempty"`
-	ReviewCommand          string                 `json:"reviewCommand"`
-	HandoffCommand         string                 `json:"handoffCommand"`
-	Boundary               []string               `json:"boundary"`
-	MissionCommanderAction MissionCommanderAction `json:"missionCommanderAction"`
+	EventID                string                         `json:"eventId,omitempty"`
+	GateEventID            string                         `json:"gateEventId,omitempty"`
+	Subject                string                         `json:"subject,omitempty"`
+	Summary                string                         `json:"summary,omitempty"`
+	Status                 string                         `json:"status,omitempty"`
+	Action                 string                         `json:"action,omitempty"`
+	Target                 string                         `json:"target,omitempty"`
+	OutputRefs             []string                       `json:"outputRefs,omitempty"`
+	EvidenceRefs           []string                       `json:"evidenceRefs,omitempty"`
+	BoundaryHits           []string                       `json:"boundaryHits,omitempty"`
+	Escalation             string                         `json:"escalation,omitempty"`
+	FollowThrough          ExecutionEvidenceFollowThrough `json:"followThrough"`
+	ReviewCommand          string                         `json:"reviewCommand"`
+	HandoffCommand         string                         `json:"handoffCommand"`
+	Boundary               []string                       `json:"boundary"`
+	MissionCommanderAction MissionCommanderAction         `json:"missionCommanderAction"`
+}
+
+type ExecutionEvidenceFollowThrough struct {
+	State       string                      `json:"state"`
+	GateEventID string                      `json:"gateEventId"`
+	Outcomes    []ExecutionEvidenceOutcome  `json:"outcomes"`
+	Boundary    []string                    `json:"boundary"`
+	ActionQueue MissionCommanderActionQueue `json:"actionQueue"`
+}
+
+type ExecutionEvidenceOutcome struct {
+	Name                 string   `json:"name"`
+	State                string   `json:"state"`
+	When                 string   `json:"when"`
+	Command              string   `json:"command,omitempty"`
+	Actions              []string `json:"actions,omitempty"`
+	VerificationCommands []string `json:"verificationCommands,omitempty"`
+	Expected             string   `json:"expected"`
+	Evidence             []string `json:"evidence,omitempty"`
+	Boundary             []string `json:"boundary,omitempty"`
 }
 
 type LaneExecutorActionSnapshot struct {

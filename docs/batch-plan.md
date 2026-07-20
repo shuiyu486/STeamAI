@@ -16,32 +16,31 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 424：Authorized execution adapter/report consumption follow-through closure
+### Batch 425：Execution evidence review downstream artifact follow-through
 
-状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待执行。
 
-目标：Batch 361/366/373/380/392/411/412/421 已让 authorized-gate adapter report contract、read-only validation、record handoff 与 action queue 可见；但主 Agent / replacement executor 仍需在 contract、validation、record result、duplicate replay 与 evidence review queue 之间手工拼接 outcome-specific lifecycle。本批把 authorized execution follow-through 显式结构化，覆盖 write-and-validate、valid record、invalid repair、recorded review、boundary/main escalation review 与 duplicate replay review。
+目标：Batch 393/396/399/400/401/404/405/406/407/408/410/421/424 已让 authorized execution evidence record result 与 downstream review queue 可见；但 overview/handoff/continue/resume/checkpoint 的 `executionEvidenceReview[]` 仍要求 Mission Commander / replacement executor 从 `missionCommanderAction`、review command、handoff command、boundary、duplicate replay result 与 Batch 424 immediate `authorizedExecutionFollowThrough` 手工拼接 evidence-specific outcome。本批把 evidence review item 自身结构化为 follow-through，并投影到 downstream artifacts。
 
-边界：只增强 `gate -ExecutionReportContract`、`gate -ValidateExecutionReport` 与 execution evidence `gate -Apply -GateEventId ...` 的 JSON/text projection、package/CLI coverage 与 durable docs；不改变 authorized-gate request/decision write model、adapter sidecar strict intake、execution observation evidence write model、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；validation 仍 read-only，record 仍只写 bounded observation evidence，runtime 不执行 adapter/heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
+边界：只增强已记录 authorized execution observation evidence 的 read-only review projection、package/CLI coverage 与 durable docs；不改变 authorized-gate request/decision write model、adapter sidecar strict intake、execution observation evidence write model、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；runtime 不执行 adapter/heavy-tool，不 replay heavy action，不写 authority/confirmed，不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- `AdapterExecutionReportContract`、`AdapterExecutionReportValidation` 与 execution evidence `ApplyResult` 新增 `authorizedExecutionFollowThrough`，按当前 state 输出 outcomes、boundary 与共享 `missionCommanderActionQueue`。
-- contract 阶段输出 `write-and-validate-report`、`valid-report-record` 与 `invalid-report-repair` 三类 outcome，明确先写 sidecar 并运行 read-only validation，valid=true 后才能 record，invalid/missing 只进入 repair/rerun validation。
-- validation valid 阶段输出 `valid-report-record` outcome；missing/invalid sidecar 输出 `invalid-report-repair` outcome，并把 repair hints 投影为 `repairActions[]`。
-- execution evidence record 阶段输出 `recorded-evidence-review`、`boundary-or-escalation-review` 或 `duplicate-record-review` outcome，覆盖 normal review、main escalation 与 duplicate no-append/no-replay handoff。
-- CLI text 同步打印 adapter report contract/validation/execution evidence follow-through summary、outcome、action、repair action、verification command、boundary 与 queue summary。
-- coverage 锁定 contract 三 outcome、valid validation record handoff、missing/invalid sidecar repair hints、normal/boundary/duplicate execution evidence follow-through、text/JSON parity、read-only validation、bounded observation evidence record、duplicate no-append、no-heavy/no-authority/confirmed/no PowerShell runtime logic 边界。
+- `mission.ExecutionEvidenceReviewItem` 新增 `followThrough`，包含 state、gateEventId、outcomes、boundary 与 evidence-review scoped `missionCommanderActionQueue`。
+- shared evidence review builder 统一生成 `recorded-evidence-review`、`boundary-or-escalation-review` 与 `duplicate-record-review` outcomes，明确 review outputRefs/evidenceRefs、main escalation stop guidance、duplicate no-append/no-replay expected state 与 no-authority/confirmed boundary。
+- execution evidence duplicate path 在 duplicate-specific commander override 后重新计算 `followThrough`，确保 duplicate review queue 使用 `evidence-already-recorded` / `duplicate-record-review`，且 follow-through queue 只保留 review handoff/overview，不推荐 autonomous continue。
+- overview text/JSON、project/lane handoff JSON/Markdown、`/rekit continue` status/digest、lane `RESUME.md` 与 typed `checkpoints/latest.json` 同步投影同一 evidence follow-through，让 replacement executor 从任一 downstream artifact 都能直接消费 review/escalation/duplicate outcome。
+- coverage 锁定 overview/project handoff JSON follow-through、project handoff text follow-through、continue digest/status、lane resume/checkpoint serialization、normal/escalated/duplicate states、review-only queue、no-heavy/no-authority/confirmed/no PowerShell runtime logic 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/gate ./internal/rekit/cli -run "TestAdapterReport|TestValidateAdapter|TestRecordExecution|TestRunGate" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `1a46761 Add authorized execution follow-through`；远程 release-gate run `29715547553` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 affected package `go test ./internal/rekit/mission ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok 且 release notes 覆盖 Batch 425；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行并回填。
 
-上一批摘要：Batch 423 已完成 Pack-memory accepted/rejected decision follow-through closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 424 已完成 Authorized execution adapter/report consumption follow-through closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
-1. **Execution evidence review downstream artifact follow-through**：检查 `authorizedExecutionFollowThrough` 是否需要继续投影到 overview/handoff/continue/resume/checkpoint 的 evidence review downstream artifacts，优先选择 replacement executor 仍需跨 envelope 手工拼接的 Windows 本机 product-path 断点。
-2. **Reviewer orchestration dispatch/intake action consumption closure**：围绕 reviewer dispatch packet、strict intake、post-validation handoff 与 Mission Commander action queue 的实际主 Agent 消费路径补齐 coverage，不自动 spawn reviewer，不改变 review-first writeback。
-3. **Pack-memory decision follow-through downstream UX（如仍有缺口）**：Batch 423 已完成 candidate decision outcome projection；后续仅在 accepted/rejected 人工流程仍需跨 envelope 手工拼接时推进，不重复做字段微批次。
+1. **Reviewer orchestration dispatch/intake action consumption closure**：围绕 reviewer dispatch packet、strict intake、post-validation handoff 与 Mission Commander action queue 的实际主 Agent 消费路径补齐 coverage，不自动 spawn reviewer，不改变 review-first writeback。
+2. **Pack-memory decision follow-through downstream UX（如仍有缺口）**：Batch 423/425 已分别完成 candidate decision outcome projection 与 execution evidence downstream follow-through；后续仅在 accepted/rejected 人工流程或 evidence review downstream UX 仍需跨 envelope 手工拼接时推进，不重复做字段微批次。
+3. **Lane/tool-adapter live validation operational follow-through**：仅在 Windows 本机 product-path 仍存在 adapter contract/validation/report handoff 到 replacement executor 的真实断点时推进；不新增 adapter/heavy-tool execution。
 4. **Cross-platform product-path E2E（降优先级）**：在本地 CLI/case E2E 已覆盖 nested cwd / case shim 的基础上，仅保持可在 runner 可用时执行的三平台 matrix 候选和 known gap 记录；不要在 GitHub runner/billing blocker 未解除前让它阻塞 Windows 本机迭代。
 5. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 

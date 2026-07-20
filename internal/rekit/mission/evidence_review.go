@@ -82,6 +82,7 @@ func ExecutionEvidenceReviewItemFromObservation(observation map[string]any, lane
 		Boundary:       boundary,
 	}
 	item.MissionCommanderAction = ExecutionEvidenceReviewCommanderAction(item, label)
+	item.FollowThrough = ExecutionEvidenceReviewFollowThrough(item)
 	return item, true
 }
 
@@ -114,6 +115,135 @@ func ExecutionEvidenceReviewCommanderAction(item ExecutionEvidenceReviewItem, la
 		FollowUpCommands: followUp,
 		Boundary:         boundary,
 	}
+}
+
+func ExecutionEvidenceReviewFollowThrough(item ExecutionEvidenceReviewItem) ExecutionEvidenceFollowThrough {
+	state := strings.TrimSpace(item.MissionCommanderAction.State)
+	if state == "" {
+		state = "ready-for-evidence-review"
+	}
+	boundary := append([]string{}, item.MissionCommanderAction.Boundary...)
+	if len(boundary) == 0 {
+		boundary = append([]string{}, item.Boundary...)
+	}
+	if len(boundary) == 0 {
+		boundary = []string{
+			"observation evidence is already recorded; do not replay heavy tool",
+			"review outputRefs/evidenceRefs before any authority/confirmed outcome",
+			"no authority/confirmed writes",
+		}
+	}
+	follow := ExecutionEvidenceFollowThrough{
+		State:       state,
+		GateEventID: item.GateEventID,
+		Boundary:    boundary,
+	}
+	follow.Outcomes = []ExecutionEvidenceOutcome{executionEvidenceOutcomeFor(item, state, boundary)}
+	follow.ActionQueue = MissionCommanderActionQueueFor(executionEvidenceFollowThroughActions(item, state, boundary))
+	return follow
+}
+
+func executionEvidenceOutcomeFor(item ExecutionEvidenceReviewItem, state string, boundary []string) ExecutionEvidenceOutcome {
+	name := "recorded-evidence-review"
+	when := "bounded observation evidence was recorded for an authorized gate"
+	expected := "reviewed outputRefs/evidenceRefs before any authority/confirmed outcome"
+	actions := []string{
+		"review outputRefs/evidenceRefs for gateEventId " + item.GateEventID,
+		"run the evidence handoff command before continuing the lane",
+	}
+	verification := []string{item.HandoffCommand, "/rekit overview"}
+	switch state {
+	case "needs-main-escalation":
+		name = "boundary-or-escalation-review"
+		when = "recorded evidence reports boundaryHits, escalation, boundary-hit, or escalated status"
+		expected = "main Agent reviews boundary/escalation before any autonomous continuation"
+		actions = []string{
+			"stop autonomous continuation for this action",
+			"notify main Agent and review outputRefs/evidenceRefs for gateEventId " + item.GateEventID,
+		}
+		verification = []string{item.HandoffCommand, "/rekit overview"}
+	case "evidence-already-recorded":
+		name = "duplicate-record-review"
+		when = "record command was replayed for an already recorded execution evidence eventId"
+		expected = "duplicate replay does not append observation evidence; review the existing evidence only"
+		actions = []string{
+			"do not replay the heavy tool or append duplicate observation evidence",
+			"review the already recorded outputRefs/evidenceRefs for gateEventId " + item.GateEventID,
+		}
+		verification = []string{item.HandoffCommand, "/rekit overview"}
+	}
+	return ExecutionEvidenceOutcome{
+		Name:                 name,
+		State:                state,
+		When:                 when,
+		Command:              item.HandoffCommand,
+		Actions:              actions,
+		VerificationCommands: compactStrings(verification),
+		Expected:             expected,
+		Evidence:             compactStrings(append(append([]string{}, item.OutputRefs...), item.EvidenceRefs...)),
+		Boundary:             boundary,
+	}
+}
+
+func executionEvidenceFollowThroughActions(item ExecutionEvidenceReviewItem, state string, boundary []string) []MissionCommanderNextActionItem {
+	items := []MissionCommanderNextActionItem{}
+	lane := evidenceReviewLane(item)
+	label := evidenceReviewLabel(item)
+	needsMainReview := state == "needs-main-escalation"
+	if command := strings.TrimSpace(item.MissionCommanderAction.PrimaryCommand); command != "" {
+		items = append(items, MissionCommanderNextActionItem{
+			Lane:           lane,
+			Label:          label,
+			State:          state,
+			Command:        command,
+			Source:         "executionEvidenceReview.followThrough",
+			Blocked:        needsMainReview,
+			RequiresReview: true,
+			Reasons:        executionEvidenceFollowThroughReasons(item, needsMainReview),
+			Boundary:       append([]string{}, boundary...),
+		})
+	}
+	for _, followUp := range item.MissionCommanderAction.FollowUpCommands {
+		if strings.Contains(followUp, "/rekit continue") {
+			continue
+		}
+		items = append(items, MissionCommanderNextActionItem{
+			Lane:           lane,
+			Label:          label,
+			State:          state,
+			Command:        followUp,
+			Source:         "executionEvidenceReview.followThrough.followUp",
+			Blocked:        needsMainReview,
+			RequiresReview: true,
+			Reasons:        executionEvidenceFollowThroughReasons(item, needsMainReview),
+			Boundary:       append([]string{}, boundary...),
+		})
+	}
+	return UniqueCommanderNextActions(items)
+}
+
+func executionEvidenceFollowThroughReasons(item ExecutionEvidenceReviewItem, needsMainReview bool) []string {
+	reasons := []string{}
+	if item.GateEventID != "" {
+		reasons = append(reasons, "review execution evidence for gateEventId "+item.GateEventID)
+	}
+	if item.ReviewCommand != "" {
+		reasons = append(reasons, item.ReviewCommand)
+	}
+	if needsMainReview {
+		reasons = append(reasons, "boundary hit or escalation in execution evidence; stop autonomous continuation and notify main Agent")
+	}
+	return reasons
+}
+
+func compactStrings(items []string) []string {
+	out := []string{}
+	for _, item := range items {
+		if text := strings.TrimSpace(item); text != "" {
+			out = append(out, text)
+		}
+	}
+	return UniqueStrings(out)
 }
 
 func objectMap(value any) map[string]any {

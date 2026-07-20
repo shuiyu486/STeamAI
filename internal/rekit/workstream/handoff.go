@@ -530,12 +530,32 @@ func writeProjectLaneExecutionEvidenceReview(out *bytes.Buffer, items []Executio
 		fmt.Fprintf(out, "  - evidence review command：`%s`\n", item.ReviewCommand)
 		fmt.Fprintf(out, "  - evidence handoff：`%s`\n", item.HandoffCommand)
 		fmt.Fprintf(out, "  - evidence commander：state=%s primary=`%s`\n", item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand)
+		writeProjectLaneEvidenceFollowThrough(out, item.FollowThrough)
 		for _, followUp := range mission.LimitStrings(item.MissionCommanderAction.FollowUpCommands, maxHandoffRows) {
 			fmt.Fprintf(out, "  - evidence commander follow-up：%s\n", followUp)
 		}
 		for _, boundary := range mission.LimitStrings(item.Boundary, maxHandoffRows) {
 			fmt.Fprintf(out, "  - evidence boundary：%s\n", boundary)
 		}
+	}
+}
+
+func writeProjectLaneEvidenceFollowThrough(out *bytes.Buffer, follow mission.ExecutionEvidenceFollowThrough) {
+	if strings.TrimSpace(follow.State) == "" && len(follow.Outcomes) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "  - evidence follow-through：state=%s gateEventId=%s outcomes=%d\n", follow.State, follow.GateEventID, len(follow.Outcomes))
+	for _, outcome := range follow.Outcomes {
+		fmt.Fprintf(out, "  - evidence follow-through outcome：name=%s state=%s command=`%s` expected=%s\n", outcome.Name, outcome.State, outcome.Command, outcome.Expected)
+		for _, action := range mission.LimitStrings(outcome.Actions, maxHandoffRows) {
+			fmt.Fprintf(out, "  - evidence follow-through action：name=%s action=%s\n", outcome.Name, action)
+		}
+		for _, command := range mission.LimitStrings(outcome.VerificationCommands, maxHandoffRows) {
+			fmt.Fprintf(out, "  - evidence follow-through verification：name=%s command=%s\n", outcome.Name, command)
+		}
+	}
+	if strings.TrimSpace(follow.ActionQueue.Summary) != "" {
+		fmt.Fprintf(out, "  - evidence follow-through queue：summary=%s\n", follow.ActionQueue.Summary)
 	}
 }
 
@@ -1047,10 +1067,30 @@ func writeExecutionEvidenceReviewSection(out *bytes.Buffer, items []ExecutionEvi
 		fmt.Fprintf(out, "  - handoff command: `%s`\n", item.HandoffCommand)
 		fmt.Fprintf(out, "  - commander state: %s\n", item.MissionCommanderAction.State)
 		fmt.Fprintf(out, "  - commander primary: `%s`\n", item.MissionCommanderAction.PrimaryCommand)
+		writeExecutionEvidenceFollowThrough(out, item.FollowThrough)
 		writeHandoffBriefList(out, "commander follow-up", item.MissionCommanderAction.FollowUpCommands)
 		writeHandoffBriefList(out, "review boundary", item.Boundary)
 	}
 	fmt.Fprintln(out)
+}
+
+func writeExecutionEvidenceFollowThrough(out *bytes.Buffer, follow mission.ExecutionEvidenceFollowThrough) {
+	if strings.TrimSpace(follow.State) == "" && len(follow.Outcomes) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "  - follow-through: state=%s gateEventId=%s outcomes=%d\n", follow.State, follow.GateEventID, len(follow.Outcomes))
+	for _, outcome := range follow.Outcomes {
+		fmt.Fprintf(out, "    - outcome: name=%s state=%s command=`%s` expected=%s\n", outcome.Name, outcome.State, outcome.Command, outcome.Expected)
+		for _, action := range mission.LimitStrings(outcome.Actions, maxHandoffRows) {
+			fmt.Fprintf(out, "      - action: %s\n", action)
+		}
+		for _, command := range mission.LimitStrings(outcome.VerificationCommands, maxHandoffRows) {
+			fmt.Fprintf(out, "      - verification: %s\n", command)
+		}
+	}
+	if strings.TrimSpace(follow.ActionQueue.Summary) != "" {
+		fmt.Fprintf(out, "    - queue: %s\n", follow.ActionQueue.Summary)
+	}
 }
 
 func writeInterventionSection(out *bytes.Buffer, interventions []map[string]any, laneID string) {

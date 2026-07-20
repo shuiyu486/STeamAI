@@ -2318,7 +2318,7 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	if queue.Summary != "total=5 unblocked=2 blocked=3 requiresReview=5 followUp=3 current=/rekit handoff main" || queue.Counts.Total != 5 || queue.Counts.Unblocked != 2 || queue.Counts.Blocked != 3 || queue.Counts.RequiresReview != 5 || queue.Counts.FollowUp != 3 || queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit handoff main" || queue.CurrentAction.Source != "executionEvidenceReview" || len(queue.UnblockedActions) != 2 || len(queue.BlockedActions) != 3 || len(queue.ReviewRequiredActions) != 5 || len(queue.FollowUpActions) != 3 {
 		t.Fatalf("overview JSON missing Mission Commander action queue: %+v", queue)
 	}
-	if len(result.ExecutionEvidenceReview) != 1 || result.ExecutionEvidenceReview[0].GateEventID != "gate-auth-1" || result.ExecutionEvidenceReview[0].Action != "debug" || !containsSubstring(result.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/out.txt") || !containsSubstring(result.ExecutionEvidenceReview[0].EvidenceRefs, "evidence/debug.json") || !containsSubstring(result.ExecutionEvidenceReview[0].Boundary, "do not replay heavy tool") || result.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || result.ExecutionEvidenceReview[0].MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(result.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") {
+	if len(result.ExecutionEvidenceReview) != 1 || result.ExecutionEvidenceReview[0].GateEventID != "gate-auth-1" || result.ExecutionEvidenceReview[0].Action != "debug" || !containsSubstring(result.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/out.txt") || !containsSubstring(result.ExecutionEvidenceReview[0].EvidenceRefs, "evidence/debug.json") || !containsSubstring(result.ExecutionEvidenceReview[0].Boundary, "do not replay heavy tool") || result.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || result.ExecutionEvidenceReview[0].MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(result.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || result.ExecutionEvidenceReview[0].FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(result.ExecutionEvidenceReview[0].FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
 		t.Fatalf("overview JSON missing execution evidence review queue: %+v", result.ExecutionEvidenceReview)
 	}
 	if !containsSubstring(result.NextSteps, "review execution evidence for gateEventId gate-auth-1") || !slices.Contains(result.NextSteps, "/rekit handoff main") || containsSubstring(result.NextSteps, "/rekit continue main") {
@@ -6141,7 +6141,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if !containsSubstring(project.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(project.MissionBrief.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(project.MissionBrief.AuthorizedGates, "stopConditions=timeout") || !containsSubstring(project.MissionBrief.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(project.MissionBrief.AuthorizedGates, "reportContract="+reportContract) || len(project.MissionBrief.PendingGates) != 0 {
 		t.Fatalf("project handoff JSON missing authorized gate visibility: %+v", project.MissionBrief)
 	}
-	if len(project.ExecutionEvidenceReview) != 2 || project.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || project.ExecutionEvidenceReview[0].Status != "succeeded" || !containsSubstring(project.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/session-1/result.json") || !containsSubstring(project.ExecutionEvidenceReview[0].EvidenceRefs, "workspace/main/debug/session-1/result.json") || project.ExecutionEvidenceReview[0].HandoffCommand != "/rekit handoff main" || !containsSubstring(project.ExecutionEvidenceReview[0].Boundary, "do not replay heavy tool") || project.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || !containsSubstring(project.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || project.ExecutionEvidenceReview[1].Status != "escalated" || project.ExecutionEvidenceReview[1].Escalation != "adapter escalated from CLI E2E" || !containsSubstring(project.ExecutionEvidenceReview[1].Boundary, "requires main review") || project.ExecutionEvidenceReview[1].MissionCommanderAction.State != "needs-main-escalation" || containsSubstring(project.ExecutionEvidenceReview[1].MissionCommanderAction.FollowUpCommands, "/rekit continue main") {
+	if len(project.ExecutionEvidenceReview) != 2 || project.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || project.ExecutionEvidenceReview[0].Status != "succeeded" || !containsSubstring(project.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/session-1/result.json") || !containsSubstring(project.ExecutionEvidenceReview[0].EvidenceRefs, "workspace/main/debug/session-1/result.json") || project.ExecutionEvidenceReview[0].HandoffCommand != "/rekit handoff main" || !containsSubstring(project.ExecutionEvidenceReview[0].Boundary, "do not replay heavy tool") || project.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || !containsSubstring(project.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || project.ExecutionEvidenceReview[0].FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(project.ExecutionEvidenceReview[0].FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") || project.ExecutionEvidenceReview[1].Status != "escalated" || project.ExecutionEvidenceReview[1].Escalation != "adapter escalated from CLI E2E" || !containsSubstring(project.ExecutionEvidenceReview[1].Boundary, "requires main review") || project.ExecutionEvidenceReview[1].MissionCommanderAction.State != "needs-main-escalation" || containsSubstring(project.ExecutionEvidenceReview[1].MissionCommanderAction.FollowUpCommands, "/rekit continue main") || project.ExecutionEvidenceReview[1].FollowThrough.State != "needs-main-escalation" || !cliExecutionEvidenceFollowThroughContains(project.ExecutionEvidenceReview[1].FollowThrough, "boundary-or-escalation-review", "main Agent reviews boundary/escalation") {
 		t.Fatalf("project handoff JSON missing execution evidence review queue: %+v", project.ExecutionEvidenceReview)
 	}
 	if !containsSubstring(project.NextSteps, "review execution evidence for gateEventId "+authorizedEventID) || !slices.Contains(project.NextSteps, "/rekit handoff main") || containsSubstring(project.NextSteps, "/rekit continue main") || !containsSubstring(project.NextSteps, "boundary hit or escalation") {
@@ -6155,7 +6155,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "evidence next action：review execution evidence for gateEventId " + authorizedEventID, "evidence next action：boundary hit or escalation in execution evidence", "evidence review 后继续候选：`/rekit continue main`", "execution evidence review：execution evidence for authorized debug status=succeeded gateEventId=" + authorizedEventID, "execution evidence review：execution evidence for authorized debug status=escalated gateEventId=" + authorizedEventID, "evidence review command：`review outputRefs/evidenceRefs for gateEventId " + authorizedEventID + "`", "evidence handoff：`/rekit handoff main`", "evidence commander：state=ready-for-evidence-review primary=`/rekit handoff main`", "evidence commander：state=needs-main-escalation primary=`/rekit handoff main`", "evidence commander follow-up：/rekit overview", "evidence commander follow-up：/rekit continue main -WhatIf", "evidence boundary：observation evidence is already recorded; do not replay heavy tool", "evidence boundary：boundary/escalation requires main review before autonomous continuation"} {
+	for _, expected := range []string{"authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "evidence next action：review execution evidence for gateEventId " + authorizedEventID, "evidence next action：boundary hit or escalation in execution evidence", "evidence review 后继续候选：`/rekit continue main`", "execution evidence review：execution evidence for authorized debug status=succeeded gateEventId=" + authorizedEventID, "execution evidence review：execution evidence for authorized debug status=escalated gateEventId=" + authorizedEventID, "evidence review command：`review outputRefs/evidenceRefs for gateEventId " + authorizedEventID + "`", "evidence handoff：`/rekit handoff main`", "evidence commander：state=ready-for-evidence-review primary=`/rekit handoff main`", "evidence commander：state=needs-main-escalation primary=`/rekit handoff main`", "evidence follow-through：state=ready-for-evidence-review", "evidence follow-through outcome：name=recorded-evidence-review", "evidence follow-through：state=needs-main-escalation", "evidence follow-through outcome：name=boundary-or-escalation-review", "evidence commander follow-up：/rekit overview", "evidence commander follow-up：/rekit continue main -WhatIf", "evidence boundary：observation evidence is already recorded; do not replay heavy tool", "evidence boundary：boundary/escalation requires main review before autonomous continuation"} {
 		if !strings.Contains(string(projectText), expected) {
 			t.Fatalf("project handoff missing %q:\n%s", expected, string(projectText))
 		}
@@ -7108,18 +7108,39 @@ type handoffLaneExecutorAction struct {
 }
 
 type executionEvidenceReviewItem struct {
-	EventID                string                         `json:"eventId"`
-	GateEventID            string                         `json:"gateEventId"`
-	Subject                string                         `json:"subject"`
-	Status                 string                         `json:"status"`
-	Action                 string                         `json:"action"`
-	OutputRefs             []string                       `json:"outputRefs"`
-	EvidenceRefs           []string                       `json:"evidenceRefs"`
-	Escalation             string                         `json:"escalation"`
-	ReviewCommand          string                         `json:"reviewCommand"`
-	HandoffCommand         string                         `json:"handoffCommand"`
-	Boundary               []string                       `json:"boundary"`
-	MissionCommanderAction missionCommanderActionSnapshot `json:"missionCommanderAction"`
+	EventID                string                                 `json:"eventId"`
+	GateEventID            string                                 `json:"gateEventId"`
+	Subject                string                                 `json:"subject"`
+	Status                 string                                 `json:"status"`
+	Action                 string                                 `json:"action"`
+	OutputRefs             []string                               `json:"outputRefs"`
+	EvidenceRefs           []string                               `json:"evidenceRefs"`
+	Escalation             string                                 `json:"escalation"`
+	FollowThrough          executionEvidenceFollowThroughSnapshot `json:"followThrough"`
+	ReviewCommand          string                                 `json:"reviewCommand"`
+	HandoffCommand         string                                 `json:"handoffCommand"`
+	Boundary               []string                               `json:"boundary"`
+	MissionCommanderAction missionCommanderActionSnapshot         `json:"missionCommanderAction"`
+}
+
+type executionEvidenceFollowThroughSnapshot struct {
+	State       string                              `json:"state"`
+	GateEventID string                              `json:"gateEventId"`
+	Outcomes    []executionEvidenceOutcomeSnapshot  `json:"outcomes"`
+	Boundary    []string                            `json:"boundary"`
+	ActionQueue missionCommanderActionQueueSnapshot `json:"actionQueue"`
+}
+
+type executionEvidenceOutcomeSnapshot struct {
+	Name                 string   `json:"name"`
+	State                string   `json:"state"`
+	When                 string   `json:"when"`
+	Command              string   `json:"command"`
+	Actions              []string `json:"actions"`
+	VerificationCommands []string `json:"verificationCommands"`
+	Expected             string   `json:"expected"`
+	Evidence             []string `json:"evidence"`
+	Boundary             []string `json:"boundary"`
 }
 
 type executorActionSnapshot struct {
@@ -7215,6 +7236,21 @@ func assertCLIActionQueue(t *testing.T, queue missionCommanderActionQueueSnapsho
 	if queue.Counts.Total != total || queue.Counts.Unblocked != unblocked || queue.Counts.Blocked != blocked || queue.Counts.RequiresReview != requiresReview || queue.Counts.FollowUp != followUp || queue.CurrentAction == nil || queue.CurrentAction.Command != currentCommand || !strings.Contains(queue.Summary, "current="+currentCommand) {
 		t.Fatalf("Mission Commander action queue drifted: %+v", queue)
 	}
+}
+
+func cliExecutionEvidenceFollowThroughContains(follow executionEvidenceFollowThroughSnapshot, outcomeName, want string) bool {
+	fields := append([]string{follow.State, follow.GateEventID, follow.ActionQueue.Summary}, follow.Boundary...)
+	for _, outcome := range follow.Outcomes {
+		if outcome.Name != outcomeName {
+			continue
+		}
+		fields = append(fields, outcome.Name, outcome.State, outcome.When, outcome.Command, outcome.Expected)
+		fields = append(fields, outcome.Actions...)
+		fields = append(fields, outcome.VerificationCommands...)
+		fields = append(fields, outcome.Evidence...)
+		fields = append(fields, outcome.Boundary...)
+	}
+	return containsSubstring(fields, want)
 }
 
 func cliAuthorizedFollowThroughContains(follow authorizedExecutionFollowThroughSnapshot, outcomeName, want string) bool {

@@ -420,6 +420,9 @@ func TestRecordExecutionWritesObservationForAuthorizedGate(t *testing.T) {
 		t.Fatalf("execution evidence next steps omitted handoff/review guidance: %+v", result.NextSteps)
 	}
 	assertGateActionQueue(t, result.MissionCommanderActionQueue, 5, 5, 0, 3, 3, "/rekit handoff main")
+	if len(result.ExecutionEvidenceReview) != 1 || result.ExecutionEvidenceReview[0].FollowThrough.State != "ready-for-evidence-review" || !executionEvidenceFollowThroughContainsForTest(result.ExecutionEvidenceReview[0].FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") || result.ExecutionEvidenceReview[0].FollowThrough.ActionQueue.CurrentAction == nil || result.ExecutionEvidenceReview[0].FollowThrough.ActionQueue.CurrentAction.Command != "/rekit handoff main" || strings.Contains(result.ExecutionEvidenceReview[0].FollowThrough.ActionQueue.Summary, "/rekit continue") {
+		t.Fatalf("execution evidence review omitted recorded follow-through: %+v", result.ExecutionEvidenceReview)
+	}
 	observed := readSingleExecutionEvidence(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if observed.EventID != result.EventID || observed.Execution.GateEventID != authorized.EventID || observed.Gate.Authorization.Decision != "preauthorized" {
 		t.Fatalf("observation ledger mismatch: %+v", observed)
@@ -450,8 +453,8 @@ func TestRecordExecutionDuplicateDoesNotAppend(t *testing.T) {
 	if second.MissionCommanderAction.State != "evidence-already-recorded" || !gateContainsSubstring(second.MissionCommanderAction.Boundary, "did not append observation evidence") || gateContainsSubstring(second.MissionCommanderAction.FollowUpCommands, "-Apply") || gateContainsSubstring(second.MissionCommanderAction.FollowUpCommands, "/rekit continue") {
 		t.Fatalf("duplicate execution evidence omitted idempotent Mission Commander handoff: %+v", second.MissionCommanderAction)
 	}
-	if len(second.ExecutionEvidenceReview) != 1 || second.ExecutionEvidenceReview[0].MissionCommanderAction.State != "evidence-already-recorded" || !gateContainsSubstring(second.ExecutionEvidenceReview[0].MissionCommanderAction.Boundary, "did not append observation evidence") {
-		t.Fatalf("duplicate execution evidence review omitted idempotent state: %+v", second.ExecutionEvidenceReview)
+	if len(second.ExecutionEvidenceReview) != 1 || second.ExecutionEvidenceReview[0].MissionCommanderAction.State != "evidence-already-recorded" || !gateContainsSubstring(second.ExecutionEvidenceReview[0].MissionCommanderAction.Boundary, "did not append observation evidence") || second.ExecutionEvidenceReview[0].FollowThrough.State != "evidence-already-recorded" || !executionEvidenceFollowThroughContainsForTest(second.ExecutionEvidenceReview[0].FollowThrough, "duplicate-record-review", "does not append observation evidence") || strings.Contains(second.ExecutionEvidenceReview[0].FollowThrough.ActionQueue.Summary, "/rekit continue") {
+		t.Fatalf("duplicate execution evidence review omitted idempotent follow-through: %+v", second.ExecutionEvidenceReview)
 	}
 	if len(second.MissionCommanderNextActions) != 2 || second.MissionCommanderNextActions[0].State != "evidence-already-recorded" || second.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || second.MissionCommanderNextActions[0].Command != "/rekit handoff main" || second.MissionCommanderNextActions[1].Command != "/rekit overview" || gateNextActionContainsCommand(second.MissionCommanderNextActions, "/rekit continue") || gateNextActionContainsSource(second.MissionCommanderNextActions, "missionCommanderActions") || !gateNextActionBoundaryContains(second.MissionCommanderNextActions, "did not append observation evidence") {
 		t.Fatalf("duplicate execution evidence next actions should be review-only and idempotent: %+v", second.MissionCommanderNextActions)
@@ -1575,6 +1578,21 @@ func authorizedFollowThroughContainsForTest(follow AuthorizedExecutionFollowThro
 		fields = append(fields, outcome.Name, outcome.State, outcome.When, outcome.Command, outcome.Expected)
 		fields = append(fields, outcome.Actions...)
 		fields = append(fields, outcome.RepairActions...)
+		fields = append(fields, outcome.VerificationCommands...)
+		fields = append(fields, outcome.Evidence...)
+		fields = append(fields, outcome.Boundary...)
+	}
+	return gateContainsSubstring(fields, want)
+}
+
+func executionEvidenceFollowThroughContainsForTest(follow mission.ExecutionEvidenceFollowThrough, outcomeName, want string) bool {
+	fields := append([]string{follow.State, follow.GateEventID, follow.ActionQueue.Summary}, follow.Boundary...)
+	for _, outcome := range follow.Outcomes {
+		if outcome.Name != outcomeName {
+			continue
+		}
+		fields = append(fields, outcome.Name, outcome.State, outcome.When, outcome.Command, outcome.Expected)
+		fields = append(fields, outcome.Actions...)
 		fields = append(fields, outcome.VerificationCommands...)
 		fields = append(fields, outcome.Evidence...)
 		fields = append(fields, outcome.Boundary...)

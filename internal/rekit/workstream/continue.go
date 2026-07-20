@@ -767,6 +767,7 @@ func continueDigestText(result ContinueResult) string {
 	lines = appendMissionBriefDigestList(lines, "commander boundary", result.ExecutorAction.MissionCommanderAction.Boundary)
 	lines = appendMissionCommanderActionQueue(lines, result.MissionCommanderActionQueue)
 	lines = appendContinueMissionCommanderNextActions(lines, result.MissionCommanderNextActions)
+	lines = appendContinueExecutionEvidenceReview(lines, result.ExecutionEvidenceReview)
 	lines = appendMissionBriefDigestList(lines, "blocker reasons", result.ExecutorAction.BlockerReasons)
 	lines = appendMissionBriefDigestList(lines, "executor next actions", result.ExecutorAction.NextAgentActions)
 	lines = appendMissionBriefDigestList(lines, "executor escalations", result.ExecutorAction.Escalations)
@@ -834,6 +835,50 @@ func appendContinueMissionCommanderNextActions(lines []string, items []mission.M
 		lines = append(lines, fmt.Sprintf("- state=%s source=%s blocked=%t requiresReview=%t command=`%s`", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command))
 		lines = appendMissionBriefDigestList(lines, "reasons", item.Reasons)
 		lines = appendMissionBriefDigestList(lines, "boundary", item.Boundary)
+	}
+	return lines
+}
+
+func appendContinueExecutionEvidenceReview(lines []string, items []ExecutionEvidenceReviewItem) []string {
+	lines = append(lines, "", "## Execution evidence review", "")
+	if len(items) == 0 {
+		return append(lines, "- none")
+	}
+	shown := items
+	if maxHandoffRows > 0 && len(shown) > maxHandoffRows {
+		shown = shown[len(shown)-maxHandoffRows:]
+	}
+	for _, item := range shown {
+		lines = append(lines, fmt.Sprintf("- %s | status=%s | gateEventId=%s | action=%s", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, firstText(item.Action, "none")))
+		lines = appendMissionBriefDigestList(lines, "outputRefs", item.OutputRefs)
+		lines = appendMissionBriefDigestList(lines, "evidenceRefs", item.EvidenceRefs)
+		lines = append(lines, "- review command: `"+item.ReviewCommand+"`")
+		lines = append(lines, "- handoff command: `"+item.HandoffCommand+"`")
+		lines = append(lines, "- commander state: "+item.MissionCommanderAction.State)
+		lines = append(lines, "- commander primary: `"+item.MissionCommanderAction.PrimaryCommand+"`")
+		lines = appendContinueExecutionEvidenceFollowThrough(lines, item.FollowThrough)
+		lines = appendMissionBriefDigestList(lines, "commander follow-up", item.MissionCommanderAction.FollowUpCommands)
+		lines = appendMissionBriefDigestList(lines, "review boundary", item.Boundary)
+	}
+	return lines
+}
+
+func appendContinueExecutionEvidenceFollowThrough(lines []string, follow mission.ExecutionEvidenceFollowThrough) []string {
+	if strings.TrimSpace(follow.State) == "" && len(follow.Outcomes) == 0 {
+		return lines
+	}
+	lines = append(lines, "- follow-through: state="+follow.State+" gateEventId="+follow.GateEventID+" outcomes="+fmt.Sprintf("%d", len(follow.Outcomes)))
+	for _, outcome := range limitExecutionEvidenceOutcomes(follow.Outcomes, maxHandoffRows) {
+		lines = append(lines, "  - outcome: name="+outcome.Name+" state="+outcome.State+" command=`"+outcome.Command+"` expected="+outcome.Expected)
+		for _, action := range mission.LimitStrings(outcome.Actions, maxHandoffRows) {
+			lines = append(lines, "    - action: "+action)
+		}
+		for _, command := range mission.LimitStrings(outcome.VerificationCommands, maxHandoffRows) {
+			lines = append(lines, "    - verification: "+command)
+		}
+	}
+	if strings.TrimSpace(follow.ActionQueue.Summary) != "" {
+		lines = append(lines, "  - queue: "+follow.ActionQueue.Summary)
 	}
 	return lines
 }
