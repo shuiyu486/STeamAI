@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 474：kit no-command status handoff smoke closure
 
-状态：已完成 kit-mode no-command default status smoke coverage、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29765802680` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 kit-mode no-command default status smoke coverage、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate runs `29765802680` / `29765874247` 均为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 473 锁定 case-local lane workspace 中无 `-Command` 的默认 status 入口，但新会话也常从 kit 仓库直接运行 `/rekit` 来接手项目状态。Batch 474 把 no-command 默认入口扩展到 kit mode，确认只传 `-Pack _template` 时同样解析为只读 status，并展示 project handoff、read-first routing、release validation commands 与 next actions，避免新会话必须记住 `-Command status` 才能看到项目级接手入口。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - no-command kit smoke 锁定 project handoff、`docs/context-routing.md` read-first、release minimum validation command 与 next action 同屏输出。
 - 该 smoke 不新增 runtime 行为；README、`/rekit` skill 与 Agent Team 使用指南已在 Batch 473 说明 `/rekit` 无子命令默认 status，本批无需再扩写用户文档。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunStatusJsonCase|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `bf421a3 Add kit no-command status smoke`；远程 release-gate run `29765802680` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunStatusJsonCase|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `bf421a3 Add kit no-command status smoke` 与 release inspection follow-up `113f3a2 Record Batch 474 release gate inspection`；远程 release-gate runs `29765802680` / `29765874247` 均为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 473 已完成 no-command default status product-path smoke closure，详见 `docs/batch-history.md`。
 
