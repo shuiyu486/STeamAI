@@ -757,6 +757,21 @@ func writeReleaseCheckText(out io.Writer, result releasecheck.Result) error {
 	if _, err := fmt.Fprintf(out, "release-check heavy actions：actions=%s\n", strings.Join(result.HeavyToolGateActions, ",")); err != nil {
 		return err
 	}
+	if err := writeReleaseGoNativePublicSurfaceText(out, result.GoNativePublicSurface); err != nil {
+		return err
+	}
+	if err := writeReleasePowerShellDeprecationText(out, result.PowerShellDeprecation); err != nil {
+		return err
+	}
+	if err := writeReleasePublicFacadeRemovalText(out, result.PublicFacadeRemoval); err != nil {
+		return err
+	}
+	if err := writeReleaseCaseShimText(out, result.CaseShim); err != nil {
+		return err
+	}
+	if err := writeReleasePublicDefaultDocsText(out, result.PublicDefaultDocs); err != nil {
+		return err
+	}
 	if err := writeReleaseHandoffText(out, result.ReleaseHandoff); err != nil {
 		return err
 	}
@@ -772,6 +787,269 @@ func writeReleaseCheckText(out io.Writer, result releasecheck.Result) error {
 	}
 	for _, warning := range result.Warnings {
 		if _, err := fmt.Fprintf(out, "release-check warning：%s\n", warning); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeReleaseGoNativePublicSurfaceText(out io.Writer, surface releasecheck.GoNativePublicSurface) error {
+	counts := releasecheck.GoNativePublicSurfaceCountsFor(surface)
+	if _, err := fmt.Fprintf(out, "release-check go-native public surface：summary=%s ready=%t entrypoint=%s present=%t catalog=%s catalogPresent=%t default=%s commands=%d handlers=%d symbols=%d profiles=%d profileTotal=%d readOnly=%d mutating=%d writesCase=%d writesKit=%d reviewFirst=%d applyRequired=%d heavyTool=%d authorityConfirmed=%d boundaries=%d boundaryRows=%d boundaryCommands=%d policyRows=%d policyViolations=%d facadeRemovalReady=%t facadePrerequisites=%d facadeNotReady=%d unsupportedDiagnostic=%t alternative=%s warnings=%d\n", surface.Summary, surface.Ready, surface.Entrypoint, surface.EntrypointPresent, surface.CommandCatalogPath, surface.CommandCatalogPresent, surface.DefaultCommand, counts.Commands, counts.HandlerCommands, counts.SymbolCommands, counts.CommandProfiles, counts.ProfileTotal, counts.ReadOnly, counts.Mutating, counts.WritesCase, counts.WritesKit, counts.ReviewFirst, counts.ApplyRequired, counts.HeavyTool, counts.AuthorityConfirmed, counts.MutationBoundaries, counts.BoundaryRows, counts.BoundaryCommands, counts.PolicyRows, counts.PolicyViolations, surface.FacadeRemovalReady, counts.FacadePrerequisites, counts.FacadeNotReadyPrerequisites, surface.UnsupportedCommandDiagnosticPresent, surface.AlternativePattern, counts.Warnings); err != nil {
+		return err
+	}
+	for _, group := range []struct {
+		name     string
+		commands []string
+	}{
+		{name: "readOnly", commands: surface.CommandProfileGroups.ReadOnly},
+		{name: "mutating", commands: surface.CommandProfileGroups.Mutating},
+		{name: "writesCase", commands: surface.CommandProfileGroups.WritesCase},
+		{name: "writesKit", commands: surface.CommandProfileGroups.WritesKit},
+		{name: "reviewFirst", commands: surface.CommandProfileGroups.ReviewFirst},
+		{name: "applyRequired", commands: surface.CommandProfileGroups.ApplyRequired},
+		{name: "caseLocalApply", commands: surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalApply]},
+		{name: "caseLocalReviewWriteback", commands: surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalReviewWriteback]},
+		{name: "caseLocalReviewFirst", commands: surface.CommandProfileGroups.ByBoundary[commands.BoundaryCaseLocalReviewFirst]},
+		{name: "kitReviewFirst", commands: surface.CommandProfileGroups.ByBoundary[commands.BoundaryKitReviewFirst]},
+		{name: "boundaryReadOnly", commands: surface.CommandProfileGroups.ByBoundary[commands.BoundaryReadOnly]},
+	} {
+		if _, err := fmt.Fprintf(out, "release-check command group：group=%s commands=%s\n", group.name, strings.Join(group.commands, ",")); err != nil {
+			return err
+		}
+	}
+	for _, profile := range surface.CommandProfiles {
+		if _, err := fmt.Fprintf(out, "release-check command profile：command=%s boundary=%s mutation=%t writesCase=%t writesKit=%t reviewFirst=%t applyRequired=%t heavyTool=%t authorityConfirmed=%t\n", profile.Command, profile.MutationBoundary, profile.IsMutation, profile.WritesCase, profile.WritesKit, profile.ReviewFirst, profile.ApplyRequired, profile.HeavyTool, profile.AuthorityConfirmed); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range surface.CommandProfileBoundaries {
+		if _, err := fmt.Fprintf(out, "release-check command boundary：boundary=%s count=%d commands=%s\n", boundary.Boundary, boundary.Count, strings.Join(boundary.Commands, ",")); err != nil {
+			return err
+		}
+	}
+	for _, policy := range surface.CommandProfilePolicies {
+		if _, err := fmt.Fprintf(out, "release-check command policy：policy=%s ready=%t violations=%d commands=%s summary=%s\n", policy.Policy, policy.Ready, policy.ViolationCount, strings.Join(policy.Commands, ","), policy.Summary); err != nil {
+			return err
+		}
+	}
+	for _, prerequisite := range surface.FacadeRemovalPrerequisites {
+		if _, err := fmt.Fprintf(out, "release-check go-native facade prerequisite：name=%s ready=%t summary=%s\n", prerequisite.Name, prerequisite.Ready, prerequisite.Summary); err != nil {
+			return err
+		}
+	}
+	for _, warning := range surface.Warnings {
+		if _, err := fmt.Fprintf(out, "release-check go-native public surface warning：%s\n", warning); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeReleasePowerShellDeprecationText(out io.Writer, inventory releasecheck.PowerShellDeprecation) error {
+	counts := releasecheck.PowerShellDeprecationCountsFor(inventory)
+	if _, err := fmt.Fprintf(out, "release-check PowerShell deprecation：summary=%s ready=%t strategy=%s commands=%d modules=%d freezeGates=%d blocked=%d fallbackReady=%t fallbackGoDefault=%d fallbackNoFallback=%d fallbackCandidates=%d fallbackBlocked=%d fallbackRemovalCandidates=%d fallbackRetired=%d facadeRuntimeReady=%t facade=%s facadeLegacyImports=%t facadeDispatcher=%t facadeNoFallbackGuard=%t facadeGoDelegation=%t facadeRetiredDispatcher=%t publicFacadeReady=%t publicFacadePresent=%t publicFacadeRetained=%t publicFacadeCommands=%d publicFacadeNoFallback=%d moduleRemovalReady=%t moduleRemovalCandidates=%d moduleRemovalRetired=%d moduleRemovalFacadeDeps=%d moduleReferencesReady=%t moduleReferencesTotal=%d moduleReferenceBlockers=%d unclassified=%d warnings=%d\n", inventory.Summary, inventory.Ready, inventory.StrategyDocument, counts.CommandOwnership, counts.ModuleStatus, counts.FreezeGates, counts.BlockedMigrations, inventory.FallbackRetirement.Ready, counts.FallbackGoDefaultCommands, counts.FallbackNoFallbackCommands, counts.FallbackCandidateCommands, counts.FallbackBlockedCommands, counts.FallbackRemovalCandidateModules, counts.FallbackRetiredModules, inventory.FacadeRuntime.Ready, inventory.FacadeRuntime.FacadePath, inventory.FacadeRuntime.LegacyModuleImportsPresent, inventory.FacadeRuntime.CommandDispatcherPresent, inventory.FacadeRuntime.NoFallbackGuardPresent, inventory.FacadeRuntime.GoDelegationPresent, inventory.FacadeRuntime.RetiredDispatcherError, inventory.PublicFacade.Ready, inventory.PublicFacade.Present, inventory.PublicFacade.Retained, counts.PublicFacadeCommandSurface, counts.PublicFacadeNoFallbackCommands, inventory.ModuleRemoval.Ready, counts.ModuleRemovalCandidateModules, counts.ModuleRemovalRetiredModules, counts.ModuleRemovalFacadeRuntimeDependencies, inventory.ModuleReferences.Ready, counts.ModuleReferencesTotal, counts.ModuleReferencesRemovalBlockers, counts.ModuleReferencesUnclassifiedReferences, counts.Warnings); err != nil {
+		return err
+	}
+	for _, owner := range inventory.CommandOwnership {
+		if _, err := fmt.Fprintf(out, "release-check PowerShell command owner：area=%s owner=%s status=%s goDefault=%t blocked=%t commands=%s strategy=%s\n", owner.Area, owner.Owner, owner.Status, owner.GoDefault, owner.Blocked, strings.Join(owner.Commands, ","), owner.Strategy); err != nil {
+			return err
+		}
+	}
+	for _, module := range inventory.ModuleStatus {
+		if _, err := fmt.Fprintf(out, "release-check PowerShell module：path=%s status=%s notes=%s\n", module.Path, module.Status, module.Notes); err != nil {
+			return err
+		}
+	}
+	for _, gate := range inventory.FreezeGates {
+		if _, err := fmt.Fprintf(out, "release-check PowerShell freeze gate：name=%s description=%s\n", gate.Name, gate.Description); err != nil {
+			return err
+		}
+	}
+	for _, blocker := range inventory.BlockedMigrations {
+		if _, err := fmt.Fprintf(out, "release-check PowerShell blocked migration：%s\n", blocker); err != nil {
+			return err
+		}
+	}
+	for _, module := range inventory.FallbackRetirement.RetiredModules {
+		if _, err := fmt.Fprintf(out, "release-check PowerShell retired module：path=%s status=%s notes=%s\n", module.Path, module.Status, module.Notes); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(out, "release-check PowerShell public facade：summary=%s ready=%t path=%s present=%t retained=%t migrationBoundary=%t removalBoundary=%t alternative=%s noFallback=%s\n", inventory.PublicFacade.Summary, inventory.PublicFacade.Ready, inventory.PublicFacade.FacadePath, inventory.PublicFacade.Present, inventory.PublicFacade.Retained, inventory.PublicFacade.MigrationBoundaryDocumented, inventory.PublicFacade.RemovalBoundaryDocumented, inventory.PublicFacade.GoNativeAlternative, strings.Join(inventory.PublicFacade.NoFallbackCommands, ",")); err != nil {
+		return err
+	}
+	if err := writeReleasePowerShellReferencesText(out, "active-test", inventory.ModuleReferences.ActiveTestDependencies); err != nil {
+		return err
+	}
+	if err := writeReleasePowerShellReferencesText(out, "compatibility-fixture", inventory.ModuleReferences.CompatibilityFixtures); err != nil {
+		return err
+	}
+	if err := writeReleasePowerShellReferencesText(out, "inventory-guard", inventory.ModuleReferences.InventoryGuards); err != nil {
+		return err
+	}
+	if err := writeReleasePowerShellReferencesText(out, "removal-blocker", inventory.ModuleReferences.RemovalBlockers); err != nil {
+		return err
+	}
+	if err := writeReleasePowerShellReferencesText(out, "unclassified", inventory.ModuleReferences.UnclassifiedReferences); err != nil {
+		return err
+	}
+	for _, warning := range inventory.Warnings {
+		if _, err := fmt.Fprintf(out, "release-check PowerShell deprecation warning：%s\n", warning); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeReleasePowerShellReferencesText(out io.Writer, category string, refs []releasecheck.PowerShellModuleReference) error {
+	for _, ref := range refs {
+		if _, err := fmt.Fprintf(out, "release-check PowerShell reference：category=%s path=%s line=%d kind=%s target=%s\n", category, ref.Path, ref.Line, ref.Kind, ref.Target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeReleasePublicFacadeRemovalText(out io.Writer, inventory releasecheck.PublicFacadeRemoval) error {
+	counts := releasecheck.PublicFacadeRemovalCountsFor(inventory)
+	planCounts := counts.Plan
+	deletionGateCounts := counts.DeletionGates
+	executionCounts := counts.ExecutionSteps
+	impactCounts := counts.Impact
+	if _, err := fmt.Fprintf(out, "release-check public facade removal：summary=%s ready=%t prerequisites=%d warnings=%d planReady=%t planDocument=%s planChecks=%d replacementEntrypoints=%d replacementValidation=%d deletionGates=%d deletionGateValidation=%d deletionGateExitCriteria=%d deletionGateFailureSignals=%d deletionGateEscalationTriggers=%d deletionGateVerificationArtifacts=%d deletionGateBlockedExecutionSteps=%d deletionGateRemediationActions=%d executionSteps=%d executionValidation=%d executionBoundaryGuards=%d executionAuditChecks=%d impactReady=%t impactFacade=%s impactFacadePresent=%t impactReferences=%d impactCategories=%d workItems=%d migrationTargets=%d smokeMigrationTargets=%d unclassified=%d\n", inventory.Summary, inventory.Ready, counts.Prerequisites, counts.Warnings, inventory.RemovalPlan.Ready, inventory.RemovalPlan.Document, planCounts.RequiredPhrases, planCounts.ReplacementEntrypoints, planCounts.ReplacementValidationCommands, deletionGateCounts.Gates, deletionGateCounts.ValidationCommands, deletionGateCounts.ExitCriteria, deletionGateCounts.FailureSignals, deletionGateCounts.EscalationTriggers, deletionGateCounts.VerificationArtifacts, deletionGateCounts.BlockedExecutionSteps, deletionGateCounts.RemediationActions, executionCounts.Steps, executionCounts.ValidationCommands, executionCounts.BoundaryGuards, executionCounts.AuditChecks, inventory.RemovalImpact.Ready, inventory.RemovalImpact.FacadePath, inventory.RemovalImpact.FacadePresent, impactCounts.References, impactCounts.ReferenceCategories, impactCounts.WorkItems, impactCounts.MigrationTargets, impactCounts.SmokeMigrationTargets, impactCounts.UnclassifiedReferences); err != nil {
+		return err
+	}
+	for _, prerequisite := range inventory.Prerequisites {
+		if _, err := fmt.Fprintf(out, "release-check public facade prerequisite：name=%s ready=%t summary=%s\n", prerequisite.Name, prerequisite.Ready, prerequisite.Summary); err != nil {
+			return err
+		}
+	}
+	for _, entrypoint := range inventory.RemovalPlan.ReplacementEntrypoints {
+		if _, err := fmt.Fprintf(out, "release-check public facade replacement：name=%s entrypoint=%s audience=%s required=%t goNative=%t userFacing=%t validation=%d purpose=%s\n", entrypoint.Name, entrypoint.Entrypoint, entrypoint.Audience, entrypoint.Required, entrypoint.GoNativeBacked, entrypoint.UserFacing, len(entrypoint.ValidationCommands), entrypoint.Purpose); err != nil {
+			return err
+		}
+	}
+	for _, gate := range inventory.RemovalPlan.DeletionGates {
+		rowCounts := releasecheck.PublicFacadeRemovalDeletionGateRowCountsFor(gate)
+		if _, err := fmt.Fprintf(out, "release-check public facade deletion gate：name=%s gate=%s required=%t blocksRemoval=%t exitCriteria=%d failureSignals=%d validation=%d blockedSteps=%d remediation=%d\n", gate.Name, gate.Gate, gate.Required, gate.BlocksRemoval, rowCounts.ExitCriteria, rowCounts.FailureSignals, rowCounts.ValidationCommands, rowCounts.BlockedExecutionSteps, rowCounts.RemediationActions); err != nil {
+			return err
+		}
+	}
+	for _, step := range inventory.RemovalPlan.ExecutionSteps {
+		rowCounts := releasecheck.PublicFacadeRemovalExecutionStepRowCountsFor(step)
+		if _, err := fmt.Fprintf(out, "release-check public facade execution step：name=%s action=%s required=%t dependsOn=%s validation=%d boundaryGuards=%d auditChecks=%d allowsPowerShellRuntime=%t allowsExternalEffects=%t\n", step.Name, step.Action, step.Required, strings.Join(step.DependsOn, ","), rowCounts.ValidationCommands, rowCounts.BoundaryGuards, rowCounts.AuditChecks, step.AllowsPowerShellRuntime, step.AllowsExternalEffects); err != nil {
+			return err
+		}
+	}
+	for _, check := range inventory.RemovalPlan.BoundaryChecks {
+		if _, err := fmt.Fprintf(out, "release-check public facade boundary check：name=%s boundary=%s required=%t preserved=%t evidence=%d validation=%d\n", check.Name, check.Boundary, check.Required, check.Preserved, len(check.Evidence), len(check.ValidationCommands)); err != nil {
+			return err
+		}
+	}
+	for _, step := range inventory.RemovalPlan.RecoverySteps {
+		if _, err := fmt.Fprintf(out, "release-check public facade recovery step：name=%s action=%s required=%t paths=%d validation=%d\n", step.Name, step.Action, step.Required, len(step.Paths), len(step.ValidationCommands)); err != nil {
+			return err
+		}
+	}
+	for _, target := range inventory.RemovalPlan.DocumentationTargets {
+		if _, err := fmt.Fprintf(out, "release-check public facade documentation target：path=%s required=%t validation=%d action=%s purpose=%s\n", target.Path, target.Required, len(target.ValidationCommands), target.Action, target.Purpose); err != nil {
+			return err
+		}
+	}
+	for _, category := range inventory.RemovalImpact.ReferenceCategories {
+		if _, err := fmt.Fprintf(out, "release-check public facade reference category：name=%s count=%d paths=%s\n", category.Name, category.Count, strings.Join(category.Paths, ",")); err != nil {
+			return err
+		}
+	}
+	for _, item := range inventory.RemovalImpact.WorkItems {
+		if _, err := fmt.Fprintf(out, "release-check public facade work item：category=%s required=%t count=%d paths=%d validation=%d action=%s\n", item.Category, item.Required, item.Count, len(item.Paths), len(item.ValidationCommands), item.Action); err != nil {
+			return err
+		}
+	}
+	for _, target := range inventory.RemovalImpact.MigrationTargets {
+		if _, err := fmt.Fprintf(out, "release-check public facade migration target：path=%s category=%s required=%t goNativePreferred=%t preserveHistorical=%t validation=%d action=%s\n", target.Path, target.Category, target.Required, target.GoNativePreferred, target.PreserveHistoricalContext, len(target.ValidationCommands), target.Action); err != nil {
+			return err
+		}
+	}
+	for _, target := range inventory.RemovalImpact.SmokeMigrationTargets {
+		if _, err := fmt.Fprintf(out, "release-check public facade smoke migration target：path=%s category=%s required=%t goNativePreferred=%t allowFacadeCompat=%t retireFacadeAssertions=%t validation=%d action=%s\n", target.Path, target.Category, target.Required, target.GoNativePreferred, target.AllowFacadeCompat, target.RetireFacadeAssertions, len(target.ValidationCommands), target.Action); err != nil {
+			return err
+		}
+	}
+	for _, warning := range inventory.Warnings {
+		if _, err := fmt.Fprintf(out, "release-check public facade removal warning：%s\n", warning); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeReleaseCaseShimText(out io.Writer, shim caseshim.Readiness) error {
+	counts := caseshim.ReadinessCountsFor(shim)
+	if _, err := fmt.Fprintf(out, "release-check case shim：summary=%s ready=%t template=%s canonicalSkill=%s required=%d canonical=%d forbidden=%d boundaries=%d warnings=%d\n", shim.Summary, shim.Ready, shim.TemplatePath, shim.CanonicalSkillPath, counts.RequiredPhrases, counts.CanonicalSkillPhrases, counts.ForbiddenStrings, counts.Boundaries, counts.Warnings); err != nil {
+		return err
+	}
+	for _, phrase := range shim.RequiredPhrases {
+		if _, err := fmt.Fprintf(out, "release-check case shim phrase：phrase=%s present=%t\n", phrase.Phrase, phrase.Present); err != nil {
+			return err
+		}
+	}
+	for _, phrase := range shim.CanonicalSkillPhrases {
+		if _, err := fmt.Fprintf(out, "release-check canonical skill phrase：phrase=%s present=%t\n", phrase.Phrase, phrase.Present); err != nil {
+			return err
+		}
+	}
+	for _, forbidden := range shim.ForbiddenStrings {
+		if _, err := fmt.Fprintf(out, "release-check case shim forbidden：pattern=%s present=%t\n", forbidden.Pattern, forbidden.Present); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range shim.Boundaries {
+		if _, err := fmt.Fprintf(out, "release-check case shim boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	for _, warning := range shim.Warnings {
+		if _, err := fmt.Fprintf(out, "release-check case shim warning：%s\n", warning); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeReleasePublicDefaultDocsText(out io.Writer, docs defaultdocs.Readiness) error {
+	counts := defaultdocs.ReadinessCountsFor(docs)
+	if _, err := fmt.Fprintf(out, "release-check public default docs：summary=%s ready=%t documents=%d required=%d forbiddenCommands=%d forbiddenShellFences=%d boundaries=%d warnings=%d\n", docs.Summary, docs.Ready, counts.Documents, counts.RequiredPhrases, counts.ForbiddenCommands, counts.ForbiddenShellFences, counts.Boundaries, counts.Warnings); err != nil {
+		return err
+	}
+	for _, doc := range docs.Documents {
+		if _, err := fmt.Fprintf(out, "release-check public default doc：path=%s present=%t purpose=%s\n", doc.Path, doc.Present, doc.Purpose); err != nil {
+			return err
+		}
+	}
+	for _, phrase := range docs.RequiredPhrases {
+		if _, err := fmt.Fprintf(out, "release-check public default phrase：path=%s present=%t phrase=%s\n", phrase.Path, phrase.Present, phrase.Phrase); err != nil {
+			return err
+		}
+	}
+	for _, forbidden := range docs.ForbiddenCommands {
+		if _, err := fmt.Fprintf(out, "release-check public default forbidden command：path=%s pattern=%s line=%d present=%t snippet=%s\n", forbidden.Path, forbidden.Pattern, forbidden.Line, forbidden.Present, forbidden.Snippet); err != nil {
+			return err
+		}
+	}
+	for _, forbidden := range docs.ForbiddenShellFences {
+		if _, err := fmt.Fprintf(out, "release-check public default forbidden shell fence：path=%s language=%s line=%d present=%t snippet=%s\n", forbidden.Path, forbidden.Language, forbidden.Line, forbidden.Present, forbidden.Snippet); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range docs.Boundaries {
+		if _, err := fmt.Fprintf(out, "release-check public default docs boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	for _, warning := range docs.Warnings {
+		if _, err := fmt.Fprintf(out, "release-check public default docs warning：%s\n", warning); err != nil {
 			return err
 		}
 	}

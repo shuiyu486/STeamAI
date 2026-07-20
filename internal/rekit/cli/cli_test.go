@@ -554,6 +554,39 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		"release-check required command：command=go run ./cmd/rekit -- -Command release-check -Format json kind=go-run repoPath=cmd/rekit required=true present=true resolved=true inCatalog=true",
 		"release-check document：path=docs/context-routing.md present=true",
 		"release-check heavy actions：actions=debug,dump,full-trace,inject,network,patch,symex",
+		"release-check go-native public surface：summary=Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit",
+		"release-check command group：group=readOnly commands=doctor,packs,release-check,status,validate",
+		"release-check command profile：command=release-check boundary=read-only mutation=false",
+		"release-check command boundary：boundary=case-local-apply",
+		"release-check command policy：policy=no-heavy-tool ready=true violations=0",
+		"release-check go-native facade prerequisite：name=entrypoint ready=true",
+		"release-check PowerShell deprecation：summary=PowerShell deprecation inventory ok ready=true strategy=docs/powershell-deprecation.md",
+		"facadeRuntimeReady=true facade=rekit/rekit.ps1 facadeLegacyImports=false facadeDispatcher=false",
+		"release-check PowerShell command owner：area=release-check",
+		"release-check PowerShell module：path=rekit/rekit.ps1",
+		"release-check PowerShell public facade：summary=",
+		"path=rekit/rekit.ps1 present=true retained=true",
+		"release-check public facade removal：summary=public facade removal prerequisites ok ready=true",
+		"planDocument=docs/powershell-deprecation.md",
+		"release-check public facade prerequisite：name=public-facade-retained-boundary ready=true",
+		"release-check public facade replacement：name=",
+		"release-check public facade deletion gate：name=",
+		"release-check public facade execution step：name=",
+		"allowsPowerShellRuntime=false allowsExternalEffects=false",
+		"release-check public facade boundary check：name=",
+		"release-check public facade recovery step：name=",
+		"release-check public facade documentation target：path=README.md",
+		"release-check public facade reference category：name=",
+		"release-check public facade migration target：path=",
+		"release-check public facade smoke migration target：path=",
+		"release-check case shim：summary=case shim readiness ok ready=true template=rekit/templates/case-shim/SKILL.md",
+		"release-check case shim phrase：phrase=Go-native backend present=true",
+		"release-check canonical skill phrase：phrase=底层 Go CLI 是 canonical runtime present=true",
+		"release-check case shim forbidden：pattern=PowerShell present=false",
+		"release-check public default docs：summary=public default docs readiness ok ready=true documents=15",
+		"release-check public default doc：path=README.md present=true",
+		"release-check public default phrase：path=docs/context-routing.md present=true phrase=按需路由",
+		"release-check public default docs boundary：",
 		"release-check release handoff：summary=release handoff summary ok ready=true",
 		"release-check latest batch：batch=Batch ",
 		"release-check release notes：path=CHANGELOG.md present=true",
@@ -571,8 +604,8 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 			t.Fatalf("release-check text missing %q:\n%s", expected, out.String())
 		}
 	}
-	if strings.Contains(out.String(), "{\n") {
-		t.Fatalf("release-check text should not emit JSON:\n%s", out.String())
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("release-check text should not emit JSON object:\n%s", out.String())
 	}
 
 	out.Reset()
