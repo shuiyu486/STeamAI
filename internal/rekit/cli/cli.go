@@ -1936,9 +1936,6 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("unsupported promote create-candidates format: %s", opt.Format)
 		}
-		if opt.WhatIf && format != "json" {
-			return fmt.Errorf("promote -CreateCandidates -WhatIf supports only -Format json")
-		}
 		result, err := promote.CreateCandidates(ctx.RepoRoot, target, ctx.Pack, promote.CandidateOptions{WhatIf: opt.WhatIf})
 		if err != nil {
 			return err

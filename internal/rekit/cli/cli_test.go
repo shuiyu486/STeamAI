@@ -4872,6 +4872,25 @@ func TestRunPromoteCreateCandidatesWhatIf(t *testing.T) {
 	if _, err := os.Stat(result.Writes[0].TargetPath); !os.IsNotExist(err) {
 		t.Fatalf("promote candidates what-if created %s", result.Writes[0].TargetPath)
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-CreateCandidates", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{
+		"promote candidates：applied=false created=2",
+		"promote candidates execution step：name=materialize-candidates when=after reviewing WhatIf preview scope and confirming candidate generation is still desired",
+		"promote candidates execution command：name=materialize-candidates command=go run ./cmd/rekit -- -Command promote -Target <attached-case> -Pack _template -CreateCandidates -Format json",
+		"promote candidates execution boundary：name=materialize-candidates boundary=WhatIf did not write candidate files or indexPath",
+		"promote candidates commander action：state=preview-pack-memory-candidates",
+		"mission commander action queue：summary=total=7 unblocked=7 blocked=0 requiresReview=3 followUp=0 current=review reviewPlan.decisionChecklist",
+		"mission commander next action boundary：WhatIf did not write candidate files or indexPath",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("promote create-candidates what-if text output missing %q:\n%s", expected, text)
+		}
+	}
 }
 
 func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
@@ -5004,9 +5023,9 @@ func TestRunPromoteCreateCandidatesRejectsReviewArtifacts(t *testing.T) {
 		t.Fatalf("error = %q, want combination guard", err.Error())
 	}
 	out.Reset()
-	err = Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-CreateCandidates", "-WhatIf", "-Format", "text"}, &out)
-	if err == nil || !strings.Contains(err.Error(), "supports only -Format json") {
-		t.Fatalf("error = %v, want what-if text format guard", err)
+	err = Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-CreateCandidates", "-WhatIf", "-Format", "xml"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "unsupported promote create-candidates format") {
+		t.Fatalf("error = %v, want unsupported format guard", err)
 	}
 }
 
