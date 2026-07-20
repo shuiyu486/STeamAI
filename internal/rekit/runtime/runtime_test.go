@@ -122,4 +122,12 @@ func TestNewUsesNearestCaseRootFromNestedCaseWorkingDirectory(t *testing.T) {
 	if ctx.RepoRoot != repoRoot || ctx.RuntimeRoot != filepath.Join(repoRoot, "rekit") || ctx.Cwd != nested || ctx.Target != caseRoot || ctx.TargetProvided || ctx.Pack != "_template" {
 		t.Fatalf("unexpected nested case runtime context: %+v", ctx)
 	}
+
+	ctx, err = New("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctx.RepoRoot != repoRoot || ctx.RuntimeRoot != filepath.Join(repoRoot, "rekit") || ctx.Cwd != nested || ctx.Target != caseRoot || ctx.TargetProvided || ctx.Pack != defaults.DefaultPack {
+		t.Fatalf("unexpected nested case runtime context with default pack: %+v", ctx)
+	}
 }

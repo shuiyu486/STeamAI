@@ -53,7 +53,7 @@ disable-model-invocation: true
 
 | 用户意图 | 行为 |
 |---|---|
-| `/rekit` / `/rekit status` | 无子命令时默认走只读 status；显示 kit / case 绑定状态与 case-local thin shim / canonical skill readiness；检测迁移或 shim drift 但不修复；`-Format json` 输出机器可读 status envelope 与 `caseShim` readiness。 |
+| `/rekit` / `/rekit status` | 无子命令时默认走只读 status；attached case 中未显式传 `-Pack` 时使用 case metadata 的 `templatePack`；显示 kit / case 绑定状态与 case-local thin shim / canonical skill readiness；检测迁移或 shim drift 但不修复；`-Format json` 输出机器可读 status envelope 与 `caseShim` readiness。 |
 | `/rekit packs` | 维护者只读查看当前 kit 内 pack 矩阵：成熟度、schema、route、managed/tooling 和 authority lane 概览；`-Format json` 输出机器可读 inventory。 |
 | `/rekit attach` | 将已有 case 绑定到当前 template root 和 pack。 |
 | `/rekit repair` | 预览迁移后的 metadata 修复；用户确认后才写入。 |
@@ -72,7 +72,7 @@ disable-model-invocation: true
 | `/rekit plan-subagents` | 内部 bounded reviewer runtime：planning mode 根据 pack manifest 的 `subagentRoutes` 写 `.rekit/reviews/...` packet/summary/diff，并输出每个 shard 的 read-only dispatch prompt、strict `reviewerResultContract`、decision mapping、conflict handling、`reviewerIntakeCommands` 与 writeback sequence；runtime 不自动启动 reviewer。主 Agent实际调度 reviewer后，把单个 JSON object 放到 `reviewerResultPath`，再用 reviewer-intake `-WhatIf/-Apply` 完成 packet/route/shard/items/evidence/output contract 校验、verification-before-decision facts 写回、幂等重试与 overview/handoff/doctor post-validation。reviewer 不写文件/ledger，intake 不写 authority/confirmed、不执行 heavy-tool、不修改 managed/project source files。日常不要主动推荐给用户。 |
 | `/rekit note` | 账本写入/查询入口：向 `.rekit/facts/*.jsonl` append observation/hypothesis/candidate/verification/decision/intervention/rollback/publication/request 事件，用于 heavy-tool gate 登记、decision/observation 手动落账。attached case 的 append 与 `-WhatIf` 默认经 Go façade并输出机器可读 JSON envelope：`-WhatIf` 返回当前 `executorAction` 和内存模拟 append 后的 `wouldExecutorAction`，实际 append 返回写入后的 `executorAction`，duplicate eventId 只返回未改变的当前 action；candidate、defer/open decision、open intervention 与 pending-gate request 会按 shared typed facts 投影对应 blocker。该路径只写 facts JSONL 或预览，不写 authority/confirmed；`-List` 进入只读查询模式，默认经 Go façade 按 `-Kind`/`-Lane` 过滤列出事件；`-List -Format json` 输出机器可读 ledger events。写入受 strict JSONL 与 schema 校验（confidence/decision/status 枚举、evidenceRefs 非空、lane 存在性）。 |
 
-如果用户没有显式给 `Target`，在 case 模式下使用当前目录向上找到的最近 attached case root；在 kit 模式下 `doctor/status` 作用于 kit 本身。`status` 只读检测迁移，不静默修复；`repair` 写入前必须得到用户确认。
+如果用户没有显式给 `Target`，在 case 模式下使用当前目录向上找到的最近 attached case root；如果没有显式给 `Pack`，attached case 使用 metadata `templatePack`，kit 模式仍使用默认 pack。`status` 只读检测迁移，不静默修复；`repair` 写入前必须得到用户确认。
 
 ## LLM-first review 规则
 

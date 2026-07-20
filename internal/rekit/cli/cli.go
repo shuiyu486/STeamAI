@@ -37,6 +37,7 @@ type Options struct {
 	Command            string
 	Target             string
 	Pack               string
+	PackProvided       bool
 	Review             bool
 	Apply              bool
 	CreateCandidates   bool
@@ -88,6 +89,7 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -Pack")
 			}
 			opt.Pack = args[i]
+			opt.PackProvided = true
 		case "-ProjectName", "--project-name":
 			i++
 			if i >= len(args) {
@@ -529,6 +531,16 @@ func Run(args []string, stdout io.Writer) error {
 	ctx, err := runtime.NewWithCwd(opt.Target, opt.Pack, runtimeCwdOverride(opt))
 	if err != nil {
 		return err
+	}
+	if !opt.PackProvided && instance.LooksLikeCase(ctx.Target) {
+		inst, err := instance.Read(ctx.Target)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(inst.TemplatePack) != "" {
+			ctx.Pack = inst.TemplatePack
+			opt.Pack = inst.TemplatePack
+		}
 	}
 	if strings.TrimSpace(opt.ReviewerResultPath) != "" && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("-ReviewerResultPath is supported only by plan-subagents reviewer intake")

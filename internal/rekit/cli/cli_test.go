@@ -27,8 +27,8 @@ func TestParsePowerShellStyleOptions(t *testing.T) {
 	if opt.Command != "doctor" {
 		t.Fatalf("Command = %q, want doctor", opt.Command)
 	}
-	if opt.Pack != "_template" {
-		t.Fatalf("Pack = %q, want _template", opt.Pack)
+	if opt.Pack != "_template" || !opt.PackProvided {
+		t.Fatalf("Pack = %q PackProvided=%t, want explicit _template", opt.Pack, opt.PackProvided)
 	}
 	if opt.Target != "." {
 		t.Fatalf("Target = %q, want .", opt.Target)
@@ -40,7 +40,7 @@ func TestParseIgnoresGoRunSeparator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opt.Command != "doctor" || opt.Pack != "_template" {
+	if opt.Command != "doctor" || opt.Pack != "_template" || !opt.PackProvided {
 		t.Fatalf("unexpected options after -- separator: %+v", opt)
 	}
 }
@@ -2628,6 +2628,19 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "{\n  ") {
 		t.Fatalf("nested case-local no-command default status should not emit JSON object:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run(nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range defaultStatusExpected {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested case-local no-command no-pack status missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("nested case-local no-command no-pack status should not emit JSON object:\n%s", out.String())
 	}
 
 	out.Reset()
