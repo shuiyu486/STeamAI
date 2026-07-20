@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 453：reviewer dispatch result skeleton text closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs；commit/push 与远程 release-gate inspection 待执行。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29737685707` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 433/435 已让 `plan-subagents -Format text` 输出 reviewer orchestration lifecycle 与 shard handoff，Batch 452 已让 reviewer-intake text 复用 nested note handoff；但 planning text 中 reviewer result contract 仍主要以 compact `required=` 与 `expected=` 呈现，Mission Commander / replacement executor 在 dispatch read-only reviewer 或准备 strict intake 时仍可能需要打开 `packet.json` / `summary.md` 或解析 planning JSON，才能构造包含 packetId、routeId、shardId、items 与 routeOutput 字段的单对象 reviewer result。Batch 453 让 planning text 直接输出可复制 reviewer result skeleton 与 routeOutput required field hints。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `tool_scope` skeleton 默认 `read-only`，`next_action` 默认 defer/main-agent evidence review，避免 reviewer output 暗示写文件、ledger append、heavy tool 或外部副作用。
 - CLI coverage 锁定 planning text skeleton、routeOutput field hints、existing reviewer orchestration/shard handoff lines 与 reviewer intake text compatibility。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsWritesReviewArtifacts -count=1`、focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsWritesReviewArtifacts|TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待记录。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsWritesReviewArtifacts -count=1`、focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsWritesReviewArtifacts|TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `97b4c3b Add reviewer result skeleton text`；远程 release-gate run `29737685707` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 452 已完成 reviewer intake nested note text reuse closure，详见 `docs/batch-history.md`。
 
