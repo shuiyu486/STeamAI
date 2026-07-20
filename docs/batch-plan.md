@@ -16,24 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 435：plan-subagents reviewer orchestration lifecycle text closure
+### Batch 436：adapter report validation repair hint text detail closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate 仍为既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation、durable docs；待 commit/push 与远程 release-gate inspection。
 
-目标：Batch 433/434 已让 `plan-subagents -Format text` 输出 per-shard handoff、owner binding 与 writeback details，但 reviewer orchestration 的 scope、packet/result identity、owner snapshot、lifecycle steps、runtime boundary 与 completion criteria 仍只在 JSON/summary 中完整可见。terminal Mission Commander / replacement executor 仍需解析 JSON 才能确认 dispatch→collect→preview→apply→post-validation lifecycle 与全局 completion gate。本批把 orchestration lifecycle 直接投影到 planning text path。
+目标：Batch 424/432 已让 `gate -ValidateExecutionReport -Format text` 输出 validation/follow-through/Mission Commander action queue/next actions，但 invalid sidecar 的 `repairHints[]` text 仍只打印 action、recordBlocked、rerunValidation 与 detail。replacement executor 仍需解析 JSON 才能看到 stable code/stage、fields、allowed values、authorized output paths、authorized stop conditions、max byte limit 与 escalateToMain。本批把 repair hint detail 直接投影到 validation text path。
 
-边界：只增强 `plan-subagents -Format text` 的 reviewer orchestration lifecycle terminal handoff、focused CLI coverage 与 durable docs；不改变 JSON packet/summary contract、reviewer-intake validation/writeback semantics、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；planning 仍只写 review artifacts，不自动 spawn reviewer、不执行 heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic。
+边界：只增强 `gate -ValidateExecutionReport -Format text` 的 invalid repair hint terminal handoff、focused CLI coverage 与 durable docs；不改变 JSON contract、adapter report validation semantics、authorized execution evidence write model、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；validation 仍是 read-only preflight，不执行 heavy-tool、不写 observation/authority/confirmed、不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- `plan-subagents -Format text` 现在输出 reviewer orchestration scope、packet path、result root 与 top-level owner binding，让 terminal executor 能直接确认 plan identity 与 lane owner snapshot。
-- text path 同步输出 orchestration lifecycle steps 的 step、owner、inputs、mustPass、nextOnSuccess、nextOnFailure 与 action，覆盖 dispatch-reviewers、collect-results、preview-intake、apply-intake、post-review-validation 顺序。
-- text path 输出 orchestration runtime boundary 与 completion criteria，和 per-shard handoff/action queue/next-action lines 形成单一 terminal handoff。
-- CLI coverage 锁定 orchestration scope/owner/lifecycle/boundary/completion text，以及既有 shard handoff/action queue/next-action、no auto-spawn/no-heavy/no authority/confirmed 边界。
+- `gate -ValidateExecutionReport -Format text` 的 repair hint line 现在输出 `code`、`stage`、`fields`、`allowedValues`、`allowedOutputPaths`、`allowedStopConditions`、`maxBytes` 与 `escalateToMain`。
+- invalid `boundary-marker-missing` product path text 现在直接显示 `fields=boundaryHits,escalation`、`allowedStopConditions=timeout` 与 bounded escalation detail，让 terminal executor 不必解析 JSON 即可修复 sidecar 并重跑 read-only validation。
+- CLI coverage 锁定 invalid adapter report validation repair hint detail，以及既有 validation follow-through/action queue/next-action、no premature record/no observation/no authority/confirmed/no-heavy 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsWritesReviewArtifacts' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `412c591 Add plan subagents orchestration lifecycle text`；远程 release-gate run `29722534397` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunGateAdapterReportTextOutputsNextActions' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`。待完成 commit/push 与远程 release-gate inspection。
 
-上一批摘要：Batch 434 已完成 plan-subagents owner/writeback text operational closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 435 已完成 plan-subagents reviewer orchestration lifecycle text closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

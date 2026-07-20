@@ -2354,7 +2354,7 @@ func writeGateAdapterReportValidationText(out io.Writer, validation gate.Adapter
 		}
 	}
 	for _, hint := range validation.RepairHints {
-		if _, err := fmt.Fprintf(out, "gate adapter report repair hint：action=%s recordBlocked=%t rerunValidation=%t detail=%s\n", hint.RepairAction, hint.RecordBlocked, hint.RerunValidation, hint.Detail); err != nil {
+		if _, err := fmt.Fprintf(out, "gate adapter report repair hint：action=%s recordBlocked=%t rerunValidation=%t code=%s stage=%s fields=%s allowedValues=%s allowedOutputPaths=%s allowedStopConditions=%s maxBytes=%d escalateToMain=%t detail=%s\n", hint.RepairAction, hint.RecordBlocked, hint.RerunValidation, hint.Code, hint.Stage, strings.Join(hint.Fields, ","), strings.Join(hint.AllowedValues, ","), strings.Join(hint.AllowedOutputPaths, ","), strings.Join(hint.AllowedStopConditions, ","), hint.MaxBytes, hint.EscalateToMain, hint.Detail); err != nil {
 			return err
 		}
 	}

@@ -5779,7 +5779,7 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 	for _, expected := range []string{
 		"gate adapter report validation：valid=false gateEventId=" + applied.EventID + " reportPath=" + invalidReportPath + " mutation=false applied=false",
 		"gate adapter report validation failure：code=boundary-marker-missing stage=boundary",
-		"gate adapter report repair hint：action=add-boundary-marker recordBlocked=true rerunValidation=true",
+		"gate adapter report repair hint：action=add-boundary-marker recordBlocked=true rerunValidation=true code=boundary-marker-missing stage=boundary fields=boundaryHits,escalation allowedValues= allowedOutputPaths= allowedStopConditions=timeout maxBytes=0 escalateToMain=false detail=boundary-hit or escalated status requires authorized boundaryHits or a bounded escalation",
 		"adapter report validation follow-through：state=repair-adapter-report gateEventId=" + applied.EventID + " reportPath=" + invalidReportPath + " outcomes=1",
 		"adapter report validation follow-through repair action：name=invalid-report-repair action=add-boundary-marker",
 		"adapter report validation commander action：state=repair-adapter-report primary=`" + wantInvalidValidate + "`",
