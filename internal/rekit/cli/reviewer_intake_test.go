@@ -70,6 +70,7 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	if preview.MissionCommanderAction.State != "ready-for-reviewer-intake-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed", preview.MissionCommanderAction.PrimaryCommand, false, true) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed.followUp", "/rekit handoff main", false, true) {
 		t.Fatalf("preview omitted reviewer intake Mission Commander guidance: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
 	}
+	assertCLIActionQueue(t, preview.MissionCommanderActionQueue, 2, 2, 0, 2, 1, preview.MissionCommanderAction.PrimaryCommand)
 
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
@@ -81,6 +82,9 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	}
 	if applied.MissionCommanderAction.State != "reviewer-intake-writeback-complete" || len(applied.MissionCommanderNextActions) == 0 || !strings.HasPrefix(applied.MissionCommanderNextActions[0].Source, "reviewerIntake.postValidation.") {
 		t.Fatalf("apply omitted reviewer intake Mission Commander guidance: action=%+v next=%+v", applied.MissionCommanderAction, applied.MissionCommanderNextActions)
+	}
+	if applied.MissionCommanderActionQueue.Counts.Total != len(applied.MissionCommanderNextActions) || applied.MissionCommanderActionQueue.CurrentAction == nil || !strings.HasPrefix(applied.MissionCommanderActionQueue.CurrentAction.Source, "reviewerIntake.postValidation.") {
+		t.Fatalf("apply omitted reviewer intake Mission Commander action queue: queue=%+v next=%+v", applied.MissionCommanderActionQueue, applied.MissionCommanderNextActions)
 	}
 	if applied.PostValidation.Overview.Sections.Verifications.Total != 1 || applied.PostValidation.Overview.Sections.Decisions.Total != 1 || applied.PostValidation.Handoff.Lane == nil || applied.PostValidation.Handoff.Lane.ID != packet.TargetLane {
 		t.Fatalf("post-review validation omitted ledger/handoff state: %+v", applied.PostValidation)
@@ -138,6 +142,13 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 	originalIntake := intakeReviewerResult
 	intakeReviewerResult = func(repoRoot, caseRoot, pack string, opt subagents.ReviewerIntakeOptions) (subagents.ReviewerIntakeResult, error) {
 		primary := "/rekit plan-subagents -Target \"" + caseRoot + "\" -Pack \"" + pack + "\" -PacketPath \"" + opt.PacketPath + "\" -ReviewerResultPath \"" + opt.ReviewerResultPath + "\" -Lane \"" + opt.Lane + "\" -Actor \"" + opt.Actor + "\" -Apply -Format json"
+		nextActions := []mission.MissionCommanderNextActionItem{{
+			Lane:           opt.Lane,
+			State:          "reviewer-intake-partial-writeback",
+			Command:        primary,
+			Source:         "reviewerIntake.verification-recorded",
+			RequiresReview: true,
+		}}
 		return subagents.ReviewerIntakeResult{
 			SchemaVersion:   1,
 			Command:         "plan-subagents",
@@ -151,14 +162,9 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 				PrimaryCommand: primary,
 				Boundary:       []string{"retry the identical apply command; do not hand-write the missing decision event"},
 			},
-			MissionCommanderNextActions: []mission.MissionCommanderNextActionItem{{
-				Lane:           opt.Lane,
-				State:          "reviewer-intake-partial-writeback",
-				Command:        primary,
-				Source:         "reviewerIntake.verification-recorded",
-				RequiresReview: true,
-			}},
-			NextSteps: []string{"retry the identical reviewer intake apply"},
+			MissionCommanderNextActions: nextActions,
+			MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(nextActions),
+			NextSteps:                   []string{"retry the identical reviewer intake apply"},
 		}, fmt.Errorf("injected decision append failure; writebackStatus=verification-recorded")
 	}
 	defer func() { intakeReviewerResult = originalIntake }()
@@ -175,6 +181,7 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 	if partial.MissionCommanderAction.State != "reviewer-intake-partial-writeback" || !strings.Contains(partial.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || !containsMissionCommanderNextAction(partial.MissionCommanderNextActions, "reviewerIntake.verification-recorded", partial.MissionCommanderAction.PrimaryCommand, false, true) {
 		t.Fatalf("CLI omitted partial recovery Mission Commander retry guidance: action=%+v next=%+v", partial.MissionCommanderAction, partial.MissionCommanderNextActions)
 	}
+	assertCLIActionQueue(t, partial.MissionCommanderActionQueue, 1, 1, 0, 1, 0, partial.MissionCommanderAction.PrimaryCommand)
 }
 
 type reviewerIntakeCLIResult struct {
@@ -193,8 +200,9 @@ type reviewerIntakeCLIResult struct {
 		ShardStatusAfter  string   `json:"shardStatusAfter"`
 		NextDispatches    []string `json:"nextDispatches"`
 	} `json:"orchestrationSnapshot"`
-	MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
-	MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+	MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+	MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+	MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
 	Verification                *struct {
 		Applied bool           `json:"applied"`
 		EventID string         `json:"eventId"`

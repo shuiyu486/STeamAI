@@ -16,25 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 425：Execution evidence review downstream artifact follow-through
+### Batch 426：Reviewer orchestration dispatch/intake action consumption closure
 
-状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待完成。
 
-目标：Batch 393/396/399/400/401/404/405/406/407/408/410/421/424 已让 authorized execution evidence record result 与 downstream review queue 可见；但 overview/handoff/continue/resume/checkpoint 的 `executionEvidenceReview[]` 仍要求 Mission Commander / replacement executor 从 `missionCommanderAction`、review command、handoff command、boundary、duplicate replay result 与 Batch 424 immediate `authorizedExecutionFollowThrough` 手工拼接 evidence-specific outcome。本批把 evidence review item 自身结构化为 follow-through，并投影到 downstream artifacts。
+目标：Batch 415/416/389 已让 reviewer-intake 与 plan-subagents reviewer orchestration 暴露 Mission Commander action / next actions；Batch 420/421/422/423/425 已把其它 Mission Commander 产品路径收口为 action queue。但 reviewer dispatch packet、strict intake 与 post-validation handoff 的主 Agent 消费路径仍要求 replacement executor 从 `missionCommanderNextActions[]` 手工计算 current action、blocked preview/apply buckets 与 postValidation handoff。本批把 reviewer orchestration / intake 的 action queue 直接投影到 planning result、packet、summary 与 intake result。
 
-边界：只增强已记录 authorized execution observation evidence 的 read-only review projection、package/CLI coverage 与 durable docs；不改变 authorized-gate request/decision write model、adapter sidecar strict intake、execution observation evidence write model、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；runtime 不执行 adapter/heavy-tool，不 replay heavy action，不写 authority/confirmed，不新增 PowerShell runtime logic。
+边界：只增强 `plan-subagents` review artifact projection、reviewer-intake JSON contract、summary text、package/CLI coverage 与 durable docs；不自动 spawn reviewer，不执行 reviewer session 管理，不改变 reviewer result strict contract、verification-before-decision writeback 顺序、postValidation semantics、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；runtime 不执行 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- `mission.ExecutionEvidenceReviewItem` 新增 `followThrough`，包含 state、gateEventId、outcomes、boundary 与 evidence-review scoped `missionCommanderActionQueue`。
-- shared evidence review builder 统一生成 `recorded-evidence-review`、`boundary-or-escalation-review` 与 `duplicate-record-review` outcomes，明确 review outputRefs/evidenceRefs、main escalation stop guidance、duplicate no-append/no-replay expected state 与 no-authority/confirmed boundary。
-- execution evidence duplicate path 在 duplicate-specific commander override 后重新计算 `followThrough`，确保 duplicate review queue 使用 `evidence-already-recorded` / `duplicate-record-review`，且 follow-through queue 只保留 review handoff/overview，不推荐 autonomous continue。
-- overview text/JSON、project/lane handoff JSON/Markdown、`/rekit continue` status/digest、lane `RESUME.md` 与 typed `checkpoints/latest.json` 同步投影同一 evidence follow-through，让 replacement executor 从任一 downstream artifact 都能直接消费 review/escalation/duplicate outcome。
-- coverage 锁定 overview/project handoff JSON follow-through、project handoff text follow-through、continue digest/status、lane resume/checkpoint serialization、normal/escalated/duplicate states、review-only queue、no-heavy/no-authority/confirmed/no PowerShell runtime logic 边界。
+- `subagents.Result` 与 `subagents.ReviewerOrchestrationPlan` 新增 `missionCommanderActionQueue`，复用 shared `mission.MissionCommanderActionQueueFor(...)` 汇总 reviewer dispatch、intake preview 与 intake apply next actions。
+- `plan-subagents` packet nested `reviewerOrchestration` 与 summary.md 同步输出 queue summary/counts/current，让主 Agent / replacement executor 从 packet 或 summary 即可看到当前应先 dispatch 哪个 read-only reviewer，以及哪些 intake preview/apply 仍 blocked/requiresReview。
+- `subagents.ReviewerIntakeResult` 新增 `missionCommanderActionQueue`，在 `finalizeReviewerIntakeResult(...)` 统一计算，覆盖 previewed、blocked/event-id-collision、verification-recorded partial recovery、complete 与 already-complete postValidation next actions。
+- package/CLI tests 锁定 top-level/nested packet queue mirror、summary text queue line、attached/out-of-case reviewer orchestration product path、reviewer intake preview/apply/duplicate/blocked/partial recovery queue contract，以及 no auto-spawn/no-heavy/no-authority/confirmed/no PowerShell runtime logic 边界。
 
-验证结果：已通过 affected package `go test ./internal/rekit/mission ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok 且 release notes 覆盖 Batch 425；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `09c0ab6 Add execution evidence review follow-through`；远程 release-gate run `29716703650` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/subagents ./internal/rekit/cli -run 'TestWritePlan|TestIntakeReviewer|TestRunPlanSubagents' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok 且 release notes 覆盖 Batch 426；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待完成。
 
-上一批摘要：Batch 424 已完成 Authorized execution adapter/report consumption follow-through closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 425 已完成 Execution evidence review downstream artifact follow-through，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

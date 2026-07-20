@@ -86,6 +86,7 @@ type ReviewerIntakeResult struct {
 	PostValidation              *ReviewerPostValidation                  `json:"postValidation,omitempty"`
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	NextSteps                   []string                                 `json:"nextSteps"`
 }
 
@@ -358,6 +359,7 @@ func finalizeReviewerIntakeResult(result ReviewerIntakeResult) ReviewerIntakeRes
 	action := reviewerIntakeMissionCommanderAction(result)
 	result.MissionCommanderAction = action
 	result.MissionCommanderNextActions = reviewerIntakeMissionCommanderNextActions(result, action)
+	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	return result
 }
 

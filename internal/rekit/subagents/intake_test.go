@@ -328,6 +328,7 @@ func TestIntakeReviewerResultWhatIfAndApply(t *testing.T) {
 	if preview.MissionCommanderAction.State != "ready-for-reviewer-intake-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || !hasReviewerIntakeCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed", preview.MissionCommanderAction.PrimaryCommand, false, true) || !hasReviewerIntakeCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed.followUp", "/rekit handoff devirt-main", false, true) {
 		t.Fatalf("preview omitted reviewer intake Mission Commander apply guidance: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
 	}
+	assertReviewerIntakeActionQueue(t, preview.MissionCommanderActionQueue, 2, 2, 0, 2, 1, preview.MissionCommanderAction.PrimaryCommand)
 	if preview.OrchestrationSnapshot.Mode != "manual-main-agent-intake" || preview.OrchestrationSnapshot.DispatchIndex != 1 || preview.OrchestrationSnapshot.DispatchTotal != 1 || preview.OrchestrationSnapshot.ShardStatusAfter != "previewed" || !preview.OrchestrationSnapshot.PreviewRequiredFirst || !slices.Contains(preview.OrchestrationSnapshot.RuntimeBoundary, "runtime does not spawn subagents") {
 		t.Fatalf("unexpected orchestration snapshot: %+v", preview.OrchestrationSnapshot)
 	}
@@ -348,6 +349,9 @@ func TestIntakeReviewerResultWhatIfAndApply(t *testing.T) {
 	if applied.MissionCommanderAction.State != "reviewer-intake-writeback-complete" || len(applied.MissionCommanderNextActions) == 0 || !strings.HasPrefix(applied.MissionCommanderNextActions[0].Source, "reviewerIntake.postValidation.") {
 		t.Fatalf("apply omitted post-validation Mission Commander guidance: action=%+v next=%+v", applied.MissionCommanderAction, applied.MissionCommanderNextActions)
 	}
+	if applied.MissionCommanderActionQueue.Counts.Total != len(applied.MissionCommanderNextActions) || applied.MissionCommanderActionQueue.CurrentAction == nil || !strings.HasPrefix(applied.MissionCommanderActionQueue.CurrentAction.Source, "reviewerIntake.postValidation.") {
+		t.Fatalf("apply omitted post-validation Mission Commander action queue: queue=%+v next=%+v", applied.MissionCommanderActionQueue, applied.MissionCommanderNextActions)
+	}
 	verificationLedger := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
 	decisionLedger := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"))
 	if strings.Count(verificationLedger, applied.Verification.EventID) != 1 || strings.Count(decisionLedger, applied.Decision.EventID) != 1 || !strings.Contains(decisionLedger, applied.Verification.EventID) || !strings.Contains(verificationLedger, "reviewer-session-1") || !strings.Contains(verificationLedger, "ownerBindingMode") {
@@ -363,6 +367,9 @@ func TestIntakeReviewerResultWhatIfAndApply(t *testing.T) {
 	}
 	if duplicate.MissionCommanderAction.State != "reviewer-intake-already-complete" || len(duplicate.MissionCommanderNextActions) == 0 || !strings.HasPrefix(duplicate.MissionCommanderNextActions[0].Source, "reviewerIntake.postValidation.") {
 		t.Fatalf("duplicate omitted already-complete Mission Commander guidance: action=%+v next=%+v", duplicate.MissionCommanderAction, duplicate.MissionCommanderNextActions)
+	}
+	if duplicate.MissionCommanderActionQueue.Counts.Total != len(duplicate.MissionCommanderNextActions) || duplicate.MissionCommanderActionQueue.CurrentAction == nil || !strings.HasPrefix(duplicate.MissionCommanderActionQueue.CurrentAction.Source, "reviewerIntake.postValidation.") {
+		t.Fatalf("duplicate omitted already-complete Mission Commander action queue: queue=%+v next=%+v", duplicate.MissionCommanderActionQueue, duplicate.MissionCommanderNextActions)
 	}
 }
 
@@ -388,6 +395,7 @@ func TestIntakeReviewerResultBlocksConflictsWithoutWrites(t *testing.T) {
 	if result.MissionCommanderAction.State != "reviewer-intake-blocked" || !hasReviewerIntakeCommanderNextAction(result.MissionCommanderNextActions, "reviewerIntake.blocked", result.MissionCommanderAction.PrimaryCommand, true, true) {
 		t.Fatalf("blocked intake omitted blocked Mission Commander preview guidance: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
+	assertReviewerIntakeActionQueue(t, result.MissionCommanderActionQueue, 1, 0, 1, 1, 0, result.MissionCommanderAction.PrimaryCommand)
 	if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
 		t.Fatalf("blocked intake wrote verification ledger:\n%s", got)
 	}
@@ -425,6 +433,7 @@ func TestIntakeReviewerResultRecoversPartialVerificationWrite(t *testing.T) {
 	if err == nil || partial.WritebackStatus != "verification-recorded" || partial.Verification == nil || !partial.Verification.Applied || partial.Decision == nil || partial.Decision.Applied {
 		t.Fatalf("partial writeback status was not preserved: result=%+v err=%v", partial, err)
 	}
+	assertReviewerIntakeActionQueue(t, partial.MissionCommanderActionQueue, 2, 2, 0, 2, 1, partial.MissionCommanderAction.PrimaryCommand)
 	if got := strings.Count(readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")), partial.Verification.EventID); got != 1 {
 		t.Fatalf("verification append count = %d, want 1", got)
 	}
@@ -441,6 +450,13 @@ func TestIntakeReviewerResultRecoversPartialVerificationWrite(t *testing.T) {
 	}
 	if got := strings.Count(readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl")), recovered.Decision.EventID); got != 1 {
 		t.Fatalf("decision append count after recovery = %d, want 1", got)
+	}
+}
+
+func assertReviewerIntakeActionQueue(t *testing.T, queue mission.MissionCommanderActionQueue, total, unblocked, blocked, requiresReview, followUp int, currentCommand string) {
+	t.Helper()
+	if queue.Counts.Total != total || queue.Counts.Unblocked != unblocked || queue.Counts.Blocked != blocked || queue.Counts.RequiresReview != requiresReview || queue.Counts.FollowUp != followUp || queue.CurrentAction == nil || queue.CurrentAction.Command != currentCommand || !strings.Contains(queue.Summary, "current="+currentCommand) {
+		t.Fatalf("reviewer intake Mission Commander action queue drifted: %+v", queue)
 	}
 }
 

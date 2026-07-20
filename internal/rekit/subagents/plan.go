@@ -55,6 +55,7 @@ type Result struct {
 	ReviewLoop                  ReviewLoop                               `json:"reviewLoop"`
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 }
 
 type Packet struct {
@@ -148,6 +149,7 @@ type ReviewerOrchestrationPlan struct {
 	CompletionCriteria          []string                                 `json:"completionCriteria"`
 	MissionCommanderAction      *mission.MissionCommanderAction          `json:"missionCommanderAction,omitempty"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue *mission.MissionCommanderActionQueue     `json:"missionCommanderActionQueue,omitempty"`
 }
 
 type ReviewerDispatch struct {
@@ -344,8 +346,10 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	orchestration := newReviewerOrchestration(shardHandoffs, observability, reviewLoop, ownerBinding, maxParallel, caseTarget)
 	commanderAction := reviewerPlanMissionCommanderAction(planRoot, m.Pack, orchestration, caseTarget)
 	commanderNextActions := reviewerPlanMissionCommanderNextActions(planRoot, m.Pack, orchestration, commanderAction, caseTarget)
+	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	orchestration.MissionCommanderAction = &commanderAction
 	orchestration.MissionCommanderNextActions = commanderNextActions
+	orchestration.MissionCommanderActionQueue = &commanderActionQueue
 	packet := Packet{
 		SchemaVersion:             1,
 		Command:                   commandName,
@@ -377,7 +381,7 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	if err := os.WriteFile(paths.SummaryPath, []byte(summaryText(route, opt.TaskType, len(items), len(shards), itemsPerAgent, maxParallel, observability, reviewLoop, ownerBinding, shardHandoffs, orchestration)), 0o644); err != nil {
 		return Result{}, err
 	}
-	return Result{SchemaVersion: 1, Command: commandName, PlanRoot: planRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, IsMutation: false, WritesReviewArtifacts: true, ReviewRequired: true, ReviewRoot: paths.Root, PacketPath: paths.PacketPath, SummaryPath: paths.SummaryPath, CombinedDiffPath: paths.CombinedDiffPath, ItemCount: len(items), ShardCount: len(shards), TargetLane: targetLane, OwnerBinding: ownerBinding, ReviewerOrchestration: orchestration, ShardHandoffs: shardHandoffs, Observability: observability, ReviewLoop: reviewLoop, MissionCommanderAction: commanderAction, MissionCommanderNextActions: commanderNextActions}, nil
+	return Result{SchemaVersion: 1, Command: commandName, PlanRoot: planRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, IsMutation: false, WritesReviewArtifacts: true, ReviewRequired: true, ReviewRoot: paths.Root, PacketPath: paths.PacketPath, SummaryPath: paths.SummaryPath, CombinedDiffPath: paths.CombinedDiffPath, ItemCount: len(items), ShardCount: len(shards), TargetLane: targetLane, OwnerBinding: ownerBinding, ReviewerOrchestration: orchestration, ShardHandoffs: shardHandoffs, Observability: observability, ReviewLoop: reviewLoop, MissionCommanderAction: commanderAction, MissionCommanderNextActions: commanderNextActions, MissionCommanderActionQueue: commanderActionQueue}, nil
 }
 
 func resolveOwnerBinding(planRoot string, m *manifest.Manifest, opt Options, intakeAvailable bool) (OwnerBinding, error) {
@@ -511,7 +515,11 @@ func packetIdentityMatches(packet Packet) bool {
 }
 
 func reviewerOrchestrationEmpty(plan ReviewerOrchestrationPlan) bool {
-	return plan.Mode == "" && plan.Scope == "" && plan.TargetLane == "" && plan.OwnerBinding == (OwnerBinding{}) && plan.PacketPath == "" && plan.ResultRoot == "" && plan.ReviewerCount == 0 && plan.MaxParallel == 0 && len(plan.Dispatches) == 0 && len(plan.Lifecycle) == 0 && len(plan.RuntimeBoundary) == 0 && len(plan.CompletionCriteria) == 0 && plan.MissionCommanderAction == nil && len(plan.MissionCommanderNextActions) == 0
+	return plan.Mode == "" && plan.Scope == "" && plan.TargetLane == "" && plan.OwnerBinding == (OwnerBinding{}) && plan.PacketPath == "" && plan.ResultRoot == "" && plan.ReviewerCount == 0 && plan.MaxParallel == 0 && len(plan.Dispatches) == 0 && len(plan.Lifecycle) == 0 && len(plan.RuntimeBoundary) == 0 && len(plan.CompletionCriteria) == 0 && plan.MissionCommanderAction == nil && len(plan.MissionCommanderNextActions) == 0 && reviewerActionQueueEmpty(plan.MissionCommanderActionQueue)
+}
+
+func reviewerActionQueueEmpty(queue *mission.MissionCommanderActionQueue) bool {
+	return queue == nil || (queue.Summary == "" && queue.CurrentAction == nil && queue.Counts == (mission.MissionCommanderActionQueueCounts{}) && len(queue.UnblockedActions) == 0 && len(queue.BlockedActions) == 0 && len(queue.ReviewRequiredActions) == 0 && len(queue.FollowUpActions) == 0)
 }
 
 func legacyPacketIdentity(packet Packet) string {
@@ -1342,6 +1350,14 @@ func summaryText(route Route, taskType string, itemCount, shardCount, itemsPerAg
 		for _, boundary := range action.Boundary {
 			lines = append(lines, "  - mission commander boundary: "+boundary)
 		}
+	}
+	if orchestration.MissionCommanderActionQueue != nil {
+		queue := *orchestration.MissionCommanderActionQueue
+		current := "none"
+		if queue.CurrentAction != nil {
+			current = queue.CurrentAction.Command
+		}
+		lines = append(lines, fmt.Sprintf("- mission commander action queue: summary=`%s`; total=`%d`; unblocked=`%d`; blocked=`%d`; requiresReview=`%d`; followUp=`%d`; current=`%s`", queue.Summary, queue.Counts.Total, queue.Counts.Unblocked, queue.Counts.Blocked, queue.Counts.RequiresReview, queue.Counts.FollowUp, current))
 	}
 	for _, item := range orchestration.MissionCommanderNextActions {
 		lines = append(lines, fmt.Sprintf("- mission commander next action: state=`%s`; source=`%s`; blocked=`%t`; requiresReview=`%t`; command=`%s`", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command))
