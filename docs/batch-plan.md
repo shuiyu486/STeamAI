@@ -28,7 +28,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 - `docs/context-routing.md` 增加文档维护规则：文档索引、推荐话术和接手清单不是默认必读清单；出现 5 个以上 read-first 文件时先压缩为 router + 当前场景入口 + 顶部区。
 - 新增文档必须声明首选入口、何时按需读取、不要默认读取什么；历史或 release/debug 溯源优先归档或专题化，不放进默认上下文。
-- README、Agent Team usage、reference absorption、vision、Mission Control product direction 与 Go-first convergence 的旧 read-first 话术已收敛到 `docs/context-routing.md`。
+- README、根 `CLAUDE.md`、common context-budget policy、pack reference template、Agent Team usage、reference absorption、vision、Mission Control product direction 与 Go-first convergence 的旧 read-first 话术已收敛到 `docs/context-routing.md`。
 
 验证结果：已通过 focused `go test ./internal/rekit/releasecheck ./internal/rekit/defaultdocs -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `e264812 Add documentation routing pressure reduction`；远程 release-gate run `29754192575` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 

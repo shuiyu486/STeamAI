@@ -10,7 +10,7 @@
 
 ## 上下文路由 / 渐进式披露
 
-先读 `docs/context-routing.md`，再按需读其它文档顶部区域。不要默认串读所有 durable docs，也不要默认读取 `docs/batch-history.md` 全文。修改、创建或维护文档时也要保持按需路由与渐进披露：顶部短执行区，细节按章节/专文路由，不把历史、长日志或完整设计重新塞回 active docs。
+先读 `docs/context-routing.md`，再按需读其它文档顶部区域。不要默认串读所有 durable docs，也不要默认读取 `docs/batch-history.md` 全文。修改、创建或维护文档时也要保持按需路由与渐进披露：顶部短执行区，细节按章节/专文路由，不把历史、长日志或完整设计重新塞回 active docs。文档索引、推荐话术和接手清单不是默认必读清单；如果出现 5 个以上 read-first 文件，先压缩为 `docs/context-routing.md` + 当前场景入口 + 顶部区。
 
 每轮默认最小集：
 
@@ -31,6 +31,7 @@
 | release / CI 判断 | `docs/release-readiness.md` 顶部 + `release-check -Format json` |
 | PowerShell façade / removal | `docs/powershell-deprecation.md` 顶部和相关矩阵行 |
 | runtime 调用链 / symbol 影响面 | CodeGraph MCP 优先查询 `internal/rekit/**` / `cmd/rekit/**` |
+| 文档减压 / 路由审计 | `docs/context-routing.md` + 目标文档顶部；用搜索定位旧 read-first 列表 |
 | smoke 选择 | `rekit/tests/README.md` 对应类别 |
 
 ## 维护入口

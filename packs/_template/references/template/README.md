@@ -5,6 +5,7 @@
 ## 常驻原则
 
 - 先读 case 的 `CLAUDE.local.md`，再按本文件路由。
+- 本文件是 pack-local 路由入口，不是默认必读长清单；新增 reference 时说明何时读取、不要默认读取什么。
 - 不读取大 trace、大 CSV、完整反汇编或完整反编译；只读必要行范围或 sidecar 摘要。
 - 当前进度保存在 case-local handoff；pack reference 只保存可复用流程。
 
