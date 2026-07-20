@@ -3881,9 +3881,19 @@ func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) e
 		if _, err := fmt.Fprintf(out, "promote candidates decision follow-through：path=%s decision=%s candidatePath=%s packTarget=%s\n", item.Path, item.ReviewDecision, item.CandidatePath, item.PackTarget); err != nil {
 			return err
 		}
+		for _, boundary := range item.Boundary {
+			if _, err := fmt.Fprintf(out, "promote candidates decision follow-through boundary：path=%s boundary=%s\n", item.Path, boundary); err != nil {
+				return err
+			}
+		}
 		for _, outcome := range item.Outcomes {
 			if _, err := fmt.Fprintf(out, "promote candidates decision outcome：path=%s decision=%s state=%s expected=%s\n", item.Path, outcome.Decision, outcome.State, outcome.Expected); err != nil {
 				return err
+			}
+			if strings.TrimSpace(outcome.When) != "" {
+				if _, err := fmt.Fprintf(out, "promote candidates decision when：path=%s decision=%s when=%s\n", item.Path, outcome.Decision, outcome.When); err != nil {
+					return err
+				}
 			}
 			for _, action := range outcome.Actions {
 				if _, err := fmt.Fprintf(out, "promote candidates decision action：path=%s decision=%s action=%s\n", item.Path, outcome.Decision, action); err != nil {
@@ -3897,6 +3907,11 @@ func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) e
 			}
 			for _, command := range outcome.VerificationCommands {
 				if _, err := fmt.Fprintf(out, "promote candidates decision verification command：path=%s decision=%s command=%s\n", item.Path, outcome.Decision, command); err != nil {
+					return err
+				}
+			}
+			for _, evidence := range outcome.Evidence {
+				if _, err := fmt.Fprintf(out, "promote candidates decision evidence：path=%s decision=%s evidence=%s\n", item.Path, outcome.Decision, evidence); err != nil {
 					return err
 				}
 			}
@@ -3917,15 +3932,30 @@ func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) e
 			}
 		}
 	}
-	if _, err := fmt.Fprintf(out, "promote candidates reconsume：mode=%s\n", result.ReviewPlan.Reconsume.Mode); err != nil {
+	if _, err := fmt.Fprintf(out, "promote candidates reconsume：mode=%s managedDocs=%s tooling=%s\n", result.ReviewPlan.Reconsume.Mode, result.ReviewPlan.Reconsume.ManagedDocs, result.ReviewPlan.Reconsume.Tooling); err != nil {
 		return err
 	}
+	for _, command := range result.ReviewPlan.Reconsume.Commands {
+		if _, err := fmt.Fprintf(out, "promote candidates reconsume top-level command：%s\n", command); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.ReviewPlan.Reconsume.Boundary {
+		if _, err := fmt.Fprintf(out, "promote candidates reconsume top-level boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
 	for _, check := range result.ReviewPlan.Reconsume.VerificationChecklist {
-		if _, err := fmt.Fprintf(out, "promote candidates reconsume check：name=%s expected=%s\n", check.Name, check.Expected); err != nil {
+		if _, err := fmt.Fprintf(out, "promote candidates reconsume check：name=%s when=%s expected=%s\n", check.Name, check.When, check.Expected); err != nil {
 			return err
 		}
 		for _, command := range check.Commands {
 			if _, err := fmt.Fprintf(out, "promote candidates reconsume command：%s\n", command); err != nil {
+				return err
+			}
+		}
+		for _, evidence := range check.Evidence {
+			if _, err := fmt.Fprintf(out, "promote candidates reconsume evidence：name=%s evidence=%s\n", check.Name, evidence); err != nil {
 				return err
 			}
 		}
