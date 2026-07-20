@@ -4653,6 +4653,24 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "vmp-re", "-TaskType", "feature-analysis", "-Items", "alpha,beta", "-ItemsPerAgent", "1", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"plan-subagents：writesReviewArtifacts=true reviewRequired=true items=2 shards=2",
+		"plan-subagents reviewer orchestration：mode=manual-main-agent-intake",
+		"plan-subagents reviewer dispatch：shard=shard-01 status=planned",
+		"plan-subagents commander action：state=ready-for-reviewer-dispatch",
+		"mission commander action queue：summary=total=6 unblocked=2 blocked=4 requiresReview=6 followUp=0 current=dispatch read-only reviewer for shard-01",
+		"mission commander action queue current：state=ready-for-reviewer-dispatch source=reviewerOrchestration.dispatch blocked=false requiresReview=true command=`dispatch read-only reviewer for shard-01",
+		"mission commander next action：state=ready-for-reviewer-intake-preview source=reviewerOrchestration.intake.preview blocked=true requiresReview=true",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("plan-subagents text output missing %q:\n%s", expected, out.String())
+		}
+	}
 }
 
 func TestRunPlanSubagentsUnknownTaskTypeReportsDefaultRoute(t *testing.T) {

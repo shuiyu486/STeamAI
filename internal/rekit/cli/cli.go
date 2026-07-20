@@ -1396,6 +1396,19 @@ func promoteCandidatesFormat(format string) (string, error) {
 	}
 }
 
+func planSubagentsFormat(format string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(format))
+	if value == "" {
+		return "json", nil
+	}
+	switch value {
+	case "text", "json":
+		return value, nil
+	default:
+		return "", fmt.Errorf("unsupported format: %s", format)
+	}
+}
+
 func writeJSON(out io.Writer, result any) error {
 	b, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
@@ -1748,34 +1761,102 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		if !opt.Apply && !opt.WhatIf {
 			return fmt.Errorf("plan-subagents reviewer intake requires -WhatIf or -Apply")
 		}
-		format := strings.ToLower(strings.TrimSpace(opt.Format))
-		if format != "" && format != "json" {
-			return fmt.Errorf("plan-subagents reviewer intake supports only -Format json")
+		format, err := planSubagentsFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
 		}
 		result, err := intakeReviewerResult(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerIntakeOptions{PacketPath: opt.PacketPath, ReviewerResultPath: opt.ReviewerResultPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
 		if err != nil {
 			if result.WritebackStatus != "" {
-				if writeErr := writeJSON(out, result); writeErr != nil {
+				var writeErr error
+				if format == "json" {
+					writeErr = writeJSON(out, result)
+				} else {
+					writeErr = writePlanSubagentsReviewerIntakeText(out, result)
+				}
+				if writeErr != nil {
 					return fmt.Errorf("%v; write reviewer intake recovery result: %w", err, writeErr)
 				}
 			}
 			return err
 		}
-		return writeJSON(out, result)
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePlanSubagentsReviewerIntakeText(out, result)
 	}
 	if opt.Apply || opt.WhatIf || opt.CreateCandidates {
 		return fmt.Errorf("plan-subagents planning only writes review artifacts; use -ReviewerResultPath with -WhatIf or -Apply for main-agent reviewer intake")
+	}
+	format, err := planSubagentsFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
 	}
 	result, err := subagents.WritePlan(ctx.RepoRoot, target, ctx.Pack, subagents.Options{Route: opt.Route, TaskType: opt.TaskType, Items: opt.Items, ItemsFile: opt.ItemsFile, ItemsPerAgent: opt.ItemsPerAgent, MaxParallel: opt.MaxParallel, ReviewOutputDir: opt.ReviewOutputDir, PacketPath: opt.PacketPath, DiffPath: opt.DiffPath, Lane: opt.Note.Lane})
 	if err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
+	if format == "json" {
+		return writeJSON(out, result)
+	}
+	return writePlanSubagentsText(out, result)
+}
+
+func writePlanSubagentsText(out io.Writer, result subagents.Result) error {
+	if _, err := fmt.Fprintf(out, "plan-subagents：writesReviewArtifacts=%t reviewRequired=%t items=%d shards=%d packet=%s summary=%s\n", result.WritesReviewArtifacts, result.ReviewRequired, result.ItemCount, result.ShardCount, result.PacketPath, result.SummaryPath); err != nil {
 		return err
 	}
-	_, err = out.Write(append(b, '\n'))
-	return err
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration：mode=%s targetLane=%s reviewers=%d maxParallel=%d resultRoot=%s\n", result.ReviewerOrchestration.Mode, result.TargetLane, result.ReviewerOrchestration.ReviewerCount, result.ReviewerOrchestration.MaxParallel, result.ReviewerOrchestration.ResultRoot); err != nil {
+		return err
+	}
+	for _, dispatch := range result.ReviewerOrchestration.Dispatches {
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer dispatch：shard=%s status=%s reviewerResultPath=%s preview=`%s` apply=`%s`\n", dispatch.ShardID, dispatch.Status, dispatch.ReviewerResultPath, dispatch.PreviewCommand, dispatch.ApplyCommand); err != nil {
+			return err
+		}
+	}
+	if err := writeMissionCommanderActionText(out, "plan-subagents commander action", mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}); err != nil {
+		return err
+	}
+	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
+		return err
+	}
+	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
+}
+
+func writePlanSubagentsReviewerIntakeText(out io.Writer, result subagents.ReviewerIntakeResult) error {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer intake：status=%s mutation=%t applied=%t readyForWriteback=%t lane=%s shard=%s intakeId=%s\n", result.WritebackStatus, result.IsMutation, result.Applied, result.ReadyForWriteback, result.Lane, result.ShardID, result.IntakeID); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "reviewer intake orchestration：mode=%s dispatch=%d/%d shardBefore=%s shardAfter=%s\n", result.OrchestrationSnapshot.Mode, result.OrchestrationSnapshot.DispatchIndex, result.OrchestrationSnapshot.DispatchTotal, result.OrchestrationSnapshot.ShardStatusBefore, result.OrchestrationSnapshot.ShardStatusAfter); err != nil {
+		return err
+	}
+	for _, reason := range result.BlockedReasons {
+		if _, err := fmt.Fprintf(out, "reviewer intake blocked reason：%s\n", reason); err != nil {
+			return err
+		}
+	}
+	if result.Verification != nil {
+		if _, err := fmt.Fprintf(out, "reviewer intake verification：applied=%t eventId=%s reason=%s\n", result.Verification.Applied, result.Verification.EventID, result.Verification.Reason); err != nil {
+			return err
+		}
+	}
+	if result.Decision != nil {
+		if _, err := fmt.Fprintf(out, "reviewer intake decision：applied=%t eventId=%s reason=%s\n", result.Decision.Applied, result.Decision.EventID, result.Decision.Reason); err != nil {
+			return err
+		}
+	}
+	if result.PostValidation != nil {
+		if _, err := fmt.Fprintf(out, "reviewer intake post-validation：valid=%t\n", result.PostValidation.Valid); err != nil {
+			return err
+		}
+	}
+	if err := writeMissionCommanderActionText(out, "reviewer intake commander action", mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}); err != nil {
+		return err
+	}
+	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
+		return err
+	}
+	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
 func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {

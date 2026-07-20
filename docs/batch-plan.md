@@ -16,28 +16,27 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 426：Reviewer orchestration dispatch/intake action consumption closure
+### Batch 427：plan-subagents / reviewer-intake CLI text action-queue parity
 
-状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、durable docs、focused CLI validation 与 full local validation；准备 commit/push 与远程 release-gate inspection。
 
-目标：Batch 415/416/389 已让 reviewer-intake 与 plan-subagents reviewer orchestration 暴露 Mission Commander action / next actions；Batch 420/421/422/423/425 已把其它 Mission Commander 产品路径收口为 action queue。但 reviewer dispatch packet、strict intake 与 post-validation handoff 的主 Agent 消费路径仍要求 replacement executor 从 `missionCommanderNextActions[]` 手工计算 current action、blocked preview/apply buckets 与 postValidation handoff。本批把 reviewer orchestration / intake 的 action queue 直接投影到 planning result、packet、summary 与 intake result。
+目标：Batch 426 已让 `plan-subagents` planning result、packet nested `reviewerOrchestration`、summary.md 与 reviewer-intake JSON result 直接输出 `missionCommanderActionQueue`。但 terminal text/product path 仍要求 Mission Commander / replacement executor 解析 JSON 或打开 summary 才能看到 reviewer dispatch/intake 的 current/unblocked/blocked/reviewRequired/followUp buckets。本批让 `plan-subagents -Format text` 与 reviewer-intake `-Format text` 直接打印同一 commander action、action queue 与 next-action lines。
 
-边界：只增强 `plan-subagents` review artifact projection、reviewer-intake JSON contract、summary text、package/CLI coverage 与 durable docs；不自动 spawn reviewer，不执行 reviewer session 管理，不改变 reviewer result strict contract、verification-before-decision writeback 顺序、postValidation semantics、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；runtime 不执行 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
+边界：只增强 `plan-subagents` planning text output、reviewer-intake text output、CLI coverage 与 durable docs；不改变 JSON contract、reviewer result strict contract、verification-before-decision writeback 顺序、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；不自动 spawn reviewer，不执行 reviewer session 管理或 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- `subagents.Result` 与 `subagents.ReviewerOrchestrationPlan` 新增 `missionCommanderActionQueue`，复用 shared `mission.MissionCommanderActionQueueFor(...)` 汇总 reviewer dispatch、intake preview 与 intake apply next actions。
-- `plan-subagents` packet nested `reviewerOrchestration` 与 summary.md 同步输出 queue summary/counts/current，让主 Agent / replacement executor 从 packet 或 summary 即可看到当前应先 dispatch 哪个 read-only reviewer，以及哪些 intake preview/apply 仍 blocked/requiresReview。
-- `subagents.ReviewerIntakeResult` 新增 `missionCommanderActionQueue`，在 `finalizeReviewerIntakeResult(...)` 统一计算，覆盖 previewed、blocked/event-id-collision、verification-recorded partial recovery、complete 与 already-complete postValidation next actions。
-- package/CLI tests 锁定 top-level/nested packet queue mirror、summary text queue line、attached/out-of-case reviewer orchestration product path、reviewer intake preview/apply/duplicate/blocked/partial recovery queue contract，以及 no auto-spawn/no-heavy/no-authority/confirmed/no PowerShell runtime logic 边界。
+- `plan-subagents` planning path 现在支持 `-Format text` / `-Format json`，text 输出 review artifact identity、reviewer orchestration、per-shard dispatch、Mission Commander action、action queue summary/current 与完整 next-action lines。
+- reviewer-intake path 现在复用同一 format parsing，`-WhatIf/-Apply -Format text` 输出 intake status、orchestration snapshot、blocked reasons、verification/decision/post-validation、Mission Commander action、action queue 与完整 next-action lines；partial recovery 仍可按请求格式输出 recovery envelope 后返回错误。
+- CLI coverage 锁定 planning text output 与 reviewer-intake WhatIf text output 包含 commander action、queue summary/current 与 next-action lines，同时保留 existing JSON action-queue contract。
 
-验证结果：已通过 focused `go test ./internal/rekit/subagents ./internal/rekit/cli -run 'TestWritePlan|TestIntakeReviewer|TestRunPlanSubagents' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok 且 release notes 覆盖 Batch 426；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2767efa Add reviewer orchestration action queues`；远程 release-gate run `29717910198` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagents' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
 
-上一批摘要：Batch 425 已完成 Execution evidence review downstream artifact follow-through，详见 `docs/batch-history.md`。
+上一批摘要：Batch 426 已完成 Reviewer orchestration dispatch/intake action consumption closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
-1. **Reviewer orchestration dispatch/intake action consumption closure**：围绕 reviewer dispatch packet、strict intake、post-validation handoff 与 Mission Commander action queue 的实际主 Agent 消费路径补齐 coverage，不自动 spawn reviewer，不改变 review-first writeback。
+1. **Reviewer orchestration terminal/text consumption follow-through（如仍有缺口）**：仅在 terminal/operator text path 仍需要跨 JSON、summary 或 packet 手工拼接 reviewer lifecycle 时推进；不重复做字段微批次，不自动 spawn reviewer，不改变 review-first writeback。
 2. **Pack-memory decision follow-through downstream UX（如仍有缺口）**：Batch 423/425 已分别完成 candidate decision outcome projection 与 execution evidence downstream follow-through；后续仅在 accepted/rejected 人工流程或 evidence review downstream UX 仍需跨 envelope 手工拼接时推进，不重复做字段微批次。
 3. **Lane/tool-adapter live validation operational follow-through**：仅在 Windows 本机 product-path 仍存在 adapter contract/validation/report handoff 到 replacement executor 的真实断点时推进；不新增 adapter/heavy-tool execution。
 4. **Cross-platform product-path E2E（降优先级）**：在本地 CLI/case E2E 已覆盖 nested cwd / case shim 的基础上，仅保持可在 runner 可用时执行的三平台 matrix 候选和 known gap 记录；不要在 GitHub runner/billing blocker 未解除前让它阻塞 Windows 本机迭代。
