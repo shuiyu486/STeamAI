@@ -596,7 +596,7 @@ func newShards(items []string, targetItemsPerAgent int) []Shard {
 }
 
 func shardPrompt(items []string) string {
-	return "Review only these items: " + strings.Join(items, ", ") + ". Return the route output contract only; do not write files or paste long logs."
+	return "Review only these items: " + strings.Join(items, ", ") + ". Return one reviewer result JSON object using the shard handoff dispatchPrompt; do not return routeOutput alone, write files, or paste long logs."
 }
 
 func newShardHandoffs(shards []Shard, route Route, observability Observability, reviewLoop ReviewLoop, planRoot, pack string, ownerBinding OwnerBinding, intakeAvailable bool) []ShardHandoff {
@@ -1105,6 +1105,82 @@ func reviewerOrchestrationLifecycle(intakeAvailable bool) []ReviewerOrchestratio
 	return steps
 }
 
+func reviewerResultPromptSkeleton(shard Shard, route Route) string {
+	skeleton := struct {
+		PacketID           string            `json:"packetId"`
+		RouteID            string            `json:"routeId"`
+		ShardID            string            `json:"shardId"`
+		Items              []string          `json:"items"`
+		ReviewerSession    string            `json:"reviewerSession"`
+		Decision           string            `json:"decision"`
+		Confidence         string            `json:"confidence"`
+		Summary            string            `json:"summary"`
+		EvidenceRefs       []string          `json:"evidenceRefs"`
+		Risks              []string          `json:"risks"`
+		Conflicts          []string          `json:"conflicts"`
+		RecommendedVerdict string            `json:"recommendedVerdict"`
+		RouteOutput        map[string]string `json:"routeOutput"`
+	}{
+		PacketID:           "packet.packetId",
+		RouteID:            route.ID,
+		ShardID:            shard.ID,
+		Items:              append([]string{}, shard.Items...),
+		ReviewerSession:    "reviewer-session-id",
+		Decision:           "needs-more-evidence",
+		Confidence:         "medium",
+		Summary:            "fill summary for this shard",
+		EvidenceRefs:       []string{"packet.packetId"},
+		Risks:              []string{},
+		Conflicts:          []string{},
+		RecommendedVerdict: "needs-more-evidence",
+		RouteOutput:        reviewerRouteOutputPromptSkeleton(splitCSV(route.OutputContract), shard.Items),
+	}
+	b, err := json.Marshal(skeleton)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+func reviewerRouteOutputPromptSkeleton(fields []string, items []string) map[string]string {
+	routeOutput := map[string]string{}
+	for _, field := range fields {
+		switch field {
+		case "item":
+			routeOutput[field] = strings.Join(items, ",")
+		case "decision":
+			routeOutput[field] = "needs-more-evidence"
+		case "confidence":
+			routeOutput[field] = "medium"
+		case "evidence":
+			routeOutput[field] = "packet.packetId"
+		case "risk":
+			routeOutput[field] = "unknown"
+		case "next_action":
+			routeOutput[field] = "defer for main-agent evidence review"
+		case "tier_used":
+			routeOutput[field] = "reviewer"
+		case "tool_scope":
+			routeOutput[field] = "read-only"
+		case "defer_reason":
+			routeOutput[field] = "fill defer reason"
+		default:
+			routeOutput[field] = "fill " + field
+		}
+	}
+	return routeOutput
+}
+
+func reviewerRouteOutputFieldHints(outputContract string, items []string) string {
+	fields := splitCSV(outputContract)
+	skeleton := reviewerRouteOutputPromptSkeleton(fields, items)
+	hints := make([]string, 0, len(fields))
+	for _, field := range fields {
+		hints = append(hints, field+"="+skeleton[field])
+	}
+	return strings.Join(hints, "; ")
+}
+
 func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, reviewLoop ReviewLoop, ownerBinding OwnerBinding, resultPath string) string {
 	contract := reviewerResultContract()
 	lines := []string{
@@ -1112,10 +1188,13 @@ func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, re
 		"Route: " + route.ID + ".",
 		"Items: " + strings.Join(shard.Items, ", ") + ".",
 		"Owner binding: targetLane=" + ownerBinding.TargetLane + ", mode=" + ownerBinding.BindingMode + ", currentExecutor=" + textOr(ownerBinding.CurrentExecutor, "unassigned") + ", executorGeneration=" + strconv.Itoa(ownerBinding.ExecutorGeneration) + ".",
-		"Return only this output contract: " + route.OutputContract + ".",
+		"Return exactly one reviewer result JSON object; do not return routeOutput alone.",
 		"Reviewer result contract: " + contract.OutputFormat + ".",
 		"Required result fields: " + strings.Join(contract.RequiredFields, ", ") + ".",
-		"Set packetId to the packet packetId, routeId to " + route.ID + ", shardId to " + shard.ID + ", and reviewerSession to your session identifier supplied by the main agent.",
+		"Route output required fields: " + reviewerRouteOutputFieldHints(route.OutputContract, shard.Items) + ".",
+		"Reviewer result JSON skeleton: " + reviewerResultPromptSkeleton(shard, route) + ".",
+		"Replace packet.packetId with the packet packetId, set routeId to " + route.ID + ", shardId to " + shard.ID + ", and set reviewerSession to your session identifier supplied by the main agent.",
+		"Keep routeOutput.decision and routeOutput.confidence equal to the top-level decision/confidence; keep routeOutput.evidence inside evidenceRefs.",
 		"Allowed decisions: " + strings.Join(contract.AllowedDecisions, ", ") + ".",
 		"Return the result to the main agent for placement at: " + resultPath + ". Do not write this path yourself.",
 		"Do not write files, run heavy tools, append ledgers, or change authority/confirmed state.",
