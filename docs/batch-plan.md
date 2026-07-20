@@ -16,32 +16,30 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 456：promote candidates decision text detail closure
+### Batch 457：promote candidates cleanup/reconsume text identity closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29747637082` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29749177561` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
-目标：Batch 423/429/430/431 已让 pack-memory candidate review/cleanup/reconsume 具备 JSON contract 与 terminal handoff，但 `promote -CreateCandidates -Format text` 的 decision follow-through / reconsume text 仍缺少部分 outcome `when`、`evidence`、follow-through boundary、top-level reconsume commands/boundaries 与 reconsume check `when/evidence`，Mission Commander / replacement executor 判断 accept/reject/superseded/blocked/not-needed 条件和证据时仍可能回退 JSON。Batch 456 补齐这些 terminal text detail。
+目标：Batch 456 已让 `promote -CreateCandidates -Format text` 直接输出 decision outcome when/evidence、follow-through boundary、top-level reconsume commands/boundaries 与 reconsume check when/evidence；但 cleanup action、reconsume command 与 reconsume boundary legacy lines 仍是无 owner 的短行，Mission Commander / replacement executor 在处理多个 cleanup target 或多个 reconsume check 时仍需要把命令/边界手工匹配回 `cleanupTargets[]` 或 `reconsume.verificationChecklist[]`。Batch 457 补齐这些 terminal text identity。
 
-边界：只增强 `promote -CreateCandidates -Format text` pack-memory decision/reconsume terminal handoff、focused CLI coverage 与 durable docs；不改变 JSON contract、candidate generation、candidate path/index semantics、manual merge/cleanup guidance-only、default JSON compatibility，不执行 merge/cleanup/init/doctor、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
+边界：只增强 `promote -CreateCandidates -Format text` pack-memory cleanup/reconsume terminal handoff、focused CLI coverage 与 durable docs；保留既有 legacy text lines，不改变 JSON contract、candidate generation、candidate path/index semantics、manual merge/cleanup/reconsume guidance-only、default JSON compatibility，不执行 merge/cleanup/init/doctor、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
 
 已完成内容：
 
-- decision follow-through text 现在逐 item 输出 guidance boundary，明确 runtime 不执行 merge、cleanup、init 或 doctor，且不写 authority/confirmed、不执行 heavy tools、不推广 case-local artifacts。
-- decision outcome text 现在输出 `when`，让 accept/reject/superseded/blocked/not-needed 的适用条件可在 terminal 中直接判断。
-- decision outcome text 现在输出 `evidence`，让主 Agent 可直接看到 pack source diff、candidatePath deletion check、review note、doctor output、fresh/attached case output 等证据要求。
-- reconsume text 现在输出 managedDocs/tooling guidance、top-level reconsume commands 与 top-level boundaries。
-- reconsume verification checklist text 现在输出每个 check 的 `when` 与 `evidence`，覆盖 pack doctor、fresh-case reconsume 与 attached-case reconsume。
-- CLI coverage 锁定 WhatIf 与 actual create-candidates text 中的 decision when/evidence、follow-through boundary、top-level reconsume command/boundary、reconsume check when/evidence、existing action queue/next-action/no authority/confirmed/no-heavy 边界。
+- cleanup action text 保留 legacy action line，并新增 `cleanup action detail`，携带 path、candidatePath、indexPath 与 action，便于逐 candidate 执行 cleanup / indexPath update review。
+- reconsume command text 保留 legacy command line，并新增 `reconsume command detail`，携带 verification check name 与 command，便于区分 pack doctor、fresh-case reconsume 与 attached-case reconsume。
+- reconsume boundary text 保留 legacy boundary line，并新增 `reconsume boundary detail`，携带 verification check name 与 boundary，避免多个 check 的 boundary 被手工混配。
+- CLI coverage 锁定 WhatIf 与 actual create-candidates text 中的 cleanup action detail、fresh-case reconsume command detail、fresh-case reconsume boundary detail，以及 legacy text compatibility、existing action queue/next-action/no authority/confirmed/no-heavy 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPromoteCreateCandidates(WhatIf|WritesCandidates)' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `953cf36 Add promote candidate decision text details`；远程 release-gate run `29747637082` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPromoteCreateCandidates(WhatIf|WritesCandidates)' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `22d35af Add promote candidate cleanup text identities`；远程 release-gate run `29749177561` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
-上一批摘要：Batch 455 已完成 summary artifact reviewer result handoff closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 456 已完成 promote candidates decision text detail closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
 1. **Lane/tool-adapter live validation residuals（如仍有缺口）**：Batch 421/424/432 已覆盖 adapter contract/validation/report action queue、follow-through 与 contract liveValidation text；后续仅在 Windows 本机 product-path 仍存在 validation/record/evidence review handoff 到 replacement executor 的真实断点时推进；不新增 adapter/heavy-tool execution。
 2. **Reviewer orchestration E2E residuals（如仍有缺口）**：仅在 dispatch/intake/post-validation terminal path 仍要求解析 nested JSON 或打开 artifact 才能接续时推进，不自动 spawn reviewer、不执行 heavy-tool。
-3. **Pack-memory downstream UX residuals（如仍有缺口）**：Batch 423/429/430/431 已覆盖 candidate decision outcome、execution plan、WhatIf preview 与 review checklist text；后续仅在 accepted/rejected 人工流程、cleanup/reconsume 或 evidence review downstream UX 仍需跨 envelope 手工拼接时推进，不重复做字段微批次。
+3. **Pack-memory downstream UX residuals（如仍有缺口）**：Batch 423/429/430/431 已覆盖 candidate decision outcome、execution plan、WhatIf preview 与 review checklist text，Batch 456/457 已补齐 decision detail、cleanup action detail 与 reconsume command/boundary detail；后续仅在 accepted/rejected 人工流程、cleanup/reconsume 或 evidence review downstream UX 仍需跨 envelope 手工拼接时推进，不重复做字段微批次。
 4. **Cross-platform product-path E2E（降优先级）**：在本地 CLI/case E2E 已覆盖 nested cwd / case shim 的基础上，仅保持可在 runner 可用时执行的三平台 matrix 候选和 known gap 记录；不要在 GitHub runner/billing blocker 未解除前让它阻塞 Windows 本机迭代。
 5. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 
