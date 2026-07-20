@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 477：write/review no-pack product-path smoke closure
 
-状态：已完成 write/review no-explicit-pack smoke slice、durable docs 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本批收尾执行。
+状态：已完成 write/review no-explicit-pack smoke slice、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29768375342` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 476 覆盖了核心只读/WhatIf command suite 的 no-explicit-pack path；Batch 477 将同一 case-local nested cwd product smoke 延伸到用户真实推进时常用的写入预览与 review-first command：`start`、`note`、`sync` 与 `promote`。目标是确认新会话不记 pack 名时，仍能安全预览 lane creation / ledger append、生成 sync/promote review 或 candidates preview，并继续使用 attached case metadata `templatePack`。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - 新 smoke 断言上述入口全部解析为 `pack=_template`，并保持 `start` / `note` / `sync apply preview` / `promote candidates preview` 非 mutation、review-first `sync` 为 `kit-to-case`、review-first `promote` 为 `case-to-kit`。
 - Batch 475/476 已更新 no-pack 用户-facing guidance 与核心 command-suite coverage，本批无需重复扩写 README 或 skill 文案。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunCaseLocalProductPathUsesCaseMetadataRuntime -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunCaseLocalProductPathUsesCaseMetadataRuntime -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 无 whitespace error。已提交并推送 `83e522b Add no-pack write review smoke`；远程 release-gate run `29768375342` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 476 已完成 case command-suite no-pack smoke closure，详见 `docs/batch-history.md`。
 
