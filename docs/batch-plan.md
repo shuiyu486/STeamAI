@@ -16,23 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 477：write/review no-pack product-path smoke closure
+### Batch 478：status pack source handoff closure
 
-状态：已完成 write/review no-explicit-pack smoke slice、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29768375342` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 status pack source handoff implementation、durable docs 与完整本地 release minimum；提交/推送与远程 release-gate inspection 待完成。
 
-目标：Batch 476 覆盖了核心只读/WhatIf command suite 的 no-explicit-pack path；Batch 477 将同一 case-local nested cwd product smoke 延伸到用户真实推进时常用的写入预览与 review-first command：`start`、`note`、`sync` 与 `promote`。目标是确认新会话不记 pack 名时，仍能安全预览 lane creation / ledger append、生成 sync/promote review 或 candidates preview，并继续使用 attached case metadata `templatePack`。
+目标：Batch 475-477 已让 attached case / nested lane workspace 在未显式传 `-Pack` 时使用 case metadata `templatePack`，并覆盖核心 command suite 与写入预览/review-first 入口。Batch 478 将该解析结果直接投影到 `status` 第一屏，让新会话能立即判断当前 pack 来自显式参数、case metadata，还是 kit-mode repo default，降低“为什么当前 pack 是这个值”的排障成本。
 
-边界：只增强本机 product-path smoke coverage，不新增 runtime 行为；只覆盖 WhatIf / review-first / candidate WhatIf，不执行实际 sync/promote/authority/confirmed/heavy-tool，不 replay adapter，不新增 PowerShell runtime logic，不改变 release blocker。
+边界：只增强只读 status handoff 与本机 product-path coverage；不改变 case metadata pack override、runtime default-pack placeholder、sync/promote/workstream/gate 语义或 durable schema；不执行 heavy-tool，不 replay adapter，不写 authority/confirmed，不新增 PowerShell runtime logic，不改变 release blocker。
 
 已完成内容：
 
-- `TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 在 nested lane cwd 中新增 no-explicit-pack write/review smoke，覆盖 positional `start review-no-pack -WhatIf`、`note -WhatIf -Format json`、`sync -Format json`、`sync -Apply -WhatIf -Format json`、`promote -Format json` 与 `promote -CreateCandidates -WhatIf -Format json`。
-- 新 smoke 断言上述入口全部解析为 `pack=_template`，并保持 `start` / `note` / `sync apply preview` / `promote candidates preview` 非 mutation、review-first `sync` 为 `kit-to-case`、review-first `promote` 为 `case-to-kit`。
-- Batch 475/476 已更新 no-pack 用户-facing guidance 与核心 command-suite coverage，本批无需重复扩写 README 或 skill 文案。
+- `statusInventory` 新增 `packSource`，`status -Format json` 现在输出 `explicit`、`case-metadata` 或 `repo-default`。
+- `status -Format text` 第一行新增 `packSource=...`；默认 table/tsv legacy status 增加 `pack source: ...` 行，保持 read-only/no JSON object handoff。
+- `TestRunStatusJsonKit`、`TestRunStatusJsonDefaultPackContract`、`TestRunStatusJsonCase` 与 `TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 覆盖 kit explicit、kit repo-default、case explicit、nested case metadata no-pack、text 与 default status pack source。
+- `/rekit` skill 与 Agent Team 使用指南同步说明 status 会显示 pack 来源；Batch 477 已归档到 `docs/batch-history.md`。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunCaseLocalProductPathUsesCaseMetadataRuntime -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 无 whitespace error。已提交并推送 `83e522b Add no-pack write review smoke`；远程 release-gate run `29768375342` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunStatusJsonDefaultPackContract|TestRunStatusJsonCase|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。远程 release-gate inspection 待提交推送后执行；当前不能声明远程 CI green。
 
-上一批摘要：Batch 476 已完成 case command-suite no-pack smoke closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 477 已完成 write/review no-pack product-path smoke closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

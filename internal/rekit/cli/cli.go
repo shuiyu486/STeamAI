@@ -1195,6 +1195,7 @@ type statusInventory struct {
 	RuntimeRoot    string                 `json:"runtimeRoot"`
 	TemplateRoot   string                 `json:"templateRoot"`
 	Pack           string                 `json:"pack"`
+	PackSource     string                 `json:"packSource"`
 	Target         string                 `json:"target"`
 	TargetProvided bool                   `json:"targetProvided"`
 	Mode           string                 `json:"mode"`
@@ -1284,13 +1285,14 @@ func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
 	if format == "" {
 		format = "table"
 	}
+	packSource := statusPackSource(ctx, opt)
 	switch format {
 	case "table", "tsv":
-		return runStatusLegacyText(ctx, out)
+		return runStatusLegacyText(ctx, packSource, out)
 	case "text":
-		return runStatusText(ctx, out)
+		return runStatusText(ctx, packSource, out)
 	case "json":
-		status, err := buildStatusInventory(ctx)
+		status, err := buildStatusInventory(ctx, packSource)
 		if err != nil {
 			return err
 		}
@@ -1302,11 +1304,25 @@ func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 }
 
-func runStatusLegacyText(ctx runtime.Context, out io.Writer) error {
+func statusPackSource(ctx runtime.Context, opt Options) string {
+	if opt.PackProvided {
+		return "explicit"
+	}
+	if instance.LooksLikeCase(ctx.Target) {
+		inst, err := instance.Read(ctx.Target)
+		if err == nil && strings.TrimSpace(inst.TemplatePack) != "" {
+			return "case-metadata"
+		}
+	}
+	return "repo-default"
+}
+
+func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) error {
 	caseShim := buildStatusCaseShim(ctx.RepoRoot, "")
 	fmt.Fprintf(out, "rekit go backend: %s\n", ctx.RuntimeRoot)
 	fmt.Fprintf(out, "template root: %s\n", ctx.RepoRoot)
 	fmt.Fprintf(out, "pack: %s\n", ctx.Pack)
+	fmt.Fprintf(out, "pack source: %s\n", packSource)
 	if instance.LooksLikeCase(ctx.Target) {
 		inst, err := instance.Read(ctx.Target)
 		if err != nil {
@@ -1343,12 +1359,12 @@ func runStatusLegacyText(ctx runtime.Context, out io.Writer) error {
 	return writeStatusProjectHandoffText(out, buildStatusProjectHandoff(release.ReleaseHandoff))
 }
 
-func runStatusText(ctx runtime.Context, out io.Writer) error {
-	status, err := buildStatusInventory(ctx)
+func runStatusText(ctx runtime.Context, packSource string, out io.Writer) error {
+	status, err := buildStatusInventory(ctx, packSource)
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(out, "status：mutation=%t mode=%s targetProvided=%t pack=%s target=%s runtimeRoot=%s templateRoot=%s\n", status.IsMutation, status.Mode, status.TargetProvided, status.Pack, status.Target, status.RuntimeRoot, status.TemplateRoot); err != nil {
+	if _, err := fmt.Fprintf(out, "status：mutation=%t mode=%s targetProvided=%t pack=%s packSource=%s target=%s runtimeRoot=%s templateRoot=%s\n", status.IsMutation, status.Mode, status.TargetProvided, status.Pack, status.PackSource, status.Target, status.RuntimeRoot, status.TemplateRoot); err != nil {
 		return err
 	}
 	if status.Manifest != nil {
@@ -1675,7 +1691,7 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 	return nil
 }
 
-func buildStatusInventory(ctx runtime.Context) (statusInventory, error) {
+func buildStatusInventory(ctx runtime.Context, packSource string) (statusInventory, error) {
 	status := statusInventory{
 		Command:        "status",
 		SchemaVersion:  1,
@@ -1683,6 +1699,7 @@ func buildStatusInventory(ctx runtime.Context) (statusInventory, error) {
 		RuntimeRoot:    ctx.RuntimeRoot,
 		TemplateRoot:   ctx.RepoRoot,
 		Pack:           ctx.Pack,
+		PackSource:     packSource,
 		Target:         ctx.Target,
 		TargetProvided: ctx.TargetProvided,
 		Mode:           "kit",

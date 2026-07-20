@@ -272,6 +272,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		RuntimeRoot    string `json:"runtimeRoot"`
 		TemplateRoot   string `json:"templateRoot"`
 		Pack           string `json:"pack"`
+		PackSource     string `json:"packSource"`
 		Target         string `json:"target"`
 		TargetProvided bool   `json:"targetProvided"`
 		Mode           string `json:"mode"`
@@ -299,7 +300,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("status JSON did not decode: %v\n%s", err, out.String())
 	}
-	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Mode != "kit" || status.Pack != "_template" || status.TargetProvided {
+	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Mode != "kit" || status.Pack != "_template" || status.PackSource != "explicit" || status.TargetProvided {
 		t.Fatalf("unexpected status JSON envelope: %+v", status)
 	}
 	if status.RuntimeRoot == "" || status.TemplateRoot == "" || status.Target == "" || status.Case != nil {
@@ -330,7 +331,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"status：mutation=false mode=kit targetProvided=false pack=_template",
+		"status：mutation=false mode=kit targetProvided=false pack=_template packSource=explicit",
 		"status manifest：path=",
 		"schema=1 managed=4 promote=4 tooling=2",
 		"status case shim：summary=case shim readiness ok ready=true",
@@ -369,6 +370,9 @@ func TestRunStatusJsonKit(t *testing.T) {
 			t.Fatalf("status default text missing %q:\n%s", expected, out.String())
 		}
 	}
+	if !strings.Contains(out.String(), "pack source: explicit") {
+		t.Fatalf("status default text missing explicit pack source:\n%s", out.String())
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Pack", "_template"}, &out); err != nil {
@@ -378,6 +382,9 @@ func TestRunStatusJsonKit(t *testing.T) {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status no-command default text missing %q:\n%s", expected, out.String())
 		}
+	}
+	if !strings.Contains(out.String(), "pack source: explicit") {
+		t.Fatalf("status no-command default text missing explicit pack source:\n%s", out.String())
 	}
 }
 
@@ -391,6 +398,7 @@ func TestRunStatusJsonDefaultPackContract(t *testing.T) {
 		SchemaVersion int    `json:"schemaVersion"`
 		IsMutation    bool   `json:"isMutation"`
 		Pack          string `json:"pack"`
+		PackSource    string `json:"packSource"`
 		Mode          string `json:"mode"`
 		Case          any    `json:"case"`
 		Manifest      struct {
@@ -404,11 +412,22 @@ func TestRunStatusJsonDefaultPackContract(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("status JSON did not decode: %v\n%s", err, out.String())
 	}
-	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Mode != "kit" || status.Pack != defaults.DefaultPack || status.Case != nil {
+	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Mode != "kit" || status.Pack != defaults.DefaultPack || status.PackSource != "repo-default" || status.Case != nil {
 		t.Fatalf("unexpected default status JSON envelope: %+v", status)
 	}
 	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/"+defaults.DefaultPack+"/manifest.yml") || status.Manifest.SchemaVersion != "1" || status.Manifest.ManagedFiles != 7 || status.Manifest.PromoteFiles != 7 || status.Manifest.ToolingFiles != 12 {
 		t.Fatalf("unexpected default manifest summary: %+v", status.Manifest)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "status：mutation=false mode=kit targetProvided=false pack="+defaults.DefaultPack+" packSource=repo-default") {
+		t.Fatalf("default status text missing repo-default pack source:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("default status text should not emit JSON:\n%s", out.String())
 	}
 }
 
@@ -427,6 +446,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 		SchemaVersion  int    `json:"schemaVersion"`
 		IsMutation     bool   `json:"isMutation"`
 		Pack           string `json:"pack"`
+		PackSource     string `json:"packSource"`
 		TargetProvided bool   `json:"targetProvided"`
 		Mode           string `json:"mode"`
 		Case           struct {
@@ -489,7 +509,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
 	}
-	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Pack != "_template" || !status.TargetProvided || status.Mode != "case" || status.Manifest != nil {
+	if status.Command != "status" || status.SchemaVersion != 1 || status.IsMutation || status.Pack != "_template" || status.PackSource != "explicit" || !status.TargetProvided || status.Mode != "case" || status.Manifest != nil {
 		t.Fatalf("unexpected case status JSON envelope: %+v", status)
 	}
 	if status.Case.CaseRoot != caseRoot || status.Case.MetadataSource != "instance" || status.Case.TemplatePack != "_template" || status.Case.ProjectName != "demo" || status.Case.Moved || status.Case.ShimPath == "" || !status.Case.ShimMatchesTemplate {
@@ -523,7 +543,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"status：mutation=false mode=case targetProvided=true pack=_template",
+		"status：mutation=false mode=case targetProvided=true pack=_template packSource=explicit",
 		"status case：root=",
 		"metadataSource=instance",
 		"templatePack=_template projectName=demo",
@@ -2471,6 +2491,8 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 	var status struct {
 		Command        string `json:"command"`
 		TemplateRoot   string `json:"templateRoot"`
+		Pack           string `json:"pack"`
+		PackSource     string `json:"packSource"`
 		Target         string `json:"target"`
 		TargetProvided bool   `json:"targetProvided"`
 		Mode           string `json:"mode"`
@@ -2483,7 +2505,7 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("case-local status stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if status.Command != "status" || status.Mode != "case" || status.TargetProvided || status.Target != caseRoot || status.TemplateRoot != root || status.Case.TemplateRoot != root || status.Case.TemplatePack != "_template" || status.Case.ProjectName != "product-path" {
+	if status.Command != "status" || status.Mode != "case" || status.Pack != "_template" || status.PackSource != "explicit" || status.TargetProvided || status.Target != caseRoot || status.TemplateRoot != root || status.Case.TemplateRoot != root || status.Case.TemplatePack != "_template" || status.Case.ProjectName != "product-path" {
 		t.Fatalf("unexpected case-local status: %+v", status)
 	}
 
@@ -2560,7 +2582,7 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("nested case-local status stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if status.Command != "status" || status.Mode != "case" || status.TargetProvided || status.Target != caseRoot || status.TemplateRoot != root || status.Case.TemplateRoot != root || status.Case.TemplatePack != "_template" {
+	if status.Command != "status" || status.Mode != "case" || status.Pack != "_template" || status.PackSource != "explicit" || status.TargetProvided || status.Target != caseRoot || status.TemplateRoot != root || status.Case.TemplateRoot != root || status.Case.TemplatePack != "_template" {
 		t.Fatalf("unexpected nested case-local status: %+v", status)
 	}
 
@@ -2569,7 +2591,7 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"status：mutation=false mode=case targetProvided=false pack=_template",
+		"status：mutation=false mode=case targetProvided=false pack=_template packSource=explicit",
 		"status case：root=" + caseRoot,
 		"status case mission：summary=",
 		"status case mission queue：total=",
@@ -2613,6 +2635,9 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 			t.Fatalf("nested case-local default status missing %q:\n%s", expected, out.String())
 		}
 	}
+	if !strings.Contains(out.String(), "pack source: explicit") {
+		t.Fatalf("nested case-local explicit default status missing pack source:\n%s", out.String())
+	}
 	if strings.Contains(out.String(), "{\n  ") {
 		t.Fatalf("nested case-local default status should not emit JSON object:\n%s", out.String())
 	}
@@ -2626,8 +2651,33 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 			t.Fatalf("nested case-local no-command default status missing %q:\n%s", expected, out.String())
 		}
 	}
+	if !strings.Contains(out.String(), "pack source: explicit") {
+		t.Fatalf("nested case-local explicit no-command status missing pack source:\n%s", out.String())
+	}
 	if strings.Contains(out.String(), "{\n  ") {
 		t.Fatalf("nested case-local no-command default status should not emit JSON object:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("nested case-local no-pack status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if status.Command != "status" || status.Mode != "case" || status.Pack != "_template" || status.PackSource != "case-metadata" || status.TargetProvided || status.Target != caseRoot || status.Case.TemplatePack != "_template" {
+		t.Fatalf("unexpected nested case-local no-pack status: %+v", status)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "status：mutation=false mode=case targetProvided=false pack=_template packSource=case-metadata") {
+		t.Fatalf("nested case-local no-pack status text missing pack source:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("nested case-local no-pack status text should not emit JSON object:\n%s", out.String())
 	}
 
 	out.Reset()
@@ -2638,6 +2688,9 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("nested case-local no-command no-pack status missing %q:\n%s", expected, out.String())
 		}
+	}
+	if !strings.Contains(out.String(), "pack source: case-metadata") {
+		t.Fatalf("nested case-local no-command no-pack status missing pack source:\n%s", out.String())
 	}
 	if strings.Contains(out.String(), "{\n  ") {
 		t.Fatalf("nested case-local no-command no-pack status should not emit JSON object:\n%s", out.String())

@@ -72,7 +72,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 /rekit handoff main          # 生成主线接手文档
 /rekit handoff unpacking     # 生成功能支线接手文档
 /rekit                       # 无子命令时默认只读 status；attached case 中可省略 -Pack 并使用 metadata templatePack
-/rekit status -Format text    # 显式 status text；显示 kit/case status、manifest 与 shim readiness handoff
+/rekit status -Format text    # 显式 status text；显示 packSource、kit/case status、manifest 与 shim readiness handoff
 /rekit release-check -Format text # 只读显示 release inventory、handoff signals 与 CI truthfulness boundary
 /rekit overview -Format text # 只读显示 case Mission Commander action queue、lane/executor/evidence/section handoff
 /rekit note -Kind verification -Lane main -WhatIf -Format text # 预览 ledger event 与 would-action delta
@@ -100,7 +100,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 
 ## 验证标准
 
-- `/rekit`（无子命令，默认 status）和 `/rekit status` 都能正确显示 kit/case 绑定；attached case 或 nested lane workspace 中未显式传 `-Pack` 时，应使用 case metadata 的 `templatePack`。
+- `/rekit`（无子命令，默认 status）和 `/rekit status` 都能正确显示 kit/case 绑定与 pack 来源；attached case 或 nested lane workspace 中未显式传 `-Pack` 时，应使用 case metadata 的 `templatePack`，并在 status 中显示 `packSource=case-metadata`；显式 `-Pack` 显示 `packSource=explicit`，kit-mode 默认 pack 显示 `packSource=repo-default`。
 - `/rekit doctor` 通过，且 managed docs、policy、tooling 文件预算未超限。
 - 旧 case 同步前先看到 `.rekit/reviews/<timestamp>-sync/summary.md`、`packet.json` 和 bounded diff。
 - `release-check -Format text` 应直接输出 release-check summary、CI release gate inventory + `inventory-ready-not-remote-ci-green` boundary、required commands/docs、heavy action inventory、Go-native public surface command groups/profiles/boundaries/policies/facade prerequisites、PowerShell deprecation command/module/freeze/blocked/retired/public façade/reference inventory、public façade removal prerequisites/plan/deletion gates/execution/boundary/recovery/docs/impact migration targets、case shim readiness、public default docs readiness、release handoff readFirst/signals/latest batch/release notes/pack maturity/validation/known gaps/next actions 与 full known-gap detail，保持 default/table/tsv compatibility、JSON inventory compatibility、read-only/no authority/confirmed/no-heavy/no PowerShell runtime logic，并明确 `ciReleaseGate.ready` 只表示 workflow/inventory ready，不能替代真实远程 CI green。
