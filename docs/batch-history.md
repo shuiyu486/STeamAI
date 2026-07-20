@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 473：no-command default status product-path smoke closure
+
+状态：已完成 case-local no-command default status smoke coverage、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection。
+
+目标：Batch 472 锁定 nested lane cwd 中显式 `-Command status` 的默认 status handoff，但真实新会话或 case-local `/rekit` thin shim 入口更常见的是不传 `-Command`，直接依赖 CLI default command。Batch 473 把同一 product path 扩展到 no-command 默认入口，确认只传 `-Pack _template` 时仍解析为 status，并在 lane workspace 内输出 case metadata、Mission Commander summary、queue、lane executor、ledger counts、sections、handoff command 与 continue boundary。
+
+实施范围：`TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 在 nested case-local cwd 中新增 no-command 默认 status smoke；smoke 复用一组 default status expected lines，覆盖 `-Command status` 与 no-command default command 两条入口的 repo/case metadata、Mission Commander status summary、queue action、lane executor action、fact counts、section summary、handoff command 与 continue WhatIf boundary；README、`/rekit` skill 与 Agent Team 使用指南同步说明 `/rekit` 无子命令默认 status。该批只增强本机 product-path smoke coverage，不改变 CLI default command、default/table/text/json status runtime 语义，不写 authority/confirmed，不执行 heavy-tool，不 replay adapter，不新增 PowerShell runtime logic，不改变 release blocker。
+
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunStatusJsonCase|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `d105db8 Add no-command status product smoke` 与 release inspection follow-up `3cebb12 Record Batch 473 release gate inspection`；远程 release-gate runs `29765167858` / `29765315328` 均为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+
 ### Batch 472：default status product-path smoke closure
 
 状态：已完成 case-local default status smoke coverage、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection。

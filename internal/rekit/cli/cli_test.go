@@ -353,19 +353,30 @@ func TestRunStatusJsonKit(t *testing.T) {
 		t.Fatalf("status kit text should not emit JSON:\n%s", out.String())
 	}
 
-	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Pack", "_template"}, &out); err != nil {
-		t.Fatal(err)
-	}
-	for _, expected := range []string{
+	defaultStatusExpected := []string{
 		"rekit go backend:",
 		"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
 		"status read first：docs/context-routing.md",
 		"status validation command：go run ./cmd/rekit -- -Command release-check -Format json",
 		"status next action：Read docs/context-routing.md first",
-	} {
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range defaultStatusExpected {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status default text missing %q:\n%s", expected, out.String())
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range defaultStatusExpected {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status no-command default text missing %q:\n%s", expected, out.String())
 		}
 	}
 }
