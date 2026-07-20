@@ -2030,6 +2030,55 @@ func writePlanSubagentsReviewerResultText(out io.Writer, result subagents.Review
 	return nil
 }
 
+func reviewerIntakeEventTextValue(event map[string]any, key string) string {
+	if event == nil {
+		return ""
+	}
+	value, ok := event[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case []string:
+		return strings.Join(typed, ",")
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text := strings.TrimSpace(fmt.Sprint(item))
+			if text != "" {
+				values = append(values, text)
+			}
+		}
+		return strings.Join(values, ",")
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func writePlanSubagentsReviewerIntakeEventText(out io.Writer, label string, result note.AppendResult) error {
+	if len(result.Event) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "reviewer intake %s event：kind=%s eventId=%s applied=%t subject=%s target=%s lane=%s confidence=%s evidenceRefs=%s\n", label, reviewerIntakeEventTextValue(result.Event, "kind"), result.EventID, result.Applied, reviewerIntakeEventTextValue(result.Event, "subject"), reviewerIntakeEventTextValue(result.Event, "target"), reviewerIntakeEventTextValue(result.Event, "lane"), reviewerIntakeEventTextValue(result.Event, "confidence"), reviewerIntakeEventTextValue(result.Event, "evidenceRefs")); err != nil {
+		return err
+	}
+	if summary := reviewerIntakeEventTextValue(result.Event, "summary"); strings.TrimSpace(summary) != "" {
+		if _, err := fmt.Fprintf(out, "reviewer intake %s event summary：%s\n", label, planSubagentsTextInline(summary)); err != nil {
+			return err
+		}
+	}
+	for _, key := range []string{"verdict", "decision", "reason", "packetId", "routeId", "shardId", "reviewerSession", "ownerExecutor", "ownerGeneration", "ownerBindingMode", "ownerBindingTarget"} {
+		if value := reviewerIntakeEventTextValue(result.Event, key); strings.TrimSpace(value) != "" {
+			if _, err := fmt.Fprintf(out, "reviewer intake %s event field：%s=%s\n", label, key, planSubagentsTextInline(value)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func writePlanSubagentsReviewerIntakeCheckpointText(out io.Writer, result subagents.ReviewerIntakeResult) error {
 	if result.Verification == nil && result.Decision == nil {
 		return nil
@@ -2072,9 +2121,15 @@ func writePlanSubagentsReviewerIntakeText(out io.Writer, result subagents.Review
 		if _, err := fmt.Fprintf(out, "reviewer intake verification：applied=%t eventId=%s reason=%s\n", result.Verification.Applied, result.Verification.EventID, result.Verification.Reason); err != nil {
 			return err
 		}
+		if err := writePlanSubagentsReviewerIntakeEventText(out, "verification", *result.Verification); err != nil {
+			return err
+		}
 	}
 	if result.Decision != nil {
 		if _, err := fmt.Fprintf(out, "reviewer intake decision：applied=%t eventId=%s reason=%s\n", result.Decision.Applied, result.Decision.EventID, result.Decision.Reason); err != nil {
+			return err
+		}
+		if err := writePlanSubagentsReviewerIntakeEventText(out, "decision", *result.Decision); err != nil {
 			return err
 		}
 	}

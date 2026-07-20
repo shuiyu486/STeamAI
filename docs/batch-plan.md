@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 440：reviewer intake partial writeback checkpoint text closure
+### Batch 441：reviewer intake note event text detail closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate 仍为既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation、durable docs；待 commit/push 与远程 release-gate inspection。
 
-目标：Batch 439 已让 reviewer-intake text 直接投影 reviewer result detail，但 partial writeback recovery（例如 verification 已落账、decision append 失败）仍主要依赖 JSON 才能确认 verification/decision 各自 applied 与 eventId。Mission Commander / replacement executor 在错误返回路径需要 terminal text 直接判断是否只能重试同一 apply command、不能手写 missing decision。本批把 verification-before-decision checkpoint 投影到 reviewer-intake text path。
+目标：Batch 439/440 已让 reviewer-intake text 直接投影 reviewer result detail 与 verification/decision writeback checkpoint，但 nested verification / decision `note.AppendResult` 的 event payload 仍只在 JSON 中完整可见。Mission Commander / replacement executor 仍需解析 JSON 才能复核 verification verdict、decision/reason、subject/summary、evidenceRefs、packet/route/shard、reviewerSession 与 owner binding provenance。本批把 verification-before-decision note event detail 直接投影到 reviewer-intake text path。
 
-边界：只增强 `plan-subagents -ReviewerResultPath ... -Apply -Format text` 的 partial writeback/recovery terminal handoff、focused CLI coverage 与 durable docs；不改变 JSON packet/summary contract、reviewer-intake validation/writeback semantics、event ID determinism、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；reviewer 仍不写文件或 ledger，intake 不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
+边界：只增强 `plan-subagents -ReviewerResultPath ... -WhatIf/-Apply -Format text` 的 nested verification/decision note event terminal handoff、focused CLI coverage 与 durable docs；不改变 JSON packet/summary contract、reviewer-intake validation/writeback semantics、event ID determinism、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；reviewer 仍不写文件或 ledger，intake 不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- reviewer-intake text 现在在 verification/decision events 可用时输出 `reviewer intake writeback checkpoint`，包含 `status`、`verificationApplied`、`verificationEventId`、`decisionApplied` 与 `decisionEventId`。
-- partial recovery text 直接显示 `verification-recorded` 状态下 verification 已落账、decision 未落账，并保留 commander retry action / next action 边界，让 terminal executor 不必解析 JSON 即可重试同一 apply command。
-- CLI coverage 锁定 injected partial recovery text checkpoint，以及既有 reviewer result detail、commander action/action queue/next-action、verification-before-decision/no hand-written decision/no-heavy 边界。
+- reviewer-intake text 现在在 verification/decision append result 带 event payload 时输出 `reviewer intake <verification|decision> event`，包含 `kind`、`eventId`、`applied`、`subject`、`target`、`lane`、`confidence` 与 `evidenceRefs`。
+- text path 继续输出 event `summary`，并按固定字段输出 `verdict` / `decision` / `reason`、`packetId`、`routeId`、`shardId`、`reviewerSession`、`ownerExecutor`、`ownerGeneration`、`ownerBindingMode` 与 `ownerBindingTarget`，让 terminal executor 不必解析 JSON 即可复核 note payload 与 provenance。
+- CLI coverage 锁定 WhatIf reviewer intake verification/decision note event detail，以及既有 reviewer result detail、writeback checkpoint、post-validation/action queue/next-action、no authority/confirmed/no-heavy 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON|TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `ae3b5b9 Add reviewer intake checkpoint text`；远程 release-gate run `29724926352` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待完成；远程 release-gate 仍按既有 GitHub Actions runner/billing blocker 处理，不能在实际 jobs 通过前声明远程 CI green。
 
-上一批摘要：Batch 439 已完成 reviewer intake result text detail closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 440 已完成 reviewer intake partial writeback checkpoint text closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
