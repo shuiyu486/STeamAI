@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 475：case metadata pack default entry closure
 
-状态：已完成 case-local metadata pack default entry runtime slice、durable docs 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本批收尾执行。
+状态：已完成 case-local metadata pack default entry runtime slice、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29767173274` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 473/474 锁定无 `-Command` 默认入口，但 case-local nested cwd 仍需要显式 `-Pack _template` 才能避免回到 repo 默认 pack。真实 case shim 新会话更常见的是直接运行 `/rekit`，不传 `-Command`、不传 `-Pack`。Batch 475 让 CLI 在未显式提供 `-Pack` 且 target 是 attached case 时读取 `.rekit/instance.yml` / `.re-template.yml` 的 `templatePack`，从而用 case metadata pack 运行默认 status 和其它 case-local commands。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 新增 nested lane cwd `Run(nil, ...)` smoke，确认无 `-Command`、无 `-Pack` 仍输出 `pack: _template` 与 case Mission Commander handoff；runtime tests 锁定 `runtime.New` 仍只负责 default pack placeholder，case metadata pack override 属于 CLI Run 层。
 - `/rekit` skill 与 Agent Team 使用指南同步说明 attached case 或 nested lane workspace 中可省略 `-Pack`，由 case metadata `templatePack` 决定 pack；Batch 474 已归档到 `docs/batch-history.md`，`CHANGELOG.md` 记录 Batch 475 用户可见变化与边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli ./internal/rekit/runtime -run "TestParse|TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunStatusJsonKit|TestNewUsesNearestCaseRootFromNestedCaseWorkingDirectory" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `go test ./internal/rekit/cli ./internal/rekit/runtime -run "TestParse|TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunStatusJsonKit|TestNewUsesNearestCaseRootFromNestedCaseWorkingDirectory" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `0b37b77 Use case metadata pack by default`；远程 release-gate run `29767173274` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 474 已完成 kit no-command status handoff smoke closure，详见 `docs/batch-history.md`。
 
