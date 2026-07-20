@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 480：status remediation handoff closure
 
-状态：已完成 status remediation handoff implementation、durable docs、完整本地 release minimum；commit/push 与远程 release-gate inspection 进行中。
+状态：已完成 status remediation handoff implementation、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29772464210` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 478/479 已让 status 显示 pack 来源与 pack/metadata mismatch 诊断，但新会话看到 mismatch、moved case metadata 或 case-local shim drift 后仍要凭经验选择下一步。Batch 480 在只读 status 中直接给出 bounded remediation handoff：可复制的 status recheck 或 `repair -WhatIf -Format text` preview，并明确任何 `repair -Apply` 仍需显式确认。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `TestRunStatusJsonCase`、`TestRunStatusJsonCaseShimDrift`、`TestRunStatusMovedCaseNextSteps`、`TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 与 installed shim product-path coverage 锁定 healthy no-next-step、explicit mismatch guidance、moved metadata repair preview guidance 与 shim drift repair preview guidance。
 - `/rekit` skill、Agent Team 使用指南与 CHANGELOG 同步说明 status 只读检测并给出 bounded next steps，`repair -Apply` 仍需显式确认。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunStatusJsonCaseShimDrift|TestRunStatusMovedCaseNextSteps|TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunInstalledCaseShimProductPathStatusAndRefresh" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。commit/push 与远程 release-gate inspection 待完成。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunStatusJsonCaseShimDrift|TestRunStatusMovedCaseNextSteps|TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunInstalledCaseShimProductPathStatusAndRefresh" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `538697b Add status remediation handoff`；远程 release-gate run `29772464210` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 479 已完成 status pack mismatch diagnostic closure，详见 `docs/batch-history.md`。
 
