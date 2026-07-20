@@ -1978,12 +1978,153 @@ func runNote(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
+	format := strings.ToLower(strings.TrimSpace(opt.Format))
+	if format == "" {
+		format = "json"
+	}
+	switch format {
+	case "json", "table", "tsv":
+		b, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(append(b, '\n'))
+		return err
+	case "text":
+		return writeNoteAppendText(out, result)
+	default:
+		return fmt.Errorf("unsupported note append format: %s", opt.Format)
+	}
+}
+
+func writeNoteAppendText(out io.Writer, result note.AppendResult) error {
+	if _, err := fmt.Fprintf(out, "note append：mutation=%t applied=%t reason=%s eventId=%s path=%s kind=%s lane=%s subject=%s\n", result.IsMutation, result.Applied, textOr(result.Reason, "none"), result.EventID, result.Path, eventText(result.Event, "kind"), eventText(result.Event, "lane"), eventText(result.Event, "subject")); err != nil {
 		return err
 	}
-	_, err = out.Write(append(b, '\n'))
-	return err
+	if _, err := fmt.Fprintf(out, "note target：caseRoot=%s repoRoot=%s pack=%s\n", result.CaseRoot, result.RepoRoot, result.Pack); err != nil {
+		return err
+	}
+	if err := writeNoteEventText(out, result); err != nil {
+		return err
+	}
+	if err := writeNoteMissionBriefText(out, result.MissionBrief); err != nil {
+		return err
+	}
+	if err := writeMissionExecutorActionText(out, "note executor action", result.ExecutorAction); err != nil {
+		return err
+	}
+	if err := writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions); err != nil {
+		return err
+	}
+	if result.WouldExecutorAction != nil {
+		if err := writeMissionExecutorActionText(out, "note would executor action", *result.WouldExecutorAction); err != nil {
+			return err
+		}
+	}
+	return writeMissionCommanderNextActionsWithPrefixText(out, "note would mission commander next action", result.WouldMissionCommanderNextActions)
+}
+
+func writeNoteEventText(out io.Writer, result note.AppendResult) error {
+	event := result.Event
+	if event == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "note event：eventId=%s kind=%s lane=%s subject=%s summary=%s actor=%s status=%s confidence=%s decision=%s verifier=%s verdict=%s action=%s risk=%s target=%s batch=%s\n", result.EventID, eventText(event, "kind"), eventText(event, "lane"), eventText(event, "subject"), eventText(event, "summary"), eventText(event, "actor"), eventText(event, "status"), eventText(event, "confidence"), eventText(event, "decision"), eventText(event, "verifier"), eventText(event, "verdict"), eventText(event, "action"), eventText(event, "risk"), eventText(event, "target"), eventText(event, "batchId")); err != nil {
+		return err
+	}
+	for _, key := range []string{"packetId", "routeId", "shardId", "packetPath", "reviewerResultPath", "reviewerSession", "ownerExecutor", "ownerGeneration", "ownerBindingMode", "ownerBindingTarget", "approvedBy", "scope", "expires", "reason"} {
+		if value := eventText(event, key); strings.TrimSpace(value) != "" {
+			if _, err := fmt.Fprintf(out, "note event field：eventId=%s key=%s value=%s\n", result.EventID, key, value); err != nil {
+				return err
+			}
+		}
+	}
+	for _, ref := range noteEventListValues(event["evidenceRefs"]) {
+		if _, err := fmt.Fprintf(out, "note event evidence ref：eventId=%s ref=%s\n", result.EventID, ref); err != nil {
+			return err
+		}
+	}
+	for _, ref := range noteEventListValues(event["related"]) {
+		if _, err := fmt.Fprintf(out, "note event related：eventId=%s ref=%s\n", result.EventID, ref); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func noteEventListValues(value any) []string {
+	switch values := value.(type) {
+	case []string:
+		out := []string{}
+		for _, value := range values {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+		return out
+	case []any:
+		out := []string{}
+		for _, value := range values {
+			if trimmed := strings.TrimSpace(fmt.Sprint(value)); trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+		return out
+	case nil:
+		return nil
+	default:
+		trimmed := strings.TrimSpace(fmt.Sprint(value))
+		if trimmed == "" {
+			return nil
+		}
+		return []string{trimmed}
+	}
+}
+
+func writeNoteMissionBriefText(out io.Writer, brief mission.Brief) error {
+	if _, err := fmt.Fprintf(out, "note mission brief：summary=%s ready=%d blocked=%d pendingGates=%d authorizedGates=%d openDecisions=%d interventions=%d nextActions=%d escalations=%d\n", brief.Summary, len(brief.ReadyLanes), len(brief.BlockedLanes), len(brief.PendingGates), len(brief.AuthorizedGates), len(brief.OpenDecisions), len(brief.Interventions), len(brief.NextAgentActions), len(brief.Escalations)); err != nil {
+		return err
+	}
+	for _, item := range brief.ReadyLanes {
+		if _, err := fmt.Fprintf(out, "note mission brief ready lane：%s\n", item); err != nil {
+			return err
+		}
+	}
+	for _, item := range brief.BlockedLanes {
+		if _, err := fmt.Fprintf(out, "note mission brief blocked lane：%s\n", item); err != nil {
+			return err
+		}
+	}
+	for _, item := range brief.NextAgentActions {
+		if _, err := fmt.Fprintf(out, "note mission brief next action：%s\n", item); err != nil {
+			return err
+		}
+	}
+	for _, item := range brief.Escalations {
+		if _, err := fmt.Fprintf(out, "note mission brief escalation：%s\n", item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeMissionCommanderNextActionsWithPrefixText(out io.Writer, prefix string, items []mission.MissionCommanderNextActionItem) error {
+	for _, item := range items {
+		if _, err := fmt.Fprintf(out, "%s：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", prefix, item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+			return err
+		}
+		for _, reason := range item.Reasons {
+			if _, err := fmt.Fprintf(out, "%s reason：%s\n", prefix, reason); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range item.Boundary {
+			if _, err := fmt.Fprintf(out, "%s boundary：%s\n", prefix, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func runStart(ctx runtime.Context, opt Options, out io.Writer) error {

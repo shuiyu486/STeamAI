@@ -16,26 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 450：overview explicit text operational handoff closure
+### Batch 451：note append explicit text handoff closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29734075751` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：进行中；已完成范围校准、Go runtime 实现、focused coverage 与 durable docs 草案，尚未完成 full local validation、commit/push 与远程 release-gate inspection。
 
-目标：`overview` 是 Mission Commander / replacement executor 接手 case-local 状态的高频入口；此前 `overview -Format text` 与 `table`/`tsv` 共用 legacy prose render，虽然人类可读，但不如 JSON 直接暴露 lane summaries、fact counts、Mission Commander action queue、next action buckets、execution evidence review 与 section totals。Batch 450 把 overview inventory 投影到 explicit text terminal handoff，同时保留 legacy table/tsv render。
+目标：`note` 是 reviewer intake、manual candidate/verification/decision/intervention writeback 与 Mission Commander append-only ledger 记录的底层入口；此前 append path 默认只输出 JSON，`note -List` 虽有人类 summary，但刚写入或 WhatIf 预览后仍需要解析 JSON 才能看到 event identity、post/current executor action、Mission Commander next actions 与 WhatIf would-action delta。Batch 451 把 note append result 投影到 explicit text terminal handoff，同时保持默认 JSON 与 list legacy summary。
 
-边界：只增强 `overview -Format text` terminal handoff、focused CLI coverage 与 durable docs；`table` / `tsv` 保持 legacy render，`json` 保持 existing inventory contract；不改变 overview 初始化/board 语义、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
+边界：只增强 `note` append/WhatIf `-Format text` terminal handoff、focused CLI coverage 与 durable docs；默认空 format 保持 JSON compatibility，`note -List` 的 table/text/tsv legacy summary 与 JSON list inventory 保持不变；不改变 note event schema、ledger kind/path helper、duplicate eventId/lane guard、reviewer intake writeback 语义，不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
 
 已完成内容：
 
-- `overview -Format text` 现在输出 overview summary、caseRoot/repoRoot/pack/automationMode、lane count 与 fact counts。
-- explicit text 输出逐 lane id/label/kind/status/workspace/authority/executor/generation/autonomy/takeover summary。
-- explicit text 输出 Mission brief counts、ready/blocked lanes、next actions、escalations 与逐 lane executor action（blocked/ready/blockers/resume/handoff/commander state/primary/follow-up/boundary）。
-- explicit text 输出 Mission Commander action queue summary/counts/current 与 current/unblocked/blocked/reviewRequired/followUp buckets，以及 Mission Commander next action lines/reasons/boundaries。
-- explicit text 输出 execution evidence review summary/items/follow-through/outcomes/boundaries、overview section counts/events、batch section items 与 next steps。
-- CLI coverage 锁定 nested case-local `overview -Format text`、不 emit JSON object、legacy table compatibility 与 existing JSON inventory compatibility。
+- `note -Format text` append path 现在输出 mutation/applied/reason/eventId/path/kind/lane/subject 与 caseRoot/repoRoot/pack target summary。
+- explicit text 输出事件字段、reviewer/owner provenance、evidence refs 与 related refs，避免 replacement executor 为刚写入的 event 回查 JSON envelope。
+- explicit text 输出 Mission brief、当前 executor action、当前 Mission Commander action 与 `mission commander next action` lines。
+- `note -WhatIf -Format text` 额外输出 would executor action 与 would Mission Commander next actions，使候选/open decision blocker 预览可直接判断是否会阻塞 lane。
+- CLI coverage 锁定 actual append text/no JSON object/ledger write、WhatIf text/no-write/would-action delta、existing default JSON compatibility 与 existing note list compatibility。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunReleaseCheckJsonInventory' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `5d5cd49 Add overview text handoff`；远程 release-gate run `29734075751` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunNoteAppend(TextHandoff|WritesFactEvent|TableAndTSV|WhatIf)|TestRunNoteList' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待执行。
 
-上一批摘要：Batch 449 已完成 release-check public surface/deprecation text inventory closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 450 已完成 overview explicit text operational handoff closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

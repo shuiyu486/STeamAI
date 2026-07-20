@@ -2950,6 +2950,69 @@ func TestRunNoteListRejectsUnsupportedFormat(t *testing.T) {
 	}
 }
 
+func TestRunNoteAppendTextHandoffWritesFactEvent(t *testing.T) {
+	caseRoot := attachedCaseWithBoard(t)
+	var out bytes.Buffer
+	if err := Run([]string{
+		"-Command", "note",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Format", "text",
+		"-Kind", "verification",
+		"-Lane", "main",
+		"-Subject", "review target",
+		"-Summary", "accepted by reviewer",
+		"-Actor", "runtime-test",
+		"-Verifier", "manual-review",
+		"-Verdict", "accepted",
+		"-TargetRef", "candidate-alpha",
+		"-BatchId", "batch-note",
+		"-EvidenceRefs", "evidence-one,evidence-two",
+	}, &out); err != nil {
+		t.Fatal(err)
+	}
+	textOut := out.String()
+	for _, expected := range []string{
+		"note append：mutation=true applied=true reason=none eventId=",
+		"path=.rekit/facts/verifications.jsonl kind=verification lane=main subject=review target",
+		"note target：caseRoot=" + caseRoot,
+		"pack=_template",
+		"note event：eventId=",
+		"summary=accepted by reviewer",
+		"verifier=manual-review",
+		"verdict=accepted",
+		"target=candidate-alpha",
+		"batch=batch-note",
+		"note event evidence ref：eventId=",
+		"ref=evidence-one",
+		"ref=evidence-two",
+		"note mission brief：summary=",
+		"note executor action：blocked=false ready=true",
+		"note executor action requirements：reconcile=false pendingGate=false openDecision=false",
+		"note executor action handoff：continue=`/rekit continue main` handoff=`/rekit handoff main`",
+		"note executor action commander action：state=ready-to-continue primary=`/rekit continue main`",
+		"mission commander next action：state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main`",
+		"mission commander next action：state=ready-to-continue source=missionCommanderActions.followUp blocked=false requiresReview=false command=`/rekit handoff main`",
+	} {
+		if !strings.Contains(textOut, expected) {
+			t.Fatalf("note append text missing %q:\n%s", expected, textOut)
+		}
+	}
+	if strings.Contains(textOut, "{\n  ") {
+		t.Fatalf("note append text should not emit JSON object:\n%s", textOut)
+	}
+	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerText := string(ledger)
+	for _, expected := range []string{`"kind":"verification"`, `"verdict":"accepted"`, `"evidenceRefs":["evidence-one","evidence-two"]`} {
+		if !strings.Contains(ledgerText, expected) {
+			t.Fatalf("ledger missing %q:\n%s", expected, ledgerText)
+		}
+	}
+}
+
 func TestRunNoteAppendWritesFactEvent(t *testing.T) {
 	caseRoot := attachedCaseWithBoard(t)
 	var out bytes.Buffer
@@ -3016,6 +3079,31 @@ func TestRunNoteAppendWritesFactEvent(t *testing.T) {
 	}
 }
 
+func TestRunNoteAppendTableAndTSVKeepJsonCompatibility(t *testing.T) {
+	caseRoot := attachedCaseWithBoard(t)
+	for _, format := range []string{"table", "tsv"} {
+		t.Run(format, func(t *testing.T) {
+			var out bytes.Buffer
+			if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Format", format, "-Kind", "observation", "-Lane", "main", "-Subject", "legacy json", "-EventId", "evt-note-" + format}, &out); err != nil {
+				t.Fatal(err)
+			}
+			var result struct {
+				Command    string `json:"command"`
+				Applied    bool   `json:"applied"`
+				EventID    string `json:"eventId"`
+				Path       string `json:"path"`
+				IsMutation bool   `json:"isMutation"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				t.Fatalf("note append %s should keep JSON compatibility: %v\n%s", format, err, out.String())
+			}
+			if result.Command != "note" || !result.IsMutation || !result.Applied || result.EventID != "evt-note-"+format || result.Path != ".rekit/facts/observations.jsonl" {
+				t.Fatalf("unexpected note append %s JSON compatibility result: %+v", format, result)
+			}
+		})
+	}
+}
+
 func TestRunNoteAppendSupportsAllKinds(t *testing.T) {
 	caseRoot := attachedCaseWithBoard(t)
 	cases := []struct {
@@ -3064,6 +3152,41 @@ func TestRunNoteAppendSupportsAllKinds(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunNoteAppendWhatIfTextHandoffDoesNotWrite(t *testing.T) {
+	caseRoot := attachedCaseWithBoard(t)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Format", "text", "-WhatIf", "-Kind", "candidate", "-Lane", "main", "-Subject", "preview blocker", "-Confidence", "high", "-Status", "open"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	textOut := out.String()
+	for _, expected := range []string{
+		"note append：mutation=false applied=false reason=what-if eventId=",
+		"path=.rekit/facts/candidates.jsonl kind=candidate lane=main subject=preview blocker",
+		"note event：eventId=",
+		"status=open",
+		"confidence=high",
+		"note mission brief：summary=",
+		"note executor action：blocked=false ready=true",
+		"note executor action commander action：state=ready-to-continue primary=`/rekit continue main`",
+		"mission commander next action：state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main`",
+		"note would executor action：blocked=true ready=false",
+		"note would executor action requirements：reconcile=false pendingGate=false openDecision=true",
+		"note would executor action commander action：state=needs-open-decision-review primary=`/rekit handoff main`",
+		"note would mission commander next action：state=needs-open-decision-review source=missionCommanderActions blocked=true requiresReview=true command=`/rekit handoff main`",
+		"note would mission commander next action：state=needs-open-decision-review source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue main -WhatIf`",
+	} {
+		if !strings.Contains(textOut, expected) {
+			t.Fatalf("note what-if text missing %q:\n%s", expected, textOut)
+		}
+	}
+	if strings.Contains(textOut, "{\n  ") {
+		t.Fatalf("note what-if text should not emit JSON object:\n%s", textOut)
+	}
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
 }
 
 func TestRunNoteAppendWhatIfDoesNotWrite(t *testing.T) {
