@@ -2030,11 +2030,34 @@ func writePlanSubagentsReviewerResultText(out io.Writer, result subagents.Review
 	return nil
 }
 
+func writePlanSubagentsReviewerIntakeCheckpointText(out io.Writer, result subagents.ReviewerIntakeResult) error {
+	if result.Verification == nil && result.Decision == nil {
+		return nil
+	}
+	verificationApplied := false
+	verificationEventID := ""
+	if result.Verification != nil {
+		verificationApplied = result.Verification.Applied
+		verificationEventID = result.Verification.EventID
+	}
+	decisionApplied := false
+	decisionEventID := ""
+	if result.Decision != nil {
+		decisionApplied = result.Decision.Applied
+		decisionEventID = result.Decision.EventID
+	}
+	_, err := fmt.Fprintf(out, "reviewer intake writeback checkpoint：status=%s verificationApplied=%t verificationEventId=%s decisionApplied=%t decisionEventId=%s\n", result.WritebackStatus, verificationApplied, verificationEventID, decisionApplied, decisionEventID)
+	return err
+}
+
 func writePlanSubagentsReviewerIntakeText(out io.Writer, result subagents.ReviewerIntakeResult) error {
 	if _, err := fmt.Fprintf(out, "plan-subagents reviewer intake：status=%s mutation=%t applied=%t readyForWriteback=%t lane=%s shard=%s intakeId=%s\n", result.WritebackStatus, result.IsMutation, result.Applied, result.ReadyForWriteback, result.Lane, result.ShardID, result.IntakeID); err != nil {
 		return err
 	}
 	if err := writePlanSubagentsReviewerResultText(out, result.ReviewerResult); err != nil {
+		return err
+	}
+	if err := writePlanSubagentsReviewerIntakeCheckpointText(out, result); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(out, "reviewer intake orchestration：mode=%s dispatch=%d/%d shardBefore=%s shardAfter=%s\n", result.OrchestrationSnapshot.Mode, result.OrchestrationSnapshot.DispatchIndex, result.OrchestrationSnapshot.DispatchTotal, result.OrchestrationSnapshot.ShardStatusBefore, result.OrchestrationSnapshot.ShardStatusAfter); err != nil {

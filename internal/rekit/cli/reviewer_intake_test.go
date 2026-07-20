@@ -231,6 +231,24 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 		t.Fatalf("CLI omitted partial recovery Mission Commander retry guidance: action=%+v next=%+v", partial.MissionCommanderAction, partial.MissionCommanderNextActions)
 	}
 	assertCLIActionQueue(t, partial.MissionCommanderActionQueue, 1, 1, 0, 1, 0, partial.MissionCommanderAction.PrimaryCommand)
+
+	out.Reset()
+	err = Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-Apply", "-Format", "text"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "verification-recorded") {
+		t.Fatalf("error = %v, want partial recovery text diagnostic", err)
+	}
+	for _, expected := range []string{
+		"plan-subagents reviewer intake：status=verification-recorded",
+		"reviewer intake writeback checkpoint：status=verification-recorded verificationApplied=true verificationEventId=evt-review-test-verification decisionApplied=false decisionEventId=evt-review-test-decision",
+		"reviewer intake verification：applied=true eventId=evt-review-test-verification",
+		"reviewer intake decision：applied=false eventId=evt-review-test-decision",
+		"reviewer intake commander action：state=reviewer-intake-partial-writeback",
+		"mission commander next action：state=reviewer-intake-partial-writeback source=reviewerIntake.verification-recorded blocked=false requiresReview=true command=`/rekit plan-subagents",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("reviewer intake partial recovery text missing %q:\n%s", expected, out.String())
+		}
+	}
 }
 
 type reviewerIntakeCLIResult struct {
