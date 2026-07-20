@@ -1248,6 +1248,7 @@ type statusCaseMission struct {
 	ReadyLaneCount                int                                      `json:"readyLaneCount"`
 	BlockedLaneCount              int                                      `json:"blockedLaneCount"`
 	ExecutionEvidenceReviewCount  int                                      `json:"executionEvidenceReviewCount"`
+	ExecutionEvidenceReview       []workstream.ExecutionEvidenceReviewItem `json:"executionEvidenceReview,omitempty"`
 	MissionCommanderActionQueue   mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	MissionCommanderNextActions   []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions"`
 	MissionBriefNextActions       []string                                 `json:"missionBriefNextActions"`
@@ -1379,6 +1380,46 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 		}
 		for _, boundary := range action.Boundary {
 			if _, err := fmt.Fprintf(out, "status case mission next action boundary：lane=%s boundary=%s\n", action.Lane, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, item := range summary.ExecutionEvidenceReview {
+		if _, err := fmt.Fprintf(out, "status case mission evidence review：eventId=%s gateEventId=%s status=%s action=%s target=%s subject=%s summary=%s review=%s handoff=%s commanderState=%s commanderPrimary=%s\n", item.EventID, item.GateEventID, item.Status, item.Action, item.Target, item.Subject, item.Summary, item.ReviewCommand, item.HandoffCommand, item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand); err != nil {
+			return err
+		}
+		for _, ref := range item.OutputRefs {
+			if _, err := fmt.Fprintf(out, "status case mission evidence output ref：eventId=%s ref=%s\n", item.EventID, ref); err != nil {
+				return err
+			}
+		}
+		for _, ref := range item.EvidenceRefs {
+			if _, err := fmt.Fprintf(out, "status case mission evidence evidence ref：eventId=%s ref=%s\n", item.EventID, ref); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(item.FollowThrough.State) != "" || len(item.FollowThrough.Outcomes) > 0 {
+			if _, err := fmt.Fprintf(out, "status case mission evidence follow-through：eventId=%s state=%s gateEventId=%s outcomes=%d queue=%s\n", item.EventID, item.FollowThrough.State, item.FollowThrough.GateEventID, len(item.FollowThrough.Outcomes), item.FollowThrough.ActionQueue.Summary); err != nil {
+				return err
+			}
+		}
+		for _, outcome := range item.FollowThrough.Outcomes {
+			if _, err := fmt.Fprintf(out, "status case mission evidence outcome：eventId=%s name=%s state=%s command=%s expected=%s\n", item.EventID, outcome.Name, outcome.State, outcome.Command, outcome.Expected); err != nil {
+				return err
+			}
+			if strings.TrimSpace(outcome.When) != "" {
+				if _, err := fmt.Fprintf(out, "status case mission evidence outcome when：eventId=%s name=%s when=%s\n", item.EventID, outcome.Name, outcome.When); err != nil {
+					return err
+				}
+			}
+			for _, evidence := range outcome.Evidence {
+				if _, err := fmt.Fprintf(out, "status case mission evidence outcome evidence：eventId=%s name=%s evidence=%s\n", item.EventID, outcome.Name, evidence); err != nil {
+					return err
+				}
+			}
+		}
+		for _, boundary := range item.Boundary {
+			if _, err := fmt.Fprintf(out, "status case mission evidence boundary：eventId=%s boundary=%s\n", item.EventID, boundary); err != nil {
 				return err
 			}
 		}
@@ -1541,6 +1582,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		ReadyLaneCount:                len(inventory.MissionBrief.ReadyLanes),
 		BlockedLaneCount:              len(inventory.MissionBrief.BlockedLanes),
 		ExecutionEvidenceReviewCount:  len(inventory.ExecutionEvidenceReview),
+		ExecutionEvidenceReview:       append([]workstream.ExecutionEvidenceReviewItem{}, inventory.ExecutionEvidenceReview...),
 		MissionCommanderActionQueue:   inventory.MissionCommanderActionQueue,
 		MissionCommanderNextActions:   append([]mission.MissionCommanderNextActionItem{}, inventory.MissionCommanderNextActions...),
 		MissionBriefNextActions:       append([]string{}, inventory.MissionBrief.NextAgentActions...),

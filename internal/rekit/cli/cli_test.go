@@ -440,16 +440,17 @@ func TestRunStatusJsonCase(t *testing.T) {
 			Warnings                     []string `json:"warnings"`
 		} `json:"caseShim"`
 		CaseMission struct {
-			Ready                         bool     `json:"ready"`
-			Summary                       string   `json:"summary"`
-			LaneCount                     int      `json:"laneCount"`
-			ReadyLaneCount                int      `json:"readyLaneCount"`
-			BlockedLaneCount              int      `json:"blockedLaneCount"`
-			ExecutionEvidenceReviewCount  int      `json:"executionEvidenceReviewCount"`
-			HandoffPreviewCommand         string   `json:"handoffPreviewCommand"`
-			HandoffApplyCommand           string   `json:"handoffApplyCommand"`
-			ContinueRequiresExplicitApply string   `json:"continueRequiresExplicitApply"`
-			MissionBriefNextActions       []string `json:"missionBriefNextActions"`
+			Ready                         bool                          `json:"ready"`
+			Summary                       string                        `json:"summary"`
+			LaneCount                     int                           `json:"laneCount"`
+			ReadyLaneCount                int                           `json:"readyLaneCount"`
+			BlockedLaneCount              int                           `json:"blockedLaneCount"`
+			ExecutionEvidenceReviewCount  int                           `json:"executionEvidenceReviewCount"`
+			ExecutionEvidenceReview       []executionEvidenceReviewItem `json:"executionEvidenceReview"`
+			HandoffPreviewCommand         string                        `json:"handoffPreviewCommand"`
+			HandoffApplyCommand           string                        `json:"handoffApplyCommand"`
+			ContinueRequiresExplicitApply string                        `json:"continueRequiresExplicitApply"`
+			MissionBriefNextActions       []string                      `json:"missionBriefNextActions"`
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
@@ -466,6 +467,9 @@ func TestRunStatusJsonCase(t *testing.T) {
 	}
 	if !status.CaseMission.Ready || !strings.Contains(status.CaseMission.Summary, "openLanes=") || status.CaseMission.LaneCount == 0 || status.CaseMission.ReadyLaneCount == 0 || status.CaseMission.HandoffPreviewCommand == "" || status.CaseMission.HandoffApplyCommand == "" || status.CaseMission.ContinueRequiresExplicitApply == "" || len(status.CaseMission.MissionBriefNextActions) == 0 {
 		t.Fatalf("unexpected case mission status JSON: %+v", status.CaseMission)
+	}
+	if status.CaseMission.ExecutionEvidenceReviewCount != 0 || len(status.CaseMission.ExecutionEvidenceReview) != 0 {
+		t.Fatalf("ready case mission should not include evidence review items: %+v", status.CaseMission.ExecutionEvidenceReview)
 	}
 
 	out.Reset()
@@ -552,6 +556,65 @@ func TestRunStatusCaseMissionDoesNotInitializeMissingBoard(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "board.json")); !os.IsNotExist(err) {
 		t.Fatalf("status text should not initialize missing board, err=%v", err)
 	}
+}
+
+func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeOverviewFixture(t, caseRoot)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			Ready                        bool                          `json:"ready"`
+			ExecutionEvidenceReviewCount int                           `json:"executionEvidenceReviewCount"`
+			ExecutionEvidenceReview      []executionEvidenceReviewItem `json:"executionEvidenceReview"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if status.CaseMission.Ready || status.CaseMission.ExecutionEvidenceReviewCount != 1 || len(status.CaseMission.ExecutionEvidenceReview) != 1 {
+		t.Fatalf("unexpected case mission evidence review count: %+v", status.CaseMission)
+	}
+	evidence := status.CaseMission.ExecutionEvidenceReview[0]
+	if evidence.EventID != "obs-auth-1" || evidence.GateEventID != "gate-auth-1" || evidence.Action != "debug" || !containsSubstring(evidence.OutputRefs, "workspace/main/debug/out.txt") || !containsSubstring(evidence.EvidenceRefs, "evidence/debug.json") || !containsSubstring(evidence.Boundary, "do not replay heavy tool") || evidence.MissionCommanderAction.State != "ready-for-evidence-review" || evidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(evidence.MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || evidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(evidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
+		t.Fatalf("unexpected case mission evidence review item: %+v", evidence)
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status case mission：summary=openLanes=1 ready=0 blocked=1 pendingGates=1 authorizedGates=0 openDecisions=3 interventions=1 ready=false lanes=1 readyLanes=0 blockedLanes=1 evidenceReview=1",
+		"status case mission evidence review：eventId=obs-auth-1 gateEventId=gate-auth-1 status=complete action=debug",
+		"review=review outputRefs/evidenceRefs for gateEventId gate-auth-1 handoff=/rekit handoff main commanderState=ready-for-evidence-review commanderPrimary=/rekit handoff main",
+		"status case mission evidence output ref：eventId=obs-auth-1 ref=workspace/main/debug/out.txt",
+		"status case mission evidence evidence ref：eventId=obs-auth-1 ref=evidence/debug.json",
+		"status case mission evidence follow-through：eventId=obs-auth-1 state=ready-for-evidence-review gateEventId=gate-auth-1",
+		"status case mission evidence outcome：eventId=obs-auth-1 name=recorded-evidence-review",
+		"status case mission evidence outcome when：eventId=obs-auth-1 name=recorded-evidence-review when=bounded observation evidence was recorded for an authorized gate",
+		"status case mission evidence outcome evidence：eventId=obs-auth-1 name=recorded-evidence-review evidence=workspace/main/debug/out.txt",
+		"status case mission evidence boundary：eventId=obs-auth-1 boundary=observation evidence is already recorded; do not replay heavy tool",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status case evidence text missing %q:\n%s", expected, out.String())
+		}
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "status case mission evidence review：eventId=obs-auth-1 gateEventId=gate-auth-1") || !strings.Contains(out.String(), "status case mission evidence outcome evidence：eventId=obs-auth-1 name=recorded-evidence-review evidence=evidence/debug.json") {
+		t.Fatalf("status case default text missing evidence review handoff:\n%s", out.String())
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 }
 
 func TestRunStatusJsonCaseShimDrift(t *testing.T) {
