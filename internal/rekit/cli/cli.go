@@ -2019,6 +2019,36 @@ func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) e
 	if _, err := fmt.Fprintf(out, "promote candidates review plan：mode=%s items=%d candidateRoot=%s toolingRoot=%s indexPath=%s\n", result.ReviewPlan.Mode, result.ReviewPlan.ItemCount, result.CandidateRoot, result.ToolingRoot, result.IndexPath); err != nil {
 		return err
 	}
+	for _, item := range result.ReviewPlan.DecisionFollowThrough {
+		if _, err := fmt.Fprintf(out, "promote candidates decision follow-through：path=%s decision=%s candidatePath=%s packTarget=%s\n", item.Path, item.ReviewDecision, item.CandidatePath, item.PackTarget); err != nil {
+			return err
+		}
+		for _, outcome := range item.Outcomes {
+			if _, err := fmt.Fprintf(out, "promote candidates decision outcome：path=%s decision=%s state=%s expected=%s\n", item.Path, outcome.Decision, outcome.State, outcome.Expected); err != nil {
+				return err
+			}
+			for _, action := range outcome.Actions {
+				if _, err := fmt.Fprintf(out, "promote candidates decision action：path=%s decision=%s action=%s\n", item.Path, outcome.Decision, action); err != nil {
+					return err
+				}
+			}
+			for _, action := range outcome.CleanupActions {
+				if _, err := fmt.Fprintf(out, "promote candidates decision cleanup action：path=%s decision=%s action=%s\n", item.Path, outcome.Decision, action); err != nil {
+					return err
+				}
+			}
+			for _, command := range outcome.VerificationCommands {
+				if _, err := fmt.Fprintf(out, "promote candidates decision verification command：path=%s decision=%s command=%s\n", item.Path, outcome.Decision, command); err != nil {
+					return err
+				}
+			}
+			for _, boundary := range outcome.Boundary {
+				if _, err := fmt.Fprintf(out, "promote candidates decision boundary：path=%s decision=%s boundary=%s\n", item.Path, outcome.Decision, boundary); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	for _, item := range result.ReviewPlan.CleanupTargets {
 		if _, err := fmt.Fprintf(out, "promote candidates cleanup target：path=%s candidatePath=%s indexPath=%s when=%s\n", item.Path, item.CandidatePath, item.IndexPath, item.CleanupWhen); err != nil {
 			return err
@@ -2048,6 +2078,9 @@ func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) e
 		}
 	}
 	if err := writeMissionCommanderActionText(out, "promote candidates commander action", mission.ExecutorAction{MissionCommanderAction: result.ReviewPlan.MissionCommanderAction}); err != nil {
+		return err
+	}
+	if err := writeMissionCommanderActionQueueText(out, result.ReviewPlan.MissionCommanderActionQueue); err != nil {
 		return err
 	}
 	return writeMissionCommanderNextActionsText(out, result.ReviewPlan.MissionCommanderNextActions)

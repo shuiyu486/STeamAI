@@ -16,25 +16,26 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 422：Workstream / replacement executor action queue closure
+### Batch 423：Pack-memory accepted/rejected decision follow-through closure
 
-状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待收尾。
 
-目标：Batch 417/418/407/405/406 已让 `start` / `reconcile` / `continue` / `handoff` / lane-local resume/checkpoint 输出 top-level 或 durable `missionCommanderNextActions[]`；Batch 420/421 又把 overview 与 gate adapter/report/execution evidence paths 收口成共享 action queue。但 workstream / replacement executor product path 仍要求主 Agent 从 `missionCommanderNextActions[]` 手工计算 current action、unblocked/blocked/review-required/follow-up buckets。本批把 shared `MissionCommanderActionQueue` 延伸到 start/continue/handoff/reconcile、lane resume/checkpoint、continue run artifacts 与 handoff Markdown。
+目标：Batch 390/394/398/403/409 已让 `promote -CreateCandidates` 生成 reviewPlan、Mission Commander handoff、decision checklist、cleanup/reconsume execution plan 与 next-action list；但实际人工 review 后的 accepted/rejected/superseded 分支仍要求主 Agent 从 `decisionChecklist[]`、`cleanupTargets[]`、`reconsume` 与 `missionCommanderNextActions[]` 手工拼接 outcome-specific follow-through。本批把 per-candidate decision outcome 显式结构化，并把 promote candidate next actions 同步收口到 shared `MissionCommanderActionQueue`。
 
-边界：只增强 workstream JSON/text/Markdown/run-artifact projection、lane checkpoint contract、CLI/package coverage 与 durable docs；不改变 Mission Commander next-action ordering、lane executor action builder、continue/reconcile/start/handoff write model、case durable schema 版本、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；runtime 不执行 continue/handoff/reconcile follow-up，不执行 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
+边界：只增强 `promote -CreateCandidates` JSON/text reviewPlan projection、CLI/package coverage 与 durable docs；不改变 candidate 生成/写入位置、sanitization/deny rules、`promote -Apply` review-first 语义、sync/promote write model、case durable schema、public façade 删除门禁或远程 CI blocker 状态；runtime 不执行 candidate merge、cleanup、init、doctor 或 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- `StartResult`、`ContinueResult`、`HandoffResult` 与 `ReconcileResult` 新增 `missionCommanderActionQueue`，复用 shared `mission.MissionCommanderActionQueueFor(...)`。
-- `start` / `continue` / `handoff` / `reconcile` CLI text 在既有 Mission Commander action / next actions 旁打印 queue summary/counts/current。
-- lane `RESUME.md`、typed `checkpoints/latest.json`、continue `status.json` / `digest.md`、project/lane handoff Markdown 同步投影 `Mission Commander action queue`。
-- project handoff 的逐 lane 行现在先显示 per-lane action queue，再列 `commander next action`，让 replacement executor 不必解析完整 JSON 才能知道当前可执行/阻塞/review/follow-up 分桶。
-- coverage 锁定 start preview/apply、blocked existing lane、project/lane handoff preview/apply、blocked continue、reconcile preview/apply、lane checkpoint JSON contract 与 shared queue counts/current/follow-up semantics。
+- `CandidateReviewPlan` 新增 `decisionFollowThrough[]`，按每个 review item 输出 accepted/rejected/superseded/blocked/not-needed outcome 的 actions、cleanupActions、verificationCommands、expected/evidence/boundary。
+- accepted managed-doc outcome 明确 pack source diff、candidate/index cleanup 与 pack doctor；accepted tooling outcome 明确 tooling catalog/recipe merge、doctor、fresh case init/doctor 与 attached case doctor reconsume。
+- rejected/superseded outcome 明确 reject/superseded decision note、candidatePath 删除、indexPath update/removal 与不删除 pack source boundary；blocked/no-op outcome 明确 non-promotable/no-cleanup 边界。
+- `CandidateReviewPlan` 新增 `missionCommanderActionQueue`，复用 shared `mission.MissionCommanderActionQueueFor(...)` 汇总 promote candidate decision review、cleanup、pack doctor 与 reconsume next actions。
+- `promote -CreateCandidates -Format text` 同步输出 decision follow-through outcomes、decision action/cleanup/verification/boundary、action queue summary/current 与既有 next-action lines。
+- coverage 锁定 WhatIf/actual candidate JSON、managed-doc accept/reject/superseded、tooling accept fresh/attached reconsume、blocked non-promotable、CLI text decision follow-through 与 queue projection。
 
-验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneCheckpointJSONContract|TestRunStart|TestRunHandoff|TestRunContinue|TestRunReconcile" -count=1`、affected package `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `0491733 Add workstream commander action queues`；远程 release-gate run `29712919248` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/promote ./internal/rekit/cli -run "TestCreateCandidates|TestPackMemoryPromoteReconsumeE2E|TestRunPromoteCreateCandidates" -count=1`、affected package `go test ./internal/rekit/promote ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待收尾。
 
-上一批摘要：Batch 421 已完成 Authorized execution adapter/report action queue closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 422 已完成 Workstream / replacement executor action queue closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

@@ -73,11 +73,13 @@ type CandidateReviewPlan struct {
 	ItemCount                   int                                      `json:"itemCount"`
 	ReviewItems                 []CandidateReviewItem                    `json:"reviewItems"`
 	DecisionChecklist           []CandidateDecisionChecklist             `json:"decisionChecklist"`
+	DecisionFollowThrough       []CandidateDecisionFollowThrough         `json:"decisionFollowThrough"`
 	CleanupTargets              []CandidateCleanupTarget                 `json:"cleanupTargets"`
 	MainAgentExecutionPlan      []CandidateExecutionStep                 `json:"mainAgentExecutionPlan"`
 	Reconsume                   CandidateReconsumeGuidance               `json:"reconsume"`
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	RuntimeBoundary             []string                                 `json:"runtimeBoundary"`
 	CompletionCriteria          []string                                 `json:"completionCriteria"`
 }
@@ -107,6 +109,28 @@ type CandidateDecisionChecklist struct {
 	CleanupActions       []string `json:"cleanupActions,omitempty"`
 	VerificationCommands []string `json:"verificationCommands,omitempty"`
 	Boundary             []string `json:"boundary"`
+}
+
+type CandidateDecisionFollowThrough struct {
+	Path           string                     `json:"path"`
+	Kind           string                     `json:"kind"`
+	ReviewDecision string                     `json:"reviewDecision"`
+	CandidatePath  string                     `json:"candidatePath,omitempty"`
+	PackTarget     string                     `json:"packTarget,omitempty"`
+	Outcomes       []CandidateDecisionOutcome `json:"outcomes"`
+	Boundary       []string                   `json:"boundary"`
+}
+
+type CandidateDecisionOutcome struct {
+	Decision             string   `json:"decision"`
+	State                string   `json:"state"`
+	When                 string   `json:"when"`
+	Actions              []string `json:"actions,omitempty"`
+	CleanupActions       []string `json:"cleanupActions,omitempty"`
+	VerificationCommands []string `json:"verificationCommands,omitempty"`
+	Expected             string   `json:"expected"`
+	Evidence             []string `json:"evidence,omitempty"`
+	Boundary             []string `json:"boundary,omitempty"`
 }
 
 type CandidateCleanupTarget struct {
@@ -509,15 +533,15 @@ func candidateReviewPlan(result CandidateResult, whatIf bool) CandidateReviewPla
 			"create-candidates writes only promote-candidates and tooling/candidates when not WhatIf",
 			"reviewPlan does not merge candidates into pack sources",
 			"tooling candidates require manual catalog or recipe merge before reuse",
-			"mainAgentExecutionPlan is guidance only; runtime does not execute merge, cleanup, init, or doctor commands",
-			"decisionChecklist only describes review/merge/cleanup steps for the main Agent",
+			"mainAgentExecutionPlan and decisionFollowThrough are guidance only; runtime does not execute merge, cleanup, init, or doctor commands",
+			"decisionChecklist describes review options; decisionFollowThrough maps accepted/rejected/superseded outcomes to follow-through steps for the main Agent",
 			"no authority/confirmed writes",
 			"no heavy-tool execution",
 		},
 		CompletionCriteria: []string{
-			"each created candidate has an explicit accept, reject, or superseded decision in decisionChecklist",
+			"each created candidate has an explicit accept, reject, or superseded decision before using decisionFollowThrough outcomes",
 			"accepted managed docs are merged only after reviewing the candidate against current packTarget; promote -Apply is not a candidate-scoped accept path",
-			"accepted tooling candidates are merged into tooling/catalog.yml or tooling/recipes/* and validated with doctor",
+			"accepted tooling candidates are merged into tooling/catalog.yml or tooling/recipes/* and validated with doctor plus fresh or attached case reconsume",
 			"rejected or superseded candidate files are deleted and indexPath is updated or removed",
 			"fresh or attached case reconsume path is verified after accepted tooling merges using reconsume.verificationChecklist",
 		},
@@ -569,6 +593,7 @@ func candidateReviewPlan(result CandidateResult, whatIf bool) CandidateReviewPla
 		item := candidateReviewItem(result, write)
 		plan.ReviewItems = append(plan.ReviewItems, item)
 		plan.DecisionChecklist = append(plan.DecisionChecklist, candidateDecisionChecklist(result, item, whatIf))
+		plan.DecisionFollowThrough = append(plan.DecisionFollowThrough, candidateDecisionFollowThrough(result, item, whatIf))
 		if item.CleanupPath != "" {
 			plan.CleanupTargets = append(plan.CleanupTargets, CandidateCleanupTarget{Path: write.Path, Kind: write.Kind, CandidatePath: item.CleanupPath, IndexPath: result.IndexPath, CleanupWhen: cleanupWhen, CleanupActions: candidateCleanupActions(result, item, whatIf)})
 		}
@@ -577,6 +602,7 @@ func candidateReviewPlan(result CandidateResult, whatIf bool) CandidateReviewPla
 	plan.MainAgentExecutionPlan = candidateMainAgentExecutionPlan(result, plan, whatIf)
 	plan.MissionCommanderAction = candidateReviewMissionCommanderAction(result, whatIf)
 	plan.MissionCommanderNextActions = candidateMissionCommanderNextActions(result, plan, whatIf)
+	plan.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(plan.MissionCommanderNextActions)
 	return plan
 }
 
@@ -596,9 +622,9 @@ func candidateMainAgentExecutionPlan(result CandidateResult, plan CandidateRevie
 		Name:      "review-decisions",
 		When:      "before any merge, cleanup, or reconsume verification",
 		AppliesTo: candidateExecutionAppliesTo(plan.ReviewItems),
-		Actions:   []string{"review each decisionChecklist entry", "choose accept, reject, or superseded for pending-review items", "treat blocked items as non-promotable until source or manifest is fixed"},
-		Expected:  "every created candidate has an explicit decision before cleanup or merge",
-		Evidence:  []string{"decision notes outside authority/confirmed stores", "reviewed candidatePath and packTarget refs"},
+		Actions:   []string{"review each decisionChecklist entry", "choose accept, reject, or superseded for pending-review items", "follow only the matching decisionFollowThrough outcome for the chosen decision", "treat blocked items as non-promotable until source or manifest is fixed"},
+		Expected:  "every created candidate has an explicit decision before cleanup or merge and the chosen outcome maps to concrete follow-through",
+		Evidence:  []string{"decision notes outside authority/confirmed stores", "reviewed candidatePath and packTarget refs", "matching decisionFollowThrough outcome"},
 		Boundary:  []string{"do not write authority/confirmed", "do not execute heavy tools", "do not promote case-specific artifacts"},
 	})
 	if len(plan.CleanupTargets) > 0 {
@@ -660,7 +686,7 @@ func candidateMissionCommanderNextActions(result CandidateResult, plan Candidate
 		Command:        "review reviewPlan.decisionChecklist",
 		Source:         "reviewPlan.decisionChecklist",
 		RequiresReview: true,
-		Reasons:        []string{"choose accept, reject, or superseded for every pending-review candidate before merge or cleanup"},
+		Reasons:        []string{"choose accept, reject, or superseded for every pending-review candidate before merge or cleanup", "use decisionFollowThrough outcome entries to run only the actions that match the chosen decision"},
 		Boundary:       append([]string{}, baseBoundary...),
 	})
 	for _, target := range plan.CleanupTargets {
@@ -826,6 +852,87 @@ func candidateReviewItem(result CandidateResult, write CandidateWrite) Candidate
 		item.MainAgentActions = []string{"inspect action before deciding merge, reject, or cleanup"}
 	}
 	return item
+}
+
+func candidateDecisionFollowThrough(result CandidateResult, item CandidateReviewItem, whatIf bool) CandidateDecisionFollowThrough {
+	follow := CandidateDecisionFollowThrough{Path: item.Path, Kind: item.Kind, ReviewDecision: item.ReviewDecision, CandidatePath: item.CandidatePath, PackTarget: item.PackTarget, Boundary: []string{"decisionFollowThrough is guidance only; runtime does not execute merge, cleanup, init, or doctor commands", "do not write authority/confirmed", "do not execute heavy tools", "do not promote case-local samples, traces, dumps, captures, artifacts, payloads, flags, or customer data"}}
+	switch item.ReviewDecision {
+	case "pending-review":
+		follow.Outcomes = append(follow.Outcomes,
+			candidateDecisionOutcome(result, item, "accept", whatIf),
+			candidateDecisionOutcome(result, item, "reject", whatIf),
+			candidateDecisionOutcome(result, item, "superseded", whatIf),
+		)
+	case "blocked":
+		follow.Outcomes = append(follow.Outcomes, CandidateDecisionOutcome{
+			Decision: "blocked",
+			State:    "pack-memory-candidate:blocked-non-promotable",
+			When:     "blocked-deny-pattern, blocked-missing-pack-file, or blocked-after-sanitization item appears in reviewPlan.reviewItems",
+			Actions:  []string{"do not merge candidate content", "fix source/manifest/sanitization issue and regenerate candidates, or record reject outside authority/confirmed stores"},
+			Expected: "blocked item is not copied into pack sources",
+			Evidence: []string{"review note for blocked item", "rerun promote -CreateCandidates result if regenerated"},
+			Boundary: []string{"blocked item must not be copied into pack sources"},
+		})
+	case "not-needed":
+		follow.Outcomes = append(follow.Outcomes, CandidateDecisionOutcome{
+			Decision: "not-needed",
+			State:    "pack-memory-candidate:no-op",
+			When:     "item is missing, unchanged, or outside managed promote scope",
+			Actions:  []string{"leave pack source unchanged", "do not create cleanup work for missing or unchanged item"},
+			Expected: "no candidate merge or cleanup is needed",
+			Boundary: []string{"leave pack source unchanged"},
+		})
+	default:
+		follow.Outcomes = append(follow.Outcomes, CandidateDecisionOutcome{
+			Decision: "inspect",
+			State:    "pack-memory-candidate:inspect",
+			When:     "reviewPlan item has an unrecognized action",
+			Actions:  []string{"inspect item action before deciding merge, reject, or cleanup"},
+			Expected: "main Agent chooses a safe reviewed outcome before touching pack sources or candidates",
+			Boundary: []string{"do not merge or cleanup until the action is understood"},
+		})
+	}
+	return follow
+}
+
+func candidateDecisionOutcome(result CandidateResult, item CandidateReviewItem, decision string, whatIf bool) CandidateDecisionOutcome {
+	outcome := CandidateDecisionOutcome{Decision: decision}
+	switch decision {
+	case "accept":
+		outcome.State = "pack-memory-candidate:accepted-merge"
+		outcome.When = "after candidatePath is reviewed as reusable, case-neutral content"
+		outcome.Actions = append([]string{"merge reusable content into packTarget or an explicitly chosen pack tooling recipe/catalog target"}, item.MainAgentActions...)
+		outcome.CleanupActions = candidateCleanupActions(result, item, whatIf)
+		outcome.VerificationCommands = []string{"go run ./cmd/rekit -- -Command doctor -Pack " + result.Pack}
+		outcome.Expected = "accepted reusable content lives in pack sources and candidatePath/indexPath cleanup is complete"
+		outcome.Evidence = []string{"pack source diff", "candidatePath deletion check", "doctor command output"}
+		outcome.Boundary = []string{"promote -Apply is not a candidate-scoped accept path", "do not write authority/confirmed", "do not execute heavy tools"}
+		if item.Kind == "tooling-candidate-source" {
+			outcome.State = "pack-memory-candidate:accepted-tooling-reconsume"
+			outcome.Actions = append(outcome.Actions, "verify fresh or attached case reconsume after tooling merge")
+			outcome.VerificationCommands = append(outcome.VerificationCommands, "go run ./cmd/rekit -- -Command init -Target <fresh-case> -Pack "+result.Pack+" -ProjectName <name> -Apply", "go run ./cmd/rekit -- -Command doctor -Target <fresh-case> -Pack "+result.Pack, "go run ./cmd/rekit -- -Command doctor -Target <attached-case> -Pack "+result.Pack)
+			outcome.Expected = "accepted tooling is resolved from pack tooling by fresh or attached cases without copying tooling recipes into managed docs"
+			outcome.Evidence = append(outcome.Evidence, "fresh case .rekit/instance.yml", "fresh or attached case doctor output")
+			outcome.Boundary = append(outcome.Boundary, "tooling candidates require manual tooling/catalog.yml or tooling/recipes/* merge", "fresh/attached case verification reads pack tooling through templateRoot/templatePack")
+		}
+	case "reject":
+		outcome.State = "pack-memory-candidate:rejected-cleanup"
+		outcome.When = "after candidatePath is reviewed and rejected"
+		outcome.Actions = []string{"record reject decision outside authority/confirmed stores", "do not merge candidate content"}
+		outcome.CleanupActions = candidateCleanupActions(result, item, whatIf)
+		outcome.Expected = "rejected candidatePath is deleted and indexPath no longer points at it"
+		outcome.Evidence = []string{"review note for reject decision", "candidatePath deletion check", "indexPath update/removal check"}
+		outcome.Boundary = []string{"do not delete pack source files", "cleanup is limited to candidateRoot/toolingRoot and indexPath"}
+	case "superseded":
+		outcome.State = "pack-memory-candidate:superseded-cleanup"
+		outcome.When = "after candidatePath is superseded by another accepted candidate or existing pack source"
+		outcome.Actions = []string{"record superseded decision outside authority/confirmed stores", "merge only the chosen replacement if it was separately accepted"}
+		outcome.CleanupActions = candidateCleanupActions(result, item, whatIf)
+		outcome.Expected = "superseded candidatePath is deleted and replacement/pack source decision is traceable outside authority/confirmed stores"
+		outcome.Evidence = []string{"review note naming the replacement", "candidatePath deletion check", "indexPath update/removal check"}
+		outcome.Boundary = []string{"do not delete pack source files", "cleanup is limited to candidateRoot/toolingRoot and indexPath"}
+	}
+	return outcome
 }
 
 func candidateDecisionChecklist(result CandidateResult, item CandidateReviewItem, whatIf bool) CandidateDecisionChecklist {

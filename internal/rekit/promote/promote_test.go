@@ -31,14 +31,17 @@ func TestCreateCandidatesWhatIfDoesNotWrite(t *testing.T) {
 	assertCandidateWriteForTest(t, result.Writes, "references/template/README.md", "would-create-candidate")
 	assertCandidateWriteForTest(t, result.Writes, "references/template/workflow-template.md", "blocked-deny-pattern")
 	assertCandidateWriteForTest(t, result.Writes, "references/template/toolchain-router.md", "would-create-candidate")
-	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 || result.ReviewPlan.Reconsume.Mode != "pack-memory-reconsume-after-merge" {
+	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.DecisionFollowThrough) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 || result.ReviewPlan.Reconsume.Mode != "pack-memory-reconsume-after-merge" {
 		t.Fatalf("unexpected what-if review plan: %+v", result.ReviewPlan)
 	}
-	if !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "materialize-candidates", "promote -Target <attached-case>") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "review-decisions", "authority/confirmed") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "cleanup-rejected-or-merged-candidates", "indexPath") {
+	if !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/README.md", "accept", "promote -Apply is not a candidate-scoped accept path") || !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/README.md", "reject", "update or remove indexPath") || !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/toolchain-router.md", "accept", "doctor -Target <attached-case>") || !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/workflow-template.md", "blocked", "blocked item must not be copied") {
+		t.Fatalf("what-if review plan missing accepted/rejected/superseded follow-through: %+v", result.ReviewPlan.DecisionFollowThrough)
+	}
+	if !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "materialize-candidates", "promote -Target <attached-case>") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "review-decisions", "matching decisionFollowThrough outcome") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "cleanup-rejected-or-merged-candidates", "indexPath") {
 		t.Fatalf("what-if review plan missing executable main agent handoff: %+v", result.ReviewPlan.MainAgentExecutionPlan)
 	}
-	if !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.decisionChecklist", "review reviewPlan.decisionChecklist") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.cleanupTargets", "delete candidatePath") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.reconsume.verificationChecklist", "doctor -Pack "+pack) || !candidateNextActionBoundaryContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "WhatIf did not write") {
-		t.Fatalf("what-if review plan missing Mission Commander next actions: %+v", result.ReviewPlan.MissionCommanderNextActions)
+	if !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.decisionChecklist", "decisionFollowThrough") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.cleanupTargets", "delete candidatePath") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.reconsume.verificationChecklist", "doctor -Pack "+pack) || !candidateNextActionBoundaryContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "WhatIf did not write") || result.ReviewPlan.MissionCommanderActionQueue.CurrentAction == nil || result.ReviewPlan.MissionCommanderActionQueue.CurrentAction.Source != "reviewPlan.decisionChecklist" {
+		t.Fatalf("what-if review plan missing Mission Commander next actions/queue: actions=%+v queue=%+v", result.ReviewPlan.MissionCommanderNextActions, result.ReviewPlan.MissionCommanderActionQueue)
 	}
 	commander := result.ReviewPlan.MissionCommanderAction
 	if commander.State != "preview-pack-memory-candidates" || commander.PrimaryCommand != "review reviewPlan.reviewItems" || !strings.Contains(commander.Prompt, "WhatIf preview") || !promoteContainsSubstring(commander.FollowUpCommands, "promote -CreateCandidates") || !promoteContainsSubstring(commander.Boundary, "WhatIf did not write") || !promoteContainsSubstring(commander.Boundary, "no authority/confirmed") || !promoteContainsSubstring(commander.Boundary, "no heavy-tool") {
@@ -84,7 +87,7 @@ func TestCreateCandidatesWritesIndexAndSanitizedTooling(t *testing.T) {
 	assertExists(t, readmeWrite.TargetPath)
 	assertExists(t, toolingWrite.TargetPath)
 	assertExists(t, result.IndexPath)
-	if result.ReviewPlan.Mode != "candidate-review" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 {
+	if result.ReviewPlan.Mode != "candidate-review" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.DecisionFollowThrough) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 {
 		t.Fatalf("unexpected candidate review plan: %+v", result.ReviewPlan)
 	}
 	readmeReview := assertCandidateReviewItemForTest(t, result.ReviewPlan.ReviewItems, "references/template/README.md", "pending-review")
@@ -96,8 +99,11 @@ func TestCreateCandidatesWritesIndexAndSanitizedTooling(t *testing.T) {
 	if !strings.Contains(strings.Join(readmeReview.MainAgentActions, "\n"), "update or remove indexPath") {
 		t.Fatalf("managed doc review guidance missing index cleanup: %+v", readmeReview.MainAgentActions)
 	}
-	if toolingReview.CleanupPath != toolingWrite.TargetPath || !strings.Contains(toolingReview.MergeTargetHint, "tooling/catalog.yml") || !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "tooling/recipes") {
-		t.Fatalf("tooling review/reconsume guidance drifted: item=%+v reconsume=%+v", toolingReview, result.ReviewPlan.Reconsume)
+	if !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/README.md", "accept", "pack source diff") || !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/README.md", "superseded", "review note naming the replacement") {
+		t.Fatalf("managed doc decision follow-through missing accept/superseded outcomes: %+v", result.ReviewPlan.DecisionFollowThrough)
+	}
+	if toolingReview.CleanupPath != toolingWrite.TargetPath || !strings.Contains(toolingReview.MergeTargetHint, "tooling/catalog.yml") || !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "tooling/recipes") || !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/toolchain-router.md", "accept", "fresh or attached case doctor output") {
+		t.Fatalf("tooling review/reconsume guidance drifted: item=%+v reconsume=%+v followThrough=%+v", toolingReview, result.ReviewPlan.Reconsume, result.ReviewPlan.DecisionFollowThrough)
 	}
 	commander := result.ReviewPlan.MissionCommanderAction
 	if commander.State != "ready-to-review-pack-memory-candidates" || commander.PrimaryCommand != "review reviewPlan.reviewItems" || !strings.Contains(commander.Prompt, "已生成") || !promoteContainsSubstring(commander.FollowUpCommands, "doctor -Pack "+pack) || !promoteContainsSubstring(commander.FollowUpCommands, "init -Target <fresh-case>") || !promoteContainsSubstring(commander.Boundary, "promote -Apply is not a candidate-scoped accept path") || !promoteContainsSubstring(commander.Boundary, "accepted tooling candidates require manual") || !promoteContainsSubstring(commander.Boundary, "verify fresh or attached case reconsume") || !promoteContainsSubstring(commander.Boundary, "no authority/confirmed") || !promoteContainsSubstring(commander.Boundary, "no heavy-tool") {
@@ -117,10 +123,13 @@ func TestCreateCandidatesWritesIndexAndSanitizedTooling(t *testing.T) {
 	if !strings.Contains(cleanup, "update or remove indexPath") {
 		t.Fatalf("review plan cleanup targets missing index cleanup guidance: %+v", result.ReviewPlan.CleanupTargets)
 	}
-	if !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "review-decisions", "references/template/README.md") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "cleanup-rejected-or-merged-candidates", "indexPath") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "pack-doctor-after-accepted-merge", "doctor -Pack "+pack) || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "fresh-case-reconsume-after-tooling-merge", "fresh-case") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "attached-case-reconsume-after-tooling-merge", "attached-case") {
+	if !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "review-decisions", "matching decisionFollowThrough outcome") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "cleanup-rejected-or-merged-candidates", "indexPath") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "pack-doctor-after-accepted-merge", "doctor -Pack "+pack) || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "fresh-case-reconsume-after-tooling-merge", "fresh-case") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "attached-case-reconsume-after-tooling-merge", "attached-case") {
 		t.Fatalf("review plan missing main agent execution plan: %+v", result.ReviewPlan.MainAgentExecutionPlan)
 	}
-	if !strings.Contains(strings.Join(result.ReviewPlan.RuntimeBoundary, "\n"), "runtime does not execute merge, cleanup, init, or doctor") {
+	if !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.decisionChecklist", "decisionFollowThrough") || result.ReviewPlan.MissionCommanderActionQueue.CurrentAction == nil || result.ReviewPlan.MissionCommanderActionQueue.CurrentAction.Source != "reviewPlan.decisionChecklist" || result.ReviewPlan.MissionCommanderActionQueue.Counts.Total != len(result.ReviewPlan.MissionCommanderNextActions) {
+		t.Fatalf("review plan missing Mission Commander decision follow-through queue: actions=%+v queue=%+v", result.ReviewPlan.MissionCommanderNextActions, result.ReviewPlan.MissionCommanderActionQueue)
+	}
+	if !strings.Contains(strings.Join(result.ReviewPlan.RuntimeBoundary, "\n"), "decisionFollowThrough") || !strings.Contains(strings.Join(result.ReviewPlan.RuntimeBoundary, "\n"), "runtime does not execute merge, cleanup, init, or doctor") {
 		t.Fatalf("review plan runtime boundary missing execution-plan no-run guard: %+v", result.ReviewPlan.RuntimeBoundary)
 	}
 
@@ -209,8 +218,8 @@ func TestPackMemoryPromoteReconsumeE2E(t *testing.T) {
 	if reviewItem.CandidatePath != write.TargetPath || reviewItem.CleanupPath != write.TargetPath || !strings.Contains(reviewItem.MergeTargetHint, "tooling/recipes") {
 		t.Fatalf("pack-memory tooling candidate guidance drifted: %+v", reviewItem)
 	}
-	if len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || !candidateDecisionChecklistContainsForTest(result.ReviewPlan.DecisionChecklist, "references/template/toolchain-router.md", "fresh-case-reconsume") {
-		t.Fatalf("pack-memory decision checklist missing tooling reconsume handoff: %+v", result.ReviewPlan.DecisionChecklist)
+	if len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.DecisionFollowThrough) != len(result.Writes) || !candidateDecisionChecklistContainsForTest(result.ReviewPlan.DecisionChecklist, "references/template/toolchain-router.md", "fresh-case-reconsume") || !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/toolchain-router.md", "accept", "doctor -Target <attached-case>") {
+		t.Fatalf("pack-memory decision checklist/follow-through missing tooling reconsume handoff: checklist=%+v followThrough=%+v", result.ReviewPlan.DecisionChecklist, result.ReviewPlan.DecisionFollowThrough)
 	}
 	if !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "fresh case") || !strings.Contains(strings.Join(result.ReviewPlan.Reconsume.Boundary, "\n"), "no tooling recipe copy") || !candidateReconsumeChecklistContainsForTest(result.ReviewPlan.Reconsume.VerificationChecklist, "fresh-case-reconsume") {
 		t.Fatalf("pack-memory reconsume guidance drifted: %+v", result.ReviewPlan.Reconsume)
@@ -221,8 +230,8 @@ func TestPackMemoryPromoteReconsumeE2E(t *testing.T) {
 	if !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "fresh-case-reconsume-after-tooling-merge", "init -Target <fresh-case>") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "attached-case-reconsume-after-tooling-merge", "doctor -Target <attached-case>") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "fresh-case-reconsume-after-tooling-merge", "sync does not copy tooling recipes") {
 		t.Fatalf("pack-memory execution plan omitted reconsume command handoff: %+v", result.ReviewPlan.MainAgentExecutionPlan)
 	}
-	if !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.decisionChecklist", "review reviewPlan.decisionChecklist") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.cleanupTargets", "update/remove indexPath") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.reconsume.verificationChecklist", "init -Target <fresh-case>") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.reconsume.verificationChecklist", "doctor -Target <attached-case>") || !candidateNextActionBoundaryContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "runtime does not execute") {
-		t.Fatalf("pack-memory review plan omitted Mission Commander next-action command UX: %+v", result.ReviewPlan.MissionCommanderNextActions)
+	if !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.decisionChecklist", "decisionFollowThrough") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.cleanupTargets", "update/remove indexPath") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.reconsume.verificationChecklist", "init -Target <fresh-case>") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.reconsume.verificationChecklist", "doctor -Target <attached-case>") || !candidateNextActionBoundaryContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "runtime does not execute") || result.ReviewPlan.MissionCommanderActionQueue.CurrentAction == nil || result.ReviewPlan.MissionCommanderActionQueue.CurrentAction.Command != "review reviewPlan.decisionChecklist" {
+		t.Fatalf("pack-memory review plan omitted Mission Commander next-action command UX: actions=%+v queue=%+v", result.ReviewPlan.MissionCommanderNextActions, result.ReviewPlan.MissionCommanderActionQueue)
 	}
 	candidateText := readText(t, write.TargetPath)
 	for _, expected := range []string{"# Tooling candidate from case", "promoted-memory-tool", "<caseRoot>", "<absolutePath>", "<artifactsPath>", "<capturesPath>", "<address>", "<ctxNNN>", "Task #<n>"} {
@@ -780,6 +789,31 @@ func candidateDecisionChecklistContainsForTest(items []CandidateDecisionChecklis
 		fields = append(fields, item.CleanupActions...)
 		fields = append(fields, item.VerificationCommands...)
 		fields = append(fields, item.Boundary...)
+		if promoteContainsSubstring(fields, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func candidateDecisionFollowThroughContainsForTest(items []CandidateDecisionFollowThrough, path, decision, want string) bool {
+	for _, item := range items {
+		if item.Path != path {
+			continue
+		}
+		fields := []string{item.ReviewDecision, item.CandidatePath, item.PackTarget}
+		fields = append(fields, item.Boundary...)
+		for _, outcome := range item.Outcomes {
+			if outcome.Decision != decision {
+				continue
+			}
+			fields = append(fields, outcome.State, outcome.When, outcome.Expected)
+			fields = append(fields, outcome.Actions...)
+			fields = append(fields, outcome.CleanupActions...)
+			fields = append(fields, outcome.VerificationCommands...)
+			fields = append(fields, outcome.Evidence...)
+			fields = append(fields, outcome.Boundary...)
+		}
 		if promoteContainsSubstring(fields, want) {
 			return true
 		}
