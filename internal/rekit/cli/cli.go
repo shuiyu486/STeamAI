@@ -1189,6 +1189,7 @@ type statusInventory struct {
 	Case           *statusCase            `json:"case"`
 	Manifest       *statusManifestSummary `json:"manifest"`
 	CaseShim       statusCaseShim         `json:"caseShim"`
+	ProjectHandoff *statusProjectHandoff  `json:"projectHandoff,omitempty"`
 }
 
 type statusCase struct {
@@ -1224,6 +1225,19 @@ type statusManifestSummary struct {
 	ManagedFiles  int    `json:"managedFiles"`
 	PromoteFiles  int    `json:"promoteFiles"`
 	ToolingFiles  int    `json:"toolingFiles"`
+}
+
+type statusProjectHandoff struct {
+	Ready              bool     `json:"ready"`
+	Summary            string   `json:"summary"`
+	ReadFirst          []string `json:"readFirst"`
+	LatestBatch        string   `json:"latestBatch"`
+	LatestBatchStatus  string   `json:"latestBatchStatus"`
+	LatestBatchGoal    string   `json:"latestBatchGoal"`
+	LatestValidation   string   `json:"latestValidation"`
+	KnownGaps          []string `json:"knownGaps"`
+	NextActions        []string `json:"nextActions"`
+	ValidationCommands []string `json:"validationCommands"`
 }
 
 func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -1279,7 +1293,11 @@ func runStatusLegacyText(ctx runtime.Context, out io.Writer) error {
 	fmt.Fprintf(out, "managed files: %d\n", len(m.ManagedFiles))
 	fmt.Fprintf(out, "promote files: %d\n", len(m.PromoteFiles))
 	fmt.Fprintf(out, "tooling files: %d\n", len(m.ToolingFiles))
-	return nil
+	release, err := releasecheck.Build(ctx.RepoRoot)
+	if err != nil {
+		return err
+	}
+	return writeStatusProjectHandoffText(out, buildStatusProjectHandoff(release.ReleaseHandoff))
 }
 
 func runStatusText(ctx runtime.Context, out io.Writer) error {
@@ -1300,7 +1318,10 @@ func runStatusText(ctx runtime.Context, out io.Writer) error {
 			return err
 		}
 	}
-	return writeStatusCaseShimText(out, status.CaseShim)
+	if err := writeStatusCaseShimText(out, status.CaseShim); err != nil {
+		return err
+	}
+	return writeStatusProjectHandoffText(out, status.ProjectHandoff)
 }
 
 func writeStatusCaseShimText(out io.Writer, shim statusCaseShim) error {
@@ -1309,6 +1330,46 @@ func writeStatusCaseShimText(out io.Writer, shim statusCaseShim) error {
 	}
 	for _, warning := range shim.Warnings {
 		if _, err := fmt.Fprintf(out, "status case shim warning：%s\n", warning); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff) error {
+	if handoff == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "status project handoff：summary=%s ready=%t latestBatch=%s latestStatus=%s readFirst=%d knownGaps=%d validationCommands=%d nextActions=%d\n", handoff.Summary, handoff.Ready, handoff.LatestBatch, handoff.LatestBatchStatus, len(handoff.ReadFirst), len(handoff.KnownGaps), len(handoff.ValidationCommands), len(handoff.NextActions)); err != nil {
+		return err
+	}
+	if strings.TrimSpace(handoff.LatestBatchGoal) != "" {
+		if _, err := fmt.Fprintf(out, "status latest batch goal：%s\n", handoff.LatestBatchGoal); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(handoff.LatestValidation) != "" {
+		if _, err := fmt.Fprintf(out, "status latest batch validation：%s\n", handoff.LatestValidation); err != nil {
+			return err
+		}
+	}
+	for _, doc := range handoff.ReadFirst {
+		if _, err := fmt.Fprintf(out, "status read first：%s\n", doc); err != nil {
+			return err
+		}
+	}
+	for _, gap := range handoff.KnownGaps {
+		if _, err := fmt.Fprintf(out, "status known gap：%s\n", gap); err != nil {
+			return err
+		}
+	}
+	for _, command := range handoff.ValidationCommands {
+		if _, err := fmt.Fprintf(out, "status validation command：%s\n", command); err != nil {
+			return err
+		}
+	}
+	for _, action := range handoff.NextActions {
+		if _, err := fmt.Fprintf(out, "status next action：%s\n", action); err != nil {
 			return err
 		}
 	}
@@ -1361,7 +1422,39 @@ func buildStatusInventory(ctx runtime.Context) (statusInventory, error) {
 		PromoteFiles:  len(m.PromoteFiles),
 		ToolingFiles:  len(m.ToolingFiles),
 	}
+	release, err := releasecheck.Build(ctx.RepoRoot)
+	if err != nil {
+		return statusInventory{}, err
+	}
+	status.ProjectHandoff = buildStatusProjectHandoff(release.ReleaseHandoff)
 	return status, nil
+}
+
+func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProjectHandoff {
+	readFirst := make([]string, 0, len(handoff.ReadFirst))
+	for _, doc := range handoff.ReadFirst {
+		readFirst = append(readFirst, doc.Path)
+	}
+	knownGaps := make([]string, 0, len(handoff.KnownGaps))
+	for _, gap := range handoff.KnownGaps {
+		knownGaps = append(knownGaps, gap.Summary)
+	}
+	validationCommands := make([]string, 0, len(handoff.Validation))
+	for _, validation := range handoff.Validation {
+		validationCommands = append(validationCommands, validation.Command)
+	}
+	return &statusProjectHandoff{
+		Ready:              handoff.Ready,
+		Summary:            handoff.Summary,
+		ReadFirst:          readFirst,
+		LatestBatch:        handoff.LatestBatch.BatchID,
+		LatestBatchStatus:  handoff.LatestBatch.Status,
+		LatestBatchGoal:    handoff.LatestBatch.Goal,
+		LatestValidation:   handoff.LatestBatch.ValidationResult,
+		KnownGaps:          knownGaps,
+		NextActions:        append([]string{}, handoff.NextActions...),
+		ValidationCommands: validationCommands,
+	}
 }
 
 func buildStatusCaseShim(repoRoot, caseRoot string) statusCaseShim {

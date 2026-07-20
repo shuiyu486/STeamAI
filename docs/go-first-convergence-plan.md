@@ -6,7 +6,7 @@
 
 新会话接手时先读 `docs/context-routing.md` 与 `docs/batch-plan.md` 顶部 current/next；只有当前任务涉及 Go-first、release readiness、PowerShell-free product path 或跨平台验证时，再读本文件顶部的读取指南、实施摘要、执行清单、验证标准、风险与注意事项。发布或收口前按需读取 `docs/release-readiness.md` 顶部；修改 PowerShell façade/runtime 或 fallback 前按需读取 `docs/powershell-deprecation.md` 顶部；具体动手前再按需读取 `docs/go-runtime-migration.md`、`docs/agent-team-rollout-plan.md`、`rekit/tests/README.md`、相关 Go/PowerShell runtime 文件。
 
-本文件不是要求一次性完成所有事项；它定义未来几十轮自主推进的方向、阶段切片和停止条件。每轮应选择一个中型到大型、可验证的垂直切片实施，不要把目标拆成只改一两行的微批次。
+本文件不是要求一次性完成所有事项；它定义未来几十轮自主推进的方向、阶段切片和停止条件；产品北极星仍以 `docs/mission-control-product-direction.md` 为准。每轮应选择一个中型到大型、可验证的垂直切片实施，不要把目标拆成只改一两行的微批次。
 
 ## 实施摘要
 

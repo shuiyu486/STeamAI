@@ -283,6 +283,18 @@ func TestRunStatusJsonKit(t *testing.T) {
 			PromoteFiles  int    `json:"promoteFiles"`
 			ToolingFiles  int    `json:"toolingFiles"`
 		} `json:"manifest"`
+		ProjectHandoff struct {
+			Ready              bool     `json:"ready"`
+			Summary            string   `json:"summary"`
+			ReadFirst          []string `json:"readFirst"`
+			LatestBatch        string   `json:"latestBatch"`
+			LatestBatchStatus  string   `json:"latestBatchStatus"`
+			LatestBatchGoal    string   `json:"latestBatchGoal"`
+			LatestValidation   string   `json:"latestValidation"`
+			KnownGaps          []string `json:"knownGaps"`
+			NextActions        []string `json:"nextActions"`
+			ValidationCommands []string `json:"validationCommands"`
+		} `json:"projectHandoff"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("status JSON did not decode: %v\n%s", err, out.String())
@@ -296,6 +308,22 @@ func TestRunStatusJsonKit(t *testing.T) {
 	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/_template/manifest.yml") || status.Manifest.SchemaVersion != "1" || status.Manifest.ManagedFiles != 4 || status.Manifest.PromoteFiles != 4 || status.Manifest.ToolingFiles != 2 {
 		t.Fatalf("unexpected manifest summary: %+v", status.Manifest)
 	}
+	if !status.ProjectHandoff.Ready || status.ProjectHandoff.Summary != "release handoff summary ok" || !strings.HasPrefix(status.ProjectHandoff.LatestBatch, "Batch ") || !strings.Contains(status.ProjectHandoff.LatestBatchStatus, "已完成") || status.ProjectHandoff.LatestBatchGoal == "" || status.ProjectHandoff.LatestValidation == "" {
+		t.Fatalf("unexpected project handoff summary: %+v", status.ProjectHandoff)
+	}
+	for _, want := range []string{"docs/context-routing.md", "docs/batch-plan.md", "docs/release-readiness.md", "CHANGELOG.md"} {
+		if !slices.Contains(status.ProjectHandoff.ReadFirst, want) {
+			t.Fatalf("project handoff readFirst missing %q: %+v", want, status.ProjectHandoff.ReadFirst)
+		}
+	}
+	for _, want := range []string{"go run ./cmd/rekit -- -Command release-check -Format json", "go test ./...", "go vet ./...", "git diff --check"} {
+		if !slices.Contains(status.ProjectHandoff.ValidationCommands, want) {
+			t.Fatalf("project handoff validation commands missing %q: %+v", want, status.ProjectHandoff.ValidationCommands)
+		}
+	}
+	if len(status.ProjectHandoff.KnownGaps) == 0 || len(status.ProjectHandoff.NextActions) == 0 {
+		t.Fatalf("project handoff should expose known gaps and next actions: %+v", status.ProjectHandoff)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "text"}, &out); err != nil {
@@ -308,6 +336,14 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"status case shim：summary=case shim readiness ok ready=true",
 		"matchesTemplate=unknown",
 		"warnings=0",
+		"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
+		"latestStatus=已完成",
+		"status latest batch goal：",
+		"status latest batch validation：",
+		"status read first：docs/context-routing.md",
+		"status known gap：远程 release-gate",
+		"status validation command：go test ./...",
+		"status next action：Read docs/context-routing.md first",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status kit text missing %q:\n%s", expected, out.String())
@@ -315,6 +351,22 @@ func TestRunStatusJsonKit(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "{\n") {
 		t.Fatalf("status kit text should not emit JSON:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"rekit go backend:",
+		"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
+		"status read first：docs/context-routing.md",
+		"status validation command：go run ./cmd/rekit -- -Command release-check -Format json",
+		"status next action：Read docs/context-routing.md first",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status default text missing %q:\n%s", expected, out.String())
+		}
 	}
 }
 

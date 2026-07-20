@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 463：documentation routing pressure reduction closure
+### Batch 464：status project handoff closure
 
-状态：已完成文档路由审计、按需披露规则收敛、本地验证、commit/push 与远程 release-gate inspection；远程 release-gate run `29754192575` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 status project handoff runtime slice、本地验证恢复、durable docs 更新与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本批收尾执行。远程 release-gate 若仍为 `steps: []` failure，继续记录为既有 GitHub Actions runner/billing blocker，不声明远程 CI green。
 
-目标：项目已存在 `docs/context-routing.md` 与根 `CLAUDE.md` 的按需路由规则，但部分 README、usage、reference 和 roadmap 话术仍容易被误读为新会话默认 read-first 长清单，造成上下文压缩后串读 README / vision / reference / go-first 等长文档。Batch 463 把这些旧 read-first 列表收敛为 `CLAUDE.md` + `docs/context-routing.md` + 当前场景顶部区，并在 router 中明确新增文档和推荐话术不得绕过渐进式披露。
+目标：新会话接手时，最自然的第一步通常是运行 `status`，但 kit-mode `status -Format json/text` 过去只展示 runtime root、pack manifest 与 case shim readiness，仍需要再跑 `release-check` 或打开 batch docs 才能知道最新批次、read-first 路由、known gaps、验证命令和下一步。Batch 464 把 release handoff 的短 project handoff 投影到 kit-mode `status`，让接手会话只看 status 输出就能定位当前进度、证据/阻塞类别、最小验证门禁和下一步路由。
 
-边界：只调整 durable docs 的路由、索引和推荐话术；不改变 runtime、release-check contract、public command behavior、case docs sync/promote 语义、pack content、PowerShell façade、远程 CI blocker，不执行 heavy-tool、不写 authority/confirmed。
+边界：只增强 kit-mode `status` 的 read-only project handoff 投影，并修复 Go-first 文档缺少 Mission Control 北极星链接导致的本地测试不变量失败；不改变 case-mode status、release-check contract、sync/promote、workstream/ledger/gate 语义、pack content、PowerShell façade、远程 CI blocker，不执行 heavy-tool、不写 authority/confirmed。
 
 已完成内容：
 
-- `docs/context-routing.md` 增加文档维护规则：文档索引、推荐话术和接手清单不是默认必读清单；出现 5 个以上 read-first 文件时先压缩为 router + 当前场景入口 + 顶部区。
-- 新增文档必须声明首选入口、何时按需读取、不要默认读取什么；历史或 release/debug 溯源优先归档或专题化，不放进默认上下文。
-- README、根 `CLAUDE.md`、common context-budget policy、pack reference template、Agent Team usage、reference absorption、vision、Mission Control product direction 与 Go-first convergence 的旧 read-first 话术已收敛到 `docs/context-routing.md`。
+- `status -Format json` 新增 `projectHandoff`，复用 `releasecheck.ReleaseHandoff` 的 `readFirst`、latest batch、known gaps、next actions 与 validation commands。
+- `status -Format text` 新增 `status project handoff`、latest batch goal/validation、read-first、known gap、validation command 与 next action lines，避免新会话必须解析 release-check JSON 才能接手。
+- `internal/rekit/cli` coverage 锁定 kit-mode status JSON/text handoff、read-first 路由、known gaps、validation commands 与 next actions；`docs/go-first-convergence-plan.md` 顶部恢复 `docs/mission-control-product-direction.md` 链接，修复 manifest 不变量测试。
 
-验证结果：已通过 focused `go test ./internal/rekit/releasecheck ./internal/rekit/defaultdocs -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `e264812 Add documentation routing pressure reduction`；远程 release-gate run `29754192575` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/manifest -run TestAutonomousGoalGuideInvariants -count=1`、`go test ./internal/rekit/cli -run TestRunStatusJsonKit -count=1`、`go run ./cmd/rekit -- -Command status -Format json`、`go run ./cmd/rekit -- -Command status -Format text`、`go test ./...`、`go vet ./...` 与 `git diff --check`；`git diff --check` 仅有 Windows LF/CRLF conversion warnings。完整 release minimum、commit/push 与远程 release-gate inspection 待收尾执行。
 
-上一批摘要：Batch 462 已完成 continue digest execution evidence follow-through detail closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 463 已完成 documentation routing pressure reduction closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
