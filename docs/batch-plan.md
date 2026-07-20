@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 425：Execution evidence review downstream artifact follow-through
 
-状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待执行。
+状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 393/396/399/400/401/404/405/406/407/408/410/421/424 已让 authorized execution evidence record result 与 downstream review queue 可见；但 overview/handoff/continue/resume/checkpoint 的 `executionEvidenceReview[]` 仍要求 Mission Commander / replacement executor 从 `missionCommanderAction`、review command、handoff command、boundary、duplicate replay result 与 Batch 424 immediate `authorizedExecutionFollowThrough` 手工拼接 evidence-specific outcome。本批把 evidence review item 自身结构化为 follow-through，并投影到 downstream artifacts。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - overview text/JSON、project/lane handoff JSON/Markdown、`/rekit continue` status/digest、lane `RESUME.md` 与 typed `checkpoints/latest.json` 同步投影同一 evidence follow-through，让 replacement executor 从任一 downstream artifact 都能直接消费 review/escalation/duplicate outcome。
 - coverage 锁定 overview/project handoff JSON follow-through、project handoff text follow-through、continue digest/status、lane resume/checkpoint serialization、normal/escalated/duplicate states、review-only queue、no-heavy/no-authority/confirmed/no PowerShell runtime logic 边界。
 
-验证结果：已通过 affected package `go test ./internal/rekit/mission ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok 且 release notes 覆盖 Batch 425；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行并回填。
+验证结果：已通过 affected package `go test ./internal/rekit/mission ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok 且 release notes 覆盖 Batch 425；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `09c0ab6 Add execution evidence review follow-through`；远程 release-gate run `29716703650` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 424 已完成 Authorized execution adapter/report consumption follow-through closure，详见 `docs/batch-history.md`。
 
