@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 429：promote candidates main-agent execution plan text consumption closure
 
-状态：已完成本地实现、focused promote candidates CLI validation、durable docs 与 full local validation；准备 commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、focused promote candidates CLI validation、durable docs、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 423 已让 `promote -CreateCandidates` JSON `reviewPlan` 暴露 `mainAgentExecutionPlan[]`，Batch 423/428 后 text path 已输出 decision follow-through、cleanup/reconsume、action queue 与 next actions。但 terminal Mission Commander / replacement executor 仍需解析 JSON 才能看到 materialize、review decisions、cleanup、pack doctor、fresh-case reconsume 与 attached-case reconsume 的 bounded execution plan。本批把 `mainAgentExecutionPlan[]` 直接投影到 `promote -CreateCandidates -Format text`。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - text output 继续输出 decision follow-through、cleanup/reconsume、Mission Commander action queue 与 next-action lines，形成从候选生成到 review/cleanup/reconsume 的完整 terminal handoff。
 - CLI coverage 锁定 actual create-candidates text execution plan、existing decision follow-through/action queue/next-action text，以及 guidance-only/no merge/no cleanup/no init/no doctor/no-heavy/no-authority/confirmed 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPromoteCreateCandidatesWritesCandidates|TestRunPromoteCreateCandidatesWhatIf' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPromoteCreateCandidatesWritesCandidates|TestRunPromoteCreateCandidatesWhatIf' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `b271fd8 Add promote candidate execution plan text`；远程 release-gate run `29719557064` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 428 已完成 reviewer-intake post-validation text consumption closure，详见 `docs/batch-history.md`。
 
