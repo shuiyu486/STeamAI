@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 427：plan-subagents / reviewer-intake CLI text action-queue parity
 
-状态：已完成本地实现、durable docs、focused CLI validation 与 full local validation；准备 commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、durable docs、focused CLI validation、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 426 已让 `plan-subagents` planning result、packet nested `reviewerOrchestration`、summary.md 与 reviewer-intake JSON result 直接输出 `missionCommanderActionQueue`。但 terminal text/product path 仍要求 Mission Commander / replacement executor 解析 JSON 或打开 summary 才能看到 reviewer dispatch/intake 的 current/unblocked/blocked/reviewRequired/followUp buckets。本批让 `plan-subagents -Format text` 与 reviewer-intake `-Format text` 直接打印同一 commander action、action queue 与 next-action lines。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - reviewer-intake path 现在复用同一 format parsing，`-WhatIf/-Apply -Format text` 输出 intake status、orchestration snapshot、blocked reasons、verification/decision/post-validation、Mission Commander action、action queue 与完整 next-action lines；partial recovery 仍可按请求格式输出 recovery envelope 后返回错误。
 - CLI coverage 锁定 planning text output 与 reviewer-intake WhatIf text output 包含 commander action、queue summary/current 与 next-action lines，同时保留 existing JSON action-queue contract。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagents' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagents' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `a9c4772 Add plan-subagents text action queues`；远程 release-gate run `29718753118` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 426 已完成 Reviewer orchestration dispatch/intake action consumption closure，详见 `docs/batch-history.md`。
 
