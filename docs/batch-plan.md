@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 442：sync apply text handoff closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs；正在 commit/push 与远程 release-gate inspection；远程 release-gate 预计仍为既有 GitHub Actions runner/billing blocker，需以实际 run 为准。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29726334573` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：`sync -Apply` / `sync -Apply -WhatIf` 仍默认输出 JSON，terminal / replacement executor 若显式选择 `-Format text` 仍需要解析 JSON 才能复核 kit -> case 写入范围、backupRoot 与 nextSteps。本批把 sync apply preview / apply 的 `ApplyResult` 直接投影到 text path，让 Mission Commander 在确认或刚执行 bounded sync 写入后不用切回 JSON 才能 review metadata、case-local shim、managed files、template files、managed block、state 与 backup handoff。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - text output 继续打印 `nextSteps`，让 terminal executor 可直接看到 WhatIf 后确认 scope / actual apply 后 run doctor 与 backup review guidance。
 - CLI coverage 锁定 WhatIf preview text、actual apply text、默认 JSON compatibility、no authority/confirmed/no-heavy/no PowerShell runtime logic 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunSyncApplyWritesManagedContent -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs` 与 `go run ./cmd/rekit -- -Command doctor`；`release-check ready=true`，`doctor` 报告 `pack validation ok`。尚待最终 `git diff --check`、commit/push 与远程 release-gate inspection。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunSyncApplyWritesManagedContent -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `7eb4dba Add sync apply text handoff`；远程 release-gate run `29726334573` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 441 已完成 reviewer intake note event text detail closure，详见 `docs/batch-history.md`。
 
