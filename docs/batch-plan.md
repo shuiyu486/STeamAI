@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 439：reviewer intake result text detail closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs；待 commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate 仍为既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 433/434/435 已让 `plan-subagents -Format text` 覆盖 reviewer dispatch、orchestration lifecycle、owner/writeback 与 shard handoff；现有 reviewer-intake text 已输出 status、verification/decision/post-validation、action queue 与 next actions，但 Mission Commander / replacement executor 仍需解析 reviewer result JSON 才能复核 reviewerSession、decision/confidence、recommendedVerdict、evidenceRefs、risks/conflicts 与 routeOutput（尤其 read-only `tool_scope`、`next_action`）。本批把 reviewer result detail 直接投影到 intake text path。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - text path 继续输出 reviewer `summary`、`items`、`evidenceRefs`、可选 `risks` / `conflicts`，并按 key 排序输出 `routeOutput` key/value，让 terminal executor 不必解析 reviewer JSON 即可复核 read-only scope、next action 与 writeback输入。
 - CLI coverage 锁定 WhatIf preview 与 already-complete reviewer intake text result detail，以及既有 post-validation/action queue/next-action、no reviewer file/ledger write/no authority/confirmed/no-heavy 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待完成；远程 release-gate 仍按既有 GitHub Actions runner/billing blocker 处理，不能在实际 jobs 通过前声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `a6713e1 Add reviewer intake result text`；远程 release-gate run `29724557110` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 438 已完成 execution evidence record text detail closure，详见 `docs/batch-history.md`。
 
