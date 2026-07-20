@@ -1439,6 +1439,30 @@ func TestRunAttachPreviewDoesNotCreateFiles(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "instance.yml")); !os.IsNotExist(err) {
 		t.Fatalf("attach -WhatIf created instance metadata, err=%v", err)
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "attach", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "demo-case", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"attach plan：mutation=false reviewRequired=true requiresConfirmation=true writes=4 blocked=4",
+		"pack=_template projectName=demo-case",
+		"attach plan write：path=",
+		"kind=instance-metadata action=create",
+		"kind=case-local-thin-shim action=create",
+		"attach plan blocked action：managed docs sync",
+		"attach plan next step：review this plan, then re-run attach with -Apply to write metadata and the thin shim",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("attach preview text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("attach preview text should not emit JSON:\n%s", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "instance.yml")); !os.IsNotExist(err) {
+		t.Fatalf("attach text -WhatIf created instance metadata, err=%v", err)
+	}
 }
 
 func TestRunAttachApplyWritesBindingMetadataStateAndShim(t *testing.T) {
@@ -1462,6 +1486,31 @@ func TestRunAttachApplyWritesBindingMetadataStateAndShim(t *testing.T) {
 	if result.Command != "attach" || !result.IsMutation || !result.Applied || len(result.Writes) != 4 {
 		t.Fatalf("unexpected attach apply result: %+v", result)
 	}
+
+	textCaseRoot := filepath.Join(t.TempDir(), "case-text")
+	out.Reset()
+	if err := Run([]string{"-Command", "attach", "-Target", textCaseRoot, "-Pack", "_template", "-ProjectName", "demo-case", "-Apply", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"attach apply：mutation=true applied=true writes=4",
+		"pack=_template projectName=demo-case",
+		"attach apply write：path=",
+		"kind=instance-metadata action=create",
+		"kind=initial-state action=create",
+		"attach apply next step：attach wrote only case binding metadata, initial state, and the case-local thin shim",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("attach apply text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("attach apply text should not emit JSON:\n%s", out.String())
+	}
+	assertFileExists(t, filepath.Join(textCaseRoot, ".rekit", "instance.yml"))
+	assertFileExists(t, filepath.Join(textCaseRoot, ".rekit", "state.json"))
+	assertFileExists(t, filepath.Join(textCaseRoot, ".claude", "skills", "rekit", "SKILL.md"))
+
 	metadata, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "instance.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -1636,6 +1685,28 @@ func TestRunRepairPreviewDoesNotWrite(t *testing.T) {
 	if plan.RecordedProjectRoot == plan.NewProjectRoot || len(plan.Writes) != 4 {
 		t.Fatalf("unexpected repair preview: %+v", plan)
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "repair", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"repair plan：mutation=false reviewRequired=true requiresConfirmation=true moved=true",
+		"writes=4 blocked=4",
+		"pack=_template projectName=demo",
+		"repair plan write：path=",
+		"kind=legacy-metadata action=create",
+		"repair plan blocked action：managed docs sync",
+		"repair plan next step：review this plan, then re-run repair with -Apply to refresh metadata and the thin shim",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("repair preview text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("repair preview text should not emit JSON:\n%s", out.String())
+	}
+
 	metadata, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "instance.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -1670,6 +1741,31 @@ func TestRunRepairApplyRefreshesMetadataShimAndLegacy(t *testing.T) {
 	if result.Command != "repair" || !result.IsMutation || !result.Applied || !result.Moved || len(result.Writes) != 4 {
 		t.Fatalf("unexpected repair apply result: %+v", result)
 	}
+
+	textCaseRoot := movedAttachedCase(t)
+	writeCaseFile(t, textCaseRoot, ".claude/skills/rekit/SKILL.md", "drift\n")
+	out.Reset()
+	if err := Run([]string{"-Command", "repair", "-Target", textCaseRoot, "-Pack", "_template", "-Apply", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"repair apply：mutation=true applied=true moved=true",
+		"writes=4",
+		"pack=_template projectName=demo",
+		"repair apply write：path=",
+		"kind=case-local-thin-shim action=refresh",
+		"kind=legacy-metadata action=create",
+		"repair apply next step：repair refreshed metadata and the case-local thin shim",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("repair apply text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("repair apply text should not emit JSON:\n%s", out.String())
+	}
+	assertFileExists(t, filepath.Join(textCaseRoot, ".re-template.yml"))
+
 	metadata, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "instance.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -1757,6 +1853,30 @@ func TestRunInitPreviewDoesNotCreateFiles(t *testing.T) {
 	if _, err := os.Stat(caseRoot); !os.IsNotExist(err) {
 		t.Fatalf("init -WhatIf created target directory, err=%v", err)
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "init", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "demo-init", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"init plan：mutation=false reviewRequired=true requiresConfirmation=true writes=",
+		"blocked=5",
+		"pack=_template projectName=demo-init",
+		"init plan write：path=.rekit/instance.yml kind=instance-metadata action=create",
+		"init plan write：path=references/template/README.md kind=managed-file action=create-managed-file",
+		"init plan blocked action：heavy-tool execution",
+		"init plan next step：review this plan, then re-run init with -Apply to initialize the case",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("init preview text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("init preview text should not emit JSON:\n%s", out.String())
+	}
+	if _, err := os.Stat(caseRoot); !os.IsNotExist(err) {
+		t.Fatalf("init text -WhatIf created target directory, err=%v", err)
+	}
 }
 
 func TestRunInitApplyCreatesFullCase(t *testing.T) {
@@ -1789,6 +1909,28 @@ func TestRunInitApplyCreatesFullCase(t *testing.T) {
 	if err := Run([]string{"-Command", "doctor", "-Target", caseRoot, "-Pack", "_template"}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("doctor after init apply failed: %v", err)
 	}
+
+	textCaseRoot := filepath.Join(t.TempDir(), "case-text")
+	out.Reset()
+	if err := Run([]string{"-Command", "init", "-Target", textCaseRoot, "-Pack", "_template", "-ProjectName", "demo-init", "-Apply", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"init apply：mutation=true applied=true writes=",
+		"init apply write：path=.rekit/instance.yml kind=instance-metadata action=refresh",
+		"init apply write：path=references/template/README.md kind=managed-file action=create-managed-file",
+		"init apply write：path=CLAUDE.local.md kind=managed-block action=create-managed-block-host",
+		"init apply next step：run doctor after apply",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("init apply text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("init apply text should not emit JSON:\n%s", out.String())
+	}
+	assertFileExists(t, filepath.Join(textCaseRoot, ".rekit", "instance.yml"))
+	assertFileExists(t, filepath.Join(textCaseRoot, "references", "template", "README.md"))
 }
 
 func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
@@ -1981,6 +2123,41 @@ func TestRunBootstrapApplyUsesBootstrapCommand(t *testing.T) {
 	}
 	if result.Command != "bootstrap" || !result.Applied {
 		t.Fatalf("unexpected bootstrap apply result: %+v", result)
+	}
+
+	textCaseRoot := filepath.Join(t.TempDir(), "case-text")
+	out.Reset()
+	if err := Run([]string{"-Command", "bootstrap", "-Target", textCaseRoot, "-Pack", "_template", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"bootstrap plan：mutation=false reviewRequired=true requiresConfirmation=true writes=",
+		"bootstrap plan write：path=.rekit/instance.yml kind=instance-metadata action=create",
+		"bootstrap plan next step：review this plan, then re-run bootstrap with -Apply to initialize the case",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("bootstrap preview text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("bootstrap preview text should not emit JSON:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "bootstrap", "-Target", textCaseRoot, "-Pack", "_template", "-Apply", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"bootstrap apply：mutation=true applied=true writes=",
+		"bootstrap apply write：path=.rekit/instance.yml kind=instance-metadata action=refresh",
+		"bootstrap apply next step：run doctor after apply",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("bootstrap apply text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("bootstrap apply text should not emit JSON:\n%s", out.String())
 	}
 }
 

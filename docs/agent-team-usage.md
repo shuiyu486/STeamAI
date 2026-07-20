@@ -71,6 +71,13 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 /rekit handoff               # 生成项目级接手索引
 /rekit handoff main          # 生成主线接手文档
 /rekit handoff unpacking     # 生成功能支线接手文档
+/rekit attach -Target <caseRoot> -Pack <pack> -WhatIf -Format text # 旧 case 接入前预览 metadata/shim/state writes
+/rekit attach -Target <caseRoot> -Pack <pack> -Apply -Format text  # 写入 binding metadata/shim/state，并打印 next steps
+/rekit repair -Target <caseRoot> -Pack <pack> -WhatIf -Format text # case 移动后预览 metadata/shim refresh
+/rekit repair -Target <caseRoot> -Pack <pack> -Apply -Format text  # 修复 moved case 绑定，并打印 handoff
+/rekit init -Target <caseRoot> -Pack <pack> -WhatIf -Format text   # 新 case 初始化前预览 managed/template writes
+/rekit init -Target <caseRoot> -Pack <pack> -Apply -Format text    # 初始化完整 case，并打印 doctor handoff
+/rekit bootstrap -Target <caseRoot> -Pack <pack> -WhatIf -Format text # compat bootstrap 预览，保持 bootstrap identity
 /rekit sync                  # kit -> case，默认只生成 JSON review
 /rekit sync -Format text     # kit -> case review plan 的 terminal handoff
 /rekit sync -Apply -WhatIf -Format text  # 写入前预览每个 write / backup / next step
@@ -87,6 +94,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 - `/rekit status` 能正确显示 kit/case 绑定。
 - `/rekit doctor` 通过，且 managed docs、policy、tooling 文件预算未超限。
 - 旧 case 同步前先看到 `.rekit/reviews/<timestamp>-sync/summary.md`、`packet.json` 和 bounded diff。
+- `attach` / `repair` / `init` / `bootstrap` 的 `-WhatIf/-Apply -Format text` 应直接输出 lifecycle summary、逐 write path/kind/action/source/target/backup、blocked actions 与 nextSteps，保持 default JSON compatibility、case write semantics、case durable schema、no authority/confirmed/no-heavy/no PowerShell runtime logic；`bootstrap` 兼容入口必须保持 bootstrap command identity。
 - `sync -Format text` 与 `promote -Format text` 应直接输出 review plan summary、逐 item/tooling item action/risk/recommendation、paths、hashes、deny violations 与 replacement counts，保持 non-apply review-first、default JSON compatibility、review artifacts 行为不变、no authority/confirmed/no-heavy/no PowerShell runtime logic。
 - `sync -Apply/-WhatIf -Format text` 应直接输出 mutation/applied/writes/backupRoot、逐 write path/kind/action/source/target/backup 与 nextSteps，保持 kit -> case review-first、default JSON compatibility、no authority/confirmed/no-heavy/no PowerShell runtime logic；`update -Apply/-WhatIf` 复用同一写入路径时，JSON/text command identity、line prefix 与 WhatIf nextStep 必须保持 `update`。
 - `promote -Apply/-WhatIf -Format text` 应直接输出 mutation/applied/changed/blocked/skipped/writes/requiresReview/cleanup/backupRoot、逐 write path/kind/action/source/target/backup/reason、pack validation rows、denied actions 与 nextSteps，保持 case -> kit review-first、default JSON compatibility、candidate workflow 不变、no authority/confirmed/no-heavy/no PowerShell runtime logic。

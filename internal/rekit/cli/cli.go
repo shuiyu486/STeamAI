@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/attach"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
@@ -1032,25 +1033,32 @@ func runAttach(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.WhatIf && opt.Apply {
 		return fmt.Errorf("attach -WhatIf cannot be combined with -Apply")
 	}
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported attach format: %s", opt.Format)
+	}
 	attachOpt := attach.Options{ProjectName: opt.ProjectName}
-	var result any
-	var err error
 	if opt.WhatIf {
-		result, err = attach.Preview(ctx.RepoRoot, ctx.Target, ctx.Pack, attachOpt)
-	} else if opt.Apply {
-		result, err = attach.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, attachOpt)
-	} else {
-		return fmt.Errorf("attach write requires -Apply; use -WhatIf for preview")
+		result, err := attach.Preview(ctx.RepoRoot, ctx.Target, ctx.Pack, attachOpt)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writeAttachPreviewText(out, result)
 	}
-	if err != nil {
-		return err
+	if opt.Apply {
+		result, err := attach.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, attachOpt)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writeAttachApplyText(out, result)
 	}
-	b, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return err
-	}
-	_, err = out.Write(append(b, '\n'))
-	return err
+	return fmt.Errorf("attach write requires -Apply; use -WhatIf for preview")
 }
 
 func runRepair(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -1060,23 +1068,29 @@ func runRepair(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.WhatIf && opt.Apply {
 		return fmt.Errorf("repair -WhatIf cannot be combined with -Apply")
 	}
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported repair format: %s", opt.Format)
+	}
 	repairOpt := repair.Options{ProjectName: opt.ProjectName}
-	var result any
-	var err error
 	if opt.Apply {
-		result, err = repair.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, repairOpt)
-	} else {
-		result, err = repair.Preview(ctx.RepoRoot, ctx.Target, ctx.Pack, repairOpt)
+		result, err := repair.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, repairOpt)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writeRepairApplyText(out, result)
 	}
+	result, err := repair.Preview(ctx.RepoRoot, ctx.Target, ctx.Pack, repairOpt)
 	if err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return err
+	if format == "json" {
+		return writeJSON(out, result)
 	}
-	_, err = out.Write(append(b, '\n'))
-	return err
+	return writeRepairPlanText(out, result)
 }
 
 func runInitBootstrap(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -1092,25 +1106,32 @@ func runInitBootstrap(ctx runtime.Context, opt Options, out io.Writer) error {
 	if wantsReviewArtifacts(opt) {
 		return fmt.Errorf("%s does not support review artifact options; use -WhatIf for preview or -Apply for explicit write", opt.Command)
 	}
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported %s format: %s", opt.Command, opt.Format)
+	}
 	applyOpt := syncreview.ApplyOptions{ProjectName: opt.ProjectName, ForceLocalTemplates: opt.Force, CreateLocalFiles: true, Command: opt.Command}
-	var result any
-	var err error
 	if opt.WhatIf {
-		result, err = syncreview.InitPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
-	} else if opt.Apply {
-		result, err = syncreview.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
-	} else {
-		return fmt.Errorf("%s write requires -Apply; use -WhatIf for preview", opt.Command)
+		result, err := syncreview.InitPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writeInitPlanText(out, result)
 	}
-	if err != nil {
-		return err
+	if opt.Apply {
+		result, err := syncreview.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writeSyncApplyText(out, result)
 	}
-	b, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return err
-	}
-	_, err = out.Write(append(b, '\n'))
-	return err
+	return fmt.Errorf("%s write requires -Apply; use -WhatIf for preview", opt.Command)
 }
 
 func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -2712,6 +2733,94 @@ func writePromoteCandidateReviewPlanText(out io.Writer, items []promote.Candidat
 			if _, err := fmt.Fprintf(out, "promote candidates checklist boundary：path=%s boundary=%s\n", item.Path, boundary); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func writeAttachPreviewText(out io.Writer, result attach.PreviewPlan) error {
+	if _, err := fmt.Fprintf(out, "%s plan：mutation=%t reviewRequired=%t requiresConfirmation=%t writes=%d blocked=%d caseRoot=%s repoRoot=%s pack=%s projectName=%s\n", result.Command, result.IsMutation, result.ReviewRequired, result.RequiresConfirmation, len(result.Writes), len(result.BlockedActions), result.CaseRoot, result.RepoRoot, result.Pack, result.ProjectName); err != nil {
+		return err
+	}
+	if err := writeCasebindWritesText(out, result.Command, "plan", result.Writes); err != nil {
+		return err
+	}
+	if err := writeLifecycleBlockedActionsText(out, result.Command, "plan", result.BlockedActions); err != nil {
+		return err
+	}
+	return writeLifecycleNextStepsText(out, result.Command, "plan", result.NextSteps)
+}
+
+func writeAttachApplyText(out io.Writer, result attach.ApplyResult) error {
+	if _, err := fmt.Fprintf(out, "%s apply：mutation=%t applied=%t writes=%d caseRoot=%s repoRoot=%s pack=%s projectName=%s\n", result.Command, result.IsMutation, result.Applied, len(result.Writes), result.CaseRoot, result.RepoRoot, result.Pack, result.ProjectName); err != nil {
+		return err
+	}
+	if err := writeCasebindWritesText(out, result.Command, "apply", result.Writes); err != nil {
+		return err
+	}
+	return writeLifecycleNextStepsText(out, result.Command, "apply", result.NextSteps)
+}
+
+func writeRepairPlanText(out io.Writer, result repair.Plan) error {
+	if _, err := fmt.Fprintf(out, "%s plan：mutation=%t reviewRequired=%t requiresConfirmation=%t moved=%t metadataSource=%s recordedProjectRoot=%s newProjectRoot=%s writes=%d blocked=%d caseRoot=%s repoRoot=%s pack=%s projectName=%s\n", result.Command, result.IsMutation, result.ReviewRequired, result.RequiresConfirmation, result.Moved, result.MetadataSource, result.RecordedProjectRoot, result.NewProjectRoot, len(result.Writes), len(result.BlockedActions), result.CaseRoot, result.RepoRoot, result.Pack, result.ProjectName); err != nil {
+		return err
+	}
+	if err := writeCasebindWritesText(out, result.Command, "plan", result.Writes); err != nil {
+		return err
+	}
+	if err := writeLifecycleBlockedActionsText(out, result.Command, "plan", result.BlockedActions); err != nil {
+		return err
+	}
+	return writeLifecycleNextStepsText(out, result.Command, "plan", result.NextSteps)
+}
+
+func writeRepairApplyText(out io.Writer, result repair.ApplyResult) error {
+	if _, err := fmt.Fprintf(out, "%s apply：mutation=%t applied=%t moved=%t metadataSource=%s recordedProjectRoot=%s newProjectRoot=%s writes=%d caseRoot=%s repoRoot=%s pack=%s projectName=%s\n", result.Command, result.IsMutation, result.Applied, result.Moved, result.MetadataSource, result.RecordedProjectRoot, result.NewProjectRoot, len(result.Writes), result.CaseRoot, result.RepoRoot, result.Pack, result.ProjectName); err != nil {
+		return err
+	}
+	if err := writeCasebindWritesText(out, result.Command, "apply", result.Writes); err != nil {
+		return err
+	}
+	return writeLifecycleNextStepsText(out, result.Command, "apply", result.NextSteps)
+}
+
+func writeInitPlanText(out io.Writer, result syncreview.InitPlan) error {
+	if _, err := fmt.Fprintf(out, "%s plan：mutation=%t reviewRequired=%t requiresConfirmation=%t writes=%d blocked=%d backupRoot=%s caseRoot=%s repoRoot=%s pack=%s projectName=%s\n", result.Command, result.IsMutation, result.ReviewRequired, result.RequiresConfirmation, len(result.Writes), len(result.BlockedActions), result.BackupRoot, result.CaseRoot, result.RepoRoot, result.Pack, result.ProjectName); err != nil {
+		return err
+	}
+	for _, write := range result.Writes {
+		if _, err := fmt.Fprintf(out, "%s plan write：path=%s kind=%s action=%s source=%s target=%s backup=%s\n", result.Command, write.Path, write.Kind, write.Action, write.SourcePath, write.TargetPath, write.BackupPath); err != nil {
+			return err
+		}
+	}
+	if err := writeLifecycleBlockedActionsText(out, result.Command, "plan", result.BlockedActions); err != nil {
+		return err
+	}
+	return writeLifecycleNextStepsText(out, result.Command, "plan", result.NextSteps)
+}
+
+func writeCasebindWritesText(out io.Writer, command, scope string, writes []casebind.WritePlan) error {
+	for _, write := range writes {
+		if _, err := fmt.Fprintf(out, "%s %s write：path=%s kind=%s action=%s\n", command, scope, write.Path, write.Kind, write.Action); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeLifecycleBlockedActionsText(out io.Writer, command, scope string, actions []string) error {
+	for _, action := range actions {
+		if _, err := fmt.Fprintf(out, "%s %s blocked action：%s\n", command, scope, action); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeLifecycleNextStepsText(out io.Writer, command, scope string, steps []string) error {
+	for _, step := range steps {
+		if _, err := fmt.Fprintf(out, "%s %s next step：%s\n", command, scope, step); err != nil {
+			return err
 		}
 	}
 	return nil
