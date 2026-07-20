@@ -81,7 +81,10 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 		"reviewer intake orchestration：mode=manual-main-agent-intake dispatch=1/1 shardBefore=planned shardAfter=previewed",
 		"reviewer intake verification：applied=false",
 		"reviewer intake decision：applied=false",
-		"reviewer intake post-validation：valid=true",
+		"reviewer intake post-validation：valid=true overviewVerifications=0 overviewDecisions=0 doctorRows=",
+		"reviewer intake post-validation handoff：lane=main project=false executorAction=true",
+		"reviewer intake post-validation handoff queue：summary=total=",
+		"reviewer intake post-validation handoff queue current：state=",
 		"reviewer intake commander action：state=ready-for-reviewer-intake-apply",
 		"mission commander action queue：summary=total=2 unblocked=2 blocked=0 requiresReview=2 followUp=1 current=/rekit plan-subagents",
 		"mission commander action queue current：state=ready-for-reviewer-intake-apply source=reviewerIntake.previewed blocked=false requiresReview=true command=`/rekit plan-subagents",
@@ -108,6 +111,25 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	}
 	if applied.PostValidation.Overview.Sections.Verifications.Total != 1 || applied.PostValidation.Overview.Sections.Decisions.Total != 1 || applied.PostValidation.Handoff.Lane == nil || applied.PostValidation.Handoff.Lane.ID != packet.TargetLane {
 		t.Fatalf("post-review validation omitted ledger/handoff state: %+v", applied.PostValidation)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"plan-subagents reviewer intake：status=already-complete mutation=false applied=false readyForWriteback=true lane=main shard=shard-01",
+		"reviewer intake post-validation：valid=true overviewVerifications=1 overviewDecisions=1 doctorRows=",
+		"reviewer intake post-validation handoff：lane=main project=false executorAction=true",
+		"reviewer intake post-validation handoff queue：summary=total=",
+		"reviewer intake post-validation handoff queue current：state=",
+		"reviewer intake post-validation next action：state=ready-to-continue source=missionCommanderActions",
+		"reviewer intake commander action：state=reviewer-intake-already-complete",
+		"mission commander action queue current：state=ready-to-continue source=reviewerIntake.postValidation.missionCommanderActions",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("reviewer intake already-complete text output missing %q:\n%s", expected, out.String())
+		}
 	}
 	verificationLedger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
 	if err != nil {

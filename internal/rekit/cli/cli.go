@@ -1846,7 +1846,7 @@ func writePlanSubagentsReviewerIntakeText(out io.Writer, result subagents.Review
 		}
 	}
 	if result.PostValidation != nil {
-		if _, err := fmt.Fprintf(out, "reviewer intake post-validation：valid=%t\n", result.PostValidation.Valid); err != nil {
+		if err := writeReviewerIntakePostValidationText(out, *result.PostValidation); err != nil {
 			return err
 		}
 	}
@@ -1857,6 +1857,49 @@ func writePlanSubagentsReviewerIntakeText(out io.Writer, result subagents.Review
 		return err
 	}
 	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
+}
+
+func writeReviewerIntakePostValidationText(out io.Writer, validation subagents.ReviewerPostValidation) error {
+	if _, err := fmt.Fprintf(out, "reviewer intake post-validation：valid=%t overviewVerifications=%d overviewDecisions=%d doctorRows=%d\n", validation.Valid, validation.Overview.Sections.Verifications.Total, validation.Overview.Sections.Decisions.Total, len(validation.DoctorRows)); err != nil {
+		return err
+	}
+	lane := ""
+	if validation.Handoff.Lane != nil {
+		lane = validation.Handoff.Lane.ID
+	}
+	if lane != "" || validation.Handoff.ExecutorAction != nil || strings.TrimSpace(validation.Handoff.MissionCommanderActionQueue.Summary) != "" {
+		if _, err := fmt.Fprintf(out, "reviewer intake post-validation handoff：lane=%s project=%t executorAction=%t\n", lane, validation.Handoff.Project, validation.Handoff.ExecutorAction != nil); err != nil {
+			return err
+		}
+	}
+	queue := validation.Handoff.MissionCommanderActionQueue
+	if strings.TrimSpace(queue.Summary) != "" {
+		if _, err := fmt.Fprintf(out, "reviewer intake post-validation handoff queue：summary=%s\n", queue.Summary); err != nil {
+			return err
+		}
+		if queue.CurrentAction != nil {
+			item := *queue.CurrentAction
+			if _, err := fmt.Fprintf(out, "reviewer intake post-validation handoff queue current：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+				return err
+			}
+		}
+	}
+	for _, item := range validation.Handoff.MissionCommanderNextActions {
+		if _, err := fmt.Fprintf(out, "reviewer intake post-validation next action：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+			return err
+		}
+		for _, reason := range item.Reasons {
+			if _, err := fmt.Fprintf(out, "reviewer intake post-validation next action reason：%s\n", reason); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range item.Boundary {
+			if _, err := fmt.Fprintf(out, "reviewer intake post-validation next action boundary：%s\n", boundary); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
