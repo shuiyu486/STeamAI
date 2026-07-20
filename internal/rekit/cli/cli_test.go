@@ -5636,6 +5636,9 @@ func TestRunGateExecutionEvidenceTextOutputsNextActions(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"gate execution evidence：applied=true status=succeeded",
+		"gate execution evidence detail：subject=execution evidence for authorized debug summary=Recorded execution evidence for authorized debug gate target=target-alpha recordRequired=true reportPath=",
+		"gate execution evidence budget：runtimeSeconds=25 diskMB=0 requests=0",
+		"gate execution evidence outputRefs：workspace/main/debug/session-1/text-result.json",
 		"evidence commander action：state=ready-for-evidence-review primary=`/rekit handoff main`",
 		"mission commander next action：state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`",
 		"mission commander next action：state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=false requiresReview=true command=`/rekit overview`",

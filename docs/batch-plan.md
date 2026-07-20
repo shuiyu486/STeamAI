@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 437：adapter report validation valid sidecar text closure
+### Batch 438：execution evidence record text detail closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate 仍为既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation、durable docs；待 commit/push 与远程 release-gate inspection。
 
-目标：Batch 424/432/436 已让 `gate -ValidateExecutionReport -Format text` 输出 validation/follow-through/Mission Commander action queue/next actions 与 invalid repair hint details，但 valid sidecar path 仍未直接打印 normalized adapter report identity、actualBudget、output/evidence refs、boundary hits、escalation 与 summary。replacement executor 仍需解析 JSON 才能 review 已验证 sidecar 并准备 bounded observation record。本批把 valid sidecar review handoff 直接投影到 validation text path。
+目标：Batch 424/432/437 已让 adapter report contract/validation text 能把 execution sidecar handoff 投影给 replacement executor，但 `gate -Apply -GateEventId ... -ExecutionStatus ... -Format text` 的 actual record result 仍主要输出 applied/status、decision、follow-through、Mission Commander action queue 与 next actions。replacement executor 在刚写入 bounded observation evidence 后仍需解析 JSON 才能 review recorded observation 的 subject/summary/target、recordRequired、actualBudget、output/evidence refs、boundary hits、escalation 与 report path。本批把 execution evidence record detail 直接投影到 apply text path。
 
-边界：只增强 `gate -ValidateExecutionReport -Format text` 的 valid sidecar terminal handoff、focused CLI coverage 与 durable docs；不改变 JSON contract、adapter report validation semantics、authorized execution evidence write model、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；validation 仍是 read-only preflight，不执行 heavy-tool、不写 observation/authority/confirmed、不新增 PowerShell runtime logic。
+边界：只增强 `gate -Apply -GateEventId ... -ExecutionStatus ... -Format text` 的 execution evidence record terminal handoff、focused CLI coverage 与 durable docs；不改变 JSON contract、adapter report validation semantics、authorized execution evidence write model、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；record 仍只写 bounded observation evidence，不执行 heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- `gate -ValidateExecutionReport -Format text` 在 `valid=true` 且 sidecar 已解析时输出 `kind`、`adapterId`、`action`、`status`、`gateEventId` 与 `actualBudget=runtimeSeconds,diskMB,requests`。
-- valid sidecar text 继续按存在性输出 `outputRefs`、`evidenceRefs`、`boundaryHits`，并输出 `escalation` / `summary` review handoff，让 terminal executor 不必解析 JSON 即可审核 bounded outputs 与后续 record 条件。
-- CLI coverage 锁定 valid adapter report sidecar identity/outputRefs/summary text，以及既有 validation follow-through/action queue/next-action、no premature record/no observation/no authority/confirmed/no-heavy 边界。
+- execution evidence record text 现在输出 observation `subject`、`summary`、`target`、`recordRequired` 与 `executionReportPath`。
+- record text 继续输出 actual budget（runtimeSeconds、diskMB、requests）以及按存在性输出 `outputRefs`、`evidenceRefs`、`boundaryHits` 与 `escalation`，让 terminal executor 不必解析 JSON 即可 review evidence payload 与 no-replay boundary。
+- CLI coverage 锁定 execution evidence detail/budget/output refs text，以及既有 evidence commander action/action queue/next-action、no replay/no authority/confirmed/no-heavy 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunGateAdapterReportTextOutputsNextActions' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `62c1426 Add adapter validation sidecar text`；远程 release-gate run `29723604285` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunGateExecutionEvidenceTextOutputsNextActions|TestRunGateAdapterReportTextOutputsNextActions' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待完成；远程 release-gate 仍按既有 GitHub Actions runner/billing blocker 处理，不能在实际 jobs 通过前声明远程 CI green。
 
-上一批摘要：Batch 436 已完成 adapter report validation repair hint text detail closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 437 已完成 adapter report validation valid sidecar text closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

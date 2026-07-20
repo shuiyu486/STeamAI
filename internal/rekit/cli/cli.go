@@ -2396,12 +2396,45 @@ func writeGateAdapterReportValidationText(out io.Writer, validation gate.Adapter
 	return writeMissionCommanderNextActionsText(out, validation.MissionCommanderNextActions)
 }
 
+func writeGateExecutionEvidenceDetailText(out io.Writer, evidence gate.ExecutionEvidencePreview) error {
+	if _, err := fmt.Fprintf(out, "gate execution evidence detail：subject=%s summary=%s target=%s recordRequired=%t reportPath=%s\n", evidence.Subject, evidence.Summary, evidence.Target, evidence.Execution.RecordRequired, evidence.Execution.ExecutionReportPath); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "gate execution evidence budget：runtimeSeconds=%d diskMB=%d requests=%d\n", evidence.Execution.ActualBudget.RuntimeSeconds, evidence.Execution.ActualBudget.DiskMB, evidence.Execution.ActualBudget.Requests); err != nil {
+		return err
+	}
+	if len(evidence.Execution.OutputRefs) > 0 {
+		if _, err := fmt.Fprintf(out, "gate execution evidence outputRefs：%s\n", strings.Join(evidence.Execution.OutputRefs, ",")); err != nil {
+			return err
+		}
+	}
+	if len(evidence.EvidenceRefs) > 0 {
+		if _, err := fmt.Fprintf(out, "gate execution evidence evidenceRefs：%s\n", strings.Join(evidence.EvidenceRefs, ",")); err != nil {
+			return err
+		}
+	}
+	if len(evidence.Execution.BoundaryHits) > 0 {
+		if _, err := fmt.Fprintf(out, "gate execution evidence boundaryHits：%s\n", strings.Join(evidence.Execution.BoundaryHits, ",")); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(evidence.Execution.Escalation) != "" {
+		if _, err := fmt.Fprintf(out, "gate execution evidence escalation：%s\n", evidence.Execution.Escalation); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeGateApplyText(out io.Writer, result gate.ApplyResult) error {
 	if result.ExecutionEvidence != nil {
 		if _, err := fmt.Fprintf(out, "gate execution evidence：applied=%t status=%s eventId=%s path=%s gateEventId=%s\n", result.Applied, result.ExecutionEvidence.Execution.Status, result.EventID, result.Path, result.ExecutionEvidence.Execution.GateEventID); err != nil {
 			return err
 		}
 		if _, err := fmt.Fprintf(out, "gate decision：authorization=%s action=%s\n", result.ExecutionEvidence.Execution.Authorization, result.ExecutionEvidence.Gate.Action); err != nil {
+			return err
+		}
+		if err := writeGateExecutionEvidenceDetailText(out, *result.ExecutionEvidence); err != nil {
 			return err
 		}
 		if err := writeAuthorizedExecutionFollowThroughText(out, "execution evidence", result.AuthorizedExecutionFollowThrough); err != nil {
