@@ -419,6 +419,7 @@ func TestRecordExecutionWritesObservationForAuthorizedGate(t *testing.T) {
 	if !gateContainsSubstring(result.NextSteps, "/rekit handoff main") || !gateContainsSubstring(result.NextSteps, "Review output refs") {
 		t.Fatalf("execution evidence next steps omitted handoff/review guidance: %+v", result.NextSteps)
 	}
+	assertGateActionQueue(t, result.MissionCommanderActionQueue, 5, 5, 0, 3, 3, "/rekit handoff main")
 	observed := readSingleExecutionEvidence(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if observed.EventID != result.EventID || observed.Execution.GateEventID != authorized.EventID || observed.Gate.Authorization.Decision != "preauthorized" {
 		t.Fatalf("observation ledger mismatch: %+v", observed)
@@ -455,6 +456,7 @@ func TestRecordExecutionDuplicateDoesNotAppend(t *testing.T) {
 	if len(second.MissionCommanderNextActions) != 2 || second.MissionCommanderNextActions[0].State != "evidence-already-recorded" || second.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || second.MissionCommanderNextActions[0].Command != "/rekit handoff main" || second.MissionCommanderNextActions[1].Command != "/rekit overview" || gateNextActionContainsCommand(second.MissionCommanderNextActions, "/rekit continue") || gateNextActionContainsSource(second.MissionCommanderNextActions, "missionCommanderActions") || !gateNextActionBoundaryContains(second.MissionCommanderNextActions, "did not append observation evidence") {
 		t.Fatalf("duplicate execution evidence next actions should be review-only and idempotent: %+v", second.MissionCommanderNextActions)
 	}
+	assertGateActionQueue(t, second.MissionCommanderActionQueue, 2, 2, 0, 2, 1, "/rekit handoff main")
 	lines := readGateLines(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if len(lines) != 1 {
 		t.Fatalf("duplicate execution evidence wrote %d lines, want 1: %q", len(lines), lines)
@@ -539,6 +541,7 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if len(contract.MissionCommanderNextActions) != 3 || contract.MissionCommanderNextActions[0].State != "needs-adapter-report-validation" || contract.MissionCommanderNextActions[0].Source != "adapterReportContract.missionCommanderAction" || contract.MissionCommanderNextActions[0].Command != wantValidate || contract.MissionCommanderNextActions[1].Command != wantRecord || !contract.MissionCommanderNextActions[1].Blocked || contract.MissionCommanderNextActions[2].Command != "/rekit handoff main" || !gateNextActionBoundaryContains(contract.MissionCommanderNextActions, "do not record evidence until validation returns valid=true") || !gateNextActionBoundaryContains(contract.MissionCommanderNextActions, "replace <executor-id>") {
 		t.Fatalf("adapter report contract omitted Mission Commander next actions: %+v", contract.MissionCommanderNextActions)
 	}
+	assertGateActionQueue(t, contract.MissionCommanderActionQueue, 3, 2, 1, 3, 2, wantValidate)
 	if !gateContainsSubstring(contract.NextSteps, wantValidate) || !gateContainsSubstring(contract.NextSteps, wantRecord) || !gateContainsSubstring(contract.NextSteps, "valid=true") || !gateContainsSubstring(contract.NextSteps, "never executes the heavy tool") {
 		t.Fatalf("adapter report contract omitted concrete Mission Commander next steps: %+v", contract.NextSteps)
 	}
@@ -686,6 +689,7 @@ func TestValidateAdapterExecutionReportReadOnlyPreflight(t *testing.T) {
 	if len(validation.MissionCommanderNextActions) != 2 || validation.MissionCommanderNextActions[0].State != "ready-to-record-evidence" || validation.MissionCommanderNextActions[0].Source != "adapterReportValidation.missionCommanderAction" || validation.MissionCommanderNextActions[0].Command != wantRecord || validation.MissionCommanderNextActions[1].Command != "/rekit handoff main" || !gateNextActionBoundaryContains(validation.MissionCommanderNextActions, "replace <executor-id>") {
 		t.Fatalf("valid adapter report validation omitted record next actions: %+v", validation.MissionCommanderNextActions)
 	}
+	assertGateActionQueue(t, validation.MissionCommanderActionQueue, 2, 2, 0, 2, 1, wantRecord)
 	if !gateContainsSubstring(commander.Boundary, "read-only") || !gateContainsSubstring(commander.Boundary, "bounded observation evidence") || !gateContainsSubstring(commander.Boundary, "never executes the heavy tool") || !gateContainsSubstring(validation.NextSteps, wantRecord) {
 		t.Fatalf("valid adapter report validation omitted Mission Commander boundaries: commander=%+v next=%+v", commander, validation.NextSteps)
 	}
@@ -751,6 +755,7 @@ func TestValidateAdapterExecutionReportMissingPathExposesMissionCommanderRepair(
 	if len(validation.MissionCommanderNextActions) != 2 || validation.MissionCommanderNextActions[0].Source != "adapterReportValidation.repairHints" || validation.MissionCommanderNextActions[0].Command != "provide-execution-report-path" || validation.MissionCommanderNextActions[1].Command != wantValidate || !gateNextActionBoundaryContains(validation.MissionCommanderNextActions, "do not record evidence until validation returns valid=true") {
 		t.Fatalf("missing-path validation omitted repair next actions: %+v", validation.MissionCommanderNextActions)
 	}
+	assertGateActionQueue(t, validation.MissionCommanderActionQueue, 2, 2, 0, 2, 0, "provide-execution-report-path")
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
 
@@ -794,6 +799,7 @@ func TestValidateAdapterExecutionReportReturnsInvalidEnvelopeReadOnly(t *testing
 	if len(validation.MissionCommanderNextActions) != 2 || validation.MissionCommanderNextActions[0].Source != "adapterReportValidation.repairHints" || validation.MissionCommanderNextActions[0].Command != "add-boundary-marker" || validation.MissionCommanderNextActions[1].Command != wantValidate || !gateNextActionBoundaryContains(validation.MissionCommanderNextActions, "do not record evidence until validation returns valid=true") {
 		t.Fatalf("invalid adapter report validation omitted repair next actions: %+v", validation.MissionCommanderNextActions)
 	}
+	assertGateActionQueue(t, validation.MissionCommanderActionQueue, 2, 2, 0, 2, 0, "add-boundary-marker")
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
 
@@ -1532,6 +1538,13 @@ func gateNextActionBoundaryContains(items []mission.MissionCommanderNextActionIt
 		}
 	}
 	return false
+}
+
+func assertGateActionQueue(t *testing.T, queue mission.MissionCommanderActionQueue, total, unblocked, blocked, requiresReview, followUp int, currentCommand string) {
+	t.Helper()
+	if queue.Counts.Total != total || queue.Counts.Unblocked != unblocked || queue.Counts.Blocked != blocked || queue.Counts.RequiresReview != requiresReview || queue.Counts.FollowUp != followUp || queue.CurrentAction == nil || queue.CurrentAction.Command != currentCommand || !strings.Contains(queue.Summary, "current="+currentCommand) {
+		t.Fatalf("Mission Commander action queue drifted: %+v", queue)
+	}
 }
 
 func gateContainsSubstring(items []string, want string) bool {

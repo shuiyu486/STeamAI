@@ -16,24 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 420：Mission Commander overview action queue closure
+### Batch 421：Authorized execution adapter/report action queue closure
 
-状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、focused/affected package validation、full local validation 与 durable docs 更新；commit/push 与远程 release-gate inspection 待完成。
 
-目标：Batch 397/399/404 已让 `overview` 暴露 Mission Commander action index、execution evidence review 与 ordered `missionCommanderNextActions[]`，后续 start/continue/handoff/gate/reconcile/note/reviewer/promote 也持续向这个 ordered next-action list 收口；但替换 executor 在 overview 入口仍要手工扫描整张 next-action list，计算 current action、unblocked/blocked/review-required/follow-up 数量与分桶，才能决定“现在先做什么”。本批把 overview 的 Mission Commander next-action list 消费状态收口成可直接读的 action queue。
+目标：Batch 379/392/411/412 已让 `authorized-gate` adapter report contract、sidecar validation、execution evidence record 与 duplicate replay 输出 Mission Commander action / ordered `missionCommanderNextActions[]`；Batch 420 又让 `overview` 把 next-action list 汇总成可直接消费的 action queue。但 gate adapter/report consumption path 仍要求主 Agent / replacement executor 手工扫描 `missionCommanderNextActions[]` 才能得到 current/unblocked/blocked/review/follow-up queue。本批把 queue builder 提升为 `mission` package 共享能力，并让 adapter report contract、validation、record 与 duplicate replay 直接投影 queue。
 
-边界：只增强 `overview` JSON/text projection、CLI tests 与 durable docs；不改变 mission next-action ordering、lane executor action builder、execution evidence review semantics、overview 初始化行为、case durable schema、sync/promote review-first、公共 façade 删除门禁或远程 CI blocker 状态；overview 仍只读既有 case state（缺 board 初始化除外），不执行 continue/handoff/reconcile/gate，不执行 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
+边界：只增强 `mission` shared queue helper、`overview` 复用、gate adapter/report/execution evidence JSON/text projection、CLI/package tests 与 durable docs；不改变 Mission Commander next-action ordering、authorized-gate write model、adapter report sidecar validation rules、execution observation evidence write model、lane executor action builder、case durable schema、sync/promote review-first、公共 façade 删除门禁或远程 CI blocker 状态；`gate` 仍不执行 adapter/heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- `overview -Format json` 新增 `missionCommanderActionQueue`，在保留既有 `missionCommanderNextActions[]` 原始顺序的同时，输出 `summary`、`counts`、`currentAction`、`unblockedActions[]`、`blockedActions[]`、`reviewRequiredActions[]` 与 `followUpActions[]`。
-- queue 的 `currentAction` 优先选择第一个 unblocked non-follow-up action；若当前只有 follow-up 或 blocked actions，则 fail-open 到下一条可见 action，避免空队列误导主 Agent。
-- overview text 新增 `Mission Commander action queue` section，直接打印 summary/counts/current，避免文本/default 工作流回查 JSON 或手工计算当前 action。
-- CLI coverage 锁定 execution evidence review 优先于 blocked lane reconcile、current action 选择、blocked/review/follow-up counts、JSON/text queue 输出、overview read-only/no authority/confirmed/no-heavy-tool/no PowerShell runtime logic 边界。
+- `mission` package 新增共享 `MissionCommanderActionQueue` / `MissionCommanderActionQueueCounts` 与 `MissionCommanderActionQueueFor(...)`，统一 summary、counts、currentAction、unblocked/blocked/reviewRequired/followUp buckets 语义。
+- `overview` 改为复用共享 queue builder，避免 overview/gate 维护并行 action queue 实现。
+- `gate -ExecutionReportContract -Format json`、`gate -ValidateExecutionReport -Format json` 与 execution evidence `gate -Apply -GateEventId ... -Format json` record/duplicate result 新增 `missionCommanderActionQueue`。
+- gate adapter/report/execution evidence text 输出新增 queue summary/counts/current，先给出当前 Mission Commander action queue，再列完整 `mission commander next action` lines。
+- coverage 锁定 contract blocked record handoff、valid report record handoff、missing/invalid report repair guidance、normal execution evidence review、duplicate `evidence-already-recorded` replay 与 shared queue counts/current/follow-up semantics。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunOverview" -count=1`、affected package `go test ./internal/rekit/overview ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `e9c8060 Add overview commander action queue`；远程 release-gate run `29710604293` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/mission ./internal/rekit/gate ./internal/rekit/cli -run "TestMissionCommanderNextActionsIncludeLaneFollowUps|TestAdapterReportContractDescribesAuthorizedGateBoundaries|TestValidateAdapterExecutionReport(ReadOnlyPreflight|MissingPathExposesMissionCommanderRepair|ReturnsInvalidEnvelopeReadOnly)|TestRecordExecution(WritesObservationForAuthorizedGate|DuplicateDoesNotAppend)|TestRunGate(ExecutionEvidenceTextOutputsNextActions|AdapterReportTextOutputsNextActions)|TestRunGoGateApplyAppendsDuplicateExecutionEvidenceReviewOnly" -count=1`、affected package `go test ./internal/rekit/overview ./internal/rekit/mission ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。
 
-上一批摘要：Batch 419 已完成 gate request Mission Commander top-level next-action projection closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 420 已完成 Mission Commander overview action queue closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

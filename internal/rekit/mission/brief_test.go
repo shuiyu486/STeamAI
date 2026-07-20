@@ -164,6 +164,10 @@ func TestMissionCommanderNextActionsIncludeLaneFollowUps(t *testing.T) {
 	}) {
 		t.Fatalf("blocked lane continue follow-up should remain blocked with reason/boundary: %+v", items)
 	}
+	queue := MissionCommanderActionQueueFor(items)
+	if queue.Summary != "total=5 unblocked=2 blocked=3 requiresReview=3 followUp=3 current=/rekit continue main" || queue.Counts.Total != 5 || queue.Counts.Unblocked != 2 || queue.Counts.Blocked != 3 || queue.Counts.RequiresReview != 3 || queue.Counts.FollowUp != 3 || queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit continue main" || len(queue.UnblockedActions) != 2 || len(queue.BlockedActions) != 3 || len(queue.ReviewRequiredActions) != 3 || len(queue.FollowUpActions) != 3 {
+		t.Fatalf("Mission Commander action queue drifted: %+v", queue)
+	}
 }
 
 func TestFactsWithEventCopiesAndRoutesBlockerKinds(t *testing.T) {

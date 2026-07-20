@@ -96,6 +96,24 @@ type MissionCommanderNextActionItem struct {
 	Boundary       []string `json:"boundary,omitempty"`
 }
 
+type MissionCommanderActionQueue struct {
+	Summary               string                            `json:"summary"`
+	Counts                MissionCommanderActionQueueCounts `json:"counts"`
+	CurrentAction         *MissionCommanderNextActionItem   `json:"currentAction,omitempty"`
+	UnblockedActions      []MissionCommanderNextActionItem  `json:"unblockedActions,omitempty"`
+	BlockedActions        []MissionCommanderNextActionItem  `json:"blockedActions,omitempty"`
+	ReviewRequiredActions []MissionCommanderNextActionItem  `json:"reviewRequiredActions,omitempty"`
+	FollowUpActions       []MissionCommanderNextActionItem  `json:"followUpActions,omitempty"`
+}
+
+type MissionCommanderActionQueueCounts struct {
+	Total          int `json:"total"`
+	Unblocked      int `json:"unblocked"`
+	Blocked        int `json:"blocked"`
+	RequiresReview int `json:"requiresReview"`
+	FollowUp       int `json:"followUp"`
+}
+
 type ExecutionEvidenceReviewItem struct {
 	EventID                string                 `json:"eventId,omitempty"`
 	GateEventID            string                 `json:"gateEventId,omitempty"`
@@ -347,6 +365,64 @@ func UniqueCommanderNextActions(items []MissionCommanderNextActionItem) []Missio
 		out = append(out, item)
 	}
 	return out
+}
+
+func MissionCommanderActionQueueFor(items []MissionCommanderNextActionItem) MissionCommanderActionQueue {
+	queue := MissionCommanderActionQueue{}
+	for _, item := range items {
+		queue.Counts.Total++
+		if item.Blocked {
+			queue.Counts.Blocked++
+			queue.BlockedActions = append(queue.BlockedActions, item)
+		} else {
+			queue.Counts.Unblocked++
+			queue.UnblockedActions = append(queue.UnblockedActions, item)
+		}
+		if item.RequiresReview {
+			queue.Counts.RequiresReview++
+			queue.ReviewRequiredActions = append(queue.ReviewRequiredActions, item)
+		}
+		if MissionCommanderNextActionIsFollowUp(item) {
+			queue.Counts.FollowUp++
+			queue.FollowUpActions = append(queue.FollowUpActions, item)
+		}
+	}
+	if current, ok := firstMissionCommanderCurrentAction(queue.UnblockedActions); ok {
+		queue.CurrentAction = missionCommanderNextActionPtr(current)
+	} else if len(items) > 0 {
+		queue.CurrentAction = missionCommanderNextActionPtr(items[0])
+	}
+	queue.Summary = MissionCommanderActionQueueSummary(queue)
+	return queue
+}
+
+func MissionCommanderNextActionIsFollowUp(item MissionCommanderNextActionItem) bool {
+	return strings.Contains(item.Source, ".followUp")
+}
+
+func MissionCommanderActionQueueSummary(queue MissionCommanderActionQueue) string {
+	current := "none"
+	if queue.CurrentAction != nil {
+		current = queue.CurrentAction.Command
+	}
+	return fmt.Sprintf("total=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d current=%s", queue.Counts.Total, queue.Counts.Unblocked, queue.Counts.Blocked, queue.Counts.RequiresReview, queue.Counts.FollowUp, current)
+}
+
+func firstMissionCommanderCurrentAction(items []MissionCommanderNextActionItem) (MissionCommanderNextActionItem, bool) {
+	for _, item := range items {
+		if !MissionCommanderNextActionIsFollowUp(item) {
+			return item, true
+		}
+	}
+	if len(items) == 0 {
+		return MissionCommanderNextActionItem{}, false
+	}
+	return items[0], true
+}
+
+func missionCommanderNextActionPtr(item MissionCommanderNextActionItem) *MissionCommanderNextActionItem {
+	copy := item
+	return &copy
 }
 
 func LaneExecutorActionSnapshots(lanes []BoardLane, facts Facts, brief Brief) []LaneExecutorActionSnapshot {

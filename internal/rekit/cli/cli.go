@@ -1489,6 +1489,22 @@ func writeMissionCommanderNextActionsText(out io.Writer, items []mission.Mission
 	return nil
 }
 
+func writeMissionCommanderActionQueueText(out io.Writer, queue mission.MissionCommanderActionQueue) error {
+	if _, err := fmt.Fprintf(out, "mission commander action queue：summary=%s\n", queue.Summary); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "mission commander action queue counts：total=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d\n", queue.Counts.Total, queue.Counts.Unblocked, queue.Counts.Blocked, queue.Counts.RequiresReview, queue.Counts.FollowUp); err != nil {
+		return err
+	}
+	if queue.CurrentAction == nil {
+		_, err := fmt.Fprintln(out, "mission commander action queue current：none")
+		return err
+	}
+	item := *queue.CurrentAction
+	_, err := fmt.Fprintf(out, "mission commander action queue current：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command)
+	return err
+}
+
 func writeStartExecutorActionText(out io.Writer, result workstream.StartResult) error {
 	action := result.ExecutorAction
 	if _, err := fmt.Fprintf(out, "executor action：blocked=%t ready=%t pendingGates=%d openInterventions=%d openDecisions=%d\n", action.Blocked, action.Ready, action.PendingGates, action.OpenInterventions, action.OpenDecisions); err != nil {
@@ -1892,6 +1908,9 @@ func writeGateAdapterReportContractText(out io.Writer, contract gate.AdapterExec
 	if err := writeMissionCommanderActionText(out, "adapter report commander action", mission.ExecutorAction{MissionCommanderAction: contract.MissionCommanderAction}); err != nil {
 		return err
 	}
+	if err := writeMissionCommanderActionQueueText(out, contract.MissionCommanderActionQueue); err != nil {
+		return err
+	}
 	return writeMissionCommanderNextActionsText(out, contract.MissionCommanderNextActions)
 }
 
@@ -1916,6 +1935,9 @@ func writeGateAdapterReportValidationText(out io.Writer, validation gate.Adapter
 	if err := writeMissionCommanderActionText(out, "adapter report validation commander action", mission.ExecutorAction{MissionCommanderAction: validation.MissionCommanderAction}); err != nil {
 		return err
 	}
+	if err := writeMissionCommanderActionQueueText(out, validation.MissionCommanderActionQueue); err != nil {
+		return err
+	}
 	return writeMissionCommanderNextActionsText(out, validation.MissionCommanderNextActions)
 }
 
@@ -1928,6 +1950,9 @@ func writeGateApplyText(out io.Writer, result gate.ApplyResult) error {
 			return err
 		}
 		if err := writeMissionCommanderActionText(out, "evidence commander action", mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}); err != nil {
+			return err
+		}
+		if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
 			return err
 		}
 		if err := writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions); err != nil {

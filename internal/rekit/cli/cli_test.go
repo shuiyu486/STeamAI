@@ -5432,11 +5432,12 @@ func TestRunGateDuplicateExecutionEvidenceProjectsIdempotentNextActions(t *testi
 		t.Fatal(err)
 	}
 	var duplicate struct {
-		Applied                     bool                             `json:"applied"`
-		Reason                      string                           `json:"reason"`
-		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
-		ExecutionEvidenceReview     []executionEvidenceReviewItem    `json:"executionEvidenceReview"`
-		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		Applied                     bool                                `json:"applied"`
+		Reason                      string                              `json:"reason"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &duplicate); err != nil {
 		t.Fatalf("duplicate execution evidence stdout is not JSON: %v\n%s", err, out.String())
@@ -5446,6 +5447,9 @@ func TestRunGateDuplicateExecutionEvidenceProjectsIdempotentNextActions(t *testi
 	}
 	if len(duplicate.ExecutionEvidenceReview) != 1 || duplicate.ExecutionEvidenceReview[0].MissionCommanderAction.State != "evidence-already-recorded" || len(duplicate.MissionCommanderNextActions) != 2 || duplicate.MissionCommanderNextActions[0].State != "evidence-already-recorded" || duplicate.MissionCommanderNextActions[0].Command != "/rekit handoff main" || duplicate.MissionCommanderNextActions[1].Command != "/rekit overview" || cliNextActionContainsCommand(duplicate.MissionCommanderNextActions, "/rekit continue") || cliNextActionContainsSource(duplicate.MissionCommanderNextActions, "missionCommanderActions") || !cliNextActionBoundaryContains(duplicate.MissionCommanderNextActions, "did not append observation evidence") {
 		t.Fatalf("duplicate execution evidence next actions should be review-only and idempotent: review=%+v next=%+v", duplicate.ExecutionEvidenceReview, duplicate.MissionCommanderNextActions)
+	}
+	if duplicate.MissionCommanderActionQueue.Summary != "total=2 unblocked=2 blocked=0 requiresReview=2 followUp=1 current=/rekit handoff main" || duplicate.MissionCommanderActionQueue.CurrentAction == nil || duplicate.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff main" || len(duplicate.MissionCommanderActionQueue.FollowUpActions) != 1 {
+		t.Fatalf("duplicate execution evidence missing action queue: %+v", duplicate.MissionCommanderActionQueue)
 	}
 
 	out.Reset()
@@ -5458,6 +5462,8 @@ func TestRunGateDuplicateExecutionEvidenceProjectsIdempotentNextActions(t *testi
 		"gate execution evidence：applied=false status=succeeded",
 		"evidence commander action：state=evidence-already-recorded primary=`/rekit handoff main`",
 		"evidence commander action boundary：duplicate record did not append observation evidence",
+		"mission commander action queue：summary=total=2 unblocked=2 blocked=0 requiresReview=2 followUp=1 current=/rekit handoff main",
+		"mission commander action queue current：state=evidence-already-recorded source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`",
 		"mission commander next action：state=evidence-already-recorded source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`",
 		"mission commander next action：state=evidence-already-recorded source=executionEvidenceReview.followUp blocked=false requiresReview=true command=`/rekit overview`",
 	} {
@@ -5526,6 +5532,8 @@ func TestRunGateExecutionEvidenceTextOutputsNextActions(t *testing.T) {
 		"evidence commander action：state=ready-for-evidence-review primary=`/rekit handoff main`",
 		"mission commander next action：state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`",
 		"mission commander next action：state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=false requiresReview=true command=`/rekit overview`",
+		"mission commander action queue：summary=total=5 unblocked=5 blocked=0 requiresReview=3 followUp=3 current=/rekit handoff main",
+		"mission commander action queue current：state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`",
 		"mission commander next action：state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=false requiresReview=true command=`/rekit continue main -WhatIf`",
 		"mission commander next action：state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main`",
 		"mission commander next action boundary：observation evidence is already recorded; do not replay heavy tool",
@@ -5595,6 +5603,8 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"gate adapter report validate command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath " + wantReportPath + " -Format json",
 		"gate adapter report record command：rekit -Command gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath " + wantReportPath + " -Actor <executor-id> -Format json",
 		"adapter report commander action：state=needs-adapter-report-validation primary=`" + wantValidate + "`",
+		"mission commander action queue：summary=total=3 unblocked=2 blocked=1 requiresReview=3 followUp=2 current=" + wantValidate,
+		"mission commander action queue current：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantValidate + "`",
 		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantValidate + "`",
 		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction.followUp blocked=true requiresReview=true command=`" + wantRecord + "`",
 		"mission commander next action boundary：do not record evidence until validation returns valid=true",
@@ -5617,6 +5627,8 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 	for _, expected := range []string{
 		"gate adapter report validation：valid=true gateEventId=" + applied.EventID + " reportPath=" + wantReportPath + " mutation=false applied=false",
 		"adapter report validation commander action：state=ready-to-record-evidence primary=`" + wantRecord + "`",
+		"mission commander action queue：summary=total=2 unblocked=2 blocked=0 requiresReview=2 followUp=1 current=" + wantRecord,
+		"mission commander action queue current：state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction blocked=false requiresReview=true command=`" + wantRecord + "`",
 		"mission commander next action：state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction blocked=false requiresReview=true command=`" + wantRecord + "`",
 		"mission commander next action：state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction.followUp blocked=false requiresReview=true command=`/rekit handoff main`",
 		"mission commander next action reason：validation returned valid=true",
@@ -7123,6 +7135,22 @@ type missionCommanderNextActionItem struct {
 	RequiresReview bool     `json:"requiresReview"`
 	Reasons        []string `json:"reasons"`
 	Boundary       []string `json:"boundary"`
+}
+
+type missionCommanderActionQueueSnapshot struct {
+	Summary string `json:"summary"`
+	Counts  struct {
+		Total          int `json:"total"`
+		Unblocked      int `json:"unblocked"`
+		Blocked        int `json:"blocked"`
+		RequiresReview int `json:"requiresReview"`
+		FollowUp       int `json:"followUp"`
+	} `json:"counts"`
+	CurrentAction         *missionCommanderNextActionItem  `json:"currentAction"`
+	UnblockedActions      []missionCommanderNextActionItem `json:"unblockedActions"`
+	BlockedActions        []missionCommanderNextActionItem `json:"blockedActions"`
+	ReviewRequiredActions []missionCommanderNextActionItem `json:"reviewRequiredActions"`
+	FollowUpActions       []missionCommanderNextActionItem `json:"followUpActions"`
 }
 
 type missionBrief struct {

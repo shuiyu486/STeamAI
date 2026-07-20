@@ -159,6 +159,7 @@ type AdapterExecutionReportContract struct {
 	LiveValidation              AdapterReportLiveValidation              `json:"liveValidation"`
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	NextSteps                   []string                                 `json:"nextSteps,omitempty"`
 }
 
@@ -264,6 +265,7 @@ type AdapterExecutionReportValidation struct {
 	Contract                    AdapterExecutionReportContract           `json:"contract"`
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	NextSteps                   []string                                 `json:"nextSteps"`
 }
 
@@ -530,6 +532,7 @@ type ApplyResult struct {
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	ExecutionEvidenceReview     []mission.ExecutionEvidenceReviewItem    `json:"executionEvidenceReview,omitempty"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	NextSteps                   []string                                 `json:"nextSteps"`
 }
 
@@ -634,9 +637,11 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 		if preview.Gate.Authorization.Decision == autonomy.DecisionPreauthorized {
 			result.MissionCommanderAction = gateAuthorizedRecordedCommanderAction(pack, preview, true)
 			result.MissionCommanderNextActions = gateRequestMissionCommanderNextActions(preview.Lane, mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}, true, true)
+			result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 		} else {
 			result.MissionCommanderAction = result.ExecutorAction.MissionCommanderAction
 			result.MissionCommanderNextActions = gateRequestMissionCommanderNextActions(preview.Lane, result.ExecutorAction, false, true)
+			result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 		}
 		result.Reason = "duplicate eventId"
 		return result, nil
@@ -650,9 +655,11 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 	if preview.Gate.Authorization.Decision == autonomy.DecisionPreauthorized {
 		result.MissionCommanderAction = gateAuthorizedRecordedCommanderAction(pack, preview, false)
 		result.MissionCommanderNextActions = gateRequestMissionCommanderNextActions(preview.Lane, mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}, true, true)
+		result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	} else {
 		result.MissionCommanderAction = result.ExecutorAction.MissionCommanderAction
 		result.MissionCommanderNextActions = gateRequestMissionCommanderNextActions(preview.Lane, result.ExecutorAction, false, true)
+		result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	}
 	return result, nil
 }
@@ -702,6 +709,7 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 		result.MissionCommanderAction = executionCommanderAction(execution, result.Applied, true)
 		result.ExecutionEvidenceReview = gateDuplicateExecutionEvidenceReviewFromObservation(execution, result.MissionCommanderAction)
 		result.MissionCommanderNextActions = gateMissionCommanderNextActions(execution.Lane, mission.ExecutorAction{}, result.ExecutionEvidenceReview)
+		result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
@@ -714,6 +722,7 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 	result.MissionCommanderAction = executionCommanderAction(execution, result.Applied, false)
 	result.ExecutionEvidenceReview = gateExecutionEvidenceReviewFromObservation(execution)
 	result.MissionCommanderNextActions = gateMissionCommanderNextActions(execution.Lane, result.ExecutorAction, result.ExecutionEvidenceReview)
+	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	return result, nil
 }
 
@@ -791,6 +800,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.RepairHints = adapterReportRepairHints(gateEvent, validation.FailureCode, validation.FailureStage)
 		validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, false, validation.RepairHints)
 		validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, false, validation.RepairHints)
+		validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		return validation, nil
 	}
@@ -801,12 +811,14 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.RepairHints = adapterReportMissingPathRepairHints(gateEvent)
 		validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, false, validation.RepairHints)
 		validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, false, validation.RepairHints)
+		validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		return validation, nil
 	}
 	validation.Valid = true
 	validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, true, nil)
 	validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, true, nil)
+	validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
 	validation.NextSteps = adapterReportValidationNextSteps(pack, gateEvent, validation.ReportPath)
 	return validation, nil
 }
@@ -845,7 +857,7 @@ func findAuthorizedGateEvent(caseRoot, gateEventID string) (EventPreview, error)
 func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, m *manifest.Manifest) AdapterExecutionReportContract {
 	liveValidation := adapterReportLiveValidation(m, pack, event)
 	commander := adapterReportContractCommanderAction(event, pack, liveValidation)
-	return AdapterExecutionReportContract{
+	contract := AdapterExecutionReportContract{
 		SchemaVersion:               1,
 		Command:                     "gate",
 		Kind:                        "adapter-execution-report-contract",
@@ -885,6 +897,8 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, 
 		MissionCommanderNextActions: adapterReportContractCommanderNextActions(event, commander),
 		NextSteps:                   adapterReportContractNextSteps(pack, event, liveValidation),
 	}
+	contract.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(contract.MissionCommanderNextActions)
+	return contract
 }
 
 func adapterReportContractCommanderAction(event EventPreview, pack string, liveValidation AdapterReportLiveValidation) mission.MissionCommanderAction {
