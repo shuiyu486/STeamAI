@@ -5742,6 +5742,9 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"gate adapter report validation：valid=true gateEventId=" + applied.EventID + " reportPath=" + wantReportPath + " mutation=false applied=false",
+		"gate adapter report sidecar：kind=adapter-execution-report adapterId=text-cli-adapter action=debug status=succeeded gateEventId=" + applied.EventID + " actualBudget=runtimeSeconds=20,diskMB=32,requests=1",
+		"gate adapter report sidecar outputRefs：workspace/main/debug/session-1/result.json",
+		"gate adapter report sidecar summary：escalation= summary=Adapter report from text output test",
 		"adapter report validation follow-through：state=ready-to-record-evidence gateEventId=" + applied.EventID + " reportPath=" + wantReportPath + " outcomes=1",
 		"adapter report validation follow-through outcome：name=valid-report-record state=ready-to-record-evidence command=`" + wantRecord + "`",
 		"adapter report validation commander action：state=ready-to-record-evidence primary=`" + wantRecord + "`",

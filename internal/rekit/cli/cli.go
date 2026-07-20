@@ -2353,6 +2353,32 @@ func writeGateAdapterReportValidationText(out io.Writer, validation gate.Adapter
 			return err
 		}
 	}
+	if validation.Report != nil {
+		report := validation.Report
+		if _, err := fmt.Fprintf(out, "gate adapter report sidecar：kind=%s adapterId=%s action=%s status=%s gateEventId=%s actualBudget=runtimeSeconds=%d,diskMB=%d,requests=%d\n", report.Kind, report.AdapterID, report.Action, report.Status, report.GateEventID, report.ActualBudget.RuntimeSeconds, report.ActualBudget.DiskMB, report.ActualBudget.Requests); err != nil {
+			return err
+		}
+		if len(report.OutputRefs) > 0 {
+			if _, err := fmt.Fprintf(out, "gate adapter report sidecar outputRefs：%s\n", strings.Join(report.OutputRefs, ",")); err != nil {
+				return err
+			}
+		}
+		if len(report.EvidenceRefs) > 0 {
+			if _, err := fmt.Fprintf(out, "gate adapter report sidecar evidenceRefs：%s\n", strings.Join(report.EvidenceRefs, ",")); err != nil {
+				return err
+			}
+		}
+		if len(report.BoundaryHits) > 0 {
+			if _, err := fmt.Fprintf(out, "gate adapter report sidecar boundaryHits：%s\n", strings.Join(report.BoundaryHits, ",")); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(report.Escalation) != "" || strings.TrimSpace(report.Summary) != "" {
+			if _, err := fmt.Fprintf(out, "gate adapter report sidecar summary：escalation=%s summary=%s\n", report.Escalation, report.Summary); err != nil {
+				return err
+			}
+		}
+	}
 	for _, hint := range validation.RepairHints {
 		if _, err := fmt.Fprintf(out, "gate adapter report repair hint：action=%s recordBlocked=%t rerunValidation=%t code=%s stage=%s fields=%s allowedValues=%s allowedOutputPaths=%s allowedStopConditions=%s maxBytes=%d escalateToMain=%t detail=%s\n", hint.RepairAction, hint.RecordBlocked, hint.RerunValidation, hint.Code, hint.Stage, strings.Join(hint.Fields, ","), strings.Join(hint.AllowedValues, ","), strings.Join(hint.AllowedOutputPaths, ","), strings.Join(hint.AllowedStopConditions, ","), hint.MaxBytes, hint.EscalateToMain, hint.Detail); err != nil {
 			return err
