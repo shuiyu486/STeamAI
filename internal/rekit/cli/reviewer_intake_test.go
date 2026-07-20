@@ -78,6 +78,10 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"plan-subagents reviewer intake：status=previewed mutation=false applied=false readyForWriteback=true lane=main shard=shard-01",
+		"reviewer intake result：packetId=" + packet.PacketID + " routeId=" + packet.Route.ID + " shard=shard-01 decision=accept confidence=high reviewerSession=reviewer-session-cli recommendedVerdict=accepted",
+		"reviewer intake result summary：reviewed alpha against bounded evidence",
+		"reviewer intake result evidenceRefs：workspace/review-evidence.md",
+		"reviewer intake route output：tool_scope=read-only",
 		"reviewer intake orchestration：mode=manual-main-agent-intake dispatch=1/1 shardBefore=planned shardAfter=previewed",
 		"reviewer intake verification：applied=false",
 		"reviewer intake decision：applied=false",
@@ -119,6 +123,9 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"plan-subagents reviewer intake：status=already-complete mutation=false applied=false readyForWriteback=true lane=main shard=shard-01",
+		"reviewer intake result：packetId=" + packet.PacketID + " routeId=" + packet.Route.ID + " shard=shard-01 decision=accept confidence=high reviewerSession=reviewer-session-cli recommendedVerdict=accepted",
+		"reviewer intake result items：alpha",
+		"reviewer intake route output：next_action=main-agent-writeback",
 		"reviewer intake post-validation：valid=true overviewVerifications=1 overviewDecisions=1 doctorRows=",
 		"reviewer intake post-validation handoff：lane=main project=false executorAction=true",
 		"reviewer intake post-validation handoff queue：summary=total=",

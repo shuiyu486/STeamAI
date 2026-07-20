@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 438：execution evidence record text detail closure
+### Batch 439：reviewer intake result text detail closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate 仍为既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation、durable docs；待 commit/push 与远程 release-gate inspection。
 
-目标：Batch 424/432/437 已让 adapter report contract/validation text 能把 execution sidecar handoff 投影给 replacement executor，但 `gate -Apply -GateEventId ... -ExecutionStatus ... -Format text` 的 actual record result 仍主要输出 applied/status、decision、follow-through、Mission Commander action queue 与 next actions。replacement executor 在刚写入 bounded observation evidence 后仍需解析 JSON 才能 review recorded observation 的 subject/summary/target、recordRequired、actualBudget、output/evidence refs、boundary hits、escalation 与 report path。本批把 execution evidence record detail 直接投影到 apply text path。
+目标：Batch 433/434/435 已让 `plan-subagents -Format text` 覆盖 reviewer dispatch、orchestration lifecycle、owner/writeback 与 shard handoff；现有 reviewer-intake text 已输出 status、verification/decision/post-validation、action queue 与 next actions，但 Mission Commander / replacement executor 仍需解析 reviewer result JSON 才能复核 reviewerSession、decision/confidence、recommendedVerdict、evidenceRefs、risks/conflicts 与 routeOutput（尤其 read-only `tool_scope`、`next_action`）。本批把 reviewer result detail 直接投影到 intake text path。
 
-边界：只增强 `gate -Apply -GateEventId ... -ExecutionStatus ... -Format text` 的 execution evidence record terminal handoff、focused CLI coverage 与 durable docs；不改变 JSON contract、adapter report validation semantics、authorized execution evidence write model、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；record 仍只写 bounded observation evidence，不执行 heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic。
+边界：只增强 `plan-subagents -ReviewerResultPath ... -WhatIf/-Apply -Format text` 的 reviewer result terminal handoff、focused CLI coverage 与 durable docs；不改变 JSON packet/summary contract、reviewer-intake validation/writeback semantics、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；reviewer 仍不写文件或 ledger，intake 不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- execution evidence record text 现在输出 observation `subject`、`summary`、`target`、`recordRequired` 与 `executionReportPath`。
-- record text 继续输出 actual budget（runtimeSeconds、diskMB、requests）以及按存在性输出 `outputRefs`、`evidenceRefs`、`boundaryHits` 与 `escalation`，让 terminal executor 不必解析 JSON 即可 review evidence payload 与 no-replay boundary。
-- CLI coverage 锁定 execution evidence detail/budget/output refs text，以及既有 evidence commander action/action queue/next-action、no replay/no authority/confirmed/no-heavy 边界。
+- reviewer-intake text 现在输出 reviewer result identity：`packetId`、`routeId`、`shard`、`decision`、`confidence`、`reviewerSession` 与 `recommendedVerdict`。
+- text path 继续输出 reviewer `summary`、`items`、`evidenceRefs`、可选 `risks` / `conflicts`，并按 key 排序输出 `routeOutput` key/value，让 terminal executor 不必解析 reviewer JSON 即可复核 read-only scope、next action 与 writeback输入。
+- CLI coverage 锁定 WhatIf preview 与 already-complete reviewer intake text result detail，以及既有 post-validation/action queue/next-action、no reviewer file/ledger write/no authority/confirmed/no-heavy 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunGateExecutionEvidenceTextOutputsNextActions|TestRunGateAdapterReportTextOutputsNextActions' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `80b331e Add execution evidence detail text`；远程 release-gate run `29724156086` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待完成；远程 release-gate 仍按既有 GitHub Actions runner/billing blocker 处理，不能在实际 jobs 通过前声明远程 CI green。
 
-上一批摘要：Batch 437 已完成 adapter report validation valid sidecar text closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 438 已完成 execution evidence record text detail closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

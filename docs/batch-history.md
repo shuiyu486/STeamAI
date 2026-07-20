@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 439：reviewer intake result text detail closure
+
+状态：已完成 reviewer intake result text detail closure、本地实现、focused 与 full local validation、durable docs；commit/push 与远程 release-gate inspection 待完成。
+
+目标：Batch 433/434/435 已让 `plan-subagents -Format text` 覆盖 reviewer dispatch、orchestration lifecycle、owner/writeback 与 shard handoff；现有 reviewer-intake text 已输出 status、verification/decision/post-validation、action queue 与 next actions，但 Mission Commander / replacement executor 仍需解析 reviewer result JSON 才能复核 reviewerSession、decision/confidence、recommendedVerdict、evidenceRefs、risks/conflicts 与 routeOutput（尤其 read-only `tool_scope`、`next_action`）。本批把 reviewer result detail 直接投影到 intake text path。
+
+实施范围：reviewer-intake text 现在输出 reviewer result identity：`packetId`、`routeId`、`shard`、`decision`、`confidence`、`reviewerSession` 与 `recommendedVerdict`；同步输出 reviewer `summary`、`items`、`evidenceRefs`、可选 `risks` / `conflicts`，并按 key 排序输出 `routeOutput` key/value。CLI coverage 锁定 WhatIf preview 与 already-complete reviewer intake text result detail，以及既有 post-validation/action queue/next-action、no reviewer file/ledger write/no authority/confirmed/no-heavy 边界。该批只增强 `plan-subagents -ReviewerResultPath ... -WhatIf/-Apply -Format text` 的 reviewer result terminal handoff、focused CLI coverage 与 durable docs；不改变 JSON packet/summary contract、reviewer-intake validation/writeback semantics、Mission Commander next-action ordering、case durable schema、sync/promote review-first、公共 façade 删除门禁或远程 CI blocker 状态；reviewer 仍不写文件或 ledger，intake 不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
+
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待完成。
+
 ### Batch 438：execution evidence record text detail closure
 
 状态：已完成 execution evidence record text detail closure、本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection。

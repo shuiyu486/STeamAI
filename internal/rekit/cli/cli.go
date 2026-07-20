@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -1982,8 +1983,58 @@ func writePlanSubagentsText(out io.Writer, result subagents.Result) error {
 	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
+func writePlanSubagentsReviewerResultText(out io.Writer, result subagents.ReviewerResult) error {
+	if strings.TrimSpace(result.ShardID) == "" && strings.TrimSpace(result.ReviewerSession) == "" {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "reviewer intake result：packetId=%s routeId=%s shard=%s decision=%s confidence=%s reviewerSession=%s recommendedVerdict=%s\n", result.PacketID, result.RouteID, result.ShardID, result.Decision, result.Confidence, result.ReviewerSession, result.RecommendedVerdict); err != nil {
+		return err
+	}
+	if strings.TrimSpace(result.Summary) != "" {
+		if _, err := fmt.Fprintf(out, "reviewer intake result summary：%s\n", planSubagentsTextInline(result.Summary)); err != nil {
+			return err
+		}
+	}
+	if len(result.Items) > 0 {
+		if _, err := fmt.Fprintf(out, "reviewer intake result items：%s\n", strings.Join(result.Items, ",")); err != nil {
+			return err
+		}
+	}
+	if len(result.EvidenceRefs) > 0 {
+		if _, err := fmt.Fprintf(out, "reviewer intake result evidenceRefs：%s\n", strings.Join(result.EvidenceRefs, ",")); err != nil {
+			return err
+		}
+	}
+	if len(result.Risks) > 0 {
+		if _, err := fmt.Fprintf(out, "reviewer intake result risks：%s\n", strings.Join(result.Risks, ",")); err != nil {
+			return err
+		}
+	}
+	if len(result.Conflicts) > 0 {
+		if _, err := fmt.Fprintf(out, "reviewer intake result conflicts：%s\n", strings.Join(result.Conflicts, ",")); err != nil {
+			return err
+		}
+	}
+	if len(result.RouteOutput) > 0 {
+		keys := make([]string, 0, len(result.RouteOutput))
+		for key := range result.RouteOutput {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if _, err := fmt.Fprintf(out, "reviewer intake route output：%s=%s\n", key, planSubagentsTextInline(fmt.Sprint(result.RouteOutput[key]))); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func writePlanSubagentsReviewerIntakeText(out io.Writer, result subagents.ReviewerIntakeResult) error {
 	if _, err := fmt.Fprintf(out, "plan-subagents reviewer intake：status=%s mutation=%t applied=%t readyForWriteback=%t lane=%s shard=%s intakeId=%s\n", result.WritebackStatus, result.IsMutation, result.Applied, result.ReadyForWriteback, result.Lane, result.ShardID, result.IntakeID); err != nil {
+		return err
+	}
+	if err := writePlanSubagentsReviewerResultText(out, result.ReviewerResult); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(out, "reviewer intake orchestration：mode=%s dispatch=%d/%d shardBefore=%s shardAfter=%s\n", result.OrchestrationSnapshot.Mode, result.OrchestrationSnapshot.DispatchIndex, result.OrchestrationSnapshot.DispatchTotal, result.OrchestrationSnapshot.ShardStatusBefore, result.OrchestrationSnapshot.ShardStatusAfter); err != nil {
