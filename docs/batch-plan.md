@@ -16,26 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 454：reviewer dispatch prompt skeleton closure
+### Batch 455：summary artifact reviewer result handoff closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29738897043` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29739678424` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
-目标：Batch 453 已让 `plan-subagents -Format text` 在 terminal handoff 中输出可复制 reviewer result skeleton 与 routeOutput field hints；但真正交给 short-lived read-only reviewer 的 packet shard prompt / `dispatchPrompt` 仍可能沿用“只返回 route output contract”的旧心智模型，诱导 reviewer 返回 routeOutput alone，而不是 strict `ReviewerResult` 单对象。Batch 454 将同一 skeleton / field-hint / binding guidance 前移到 dispatch prompt 本身。
+目标：Batch 453/454 已分别让 terminal text handoff 与 reviewer `dispatchPrompt` 直接提供 reviewer result skeleton / routeOutput hints；但写入 review artifact 的 `summary.md` shard handoff 区域仍主要把 skeleton 信息埋在长 dispatch prompt 或 packet JSON 中。Batch 455 让 summary artifact 本身也能独立支撑 replacement executor / Mission Commander 构造 strict reviewer result。
 
-边界：只增强 `plan-subagents` packet shard prompt、`shardHandoffs[].dispatchPrompt`、focused CLI coverage 与 durable docs；不改变 reviewer-intake JSON contract、packet/result validation、packet identity/hash、review artifacts 写入、verification-before-decision writeback、默认 JSON compatibility，不自动 spawn reviewer、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
+边界：只增强 `plan-subagents` 写出的 `summary.md` review artifact shard handoff、focused CLI coverage 与 durable docs；不改变 reviewer-intake JSON contract、packet/result validation、packet identity/hash、review artifact location、verification-before-decision writeback、默认 JSON/text compatibility，不自动 spawn reviewer、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
 
 已完成内容：
 
-- packet shard prompt 不再要求 “Return the route output contract only”，改为要求返回一个 reviewer result JSON object，并明确不要只返回 routeOutput、不要写文件或粘贴长日志。
-- `dispatchPrompt` 直接要求 “Return exactly one reviewer result JSON object; do not return routeOutput alone”，并输出 strict reviewer result contract、required result fields、allowed decisions 与 no-write/no-heavy/no ledger/no authority/confirmed 边界。
-- `dispatchPrompt` 内嵌 reviewer result JSON skeleton，包含 packetId、routeId、shardId、items、reviewerSession、decision/confidence/summary、evidenceRefs、risks、conflicts、recommendedVerdict 与 routeOutput。
-- routeOutput field hints 现在在 prompt 内按 route `outputContract` 展开，对 `item`、`decision`、`confidence`、`evidence`、`risk`、`next_action`、`tier_used`、`tool_scope`、`defer_reason` 给出 bounded valueHint。
-- prompt 明确将占位 `packet.packetId` 替换为 packet packetId，并保持 top-level `decision/confidence` 与 `routeOutput.decision/confidence` 一致、`routeOutput.evidence` 包含在 `evidenceRefs` 内。
-- CLI coverage 锁定 packet shard prompt 不再出现旧式 route-output-only 指令，并锁定 dispatchPrompt skeleton、routeOutput hints 与 no-write/no-heavy 边界。
+- `summary.md` 的 shard handoff 区域现在直接输出 `reviewer result path`，重复呈现 main-agent 需要放置 reviewer JSON 的路径。
+- `summary.md` 直接输出可复制 `reviewer result skeleton`，并使用真实 packetId、routeId、shardId 与当前 shard items，避免 replacement executor 再回读 `packet.json` 才能填 identity。
+- `summary.md` 直接输出 `reviewer routeOutput field hints`，按 route `outputContract` 展开 item/decision/confidence/evidence/risk/next_action/tier_used/tool_scope/defer_reason 等字段 valueHint，其中 evidence 使用真实 packetId、tool_scope 保持 `read-only`。
+- `summary.md` 输出 reviewer result binding guidance，明确 packetId/routeId/shardId 以及 routeOutput decision/confidence/evidence 与 top-level fields/evidenceRefs 的绑定关系。
+- CLI coverage 锁定 summary artifact 中的 skeleton、routeOutput hints、packet binding、existing reviewer contract/intake/writeback handoff 与 no-write/no-heavy 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsWritesReviewArtifacts -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `f2de56e Add reviewer dispatch prompt skeleton`；远程 release-gate run `29738897043` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsWritesReviewArtifacts -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `452e9b0 Add reviewer summary result handoff`；远程 release-gate run `29739678424` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
-上一批摘要：Batch 453 已完成 reviewer dispatch result skeleton text closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 454 已完成 reviewer dispatch prompt skeleton closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
