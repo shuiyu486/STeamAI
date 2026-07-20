@@ -4947,6 +4947,11 @@ func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
 	text := out.String()
 	for _, expected := range []string{
 		"promote candidates：applied=true created=2",
+		"promote candidates execution step：name=review-decisions when=before any merge, cleanup, or reconsume verification expected=every created candidate has an explicit decision before cleanup or merge and the chosen outcome maps to concrete follow-through",
+		"promote candidates execution action：name=review-decisions action=follow only the matching decisionFollowThrough outcome for the chosen decision",
+		"promote candidates execution step：name=cleanup-rejected-or-merged-candidates when=after reject, superseded decision, or accepted merge into pack source",
+		"promote candidates execution command：name=pack-doctor-after-accepted-merge command=go run ./cmd/rekit -- -Command doctor -Pack _template",
+		"promote candidates execution boundary：name=fresh-case-reconsume-after-tooling-merge boundary=use a temporary fresh case only",
 		"promote candidates decision follow-through：path=references/template/README.md decision=pending-review",
 		"promote candidates decision outcome：path=references/template/README.md decision=accept state=pack-memory-candidate:accepted-merge",
 		"promote candidates decision cleanup action：path=references/template/README.md decision=reject action=delete candidatePath after reject, superseded decision, or accepted merge into another pack source",

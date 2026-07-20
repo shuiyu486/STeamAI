@@ -2190,11 +2190,48 @@ func writeMissionExecutorActionText(out io.Writer, prefix string, action mission
 	return writeMissionCommanderActionText(out, prefix+" commander action", action)
 }
 
+func writePromoteCandidateExecutionPlanText(out io.Writer, steps []promote.CandidateExecutionStep) error {
+	for _, step := range steps {
+		if _, err := fmt.Fprintf(out, "promote candidates execution step：name=%s when=%s expected=%s\n", step.Name, step.When, step.Expected); err != nil {
+			return err
+		}
+		if len(step.AppliesTo) > 0 {
+			if _, err := fmt.Fprintf(out, "promote candidates execution applies-to：name=%s paths=%s\n", step.Name, strings.Join(step.AppliesTo, ",")); err != nil {
+				return err
+			}
+		}
+		for _, action := range step.Actions {
+			if _, err := fmt.Fprintf(out, "promote candidates execution action：name=%s action=%s\n", step.Name, action); err != nil {
+				return err
+			}
+		}
+		for _, command := range step.Commands {
+			if _, err := fmt.Fprintf(out, "promote candidates execution command：name=%s command=%s\n", step.Name, command); err != nil {
+				return err
+			}
+		}
+		for _, evidence := range step.Evidence {
+			if _, err := fmt.Fprintf(out, "promote candidates execution evidence：name=%s evidence=%s\n", step.Name, evidence); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range step.Boundary {
+			if _, err := fmt.Fprintf(out, "promote candidates execution boundary：name=%s boundary=%s\n", step.Name, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) error {
 	if _, err := fmt.Fprintf(out, "promote candidates：applied=%t created=%d blocked=%d cleanup=%t\n", result.Applied, result.Created, result.Blocked, result.RequiresCleanup); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(out, "promote candidates review plan：mode=%s items=%d candidateRoot=%s toolingRoot=%s indexPath=%s\n", result.ReviewPlan.Mode, result.ReviewPlan.ItemCount, result.CandidateRoot, result.ToolingRoot, result.IndexPath); err != nil {
+		return err
+	}
+	if err := writePromoteCandidateExecutionPlanText(out, result.ReviewPlan.MainAgentExecutionPlan); err != nil {
 		return err
 	}
 	for _, item := range result.ReviewPlan.DecisionFollowThrough {

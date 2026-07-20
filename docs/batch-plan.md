@@ -16,27 +16,27 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 428：reviewer-intake post-validation text consumption closure
+### Batch 429：promote candidates main-agent execution plan text consumption closure
 
-状态：已完成本地实现、focused reviewer-intake CLI validation、durable docs、full local validation、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、focused promote candidates CLI validation、durable docs 与 full local validation；准备 commit/push 与远程 release-gate inspection。
 
-目标：Batch 427 已让 reviewer-intake `-Format text` 输出 intake status、verification/decision/post-validation、Mission Commander action、action queue 与 next actions，但 post-validation text 仍只有 `valid=true`，terminal Mission Commander / replacement executor 仍需解析 nested JSON `postValidation.overview` / `postValidation.handoff` 或额外运行 overview/handoff/doctor 才能确认 writeback 后的 ledger totals、handoff lane、handoff queue/current 与实际可接续 action。本批把 reviewer-intake post-validation snapshot 直接投影到 text output。
+目标：Batch 423 已让 `promote -CreateCandidates` JSON `reviewPlan` 暴露 `mainAgentExecutionPlan[]`，Batch 423/428 后 text path 已输出 decision follow-through、cleanup/reconsume、action queue 与 next actions。但 terminal Mission Commander / replacement executor 仍需解析 JSON 才能看到 materialize、review decisions、cleanup、pack doctor、fresh-case reconsume 与 attached-case reconsume 的 bounded execution plan。本批把 `mainAgentExecutionPlan[]` 直接投影到 `promote -CreateCandidates -Format text`。
 
-边界：只增强 reviewer-intake CLI text post-validation consumption、focused CLI coverage 与 durable docs；不改变 JSON contract、reviewer result strict contract、verification-before-decision writeback 顺序、postValidation semantics、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；不自动 spawn reviewer，不执行 reviewer session 管理或 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
+边界：只增强 promote candidates CLI text main-agent execution plan consumption、focused CLI coverage 与 durable docs；不改变 JSON contract、candidate write model、review-first merge model、decision follow-through semantics、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；runtime 不执行 merge、cleanup、init、doctor 或 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- reviewer-intake `-Format text` 的 post-validation section 现在输出 overview verification/decision totals、doctor row count、handoff lane/project/executor snapshot。
-- 同一 section 还输出 nested handoff `missionCommanderActionQueue` summary/current，以及 post-validation next-action lines/reasons/boundaries，避免 text operator 回查 nested JSON 或重复运行 handoff。
-- CLI coverage 锁定 preview postValidation text、already-complete postValidation handoff queue/current/next actions，以及 existing reviewer-intake commander queue contract。
+- `promote -CreateCandidates -Format text` 现在输出 `reviewPlan.mainAgentExecutionPlan[]` 的 step name、when、expected、appliesTo、actions、commands、evidence 与 boundary。
+- text output 继续输出 decision follow-through、cleanup/reconsume、Mission Commander action queue 与 next-action lines，形成从候选生成到 review/cleanup/reconsume 的完整 terminal handoff。
+- CLI coverage 锁定 actual create-candidates text execution plan、existing decision follow-through/action queue/next-action text，以及 guidance-only/no merge/no cleanup/no init/no doctor/no-heavy/no-authority/confirmed 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `275f6a4 Add reviewer intake post-validation text`；远程 release-gate run `29719240748` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPromoteCreateCandidatesWritesCandidates|TestRunPromoteCreateCandidatesWhatIf' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
 
-上一批摘要：Batch 427 已完成 plan-subagents / reviewer-intake CLI text action-queue parity，详见 `docs/batch-history.md`。
+上一批摘要：Batch 428 已完成 reviewer-intake post-validation text consumption closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
-1. **Reviewer post-validation terminal UX residuals（如仍有缺口）**：仅在 reviewer-intake complete/already-complete/partial recovery terminal path 仍需要跨 JSON 或重复运行 overview/handoff/doctor 手工拼接时推进；不重复做字段微批次，不自动 spawn reviewer，不改变 review-first writeback。
+1. **Pack-memory decision follow-through terminal residuals（如仍有缺口）**：仅在 accepted/rejected/superseded/cleanup/reconsume operator path 仍需要跨 JSON 手工拼接时推进；不重复做字段微批次，不执行 merge/cleanup/init/doctor。
 2. **Pack-memory decision follow-through downstream UX（如仍有缺口）**：Batch 423/425 已分别完成 candidate decision outcome projection 与 execution evidence downstream follow-through；后续仅在 accepted/rejected 人工流程或 evidence review downstream UX 仍需跨 envelope 手工拼接时推进，不重复做字段微批次。
 3. **Lane/tool-adapter live validation operational follow-through**：仅在 Windows 本机 product-path 仍存在 adapter contract/validation/report handoff 到 replacement executor 的真实断点时推进；不新增 adapter/heavy-tool execution。
 4. **Cross-platform product-path E2E（降优先级）**：在本地 CLI/case E2E 已覆盖 nested cwd / case shim 的基础上，仅保持可在 runner 可用时执行的三平台 matrix 候选和 known gap 记录；不要在 GitHub runner/billing blocker 未解除前让它阻塞 Windows 本机迭代。
