@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 428：reviewer-intake post-validation text consumption closure
 
-状态：已完成本地实现、focused reviewer-intake CLI validation、durable docs 与 full local validation；准备 commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、focused reviewer-intake CLI validation、durable docs、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 427 已让 reviewer-intake `-Format text` 输出 intake status、verification/decision/post-validation、Mission Commander action、action queue 与 next actions，但 post-validation text 仍只有 `valid=true`，terminal Mission Commander / replacement executor 仍需解析 nested JSON `postValidation.overview` / `postValidation.handoff` 或额外运行 overview/handoff/doctor 才能确认 writeback 后的 ledger totals、handoff lane、handoff queue/current 与实际可接续 action。本批把 reviewer-intake post-validation snapshot 直接投影到 text output。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - 同一 section 还输出 nested handoff `missionCommanderActionQueue` summary/current，以及 post-validation next-action lines/reasons/boundaries，避免 text operator 回查 nested JSON 或重复运行 handoff。
 - CLI coverage 锁定 preview postValidation text、already-complete postValidation handoff queue/current/next actions，以及 existing reviewer-intake commander queue contract。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `275f6a4 Add reviewer intake post-validation text`；远程 release-gate run `29719240748` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 427 已完成 plan-subagents / reviewer-intake CLI text action-queue parity，详见 `docs/batch-history.md`。
 
