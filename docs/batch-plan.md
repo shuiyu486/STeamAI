@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 424：Authorized execution adapter/report consumption follow-through closure
 
-状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待执行。
+状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 361/366/373/380/392/411/412/421 已让 authorized-gate adapter report contract、read-only validation、record handoff 与 action queue 可见；但主 Agent / replacement executor 仍需在 contract、validation、record result、duplicate replay 与 evidence review queue 之间手工拼接 outcome-specific lifecycle。本批把 authorized execution follow-through 显式结构化，覆盖 write-and-validate、valid record、invalid repair、recorded review、boundary/main escalation review 与 duplicate replay review。
 
@@ -33,7 +33,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - CLI text 同步打印 adapter report contract/validation/execution evidence follow-through summary、outcome、action、repair action、verification command、boundary 与 queue summary。
 - coverage 锁定 contract 三 outcome、valid validation record handoff、missing/invalid sidecar repair hints、normal/boundary/duplicate execution evidence follow-through、text/JSON parity、read-only validation、bounded observation evidence record、duplicate no-append、no-heavy/no-authority/confirmed/no PowerShell runtime logic 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/gate ./internal/rekit/cli -run "TestAdapterReport|TestValidateAdapter|TestRecordExecution|TestRunGate" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `go test ./internal/rekit/gate ./internal/rekit/cli -run "TestAdapterReport|TestValidateAdapter|TestRecordExecution|TestRunGate" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `1a46761 Add authorized execution follow-through`；远程 release-gate run `29715547553` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 423 已完成 Pack-memory accepted/rejected decision follow-through closure，详见 `docs/batch-history.md`。
 
