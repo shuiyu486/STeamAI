@@ -547,11 +547,17 @@ func writeProjectLaneEvidenceFollowThrough(out *bytes.Buffer, follow mission.Exe
 	fmt.Fprintf(out, "  - evidence follow-through：state=%s gateEventId=%s outcomes=%d\n", follow.State, follow.GateEventID, len(follow.Outcomes))
 	for _, outcome := range follow.Outcomes {
 		fmt.Fprintf(out, "  - evidence follow-through outcome：name=%s state=%s command=`%s` expected=%s\n", outcome.Name, outcome.State, outcome.Command, outcome.Expected)
+		if strings.TrimSpace(outcome.When) != "" {
+			fmt.Fprintf(out, "  - evidence follow-through when：name=%s when=%s\n", outcome.Name, outcome.When)
+		}
 		for _, action := range mission.LimitStrings(outcome.Actions, maxHandoffRows) {
 			fmt.Fprintf(out, "  - evidence follow-through action：name=%s action=%s\n", outcome.Name, action)
 		}
 		for _, command := range mission.LimitStrings(outcome.VerificationCommands, maxHandoffRows) {
 			fmt.Fprintf(out, "  - evidence follow-through verification：name=%s command=%s\n", outcome.Name, command)
+		}
+		for _, evidence := range mission.LimitStrings(outcome.Evidence, maxHandoffRows) {
+			fmt.Fprintf(out, "  - evidence follow-through evidence：name=%s evidence=%s\n", outcome.Name, evidence)
 		}
 	}
 	if strings.TrimSpace(follow.ActionQueue.Summary) != "" {
@@ -1081,11 +1087,17 @@ func writeExecutionEvidenceFollowThrough(out *bytes.Buffer, follow mission.Execu
 	fmt.Fprintf(out, "  - follow-through: state=%s gateEventId=%s outcomes=%d\n", follow.State, follow.GateEventID, len(follow.Outcomes))
 	for _, outcome := range follow.Outcomes {
 		fmt.Fprintf(out, "    - outcome: name=%s state=%s command=`%s` expected=%s\n", outcome.Name, outcome.State, outcome.Command, outcome.Expected)
+		if strings.TrimSpace(outcome.When) != "" {
+			fmt.Fprintf(out, "      - when: %s\n", outcome.When)
+		}
 		for _, action := range mission.LimitStrings(outcome.Actions, maxHandoffRows) {
 			fmt.Fprintf(out, "      - action: %s\n", action)
 		}
 		for _, command := range mission.LimitStrings(outcome.VerificationCommands, maxHandoffRows) {
 			fmt.Fprintf(out, "      - verification: %s\n", command)
+		}
+		for _, evidence := range mission.LimitStrings(outcome.Evidence, maxHandoffRows) {
+			fmt.Fprintf(out, "      - evidence: %s\n", evidence)
 		}
 	}
 	if strings.TrimSpace(follow.ActionQueue.Summary) != "" {
