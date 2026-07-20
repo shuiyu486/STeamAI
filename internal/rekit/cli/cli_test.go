@@ -440,17 +440,32 @@ func TestRunStatusJsonCase(t *testing.T) {
 			Warnings                     []string `json:"warnings"`
 		} `json:"caseShim"`
 		CaseMission struct {
-			Ready                         bool                          `json:"ready"`
-			Summary                       string                        `json:"summary"`
-			LaneCount                     int                           `json:"laneCount"`
-			ReadyLaneCount                int                           `json:"readyLaneCount"`
-			BlockedLaneCount              int                           `json:"blockedLaneCount"`
-			ReadyLanes                    []string                      `json:"readyLanes"`
-			BlockedLanes                  []string                      `json:"blockedLanes"`
-			PendingGates                  []string                      `json:"pendingGates"`
-			AuthorizedGates               []string                      `json:"authorizedGates"`
-			OpenDecisions                 []string                      `json:"openDecisions"`
-			Interventions                 []string                      `json:"interventions"`
+			Ready            bool     `json:"ready"`
+			Summary          string   `json:"summary"`
+			LaneCount        int      `json:"laneCount"`
+			ReadyLaneCount   int      `json:"readyLaneCount"`
+			BlockedLaneCount int      `json:"blockedLaneCount"`
+			ReadyLanes       []string `json:"readyLanes"`
+			BlockedLanes     []string `json:"blockedLanes"`
+			PendingGates     []string `json:"pendingGates"`
+			AuthorizedGates  []string `json:"authorizedGates"`
+			OpenDecisions    []string `json:"openDecisions"`
+			Interventions    []string `json:"interventions"`
+			FactCounts       *struct {
+				Observations     int `json:"observations"`
+				Requests         int `json:"requests"`
+				Candidates       int `json:"candidates"`
+				Publications     int `json:"publications"`
+				PendingDecisions int `json:"pendingDecisions"`
+			} `json:"factCounts"`
+			Sections *struct {
+				OpenCandidates struct {
+					Total int `json:"total"`
+				} `json:"openCandidates"`
+				PendingGates struct {
+					Total int `json:"total"`
+				} `json:"pendingGates"`
+			} `json:"sections"`
 			ExecutionEvidenceReviewCount  int                           `json:"executionEvidenceReviewCount"`
 			ExecutionEvidenceReview       []executionEvidenceReviewItem `json:"executionEvidenceReview"`
 			HandoffPreviewCommand         string                        `json:"handoffPreviewCommand"`
@@ -471,8 +486,11 @@ func TestRunStatusJsonCase(t *testing.T) {
 	if !status.CaseShim.Ready || status.CaseShim.Summary != "case shim readiness ok" || status.CaseShim.InstalledShimPath != status.Case.ShimPath || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate || status.CaseShim.RequiredPhrases == 0 || status.CaseShim.CanonicalSkillPhrases == 0 || status.CaseShim.ForbiddenStrings == 0 || status.CaseShim.Boundaries == 0 || len(status.CaseShim.Warnings) != 0 {
 		t.Fatalf("unexpected case shim status JSON: %+v", status.CaseShim)
 	}
-	if !status.CaseMission.Ready || !strings.Contains(status.CaseMission.Summary, "openLanes=") || status.CaseMission.LaneCount == 0 || status.CaseMission.ReadyLaneCount == 0 || !containsSubstring(status.CaseMission.ReadyLanes, "login") || len(status.CaseMission.BlockedLanes) != 0 || len(status.CaseMission.PendingGates) != 0 || len(status.CaseMission.OpenDecisions) != 0 || len(status.CaseMission.Interventions) != 0 || status.CaseMission.HandoffPreviewCommand == "" || status.CaseMission.HandoffApplyCommand == "" || status.CaseMission.ContinueRequiresExplicitApply == "" || len(status.CaseMission.MissionBriefNextActions) == 0 {
+	if !status.CaseMission.Ready || !strings.Contains(status.CaseMission.Summary, "openLanes=") || status.CaseMission.LaneCount == 0 || status.CaseMission.ReadyLaneCount == 0 || !containsSubstring(status.CaseMission.ReadyLanes, "login") || len(status.CaseMission.BlockedLanes) != 0 || len(status.CaseMission.PendingGates) != 0 || len(status.CaseMission.OpenDecisions) != 0 || len(status.CaseMission.Interventions) != 0 || status.CaseMission.FactCounts == nil || status.CaseMission.Sections == nil || status.CaseMission.HandoffPreviewCommand == "" || status.CaseMission.HandoffApplyCommand == "" || status.CaseMission.ContinueRequiresExplicitApply == "" || len(status.CaseMission.MissionBriefNextActions) == 0 {
 		t.Fatalf("unexpected case mission status JSON: %+v", status.CaseMission)
+	}
+	if status.CaseMission.FactCounts.Observations != 0 || status.CaseMission.FactCounts.Requests != 0 || status.CaseMission.FactCounts.Candidates != 0 || status.CaseMission.FactCounts.Publications != 0 || status.CaseMission.FactCounts.PendingDecisions != 0 || status.CaseMission.Sections.OpenCandidates.Total != 0 || status.CaseMission.Sections.PendingGates.Total != 0 {
+		t.Fatalf("ready case mission should expose empty ledger/progress counts: %+v", status.CaseMission)
 	}
 	if status.CaseMission.ExecutionEvidenceReviewCount != 0 || len(status.CaseMission.ExecutionEvidenceReview) != 0 {
 		t.Fatalf("ready case mission should not include evidence review items: %+v", status.CaseMission.ExecutionEvidenceReview)
@@ -575,12 +593,33 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	}
 	var status struct {
 		CaseMission struct {
-			Ready                        bool                          `json:"ready"`
-			BlockedLanes                 []string                      `json:"blockedLanes"`
-			PendingGates                 []string                      `json:"pendingGates"`
-			AuthorizedGates              []string                      `json:"authorizedGates"`
-			OpenDecisions                []string                      `json:"openDecisions"`
-			Interventions                []string                      `json:"interventions"`
+			Ready           bool     `json:"ready"`
+			BlockedLanes    []string `json:"blockedLanes"`
+			PendingGates    []string `json:"pendingGates"`
+			AuthorizedGates []string `json:"authorizedGates"`
+			OpenDecisions   []string `json:"openDecisions"`
+			Interventions   []string `json:"interventions"`
+			FactCounts      *struct {
+				Observations     int `json:"observations"`
+				Requests         int `json:"requests"`
+				Candidates       int `json:"candidates"`
+				Publications     int `json:"publications"`
+				PendingDecisions int `json:"pendingDecisions"`
+			} `json:"factCounts"`
+			Sections *struct {
+				OpenCandidates struct {
+					Total int `json:"total"`
+					Shown int `json:"shown"`
+				} `json:"openCandidates"`
+				PendingGates struct {
+					Total int `json:"total"`
+					Shown int `json:"shown"`
+				} `json:"pendingGates"`
+				Batches struct {
+					Total int `json:"total"`
+					Shown int `json:"shown"`
+				} `json:"batches"`
+			} `json:"sections"`
 			ExecutionEvidenceReviewCount int                           `json:"executionEvidenceReviewCount"`
 			ExecutionEvidenceReview      []executionEvidenceReviewItem `json:"executionEvidenceReview"`
 		} `json:"caseMission"`
@@ -588,8 +627,12 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
 	}
-	if status.CaseMission.Ready || status.CaseMission.ExecutionEvidenceReviewCount != 1 || len(status.CaseMission.ExecutionEvidenceReview) != 1 || !containsSubstring(status.CaseMission.BlockedLanes, "main (pending-gate,intervention,open-decision)") || !containsSubstring(status.CaseMission.PendingGates, "action=debug") || len(status.CaseMission.AuthorizedGates) != 0 || !containsSubstring(status.CaseMission.OpenDecisions, "candidate: handler") || !containsSubstring(status.CaseMission.Interventions, "manual override") {
+	if status.CaseMission.Ready || status.CaseMission.ExecutionEvidenceReviewCount != 1 || len(status.CaseMission.ExecutionEvidenceReview) != 1 || !containsSubstring(status.CaseMission.BlockedLanes, "main (pending-gate,intervention,open-decision)") || !containsSubstring(status.CaseMission.PendingGates, "action=debug") || len(status.CaseMission.AuthorizedGates) != 0 || !containsSubstring(status.CaseMission.OpenDecisions, "candidate: handler") || !containsSubstring(status.CaseMission.Interventions, "manual override") || status.CaseMission.FactCounts == nil || status.CaseMission.Sections == nil {
 		t.Fatalf("unexpected case mission blocker/evidence review summary: %+v", status.CaseMission)
+	}
+	counts := status.CaseMission.FactCounts
+	if counts.Observations != 1 || counts.Requests != 1 || counts.Candidates != 2 || counts.Publications != 1 || counts.PendingDecisions != 1 || status.CaseMission.Sections.OpenCandidates.Total != 2 || status.CaseMission.Sections.OpenCandidates.Shown != 2 || status.CaseMission.Sections.PendingGates.Total != 1 || status.CaseMission.Sections.PendingGates.Shown != 1 || status.CaseMission.Sections.Batches.Total != 1 || status.CaseMission.Sections.Batches.Shown != 1 {
+		t.Fatalf("unexpected case mission ledger/progress handoff: counts=%+v sections=%+v", status.CaseMission.FactCounts, status.CaseMission.Sections)
 	}
 	evidence := status.CaseMission.ExecutionEvidenceReview[0]
 	if evidence.EventID != "obs-auth-1" || evidence.GateEventID != "gate-auth-1" || evidence.Action != "debug" || !containsSubstring(evidence.OutputRefs, "workspace/main/debug/out.txt") || !containsSubstring(evidence.EvidenceRefs, "evidence/debug.json") || !containsSubstring(evidence.Boundary, "do not replay heavy tool") || evidence.MissionCommanderAction.State != "ready-for-evidence-review" || evidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(evidence.MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || evidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(evidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
@@ -607,6 +650,13 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 		"status case mission pending gate：debug gate | lane=main | risk=high | target=batch-overview | action=debug | scope=handler only | stopConditions=timeout",
 		"status case mission open decision：candidate: handler | lane=main | status=open | summary=candidate one",
 		"status case mission intervention：manual override | lane=main | action=override | status=open | target=batch-overview",
+		"status case mission facts：observations=1 requests=1 candidates=2 publications=1 pendingDecisions=1",
+		"status case mission section：name=openCandidates total=2 shown=2",
+		"status case mission section event：section=openCandidates index=1 eventId= kind=candidate status=open lane=main subject=handler summary=candidate one action= decision=",
+		"status case mission section：name=pendingGates total=1 shown=1",
+		"status case mission section event：section=pendingGates index=1 eventId= kind=request status=pending-gate lane=main subject=debug gate summary=needs confirmation action= decision=",
+		"status case mission section：name=batches total=1 shown=1",
+		"status case mission batch：index=1 id=batch-overview events=5",
 		"status case mission evidence review：eventId=obs-auth-1 gateEventId=gate-auth-1 status=complete action=debug",
 		"review=review outputRefs/evidenceRefs for gateEventId gate-auth-1 handoff=/rekit handoff main commanderState=ready-for-evidence-review commanderPrimary=/rekit handoff main",
 		"status case mission evidence output ref：eventId=obs-auth-1 ref=workspace/main/debug/out.txt",
@@ -627,8 +677,8 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "status case mission blocked lane：main (pending-gate,intervention,open-decision)") || !strings.Contains(out.String(), "status case mission pending gate：debug gate | lane=main") || !strings.Contains(out.String(), "status case mission evidence review：eventId=obs-auth-1 gateEventId=gate-auth-1") || !strings.Contains(out.String(), "status case mission evidence outcome evidence：eventId=obs-auth-1 name=recorded-evidence-review evidence=evidence/debug.json") {
-		t.Fatalf("status case default text missing blocker/evidence review handoff:\n%s", out.String())
+	if !strings.Contains(out.String(), "status case mission blocked lane：main (pending-gate,intervention,open-decision)") || !strings.Contains(out.String(), "status case mission pending gate：debug gate | lane=main") || !strings.Contains(out.String(), "status case mission facts：observations=1 requests=1 candidates=2 publications=1 pendingDecisions=1") || !strings.Contains(out.String(), "status case mission section：name=openCandidates total=2 shown=2") || !strings.Contains(out.String(), "status case mission batch：index=1 id=batch-overview events=5") || !strings.Contains(out.String(), "status case mission evidence review：eventId=obs-auth-1 gateEventId=gate-auth-1") || !strings.Contains(out.String(), "status case mission evidence outcome evidence：eventId=obs-auth-1 name=recorded-evidence-review evidence=evidence/debug.json") {
+		t.Fatalf("status case default text missing ledger/blocker/evidence review handoff:\n%s", out.String())
 	}
 	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 }

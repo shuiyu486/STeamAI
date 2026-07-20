@@ -1253,6 +1253,8 @@ type statusCaseMission struct {
 	AuthorizedGates               []string                                 `json:"authorizedGates,omitempty"`
 	OpenDecisions                 []string                                 `json:"openDecisions,omitempty"`
 	Interventions                 []string                                 `json:"interventions,omitempty"`
+	FactCounts                    *overview.FactCounts                     `json:"factCounts,omitempty"`
+	Sections                      *overview.OverviewSections               `json:"sections,omitempty"`
 	ExecutionEvidenceReviewCount  int                                      `json:"executionEvidenceReviewCount"`
 	ExecutionEvidenceReview       []workstream.ExecutionEvidenceReviewItem `json:"executionEvidenceReview,omitempty"`
 	MissionCommanderActionQueue   mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
@@ -1405,6 +1407,17 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 			return err
 		}
 	}
+	if summary.FactCounts != nil {
+		counts := *summary.FactCounts
+		if _, err := fmt.Fprintf(out, "status case mission facts：observations=%d requests=%d candidates=%d publications=%d pendingDecisions=%d\n", counts.Observations, counts.Requests, counts.Candidates, counts.Publications, counts.PendingDecisions); err != nil {
+			return err
+		}
+	}
+	if summary.Sections != nil {
+		if err := writeStatusCaseMissionSectionsText(out, *summary.Sections); err != nil {
+			return err
+		}
+	}
 	for _, action := range summary.MissionCommanderNextActions {
 		if _, err := fmt.Fprintf(out, "status case mission next action：lane=%s label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s\n", action.Lane, action.Label, action.State, action.Source, action.Blocked, action.RequiresReview, action.Command); err != nil {
 			return err
@@ -1472,6 +1485,40 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 	}
 	if _, err := fmt.Fprintf(out, "status case mission handoff：preview=%s apply=%s continueBoundary=%s\n", summary.HandoffPreviewCommand, summary.HandoffApplyCommand, summary.ContinueRequiresExplicitApply); err != nil {
 		return err
+	}
+	return nil
+}
+
+func writeStatusCaseMissionSectionsText(out io.Writer, sections overview.OverviewSections) error {
+	for _, section := range []struct {
+		name string
+		data overview.EventSection
+	}{
+		{name: "openCandidates", data: sections.OpenCandidates},
+		{name: "pendingGates", data: sections.PendingGates},
+		{name: "authorizedGates", data: sections.AuthorizedGates},
+		{name: "verifications", data: sections.Verifications},
+		{name: "decisions", data: sections.Decisions},
+		{name: "openInterventions", data: sections.OpenInterventions},
+		{name: "interventions", data: sections.Interventions},
+		{name: "rollbacks", data: sections.Rollbacks},
+	} {
+		if _, err := fmt.Fprintf(out, "status case mission section：name=%s total=%d shown=%d\n", section.name, section.data.Total, section.data.Shown); err != nil {
+			return err
+		}
+		for idx, event := range section.data.Events {
+			if _, err := fmt.Fprintf(out, "status case mission section event：section=%s index=%d eventId=%s kind=%s status=%s lane=%s subject=%s summary=%s action=%s decision=%s\n", section.name, idx+1, eventText(event, "eventId"), eventText(event, "kind"), eventText(event, "status"), eventText(event, "lane"), eventText(event, "subject"), eventText(event, "summary"), eventText(event, "action"), eventText(event, "decision")); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := fmt.Fprintf(out, "status case mission section：name=batches total=%d shown=%d\n", sections.Batches.Total, sections.Batches.Shown); err != nil {
+		return err
+	}
+	for idx, batch := range sections.Batches.Batches {
+		if _, err := fmt.Fprintf(out, "status case mission batch：index=%d id=%s events=%d last=%s kinds=%d\n", idx+1, batch.ID, batch.Events, batch.Last, len(batch.Kinds)); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1623,6 +1670,8 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		AuthorizedGates:               append([]string{}, inventory.MissionBrief.AuthorizedGates...),
 		OpenDecisions:                 append([]string{}, inventory.MissionBrief.OpenDecisions...),
 		Interventions:                 append([]string{}, inventory.MissionBrief.Interventions...),
+		FactCounts:                    &inventory.Counts,
+		Sections:                      &inventory.Sections,
 		ExecutionEvidenceReviewCount:  len(inventory.ExecutionEvidenceReview),
 		ExecutionEvidenceReview:       append([]workstream.ExecutionEvidenceReviewItem{}, inventory.ExecutionEvidenceReview...),
 		MissionCommanderActionQueue:   inventory.MissionCommanderActionQueue,
