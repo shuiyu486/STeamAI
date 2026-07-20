@@ -1505,6 +1505,51 @@ func writeMissionCommanderActionQueueText(out io.Writer, queue mission.MissionCo
 	return err
 }
 
+func writeAuthorizedExecutionFollowThroughText(out io.Writer, prefix string, follow gate.AuthorizedExecutionFollowThrough) error {
+	if strings.TrimSpace(follow.State) == "" && len(follow.Outcomes) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s follow-through：state=%s gateEventId=%s reportPath=%s outcomes=%d\n", prefix, follow.State, follow.GateEventID, follow.ReportPath, len(follow.Outcomes)); err != nil {
+		return err
+	}
+	for _, boundary := range follow.Boundary {
+		if _, err := fmt.Fprintf(out, "%s follow-through boundary：%s\n", prefix, boundary); err != nil {
+			return err
+		}
+	}
+	for _, outcome := range follow.Outcomes {
+		if _, err := fmt.Fprintf(out, "%s follow-through outcome：name=%s state=%s command=`%s` expected=%s\n", prefix, outcome.Name, outcome.State, outcome.Command, outcome.Expected); err != nil {
+			return err
+		}
+		for _, action := range outcome.Actions {
+			if _, err := fmt.Fprintf(out, "%s follow-through action：name=%s action=%s\n", prefix, outcome.Name, action); err != nil {
+				return err
+			}
+		}
+		for _, action := range outcome.RepairActions {
+			if _, err := fmt.Fprintf(out, "%s follow-through repair action：name=%s action=%s\n", prefix, outcome.Name, action); err != nil {
+				return err
+			}
+		}
+		for _, command := range outcome.VerificationCommands {
+			if _, err := fmt.Fprintf(out, "%s follow-through verification command：name=%s command=%s\n", prefix, outcome.Name, command); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range outcome.Boundary {
+			if _, err := fmt.Fprintf(out, "%s follow-through outcome boundary：name=%s boundary=%s\n", prefix, outcome.Name, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	if strings.TrimSpace(follow.ActionQueue.Summary) != "" {
+		if _, err := fmt.Fprintf(out, "%s follow-through queue：summary=%s\n", prefix, follow.ActionQueue.Summary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeStartExecutorActionText(out io.Writer, result workstream.StartResult) error {
 	action := result.ExecutorAction
 	if _, err := fmt.Fprintf(out, "executor action：blocked=%t ready=%t pendingGates=%d openInterventions=%d openDecisions=%d\n", action.Blocked, action.Ready, action.PendingGates, action.OpenInterventions, action.OpenDecisions); err != nil {
@@ -1929,6 +1974,9 @@ func writeGateAdapterReportContractText(out io.Writer, contract gate.AdapterExec
 			return err
 		}
 	}
+	if err := writeAuthorizedExecutionFollowThroughText(out, "adapter report contract", contract.AuthorizedExecutionFollowThrough); err != nil {
+		return err
+	}
 	if err := writeMissionCommanderActionText(out, "adapter report commander action", mission.ExecutorAction{MissionCommanderAction: contract.MissionCommanderAction}); err != nil {
 		return err
 	}
@@ -1956,6 +2004,9 @@ func writeGateAdapterReportValidationText(out io.Writer, validation gate.Adapter
 			return err
 		}
 	}
+	if err := writeAuthorizedExecutionFollowThroughText(out, "adapter report validation", validation.AuthorizedExecutionFollowThrough); err != nil {
+		return err
+	}
 	if err := writeMissionCommanderActionText(out, "adapter report validation commander action", mission.ExecutorAction{MissionCommanderAction: validation.MissionCommanderAction}); err != nil {
 		return err
 	}
@@ -1971,6 +2022,9 @@ func writeGateApplyText(out io.Writer, result gate.ApplyResult) error {
 			return err
 		}
 		if _, err := fmt.Fprintf(out, "gate decision：authorization=%s action=%s\n", result.ExecutionEvidence.Execution.Authorization, result.ExecutionEvidence.Gate.Action); err != nil {
+			return err
+		}
+		if err := writeAuthorizedExecutionFollowThroughText(out, "execution evidence", result.AuthorizedExecutionFollowThrough); err != nil {
 			return err
 		}
 		if err := writeMissionCommanderActionText(out, "evidence commander action", mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}); err != nil {

@@ -122,45 +122,46 @@ type AdapterReport struct {
 }
 
 type AdapterExecutionReportContract struct {
-	SchemaVersion               int                                      `json:"schemaVersion"`
-	Command                     string                                   `json:"command"`
-	Kind                        string                                   `json:"kind"`
-	CaseRoot                    string                                   `json:"caseRoot"`
-	RepoRoot                    string                                   `json:"repoRoot"`
-	Pack                        string                                   `json:"pack"`
-	IsMutation                  bool                                     `json:"isMutation"`
-	Lane                        string                                   `json:"lane"`
-	Target                      string                                   `json:"target,omitempty"`
-	BatchID                     string                                   `json:"batchId,omitempty"`
-	Risk                        string                                   `json:"risk,omitempty"`
-	Authorization               autonomy.Decision                        `json:"authorization"`
-	ReportKind                  string                                   `json:"reportKind"`
-	ReportSchemaVersion         int                                      `json:"reportSchemaVersion"`
-	GateEventID                 string                                   `json:"gateEventId"`
-	Action                      string                                   `json:"action"`
-	AllowedStatuses             []string                                 `json:"allowedStatuses"`
-	RequiredFields              []string                                 `json:"requiredFields"`
-	AllowedOutputPaths          []string                                 `json:"allowedOutputPaths"`
-	DefaultReportPath           string                                   `json:"defaultReportPath,omitempty"`
-	AuthorizedBudget            autonomy.Budget                          `json:"authorizedBudget"`
-	StopConditions              []string                                 `json:"stopConditions,omitempty"`
-	ReportPathRule              string                                   `json:"reportPathRule"`
-	RefPathRequires             []string                                 `json:"refPathRequires,omitempty"`
-	SummaryMaxBytes             int                                      `json:"summaryMaxBytes"`
-	RecordRequired              bool                                     `json:"recordRequired"`
-	NotifyMainOn                []string                                 `json:"notifyMainOn,omitempty"`
-	BoundaryStatusRequires      []string                                 `json:"boundaryStatusRequires,omitempty"`
-	StatusSummaryRequires       []string                                 `json:"statusSummaryRequires,omitempty"`
-	EscalationMaxBytes          int                                      `json:"escalationMaxBytes"`
-	ValidationFailureStages     []AdapterReportValidationFailureStage    `json:"validationFailureStages,omitempty"`
-	ValidationFailureCodes      []AdapterReportValidationFailureCode     `json:"validationFailureCodes,omitempty"`
-	ValidationRepairHints       []AdapterReportRepairHint                `json:"validationRepairHints,omitempty"`
-	DeniedActions               []string                                 `json:"deniedActions,omitempty"`
-	LiveValidation              AdapterReportLiveValidation              `json:"liveValidation"`
-	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
-	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	NextSteps                   []string                                 `json:"nextSteps,omitempty"`
+	SchemaVersion                    int                                      `json:"schemaVersion"`
+	Command                          string                                   `json:"command"`
+	Kind                             string                                   `json:"kind"`
+	CaseRoot                         string                                   `json:"caseRoot"`
+	RepoRoot                         string                                   `json:"repoRoot"`
+	Pack                             string                                   `json:"pack"`
+	IsMutation                       bool                                     `json:"isMutation"`
+	Lane                             string                                   `json:"lane"`
+	Target                           string                                   `json:"target,omitempty"`
+	BatchID                          string                                   `json:"batchId,omitempty"`
+	Risk                             string                                   `json:"risk,omitempty"`
+	Authorization                    autonomy.Decision                        `json:"authorization"`
+	ReportKind                       string                                   `json:"reportKind"`
+	ReportSchemaVersion              int                                      `json:"reportSchemaVersion"`
+	GateEventID                      string                                   `json:"gateEventId"`
+	Action                           string                                   `json:"action"`
+	AllowedStatuses                  []string                                 `json:"allowedStatuses"`
+	RequiredFields                   []string                                 `json:"requiredFields"`
+	AllowedOutputPaths               []string                                 `json:"allowedOutputPaths"`
+	DefaultReportPath                string                                   `json:"defaultReportPath,omitempty"`
+	AuthorizedBudget                 autonomy.Budget                          `json:"authorizedBudget"`
+	StopConditions                   []string                                 `json:"stopConditions,omitempty"`
+	ReportPathRule                   string                                   `json:"reportPathRule"`
+	RefPathRequires                  []string                                 `json:"refPathRequires,omitempty"`
+	SummaryMaxBytes                  int                                      `json:"summaryMaxBytes"`
+	RecordRequired                   bool                                     `json:"recordRequired"`
+	NotifyMainOn                     []string                                 `json:"notifyMainOn,omitempty"`
+	BoundaryStatusRequires           []string                                 `json:"boundaryStatusRequires,omitempty"`
+	StatusSummaryRequires            []string                                 `json:"statusSummaryRequires,omitempty"`
+	EscalationMaxBytes               int                                      `json:"escalationMaxBytes"`
+	ValidationFailureStages          []AdapterReportValidationFailureStage    `json:"validationFailureStages,omitempty"`
+	ValidationFailureCodes           []AdapterReportValidationFailureCode     `json:"validationFailureCodes,omitempty"`
+	ValidationRepairHints            []AdapterReportRepairHint                `json:"validationRepairHints,omitempty"`
+	DeniedActions                    []string                                 `json:"deniedActions,omitempty"`
+	LiveValidation                   AdapterReportLiveValidation              `json:"liveValidation"`
+	AuthorizedExecutionFollowThrough AuthorizedExecutionFollowThrough         `json:"authorizedExecutionFollowThrough"`
+	MissionCommanderAction           mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	NextSteps                        []string                                 `json:"nextSteps,omitempty"`
 }
 
 type AdapterReportLiveValidation struct {
@@ -181,6 +182,28 @@ type AdapterReportLiveValidation struct {
 	SelectedAdapter             *AdapterToolCandidate        `json:"selectedAdapter,omitempty"`
 	ReplayBehavior              string                       `json:"replayBehavior"`
 	Notes                       []string                     `json:"notes,omitempty"`
+}
+
+type AuthorizedExecutionFollowThrough struct {
+	State       string                              `json:"state"`
+	GateEventID string                              `json:"gateEventId"`
+	ReportPath  string                              `json:"reportPath,omitempty"`
+	Outcomes    []AuthorizedExecutionOutcome        `json:"outcomes"`
+	Boundary    []string                            `json:"boundary"`
+	ActionQueue mission.MissionCommanderActionQueue `json:"actionQueue"`
+}
+
+type AuthorizedExecutionOutcome struct {
+	Name                 string   `json:"name"`
+	State                string   `json:"state"`
+	When                 string   `json:"when"`
+	Command              string   `json:"command,omitempty"`
+	Actions              []string `json:"actions,omitempty"`
+	RepairActions        []string `json:"repairActions,omitempty"`
+	VerificationCommands []string `json:"verificationCommands,omitempty"`
+	Expected             string   `json:"expected"`
+	Evidence             []string `json:"evidence,omitempty"`
+	Boundary             []string `json:"boundary,omitempty"`
 }
 
 type AdapterToolCandidate struct {
@@ -244,29 +267,30 @@ type AdapterReportRepairHint struct {
 }
 
 type AdapterExecutionReportValidation struct {
-	SchemaVersion               int                                      `json:"schemaVersion"`
-	Command                     string                                   `json:"command"`
-	Kind                        string                                   `json:"kind"`
-	CaseRoot                    string                                   `json:"caseRoot"`
-	RepoRoot                    string                                   `json:"repoRoot"`
-	Pack                        string                                   `json:"pack"`
-	IsMutation                  bool                                     `json:"isMutation"`
-	Applied                     bool                                     `json:"applied"`
-	Valid                       bool                                     `json:"valid"`
-	Error                       string                                   `json:"error,omitempty"`
-	Errors                      []string                                 `json:"errors,omitempty"`
-	FailureCode                 string                                   `json:"failureCode,omitempty"`
-	FailureStage                string                                   `json:"failureStage,omitempty"`
-	RepairHints                 []AdapterReportRepairHint                `json:"repairHints,omitempty"`
-	GateEventID                 string                                   `json:"gateEventId"`
-	ReportPath                  string                                   `json:"reportPath,omitempty"`
-	Report                      *AdapterReport                           `json:"report,omitempty"`
-	AdapterContext              *AdapterContext                          `json:"adapterContext,omitempty"`
-	Contract                    AdapterExecutionReportContract           `json:"contract"`
-	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
-	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	NextSteps                   []string                                 `json:"nextSteps"`
+	SchemaVersion                    int                                      `json:"schemaVersion"`
+	Command                          string                                   `json:"command"`
+	Kind                             string                                   `json:"kind"`
+	CaseRoot                         string                                   `json:"caseRoot"`
+	RepoRoot                         string                                   `json:"repoRoot"`
+	Pack                             string                                   `json:"pack"`
+	IsMutation                       bool                                     `json:"isMutation"`
+	Applied                          bool                                     `json:"applied"`
+	Valid                            bool                                     `json:"valid"`
+	Error                            string                                   `json:"error,omitempty"`
+	Errors                           []string                                 `json:"errors,omitempty"`
+	FailureCode                      string                                   `json:"failureCode,omitempty"`
+	FailureStage                     string                                   `json:"failureStage,omitempty"`
+	RepairHints                      []AdapterReportRepairHint                `json:"repairHints,omitempty"`
+	GateEventID                      string                                   `json:"gateEventId"`
+	ReportPath                       string                                   `json:"reportPath,omitempty"`
+	Report                           *AdapterReport                           `json:"report,omitempty"`
+	AdapterContext                   *AdapterContext                          `json:"adapterContext,omitempty"`
+	Contract                         AdapterExecutionReportContract           `json:"contract"`
+	AuthorizedExecutionFollowThrough AuthorizedExecutionFollowThrough         `json:"authorizedExecutionFollowThrough"`
+	MissionCommanderAction           mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	NextSteps                        []string                                 `json:"nextSteps"`
 }
 
 type adapterReportValidationError struct {
@@ -514,26 +538,157 @@ func adapterReportRepairNextSteps(hints []AdapterReportRepairHint) []string {
 	return steps
 }
 
+func authorizedExecutionFollowThrough(gateEvent EventPreview, state, reportPath string, commander mission.MissionCommanderAction, items []mission.MissionCommanderNextActionItem, hints []AdapterReportRepairHint, valid, duplicate bool) AuthorizedExecutionFollowThrough {
+	reportPath = strings.TrimSpace(reportPath)
+	if reportPath == "" && (state == "needs-adapter-report-validation" || (!valid && !duplicate)) {
+		reportPath = adapterReportDefaultPath(gateEvent.Gate.OutputPaths)
+	}
+	follow := AuthorizedExecutionFollowThrough{
+		State:       state,
+		GateEventID: gateEvent.EventID,
+		ReportPath:  reportPath,
+		Boundary: []string{
+			"authorizedExecutionFollowThrough is guidance only; /rekit does not execute the heavy tool",
+			"validation is read-only and must return valid=true before evidence record",
+			"record command writes bounded observation evidence only",
+			"do not write authority/confirmed",
+		},
+	}
+	if state == "needs-adapter-report-validation" {
+		recordCommand := authorizedExecutionRecordCommand(commander, items)
+		follow.Outcomes = append(follow.Outcomes,
+			AuthorizedExecutionOutcome{
+				Name:                 "write-and-validate-report",
+				State:                "needs-adapter-report-validation",
+				When:                 "after authorized-gate request is recorded and execution report contract is read",
+				Command:              commander.PrimaryCommand,
+				Actions:              []string{"write bounded adapter execution report sidecar under the authorized outputPath", "run read-only validation", "do not record evidence until validation returns valid=true"},
+				VerificationCommands: []string{commander.PrimaryCommand},
+				Expected:             "adapter sidecar is validated read-only without observations/authority/confirmed writes",
+				Evidence:             []string{"adapter execution report sidecar", "valid=true or valid=false validation envelope"},
+				Boundary:             []string{"sidecar refs stay under authorized outputPaths", "validation is read-only"},
+			},
+			AuthorizedExecutionOutcome{
+				Name:                 "valid-report-record",
+				State:                "ready-to-record-evidence",
+				When:                 "validation returns valid=true for the bounded sidecar",
+				Command:              recordCommand,
+				Actions:              []string{"replace <executor-id> in the record command", "record bounded observation evidence", "handoff to Mission Commander evidence review"},
+				VerificationCommands: []string{recordCommand},
+				Expected:             "validated sidecar becomes bounded observation evidence with adapter report provenance",
+				Evidence:             []string{"valid=true validation envelope", "observation evidence row", "executionEvidenceReview handoff"},
+				Boundary:             []string{"record only after valid=true", "do not replay heavy tool", "do not write authority/confirmed"},
+			},
+			AuthorizedExecutionOutcome{
+				Name:     "invalid-report-repair",
+				State:    "repair-adapter-report",
+				When:     "validation returns valid=false or report path is missing",
+				Actions:  []string{"follow validation repairHints", "rerun read-only validation", "escalate to main Agent if repair hint requires it"},
+				Expected: "record remains blocked until the sidecar validates or main Agent handles escalation",
+				Evidence: []string{"failureCode/failureStage", "repairHints", "rerun validation output"},
+				Boundary: []string{"do not record evidence until validation returns valid=true", "recordBlocked=true repair hints block record"},
+			},
+		)
+	} else if duplicate {
+		follow.Outcomes = append(follow.Outcomes, AuthorizedExecutionOutcome{
+			Name:     "duplicate-record-review",
+			State:    "evidence-already-recorded",
+			When:     "record replay returns applied=false reason=duplicate eventId",
+			Command:  "/rekit handoff " + gateCommanderActionLabel(gateEvent.Lane),
+			Actions:  []string{"do not rerun the external heavy/tool adapter action", "review the existing observation evidence and output/evidence refs", "use /rekit overview for refreshed queue state"},
+			Expected: "duplicate replay does not append observations and routes to evidence review only",
+			Evidence: []string{"applied=false", "reason=duplicate eventId", "existing observation evidence eventId"},
+			Boundary: []string{"do not append duplicate observation evidence", "do not write authority/confirmed"},
+		})
+	} else if (state == "ready-for-evidence-review" || state == "needs-main-escalation") && len(hints) == 0 {
+		outcome := AuthorizedExecutionOutcome{
+			Name:     "recorded-evidence-review",
+			State:    state,
+			When:     "gate -Apply records bounded observation evidence for the authorized gate",
+			Command:  commander.PrimaryCommand,
+			Actions:  []string{"review outputRefs/evidenceRefs", "confirm no heavy tool was run by /rekit", "decide any later authority/confirmed outcome outside this record path"},
+			Expected: "Mission Commander reviews recorded observation evidence before continuation or authority/confirmed decisions",
+			Evidence: []string{"observation evidence row", "executionEvidenceReview item", "Mission Commander handoff"},
+			Boundary: []string{"observation evidence is already recorded; do not replay heavy tool", "do not write authority/confirmed"},
+		}
+		if state == "needs-main-escalation" {
+			outcome.Name = "boundary-or-escalation-review"
+			outcome.Actions = []string{"stop autonomous work on this action", "notify the main Agent", "review boundaryHits/escalation and output/evidence refs"}
+			outcome.Expected = "boundary or escalation evidence is reviewed by the main Agent before autonomous continuation"
+			outcome.Evidence = append(outcome.Evidence, "boundaryHits or escalation")
+			outcome.Boundary = append(outcome.Boundary, "stop autonomous work on this action until main review")
+		}
+		follow.Outcomes = append(follow.Outcomes, outcome)
+	} else if valid {
+		follow.Outcomes = append(follow.Outcomes, AuthorizedExecutionOutcome{
+			Name:                 "valid-report-record",
+			State:                "ready-to-record-evidence",
+			When:                 "gate -ValidateExecutionReport returns valid=true for the bounded sidecar",
+			Command:              commander.PrimaryCommand,
+			Actions:              []string{"replace <executor-id> in the record command", "record bounded observation evidence from the validated sidecar", "handoff to the Mission Commander to review refs before any authority/confirmed outcome"},
+			VerificationCommands: []string{commander.PrimaryCommand},
+			Expected:             "observation evidence records adapter status, budget, outputRefs/evidenceRefs, and report provenance without executing the heavy tool",
+			Evidence:             []string{"valid=true validation envelope", "observation evidence row", "Mission Commander evidence review handoff"},
+			Boundary:             []string{"record only after valid=true", "replace <executor-id>", "do not write authority/confirmed"},
+		})
+	} else {
+		repairActions := []string{}
+		for _, hint := range hints {
+			if strings.TrimSpace(hint.RepairAction) != "" {
+				repairActions = append(repairActions, hint.RepairAction)
+			}
+		}
+		follow.Outcomes = append(follow.Outcomes, AuthorizedExecutionOutcome{
+			Name:          "invalid-report-repair",
+			State:         adapterReportRepairState(hints),
+			When:          "gate -ValidateExecutionReport returns valid=false or a report path is missing",
+			Command:       commander.PrimaryCommand,
+			RepairActions: repairActions,
+			Actions:       []string{"repair the bounded adapter execution report sidecar", "rerun read-only validation", "do not record evidence until validation returns valid=true"},
+			Expected:      "invalid sidecar is repaired or escalated before any observation evidence write",
+			Evidence:      []string{"failureCode/failureStage", "repairHints", "rerun validation output"},
+			Boundary:      []string{"recordBlocked=true repair hints block record", "validation remains read-only", "do not write authority/confirmed"},
+		})
+	}
+	follow.ActionQueue = mission.MissionCommanderActionQueueFor(items)
+	return follow
+}
+
+func authorizedExecutionRecordCommand(commander mission.MissionCommanderAction, items []mission.MissionCommanderNextActionItem) string {
+	for _, item := range items {
+		if strings.Contains(item.Command, " -Apply ") || strings.Contains(item.Command, " -Apply") {
+			return item.Command
+		}
+	}
+	for _, command := range commander.FollowUpCommands {
+		if strings.Contains(command, " -Apply ") || strings.Contains(command, " -Apply") {
+			return command
+		}
+	}
+	return ""
+}
+
 type ApplyResult struct {
-	SchemaVersion               int                                      `json:"schemaVersion"`
-	Command                     string                                   `json:"command"`
-	CaseRoot                    string                                   `json:"caseRoot"`
-	RepoRoot                    string                                   `json:"repoRoot"`
-	Pack                        string                                   `json:"pack"`
-	IsMutation                  bool                                     `json:"isMutation"`
-	Applied                     bool                                     `json:"applied"`
-	EventID                     string                                   `json:"eventId"`
-	Path                        string                                   `json:"path"`
-	Reason                      string                                   `json:"reason,omitempty"`
-	Event                       *EventPreview                            `json:"event,omitempty"`
-	ExecutionEvidence           *ExecutionEvidencePreview                `json:"executionEvidence,omitempty"`
-	MissionBrief                mission.Brief                            `json:"missionBrief"`
-	ExecutorAction              mission.ExecutorAction                   `json:"executorAction"`
-	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
-	ExecutionEvidenceReview     []mission.ExecutionEvidenceReviewItem    `json:"executionEvidenceReview,omitempty"`
-	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	NextSteps                   []string                                 `json:"nextSteps"`
+	SchemaVersion                    int                                      `json:"schemaVersion"`
+	Command                          string                                   `json:"command"`
+	CaseRoot                         string                                   `json:"caseRoot"`
+	RepoRoot                         string                                   `json:"repoRoot"`
+	Pack                             string                                   `json:"pack"`
+	IsMutation                       bool                                     `json:"isMutation"`
+	Applied                          bool                                     `json:"applied"`
+	EventID                          string                                   `json:"eventId"`
+	Path                             string                                   `json:"path"`
+	Reason                           string                                   `json:"reason,omitempty"`
+	Event                            *EventPreview                            `json:"event,omitempty"`
+	ExecutionEvidence                *ExecutionEvidencePreview                `json:"executionEvidence,omitempty"`
+	MissionBrief                     mission.Brief                            `json:"missionBrief"`
+	ExecutorAction                   mission.ExecutorAction                   `json:"executorAction"`
+	MissionCommanderAction           mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	ExecutionEvidenceReview          []mission.ExecutionEvidenceReviewItem    `json:"executionEvidenceReview,omitempty"`
+	AuthorizedExecutionFollowThrough AuthorizedExecutionFollowThrough         `json:"authorizedExecutionFollowThrough"`
+	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	NextSteps                        []string                                 `json:"nextSteps"`
 }
 
 type EventPreview struct {
@@ -710,6 +865,7 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 		result.ExecutionEvidenceReview = gateDuplicateExecutionEvidenceReviewFromObservation(execution, result.MissionCommanderAction)
 		result.MissionCommanderNextActions = gateMissionCommanderNextActions(execution.Lane, mission.ExecutorAction{}, result.ExecutionEvidenceReview)
 		result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+		result.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, result.MissionCommanderAction.State, execution.Execution.ExecutionReportPath, result.MissionCommanderAction, result.MissionCommanderNextActions, nil, false, true)
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
@@ -723,6 +879,7 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 	result.ExecutionEvidenceReview = gateExecutionEvidenceReviewFromObservation(execution)
 	result.MissionCommanderNextActions = gateMissionCommanderNextActions(execution.Lane, result.ExecutorAction, result.ExecutionEvidenceReview)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	result.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, result.MissionCommanderAction.State, execution.Execution.ExecutionReportPath, result.MissionCommanderAction, result.MissionCommanderNextActions, nil, true, false)
 	return result, nil
 }
 
@@ -801,6 +958,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, false, validation.RepairHints)
 		validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, false, validation.RepairHints)
 		validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
+		validation.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.MissionCommanderAction, validation.MissionCommanderNextActions, validation.RepairHints, false, false)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		return validation, nil
 	}
@@ -812,6 +970,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, false, validation.RepairHints)
 		validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, false, validation.RepairHints)
 		validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
+		validation.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.MissionCommanderAction, validation.MissionCommanderNextActions, validation.RepairHints, false, false)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		return validation, nil
 	}
@@ -819,6 +978,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 	validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, true, nil)
 	validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, true, nil)
 	validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
+	validation.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.MissionCommanderAction, validation.MissionCommanderNextActions, nil, true, false)
 	validation.NextSteps = adapterReportValidationNextSteps(pack, gateEvent, validation.ReportPath)
 	return validation, nil
 }
@@ -898,6 +1058,7 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, 
 		NextSteps:                   adapterReportContractNextSteps(pack, event, liveValidation),
 	}
 	contract.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(contract.MissionCommanderNextActions)
+	contract.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(event, commander.State, liveValidation.CaseRelativeReportPath, commander, contract.MissionCommanderNextActions, nil, false, false)
 	return contract
 }
 

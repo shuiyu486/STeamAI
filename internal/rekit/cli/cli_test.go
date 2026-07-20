@@ -5622,6 +5622,10 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"gate adapter report contract：gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " mutation=false",
 		"gate adapter report validate command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath " + wantReportPath + " -Format json",
 		"gate adapter report record command：rekit -Command gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath " + wantReportPath + " -Actor <executor-id> -Format json",
+		"adapter report contract follow-through：state=needs-adapter-report-validation gateEventId=" + applied.EventID + " reportPath=" + wantReportPath + " outcomes=3",
+		"adapter report contract follow-through outcome：name=write-and-validate-report state=needs-adapter-report-validation command=`" + wantValidate + "`",
+		"adapter report contract follow-through outcome：name=valid-report-record state=ready-to-record-evidence command=`" + wantRecord + "`",
+		"adapter report contract follow-through outcome：name=invalid-report-repair state=repair-adapter-report",
 		"adapter report commander action：state=needs-adapter-report-validation primary=`" + wantValidate + "`",
 		"mission commander action queue：summary=total=3 unblocked=2 blocked=1 requiresReview=3 followUp=2 current=" + wantValidate,
 		"mission commander action queue current：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantValidate + "`",
@@ -5646,6 +5650,8 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"gate adapter report validation：valid=true gateEventId=" + applied.EventID + " reportPath=" + wantReportPath + " mutation=false applied=false",
+		"adapter report validation follow-through：state=ready-to-record-evidence gateEventId=" + applied.EventID + " reportPath=" + wantReportPath + " outcomes=1",
+		"adapter report validation follow-through outcome：name=valid-report-record state=ready-to-record-evidence command=`" + wantRecord + "`",
 		"adapter report validation commander action：state=ready-to-record-evidence primary=`" + wantRecord + "`",
 		"mission commander action queue：summary=total=2 unblocked=2 blocked=0 requiresReview=2 followUp=1 current=" + wantRecord,
 		"mission commander action queue current：state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction blocked=false requiresReview=true command=`" + wantRecord + "`",
@@ -5682,6 +5688,8 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"gate adapter report validation：valid=false gateEventId=" + applied.EventID + " reportPath=" + invalidReportPath + " mutation=false applied=false",
 		"gate adapter report validation failure：code=boundary-marker-missing stage=boundary",
 		"gate adapter report repair hint：action=add-boundary-marker recordBlocked=true rerunValidation=true",
+		"adapter report validation follow-through：state=repair-adapter-report gateEventId=" + applied.EventID + " reportPath=" + invalidReportPath + " outcomes=1",
+		"adapter report validation follow-through repair action：name=invalid-report-repair action=add-boundary-marker",
 		"adapter report validation commander action：state=repair-adapter-report primary=`" + wantInvalidValidate + "`",
 		"mission commander next action：state=repair-adapter-report source=adapterReportValidation.repairHints blocked=false requiresReview=true command=`add-boundary-marker`",
 		"mission commander next action：state=repair-adapter-report source=adapterReportValidation.missionCommanderAction blocked=false requiresReview=true command=`" + wantInvalidValidate + "`",
@@ -5776,16 +5784,17 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	var contract struct {
-		Kind                    string   `json:"kind"`
-		ReportKind              string   `json:"reportKind"`
-		ReportSchemaVersion     int      `json:"reportSchemaVersion"`
-		GateEventID             string   `json:"gateEventId"`
-		Action                  string   `json:"action"`
-		AllowedStatuses         []string `json:"allowedStatuses"`
-		AllowedOutputPaths      []string `json:"allowedOutputPaths"`
-		BoundaryStatusRequires  []string `json:"boundaryStatusRequires"`
-		StatusSummaryRequires   []string `json:"statusSummaryRequires"`
-		ValidationFailureStages []struct {
+		Kind                             string                                   `json:"kind"`
+		ReportKind                       string                                   `json:"reportKind"`
+		ReportSchemaVersion              int                                      `json:"reportSchemaVersion"`
+		GateEventID                      string                                   `json:"gateEventId"`
+		Action                           string                                   `json:"action"`
+		AuthorizedExecutionFollowThrough authorizedExecutionFollowThroughSnapshot `json:"authorizedExecutionFollowThrough"`
+		AllowedStatuses                  []string                                 `json:"allowedStatuses"`
+		AllowedOutputPaths               []string                                 `json:"allowedOutputPaths"`
+		BoundaryStatusRequires           []string                                 `json:"boundaryStatusRequires"`
+		StatusSummaryRequires            []string                                 `json:"statusSummaryRequires"`
+		ValidationFailureStages          []struct {
 			Stage string `json:"stage"`
 		} `json:"validationFailureStages"`
 		ValidationFailureCodes []struct {
@@ -5814,6 +5823,10 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if contract.Kind != "adapter-execution-report-contract" || contract.ReportKind != "adapter-execution-report" || contract.ReportSchemaVersion != 1 || contract.GateEventID != authorizedEventID || contract.Action != "debug" {
 		t.Fatalf("unexpected adapter report contract identity: %+v", contract)
+	}
+	contractFollow := contract.AuthorizedExecutionFollowThrough
+	if contractFollow.State != "needs-adapter-report-validation" || contractFollow.GateEventID != authorizedEventID || contractFollow.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || !cliAuthorizedFollowThroughContains(contractFollow, "write-and-validate-report", "run read-only validation") || !cliAuthorizedFollowThroughContains(contractFollow, "valid-report-record", "bounded observation evidence") || !cliAuthorizedFollowThroughContains(contractFollow, "invalid-report-repair", "record remains blocked") {
+		t.Fatalf("adapter report contract omitted authorized execution follow-through: %+v", contractFollow)
 	}
 	if strings.Join(contract.AllowedStatuses, ",") != "succeeded,failed,boundary-hit,escalated,aborted" || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || contract.AuthorizedBudget.RuntimeSeconds != 30 || contract.SummaryMaxBytes != 4096 || contract.EscalationMaxBytes != 4096 || !containsSubstring(contract.RefPathRequires, "evidenceRefs must stay under authorized outputPaths") || !containsSubstring(contract.BoundaryStatusRequires, "boundaryHits or escalation") || !containsSubstring(contract.BoundaryStatusRequires, "authorized stopConditions") || !containsSubstring(contract.StatusSummaryRequires, "failed/boundary-hit/escalated/aborted") || !slices.Contains(contract.DeniedActions, "heavy-tool execution") {
 		t.Fatalf("adapter report contract omitted live validation boundaries: %+v", contract)
@@ -7175,11 +7188,49 @@ type missionCommanderActionQueueSnapshot struct {
 	FollowUpActions       []missionCommanderNextActionItem `json:"followUpActions"`
 }
 
+type authorizedExecutionFollowThroughSnapshot struct {
+	State       string                              `json:"state"`
+	GateEventID string                              `json:"gateEventId"`
+	ReportPath  string                              `json:"reportPath"`
+	Outcomes    []authorizedExecutionOutcome        `json:"outcomes"`
+	Boundary    []string                            `json:"boundary"`
+	ActionQueue missionCommanderActionQueueSnapshot `json:"actionQueue"`
+}
+
+type authorizedExecutionOutcome struct {
+	Name                 string   `json:"name"`
+	State                string   `json:"state"`
+	When                 string   `json:"when"`
+	Command              string   `json:"command"`
+	Actions              []string `json:"actions"`
+	RepairActions        []string `json:"repairActions"`
+	VerificationCommands []string `json:"verificationCommands"`
+	Expected             string   `json:"expected"`
+	Evidence             []string `json:"evidence"`
+	Boundary             []string `json:"boundary"`
+}
+
 func assertCLIActionQueue(t *testing.T, queue missionCommanderActionQueueSnapshot, total, unblocked, blocked, requiresReview, followUp int, currentCommand string) {
 	t.Helper()
 	if queue.Counts.Total != total || queue.Counts.Unblocked != unblocked || queue.Counts.Blocked != blocked || queue.Counts.RequiresReview != requiresReview || queue.Counts.FollowUp != followUp || queue.CurrentAction == nil || queue.CurrentAction.Command != currentCommand || !strings.Contains(queue.Summary, "current="+currentCommand) {
 		t.Fatalf("Mission Commander action queue drifted: %+v", queue)
 	}
+}
+
+func cliAuthorizedFollowThroughContains(follow authorizedExecutionFollowThroughSnapshot, outcomeName, want string) bool {
+	fields := append([]string{follow.State, follow.GateEventID, follow.ReportPath, follow.ActionQueue.Summary}, follow.Boundary...)
+	for _, outcome := range follow.Outcomes {
+		if outcome.Name != outcomeName {
+			continue
+		}
+		fields = append(fields, outcome.Name, outcome.State, outcome.When, outcome.Command, outcome.Expected)
+		fields = append(fields, outcome.Actions...)
+		fields = append(fields, outcome.RepairActions...)
+		fields = append(fields, outcome.VerificationCommands...)
+		fields = append(fields, outcome.Evidence...)
+		fields = append(fields, outcome.Boundary...)
+	}
+	return containsSubstring(fields, want)
 }
 
 type missionBrief struct {

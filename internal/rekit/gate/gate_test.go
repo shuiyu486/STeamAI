@@ -499,6 +499,13 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if !strings.Contains(strings.Join(contract.BoundaryStatusRequires, ","), "authorized stopConditions") || !strings.Contains(strings.Join(contract.StatusSummaryRequires, ","), "failed/boundary-hit/escalated/aborted") {
 		t.Fatalf("adapter report contract omitted status enforcement rules: %+v", contract)
 	}
+	follow := contract.AuthorizedExecutionFollowThrough
+	if follow.State != "needs-adapter-report-validation" || follow.GateEventID != authorized.EventID || follow.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || len(follow.Outcomes) != 3 || follow.ActionQueue.Summary != contract.MissionCommanderActionQueue.Summary {
+		t.Fatalf("adapter report contract omitted lifecycle follow-through: %+v", follow)
+	}
+	if !authorizedFollowThroughContainsForTest(follow, "write-and-validate-report", "run read-only validation") || !authorizedFollowThroughContainsForTest(follow, "valid-report-record", "validated sidecar becomes bounded observation evidence") || !authorizedFollowThroughContainsForTest(follow, "invalid-report-repair", "record remains blocked") || !authorizedFollowThroughContainsForTest(follow, "valid-report-record", "do not replay heavy tool") || !gateContainsSubstring(follow.Boundary, "guidance only") {
+		t.Fatalf("adapter report contract follow-through omitted lifecycle outcomes: %+v", follow)
+	}
 	if !strings.Contains(contract.LiveValidation.InvocationCwd, "authorizedWorkspaces") || !strings.Contains(contract.LiveValidation.InvocationCwd, "caseRelativeReportPath") || strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || contract.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != authorized.EventID || contract.LiveValidation.SidecarTemplate.Kind != "adapter-execution-report" || !strings.Contains(strings.Join(contract.LiveValidation.SidecarTemplate.EvidenceRefs, ","), "authorized outputPaths") || !strings.Contains(strings.Join(contract.LiveValidation.Notes, ","), "outputRefs/evidenceRefs") || !strings.Contains(strings.Join(contract.LiveValidation.Notes, ","), "CaseRelativeRecordArgs") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "CaseRelativeRecordArgs") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
 		t.Fatalf("adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
 	}
@@ -690,6 +697,10 @@ func TestValidateAdapterExecutionReportReadOnlyPreflight(t *testing.T) {
 		t.Fatalf("valid adapter report validation omitted record next actions: %+v", validation.MissionCommanderNextActions)
 	}
 	assertGateActionQueue(t, validation.MissionCommanderActionQueue, 2, 2, 0, 2, 1, wantRecord)
+	follow := validation.AuthorizedExecutionFollowThrough
+	if follow.State != "ready-to-record-evidence" || follow.GateEventID != authorized.EventID || follow.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || follow.ActionQueue.Summary != validation.MissionCommanderActionQueue.Summary || !authorizedFollowThroughContainsForTest(follow, "valid-report-record", "replace <executor-id>") || !authorizedFollowThroughContainsForTest(follow, "valid-report-record", "observation evidence records adapter status") {
+		t.Fatalf("valid adapter report validation omitted record follow-through: %+v", follow)
+	}
 	if !gateContainsSubstring(commander.Boundary, "read-only") || !gateContainsSubstring(commander.Boundary, "bounded observation evidence") || !gateContainsSubstring(commander.Boundary, "never executes the heavy tool") || !gateContainsSubstring(validation.NextSteps, wantRecord) {
 		t.Fatalf("valid adapter report validation omitted Mission Commander boundaries: commander=%+v next=%+v", commander, validation.NextSteps)
 	}
@@ -756,6 +767,10 @@ func TestValidateAdapterExecutionReportMissingPathExposesMissionCommanderRepair(
 		t.Fatalf("missing-path validation omitted repair next actions: %+v", validation.MissionCommanderNextActions)
 	}
 	assertGateActionQueue(t, validation.MissionCommanderActionQueue, 2, 2, 0, 2, 0, "provide-execution-report-path")
+	follow := validation.AuthorizedExecutionFollowThrough
+	if follow.State != "needs-execution-report-path" || follow.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || follow.ActionQueue.Summary != validation.MissionCommanderActionQueue.Summary || !authorizedFollowThroughContainsForTest(follow, "invalid-report-repair", "provide-execution-report-path") || !authorizedFollowThroughContainsForTest(follow, "invalid-report-repair", "recordBlocked=true") {
+		t.Fatalf("missing-path validation omitted repair follow-through: %+v", follow)
+	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
 
@@ -800,6 +815,10 @@ func TestValidateAdapterExecutionReportReturnsInvalidEnvelopeReadOnly(t *testing
 		t.Fatalf("invalid adapter report validation omitted repair next actions: %+v", validation.MissionCommanderNextActions)
 	}
 	assertGateActionQueue(t, validation.MissionCommanderActionQueue, 2, 2, 0, 2, 0, "add-boundary-marker")
+	follow := validation.AuthorizedExecutionFollowThrough
+	if follow.State != "repair-adapter-report" || follow.ReportPath != "workspace/main/debug/session-1/bad-report.json" || follow.ActionQueue.Summary != validation.MissionCommanderActionQueue.Summary || !authorizedFollowThroughContainsForTest(follow, "invalid-report-repair", "add-boundary-marker") || !authorizedFollowThroughContainsForTest(follow, "invalid-report-repair", "failureCode/failureStage") {
+		t.Fatalf("invalid adapter report validation omitted repair follow-through: %+v", follow)
+	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
 
@@ -1545,6 +1564,22 @@ func assertGateActionQueue(t *testing.T, queue mission.MissionCommanderActionQue
 	if queue.Counts.Total != total || queue.Counts.Unblocked != unblocked || queue.Counts.Blocked != blocked || queue.Counts.RequiresReview != requiresReview || queue.Counts.FollowUp != followUp || queue.CurrentAction == nil || queue.CurrentAction.Command != currentCommand || !strings.Contains(queue.Summary, "current="+currentCommand) {
 		t.Fatalf("Mission Commander action queue drifted: %+v", queue)
 	}
+}
+
+func authorizedFollowThroughContainsForTest(follow AuthorizedExecutionFollowThrough, outcomeName, want string) bool {
+	fields := append([]string{follow.State, follow.GateEventID, follow.ReportPath, follow.ActionQueue.Summary}, follow.Boundary...)
+	for _, outcome := range follow.Outcomes {
+		if outcome.Name != outcomeName {
+			continue
+		}
+		fields = append(fields, outcome.Name, outcome.State, outcome.When, outcome.Command, outcome.Expected)
+		fields = append(fields, outcome.Actions...)
+		fields = append(fields, outcome.RepairActions...)
+		fields = append(fields, outcome.VerificationCommands...)
+		fields = append(fields, outcome.Evidence...)
+		fields = append(fields, outcome.Boundary...)
+	}
+	return gateContainsSubstring(fields, want)
 }
 
 func gateContainsSubstring(items []string, want string) bool {
