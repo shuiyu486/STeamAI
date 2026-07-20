@@ -1563,7 +1563,10 @@ func writeReconcileExecutorActionText(out io.Writer, result workstream.Reconcile
 	if _, err := fmt.Fprintf(out, "executor handoff：continue=`%s` handoff=`%s`\n", action.ResumeCommand, action.HandoffCommand); err != nil {
 		return err
 	}
-	return writeMissionCommanderActionText(out, "executor commander action", action)
+	if err := writeMissionCommanderActionText(out, "executor commander action", action); err != nil {
+		return err
+	}
+	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
 func writeContinueText(out io.Writer, result workstream.ContinueResult) error {

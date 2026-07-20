@@ -31,28 +31,30 @@ type InterventionSummary struct {
 }
 
 type ReconcileResult struct {
-	SchemaVersion        int                 `json:"schemaVersion"`
-	Command              string              `json:"command"`
-	CaseRoot             string              `json:"caseRoot"`
-	RepoRoot             string              `json:"repoRoot"`
-	Pack                 string              `json:"pack"`
-	IsMutation           bool                `json:"isMutation"`
-	Applied              bool                `json:"applied"`
-	RequiresConfirmation bool                `json:"requiresConfirmation"`
-	Selector             string              `json:"selector"`
-	Lane                 Lane                `json:"lane"`
-	Intervention         InterventionSummary `json:"intervention"`
-	ResolutionEventID    string              `json:"resolutionEventId,omitempty"`
-	Actor                string              `json:"actor"`
-	Executor             string              `json:"executor"`
-	PreviousExecutor     string              `json:"previousExecutor,omitempty"`
-	ExecutorGeneration   int                 `json:"executorGeneration"`
-	MissionBrief         mission.Brief       `json:"missionBrief"`
-	ExecutorAction       laneExecutorAction  `json:"executorAction"`
-	WouldWrites          []StartWrite        `json:"wouldWrites,omitempty"`
-	Writes               []StartWrite        `json:"writes,omitempty"`
-	BlockedActions       []string            `json:"blockedActions"`
-	NextSteps            []string            `json:"nextSteps"`
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Command                     string                                   `json:"command"`
+	CaseRoot                    string                                   `json:"caseRoot"`
+	RepoRoot                    string                                   `json:"repoRoot"`
+	Pack                        string                                   `json:"pack"`
+	IsMutation                  bool                                     `json:"isMutation"`
+	Applied                     bool                                     `json:"applied"`
+	RequiresConfirmation        bool                                     `json:"requiresConfirmation"`
+	Selector                    string                                   `json:"selector"`
+	Lane                        Lane                                     `json:"lane"`
+	Intervention                InterventionSummary                      `json:"intervention"`
+	ResolutionEventID           string                                   `json:"resolutionEventId,omitempty"`
+	Actor                       string                                   `json:"actor"`
+	Executor                    string                                   `json:"executor"`
+	PreviousExecutor            string                                   `json:"previousExecutor,omitempty"`
+	ExecutorGeneration          int                                      `json:"executorGeneration"`
+	MissionBrief                mission.Brief                            `json:"missionBrief"`
+	ExecutorAction              laneExecutorAction                       `json:"executorAction"`
+	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	WouldWrites                 []StartWrite                             `json:"wouldWrites,omitempty"`
+	Writes                      []StartWrite                             `json:"writes,omitempty"`
+	BlockedActions              []string                                 `json:"blockedActions"`
+	NextSteps                   []string                                 `json:"nextSteps"`
 }
 
 type reconcileContext struct {
@@ -288,25 +290,33 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 	brief := projectMissionBrief(ctx.board.Lanes, ctx.facts)
 	laneBrief := laneMissionBrief(ctx.lane, ctx.facts)
 	laneFacts := mission.LaneFacts(ctx.facts.Facts, ctx.lane.ID)
+	executorAction := laneExecutorActionFor(ctx.lane, laneFacts, laneBrief)
+	if !applied && executorAction.MissionCommanderAction.State == "needs-reconcile" {
+		executorAction.MissionCommanderAction = ctx.reconcileApplyCommanderAction()
+	}
+	commanderAction := executorAction.MissionCommanderAction
+	commanderNextActions := reconcileMissionCommanderNextActions(ctx.lane, executorAction, applied)
 	result := ReconcileResult{
-		SchemaVersion:        1,
-		Command:              "reconcile",
-		CaseRoot:             ctx.inst.CaseRoot,
-		RepoRoot:             ctx.manifest.RepoRoot,
-		Pack:                 ctx.manifest.Pack,
-		IsMutation:           mutating,
-		Applied:              applied,
-		RequiresConfirmation: confirm,
-		Selector:             ctx.selector,
-		Lane:                 ctx.lane,
-		Intervention:         summarizeIntervention(ctx.intervention),
-		Actor:                ctx.actor,
-		Executor:             ctx.executor,
-		PreviousExecutor:     ctx.lane.CurrentExecutor,
-		ExecutorGeneration:   ctx.lane.ExecutorGeneration,
-		MissionBrief:         brief,
-		ExecutorAction:       laneExecutorActionFor(ctx.lane, laneFacts, laneBrief),
-		BlockedActions:       []string{"authority/confirmed writes", "heavy-tool execution", "external side effects"},
+		SchemaVersion:               1,
+		Command:                     "reconcile",
+		CaseRoot:                    ctx.inst.CaseRoot,
+		RepoRoot:                    ctx.manifest.RepoRoot,
+		Pack:                        ctx.manifest.Pack,
+		IsMutation:                  mutating,
+		Applied:                     applied,
+		RequiresConfirmation:        confirm,
+		Selector:                    ctx.selector,
+		Lane:                        ctx.lane,
+		Intervention:                summarizeIntervention(ctx.intervention),
+		Actor:                       ctx.actor,
+		Executor:                    ctx.executor,
+		PreviousExecutor:            ctx.lane.CurrentExecutor,
+		ExecutorGeneration:          ctx.lane.ExecutorGeneration,
+		MissionBrief:                brief,
+		ExecutorAction:              executorAction,
+		MissionCommanderAction:      commanderAction,
+		MissionCommanderNextActions: commanderNextActions,
+		BlockedActions:              []string{"authority/confirmed writes", "heavy-tool execution", "external side effects"},
 		NextSteps: []string{
 			"review this reconcile plan, then re-run reconcile with -Apply to write case-local ledger and lane state",
 			"reconcile never executes heavy-tool and never writes authority/confirmed state",
@@ -318,6 +328,54 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 		result.WouldWrites = writes
 	}
 	return result
+}
+
+func (ctx reconcileContext) reconcileApplyCommanderAction() mission.MissionCommanderAction {
+	label := workstreamLabel(ctx.lane)
+	command := "/rekit reconcile " + label + " -InterventionId " + quoteCommandArg(mission.Value(ctx.intervention, "eventId")) + " -Apply"
+	if strings.TrimSpace(ctx.executor) != "" {
+		command += " -Executor " + quoteCommandArg(ctx.executor)
+	}
+	if strings.TrimSpace(ctx.actor) != "" {
+		command += " -Actor " + quoteCommandArg(ctx.actor)
+	}
+	if strings.TrimSpace(ctx.reason) != "" {
+		command += " -Reason " + quoteCommandArg(ctx.reason)
+	}
+	return mission.MissionCommanderAction{
+		State:          "needs-reconcile",
+		Prompt:         "先 review reconcile preview，再写入 selected open intervention 的 resolution 与 lane state refresh。",
+		PrimaryCommand: command,
+		FollowUpCommands: []string{
+			"/rekit continue " + label + " -WhatIf",
+			"/rekit handoff " + label,
+		},
+		Boundary: []string{
+			"no authority/confirmed writes",
+			"no heavy-tool execution",
+			"reconcile apply only writes case-local intervention/lane/resume/checkpoint state",
+		},
+	}
+}
+
+func reconcileMissionCommanderNextActions(lane Lane, action laneExecutorAction, applied bool) []mission.MissionCommanderNextActionItem {
+	items := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, action)}, nil, action.Blocked)
+	if applied || action.MissionCommanderAction.State != "needs-reconcile" {
+		return items
+	}
+	for idx := range items {
+		items[idx].RequiresReview = true
+		items[idx].Reasons = append(items[idx].Reasons, "review reconcile preview before writing case-local ledger/lane/resume/checkpoint state")
+		if items[idx].Source == "missionCommanderActions" {
+			items[idx].Blocked = false
+			items[idx].Reasons = append(items[idx].Reasons, "reconcile apply is the bounded action that resolves the selected open intervention")
+		}
+		if items[idx].Source == "missionCommanderActions.followUp" {
+			items[idx].Blocked = true
+			items[idx].Reasons = append(items[idx].Reasons, "run only after reconcile apply succeeds and the refreshed executor action remains ready")
+		}
+	}
+	return items
 }
 
 func (ctx reconcileContext) plannedWrites() []StartWrite {

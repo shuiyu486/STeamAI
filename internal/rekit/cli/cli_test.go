@@ -3337,9 +3337,11 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 		Intervention struct {
 			EventID string `json:"eventId"`
 		} `json:"intervention"`
-		Executor       string                 `json:"executor"`
-		ExecutorAction executorActionSnapshot `json:"executorAction"`
-		WouldWrites    []startWrite           `json:"wouldWrites"`
+		Executor                    string                           `json:"executor"`
+		ExecutorAction              executorActionSnapshot           `json:"executorAction"`
+		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		WouldWrites                 []startWrite                     `json:"wouldWrites"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
 		t.Fatalf("reconcile preview stdout is not JSON: %v\n%s", err, out.String())
@@ -3353,13 +3355,17 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	if !slices.Equal(preview.ExecutorAction.NextAgentActions, []string{"reconcile open intervention(s) before continuing this lane"}) {
 		t.Fatalf("reconcile preview should recommend only intervention reconciliation: %+v", preview.ExecutorAction.NextAgentActions)
 	}
+	wantReconcileApply := `/rekit reconcile login -InterventionId evt-human-stop -Apply -Executor session-2 -Actor main-agent -Reason "accept user correction"`
+	if preview.MissionCommanderAction.State != "needs-reconcile" || preview.MissionCommanderAction.PrimaryCommand != wantReconcileApply || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions", wantReconcileApply, false, true) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -WhatIf", true, true) {
+		t.Fatalf("reconcile preview should expose top-level Mission Commander apply projection: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
+	}
 	assertWriteKind(t, preview.WouldWrites, "lane-event", "would-append-executor-takeover")
 
 	out.Reset()
 	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "vmp-re", "-WhatIf", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"executor action：blocked=true ready=false pendingGates=0 openInterventions=1 openDecisions=0", "executor requirements：reconcile=true pendingGate=false openDecision=false", "executor handoff：continue=`/rekit continue login` handoff=`/rekit handoff login`"} {
+	for _, expected := range []string{"executor action：blocked=true ready=false pendingGates=0 openInterventions=1 openDecisions=0", "executor requirements：reconcile=true pendingGate=false openDecision=false", "executor handoff：continue=`/rekit continue login` handoff=`/rekit handoff login`", "mission commander next action：state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -Apply -Executor session-2 -Actor main-agent -Reason \"accept user correction\"`", "mission commander next action：state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -WhatIf`", "mission commander next action reason：run only after reconcile apply succeeds and the refreshed executor action remains ready", "mission commander next action boundary：reconcile apply only writes case-local intervention/lane/resume/checkpoint state"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("reconcile text missing %q:\n%s", expected, out.String())
 		}
@@ -3375,17 +3381,19 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 		t.Fatal(err)
 	}
 	var reconciled struct {
-		Command            string                 `json:"command"`
-		IsMutation         bool                   `json:"isMutation"`
-		Applied            bool                   `json:"applied"`
-		Lane               startLane              `json:"lane"`
-		ResolutionEventID  string                 `json:"resolutionEventId"`
-		Executor           string                 `json:"executor"`
-		ExecutorGeneration int                    `json:"executorGeneration"`
-		Writes             []startWrite           `json:"writes"`
-		MissionBrief       missionBrief           `json:"missionBrief"`
-		ExecutorAction     executorActionSnapshot `json:"executorAction"`
-		NextSteps          []string               `json:"nextSteps"`
+		Command                     string                           `json:"command"`
+		IsMutation                  bool                             `json:"isMutation"`
+		Applied                     bool                             `json:"applied"`
+		Lane                        startLane                        `json:"lane"`
+		ResolutionEventID           string                           `json:"resolutionEventId"`
+		Executor                    string                           `json:"executor"`
+		ExecutorGeneration          int                              `json:"executorGeneration"`
+		Writes                      []startWrite                     `json:"writes"`
+		MissionBrief                missionBrief                     `json:"missionBrief"`
+		ExecutorAction              executorActionSnapshot           `json:"executorAction"`
+		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		NextSteps                   []string                         `json:"nextSteps"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &reconciled); err != nil {
 		t.Fatalf("reconcile apply stdout is not JSON: %v\n%s", err, out.String())
@@ -3403,6 +3411,9 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	}
 	if reconciled.ExecutorAction.Blocked || !reconciled.ExecutorAction.Ready || reconciled.ExecutorAction.OpenInterventions != 0 || reconciled.ExecutorAction.ReconcileRequired || reconciled.ExecutorAction.ResumeCommand != "/rekit continue login" || reconciled.ExecutorAction.HandoffCommand != "/rekit handoff login" {
 		t.Fatalf("reconcile apply executor action drifted: %+v", reconciled.ExecutorAction)
+	}
+	if reconciled.MissionCommanderAction.State != "ready-to-continue" || reconciled.MissionCommanderAction.PrimaryCommand != "/rekit continue login" || !containsMissionCommanderNextAction(reconciled.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue login", false, false) || !containsMissionCommanderNextAction(reconciled.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", false, false) {
+		t.Fatalf("reconcile apply should expose top-level Mission Commander continue projection: action=%+v next=%+v", reconciled.MissionCommanderAction, reconciled.MissionCommanderNextActions)
 	}
 	if !slices.Equal(reconciled.NextSteps, []string{"run doctor after apply", "/rekit continue login"}) {
 		t.Fatalf("reconcile apply ready lane next steps drifted: %+v", reconciled.NextSteps)
