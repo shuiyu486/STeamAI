@@ -1814,6 +1814,44 @@ func planSubagentsTextValue(value, fallback string) string {
 	return value
 }
 
+func writePlanSubagentsReviewerOrchestrationText(out io.Writer, orchestration subagents.ReviewerOrchestrationPlan, targetLane string) error {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration：mode=%s targetLane=%s reviewers=%d maxParallel=%d resultRoot=%s\n", orchestration.Mode, targetLane, orchestration.ReviewerCount, orchestration.MaxParallel, orchestration.ResultRoot); err != nil {
+		return err
+	}
+	if strings.TrimSpace(orchestration.Scope) != "" || strings.TrimSpace(orchestration.PacketPath) != "" {
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration scope：scope=%s packet=%s resultRoot=%s\n", planSubagentsTextInline(orchestration.Scope), orchestration.PacketPath, orchestration.ResultRoot); err != nil {
+			return err
+		}
+	}
+	binding := orchestration.OwnerBinding
+	if strings.TrimSpace(binding.TargetLane) != "" || strings.TrimSpace(binding.BindingMode) != "" {
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration owner：targetLane=%s mode=%s currentExecutor=%s generation=%d requiredForIntake=%t spawnOwner=%s\n", binding.TargetLane, binding.BindingMode, planSubagentsTextValue(binding.CurrentExecutor, "unassigned"), binding.ExecutorGeneration, binding.RequiredForIntake, binding.MainAgentSpawnOwner); err != nil {
+			return err
+		}
+	}
+	for _, step := range orchestration.Lifecycle {
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration lifecycle：step=%s owner=%s inputs=%s mustPass=%s nextOnSuccess=%s nextOnFailure=%s action=%s\n", step.Step, step.Owner, strings.Join(step.Inputs, ","), strings.Join(step.MustPass, ","), step.NextOnSuccess, step.NextOnFailure, planSubagentsTextInline(step.Action)); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range orchestration.RuntimeBoundary {
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration boundary：boundary=%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	for _, criteria := range orchestration.CompletionCriteria {
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration completion：criteria=%s\n", criteria); err != nil {
+			return err
+		}
+	}
+	for _, dispatch := range orchestration.Dispatches {
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer dispatch：shard=%s status=%s reviewerResultPath=%s preview=`%s` apply=`%s`\n", dispatch.ShardID, dispatch.Status, dispatch.ReviewerResultPath, dispatch.PreviewCommand, dispatch.ApplyCommand); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writePlanSubagentsShardHandoffText(out io.Writer, handoffs []subagents.ShardHandoff) error {
 	for _, handoff := range handoffs {
 		if _, err := fmt.Fprintf(out, "plan-subagents shard handoff：shard=%s status=%s reviewerResultPath=%s items=%s expected=%s\n", handoff.ShardID, handoff.Status, handoff.ReviewerResultPath, strings.Join(handoff.Items, ","), planSubagentsTextInline(handoff.ExpectedOutput)); err != nil {
@@ -1929,13 +1967,8 @@ func writePlanSubagentsText(out io.Writer, result subagents.Result) error {
 	if _, err := fmt.Fprintf(out, "plan-subagents：writesReviewArtifacts=%t reviewRequired=%t items=%d shards=%d packet=%s summary=%s\n", result.WritesReviewArtifacts, result.ReviewRequired, result.ItemCount, result.ShardCount, result.PacketPath, result.SummaryPath); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration：mode=%s targetLane=%s reviewers=%d maxParallel=%d resultRoot=%s\n", result.ReviewerOrchestration.Mode, result.TargetLane, result.ReviewerOrchestration.ReviewerCount, result.ReviewerOrchestration.MaxParallel, result.ReviewerOrchestration.ResultRoot); err != nil {
+	if err := writePlanSubagentsReviewerOrchestrationText(out, result.ReviewerOrchestration, result.TargetLane); err != nil {
 		return err
-	}
-	for _, dispatch := range result.ReviewerOrchestration.Dispatches {
-		if _, err := fmt.Fprintf(out, "plan-subagents reviewer dispatch：shard=%s status=%s reviewerResultPath=%s preview=`%s` apply=`%s`\n", dispatch.ShardID, dispatch.Status, dispatch.ReviewerResultPath, dispatch.PreviewCommand, dispatch.ApplyCommand); err != nil {
-			return err
-		}
 	}
 	if err := writePlanSubagentsShardHandoffText(out, result.ShardHandoffs); err != nil {
 		return err

@@ -4661,6 +4661,11 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	for _, expected := range []string{
 		"plan-subagents：writesReviewArtifacts=true reviewRequired=true items=2 shards=2",
 		"plan-subagents reviewer orchestration：mode=manual-main-agent-intake",
+		"plan-subagents reviewer orchestration scope：scope=dispatch read-only reviewers, collect one JSON result per shard, then run reviewer-intake preview/apply for each shard packet=",
+		"plan-subagents reviewer orchestration owner：targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
+		"plan-subagents reviewer orchestration lifecycle：step=dispatch-reviewers owner=main-agent inputs=reviewerOrchestration.dispatches[].dispatchPrompt,ownerBinding,packetPath mustPass=one reviewerSession is assigned per reviewer result,reviewers receive only read-only boundary and shard items,no reviewer writes files or ledgers nextOnSuccess=collect-results",
+		"plan-subagents reviewer orchestration boundary：boundary=runtime does not spawn subagents",
+		"plan-subagents reviewer orchestration completion：criteria=each planned shard is accepted, rejected, deferred, or explicitly abandoned",
 		"plan-subagents reviewer dispatch：shard=shard-01 status=planned",
 		"plan-subagents shard handoff：shard=shard-01 status=planned",
 		"plan-subagents shard owner binding：shard=shard-01 targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
