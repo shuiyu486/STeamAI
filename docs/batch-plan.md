@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 419：Gate request Mission Commander top-level next-action projection closure
 
-状态：已完成本地实现、focused/affected package validation；durable docs、full local validation、commit/push 与远程 release-gate inspection 正在收尾。
+状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 341 已让 normal `gate -WhatIf/-Apply` request path 暴露 current/would/post executor action snapshot，Batch 379/392/411/412/408/410 已把 authorized-gate report contract、adapter validation、execution evidence record 与 duplicate evidence 的 Mission Commander next actions 收口；但 normal gate request preview/apply 仍要求主 Agent 从 nested `executorAction.missionCommanderAction`、`wouldExecutorAction`、`nextSteps[]`、request eventId 与 adapter report commands 手工拼接 pending-gate apply、authorized-gate apply、report contract、handoff/continue 顺序。本批把 normal gate request 的 immediate product-path guidance 收口到顶层 Mission Commander projection。
 
@@ -33,7 +33,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - CLI text normal gate preview/apply 同步打印 `mission commander next action` lines，避免文本/default consumption 回查 JSON 或手工拼接 gate apply/report-contract/handoff 顺序。
 - Gate package 与 CLI coverage 锁定 pending preview/apply、authorized preview/apply、text next-action projection、request-ledger-only/durable-authorization-only/no authority/confirmed/no-heavy-tool/no PowerShell runtime logic 边界。
 
-验证结果：focused `go test ./internal/rekit/gate ./internal/rekit/cli -run "TestPlanDryRun|TestApply|TestRunGateDryRunEmitsNonMutatingPlan|TestRunGateApplyAppendsPendingGateRequest|TestRunGateTextOutputsExecutorActions|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1` 与 affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1` 已通过；full local validation、commit/push 与远程 release-gate inspection 待本批收尾后补齐。
+验证结果：已通过 focused `go test ./internal/rekit/gate ./internal/rekit/cli -run "TestPlanDryRun|TestApply|TestRunGateDryRunEmitsNonMutatingPlan|TestRunGateApplyAppendsPendingGateRequest|TestRunGateTextOutputsExecutorActions|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1`、affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `3e92aa4 Add gate request commander next actions`；远程 release-gate run `29710090877` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 418 已完成 reconcile Mission Commander top-level next-action projection closure，详见 `docs/batch-history.md`。
 
