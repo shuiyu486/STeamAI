@@ -1247,6 +1247,12 @@ type statusCaseMission struct {
 	LaneCount                     int                                      `json:"laneCount"`
 	ReadyLaneCount                int                                      `json:"readyLaneCount"`
 	BlockedLaneCount              int                                      `json:"blockedLaneCount"`
+	ReadyLanes                    []string                                 `json:"readyLanes,omitempty"`
+	BlockedLanes                  []string                                 `json:"blockedLanes,omitempty"`
+	PendingGates                  []string                                 `json:"pendingGates,omitempty"`
+	AuthorizedGates               []string                                 `json:"authorizedGates,omitempty"`
+	OpenDecisions                 []string                                 `json:"openDecisions,omitempty"`
+	Interventions                 []string                                 `json:"interventions,omitempty"`
 	ExecutionEvidenceReviewCount  int                                      `json:"executionEvidenceReviewCount"`
 	ExecutionEvidenceReview       []workstream.ExecutionEvidenceReviewItem `json:"executionEvidenceReview,omitempty"`
 	MissionCommanderActionQueue   mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
@@ -1368,6 +1374,36 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 	queue := summary.MissionCommanderActionQueue
 	if _, err := fmt.Fprintf(out, "status case mission：summary=%s ready=%t lanes=%d readyLanes=%d blockedLanes=%d evidenceReview=%d queueCurrent=%s queueTotal=%d queueBlocked=%d queueRequiresReview=%d nextActions=%d escalations=%d\n", summary.Summary, summary.Ready, summary.LaneCount, summary.ReadyLaneCount, summary.BlockedLaneCount, summary.ExecutionEvidenceReviewCount, statusMissionCurrentActionLabel(queue.CurrentAction), queue.Counts.Total, queue.Counts.Blocked, queue.Counts.RequiresReview, len(summary.MissionCommanderNextActions), len(summary.Escalations)); err != nil {
 		return err
+	}
+	for _, lane := range summary.ReadyLanes {
+		if _, err := fmt.Fprintf(out, "status case mission ready lane：%s\n", lane); err != nil {
+			return err
+		}
+	}
+	for _, lane := range summary.BlockedLanes {
+		if _, err := fmt.Fprintf(out, "status case mission blocked lane：%s\n", lane); err != nil {
+			return err
+		}
+	}
+	for _, gate := range summary.PendingGates {
+		if _, err := fmt.Fprintf(out, "status case mission pending gate：%s\n", gate); err != nil {
+			return err
+		}
+	}
+	for _, gate := range summary.AuthorizedGates {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate：%s\n", gate); err != nil {
+			return err
+		}
+	}
+	for _, decision := range summary.OpenDecisions {
+		if _, err := fmt.Fprintf(out, "status case mission open decision：%s\n", decision); err != nil {
+			return err
+		}
+	}
+	for _, intervention := range summary.Interventions {
+		if _, err := fmt.Fprintf(out, "status case mission intervention：%s\n", intervention); err != nil {
+			return err
+		}
 	}
 	for _, action := range summary.MissionCommanderNextActions {
 		if _, err := fmt.Fprintf(out, "status case mission next action：lane=%s label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s\n", action.Lane, action.Label, action.State, action.Source, action.Blocked, action.RequiresReview, action.Command); err != nil {
@@ -1581,6 +1617,12 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		LaneCount:                     len(inventory.Lanes),
 		ReadyLaneCount:                len(inventory.MissionBrief.ReadyLanes),
 		BlockedLaneCount:              len(inventory.MissionBrief.BlockedLanes),
+		ReadyLanes:                    append([]string{}, inventory.MissionBrief.ReadyLanes...),
+		BlockedLanes:                  append([]string{}, inventory.MissionBrief.BlockedLanes...),
+		PendingGates:                  append([]string{}, inventory.MissionBrief.PendingGates...),
+		AuthorizedGates:               append([]string{}, inventory.MissionBrief.AuthorizedGates...),
+		OpenDecisions:                 append([]string{}, inventory.MissionBrief.OpenDecisions...),
+		Interventions:                 append([]string{}, inventory.MissionBrief.Interventions...),
 		ExecutionEvidenceReviewCount:  len(inventory.ExecutionEvidenceReview),
 		ExecutionEvidenceReview:       append([]workstream.ExecutionEvidenceReviewItem{}, inventory.ExecutionEvidenceReview...),
 		MissionCommanderActionQueue:   inventory.MissionCommanderActionQueue,
