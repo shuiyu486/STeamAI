@@ -11172,13 +11172,13 @@ git diff --check
 
 ### Batch 431：promote candidates review checklist text closure
 
-状态：已完成 promote candidates review checklist text closure、本地实现、focused 与 full local validation、durable docs；commit/push 与远程 release-gate inspection 待执行。
+状态：已完成 promote candidates review checklist text closure、本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection。
 
 目标：Batch 429/430 已让 actual 与 WhatIf `promote -CreateCandidates -Format text` 输出 mainAgentExecutionPlan、decision follow-through、cleanup/reconsume、Mission Commander action queue 与 next actions，但 terminal Mission Commander / replacement executor 仍需解析 JSON 才能看到 `reviewPlan.reviewItems[]` 与 `reviewPlan.decisionChecklist[]` 的 per-candidate decision/action/hint/checklist/verification/boundary。本批把逐项 review checklist 也投影到 text path。
 
 实施范围：`promote -CreateCandidates -Format text` 现在输出 `reviewPlan.reviewItems[]` 的 path/kind/decision/action、candidatePath、packTarget、cleanupPath、merge/reject hint 与 main-agent action lines，并同步输出 `reviewPlan.decisionChecklist[]` 的 reviewAction、accept/reject/cleanup actions、verification commands 与 boundary lines，覆盖 WhatIf preview 与 actual candidate generation。CLI coverage 锁定 WhatIf/actual text review item/checklist 输出，以及既有 execution plan、decision follow-through、cleanup/reconsume、action queue、next-action 与 no merge/no cleanup/no init/no doctor/no-heavy/no-authority/confirmed 边界。该批只增强 promote candidates CLI text review item/checklist consumption、focused CLI coverage 与 durable docs；不改变 JSON contract、candidate write model、review-first merge model、decision follow-through semantics、Mission Commander next-action ordering、case durable schema、sync/promote review-first、公共 façade 删除门禁或远程 CI blocker 状态；runtime 不执行 merge、cleanup、init、doctor 或 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPromoteCreateCandidatesWhatIf|TestRunPromoteCreateCandidatesWritesCandidates' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings；commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPromoteCreateCandidatesWhatIf|TestRunPromoteCreateCandidatesWritesCandidates' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `c6b384c Add promote candidate review checklist text`；远程 release-gate run `29720412556` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 ### Batch 430：promote candidates WhatIf text preview parity
 
