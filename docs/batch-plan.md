@@ -16,27 +16,27 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 460：overview execution evidence follow-through detail closure
+### Batch 461：lane RESUME execution evidence follow-through detail closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29751425520` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29752045765` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
-目标：Batch 459 已补齐 project/lane handoff Markdown 的 execution evidence followThrough outcome `when/evidence`；但 `overview -Format text` 的 Execution evidence review section 仍只展示 outcome/action/verification，Mission Commander / replacement executor 若以 overview 作为 terminal handoff 入口，判断 recorded-evidence-review 或 boundary-or-escalation-review 的适用条件和证据 refs 时仍可能回退 JSON 或再打开 handoff。Batch 460 把同一 outcome 条件与证据 refs 直接投影到 overview text。
+目标：Batch 459/460 已补齐 project/lane handoff Markdown 与 overview text 的 execution evidence followThrough outcome `when/evidence`；但 lane `RESUME.md` 仍只展示 outcome/action/verification，replacement executor 如果从 lane-local resume 直接接手，判断 recorded-evidence-review 或 boundary-or-escalation-review 的适用条件和证据 refs 时仍可能回退 JSON、overview 或 handoff。Batch 461 把同一 outcome 条件与证据 refs 投影到 lane-local resume。
 
-边界：只增强 overview text 中已存在的 `mission.ExecutionEvidenceFollowThrough` 渲染与 focused CLI coverage；不改变 overview JSON contract、executionEvidenceReview semantics、followThrough/actionQueue、authorized gate/evidence ledger、project/lane handoff、continue ordering、default/table/tsv compatibility，不执行 heavy-tool、不 replay adapter、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
+边界：只增强 lane `RESUME.md` 中已存在的 `mission.ExecutionEvidenceFollowThrough` 渲染与 focused CLI coverage；不改变 typed checkpoint JSON contract、executionEvidenceReview semantics、followThrough/actionQueue、authorized gate/evidence ledger、overview/project/lane handoff、continue ordering、default compatibility，不执行 heavy-tool、不 replay adapter、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
 
 已完成内容：
 
-- `overview.writeExecutionEvidenceFollowThrough` 在每个 outcome 后输出 Markdown `when:`，直接说明 outcome 适用条件。
+- `appendResumeExecutionEvidenceFollowThrough` 在每个 outcome 后输出 Markdown `when:`，直接说明 outcome 适用条件。
 - 同一路径输出逐条 `evidence:`，直接列出 bounded observation output/evidence refs。
-- coverage 锁定 overview text normal recorded-evidence-review 与 escalated boundary-or-escalation-review 的 when/evidence lines，以及 existing authorized gate visibility、evidence-first ordering、no replay/no authority/confirmed/no-heavy 边界。
+- coverage 锁定 lane resume normal recorded-evidence-review 与 escalated boundary-or-escalation-review 的 when/evidence lines，以及 existing Mission Commander next actions、authorized gate visibility、evidence-first ordering、no replay/no authority/confirmed/no-heavy 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `265f250 Add overview evidence follow-through detail`；远程 release-gate run `29751425520` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `53a81cb Add resume evidence follow-through detail`；远程 release-gate run `29752045765` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
-上一批摘要：Batch 459 已完成 execution evidence handoff follow-through detail closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 460 已完成 overview execution evidence follow-through detail closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
-1. **Lane/tool-adapter live validation residuals（如仍有缺口）**：Batch 421/424/432 已覆盖 adapter contract/validation/report action queue、follow-through 与 contract liveValidation text，Batch 458 已补齐 authorizedExecutionFollowThrough outcome when/evidence text，Batch 459 已补齐 project/lane handoff Markdown 的 execution evidence followThrough outcome when/evidence，Batch 460 已补齐 overview text 的 execution evidence followThrough outcome when/evidence；后续仅在 Windows 本机 product-path 仍存在 validation/record/evidence review handoff 到 replacement executor 的真实断点时推进；不新增 adapter/heavy-tool execution。
+1. **Lane/tool-adapter live validation residuals（如仍有缺口）**：Batch 421/424/432 已覆盖 adapter contract/validation/report action queue、follow-through 与 contract liveValidation text，Batch 458 已补齐 authorizedExecutionFollowThrough outcome when/evidence text，Batch 459 已补齐 project/lane handoff Markdown 的 execution evidence followThrough outcome when/evidence，Batch 460 已补齐 overview text 的 execution evidence followThrough outcome when/evidence，Batch 461 已补齐 lane RESUME 的 execution evidence followThrough outcome when/evidence；后续仅在 Windows 本机 product-path 仍存在 validation/record/evidence review handoff 到 replacement executor 的真实断点时推进；不新增 adapter/heavy-tool execution。
 2. **Reviewer orchestration E2E residuals（如仍有缺口）**：仅在 dispatch/intake/post-validation terminal path 仍要求解析 nested JSON 或打开 artifact 才能接续时推进，不自动 spawn reviewer、不执行 heavy-tool。
 3. **Pack-memory downstream UX residuals（如仍有缺口）**：Batch 423/429/430/431 已覆盖 candidate decision outcome、execution plan、WhatIf preview 与 review checklist text，Batch 456/457 已补齐 decision detail、cleanup action detail 与 reconsume command/boundary detail；后续仅在 accepted/rejected 人工流程、cleanup/reconsume 或 evidence review downstream UX 仍需跨 envelope 手工拼接时推进，不重复做字段微批次。
 4. **Cross-platform product-path E2E（降优先级）**：在本地 CLI/case E2E 已覆盖 nested cwd / case shim 的基础上，仅保持可在 runner 可用时执行的三平台 matrix 候选和 known gap 记录；不要在 GitHub runner/billing blocker 未解除前让它阻塞 Windows 本机迭代。
