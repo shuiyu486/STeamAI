@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 463：documentation routing pressure reduction closure
 
-状态：进行中；已完成文档路由审计与按需披露规则收敛，待完成本地验证、commit/push 与远程 release-gate inspection。
+状态：已完成文档路由审计、按需披露规则收敛、本地验证、commit/push 与远程 release-gate inspection；远程 release-gate run `29754192575` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：项目已存在 `docs/context-routing.md` 与根 `CLAUDE.md` 的按需路由规则，但部分 README、usage、reference 和 roadmap 话术仍容易被误读为新会话默认 read-first 长清单，造成上下文压缩后串读 README / vision / reference / go-first 等长文档。Batch 463 把这些旧 read-first 列表收敛为 `CLAUDE.md` + `docs/context-routing.md` + 当前场景顶部区，并在 router 中明确新增文档和推荐话术不得绕过渐进式披露。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - 新增文档必须声明首选入口、何时按需读取、不要默认读取什么；历史或 release/debug 溯源优先归档或专题化，不放进默认上下文。
 - README、Agent Team usage、reference absorption、vision、Mission Control product direction 与 Go-first convergence 的旧 read-first 话术已收敛到 `docs/context-routing.md`。
 
-验证结果：已通过 focused `go test ./internal/rekit/releasecheck ./internal/rekit/defaultdocs -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。
+验证结果：已通过 focused `go test ./internal/rekit/releasecheck ./internal/rekit/defaultdocs -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `e264812 Add documentation routing pressure reduction`；远程 release-gate run `29754192575` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 462 已完成 continue digest execution evidence follow-through detail closure，详见 `docs/batch-history.md`。
 
