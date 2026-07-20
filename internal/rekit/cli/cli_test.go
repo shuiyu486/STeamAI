@@ -6952,7 +6952,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	overviewText := out.String()
-	for _, expected := range []string{"authorized gates:", "authorized debug", "authorized-gate（durable autonomy 已授权，非阻塞）", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "profile=prof-main-debug"} {
+	for _, expected := range []string{"authorized gates:", "authorized debug", "authorized-gate（durable autonomy 已授权，非阻塞）", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "profile=prof-main-debug", "follow-through: state=ready-for-evidence-review", "outcome: name=recorded-evidence-review", "when: bounded observation evidence was recorded for an authorized gate", "evidence: workspace/main/debug/session-1/result.json", "follow-through: state=needs-main-escalation", "outcome: name=boundary-or-escalation-review", "when: recorded evidence reports boundaryHits, escalation, boundary-hit, or escalated status", "evidence: workspace/main/debug/session-1/adapter-result.json"} {
 		if !strings.Contains(overviewText, expected) {
 			t.Fatalf("overview missing %q:\n%s", expected, overviewText)
 		}
