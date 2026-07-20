@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 445：promote apply text handoff closure
+
+状态：已完成 promote apply text handoff closure、本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection。
+
+目标：`promote -Apply` / `promote -Apply -WhatIf` 默认输出 JSON；此前即使显式 `-Format text`，apply branch 仍总是 marshal JSON。Mission Commander / replacement executor 在 case -> kit pack write preview 或实际 bounded promote 后，仍需要解析 JSON 才能看到 changed/blocked/skipped、writes、backupRoot、pack validation rows、denied actions 与 nextSteps。本批把 promote apply result 投影到 text path。
+
+实施范围：`promote -Apply` path 现在解析 `-Format`，`json` 保持 existing JSON output，`text` / `table` / `tsv` 输出 `promote apply` summary（mutation、applied、changed、blocked、skipped、writes、requiresReview、cleanup、backupRoot）、逐 write detail（path、kind、action、source、target、backup、reason）、actual apply pack validation rows、denied actions 与 nextSteps。CLI coverage 锁定 WhatIf text、actual apply text、existing default JSON compatibility、pack write backup 与 blocked-deny behavior。该批只增强 `promote -Apply/-WhatIf -Format text` 的 terminal handoff、focused CLI coverage 与 durable docs；不改变默认 JSON output、promote review-first policy、apply/create-candidates semantics、backup/deny/restore 规则、case durable schema、公共 façade 删除门禁或远程 CI blocker 状态；不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
+
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPromoteApplyWhatIfEmitsNonMutatingPlan|TestRunPromoteApplyWritesPackWithBackup|TestRunPromoteApplyTextOutputsWritesValidationAndNextSteps' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `98b79d9 Add promote apply text handoff`；远程 release-gate run `29728529685` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+
 ### Batch 444：sync/promote review plan text handoff closure
 
 状态：已完成 sync/promote review plan text handoff closure、本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection。
