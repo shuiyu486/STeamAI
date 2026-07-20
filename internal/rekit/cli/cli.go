@@ -1519,25 +1519,35 @@ func writeStartExecutorActionText(out io.Writer, result workstream.StartResult) 
 	if err := writeMissionCommanderActionText(out, "executor commander action", action); err != nil {
 		return err
 	}
+	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
+		return err
+	}
 	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
 func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 	if !result.Applied {
 		if result.Project {
-			_, err := fmt.Fprintln(out, "would write project handoff index: .rekit/handovers/latest.md")
+			if _, err := fmt.Fprintln(out, "would write project handoff index: .rekit/handovers/latest.md"); err != nil {
+				return err
+			}
+		} else if _, err := fmt.Fprintf(out, "would write workstream handoff: %s\n", handoffTextSelector(result)); err != nil {
 			return err
 		}
-		_, err := fmt.Fprintf(out, "would write workstream handoff: %s\n", handoffTextSelector(result))
+	} else {
+		path := handoffLatestPath(result)
+		if result.Project {
+			if _, err := fmt.Fprintf(out, "项目级接手索引：%s\n", path); err != nil {
+				return err
+			}
+		} else if _, err := fmt.Fprintf(out, "工作线接手文档：%s\n", path); err != nil {
+			return err
+		}
+	}
+	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
 		return err
 	}
-	path := handoffLatestPath(result)
-	if result.Project {
-		_, err := fmt.Fprintf(out, "项目级接手索引：%s\n", path)
-		return err
-	}
-	_, err := fmt.Fprintf(out, "工作线接手文档：%s\n", path)
-	return err
+	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
 func writeReconcileText(out io.Writer, result workstream.ReconcileResult) error {
@@ -1582,6 +1592,9 @@ func writeReconcileExecutorActionText(out io.Writer, result workstream.Reconcile
 	if err := writeMissionCommanderActionText(out, "executor commander action", action); err != nil {
 		return err
 	}
+	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
+		return err
+	}
 	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
@@ -1595,7 +1608,13 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 				return err
 			}
 		}
-		return writeExecutorNextActionsText(out, result.ExecutorAction)
+		if err := writeExecutorNextActionsText(out, result.ExecutorAction); err != nil {
+			return err
+		}
+		if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
+			return err
+		}
+		return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 	}
 	if _, err := fmt.Fprintf(out, "已选择工作线：%s\n", result.Lane.ID); err != nil {
 		return err
@@ -1610,8 +1629,13 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 			break
 		}
 	}
-	_, err := fmt.Fprintf(out, "接续提示：%s\n", resume)
-	return err
+	if _, err := fmt.Fprintf(out, "接续提示：%s\n", resume); err != nil {
+		return err
+	}
+	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
+		return err
+	}
+	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
 func workstreamTextLabel(lane workstream.Lane) string {

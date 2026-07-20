@@ -66,6 +66,21 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 			Reasons:        []string{"review execution evidence for gateEventId evt-authorized"},
 			Boundary:       []string{"observation evidence is already recorded; do not replay heavy tool"},
 		}},
+		MissionCommanderActionQueue: mission.MissionCommanderActionQueue{
+			Summary: "total=1 unblocked=1 blocked=0 requiresReview=1 followUp=0 current=/rekit handoff main",
+			Counts: mission.MissionCommanderActionQueueCounts{
+				Total:          1,
+				Unblocked:      1,
+				RequiresReview: 1,
+			},
+			CurrentAction: &mission.MissionCommanderNextActionItem{
+				Lane:           "main",
+				State:          "ready-for-evidence-review",
+				Command:        "/rekit handoff main",
+				Source:         "executionEvidenceReview",
+				RequiresReview: true,
+			},
+		},
 		OpenInterventions: []InterventionSummary{},
 		Inbox:             2,
 		Tasks:             3,
@@ -103,7 +118,18 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 			MissionCommanderAction mission.MissionCommanderAction `json:"missionCommanderAction"`
 		} `json:"executionEvidenceReview"`
 		MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions"`
-		Resume                      string                                   `json:"resume"`
+		MissionCommanderActionQueue struct {
+			Summary string `json:"summary"`
+			Counts  struct {
+				Total          int `json:"total"`
+				Unblocked      int `json:"unblocked"`
+				Blocked        int `json:"blocked"`
+				RequiresReview int `json:"requiresReview"`
+				FollowUp       int `json:"followUp"`
+			} `json:"counts"`
+			CurrentAction *mission.MissionCommanderNextActionItem `json:"currentAction"`
+		} `json:"missionCommanderActionQueue"`
+		Resume string `json:"resume"`
 	}
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatalf("lane checkpoint json did not decode: %v\n%s", err, string(encoded))
@@ -119,5 +145,8 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 	}
 	if len(decoded.MissionCommanderNextActions) != 1 || decoded.MissionCommanderNextActions[0].Lane != "main" || decoded.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || decoded.MissionCommanderNextActions[0].Command != "/rekit handoff main" || !decoded.MissionCommanderNextActions[0].RequiresReview {
 		t.Fatalf("checkpoint Mission Commander next actions drifted: %+v", decoded.MissionCommanderNextActions)
+	}
+	if decoded.MissionCommanderActionQueue.Summary != "total=1 unblocked=1 blocked=0 requiresReview=1 followUp=0 current=/rekit handoff main" || decoded.MissionCommanderActionQueue.Counts.Total != 1 || decoded.MissionCommanderActionQueue.Counts.Unblocked != 1 || decoded.MissionCommanderActionQueue.Counts.RequiresReview != 1 || decoded.MissionCommanderActionQueue.CurrentAction == nil || decoded.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff main" {
+		t.Fatalf("checkpoint Mission Commander action queue drifted: %+v", decoded.MissionCommanderActionQueue)
 	}
 }

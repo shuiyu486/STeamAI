@@ -51,6 +51,7 @@ type ReconcileResult struct {
 	ExecutorAction              laneExecutorAction                       `json:"executorAction"`
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	WouldWrites                 []StartWrite                             `json:"wouldWrites,omitempty"`
 	Writes                      []StartWrite                             `json:"writes,omitempty"`
 	BlockedActions              []string                                 `json:"blockedActions"`
@@ -316,6 +317,7 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 		ExecutorAction:              executorAction,
 		MissionCommanderAction:      commanderAction,
 		MissionCommanderNextActions: commanderNextActions,
+		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(commanderNextActions),
 		BlockedActions:              []string{"authority/confirmed writes", "heavy-tool execution", "external side effects"},
 		NextSteps: []string{
 			"review this reconcile plan, then re-run reconcile with -Apply to write case-local ledger and lane state",

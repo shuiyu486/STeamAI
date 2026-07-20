@@ -16,25 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 421：Authorized execution adapter/report action queue closure
+### Batch 422：Workstream / replacement executor action queue closure
 
-状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 待本批收尾执行。
 
-目标：Batch 379/392/411/412 已让 `authorized-gate` adapter report contract、sidecar validation、execution evidence record 与 duplicate replay 输出 Mission Commander action / ordered `missionCommanderNextActions[]`；Batch 420 又让 `overview` 把 next-action list 汇总成可直接消费的 action queue。但 gate adapter/report consumption path 仍要求主 Agent / replacement executor 手工扫描 `missionCommanderNextActions[]` 才能得到 current/unblocked/blocked/review/follow-up queue。本批把 queue builder 提升为 `mission` package 共享能力，并让 adapter report contract、validation、record 与 duplicate replay 直接投影 queue。
+目标：Batch 417/418/407/405/406 已让 `start` / `reconcile` / `continue` / `handoff` / lane-local resume/checkpoint 输出 top-level 或 durable `missionCommanderNextActions[]`；Batch 420/421 又把 overview 与 gate adapter/report/execution evidence paths 收口成共享 action queue。但 workstream / replacement executor product path 仍要求主 Agent 从 `missionCommanderNextActions[]` 手工计算 current action、unblocked/blocked/review-required/follow-up buckets。本批把 shared `MissionCommanderActionQueue` 延伸到 start/continue/handoff/reconcile、lane resume/checkpoint、continue run artifacts 与 handoff Markdown。
 
-边界：只增强 `mission` shared queue helper、`overview` 复用、gate adapter/report/execution evidence JSON/text projection、CLI/package tests 与 durable docs；不改变 Mission Commander next-action ordering、authorized-gate write model、adapter report sidecar validation rules、execution observation evidence write model、lane executor action builder、case durable schema、sync/promote review-first、公共 façade 删除门禁或远程 CI blocker 状态；`gate` 仍不执行 adapter/heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
+边界：只增强 workstream JSON/text/Markdown/run-artifact projection、lane checkpoint contract、CLI/package coverage 与 durable docs；不改变 Mission Commander next-action ordering、lane executor action builder、continue/reconcile/start/handoff write model、case durable schema 版本、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；runtime 不执行 continue/handoff/reconcile follow-up，不执行 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- `mission` package 新增共享 `MissionCommanderActionQueue` / `MissionCommanderActionQueueCounts` 与 `MissionCommanderActionQueueFor(...)`，统一 summary、counts、currentAction、unblocked/blocked/reviewRequired/followUp buckets 语义。
-- `overview` 改为复用共享 queue builder，避免 overview/gate 维护并行 action queue 实现。
-- `gate -ExecutionReportContract -Format json`、`gate -ValidateExecutionReport -Format json` 与 execution evidence `gate -Apply -GateEventId ... -Format json` record/duplicate result 新增 `missionCommanderActionQueue`。
-- gate adapter/report/execution evidence text 输出新增 queue summary/counts/current，先给出当前 Mission Commander action queue，再列完整 `mission commander next action` lines。
-- coverage 锁定 contract blocked record handoff、valid report record handoff、missing/invalid report repair guidance、normal execution evidence review、duplicate `evidence-already-recorded` replay 与 shared queue counts/current/follow-up semantics。
+- `StartResult`、`ContinueResult`、`HandoffResult` 与 `ReconcileResult` 新增 `missionCommanderActionQueue`，复用 shared `mission.MissionCommanderActionQueueFor(...)`。
+- `start` / `continue` / `handoff` / `reconcile` CLI text 在既有 Mission Commander action / next actions 旁打印 queue summary/counts/current。
+- lane `RESUME.md`、typed `checkpoints/latest.json`、continue `status.json` / `digest.md`、project/lane handoff Markdown 同步投影 `Mission Commander action queue`。
+- project handoff 的逐 lane 行现在先显示 per-lane action queue，再列 `commander next action`，让 replacement executor 不必解析完整 JSON 才能知道当前可执行/阻塞/review/follow-up 分桶。
+- coverage 锁定 start preview/apply、blocked existing lane、project/lane handoff preview/apply、blocked continue、reconcile preview/apply、lane checkpoint JSON contract 与 shared queue counts/current/follow-up semantics。
 
-验证结果：已通过 focused `go test ./internal/rekit/mission ./internal/rekit/gate ./internal/rekit/cli -run "TestMissionCommanderNextActionsIncludeLaneFollowUps|TestAdapterReportContractDescribesAuthorizedGateBoundaries|TestValidateAdapterExecutionReport(ReadOnlyPreflight|MissingPathExposesMissionCommanderRepair|ReturnsInvalidEnvelopeReadOnly)|TestRecordExecution(WritesObservationForAuthorizedGate|DuplicateDoesNotAppend)|TestRunGate(ExecutionEvidenceTextOutputsNextActions|AdapterReportTextOutputsNextActions)|TestRunGoGateApplyAppendsDuplicateExecutionEvidenceReviewOnly" -count=1`、affected package `go test ./internal/rekit/overview ./internal/rekit/mission ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `b15522b Add gate adapter action queues`；远程 release-gate run `29711529062` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestLaneCheckpointJSONContract|TestRunStart|TestRunHandoff|TestRunContinue|TestRunReconcile" -count=1`、affected package `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`status`、`packs`、`doctor` 正常，`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。commit/push 与远程 release-gate inspection 将在本批收尾执行；远程预计仍受既有 GitHub Actions runner/billing blocker 影响，不能用 inventory ready 代替远程 green。
 
-上一批摘要：Batch 420 已完成 Mission Commander overview action queue closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 421 已完成 Authorized execution adapter/report action queue closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

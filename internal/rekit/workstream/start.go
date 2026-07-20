@@ -75,6 +75,7 @@ type StartResult struct {
 	ExecutorAction              laneExecutorAction                       `json:"executorAction"`
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	Writes                      []StartWrite                             `json:"writes"`
 	BlockedActions              []string                                 `json:"blockedActions"`
 	NextSteps                   []string                                 `json:"nextSteps"`
@@ -128,6 +129,7 @@ type laneCheckpoint struct {
 	AuthorizedGates             []string                                 `json:"authorizedGates"`
 	ExecutionEvidenceReview     []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	OpenInterventions           []InterventionSummary                    `json:"openInterventions"`
 	Inbox                       int                                      `json:"inbox"`
 	Tasks                       int                                      `json:"tasks"`
@@ -197,6 +199,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 		ExecutorAction:              executorAction,
 		MissionCommanderAction:      executorAction.MissionCommanderAction,
 		MissionCommanderNextActions: commanderNextActions,
+		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(commanderNextActions),
 		Writes: []StartWrite{{
 			Path:       relJoin(".rekit", "lanes", laneID, "lane.json"),
 			Kind:       "lane",
@@ -253,6 +256,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 		ExecutorAction:              executorAction,
 		MissionCommanderAction:      executorAction.MissionCommanderAction,
 		MissionCommanderNextActions: commanderNextActions,
+		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(commanderNextActions),
 		Writes:                      writes,
 		BlockedActions:              []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
 		NextSteps:                   workstreamNextSteps(executorAction, true),
@@ -820,6 +824,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	autonomySummary := autonomy.ReadSummary(caseRoot, lane.ID, m)
 	executorAction := laneExecutorActionFor(lane, laneFacts, brief)
 	missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
+	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
 	lines := []string{
 		"# RESUME：" + lane.ID,
 		"",
@@ -886,6 +891,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	)
 	lines = appendResumeList(lines, "commander follow-up commands", executorAction.MissionCommanderAction.FollowUpCommands)
 	lines = appendResumeList(lines, "commander boundary", executorAction.MissionCommanderAction.Boundary)
+	lines = appendMissionCommanderActionQueue(lines, missionCommanderActionQueue)
 	lines = appendResumeMissionCommanderNextActions(lines, missionCommanderNextActions)
 	lines = appendResumeList(lines, "blocker reasons", executorAction.BlockerReasons)
 	lines = appendResumeList(lines, "executor next actions", executorAction.NextAgentActions)
@@ -958,6 +964,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		AuthorizedGates:             authorizedGateLines,
 		ExecutionEvidenceReview:     executionEvidenceReview,
 		MissionCommanderNextActions: missionCommanderNextActions,
+		MissionCommanderActionQueue: missionCommanderActionQueue,
 		OpenInterventions:           openInterventions,
 		Inbox:                       len(inbox),
 		Tasks:                       len(tasks),
@@ -1108,6 +1115,17 @@ func ExecutionEvidenceReviewNextSteps(items []ExecutionEvidenceReviewItem, inclu
 		}
 	}
 	return mission.UniqueStrings(next)
+}
+
+func appendMissionCommanderActionQueue(lines []string, queue mission.MissionCommanderActionQueue) []string {
+	lines = append(lines, "", "## Mission Commander action queue", "")
+	lines = append(lines, "- summary: "+queue.Summary)
+	lines = append(lines, fmt.Sprintf("- counts: total=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d", queue.Counts.Total, queue.Counts.Unblocked, queue.Counts.Blocked, queue.Counts.RequiresReview, queue.Counts.FollowUp))
+	if queue.CurrentAction == nil {
+		return append(lines, "- current: none")
+	}
+	item := *queue.CurrentAction
+	return append(lines, fmt.Sprintf("- current: state=%s source=%s blocked=%t requiresReview=%t command=`%s`", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command))
 }
 
 func appendResumeMissionCommanderNextActions(lines []string, items []mission.MissionCommanderNextActionItem) []string {

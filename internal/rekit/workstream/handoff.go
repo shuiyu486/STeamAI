@@ -39,6 +39,7 @@ type HandoffResult struct {
 	LaneExecutorActions         []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions,omitempty"`
 	ExecutionEvidenceReview     []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	Writes                      []StartWrite                             `json:"writes"`
 	BlockedActions              []string                                 `json:"blockedActions"`
 	NextSteps                   []string                                 `json:"nextSteps"`
@@ -171,6 +172,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		LaneExecutorActions:         laneExecutorActions,
 		ExecutionEvidenceReview:     executionEvidenceReview,
 		MissionCommanderNextActions: missionCommanderNext,
+		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(missionCommanderNext),
 		Writes:                      writes,
 		BlockedActions:              []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
 		NextSteps:                   next,
@@ -380,13 +382,15 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		autonomySummary := autonomy.ReadSummary(ctx.inst.CaseRoot, lane.ID, ctx.manifest)
 		executorAction := ctx.executorAction(lane)
 		executionEvidenceReview := ctx.executionEvidenceReview(lane)
+		missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
 		evidenceNeedsMainReview := ExecutionEvidenceReviewNeedsMainReview(executionEvidenceReview)
 		fmt.Fprintf(&out, "- %s `%s`：status=%s，workspace=`%s`，autonomy=%s ready=%t，blocked=%t\n", kind, lane.ID, lane.Status, lane.Workspace, autonomySummary.Mode, autonomySummary.Ready, executorAction.Blocked)
 		fmt.Fprintf(&out, "  - executor owner：current=%s generation=%d lastTakeover=%s by=%s reason=%s\n", firstText(lane.CurrentExecutor, "unassigned"), lane.ExecutorGeneration, firstText(lane.LastTakeoverAt, "none"), firstText(lane.LastTakeoverBy, "none"), firstText(lane.LastTakeoverReason, "none"))
 		fmt.Fprintf(&out, "  - executor blockers：pendingGates=%d openInterventions=%d openDecisions=%d reasons=%s\n", executorAction.PendingGates, executorAction.OpenInterventions, executorAction.OpenDecisions, firstText(strings.Join(executorAction.BlockerReasons, ","), "none"))
 		fmt.Fprintf(&out, "  - requirements：reconcile=%t pendingGate=%t openDecision=%t\n", executorAction.ReconcileRequired, executorAction.PendingGateRequired, executorAction.OpenDecisionRequired)
 		writeProjectLaneEvidenceNextSteps(&out, executionEvidenceReview, executorAction.Ready && !executorAction.Blocked)
-		writeProjectLaneMissionCommanderNextActions(&out, mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked))
+		writeProjectLaneMissionCommanderActionQueue(&out, mission.MissionCommanderActionQueueFor(missionCommanderNextActions))
+		writeProjectLaneMissionCommanderNextActions(&out, missionCommanderNextActions)
 		if !evidenceNeedsMainReview {
 			writeProjectLaneNextActions(&out, executorAction.NextAgentActions)
 		}
@@ -435,6 +439,17 @@ func writeProjectLaneEvidenceNextSteps(out *bytes.Buffer, items []ExecutionEvide
 	}
 }
 
+func writeProjectLaneMissionCommanderActionQueue(out *bytes.Buffer, queue mission.MissionCommanderActionQueue) {
+	fmt.Fprintf(out, "  - commander action queue：%s\n", queue.Summary)
+	fmt.Fprintf(out, "  - commander action queue counts：total=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d\n", queue.Counts.Total, queue.Counts.Unblocked, queue.Counts.Blocked, queue.Counts.RequiresReview, queue.Counts.FollowUp)
+	if queue.CurrentAction == nil {
+		fmt.Fprintln(out, "  - commander action queue current：none")
+		return
+	}
+	item := *queue.CurrentAction
+	fmt.Fprintf(out, "  - commander action queue current：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command)
+}
+
 func writeProjectLaneMissionCommanderNextActions(out *bytes.Buffer, items []mission.MissionCommanderNextActionItem) {
 	if len(items) == 0 {
 		fmt.Fprintln(out, "  - commander next action：none")
@@ -443,6 +458,21 @@ func writeProjectLaneMissionCommanderNextActions(out *bytes.Buffer, items []miss
 	for _, item := range missionCommanderNextActionLines(limitMissionCommanderNextActionItems(items, maxHandoffRows)) {
 		fmt.Fprintf(out, "  - commander next action：%s\n", item)
 	}
+}
+
+func writeLaneMissionCommanderActionQueue(out *bytes.Buffer, queue mission.MissionCommanderActionQueue) {
+	fmt.Fprintln(out, "## Mission Commander action queue")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "- summary: %s\n", queue.Summary)
+	fmt.Fprintf(out, "- counts: total=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d\n", queue.Counts.Total, queue.Counts.Unblocked, queue.Counts.Blocked, queue.Counts.RequiresReview, queue.Counts.FollowUp)
+	if queue.CurrentAction == nil {
+		fmt.Fprintln(out, "- current: none")
+		fmt.Fprintln(out)
+		return
+	}
+	item := *queue.CurrentAction
+	fmt.Fprintf(out, "- current: state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command)
+	fmt.Fprintln(out)
 }
 
 func writeLaneMissionCommanderNextActions(out *bytes.Buffer, items []mission.MissionCommanderNextActionItem) {
@@ -587,8 +617,10 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	if err != nil {
 		return "", nil, err
 	}
+	missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
 	writeLaneMissionBrief(&out, lane, facts, executorAction)
-	writeLaneMissionCommanderNextActions(&out, mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked))
+	writeLaneMissionCommanderActionQueue(&out, mission.MissionCommanderActionQueueFor(missionCommanderNextActions))
+	writeLaneMissionCommanderNextActions(&out, missionCommanderNextActions)
 	writeExecutorActionSection(&out, executorAction)
 	writeAutonomyProfileSection(&out, ctx.inst.CaseRoot, lane, ctx.manifest)
 	writeVerificationSection(&out, facts.Verifications, lane.ID)
