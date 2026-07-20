@@ -4880,6 +4880,10 @@ func TestRunPromoteCreateCandidatesWhatIf(t *testing.T) {
 	text := out.String()
 	for _, expected := range []string{
 		"promote candidates：applied=false created=2",
+		"promote candidates review item：path=references/template/README.md kind=managed-doc decision=pending-review action=would-create-candidate",
+		"promote candidates review item merge hint：path=references/template/README.md hint=merge accepted reusable guidance into pack managed doc packTarget",
+		"promote candidates review checklist：path=references/template/README.md decision=pending-review reviewAction=inspect candidatePath against packTarget and choose accept, reject, or superseded",
+		"promote candidates checklist boundary：path=references/template/README.md boundary=do not write authority/confirmed",
 		"promote candidates execution step：name=materialize-candidates when=after reviewing WhatIf preview scope and confirming candidate generation is still desired",
 		"promote candidates execution command：name=materialize-candidates command=go run ./cmd/rekit -- -Command promote -Target <attached-case> -Pack _template -CreateCandidates -Format json",
 		"promote candidates execution boundary：name=materialize-candidates boundary=WhatIf did not write candidate files or indexPath",
@@ -4966,6 +4970,13 @@ func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
 	text := out.String()
 	for _, expected := range []string{
 		"promote candidates：applied=true created=2",
+		"promote candidates review item：path=references/template/README.md kind=managed-doc decision=pending-review action=create-candidate",
+		"promote candidates review item action：path=references/template/README.md action=extract reusable guidance and resolve conflicts",
+		"promote candidates review item：path=references/template/workflow-template.md kind=managed-doc decision=blocked action=blocked-deny-pattern",
+		"promote candidates review checklist：path=references/template/toolchain-router.md decision=pending-review reviewAction=inspect candidatePath against packTarget and choose accept, reject, or superseded",
+		"promote candidates checklist accept action：path=references/template/toolchain-router.md action=merge accepted reusable content into packTarget or an explicitly chosen pack tooling recipe/catalog target",
+		"promote candidates checklist verification command：path=references/template/toolchain-router.md command=go run ./cmd/rekit -- -Command doctor -Target <fresh-case> -Pack _template",
+		"promote candidates checklist boundary：path=references/template/toolchain-router.md boundary=tooling candidates require manual tooling/catalog.yml or tooling/recipes/* merge",
 		"promote candidates execution step：name=review-decisions when=before any merge, cleanup, or reconsume verification expected=every created candidate has an explicit decision before cleanup or merge and the chosen outcome maps to concrete follow-through",
 		"promote candidates execution action：name=review-decisions action=follow only the matching decisionFollowThrough outcome for the chosen decision",
 		"promote candidates execution step：name=cleanup-rejected-or-merged-candidates when=after reject, superseded decision, or accepted merge into pack source",

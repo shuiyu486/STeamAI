@@ -2221,11 +2221,68 @@ func writePromoteCandidateExecutionPlanText(out io.Writer, steps []promote.Candi
 	return nil
 }
 
+func writePromoteCandidateReviewPlanText(out io.Writer, items []promote.CandidateReviewItem, checklist []promote.CandidateDecisionChecklist) error {
+	for _, item := range items {
+		if _, err := fmt.Fprintf(out, "promote candidates review item：path=%s kind=%s decision=%s action=%s candidatePath=%s packTarget=%s cleanupPath=%s\n", item.Path, item.Kind, item.ReviewDecision, item.Action, item.CandidatePath, item.PackTarget, item.CleanupPath); err != nil {
+			return err
+		}
+		if strings.TrimSpace(item.MergeTargetHint) != "" {
+			if _, err := fmt.Fprintf(out, "promote candidates review item merge hint：path=%s hint=%s\n", item.Path, item.MergeTargetHint); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(item.RejectTargetHint) != "" {
+			if _, err := fmt.Fprintf(out, "promote candidates review item reject hint：path=%s hint=%s\n", item.Path, item.RejectTargetHint); err != nil {
+				return err
+			}
+		}
+		for _, action := range item.MainAgentActions {
+			if _, err := fmt.Fprintf(out, "promote candidates review item action：path=%s action=%s\n", item.Path, action); err != nil {
+				return err
+			}
+		}
+	}
+	for _, item := range checklist {
+		if _, err := fmt.Fprintf(out, "promote candidates review checklist：path=%s decision=%s reviewAction=%s candidatePath=%s packTarget=%s\n", item.Path, item.ReviewDecision, item.ReviewAction, item.CandidatePath, item.PackTarget); err != nil {
+			return err
+		}
+		for _, action := range item.AcceptActions {
+			if _, err := fmt.Fprintf(out, "promote candidates checklist accept action：path=%s action=%s\n", item.Path, action); err != nil {
+				return err
+			}
+		}
+		for _, action := range item.RejectActions {
+			if _, err := fmt.Fprintf(out, "promote candidates checklist reject action：path=%s action=%s\n", item.Path, action); err != nil {
+				return err
+			}
+		}
+		for _, action := range item.CleanupActions {
+			if _, err := fmt.Fprintf(out, "promote candidates checklist cleanup action：path=%s action=%s\n", item.Path, action); err != nil {
+				return err
+			}
+		}
+		for _, command := range item.VerificationCommands {
+			if _, err := fmt.Fprintf(out, "promote candidates checklist verification command：path=%s command=%s\n", item.Path, command); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range item.Boundary {
+			if _, err := fmt.Fprintf(out, "promote candidates checklist boundary：path=%s boundary=%s\n", item.Path, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) error {
 	if _, err := fmt.Fprintf(out, "promote candidates：applied=%t created=%d blocked=%d cleanup=%t\n", result.Applied, result.Created, result.Blocked, result.RequiresCleanup); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(out, "promote candidates review plan：mode=%s items=%d candidateRoot=%s toolingRoot=%s indexPath=%s\n", result.ReviewPlan.Mode, result.ReviewPlan.ItemCount, result.CandidateRoot, result.ToolingRoot, result.IndexPath); err != nil {
+		return err
+	}
+	if err := writePromoteCandidateReviewPlanText(out, result.ReviewPlan.ReviewItems, result.ReviewPlan.DecisionChecklist); err != nil {
 		return err
 	}
 	if err := writePromoteCandidateExecutionPlanText(out, result.ReviewPlan.MainAgentExecutionPlan); err != nil {
