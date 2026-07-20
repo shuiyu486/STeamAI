@@ -5685,6 +5685,11 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"gate adapter report contract：gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " mutation=false",
 		"gate adapter report validate command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath " + wantReportPath + " -Format json",
 		"gate adapter report record command：rekit -Command gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath " + wantReportPath + " -Actor <executor-id> -Format json",
+		"gate adapter report live validation：cwd=authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target; or use caseRelativeReportPath with case-relative commands from any case-local cwd reportFileName=adapter-report.json caseRelativeReportPath=" + wantReportPath,
+		"gate adapter report authorized workspaces：workspace/main/debug/session-1",
+		"gate adapter report sidecar template：kind=adapter-execution-report adapterId=<adapter-id> action=debug status=succeeded|failed|boundary-hit|escalated|aborted gateEventId=" + applied.EventID,
+		"gate adapter report sidecar outputRefs：<case-relative output under authorized outputPaths>",
+		"gate adapter report live validation note：ValidateArgs and CaseRelativeValidateArgs are read-only: isMutation=false, applied=false, and no observations/authority/confirmed writes.",
 		"adapter report contract follow-through：state=needs-adapter-report-validation gateEventId=" + applied.EventID + " reportPath=" + wantReportPath + " outcomes=3",
 		"adapter report contract follow-through outcome：name=write-and-validate-report state=needs-adapter-report-validation command=`" + wantValidate + "`",
 		"adapter report contract follow-through outcome：name=valid-report-record state=ready-to-record-evidence command=`" + wantRecord + "`",
@@ -6508,6 +6513,9 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 		"gate adapter report contract：gateEventId=" + applied.EventID + " action=debug lane=main reportPath=workspace/main/debug/session-1/adapter-report.json mutation=false",
 		"gate adapter report validate command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json",
 		"gate adapter report record command：rekit -Command gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Actor <executor-id> -Format json",
+		"gate adapter report live validation：cwd=authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target; or use caseRelativeReportPath with case-relative commands from any case-local cwd reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json",
+		"gate adapter report sidecar template：kind=adapter-execution-report adapterId=<adapter-id> action=debug status=succeeded|failed|boundary-hit|escalated|aborted gateEventId=" + applied.EventID,
+		"gate adapter report live validation note：Replace <executor-id> before running RecordArgs or CaseRelativeRecordArgs; both record observation evidence only after strict sidecar validation and never execute the heavy tool.",
 		"adapter report commander action：state=needs-adapter-report-validation primary=`" + wantCaseRelativeValidate + "`",
 		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantCaseRelativeValidate + "`",
 		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction.followUp blocked=true requiresReview=true command=`" + wantCaseRelativeRecord + "`",
@@ -6814,6 +6822,30 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	}
 	if !strings.Contains(candidate.Entry, "dynamic-debug") || !strings.Contains(candidate.Purpose, "bounded debug") || !containsSubstring(candidate.ReportGuidance, "adapterId") || !containsSubstring(candidate.EvidenceGuidance, "ValidateArgs") || strings.Join(candidate.StopConditionHints, ",") != "timeout,unexpected-side-effect,scope-drift" {
 		t.Fatalf("generic-binary-re adapter candidate omitted operational guidance: %+v", candidate)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "generic-binary-re", "-ExecutionReportContract", "-GateEventId", applied.EventID, "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{
+		"gate adapter report sidecar template：kind=adapter-execution-report adapterId=dynamic-debug-or-writeback-action action=debug status=succeeded|failed|boundary-hit|escalated|aborted gateEventId=" + applied.EventID,
+		"gate adapter report adapter candidate：id=dynamic-debug-or-writeback-action status=cautious entry=",
+		"gateActions=debug recordOnlyAfterGate=true toolingCatalogPath=tooling/catalog.yml",
+		"gate adapter report adapter candidate purpose：id=dynamic-debug-or-writeback-action purpose=",
+		"gate adapter report adapter candidate report guidance：id=dynamic-debug-or-writeback-action guidance=",
+		"gate adapter report adapter candidate evidence guidance：id=dynamic-debug-or-writeback-action guidance=",
+		"gate adapter report adapter candidate stop conditions：id=dynamic-debug-or-writeback-action hints=timeout,unexpected-side-effect,scope-drift",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("generic-binary-re adapter contract text missing %q:\n%s", expected, text)
+		}
+	}
+	for _, expected := range []string{"bounded debug", "adapterId", "ValidateArgs"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("generic-binary-re adapter contract text omitted %q:\n%s", expected, text)
+		}
 	}
 
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{

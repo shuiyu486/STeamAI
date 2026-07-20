@@ -16,29 +16,29 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 431：promote candidates review checklist text closure
+### Batch 432：adapter report contract live-validation text closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate 仍为既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation、durable docs；准备 commit/push 与远程 release-gate inspection。
 
-目标：Batch 429/430 已让 actual 与 WhatIf `promote -CreateCandidates -Format text` 输出 mainAgentExecutionPlan、decision follow-through、cleanup/reconsume、Mission Commander action queue 与 next actions，但 terminal Mission Commander / replacement executor 仍需解析 JSON 才能看到 `reviewPlan.reviewItems[]` 与 `reviewPlan.decisionChecklist[]` 的 per-candidate decision/action/hint/checklist/verification/boundary。本批把逐项 review checklist 也投影到 text path。
+目标：Batch 421/424 已让 adapter report contract/validation JSON 与 text 输出 Mission Commander action queue、follow-through 和 next-action lines，但 `gate -ExecutionReportContract -Format text` 仍未投影 nested `liveValidation`，replacement executor 需要解析 JSON 才能看到 invocation cwd、authorized workspaces、sidecar template、adapter candidates、replay behavior 和 read-only/strict-record notes。本批把 contract live-validation handoff 直接投影到 text path。
 
-边界：只增强 promote candidates CLI text review item/checklist consumption、focused CLI coverage 与 durable docs；不改变 JSON contract、candidate write model、review-first merge model、decision follow-through semantics、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；runtime 不执行 merge、cleanup、init、doctor 或 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
+边界：只增强 adapter report contract CLI text live-validation handoff、focused CLI coverage 与 durable docs；不改变 JSON contract、adapter report validation semantics、authorized execution evidence write model、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；contract/validation 仍只做 read-only guidance/validation，不执行 heavy-tool、不写 observation/authority/confirmed、不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- `promote -CreateCandidates -Format text` 现在输出 `reviewPlan.reviewItems[]` 的 path/kind/decision/action、candidatePath、packTarget、cleanupPath、merge/reject hint 与 main-agent action lines。
-- text path 同步输出 `reviewPlan.decisionChecklist[]` 的 reviewAction、accept/reject/cleanup actions、verification commands 与 boundary lines，覆盖 WhatIf preview 与 actual candidate generation。
-- CLI coverage 锁定 WhatIf/actual text review item/checklist 输出，以及既有 execution plan、decision follow-through、cleanup/reconsume、action queue、next-action 与 no merge/no cleanup/no init/no doctor/no-heavy/no-authority/confirmed 边界。
+- `gate -ExecutionReportContract -Format text` 现在输出 `liveValidation` invocation cwd、authorized workspaces、report file/case-relative path、replay behavior 与 sidecar template refs/boundary/summary fields。
+- text path 同步输出 pack tooling adapter candidates 的 id/status/entry/purpose/sideEffects/report guidance/evidence guidance/stopCondition hints/recordOnlyAfterGate，以及 read-only/strict-record notes。
+- CLI coverage 锁定 default contract text、nested output workspace text、generic-binary-re adapter candidate product-path text，以及既有 validation/record next-action、read-only/no observation/no authority/confirmed/no-heavy 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPromoteCreateCandidatesWhatIf|TestRunPromoteCreateCandidatesWritesCandidates' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `c6b384c Add promote candidate review checklist text`；远程 release-gate run `29720412556` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunGateAdapterReportTextOutputsNextActions|TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace|TestRunGateProjectsPackToolingAdapterCandidateProductPath' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings；commit/push 与远程 release-gate inspection 待执行。
 
-上一批摘要：Batch 430 已完成 promote candidates WhatIf text preview parity，详见 `docs/batch-history.md`。
+上一批摘要：Batch 431 已完成 promote candidates review checklist text closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
-1. **Pack-memory downstream UX residuals（如仍有缺口）**：Batch 423/429/430/431 已覆盖 candidate decision outcome、execution plan、WhatIf preview 与 review checklist text；后续仅在 accepted/rejected 人工流程、cleanup/reconsume 或 evidence review downstream UX 仍需跨 envelope 手工拼接时推进，不重复做字段微批次。
-2. **Lane/tool-adapter live validation operational follow-through**：仅在 Windows 本机 product-path 仍存在 adapter contract/validation/report handoff 到 replacement executor 的真实断点时推进；不新增 adapter/heavy-tool execution。
-3. **Reviewer orchestration E2E residuals（如仍有缺口）**：仅在 dispatch/intake/post-validation terminal path 仍要求解析 nested JSON 或打开 artifact 才能接续时推进，不自动 spawn reviewer、不执行 heavy-tool。
+1. **Lane/tool-adapter live validation residuals（如仍有缺口）**：Batch 421/424/432 已覆盖 adapter contract/validation/report action queue、follow-through 与 contract liveValidation text；后续仅在 Windows 本机 product-path 仍存在 validation/record/evidence review handoff 到 replacement executor 的真实断点时推进；不新增 adapter/heavy-tool execution。
+2. **Reviewer orchestration E2E residuals（如仍有缺口）**：仅在 dispatch/intake/post-validation terminal path 仍要求解析 nested JSON 或打开 artifact 才能接续时推进，不自动 spawn reviewer、不执行 heavy-tool。
+3. **Pack-memory downstream UX residuals（如仍有缺口）**：Batch 423/429/430/431 已覆盖 candidate decision outcome、execution plan、WhatIf preview 与 review checklist text；后续仅在 accepted/rejected 人工流程、cleanup/reconsume 或 evidence review downstream UX 仍需跨 envelope 手工拼接时推进，不重复做字段微批次。
 4. **Cross-platform product-path E2E（降优先级）**：在本地 CLI/case E2E 已覆盖 nested cwd / case shim 的基础上，仅保持可在 runner 可用时执行的三平台 matrix 候选和 known gap 记录；不要在 GitHub runner/billing blocker 未解除前让它阻塞 Windows 本机迭代。
 5. **Retained public façade decision**：只有真实 release-gate-green、public references、case shim、smoke retirement 与恢复计划均满足后，才执行独立 removal batch；否则明确保留期限和 blocker。
 

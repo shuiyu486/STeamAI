@@ -2067,6 +2067,77 @@ func writeGatePlanText(out io.Writer, plan gate.Plan) error {
 	return writeMissionCommanderNextActionsText(out, plan.MissionCommanderNextActions)
 }
 
+func writeGateAdapterReportLiveValidationText(out io.Writer, live gate.AdapterReportLiveValidation) error {
+	if _, err := fmt.Fprintf(out, "gate adapter report live validation：cwd=%s reportFileName=%s caseRelativeReportPath=%s replay=%s\n", live.InvocationCwd, live.ReportFileName, live.CaseRelativeReportPath, live.ReplayBehavior); err != nil {
+		return err
+	}
+	if len(live.AuthorizedWorkspaces) > 0 {
+		if _, err := fmt.Fprintf(out, "gate adapter report authorized workspaces：%s\n", strings.Join(live.AuthorizedWorkspaces, ",")); err != nil {
+			return err
+		}
+	}
+	template := live.SidecarTemplate
+	if _, err := fmt.Fprintf(out, "gate adapter report sidecar template：kind=%s adapterId=%s action=%s status=%s gateEventId=%s\n", template.Kind, template.AdapterID, template.Action, template.Status, template.GateEventID); err != nil {
+		return err
+	}
+	if len(template.OutputRefs) > 0 {
+		if _, err := fmt.Fprintf(out, "gate adapter report sidecar outputRefs：%s\n", strings.Join(template.OutputRefs, ",")); err != nil {
+			return err
+		}
+	}
+	if len(template.EvidenceRefs) > 0 {
+		if _, err := fmt.Fprintf(out, "gate adapter report sidecar evidenceRefs：%s\n", strings.Join(template.EvidenceRefs, ",")); err != nil {
+			return err
+		}
+	}
+	if len(template.BoundaryHits) > 0 {
+		if _, err := fmt.Fprintf(out, "gate adapter report sidecar boundaryHits：%s\n", strings.Join(template.BoundaryHits, ",")); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(template.Escalation) != "" || strings.TrimSpace(template.Summary) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report sidecar summary：escalation=%s summary=%s\n", template.Escalation, template.Summary); err != nil {
+			return err
+		}
+	}
+	for _, candidate := range live.AdapterCandidates {
+		if _, err := fmt.Fprintf(out, "gate adapter report adapter candidate：id=%s status=%s entry=%s gateActions=%s recordOnlyAfterGate=%t toolingCatalogPath=%s\n", candidate.ID, candidate.Status, candidate.Entry, strings.Join(candidate.GateActions, ","), candidate.RecordOnlyAfterGate, candidate.ToolingCatalogPath); err != nil {
+			return err
+		}
+		if strings.TrimSpace(candidate.Purpose) != "" {
+			if _, err := fmt.Fprintf(out, "gate adapter report adapter candidate purpose：id=%s purpose=%s\n", candidate.ID, candidate.Purpose); err != nil {
+				return err
+			}
+		}
+		if len(candidate.SideEffects) > 0 {
+			if _, err := fmt.Fprintf(out, "gate adapter report adapter candidate side effects：id=%s sideEffects=%s\n", candidate.ID, strings.Join(candidate.SideEffects, ",")); err != nil {
+				return err
+			}
+		}
+		for _, guidance := range candidate.ReportGuidance {
+			if _, err := fmt.Fprintf(out, "gate adapter report adapter candidate report guidance：id=%s guidance=%s\n", candidate.ID, guidance); err != nil {
+				return err
+			}
+		}
+		for _, guidance := range candidate.EvidenceGuidance {
+			if _, err := fmt.Fprintf(out, "gate adapter report adapter candidate evidence guidance：id=%s guidance=%s\n", candidate.ID, guidance); err != nil {
+				return err
+			}
+		}
+		if len(candidate.StopConditionHints) > 0 {
+			if _, err := fmt.Fprintf(out, "gate adapter report adapter candidate stop conditions：id=%s hints=%s\n", candidate.ID, strings.Join(candidate.StopConditionHints, ",")); err != nil {
+				return err
+			}
+		}
+	}
+	for _, note := range live.Notes {
+		if _, err := fmt.Fprintf(out, "gate adapter report live validation note：%s\n", note); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeGateAdapterReportContractText(out io.Writer, contract gate.AdapterExecutionReportContract) error {
 	if _, err := fmt.Fprintf(out, "gate adapter report contract：gateEventId=%s action=%s lane=%s reportPath=%s mutation=%t\n", contract.GateEventID, contract.Action, contract.Lane, contract.DefaultReportPath, contract.IsMutation); err != nil {
 		return err
@@ -2094,6 +2165,9 @@ func writeGateAdapterReportContractText(out io.Writer, contract gate.AdapterExec
 		if _, err := fmt.Fprintf(out, "gate adapter report record command：%s\n", contract.LiveValidation.RecordCommand); err != nil {
 			return err
 		}
+	}
+	if err := writeGateAdapterReportLiveValidationText(out, contract.LiveValidation); err != nil {
+		return err
 	}
 	if err := writeAuthorizedExecutionFollowThroughText(out, "adapter report contract", contract.AuthorizedExecutionFollowThrough); err != nil {
 		return err
