@@ -1128,9 +1128,12 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		if wantsReviewArtifacts(opt) {
 			return fmt.Errorf("sync -Apply cannot be combined with review artifact options")
 		}
+		format, err := workstreamFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported sync format: %s", opt.Format)
+		}
 		applyOpt := syncreview.ApplyOptions{ProjectName: opt.ProjectName, ForceLocalTemplates: opt.Force}
 		var result syncreview.ApplyResult
-		var err error
 		if opt.WhatIf {
 			result, err = syncreview.ApplyPreview(ctx.RepoRoot, target, ctx.Pack, applyOpt)
 		} else {
@@ -1139,12 +1142,10 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		b, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			return err
+		if format == "json" {
+			return writeJSON(out, result)
 		}
-		_, err = out.Write(append(b, '\n'))
-		return err
+		return writeSyncApplyText(out, result)
 	}
 	plan, err := syncreview.Plan(ctx.RepoRoot, target, ctx.Pack)
 	if err != nil {
@@ -2691,6 +2692,23 @@ func writePromoteCandidateReviewPlanText(out io.Writer, items []promote.Candidat
 			if _, err := fmt.Fprintf(out, "promote candidates checklist boundary：path=%s boundary=%s\n", item.Path, boundary); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func writeSyncApplyText(out io.Writer, result syncreview.ApplyResult) error {
+	if _, err := fmt.Fprintf(out, "%s apply：mutation=%t applied=%t writes=%d backupRoot=%s\n", result.Command, result.IsMutation, result.Applied, len(result.Writes), result.BackupRoot); err != nil {
+		return err
+	}
+	for _, write := range result.Writes {
+		if _, err := fmt.Fprintf(out, "%s apply write：path=%s kind=%s action=%s source=%s target=%s backup=%s\n", result.Command, write.Path, write.Kind, write.Action, write.SourcePath, write.TargetPath, write.BackupPath); err != nil {
+			return err
+		}
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "%s apply next step：%s\n", result.Command, step); err != nil {
+			return err
 		}
 	}
 	return nil

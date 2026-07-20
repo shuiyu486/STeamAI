@@ -2045,9 +2045,12 @@ func TestRunSyncRejectsWhatIfWithoutApply(t *testing.T) {
 
 func TestRunSyncApplyWritesManagedContent(t *testing.T) {
 	caseRoot := attachedCase(t)
-	writeCaseFile(t, caseRoot, "references/template/README.md", "# Local drift\n\nchanged before sync apply\n")
-	writeCaseFile(t, caseRoot, "references/template/task-handoff.md", "# Local handoff\n\nkeep this file on first apply\n")
-	writeCaseFile(t, caseRoot, "CLAUDE.local.md", "prefix\n\n<!-- BEGIN template-pack:router -->\nold managed block\n<!-- END template-pack:router -->\n\nsuffix\n")
+	seedSyncDrift := func() {
+		writeCaseFile(t, caseRoot, "references/template/README.md", "# Local drift\n\nchanged before sync apply\n")
+		writeCaseFile(t, caseRoot, "references/template/task-handoff.md", "# Local handoff\n\nkeep this file on first apply\n")
+		writeCaseFile(t, caseRoot, "CLAUDE.local.md", "prefix\n\n<!-- BEGIN template-pack:router -->\nold managed block\n<!-- END template-pack:router -->\n\nsuffix\n")
+	}
+	seedSyncDrift()
 
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-ProjectName", "sync-cli"}, &out); err != nil {
@@ -2069,6 +2072,49 @@ func TestRunSyncApplyWritesManagedContent(t *testing.T) {
 	assertSyncWrite(t, result.Writes, "references/template/README.md", "overwrite-with-backup", true)
 	assertSyncWrite(t, result.Writes, "references/template/task-handoff.md", "skip-existing-local-file", false)
 	assertSyncWrite(t, result.Writes, "CLAUDE.local.md", "replace-managed-block", true)
+
+	seedSyncDrift()
+	out.Reset()
+	if err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-WhatIf", "-Format", "text", "-ProjectName", "sync-cli"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"sync apply：mutation=false applied=false writes=",
+		"sync apply write：path=.rekit/instance.yml kind=instance-metadata action=refresh",
+		"sync apply write：path=references/template/README.md kind=managed-file action=overwrite-with-backup",
+		"sync apply write：path=references/template/task-handoff.md kind=template-file action=skip-existing-local-file",
+		"sync apply write：path=CLAUDE.local.md kind=managed-block action=replace-managed-block",
+		"sync apply next step：review this non-writing preview, then re-run sync with -Apply after confirming the exact scope",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("sync apply what-if text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("sync apply what-if text should not emit JSON:\n%s", out.String())
+	}
+
+	seedSyncDrift()
+	out.Reset()
+	if err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "text", "-ProjectName", "sync-cli"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"sync apply：mutation=true applied=true writes=",
+		"sync apply write：path=.rekit/instance.yml kind=instance-metadata action=refresh",
+		"sync apply write：path=references/template/README.md kind=managed-file action=overwrite-with-backup",
+		"sync apply write：path=references/template/task-handoff.md kind=template-file action=skip-existing-local-file",
+		"sync apply write：path=CLAUDE.local.md kind=managed-block action=replace-managed-block",
+		"sync apply next step：run doctor after apply",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("sync apply text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("sync apply text should not emit JSON:\n%s", out.String())
+	}
+
 	readme, err := os.ReadFile(filepath.Join(caseRoot, "references", "template", "README.md"))
 	if err != nil {
 		t.Fatal(err)

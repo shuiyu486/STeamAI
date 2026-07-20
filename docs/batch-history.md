@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 442：sync apply text handoff closure
+
+状态：已完成 sync apply text handoff closure、本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection。
+
+目标：`sync -Apply` / `sync -Apply -WhatIf` 仍默认输出 JSON，terminal / replacement executor 若显式选择 `-Format text` 仍需要解析 JSON 才能复核 kit -> case 写入范围、backupRoot 与 nextSteps。本批把 sync apply preview / apply 的 `ApplyResult` 直接投影到 text path，让 Mission Commander 在确认或刚执行 bounded sync 写入后不用切回 JSON 才能 review metadata、case-local shim、managed files、template files、managed block、state 与 backup handoff。
+
+实施范围：sync apply path 现在解析 `-Format`，`json` 保持 existing JSON output，`text` / `table` / `tsv` 输出 `sync apply` summary（mutation、applied、writes、backupRoot）、逐 write detail（path、kind、action、source、target、backup）与 nextSteps。CLI coverage 锁定 WhatIf preview text、actual apply text、默认 JSON compatibility、no authority/confirmed/no-heavy 边界。该批只增强 `sync -Apply/-WhatIf -Format text` 的 Go-native terminal handoff、focused CLI coverage 与 durable docs；不改变 sync/apply 写入语义、review-first policy、managed file selection、backup 规则、case durable schema、promote、公共 façade 删除门禁或远程 CI blocker 状态；不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
+
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunSyncApplyWritesManagedContent -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 Batch 442 implementation；远程 release-gate inspection 结果记录在 `docs/batch-plan.md` current state，若平台 jobs 仍为 `steps: []` 则继续作为既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+
 ### Batch 441：reviewer intake note event text detail closure
 
 状态：已完成 reviewer intake note event text detail closure、本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection。

@@ -16,23 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 441：reviewer intake note event text detail closure
+### Batch 442：sync apply text handoff closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate 仍为既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation、durable docs；正在 commit/push 与远程 release-gate inspection；远程 release-gate 预计仍为既有 GitHub Actions runner/billing blocker，需以实际 run 为准。
 
-目标：Batch 439/440 已让 reviewer-intake text 直接投影 reviewer result detail 与 verification/decision writeback checkpoint，但 nested verification / decision `note.AppendResult` 的 event payload 仍只在 JSON 中完整可见。Mission Commander / replacement executor 仍需解析 JSON 才能复核 verification verdict、decision/reason、subject/summary、evidenceRefs、packet/route/shard、reviewerSession 与 owner binding provenance。本批把 verification-before-decision note event detail 直接投影到 reviewer-intake text path。
+目标：`sync -Apply` / `sync -Apply -WhatIf` 仍默认输出 JSON，terminal / replacement executor 若显式选择 `-Format text` 仍需要解析 JSON 才能复核 kit -> case 写入范围、backupRoot 与 nextSteps。本批把 sync apply preview / apply 的 `ApplyResult` 直接投影到 text path，让 Mission Commander 在确认或刚执行 bounded sync 写入后不用切回 JSON 才能 review metadata、case-local shim、managed files、template files、managed block、state 与 backup handoff。
 
-边界：只增强 `plan-subagents -ReviewerResultPath ... -WhatIf/-Apply -Format text` 的 nested verification/decision note event terminal handoff、focused CLI coverage 与 durable docs；不改变 JSON packet/summary contract、reviewer-intake validation/writeback semantics、event ID determinism、Mission Commander next-action ordering、case durable schema、sync/promote review-first、public façade 删除门禁或远程 CI blocker 状态；reviewer 仍不写文件或 ledger，intake 不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
+边界：只增强 `sync -Apply/-WhatIf -Format text` 的 Go-native terminal handoff、focused CLI coverage 与 durable docs；不改变 default JSON output、sync/apply 写入语义、review-first policy、managed file selection、backup 规则、case durable schema、promote、public façade 删除门禁或远程 CI blocker 状态；不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- reviewer-intake text 现在在 verification/decision append result 带 event payload 时输出 `reviewer intake <verification|decision> event`，包含 `kind`、`eventId`、`applied`、`subject`、`target`、`lane`、`confidence` 与 `evidenceRefs`。
-- text path 继续输出 event `summary`，并按固定字段输出 `verdict` / `decision` / `reason`、`packetId`、`routeId`、`shardId`、`reviewerSession`、`ownerExecutor`、`ownerGeneration`、`ownerBindingMode` 与 `ownerBindingTarget`，让 terminal executor 不必解析 JSON 即可复核 note payload 与 provenance。
-- CLI coverage 锁定 WhatIf reviewer intake verification/decision note event detail，以及既有 reviewer result detail、writeback checkpoint、post-validation/action queue/next-action、no authority/confirmed/no-heavy 边界。
+- sync apply path 现在解析 `-Format`：`json` 保持 existing JSON output；`text` / `table` / `tsv` 输出 human-readable apply handoff。
+- text output 先打印 `sync apply` summary，包含 `mutation`、`applied`、write count 与 `backupRoot`。
+- text output 为每个 write 打印 `path`、`kind`、`action`、`source`、`target` 与 `backup`，覆盖 instance metadata、case-local thin shim、legacy metadata、managed files、template files、managed block 与 sync state。
+- text output 继续打印 `nextSteps`，让 terminal executor 可直接看到 WhatIf 后确认 scope / actual apply 后 run doctor 与 backup review guidance。
+- CLI coverage 锁定 WhatIf preview text、actual apply text、默认 JSON compatibility、no authority/confirmed/no-heavy/no PowerShell runtime logic 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `c6f6e16 Add reviewer intake note event text`；远程 release-gate run `29725327999` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunSyncApplyWritesManagedContent -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs` 与 `go run ./cmd/rekit -- -Command doctor`；`release-check ready=true`，`doctor` 报告 `pack validation ok`。尚待最终 `git diff --check`、commit/push 与远程 release-gate inspection。
 
-上一批摘要：Batch 440 已完成 reviewer intake partial writeback checkpoint text closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 441 已完成 reviewer intake note event text detail closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
