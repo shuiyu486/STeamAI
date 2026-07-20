@@ -1114,25 +1114,29 @@ func runInitBootstrap(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
+	command := strings.TrimSpace(opt.Command)
+	if command == "" {
+		command = commands.Sync
+	}
 	if opt.WhatIf && !opt.Apply {
-		return fmt.Errorf("sync -WhatIf is only supported with -Apply for non-writing preview")
+		return fmt.Errorf("%s -WhatIf is only supported with -Apply for non-writing preview", command)
 	}
 	if opt.Force && !opt.Apply {
-		return fmt.Errorf("sync -Force is only supported with -Apply")
+		return fmt.Errorf("%s -Force is only supported with -Apply", command)
 	}
-	target, err := commandTarget(ctx, "sync", "attached case")
+	target, err := commandTarget(ctx, command, "attached case")
 	if err != nil {
 		return err
 	}
 	if opt.Apply {
 		if wantsReviewArtifacts(opt) {
-			return fmt.Errorf("sync -Apply cannot be combined with review artifact options")
+			return fmt.Errorf("%s -Apply cannot be combined with review artifact options", command)
 		}
 		format, err := workstreamFormat(opt.Format)
 		if err != nil {
-			return fmt.Errorf("unsupported sync format: %s", opt.Format)
+			return fmt.Errorf("unsupported %s format: %s", command, opt.Format)
 		}
-		applyOpt := syncreview.ApplyOptions{ProjectName: opt.ProjectName, ForceLocalTemplates: opt.Force}
+		applyOpt := syncreview.ApplyOptions{ProjectName: opt.ProjectName, ForceLocalTemplates: opt.Force, Command: command}
 		var result syncreview.ApplyResult
 		if opt.WhatIf {
 			result, err = syncreview.ApplyPreview(ctx.RepoRoot, target, ctx.Pack, applyOpt)

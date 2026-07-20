@@ -16,25 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 442：sync apply text handoff closure
+### Batch 443：update apply command identity parity
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29726334573` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation；正在记录 durable docs、commit/push 与远程 release-gate inspection；远程 release-gate 预计仍为既有 GitHub Actions runner/billing blocker，需以实际 run 为准。
 
-目标：`sync -Apply` / `sync -Apply -WhatIf` 仍默认输出 JSON，terminal / replacement executor 若显式选择 `-Format text` 仍需要解析 JSON 才能复核 kit -> case 写入范围、backupRoot 与 nextSteps。本批把 sync apply preview / apply 的 `ApplyResult` 直接投影到 text path，让 Mission Commander 在确认或刚执行 bounded sync 写入后不用切回 JSON 才能 review metadata、case-local shim、managed files、template files、managed block、state 与 backup handoff。
+目标：`sync` 与 `update` 共享 Go-native apply path，但 Batch 442 后 `update -Apply/-WhatIf` 的 apply/text handoff 与 preview nextStep 仍可能显示 `sync` command identity。Mission Commander / replacement executor 在 update product path 中会看到 sync-prefixed guidance，容易把 update handoff 误判为另一个 command。本批让 shared sync/update apply path 保留真实 `opt.Command`。
 
-边界：只增强 `sync -Apply/-WhatIf -Format text` 的 Go-native terminal handoff、focused CLI coverage 与 durable docs；不改变 default JSON output、sync/apply 写入语义、review-first policy、managed file selection、backup 规则、case durable schema、promote、public façade 删除门禁或远程 CI blocker 状态；不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
+边界：只增强 `update -Apply/-WhatIf` command identity、focused CLI coverage 与 durable docs；不改变 sync default compatibility、sync/update shared write semantics、managed file selection、backup 规则、review-first policy、case durable schema、promote、public façade 删除门禁或远程 CI blocker 状态；不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- sync apply path 现在解析 `-Format`：`json` 保持 existing JSON output；`text` / `table` / `tsv` 输出 human-readable apply handoff。
-- text output 先打印 `sync apply` summary，包含 `mutation`、`applied`、write count 与 `backupRoot`。
-- text output 为每个 write 打印 `path`、`kind`、`action`、`source`、`target` 与 `backup`，覆盖 instance metadata、case-local thin shim、legacy metadata、managed files、template files、managed block 与 sync state。
-- text output 继续打印 `nextSteps`，让 terminal executor 可直接看到 WhatIf 后确认 scope / actual apply 后 run doctor 与 backup review guidance。
-- CLI coverage 锁定 WhatIf preview text、actual apply text、默认 JSON compatibility、no authority/confirmed/no-heavy/no PowerShell runtime logic 边界。
+- `runSyncReview` 现在基于实际 `opt.Command` 生成 guard diagnostics、target command name、format diagnostics 与 `syncreview.ApplyOptions.Command`。
+- `sync.ApplyPreview` 的 first nextStep 现在按 `ApplyResult.Command` 提示 `re-run <command> with -Apply`，因此 update preview JSON/text 均显示 `update`。
+- `update -Apply -WhatIf -Format text` 现在输出 `update apply` summary、`update apply write` detail 与 update-specific nextStep，不泄漏 `sync apply` prefix。
+- CLI coverage 锁定 update WhatIf text、update WhatIf JSON command identity 与 existing sync apply compatibility。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunSyncApplyWritesManagedContent -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `7eb4dba Add sync apply text handoff`；远程 release-gate run `29726334573` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunSyncApplyWritesManagedContent|TestRunUpdateApplyUsesUpdateCommandIdentity' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs` 与 `go run ./cmd/rekit -- -Command doctor`；`release-check ready=true`，`doctor` 报告 `pack validation ok`。尚待最终 `git diff --check`、commit/push 与远程 release-gate inspection。
 
-上一批摘要：Batch 441 已完成 reviewer intake note event text detail closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 442 已完成 sync apply text handoff closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

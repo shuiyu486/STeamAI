@@ -2131,6 +2131,43 @@ func TestRunSyncApplyWritesManagedContent(t *testing.T) {
 	}
 }
 
+func TestRunUpdateApplyUsesUpdateCommandIdentity(t *testing.T) {
+	caseRoot := attachedCase(t)
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Update drift\n\nchanged before update apply\n")
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "update", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"update apply：mutation=false applied=false writes=",
+		"update apply write：path=references/template/README.md kind=managed-file action=overwrite-with-backup",
+		"update apply next step：review this non-writing preview, then re-run update with -Apply after confirming the exact scope",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("update apply text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "sync apply") {
+		t.Fatalf("update apply text leaked sync command identity:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "update", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command   string   `json:"command"`
+		NextSteps []string `json:"nextSteps"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("update apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Command != "update" || len(result.NextSteps) == 0 || !strings.Contains(result.NextSteps[0], "re-run update with -Apply") {
+		t.Fatalf("update apply JSON omitted update command identity: %+v", result)
+	}
+}
+
 func TestRunSyncApplyRejectsMovedCase(t *testing.T) {
 	caseRoot := movedAttachedCase(t)
 	var out bytes.Buffer
