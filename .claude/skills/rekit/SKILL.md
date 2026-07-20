@@ -53,7 +53,7 @@ disable-model-invocation: true
 
 | 用户意图 | 行为 |
 |---|---|
-| `/rekit status` | 只读显示 kit / case 绑定状态与 case-local thin shim / canonical skill readiness；检测迁移或 shim drift 但不修复；`-Format json` 输出机器可读 status envelope 与 `caseShim` readiness。 |
+| `/rekit` / `/rekit status` | 无子命令时默认走只读 status；显示 kit / case 绑定状态与 case-local thin shim / canonical skill readiness；检测迁移或 shim drift 但不修复；`-Format json` 输出机器可读 status envelope 与 `caseShim` readiness。 |
 | `/rekit packs` | 维护者只读查看当前 kit 内 pack 矩阵：成熟度、schema、route、managed/tooling 和 authority lane 概览；`-Format json` 输出机器可读 inventory。 |
 | `/rekit attach` | 将已有 case 绑定到当前 template root 和 pack。 |
 | `/rekit repair` | 预览迁移后的 metadata 修复；用户确认后才写入。 |

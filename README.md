@@ -91,9 +91,10 @@ claude
 
 主 Agent 会把这些意图翻译成 `/rekit overview`、`continue`、`start`、`handoff`、`gate`、`note`、`sync`、`promote` 等底层 runtime 操作。用户不需要把 `/rekit` 子命令当成主要交互界面；它们主要是主 Agent、维护者、自动化和排障使用的确定性 API。
 
-排障时再用：
+排障或新会话接手时再用：
 
 ```text
+/rekit          # 无子命令时默认只读 status，先确认 kit/case 绑定
 /rekit doctor
 ```
 

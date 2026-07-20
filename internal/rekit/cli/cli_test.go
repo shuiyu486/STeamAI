@@ -2577,11 +2577,7 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 		t.Fatalf("nested case-local status text should not emit JSON object:\n%s", out.String())
 	}
 
-	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Pack", "_template"}, &out); err != nil {
-		t.Fatal(err)
-	}
-	for _, expected := range []string{
+	defaultStatusExpected := []string{
 		"rekit go backend:",
 		"template root: " + root,
 		"pack: _template",
@@ -2596,13 +2592,31 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 		"status case mission section：name=openCandidates",
 		"status case mission handoff：preview=/rekit handoff -Target",
 		"continueBoundary=status is read-only; run continue with -WhatIf first",
-	} {
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range defaultStatusExpected {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("nested case-local default status missing %q:\n%s", expected, out.String())
 		}
 	}
 	if strings.Contains(out.String(), "{\n  ") {
 		t.Fatalf("nested case-local default status should not emit JSON object:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range defaultStatusExpected {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested case-local no-command default status missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("nested case-local no-command default status should not emit JSON object:\n%s", out.String())
 	}
 
 	out.Reset()
