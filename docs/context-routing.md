@@ -22,6 +22,8 @@
 
 - 修改或新建 durable docs 时，同样保持按需路由：顶部保留短 `读取指南` / `实施摘要` / `执行清单` / `验证标准` / `风险与注意事项`，细节按章节或专文渐进披露。
 - 只在 `docs/context-routing.md`、`README.md` 或根 `CLAUDE.md` 放短路由指针；不要把历史、完整实施日志或长设计细节并回 active docs。
+- 文档索引、推荐话术和接手清单不是默认必读清单；若出现 5 个以上 read-first 文件，先压缩为 `docs/context-routing.md` + 当前场景入口 + 顶部区。
+- 新增文档时必须说明它的首选入口、何时按需读取、不要默认读取什么；若只是历史或 release/debug 溯源，优先放入归档或专题文档，不放进默认上下文。
 - `CHANGELOG.md` 只记录用户可见变化与关键边界；旧批次细节继续按 Batch ID 归档到 `docs/batch-history.md`。
 
 ### 按需路由
@@ -37,6 +39,7 @@
 | Go runtime / command owner | CodeGraph 查询 `internal/rekit/**`，必要时读 `docs/go-first-convergence-plan.md` 顶部 | 不先读历史 migration 全文 |
 | reviewer / lane / gate product path | CodeGraph 查询相关 Go symbols + `docs/agent-team-usage.md` 顶部 | 不读全部 batch 历史 |
 | pack authoring / promote/sync | `docs/pack-authoring.md`、`docs/promote-sync.md` 对应章节 | 不把 case artifact 写回仓库 |
+| 文档减压 / 路由审计 | 本文件 + 目标文档顶部；用搜索定位旧 read-first 列表 | 不批量重写所有历史文档、不把索引当必读清单 |
 | smoke 选择 | `rekit/tests/README.md` 对应类别 | 不默认跑大型 matrix |
 
 ## 验证标准
@@ -44,6 +47,7 @@
 - 新会话能从本文件和 `docs/batch-plan.md` 顶部恢复当前方向，而不需要读取 10 万 token 级历史。
 - `docs/batch-plan.md` 只保留 active/current/latest 摘要；完整旧批次位于 `docs/batch-history.md`。
 - `release-check -Format json` 的 `releaseHandoff.readFirst[]` 优先指向本路由表和短 current state，而不是把所有长文档都列为必读。
+- README、reference、usage guide 或 handoff 话术中的文档列表应表达“按需索引”，不能绕过本文件变成新的默认 read-first 清单。
 - 本机验证仍以 Go-native minimum 为准：`release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`。
 
 ## 风险与注意事项

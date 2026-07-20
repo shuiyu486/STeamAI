@@ -2,7 +2,7 @@
 
 ## 读取指南
 
-如果你只是维护本仓库，先读根目录 `CLAUDE.md`、`README.md` 和本文件即可；需要理解长期路线时再读 `docs/vision.md`。
+如果你只是维护本仓库，先读根目录 `CLAUDE.md` 与 `docs/context-routing.md`，再按场景读取本文件顶部或其它路由入口；不要把本文件全文、README 和 vision 当成默认必读清单。
 
 如果你正在具体安全 case 中工作（当前成熟示例是 `vmp-re` RE case），先在 case 目录用 `/rekit status` 确认绑定，再按本文件选择新 case、旧 case、主线或功能支线流程。
 
@@ -293,7 +293,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 
 | 你现在的情况 | 推荐动作 |
 |---|---|
-| 只维护本仓库 | 读 `CLAUDE.md`、`docs/vision.md`、本文件；不要 init case |
+| 只维护本仓库 | 读 `CLAUDE.md` 与 `docs/context-routing.md`，再按场景读本文件顶部或其它入口；不要 init case |
 | 新建安全 case（当前成熟示例：`vmp-re` RE case） | 在 kit 仓库用 `/rekit init -Target ... -Pack vmp-re -Apply` |
 | 已有 case 接入新架构 | 用 `/rekit attach`，再 `/rekit sync` review |
 | 旧 case 移动了目录 | `/rekit status` -> `/rekit repair` -> 确认后 `repair -Apply` -> `/rekit doctor` |

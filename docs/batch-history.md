@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 463：documentation routing pressure reduction closure
+
+状态：已完成 documentation routing pressure reduction closure、本地文档审计、durable docs、验证、commit/push 与远程 release-gate inspection。
+
+目标：项目已存在 `docs/context-routing.md` 与根 `CLAUDE.md` 的按需路由规则，但部分 README、usage、reference 和 roadmap 话术仍容易被误读为新会话默认 read-first 长清单，造成上下文压缩后串读 README / vision / reference / go-first 等长文档。Batch 463 把这些旧 read-first 列表收敛为 `CLAUDE.md` + `docs/context-routing.md` + 当前场景顶部区，并在 router 中明确新增文档和推荐话术不得绕过渐进式披露。
+
+实施范围：`docs/context-routing.md` 新增文档维护规则，明确文档索引、推荐话术和接手清单不是默认必读清单；新增文档必须声明首选入口、何时按需读取、不要默认读取什么；历史或 release/debug 溯源优先归档或专题化，不放进默认上下文。README、Agent Team usage、reference absorption、vision、Mission Control product direction 与 Go-first convergence 的旧 read-first 话术已收敛到 router-first 模式。该批只调整 durable docs 的路由、索引和推荐话术；不改变 runtime、release-check contract、public command behavior、case docs sync/promote 语义、pack content、PowerShell façade、远程 CI blocker，不执行 heavy-tool、不写 authority/confirmed。
+
+验证结果：已通过 focused `go test ./internal/rekit/releasecheck ./internal/rekit/defaultdocs -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。
+
 ### Batch 462：continue digest execution evidence follow-through detail closure
 
 状态：已完成 continue digest execution evidence follow-through detail closure、本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection。

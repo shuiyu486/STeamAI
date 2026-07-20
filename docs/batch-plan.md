@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 462：continue digest execution evidence follow-through detail closure
+### Batch 463：documentation routing pressure reduction closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29752637342` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：进行中；已完成文档路由审计与按需披露规则收敛，待完成本地验证、commit/push 与远程 release-gate inspection。
 
-目标：Batch 459/460/461 已补齐 project/lane handoff Markdown、overview text 与 lane `RESUME.md` 的 execution evidence followThrough outcome `when/evidence`；但 `/rekit continue -Apply` 的 run `digest.md` 仍只展示 outcome/action/verification，Mission Commander / replacement executor 如果从 continue run digest 直接接手，判断 recorded-evidence-review 或 boundary-or-escalation-review 的适用条件和证据 refs 时仍可能回退 JSON、overview、handoff 或 lane resume。Batch 462 把同一 outcome 条件与证据 refs 投影到 continue digest。
+目标：项目已存在 `docs/context-routing.md` 与根 `CLAUDE.md` 的按需路由规则，但部分 README、usage、reference 和 roadmap 话术仍容易被误读为新会话默认 read-first 长清单，造成上下文压缩后串读 README / vision / reference / go-first 等长文档。Batch 463 把这些旧 read-first 列表收敛为 `CLAUDE.md` + `docs/context-routing.md` + 当前场景顶部区，并在 router 中明确新增文档和推荐话术不得绕过渐进式披露。
 
-边界：只增强 continue run `digest.md` 中已存在的 `mission.ExecutionEvidenceFollowThrough` 渲染与 focused CLI coverage；不改变 continue status/checkpoint JSON contract、executionEvidenceReview semantics、followThrough/actionQueue、authorized gate/evidence ledger、overview/project/lane handoff、lane RESUME、default compatibility，不执行 heavy-tool、不 replay adapter、不写 authority/confirmed、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
+边界：只调整 durable docs 的路由、索引和推荐话术；不改变 runtime、release-check contract、public command behavior、case docs sync/promote 语义、pack content、PowerShell façade、远程 CI blocker，不执行 heavy-tool、不写 authority/confirmed。
 
 已完成内容：
 
-- `appendContinueExecutionEvidenceFollowThrough` 在每个 outcome 后输出 Markdown `when:`，直接说明 outcome 适用条件。
-- 同一路径输出逐条 `evidence:`，直接列出 bounded observation output/evidence refs。
-- coverage 锁定 continue digest normal recorded-evidence-review 与 escalated boundary-or-escalation-review 的 when/evidence lines，以及 existing Mission Commander next actions、authorized gate visibility、evidence-first ordering、no replay/no authority/confirmed/no-heavy 边界。
+- `docs/context-routing.md` 增加文档维护规则：文档索引、推荐话术和接手清单不是默认必读清单；出现 5 个以上 read-first 文件时先压缩为 router + 当前场景入口 + 顶部区。
+- 新增文档必须声明首选入口、何时按需读取、不要默认读取什么；历史或 release/debug 溯源优先归档或专题化，不放进默认上下文。
+- README、Agent Team usage、reference absorption、vision、Mission Control product direction 与 Go-first convergence 的旧 read-first 话术已收敛到 `docs/context-routing.md`。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `860e733 Add continue digest evidence follow-through detail`；远程 release-gate run `29752637342` 为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/releasecheck ./internal/rekit/defaultdocs -count=1`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。
 
-上一批摘要：Batch 461 已完成 lane RESUME execution evidence follow-through detail closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 462 已完成 continue digest execution evidence follow-through detail closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

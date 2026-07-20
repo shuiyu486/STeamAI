@@ -4,16 +4,7 @@
 
 本文件用于回答：本项目从外部参考文章和项目中吸收了什么、已经落地了哪些能力、哪些仍是后续计划。
 
-如果你是在另一台电脑接手维护本项目，建议先读：
-
-1. `CLAUDE.md`
-2. `README.md`
-3. `docs/mission-control-product-direction.md`
-4. `docs/autonomous-goal.md`
-5. `docs/agent-team-usage.md`
-5. 本文件
-6. `docs/vision.md`
-7. `docs/batch-plan.md`
+如果你是在另一台电脑接手维护本项目，先读 `CLAUDE.md` 与 `docs/context-routing.md`，再按场景读取本文件顶部、`docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/agent-team-usage.md` 或 `docs/batch-plan.md`。不要把本文件当成新会话默认 read-first 清单；它只在需要追溯外部参考吸收关系时进入上下文。
 
 本文件只记录可复用设计和落地映射，不记录真实样本名、RVA/VA、trace/dump、artifact 路径、客户信息或 case-specific 进度。
 
@@ -219,7 +210,7 @@ claude
 
 ```text
 你正在接手 re-context-kits 项目。
-请先读 CLAUDE.md、README.md、docs/agent-team-usage.md、docs/reference-absorption.md、docs/vision.md、docs/batch-plan.md。
+请先读 CLAUDE.md 与 docs/context-routing.md；再按当前任务只读 docs/batch-plan.md 顶部 current/next、CHANGELOG.md 顶部 Unreleased，以及 context-routing 指向的场景入口顶部。
 本项目目标是逐步优化为网络安全研究 / 安全工程 Agent Team 框架；当前以 vmp-re 作为首个成熟 pack，不是完整自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
 不要在 kit 仓库里创建真实 case；验证 init/attach/sync/promote 时只用临时 case。
 请总结当前已落地能力和待实现能力，然后按 docs/batch-plan.md 选择下一批最小可验证优化。

@@ -26,7 +26,7 @@
 
 每轮自主推进按这个循环做：
 
-1. 读最近状态：`CLAUDE.md`、`docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/release-readiness.md`、`docs/go-first-convergence-plan.md`、`docs/powershell-deprecation.md`、`docs/batch-plan.md` 的 current/最新区、`CHANGELOG.md`，并检查 git、本地 gate 与远程 CI 实际状态。
+1. 读最近状态：`CLAUDE.md`、`docs/context-routing.md`、`docs/batch-plan.md` 顶部 current/next、`CHANGELOG.md` 顶部 `Unreleased`，并检查 git、本地 gate 与远程 CI 实际状态；再按 `docs/context-routing.md` 只读取当前场景需要的文档顶部区。
 2. 从下面大方向里选一个 coherent 中大型 vertical slice，优先选择能解决真实 Mission Commander/产品路径断点、提升当前 Windows 本机 Go-native product-path 稳定性、减少 retained PowerShell 依赖或增强 Mission Control 可用性的切片；macOS/Linux/远程三平台 CI 在 runner/billing blocker 解除前只作为 release known gap 和可延后 readiness 工作，不要让它挤占 Windows 本机可验证的 executor/reviewer/Mission Commander/pack-memory/product-path 闭环；不要继续拆 schema-field metadata 微批次，也不要让多个连续批次只扩 contract / inventory 字段而缺少 executor/reviewer/Mission Commander/pack-memory/product-path 的实际闭环。
 3. 实施时优先 Go-native；禁止新增 PowerShell runtime logic。若迁移期必须保留 PowerShell，只能作为 legacy compatibility，并写清依赖方、阻塞原因和删除条件。
 4. 完成后自审、评估：看是否更接近 Mission Control 北极星，是否减少 PowerShell 默认路径，架构是否清晰，是否有重复逻辑，是否需要顺手做低风险调整。

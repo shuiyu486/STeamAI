@@ -4,7 +4,7 @@
 
 本文件是 `re-context-kits` 的最终产品方向锚点，用于防止后续自主推进时偏回“命令大全”、短命 subagent 或用户手动盯多个会话的路线。
 
-如果你是新会话或上下文压缩后的 AI，先读本文件顶部，再读 `docs/autonomous-goal.md`、`docs/go-first-convergence-plan.md` 与 `docs/batch-plan.md` 最新批次。实现时以本文件的产品方向为北极星，以现有 Go-first / release readiness 文档为落地路线。
+如果你是新会话或上下文压缩后的 AI，先读 `docs/context-routing.md`；只有在判断产品北极星、Mission Control 方向或会话接手语义时，再读本文件顶部。实现时以本文件的产品方向为北极星，以 `docs/batch-plan.md` 顶部 current/next 与 context-routing 指向的 Go-first / release readiness 顶部区为落地路线。
 
 本文档描述目标形态，不代表所有能力都已实现。新增能力必须按可验证 vertical slice 落地，并持续写回 `docs/batch-plan.md` 或相邻设计文档。后续不要连续推进单字段 contract / inventory / metadata 微批次；任何新增 contract 字段都必须服务 Mission Commander orchestration、replaceable session executor、reviewer writeback、authorized execution evidence、adapter-specific live validation、pack-memory UX 或跨平台 product path 等可运行闭环，并由 package / CLI / 临时 case / product-path 验证证明其解决真实产品断点。
 
@@ -261,7 +261,7 @@ case observation / recipe / checklist / prompt / adapter candidate
 在发正式 goal 前，可先把这段发给新会话：
 
 ```text
-在 C:\AI\m_projects\RE\re-context-kits 继续维护项目。先读取 CLAUDE.md、docs/mission-control-product-direction.md、docs/autonomous-goal.md、docs/go-first-convergence-plan.md、docs/release-readiness.md 和 docs/batch-plan.md 的 current/最新区，并检查 git 与本地/远程 release gate 的实际状态。当前产品方向已经确认：re-context-kits 要收敛为 Lane-centric Agent Team Mission Control，而不是命令大全；主 Agent 统筹 durable member lanes，lane 由可替换 Claude Code session executor 执行，也可用短命 tactical subagents；用户可随时介入 lane，当前通过显式 reconcile 把干预写回 durable state；lane 文档/packet 只表达授权意图，实际 heavy action 必须由 strict durable autonomy profile + authorized-gate decision 覆盖 target、budget、stop conditions、output paths、记录和升级边界。先只读取并确认接手，不要立刻改文件，等我发正式 goal。
+在 C:\AI\m_projects\RE\re-context-kits 继续维护项目。先读取 CLAUDE.md、docs/context-routing.md、docs/batch-plan.md 顶部 current/next 和 CHANGELOG.md 顶部 Unreleased，并检查 git 与必要的本地/远程 release gate 实际状态；只有当前任务需要产品北极星、长期 goal、Go-first 或 release 判断时，才按 docs/context-routing.md 读取对应文档顶部。当前产品方向已经确认：re-context-kits 要收敛为 Lane-centric Agent Team Mission Control，而不是命令大全；主 Agent 统筹 durable member lanes，lane 由可替换 Claude Code session executor 执行，也可用短命 tactical subagents；用户可随时介入 lane，当前通过显式 reconcile 把干预写回 durable state；lane 文档/packet 只表达授权意图，实际 heavy action 必须由 strict durable autonomy profile + authorized-gate decision 覆盖 target、budget、stop conditions、output paths、记录和升级边界。先只读取并确认接手，不要立刻改文件，等我发正式 goal。
 ```
 
 ## 11. 推荐长期 goal 语句
@@ -273,5 +273,5 @@ case observation / recipe / checklist / prompt / adapter candidate
 
 实施主线围绕七类：1) Mission Control UX：减少用户面对的命令，把 /rekit 作为 runtime API 而不是主要 UX；2) lane protocol：把已有 packet/status/outbox/handoff/intervention/autonomy/reconcile 底座推进为实际接手闭环；3) replaceable session executor：长期成员身份绑定 lane，并明确 session registration/takeover/ownership 的 operational contract；4) tactical subagents：实际验证主 Agent dispatch、intake、WhatIf、writeback 与 post-validation；5) pre-authorized lane autonomy：让 executor/tool adapter 消费 durable profile + authorized-gate 并回写 evidence/budget/boundary-hit；6) pack-based team memory：把复用经验 review/promote 后在 fresh case 重新消费；7) Go-first deterministic substrate：完成 PowerShell-free default/product path、retained façade 收束与跨平台 product-path E2E，禁止新增 PowerShell runtime logic。
 
-每批开始前先读 CLAUDE.md、docs/mission-control-product-direction.md、docs/autonomous-goal.md、docs/release-readiness.md、docs/go-first-convergence-plan.md 和 docs/batch-plan.md 的 current/最新区，并检查 git、本地 gate 与远程 CI 实际状态；优先做 coherent 中大型 vertical slice，并自审是否偏离 Mission Control 北极星。除新的产品方向变化、破坏性仓库操作、未授权外部副作用、runtime schema 迁移、公共入口删除门禁不完整、confirmed/authority 写入策略变化或难以判断的架构取舍外，自主判断并持续推进。
+每批开始前先读 CLAUDE.md、docs/context-routing.md、docs/batch-plan.md 顶部 current/next 和 CHANGELOG.md 顶部 Unreleased，并检查 git、本地 gate 与远程 CI 实际状态；再按 docs/context-routing.md 只读取当前场景需要的顶部区。优先做 coherent 中大型 vertical slice，并自审是否偏离 Mission Control 北极星。除新的产品方向变化、破坏性仓库操作、未授权外部副作用、runtime schema 迁移、公共入口删除门禁不完整、confirmed/authority 写入策略变化或难以判断的架构取舍外，自主判断并持续推进。
 ```

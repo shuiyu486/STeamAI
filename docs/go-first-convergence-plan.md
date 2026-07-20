@@ -4,16 +4,7 @@
 
 本文件是 Batch 101 之后的新阶段导航，用于防止长轮次自主实施或上下文压缩后继续沿 PowerShell smoke/catalog/test metadata 惯性扩张。
 
-新会话接手时优先读取：
-
-1. 根目录 `CLAUDE.md` 的项目定位、维护入口、关键边界。
-2. `docs/mission-control-product-direction.md` 的 Lane-centric Agent Team Mission Control 产品北极星。
-3. `docs/autonomous-goal.md` 的长期自主 goal、阶段性大方向、停止条件和可复制 prompt。
-4. 本文件顶部的读取指南、实施摘要、执行清单、验证标准、风险与注意事项。
-5. `docs/batch-plan.md` 最新阶段记录。
-6. 发布或收口前读取 `docs/release-readiness.md` 的一页门禁和 known gaps。
-7. 修改 PowerShell façade/runtime 或 fallback 前读取 `docs/powershell-deprecation.md`。
-8. 具体动手前再按需读取 `docs/go-runtime-migration.md`、`docs/agent-team-rollout-plan.md`、`rekit/tests/README.md`、相关 Go/PowerShell runtime 文件。
+新会话接手时先读 `docs/context-routing.md` 与 `docs/batch-plan.md` 顶部 current/next；只有当前任务涉及 Go-first、release readiness、PowerShell-free product path 或跨平台验证时，再读本文件顶部的读取指南、实施摘要、执行清单、验证标准、风险与注意事项。发布或收口前按需读取 `docs/release-readiness.md` 顶部；修改 PowerShell façade/runtime 或 fallback 前按需读取 `docs/powershell-deprecation.md` 顶部；具体动手前再按需读取 `docs/go-runtime-migration.md`、`docs/agent-team-rollout-plan.md`、`rekit/tests/README.md`、相关 Go/PowerShell runtime 文件。
 
 本文件不是要求一次性完成所有事项；它定义未来几十轮自主推进的方向、阶段切片和停止条件。每轮应选择一个中型到大型、可验证的垂直切片实施，不要把目标拆成只改一两行的微批次。
 

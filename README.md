@@ -8,7 +8,9 @@
 
 一句话：**用户主要指挥主 Agent / Mission Commander；主 Agent 调度 durable member lanes、可替换会话执行体和短命 tactical subagents；`overview` JSON/text 与 project handoff 提供逐 lane typed executor action index 和 blocker-aware 下一步，`start` / `gate` / `reconcile` envelope/text、`handoff` JSON/Markdown、`continue` envelope/run artifacts 与 lane-local `RESUME.md` / typed checkpoint 复用 Mission Control brief、基于 typed facts 的 executor action blocker counts、gate snapshot 与下一步动作；`/rekit`、Go CLI/backend 是背后的 canonical deterministic runtime/API，`rekit.ps1` 仅作为 retained compatibility façade，不承载业务 runtime，也没有 PowerShell 业务 fallback；默认路径继续向 PowerShell-free / Go-native / 跨平台收敛。**
 
-## 项目路线
+## 项目路线（按需文档索引）
+
+以下是文档索引，不是默认必读清单。新会话、上下文压缩后接手或维护文档时，先读 `docs/context-routing.md`，再按场景只读对应顶部区。
 
 - 新会话与维护文档的按需路由入口：`docs/context-routing.md`
 - 新架构使用与旧 case 兼容：`docs/agent-team-usage.md`
