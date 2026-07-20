@@ -2644,6 +2644,112 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 	}
 
 	out.Reset()
+	if err := Run([]string{"-Command", "doctor", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var noPackDoctor struct {
+		Command string `json:"command"`
+		Mode    string `json:"mode"`
+		Pack    string `json:"pack"`
+		Valid   bool   `json:"valid"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &noPackDoctor); err != nil {
+		t.Fatalf("nested case-local no-pack doctor stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if noPackDoctor.Command != "doctor" || noPackDoctor.Mode != "case" || noPackDoctor.Pack != "_template" || !noPackDoctor.Valid {
+		t.Fatalf("unexpected nested case-local no-pack doctor: %+v", noPackDoctor)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var noPackOverview struct {
+		Command  string `json:"command"`
+		CaseRoot string `json:"caseRoot"`
+		Pack     string `json:"pack"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &noPackOverview); err != nil {
+		t.Fatalf("nested case-local no-pack overview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if noPackOverview.Command != "overview" || noPackOverview.CaseRoot != caseRoot || noPackOverview.Pack != "_template" {
+		t.Fatalf("unexpected nested case-local no-pack overview: %+v", noPackOverview)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"overview：mutation=false caseRoot=" + caseRoot,
+		"pack=_template",
+		"overview mission commander action queue：summary=total=",
+		"overview next step：",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested case-local no-pack overview text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("nested case-local no-pack overview text should not emit JSON object:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-WhatIf", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	noPackHandoff := decodeHandoffResult(t, out.Bytes())
+	if noPackHandoff.Command != "handoff" || noPackHandoff.Pack != "_template" || noPackHandoff.IsMutation || noPackHandoff.Applied || noPackHandoff.Project || noPackHandoff.Lane == nil || noPackHandoff.Lane.ID != "feature-login" {
+		t.Fatalf("unexpected nested case-local no-pack handoff preview: %+v", noPackHandoff)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-WhatIf", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var noPackContinue struct {
+		Command    string    `json:"command"`
+		Pack       string    `json:"pack"`
+		IsMutation bool      `json:"isMutation"`
+		Applied    bool      `json:"applied"`
+		Lane       startLane `json:"lane"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &noPackContinue); err != nil {
+		t.Fatalf("nested case-local no-pack continue stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if noPackContinue.Command != "continue" || noPackContinue.Pack != "_template" || noPackContinue.IsMutation || noPackContinue.Applied || noPackContinue.Lane.ID != "feature-login" {
+		t.Fatalf("unexpected nested case-local no-pack continue preview: %+v", noPackContinue)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-WhatIf", "-Action", "debug", "-Lane", "feature-login", "-Subject", "nested no-pack gate", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var noPackGatePlan struct {
+		Command    string `json:"command"`
+		CaseRoot   string `json:"caseRoot"`
+		Pack       string `json:"pack"`
+		IsMutation bool   `json:"isMutation"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &noPackGatePlan); err != nil {
+		t.Fatalf("nested case-local no-pack gate stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if noPackGatePlan.Command != "gate" || noPackGatePlan.CaseRoot != caseRoot || noPackGatePlan.Pack != "_template" || noPackGatePlan.IsMutation {
+		t.Fatalf("unexpected nested case-local no-pack gate plan: %+v", noPackGatePlan)
+	}
+
+	out.Reset()
+	noPackReviewRoot := filepath.Join(caseRoot, ".rekit", "reviews", "nested-product-path-no-pack")
+	if err := Run([]string{"-Command", "plan-subagents", "-TaskType", "feature-analysis", "-Items", "gamma,delta", "-ReviewOutputDir", noPackReviewRoot}, &out); err != nil {
+		t.Fatal(err)
+	}
+	noPackPlan := decodePlanSubagentsResult(t, out.Bytes())
+	noPackPacket := decodePlanSubagentsPacket(t, noPackPlan.PacketPath)
+	if noPackPlan.Command != "plan-subagents" || noPackPlan.ReviewRoot != noPackReviewRoot || noPackPlan.ItemCount != 2 || noPackPlan.ShardCount != 2 || !strings.HasPrefix(noPackPlan.PacketPath, caseRoot) || noPackPacket.Route.ID != "_template:lane-feature-analysis" {
+		t.Fatalf("unexpected nested case-local no-pack plan-subagents result: result=%+v packet=%+v", noPackPlan, noPackPacket)
+	}
+
+	out.Reset()
 	if err := Run([]string{"-Command", "doctor", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -8353,6 +8459,7 @@ type startResult struct {
 
 type handoffResult struct {
 	Command                     string                              `json:"command"`
+	Pack                        string                              `json:"pack"`
 	IsMutation                  bool                                `json:"isMutation"`
 	Applied                     bool                                `json:"applied"`
 	RequiresConfirmation        bool                                `json:"requiresConfirmation"`

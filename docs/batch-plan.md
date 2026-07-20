@@ -16,24 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 475：case metadata pack default entry closure
+### Batch 476：case command-suite no-pack smoke closure
 
-状态：已完成 case-local metadata pack default entry runtime slice、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29767173274` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 case-local command-suite no-explicit-pack smoke slice、durable docs 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本批收尾执行。
 
-目标：Batch 473/474 锁定无 `-Command` 默认入口，但 case-local nested cwd 仍需要显式 `-Pack _template` 才能避免回到 repo 默认 pack。真实 case shim 新会话更常见的是直接运行 `/rekit`，不传 `-Command`、不传 `-Pack`。Batch 475 让 CLI 在未显式提供 `-Pack` 且 target 是 attached case 时读取 `.rekit/instance.yml` / `.re-template.yml` 的 `templatePack`，从而用 case metadata pack 运行默认 status 和其它 case-local commands。
+目标：Batch 475 让 attached case 在未显式传 `-Pack` 时使用 case metadata `templatePack`，但首个 product smoke 主要锁定默认 status。Batch 476 把同一 nested lane cwd product path 扩展到核心 case-local command suite，确认真实新会话只运行 `/rekit <command>`、不记 pack 名时，`doctor`、`overview`、`handoff`、`continue`、`gate` 与 reviewer planning handoff 都使用正确 pack。
 
-边界：只在 no-explicit-pack 的 attached case context 中采用 case metadata pack；显式 `-Pack` 继续优先；kit-mode 仍使用 repo default pack；不改变 CLI default command、status output contract、case durable schema、authority/confirmed、heavy-tool、adapter replay 或 PowerShell runtime logic，不改变 release blocker。
+边界：只增强本机 product-path smoke coverage，不新增 runtime 行为；显式 `-Pack` 仍优先，kit-mode 仍使用 repo default pack；不改变 command output contract、case durable schema、authority/confirmed、heavy-tool、adapter replay 或 PowerShell runtime logic，不改变 release blocker。
 
 已完成内容：
 
-- `Options` 新增 internal `PackProvided` parse flag，保留既有 `Pack` default contract 并区分“用户显式给了 -Pack”和“默认 pack placeholder”。
-- `Run` 在 runtime context resolved 后，如果 `PackProvided=false` 且 target 是 attached case，则读取 case metadata `TemplatePack` 并更新 `ctx.Pack` / `opt.Pack`；显式 `-Pack` 不被覆盖。
-- `TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 新增 nested lane cwd `Run(nil, ...)` smoke，确认无 `-Command`、无 `-Pack` 仍输出 `pack: _template` 与 case Mission Commander handoff；runtime tests 锁定 `runtime.New` 仍只负责 default pack placeholder，case metadata pack override 属于 CLI Run 层。
-- `/rekit` skill 与 Agent Team 使用指南同步说明 attached case 或 nested lane workspace 中可省略 `-Pack`，由 case metadata `templatePack` 决定 pack；Batch 474 已归档到 `docs/batch-history.md`，`CHANGELOG.md` 记录 Batch 475 用户可见变化与边界。
+- `TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 在 nested lane cwd 中新增 no-explicit-pack command-suite smoke，覆盖 `doctor -Format json`、`overview -Format json/text`、`handoff -WhatIf login`、`continue -WhatIf login`、`gate -WhatIf ... -Format json` 与 `plan-subagents ...`。
+- 新 smoke 断言各 command 使用 `pack=_template` / `_template:lane-feature-analysis`，并保留 case root、feature lane、Mission Commander overview text 与 read-only/WhatIf 边界。
+- `handoffResult` test fixture 增加 `Pack` 解码字段，便于直接验证 handoff preview 的 metadata pack default；Batch 475 已更新用户-facing skill/usage 说明，本批无需重复扩写 README 或 skill 文案。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli ./internal/rekit/runtime -run "TestParse|TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunStatusJsonKit|TestNewUsesNearestCaseRootFromNestedCaseWorkingDirectory" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `0b37b77 Use case metadata pack by default`；远程 release-gate run `29767173274` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunCaseLocalProductPathUsesCaseMetadataRuntime -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
 
-上一批摘要：Batch 474 已完成 kit no-command status handoff smoke closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 475 已完成 case metadata pack default entry closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
