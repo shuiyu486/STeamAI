@@ -3930,6 +3930,9 @@ func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) e
 			if _, err := fmt.Fprintf(out, "promote candidates cleanup action：%s\n", action); err != nil {
 				return err
 			}
+			if _, err := fmt.Fprintf(out, "promote candidates cleanup action detail：path=%s candidatePath=%s indexPath=%s action=%s\n", item.Path, item.CandidatePath, item.IndexPath, action); err != nil {
+				return err
+			}
 		}
 	}
 	if _, err := fmt.Fprintf(out, "promote candidates reconsume：mode=%s managedDocs=%s tooling=%s\n", result.ReviewPlan.Reconsume.Mode, result.ReviewPlan.Reconsume.ManagedDocs, result.ReviewPlan.Reconsume.Tooling); err != nil {
@@ -3953,6 +3956,9 @@ func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) e
 			if _, err := fmt.Fprintf(out, "promote candidates reconsume command：%s\n", command); err != nil {
 				return err
 			}
+			if _, err := fmt.Fprintf(out, "promote candidates reconsume command detail：name=%s command=%s\n", check.Name, command); err != nil {
+				return err
+			}
 		}
 		for _, evidence := range check.Evidence {
 			if _, err := fmt.Fprintf(out, "promote candidates reconsume evidence：name=%s evidence=%s\n", check.Name, evidence); err != nil {
@@ -3961,6 +3967,9 @@ func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) e
 		}
 		for _, boundary := range check.Boundary {
 			if _, err := fmt.Fprintf(out, "promote candidates reconsume boundary：%s\n", boundary); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(out, "promote candidates reconsume boundary detail：name=%s boundary=%s\n", check.Name, boundary); err != nil {
 				return err
 			}
 		}
