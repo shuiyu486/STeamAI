@@ -16,24 +16,26 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 418：Reconcile Mission Commander top-level next-action projection closure
+### Batch 419：Gate request Mission Commander top-level next-action projection closure
 
-状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、focused/affected package validation；durable docs、full local validation、commit/push 与远程 release-gate inspection 正在收尾。
 
-目标：Batch 340 已让 `reconcile` preview/apply 暴露 executor action snapshot，Batch 391 让 nested `executorAction.missionCommanderAction` 给出 generic reconcile guidance，Batch 404/405/407/413 又把 overview、handoff、continue、resume/checkpoint 的 Mission Commander next actions 收口到共享 list；但 `reconcile -WhatIf/-Apply -Format json` 顶层仍缺 `missionCommanderAction` / `missionCommanderNextActions[]`，CLI text 也不打印 next-action list。主 Agent 在 Human-in-the-Lane intervention resolution 前后仍需从 nested `executorAction.missionCommanderAction`、`nextSteps[]` 和 selected intervention 手工拼接 concrete apply command、preview→apply→continue/handoff 顺序。本批把 reconcile 的 immediate product-path guidance 收口到顶层 Mission Commander projection。
+目标：Batch 341 已让 normal `gate -WhatIf/-Apply` request path 暴露 current/would/post executor action snapshot，Batch 379/392/411/412/408/410 已把 authorized-gate report contract、adapter validation、execution evidence record 与 duplicate evidence 的 Mission Commander next actions 收口；但 normal gate request preview/apply 仍要求主 Agent 从 nested `executorAction.missionCommanderAction`、`wouldExecutorAction`、`nextSteps[]`、request eventId 与 adapter report commands 手工拼接 pending-gate apply、authorized-gate apply、report contract、handoff/continue 顺序。本批把 normal gate request 的 immediate product-path guidance 收口到顶层 Mission Commander projection。
 
-边界：只增强 `reconcile` JSON/text projection、package/CLI tests 与 durable docs；不改变 intervention resolution write model、lane durable schema、resume/checkpoint schema、board/facts ledger、sync/promote review-first、公共 façade 删除门禁或远程 CI blocker 状态；runtime 不执行 continue/handoff/gate，不执行 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
+边界：只增强 normal `gate` request JSON/text projection、package/CLI tests 与 durable docs；不改变 request ledger write model、durable autonomy profile schema、adapter report contract/validation schema、execution evidence observation write model、sync/promote review-first、公共 façade 删除门禁或远程 CI blocker 状态；runtime 不执行 report contract follow-up、continue/handoff、lane executor/tool adapter 或 heavy-tool，不写 authority/confirmed，不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- `workstream.ReconcileResult` 现在输出 top-level `missionCommanderAction` 与 `missionCommanderNextActions[]`，复用 lane Mission Commander builder，把 reconcile preview/apply 的 current commander action 与 next-action list 直接交给主 Agent / replacement executor。
-- `reconcile -WhatIf` 会把 selected open intervention 投影为 concrete reconcile apply command，包含 actual `-InterventionId` 以及适用的 `-Executor`、`-Actor`、`-Reason`；primary apply action 为 review-owned bounded write，continue/handoff follow-up 在 apply 成功并刷新后的 executor action 仍 ready 前保持 blocked/requiresReview。
-- `reconcile -Apply` 直接投影 refreshed lane 的 continue/handoff 或 blocked lane 的 reconcile/gate/decision next actions；CLI text 同步打印 `mission commander next action` lines，避免文本/default consumption 回查 JSON 或手工拼接。
-- CLI coverage 锁定 open intervention preview、concrete apply command、text next-action projection、apply 后 ready continue/handoff projection、case-local intervention/lane/resume/checkpoint/board write boundary、no authority/confirmed/no-heavy-tool/no PowerShell runtime logic 边界。
+- `gate.Plan` 现在输出 top-level `missionCommanderAction` 与 `missionCommanderNextActions[]`，normal request preview 直接把 would executor action 的 commander state 暴露给主 Agent / replacement executor。
+- pending-gate `gate -WhatIf` 投影 `needs-gate-apply`：primary command 是 concrete `/rekit gate ... -Apply -Actor <actor>` bounded request-ledger write，follow-up handoff/continue-WhatIf 在 apply 成功并刷新 request/executor state 前保持 blocked/requiresReview，并明确 pending gate 仍不是 heavy-tool approval。
+- preauthorized/authorized `gate -WhatIf` 投影 `needs-authorized-gate-apply`：primary command 是 durable authorization decision write；当 actor 未定稿时，report contract follow-up 使用 `<gateEventId-after-apply>` 占位，避免把缺 actor 的预测 eventId 当成可复制命令。
+- pending-gate `gate -Apply` 直接投影 refreshed `needs-gate-decision` handoff/continue-WhatIf next actions；authorized-gate `gate -Apply` 直接投影 `ready-for-execution-report-contract`，primary command 使用实际 `GateEventId` 读取 `-ExecutionReportContract -Format json`，duplicate authorized-gate request 投影 `authorized-gate-already-recorded` 且明确不重复 append request ledger。
+- CLI text normal gate preview/apply 同步打印 `mission commander next action` lines，避免文本/default consumption 回查 JSON 或手工拼接 gate apply/report-contract/handoff 顺序。
+- Gate package 与 CLI coverage 锁定 pending preview/apply、authorized preview/apply、text next-action projection、request-ledger-only/durable-authorization-only/no authority/confirmed/no-heavy-tool/no PowerShell runtime logic 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunContinueBlocksUntilReconcileClosesIntervention" -count=1`、affected package `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `6540d09 Add reconcile commander next actions`；远程 release-gate run `29709261308` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：focused `go test ./internal/rekit/gate ./internal/rekit/cli -run "TestPlanDryRun|TestApply|TestRunGateDryRunEmitsNonMutatingPlan|TestRunGateApplyAppendsPendingGateRequest|TestRunGateTextOutputsExecutorActions|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1` 与 affected package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1` 已通过；full local validation、commit/push 与远程 release-gate inspection 待本批收尾后补齐。
 
-上一批摘要：Batch 417 已完成 start / replaceable executor takeover Mission Commander next-action projection closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 418 已完成 reconcile Mission Commander top-level next-action projection closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

@@ -5178,9 +5178,11 @@ func TestRunGateDryRunEmitsNonMutatingPlan(t *testing.T) {
 				DeniedUntilUserConfirmation []string `json:"deniedUntilUserConfirmation"`
 			} `json:"gate"`
 		} `json:"eventPreview"`
-		MissionBrief        missionBrief           `json:"missionBrief"`
-		ExecutorAction      executorActionSnapshot `json:"executorAction"`
-		WouldExecutorAction executorActionSnapshot `json:"wouldExecutorAction"`
+		MissionBrief                missionBrief                     `json:"missionBrief"`
+		ExecutorAction              executorActionSnapshot           `json:"executorAction"`
+		WouldExecutorAction         executorActionSnapshot           `json:"wouldExecutorAction"`
+		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
 		t.Fatalf("gate plan stdout is not JSON: %v\n%s", err, out.String())
@@ -5205,6 +5207,9 @@ func TestRunGateDryRunEmitsNonMutatingPlan(t *testing.T) {
 	}
 	if !plan.WouldExecutorAction.Blocked || plan.WouldExecutorAction.Ready || plan.WouldExecutorAction.PendingGates != 1 || !plan.WouldExecutorAction.PendingGateRequired || plan.WouldExecutorAction.ResumeCommand != "/rekit continue main" {
 		t.Fatalf("gate plan would executor action drifted: %+v", plan.WouldExecutorAction)
+	}
+	if plan.MissionCommanderAction.State != "needs-gate-apply" || !strings.Contains(plan.MissionCommanderAction.PrimaryCommand, "/rekit gate -Pack _template -Action full-trace -Lane main -Apply -Actor <actor>") || !containsMissionCommanderNextAction(plan.MissionCommanderNextActions, "missionCommanderActions", plan.MissionCommanderAction.PrimaryCommand, false, true) || !containsMissionCommanderNextAction(plan.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) {
+		t.Fatalf("gate plan should expose top-level Mission Commander apply projection: action=%+v next=%+v", plan.MissionCommanderAction, plan.MissionCommanderNextActions)
 	}
 }
 
@@ -5275,8 +5280,10 @@ func TestRunGateApplyAppendsPendingGateRequest(t *testing.T) {
 			Kind   string `json:"kind"`
 			Status string `json:"status"`
 		} `json:"event"`
-		MissionBrief   missionBrief           `json:"missionBrief"`
-		ExecutorAction executorActionSnapshot `json:"executorAction"`
+		MissionBrief                missionBrief                     `json:"missionBrief"`
+		ExecutorAction              executorActionSnapshot           `json:"executorAction"`
+		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("gate apply stdout is not JSON: %v\n%s", err, out.String())
@@ -5295,6 +5302,9 @@ func TestRunGateApplyAppendsPendingGateRequest(t *testing.T) {
 	}
 	if result.ExecutorAction.MissionCommanderAction.State != "needs-gate-decision" || result.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(result.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit gate <action> -Lane main -Apply -Actor <actor>") || !containsSubstring(result.ExecutorAction.MissionCommanderAction.Boundary, "do not run continue") {
 		t.Fatalf("gate apply should expose pending-gate Mission Commander handoff: %+v", result.ExecutorAction.MissionCommanderAction)
+	}
+	if result.MissionCommanderAction.State != "needs-gate-decision" || result.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit handoff main", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) {
+		t.Fatalf("gate apply should expose top-level pending-gate Mission Commander projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 	if err != nil {
@@ -5316,8 +5326,11 @@ func TestRunGateTextOutputsExecutorActions(t *testing.T) {
 		"would executor action：blocked=true ready=false pendingGates=1 openInterventions=0 openDecisions=0",
 		"would executor action requirements：reconcile=false pendingGate=true openDecision=false",
 		"would executor action handoff：continue=`/rekit continue main` handoff=`/rekit handoff main`",
-		"would executor action commander action：state=needs-gate-decision primary=`/rekit handoff main`",
-		"would executor action commander action follow-up：/rekit gate <action> -Lane main -Apply -Actor <actor>",
+		"would executor action commander action：state=needs-gate-apply primary=`/rekit gate -Pack _template -Action debug -Lane main -Apply -Actor <actor>",
+		"would executor action commander action follow-up：/rekit continue main -WhatIf",
+		"mission commander next action：state=needs-gate-apply source=missionCommanderActions blocked=false requiresReview=true command=`/rekit gate -Pack _template -Action debug -Lane main -Apply -Actor <actor>",
+		"mission commander next action：state=needs-gate-apply source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue main -WhatIf`",
+		"mission commander next action boundary：pending-gate still requires explicit authorization before heavy action",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("gate what-if text missing %q:\n%s", expected, out.String())
@@ -5335,6 +5348,8 @@ func TestRunGateTextOutputsExecutorActions(t *testing.T) {
 		"executor action handoff：continue=`/rekit continue main` handoff=`/rekit handoff main`",
 		"executor action commander action：state=needs-gate-decision primary=`/rekit handoff main`",
 		"executor action commander action follow-up：/rekit gate <action> -Lane main -Apply -Actor <actor>",
+		"mission commander next action：state=needs-gate-decision source=missionCommanderActions blocked=true requiresReview=true command=`/rekit handoff main`",
+		"mission commander next action：state=needs-gate-decision source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue main -WhatIf`",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("gate apply text missing %q:\n%s", expected, out.String())
@@ -5666,8 +5681,10 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 				} `json:"authorization"`
 			} `json:"gate"`
 		} `json:"event"`
-		MissionBrief   missionBrief           `json:"missionBrief"`
-		ExecutorAction executorActionSnapshot `json:"executorAction"`
+		MissionBrief                missionBrief                     `json:"missionBrief"`
+		ExecutorAction              executorActionSnapshot           `json:"executorAction"`
+		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("authorized gate apply stdout is not JSON: %v\n%s", err, out.String())
@@ -5693,6 +5710,10 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 0 || !slices.Equal(result.ExecutorAction.NextAgentActions, []string{"/rekit continue main"}) {
 		t.Fatalf("authorized gate executor action should remain non-blocking: %+v", result.ExecutorAction)
+	}
+	wantContractCommand := "/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -ExecutionReportContract -Format json"
+	if result.MissionCommanderAction.State != "ready-for-execution-report-contract" || result.MissionCommanderAction.PrimaryCommand != wantContractCommand || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", wantContractCommand, false, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, true) {
+		t.Fatalf("authorized gate apply should expose top-level report contract handoff: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ExecutionReportContract", "-GateEventId", authorizedEventID, "-Format", "json"}, &out); err != nil {

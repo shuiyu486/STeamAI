@@ -1855,7 +1855,10 @@ func writeGatePlanText(out io.Writer, plan gate.Plan) error {
 	if err := writeMissionExecutorActionText(out, "current executor action", plan.ExecutorAction); err != nil {
 		return err
 	}
-	return writeMissionExecutorActionText(out, "would executor action", plan.WouldExecutorAction)
+	if err := writeMissionExecutorActionText(out, "would executor action", plan.WouldExecutorAction); err != nil {
+		return err
+	}
+	return writeMissionCommanderNextActionsText(out, plan.MissionCommanderNextActions)
 }
 
 func writeGateAdapterReportContractText(out io.Writer, contract gate.AdapterExecutionReportContract) error {
@@ -1941,7 +1944,10 @@ func writeGateApplyText(out io.Writer, result gate.ApplyResult) error {
 	if _, err := fmt.Fprintf(out, "gate decision：authorization=%s profile=%s\n", result.Event.Gate.Authorization.Decision, result.Event.Gate.Authorization.ProfileID); err != nil {
 		return err
 	}
-	return writeMissionExecutorActionText(out, "executor action", result.ExecutorAction)
+	if err := writeMissionExecutorActionText(out, "executor action", result.ExecutorAction); err != nil {
+		return err
+	}
+	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
 func writeMissionExecutorActionText(out io.Writer, prefix string, action mission.ExecutorAction) error {

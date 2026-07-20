@@ -53,20 +53,22 @@ type Options struct {
 }
 
 type Plan struct {
-	SchemaVersion        int                    `json:"schemaVersion"`
-	Command              string                 `json:"command"`
-	CaseRoot             string                 `json:"caseRoot"`
-	RepoRoot             string                 `json:"repoRoot"`
-	Pack                 string                 `json:"pack"`
-	IsMutation           bool                   `json:"isMutation"`
-	ReviewRequired       bool                   `json:"reviewRequired"`
-	RequiresConfirmation bool                   `json:"requiresConfirmation"`
-	EventPreview         EventPreview           `json:"eventPreview"`
-	MissionBrief         mission.Brief          `json:"missionBrief"`
-	ExecutorAction       mission.ExecutorAction `json:"executorAction"`
-	WouldExecutorAction  mission.ExecutorAction `json:"wouldExecutorAction"`
-	BlockedActions       []string               `json:"blockedActions"`
-	NextSteps            []string               `json:"nextSteps"`
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Command                     string                                   `json:"command"`
+	CaseRoot                    string                                   `json:"caseRoot"`
+	RepoRoot                    string                                   `json:"repoRoot"`
+	Pack                        string                                   `json:"pack"`
+	IsMutation                  bool                                     `json:"isMutation"`
+	ReviewRequired              bool                                     `json:"reviewRequired"`
+	RequiresConfirmation        bool                                     `json:"requiresConfirmation"`
+	EventPreview                EventPreview                             `json:"eventPreview"`
+	MissionBrief                mission.Brief                            `json:"missionBrief"`
+	ExecutorAction              mission.ExecutorAction                   `json:"executorAction"`
+	WouldExecutorAction         mission.ExecutorAction                   `json:"wouldExecutorAction"`
+	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	BlockedActions              []string                                 `json:"blockedActions"`
+	NextSteps                   []string                                 `json:"nextSteps"`
 }
 
 type ExecutionEvidencePreview struct {
@@ -566,21 +568,31 @@ func PlanDryRun(repoRoot, caseRoot, pack string, opt Options) (Plan, error) {
 		return Plan{}, err
 	}
 	brief := gateMissionBrief(inst.CaseRoot)
+	executorAction := gateExecutorAction(inst.CaseRoot, preview.Lane, brief)
+	wouldExecutorAction := gateWouldExecutorAction(inst.CaseRoot, preview, brief)
+	if preview.Gate.Authorization.Decision == autonomy.DecisionPreauthorized {
+		wouldExecutorAction.MissionCommanderAction = gateAuthorizedApplyCommanderAction(pack, preview)
+	} else {
+		wouldExecutorAction.MissionCommanderAction = gatePendingApplyCommanderAction(pack, preview)
+	}
+	commanderNextActions := gateRequestMissionCommanderNextActions(preview.Lane, wouldExecutorAction, preview.Gate.Authorization.Decision == autonomy.DecisionPreauthorized, false)
 	return Plan{
-		SchemaVersion:        1,
-		Command:              "gate",
-		CaseRoot:             inst.CaseRoot,
-		RepoRoot:             repoRoot,
-		Pack:                 pack,
-		IsMutation:           false,
-		ReviewRequired:       preview.Gate.RequiresConfirmation,
-		RequiresConfirmation: preview.Gate.RequiresConfirmation,
-		EventPreview:         preview,
-		MissionBrief:         brief,
-		ExecutorAction:       gateExecutorAction(inst.CaseRoot, preview.Lane, brief),
-		WouldExecutorAction:  gateWouldExecutorAction(inst.CaseRoot, preview, brief),
-		BlockedActions:       blocked,
-		NextSteps:            planNextSteps(preview),
+		SchemaVersion:               1,
+		Command:                     "gate",
+		CaseRoot:                    inst.CaseRoot,
+		RepoRoot:                    repoRoot,
+		Pack:                        pack,
+		IsMutation:                  false,
+		ReviewRequired:              preview.Gate.RequiresConfirmation,
+		RequiresConfirmation:        preview.Gate.RequiresConfirmation,
+		EventPreview:                preview,
+		MissionBrief:                brief,
+		ExecutorAction:              executorAction,
+		WouldExecutorAction:         wouldExecutorAction,
+		MissionCommanderAction:      wouldExecutorAction.MissionCommanderAction,
+		MissionCommanderNextActions: commanderNextActions,
+		BlockedActions:              blocked,
+		NextSteps:                   planNextSteps(preview),
 	}, nil
 }
 
@@ -619,7 +631,13 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 	if exists {
 		result.MissionBrief = gateMissionBrief(inst.CaseRoot)
 		result.ExecutorAction = gateExecutorAction(inst.CaseRoot, preview.Lane, result.MissionBrief)
-		result.MissionCommanderAction = result.ExecutorAction.MissionCommanderAction
+		if preview.Gate.Authorization.Decision == autonomy.DecisionPreauthorized {
+			result.MissionCommanderAction = gateAuthorizedRecordedCommanderAction(pack, preview, true)
+			result.MissionCommanderNextActions = gateRequestMissionCommanderNextActions(preview.Lane, mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}, true, true)
+		} else {
+			result.MissionCommanderAction = result.ExecutorAction.MissionCommanderAction
+			result.MissionCommanderNextActions = gateRequestMissionCommanderNextActions(preview.Lane, result.ExecutorAction, false, true)
+		}
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
@@ -629,7 +647,13 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 	result.Applied = true
 	result.MissionBrief = gateMissionBrief(inst.CaseRoot)
 	result.ExecutorAction = gateExecutorAction(inst.CaseRoot, preview.Lane, result.MissionBrief)
-	result.MissionCommanderAction = result.ExecutorAction.MissionCommanderAction
+	if preview.Gate.Authorization.Decision == autonomy.DecisionPreauthorized {
+		result.MissionCommanderAction = gateAuthorizedRecordedCommanderAction(pack, preview, false)
+		result.MissionCommanderNextActions = gateRequestMissionCommanderNextActions(preview.Lane, mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}, true, true)
+	} else {
+		result.MissionCommanderAction = result.ExecutorAction.MissionCommanderAction
+		result.MissionCommanderNextActions = gateRequestMissionCommanderNextActions(preview.Lane, result.ExecutorAction, false, true)
+	}
 	return result, nil
 }
 
@@ -1770,6 +1794,146 @@ func gateMissionCommanderNextActions(laneID string, action mission.ExecutorActio
 		label = "main"
 	}
 	return mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{{Lane: laneID, Label: label, ExecutorAction: action}}, evidenceReview, action.Blocked)
+}
+
+func gatePendingApplyCommanderAction(pack string, preview EventPreview) mission.MissionCommanderAction {
+	label := gateCommanderActionLabel(preview.Lane)
+	return mission.MissionCommanderAction{
+		State:          "needs-gate-apply",
+		Prompt:         fmt.Sprintf("先 review `%s` 的 pending-gate preview，再写入 request ledger；这不是 heavy-tool approval。", label),
+		PrimaryCommand: gateRequestApplySlashCommand(pack, preview),
+		FollowUpCommands: []string{
+			"/rekit handoff " + label,
+			"/rekit continue " + label + " -WhatIf",
+		},
+		Boundary: []string{
+			"gate apply only writes a request ledger decision",
+			"pending-gate still requires explicit authorization before heavy action",
+			"/rekit does not execute the heavy tool",
+			"no authority/confirmed writes",
+		},
+	}
+}
+
+func gateAuthorizedApplyCommanderAction(pack string, preview EventPreview) mission.MissionCommanderAction {
+	label := gateCommanderActionLabel(preview.Lane)
+	gateEventID := gateRequestEventID(preview)
+	if strings.TrimSpace(preview.Actor) == "" {
+		gateEventID = "<gateEventId-after-apply>"
+	}
+	return mission.MissionCommanderAction{
+		State:          "needs-authorized-gate-apply",
+		Prompt:         fmt.Sprintf("先 review `%s` 的 authorized-gate preview，再写入 durable lane authorization decision；actual heavy tool 仍在 /rekit 外执行。", label),
+		PrimaryCommand: gateRequestApplySlashCommand(pack, preview),
+		FollowUpCommands: []string{
+			gateExecutionReportContractSlashCommand(pack, gateEventID),
+			"/rekit handoff " + label,
+		},
+		Boundary: gateAuthorizedRequestBoundary(),
+	}
+}
+
+func gateAuthorizedRecordedCommanderAction(pack string, preview EventPreview, duplicate bool) mission.MissionCommanderAction {
+	label := gateCommanderActionLabel(preview.Lane)
+	state := "ready-for-execution-report-contract"
+	prompt := fmt.Sprintf("authorized gate `%s` 已记录；先读取 execution report contract，再让 lane executor/tool adapter 在授权边界内执行并记录 bounded observation evidence。", preview.EventID)
+	boundary := gateAuthorizedRequestBoundary()
+	if duplicate {
+		state = "authorized-gate-already-recorded"
+		prompt = fmt.Sprintf("authorized gate `%s` 已存在（duplicate eventId）；不要重复写 request ledger，直接读取 execution report contract 并继续 evidence handoff。", preview.EventID)
+		boundary = append(boundary, "duplicate request did not append ledger row")
+	}
+	return mission.MissionCommanderAction{
+		State:          state,
+		Prompt:         prompt,
+		PrimaryCommand: gateExecutionReportContractSlashCommand(pack, preview.EventID),
+		FollowUpCommands: []string{
+			"/rekit handoff " + label,
+		},
+		Boundary: boundary,
+	}
+}
+
+func gateRequestMissionCommanderNextActions(laneID string, action mission.ExecutorAction, preauthorized bool, applied bool) []mission.MissionCommanderNextActionItem {
+	items := gateMissionCommanderNextActions(laneID, action, nil)
+	if applied && !preauthorized {
+		return items
+	}
+	for idx := range items {
+		items[idx].RequiresReview = true
+		if !applied {
+			items[idx].Reasons = append(items[idx].Reasons, "review gate preview before writing request ledger state")
+			if items[idx].Source == "missionCommanderActions" {
+				items[idx].Blocked = false
+				items[idx].Reasons = append(items[idx].Reasons, "gate apply is the bounded action that records the selected request decision")
+			}
+			if items[idx].Source == "missionCommanderActions.followUp" {
+				items[idx].Blocked = true
+				items[idx].Reasons = append(items[idx].Reasons, "run only after gate apply succeeds and refreshed request/executor state is available")
+			}
+			continue
+		}
+		items[idx].Reasons = append(items[idx].Reasons, "authorized-gate request is recorded; read execution report contract before external heavy-tool execution")
+	}
+	return mission.UniqueCommanderNextActions(items)
+}
+
+func gateRequestApplySlashCommand(pack string, preview EventPreview) string {
+	actor := strings.TrimSpace(preview.Actor)
+	if actor == "" {
+		actor = "<actor>"
+	}
+	args := []string{"gate", "-Pack", pack, "-Action", preview.Gate.Action, "-Lane", preview.Lane, "-Apply", "-Actor", actor}
+	args = appendGateCommandArg(args, "-Subject", preview.Subject)
+	args = appendGateCommandArg(args, "-Summary", preview.Summary)
+	args = appendGateCommandArg(args, "-TargetRef", preview.Target)
+	args = appendGateCommandArg(args, "-BatchId", preview.BatchID)
+	args = appendGateCommandArg(args, "-Scope", preview.Gate.Scope)
+	args = appendGateCommandArg(args, "-Budget", preview.Gate.Budget)
+	args = appendGateCommandIntArg(args, "-RuntimeSeconds", preview.Gate.RequestedBudget.RuntimeSeconds)
+	args = appendGateCommandIntArg(args, "-DiskMB", preview.Gate.RequestedBudget.DiskMB)
+	args = appendGateCommandIntArg(args, "-Requests", preview.Gate.RequestedBudget.Requests)
+	args = appendGateCommandArg(args, "-OutputPaths", strings.Join(preview.Gate.OutputPaths, ","))
+	args = appendGateCommandArg(args, "-TriedLightSteps", strings.Join(preview.Gate.TriedLightSteps, ","))
+	args = appendGateCommandArg(args, "-StopConditions", strings.Join(preview.Gate.StopConditions, ","))
+	args = appendGateCommandArg(args, "-Risk", preview.Risk)
+	return adapterReportSlashCommand(args)
+}
+
+func appendGateCommandArg(args []string, flag, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return args
+	}
+	return append(args, flag, value)
+}
+
+func appendGateCommandIntArg(args []string, flag string, value int) []string {
+	if value == 0 {
+		return args
+	}
+	return append(args, flag, fmt.Sprintf("%d", value))
+}
+
+func gateExecutionReportContractSlashCommand(pack, gateEventID string) string {
+	return adapterReportSlashCommand([]string{"gate", "-Pack", pack, "-GateEventId", gateEventID, "-ExecutionReportContract", "-Format", "json"})
+}
+
+func gateRequestEventID(preview EventPreview) string {
+	if strings.TrimSpace(preview.EventID) != "" {
+		return strings.TrimSpace(preview.EventID)
+	}
+	return eventID(preview)
+}
+
+func gateAuthorizedRequestBoundary() []string {
+	return []string{
+		"gate apply writes durable authorization decision only",
+		"actual heavy tool must stay within authorized target, budget, output paths, and stop conditions",
+		"record bounded observation evidence after execution",
+		"/rekit does not execute the heavy tool",
+		"no authority/confirmed writes",
+	}
 }
 
 func gateEventMap(event EventPreview) map[string]any {

@@ -29,6 +29,9 @@ func TestPlanDryRunDoesNotWriteRequestLedger(t *testing.T) {
 	if !plan.WouldExecutorAction.Blocked || plan.WouldExecutorAction.Ready || plan.WouldExecutorAction.PendingGates != 1 || !plan.WouldExecutorAction.PendingGateRequired || plan.WouldExecutorAction.ResumeCommand != "/rekit continue main" {
 		t.Fatalf("gate dry-run would executor action drifted: %+v", plan.WouldExecutorAction)
 	}
+	if plan.MissionCommanderAction.State != "needs-gate-apply" || !strings.Contains(plan.MissionCommanderAction.PrimaryCommand, "/rekit gate -Pack vmp-re -Action debug -Lane main -Apply -Actor <actor>") || !gateNextActionContainsCommand(plan.MissionCommanderNextActions, plan.MissionCommanderAction.PrimaryCommand) || !gateNextActionContainsSource(plan.MissionCommanderNextActions, "missionCommanderActions.followUp") || !gateNextActionBoundaryContains(plan.MissionCommanderNextActions, "pending-gate still requires explicit authorization") {
+		t.Fatalf("gate dry-run omitted top-level Mission Commander apply projection: action=%+v next=%+v", plan.MissionCommanderAction, plan.MissionCommanderNextActions)
+	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 }
 
@@ -172,6 +175,9 @@ func TestApplyWritesOnlyPendingGateRequest(t *testing.T) {
 	}
 	if !result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 1 || !result.ExecutorAction.PendingGateRequired || result.ExecutorAction.ResumeCommand != "/rekit continue main" {
 		t.Fatalf("gate apply executor action drifted: %+v", result.ExecutorAction)
+	}
+	if result.MissionCommanderAction.State != "needs-gate-decision" || result.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !gateNextActionContainsCommand(result.MissionCommanderNextActions, "/rekit handoff main") || !gateNextActionContainsCommand(result.MissionCommanderNextActions, "/rekit continue main -WhatIf") || !gateNextActionBoundaryContains(result.MissionCommanderNextActions, "no authority/confirmed") {
+		t.Fatalf("gate apply omitted top-level pending-gate Mission Commander projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	requestPath := filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl")
 	event := readSingleGateEvent(t, requestPath)
@@ -344,6 +350,9 @@ func TestPlanDryRunUsesPreauthorizedLaneAutonomyProfile(t *testing.T) {
 	}
 	if plan.WouldExecutorAction.Blocked || !plan.WouldExecutorAction.Ready || plan.WouldExecutorAction.PendingGates != 0 {
 		t.Fatalf("authorized gate would executor action should remain non-blocking: %+v", plan.WouldExecutorAction)
+	}
+	if plan.MissionCommanderAction.State != "needs-authorized-gate-apply" || !strings.Contains(plan.MissionCommanderAction.PrimaryCommand, "/rekit gate -Pack vmp-re -Action debug -Lane main -Apply -Actor <actor>") || !gateNextActionContainsSource(plan.MissionCommanderNextActions, "missionCommanderActions") || !gateNextActionContainsCommand(plan.MissionCommanderNextActions, "-ExecutionReportContract") || !gateNextActionBoundaryContains(plan.MissionCommanderNextActions, "actual heavy tool must stay within authorized target") {
+		t.Fatalf("authorized gate plan omitted top-level Mission Commander apply projection: action=%+v next=%+v", plan.MissionCommanderAction, plan.MissionCommanderNextActions)
 	}
 	if plan.EventPreview.Gate.RequestedBudget.RuntimeSeconds != 30 || strings.Join(plan.EventPreview.Gate.OutputPaths, ",") != "workspace/main/debug/session-1" {
 		t.Fatalf("missing typed request contract: %+v", plan.EventPreview.Gate)
