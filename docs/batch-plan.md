@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 479：status pack mismatch diagnostic closure
 
-状态：已完成 status pack mismatch diagnostic implementation、durable docs 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待完成。
+状态：已完成 status pack mismatch diagnostic implementation、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29770550347` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 478 已让 status 第一屏显示 pack 来源，但当用户显式传入不同于 case metadata `templatePack` 的 `-Pack` 时，新会话仍要人工对比 `packSource=explicit`、`pack` 与 `case.templatePack` 才能判断是否误用。Batch 479 在 case status 中直接投影 pack/metadata 一致性与诊断，显式 pack 不一致时说明 explicit `-Pack` 仍是本次 status run 的权威来源。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `TestRunStatusJsonCase` 与 `TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 覆盖 metadata match、explicit mismatched pack JSON/text、default status match 与 no-pack case metadata match。
 - `/rekit` skill 与 Agent Team 使用指南同步说明显式 pack 与 metadata 不一致时 status 只诊断、不静默改写。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。提交推送与远程 release-gate inspection 待执行；当前不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `8c9d90a Add status pack mismatch diagnostic`；远程 release-gate run `29770550347` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 478 已完成 status pack source handoff closure，详见 `docs/batch-history.md`。
 
