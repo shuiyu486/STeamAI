@@ -1377,6 +1377,9 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 	if _, err := fmt.Fprintf(out, "status case mission：summary=%s ready=%t lanes=%d readyLanes=%d blockedLanes=%d evidenceReview=%d queueCurrent=%s queueTotal=%d queueBlocked=%d queueRequiresReview=%d nextActions=%d escalations=%d\n", summary.Summary, summary.Ready, summary.LaneCount, summary.ReadyLaneCount, summary.BlockedLaneCount, summary.ExecutionEvidenceReviewCount, statusMissionCurrentActionLabel(queue.CurrentAction), queue.Counts.Total, queue.Counts.Blocked, queue.Counts.RequiresReview, len(summary.MissionCommanderNextActions), len(summary.Escalations)); err != nil {
 		return err
 	}
+	if err := writeStatusCaseMissionQueueText(out, queue); err != nil {
+		return err
+	}
 	for _, lane := range summary.ReadyLanes {
 		if _, err := fmt.Fprintf(out, "status case mission ready lane：%s\n", lane); err != nil {
 			return err
@@ -1487,6 +1490,62 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 		return err
 	}
 	return nil
+}
+
+func writeStatusCaseMissionQueueText(out io.Writer, queue mission.MissionCommanderActionQueue) error {
+	if _, err := fmt.Fprintf(out, "status case mission queue：total=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d current=%s\n", queue.Counts.Total, queue.Counts.Unblocked, queue.Counts.Blocked, queue.Counts.RequiresReview, queue.Counts.FollowUp, statusMissionActionCommand(queue.CurrentAction)); err != nil {
+		return err
+	}
+	if queue.CurrentAction != nil {
+		if err := writeStatusCaseMissionQueueActionText(out, "current", *queue.CurrentAction); err != nil {
+			return err
+		}
+	}
+	for _, action := range queue.UnblockedActions {
+		if err := writeStatusCaseMissionQueueActionText(out, "unblocked", action); err != nil {
+			return err
+		}
+	}
+	for _, action := range queue.BlockedActions {
+		if err := writeStatusCaseMissionQueueActionText(out, "blocked", action); err != nil {
+			return err
+		}
+	}
+	for _, action := range queue.ReviewRequiredActions {
+		if err := writeStatusCaseMissionQueueActionText(out, "reviewRequired", action); err != nil {
+			return err
+		}
+	}
+	for _, action := range queue.FollowUpActions {
+		if err := writeStatusCaseMissionQueueActionText(out, "followUp", action); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusCaseMissionQueueActionText(out io.Writer, bucket string, action mission.MissionCommanderNextActionItem) error {
+	if _, err := fmt.Fprintf(out, "status case mission queue action：bucket=%s lane=%s label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s\n", bucket, action.Lane, action.Label, action.State, action.Source, action.Blocked, action.RequiresReview, action.Command); err != nil {
+		return err
+	}
+	for _, reason := range action.Reasons {
+		if _, err := fmt.Fprintf(out, "status case mission queue action reason：bucket=%s lane=%s reason=%s\n", bucket, action.Lane, reason); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range action.Boundary {
+		if _, err := fmt.Fprintf(out, "status case mission queue action boundary：bucket=%s lane=%s boundary=%s\n", bucket, action.Lane, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func statusMissionActionCommand(action *mission.MissionCommanderNextActionItem) string {
+	if action == nil {
+		return "none"
+	}
+	return textOr(strings.TrimSpace(action.Command), "none")
 }
 
 func writeStatusCaseMissionSectionsText(out io.Writer, sections overview.OverviewSections) error {

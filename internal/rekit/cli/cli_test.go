@@ -511,6 +511,10 @@ func TestRunStatusJsonCase(t *testing.T) {
 		"warnings=0",
 		"status case mission：summary=openLanes=",
 		"ready=true lanes=",
+		"status case mission queue：total=4 unblocked=4 blocked=0 requiresReview=0 followUp=2 current=/rekit continue login",
+		"status case mission queue action：bucket=current lane=feature-login label=login state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=/rekit continue login",
+		"status case mission queue action：bucket=followUp lane=feature-login label=login state=ready-to-continue source=missionCommanderActions.followUp blocked=false requiresReview=false command=/rekit handoff login",
+		"status case mission queue action reason：bucket=followUp lane=feature-login reason=follow Mission Commander handoff after primary action",
 		"status case mission ready lane：login",
 		"status case mission next action：lane=feature-login",
 		"command=/rekit handoff login",
@@ -646,6 +650,12 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"status case mission：summary=openLanes=1 ready=0 blocked=1 pendingGates=1 authorizedGates=0 openDecisions=3 interventions=1 ready=false lanes=1 readyLanes=0 blockedLanes=1 evidenceReview=1",
+		"status case mission queue：total=5 unblocked=2 blocked=3 requiresReview=5 followUp=3 current=/rekit handoff main",
+		"status case mission queue action：bucket=current lane=main label=gate-auth-1 state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=/rekit handoff main",
+		"status case mission queue action：bucket=reviewRequired lane=main label=gate-auth-1 state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=/rekit handoff main",
+		"status case mission queue action reason：bucket=reviewRequired lane=main reason=review execution evidence for gateEventId gate-auth-1",
+		"status case mission queue action boundary：bucket=reviewRequired lane=main boundary=observation evidence is already recorded; do not replay heavy tool",
+		"status case mission queue action：bucket=blocked lane=main label=main",
 		"status case mission blocked lane：main (pending-gate,intervention,open-decision)",
 		"status case mission pending gate：debug gate | lane=main | risk=high | target=batch-overview | action=debug | scope=handler only | stopConditions=timeout",
 		"status case mission open decision：candidate: handler | lane=main | status=open | summary=candidate one",
@@ -677,8 +687,8 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "status case mission blocked lane：main (pending-gate,intervention,open-decision)") || !strings.Contains(out.String(), "status case mission pending gate：debug gate | lane=main") || !strings.Contains(out.String(), "status case mission facts：observations=1 requests=1 candidates=2 publications=1 pendingDecisions=1") || !strings.Contains(out.String(), "status case mission section：name=openCandidates total=2 shown=2") || !strings.Contains(out.String(), "status case mission batch：index=1 id=batch-overview events=5") || !strings.Contains(out.String(), "status case mission evidence review：eventId=obs-auth-1 gateEventId=gate-auth-1") || !strings.Contains(out.String(), "status case mission evidence outcome evidence：eventId=obs-auth-1 name=recorded-evidence-review evidence=evidence/debug.json") {
-		t.Fatalf("status case default text missing ledger/blocker/evidence review handoff:\n%s", out.String())
+	if !strings.Contains(out.String(), "status case mission queue action：bucket=current lane=main label=gate-auth-1 state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=/rekit handoff main") || !strings.Contains(out.String(), "status case mission queue action：bucket=blocked lane=main label=main") || !strings.Contains(out.String(), "status case mission blocked lane：main (pending-gate,intervention,open-decision)") || !strings.Contains(out.String(), "status case mission pending gate：debug gate | lane=main") || !strings.Contains(out.String(), "status case mission facts：observations=1 requests=1 candidates=2 publications=1 pendingDecisions=1") || !strings.Contains(out.String(), "status case mission section：name=openCandidates total=2 shown=2") || !strings.Contains(out.String(), "status case mission batch：index=1 id=batch-overview events=5") || !strings.Contains(out.String(), "status case mission evidence review：eventId=obs-auth-1 gateEventId=gate-auth-1") || !strings.Contains(out.String(), "status case mission evidence outcome evidence：eventId=obs-auth-1 name=recorded-evidence-review evidence=evidence/debug.json") {
+		t.Fatalf("status case default text missing queue/ledger/blocker/evidence review handoff:\n%s", out.String())
 	}
 	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 }
