@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 420：Mission Commander overview action queue closure
 
-状态：已完成本地实现、durable docs、focused/affected package validation 与 full local validation；commit/push 与远程 release-gate inspection 正在收尾。
+状态：已完成本地实现、durable docs、focused/affected package validation、full local validation、commit/push 与远程 release-gate inspection。
 
 目标：Batch 397/399/404 已让 `overview` 暴露 Mission Commander action index、execution evidence review 与 ordered `missionCommanderNextActions[]`，后续 start/continue/handoff/gate/reconcile/note/reviewer/promote 也持续向这个 ordered next-action list 收口；但替换 executor 在 overview 入口仍要手工扫描整张 next-action list，计算 current action、unblocked/blocked/review-required/follow-up 数量与分桶，才能决定“现在先做什么”。本批把 overview 的 Mission Commander next-action list 消费状态收口成可直接读的 action queue。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - overview text 新增 `Mission Commander action queue` section，直接打印 summary/counts/current，避免文本/default 工作流回查 JSON 或手工计算当前 action。
 - CLI coverage 锁定 execution evidence review 优先于 blocked lane reconcile、current action 选择、blocked/review/follow-up counts、JSON/text queue 输出、overview read-only/no authority/confirmed/no-heavy-tool/no PowerShell runtime logic 边界。
 
-验证结果：focused `go test ./internal/rekit/cli -run "TestRunOverview" -count=1` 与 affected package `go test ./internal/rekit/overview ./internal/rekit/cli -count=1` 已通过；full local validation、commit/push 与远程 release-gate inspection 待本批收尾后补齐。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunOverview" -count=1`、affected package `go test ./internal/rekit/overview ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`release-check` 汇总 ready=true、summary=release gate inventory ok；`doctor` 输出 `pack validation ok`；`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `e9c8060 Add overview commander action queue`；远程 release-gate run `29710604293` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 419 已完成 gate request Mission Commander top-level next-action projection closure，详见 `docs/batch-history.md`。
 
