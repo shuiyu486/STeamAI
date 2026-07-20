@@ -16,25 +16,26 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 455：summary artifact reviewer result handoff closure
+### Batch 456：promote candidates decision text detail closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29739678424` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29747637082` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
-目标：Batch 453/454 已分别让 terminal text handoff 与 reviewer `dispatchPrompt` 直接提供 reviewer result skeleton / routeOutput hints；但写入 review artifact 的 `summary.md` shard handoff 区域仍主要把 skeleton 信息埋在长 dispatch prompt 或 packet JSON 中。Batch 455 让 summary artifact 本身也能独立支撑 replacement executor / Mission Commander 构造 strict reviewer result。
+目标：Batch 423/429/430/431 已让 pack-memory candidate review/cleanup/reconsume 具备 JSON contract 与 terminal handoff，但 `promote -CreateCandidates -Format text` 的 decision follow-through / reconsume text 仍缺少部分 outcome `when`、`evidence`、follow-through boundary、top-level reconsume commands/boundaries 与 reconsume check `when/evidence`，Mission Commander / replacement executor 判断 accept/reject/superseded/blocked/not-needed 条件和证据时仍可能回退 JSON。Batch 456 补齐这些 terminal text detail。
 
-边界：只增强 `plan-subagents` 写出的 `summary.md` review artifact shard handoff、focused CLI coverage 与 durable docs；不改变 reviewer-intake JSON contract、packet/result validation、packet identity/hash、review artifact location、verification-before-decision writeback、默认 JSON/text compatibility，不自动 spawn reviewer、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
+边界：只增强 `promote -CreateCandidates -Format text` pack-memory decision/reconsume terminal handoff、focused CLI coverage 与 durable docs；不改变 JSON contract、candidate generation、candidate path/index semantics、manual merge/cleanup guidance-only、default JSON compatibility，不执行 merge/cleanup/init/doctor、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
 
 已完成内容：
 
-- `summary.md` 的 shard handoff 区域现在直接输出 `reviewer result path`，重复呈现 main-agent 需要放置 reviewer JSON 的路径。
-- `summary.md` 直接输出可复制 `reviewer result skeleton`，并使用真实 packetId、routeId、shardId 与当前 shard items，避免 replacement executor 再回读 `packet.json` 才能填 identity。
-- `summary.md` 直接输出 `reviewer routeOutput field hints`，按 route `outputContract` 展开 item/decision/confidence/evidence/risk/next_action/tier_used/tool_scope/defer_reason 等字段 valueHint，其中 evidence 使用真实 packetId、tool_scope 保持 `read-only`。
-- `summary.md` 输出 reviewer result binding guidance，明确 packetId/routeId/shardId 以及 routeOutput decision/confidence/evidence 与 top-level fields/evidenceRefs 的绑定关系。
-- CLI coverage 锁定 summary artifact 中的 skeleton、routeOutput hints、packet binding、existing reviewer contract/intake/writeback handoff 与 no-write/no-heavy 边界。
+- decision follow-through text 现在逐 item 输出 guidance boundary，明确 runtime 不执行 merge、cleanup、init 或 doctor，且不写 authority/confirmed、不执行 heavy tools、不推广 case-local artifacts。
+- decision outcome text 现在输出 `when`，让 accept/reject/superseded/blocked/not-needed 的适用条件可在 terminal 中直接判断。
+- decision outcome text 现在输出 `evidence`，让主 Agent 可直接看到 pack source diff、candidatePath deletion check、review note、doctor output、fresh/attached case output 等证据要求。
+- reconsume text 现在输出 managedDocs/tooling guidance、top-level reconsume commands 与 top-level boundaries。
+- reconsume verification checklist text 现在输出每个 check 的 `when` 与 `evidence`，覆盖 pack doctor、fresh-case reconsume 与 attached-case reconsume。
+- CLI coverage 锁定 WhatIf 与 actual create-candidates text 中的 decision when/evidence、follow-through boundary、top-level reconsume command/boundary、reconsume check when/evidence、existing action queue/next-action/no authority/confirmed/no-heavy 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsWritesReviewArtifacts -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `452e9b0 Add reviewer summary result handoff`；远程 release-gate run `29739678424` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPromoteCreateCandidates(WhatIf|WritesCandidates)' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `953cf36 Add promote candidate decision text details`；远程 release-gate run `29747637082` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
-上一批摘要：Batch 454 已完成 reviewer dispatch prompt skeleton closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 455 已完成 summary artifact reviewer result handoff closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
