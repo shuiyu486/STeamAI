@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 449：release-check public surface/deprecation text inventory closure
 
-状态：已完成本地实现、focused 与 full local validation；正在记录 durable docs、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29733382673` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 448 已把 release handoff 与 CI truthfulness boundary 投影到 `release-check -Format text`，但 Go-native public surface、PowerShell deprecation、public façade removal、case shim 与 public default docs readiness 仍主要依赖 JSON 或 legacy table 的长行摘要。Mission Commander / replacement executor 在判断 public path、PowerShell-free default、retained façade blocker 与 default docs readiness 时仍会回退 JSON 或 legacy table。本批把这些 public surface/deprecation/default-readiness inventory 投影到 explicit text path。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - explicit text 输出 case shim readiness phrases/canonical phrases/forbidden strings/boundaries，以及 public default docs documents/required phrases/forbidden commands/shell fences/boundaries。
 - CLI coverage 锁定新增 explicit text inventory、不 emit JSON object、legacy table compatibility、not-ready text error path、existing JSON inventory compatibility 与 read-only guards。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunReleaseCheckJsonInventory|TestWriteReleaseCheckReturnsErrorAfterTextInventoryWhenNotReady|TestWriteReleaseCheckReturnsErrorAfterJsonInventoryWhenNotReady|TestRunReleaseCheckRejectsTargetAndMutationFlags' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待完成，远程 CI 仍不能在未检查真实 GitHub Actions run 前声明 green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunReleaseCheckJsonInventory|TestWriteReleaseCheckReturnsErrorAfterTextInventoryWhenNotReady|TestWriteReleaseCheckReturnsErrorAfterJsonInventoryWhenNotReady|TestRunReleaseCheckRejectsTargetAndMutationFlags' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `213c692 Expand release-check text inventory`；远程 release-gate run `29733382673` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 448 已完成 release-check text release handoff closure，详见 `docs/batch-history.md`。
 
