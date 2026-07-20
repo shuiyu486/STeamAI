@@ -1669,13 +1669,19 @@ func runOverview(ctx runtime.Context, opt Options, out io.Writer) error {
 		format = "table"
 	}
 	switch format {
-	case "table", "text", "tsv":
+	case "table", "tsv":
 		text, err := overview.Render(ctx.RepoRoot, target, ctx.Pack)
 		if err != nil {
 			return err
 		}
 		_, err = io.WriteString(out, text)
 		return err
+	case "text":
+		result, err := overview.BuildInventory(ctx.RepoRoot, target, ctx.Pack)
+		if err != nil {
+			return err
+		}
+		return writeOverviewText(out, result)
 	case "json":
 		result, err := overview.BuildInventory(ctx.RepoRoot, target, ctx.Pack)
 		if err != nil {
@@ -1687,6 +1693,246 @@ func runOverview(ctx runtime.Context, opt Options, out io.Writer) error {
 	default:
 		return fmt.Errorf("unsupported overview format: %s", opt.Format)
 	}
+}
+
+func writeOverviewText(out io.Writer, result overview.Inventory) error {
+	if _, err := fmt.Fprintf(out, "overview：mutation=%t caseRoot=%s repoRoot=%s pack=%s automationMode=%s lanes=%d observations=%d requests=%d candidates=%d publications=%d pendingDecisions=%d\n", result.IsMutation, result.CaseRoot, result.RepoRoot, result.Pack, result.AutomationMode, len(result.Lanes), result.Counts.Observations, result.Counts.Requests, result.Counts.Candidates, result.Counts.Publications, result.Counts.PendingDecisions); err != nil {
+		return err
+	}
+	for _, lane := range result.Lanes {
+		if _, err := fmt.Fprintf(out, "overview lane：id=%s label=%s kind=%s status=%s workspace=%s authority=%t executor=%s generation=%d autonomyMode=%s autonomyReady=%t autonomyProfile=%s lastTakeoverAt=%s lastTakeoverBy=%s lastTakeoverReason=%s\n", lane.ID, lane.Label, lane.Kind, lane.Status, lane.Workspace, lane.Authority, textOr(lane.CurrentExecutor, "unassigned"), lane.ExecutorGeneration, lane.AutonomyMode, lane.AutonomyReady, lane.AutonomyProfile, textOr(lane.LastTakeoverAt, "none"), textOr(lane.LastTakeoverBy, "none"), textOr(lane.LastTakeoverReason, "none")); err != nil {
+			return err
+		}
+	}
+	brief := result.MissionBrief
+	if _, err := fmt.Fprintf(out, "overview mission brief：summary=%s ready=%d blocked=%d pendingGates=%d authorizedGates=%d openDecisions=%d interventions=%d nextActions=%d escalations=%d\n", brief.Summary, len(brief.ReadyLanes), len(brief.BlockedLanes), len(brief.PendingGates), len(brief.AuthorizedGates), len(brief.OpenDecisions), len(brief.Interventions), len(brief.NextAgentActions), len(brief.Escalations)); err != nil {
+		return err
+	}
+	for _, item := range brief.ReadyLanes {
+		if _, err := fmt.Fprintf(out, "overview mission brief ready lane：%s\n", item); err != nil {
+			return err
+		}
+	}
+	for _, item := range brief.BlockedLanes {
+		if _, err := fmt.Fprintf(out, "overview mission brief blocked lane：%s\n", item); err != nil {
+			return err
+		}
+	}
+	for _, item := range brief.NextAgentActions {
+		if _, err := fmt.Fprintf(out, "overview mission brief next action：%s\n", item); err != nil {
+			return err
+		}
+	}
+	for _, item := range brief.Escalations {
+		if _, err := fmt.Fprintf(out, "overview mission brief escalation：%s\n", item); err != nil {
+			return err
+		}
+	}
+	for _, item := range result.LaneExecutorActions {
+		action := item.ExecutorAction
+		commander := action.MissionCommanderAction
+		if _, err := fmt.Fprintf(out, "overview lane executor action：lane=%s label=%s status=%s blocked=%t ready=%t pendingGates=%d openInterventions=%d openDecisions=%d reconcileRequired=%t pendingGateRequired=%t openDecisionRequired=%t resume=%s handoff=%s commanderState=%s commanderPrimary=%s\n", item.Lane, item.Label, item.Status, action.Blocked, action.Ready, action.PendingGates, action.OpenInterventions, action.OpenDecisions, action.ReconcileRequired, action.PendingGateRequired, action.OpenDecisionRequired, action.ResumeCommand, action.HandoffCommand, commander.State, commander.PrimaryCommand); err != nil {
+			return err
+		}
+		for _, reason := range action.BlockerReasons {
+			if _, err := fmt.Fprintf(out, "overview lane executor blocker：lane=%s reason=%s\n", item.Lane, reason); err != nil {
+				return err
+			}
+		}
+		for _, command := range commander.FollowUpCommands {
+			if _, err := fmt.Fprintf(out, "overview lane commander follow-up：lane=%s command=%s\n", item.Lane, command); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range commander.Boundary {
+			if _, err := fmt.Fprintf(out, "overview lane commander boundary：lane=%s boundary=%s\n", item.Lane, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	if err := writeOverviewMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
+		return err
+	}
+	if err := writeOverviewMissionCommanderNextActionsText(out, result.MissionCommanderNextActions); err != nil {
+		return err
+	}
+	if err := writeOverviewExecutionEvidenceReviewText(out, result.ExecutionEvidenceReview); err != nil {
+		return err
+	}
+	if err := writeOverviewSectionsText(out, result.Sections); err != nil {
+		return err
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "overview next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeOverviewMissionCommanderActionQueueText(out io.Writer, queue overview.MissionCommanderActionQueue) error {
+	if _, err := fmt.Fprintf(out, "overview mission commander action queue：summary=%s\n", queue.Summary); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "overview mission commander action queue counts：total=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d\n", queue.Counts.Total, queue.Counts.Unblocked, queue.Counts.Blocked, queue.Counts.RequiresReview, queue.Counts.FollowUp); err != nil {
+		return err
+	}
+	if queue.CurrentAction == nil {
+		if _, err := fmt.Fprintln(out, "overview mission commander action queue current：none"); err != nil {
+			return err
+		}
+	} else {
+		item := *queue.CurrentAction
+		if _, err := fmt.Fprintf(out, "overview mission commander action queue current：state=%s source=%s blocked=%t requiresReview=%t command=%s\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+			return err
+		}
+		if err := writeOverviewActionQueueItemText(out, "current", item); err != nil {
+			return err
+		}
+	}
+	for _, item := range queue.UnblockedActions {
+		if err := writeOverviewActionQueueItemText(out, "unblocked", item); err != nil {
+			return err
+		}
+	}
+	for _, item := range queue.BlockedActions {
+		if err := writeOverviewActionQueueItemText(out, "blocked", item); err != nil {
+			return err
+		}
+	}
+	for _, item := range queue.ReviewRequiredActions {
+		if err := writeOverviewActionQueueItemText(out, "reviewRequired", item); err != nil {
+			return err
+		}
+	}
+	for _, item := range queue.FollowUpActions {
+		if err := writeOverviewActionQueueItemText(out, "followUp", item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeOverviewActionQueueItemText(out io.Writer, bucket string, item overview.MissionCommanderNextActionItem) error {
+	if _, err := fmt.Fprintf(out, "overview mission commander action queue item：bucket=%s lane=%s label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s\n", bucket, item.Lane, item.Label, item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+		return err
+	}
+	for _, reason := range item.Reasons {
+		if _, err := fmt.Fprintf(out, "overview mission commander action queue reason：bucket=%s reason=%s\n", bucket, reason); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range item.Boundary {
+		if _, err := fmt.Fprintf(out, "overview mission commander action queue boundary：bucket=%s boundary=%s\n", bucket, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeOverviewMissionCommanderNextActionsText(out io.Writer, items []overview.MissionCommanderNextActionItem) error {
+	for _, item := range items {
+		if _, err := fmt.Fprintf(out, "overview mission commander next action：lane=%s label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s\n", item.Lane, item.Label, item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+			return err
+		}
+		for _, reason := range item.Reasons {
+			if _, err := fmt.Fprintf(out, "overview mission commander next action reason：%s\n", reason); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range item.Boundary {
+			if _, err := fmt.Fprintf(out, "overview mission commander next action boundary：%s\n", boundary); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func writeOverviewExecutionEvidenceReviewText(out io.Writer, items []workstream.ExecutionEvidenceReviewItem) error {
+	if _, err := fmt.Fprintf(out, "overview execution evidence review：items=%d\n", len(items)); err != nil {
+		return err
+	}
+	for _, item := range items {
+		if _, err := fmt.Fprintf(out, "overview execution evidence item：eventId=%s gateEventId=%s status=%s action=%s target=%s subject=%s summary=%s review=%s handoff=%s commanderState=%s commanderPrimary=%s\n", item.EventID, item.GateEventID, item.Status, item.Action, item.Target, item.Subject, item.Summary, item.ReviewCommand, item.HandoffCommand, item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand); err != nil {
+			return err
+		}
+		for _, ref := range item.OutputRefs {
+			if _, err := fmt.Fprintf(out, "overview execution evidence output ref：eventId=%s ref=%s\n", item.EventID, ref); err != nil {
+				return err
+			}
+		}
+		for _, ref := range item.EvidenceRefs {
+			if _, err := fmt.Fprintf(out, "overview execution evidence evidence ref：eventId=%s ref=%s\n", item.EventID, ref); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(item.FollowThrough.State) != "" || len(item.FollowThrough.Outcomes) > 0 {
+			if _, err := fmt.Fprintf(out, "overview execution evidence follow-through：eventId=%s state=%s gateEventId=%s outcomes=%d queue=%s\n", item.EventID, item.FollowThrough.State, item.FollowThrough.GateEventID, len(item.FollowThrough.Outcomes), item.FollowThrough.ActionQueue.Summary); err != nil {
+				return err
+			}
+		}
+		for _, outcome := range item.FollowThrough.Outcomes {
+			if _, err := fmt.Fprintf(out, "overview execution evidence outcome：eventId=%s name=%s state=%s command=%s expected=%s\n", item.EventID, outcome.Name, outcome.State, outcome.Command, outcome.Expected); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range item.Boundary {
+			if _, err := fmt.Fprintf(out, "overview execution evidence boundary：eventId=%s boundary=%s\n", item.EventID, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func writeOverviewSectionsText(out io.Writer, sections overview.OverviewSections) error {
+	for _, section := range []struct {
+		name string
+		data overview.EventSection
+	}{
+		{name: "openCandidates", data: sections.OpenCandidates},
+		{name: "pendingGates", data: sections.PendingGates},
+		{name: "authorizedGates", data: sections.AuthorizedGates},
+		{name: "verifications", data: sections.Verifications},
+		{name: "decisions", data: sections.Decisions},
+		{name: "openInterventions", data: sections.OpenInterventions},
+		{name: "interventions", data: sections.Interventions},
+		{name: "rollbacks", data: sections.Rollbacks},
+	} {
+		if _, err := fmt.Fprintf(out, "overview section：name=%s total=%d shown=%d\n", section.name, section.data.Total, section.data.Shown); err != nil {
+			return err
+		}
+		for idx, event := range section.data.Events {
+			if _, err := fmt.Fprintf(out, "overview section event：section=%s index=%d eventId=%s kind=%s status=%s lane=%s subject=%s summary=%s action=%s decision=%s\n", section.name, idx+1, eventText(event, "eventId"), eventText(event, "kind"), eventText(event, "status"), eventText(event, "lane"), eventText(event, "subject"), eventText(event, "summary"), eventText(event, "action"), eventText(event, "decision")); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := fmt.Fprintf(out, "overview section：name=batches total=%d shown=%d\n", sections.Batches.Total, sections.Batches.Shown); err != nil {
+		return err
+	}
+	for idx, batch := range sections.Batches.Batches {
+		if _, err := fmt.Fprintf(out, "overview batch section item：index=%d id=%s events=%d last=%s kinds=%d\n", idx+1, batch.ID, batch.Events, batch.Last, len(batch.Kinds)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func eventText(event map[string]any, key string) string {
+	value, ok := event[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func textOr(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func runNote(ctx runtime.Context, opt Options, out io.Writer) error {

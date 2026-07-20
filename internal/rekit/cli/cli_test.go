@@ -2285,6 +2285,41 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 	}
 
 	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"overview：mutation=false caseRoot=" + caseRoot,
+		"pack=_template",
+		"overview lane：id=main",
+		"overview lane：id=feature-login",
+		"overview mission brief：summary=",
+		"overview lane executor action：lane=main",
+		"overview mission commander action queue：summary=total=",
+		"overview mission commander action queue current：",
+		"overview mission commander next action：",
+		"overview execution evidence review：items=",
+		"overview section：name=openCandidates",
+		"overview section：name=batches",
+		"overview next step：",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("overview text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("overview text should not emit JSON object:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Pack", "_template", "-Format", "table"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "项目概览：") || strings.Contains(out.String(), "overview：mutation=") {
+		t.Fatalf("overview table should keep legacy render output:\n%s", out.String())
+	}
+
+	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-WhatIf", "-Action", "debug", "-Lane", "feature-login", "-Subject", "nested gate", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}

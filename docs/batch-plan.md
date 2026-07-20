@@ -16,25 +16,26 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 449：release-check public surface/deprecation text inventory closure
+### Batch 450：overview explicit text operational handoff closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29733382673` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation；正在记录 durable docs、commit/push 与远程 release-gate inspection。
 
-目标：Batch 448 已把 release handoff 与 CI truthfulness boundary 投影到 `release-check -Format text`，但 Go-native public surface、PowerShell deprecation、public façade removal、case shim 与 public default docs readiness 仍主要依赖 JSON 或 legacy table 的长行摘要。Mission Commander / replacement executor 在判断 public path、PowerShell-free default、retained façade blocker 与 default docs readiness 时仍会回退 JSON 或 legacy table。本批把这些 public surface/deprecation/default-readiness inventory 投影到 explicit text path。
+目标：`overview` 是 Mission Commander / replacement executor 接手 case-local 状态的高频入口；此前 `overview -Format text` 与 `table`/`tsv` 共用 legacy prose render，虽然人类可读，但不如 JSON 直接暴露 lane summaries、fact counts、Mission Commander action queue、next action buckets、execution evidence review 与 section totals。Batch 450 把 overview inventory 投影到 explicit text terminal handoff，同时保留 legacy table/tsv render。
 
-边界：只增强 `release-check -Format text` terminal handoff、focused CLI coverage 与 durable docs；`table` / `tsv` 保持 legacy output，`json` 保持 existing inventory contract；不删除 PowerShell façade、不执行 façade removal、不执行本地 gate 之外的远程 CI、不写 case、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
+边界：只增强 `overview -Format text` terminal handoff、focused CLI coverage 与 durable docs；`table` / `tsv` 保持 legacy render，`json` 保持 existing inventory contract；不改变 overview 初始化/board 语义、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变远程 CI blocker 状态。
 
 已完成内容：
 
-- `release-check -Format text` 现在输出 Go-native public surface summary、command groups、per-command profiles、mutation boundaries、profile policies 与 façade removal prerequisites。
-- explicit text 输出 PowerShell deprecation summary、command owners、module status、freeze gates、blocked migrations、retired modules、retained public façade status 与 categorized module references。
-- explicit text 输出 public façade removal prerequisites、replacement entrypoints、deletion gates、execution steps、boundary checks、recovery steps、documentation targets、reference categories、work items、migration targets 与 smoke migration targets。
-- explicit text 输出 case shim readiness phrases/canonical phrases/forbidden strings/boundaries，以及 public default docs documents/required phrases/forbidden commands/shell fences/boundaries。
-- CLI coverage 锁定新增 explicit text inventory、不 emit JSON object、legacy table compatibility、not-ready text error path、existing JSON inventory compatibility 与 read-only guards。
+- `overview -Format text` 现在输出 overview summary、caseRoot/repoRoot/pack/automationMode、lane count 与 fact counts。
+- explicit text 输出逐 lane id/label/kind/status/workspace/authority/executor/generation/autonomy/takeover summary。
+- explicit text 输出 Mission brief counts、ready/blocked lanes、next actions、escalations 与逐 lane executor action（blocked/ready/blockers/resume/handoff/commander state/primary/follow-up/boundary）。
+- explicit text 输出 Mission Commander action queue summary/counts/current 与 current/unblocked/blocked/reviewRequired/followUp buckets，以及 Mission Commander next action lines/reasons/boundaries。
+- explicit text 输出 execution evidence review summary/items/follow-through/outcomes/boundaries、overview section counts/events、batch section items 与 next steps。
+- CLI coverage 锁定 nested case-local `overview -Format text`、不 emit JSON object、legacy table compatibility 与 existing JSON inventory compatibility。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunReleaseCheckJsonInventory|TestWriteReleaseCheckReturnsErrorAfterTextInventoryWhenNotReady|TestWriteReleaseCheckReturnsErrorAfterJsonInventoryWhenNotReady|TestRunReleaseCheckRejectsTargetAndMutationFlags' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `213c692 Expand release-check text inventory`；远程 release-gate run `29733382673` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunReleaseCheckJsonInventory' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command release-check -Format text`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待完成，远程 CI 仍不能在未检查真实 GitHub Actions run 前声明 green。
 
-上一批摘要：Batch 448 已完成 release-check text release handoff closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 449 已完成 release-check public surface/deprecation text inventory closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
