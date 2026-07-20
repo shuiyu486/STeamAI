@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 430：promote candidates WhatIf text preview parity
 
-状态：已完成本地实现、focused 与 full local validation、durable docs；准备 commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate 仍为既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 429 已让 actual `promote -CreateCandidates -Format text` 输出 `reviewPlan.mainAgentExecutionPlan[]`，但 WhatIf preview 仍被限制为 JSON-only，Mission Commander / replacement executor 在确认 candidate generation scope 前仍需解析 JSON 才能看到 materialize、review decisions、cleanup、pack doctor、fresh-case reconsume 与 attached-case reconsume 的 bounded plan。本批让 `promote -CreateCandidates -WhatIf -Format text` 复用同一 terminal handoff。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - text preview 明确输出 `materialize-candidates` bounded command、WhatIf no-write boundary 与 preview Mission Commander state。
 - CLI coverage 锁定 WhatIf text preview、actual create-candidates text execution plan、unsupported format guard，以及 no merge/no cleanup/no init/no doctor/no-heavy/no-authority/confirmed 边界。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPromoteCreateCandidatesWhatIf|TestRunPromoteCreateCandidatesRejectsReviewArtifacts' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings；commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunPromoteCreateCandidatesWhatIf|TestRunPromoteCreateCandidatesRejectsReviewArtifacts' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `507e63d Add promote candidates WhatIf text preview`；远程 release-gate run `29720078639` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 429 已完成 promote candidates main-agent execution plan text consumption closure，详见 `docs/batch-history.md`。
 
