@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 464：status project handoff closure
 
-状态：已完成 status project handoff runtime slice、本地验证恢复、durable docs 更新与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本批收尾执行。远程 release-gate 若仍为 `steps: []` failure，继续记录为既有 GitHub Actions runner/billing blocker，不声明远程 CI green。
+状态：已完成 status project handoff runtime slice、本地验证恢复、durable docs 更新、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29757012511` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：新会话接手时，最自然的第一步通常是运行 `status`，但 kit-mode `status -Format json/text` 过去只展示 runtime root、pack manifest 与 case shim readiness，仍需要再跑 `release-check` 或打开 batch docs 才能知道最新批次、read-first 路由、known gaps、验证命令和下一步。Batch 464 把 release handoff 的短 project handoff 投影到 kit-mode `status`，让接手会话只看 status 输出就能定位当前进度、证据/阻塞类别、最小验证门禁和下一步路由。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `status -Format text` 新增 `status project handoff`、latest batch goal/validation、read-first、known gap、validation command 与 next action lines，避免新会话必须解析 release-check JSON 才能接手。
 - `internal/rekit/cli` coverage 锁定 kit-mode status JSON/text handoff、read-first 路由、known gaps、validation commands 与 next actions；`docs/go-first-convergence-plan.md` 顶部恢复 `docs/mission-control-product-direction.md` 链接，修复 manifest 不变量测试。
 
-验证结果：已通过 focused `go test ./internal/rekit/manifest -run TestAutonomousGoalGuideInvariants -count=1`、`go test ./internal/rekit/cli -run TestRunStatusJsonKit -count=1`、`go run ./cmd/rekit -- -Command status -Format json`、`go run ./cmd/rekit -- -Command status -Format text`、`go test ./...`、`go vet ./...` 与 `git diff --check`；`git diff --check` 仅有 Windows LF/CRLF conversion warnings。完整 release minimum、commit/push 与远程 release-gate inspection 待收尾执行。
+验证结果：已通过 focused `go test ./internal/rekit/manifest -run TestAutonomousGoalGuideInvariants -count=1`、`go test ./internal/rekit/cli -run TestRunStatusJsonKit -count=1`、`go run ./cmd/rekit -- -Command status -Format json`、`go run ./cmd/rekit -- -Command status -Format text` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `b3a7845 Add status project handoff`；远程 release-gate run `29757012511` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 463 已完成 documentation routing pressure reduction closure，详见 `docs/batch-history.md`。
 
