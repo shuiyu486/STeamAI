@@ -16,24 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 443：update apply command identity parity
+### Batch 444：sync/promote review plan text handoff closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29726873856` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation、durable docs；正在 commit/push 与远程 release-gate inspection；远程 release-gate 预计仍为既有 GitHub Actions runner/billing blocker，需以实际 run 为准。
 
-目标：`sync` 与 `update` 共享 Go-native apply path，但 Batch 442 后 `update -Apply/-WhatIf` 的 apply/text handoff 与 preview nextStep 仍可能显示 `sync` command identity。Mission Commander / replacement executor 在 update product path 中会看到 sync-prefixed guidance，容易把 update handoff 误判为另一个 command。本批让 shared sync/update apply path 保留真实 `opt.Command`。
+目标：`sync` / `promote` non-apply review-first path 默认输出 JSON，且此前显式 `-Format text` 也没有 terminal review plan handoff。Mission Commander / replacement executor 若只在终端查看 review scope，仍需要解析 JSON 才能看到 changed/blocked summary、每个 item 的 action/risk/recommendation、paths、hashes、deny violations 与 tooling replacement counts。本批把 sync/promote review plan 投影到 text path。
 
-边界：只增强 `update -Apply/-WhatIf` command identity、focused CLI coverage 与 durable docs；不改变 sync default compatibility、sync/update shared write semantics、managed file selection、backup 规则、review-first policy、case durable schema、promote、public façade 删除门禁或远程 CI blocker 状态；不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
+边界：只增强 `sync -Format text` 与 `promote -Format text` 的 non-apply review plan terminal handoff、focused CLI coverage 与 durable docs；不改变默认 JSON output、review artifact 写入、sync/promote review-first policy、apply/create-candidates semantics、case durable schema、public façade 删除门禁或远程 CI blocker 状态；不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
 
 已完成内容：
 
-- `runSyncReview` 现在基于实际 `opt.Command` 生成 guard diagnostics、target command name、format diagnostics 与 `syncreview.ApplyOptions.Command`。
-- `sync.ApplyPreview` 的 first nextStep 现在按 `ApplyResult.Command` 提示 `re-run <command> with -Apply`，因此 update preview JSON/text 均显示 `update`。
-- `update -Apply -WhatIf -Format text` 现在输出 `update apply` summary、`update apply write` detail 与 update-specific nextStep，不泄漏 `sync apply` prefix。
-- CLI coverage 锁定 update WhatIf text、update WhatIf JSON command identity 与 existing sync apply compatibility。
+- `sync` / `promote` non-apply path 现在解析 `-Format`：`json` 保持 existing JSON output；`text` / `table` / `tsv` 输出 human-readable review plan handoff。
+- text output 先打印 `<command> review plan` summary，包含 direction、mutation、changed、blocked、reviewRequired、items、toolingItems 与 manifest path。
+- text output 为每个 normal item / tooling item 打印 path、kind、action、risk、direction 与 recommendation。
+- text output 继续打印可用 paths、hashes、deny violations 与 sorted replacement counts，让 terminal executor 可直接复核 sync managed/template/block scope 与 promote candidate/block/tooling sanitization scope。
+- CLI coverage 锁定 sync/promote review plan text item detail，并保留 existing default JSON review plan compatibility。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunSyncApplyWritesManagedContent|TestRunUpdateApplyUsesUpdateCommandIdentity' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `3c5f607 Preserve update apply command identity`；远程 release-gate run `29726873856` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunSyncAndPromoteReviewPlanTextOutputsItems|TestRunSyncReviewEmitsNonMutatingPlan|TestRunPromoteReviewEmitsNonMutatingPlan' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`doctor` 报告 `pack validation ok`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。尚待 commit/push 与远程 release-gate inspection。
 
-上一批摘要：Batch 442 已完成 sync apply text handoff closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 443 已完成 update apply command identity parity，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

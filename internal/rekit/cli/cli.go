@@ -1158,7 +1158,14 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 	if wantsReviewArtifacts(opt) {
 		return writeReviewArtifacts(out, plan, opt)
 	}
-	return writeReviewPlan(out, plan)
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported %s format: %s", command, opt.Format)
+	}
+	if format == "json" {
+		return writeReviewPlan(out, plan)
+	}
+	return writeReviewPlanText(out, plan)
 }
 
 func runOverview(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -2245,7 +2252,14 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 	if wantsReviewArtifacts(opt) {
 		return writeReviewArtifacts(out, plan, opt)
 	}
-	return writeReviewPlan(out, plan)
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported promote format: %s", opt.Format)
+	}
+	if format == "json" {
+		return writeReviewPlan(out, plan)
+	}
+	return writeReviewPlanText(out, plan)
 }
 
 func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -2807,6 +2821,61 @@ func writeReviewPlan(out io.Writer, plan review.Plan) error {
 	}
 	_, err = out.Write(append(b, '\n'))
 	return err
+}
+
+func writeReviewPlanText(out io.Writer, plan review.Plan) error {
+	plan.IsMutation = false
+	plan.Summary = review.Summary{Changed: plan.ChangedItems(), Blocked: plan.BlockedItems(), ReviewRequired: true}
+	if _, err := fmt.Fprintf(out, "%s review plan：direction=%s mutation=%t changed=%d blocked=%d reviewRequired=%t items=%d toolingItems=%d manifest=%s\n", plan.Command, plan.Direction, plan.IsMutation, plan.Summary.Changed, plan.Summary.Blocked, plan.Summary.ReviewRequired, len(plan.Items), len(plan.ToolingItems), plan.ManifestPath); err != nil {
+		return err
+	}
+	for _, item := range plan.Items {
+		if err := writeReviewPlanItemText(out, plan.Command, "item", item); err != nil {
+			return err
+		}
+	}
+	for _, item := range plan.ToolingItems {
+		if err := writeReviewPlanItemText(out, plan.Command, "tooling item", item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeReviewPlanItemText(out io.Writer, command, label string, item review.Item) error {
+	if _, err := fmt.Fprintf(out, "%s review %s：path=%s kind=%s action=%s risk=%s direction=%s recommendation=%s\n", command, label, item.Path, item.Kind, item.Action, item.RiskLevel, item.Direction, item.MechanicalRecommendation); err != nil {
+		return err
+	}
+	if item.SourcePath != "" || item.TargetPath != "" || item.CasePath != "" || item.PackPath != "" {
+		if _, err := fmt.Fprintf(out, "%s review %s paths：path=%s source=%s target=%s case=%s pack=%s\n", command, label, item.Path, item.SourcePath, item.TargetPath, item.CasePath, item.PackPath); err != nil {
+			return err
+		}
+	}
+	if item.SourceHash != "" || item.TargetHash != "" || item.CaseHash != "" || item.PackHash != "" {
+		if _, err := fmt.Fprintf(out, "%s review %s hashes：path=%s source=%s target=%s case=%s pack=%s changed=%t\n", command, label, item.Path, item.SourceHash, item.TargetHash, item.CaseHash, item.PackHash, item.Changed); err != nil {
+			return err
+		}
+	}
+	if len(item.DenyViolations) > 0 {
+		if _, err := fmt.Fprintf(out, "%s review %s deny：path=%s violations=%s\n", command, label, item.Path, strings.Join(item.DenyViolations, ",")); err != nil {
+			return err
+		}
+	}
+	if len(item.ReplacementCounts) > 0 {
+		keys := make([]string, 0, len(item.ReplacementCounts))
+		for key := range item.ReplacementCounts {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		values := make([]string, 0, len(keys))
+		for _, key := range keys {
+			values = append(values, fmt.Sprintf("%s=%d", key, item.ReplacementCounts[key]))
+		}
+		if _, err := fmt.Fprintf(out, "%s review %s replacements：path=%s %s\n", command, label, item.Path, strings.Join(values, " ")); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func wantsReviewArtifacts(opt Options) bool {

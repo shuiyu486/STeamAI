@@ -5160,6 +5160,49 @@ func TestRunSyncReviewEmitsNonMutatingPlan(t *testing.T) {
 	}
 }
 
+func TestRunSyncAndPromoteReviewPlanTextOutputsItems(t *testing.T) {
+	syncCaseRoot := attachedCase(t)
+	writeCaseFile(t, syncCaseRoot, "references/template/README.md", "# Sync review drift\n\nchanged before review\n")
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "sync", "-Target", syncCaseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"sync review plan：direction=kit-to-case mutation=false changed=",
+		"sync review item：path=.rekit/instance.yml + .claude/skills/rekit/SKILL.md kind=case-metadata action=refresh-metadata-and-shim risk=low direction=kit-to-case",
+		"sync review item：path=references/template/README.md kind=managed-file action=overwrite-with-backup risk=medium direction=kit-to-case",
+		"sync review item paths：path=references/template/README.md source=",
+		"sync review item hashes：path=references/template/README.md source=",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("sync review text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("sync review text should not emit JSON:\n%s", out.String())
+	}
+
+	promoteCaseRoot := fullAttachedCase(t)
+	writeCaseFile(t, promoteCaseRoot, "references/template/README.md", "# Promote review drift\n\nReusable safe candidate.\n")
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", promoteCaseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"promote review plan：direction=case-to-kit mutation=false changed=",
+		"promote review item：path=references/template/README.md kind=managed-doc action=candidate-after-llm-review risk=medium direction=case-to-kit recommendation=llm-review-before-merge",
+		"promote review item paths：path=references/template/README.md source= target= case=",
+		"promote review item hashes：path=references/template/README.md source= target= case=",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("promote review text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("promote review text should not emit JSON:\n%s", out.String())
+	}
+}
+
 func TestRunPromoteReviewEmitsNonMutatingPlan(t *testing.T) {
 	caseRoot := attachedCase(t)
 	var out bytes.Buffer
