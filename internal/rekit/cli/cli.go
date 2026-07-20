@@ -622,7 +622,7 @@ func writeReleaseCheckResult(out io.Writer, result releasecheck.Result, format s
 
 func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format string) error {
 	switch format {
-	case "table", "text", "tsv":
+	case "table", "tsv":
 		resultCounts := releasecheck.ReleaseCheckResultCountsFor(result)
 		fmt.Fprintf(out, "release-check: %s\n", result.Summary)
 		fmt.Fprintf(out, "ready: %t\n", result.Ready)
@@ -723,12 +723,117 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 				fmt.Fprintf(out, "- %s\n", warning)
 			}
 		}
+	case "text":
+		return writeReleaseCheckText(out, result)
 	case "json":
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		return enc.Encode(result)
 	default:
 		return fmt.Errorf("unsupported release-check format: %s", format)
+	}
+	return nil
+}
+
+func writeReleaseCheckText(out io.Writer, result releasecheck.Result) error {
+	resultCounts := releasecheck.ReleaseCheckResultCountsFor(result)
+	ciGateCounts := releasecheck.CIReleaseGateCountsFor(result.CIReleaseGate)
+	if _, err := fmt.Fprintf(out, "release-check：mutation=%t ready=%t summary=%s repoRoot=%s gateProfile=%s gateProfileReady=%t gateProfileSteps=%d requiredCommands=%d documents=%d packs=%d boundaries=%d knownGaps=%d warnings=%d\n", result.IsMutation, result.Ready, result.Summary, result.RepoRoot, result.GateProfile.Name, result.GateProfile.Ready, resultCounts.GateProfileSteps, resultCounts.RequiredCommands, resultCounts.Documents, resultCounts.Packs, resultCounts.Boundaries, resultCounts.KnownGaps, resultCounts.Warnings); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "release-check ci gate：workflow=%s ready=%t jobs=%d commands=%d forbidden=%d boundary=inventory-ready-not-remote-ci-green\n", result.CIReleaseGate.WorkflowPath, result.CIReleaseGate.Ready, ciGateCounts.Jobs, ciGateCounts.RequiredCommands, ciGateCounts.ForbiddenStrings); err != nil {
+		return err
+	}
+	for _, step := range result.RequiredCommands {
+		if _, err := fmt.Fprintf(out, "release-check required command：command=%s kind=%s repoPath=%s required=%t present=%t resolved=%t inCatalog=%t\n", step.Command, step.Kind, step.RepoPath, step.Required, step.Present, step.Resolved, step.InCatalog); err != nil {
+			return err
+		}
+	}
+	for _, doc := range result.Documents {
+		if _, err := fmt.Fprintf(out, "release-check document：path=%s present=%t purpose=%s\n", doc.Path, doc.Present, doc.Purpose); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(out, "release-check heavy actions：actions=%s\n", strings.Join(result.HeavyToolGateActions, ",")); err != nil {
+		return err
+	}
+	if err := writeReleaseHandoffText(out, result.ReleaseHandoff); err != nil {
+		return err
+	}
+	for _, boundary := range result.Boundaries {
+		if _, err := fmt.Fprintf(out, "release-check boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	for _, gap := range result.KnownGaps {
+		if _, err := fmt.Fprintf(out, "release-check known gap detail：%s\n", gap); err != nil {
+			return err
+		}
+	}
+	for _, warning := range result.Warnings {
+		if _, err := fmt.Fprintf(out, "release-check warning：%s\n", warning); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff) error {
+	handoffCounts := releasecheck.ReleaseHandoffCountsFor(handoff)
+	if _, err := fmt.Fprintf(out, "release-check release handoff：summary=%s ready=%t readFirst=%d signals=%d knownGaps=%d packMaturity=%d validation=%d nextActions=%d warnings=%d releaseNotes=%t latest=%s\n", handoff.Summary, handoff.Ready, handoffCounts.ReadFirst, handoffCounts.Signals, handoffCounts.KnownGaps, handoffCounts.PackMaturity.Total, handoffCounts.Validation, handoffCounts.NextActions, handoffCounts.Warnings, handoff.ReleaseNotes.Covered, handoff.LatestBatch.Title); err != nil {
+		return err
+	}
+	latest := handoff.LatestBatch
+	if _, err := fmt.Fprintf(out, "release-check latest batch：batch=%s title=%s present=%t status=%s goal=%s validation=%s plan=%s\n", latest.BatchID, latest.Title, latest.Present, latest.Status, latest.Goal, latest.ValidationResult, latest.PlanPath); err != nil {
+		return err
+	}
+	notes := handoff.ReleaseNotes
+	if _, err := fmt.Fprintf(out, "release-check release notes：path=%s present=%t section=%s latestBatch=%s covered=%t summary=%s\n", notes.Path, notes.Present, notes.Section, notes.LatestBatchID, notes.Covered, notes.Summary); err != nil {
+		return err
+	}
+	for _, doc := range handoff.ReadFirst {
+		if _, err := fmt.Fprintf(out, "release-check read first：path=%s present=%t purpose=%s\n", doc.Path, doc.Present, doc.Purpose); err != nil {
+			return err
+		}
+	}
+	for _, signal := range handoff.Signals {
+		if _, err := fmt.Fprintf(out, "release-check signal：name=%s ready=%t summary=%s details=%d\n", signal.Name, signal.Ready, signal.Summary, len(signal.Details)); err != nil {
+			return err
+		}
+		for _, detail := range signal.Details {
+			if _, err := fmt.Fprintf(out, "release-check signal detail：name=%s detail=%s\n", signal.Name, detail); err != nil {
+				return err
+			}
+		}
+	}
+	maturity := handoff.PackMaturity
+	if _, err := fmt.Fprintf(out, "release-check pack maturity：summary=%s total=%d schemaValid=%t schemaVersionReady=%t heavyToolGateReady=%t actions=%s\n", maturity.Summary, maturity.Total, maturity.SchemaValid, maturity.SchemaVersionReady, maturity.HeavyToolGateReady, strings.Join(maturity.HeavyToolGateActions, ",")); err != nil {
+		return err
+	}
+	for _, pack := range maturity.HeavyToolGatesByPack {
+		if _, err := fmt.Fprintf(out, "release-check pack gate：id=%s maturity=%s schemaValid=%t schemaVersion=%s heavyToolGates=%d actions=%s\n", pack.ID, pack.Maturity, pack.SchemaValid, pack.SchemaVersion, pack.HeavyToolGates, strings.Join(pack.Actions, ",")); err != nil {
+			return err
+		}
+	}
+	for _, validation := range handoff.Validation {
+		if _, err := fmt.Fprintf(out, "release-check validation：command=%s kind=%s repoPath=%s required=%t present=%t resolved=%t\n", validation.Command, validation.Kind, validation.RepoPath, validation.Required, validation.Present, validation.Resolved); err != nil {
+			return err
+		}
+	}
+	for _, gap := range handoff.KnownGaps {
+		if _, err := fmt.Fprintf(out, "release-check known gap：index=%d category=%s summary=%s\n", gap.Index, gap.Category, gap.Summary); err != nil {
+			return err
+		}
+	}
+	for _, action := range handoff.NextActions {
+		if _, err := fmt.Fprintf(out, "release-check next action：%s\n", action); err != nil {
+			return err
+		}
+	}
+	for _, warning := range handoff.Warnings {
+		if _, err := fmt.Fprintf(out, "release-check handoff warning：%s\n", warning); err != nil {
+			return err
+		}
 	}
 	return nil
 }

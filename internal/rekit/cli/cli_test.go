@@ -541,6 +541,47 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	if pack := packs["web-security"]; pack.Maturity != "skeleton" || !pack.SchemaValid || pack.SchemaVersion != "1" || pack.HeavyToolGates != 7 {
 		t.Fatalf("unexpected web-security release-check row: %+v", pack)
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "release-check", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"release-check：mutation=false ready=true summary=release gate inventory ok",
+		"gateProfile=local-ci-minimum",
+		"release-check ci gate：workflow=.github/workflows/release-gate.yml ready=true jobs=3 commands=18",
+		"boundary=inventory-ready-not-remote-ci-green",
+		"release-check required command：command=go run ./cmd/rekit -- -Command release-check -Format json kind=go-run repoPath=cmd/rekit required=true present=true resolved=true inCatalog=true",
+		"release-check document：path=docs/context-routing.md present=true",
+		"release-check heavy actions：actions=debug,dump,full-trace,inject,network,patch,symex",
+		"release-check release handoff：summary=release handoff summary ok ready=true",
+		"release-check latest batch：batch=Batch ",
+		"release-check release notes：path=CHANGELOG.md present=true",
+		"release-check read first：path=docs/context-routing.md present=true",
+		"release-check signal：name=CI release gate ready=true summary=CI release gate inventory ok",
+		"release-check signal detail：name=Go-native public surface detail=profileGroups readOnly=doctor,packs,release-check,status,validate",
+		"release-check pack maturity：summary=pack maturity inventory ok total=10",
+		"release-check pack gate：id=vmp-re maturity=mature schemaValid=true schemaVersion=1 heavyToolGates=7 actions=debug,dump,full-trace,inject,network,patch,symex",
+		"release-check validation：command=go run ./cmd/rekit -- -Command release-check -Format json kind=go-run repoPath=cmd/rekit required=true present=true resolved=true",
+		"release-check known gap：index=1 category=ci-release-gate",
+		"release-check known gap detail：远程 release-gate",
+		"release-check next action：Read docs/context-routing.md first",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("release-check text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("release-check text should not emit JSON:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "release-check", "-Format", "table"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "release-check: release gate inventory ok") || strings.Contains(out.String(), "release-check：mutation=") {
+		t.Fatalf("release-check table should keep legacy text output:\n%s", out.String())
+	}
 }
 
 func assertReleaseCheckCommand(t *testing.T, steps []releasecheck.GateStep, want string) {
@@ -1360,7 +1401,7 @@ func TestWriteReleaseCheckReturnsErrorAfterTextInventoryWhenNotReady(t *testing.
 		t.Fatalf("error = %v, want not-ready error", err)
 	}
 	text := out.String()
-	for _, expected := range []string{"ready: false", "warnings:", "CI workflow missing required command"} {
+	for _, expected := range []string{"release-check：mutation=false ready=false", "warnings=1", "release-check warning：CI workflow missing required command"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("not-ready text missing %q:\n%s", expected, text)
 		}
