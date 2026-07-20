@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 446：case lifecycle text handoff closure
 
-状态：已完成本地实现、focused 与 full local validation；durable docs 已更新，commit/push 与远程 release-gate inspection 待完成。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29729918385` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：`attach` / `repair` / `init` / `bootstrap` 是新 case 初始化、旧 case 接入、移动修复与 compatibility bootstrap 的 lifecycle 入口；此前即使显式 `-Format text`，这些 path 仍总是 marshal JSON。Mission Commander / replacement executor 在 case lifecycle preview/apply 后仍需要解析 JSON 才能看到 metadata/shim/state writes、managed docs writes、blocked actions、moved metadata 与 nextSteps。本批把 lifecycle preview/apply result 投影到 text path。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `init` / `bootstrap -WhatIf/-Apply -Format text` 输出 lifecycle plan/apply summary、managed/template/support/state write detail、backupRoot、blocked actions 与 doctor nextSteps；`bootstrap` 保持 command identity。
 - CLI coverage 锁定 attach preview/apply text、repair preview/apply text、init preview/apply text、bootstrap preview/apply text、existing default JSON compatibility 与 no-write WhatIf behavior。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunAttachPreviewDoesNotCreateFiles|TestRunAttachApplyWritesBindingMetadataStateAndShim|TestRunRepairPreviewDoesNotWrite|TestRunRepairApplyRefreshesMetadataShimAndLegacy|TestRunInitPreviewDoesNotCreateFiles|TestRunInitApplyCreatesFullCase|TestRunBootstrapApplyUsesBootstrapCommand' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待完成，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunAttachPreviewDoesNotCreateFiles|TestRunAttachApplyWritesBindingMetadataStateAndShim|TestRunRepairPreviewDoesNotWrite|TestRunRepairApplyRefreshesMetadataShimAndLegacy|TestRunInitPreviewDoesNotCreateFiles|TestRunInitApplyCreatesFullCase|TestRunBootstrapApplyUsesBootstrapCommand' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `5342846 Add lifecycle text handoff`；远程 release-gate run `29729918385` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 445 已完成 promote apply text handoff closure，详见 `docs/batch-history.md`。
 
