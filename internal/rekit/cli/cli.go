@@ -2425,6 +2425,11 @@ func writeAuthorizedExecutionFollowThroughText(out io.Writer, prefix string, fol
 		if _, err := fmt.Fprintf(out, "%s follow-through outcome：name=%s state=%s command=`%s` expected=%s\n", prefix, outcome.Name, outcome.State, outcome.Command, outcome.Expected); err != nil {
 			return err
 		}
+		if strings.TrimSpace(outcome.When) != "" {
+			if _, err := fmt.Fprintf(out, "%s follow-through when：name=%s when=%s\n", prefix, outcome.Name, outcome.When); err != nil {
+				return err
+			}
+		}
 		for _, action := range outcome.Actions {
 			if _, err := fmt.Fprintf(out, "%s follow-through action：name=%s action=%s\n", prefix, outcome.Name, action); err != nil {
 				return err
@@ -2437,6 +2442,11 @@ func writeAuthorizedExecutionFollowThroughText(out io.Writer, prefix string, fol
 		}
 		for _, command := range outcome.VerificationCommands {
 			if _, err := fmt.Fprintf(out, "%s follow-through verification command：name=%s command=%s\n", prefix, outcome.Name, command); err != nil {
+				return err
+			}
+		}
+		for _, evidence := range outcome.Evidence {
+			if _, err := fmt.Fprintf(out, "%s follow-through evidence：name=%s evidence=%s\n", prefix, outcome.Name, evidence); err != nil {
 				return err
 			}
 		}
