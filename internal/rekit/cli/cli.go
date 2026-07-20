@@ -755,12 +755,40 @@ func runPacks(ctx runtime.Context, opt Options, out io.Writer) error {
 				fmt.Fprintf(out, "  error: %s\n", pack.Error)
 			}
 		}
+	case "text":
+		return writePacksText(out, packs)
 	case "json":
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		return enc.Encode(packsInventory{Command: "packs", SchemaVersion: 1, IsMutation: false, PackCount: len(packs), Packs: packs})
 	default:
 		return fmt.Errorf("unsupported packs format: %s", opt.Format)
+	}
+	return nil
+}
+
+func writePacksText(out io.Writer, packs []manifest.PackSummary) error {
+	if _, err := fmt.Fprintf(out, "packs：mutation=false count=%d\n", len(packs)); err != nil {
+		return err
+	}
+	for _, pack := range packs {
+		schema := "ok"
+		if !pack.SchemaValid {
+			schema = "error"
+		}
+		if _, err := fmt.Fprintf(out, "packs pack：id=%s name=%s maturity=%s schema=%s manifestSchema=%s managed=%d template=%d local=%d promote=%d tooling=%d prompts=%d routes=%d heavyToolGates=%d authority=%s version=%s manifest=%s description=%s\n", pack.ID, pack.Name, pack.Maturity, schema, pack.SchemaVersion, pack.ManagedFiles, pack.TemplateFiles, pack.LocalFiles, pack.PromoteFiles, pack.ToolingFiles, pack.PromptFiles, pack.SubagentRoutes, pack.HeavyToolGates, pack.DefaultAuthorityLane, pack.Version, pack.ManifestPath, pack.Description); err != nil {
+			return err
+		}
+		for _, action := range pack.HeavyToolGateActions {
+			if _, err := fmt.Fprintf(out, "packs pack heavy action：id=%s action=%s\n", pack.ID, action); err != nil {
+				return err
+			}
+		}
+		if pack.Error != "" {
+			if _, err := fmt.Fprintf(out, "packs pack error：id=%s error=%s\n", pack.ID, pack.Error); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -821,7 +849,9 @@ func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
 		format = "table"
 	}
 	switch format {
-	case "table", "text", "tsv":
+	case "table", "tsv":
+		return runStatusLegacyText(ctx, out)
+	case "text":
 		return runStatusText(ctx, out)
 	case "json":
 		status, err := buildStatusInventory(ctx)
@@ -836,7 +866,7 @@ func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 }
 
-func runStatusText(ctx runtime.Context, out io.Writer) error {
+func runStatusLegacyText(ctx runtime.Context, out io.Writer) error {
 	caseShim := buildStatusCaseShim(ctx.RepoRoot, "")
 	fmt.Fprintf(out, "rekit go backend: %s\n", ctx.RuntimeRoot)
 	fmt.Fprintf(out, "template root: %s\n", ctx.RepoRoot)
@@ -866,6 +896,39 @@ func runStatusText(ctx runtime.Context, out io.Writer) error {
 	fmt.Fprintf(out, "managed files: %d\n", len(m.ManagedFiles))
 	fmt.Fprintf(out, "promote files: %d\n", len(m.PromoteFiles))
 	fmt.Fprintf(out, "tooling files: %d\n", len(m.ToolingFiles))
+	return nil
+}
+
+func runStatusText(ctx runtime.Context, out io.Writer) error {
+	status, err := buildStatusInventory(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "status：mutation=%t mode=%s targetProvided=%t pack=%s target=%s runtimeRoot=%s templateRoot=%s\n", status.IsMutation, status.Mode, status.TargetProvided, status.Pack, status.Target, status.RuntimeRoot, status.TemplateRoot); err != nil {
+		return err
+	}
+	if status.Manifest != nil {
+		if _, err := fmt.Fprintf(out, "status manifest：path=%s schema=%s managed=%d promote=%d tooling=%d\n", status.Manifest.ManifestPath, status.Manifest.SchemaVersion, status.Manifest.ManagedFiles, status.Manifest.PromoteFiles, status.Manifest.ToolingFiles); err != nil {
+			return err
+		}
+	}
+	if status.Case != nil {
+		if _, err := fmt.Fprintf(out, "status case：root=%s metadataSource=%s instance=%s templateRoot=%s templatePack=%s projectName=%s projectRoot=%s moved=%t\n", status.Case.CaseRoot, status.Case.MetadataSource, status.Case.InstancePath, status.Case.TemplateRoot, status.Case.TemplatePack, status.Case.ProjectName, status.Case.ProjectRoot, status.Case.Moved); err != nil {
+			return err
+		}
+	}
+	return writeStatusCaseShimText(out, status.CaseShim)
+}
+
+func writeStatusCaseShimText(out io.Writer, shim statusCaseShim) error {
+	if _, err := fmt.Fprintf(out, "status case shim：summary=%s ready=%t template=%s canonical=%s installed=%s matchesTemplate=%s requiredPhrases=%d canonicalSkillPhrases=%d forbiddenStrings=%d boundaries=%d warnings=%d\n", shim.Summary, shim.Ready, shim.TemplatePath, shim.CanonicalSkillPath, shim.InstalledShimPath, boolPtrText(shim.InstalledShimMatches), shim.RequiredPhrases, shim.CanonicalSkillPhrases, shim.ForbiddenStrings, shim.Boundaries, len(shim.Warnings)); err != nil {
+		return err
+	}
+	for _, warning := range shim.Warnings {
+		if _, err := fmt.Fprintf(out, "status case shim warning：%s\n", warning); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -952,6 +1015,16 @@ func boolPtrValue(value *bool) bool {
 	return value != nil && *value
 }
 
+func boolPtrText(value *bool) string {
+	if value == nil {
+		return "unknown"
+	}
+	if *value {
+		return "true"
+	}
+	return "false"
+}
+
 type doctorInventory struct {
 	Command       string       `json:"command"`
 	SchemaVersion int          `json:"schemaVersion"`
@@ -962,6 +1035,18 @@ type doctorInventory struct {
 	Valid         bool         `json:"valid"`
 	Summary       string       `json:"summary"`
 	Rows          []doctor.Row `json:"rows"`
+}
+
+func writeDoctorText(out io.Writer, result doctorInventory) error {
+	if _, err := fmt.Fprintf(out, "%s：mutation=%t valid=%t mode=%s pack=%s target=%s rows=%d summary=%s\n", result.Command, result.IsMutation, result.Valid, result.Mode, result.Pack, result.Target, len(result.Rows), result.Summary); err != nil {
+		return err
+	}
+	for _, row := range result.Rows {
+		if _, err := fmt.Fprintf(out, "%s row：file=%s bytes=%d limit=%d\n", result.Command, row.File, row.Bytes, row.Limit); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func runDoctor(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -987,9 +1072,11 @@ func runDoctor(ctx runtime.Context, opt Options, out io.Writer) error {
 		statusLine = "instance validation ok"
 	}
 	switch format {
-	case "table", "text", "tsv":
+	case "table", "tsv":
 		printRows(out, rows)
 		fmt.Fprintln(out, statusLine)
+	case "text":
+		return writeDoctorText(out, doctorInventory{Command: opt.Command, SchemaVersion: 1, IsMutation: false, Pack: ctx.Pack, Target: target, Mode: mode, Valid: true, Summary: statusLine, Rows: rows})
 	case "json":
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")

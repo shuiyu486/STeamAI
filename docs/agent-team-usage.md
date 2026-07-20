@@ -71,6 +71,10 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 /rekit handoff               # 生成项目级接手索引
 /rekit handoff main          # 生成主线接手文档
 /rekit handoff unpacking     # 生成功能支线接手文档
+/rekit status -Format text    # 只读显示 kit/case status、manifest 与 shim readiness handoff
+/rekit doctor -Format text    # 只读显示 pack/case validation summary 与 rows
+/rekit validate -Format text  # 只读显示 validate identity、summary 与 rows
+/rekit packs -Format text     # 只读显示 pack inventory、manifest counts 与 heavy action names
 /rekit attach -Target <caseRoot> -Pack <pack> -WhatIf -Format text # 旧 case 接入前预览 metadata/shim/state writes
 /rekit attach -Target <caseRoot> -Pack <pack> -Apply -Format text  # 写入 binding metadata/shim/state，并打印 next steps
 /rekit repair -Target <caseRoot> -Pack <pack> -WhatIf -Format text # case 移动后预览 metadata/shim refresh
@@ -94,6 +98,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 - `/rekit status` 能正确显示 kit/case 绑定。
 - `/rekit doctor` 通过，且 managed docs、policy、tooling 文件预算未超限。
 - 旧 case 同步前先看到 `.rekit/reviews/<timestamp>-sync/summary.md`、`packet.json` 和 bounded diff。
+- `status -Format text` 应直接输出 mutation/mode/targetProvided/pack/target/runtimeRoot/templateRoot、manifest summary、case metadata 与 case shim readiness counts/warnings；`doctor` / `validate -Format text` 应直接输出 command/mutation/valid/mode/pack/target/row count/summary 与逐 row file/bytes/limit；`packs -Format text` 应直接输出 pack count、逐 pack manifest/maturity/schema/managed/template/local/promote/tooling/prompts/routes/heavyToolGates/authority/version/description 与 heavy action names，保持 default/table/tsv compatibility、JSON inventory compatibility、read-only/no authority/confirmed/no-heavy/no PowerShell runtime logic。
 - `attach` / `repair` / `init` / `bootstrap` 的 `-WhatIf/-Apply -Format text` 应直接输出 lifecycle summary、逐 write path/kind/action/source/target/backup、blocked actions 与 nextSteps，保持 default JSON compatibility、case write semantics、case durable schema、no authority/confirmed/no-heavy/no PowerShell runtime logic；`bootstrap` 兼容入口必须保持 bootstrap command identity。
 - `sync -Format text` 与 `promote -Format text` 应直接输出 review plan summary、逐 item/tooling item action/risk/recommendation、paths、hashes、deny violations 与 replacement counts，保持 non-apply review-first、default JSON compatibility、review artifacts 行为不变、no authority/confirmed/no-heavy/no PowerShell runtime logic。
 - `sync -Apply/-WhatIf -Format text` 应直接输出 mutation/applied/writes/backupRoot、逐 write path/kind/action/source/target/backup 与 nextSteps，保持 kit -> case review-first、default JSON compatibility、no authority/confirmed/no-heavy/no PowerShell runtime logic；`update -Apply/-WhatIf` 复用同一写入路径时，JSON/text command identity、line prefix 与 WhatIf nextStep 必须保持 `update`。

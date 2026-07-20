@@ -142,6 +142,26 @@ func TestRunDoctorJsonPack(t *testing.T) {
 	if result.Rows[0].File == "" || result.Rows[0].Bytes <= 0 || result.Rows[0].Limit <= 0 {
 		t.Fatalf("unexpected doctor row: %+v", result.Rows[0])
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "doctor", "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"doctor：mutation=false valid=true mode=pack pack=_template",
+		"rows=",
+		"summary=pack validation ok",
+		"doctor row：file=",
+		"bytes=",
+		"limit=",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("doctor text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("doctor text should not emit JSON:\n%s", out.String())
+	}
 }
 
 func TestRunValidateJsonUsesValidateCommand(t *testing.T) {
@@ -159,6 +179,23 @@ func TestRunValidateJsonUsesValidateCommand(t *testing.T) {
 	}
 	if result.Command != "validate" || result.Mode != "pack" || !result.Valid {
 		t.Fatalf("unexpected validate JSON: %+v", result)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "validate", "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"validate：mutation=false valid=true mode=pack pack=_template",
+		"summary=pack validation ok",
+		"validate row：file=",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("validate text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("validate text should not emit JSON:\n%s", out.String())
 	}
 }
 
@@ -195,6 +232,23 @@ func TestRunCaseDoctorJson(t *testing.T) {
 	}
 	if result.Command != "doctor" || result.Pack != "_template" || result.Target != caseRoot || result.Mode != "case" || !result.Valid || result.Summary != "instance validation ok" || len(result.Rows) == 0 {
 		t.Fatalf("unexpected case doctor JSON: %+v", result)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "doctor", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"doctor：mutation=false valid=true mode=case pack=_template target=",
+		"summary=instance validation ok",
+		"doctor row：file=",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("case doctor text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("case doctor text should not emit JSON:\n%s", out.String())
 	}
 }
 
@@ -241,6 +295,26 @@ func TestRunStatusJsonKit(t *testing.T) {
 	}
 	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/_template/manifest.yml") || status.Manifest.SchemaVersion != "1" || status.Manifest.ManagedFiles != 4 || status.Manifest.PromoteFiles != 4 || status.Manifest.ToolingFiles != 2 {
 		t.Fatalf("unexpected manifest summary: %+v", status.Manifest)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status：mutation=false mode=kit targetProvided=false pack=_template",
+		"status manifest：path=",
+		"schema=1 managed=4 promote=4 tooling=2",
+		"status case shim：summary=case shim readiness ok ready=true",
+		"matchesTemplate=unknown",
+		"warnings=0",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status kit text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("status kit text should not emit JSON:\n%s", out.String())
 	}
 }
 
@@ -322,6 +396,28 @@ func TestRunStatusJsonCase(t *testing.T) {
 	if !status.CaseShim.Ready || status.CaseShim.Summary != "case shim readiness ok" || status.CaseShim.InstalledShimPath != status.Case.ShimPath || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate || status.CaseShim.RequiredPhrases == 0 || status.CaseShim.CanonicalSkillPhrases == 0 || status.CaseShim.ForbiddenStrings == 0 || status.CaseShim.Boundaries == 0 || len(status.CaseShim.Warnings) != 0 {
 		t.Fatalf("unexpected case shim status JSON: %+v", status.CaseShim)
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status：mutation=false mode=case targetProvided=true pack=_template",
+		"status case：root=",
+		"metadataSource=instance",
+		"templatePack=_template projectName=demo",
+		"moved=false",
+		"status case shim：summary=case shim readiness ok ready=true",
+		"matchesTemplate=true",
+		"warnings=0",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status case text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("status case text should not emit JSON:\n%s", out.String())
+	}
 }
 
 func TestRunStatusJsonCaseShimDrift(t *testing.T) {
@@ -358,6 +454,21 @@ func TestRunStatusJsonCaseShimDrift(t *testing.T) {
 	}
 	if !foundDrift {
 		t.Fatalf("case shim warnings = %+v, want drift warning", status.CaseShim.Warnings)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status case shim：summary=case shim readiness has warnings ready=false",
+		"matchesTemplate=false",
+		"warnings=1",
+		"status case shim warning：case-local /rekit shim differs from canonical thin shim template",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status drift text missing %q:\n%s", expected, out.String())
+		}
 	}
 }
 
@@ -1298,6 +1409,25 @@ func TestRunPacksListsPackMatrix(t *testing.T) {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("packs output missing %q:\n%s", expected, text)
 		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "packs", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"packs：mutation=false count=10",
+		"packs pack：id=_template name=_template maturity=template schema=ok manifestSchema=1 managed=4 template=1 local=3 promote=4 tooling=2 prompts=0 routes=2 heavyToolGates=7 authority=main version=0.1.0",
+		"packs pack：id=vmp-re name=vmp-re maturity=mature schema=ok manifestSchema=1 managed=7 template=1 local=3 promote=7 tooling=12 prompts=4 routes=2 heavyToolGates=7 authority=devirt-main version=0.2.0",
+		"packs pack heavy action：id=vmp-re action=debug",
+		"packs pack heavy action：id=vmp-re action=symex",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("packs text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("packs text should not emit JSON:\n%s", out.String())
 	}
 }
 

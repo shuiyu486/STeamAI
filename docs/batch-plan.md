@@ -16,25 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 446：case lifecycle text handoff closure
+### Batch 447：read-only health/inventory text handoff closure
 
-状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29729918385` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成本地实现、focused 与 full local validation；正在记录 durable docs、commit/push 与远程 release-gate inspection。
 
-目标：`attach` / `repair` / `init` / `bootstrap` 是新 case 初始化、旧 case 接入、移动修复与 compatibility bootstrap 的 lifecycle 入口；此前即使显式 `-Format text`，这些 path 仍总是 marshal JSON。Mission Commander / replacement executor 在 case lifecycle preview/apply 后仍需要解析 JSON 才能看到 metadata/shim/state writes、managed docs writes、blocked actions、moved metadata 与 nextSteps。本批把 lifecycle preview/apply result 投影到 text path。
+目标：`status`、`doctor` / `validate` 与 `packs` 是 Mission Commander / replacement executor 的日常只读健康与 inventory 入口；此前 explicit text path 仍有缺口：`status -Format text` 不含 JSON envelope 中的 mode/targetProvided/case metadata/shim warning detail，`doctor` / `validate -Format text` 只有 row table + ok line，`packs -Format text` 不受支持。本批把这些 read-only health/inventory result 投影到 explicit text path，同时保留默认/table/tsv 与 JSON compatibility。
 
-边界：只增强 `attach` / `repair` / `init` / `bootstrap` 的 `-WhatIf/-Apply -Format text` terminal handoff、focused CLI coverage 与 durable docs；不改变默认 JSON output、case write semantics、sync/promote review-first policy、case durable schema、public façade 删除门禁或远程 CI blocker 状态；不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
+边界：只增强 `status -Format text`、`doctor` / `validate -Format text`、`packs -Format text` terminal handoff、focused CLI coverage 与 durable docs；不改变默认 status/doctor/validate/packs terminal compatibility、不改变 JSON inventory contract、不写 case、不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic、不改变公共 façade 删除门禁或远程 CI blocker 状态。
 
 已完成内容：
 
-- `runAttach`、`runRepair` 与 `runInitBootstrap` 现在解析 `-Format`：`json` 保持 existing JSON output；`text` / `table` / `tsv` 输出 lifecycle text handoff。
-- `attach -WhatIf/-Apply -Format text` 输出 plan/apply summary、binding metadata / thin shim / legacy metadata / initial state writes、blocked actions 与 nextSteps，让旧 case 接入后无需解析 JSON 即可复核 attach scope。
-- `repair -WhatIf/-Apply -Format text` 输出 moved metadata summary（metadataSource、recordedProjectRoot、newProjectRoot、moved）、metadata/shim/legacy/state writes、blocked actions 与 nextSteps，让 moved case 修复 handoff 可直接在 terminal 消费。
-- `init` / `bootstrap -WhatIf/-Apply -Format text` 输出 lifecycle plan/apply summary、managed/template/support/state write detail、backupRoot、blocked actions 与 doctor nextSteps；`bootstrap` 保持 command identity。
-- CLI coverage 锁定 attach preview/apply text、repair preview/apply text、init preview/apply text、bootstrap preview/apply text、existing default JSON compatibility 与 no-write WhatIf behavior。
+- `packs -Format text` 现在输出 pack count、逐 pack id/name/maturity/schema/manifestSchema/managed/template/local/promote/tooling/prompts/routes/heavyToolGates/authority/version/manifest/description，并逐行列出 heavy action names 与 pack error。
+- `status` 明确拆分格式：`table` / `tsv` 保持 legacy terminal text；explicit `text` 输出 status summary、manifest summary、case metadata 与 case shim readiness counts/warnings；`json` 保持 existing inventory。
+- `doctor` / `validate` 明确拆分格式：`table` / `tsv` 保持 legacy rows + ok line；explicit `text` 输出 command/mutation/valid/mode/pack/target/row count/summary 与逐 row file/bytes/limit；`json` 保持 existing inventory。
+- CLI coverage 锁定 doctor/validate pack text、case doctor text、status kit/case/drift text、packs text、existing JSON inventory compatibility 与 no-JSON text output。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunAttachPreviewDoesNotCreateFiles|TestRunAttachApplyWritesBindingMetadataStateAndShim|TestRunRepairPreviewDoesNotWrite|TestRunRepairApplyRefreshesMetadataShimAndLegacy|TestRunInitPreviewDoesNotCreateFiles|TestRunInitApplyCreatesFullCase|TestRunBootstrapApplyUsesBootstrapCommand' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `5342846 Add lifecycle text handoff`；远程 release-gate run `29729918385` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunDoctorJsonPack|TestRunValidateJsonUsesValidateCommand|TestRunCaseDoctorJson|TestRunStatusJsonKit|TestRunStatusJsonCase|TestRunStatusJsonCaseShimDrift|TestRunPacksListsPackMatrix|TestRunPacksJsonInventory' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go run ./cmd/rekit -- -Command validate -Format text` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待完成，远程 CI 仍不能在未检查真实 GitHub Actions run 前声明 green。
 
-上一批摘要：Batch 445 已完成 promote apply text handoff closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 446 已完成 case lifecycle text handoff closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
