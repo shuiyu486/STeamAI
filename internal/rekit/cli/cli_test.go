@@ -2578,6 +2578,34 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 	}
 
 	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"rekit go backend:",
+		"template root: " + root,
+		"pack: _template",
+		"case: " + caseRoot,
+		"case templateRoot: " + root,
+		"case templatePack: _template",
+		"status case mission：summary=",
+		"status case mission queue：total=",
+		"status case mission queue action：bucket=current",
+		"status case mission lane action：lane=feature-login",
+		"status case mission facts：observations=1 requests=1",
+		"status case mission section：name=openCandidates",
+		"status case mission handoff：preview=/rekit handoff -Target",
+		"continueBoundary=status is read-only; run continue with -WhatIf first",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested case-local default status missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("nested case-local default status should not emit JSON object:\n%s", out.String())
+	}
+
+	out.Reset()
 	if err := Run([]string{"-Command", "doctor", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}

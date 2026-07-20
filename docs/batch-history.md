@@ -11170,6 +11170,16 @@ git diff --check
 
 验证结果：已通过 focused `go test ./internal/rekit/gate -run 'TestRecordExecutionWritesObservationForAuthorizedGate|TestRecordExecutionDuplicateDoesNotAppend|TestRecordExecutionAcceptsAdapterReportEscalation' -count=1`、`go test ./internal/rekit/cli -run TestRunGate -count=1`、`go test ./internal/rekit/gate ./internal/rekit/cli -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check`。`git diff --check` 仅报告 Windows LF/CRLF conversion warning，无 whitespace error。已提交并推送 `2748ebe Add execution evidence commander actions` 与 docs follow-up `e6a3768 Record Batch 393 release gate inspection`；远程 release-gate runs `29689101874` / `29689166329` 均为 completed failure，Linux/macOS/Windows jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
+### Batch 471：case status product-path smoke closure
+
+状态：已完成 case-local product-path status smoke coverage、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection。
+
+目标：Batch 465-470 连续把 case-mode `status` 第一屏扩展到 Mission Commander handoff、execution evidence review、blockers、ledger/progress、queue buckets 与 lane executor snapshots。Batch 471 不再继续加字段，而是把这些可读投影锁进真实 case-local nested cwd product path smoke：`init -Apply`、`start -Apply`、`continue -Apply`、lane handoff 之后，从 lane workspace 内运行 `status -Format text`，确认新会话第一屏可直接看到 queue、lane executor、ledger counts、sections、handoff command 与 continue boundary。
+
+实施范围：`TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 在 nested case-local cwd 中新增 `status -Format text` smoke，覆盖 `targetProvided=false` 的 case-local detection、Mission Commander status summary、queue action、lane executor action、fact counts、section summary、handoff command 与 continue WhatIf boundary。该 smoke 复用既有 `init/start/continue/handoff` product path，不新增 case artifact promotion、不新增 runtime 写入路径；该批只增强本机 product-path smoke coverage，不改变 status/overview/handoff/continue runtime 语义，不写 authority/confirmed，不执行 heavy-tool，不 replay adapter，不新增 PowerShell runtime logic，不改变 release blocker。
+
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunStatusJsonCase|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `cb32aa6 Add case status product smoke`、release inspection follow-up `f9fee25 Record Batch 471 release gate inspection` 与 final remote detail follow-up `d46ff64 Record Batch 471 follow-up release gate details`；远程 release-gate runs `29763813807` / `29763900528` / `29764026434` 均为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+
 ### Batch 470：case status lane executor handoff closure
 
 状态：已完成 case-mode status lane executor handoff runtime slice、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection。

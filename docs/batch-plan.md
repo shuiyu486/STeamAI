@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 471：case status product-path smoke closure
+### Batch 472：default status product-path smoke closure
 
-状态：已完成 case-local product-path status smoke coverage、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29763813807` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 case-local default status smoke coverage、durable docs 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本批收尾执行。
 
-目标：Batch 465-470 连续把 case-mode `status` 第一屏扩展到 Mission Commander handoff、execution evidence review、blockers、ledger/progress、queue buckets 与 lane executor snapshots。Batch 471 不再继续加字段，而是把这些可读投影锁进真实 case-local nested cwd product path smoke：`init -Apply`、`start -Apply`、`continue -Apply`、lane handoff 之后，从 lane workspace 内运行 `status -Format text`，确认新会话第一屏可直接看到 queue、lane executor、ledger counts、sections、handoff command 与 continue boundary。
+目标：Batch 471 锁定 `status -Format text` 的 case-local nested cwd 第一屏 handoff，但真实新会话常直接运行默认 `status`。Batch 472 把同一 product path 扩展到默认 status（无 `-Format`），确认 legacy/default text 在 lane workspace 内同样显示 case metadata、Mission Commander summary、queue、lane executor、ledger counts、sections、handoff command 与 continue boundary，避免用户必须记住 `-Format text` 才能接手。
 
-边界：只增强本机 product-path smoke coverage，不改变 status/overview/handoff/continue runtime 语义，不写 authority/confirmed，不执行 heavy-tool，不 replay adapter，不新增 PowerShell runtime logic，不改变 release blocker。
+边界：只增强本机 product-path smoke coverage，不改变 default/table/text/json status runtime 语义，不写 authority/confirmed，不执行 heavy-tool，不 replay adapter，不新增 PowerShell runtime logic，不改变 release blocker。
 
 已完成内容：
 
-- `TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 在 nested case-local cwd 中新增 `status -Format text` smoke。
-- smoke 覆盖 `targetProvided=false` 的 case-local detection、Mission Commander status summary、queue action、lane executor action、fact counts、section summary、handoff command 与 continue WhatIf boundary。
+- `TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 在 nested case-local cwd 中新增默认 `status` smoke。
+- smoke 覆盖 default status 的 repo/case metadata、case-local detection、Mission Commander status summary、queue action、lane executor action、fact counts、section summary、handoff command 与 continue WhatIf boundary。
 - 该 smoke 复用既有 `init/start/continue/handoff` product path，不新增 case artifact promotion、不新增 runtime 写入路径。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunStatusJsonCase|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `cb32aa6 Add case status product smoke` 与 release inspection follow-up `f9fee25 Record Batch 471 release gate inspection`；远程 release-gate runs `29763813807` / `29763900528` 均为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunStatusJsonCase|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待执行。
 
-上一批摘要：Batch 470 已完成 case status lane executor handoff closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 471 已完成 case status product-path smoke closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
