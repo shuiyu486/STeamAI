@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 447：read-only health/inventory text handoff closure
 
-状态：已完成本地实现、focused 与 full local validation；正在记录 durable docs、commit/push 与远程 release-gate inspection。
+状态：已完成本地实现、focused 与 full local validation、durable docs、commit/push 与远程 release-gate inspection；远程 release-gate run `29731515397` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：`status`、`doctor` / `validate` 与 `packs` 是 Mission Commander / replacement executor 的日常只读健康与 inventory 入口；此前 explicit text path 仍有缺口：`status -Format text` 不含 JSON envelope 中的 mode/targetProvided/case metadata/shim warning detail，`doctor` / `validate -Format text` 只有 row table + ok line，`packs -Format text` 不受支持。本批把这些 read-only health/inventory result 投影到 explicit text path，同时保留默认/table/tsv 与 JSON compatibility。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `doctor` / `validate` 明确拆分格式：`table` / `tsv` 保持 legacy rows + ok line；explicit `text` 输出 command/mutation/valid/mode/pack/target/row count/summary 与逐 row file/bytes/limit；`json` 保持 existing inventory。
 - CLI coverage 锁定 doctor/validate pack text、case doctor text、status kit/case/drift text、packs text、existing JSON inventory compatibility 与 no-JSON text output。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunDoctorJsonPack|TestRunValidateJsonUsesValidateCommand|TestRunCaseDoctorJson|TestRunStatusJsonKit|TestRunStatusJsonCase|TestRunStatusJsonCaseShimDrift|TestRunPacksListsPackMatrix|TestRunPacksJsonInventory' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go run ./cmd/rekit -- -Command validate -Format text` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。commit/push 与远程 release-gate inspection 待完成，远程 CI 仍不能在未检查真实 GitHub Actions run 前声明 green。
+验证结果：已通过 focused `go test ./internal/rekit/cli -run 'TestRunDoctorJsonPack|TestRunValidateJsonUsesValidateCommand|TestRunCaseDoctorJson|TestRunStatusJsonKit|TestRunStatusJsonCase|TestRunStatusJsonCaseShimDrift|TestRunPacksListsPackMatrix|TestRunPacksJsonInventory' -count=1`、`go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go run ./cmd/rekit -- -Command validate -Format text` 与 `git diff --check`；`release-check ready=true`，`git diff --check` 仅有 Windows LF/CRLF conversion warnings。已提交并推送 `6aee263 Add read-only text handoff`；远程 release-gate run `29731515397` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 446 已完成 case lifecycle text handoff closure，详见 `docs/batch-history.md`。
 
