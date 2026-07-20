@@ -4874,6 +4874,24 @@ func TestRunPromoteApplyWhatIfEmitsNonMutatingPlan(t *testing.T) {
 	if _, err := os.Stat(readmeWrite.BackupPath); !os.IsNotExist(err) {
 		t.Fatalf("promote apply what-if created backup %s", readmeWrite.BackupPath)
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"promote apply：mutation=false applied=false changed=",
+		"promote apply write：path=references/template/README.md kind=managed-doc action=would-promote",
+		"promote apply denied action：authority/confirmed writes",
+		"promote apply next step：review would-promote entries before rerunning with -Apply",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("promote apply what-if text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("promote apply what-if text should not emit JSON:\n%s", out.String())
+	}
 }
 
 func TestRunPromoteApplyWritesPackWithBackup(t *testing.T) {
@@ -4932,6 +4950,44 @@ func TestRunPromoteApplyWritesPackWithBackup(t *testing.T) {
 	}
 	if workflowWrite.BackupPath != "" {
 		t.Fatalf("blocked write unexpectedly has backup path: %+v", workflowWrite)
+	}
+}
+
+func TestRunPromoteApplyTextOutputsWritesValidationAndNextSteps(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	root := repoRoot(t)
+	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
+	candidateBefore := snapshotFiles(t, candidateRoot)
+	packRefsRoot := filepath.Join(root, "packs", "_template", "references", "template")
+	packRefsBefore := snapshotFiles(t, packRefsRoot)
+	t.Cleanup(func() {
+		removeNewFiles(t, packRefsRoot, packRefsBefore)
+		removeNewFiles(t, candidateRoot, candidateBefore)
+	})
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Apply text\n\nReusable safe text update.\n")
+	writeCaseFile(t, caseRoot, "references/template/workflow-template.md", "# Blocked\n\nDo not promote C:\\case\\artifact\\sample-trace.csv.\n")
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"promote apply：mutation=true applied=true changed=",
+		"blocked=1",
+		"cleanup=true",
+		"promote apply write：path=references/template/README.md kind=managed-doc action=promote",
+		"promote apply write：path=references/template/workflow-template.md kind=managed-doc action=blocked-deny-pattern",
+		"reason=C:\\\\",
+		"promote apply validation row：file=",
+		"promote apply denied action：authority/confirmed writes",
+		"promote apply next step：run doctor after apply",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("promote apply text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("promote apply text should not emit JSON:\n%s", out.String())
 	}
 }
 

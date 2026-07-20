@@ -2214,16 +2214,18 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		if wantsReviewArtifacts(opt) {
 			return fmt.Errorf("promote -Apply cannot be combined with review artifact options")
 		}
+		format, err := workstreamFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported promote apply format: %s", opt.Format)
+		}
 		result, err := promote.Apply(ctx.RepoRoot, target, ctx.Pack, promote.ApplyOptions{WhatIf: opt.WhatIf})
 		if err != nil {
 			return err
 		}
-		b, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			return err
+		if format == "json" {
+			return writeJSON(out, result)
 		}
-		_, err = out.Write(append(b, '\n'))
-		return err
+		return writePromoteApplyText(out, result)
 	}
 	if opt.WhatIf && !opt.CreateCandidates {
 		return fmt.Errorf("promote -WhatIf is only supported with -CreateCandidates or -Apply")
@@ -2721,6 +2723,33 @@ func writeSyncApplyText(out io.Writer, result syncreview.ApplyResult) error {
 	}
 	for _, write := range result.Writes {
 		if _, err := fmt.Fprintf(out, "%s apply write：path=%s kind=%s action=%s source=%s target=%s backup=%s\n", result.Command, write.Path, write.Kind, write.Action, write.SourcePath, write.TargetPath, write.BackupPath); err != nil {
+			return err
+		}
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "%s apply next step：%s\n", result.Command, step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writePromoteApplyText(out io.Writer, result promote.ApplyResult) error {
+	if _, err := fmt.Fprintf(out, "%s apply：mutation=%t applied=%t changed=%d blocked=%d skipped=%d writes=%d requiresReview=%t cleanup=%t backupRoot=%s\n", result.Command, result.IsMutation, result.Applied, result.Changed, result.Blocked, result.Skipped, len(result.Writes), result.RequiresReview, result.RequiresCleanup, result.BackupRoot); err != nil {
+		return err
+	}
+	for _, write := range result.Writes {
+		if _, err := fmt.Fprintf(out, "%s apply write：path=%s kind=%s action=%s source=%s target=%s backup=%s reason=%s\n", result.Command, write.Path, write.Kind, write.Action, write.SourcePath, write.TargetPath, write.BackupPath, write.Reason); err != nil {
+			return err
+		}
+	}
+	for _, row := range result.ValidationRows {
+		if _, err := fmt.Fprintf(out, "%s apply validation row：file=%s bytes=%d limit=%d\n", result.Command, row.File, row.Bytes, row.Limit); err != nil {
+			return err
+		}
+	}
+	for _, action := range result.DeniedWriteAction {
+		if _, err := fmt.Fprintf(out, "%s apply denied action：%s\n", result.Command, action); err != nil {
 			return err
 		}
 	}
