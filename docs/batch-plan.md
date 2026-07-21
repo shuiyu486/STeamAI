@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 483：case status authorized-gate handoff closure
 
-状态：已完成 case-mode `status` authorized-gate handoff implementation、durable docs、focused status/gate coverage 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待执行。
+状态：已完成 case-mode `status` authorized-gate handoff implementation、durable docs、focused status/gate coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29807532417` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 379/392/393 已让 authorized-gate、adapter execution report contract、read-only validation 与 execution evidence record result 分别有 Mission Commander handoff，但新会话第一屏 `status` 仍只看到 authorized-gate summary line；替换 executor 需要先跑 `gate -ExecutionReportContract` 或回查 overview/handoff 才知道可复制 contract command、validation/record 边界与授权 output/stop evidence。Batch 483 将 authorized-gate → execution report contract → validate sidecar → record bounded evidence 的接手提示直接投影到 case-mode `status.caseMission.authorizedGateHandoffs[]` 与 text 第一屏。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `status -Format text` / 默认 status 在 authorized-gate summary 后直接输出 handoff、validate boundary、record boundary 与 authorized outputPaths/stopConditions evidence lines。
 - Coverage 在 authorized-gate apply product path 后同时验证 `status -Format json`、`status -Format text`、默认 status visibility 与 `.rekit` snapshot no-write invariant。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunStatusJsonCase|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1`、`go test ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`。commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunStatusJsonCase|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1`、`go test ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`。已提交并推送 `b5d16bd Add status authorized gate handoff`；远程 release-gate run `29807532417` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 482 已完成 latest-batch validation handoff closure，详见 `docs/batch-history.md`。
 
