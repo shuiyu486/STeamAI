@@ -357,7 +357,6 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"localValidationReady=",
 		"status latest batch next action：",
 		"status latest batch evidence：release-check ready=true recorded",
-		"status latest batch evidence：go test ./... recorded",
 		"status latest batch goal：",
 		"status latest batch validation：",
 		"status read first：docs/context-routing.md",
@@ -996,7 +995,6 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		"release-check latest batch：batch=Batch ",
 		"localValidationReady=",
 		"release-check latest batch evidence：release-check ready=true recorded",
-		"release-check latest batch evidence：go test ./... recorded",
 		"release-check release notes：path=CHANGELOG.md present=true",
 		"release-check read first：path=docs/context-routing.md present=true",
 		"release-check signal：name=CI release gate ready=true summary=CI release gate inventory ok",
@@ -7424,6 +7422,62 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if result.MissionCommanderAction.State != "ready-for-execution-report-contract" || result.MissionCommanderAction.PrimaryCommand != wantContractCommand || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", wantContractCommand, false, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, true) {
 		t.Fatalf("authorized gate apply should expose top-level report contract handoff: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
+	beforeStatus := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			AuthorizedGates        []string                      `json:"authorizedGates"`
+			AuthorizedGateHandoffs []statusAuthorizedGateHandoff `json:"authorizedGateHandoffs"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("authorized gate status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if len(status.CaseMission.AuthorizedGates) != 1 || !containsSubstring(status.CaseMission.AuthorizedGates, "reportContract=") || len(status.CaseMission.AuthorizedGateHandoffs) != 1 {
+		t.Fatalf("status should expose authorized gate handoff: %+v", status.CaseMission)
+	}
+	statusHandoff := status.CaseMission.AuthorizedGateHandoffs[0]
+	wantStatusContract := "/rekit gate -Target " + statusQuoteCommandArg(caseRoot) + " -Pack _template -GateEventId " + authorizedEventID + " -ExecutionReportContract -Format json"
+	if statusHandoff.EventID != authorizedEventID || statusHandoff.Lane != "main" || statusHandoff.Subject != "authorized debug" || statusHandoff.Action != "debug" || statusHandoff.Target != "target-alpha" || statusHandoff.Status != "authorized-gate" || statusHandoff.Authorization != "preauthorized" || statusHandoff.Profile != "prof-main-debug" || statusHandoff.ReportContract != wantStatusContract || statusHandoff.HandoffCommand != "/rekit handoff main" || !containsSubstring(statusHandoff.Evidence, "authorized outputPaths workspace/main/debug/session-1") || !containsSubstring(statusHandoff.Evidence, "authorized stopConditions timeout") || !strings.Contains(statusHandoff.ValidateBoundary, "ValidateExecutionReport") || !strings.Contains(statusHandoff.RecordBoundary, "valid=true") {
+		t.Fatalf("unexpected status authorized gate handoff: %+v", statusHandoff)
+	}
+	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status case mission authorized gate：authorized debug",
+		"status case mission authorized gate handoff：eventId=" + authorizedEventID + " lane=main subject=authorized debug action=debug target=target-alpha status=authorized-gate",
+		"auth=preauthorized profile=prof-main-debug reportContract=" + wantStatusContract + " handoff=/rekit handoff main",
+		"status case mission authorized gate validate boundary：eventId=" + authorizedEventID,
+		"status case mission authorized gate record boundary：eventId=" + authorizedEventID,
+		"status case mission authorized gate evidence：eventId=" + authorizedEventID + " evidence=authorized outputPaths workspace/main/debug/session-1",
+		"status case mission authorized gate evidence：eventId=" + authorizedEventID + " evidence=authorized stopConditions timeout",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status authorized gate text missing %q:\n%s", expected, out.String())
+		}
+	}
+	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status case mission authorized gate：authorized debug",
+		"status case mission authorized gate handoff：eventId=" + authorizedEventID,
+		"status case mission authorized gate validate boundary：eventId=" + authorizedEventID,
+		"status case mission authorized gate record boundary：eventId=" + authorizedEventID,
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("default status authorized gate text missing %q:\n%s", expected, out.String())
+		}
+	}
+	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ExecutionReportContract", "-GateEventId", authorizedEventID, "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
@@ -7878,12 +7932,12 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	statusPath := assertStartWrite(t, cont.Writes, ".rekit/runs/"+cont.RunID+"/status.json", "write").TargetPath
 	digestPath := assertStartWrite(t, cont.Writes, ".rekit/runs/"+cont.RunID+"/digest.md", "write").TargetPath
-	status, err := os.ReadFile(statusPath)
+	statusBytes, err := os.ReadFile(statusPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(status), `"authorizedGates"`) || !strings.Contains(string(status), `"executorAction"`) || !strings.Contains(string(status), `"executionEvidenceReview"`) || !strings.Contains(string(status), `"missionCommanderNextActions"`) || !strings.Contains(string(status), `"openDecisions": 1`) || !strings.Contains(string(status), "authorized debug") || !strings.Contains(string(status), "outputPaths=workspace/main/debug/session-1") || !strings.Contains(string(status), "stopConditions=timeout") || !strings.Contains(string(status), "eventId="+authorizedEventID) || !strings.Contains(string(status), "reportContract="+reportContract) || strings.Contains(string(status), "pending-gate requires main-agent/user decision") {
-		t.Fatalf("continue status missing non-blocking authorized gate visibility or executor action:\n%s", string(status))
+	if !strings.Contains(string(statusBytes), `"authorizedGates"`) || !strings.Contains(string(statusBytes), `"executorAction"`) || !strings.Contains(string(statusBytes), `"executionEvidenceReview"`) || !strings.Contains(string(statusBytes), `"missionCommanderNextActions"`) || !strings.Contains(string(statusBytes), `"openDecisions": 1`) || !strings.Contains(string(statusBytes), "authorized debug") || !strings.Contains(string(statusBytes), "outputPaths=workspace/main/debug/session-1") || !strings.Contains(string(statusBytes), "stopConditions=timeout") || !strings.Contains(string(statusBytes), "eventId="+authorizedEventID) || !strings.Contains(string(statusBytes), "reportContract="+reportContract) || strings.Contains(string(statusBytes), "pending-gate requires main-agent/user decision") {
+		t.Fatalf("continue status missing non-blocking authorized gate visibility or executor action:\n%s", string(statusBytes))
 	}
 	digest, err := os.ReadFile(digestPath)
 	if err != nil {

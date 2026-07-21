@@ -1275,6 +1275,23 @@ type statusProjectHandoff struct {
 	ValidationCommands         []string `json:"validationCommands"`
 }
 
+type statusAuthorizedGateHandoff struct {
+	EventID          string   `json:"eventId,omitempty"`
+	Lane             string   `json:"lane,omitempty"`
+	Subject          string   `json:"subject,omitempty"`
+	Action           string   `json:"action,omitempty"`
+	Target           string   `json:"target,omitempty"`
+	Status           string   `json:"status,omitempty"`
+	Risk             string   `json:"risk,omitempty"`
+	Authorization    string   `json:"authorization,omitempty"`
+	Profile          string   `json:"profile,omitempty"`
+	ReportContract   string   `json:"reportContract,omitempty"`
+	HandoffCommand   string   `json:"handoffCommand,omitempty"`
+	ValidateBoundary string   `json:"validateBoundary,omitempty"`
+	RecordBoundary   string   `json:"recordBoundary,omitempty"`
+	Evidence         []string `json:"evidence,omitempty"`
+}
+
 type statusCaseMission struct {
 	Ready                         bool                                     `json:"ready"`
 	Summary                       string                                   `json:"summary"`
@@ -1286,6 +1303,7 @@ type statusCaseMission struct {
 	LaneExecutorActions           []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions,omitempty"`
 	PendingGates                  []string                                 `json:"pendingGates,omitempty"`
 	AuthorizedGates               []string                                 `json:"authorizedGates,omitempty"`
+	AuthorizedGateHandoffs        []statusAuthorizedGateHandoff            `json:"authorizedGateHandoffs,omitempty"`
 	OpenDecisions                 []string                                 `json:"openDecisions,omitempty"`
 	Interventions                 []string                                 `json:"interventions,omitempty"`
 	FactCounts                    *overview.FactCounts                     `json:"factCounts,omitempty"`
@@ -1529,6 +1547,11 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 			return err
 		}
 	}
+	for _, handoff := range summary.AuthorizedGateHandoffs {
+		if err := writeStatusAuthorizedGateHandoffText(out, handoff); err != nil {
+			return err
+		}
+	}
 	for _, decision := range summary.OpenDecisions {
 		if _, err := fmt.Fprintf(out, "status case mission open decision：%s\n", decision); err != nil {
 			return err
@@ -1617,6 +1640,28 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 	}
 	if _, err := fmt.Fprintf(out, "status case mission handoff：preview=%s apply=%s continueBoundary=%s\n", summary.HandoffPreviewCommand, summary.HandoffApplyCommand, summary.ContinueRequiresExplicitApply); err != nil {
 		return err
+	}
+	return nil
+}
+
+func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorizedGateHandoff) error {
+	if _, err := fmt.Fprintf(out, "status case mission authorized gate handoff：eventId=%s lane=%s subject=%s action=%s target=%s status=%s risk=%s auth=%s profile=%s reportContract=%s handoff=%s\n", handoff.EventID, handoff.Lane, handoff.Subject, handoff.Action, handoff.Target, handoff.Status, handoff.Risk, handoff.Authorization, handoff.Profile, handoff.ReportContract, handoff.HandoffCommand); err != nil {
+		return err
+	}
+	if strings.TrimSpace(handoff.ValidateBoundary) != "" {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate validate boundary：eventId=%s boundary=%s\n", handoff.EventID, handoff.ValidateBoundary); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(handoff.RecordBoundary) != "" {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate record boundary：eventId=%s boundary=%s\n", handoff.EventID, handoff.RecordBoundary); err != nil {
+			return err
+		}
+	}
+	for _, evidence := range handoff.Evidence {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate evidence：eventId=%s evidence=%s\n", handoff.EventID, evidence); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1896,6 +1941,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		BlockedLanes:                  append([]string{}, inventory.MissionBrief.BlockedLanes...),
 		PendingGates:                  append([]string{}, inventory.MissionBrief.PendingGates...),
 		AuthorizedGates:               append([]string{}, inventory.MissionBrief.AuthorizedGates...),
+		AuthorizedGateHandoffs:        statusAuthorizedGateHandoffs(caseRoot, pack, inventory.Sections.AuthorizedGates.Events),
 		OpenDecisions:                 append([]string{}, inventory.MissionBrief.OpenDecisions...),
 		Interventions:                 append([]string{}, inventory.MissionBrief.Interventions...),
 		LaneExecutorActions:           append([]mission.LaneExecutorActionSnapshot{}, inventory.LaneExecutorActions...),
@@ -1911,6 +1957,114 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		HandoffApplyCommand:           applyCommand,
 		ContinueRequiresExplicitApply: continueBoundary,
 	}, nil
+}
+
+func statusAuthorizedGateHandoffs(caseRoot, pack string, events []map[string]any) []statusAuthorizedGateHandoff {
+	out := []statusAuthorizedGateHandoff{}
+	for _, event := range events {
+		handoff := statusAuthorizedGateHandoffFor(caseRoot, pack, event)
+		if strings.TrimSpace(handoff.EventID) == "" && strings.TrimSpace(handoff.Subject) == "" {
+			continue
+		}
+		out = append(out, handoff)
+	}
+	return out
+}
+
+func statusAuthorizedGateHandoffFor(caseRoot, pack string, event map[string]any) statusAuthorizedGateHandoff {
+	gate := statusEventMap(event, "gate")
+	authorization := statusEventMap(gate, "authorization")
+	eventID := statusEventValue(event, "eventId")
+	lane := statusEventValue(event, "lane")
+	reportContract := ""
+	if eventID != "" {
+		reportContract = fmt.Sprintf("/rekit gate -Target %s -Pack %s -GateEventId %s -ExecutionReportContract -Format json", statusQuoteCommandArg(caseRoot), statusFirstText(pack, defaults.DefaultPack), eventID)
+	}
+	evidence := []string{}
+	if eventID != "" {
+		evidence = append(evidence, "authorized-gate ledger event "+eventID)
+	}
+	if outputs := statusEventValue(gate, "outputPaths"); outputs != "" {
+		evidence = append(evidence, "authorized outputPaths "+outputs)
+	}
+	if stops := statusEventValue(gate, "stopConditions"); stops != "" {
+		evidence = append(evidence, "authorized stopConditions "+stops)
+	}
+	return statusAuthorizedGateHandoff{
+		EventID:          eventID,
+		Lane:             lane,
+		Subject:          statusEventValue(event, "subject"),
+		Action:           statusEventValue(gate, "action"),
+		Target:           statusEventValue(event, "target"),
+		Status:           statusEventValue(event, "status"),
+		Risk:             statusEventValue(event, "risk"),
+		Authorization:    statusEventValue(authorization, "decision"),
+		Profile:          statusEventValue(authorization, "profileId"),
+		ReportContract:   reportContract,
+		HandoffCommand:   "/rekit handoff " + statusLaneCommandLabel(lane),
+		ValidateBoundary: "read the execution report contract before adapter work; validate the sidecar with -ValidateExecutionReport before recording evidence",
+		RecordBoundary:   "record bounded observation evidence only after validation returns valid=true; no heavy-tool replay and no authority/confirmed writes",
+		Evidence:         evidence,
+	}
+}
+
+func statusEventMap(event map[string]any, key string) map[string]any {
+	if event == nil {
+		return nil
+	}
+	value, ok := event[key].(map[string]any)
+	if !ok {
+		return nil
+	}
+	return value
+}
+
+func statusEventValue(event map[string]any, key string) string {
+	if event == nil {
+		return ""
+	}
+	value, ok := event[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case []string:
+		parts := []string{}
+		for _, item := range typed {
+			if text := strings.TrimSpace(item); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, ",")
+	case []any:
+		parts := []string{}
+		for _, item := range typed {
+			if text := strings.TrimSpace(fmt.Sprint(item)); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, ",")
+	case bool:
+		if typed {
+			return "true"
+		}
+		return "false"
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func statusLaneCommandLabel(lane string) string {
+	lane = strings.TrimSpace(lane)
+	if lane == "" || lane == "main" {
+		return "main"
+	}
+	if label, ok := strings.CutPrefix(lane, "feature-"); ok && strings.TrimSpace(label) != "" {
+		return strings.TrimSpace(label)
+	}
+	return lane
 }
 
 func statusQuoteCommandArg(value string) string {

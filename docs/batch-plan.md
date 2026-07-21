@@ -16,25 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 482：latest-batch validation handoff closure
+### Batch 483：case status authorized-gate handoff closure
 
-状态：已完成 latest-batch validation handoff implementation、durable docs、focused tests、public CLI text validation、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29805484529` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 case-mode `status` authorized-gate handoff implementation、durable docs、focused status/gate coverage 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待执行。
 
-目标：Batch 464 起 kit-mode status 能显示 latest batch 摘要，Batch 481 也记录了完整本地验证和远程 steps=[] blocker，但新会话第一屏仍要读长 `验证结果` 文本才能判断“本地是否已跑完 release minimum”“是否已经检查远程 release-gate”“下一步是继续本机可验证批次还是先补验证”。Batch 482 将 latest batch validation/remote state 结构化到 `releaseHandoff.latestBatch.handoff` 与 kit-mode `status.projectHandoff`。
+目标：Batch 379/392/393 已让 authorized-gate、adapter execution report contract、read-only validation 与 execution evidence record result 分别有 Mission Commander handoff，但新会话第一屏 `status` 仍只看到 authorized-gate summary line；替换 executor 需要先跑 `gate -ExecutionReportContract` 或回查 overview/handoff 才知道可复制 contract command、validation/record 边界与授权 output/stop evidence。Batch 483 将 authorized-gate → execution report contract → validate sidecar → record bounded evidence 的接手提示直接投影到 case-mode `status.caseMission.authorizedGateHandoffs[]` 与 text 第一屏。
 
-边界：只增强只读 `release-check` / kit-mode `status` handoff；不执行远程 CI、不改变 release-check inventory readiness 语义、case-mode runtime、sync/promote/workstream/gate、authority/confirmed、heavy-tool 或 PowerShell runtime logic。
+边界：只增强只读 case-mode `status` handoff；不执行 heavy-tool、不 replay adapter、不写 observations/authority/confirmed、不改变 `gate -Apply` request/evidence 语义、sync/promote/workstream、case durable schema 或 PowerShell runtime logic。
 
 已完成内容：
 
-- `ReleaseHandoffLatestBatch` 新增 `handoff`，投影 `completed`、`localValidationReady`、`releaseCheckReady`、`remoteReleaseGate`、`evidence[]`、`commitRefs[]` 与 `nextAction`。
-- latest batch parser 从 `docs/batch-plan.md` 当前 batch 区提取完整本地 release minimum 命令、`release-check ready=true`、远程 release-gate `steps: []` blocker、public CLI/product-path evidence 与 commit refs。
-- `release-check -Format text` 输出 latest batch local/remote readiness、evidence 与 next action；latest-batch documentation signal 也携带同一 handoff，但只把 current batch 文档存在性、completion、goal 与 validation summary 作为 release handoff inventory readiness，未记录完整 local validation 时由 `nextAction` 指向补跑本地 gate。
-- kit-mode `status -Format json/text` 与默认 status 的 `projectHandoff` 同步输出 latest batch local validation readiness、release-check readiness、remote gate state、evidence 与 next action，让新会话第一屏不用解析长 validation prose。
-- Coverage 锁定 release handoff JSON、latest-batch evidence extraction、release-check text、status JSON/text/default output。
+- `status.caseMission.authorizedGateHandoffs[]` 新增 per authorized-gate structured handoff，包含 `eventId`、lane、subject/action/target、status/risk、authorization/profile、可复制 `gate -ExecutionReportContract` command、lane handoff command、validation boundary、record boundary 与 evidence。
+- `status -Format text` / 默认 status 在 authorized-gate summary 后直接输出 handoff、validate boundary、record boundary 与 authorized outputPaths/stopConditions evidence lines。
+- Coverage 在 authorized-gate apply product path 后同时验证 `status -Format json`、`status -Format text`、默认 status visibility 与 `.rekit` snapshot no-write invariant。
 
-验证结果：已通过 focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestLatestBatchHandoffExtractsValidationEvidence|TestLatestBatchRemoteGateDoesNotTreatNegativeGreenAsGreen|TestReleaseHandoff|TestRunStatusJsonKit|TestRunReleaseCheck" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`。已提交并推送 `b3f4d4c Add latest batch validation handoff`；远程 release-gate run `29805484529` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunStatusJsonCase|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1`、`go test ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`。commit/push 与远程 release-gate inspection 待执行。
 
-上一批摘要：Batch 481 已完成 moved-case preview-first diagnostics closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 482 已完成 latest-batch validation handoff closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
