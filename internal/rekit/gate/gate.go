@@ -260,6 +260,8 @@ type AdapterReportRepairHint struct {
 	AllowedOutputPaths    []string `json:"allowedOutputPaths,omitempty"`
 	AllowedStopConditions []string `json:"allowedStopConditions,omitempty"`
 	MaxBytes              int      `json:"maxBytes,omitempty"`
+	Evidence              []string `json:"evidence,omitempty"`
+	Boundary              []string `json:"boundary,omitempty"`
 	RecordBlocked         bool     `json:"recordBlocked"`
 	RerunValidation       bool     `json:"rerunValidation"`
 	EscalateToMain        bool     `json:"escalateToMain,omitempty"`
@@ -363,7 +365,7 @@ func adapterReportValidationFailureCodes() []AdapterReportValidationFailureCode 
 }
 
 func adapterReportMissingPathRepairHints(gateEvent EventPreview) []AdapterReportRepairHint {
-	return []AdapterReportRepairHint{{
+	hint := AdapterReportRepairHint{
 		Stage:              "path",
 		RepairAction:       "provide-execution-report-path",
 		Fields:             []string{"executionReportPath"},
@@ -371,7 +373,8 @@ func adapterReportMissingPathRepairHints(gateEvent EventPreview) []AdapterReport
 		RecordBlocked:      true,
 		RerunValidation:    true,
 		Detail:             "provide -ExecutionReportPath under an authorized output path before recording evidence",
-	}}
+	}
+	return []AdapterReportRepairHint{adapterReportRepairHintWithHandoff(gateEvent, hint)}
 }
 
 func adapterReportContractRepairHints(gateEvent EventPreview) []AdapterReportRepairHint {
@@ -384,14 +387,15 @@ func adapterReportContractRepairHints(gateEvent EventPreview) []AdapterReportRep
 
 func adapterReportRepairHints(gateEvent EventPreview, code, stage string) []AdapterReportRepairHint {
 	if strings.TrimSpace(code) == "" {
-		return []AdapterReportRepairHint{{
+		hint := AdapterReportRepairHint{
 			Stage:           stage,
 			RepairAction:    "escalate-validation-error",
 			RecordBlocked:   true,
 			RerunValidation: true,
 			EscalateToMain:  true,
 			Detail:          "validation failed without a stable failureCode; escalate the bounded sidecar and validation error to the main Agent",
-		}}
+		}
+		return []AdapterReportRepairHint{adapterReportRepairHintWithHandoff(gateEvent, hint)}
 	}
 	hint := AdapterReportRepairHint{Code: code, Stage: stage, RecordBlocked: true, RerunValidation: true}
 	switch code {
@@ -521,7 +525,103 @@ func adapterReportRepairHints(gateEvent EventPreview, code, stage string) []Adap
 		hint.EscalateToMain = true
 		hint.Detail = "validation failed with an unknown failureCode; escalate the bounded sidecar and validation error to the main Agent"
 	}
-	return []AdapterReportRepairHint{hint}
+	return []AdapterReportRepairHint{adapterReportRepairHintWithHandoff(gateEvent, hint)}
+}
+
+func adapterReportRepairHintWithHandoff(gateEvent EventPreview, hint AdapterReportRepairHint) AdapterReportRepairHint {
+	if len(hint.Evidence) == 0 {
+		hint.Evidence = adapterReportRepairHintEvidence(hint)
+	}
+	if len(hint.Boundary) == 0 {
+		hint.Boundary = adapterReportRepairHintBoundary(gateEvent, hint)
+	}
+	return hint
+}
+
+func adapterReportRepairHintEvidence(hint AdapterReportRepairHint) []string {
+	evidence := []string{"repairHints[].repairAction"}
+	if strings.TrimSpace(hint.Code) != "" || strings.TrimSpace(hint.Stage) != "" {
+		evidence = append(evidence, "failureCode/failureStage")
+	}
+	if len(hint.Fields) > 0 {
+		evidence = append(evidence, "fields="+strings.Join(hint.Fields, ","))
+	}
+	if len(hint.AllowedValues) > 0 {
+		evidence = append(evidence, "allowedValues="+strings.Join(hint.AllowedValues, ","))
+	}
+	if len(hint.AllowedOutputPaths) > 0 {
+		evidence = append(evidence, "allowedOutputPaths="+strings.Join(hint.AllowedOutputPaths, ","))
+	}
+	if len(hint.AllowedStopConditions) > 0 {
+		evidence = append(evidence, "allowedStopConditions="+strings.Join(hint.AllowedStopConditions, ","))
+	}
+	if hint.MaxBytes > 0 {
+		evidence = append(evidence, fmt.Sprintf("maxBytes=%d", hint.MaxBytes))
+	}
+	return mission.UniqueStrings(evidence)
+}
+
+func adapterReportRepairHintBoundary(gateEvent EventPreview, hint AdapterReportRepairHint) []string {
+	boundary := []string{
+		"recordBlocked=true: do not record evidence until validation returns valid=true",
+		"validation is read-only: no observations/authority/confirmed writes",
+		"/rekit never executes the heavy tool",
+		"no authority/confirmed writes",
+	}
+	if hint.RerunValidation {
+		boundary = append(boundary, "rerun read-only validation after repair")
+	}
+	allowedOutputPaths := hint.AllowedOutputPaths
+	if len(allowedOutputPaths) == 0 && adapterReportRepairHintUsesAuthorizedOutputPaths(hint) {
+		allowedOutputPaths = normalizedGatePaths(gateEvent.Gate.OutputPaths)
+	}
+	if len(allowedOutputPaths) > 0 {
+		boundary = append(boundary, "stay under authorized outputPaths: "+strings.Join(allowedOutputPaths, ","))
+	}
+	if len(hint.AllowedStopConditions) > 0 {
+		boundary = append(boundary, "boundaryHits must use authorized stopConditions: "+strings.Join(hint.AllowedStopConditions, ","))
+	}
+	if hint.MaxBytes > 0 {
+		boundary = append(boundary, fmt.Sprintf("bounded field maxBytes=%d", hint.MaxBytes))
+	}
+	if hint.EscalateToMain {
+		boundary = append(boundary, "escalate to main Agent before autonomous continuation")
+	}
+	return mission.UniqueStrings(boundary)
+}
+
+func adapterReportRepairHintUsesAuthorizedOutputPaths(hint AdapterReportRepairHint) bool {
+	for _, field := range hint.Fields {
+		switch field {
+		case "executionReportPath", "outputRefs", "evidenceRefs":
+			return true
+		}
+	}
+	return false
+}
+
+func adapterReportRepairHintReasons(hint AdapterReportRepairHint) []string {
+	reasons := []string{"repair invalid adapter execution report before record"}
+	if strings.TrimSpace(hint.Detail) != "" {
+		reasons = append(reasons, hint.Detail)
+	}
+	reasons = append(reasons, hint.Evidence...)
+	if hint.RecordBlocked {
+		reasons = append(reasons, "recordBlocked=true; do not record evidence until valid=true")
+	}
+	if hint.RerunValidation {
+		reasons = append(reasons, "rerun read-only validation after repair")
+	}
+	if hint.EscalateToMain {
+		reasons = append(reasons, "repair requires main Agent escalation")
+	}
+	return mission.UniqueStrings(reasons)
+}
+
+func adapterReportRepairHintBoundaries(base []string, hint AdapterReportRepairHint) []string {
+	boundary := append([]string{}, base...)
+	boundary = append(boundary, hint.Boundary...)
+	return mission.UniqueStrings(boundary)
 }
 
 func adapterReportRepairNextSteps(hints []AdapterReportRepairHint) []string {
@@ -1154,10 +1254,6 @@ func adapterReportValidationCommanderNextActions(event EventPreview, commander m
 		if strings.TrimSpace(hint.RepairAction) == "" {
 			continue
 		}
-		reasons := []string{"repair invalid adapter execution report before record", hint.Detail}
-		if hint.RerunValidation {
-			reasons = append(reasons, "rerun read-only validation after repair")
-		}
 		items = append(items, mission.MissionCommanderNextActionItem{
 			Lane:           event.Lane,
 			Label:          label,
@@ -1166,8 +1262,8 @@ func adapterReportValidationCommanderNextActions(event EventPreview, commander m
 			Source:         "adapterReportValidation.repairHints",
 			Blocked:        hint.EscalateToMain,
 			RequiresReview: true,
-			Reasons:        reasons,
-			Boundary:       append([]string{}, commander.Boundary...),
+			Reasons:        adapterReportRepairHintReasons(hint),
+			Boundary:       adapterReportRepairHintBoundaries(commander.Boundary, hint),
 		})
 	}
 	if commander.PrimaryCommand != "" {

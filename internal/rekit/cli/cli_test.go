@@ -7692,6 +7692,10 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"gate adapter report sidecar template：kind=adapter-execution-report adapterId=<adapter-id> action=debug status=succeeded|failed|boundary-hit|escalated|aborted gateEventId=" + applied.EventID,
 		"gate adapter report sidecar outputRefs：<case-relative output under authorized outputPaths>",
 		"gate adapter report live validation note：ValidateArgs and CaseRelativeValidateArgs are read-only: isMutation=false, applied=false, and no observations/authority/confirmed writes.",
+		"gate adapter report validation repair hint：action=add-boundary-marker recordBlocked=true rerunValidation=true code=boundary-marker-missing stage=boundary",
+		"gate adapter report validation repair hint evidence：action=add-boundary-marker evidence=allowedStopConditions=timeout",
+		"gate adapter report validation repair hint boundary：action=add-boundary-marker boundary=boundaryHits must use authorized stopConditions: timeout",
+		"gate adapter report validation repair hint boundary：action=move-evidence-refs-under-authorized-output-paths boundary=stay under authorized outputPaths: workspace/main/debug/session-1",
 		"adapter report contract follow-through：state=needs-adapter-report-validation gateEventId=" + applied.EventID + " reportPath=" + wantReportPath + " outcomes=3",
 		"adapter report contract follow-through outcome：name=write-and-validate-report state=needs-adapter-report-validation command=`" + wantValidate + "`",
 		"adapter report contract follow-through when：name=write-and-validate-report when=after authorized-gate request is recorded and execution report contract is read",
@@ -7767,6 +7771,8 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"gate adapter report validation：valid=false gateEventId=" + applied.EventID + " reportPath=" + invalidReportPath + " mutation=false applied=false",
 		"gate adapter report validation failure：code=boundary-marker-missing stage=boundary",
 		"gate adapter report repair hint：action=add-boundary-marker recordBlocked=true rerunValidation=true code=boundary-marker-missing stage=boundary fields=boundaryHits,escalation allowedValues= allowedOutputPaths= allowedStopConditions=timeout maxBytes=0 escalateToMain=false detail=boundary-hit or escalated status requires authorized boundaryHits or a bounded escalation",
+		"gate adapter report repair hint evidence：action=add-boundary-marker evidence=allowedStopConditions=timeout",
+		"gate adapter report repair hint boundary：action=add-boundary-marker boundary=boundaryHits must use authorized stopConditions: timeout",
 		"adapter report validation follow-through：state=repair-adapter-report gateEventId=" + applied.EventID + " reportPath=" + invalidReportPath + " outcomes=1",
 		"adapter report validation follow-through when：name=invalid-report-repair when=gate -ValidateExecutionReport returns valid=false or a report path is missing",
 		"adapter report validation follow-through repair action：name=invalid-report-repair action=add-boundary-marker",
@@ -7774,7 +7780,9 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"adapter report validation commander action：state=repair-adapter-report primary=`" + wantInvalidValidate + "`",
 		"mission commander next action：state=repair-adapter-report source=adapterReportValidation.repairHints blocked=false requiresReview=true command=`add-boundary-marker`",
 		"mission commander next action：state=repair-adapter-report source=adapterReportValidation.missionCommanderAction blocked=false requiresReview=true command=`" + wantInvalidValidate + "`",
-		"mission commander next action reason：do not record evidence until validation returns valid=true",
+		"mission commander next action reason：allowedStopConditions=timeout",
+		"mission commander next action reason：recordBlocked=true; do not record evidence until valid=true",
+		"mission commander next action boundary：boundaryHits must use authorized stopConditions: timeout",
 		"mission commander next action boundary：do not record evidence until validation returns valid=true",
 	} {
 		if !strings.Contains(out.String(), expected) {
@@ -7944,6 +7952,8 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 			AllowedOutputPaths    []string `json:"allowedOutputPaths"`
 			AllowedStopConditions []string `json:"allowedStopConditions"`
 			MaxBytes              int      `json:"maxBytes"`
+			Evidence              []string `json:"evidence"`
+			Boundary              []string `json:"boundary"`
 			RecordBlocked         bool     `json:"recordBlocked"`
 			RerunValidation       bool     `json:"rerunValidation"`
 		} `json:"validationRepairHints"`
@@ -7994,7 +8004,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	evidenceRefsHint := contract.ValidationRepairHints[contractRepairHints["evidence-refs-out-of-scope"]]
 	boundaryHint := contract.ValidationRepairHints[contractRepairHints["boundary-marker-missing"]]
 	summaryHint := contract.ValidationRepairHints[contractRepairHints["status-summary-missing"]]
-	if missingReportPathHint.RepairAction != "provide-execution-report-path" || reportJSONHint.RepairAction != "fix-report-json" || evidenceRefsHint.RepairAction != "move-evidence-refs-under-authorized-output-paths" || boundaryHint.RepairAction != "add-boundary-marker" || strings.Join(evidenceRefsHint.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || strings.Join(boundaryHint.AllowedStopConditions, ",") != "timeout" || summaryHint.MaxBytes != 4096 || !boundaryHint.RecordBlocked || !boundaryHint.RerunValidation {
+	if missingReportPathHint.RepairAction != "provide-execution-report-path" || reportJSONHint.RepairAction != "fix-report-json" || evidenceRefsHint.RepairAction != "move-evidence-refs-under-authorized-output-paths" || boundaryHint.RepairAction != "add-boundary-marker" || strings.Join(evidenceRefsHint.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || strings.Join(boundaryHint.AllowedStopConditions, ",") != "timeout" || summaryHint.MaxBytes != 4096 || !boundaryHint.RecordBlocked || !boundaryHint.RerunValidation || !containsSubstring(boundaryHint.Evidence, "allowedStopConditions=timeout") || !containsSubstring(boundaryHint.Boundary, "boundaryHits must use authorized stopConditions: timeout") || !containsSubstring(evidenceRefsHint.Boundary, "stay under authorized outputPaths: workspace/main/debug/session-1") {
 		t.Fatalf("adapter report contract omitted validation repair hints: %+v", contract.ValidationRepairHints)
 	}
 	out.Reset()

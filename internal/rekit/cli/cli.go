@@ -5230,6 +5230,11 @@ func writeGateAdapterReportContractText(out io.Writer, contract gate.AdapterExec
 	if err := writeGateAdapterReportLiveValidationText(out, contract.LiveValidation); err != nil {
 		return err
 	}
+	for _, hint := range contract.ValidationRepairHints {
+		if err := writeGateAdapterReportRepairHintText(out, "gate adapter report validation repair hint", hint); err != nil {
+			return err
+		}
+	}
 	if err := writeAuthorizedExecutionFollowThroughText(out, "adapter report contract", contract.AuthorizedExecutionFollowThrough); err != nil {
 		return err
 	}
@@ -5240,6 +5245,23 @@ func writeGateAdapterReportContractText(out io.Writer, contract gate.AdapterExec
 		return err
 	}
 	return writeMissionCommanderNextActionsText(out, contract.MissionCommanderNextActions)
+}
+
+func writeGateAdapterReportRepairHintText(out io.Writer, prefix string, hint gate.AdapterReportRepairHint) error {
+	if _, err := fmt.Fprintf(out, "%s：action=%s recordBlocked=%t rerunValidation=%t code=%s stage=%s fields=%s allowedValues=%s allowedOutputPaths=%s allowedStopConditions=%s maxBytes=%d escalateToMain=%t detail=%s\n", prefix, hint.RepairAction, hint.RecordBlocked, hint.RerunValidation, hint.Code, hint.Stage, strings.Join(hint.Fields, ","), strings.Join(hint.AllowedValues, ","), strings.Join(hint.AllowedOutputPaths, ","), strings.Join(hint.AllowedStopConditions, ","), hint.MaxBytes, hint.EscalateToMain, hint.Detail); err != nil {
+		return err
+	}
+	for _, evidence := range hint.Evidence {
+		if _, err := fmt.Fprintf(out, "%s evidence：action=%s evidence=%s\n", prefix, hint.RepairAction, planSubagentsTextInline(evidence)); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range hint.Boundary {
+		if _, err := fmt.Fprintf(out, "%s boundary：action=%s boundary=%s\n", prefix, hint.RepairAction, planSubagentsTextInline(boundary)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeGateAdapterReportValidationText(out io.Writer, validation gate.AdapterExecutionReportValidation) error {
@@ -5282,7 +5304,7 @@ func writeGateAdapterReportValidationText(out io.Writer, validation gate.Adapter
 		}
 	}
 	for _, hint := range validation.RepairHints {
-		if _, err := fmt.Fprintf(out, "gate adapter report repair hint：action=%s recordBlocked=%t rerunValidation=%t code=%s stage=%s fields=%s allowedValues=%s allowedOutputPaths=%s allowedStopConditions=%s maxBytes=%d escalateToMain=%t detail=%s\n", hint.RepairAction, hint.RecordBlocked, hint.RerunValidation, hint.Code, hint.Stage, strings.Join(hint.Fields, ","), strings.Join(hint.AllowedValues, ","), strings.Join(hint.AllowedOutputPaths, ","), strings.Join(hint.AllowedStopConditions, ","), hint.MaxBytes, hint.EscalateToMain, hint.Detail); err != nil {
+		if err := writeGateAdapterReportRepairHintText(out, "gate adapter report repair hint", hint); err != nil {
 			return err
 		}
 	}
