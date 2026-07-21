@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 488：case-local open-decision source-detail product-path smoke closure
+### Batch 489：reviewer intake case-local product-path smoke closure
 
-状态：已完成 product-path smoke implementation、durable docs、focused product-path coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29818653886` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 reviewer intake product-path smoke implementation、durable docs、focused reviewer-intake coverage 与完整本地 release minimum；待提交推送并检查远程 release-gate。
 
-目标：Batch 487 已把 open candidate / defer decision 的 source kind/path/list command 与 decision record path 投影到 case-mode `status.caseMission.openDecisionHandoffs[]`，但该覆盖主要来自 synthetic status fixture；还缺真实 case-local nested lane workspace product-path 证明：attached case metadata pack default、无子命令 `/rekit` 默认 status、真实 `note` append 的 open candidate/defer decision events 也能在 replacement executor 第一屏消费同一 source-detail handoff。Batch 488 将该路径补成 Windows 本机可验证 product smoke。
+目标：Reviewer orchestration / strict intake / verification-before-decision writeback 已有直接 `-Target` E2E，但还缺真实 case-local nested lane workspace product-path 证明：在 replacement executor 从 feature lane workspace 接手时，无 `-Target` / 无 `-Pack` 的 `plan-subagents` planning、reviewer result placement、`plan-subagents -ReviewerResultPath` WhatIf/Apply、postValidation 以及默认 `status` 第一屏都能通过 case metadata pack default 与 cwd target discovery 消费同一 reviewer intake handoff。Batch 489 将该路径补成本机 Windows 可验证 smoke。
 
-边界：只增强本机 product-path coverage，不新增 runtime 行为；status 仍只读，不执行 `sourceCommand` / `note -List`、不执行 heavy-tool、不写 observations/authority/confirmed、不改变 note、workstream、gate、sync/promote、case durable schema 或 PowerShell runtime logic。测试中的 `note` append 只写临时 case facts，用于构造 open candidate / defer decision fixture。
+边界：只增强本机 product-path coverage，不新增 runtime 行为；runtime 仍不 spawn、monitor、stop 或管理 reviewer/member sessions；reviewer output 本身不是 ledger event；reviewer intake 仍由主 Agent 显式 `-WhatIf` 后 `-Apply`，只追加 case-local verification/decision facts，不执行 heavy-tool、不写 authority/confirmed、不改变 note、workstream、gate、sync/promote、case durable schema 或 PowerShell runtime logic。
 
 已完成内容：
 
-- 扩展 `TestRunCaseLocalProductPathUsesCaseMetadataRuntime`：在真实 `init -Apply` → `start -Apply` → `continue -Apply` 后，通过 case-local `note` append 写入 open candidate 与 open/defer decision 到临时 case facts ledger。
-- 在 nested lane workspace 中验证 explicit-pack `status -Format json/text`、默认 status 与无子命令 no-pack status 都能输出 `openDecisionHandoffs[]` 的 `sourceKind`、`sourcePath`、read-only `sourceCommand`、`recordPath`、`note -WhatIf` command、append-only `recordCommand` 与 source/record evidence lines。
-- Coverage 保持 attached case metadata pack default、case-local nested cwd target discovery 与 `.rekit` product-path smoke，不改变 runtime contract。
+- 新增 `TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime`：从 attached case `start -Apply` 的 nested feature lane workspace 中无 `-Target` / 无 `-Pack` 运行 `plan-subagents`，验证 `planRoot` 回到 caseRoot、pack 使用 `_template` case metadata default，reviewer result path 位于 case-local `.rekit` review output 下。
+- 在同一 nested workspace 中写入 bounded reviewer evidence 与 reviewer result JSON，运行 reviewer intake `-WhatIf` / text preview 与 `-Apply` / JSON writeback，验证 Mission Commander action queue、`reviewerIntake.previewed`、verification-before-decision append、postValidation overview/handoff/doctor snapshot 与 `reviewerIntake.postValidation.*` guidance。
+- 继续在 nested workspace 中运行 `status -Format json` 与无子命令默认 status，验证 case metadata pack source、verifications/decisions sections、Mission Commander action queue 与 status read-only continue boundary 能在 replacement executor 第一屏可见。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1`、`go test ./internal/rekit/cli -run "TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory" -count=1`、`go test ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `c58b931 Add open decision product path smoke`；远程 release-gate run `29818653886` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/reviewer_intake_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime" -count=1`、`go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime|TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON" -count=1`、`go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime|TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。
 
-上一批摘要：Batch 487 已完成 case status open-decision source-detail closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 488 已完成 case-local open-decision source-detail product-path smoke closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

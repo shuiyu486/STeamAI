@@ -177,6 +177,158 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	}
 }
 
+func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t *testing.T) {
+	root := repoRoot(t)
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	start := decodeStartResult(t, out.Bytes())
+	if start.Lane.ID != "feature-review" || start.Lane.Workspace != "workspace/features/feature-review" {
+		t.Fatalf("unexpected reviewer product-path lane: %+v", start.Lane)
+	}
+	evidenceRel := start.Lane.Workspace + "/reviewer-evidence.md"
+	writeCaseFile(t, caseRoot, evidenceRel, "bounded nested reviewer evidence\n")
+
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(caseRoot, filepath.FromSlash(start.Lane.Workspace))
+	if err := os.Chdir(nested); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-TaskType", "feature-analysis", "-Items", "alpha"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	if plan.Command != "plan-subagents" || plan.PlanRoot != caseRoot || plan.Pack != "_template" || plan.TargetLane != "main" || plan.ShardCount != 1 || len(plan.ShardHandoffs) != 1 {
+		t.Fatalf("unexpected nested case-local plan-subagents result: %+v", plan)
+	}
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
+	if packet.TargetLane != "main" || packet.OwnerBinding.TargetLane != "main" || packet.Route.ID == "" {
+		t.Fatalf("unexpected nested case-local reviewer packet: %+v", packet)
+	}
+	resultPath := plan.ShardHandoffs[0].ReviewerResultPath
+	if resultPath == "" || !strings.HasPrefix(resultPath, filepath.Join(caseRoot, ".rekit")) {
+		t.Fatalf("unexpected nested reviewer result path: %q", resultPath)
+	}
+	reviewerResult := map[string]any{
+		"packetId":           packet.PacketID,
+		"routeId":            packet.Route.ID,
+		"shardId":            "shard-01",
+		"items":              []string{"alpha"},
+		"reviewerSession":    "reviewer-session-product-path",
+		"decision":           "accept",
+		"confidence":         "high",
+		"summary":            "reviewed alpha from nested case-local workspace",
+		"evidenceRefs":       []string{evidenceRel},
+		"risks":              []string{},
+		"conflicts":          []string{},
+		"recommendedVerdict": "accepted",
+		"routeOutput": map[string]any{
+			"item": "alpha", "decision": "accept", "confidence": "high", "evidence": evidenceRel, "risk": "low", "next_action": "main-agent-writeback", "tier_used": "light", "tool_scope": "read-only", "feature": "review", "request_id": "n/a", "candidate_path": "n/a", "defer_reason": "n/a",
+		},
+	}
+	data, err := json.Marshal(reviewerResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(resultPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	preview := decodeReviewerIntakeResult(t, out.Bytes())
+	if preview.Command != "plan-subagents" || preview.Mode != "reviewer-intake" || preview.CaseRoot != caseRoot || preview.Pack != "_template" || preview.Lane != "main" || preview.IsMutation || preview.Applied || preview.WritebackStatus != "previewed" || !preview.ReadyForWriteback || preview.Verification == nil || preview.Decision == nil || preview.PostValidation == nil || !preview.PostValidation.Valid {
+		t.Fatalf("unexpected nested reviewer intake preview: %+v", preview)
+	}
+	if preview.MissionCommanderAction.State != "ready-for-reviewer-intake-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, `-Target "`+caseRoot+`"`) || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, `-Pack "_template"`) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed", preview.MissionCommanderAction.PrimaryCommand, false, true) {
+		t.Fatalf("nested preview omitted recoverable Mission Commander guidance: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
+	}
+	assertCLIActionQueue(t, preview.MissionCommanderActionQueue, 2, 2, 0, 2, 1, preview.MissionCommanderAction.PrimaryCommand)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"plan-subagents reviewer intake：status=previewed mutation=false applied=false readyForWriteback=true lane=main shard=shard-01",
+		"reviewer intake result summary：reviewed alpha from nested case-local workspace",
+		"reviewer intake route output：tool_scope=read-only",
+		"reviewer intake post-validation：valid=true overviewVerifications=0 overviewDecisions=0 doctorRows=",
+		"reviewer intake commander action：state=ready-for-reviewer-intake-apply",
+		"mission commander action queue current：state=ready-for-reviewer-intake-apply source=reviewerIntake.previewed blocked=false requiresReview=true command=`/rekit plan-subagents",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested reviewer intake preview text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("nested reviewer intake preview text should not emit JSON object:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	applied := decodeReviewerIntakeResult(t, out.Bytes())
+	if !applied.IsMutation || !applied.Applied || applied.WritebackStatus != "complete" || applied.Verification == nil || applied.Decision == nil || !applied.Verification.Applied || !applied.Decision.Applied || applied.PostValidation == nil || !applied.PostValidation.Valid || applied.PostValidation.Handoff.Lane == nil || applied.PostValidation.Handoff.Lane.ID != "main" || applied.PostValidation.Overview.Sections.Verifications.Total != 1 || applied.PostValidation.Overview.Sections.Decisions.Total != 1 {
+		t.Fatalf("unexpected nested reviewer intake apply: %+v", applied)
+	}
+	if applied.MissionCommanderAction.State != "reviewer-intake-writeback-complete" || applied.MissionCommanderActionQueue.CurrentAction == nil || !strings.HasPrefix(applied.MissionCommanderActionQueue.CurrentAction.Source, "reviewerIntake.postValidation.") {
+		t.Fatalf("nested apply omitted post-validation Mission Commander guidance: action=%+v queue=%+v", applied.MissionCommanderAction, applied.MissionCommanderActionQueue)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status statusInventory
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("nested status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if status.Command != "status" || status.Mode != "case" || status.Pack != "_template" || status.PackSource != "case-metadata" || status.TargetProvided || status.Target != caseRoot || status.TemplateRoot != root || status.Case == nil || status.Case.TemplatePack != "_template" || status.CaseMission == nil || status.CaseMission.Sections == nil || status.CaseMission.Sections.Verifications.Total != 1 || status.CaseMission.Sections.Decisions.Total != 1 || status.CaseMission.MissionCommanderActionQueue.CurrentAction == nil {
+		t.Fatalf("nested status omitted reviewer intake post-validation handoff state: %+v", status)
+	}
+
+	out.Reset()
+	if err := Run([]string{}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"rekit go backend:",
+		"template root: " + root,
+		"pack: _template",
+		"pack source: case-metadata",
+		"case: " + caseRoot,
+		"status case mission section：name=verifications total=1 shown=1",
+		"status case mission section event：section=verifications index=1 eventId=evt-",
+		"status case mission section：name=decisions total=1 shown=1",
+		"status case mission section event：section=decisions index=1 eventId=evt-",
+		"status case mission queue action：bucket=current",
+		"continueBoundary=status is read-only; run continue with -WhatIf first",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested default status after reviewer intake missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("nested default status should not emit JSON object:\n%s", out.String())
+	}
+}
+
 func TestRunPlanSubagentsReviewerIntakeRequiresExplicitMode(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
@@ -280,6 +432,9 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 type reviewerIntakeCLIResult struct {
 	Command               string `json:"command"`
 	Mode                  string `json:"mode"`
+	CaseRoot              string `json:"caseRoot"`
+	Pack                  string `json:"pack"`
+	Lane                  string `json:"lane"`
 	IsMutation            bool   `json:"isMutation"`
 	Applied               bool   `json:"applied"`
 	WritebackStatus       string `json:"writebackStatus"`

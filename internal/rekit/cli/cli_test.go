@@ -9123,6 +9123,8 @@ type missionBrief struct {
 
 type planSubagentsResult struct {
 	Command                     string                              `json:"command"`
+	PlanRoot                    string                              `json:"planRoot"`
+	Pack                        string                              `json:"pack"`
 	IsMutation                  bool                                `json:"isMutation"`
 	WritesReviewArtifacts       bool                                `json:"writesReviewArtifacts"`
 	ReviewRequired              bool                                `json:"reviewRequired"`
