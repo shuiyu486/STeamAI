@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 492：adapter execution evidence record no-pack product-path smoke closure
+### Batch 493：execution evidence review no-pack status product-path smoke closure
 
-状态：已完成 adapter execution evidence record no-pack product-path smoke implementation、durable docs、focused gate coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29822138098` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 execution evidence review no-pack status product-path smoke implementation、focused status coverage 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待执行。
 
-目标：Batch 491 已证明 authorized output workspace 中无 `-Target` / 无 `-Pack` 的 adapter report contract 与 validation preflight 可用，但 valid=true 后的 bounded observation evidence record 仍通过 contract 生成的显式 `-Pack` case-relative args 覆盖。replacement lane executor 位于 case-local lane workspace 时，应能无 `-Target` / 无 `-Pack` 使用 workspace-relative report path 显式 `gate -Apply`，由 cwd target discovery 与 case metadata pack default 记录同一 bounded observation evidence，并保持 duplicate replay idempotent。Batch 492 将该路径补成本机 Windows 可验证 smoke。
+目标：Batch 492 已证明 replacement lane executor 位于 case-local lane workspace 时可无 `-Target` / 无 `-Pack` 记录 bounded adapter observation evidence，但 evidence record 后的接手第一屏仍需要 product-path smoke 证明：同一 case-local lane cwd 应能无 `-Target` / 无 `-Pack` 运行 `status -Format json`、`status -Format text` 与无子命令默认 status，通过 cwd target discovery 与 case metadata pack default 直接看到 execution evidence review、Mission Commander action queue、`ready-for-evidence-review` handoff、outputRefs 与 follow-through outcome evidence。Batch 493 将该路径补成本机 Windows 可验证 smoke。
 
-边界：只增强本机 product-path coverage，不新增 runtime 行为；record evidence 仍要求显式 `gate -Apply` 与 `-Actor`，只写 bounded observation evidence，不执行 heavy-tool、不写 authority/confirmed；validation/contract 仍只读，sync/promote、case durable schema 与 PowerShell runtime logic 均不改变。
+边界：只增强本机 product-path coverage，不新增 runtime 行为；status 仍只读、不写 `.rekit`、不执行 heavy-tool、不写 authority/confirmed；record evidence 仍要求显式 `gate -Apply` 与 `-Actor`，只写 bounded observation evidence；contract/validation 仍只读，sync/promote、case durable schema 与 PowerShell runtime logic 均不改变。
 
 已完成内容：
 
-- 扩展 `TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace`：在 authorized output workspace 的 no-pack contract/validation 之后，切到 case-local `workspace/main` lane cwd，无 `-Target` / 无 `-Pack` 运行 `gate -Apply -GateEventId ... -ExecutionReportPath debug/session-1/adapter-report.json -Actor executor-1 -Format json`。
-- 验证 record result 通过 attached case metadata default 使用 `_template` pack，写入 `.rekit/facts/observations.jsonl` 的 bounded observation evidence，并保留 adapter sidecar provenance、case-relative `executionReportPath`、outputRefs、actualBudget、adapterId/status 与 related authorized gate event。
-- 继续以同一 no-pack record args replay，验证 duplicate eventId idempotency，不追加 observation，不写 authority/confirmed；preflight invalid evidenceRefs 路径仍保持 read-only fail-closed repair hints。
+- 扩展 `TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace`：在 no-pack adapter evidence record/replay 后，从同一 case-local `workspace/main` lane cwd 无 `-Target` / 无 `-Pack` 运行 `status -Format json`，验证 `packSource=case-metadata`、`targetProvided=false`、`executionEvidenceReviewCount=1` 与 Mission Commander action queue 当前 action 均来自 execution evidence review。
+- 验证 JSON status 第一屏包含 recorded adapter evidence 的 `eventId`、`gateEventId`、`status=succeeded`、`action=debug`、output ref `workspace/main/debug/session-1/result.json`、`ready-for-evidence-review`、primary `/rekit handoff main` 与 follow-through outcome `recorded-evidence-review`。
+- 验证 `status -Format text` 与无子命令默认 status 同样输出 pack metadata source、evidence review handoff、output ref、follow-through outcome evidence，且不输出 JSON object；用 `.rekit` snapshot 锁定 status 不写 case durable state。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace" -count=1`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace|TestRunGateProjectsPackToolingAdapterCandidateProductPath|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `5f121c9 Add adapter record no pack smoke`；远程 release-gate run `29822138098` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace" -count=1`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace|TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。远程 release-gate 尚未重新检查，不能声明远程 CI green。
 
-上一批摘要：Batch 491 已完成 adapter execution report no-pack product-path smoke closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 492 已完成 adapter execution evidence record no-pack product-path smoke closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

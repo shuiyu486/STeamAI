@@ -8574,6 +8574,71 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("nested workspace adapter evidence wrote confirmed ledger or stat failed: %v", err)
 	}
+
+	beforeStatus := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Command        string `json:"command"`
+		Mode           string `json:"mode"`
+		Pack           string `json:"pack"`
+		PackSource     string `json:"packSource"`
+		Target         string `json:"target"`
+		TargetProvided bool   `json:"targetProvided"`
+		CaseMission    struct {
+			ExecutionEvidenceReviewCount int                                 `json:"executionEvidenceReviewCount"`
+			ExecutionEvidenceReview      []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+			MissionCommanderActionQueue  missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("no-pack status after adapter evidence stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if status.Command != "status" || status.Mode != "case" || status.Pack != "_template" || status.PackSource != "case-metadata" || status.Target != caseRoot || status.TargetProvided || status.CaseMission.ExecutionEvidenceReviewCount != 1 || len(status.CaseMission.ExecutionEvidenceReview) != 1 {
+		t.Fatalf("unexpected no-pack status after adapter evidence: %+v", status)
+	}
+	statusEvidence := status.CaseMission.ExecutionEvidenceReview[0]
+	if statusEvidence.EventID != evidence.EventID || statusEvidence.GateEventID != applied.EventID || statusEvidence.Status != "succeeded" || statusEvidence.Action != "debug" || !containsSubstring(statusEvidence.OutputRefs, "workspace/main/debug/session-1/result.json") || statusEvidence.MissionCommanderAction.State != "ready-for-evidence-review" || statusEvidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || statusEvidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(statusEvidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
+		t.Fatalf("no-pack status omitted recorded adapter evidence review handoff: %+v", statusEvidence)
+	}
+	queue := status.CaseMission.MissionCommanderActionQueue
+	if queue.CurrentAction == nil || queue.CurrentAction.Source != "executionEvidenceReview" || queue.CurrentAction.Command != "/rekit handoff main" || !queue.CurrentAction.RequiresReview || queue.Counts.Total == 0 || queue.Counts.RequiresReview == 0 {
+		t.Fatalf("no-pack status omitted evidence review action queue: %+v", queue)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status：mutation=false mode=case targetProvided=false pack=_template packSource=case-metadata",
+		"status case mission evidence review：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=succeeded action=debug",
+		"review=review outputRefs/evidenceRefs for gateEventId " + applied.EventID + " handoff=/rekit handoff main commanderState=ready-for-evidence-review commanderPrimary=/rekit handoff main",
+		"status case mission evidence output ref：eventId=" + evidence.EventID + " ref=workspace/main/debug/session-1/result.json",
+		"status case mission evidence follow-through：eventId=" + evidence.EventID + " state=ready-for-evidence-review gateEventId=" + applied.EventID,
+		"status case mission evidence outcome evidence：eventId=" + evidence.EventID + " name=recorded-evidence-review evidence=workspace/main/debug/session-1/result.json",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("no-pack status text after adapter evidence missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("no-pack status text after adapter evidence should not emit JSON:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run(nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "pack source: case-metadata") || !strings.Contains(out.String(), "status case mission evidence review：eventId="+evidence.EventID+" gateEventId="+applied.EventID) {
+		t.Fatalf("no-command no-pack status after adapter evidence missing case metadata evidence review handoff:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("no-command no-pack status after adapter evidence should not emit JSON:\n%s", out.String())
+	}
+	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 }
 
 func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
