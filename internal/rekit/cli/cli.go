@@ -5128,6 +5128,55 @@ func writeGatePlanText(out io.Writer, plan gate.Plan) error {
 	return writeMissionCommanderNextActionsText(out, plan.MissionCommanderNextActions)
 }
 
+func writeGateAdapterToolCandidateText(out io.Writer, prefix string, candidate gate.AdapterToolCandidate) error {
+	if _, err := fmt.Fprintf(out, "%s：id=%s status=%s entry=%s gateActions=%s recordOnlyAfterGate=%t toolingCatalogPath=%s\n", prefix, candidate.ID, candidate.Status, candidate.Entry, strings.Join(candidate.GateActions, ","), candidate.RecordOnlyAfterGate, candidate.ToolingCatalogPath); err != nil {
+		return err
+	}
+	if strings.TrimSpace(candidate.Purpose) != "" {
+		if _, err := fmt.Fprintf(out, "%s purpose：id=%s purpose=%s\n", prefix, candidate.ID, candidate.Purpose); err != nil {
+			return err
+		}
+	}
+	if len(candidate.SideEffects) > 0 {
+		if _, err := fmt.Fprintf(out, "%s side effects：id=%s sideEffects=%s\n", prefix, candidate.ID, strings.Join(candidate.SideEffects, ",")); err != nil {
+			return err
+		}
+	}
+	for _, guidance := range candidate.ReportGuidance {
+		if _, err := fmt.Fprintf(out, "%s report guidance：id=%s guidance=%s\n", prefix, candidate.ID, guidance); err != nil {
+			return err
+		}
+	}
+	for _, guidance := range candidate.EvidenceGuidance {
+		if _, err := fmt.Fprintf(out, "%s evidence guidance：id=%s guidance=%s\n", prefix, candidate.ID, guidance); err != nil {
+			return err
+		}
+	}
+	if len(candidate.StopConditionHints) > 0 {
+		if _, err := fmt.Fprintf(out, "%s stop conditions：id=%s hints=%s\n", prefix, candidate.ID, strings.Join(candidate.StopConditionHints, ",")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeGateAdapterContextText(out io.Writer, context *gate.AdapterContext) error {
+	if context == nil {
+		return nil
+	}
+	for _, candidate := range context.Candidates {
+		if err := writeGateAdapterToolCandidateText(out, "gate adapter report validation adapter candidate", candidate); err != nil {
+			return err
+		}
+	}
+	if context.Selected != nil {
+		if err := writeGateAdapterToolCandidateText(out, "gate adapter report validation selected adapter", *context.Selected); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeGateAdapterReportLiveValidationText(out io.Writer, live gate.AdapterReportLiveValidation) error {
 	if _, err := fmt.Fprintf(out, "gate adapter report live validation：cwd=%s reportFileName=%s caseRelativeReportPath=%s replay=%s\n", live.InvocationCwd, live.ReportFileName, live.CaseRelativeReportPath, live.ReplayBehavior); err != nil {
 		return err
@@ -5162,33 +5211,13 @@ func writeGateAdapterReportLiveValidationText(out io.Writer, live gate.AdapterRe
 		}
 	}
 	for _, candidate := range live.AdapterCandidates {
-		if _, err := fmt.Fprintf(out, "gate adapter report adapter candidate：id=%s status=%s entry=%s gateActions=%s recordOnlyAfterGate=%t toolingCatalogPath=%s\n", candidate.ID, candidate.Status, candidate.Entry, strings.Join(candidate.GateActions, ","), candidate.RecordOnlyAfterGate, candidate.ToolingCatalogPath); err != nil {
+		if err := writeGateAdapterToolCandidateText(out, "gate adapter report adapter candidate", candidate); err != nil {
 			return err
 		}
-		if strings.TrimSpace(candidate.Purpose) != "" {
-			if _, err := fmt.Fprintf(out, "gate adapter report adapter candidate purpose：id=%s purpose=%s\n", candidate.ID, candidate.Purpose); err != nil {
-				return err
-			}
-		}
-		if len(candidate.SideEffects) > 0 {
-			if _, err := fmt.Fprintf(out, "gate adapter report adapter candidate side effects：id=%s sideEffects=%s\n", candidate.ID, strings.Join(candidate.SideEffects, ",")); err != nil {
-				return err
-			}
-		}
-		for _, guidance := range candidate.ReportGuidance {
-			if _, err := fmt.Fprintf(out, "gate adapter report adapter candidate report guidance：id=%s guidance=%s\n", candidate.ID, guidance); err != nil {
-				return err
-			}
-		}
-		for _, guidance := range candidate.EvidenceGuidance {
-			if _, err := fmt.Fprintf(out, "gate adapter report adapter candidate evidence guidance：id=%s guidance=%s\n", candidate.ID, guidance); err != nil {
-				return err
-			}
-		}
-		if len(candidate.StopConditionHints) > 0 {
-			if _, err := fmt.Fprintf(out, "gate adapter report adapter candidate stop conditions：id=%s hints=%s\n", candidate.ID, strings.Join(candidate.StopConditionHints, ",")); err != nil {
-				return err
-			}
+	}
+	if live.SelectedAdapter != nil {
+		if err := writeGateAdapterToolCandidateText(out, "gate adapter report selected adapter", *live.SelectedAdapter); err != nil {
+			return err
 		}
 	}
 	for _, note := range live.Notes {
@@ -5302,6 +5331,9 @@ func writeGateAdapterReportValidationText(out io.Writer, validation gate.Adapter
 				return err
 			}
 		}
+	}
+	if err := writeGateAdapterContextText(out, validation.AdapterContext); err != nil {
+		return err
 	}
 	for _, hint := range validation.RepairHints {
 		if err := writeGateAdapterReportRepairHintText(out, "gate adapter report repair hint", hint); err != nil {

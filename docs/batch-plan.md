@@ -16,27 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 509：adapter validation repair evidence/boundary handoff closure
+### Batch 510：adapter context validation text handoff closure
 
-状态：已完成 adapter report validation repair hints evidence/boundary runtime、terminal text handoff、Mission Commander next-action repair evidence projection、用户与 durable docs、focused runtime/CLI coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；已提交并推送 `41dbdb1 Add adapter validation repair handoff`，远程 release-gate run `29871037752` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。
+状态：已完成 adapter tooling candidate / selected adapter provenance contract text 与 validation text handoff、focused CLI coverage、用户与 durable docs、本地 release minimum；commit/push 与远程 release-gate inspection 待执行。
 
-目标：Batch 421/424/432 与 458-462/504 已让 authorized gate、adapter execution report contract、validate/record 与 evidence review follow-through 可被 replacement executor 消费；但 invalid/missing adapter sidecar 的 repair hints 虽有 repairAction/code/stage/fields/allowed values/output paths/stop conditions/max bytes，terminal 与 Mission Commander next actions 仍不稳定投影“用哪些证据修”“哪些边界不能破”，修复 sidecar 时仍容易回查 JSON contract 或手工拼 authorized outputPaths / stopConditions / maxBytes。Batch 509 将 repair hint evidence/boundary 收口到 JSON、contract text、validation text 与 next-action reasons/boundary。
+目标：Batch 509 已把 adapter validation repair hints 的 evidence/boundary 收口到 contract/validation JSON/text 与 Mission Commander next actions；但 valid sidecar validation text 仍只显示 normalized sidecar identity、budget、refs、summary 与 follow-through。虽然 JSON 已携带 `adapterContext.candidates[]` / `adapterContext.selected`，replacement executor 在 case-local / authorized workspace 用 no-target validation 确认 sidecar 时，仍要切回 JSON 才能核对 sidecar `adapterId` 对应哪个 concrete tooling candidate、是否就是 selected adapter、以及该 adapter 的 report/evidence/stop-condition guidance。Batch 510 将 adapter context provenance 投影到 contract text 与 validation text。
 
-边界：只增强 read-only `gate -ExecutionReportContract` / `gate -ValidateExecutionReport` 的 repair handoff；不放宽 adapter report strict validation、authorized output path scope、stopCondition coverage、actualBudget/boundary marker/summary requirements、record-only-after-valid=true 顺序、execution evidence record schema、sync/promote、case durable schema 或 PowerShell runtime logic；`/rekit` 仍不执行 heavy-tool、不 replay adapter、不写 authority/confirmed；record evidence 仍要求显式 `gate -Apply` 且 validation `valid=true`。
+边界：只增强 read-only `gate -ExecutionReportContract` / `gate -ValidateExecutionReport` text handoff；不改变 adapter candidate discovery/ranking、selected adapter matching、adapter report validation、record-only-after-valid=true 顺序、execution evidence record schema、sync/promote、case durable schema 或 PowerShell runtime logic；`/rekit` 仍不执行 heavy-tool、不 replay adapter、不写 authority/confirmed；record evidence 仍要求显式 `gate -Apply` 且 validation `valid=true`。
 
 已完成内容：
 
-- `AdapterReportRepairHint` 新增 `evidence[]` 与 `boundary[]`，contract `validationRepairHints[]` 与 validation `repairHints[]` 同步携带 repair evidence/boundary。
-- repair evidence 覆盖 `repairHints[].repairAction`、failureCode/failureStage、fields、allowedValues、allowedOutputPaths、allowedStopConditions 与 maxBytes。
-- repair boundary 覆盖 recordBlocked/valid=true 前禁止 record、validation read-only/no observations/no authority/confirmed、no-heavy、rerun validation、authorized outputPaths、authorized stopConditions、maxBytes 与 escalate-to-main。
-- `gate -ExecutionReportContract -Format text` 输出 `gate adapter report validation repair hint/evidence/boundary` 行，让 lane executor 在执行前即可看到 invalid sidecar taxonomy 的修复证据与边界。
-- `gate -ValidateExecutionReport -Format text` 输出 `gate adapter report repair hint/evidence/boundary` 行，invalid sidecar repair text 不再只是一条压缩 hint。
-- `adapterReportValidation.repairHints` Mission Commander next actions 的 reasons/boundary 复用 same repair evidence/boundary，避免 replacement executor 回查 JSON 才知道 allowed output path / stop condition / max bytes / escalation boundary。
-- README、`/rekit` skill、Agent Team usage、CHANGELOG 与 batch docs 同步说明 adapter validation repair evidence/boundary handoff。
+- 新增 shared adapter tooling candidate text writer，contract `liveValidation.adapterCandidates[]` 与 `liveValidation.selectedAdapter` 使用同一 text projection。
+- `gate -ExecutionReportContract -Format text` 在候选 adapter 行之外新增 `gate adapter report selected adapter...` / guidance / evidence / stop-condition lines。
+- `gate -ValidateExecutionReport -Format text` 输出 `gate adapter report validation adapter candidate...` 与 `gate adapter report validation selected adapter...`，让 validation terminal handoff 直接显示 adapterContext candidate/selected provenance。
+- `TestRunGateProjectsPackToolingAdapterCandidateProductPath` 覆盖 generic-binary-re pack tooling adapter：contract text selected adapter projection、case-local authorized workspace no-target validation text adapter context projection、record path仍保留 selected adapter evidence provenance。
+- README、`/rekit` skill、Agent Team usage、CHANGELOG 与 batch docs同步说明 adapter context validation text handoff。
 
-验证结果：已通过 `gofmt -w internal/rekit/gate/gate.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/gate ./internal/rekit/cli -run "TestAdapterReportContractExposesValidationRepairHints|TestValidateAdapterExecutionReportMissingPathExposesMissionCommanderRepair|TestValidateAdapterExecutionReportReturnsInvalidEnvelopeReadOnly|TestValidateAdapterExecutionReportRejectsInvalidSidecars|TestRunGateAdapterReportTextOutputsNextActions|TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace" -count=1`、impacted package `go test ./internal/rekit/gate ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true` recorded，status handoff recorded，packs inventory recorded，doctor validation recorded，go test ./... recorded，go vet ./... recorded，git diff --check recorded（仅 Windows LF/CRLF conversion warnings，无 whitespace error）。已提交并推送 `41dbdb1 Add adapter validation repair handoff`；远程 release-gate run `29871037752` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/cli -run "TestRunGateProjectsPackToolingAdapterCandidateProductPath|TestRunGenericBinaryReAdapterLiveValidationProductPath|TestRunGateAdapterReportTextOutputsNextActions" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`。远程 release-gate 待 commit/push 后 inspection。
 
-上一批摘要：Batch 508 已完成 reviewer intake repair guidance planning handoff closure，并归档到 `docs/batch-history.md`。
+上一批摘要：Batch 509 已完成 adapter validation repair evidence/boundary handoff closure，并归档到 `docs/batch-history.md`。
 
 ### Next candidates
 

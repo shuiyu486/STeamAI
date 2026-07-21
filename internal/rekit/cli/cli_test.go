@@ -9664,6 +9664,8 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		"gate adapter report adapter candidate report guidance：id=dynamic-debug-or-writeback-action guidance=",
 		"gate adapter report adapter candidate evidence guidance：id=dynamic-debug-or-writeback-action guidance=",
 		"gate adapter report adapter candidate stop conditions：id=dynamic-debug-or-writeback-action hints=timeout,unexpected-side-effect,scope-drift",
+		"gate adapter report selected adapter：id=dynamic-debug-or-writeback-action status=cautious entry=",
+		"gate adapter report selected adapter report guidance：id=dynamic-debug-or-writeback-action guidance=",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("generic-binary-re adapter contract text missing %q:\n%s", expected, text)
@@ -9722,6 +9724,23 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	}
 	if !validation.Valid || validation.IsMutation || validation.Applied || len(validation.AdapterContext.Candidates) != 1 || validation.AdapterContext.Selected == nil || validation.AdapterContext.Selected.ID != candidate.ID {
 		t.Fatalf("generic-binary-re adapter validation omitted selected candidate context: %+v", validation)
+	}
+
+	out.Reset()
+	textArgs := append([]string{}, contract.LiveValidation.CaseRelativeValidateArgs...)
+	textArgs[len(textArgs)-1] = "text"
+	if err := Run(textArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	validationText := out.String()
+	for _, expected := range []string{
+		"gate adapter report validation adapter candidate：id=dynamic-debug-or-writeback-action status=cautious entry=",
+		"gate adapter report validation selected adapter：id=dynamic-debug-or-writeback-action status=cautious entry=",
+		"gate adapter report validation selected adapter evidence guidance：id=dynamic-debug-or-writeback-action guidance=",
+	} {
+		if !strings.Contains(validationText, expected) {
+			t.Fatalf("generic-binary-re adapter validation text missing %q:\n%s", expected, validationText)
+		}
 	}
 
 	recordArgs := append([]string{}, contract.LiveValidation.CaseRelativeRecordArgs...)
