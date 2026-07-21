@@ -991,12 +991,13 @@ func latestBatchHasLocalValidation(text string) bool {
 
 func latestBatchRemoteReleaseGate(text string) string {
 	lower := strings.ToLower(text)
+	emptySteps := latestBatchRemoteHasEmptySteps(text, lower)
 	switch {
 	case strings.Contains(text, "远程 release-gate inspection 待") || strings.Contains(lower, "remote release-gate inspection pending") || strings.Contains(lower, "release-gate inspection pending"):
 		return "not-recorded"
-	case strings.Contains(text, "steps: []") && strings.Contains(lower, "completed failure"):
+	case emptySteps && strings.Contains(lower, "completed failure"):
 		return "blocked: completed failure with jobs steps=[]"
-	case strings.Contains(text, "steps: []"):
+	case emptySteps:
 		return "blocked: jobs steps=[]"
 	case latestBatchRemoteGreen(text, lower):
 		return "green"
@@ -1007,8 +1008,13 @@ func latestBatchRemoteReleaseGate(text string) string {
 	}
 }
 
+func latestBatchRemoteHasEmptySteps(text, lower string) bool {
+	compact := strings.NewReplacer(" ", "", "\t", "", "`", "").Replace(lower)
+	return strings.Contains(compact, "steps:[]") || strings.Contains(compact, "steps=[]") || strings.Contains(text, "steps 为空") || strings.Contains(text, "steps为空")
+}
+
 func latestBatchRemoteGreen(text, lower string) bool {
-	if strings.Contains(text, "不能声明远程 CI green") || strings.Contains(lower, "cannot claim remote ci green") || strings.Contains(lower, "not remote ci green") {
+	if strings.Contains(text, "不能声明远程 CI green") || strings.Contains(lower, "不能声明 remote ci green") || strings.Contains(lower, "cannot claim remote ci green") || strings.Contains(lower, "not remote ci green") {
 		return false
 	}
 	return strings.Contains(lower, "remote ci green") || strings.Contains(text, "远程 CI green")
@@ -1074,7 +1080,11 @@ func latestBatchEvidence(text string) []string {
 		{match: "release-check ready=true", label: "release-check ready=true recorded"},
 		{match: "steps: []", label: "remote release-gate jobs steps=[] recorded"},
 	} {
-		if !strings.Contains(lower, candidate.match) {
+		matched := strings.Contains(lower, candidate.match)
+		if candidate.match == "steps: []" {
+			matched = latestBatchRemoteHasEmptySteps(text, lower)
+		}
+		if !matched {
 			continue
 		}
 		if candidate.match == "steps: []" && latestBatchRemoteReleaseGate(text) == "not-recorded" {

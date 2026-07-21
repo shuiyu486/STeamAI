@@ -16,25 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 510：adapter context validation text handoff closure
+### Batch 511：release handoff remote blocker truthfulness closure
 
-状态：已完成 adapter tooling candidate / selected adapter provenance contract text 与 validation text handoff、focused CLI coverage、用户与 durable docs、本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29872298902` completed failure，Linux/Windows/macOS jobs `steps=[]`，按既有 GitHub Actions runner/billing blocker 记录，不能声明远程 CI green。
+状态：已完成 latest-batch remote release-gate empty-steps blocker parser、negative remote-green guard、focused releasecheck/CLI parser coverage、用户与 durable docs、本地 release minimum；commit/push 与远程 release-gate inspection 待执行。
 
-目标：Batch 509 已把 adapter validation repair hints 的 evidence/boundary 收口到 contract/validation JSON/text 与 Mission Commander next actions；但 valid sidecar validation text 仍只显示 normalized sidecar identity、budget、refs、summary 与 follow-through。虽然 JSON 已携带 `adapterContext.candidates[]` / `adapterContext.selected`，replacement executor 在 case-local / authorized workspace 用 no-target validation 确认 sidecar 时，仍要切回 JSON 才能核对 sidecar `adapterId` 对应哪个 concrete tooling candidate、是否就是 selected adapter、以及该 adapter 的 report/evidence/stop-condition guidance。Batch 510 将 adapter context provenance 投影到 contract text 与 validation text。
+目标：Batch 510 release inspection docs 记录远程 release-gate jobs 为 `steps=[]`，但 `releaseHandoff.latestBatch.handoff.remoteReleaseGate` 只稳定识别 `steps: []`，导致 status/release-check 可能把已 inspection 的 empty-steps blocker 误投影为 `inspected`，且中英混合的 “不能声明 remote CI green” 也可能触发 `remote CI green` 子串误判。Batch 511 将 remote blocker 解析收口为 machine-readable truthfulness handoff，避免新会话或 release maintainer 误把 runner/billing blocker 当成 remote green/inspected-only。
 
-边界：只增强 read-only `gate -ExecutionReportContract` / `gate -ValidateExecutionReport` text handoff；不改变 adapter candidate discovery/ranking、selected adapter matching、adapter report validation、record-only-after-valid=true 顺序、execution evidence record schema、sync/promote、case durable schema 或 PowerShell runtime logic；`/rekit` 仍不执行 heavy-tool、不 replay adapter、不写 authority/confirmed；record evidence 仍要求显式 `gate -Apply` 且 validation `valid=true`。
+边界：只增强 `release-check` / kit-mode `status` 的只读 latest-batch handoff parser 与测试；不执行远程 CI、不改变 `.github/workflows/release-gate.yml`、不改变 release gate inventory 语义、本地 release minimum、case runtime、sync/promote、authority/confirmed、heavy-tool、PowerShell façade 或公共 façade removal 门禁。远程 jobs `steps=[]` 仍记录为 known blocker，不能声明远程 CI green。
 
 已完成内容：
 
-- 新增 shared adapter tooling candidate text writer，contract `liveValidation.adapterCandidates[]` 与 `liveValidation.selectedAdapter` 使用同一 text projection。
-- `gate -ExecutionReportContract -Format text` 在候选 adapter 行之外新增 `gate adapter report selected adapter...` / guidance / evidence / stop-condition lines。
-- `gate -ValidateExecutionReport -Format text` 输出 `gate adapter report validation adapter candidate...` 与 `gate adapter report validation selected adapter...`，让 validation terminal handoff 直接显示 adapterContext candidate/selected provenance。
-- `TestRunGateProjectsPackToolingAdapterCandidateProductPath` 覆盖 generic-binary-re pack tooling adapter：contract text selected adapter projection、case-local authorized workspace no-target validation text adapter context projection、record path仍保留 selected adapter evidence provenance。
-- README、`/rekit` skill、Agent Team usage、CHANGELOG 与 batch docs同步说明 adapter context validation text handoff。
+- 新增 `latestBatchRemoteHasEmptySteps`，统一识别 `steps: []`、`steps=[]` 与中文 `steps 为空` / `steps为空`。
+- `latestBatchRemoteReleaseGate` 先判断 empty-steps blocker，再判断 green / inspected，避免 `steps=[]` 被误判为普通 inspected。
+- `latestBatchEvidence` 复用同一 empty-steps matcher，确保 latest batch evidence 输出 `remote release-gate jobs steps=[] recorded`。
+- `latestBatchRemoteGreen` 增加中文中英混合 negative guard，避免 “不能声明 remote CI green” 触发 green。
+- `release_handoff_test.go` 新增 coverage，锁定 `steps=[]` + completed failure + negative green phrase 的 blocked handoff。
 
-验证结果：已通过 `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/cli -run "TestRunGateProjectsPackToolingAdapterCandidateProductPath|TestRunGenericBinaryReAdapterLiveValidationProductPath|TestRunGateAdapterReportTextOutputsNextActions" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`。提交 `d71d6a7` 已 push 到 `main`；远程 release-gate run `29872298902` completed failure，Linux/Windows/macOS jobs 均 `steps=[]`，按既有 GitHub Actions runner/billing blocker 记录，不能声明远程 CI green。
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go`、focused `go test ./internal/rekit/releasecheck -run "TestLatestBatchHandoffExtractsValidationEvidence|TestLatestBatchRemoteGateDoesNotTreatNegativeGreenAsGreen|TestLatestBatchRemoteGateRecognizesEqualsEmptyStepsAndChineseNegativeGreen" -count=1`、package `go test ./internal/rekit/releasecheck -count=1`、CLI handoff `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory" -count=1`、focused `go vet ./internal/rekit/releasecheck`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`。远程 release-gate 待 commit/push 后 inspection。
 
-上一批摘要：Batch 509 已完成 adapter validation repair evidence/boundary handoff closure，并归档到 `docs/batch-history.md`。
+上一批摘要：Batch 510 已完成 adapter context validation text handoff closure，并归档到 `docs/batch-history.md`。
 
 ### Next candidates
 

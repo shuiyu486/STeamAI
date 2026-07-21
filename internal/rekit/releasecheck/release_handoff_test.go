@@ -173,6 +173,20 @@ func TestLatestBatchRemoteGateDoesNotTreatNegativeGreenAsGreen(t *testing.T) {
 	}
 }
 
+func TestLatestBatchRemoteGateRecognizesEqualsEmptyStepsAndChineseNegativeGreen(t *testing.T) {
+	section := `状态：已完成 fixture；远程 release-gate run ` + "`" + `123456789` + "`" + ` completed failure，Linux/Windows/macOS jobs ` + "`" + `steps=[]` + "`" + `，不能声明远程 CI green。`
+	if got := latestBatchRemoteReleaseGate(section); got != "blocked: completed failure with jobs steps=[]" {
+		t.Fatalf("remote gate should detect equals empty steps blocker, got %q", got)
+	}
+	if got := latestBatchRemoteGreen(section, strings.ToLower(section)); got {
+		t.Fatalf("negative Chinese remote CI green phrase should not be treated as green")
+	}
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if !slices.Contains(handoff.Evidence, "remote release-gate jobs steps=[] recorded") {
+		t.Fatalf("latest batch handoff evidence missing remote empty steps: %+v", handoff.Evidence)
+	}
+}
+
 func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
 	repo := t.TempDir()
 	writeFile(t, filepath.Join(repo, "packs", "fixture", "promote-candidates", "candidate.candidate.md"), "# candidate\n")

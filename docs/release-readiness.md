@@ -28,7 +28,7 @@
 - `Go release checks (macOS)` 在 `macos-latest` 上运行同一组 Go-native checks，验证 macOS 默认路径。
 - CI 不默认运行 `rekit.ps1`、`facade-smoke.ps1`、`pack-smoke-matrix.ps1`、真实临时 case Agent Team smoke 或 heavy-tool gate；这些仍按下面“选择性追加”规则手动选择。
 
-`ciReleaseGate.ready=true` 只说明 workflow 的 jobs、commands 与 forbidden-step inventory 符合预期。发布时还必须读取 GitHub Actions 实际 job conclusions。2026-07-18 最近及抽查的 release-gate runs 均因 GitHub account billing/spending limit 未获得 runner、steps 为空；这是外部 CI blocker，不是代码测试失败，也不能声称三平台 green。当前用户主要在 Windows 单机使用，因此本地 Windows product-path 稳定性优先于远程 Linux/macOS/Windows matrix 扩展；远程 CI / 跨平台 jobs 继续如实记录为 release blocker/known gap，但不应阻塞 Mission Commander、lane executor、reviewer、autonomy、adapter live validation 与 pack-memory 等本机可验证产品闭环的迭代效率。
+`ciReleaseGate.ready=true` 只说明 workflow 的 jobs、commands 与 forbidden-step inventory 符合预期。发布时还必须读取 GitHub Actions 实际 job conclusions。2026-07-18 最近及抽查的 release-gate runs 均因 GitHub account billing/spending limit 未获得 runner、steps 为空；这是外部 CI blocker，不是代码测试失败，也不能声称三平台 green。latest-batch release handoff 应把 `steps=[]`、`steps: []` 或中文 `steps 为空` 的 completed failure 解析为 `blocked: completed failure with jobs steps=[]`，并把“不能声明远程 CI green / 不能声明 remote CI green”视为负向 guard。当前用户主要在 Windows 单机使用，因此本地 Windows product-path 稳定性优先于远程 Linux/macOS/Windows matrix 扩展；远程 CI / 跨平台 jobs 继续如实记录为 release blocker/known gap，但不应阻塞 Mission Commander、lane executor、reviewer、autonomy、adapter live validation 与 pack-memory 等本机可验证产品闭环的迭代效率。
 
 跨平台完成度分三级记录：
 
