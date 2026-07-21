@@ -143,6 +143,7 @@ type ReviewerOrchestrationPlan struct {
 	ResultRoot                  string                                   `json:"resultRoot"`
 	ReviewerCount               int                                      `json:"reviewerCount"`
 	MaxParallel                 int                                      `json:"maxParallel"`
+	Summary                     ReviewerOrchestrationSummary             `json:"summary"`
 	Dispatches                  []ReviewerDispatch                       `json:"dispatches"`
 	Lifecycle                   []ReviewerOrchestrationStep              `json:"lifecycle"`
 	RuntimeBoundary             []string                                 `json:"runtimeBoundary"`
@@ -150,6 +151,57 @@ type ReviewerOrchestrationPlan struct {
 	MissionCommanderAction      *mission.MissionCommanderAction          `json:"missionCommanderAction,omitempty"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue *mission.MissionCommanderActionQueue     `json:"missionCommanderActionQueue,omitempty"`
+}
+
+type ReviewerOrchestrationSummary struct {
+	Mode                 string                                   `json:"mode"`
+	Scope                string                                   `json:"scope,omitempty"`
+	TargetLane           string                                   `json:"targetLane,omitempty"`
+	ReviewerCount        int                                      `json:"reviewerCount"`
+	MaxParallel          int                                      `json:"maxParallel"`
+	PacketPath           string                                   `json:"packetPath,omitempty"`
+	ResultRoot           string                                   `json:"resultRoot,omitempty"`
+	OwnerBinding         ReviewerOrchestrationOwnerSummary        `json:"ownerBinding"`
+	DispatchCount        int                                      `json:"dispatchCount"`
+	IntakeAvailable      bool                                     `json:"intakeAvailable"`
+	DispatchOnly         bool                                     `json:"dispatchOnly"`
+	ActionTotal          int                                      `json:"actionTotal"`
+	ActionUnblocked      int                                      `json:"actionUnblocked"`
+	ActionBlocked        int                                      `json:"actionBlocked"`
+	ActionRequiresReview int                                      `json:"actionRequiresReview"`
+	ActionFollowUp       int                                      `json:"actionFollowUp"`
+	QueueSummary         string                                   `json:"queueSummary,omitempty"`
+	FirstDispatch        *ReviewerOrchestrationDispatchSummary    `json:"firstDispatch,omitempty"`
+	Dispatches           []ReviewerOrchestrationDispatchSummary   `json:"dispatches,omitempty"`
+	CurrentAction        *ReviewerOrchestrationNextActionSummary  `json:"currentAction,omitempty"`
+	NextActions          []ReviewerOrchestrationNextActionSummary `json:"nextActions,omitempty"`
+	Boundary             []string                                 `json:"boundary,omitempty"`
+}
+
+type ReviewerOrchestrationOwnerSummary struct {
+	TargetLane         string `json:"targetLane,omitempty"`
+	BindingMode        string `json:"bindingMode,omitempty"`
+	CurrentExecutor    string `json:"currentExecutor,omitempty"`
+	ExecutorGeneration int    `json:"executorGeneration"`
+	RequiredForIntake  bool   `json:"requiredForIntake"`
+	SpawnOwner         string `json:"spawnOwner,omitempty"`
+}
+
+type ReviewerOrchestrationDispatchSummary struct {
+	ShardID            string `json:"shardId"`
+	Status             string `json:"status"`
+	ReviewerResultPath string `json:"reviewerResultPath,omitempty"`
+	DispatchCommand    string `json:"dispatchCommand,omitempty"`
+	PreviewCommand     string `json:"previewCommand,omitempty"`
+	ApplyCommand       string `json:"applyCommand,omitempty"`
+}
+
+type ReviewerOrchestrationNextActionSummary struct {
+	State          string `json:"state"`
+	Source         string `json:"source"`
+	Command        string `json:"command"`
+	Blocked        bool   `json:"blocked,omitempty"`
+	RequiresReview bool   `json:"requiresReview,omitempty"`
 }
 
 type ReviewerDispatch struct {
@@ -351,6 +403,7 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	orchestration.MissionCommanderAction = &commanderAction
 	orchestration.MissionCommanderNextActions = commanderNextActions
 	orchestration.MissionCommanderActionQueue = &commanderActionQueue
+	orchestration.Summary = reviewerOrchestrationSummary(orchestration)
 	packet := Packet{
 		SchemaVersion:             1,
 		Command:                   commandName,
@@ -516,7 +569,11 @@ func packetIdentityMatches(packet Packet) bool {
 }
 
 func reviewerOrchestrationEmpty(plan ReviewerOrchestrationPlan) bool {
-	return plan.Mode == "" && plan.Scope == "" && plan.TargetLane == "" && plan.OwnerBinding == (OwnerBinding{}) && plan.PacketPath == "" && plan.ResultRoot == "" && plan.ReviewerCount == 0 && plan.MaxParallel == 0 && len(plan.Dispatches) == 0 && len(plan.Lifecycle) == 0 && len(plan.RuntimeBoundary) == 0 && len(plan.CompletionCriteria) == 0 && plan.MissionCommanderAction == nil && len(plan.MissionCommanderNextActions) == 0 && reviewerActionQueueEmpty(plan.MissionCommanderActionQueue)
+	return plan.Mode == "" && plan.Scope == "" && plan.TargetLane == "" && plan.OwnerBinding == (OwnerBinding{}) && plan.PacketPath == "" && plan.ResultRoot == "" && plan.ReviewerCount == 0 && plan.MaxParallel == 0 && reviewerOrchestrationSummaryEmpty(plan.Summary) && len(plan.Dispatches) == 0 && len(plan.Lifecycle) == 0 && len(plan.RuntimeBoundary) == 0 && len(plan.CompletionCriteria) == 0 && plan.MissionCommanderAction == nil && len(plan.MissionCommanderNextActions) == 0 && reviewerActionQueueEmpty(plan.MissionCommanderActionQueue)
+}
+
+func reviewerOrchestrationSummaryEmpty(summary ReviewerOrchestrationSummary) bool {
+	return summary.Mode == "" && summary.Scope == "" && summary.TargetLane == "" && summary.ReviewerCount == 0 && summary.MaxParallel == 0 && summary.PacketPath == "" && summary.ResultRoot == "" && summary.OwnerBinding == (ReviewerOrchestrationOwnerSummary{}) && summary.DispatchCount == 0 && !summary.IntakeAvailable && !summary.DispatchOnly && summary.ActionTotal == 0 && summary.ActionUnblocked == 0 && summary.ActionBlocked == 0 && summary.ActionRequiresReview == 0 && summary.ActionFollowUp == 0 && summary.QueueSummary == "" && summary.FirstDispatch == nil && len(summary.Dispatches) == 0 && summary.CurrentAction == nil && len(summary.NextActions) == 0 && len(summary.Boundary) == 0
 }
 
 func reviewerActionQueueEmpty(queue *mission.MissionCommanderActionQueue) bool {
@@ -1055,6 +1112,79 @@ func reviewerPlanMissionCommanderNextActions(planRoot, pack string, orchestratio
 	return mission.UniqueCommanderNextActions(items)
 }
 
+func reviewerOrchestrationSummary(orchestration ReviewerOrchestrationPlan) ReviewerOrchestrationSummary {
+	summary := ReviewerOrchestrationSummary{
+		Mode:          orchestration.Mode,
+		Scope:         orchestration.Scope,
+		TargetLane:    orchestration.TargetLane,
+		ReviewerCount: orchestration.ReviewerCount,
+		MaxParallel:   orchestration.MaxParallel,
+		PacketPath:    orchestration.PacketPath,
+		ResultRoot:    orchestration.ResultRoot,
+		OwnerBinding: ReviewerOrchestrationOwnerSummary{
+			TargetLane:         orchestration.OwnerBinding.TargetLane,
+			BindingMode:        orchestration.OwnerBinding.BindingMode,
+			CurrentExecutor:    orchestration.OwnerBinding.CurrentExecutor,
+			ExecutorGeneration: orchestration.OwnerBinding.ExecutorGeneration,
+			RequiredForIntake:  orchestration.OwnerBinding.RequiredForIntake,
+			SpawnOwner:         orchestration.OwnerBinding.MainAgentSpawnOwner,
+		},
+		DispatchCount: len(orchestration.Dispatches),
+		Boundary: []string{
+			"planning summary is read-only; full reviewerOrchestration dispatches, lifecycle, action queue, and shard handoffs remain available",
+			"runtime only writes review artifacts and does not spawn, stop, monitor, or manage reviewer sessions",
+			"reviewers must return one read-only ReviewerResult JSON object; main agent runs reviewer-intake preview before apply",
+			"reviewer intake does not write authority/confirmed state and does not execute heavy tools",
+		},
+	}
+	for idx, dispatch := range orchestration.Dispatches {
+		dispatchSummary := ReviewerOrchestrationDispatchSummary{
+			ShardID:            dispatch.ShardID,
+			Status:             dispatch.Status,
+			ReviewerResultPath: dispatch.ReviewerResultPath,
+			DispatchCommand:    reviewerPlanDispatchCommand(orchestration, idx),
+			PreviewCommand:     dispatch.PreviewCommand,
+			ApplyCommand:       dispatch.ApplyCommand,
+		}
+		summary.Dispatches = append(summary.Dispatches, dispatchSummary)
+		if summary.FirstDispatch == nil {
+			first := dispatchSummary
+			summary.FirstDispatch = &first
+		}
+		if !strings.HasPrefix(strings.TrimSpace(dispatch.PreviewCommand), "n/a:") || !strings.HasPrefix(strings.TrimSpace(dispatch.ApplyCommand), "n/a:") {
+			summary.IntakeAvailable = true
+		}
+	}
+	summary.DispatchOnly = summary.DispatchCount > 0 && !summary.IntakeAvailable
+	if orchestration.MissionCommanderActionQueue != nil {
+		queue := *orchestration.MissionCommanderActionQueue
+		summary.QueueSummary = strings.TrimSpace(queue.Summary)
+		summary.ActionTotal = queue.Counts.Total
+		summary.ActionUnblocked = queue.Counts.Unblocked
+		summary.ActionBlocked = queue.Counts.Blocked
+		summary.ActionRequiresReview = queue.Counts.RequiresReview
+		summary.ActionFollowUp = queue.Counts.FollowUp
+		if queue.CurrentAction != nil {
+			current := reviewerOrchestrationNextActionSummary(*queue.CurrentAction)
+			summary.CurrentAction = &current
+		}
+	}
+	for _, item := range orchestration.MissionCommanderNextActions {
+		summary.NextActions = append(summary.NextActions, reviewerOrchestrationNextActionSummary(item))
+	}
+	return summary
+}
+
+func reviewerOrchestrationNextActionSummary(item mission.MissionCommanderNextActionItem) ReviewerOrchestrationNextActionSummary {
+	return ReviewerOrchestrationNextActionSummary{
+		State:          item.State,
+		Source:         item.Source,
+		Command:        item.Command,
+		Blocked:        item.Blocked,
+		RequiresReview: item.RequiresReview,
+	}
+}
+
 func reviewerPlanPreviewCommands(orchestration ReviewerOrchestrationPlan) []string {
 	commands := []string{}
 	for _, dispatch := range orchestration.Dispatches {
@@ -1508,6 +1638,25 @@ func summaryText(packetID string, route Route, taskType string, itemCount, shard
 		fmt.Sprintf("- max parallel: `%d`", orchestration.MaxParallel),
 		"- result root: `"+orchestration.ResultRoot+"`",
 	)
+	summary := orchestration.Summary
+	lines = append(lines,
+		fmt.Sprintf("- reviewer orchestration summary: mode=`%s`; targetLane=`%s`; reviewers=`%d`; dispatches=`%d`; maxParallel=`%d`; intakeAvailable=`%t`; dispatchOnly=`%t`; actions=`%d`; unblocked=`%d`; blocked=`%d`; requiresReview=`%d`; followUp=`%d`; queue=`%s`", summary.Mode, summary.TargetLane, summary.ReviewerCount, summary.DispatchCount, summary.MaxParallel, summary.IntakeAvailable, summary.DispatchOnly, summary.ActionTotal, summary.ActionUnblocked, summary.ActionBlocked, summary.ActionRequiresReview, summary.ActionFollowUp, summary.QueueSummary),
+		fmt.Sprintf("- reviewer orchestration summary owner: targetLane=`%s`; mode=`%s`; currentExecutor=`%s`; generation=`%d`; requiredForIntake=`%t`; spawnOwner=`%s`", summary.OwnerBinding.TargetLane, summary.OwnerBinding.BindingMode, textOr(summary.OwnerBinding.CurrentExecutor, "unassigned"), summary.OwnerBinding.ExecutorGeneration, summary.OwnerBinding.RequiredForIntake, summary.OwnerBinding.SpawnOwner),
+	)
+	if summary.FirstDispatch != nil {
+		dispatch := *summary.FirstDispatch
+		lines = append(lines, fmt.Sprintf("- reviewer orchestration summary first dispatch: shard=`%s`; status=`%s`; result=`%s`; dispatch=`%s`; preview=`%s`; apply=`%s`", dispatch.ShardID, dispatch.Status, dispatch.ReviewerResultPath, dispatch.DispatchCommand, dispatch.PreviewCommand, dispatch.ApplyCommand))
+	}
+	if summary.CurrentAction != nil {
+		item := *summary.CurrentAction
+		lines = append(lines, fmt.Sprintf("- reviewer orchestration summary current action: state=`%s`; source=`%s`; blocked=`%t`; requiresReview=`%t`; command=`%s`", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command))
+	}
+	for _, item := range summary.NextActions {
+		lines = append(lines, fmt.Sprintf("- reviewer orchestration summary next action: state=`%s`; source=`%s`; blocked=`%t`; requiresReview=`%t`; command=`%s`", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command))
+	}
+	for _, boundary := range summary.Boundary {
+		lines = append(lines, "- reviewer orchestration summary boundary: "+boundary)
+	}
 	if orchestration.MissionCommanderAction != nil {
 		action := *orchestration.MissionCommanderAction
 		lines = append(lines, fmt.Sprintf("- mission commander action: state=`%s`; primary=`%s`; follow-up=`%s`; prompt=`%s`", action.State, action.PrimaryCommand, strings.Join(action.FollowUpCommands, "; "), action.Prompt))

@@ -35,6 +35,9 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if result.ReviewerOrchestration.Mode != "dispatch-only-unattached-target" || result.ReviewerOrchestration.ReviewerCount != 2 || result.ReviewerOrchestration.MaxParallel != 5 || len(result.ReviewerOrchestration.Dispatches) != 2 || len(result.ReviewerOrchestration.Lifecycle) != 5 || result.ReviewerOrchestration.Dispatches[0].ShardID != "shard-01" || !strings.Contains(result.ReviewerOrchestration.Lifecycle[0].Action, "does not spawn") {
 		t.Fatalf("unexpected reviewer orchestration: %+v", result.ReviewerOrchestration)
 	}
+	if result.ReviewerOrchestration.Summary.Mode != result.ReviewerOrchestration.Mode || result.ReviewerOrchestration.Summary.DispatchCount != 2 || result.ReviewerOrchestration.Summary.IntakeAvailable || !result.ReviewerOrchestration.Summary.DispatchOnly || result.ReviewerOrchestration.Summary.FirstDispatch == nil || result.ReviewerOrchestration.Summary.FirstDispatch.ShardID != "shard-01" || !strings.Contains(result.ReviewerOrchestration.Summary.FirstDispatch.DispatchCommand, "dispatch read-only reviewer for shard-01") || !slices.Contains(result.ReviewerOrchestration.Summary.Boundary, "runtime only writes review artifacts and does not spawn, stop, monitor, or manage reviewer sessions") {
+		t.Fatalf("unexpected reviewer orchestration summary: %+v", result.ReviewerOrchestration.Summary)
+	}
 	if result.MissionCommanderAction.State != "reviewer-dispatch-only-target-unattached" || result.ReviewerOrchestration.MissionCommanderAction == nil || result.ReviewerOrchestration.MissionCommanderAction.State != result.MissionCommanderAction.State || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.dispatch", "dispatch read-only reviewer for shard-01", false, true) || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.dispatchOnly.attachTarget", "/rekit init", false, true) {
 		t.Fatalf("out-of-case plan omitted Mission Commander dispatch-only guidance: action=%+v next=%+v orchestration=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions, result.ReviewerOrchestration)
 	}
@@ -60,7 +63,7 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if packet.OwnerBinding != result.OwnerBinding || packet.ShardHandoffs[0].OwnerBinding != result.OwnerBinding {
 		t.Fatalf("packet did not preserve owner binding: result=%+v packet=%+v", result.OwnerBinding, packet.OwnerBinding)
 	}
-	if packet.ReviewerOrchestration.Mode != result.ReviewerOrchestration.Mode || packet.ReviewerOrchestration.PacketPath != result.PacketPath || packet.ReviewerOrchestration.Dispatches[0].ReviewerResultPath != packet.ShardHandoffs[0].ReviewerResultPath || packet.ReviewerOrchestration.MissionCommanderAction == nil || len(packet.ReviewerOrchestration.MissionCommanderNextActions) != len(result.MissionCommanderNextActions) || packet.ReviewerOrchestration.MissionCommanderActionQueue == nil || packet.ReviewerOrchestration.MissionCommanderActionQueue.Summary != result.MissionCommanderActionQueue.Summary {
+	if packet.ReviewerOrchestration.Mode != result.ReviewerOrchestration.Mode || packet.ReviewerOrchestration.PacketPath != result.PacketPath || packet.ReviewerOrchestration.Summary.DispatchCount != result.ReviewerOrchestration.Summary.DispatchCount || packet.ReviewerOrchestration.Summary.FirstDispatch == nil || packet.ReviewerOrchestration.Dispatches[0].ReviewerResultPath != packet.ShardHandoffs[0].ReviewerResultPath || packet.ReviewerOrchestration.MissionCommanderAction == nil || len(packet.ReviewerOrchestration.MissionCommanderNextActions) != len(result.MissionCommanderNextActions) || packet.ReviewerOrchestration.MissionCommanderActionQueue == nil || packet.ReviewerOrchestration.MissionCommanderActionQueue.Summary != result.MissionCommanderActionQueue.Summary {
 		t.Fatalf("packet did not preserve reviewer orchestration: result=%+v packet=%+v", result.ReviewerOrchestration, packet.ReviewerOrchestration)
 	}
 	assertShardHandoff(t, packet.ShardHandoffs[0], "shard-01", []string{"alpha", "beta"})
@@ -69,7 +72,7 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"### reviewer orchestration", "mission commander action:", "mission commander action queue:", "mission commander next action:", "orchestration-step:", "reviewer-dispatch:", "### shard handoff prompts", "read-only reviewer", "Do not write files", "reviewer result root:", "main-agent result path=", "expected output=`item,decision", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "n/a: reviewer intake requires an attached rekit case", "out-of-case review artifacts are dispatch-only", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"### reviewer orchestration", "reviewer orchestration summary:", "reviewer orchestration summary first dispatch:", "reviewer orchestration summary current action:", "reviewer orchestration summary boundary:", "dispatchOnly=`true`", "mission commander action:", "mission commander action queue:", "mission commander next action:", "orchestration-step:", "reviewer-dispatch:", "### shard handoff prompts", "read-only reviewer", "Do not write files", "reviewer result root:", "main-agent result path=", "expected output=`item,decision", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "n/a: reviewer intake requires an attached rekit case", "out-of-case review artifacts are dispatch-only", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -124,6 +127,9 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 	if result.ReviewerOrchestration.Mode != "manual-main-agent-intake" || result.ReviewerOrchestration.TargetLane != "feature-intake" || result.ReviewerOrchestration.Dispatches[0].PreviewCommand == "" || strings.Contains(result.ReviewerOrchestration.Dispatches[0].PreviewCommand, "n/a:") {
 		t.Fatalf("attached case reviewer orchestration did not expose runnable intake: %+v", result.ReviewerOrchestration)
 	}
+	if !result.ReviewerOrchestration.Summary.IntakeAvailable || result.ReviewerOrchestration.Summary.DispatchOnly || result.ReviewerOrchestration.Summary.OwnerBinding.CurrentExecutor != "session-plan" || result.ReviewerOrchestration.Summary.CurrentAction == nil || result.ReviewerOrchestration.Summary.ActionTotal == 0 || !strings.Contains(result.ReviewerOrchestration.Summary.FirstDispatch.PreviewCommand, "-WhatIf -Format json") || !strings.Contains(result.ReviewerOrchestration.Summary.FirstDispatch.ApplyCommand, "-Apply -Format json") {
+		t.Fatalf("attached case reviewer orchestration summary omitted runnable intake: %+v", result.ReviewerOrchestration.Summary)
+	}
 	if result.MissionCommanderAction.State != "ready-for-reviewer-dispatch" || result.ReviewerOrchestration.MissionCommanderAction == nil || result.ReviewerOrchestration.MissionCommanderAction.PrimaryCommand != result.MissionCommanderAction.PrimaryCommand || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.dispatch", "dispatch read-only reviewer for shard-01", false, true) || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.intake.preview", "-WhatIf -Format json", true, true) || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.intake.apply", "-Apply -Format json", true, true) {
 		t.Fatalf("attached case plan omitted Mission Commander reviewer dispatch/intake guidance: action=%+v next=%+v orchestration=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions, result.ReviewerOrchestration)
 	}
@@ -131,8 +137,8 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(summary), "owner binding current executor: `session-plan`") || !strings.Contains(string(summary), "owner binding required for intake: `true`") {
-		t.Fatalf("summary omitted owner binding:\n%s", string(summary))
+	if !strings.Contains(string(summary), "owner binding current executor: `session-plan`") || !strings.Contains(string(summary), "owner binding required for intake: `true`") || !strings.Contains(string(summary), "reviewer orchestration summary owner: targetLane=`feature-intake`; mode=`current-executor-generation`; currentExecutor=`session-plan`") || !strings.Contains(string(summary), "intakeAvailable=`true`; dispatchOnly=`false`") {
+		t.Fatalf("summary omitted owner binding or compact orchestration summary:\n%s", string(summary))
 	}
 }
 
@@ -147,6 +153,9 @@ func TestWritePlanNoItemsKeepsEmptyShardHandoffs(t *testing.T) {
 	}
 	if result.MissionCommanderAction.State != "reviewer-plan-empty" || len(result.MissionCommanderNextActions) != 1 || result.MissionCommanderNextActions[0].Source != "reviewerOrchestration.plan" {
 		t.Fatalf("empty plan omitted Mission Commander replanning guidance: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
+	}
+	if result.ReviewerOrchestration.Summary.DispatchCount != 0 || result.ReviewerOrchestration.Summary.FirstDispatch != nil || result.ReviewerOrchestration.Summary.CurrentAction == nil || result.ReviewerOrchestration.Summary.CurrentAction.Source != "reviewerOrchestration.plan" {
+		t.Fatalf("empty plan summary omitted replanning current action: %+v", result.ReviewerOrchestration.Summary)
 	}
 	summary, err := os.ReadFile(result.SummaryPath)
 	if err != nil {

@@ -4523,8 +4523,44 @@ func planSubagentsReviewerResultSkeletonJSON(packetID, routeID string, handoff s
 	return string(b)
 }
 
+func writePlanSubagentsReviewerOrchestrationSummaryText(out io.Writer, summary subagents.ReviewerOrchestrationSummary) error {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration summary：mode=%s targetLane=%s reviewers=%d dispatches=%d maxParallel=%d intakeAvailable=%t dispatchOnly=%t packet=%s resultRoot=%s actions=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d queue=%s\n", summary.Mode, summary.TargetLane, summary.ReviewerCount, summary.DispatchCount, summary.MaxParallel, summary.IntakeAvailable, summary.DispatchOnly, summary.PacketPath, summary.ResultRoot, summary.ActionTotal, summary.ActionUnblocked, summary.ActionBlocked, summary.ActionRequiresReview, summary.ActionFollowUp, summary.QueueSummary); err != nil {
+		return err
+	}
+	binding := summary.OwnerBinding
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration summary owner：targetLane=%s mode=%s currentExecutor=%s generation=%d requiredForIntake=%t spawnOwner=%s\n", binding.TargetLane, binding.BindingMode, planSubagentsTextValue(binding.CurrentExecutor, "unassigned"), binding.ExecutorGeneration, binding.RequiredForIntake, binding.SpawnOwner); err != nil {
+		return err
+	}
+	if summary.FirstDispatch != nil {
+		dispatch := *summary.FirstDispatch
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration summary first dispatch：shard=%s status=%s reviewerResultPath=%s dispatch=`%s` preview=`%s` apply=`%s`\n", dispatch.ShardID, dispatch.Status, dispatch.ReviewerResultPath, dispatch.DispatchCommand, dispatch.PreviewCommand, dispatch.ApplyCommand); err != nil {
+			return err
+		}
+	}
+	if summary.CurrentAction != nil {
+		item := *summary.CurrentAction
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration summary current action：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+			return err
+		}
+	}
+	for _, item := range summary.NextActions {
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration summary next action：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range summary.Boundary {
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration summary boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writePlanSubagentsReviewerOrchestrationText(out io.Writer, orchestration subagents.ReviewerOrchestrationPlan, targetLane string) error {
 	if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration：mode=%s targetLane=%s reviewers=%d maxParallel=%d resultRoot=%s\n", orchestration.Mode, targetLane, orchestration.ReviewerCount, orchestration.MaxParallel, orchestration.ResultRoot); err != nil {
+		return err
+	}
+	if err := writePlanSubagentsReviewerOrchestrationSummaryText(out, orchestration.Summary); err != nil {
 		return err
 	}
 	if strings.TrimSpace(orchestration.Scope) != "" || strings.TrimSpace(orchestration.PacketPath) != "" {
