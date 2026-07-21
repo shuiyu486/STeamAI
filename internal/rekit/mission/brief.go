@@ -124,6 +124,10 @@ type ExecutionEvidenceReviewItem struct {
 	Target                 string                         `json:"target,omitempty"`
 	OutputRefs             []string                       `json:"outputRefs,omitempty"`
 	EvidenceRefs           []string                       `json:"evidenceRefs,omitempty"`
+	ExecutionReportPath    string                         `json:"executionReportPath,omitempty"`
+	ActualBudget           *ExecutionEvidenceBudget       `json:"actualBudget,omitempty"`
+	AdapterID              string                         `json:"adapterId,omitempty"`
+	AdapterStatus          string                         `json:"adapterStatus,omitempty"`
 	BoundaryHits           []string                       `json:"boundaryHits,omitempty"`
 	Escalation             string                         `json:"escalation,omitempty"`
 	FollowThrough          ExecutionEvidenceFollowThrough `json:"followThrough"`
@@ -131,6 +135,12 @@ type ExecutionEvidenceReviewItem struct {
 	HandoffCommand         string                         `json:"handoffCommand"`
 	Boundary               []string                       `json:"boundary"`
 	MissionCommanderAction MissionCommanderAction         `json:"missionCommanderAction"`
+}
+
+type ExecutionEvidenceBudget struct {
+	RuntimeSeconds int `json:"runtimeSeconds"`
+	DiskMB         int `json:"diskMB"`
+	Requests       int `json:"requests"`
 }
 
 type ExecutionEvidenceFollowThrough struct {

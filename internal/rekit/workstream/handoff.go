@@ -540,6 +540,7 @@ func writeProjectLaneExecutionEvidenceReview(out *bytes.Buffer, items []Executio
 	for _, item := range items {
 		fmt.Fprintf(out, "  - execution evidence review：%s status=%s gateEventId=%s action=%s\n", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, firstText(item.Action, "none"))
 		writeProjectLaneExecutionEvidenceBoundaryDetail(out, item)
+		writeProjectLaneExecutionEvidenceReportDetail(out, item)
 		fmt.Fprintf(out, "  - evidence review command：`%s`\n", item.ReviewCommand)
 		fmt.Fprintf(out, "  - evidence handoff：`%s`\n", item.HandoffCommand)
 		fmt.Fprintf(out, "  - evidence commander：state=%s primary=`%s`\n", item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand)
@@ -562,6 +563,17 @@ func writeProjectLaneExecutionEvidenceBoundaryDetail(out *bytes.Buffer, item Exe
 	}
 }
 
+func writeProjectLaneExecutionEvidenceReportDetail(out *bytes.Buffer, item ExecutionEvidenceReviewItem) {
+	if strings.TrimSpace(item.ExecutionReportPath) != "" {
+		fmt.Fprintf(out, "  - evidence report：%s\n", item.ExecutionReportPath)
+	}
+	if item.ActualBudget != nil {
+		fmt.Fprintf(out, "  - evidence budget：runtimeSeconds=%d diskMB=%d requests=%d\n", item.ActualBudget.RuntimeSeconds, item.ActualBudget.DiskMB, item.ActualBudget.Requests)
+	}
+	if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" {
+		fmt.Fprintf(out, "  - evidence adapter：adapterId=%s status=%s\n", item.AdapterID, item.AdapterStatus)
+	}
+}
 func writeProjectLaneEvidenceFollowThrough(out *bytes.Buffer, follow mission.ExecutionEvidenceFollowThrough) {
 	if strings.TrimSpace(follow.State) == "" && len(follow.Outcomes) == 0 {
 		return
@@ -1099,6 +1111,7 @@ func writeExecutionEvidenceReviewSection(out *bytes.Buffer, items []ExecutionEvi
 	for _, item := range items {
 		fmt.Fprintf(out, "- %s | status=%s | gateEventId=%s | action=%s | outputRefs=%s | evidenceRefs=%s\n", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, item.Action, firstText(strings.Join(item.OutputRefs, ","), "none"), firstText(strings.Join(item.EvidenceRefs, ","), "none"))
 		writeExecutionEvidenceBoundaryDetail(out, item)
+		writeExecutionEvidenceReportDetail(out, item)
 		fmt.Fprintf(out, "  - review command: `%s`\n", item.ReviewCommand)
 		fmt.Fprintf(out, "  - handoff command: `%s`\n", item.HandoffCommand)
 		fmt.Fprintf(out, "  - commander state: %s\n", item.MissionCommanderAction.State)
@@ -1144,6 +1157,17 @@ func writeExecutionEvidenceFollowThrough(out *bytes.Buffer, follow mission.Execu
 	}
 }
 
+func writeExecutionEvidenceReportDetail(out *bytes.Buffer, item ExecutionEvidenceReviewItem) {
+	if strings.TrimSpace(item.ExecutionReportPath) != "" {
+		fmt.Fprintf(out, "  - execution report: %s\n", item.ExecutionReportPath)
+	}
+	if item.ActualBudget != nil {
+		fmt.Fprintf(out, "  - actual budget: runtimeSeconds=%d diskMB=%d requests=%d\n", item.ActualBudget.RuntimeSeconds, item.ActualBudget.DiskMB, item.ActualBudget.Requests)
+	}
+	if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" {
+		fmt.Fprintf(out, "  - adapter report: adapterId=%s status=%s\n", item.AdapterID, item.AdapterStatus)
+	}
+}
 func writeInterventionSection(out *bytes.Buffer, interventions []map[string]any, laneID string) {
 	items := filterLane(interventions, laneID, "")
 	if len(items) == 0 {

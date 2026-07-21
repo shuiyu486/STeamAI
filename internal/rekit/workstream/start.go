@@ -1162,6 +1162,7 @@ func appendResumeExecutionEvidenceReview(lines []string, items []ExecutionEviden
 		if strings.TrimSpace(item.Escalation) != "" {
 			lines = append(lines, "    - escalation: "+item.Escalation)
 		}
+		lines = appendResumeExecutionEvidenceReportDetail(lines, item)
 		if refs := strings.Join(item.OutputRefs, ","); refs != "" {
 			lines = append(lines, "    - outputRefs: "+refs)
 		}
@@ -1179,6 +1180,19 @@ func appendResumeExecutionEvidenceReview(lines []string, items []ExecutionEviden
 		for _, boundary := range mission.LimitStrings(item.Boundary, maxHandoffRows) {
 			lines = append(lines, "    - boundary: "+boundary)
 		}
+	}
+	return lines
+}
+
+func appendResumeExecutionEvidenceReportDetail(lines []string, item ExecutionEvidenceReviewItem) []string {
+	if strings.TrimSpace(item.ExecutionReportPath) != "" {
+		lines = append(lines, "    - execution report: "+item.ExecutionReportPath)
+	}
+	if item.ActualBudget != nil {
+		lines = append(lines, fmt.Sprintf("    - actual budget: runtimeSeconds=%d diskMB=%d requests=%d", item.ActualBudget.RuntimeSeconds, item.ActualBudget.DiskMB, item.ActualBudget.Requests))
+	}
+	if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" {
+		lines = append(lines, fmt.Sprintf("    - adapter report: adapterId=%s status=%s", item.AdapterID, item.AdapterStatus))
 	}
 	return lines
 }

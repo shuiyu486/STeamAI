@@ -1,6 +1,7 @@
 package mission
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -66,20 +67,24 @@ func ExecutionEvidenceReviewItemFromObservation(observation map[string]any, lane
 		boundary = append(boundary, "boundary/escalation requires main review before autonomous continuation")
 	}
 	item := ExecutionEvidenceReviewItem{
-		EventID:        firstObjectText(observation, "eventId"),
-		GateEventID:    gateEventID,
-		Subject:        firstObjectText(observation, "subject"),
-		Summary:        firstObjectText(observation, "summary"),
-		Status:         status,
-		Action:         firstObjectText(gate, "action"),
-		Target:         firstObjectText(observation, "target"),
-		OutputRefs:     objectStringList(execution["outputRefs"]),
-		EvidenceRefs:   objectStringList(observation["evidenceRefs"]),
-		BoundaryHits:   boundaryHits,
-		Escalation:     escalation,
-		ReviewCommand:  "review outputRefs/evidenceRefs for gateEventId " + gateEventID,
-		HandoffCommand: "/rekit handoff " + label,
-		Boundary:       boundary,
+		EventID:             firstObjectText(observation, "eventId"),
+		GateEventID:         gateEventID,
+		Subject:             firstObjectText(observation, "subject"),
+		Summary:             firstObjectText(observation, "summary"),
+		Status:              status,
+		Action:              firstObjectText(gate, "action"),
+		Target:              firstObjectText(observation, "target"),
+		OutputRefs:          objectStringList(execution["outputRefs"]),
+		EvidenceRefs:        objectStringList(observation["evidenceRefs"]),
+		ExecutionReportPath: firstObjectText(execution, "executionReportPath"),
+		ActualBudget:        executionEvidenceBudget(execution),
+		AdapterID:           firstObjectText(objectMap(execution["adapter"]), "adapterId"),
+		AdapterStatus:       firstObjectText(objectMap(execution["adapter"]), "status"),
+		BoundaryHits:        boundaryHits,
+		Escalation:          escalation,
+		ReviewCommand:       "review outputRefs/evidenceRefs for gateEventId " + gateEventID,
+		HandoffCommand:      "/rekit handoff " + label,
+		Boundary:            boundary,
 	}
 	item.MissionCommanderAction = ExecutionEvidenceReviewCommanderAction(item, label)
 	item.FollowThrough = ExecutionEvidenceReviewFollowThrough(item)
@@ -246,6 +251,18 @@ func compactStrings(items []string) []string {
 	return UniqueStrings(out)
 }
 
+func executionEvidenceBudget(execution map[string]any) *ExecutionEvidenceBudget {
+	budget := objectMap(execution["actualBudget"])
+	if len(budget) == 0 {
+		return nil
+	}
+	return &ExecutionEvidenceBudget{
+		RuntimeSeconds: objectInt(budget["runtimeSeconds"]),
+		DiskMB:         objectInt(budget["diskMB"]),
+		Requests:       objectInt(budget["requests"]),
+	}
+}
+
 func objectMap(value any) map[string]any {
 	if item, ok := value.(map[string]any); ok {
 		return item
@@ -295,6 +312,26 @@ func firstObjectText(item map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func objectInt(value any) int {
+	switch t := value.(type) {
+	case int:
+		return t
+	case int64:
+		return int(t)
+	case float64:
+		return int(t)
+	case json.Number:
+		n, _ := t.Int64()
+		return int(n)
+	case string:
+		var n int
+		_, _ = fmt.Sscanf(strings.TrimSpace(t), "%d", &n)
+		return n
+	default:
+		return 0
+	}
 }
 
 func objectText(value any) string {

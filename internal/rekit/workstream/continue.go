@@ -867,6 +867,7 @@ func appendContinueExecutionEvidenceReview(lines []string, items []ExecutionEvid
 		if strings.TrimSpace(item.Escalation) != "" {
 			lines = append(lines, "- escalation: "+item.Escalation)
 		}
+		lines = appendContinueExecutionEvidenceReportDetail(lines, item)
 		lines = appendMissionBriefDigestList(lines, "outputRefs", item.OutputRefs)
 		lines = appendMissionBriefDigestList(lines, "evidenceRefs", item.EvidenceRefs)
 		lines = append(lines, "- review command: `"+item.ReviewCommand+"`")
@@ -876,6 +877,19 @@ func appendContinueExecutionEvidenceReview(lines []string, items []ExecutionEvid
 		lines = appendContinueExecutionEvidenceFollowThrough(lines, item.FollowThrough)
 		lines = appendMissionBriefDigestList(lines, "commander follow-up", item.MissionCommanderAction.FollowUpCommands)
 		lines = appendMissionBriefDigestList(lines, "review boundary", item.Boundary)
+	}
+	return lines
+}
+
+func appendContinueExecutionEvidenceReportDetail(lines []string, item ExecutionEvidenceReviewItem) []string {
+	if strings.TrimSpace(item.ExecutionReportPath) != "" {
+		lines = append(lines, "- execution report: "+item.ExecutionReportPath)
+	}
+	if item.ActualBudget != nil {
+		lines = append(lines, fmt.Sprintf("- actual budget: runtimeSeconds=%d diskMB=%d requests=%d", item.ActualBudget.RuntimeSeconds, item.ActualBudget.DiskMB, item.ActualBudget.Requests))
+	}
+	if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" {
+		lines = append(lines, fmt.Sprintf("- adapter report: adapterId=%s status=%s", item.AdapterID, item.AdapterStatus))
 	}
 	return lines
 }
