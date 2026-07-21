@@ -134,8 +134,11 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 		t.Fatalf("unexpected latest batch summary: %+v", handoff.LatestBatch)
 	}
 	latestHandoff := handoff.LatestBatch.Handoff
-	if !latestHandoff.Completed || strings.TrimSpace(latestHandoff.RemoteReleaseGate) == "" || strings.TrimSpace(latestHandoff.NextAction) == "" || len(latestHandoff.Evidence) == 0 {
+	if !latestHandoff.Completed || strings.TrimSpace(latestHandoff.RemoteReleaseGate) == "" || latestHandoff.RemoteReleaseGateDetail == nil || strings.TrimSpace(latestHandoff.RemoteReleaseGateDetail.State) == "" || strings.TrimSpace(latestHandoff.NextAction) == "" || len(latestHandoff.Evidence) == 0 {
 		t.Fatalf("unexpected latest batch handoff: %+v", latestHandoff)
+	}
+	if latestHandoff.RemoteReleaseGateDetail.State != latestHandoff.RemoteReleaseGate {
+		t.Fatalf("remote gate detail state drifted from summary: %+v", latestHandoff.RemoteReleaseGateDetail)
 	}
 	if latestHandoff.LocalValidationReady {
 		for _, evidence := range []string{"release-check -Format json recorded", "status handoff recorded", "go test ./... recorded", "git diff --check recorded"} {
@@ -184,6 +187,22 @@ func TestLatestBatchRemoteGateRecognizesEqualsEmptyStepsAndChineseNegativeGreen(
 	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
 	if !slices.Contains(handoff.Evidence, "remote release-gate jobs steps=[] recorded") {
 		t.Fatalf("latest batch handoff evidence missing remote empty steps: %+v", handoff.Evidence)
+	}
+	if handoff.RemoteReleaseGateDetail == nil || handoff.RemoteReleaseGateDetail.State != "blocked: completed failure with jobs steps=[]" || !handoff.RemoteReleaseGateDetail.EmptySteps || !handoff.RemoteReleaseGateDetail.CompletedFailure || handoff.RemoteReleaseGateDetail.CanClaimGreen {
+		t.Fatalf("unexpected remote gate detail: %+v", handoff.RemoteReleaseGateDetail)
+	}
+	for _, want := range []string{"123456789"} {
+		if !slices.Contains(handoff.RemoteReleaseGateDetail.RunRefs, want) {
+			t.Fatalf("remote gate detail run refs missing %q: %+v", want, handoff.RemoteReleaseGateDetail.RunRefs)
+		}
+	}
+	for _, want := range []string{"Linux", "Windows", "macOS"} {
+		if !slices.Contains(handoff.RemoteReleaseGateDetail.Jobs, want) {
+			t.Fatalf("remote gate detail jobs missing %q: %+v", want, handoff.RemoteReleaseGateDetail.Jobs)
+		}
+	}
+	if !releaseHandoffStringsContain(handoff.RemoteReleaseGateDetail.Boundary, "do not claim remote CI green") {
+		t.Fatalf("remote gate detail boundary missing no-green guard: %+v", handoff.RemoteReleaseGateDetail.Boundary)
 	}
 }
 

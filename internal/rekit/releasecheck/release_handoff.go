@@ -77,13 +77,24 @@ type ReleaseHandoffLatestBatch struct {
 }
 
 type ReleaseHandoffLatestBatchHandoff struct {
-	Completed            bool     `json:"completed"`
-	LocalValidationReady bool     `json:"localValidationReady"`
-	ReleaseCheckReady    bool     `json:"releaseCheckReady"`
-	RemoteReleaseGate    string   `json:"remoteReleaseGate,omitempty"`
-	CommitRefs           []string `json:"commitRefs,omitempty"`
-	Evidence             []string `json:"evidence,omitempty"`
-	NextAction           string   `json:"nextAction,omitempty"`
+	Completed               bool                                   `json:"completed"`
+	LocalValidationReady    bool                                   `json:"localValidationReady"`
+	ReleaseCheckReady       bool                                   `json:"releaseCheckReady"`
+	RemoteReleaseGate       string                                 `json:"remoteReleaseGate,omitempty"`
+	RemoteReleaseGateDetail *ReleaseHandoffRemoteReleaseGateDetail `json:"remoteReleaseGateDetail,omitempty"`
+	CommitRefs              []string                               `json:"commitRefs,omitempty"`
+	Evidence                []string                               `json:"evidence,omitempty"`
+	NextAction              string                                 `json:"nextAction,omitempty"`
+}
+
+type ReleaseHandoffRemoteReleaseGateDetail struct {
+	State            string   `json:"state"`
+	RunRefs          []string `json:"runRefs,omitempty"`
+	Jobs             []string `json:"jobs,omitempty"`
+	EmptySteps       bool     `json:"emptySteps"`
+	CompletedFailure bool     `json:"completedFailure"`
+	CanClaimGreen    bool     `json:"canClaimGreen"`
+	Boundary         []string `json:"boundary,omitempty"`
 }
 
 type ReleaseHandoffReleaseNotes struct {
@@ -960,12 +971,13 @@ func latestBatchSummary(repo string) ReleaseHandoffLatestBatch {
 
 func latestBatchHandoff(latest ReleaseHandoffLatestBatch, section string) ReleaseHandoffLatestBatchHandoff {
 	handoff := ReleaseHandoffLatestBatchHandoff{
-		Completed:            strings.Contains(latest.Status, "已完成"),
-		LocalValidationReady: latestBatchHasLocalValidation(section),
-		ReleaseCheckReady:    strings.Contains(strings.ToLower(section), "release-check ready=true"),
-		RemoteReleaseGate:    latestBatchRemoteReleaseGate(section),
-		CommitRefs:           latestBatchCommitRefs(section),
-		Evidence:             latestBatchEvidence(section),
+		Completed:               strings.Contains(latest.Status, "已完成"),
+		LocalValidationReady:    latestBatchHasLocalValidation(section),
+		ReleaseCheckReady:       strings.Contains(strings.ToLower(section), "release-check ready=true"),
+		RemoteReleaseGate:       latestBatchRemoteReleaseGate(section),
+		RemoteReleaseGateDetail: latestBatchRemoteReleaseGateDetail(section),
+		CommitRefs:              latestBatchCommitRefs(section),
+		Evidence:                latestBatchEvidence(section),
 	}
 	handoff.NextAction = latestBatchNextAction(handoff)
 	return handoff
@@ -1008,9 +1020,87 @@ func latestBatchRemoteReleaseGate(text string) string {
 	}
 }
 
+func latestBatchRemoteReleaseGateDetail(text string) *ReleaseHandoffRemoteReleaseGateDetail {
+	lower := strings.ToLower(text)
+	state := latestBatchRemoteReleaseGate(text)
+	detail := ReleaseHandoffRemoteReleaseGateDetail{
+		State:         state,
+		CanClaimGreen: state == "green",
+	}
+	if state != "not-recorded" {
+		detail.RunRefs = latestBatchRemoteRunRefs(text)
+		detail.Jobs = latestBatchRemoteJobs(lower)
+		detail.EmptySteps = latestBatchRemoteHasEmptySteps(text, lower)
+		detail.CompletedFailure = strings.Contains(lower, "completed failure")
+	}
+	switch {
+	case state == "green":
+		detail.Boundary = []string{"remote CI green is claimable only because the latest batch explicitly records green jobs"}
+	case strings.HasPrefix(state, "blocked:"):
+		detail.Boundary = []string{"treat remote release-gate steps=[] as a known runner/billing blocker", "do not claim remote CI green", "continue only Windows-verifiable local product-path work"}
+	case state == "not-recorded":
+		detail.Boundary = []string{"inspect the remote release-gate run before claiming remote CI status", "release-check inventory ready is not remote CI green"}
+	default:
+		detail.Boundary = []string{"remote release-gate was inspected, but do not claim remote CI green without explicit green jobs"}
+	}
+	return &detail
+}
+
 func latestBatchRemoteHasEmptySteps(text, lower string) bool {
 	compact := strings.NewReplacer(" ", "", "\t", "", "`", "").Replace(lower)
 	return strings.Contains(compact, "steps:[]") || strings.Contains(compact, "steps=[]") || strings.Contains(text, "steps 为空") || strings.Contains(text, "steps为空")
+}
+
+func latestBatchRemoteJobs(lower string) []string {
+	jobs := []string{}
+	for _, candidate := range []struct {
+		match string
+		name  string
+	}{
+		{match: "linux", name: "Linux"},
+		{match: "windows", name: "Windows"},
+		{match: "macos", name: "macOS"},
+	} {
+		if strings.Contains(lower, candidate.match) {
+			jobs = append(jobs, candidate.name)
+		}
+	}
+	return jobs
+}
+
+func latestBatchRemoteRunRefs(text string) []string {
+	refs := []string{}
+	seen := map[string]bool{}
+	for {
+		start := strings.Index(text, "`")
+		if start < 0 {
+			break
+		}
+		text = text[start+1:]
+		end := strings.Index(text, "`")
+		if end < 0 {
+			break
+		}
+		token := strings.TrimSpace(text[:end])
+		if looksLikeRunRef(token) && !seen[token] {
+			seen[token] = true
+			refs = append(refs, token)
+		}
+		text = text[end+1:]
+	}
+	return refs
+}
+
+func looksLikeRunRef(value string) bool {
+	if len(value) < 6 || len(value) > 20 {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func latestBatchRemoteGreen(text, lower string) bool {

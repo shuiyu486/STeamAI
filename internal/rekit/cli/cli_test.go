@@ -285,19 +285,28 @@ func TestRunStatusJsonKit(t *testing.T) {
 			ToolingFiles  int    `json:"toolingFiles"`
 		} `json:"manifest"`
 		ProjectHandoff struct {
-			Ready                      bool     `json:"ready"`
-			Summary                    string   `json:"summary"`
-			ReadFirst                  []string `json:"readFirst"`
-			LatestBatch                string   `json:"latestBatch"`
-			LatestBatchStatus          string   `json:"latestBatchStatus"`
-			LatestBatchGoal            string   `json:"latestBatchGoal"`
-			LatestValidation           string   `json:"latestValidation"`
-			LatestLocalValidationReady bool     `json:"latestLocalValidationReady"`
-			LatestReleaseCheckReady    bool     `json:"latestReleaseCheckReady"`
-			LatestRemoteReleaseGate    string   `json:"latestRemoteReleaseGate"`
-			LatestNextAction           string   `json:"latestNextAction"`
-			LatestEvidence             []string `json:"latestEvidence"`
-			PackMemoryCandidates       struct {
+			Ready                         bool     `json:"ready"`
+			Summary                       string   `json:"summary"`
+			ReadFirst                     []string `json:"readFirst"`
+			LatestBatch                   string   `json:"latestBatch"`
+			LatestBatchStatus             string   `json:"latestBatchStatus"`
+			LatestBatchGoal               string   `json:"latestBatchGoal"`
+			LatestValidation              string   `json:"latestValidation"`
+			LatestLocalValidationReady    bool     `json:"latestLocalValidationReady"`
+			LatestReleaseCheckReady       bool     `json:"latestReleaseCheckReady"`
+			LatestRemoteReleaseGate       string   `json:"latestRemoteReleaseGate"`
+			LatestRemoteReleaseGateDetail *struct {
+				State            string   `json:"state"`
+				RunRefs          []string `json:"runRefs"`
+				Jobs             []string `json:"jobs"`
+				EmptySteps       bool     `json:"emptySteps"`
+				CompletedFailure bool     `json:"completedFailure"`
+				CanClaimGreen    bool     `json:"canClaimGreen"`
+				Boundary         []string `json:"boundary"`
+			} `json:"latestRemoteReleaseGateDetail"`
+			LatestNextAction     string   `json:"latestNextAction"`
+			LatestEvidence       []string `json:"latestEvidence"`
+			PackMemoryCandidates struct {
 				Ready bool `json:"ready"`
 				Total int  `json:"total"`
 				Packs []struct {
@@ -333,8 +342,14 @@ func TestRunStatusJsonKit(t *testing.T) {
 	if !status.ProjectHandoff.Ready || status.ProjectHandoff.Summary != "release handoff summary ok" || !strings.HasPrefix(status.ProjectHandoff.LatestBatch, "Batch ") || !strings.Contains(status.ProjectHandoff.LatestBatchStatus, "已完成") || status.ProjectHandoff.LatestBatchGoal == "" || status.ProjectHandoff.LatestValidation == "" {
 		t.Fatalf("unexpected project handoff summary: %+v", status.ProjectHandoff)
 	}
-	if strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGate) == "" || strings.TrimSpace(status.ProjectHandoff.LatestNextAction) == "" || len(status.ProjectHandoff.LatestEvidence) == 0 {
+	if strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGate) == "" || status.ProjectHandoff.LatestRemoteReleaseGateDetail == nil || strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGateDetail.State) == "" || strings.TrimSpace(status.ProjectHandoff.LatestNextAction) == "" || len(status.ProjectHandoff.LatestEvidence) == 0 {
 		t.Fatalf("project handoff omitted latest batch validation handoff: %+v", status.ProjectHandoff)
+	}
+	if status.ProjectHandoff.LatestRemoteReleaseGateDetail.State != status.ProjectHandoff.LatestRemoteReleaseGate {
+		t.Fatalf("project handoff remote gate detail state drifted: %+v", status.ProjectHandoff.LatestRemoteReleaseGateDetail)
+	}
+	if len(status.ProjectHandoff.LatestRemoteReleaseGateDetail.Boundary) == 0 {
+		t.Fatalf("project handoff remote gate detail omitted boundary: %+v", status.ProjectHandoff.LatestRemoteReleaseGateDetail)
 	}
 	if status.ProjectHandoff.LatestLocalValidationReady {
 		for _, want := range []string{"release-check -Format json recorded", "status handoff recorded", "go test ./... recorded", "git diff --check recorded"} {
@@ -374,6 +389,8 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
 		"latestStatus=已完成",
 		"localValidationReady=",
+		"status latest batch remote gate：state=",
+		"status latest batch remote gate boundary：",
 		"status latest batch next action：",
 		"status latest batch evidence：release-check ready=true recorded",
 		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
@@ -396,6 +413,8 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"rekit go backend:",
 		"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
 		"localValidationReady=",
+		"status latest batch remote gate：state=",
+		"status latest batch remote gate boundary：",
 		"status latest batch next action：",
 		"status latest batch evidence：release-check ready=true recorded",
 		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
@@ -1144,6 +1163,8 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		"release-check release handoff：summary=release handoff summary ok ready=true",
 		"release-check latest batch：batch=Batch ",
 		"localValidationReady=",
+		"release-check latest batch remote gate：state=",
+		"release-check latest batch remote gate boundary：",
 		"release-check latest batch evidence：release-check ready=true recorded",
 		"release-check release notes：path=CHANGELOG.md present=true",
 		"release-check read first：path=docs/context-routing.md present=true",
@@ -1383,6 +1404,10 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff
 	}
 	if handoff.LatestBatch.PlanPath != "docs/batch-plan.md" || !handoff.LatestBatch.Present || !strings.Contains(handoff.LatestBatch.Title, "Batch ") || !strings.Contains(handoff.LatestBatch.Status, "已完成") || strings.TrimSpace(handoff.LatestBatch.Goal) == "" || strings.TrimSpace(handoff.LatestBatch.ValidationResult) == "" {
 		t.Fatalf("unexpected release handoff latest batch: %+v", handoff.LatestBatch)
+	}
+	latestDetail := handoff.LatestBatch.Handoff.RemoteReleaseGateDetail
+	if latestDetail == nil || latestDetail.State != handoff.LatestBatch.Handoff.RemoteReleaseGate || len(latestDetail.Boundary) == 0 {
+		t.Fatalf("release handoff latest batch omitted remote gate detail: %+v", handoff.LatestBatch.Handoff)
 	}
 }
 
