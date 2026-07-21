@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 488：case-local open-decision source-detail product-path smoke closure
 
-状态：已完成 product-path smoke implementation、durable docs、focused product-path coverage 与完整本地 release minimum；待提交推送并检查远程 release-gate。
+状态：已完成 product-path smoke implementation、durable docs、focused product-path coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29818653886` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 487 已把 open candidate / defer decision 的 source kind/path/list command 与 decision record path 投影到 case-mode `status.caseMission.openDecisionHandoffs[]`，但该覆盖主要来自 synthetic status fixture；还缺真实 case-local nested lane workspace product-path 证明：attached case metadata pack default、无子命令 `/rekit` 默认 status、真实 `note` append 的 open candidate/defer decision events 也能在 replacement executor 第一屏消费同一 source-detail handoff。Batch 488 将该路径补成 Windows 本机可验证 product smoke。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - 在 nested lane workspace 中验证 explicit-pack `status -Format json/text`、默认 status 与无子命令 no-pack status 都能输出 `openDecisionHandoffs[]` 的 `sourceKind`、`sourcePath`、read-only `sourceCommand`、`recordPath`、`note -WhatIf` command、append-only `recordCommand` 与 source/record evidence lines。
 - Coverage 保持 attached case metadata pack default、case-local nested cwd target discovery 与 `.rekit` product-path smoke，不改变 runtime contract。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1`、`go test ./internal/rekit/cli -run "TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory" -count=1`、`go test ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1`、`go test ./internal/rekit/cli -run "TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory" -count=1`、`go test ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `c58b931 Add open decision product path smoke`；远程 release-gate run `29818653886` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 487 已完成 case status open-decision source-detail closure，详见 `docs/batch-history.md`。
 
