@@ -1328,6 +1328,25 @@ type statusInterventionHandoff struct {
 	Evidence         []string `json:"evidence,omitempty"`
 }
 
+type statusOpenDecisionHandoff struct {
+	EventID          string   `json:"eventId,omitempty"`
+	Kind             string   `json:"kind,omitempty"`
+	Lane             string   `json:"lane,omitempty"`
+	Subject          string   `json:"subject,omitempty"`
+	Summary          string   `json:"summary,omitempty"`
+	Decision         string   `json:"decision,omitempty"`
+	Reason           string   `json:"reason,omitempty"`
+	Status           string   `json:"status,omitempty"`
+	Target           string   `json:"target,omitempty"`
+	Confidence       string   `json:"confidence,omitempty"`
+	ReviewCommand    string   `json:"reviewCommand,omitempty"`
+	WhatIfCommand    string   `json:"whatIfCommand,omitempty"`
+	RecordCommand    string   `json:"recordCommand,omitempty"`
+	DecisionBoundary string   `json:"decisionBoundary,omitempty"`
+	ContinueBoundary string   `json:"continueBoundary,omitempty"`
+	Evidence         []string `json:"evidence,omitempty"`
+}
+
 type statusCaseMission struct {
 	Ready                         bool                                     `json:"ready"`
 	Summary                       string                                   `json:"summary"`
@@ -1342,6 +1361,7 @@ type statusCaseMission struct {
 	AuthorizedGates               []string                                 `json:"authorizedGates,omitempty"`
 	AuthorizedGateHandoffs        []statusAuthorizedGateHandoff            `json:"authorizedGateHandoffs,omitempty"`
 	OpenDecisions                 []string                                 `json:"openDecisions,omitempty"`
+	OpenDecisionHandoffs          []statusOpenDecisionHandoff              `json:"openDecisionHandoffs,omitempty"`
 	Interventions                 []string                                 `json:"interventions,omitempty"`
 	InterventionHandoffs          []statusInterventionHandoff              `json:"interventionHandoffs,omitempty"`
 	FactCounts                    *overview.FactCounts                     `json:"factCounts,omitempty"`
@@ -1600,6 +1620,11 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 			return err
 		}
 	}
+	for _, handoff := range summary.OpenDecisionHandoffs {
+		if err := writeStatusOpenDecisionHandoffText(out, handoff); err != nil {
+			return err
+		}
+	}
 	for _, intervention := range summary.Interventions {
 		if _, err := fmt.Fprintf(out, "status case mission intervention：%s\n", intervention); err != nil {
 			return err
@@ -1730,6 +1755,28 @@ func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorize
 	}
 	for _, evidence := range handoff.Evidence {
 		if _, err := fmt.Fprintf(out, "status case mission authorized gate evidence：eventId=%s evidence=%s\n", handoff.EventID, evidence); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusOpenDecisionHandoffText(out io.Writer, handoff statusOpenDecisionHandoff) error {
+	if _, err := fmt.Fprintf(out, "status case mission open decision handoff：eventId=%s kind=%s lane=%s subject=%s summary=%s decision=%s reason=%s status=%s target=%s confidence=%s review=%s whatIf=%s record=%s\n", handoff.EventID, handoff.Kind, handoff.Lane, handoff.Subject, handoff.Summary, handoff.Decision, handoff.Reason, handoff.Status, handoff.Target, handoff.Confidence, handoff.ReviewCommand, handoff.WhatIfCommand, handoff.RecordCommand); err != nil {
+		return err
+	}
+	if strings.TrimSpace(handoff.DecisionBoundary) != "" {
+		if _, err := fmt.Fprintf(out, "status case mission open decision boundary：eventId=%s boundary=%s\n", handoff.EventID, handoff.DecisionBoundary); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(handoff.ContinueBoundary) != "" {
+		if _, err := fmt.Fprintf(out, "status case mission open decision continue boundary：eventId=%s boundary=%s\n", handoff.EventID, handoff.ContinueBoundary); err != nil {
+			return err
+		}
+	}
+	for _, evidence := range handoff.Evidence {
+		if _, err := fmt.Fprintf(out, "status case mission open decision evidence：eventId=%s evidence=%s\n", handoff.EventID, evidence); err != nil {
 			return err
 		}
 	}
@@ -2023,6 +2070,11 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 	if err != nil {
 		return nil, err
 	}
+	ledgerFacts, err := mission.ReadStrictLedgerFacts(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	openDecisionItems := mission.OpenDecisionItems(ledgerFacts.Facts)
 	return &statusCaseMission{
 		Ready:                         inventory.MissionCommanderActionQueue.CurrentAction != nil && inventory.MissionCommanderActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
 		Summary:                       inventory.MissionBrief.Summary,
@@ -2036,6 +2088,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		AuthorizedGates:               append([]string{}, inventory.MissionBrief.AuthorizedGates...),
 		AuthorizedGateHandoffs:        statusAuthorizedGateHandoffs(caseRoot, pack, inventory.Sections.AuthorizedGates.Events),
 		OpenDecisions:                 append([]string{}, inventory.MissionBrief.OpenDecisions...),
+		OpenDecisionHandoffs:          statusOpenDecisionHandoffs(caseRoot, pack, openDecisionItems),
 		Interventions:                 append([]string{}, inventory.MissionBrief.Interventions...),
 		InterventionHandoffs:          statusInterventionHandoffs(caseRoot, pack, inventory.Sections.OpenInterventions.Events),
 		LaneExecutorActions:           append([]mission.LaneExecutorActionSnapshot{}, inventory.LaneExecutorActions...),
@@ -2051,6 +2104,116 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		HandoffApplyCommand:           applyCommand,
 		ContinueRequiresExplicitApply: continueBoundary,
 	}, nil
+}
+
+func statusLimitEventHandoffs(events []map[string]any, n int) []map[string]any {
+	if n <= 0 || len(events) <= n {
+		return events
+	}
+	return events[len(events)-n:]
+}
+
+func statusOpenDecisionHandoffs(caseRoot, pack string, events []map[string]any) []statusOpenDecisionHandoff {
+	events = statusLimitEventHandoffs(events, mission.DefaultMaxRows)
+	out := []statusOpenDecisionHandoff{}
+	for _, event := range events {
+		handoff := statusOpenDecisionHandoffFor(caseRoot, pack, event)
+		if strings.TrimSpace(handoff.EventID) == "" && strings.TrimSpace(handoff.Subject) == "" && strings.TrimSpace(handoff.Summary) == "" {
+			continue
+		}
+		out = append(out, handoff)
+	}
+	return out
+}
+
+func statusOpenDecisionHandoffFor(caseRoot, pack string, event map[string]any) statusOpenDecisionHandoff {
+	eventID := statusEventValue(event, "eventId")
+	kind := statusFirstText(statusEventValue(event, "kind"), "decision")
+	lane := statusEventValue(event, "lane")
+	decision := statusEventValue(event, "decision")
+	if decision == "" {
+		decision = statusEventValue(event, "action")
+	}
+	evidence := []string{}
+	if eventID != "" {
+		evidence = append(evidence, kind+" ledger event "+eventID)
+	} else {
+		evidence = append(evidence, kind+" has no eventId; review lane handoff before adding related refs to a decision note")
+	}
+	if confidence := statusEventValue(event, "confidence"); confidence != "" {
+		evidence = append(evidence, "confidence "+confidence)
+	}
+	if refs := statusEventValue(event, "evidenceRefs"); refs != "" {
+		evidence = append(evidence, "evidenceRefs "+refs)
+	}
+	if target := statusEventValue(event, "target"); target != "" {
+		evidence = append(evidence, "target "+target)
+	}
+	if batchID := statusEventValue(event, "batchId"); batchID != "" {
+		evidence = append(evidence, "batchId "+batchID)
+	}
+	return statusOpenDecisionHandoff{
+		EventID:          eventID,
+		Kind:             kind,
+		Lane:             lane,
+		Subject:          statusEventValue(event, "subject"),
+		Summary:          statusEventValue(event, "summary"),
+		Decision:         decision,
+		Reason:           statusEventValue(event, "reason"),
+		Status:           statusFirstText(statusEventValue(event, "status"), "open"),
+		Target:           statusEventValue(event, "target"),
+		Confidence:       statusEventValue(event, "confidence"),
+		ReviewCommand:    "/rekit handoff " + statusLaneCommandLabel(lane),
+		WhatIfCommand:    statusDecisionNoteCommand(caseRoot, pack, event, true),
+		RecordCommand:    statusDecisionNoteCommand(caseRoot, pack, event, false),
+		DecisionBoundary: "review evidence and choose accept/reject/defer/supersede before recording a decision note; record command only appends case-local decision ledger state and never writes authority/confirmed or executes heavy-tool",
+		ContinueBoundary: "blocked lane can only continue with -WhatIf after open candidate/decision review is recorded or deliberately deferred; do not continue autonomously while the open decision remains unresolved",
+		Evidence:         evidence,
+	}
+}
+
+func statusDecisionNoteCommand(caseRoot, pack string, event map[string]any, whatIf bool) string {
+	lane := statusEventValue(event, "lane")
+	if strings.TrimSpace(lane) == "" {
+		return ""
+	}
+	decision := statusEventValue(event, "decision")
+	if decision == "" || decision == "defer" || decision == "pending-user" {
+		decision = "<accept|reject|defer|supersede>"
+	}
+	args := []string{"/rekit", "note", "-Target", statusQuoteCommandArg(caseRoot), "-Pack", statusFirstText(pack, defaults.DefaultPack), "-Kind", "decision", "-Lane", lane}
+	args = statusAppendGateRequestArg(args, "-Subject", statusDecisionNoteSubject(event))
+	args = statusAppendGateRequestArg(args, "-Summary", statusDecisionNoteSummary(event))
+	args = statusAppendGateRequestArg(args, "-Decision", decision)
+	args = statusAppendGateRequestArg(args, "-Reason", statusFirstText(statusEventValue(event, "reason"), "reviewed open candidate/decision item"))
+	args = statusAppendGateRequestArg(args, "-TargetRef", statusEventValue(event, "target"))
+	if eventID := statusEventValue(event, "eventId"); eventID != "" {
+		args = statusAppendGateRequestArg(args, "-Related", eventID)
+	}
+	args = statusAppendGateRequestArg(args, "-EvidenceRefs", statusEventValue(event, "evidenceRefs"))
+	args = statusAppendGateRequestArg(args, "-BatchId", statusEventValue(event, "batchId"))
+	if whatIf {
+		args = append(args, "-WhatIf")
+	}
+	args = append(args, "-Format", "json")
+	return strings.Join(args, " ")
+}
+
+func statusDecisionNoteSubject(event map[string]any) string {
+	kind := statusFirstText(statusEventValue(event, "kind"), "decision")
+	subject := statusEventValue(event, "subject")
+	if strings.TrimSpace(subject) == "" {
+		subject = statusFirstText(statusEventValue(event, "summary"), "open item")
+	}
+	return "decision for " + kind + ": " + subject
+}
+
+func statusDecisionNoteSummary(event map[string]any) string {
+	summary := statusEventValue(event, "summary")
+	if strings.TrimSpace(summary) == "" {
+		summary = statusEventValue(event, "subject")
+	}
+	return statusFirstText(summary, "record reviewed open candidate/decision outcome")
 }
 
 func statusPendingGateHandoffs(caseRoot, pack string, events []map[string]any) []statusPendingGateHandoff {

@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 485：case status intervention handoff closure
+### Batch 486：case status open-decision handoff closure
 
-状态：已完成 case-mode `status` open intervention handoff implementation、durable docs、focused status/overview coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29812239975` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 case-mode `status` open decision handoff implementation、durable docs、focused status/overview coverage 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本批验证后收口。
 
-目标：Batch 484 已把 pending-gate 的 review / WhatIf / request-decision / continue boundary 投影到第一屏，但 open intervention 仍主要表现为 generic intervention summary、blocked lane reason 和 Mission Commander placeholder `<eventId>` reconcile command。替换 executor 看到 intervention blocker 后仍要从 overview/handoff/reconcile 语义里拼接“先 review lane、只跑 reconcile WhatIf preview、如需 resolved intervention 再显式 apply、blocked lane 不继续”的边界。Batch 485 将 open intervention 的 review / reconcile WhatIf / reconcile Apply / continue boundary 直接投影到 case-mode `status.caseMission.interventionHandoffs[]` 与 text 第一屏。
+目标：Batch 485 已把 open intervention 的 review / reconcile WhatIf / reconcile Apply / continue boundary 投影到第一屏，但 open candidate / defer decision 仍主要表现为 generic open decision summary、blocked lane reason 和 lane handoff。替换 executor 看到 open-decision blocker 后仍要从 overview/handoff/note 语义里拼接“先 review evidence、选择 accept/reject/defer/supersede、先跑 note WhatIf、如需记录再 append decision、blocked lane 不继续”的边界。Batch 486 将 open candidate / open decision event 的 review / decision note WhatIf / append-only record / continue boundary 直接投影到 case-mode `status.caseMission.openDecisionHandoffs[]` 与 text 第一屏。
 
-边界：只增强只读 case-mode `status` handoff；不执行 `reconcile`、不写 intervention/lane/resume/checkpoint/board、不执行 heavy-tool、不写 observations/authority/confirmed、不改变 workstream/reconcile、gate、sync/promote、case durable schema 或 PowerShell runtime logic。`interventionHandoffs[].applyCommand` 只作为 explicit reconcile apply command，用于写 case-local intervention resolution 与 lane state refresh；blocked lane 继续仍必须先 `-WhatIf`，并且 open intervention 未解决时不要自动 continue。
+边界：只增强只读 case-mode `status` handoff；不执行 `note`、不写 facts ledger、不执行 `continue`、不执行 heavy-tool、不写 observations/authority/confirmed、不改变 note、workstream、gate、sync/promote、case durable schema 或 PowerShell runtime logic。`openDecisionHandoffs[].recordCommand` 只作为 append-only decision note command，需要主 Agent/用户先 review evidence 并替换/确认 decision outcome；blocked lane 继续仍必须先 `-WhatIf`，并且 open decision 未 review/record/defer 前不要自动 continue。
 
 已完成内容：
 
-- `status.caseMission.interventionHandoffs[]` 新增 per open-intervention structured handoff，包含 `eventId`、lane、subject/summary/action/target、status/scope/approvedBy、lane review command、`reconcile -WhatIf` preview command、case-local `reconcile -Apply` command、decision boundary、continue boundary 与 event/scope/approval evidence。
-- `status -Format text` / 默认 status 在 intervention summary 后直接输出 handoff、decision boundary、continue boundary，以及 open intervention 的 eventId、approvedBy、scope、target、batchId evidence lines。
-- Coverage 在 case Mission status fixture 后同时验证 `status -Format json`、`status -Format text`、默认 status visibility 与 `.rekit` snapshot no-write invariant；overview fixture 为 open intervention 增加 concrete `eventId`，让 status handoff 能输出可复制 reconcile command。
+- `status.caseMission.openDecisionHandoffs[]` 新增 per open candidate / open decision structured handoff，包含 `eventId`、kind、lane、subject/summary、decision/reason、status/target/confidence、lane review command、`note -WhatIf` decision preview command、append-only decision record command、decision boundary、continue boundary 与 event/confidence/evidenceRefs/target/batch evidence。
+- `status -Format text` / 默认 status 在 open decision summary 后直接输出 handoff、decision boundary、continue boundary，以及 open candidate / defer decision 的 eventId、confidence、evidenceRefs、target、batchId evidence lines。
+- Coverage 在 case Mission status fixture 后同时验证 `status -Format json`、`status -Format text`、默认 status visibility 与 `.rekit` snapshot no-write invariant；fixture 为 open candidate / defer decision 增加 concrete `eventId`、target 与 evidenceRefs，让 status handoff 能输出可复制 note decision command skeleton。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunOverviewJsonEmitsReadOnlyInventory|TestRunOverviewEmitsReadOnlySummary" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `ebe7c8c Add status intervention handoff`；远程 release-gate run `29812239975` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunOverviewJsonEmitsReadOnlyInventory|TestRunOverviewEmitsReadOnlySummary" -count=1`、`go test ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。commit/push 与远程 release-gate inspection 待执行，远程 release gate green 仍必须以后续 GitHub Actions 实际状态为准。
 
-上一批摘要：Batch 484 已完成 case status pending-gate handoff closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 485 已完成 case status intervention handoff closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
