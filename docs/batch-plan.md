@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 512：remote release-gate detail handoff closure
 
-状态：已完成 `remoteReleaseGateDetail` JSON contract、release-check/status text detail、focused releasecheck/CLI coverage、用户与 durable docs、本地 release minimum；commit/push 与远程 release-gate inspection 待执行。
+状态：已完成 `remoteReleaseGateDetail` JSON contract、release-check/status text detail、focused releasecheck/CLI coverage、用户与 durable docs、本地 release minimum、commit/push 与远程 release-gate inspection；已提交并推送 `f738faa Add remote release gate detail handoff`，远程 release-gate run `29875214813` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps=[]`，仍是 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 目标：Batch 511 已修复 latest-batch remote blocker truthfulness，把 `steps=[]` / `steps: []` / `steps 为空` 的 completed failure 解析为 blocked；但 downstream handoff 仍只有扁平 `remoteReleaseGate` 字符串、evidence 与 nextAction。replacement executor / release maintainer 若要复核 run id、受影响 jobs、empty steps、completed failure、是否可声明 green 与具体 boundary，仍要回查 `docs/batch-plan.md` 文字或 GitHub Actions JSON。Batch 512 将 remote release-gate inspection 细节结构化投影到 release/status JSON 与 text。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `release-check -Format text` 输出 `release-check latest batch remote gate...` 与 boundary lines；`status -Format text` 输出 `status latest batch remote gate...` 与 boundary lines。
 - releasecheck 与 CLI tests 锁定 detail state 与 summary 一致、boundary 非空、`steps=[]` completed failure 的 run/job/boundary 细节，以及 text handoff 行。
 
-验证结果：已通过 `gofmt -w internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestLatestBatchRemoteGateRecognizesEqualsEmptyStepsAndChineseNegativeGreen|TestReleaseHandoffInventoryFromRepo|TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory" -count=1`、focused `go vet ./internal/rekit/releasecheck ./internal/rekit/cli`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`。远程 release-gate 待 commit/push 后 inspection。
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestLatestBatchRemoteGateRecognizesEqualsEmptyStepsAndChineseNegativeGreen|TestReleaseHandoffInventoryFromRepo|TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory" -count=1`、focused `go vet ./internal/rekit/releasecheck ./internal/rekit/cli`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`。远程 release-gate run `29875214813` completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps=[]`；这是既有 runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 511 已完成 release handoff remote blocker truthfulness closure，并归档到 `docs/batch-history.md`。
 
