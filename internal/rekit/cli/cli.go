@@ -3742,42 +3742,46 @@ func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 }
 
 func writeHandoffExecutionEvidenceReviewText(out io.Writer, items []workstream.ExecutionEvidenceReviewItem) error {
+	return writeExecutionEvidenceReviewText(out, "handoff execution evidence", items)
+}
+
+func writeExecutionEvidenceReviewText(out io.Writer, prefix string, items []workstream.ExecutionEvidenceReviewItem) error {
 	for _, item := range items {
-		if _, err := fmt.Fprintf(out, "handoff execution evidence review：eventId=%s gateEventId=%s status=%s action=%s target=%s subject=%s summary=%s review=%s handoff=%s commanderState=%s commanderPrimary=%s\n", item.EventID, item.GateEventID, item.Status, item.Action, item.Target, item.Subject, item.Summary, item.ReviewCommand, item.HandoffCommand, item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand); err != nil {
+		if _, err := fmt.Fprintf(out, "%s review：eventId=%s gateEventId=%s status=%s action=%s target=%s subject=%s summary=%s review=%s handoff=%s commanderState=%s commanderPrimary=%s\n", prefix, item.EventID, item.GateEventID, item.Status, item.Action, item.Target, item.Subject, item.Summary, item.ReviewCommand, item.HandoffCommand, item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand); err != nil {
 			return err
 		}
 		for _, ref := range item.OutputRefs {
-			if _, err := fmt.Fprintf(out, "handoff execution evidence output ref：eventId=%s ref=%s\n", item.EventID, ref); err != nil {
+			if _, err := fmt.Fprintf(out, "%s output ref：eventId=%s ref=%s\n", prefix, item.EventID, ref); err != nil {
 				return err
 			}
 		}
 		for _, ref := range item.EvidenceRefs {
-			if _, err := fmt.Fprintf(out, "handoff execution evidence evidence ref：eventId=%s ref=%s\n", item.EventID, ref); err != nil {
+			if _, err := fmt.Fprintf(out, "%s evidence ref：eventId=%s ref=%s\n", prefix, item.EventID, ref); err != nil {
 				return err
 			}
 		}
 		if strings.TrimSpace(item.FollowThrough.State) != "" || len(item.FollowThrough.Outcomes) > 0 {
-			if _, err := fmt.Fprintf(out, "handoff execution evidence follow-through：eventId=%s state=%s gateEventId=%s outcomes=%d queue=%s\n", item.EventID, item.FollowThrough.State, item.FollowThrough.GateEventID, len(item.FollowThrough.Outcomes), item.FollowThrough.ActionQueue.Summary); err != nil {
+			if _, err := fmt.Fprintf(out, "%s follow-through：eventId=%s state=%s gateEventId=%s outcomes=%d queue=%s\n", prefix, item.EventID, item.FollowThrough.State, item.FollowThrough.GateEventID, len(item.FollowThrough.Outcomes), item.FollowThrough.ActionQueue.Summary); err != nil {
 				return err
 			}
 		}
 		for _, outcome := range item.FollowThrough.Outcomes {
-			if _, err := fmt.Fprintf(out, "handoff execution evidence outcome：eventId=%s name=%s state=%s command=%s expected=%s\n", item.EventID, outcome.Name, outcome.State, outcome.Command, outcome.Expected); err != nil {
+			if _, err := fmt.Fprintf(out, "%s outcome：eventId=%s name=%s state=%s command=%s expected=%s\n", prefix, item.EventID, outcome.Name, outcome.State, outcome.Command, outcome.Expected); err != nil {
 				return err
 			}
 			if strings.TrimSpace(outcome.When) != "" {
-				if _, err := fmt.Fprintf(out, "handoff execution evidence outcome when：eventId=%s name=%s when=%s\n", item.EventID, outcome.Name, outcome.When); err != nil {
+				if _, err := fmt.Fprintf(out, "%s outcome when：eventId=%s name=%s when=%s\n", prefix, item.EventID, outcome.Name, outcome.When); err != nil {
 					return err
 				}
 			}
 			for _, evidence := range outcome.Evidence {
-				if _, err := fmt.Fprintf(out, "handoff execution evidence outcome evidence：eventId=%s name=%s evidence=%s\n", item.EventID, outcome.Name, evidence); err != nil {
+				if _, err := fmt.Fprintf(out, "%s outcome evidence：eventId=%s name=%s evidence=%s\n", prefix, item.EventID, outcome.Name, evidence); err != nil {
 					return err
 				}
 			}
 		}
 		for _, boundary := range item.Boundary {
-			if _, err := fmt.Fprintf(out, "handoff execution evidence boundary：eventId=%s boundary=%s\n", item.EventID, boundary); err != nil {
+			if _, err := fmt.Fprintf(out, "%s boundary：eventId=%s boundary=%s\n", prefix, item.EventID, boundary); err != nil {
 				return err
 			}
 		}
@@ -3846,6 +3850,9 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 		if err := writeExecutorNextActionsText(out, result.ExecutorAction); err != nil {
 			return err
 		}
+		if err := writeExecutionEvidenceReviewText(out, "continue execution evidence", result.ExecutionEvidenceReview); err != nil {
+			return err
+		}
 		if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
 			return err
 		}
@@ -3865,6 +3872,9 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 		}
 	}
 	if _, err := fmt.Fprintf(out, "接续提示：%s\n", resume); err != nil {
+		return err
+	}
+	if err := writeExecutionEvidenceReviewText(out, "continue execution evidence", result.ExecutionEvidenceReview); err != nil {
 		return err
 	}
 	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {

@@ -8768,6 +8768,65 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("no-pack handoff apply wrote confirmed ledger or stat failed: %v", err)
 	}
+
+	beforeContinue := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "json", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continuePreview struct {
+		Command                     string                              `json:"command"`
+		Pack                        string                              `json:"pack"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		Selector                    string                              `json:"selector"`
+		Lane                        startLane                           `json:"lane"`
+		ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continuePreview); err != nil {
+		t.Fatalf("no-pack continue preview after adapter evidence stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if continuePreview.Command != "continue" || continuePreview.Pack != "_template" || continuePreview.IsMutation || continuePreview.Applied || !continuePreview.RequiresConfirmation || continuePreview.Selector != "main" || continuePreview.Lane.ID != "main" || len(continuePreview.ExecutionEvidenceReview) != 1 {
+		t.Fatalf("unexpected no-pack continue preview after adapter evidence: %+v", continuePreview)
+	}
+	continueEvidence := continuePreview.ExecutionEvidenceReview[0]
+	if continueEvidence.EventID != evidence.EventID || continueEvidence.GateEventID != applied.EventID || continueEvidence.Status != "succeeded" || continueEvidence.Action != "debug" || !containsSubstring(continueEvidence.OutputRefs, "workspace/main/debug/session-1/result.json") || continueEvidence.MissionCommanderAction.State != "ready-for-evidence-review" || continueEvidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || continueEvidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(continueEvidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
+		t.Fatalf("no-pack continue preview omitted recorded adapter evidence review handoff: %+v", continueEvidence)
+	}
+	continueQueue := continuePreview.MissionCommanderActionQueue
+	if continueQueue.CurrentAction == nil || continueQueue.CurrentAction.Source != "executionEvidenceReview" || continueQueue.CurrentAction.Command != "/rekit handoff main" || !continueQueue.CurrentAction.RequiresReview || continueQueue.Counts.Total == 0 || continueQueue.Counts.RequiresReview == 0 {
+		t.Fatalf("no-pack continue preview omitted evidence review action queue: %+v", continueQueue)
+	}
+	if !containsMissionCommanderNextActionsCommand(continuePreview.MissionCommanderNextActions, "/rekit handoff main") {
+		t.Fatalf("no-pack continue preview omitted review Mission Commander next actions: %+v", continuePreview.MissionCommanderNextActions)
+	}
+	assertSnapshotEqual(t, beforeContinue, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "text", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"已选择工作线：main",
+		"工作区：workspace/main",
+		"continue execution evidence review：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=succeeded action=debug",
+		"review=review outputRefs/evidenceRefs for gateEventId " + applied.EventID + " handoff=/rekit handoff main commanderState=ready-for-evidence-review commanderPrimary=/rekit handoff main",
+		"continue execution evidence output ref：eventId=" + evidence.EventID + " ref=workspace/main/debug/session-1/result.json",
+		"continue execution evidence follow-through：eventId=" + evidence.EventID + " state=ready-for-evidence-review gateEventId=" + applied.EventID,
+		"continue execution evidence outcome evidence：eventId=" + evidence.EventID + " name=recorded-evidence-review evidence=workspace/main/debug/session-1/result.json",
+		"mission commander action queue current：state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("no-pack continue text after adapter evidence missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("no-pack continue text after adapter evidence should not emit JSON:\n%s", out.String())
+	}
+	assertSnapshotEqual(t, beforeContinue, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 }
 
 func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
