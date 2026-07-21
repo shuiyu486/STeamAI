@@ -5078,6 +5078,25 @@ func writeMissionExecutorActionText(out io.Writer, prefix string, action mission
 	return writeMissionCommanderActionText(out, prefix+" commander action", action)
 }
 
+func writePromoteCandidateReviewArtifactsText(out io.Writer, artifacts []promote.CandidateReviewArtifact) error {
+	for _, artifact := range artifacts {
+		if _, err := fmt.Fprintf(out, "promote candidates review artifact：path=%s kind=%s name=%s when=%s action=%s candidatePath=%s packTarget=%s format=%s\n", artifact.Path, artifact.Kind, artifact.Name, artifact.When, artifact.Action, artifact.CandidatePath, artifact.PackTarget, artifact.Format); err != nil {
+			return err
+		}
+		for _, evidence := range artifact.Evidence {
+			if _, err := fmt.Fprintf(out, "promote candidates review artifact evidence：path=%s name=%s evidence=%s\n", artifact.Path, artifact.Name, evidence); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range artifact.Boundary {
+			if _, err := fmt.Fprintf(out, "promote candidates review artifact boundary：path=%s name=%s boundary=%s\n", artifact.Path, artifact.Name, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func writePromoteCandidateExecutionPlanText(out io.Writer, steps []promote.CandidateExecutionStep) error {
 	for _, step := range steps {
 		if _, err := fmt.Fprintf(out, "promote candidates execution step：name=%s when=%s expected=%s\n", step.Name, step.When, step.Expected); err != nil {
@@ -5306,6 +5325,9 @@ func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) e
 		return err
 	}
 	if err := writePromoteCandidateReviewPlanText(out, result.ReviewPlan.ReviewItems, result.ReviewPlan.DecisionChecklist); err != nil {
+		return err
+	}
+	if err := writePromoteCandidateReviewArtifactsText(out, result.ReviewPlan.ReviewArtifacts); err != nil {
 		return err
 	}
 	if err := writePromoteCandidateExecutionPlanText(out, result.ReviewPlan.MainAgentExecutionPlan); err != nil {

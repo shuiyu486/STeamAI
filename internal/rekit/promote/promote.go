@@ -64,6 +64,19 @@ type CandidateWrite struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
+type CandidateReviewArtifact struct {
+	Path          string   `json:"path,omitempty"`
+	Kind          string   `json:"kind,omitempty"`
+	Name          string   `json:"name"`
+	When          string   `json:"when"`
+	Action        string   `json:"action"`
+	CandidatePath string   `json:"candidatePath,omitempty"`
+	PackTarget    string   `json:"packTarget,omitempty"`
+	Format        string   `json:"format"`
+	Evidence      []string `json:"evidence,omitempty"`
+	Boundary      []string `json:"boundary,omitempty"`
+}
+
 type CandidateReviewPlan struct {
 	Mode                        string                                   `json:"mode"`
 	Scope                       string                                   `json:"scope"`
@@ -75,6 +88,7 @@ type CandidateReviewPlan struct {
 	DecisionChecklist           []CandidateDecisionChecklist             `json:"decisionChecklist"`
 	DecisionFollowThrough       []CandidateDecisionFollowThrough         `json:"decisionFollowThrough"`
 	CleanupTargets              []CandidateCleanupTarget                 `json:"cleanupTargets"`
+	ReviewArtifacts             []CandidateReviewArtifact                `json:"reviewArtifacts,omitempty"`
 	MainAgentExecutionPlan      []CandidateExecutionStep                 `json:"mainAgentExecutionPlan"`
 	Reconsume                   CandidateReconsumeGuidance               `json:"reconsume"`
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
@@ -533,6 +547,7 @@ func candidateReviewPlan(result CandidateResult, whatIf bool) CandidateReviewPla
 			"create-candidates writes only promote-candidates and tooling/candidates when not WhatIf",
 			"reviewPlan does not merge candidates into pack sources",
 			"tooling candidates require manual catalog or recipe merge before reuse",
+			"reviewArtifacts identifies expected decision/cleanup/reconsume evidence only; runtime does not create decision records, cleanup proof, or reconsume proof",
 			"mainAgentExecutionPlan and decisionFollowThrough are guidance only; runtime does not execute merge, cleanup, init, or doctor commands",
 			"decisionChecklist describes review options; decisionFollowThrough maps accepted/rejected/superseded outcomes to follow-through steps for the main Agent",
 			"no authority/confirmed writes",
@@ -594,6 +609,7 @@ func candidateReviewPlan(result CandidateResult, whatIf bool) CandidateReviewPla
 		plan.ReviewItems = append(plan.ReviewItems, item)
 		plan.DecisionChecklist = append(plan.DecisionChecklist, candidateDecisionChecklist(result, item, whatIf))
 		plan.DecisionFollowThrough = append(plan.DecisionFollowThrough, candidateDecisionFollowThrough(result, item, whatIf))
+		plan.ReviewArtifacts = append(plan.ReviewArtifacts, candidateReviewArtifacts(result, item, whatIf)...)
 		if item.CleanupPath != "" {
 			plan.CleanupTargets = append(plan.CleanupTargets, CandidateCleanupTarget{Path: write.Path, Kind: write.Kind, CandidatePath: item.CleanupPath, IndexPath: result.IndexPath, CleanupWhen: cleanupWhen, CleanupActions: candidateCleanupActions(result, item, whatIf)})
 		}
@@ -608,6 +624,17 @@ func candidateReviewPlan(result CandidateResult, whatIf bool) CandidateReviewPla
 
 func candidateMainAgentExecutionPlan(result CandidateResult, plan CandidateReviewPlan, whatIf bool) []CandidateExecutionStep {
 	steps := []CandidateExecutionStep{}
+	if len(plan.ReviewArtifacts) > 0 {
+		steps = append(steps, CandidateExecutionStep{
+			Name:      "collect-review-artifacts",
+			When:      "while reviewing candidates and before declaring cleanup/reconsume complete",
+			AppliesTo: candidateReviewArtifactAppliesTo(plan.ReviewArtifacts),
+			Actions:   []string{"record one decision artifact per pending-review candidate", "record cleanup evidence after deleting rejected, superseded, or accepted-merged candidatePath", "record doctor and fresh/attached reconsume evidence after accepted tooling merges", "keep artifacts outside authority/confirmed stores"},
+			Expected:  "replacement executor can resume from reviewArtifacts without reopening every candidate, indexPath, or command transcript",
+			Evidence:  []string{"reviewArtifacts entries populated with decision-note, cleanup-proof, doctor-output, and reconsume-proof expectations"},
+			Boundary:  []string{"reviewArtifacts is evidence guidance only", "runtime does not create decision artifacts or run cleanup/reconsume commands", "do not write authority/confirmed"},
+		})
+	}
 	if whatIf {
 		steps = append(steps, CandidateExecutionStep{
 			Name:     "materialize-candidates",
@@ -686,7 +713,7 @@ func candidateMissionCommanderNextActions(result CandidateResult, plan Candidate
 		Command:        "review reviewPlan.decisionChecklist",
 		Source:         "reviewPlan.decisionChecklist",
 		RequiresReview: true,
-		Reasons:        []string{"choose accept, reject, or superseded for every pending-review candidate before merge or cleanup", "use decisionFollowThrough outcome entries to run only the actions that match the chosen decision"},
+		Reasons:        []string{"choose accept, reject, or superseded for every pending-review candidate before merge or cleanup", "use decisionFollowThrough outcome entries to run only the actions that match the chosen decision", "record the matching reviewArtifacts decision-note before cleanup or reconsume"},
 		Boundary:       append([]string{}, baseBoundary...),
 	})
 	for _, target := range plan.CleanupTargets {
@@ -705,7 +732,7 @@ func candidateMissionCommanderNextActions(result CandidateResult, plan Candidate
 			Command:        "delete candidatePath and update/remove indexPath",
 			Source:         "reviewPlan.cleanupTargets",
 			RequiresReview: true,
-			Reasons:        reasons,
+			Reasons:        append(reasons, "record reviewArtifacts cleanup-proof after candidatePath deletion and indexPath update/removal"),
 			Boundary: append(append([]string{}, baseBoundary...),
 				"cleanup is limited to candidateRoot/toolingRoot and indexPath",
 				"do not delete pack source files",
@@ -852,6 +879,134 @@ func candidateReviewItem(result CandidateResult, write CandidateWrite) Candidate
 		item.MainAgentActions = []string{"inspect action before deciding merge, reject, or cleanup"}
 	}
 	return item
+}
+
+func candidateReviewArtifacts(result CandidateResult, item CandidateReviewItem, whatIf bool) []CandidateReviewArtifact {
+	baseBoundary := []string{
+		"review artifact is guidance only; runtime does not write decision, cleanup, or reconsume proof",
+		"do not write authority/confirmed",
+		"do not execute heavy tools",
+	}
+	if whatIf {
+		baseBoundary = append([]string{"WhatIf did not create candidatePath; collect this artifact only after materializing candidates"}, baseBoundary...)
+	}
+	artifacts := []CandidateReviewArtifact{}
+	switch item.ReviewDecision {
+	case "pending-review":
+		artifacts = append(artifacts, CandidateReviewArtifact{
+			Path:          item.Path,
+			Kind:          item.Kind,
+			Name:          "candidate-decision-note",
+			When:          "before merge, cleanup, or reconsume; choose accept, reject, or superseded for this candidate",
+			Action:        "record reviewed decision and selected decisionFollowThrough outcome outside authority/confirmed stores",
+			CandidatePath: item.CandidatePath,
+			PackTarget:    item.PackTarget,
+			Format:        "markdown or JSON note with decision, reason, candidatePath, packTarget, and selected decisionFollowThrough outcome",
+			Evidence:      []string{"decision note path/ref", "selected decisionFollowThrough outcome"},
+			Boundary:      append([]string{}, baseBoundary...),
+		})
+		if item.CleanupPath != "" {
+			when := "after deleting candidatePath because it was rejected, superseded, or accepted and merged into pack source"
+			if whatIf {
+				when = "after rerun without WhatIf materializes candidatePath, then deleting it because it was rejected, superseded, or accepted and merged"
+			}
+			artifacts = append(artifacts, CandidateReviewArtifact{
+				Path:          item.Path,
+				Kind:          item.Kind,
+				Name:          "candidate-cleanup-proof",
+				When:          when,
+				Action:        "record candidatePath deletion check and indexPath update/removal proof",
+				CandidatePath: item.CleanupPath,
+				Format:        "markdown or command transcript with candidatePath missing check and indexPath diff/removal check",
+				Evidence:      []string{"candidatePath deletion check", "indexPath update/removal check"},
+				Boundary: append(append([]string{}, baseBoundary...),
+					"cleanup is limited to candidateRoot/toolingRoot and indexPath",
+					"do not delete pack source files",
+				),
+			})
+		}
+		artifacts = append(artifacts, CandidateReviewArtifact{
+			Path:       item.Path,
+			Kind:       item.Kind,
+			Name:       "pack-doctor-output",
+			When:       "after an accept decision merges reusable content into packTarget",
+			Action:     "record doctor command output before declaring accepted merge complete",
+			PackTarget: item.PackTarget,
+			Format:     "command transcript or Markdown evidence containing `go run ./cmd/rekit -- -Command doctor -Pack " + result.Pack + "` output",
+			Evidence:   []string{"doctor command output"},
+			Boundary: append(append([]string{}, baseBoundary...),
+				"doctor validates pack state only",
+				"do not create case-local artifacts while checking pack",
+			),
+		})
+		if item.Kind == "tooling-candidate-source" {
+			artifacts = append(artifacts,
+				CandidateReviewArtifact{
+					Path:          item.Path,
+					Kind:          item.Kind,
+					Name:          "fresh-case-reconsume-proof",
+					When:          "after accepting tooling candidate into tooling/catalog.yml or tooling/recipes/*",
+					Action:        "record temporary fresh-case init and doctor output proving pack tooling reconsume",
+					CandidatePath: item.CandidatePath,
+					PackTarget:    item.PackTarget,
+					Format:        "command transcript with init -Target <fresh-case> -Apply and doctor -Target <fresh-case> output",
+					Evidence:      []string{"fresh case .rekit/instance.yml", "fresh case doctor output"},
+					Boundary: append(append([]string{}, baseBoundary...),
+						"use a temporary fresh case only",
+						"do not create real case state in the kit repo",
+						"sync does not copy tooling recipes into case-local managed docs",
+					),
+				},
+				CandidateReviewArtifact{
+					Path:          item.Path,
+					Kind:          item.Kind,
+					Name:          "attached-case-reconsume-proof",
+					When:          "when validating an existing attached case after accepted tooling merge",
+					Action:        "record attached-case doctor output proving pack tooling is resolved through templateRoot/templatePack",
+					CandidatePath: item.CandidatePath,
+					PackTarget:    item.PackTarget,
+					Format:        "command transcript with doctor -Target <attached-case> output",
+					Evidence:      []string{"attached case doctor output"},
+					Boundary: append(append([]string{}, baseBoundary...),
+						"do not overwrite case-local files while checking reconsume",
+						"fresh/attached case verification reads pack tooling through templateRoot/templatePack",
+					),
+				},
+			)
+		}
+	case "blocked":
+		artifacts = append(artifacts, CandidateReviewArtifact{
+			Path:       item.Path,
+			Kind:       item.Kind,
+			Name:       "blocked-review-note",
+			When:       "when a blocked candidate item appears in reviewPlan.reviewItems",
+			Action:     "record why the item is non-promotable or regenerate after source/manifest/sanitization fix",
+			PackTarget: item.PackTarget,
+			Format:     "markdown or JSON note naming blocked action, reason, and next regeneration/fix step",
+			Evidence:   []string{"review note for blocked item", "rerun promote -CreateCandidates result if regenerated"},
+			Boundary: append(append([]string{}, baseBoundary...),
+				"blocked item must not be copied into pack sources",
+			),
+		})
+	}
+	return artifacts
+}
+
+func candidateReviewArtifactAppliesTo(items []CandidateReviewArtifact) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, item := range items {
+		label := item.Path
+		if label == "" {
+			label = item.Name
+		}
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		out = append(out, label)
+	}
+	return out
 }
 
 func candidateDecisionFollowThrough(result CandidateResult, item CandidateReviewItem, whatIf bool) CandidateDecisionFollowThrough {

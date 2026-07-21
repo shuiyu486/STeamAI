@@ -37,7 +37,10 @@ func TestCreateCandidatesWhatIfDoesNotWrite(t *testing.T) {
 	if !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/README.md", "accept", "promote -Apply is not a candidate-scoped accept path") || !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/README.md", "reject", "update or remove indexPath") || !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/toolchain-router.md", "accept", "doctor -Target <attached-case>") || !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/workflow-template.md", "blocked", "blocked item must not be copied") {
 		t.Fatalf("what-if review plan missing accepted/rejected/superseded follow-through: %+v", result.ReviewPlan.DecisionFollowThrough)
 	}
-	if !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "materialize-candidates", "promote -Target <attached-case>") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "review-decisions", "matching decisionFollowThrough outcome") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "cleanup-rejected-or-merged-candidates", "indexPath") {
+	if !candidateReviewArtifactContainsForTest(result.ReviewPlan.ReviewArtifacts, "references/template/README.md", "candidate-decision-note", "selected decisionFollowThrough outcome") || !candidateReviewArtifactContainsForTest(result.ReviewPlan.ReviewArtifacts, "references/template/README.md", "candidate-cleanup-proof", "WhatIf did not create candidatePath") || !candidateReviewArtifactContainsForTest(result.ReviewPlan.ReviewArtifacts, "references/template/toolchain-router.md", "fresh-case-reconsume-proof", "temporary fresh case") || !candidateReviewArtifactContainsForTest(result.ReviewPlan.ReviewArtifacts, "references/template/workflow-template.md", "blocked-review-note", "blocked item must not be copied") {
+		t.Fatalf("what-if review plan missing review artifact handoff: %+v", result.ReviewPlan.ReviewArtifacts)
+	}
+	if !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "collect-review-artifacts", "replacement executor can resume") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "materialize-candidates", "promote -Target <attached-case>") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "review-decisions", "matching decisionFollowThrough outcome") || !candidateExecutionPlanContainsForTest(result.ReviewPlan.MainAgentExecutionPlan, "cleanup-rejected-or-merged-candidates", "indexPath") {
 		t.Fatalf("what-if review plan missing executable main agent handoff: %+v", result.ReviewPlan.MainAgentExecutionPlan)
 	}
 	if !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.decisionChecklist", "decisionFollowThrough") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.cleanupTargets", "delete candidatePath") || !candidateNextActionContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.reconsume.verificationChecklist", "doctor -Pack "+pack) || !candidateNextActionBoundaryContainsForTest(result.ReviewPlan.MissionCommanderNextActions, "WhatIf did not write") || result.ReviewPlan.MissionCommanderActionQueue.CurrentAction == nil || result.ReviewPlan.MissionCommanderActionQueue.CurrentAction.Source != "reviewPlan.decisionChecklist" {
@@ -101,6 +104,9 @@ func TestCreateCandidatesWritesIndexAndSanitizedTooling(t *testing.T) {
 	}
 	if !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/README.md", "accept", "pack source diff") || !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/README.md", "superseded", "review note naming the replacement") {
 		t.Fatalf("managed doc decision follow-through missing accept/superseded outcomes: %+v", result.ReviewPlan.DecisionFollowThrough)
+	}
+	if !candidateReviewArtifactContainsForTest(result.ReviewPlan.ReviewArtifacts, "references/template/README.md", "candidate-decision-note", "selected decisionFollowThrough outcome") || !candidateReviewArtifactContainsForTest(result.ReviewPlan.ReviewArtifacts, "references/template/README.md", "candidate-cleanup-proof", "indexPath update/removal check") || !candidateReviewArtifactContainsForTest(result.ReviewPlan.ReviewArtifacts, "references/template/toolchain-router.md", "fresh-case-reconsume-proof", "fresh case doctor output") || !candidateReviewArtifactContainsForTest(result.ReviewPlan.ReviewArtifacts, "references/template/toolchain-router.md", "attached-case-reconsume-proof", "templateRoot/templatePack") || !candidateReviewArtifactContainsForTest(result.ReviewPlan.ReviewArtifacts, "references/template/workflow-template.md", "blocked-review-note", "blocked item must not be copied") {
+		t.Fatalf("candidate review plan missing downstream review artifacts: %+v", result.ReviewPlan.ReviewArtifacts)
 	}
 	if toolingReview.CleanupPath != toolingWrite.TargetPath || !strings.Contains(toolingReview.MergeTargetHint, "tooling/catalog.yml") || !strings.Contains(result.ReviewPlan.Reconsume.Tooling, "tooling/recipes") || !candidateDecisionFollowThroughContainsForTest(result.ReviewPlan.DecisionFollowThrough, "references/template/toolchain-router.md", "accept", "fresh or attached case doctor output") {
 		t.Fatalf("tooling review/reconsume guidance drifted: item=%+v reconsume=%+v followThrough=%+v", toolingReview, result.ReviewPlan.Reconsume, result.ReviewPlan.DecisionFollowThrough)
@@ -824,6 +830,21 @@ func candidateDecisionFollowThroughContainsForTest(items []CandidateDecisionFoll
 func candidateReconsumeChecklistContainsForTest(items []CandidateReconsumeVerification, name string) bool {
 	for _, item := range items {
 		if item.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func candidateReviewArtifactContainsForTest(items []CandidateReviewArtifact, path, name, want string) bool {
+	for _, item := range items {
+		if item.Path != path || item.Name != name {
+			continue
+		}
+		fields := []string{item.Kind, item.When, item.Action, item.CandidatePath, item.PackTarget, item.Format}
+		fields = append(fields, item.Evidence...)
+		fields = append(fields, item.Boundary...)
+		if promoteContainsSubstring(fields, want) {
 			return true
 		}
 	}
