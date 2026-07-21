@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 491：adapter execution report no-pack product-path smoke closure
+### Batch 492：adapter execution evidence record no-pack product-path smoke closure
 
-状态：已完成 adapter execution report no-pack product-path smoke implementation、durable docs、focused gate coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29821670977` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 adapter execution evidence record no-pack product-path smoke implementation、CHANGELOG 记录、focused gate coverage 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本段 durable docs 提交后执行。
 
-目标：Authorized gate → adapter report contract → read-only validation → bounded evidence record 已有 nested output workspace coverage，但 contract/validation preflight 仍主要通过显式 `-Pack` 验证；还缺真实 case-local authorized output workspace product-path 证明：lane executor 位于授权 output workspace 时，无 `-Target` / 无 `-Pack` 的 `gate -ExecutionReportContract` 与 `gate -ValidateExecutionReport` valid/invalid preflight 也能通过 attached case metadata pack default / cwd target discovery 消费同一 liveValidation、record handoff 与 no-write validation boundary。Batch 491 将该路径补成本机 Windows 可验证 smoke。
+目标：Batch 491 已证明 authorized output workspace 中无 `-Target` / 无 `-Pack` 的 adapter report contract 与 validation preflight 可用，但 valid=true 后的 bounded observation evidence record 仍通过 contract 生成的显式 `-Pack` case-relative args 覆盖。replacement lane executor 位于 case-local lane workspace 时，应能无 `-Target` / 无 `-Pack` 使用 workspace-relative report path 显式 `gate -Apply`，由 cwd target discovery 与 case metadata pack default 记录同一 bounded observation evidence，并保持 duplicate replay idempotent。Batch 492 将该路径补成本机 Windows 可验证 smoke。
 
-边界：只增强本机 product-path coverage，不新增 runtime 行为；`gate -ExecutionReportContract` 与 `gate -ValidateExecutionReport` 仍只读，不执行 heavy-tool、不记录 observation evidence；record evidence 仍需 valid=true 后显式 `gate -Apply`，只写 bounded observation evidence，不写 authority/confirmed；sync/promote、case durable schema 与 PowerShell runtime logic 均不改变。
+边界：只增强本机 product-path coverage，不新增 runtime 行为；record evidence 仍要求显式 `gate -Apply` 与 `-Actor`，只写 bounded observation evidence，不执行 heavy-tool、不写 authority/confirmed；validation/contract 仍只读，sync/promote、case durable schema 与 PowerShell runtime logic 均不改变。
 
 已完成内容：
 
-- 将 nested output workspace adapter report smoke 收敛为 `TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace`：从 attached case authorized output workspace 中无 `-Target` / 无 `-Pack` 运行 `gate -ExecutionReportContract -Format json/text`，验证 `caseRoot` 回到 attached case、pack 使用 `_template` case metadata default，并保留 allowed output path、default report path、liveValidation args、Mission Commander validation/record handoff 与 no-heavy boundary。
-- 在同一 authorized output workspace 中无 `-Target` / 无 `-Pack` 运行 `gate -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json`，验证 valid preflight 解析 workspace-relative report path、保持 read-only/no-write，并继续投影 ready-to-record-evidence 的 bounded observation evidence handoff。
-- 继续覆盖 invalid evidenceRefs preflight 的无 `-Target` / 无 `-Pack` 路径，验证 out-of-scope evidenceRefs 仍 fail closed、给出 repair hints、保持 read-only no-write；实际 record/replay 分支仍使用 contract 生成的显式 case-relative record args，锁定 valid=true 后显式 apply 才写 bounded observation evidence且不写 authority/confirmed。
+- 扩展 `TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace`：在 authorized output workspace 的 no-pack contract/validation 之后，切到 case-local `workspace/main` lane cwd，无 `-Target` / 无 `-Pack` 运行 `gate -Apply -GateEventId ... -ExecutionReportPath debug/session-1/adapter-report.json -Actor executor-1 -Format json`。
+- 验证 record result 通过 attached case metadata default 使用 `_template` pack，写入 `.rekit/facts/observations.jsonl` 的 bounded observation evidence，并保留 adapter sidecar provenance、case-relative `executionReportPath`、outputRefs、actualBudget、adapterId/status 与 related authorized gate event。
+- 继续以同一 no-pack record args replay，验证 duplicate eventId idempotency，不追加 observation，不写 authority/confirmed；preflight invalid evidenceRefs 路径仍保持 read-only fail-closed repair hints。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace" -count=1`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace|TestRunGateProjectsPackToolingAdapterCandidateProductPath|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `bcf793d Add adapter report no pack smoke`；远程 release-gate run `29821670977` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace" -count=1`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace|TestRunGateProjectsPackToolingAdapterCandidateProductPath|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。远程 release-gate inspection 待 commit/push 后记录；在此之前不能声明远程 CI green。
 
-上一批摘要：Batch 490 已完成 pack-memory promote candidate case-local product-path smoke closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 491 已完成 adapter execution report no-pack product-path smoke closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

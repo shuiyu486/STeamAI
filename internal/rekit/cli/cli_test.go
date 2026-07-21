@@ -8495,19 +8495,15 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if err := os.Chdir(caseLocalCwd); err != nil {
 		t.Fatal(err)
 	}
-	caseRelativeRecordArgs := append([]string{}, contract.LiveValidation.CaseRelativeRecordArgs...)
-	for i, arg := range caseRelativeRecordArgs {
-		if arg == "<executor-id>" {
-			caseRelativeRecordArgs[i] = "executor-1"
-		}
-	}
+	recordArgs := []string{"-Command", "gate", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "debug/session-1/adapter-report.json", "-Actor", "executor-1", "-Format", "json"}
 	out.Reset()
-	if err := Run(caseRelativeRecordArgs, &out); err != nil {
+	if err := Run(recordArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var evidence struct {
 		Applied           bool   `json:"applied"`
 		EventID           string `json:"eventId"`
+		Pack              string `json:"pack"`
 		Path              string `json:"path"`
 		ExecutionEvidence struct {
 			Kind      string   `json:"kind"`
@@ -8534,8 +8530,8 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if err := json.Unmarshal(out.Bytes(), &evidence); err != nil {
 		t.Fatalf("case-relative adapter execution evidence stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if !evidence.Applied || evidence.EventID == "" || evidence.Path != ".rekit/facts/observations.jsonl" || evidence.ExecutionEvidence.Kind != "observation" || evidence.ExecutionEvidence.Status != "succeeded" || evidence.ExecutionEvidence.Summary != "Adapter report from nested output workspace" {
-		t.Fatalf("unexpected case-relative adapter execution evidence: %+v", evidence)
+	if !evidence.Applied || evidence.EventID == "" || evidence.Pack != "_template" || evidence.Path != ".rekit/facts/observations.jsonl" || evidence.ExecutionEvidence.Kind != "observation" || evidence.ExecutionEvidence.Status != "succeeded" || evidence.ExecutionEvidence.Summary != "Adapter report from nested output workspace" {
+		t.Fatalf("unexpected no-pack adapter execution evidence: %+v", evidence)
 	}
 	if strings.Join(evidence.ExecutionEvidence.Related, ",") != applied.EventID || evidence.ExecutionEvidence.Execution.GateEventID != applied.EventID || evidence.ExecutionEvidence.Execution.Authorization != "preauthorized" || evidence.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || strings.Join(evidence.ExecutionEvidence.Execution.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" || evidence.ExecutionEvidence.Execution.ActualBudget.RuntimeSeconds != 20 || evidence.ExecutionEvidence.Execution.ActualBudget.DiskMB != 32 || evidence.ExecutionEvidence.Execution.ActualBudget.Requests != 1 || evidence.ExecutionEvidence.Execution.Adapter.AdapterID != "nested-cli-adapter" || evidence.ExecutionEvidence.Execution.Adapter.Status != "succeeded" {
 		t.Fatalf("case-relative adapter evidence did not preserve report provenance: %+v", evidence.ExecutionEvidence)
@@ -8551,7 +8547,7 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		t.Fatalf("case-relative adapter evidence wrote authority ledger or stat failed: %v", err)
 	}
 	out.Reset()
-	if err := Run(caseRelativeRecordArgs, &out); err != nil {
+	if err := Run(recordArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var replay struct {
