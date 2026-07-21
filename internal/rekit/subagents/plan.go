@@ -264,12 +264,13 @@ type WritebackCommandBinding struct {
 }
 
 type ReviewerIntakeCommands struct {
-	Purpose        string   `json:"purpose"`
-	PreviewCommand string   `json:"previewCommand"`
-	ApplyCommand   string   `json:"applyCommand"`
-	RequiredFields []string `json:"requiredFields"`
-	PreviewChecks  []string `json:"previewChecks,omitempty"`
-	BlockedOutputs []string `json:"blockedOutputs,omitempty"`
+	Purpose        string                         `json:"purpose"`
+	PreviewCommand string                         `json:"previewCommand"`
+	ApplyCommand   string                         `json:"applyCommand"`
+	RequiredFields []string                       `json:"requiredFields"`
+	PreviewChecks  []string                       `json:"previewChecks,omitempty"`
+	BlockedOutputs []string                       `json:"blockedOutputs,omitempty"`
+	RepairGuidance []ReviewerIntakeRepairGuidance `json:"repairGuidance,omitempty"`
 }
 
 type artifactPaths struct {
@@ -665,6 +666,7 @@ func intakeChecklist() []string {
 		"confirm every accepted/rejected item has inspected evidenceRefs and no out-of-shard claims",
 		"map reviewer decision to verification verdict before running the verification previewCommand",
 		"defer the main decision when conflicts, missing evidence, or blocked outputs are present",
+		"use reviewerIntakeCommands.repairGuidance when preview returns blocked, event-id-collision, or post-validation failed",
 		"run reviewerIntakeCommands.previewCommand before applyCommand and inspect verification / decision / postValidation before ledger writeback",
 	}
 }
@@ -715,6 +717,7 @@ func conflictHandlingSteps() []string {
 		"if any conflictSignal is present, map verification verdict to inconclusive or needs-more-evidence and keep main decision deferred unless independently resolved",
 		"if reviewer decision and recommendedVerdict disagree, inspect evidenceRefs and record the safer non-accepting outcome",
 		"if reviewer requests writes, heavy tools, authority/confirmed changes, or external effects, discard that output for ledger purposes and escalate through the lane gate path",
+		"if reviewer intake returns blocked, event-id-collision, or post-validation failed, consume repairGuidance action/evidence/boundary before rerunning previewCommand",
 	}
 }
 
@@ -768,7 +771,7 @@ func writebackSequenceSteps(commands ReviewerIntakeCommands) []WritebackSequence
 				reviewerIntakeCommandBinding("reviewer-intake-preview", "reviewerIntakeCommands.previewCommand", commands.PreviewCommand, commands.RequiredFields, "combined reviewer intake WhatIf JSON envelope for verification, decision, overview, handoff, and doctor"),
 			},
 			MustPass:      []string{"reviewer intake returns isMutation=false", "reviewer intake returns applied=false", "verification and decision previews match reviewerDecisionMappings", "postValidation is valid", "no authority/confirmed or heavy-tool output is present"},
-			BlockedBy:     []string{"strict contract validation fails", "wrong packet/case/pack/shard/items", "missing inspected evidenceRefs", "conflict or blocked action is present", "unexpected executor action"},
+			BlockedBy:     []string{"strict contract validation fails", "wrong packet/case/pack/shard/items", "missing inspected evidenceRefs", "conflict or blocked action is present", "unexpected executor action", "repairGuidance reports unresolved intake blockers"},
 			NextOnSuccess: "apply-reviewer-intake",
 			NextOnFailure: "stop-before-ledger-write",
 		},
@@ -812,6 +815,7 @@ func reviewerIntakeCommands(planRoot, pack, packetPath, resultPath, targetLane s
 		PreviewChecks: []string{
 			"run previewCommand before applyCommand",
 			"confirm reviewer intake returns isMutation=false, applied=false, and readyForWriteback=true",
+			"if reviewer intake returns blocked, event-id-collision, or complete-post-validation-failed, consume repairGuidance[] action/evidence/boundary before rerunning previewCommand",
 			"confirm verification and decision previews match the shard, mapped verdict/decision, and cited evidenceRefs",
 			"confirm postValidation overview, handoff, and doctor snapshots are valid",
 		},
@@ -821,12 +825,14 @@ func reviewerIntakeCommands(planRoot, pack, packetPath, resultPath, targetLane s
 			"applyCommand must not run when strict validation fails, blockers are present, the lane is wrong, or evidenceRefs were not inspected",
 			"reviewer intake must not execute heavy tools or write authority/confirmed state",
 		},
+		RepairGuidance: reviewerIntakePlanningRepairGuidance(),
 	}
 	if !intakeAvailable {
 		commands.PreviewCommand = "n/a: reviewer intake requires an attached rekit case; attach or init the target before running -ReviewerResultPath intake"
 		commands.ApplyCommand = "n/a: reviewer intake requires an attached rekit case; attach or init the target before running -ReviewerResultPath intake"
 		commands.PreviewChecks = append(commands.PreviewChecks, "out-of-case review artifacts are dispatch-only; reviewer intake/writeback is unavailable until the target is an attached rekit case")
 		commands.BlockedOutputs = append(commands.BlockedOutputs, "out-of-case plan packets must not be presented as immediately runnable reviewer intake commands")
+		commands.RepairGuidance = append(commands.RepairGuidance, ReviewerIntakeRepairGuidance{Reason: "reviewer intake unavailable until target is attached", Action: "attach or init the target case, then regenerate or rerun reviewer intake with case-local packet and reviewer result paths", Evidence: []string{"reviewOutputDir", "packetPath", "reviewerResultPath"}, Boundary: []string{"do not present out-of-case review artifacts as runnable reviewer intake commands", "do not write verification or decision ledger events for dispatch-only artifacts"}})
 	}
 	return commands
 }
@@ -840,6 +846,51 @@ func reviewerIntakeCommandBinding(binding, source, command string, requiredField
 		RequiredFields: append([]string{}, requiredFields...),
 		ExpectedOutput: expectedOutput,
 	}
+}
+
+func reviewerIntakePlanningRepairGuidance() []ReviewerIntakeRepairGuidance {
+	return []ReviewerIntakeRepairGuidance{
+		{
+			Reason:   "reviewer result has no inspectable evidenceRefs",
+			Action:   "add a non-empty case-local bounded evidence file, or cite the packetId when the packet itself is the reviewed evidence; rerun reviewer intake -WhatIf before -Apply",
+			Evidence: []string{"ReviewerResult.evidenceRefs", "routeOutput.evidence"},
+			Boundary: reviewerIntakePlanningRepairBoundary(),
+		},
+		{
+			Reason:   "reviewer result reports unresolved conflicts",
+			Action:   "resolve or split the conflicted reviewer shard, then write a new conflict-free ReviewerResult and rerun -WhatIf",
+			Evidence: []string{"ReviewerResult.conflicts[]"},
+			Boundary: reviewerIntakePlanningRepairBoundary(),
+		},
+		{
+			Reason:   "reviewer result requests a blocked write, heavy-tool, authority/confirmed, or external-effect action",
+			Action:   "replace requested reviewer routeOutput with read-only main-agent handoff; any write, heavy-tool, authority/confirmed, or external-effect action needs a separate gate",
+			Evidence: []string{"routeOutput.tool_scope", "routeOutput.next_action"},
+			Boundary: reviewerIntakePlanningRepairBoundary(),
+		},
+		{
+			Reason:   "recommendedVerdict conflicts with mapped verification verdict",
+			Action:   "align recommendedVerdict with the mapped reviewer decision verdict, or change reviewer decision and rerun -WhatIf",
+			Evidence: []string{"ReviewerResult.recommendedVerdict", "reviewerDecisionMappings[]"},
+			Boundary: reviewerIntakePlanningRepairBoundary(),
+		},
+		{
+			Reason:   "low-confidence accept/reject cannot be written back without independent evidence review",
+			Action:   "collect independent evidence or dispatch a smaller read-only reviewer shard before accepting/rejecting this result",
+			Evidence: []string{"ReviewerResult.confidence", "ReviewerResult.decision"},
+			Boundary: reviewerIntakePlanningRepairBoundary(),
+		},
+		{
+			Reason:   "event-id-collision or post-validation failure",
+			Action:   "inspect deterministic eventId or rerun overview, handoff, and doctor before continuing the lane",
+			Evidence: []string{"reviewer intake eventId", "postValidation overview/handoff/doctor"},
+			Boundary: reviewerIntakePlanningRepairBoundary(),
+		},
+	}
+}
+
+func reviewerIntakePlanningRepairBoundary() []string {
+	return []string{"do not apply reviewer intake until this blocker is resolved", "do not write authority/confirmed or execute heavy tools from reviewer intake"}
 }
 
 func quoteCommandArg(value string) string {
@@ -1226,6 +1277,8 @@ func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, re
 		"Route output required fields: " + reviewerRouteOutputFieldHints(route.OutputContract, shard.Items) + ".",
 		"Reviewer result JSON skeleton: " + reviewerResultPromptSkeleton(shard, route) + ".",
 		"Replace packet.packetId with the packet packetId, set routeId to " + route.ID + ", shardId to " + shard.ID + ", and set reviewerSession to your session identifier supplied by the main agent.",
+		"Avoid blocked intake: provide inspectable evidenceRefs, keep conflicts empty unless unresolved, align recommendedVerdict with decision mapping, keep tool_scope read-only, and do not request writes, heavy tools, authority/confirmed, or external effects.",
+		"If blocked intake is unavoidable, return a safer needs-more-evidence/defer result and let the main agent consume reviewerIntakeCommands.repairGuidance before rerunning previewCommand.",
 		"Keep routeOutput.decision and routeOutput.confidence equal to the top-level decision/confidence; keep routeOutput.evidence inside evidenceRefs.",
 		"Allowed decisions: " + strings.Join(contract.AllowedDecisions, ", ") + ".",
 		"Return the result to the main agent for placement at: " + resultPath + ". Do not write this path yourself.",
@@ -1532,6 +1585,15 @@ func summaryText(packetID string, route Route, taskType string, itemCount, shard
 			}
 			for _, blocked := range commands.BlockedOutputs {
 				lines = append(lines, "    - blocked-output: "+blocked)
+			}
+			for _, repair := range commands.RepairGuidance {
+				lines = append(lines, "    - repair-guidance: reason=`"+repair.Reason+"`; action=`"+repair.Action+"`")
+				for _, evidence := range repair.Evidence {
+					lines = append(lines, "      - repair-evidence: "+evidence)
+				}
+				for _, boundary := range repair.Boundary {
+					lines = append(lines, "      - repair-boundary: "+boundary)
+				}
 			}
 			for _, step := range handoff.PostReviewMerge {
 				lines = append(lines, "  - post-review: "+step)

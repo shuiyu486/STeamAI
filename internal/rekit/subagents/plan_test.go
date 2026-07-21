@@ -74,6 +74,9 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
 	}
+	if !strings.Contains(string(summary), "repair-guidance:") || !strings.Contains(string(summary), "repair-evidence:") || !strings.Contains(string(summary), "reviewerIntakeCommands.repairGuidance") {
+		t.Fatalf("summary omitted reviewer intake repair guidance:\n%s", string(summary))
+	}
 }
 
 func TestPacketIdentityMatchesLegacyPacketWithoutReviewerOrchestration(t *testing.T) {
@@ -173,6 +176,12 @@ func hasPlanCommanderNextAction(items []mission.MissionCommanderNextActionItem, 
 	})
 }
 
+func hasRepairGuidance(items []ReviewerIntakeRepairGuidance, reasonPart, actionPart string) bool {
+	return slices.ContainsFunc(items, func(item ReviewerIntakeRepairGuidance) bool {
+		return strings.Contains(item.Reason, reasonPart) && strings.Contains(item.Action, actionPart)
+	})
+}
+
 func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantItems []string) {
 	t.Helper()
 	if handoff.ShardID != wantID || handoff.Status != "planned" || strings.Join(handoff.Items, ",") != strings.Join(wantItems, ",") || filepath.Base(handoff.ReviewerResultPath) != wantID+".json" {
@@ -189,7 +198,7 @@ func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantI
 	if handoff.ReviewerResultContract.OutputFormat == "" || !slices.Contains(handoff.ReviewerResultContract.RequiredFields, "recommendedVerdict") || !slices.Contains(handoff.ReviewerResultContract.RequiredFields, "routeOutput") || !slices.Contains(handoff.ReviewerResultContract.AllowedDecisions, "needs-more-evidence") || !slices.Contains(handoff.ReviewerResultContract.EvidenceRules, "missing, ambiguous, or inaccessible evidenceRefs require decision=needs-more-evidence or defer") || !slices.Contains(handoff.ReviewerResultContract.ConflictSignals, "reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects") {
 		t.Fatalf("unexpected reviewer result contract: %+v", handoff.ReviewerResultContract)
 	}
-	if !slices.Contains(handoff.IntakeChecklist, "validate reviewer output against reviewerResultContract before using any writeback template") || !slices.Contains(handoff.IntakeChecklist, "defer the main decision when conflicts, missing evidence, or blocked outputs are present") {
+	if !slices.Contains(handoff.IntakeChecklist, "validate reviewer output against reviewerResultContract before using any writeback template") || !slices.Contains(handoff.IntakeChecklist, "defer the main decision when conflicts, missing evidence, or blocked outputs are present") || !slices.Contains(handoff.IntakeChecklist, "use reviewerIntakeCommands.repairGuidance when preview returns blocked, event-id-collision, or post-validation failed") {
 		t.Fatalf("unexpected intake checklist: %+v", handoff.IntakeChecklist)
 	}
 	if len(handoff.ReviewerDecisionMappings) != 5 || handoff.ReviewerDecisionMappings[0].ReviewerDecision != "accept" || handoff.ReviewerDecisionMappings[0].VerificationVerdict != "accepted" || handoff.ReviewerDecisionMappings[0].MainDecision != "accept" || handoff.ReviewerDecisionMappings[3].ReviewerDecision != "abandon" || handoff.ReviewerDecisionMappings[3].MainDecision != "supersede" || handoff.ReviewerDecisionMappings[4].ReviewerDecision != "needs-more-evidence" || handoff.ReviewerDecisionMappings[4].VerificationVerdict != "needs-more-evidence" || handoff.ReviewerDecisionMappings[4].MainDecision != "defer" {
@@ -211,7 +220,7 @@ func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantI
 		t.Fatalf("unexpected out-of-case reviewer intake apply command binding: %+v", handoff.WritebackSequence[3])
 	}
 	commands := handoff.ReviewerIntakeCommands
-	if !strings.Contains(commands.PreviewCommand, "n/a: reviewer intake requires an attached rekit case") || !strings.Contains(commands.ApplyCommand, "n/a: reviewer intake requires an attached rekit case") || !slices.Contains(commands.RequiredFields, "packetPath") || !slices.Contains(commands.RequiredFields, "reviewerResultPath") || !slices.Contains(commands.RequiredFields, "targetLane") || !slices.Contains(commands.PreviewChecks, "confirm reviewer intake returns isMutation=false, applied=false, and readyForWriteback=true") || !slices.Contains(commands.PreviewChecks, "out-of-case review artifacts are dispatch-only; reviewer intake/writeback is unavailable until the target is an attached rekit case") || !slices.Contains(commands.BlockedOutputs, "reviewer intake must not execute heavy tools or write authority/confirmed state") || !slices.Contains(commands.BlockedOutputs, "out-of-case plan packets must not be presented as immediately runnable reviewer intake commands") || strings.Contains(commands.ApplyCommand, "note -Kind") {
+	if !strings.Contains(commands.PreviewCommand, "n/a: reviewer intake requires an attached rekit case") || !strings.Contains(commands.ApplyCommand, "n/a: reviewer intake requires an attached rekit case") || !slices.Contains(commands.RequiredFields, "packetPath") || !slices.Contains(commands.RequiredFields, "reviewerResultPath") || !slices.Contains(commands.RequiredFields, "targetLane") || !slices.Contains(commands.PreviewChecks, "confirm reviewer intake returns isMutation=false, applied=false, and readyForWriteback=true") || !slices.Contains(commands.PreviewChecks, "out-of-case review artifacts are dispatch-only; reviewer intake/writeback is unavailable until the target is an attached rekit case") || !slices.Contains(commands.BlockedOutputs, "reviewer intake must not execute heavy tools or write authority/confirmed state") || !slices.Contains(commands.BlockedOutputs, "out-of-case plan packets must not be presented as immediately runnable reviewer intake commands") || !hasRepairGuidance(commands.RepairGuidance, "reviewer result has no inspectable evidenceRefs", "add a non-empty case-local bounded evidence file") || !hasRepairGuidance(commands.RepairGuidance, "reviewer intake unavailable until target is attached", "attach or init the target case") || strings.Contains(commands.ApplyCommand, "note -Kind") {
 		t.Fatalf("unexpected out-of-case reviewer intake commands: %+v", commands)
 	}
 	if !slices.Contains(handoff.PostReviewMerge, "run reviewerIntakeCommands.previewCommand and inspect verification, decision, and postValidation before applyCommand") || !slices.Contains(handoff.PostReviewMerge, "retry the identical applyCommand when an interrupted writeback needs idempotent completion") {

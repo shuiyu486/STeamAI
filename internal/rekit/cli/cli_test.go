@@ -6242,7 +6242,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if firstHandoff.ReviewerResultContract.OutputFormat == "" || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "reviewerSession") || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "recommendedVerdict") || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "routeOutput") || !slices.Contains(firstHandoff.ReviewerResultContract.AllowedDecisions, "needs-more-evidence") || !slices.Contains(firstHandoff.ReviewerResultContract.ConflictSignals, "reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects") {
 		t.Fatalf("unexpected reviewer result contract: %+v", firstHandoff.ReviewerResultContract)
 	}
-	if !slices.Contains(firstHandoff.IntakeChecklist, "validate reviewer output against reviewerResultContract before using any writeback template") || !slices.Contains(firstHandoff.IntakeChecklist, "defer the main decision when conflicts, missing evidence, or blocked outputs are present") || !slices.Contains(firstHandoff.IntakeChecklist, "run reviewerIntakeCommands.previewCommand before applyCommand and inspect verification / decision / postValidation before ledger writeback") {
+	if !slices.Contains(firstHandoff.IntakeChecklist, "validate reviewer output against reviewerResultContract before using any writeback template") || !slices.Contains(firstHandoff.IntakeChecklist, "defer the main decision when conflicts, missing evidence, or blocked outputs are present") || !slices.Contains(firstHandoff.IntakeChecklist, "run reviewerIntakeCommands.previewCommand before applyCommand and inspect verification / decision / postValidation before ledger writeback") || !slices.Contains(firstHandoff.IntakeChecklist, "use reviewerIntakeCommands.repairGuidance when preview returns blocked, event-id-collision, or post-validation failed") {
 		t.Fatalf("unexpected intake checklist: %+v", firstHandoff.IntakeChecklist)
 	}
 	if len(firstHandoff.ReviewerDecisionMappings) != 5 || firstHandoff.ReviewerDecisionMappings[0].ReviewerDecision != "accept" || firstHandoff.ReviewerDecisionMappings[0].VerificationVerdict != "accepted" || firstHandoff.ReviewerDecisionMappings[0].MainDecision != "accept" || firstHandoff.ReviewerDecisionMappings[3].ReviewerDecision != "abandon" || firstHandoff.ReviewerDecisionMappings[3].MainDecision != "supersede" || firstHandoff.ReviewerDecisionMappings[4].ReviewerDecision != "needs-more-evidence" || firstHandoff.ReviewerDecisionMappings[4].VerificationVerdict != "needs-more-evidence" || firstHandoff.ReviewerDecisionMappings[4].MainDecision != "defer" {
@@ -6264,7 +6264,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		t.Fatalf("unexpected reviewer intake apply command binding: %+v", firstHandoff.WritebackSequence[3])
 	}
 	commands := firstHandoff.ReviewerIntakeCommands
-	if !strings.Contains(commands.PreviewCommand, "/rekit plan-subagents") || !strings.Contains(commands.PreviewCommand, "-PacketPath") || !strings.Contains(commands.PreviewCommand, "-ReviewerResultPath") || !strings.Contains(commands.PreviewCommand, "-Lane \"devirt-main\"") || !strings.Contains(commands.PreviewCommand, "-Actor <main-agent>") || !strings.Contains(commands.PreviewCommand, "-WhatIf -Format json") || !strings.Contains(commands.ApplyCommand, "-Apply -Format json") || strings.Contains(commands.ApplyCommand, "note -Kind") || !slices.Contains(commands.RequiredFields, "packetPath") || !slices.Contains(commands.RequiredFields, "reviewerResultPath") || !slices.Contains(commands.RequiredFields, "targetLane") || !slices.Contains(commands.PreviewChecks, "confirm reviewer intake returns isMutation=false, applied=false, and readyForWriteback=true") || !slices.Contains(commands.BlockedOutputs, "reviewer intake must not execute heavy tools or write authority/confirmed state") {
+	if !strings.Contains(commands.PreviewCommand, "/rekit plan-subagents") || !strings.Contains(commands.PreviewCommand, "-PacketPath") || !strings.Contains(commands.PreviewCommand, "-ReviewerResultPath") || !strings.Contains(commands.PreviewCommand, "-Lane \"devirt-main\"") || !strings.Contains(commands.PreviewCommand, "-Actor <main-agent>") || !strings.Contains(commands.PreviewCommand, "-WhatIf -Format json") || !strings.Contains(commands.ApplyCommand, "-Apply -Format json") || strings.Contains(commands.ApplyCommand, "note -Kind") || !slices.Contains(commands.RequiredFields, "packetPath") || !slices.Contains(commands.RequiredFields, "reviewerResultPath") || !slices.Contains(commands.RequiredFields, "targetLane") || !slices.Contains(commands.PreviewChecks, "confirm reviewer intake returns isMutation=false, applied=false, and readyForWriteback=true") || !slices.Contains(commands.PreviewChecks, "if reviewer intake returns blocked, event-id-collision, or complete-post-validation-failed, consume repairGuidance[] action/evidence/boundary before rerunning previewCommand") || !slices.Contains(commands.BlockedOutputs, "reviewer intake must not execute heavy tools or write authority/confirmed state") || !containsCLIRepairGuidance(commands.RepairGuidance, "reviewer result reports unresolved conflicts", "resolve or split") {
 		t.Fatalf("unexpected reviewer intake commands: %+v", commands)
 	}
 	if !slices.Contains(firstHandoff.PostReviewMerge, "run reviewerIntakeCommands.previewCommand and inspect verification, decision, and postValidation before applyCommand") || !slices.Contains(firstHandoff.PostReviewMerge, "retry the identical applyCommand when an interrupted writeback needs idempotent completion") {
@@ -6318,6 +6318,11 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents reviewer result conflict signal：shard=shard-01 signal=reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects",
 		"plan-subagents reviewer intake command：shard=shard-01 purpose=strictly validate one reviewer result, preview or append verification-before-decision events, and return overview/handoff/doctor post-validation",
 		"plan-subagents reviewer intake preview check：shard=shard-01 check=confirm reviewer intake returns isMutation=false, applied=false, and readyForWriteback=true",
+		"plan-subagents reviewer intake preview check：shard=shard-01 check=if reviewer intake returns blocked, event-id-collision, or complete-post-validation-failed, consume repairGuidance[] action/evidence/boundary before rerunning previewCommand",
+		"plan-subagents reviewer intake repair guidance：shard=shard-01 reason=reviewer result reports unresolved conflicts action=resolve or split",
+		"plan-subagents reviewer intake repair evidence：shard=shard-01 reason=reviewer result reports unresolved conflicts evidence=ReviewerResult.conflicts[]",
+		"plan-subagents reviewer intake repair boundary：shard=shard-01 reason=reviewer result reports unresolved conflicts boundary=do not apply reviewer intake until this blocker is resolved",
+		"plan-subagents reviewer intake checklist：shard=shard-01 item=use reviewerIntakeCommands.repairGuidance when preview returns blocked, event-id-collision, or post-validation failed",
 		"plan-subagents reviewer intake checklist：shard=shard-01 item=validate reviewer output against reviewerResultContract before using any writeback template",
 		"plan-subagents reviewer decision map：shard=shard-01 reviewer=accept verification=accepted main=accept",
 		"plan-subagents reviewer conflict handling：shard=shard-01 handling=if reviewer requests writes, heavy tools, authority/confirmed changes, or external effects, discard that output for ledger purposes and escalate through the lane gate path",
@@ -10369,12 +10374,20 @@ type planSubagentsWritebackCommandBinding struct {
 }
 
 type planSubagentsIntakeCommands struct {
-	Purpose        string   `json:"purpose"`
-	PreviewCommand string   `json:"previewCommand"`
-	ApplyCommand   string   `json:"applyCommand"`
-	RequiredFields []string `json:"requiredFields"`
-	PreviewChecks  []string `json:"previewChecks"`
-	BlockedOutputs []string `json:"blockedOutputs"`
+	Purpose        string                             `json:"purpose"`
+	PreviewCommand string                             `json:"previewCommand"`
+	ApplyCommand   string                             `json:"applyCommand"`
+	RequiredFields []string                           `json:"requiredFields"`
+	PreviewChecks  []string                           `json:"previewChecks"`
+	BlockedOutputs []string                           `json:"blockedOutputs"`
+	RepairGuidance []reviewerIntakeRepairGuidanceItem `json:"repairGuidance"`
+}
+
+type reviewerIntakeRepairGuidanceItem struct {
+	Reason   string   `json:"reason"`
+	Action   string   `json:"action"`
+	Evidence []string `json:"evidence"`
+	Boundary []string `json:"boundary"`
 }
 
 type planSubagentsObservables struct {
@@ -10626,6 +10639,15 @@ func cliNextActionBoundaryContains(items []missionCommanderNextActionItem, want 
 func containsSubstring(items []string, want string) bool {
 	for _, item := range items {
 		if strings.Contains(item, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsCLIRepairGuidance(items []reviewerIntakeRepairGuidanceItem, reasonPart, actionPart string) bool {
+	for _, item := range items {
+		if strings.Contains(item.Reason, reasonPart) && strings.Contains(item.Action, actionPart) {
 			return true
 		}
 	}

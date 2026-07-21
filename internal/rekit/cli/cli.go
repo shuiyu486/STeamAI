@@ -4617,6 +4617,21 @@ func writePlanSubagentsShardHandoffText(out io.Writer, result subagents.Result) 
 				return err
 			}
 		}
+		for _, repair := range commands.RepairGuidance {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer intake repair guidance：shard=%s reason=%s action=%s\n", handoff.ShardID, planSubagentsTextInline(repair.Reason), planSubagentsTextInline(repair.Action)); err != nil {
+				return err
+			}
+			for _, evidence := range repair.Evidence {
+				if _, err := fmt.Fprintf(out, "plan-subagents reviewer intake repair evidence：shard=%s reason=%s evidence=%s\n", handoff.ShardID, planSubagentsTextInline(repair.Reason), planSubagentsTextInline(evidence)); err != nil {
+					return err
+				}
+			}
+			for _, boundary := range repair.Boundary {
+				if _, err := fmt.Fprintf(out, "plan-subagents reviewer intake repair boundary：shard=%s reason=%s boundary=%s\n", handoff.ShardID, planSubagentsTextInline(repair.Reason), planSubagentsTextInline(boundary)); err != nil {
+					return err
+				}
+			}
+		}
 		for _, item := range handoff.IntakeChecklist {
 			if _, err := fmt.Fprintf(out, "plan-subagents reviewer intake checklist：shard=%s item=%s\n", handoff.ShardID, item); err != nil {
 				return err
