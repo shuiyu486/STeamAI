@@ -72,7 +72,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 /rekit handoff main          # 生成主线接手文档
 /rekit handoff unpacking     # 生成功能支线接手文档
 /rekit                       # 无子命令时默认只读 status；attached case 中可省略 -Pack 并使用 metadata templatePack
-/rekit status -Format text    # 显式 status text；显示 packSource、kit/case status、manifest、shim readiness、pending-gate review/WhatIf/request-decision handoff、authorized-gate execution report contract handoff、latest-batch validation/remote handoff 与 bounded repair/status next-step handoff
+/rekit status -Format text    # 显式 status text；显示 packSource、kit/case status、manifest、shim readiness、pending-gate review/WhatIf/request-decision handoff、authorized-gate execution report contract handoff、open intervention reconcile WhatIf/Apply handoff、latest-batch validation/remote handoff 与 bounded repair/status next-step handoff
 /rekit release-check -Format text # 只读显示 release inventory、latest-batch validation evidence、handoff signals 与 CI truthfulness boundary
 /rekit overview -Format text # 只读显示 case Mission Commander action queue、lane/executor/evidence/section handoff
 /rekit note -Kind verification -Lane main -WhatIf -Format text # 预览 ledger event 与 would-action delta
