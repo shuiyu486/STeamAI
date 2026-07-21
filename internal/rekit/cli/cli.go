@@ -4930,8 +4930,34 @@ func writePlanSubagentsReviewerIntakeText(out io.Writer, result subagents.Review
 	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
+func writeReviewerIntakePostValidationSummaryText(out io.Writer, summary subagents.ReviewerPostValidationSummary) error {
+	if _, err := fmt.Fprintf(out, "reviewer intake post-validation summary：valid=%t overviewVerifications=%d overviewDecisions=%d doctorRows=%d lane=%s project=%t executorAction=%t ready=%t blocked=%t state=%s reviewerWritebacks=%d queue=%s\n", summary.Valid, summary.OverviewVerifications, summary.OverviewDecisions, summary.DoctorRows, summary.Lane, summary.Project, summary.ExecutorActionPresent, summary.ExecutorActionReady, summary.ExecutorActionBlocked, summary.ExecutorActionState, summary.ReviewerWritebacks, summary.QueueSummary); err != nil {
+		return err
+	}
+	if summary.CurrentAction != nil {
+		item := *summary.CurrentAction
+		if _, err := fmt.Fprintf(out, "reviewer intake post-validation summary current action：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+			return err
+		}
+	}
+	for _, item := range summary.NextActions {
+		if _, err := fmt.Fprintf(out, "reviewer intake post-validation summary next action：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range summary.Boundary {
+		if _, err := fmt.Fprintf(out, "reviewer intake post-validation summary boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeReviewerIntakePostValidationText(out io.Writer, validation subagents.ReviewerPostValidation) error {
 	if _, err := fmt.Fprintf(out, "reviewer intake post-validation：valid=%t overviewVerifications=%d overviewDecisions=%d doctorRows=%d\n", validation.Valid, validation.Overview.Sections.Verifications.Total, validation.Overview.Sections.Decisions.Total, len(validation.DoctorRows)); err != nil {
+		return err
+	}
+	if err := writeReviewerIntakePostValidationSummaryText(out, validation.Summary); err != nil {
 		return err
 	}
 	lane := ""

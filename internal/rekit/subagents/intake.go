@@ -100,10 +100,37 @@ type ReviewerIntakeRepairGuidance struct {
 }
 
 type ReviewerPostValidation struct {
-	Overview   overview.Inventory       `json:"overview"`
-	Handoff    workstream.HandoffResult `json:"handoff"`
-	DoctorRows []doctor.Row             `json:"doctorRows"`
-	Valid      bool                     `json:"valid"`
+	Overview   overview.Inventory            `json:"overview"`
+	Handoff    workstream.HandoffResult      `json:"handoff"`
+	DoctorRows []doctor.Row                  `json:"doctorRows"`
+	Valid      bool                          `json:"valid"`
+	Summary    ReviewerPostValidationSummary `json:"summary"`
+}
+
+type ReviewerPostValidationSummary struct {
+	Valid                 bool                                      `json:"valid"`
+	OverviewVerifications int                                       `json:"overviewVerifications"`
+	OverviewDecisions     int                                       `json:"overviewDecisions"`
+	DoctorRows            int                                       `json:"doctorRows"`
+	Lane                  string                                    `json:"lane,omitempty"`
+	Project               bool                                      `json:"project"`
+	ExecutorActionPresent bool                                      `json:"executorActionPresent"`
+	ExecutorActionReady   bool                                      `json:"executorActionReady"`
+	ExecutorActionBlocked bool                                      `json:"executorActionBlocked"`
+	ExecutorActionState   string                                    `json:"executorActionState,omitempty"`
+	ReviewerWritebacks    int                                       `json:"reviewerWritebacks"`
+	QueueSummary          string                                    `json:"queueSummary,omitempty"`
+	CurrentAction         *ReviewerPostValidationNextActionSummary  `json:"currentAction,omitempty"`
+	NextActions           []ReviewerPostValidationNextActionSummary `json:"nextActions,omitempty"`
+	Boundary              []string                                  `json:"boundary,omitempty"`
+}
+
+type ReviewerPostValidationNextActionSummary struct {
+	State          string `json:"state"`
+	Source         string `json:"source"`
+	Command        string `json:"command"`
+	Blocked        bool   `json:"blocked,omitempty"`
+	RequiresReview bool   `json:"requiresReview,omitempty"`
 }
 
 type ReviewerOrchestrationIntake struct {
@@ -1105,7 +1132,9 @@ func reviewerPostValidation(repoRoot, caseRoot, pack, lane string, allowInit boo
 	if !allowInit {
 		if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "board.json")); err != nil {
 			if os.IsNotExist(err) {
-				return ReviewerPostValidation{Valid: false}, nil
+				validation := ReviewerPostValidation{Valid: false}
+				validation.Summary = reviewerPostValidationSummary(validation)
+				return validation, nil
 			}
 			return ReviewerPostValidation{}, err
 		}
@@ -1122,7 +1151,61 @@ func reviewerPostValidation(repoRoot, caseRoot, pack, lane string, allowInit boo
 	if err != nil {
 		return ReviewerPostValidation{}, fmt.Errorf("post-review doctor validation: %w", err)
 	}
-	return ReviewerPostValidation{Overview: overviewResult, Handoff: handoffResult, DoctorRows: doctorRows, Valid: true}, nil
+	validation := ReviewerPostValidation{Overview: overviewResult, Handoff: handoffResult, DoctorRows: doctorRows, Valid: true}
+	validation.Summary = reviewerPostValidationSummary(validation)
+	return validation, nil
+}
+
+func reviewerPostValidationSummary(validation ReviewerPostValidation) ReviewerPostValidationSummary {
+	summary := ReviewerPostValidationSummary{
+		Valid:                 validation.Valid,
+		OverviewVerifications: validation.Overview.Sections.Verifications.Total,
+		OverviewDecisions:     validation.Overview.Sections.Decisions.Total,
+		DoctorRows:            len(validation.DoctorRows),
+		Project:               validation.Handoff.Project,
+		ReviewerWritebacks:    len(validation.Handoff.ReviewerWritebacks),
+	}
+	if validation.Handoff.Lane != nil {
+		summary.Lane = validation.Handoff.Lane.ID
+	}
+	if action := validation.Handoff.ExecutorAction; action != nil {
+		summary.ExecutorActionPresent = true
+		summary.ExecutorActionReady = action.Ready
+		summary.ExecutorActionBlocked = action.Blocked
+		summary.ExecutorActionState = action.MissionCommanderAction.State
+	}
+	queue := validation.Handoff.MissionCommanderActionQueue
+	summary.QueueSummary = strings.TrimSpace(queue.Summary)
+	if queue.CurrentAction != nil {
+		current := reviewerPostValidationNextActionSummary(*queue.CurrentAction)
+		summary.CurrentAction = &current
+	}
+	for _, item := range validation.Handoff.MissionCommanderNextActions {
+		summary.NextActions = append(summary.NextActions, reviewerPostValidationNextActionSummary(item))
+	}
+	if validation.Valid {
+		summary.Boundary = []string{
+			"postValidation summary is read-only; full overview/handoff/doctor snapshots remain available",
+			"consume currentAction and nextActions before continuing or handing off the lane",
+			"reviewer intake does not write authority/confirmed state and does not execute heavy tools",
+		}
+	} else {
+		summary.Boundary = []string{
+			"postValidation summary is unavailable until the case Mission Commander board exists",
+			"do not continue the lane until overview/handoff/doctor validation is available",
+		}
+	}
+	return summary
+}
+
+func reviewerPostValidationNextActionSummary(item mission.MissionCommanderNextActionItem) ReviewerPostValidationNextActionSummary {
+	return ReviewerPostValidationNextActionSummary{
+		State:          item.State,
+		Source:         item.Source,
+		Command:        item.Command,
+		Blocked:        item.Blocked,
+		RequiresReview: item.RequiresReview,
+	}
 }
 
 func reviewerDecisionMappingByDecision(decision string) (ReviewerDecisionMapping, bool) {

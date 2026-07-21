@@ -16,25 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 512：remote release-gate detail handoff closure
+### Batch 513：reviewer intake post-validation summary handoff closure
 
-状态：已完成 `remoteReleaseGateDetail` JSON contract、release-check/status text detail、focused releasecheck/CLI coverage、用户与 durable docs、本地 release minimum、commit/push 与远程 release-gate inspection；已提交并推送 `f738faa Add remote release gate detail handoff`，远程 release-gate runs `29875214813` / `29875386689` 均为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps=[]`，仍是 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+状态：已完成 `ReviewerPostValidation.summary` JSON projection、reviewer-intake post-validation summary text lines、focused reviewer intake coverage、用户与 durable docs；完整本地 release minimum、commit/push 与远程 release-gate inspection 待执行。
 
-目标：Batch 511 已修复 latest-batch remote blocker truthfulness，把 `steps=[]` / `steps: []` / `steps 为空` 的 completed failure 解析为 blocked；但 downstream handoff 仍只有扁平 `remoteReleaseGate` 字符串、evidence 与 nextAction。replacement executor / release maintainer 若要复核 run id、受影响 jobs、empty steps、completed failure、是否可声明 green 与具体 boundary，仍要回查 `docs/batch-plan.md` 文字或 GitHub Actions JSON。Batch 512 将 remote release-gate inspection 细节结构化投影到 release/status JSON 与 text。
+目标：Batch 489/499/505/506/507/508 已覆盖 reviewer planning/intake/writeback/provenance/repair terminal handoff，但 reviewer intake 成功或 already-complete 后，replacement executor 若只想确认 post-review overview verification/decision totals、doctor rows、lane executor action state、reviewer writeback count、Mission Commander current/next command 与 no-heavy/no-authority boundary，仍要解析 nested `postValidation.overview`、`postValidation.handoff`、`doctorRows[]` 或读多行 legacy text。Batch 513 将这些 post-validation 接续状态压缩为 compact summary，同时保留完整 snapshots。
 
-边界：只增强 `release-check` / kit-mode `status` 的只读 latest-batch handoff envelope、text 输出与测试；不执行远程 CI、不改变 workflow inventory 语义、本地 release minimum、case runtime、sync/promote、authority/confirmed、heavy-tool、PowerShell façade 或公共 façade removal 门禁；远程 jobs `steps=[]` 仍记录为 runner/billing known blocker，不能声明远程 CI green。
+边界：只增强 `plan-subagents -ReviewerResultPath ... -WhatIf/-Apply` 的 reviewer intake post-validation JSON/text handoff 与测试；不自动 spawn/monitor reviewer、不改变 reviewer result contract、route output validation、verification-before-decision 写回顺序、owner binding、postValidation full snapshots、sync/promote、case durable schema、authority/confirmed、heavy-tool、PowerShell façade 或公共 façade removal 门禁。
 
 已完成内容：
 
-- `ReleaseHandoffLatestBatchHandoff` 新增 `remoteReleaseGateDetail`，包含 `state`、`runRefs[]`、`jobs[]`、`emptySteps`、`completedFailure`、`canClaimGreen` 与 `boundary[]`。
-- `latestBatchRemoteReleaseGateDetail` 从 latest batch section 提取 run refs、Linux/Windows/macOS job labels、empty-steps / completed-failure 状态，并按 `green` / `blocked` / `not-recorded` / `inspected` 输出对应 no-green / inspect-first / continue-local boundary。
-- `statusProjectHandoff` 同步投影 `latestRemoteReleaseGateDetail`，让 kit-mode `status -Format json` 第一屏可机器读取 remote blocker detail。
-- `release-check -Format text` 输出 `release-check latest batch remote gate...` 与 boundary lines；`status -Format text` 输出 `status latest batch remote gate...` 与 boundary lines。
-- releasecheck 与 CLI tests 锁定 detail state 与 summary 一致、boundary 非空、`steps=[]` completed failure 的 run/job/boundary 细节，以及 text handoff 行。
+- `ReviewerPostValidation` 新增 `summary`，包含 `valid`、overview verification/decision totals、doctor row count、lane/project、executor action present/ready/blocked/state、reviewer writeback count、Mission Commander queue summary、current action、next actions 与 boundary。
+- reviewer intake post-validation 构造时为 valid 与 missing-board invalid 场景生成同一 compact summary；完整 `overview`、`handoff` 与 `doctorRows[]` 仍保留给深度复核。
+- `plan-subagents -ReviewerResultPath ... -Format text` 新增 `reviewer intake post-validation summary...`、summary current action、summary next action 与 summary boundary lines。
+- CLI reviewer intake E2E 覆盖 JSON summary 的 counts/lane/current action/boundary，以及 WhatIf / already-complete text summary visibility。
 
-验证结果：已通过 `gofmt -w internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestLatestBatchRemoteGateRecognizesEqualsEmptyStepsAndChineseNegativeGreen|TestReleaseHandoffInventoryFromRepo|TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory" -count=1`、focused `go vet ./internal/rekit/releasecheck ./internal/rekit/cli`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`。远程 release-gate run `29875214813` completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps=[]`；这是既有 runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 `gofmt -w internal/rekit/subagents/intake.go internal/rekit/cli/cli.go internal/rekit/cli/reviewer_intake_test.go`、focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E -count=1`、focused `go test ./internal/rekit/subagents ./internal/rekit/cli -run "Test.*Reviewer.*|TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E" -count=1`、package `go test ./internal/rekit/subagents ./internal/rekit/cli -count=1`、focused `go vet ./internal/rekit/subagents ./internal/rekit/cli`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`。commit/push 与远程 release-gate inspection 待执行。
 
-上一批摘要：Batch 511 已完成 release handoff remote blocker truthfulness closure，并归档到 `docs/batch-history.md`。
+上一批摘要：Batch 512 已完成 remote release-gate detail handoff closure，并归档到 `docs/batch-history.md`。
 
 ### Next candidates
 

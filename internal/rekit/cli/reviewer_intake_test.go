@@ -109,6 +109,11 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 		"note would executor action commander action：state=",
 		"note would mission commander next action：state=",
 		"reviewer intake post-validation：valid=true overviewVerifications=0 overviewDecisions=0 doctorRows=",
+		"reviewer intake post-validation summary：valid=true",
+		"lane=main project=false executorAction=true ready=",
+		"reviewer intake post-validation summary current action：state=",
+		"reviewer intake post-validation summary next action：state=",
+		"reviewer intake post-validation summary boundary：postValidation summary is read-only; full overview/handoff/doctor snapshots remain available",
 		"reviewer intake post-validation handoff：lane=main project=false executorAction=true",
 		"reviewer intake post-validation handoff queue：summary=total=",
 		"reviewer intake post-validation handoff queue current：state=",
@@ -139,6 +144,9 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	if applied.PostValidation.Overview.Sections.Verifications.Total != 1 || applied.PostValidation.Overview.Sections.Decisions.Total != 1 || applied.PostValidation.Handoff.Lane == nil || applied.PostValidation.Handoff.Lane.ID != packet.TargetLane {
 		t.Fatalf("post-review validation omitted ledger/handoff state: %+v", applied.PostValidation)
 	}
+	if !applied.PostValidation.Summary.Valid || applied.PostValidation.Summary.OverviewVerifications != 1 || applied.PostValidation.Summary.OverviewDecisions != 1 || applied.PostValidation.Summary.Lane != packet.TargetLane || !applied.PostValidation.Summary.ExecutorActionPresent || applied.PostValidation.Summary.CurrentAction == nil || len(applied.PostValidation.Summary.NextActions) == 0 || !containsStringWith(applied.PostValidation.Summary.Boundary, "postValidation summary is read-only") || !strings.HasPrefix(applied.PostValidation.Summary.CurrentAction.Source, "missionCommanderActions") {
+		t.Fatalf("post-review validation compact summary omitted takeover state: %+v", applied.PostValidation.Summary)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "text"}, &out); err != nil {
@@ -150,6 +158,11 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 		"reviewer intake result items：alpha",
 		"reviewer intake route output：next_action=main-agent-writeback",
 		"reviewer intake post-validation：valid=true overviewVerifications=1 overviewDecisions=1 doctorRows=",
+		"reviewer intake post-validation summary：valid=true",
+		"lane=main project=false executorAction=true ready=",
+		"reviewer intake post-validation summary current action：state=",
+		"reviewer intake post-validation summary next action：state=",
+		"reviewer intake post-validation summary boundary：postValidation summary is read-only; full overview/handoff/doctor snapshots remain available",
 		"reviewer intake post-validation handoff：lane=main project=false executorAction=true",
 		"reviewer intake post-validation reviewer writeback：kind=verification eventId=evt-",
 		"reviewer intake post-validation reviewer result：eventId=evt-",
@@ -747,6 +760,34 @@ type reviewerIntakeCLIResult struct {
 		Event   map[string]any `json:"event"`
 	} `json:"decision"`
 	PostValidation *struct {
+		Summary struct {
+			Valid                 bool   `json:"valid"`
+			OverviewVerifications int    `json:"overviewVerifications"`
+			OverviewDecisions     int    `json:"overviewDecisions"`
+			DoctorRows            int    `json:"doctorRows"`
+			Lane                  string `json:"lane"`
+			ExecutorActionPresent bool   `json:"executorActionPresent"`
+			ExecutorActionReady   bool   `json:"executorActionReady"`
+			ExecutorActionBlocked bool   `json:"executorActionBlocked"`
+			ExecutorActionState   string `json:"executorActionState"`
+			ReviewerWritebacks    int    `json:"reviewerWritebacks"`
+			QueueSummary          string `json:"queueSummary"`
+			CurrentAction         *struct {
+				State          string `json:"state"`
+				Source         string `json:"source"`
+				Command        string `json:"command"`
+				Blocked        bool   `json:"blocked"`
+				RequiresReview bool   `json:"requiresReview"`
+			} `json:"currentAction"`
+			NextActions []struct {
+				State          string `json:"state"`
+				Source         string `json:"source"`
+				Command        string `json:"command"`
+				Blocked        bool   `json:"blocked"`
+				RequiresReview bool   `json:"requiresReview"`
+			} `json:"nextActions"`
+			Boundary []string `json:"boundary"`
+		} `json:"summary"`
 		Overview struct {
 			Sections struct {
 				Verifications struct {
