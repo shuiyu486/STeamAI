@@ -667,14 +667,16 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	}
 	var status struct {
 		CaseMission struct {
-			Ready               bool                        `json:"ready"`
-			BlockedLanes        []string                    `json:"blockedLanes"`
-			LaneExecutorActions []handoffLaneExecutorAction `json:"laneExecutorActions"`
-			PendingGates        []string                    `json:"pendingGates"`
-			AuthorizedGates     []string                    `json:"authorizedGates"`
-			OpenDecisions       []string                    `json:"openDecisions"`
-			Interventions       []string                    `json:"interventions"`
-			FactCounts          *struct {
+			Ready                  bool                          `json:"ready"`
+			BlockedLanes           []string                      `json:"blockedLanes"`
+			LaneExecutorActions    []handoffLaneExecutorAction   `json:"laneExecutorActions"`
+			PendingGates           []string                      `json:"pendingGates"`
+			PendingGateHandoffs    []statusPendingGateHandoff    `json:"pendingGateHandoffs"`
+			AuthorizedGates        []string                      `json:"authorizedGates"`
+			AuthorizedGateHandoffs []statusAuthorizedGateHandoff `json:"authorizedGateHandoffs"`
+			OpenDecisions          []string                      `json:"openDecisions"`
+			Interventions          []string                      `json:"interventions"`
+			FactCounts             *struct {
 				Observations     int `json:"observations"`
 				Requests         int `json:"requests"`
 				Candidates       int `json:"candidates"`
@@ -702,8 +704,12 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
 	}
-	if status.CaseMission.Ready || status.CaseMission.ExecutionEvidenceReviewCount != 1 || len(status.CaseMission.ExecutionEvidenceReview) != 1 || !containsSubstring(status.CaseMission.BlockedLanes, "main (pending-gate,intervention,open-decision)") || len(status.CaseMission.LaneExecutorActions) != 1 || !containsSubstring(status.CaseMission.PendingGates, "action=debug") || len(status.CaseMission.AuthorizedGates) != 0 || !containsSubstring(status.CaseMission.OpenDecisions, "candidate: handler") || !containsSubstring(status.CaseMission.Interventions, "manual override") || status.CaseMission.FactCounts == nil || status.CaseMission.Sections == nil {
+	if status.CaseMission.Ready || status.CaseMission.ExecutionEvidenceReviewCount != 1 || len(status.CaseMission.ExecutionEvidenceReview) != 1 || !containsSubstring(status.CaseMission.BlockedLanes, "main (pending-gate,intervention,open-decision)") || len(status.CaseMission.LaneExecutorActions) != 1 || !containsSubstring(status.CaseMission.PendingGates, "action=debug") || len(status.CaseMission.PendingGateHandoffs) != 1 || len(status.CaseMission.AuthorizedGates) != 0 || len(status.CaseMission.AuthorizedGateHandoffs) != 0 || !containsSubstring(status.CaseMission.OpenDecisions, "candidate: handler") || !containsSubstring(status.CaseMission.Interventions, "manual override") || status.CaseMission.FactCounts == nil || status.CaseMission.Sections == nil {
 		t.Fatalf("unexpected case mission blocker/evidence review summary: %+v", status.CaseMission)
+	}
+	pendingHandoff := status.CaseMission.PendingGateHandoffs[0]
+	if pendingHandoff.EventID != "" || pendingHandoff.Lane != "main" || pendingHandoff.Subject != "debug gate" || pendingHandoff.Action != "debug" || pendingHandoff.Target != "batch-overview" || pendingHandoff.Status != "pending-gate" || pendingHandoff.Risk != "high" || pendingHandoff.ReviewCommand != "/rekit handoff main" || !strings.Contains(pendingHandoff.WhatIfCommand, `/rekit gate -Target "`+caseRoot+`" -Pack _template -Action debug -Lane main -WhatIf`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-Subject "debug gate"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-Summary "needs confirmation"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-TargetRef "batch-overview"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-Scope "handler only"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-Budget "30s"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-TriedLightSteps "overview,static review"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-StopConditions "timeout"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-Risk "high" -Format json`) || !strings.Contains(pendingHandoff.ApplyCommand, `/rekit gate -Target "`+caseRoot+`" -Pack _template -Action debug -Lane main -Apply -Actor runtime-test`) || !strings.Contains(pendingHandoff.DecisionBoundary, "apply command only replays/records the gate request decision") || !strings.Contains(pendingHandoff.DecisionBoundary, "does not execute or approve heavy action by itself") || !strings.Contains(pendingHandoff.ContinueBoundary, "blocked lane can only continue with -WhatIf") || !containsSubstring(pendingHandoff.Evidence, "requested budget 30s") || !containsSubstring(pendingHandoff.Evidence, "requested stopConditions timeout") || !containsSubstring(pendingHandoff.Evidence, "triedLightSteps overview,static review") {
+		t.Fatalf("unexpected pending gate handoff: %+v", pendingHandoff)
 	}
 	laneAction := status.CaseMission.LaneExecutorActions[0]
 	if laneAction.Lane != "main" || laneAction.Label != "main" || !laneAction.ExecutorAction.Blocked || laneAction.ExecutorAction.Ready || laneAction.ExecutorAction.PendingGates != 1 || laneAction.ExecutorAction.OpenInterventions != 1 || laneAction.ExecutorAction.OpenDecisions != 3 || !containsSubstring(laneAction.ExecutorAction.BlockerReasons, "pending-gate") || laneAction.ExecutorAction.MissionCommanderAction.State != "needs-reconcile" {
@@ -738,6 +744,12 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 		"status case mission lane blocker：lane=main reason=open-decision",
 		"status case mission lane boundary：lane=main boundary=do not run continue for blocked lanes",
 		"status case mission pending gate：debug gate | lane=main | risk=high | target=batch-overview | action=debug | scope=handler only | stopConditions=timeout",
+		"status case mission pending gate handoff：eventId= lane=main subject=debug gate action=debug target=batch-overview status=pending-gate risk=high auth= profile= review=/rekit handoff main whatIf=/rekit gate -Target \"" + caseRoot + "\" -Pack _template -Action debug -Lane main -WhatIf -Subject \"debug gate\" -Summary \"needs confirmation\" -TargetRef \"batch-overview\" -BatchId \"batch-overview\" -Scope \"handler only\" -Budget \"30s\" -TriedLightSteps \"overview,static review\" -StopConditions \"timeout\" -Risk \"high\" -Format json apply=/rekit gate -Target \"" + caseRoot + "\" -Pack _template -Action debug -Lane main -Apply -Actor runtime-test -Subject \"debug gate\" -Summary \"needs confirmation\" -TargetRef \"batch-overview\" -BatchId \"batch-overview\" -Scope \"handler only\" -Budget \"30s\" -TriedLightSteps \"overview,static review\" -StopConditions \"timeout\" -Risk \"high\" -Format json",
+		"status case mission pending gate decision boundary：eventId= boundary=review with the main agent/user or update strict durable autonomy before any heavy action; apply command only replays/records the gate request decision and does not execute or approve heavy action by itself",
+		"status case mission pending gate continue boundary：eventId= boundary=blocked lane can only continue with -WhatIf until the pending gate is resolved or deliberately deferred; no heavy-tool, authority, or confirmed writes",
+		"status case mission pending gate evidence：eventId= evidence=requested budget 30s",
+		"status case mission pending gate evidence：eventId= evidence=requested stopConditions timeout",
+		"status case mission pending gate evidence：eventId= evidence=triedLightSteps overview,static review",
 		"status case mission open decision：candidate: handler | lane=main | status=open | summary=candidate one",
 		"status case mission intervention：manual override | lane=main | action=override | status=open | target=batch-overview",
 		"status case mission facts：observations=1 requests=1 candidates=2 publications=1 pendingDecisions=1",
@@ -767,8 +779,8 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "status case mission queue action：bucket=current lane=main label=gate-auth-1 state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=/rekit handoff main") || !strings.Contains(out.String(), "status case mission queue action：bucket=blocked lane=main label=main") || !strings.Contains(out.String(), "status case mission blocked lane：main (pending-gate,intervention,open-decision)") || !strings.Contains(out.String(), "status case mission lane action：lane=main label=main status=open workspace=captures/lanes/main executor=session-main generation=3 ready=false blocked=true pendingGates=1 openInterventions=1 openDecisions=3") || !strings.Contains(out.String(), "status case mission lane blocker：lane=main reason=pending-gate") || !strings.Contains(out.String(), "status case mission pending gate：debug gate | lane=main") || !strings.Contains(out.String(), "status case mission facts：observations=1 requests=1 candidates=2 publications=1 pendingDecisions=1") || !strings.Contains(out.String(), "status case mission section：name=openCandidates total=2 shown=2") || !strings.Contains(out.String(), "status case mission batch：index=1 id=batch-overview events=5") || !strings.Contains(out.String(), "status case mission evidence review：eventId=obs-auth-1 gateEventId=gate-auth-1") || !strings.Contains(out.String(), "status case mission evidence outcome evidence：eventId=obs-auth-1 name=recorded-evidence-review evidence=evidence/debug.json") {
-		t.Fatalf("status case default text missing lane/queue/ledger/blocker/evidence review handoff:\n%s", out.String())
+	if !strings.Contains(out.String(), "status case mission queue action：bucket=current lane=main label=gate-auth-1 state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=/rekit handoff main") || !strings.Contains(out.String(), "status case mission queue action：bucket=blocked lane=main label=main") || !strings.Contains(out.String(), "status case mission blocked lane：main (pending-gate,intervention,open-decision)") || !strings.Contains(out.String(), "status case mission lane action：lane=main label=main status=open workspace=captures/lanes/main executor=session-main generation=3 ready=false blocked=true pendingGates=1 openInterventions=1 openDecisions=3") || !strings.Contains(out.String(), "status case mission lane blocker：lane=main reason=pending-gate") || !strings.Contains(out.String(), "status case mission pending gate：debug gate | lane=main") || !strings.Contains(out.String(), "status case mission pending gate handoff：eventId= lane=main subject=debug gate action=debug") || !strings.Contains(out.String(), `whatIf=/rekit gate -Target "`+caseRoot+`" -Pack _template -Action debug -Lane main -WhatIf`) || !strings.Contains(out.String(), "status case mission pending gate continue boundary：eventId= boundary=blocked lane can only continue with -WhatIf") || !strings.Contains(out.String(), "status case mission facts：observations=1 requests=1 candidates=2 publications=1 pendingDecisions=1") || !strings.Contains(out.String(), "status case mission section：name=openCandidates total=2 shown=2") || !strings.Contains(out.String(), "status case mission batch：index=1 id=batch-overview events=5") || !strings.Contains(out.String(), "status case mission evidence review：eventId=obs-auth-1 gateEventId=gate-auth-1") || !strings.Contains(out.String(), "status case mission evidence outcome evidence：eventId=obs-auth-1 name=recorded-evidence-review evidence=evidence/debug.json") {
+		t.Fatalf("status case default text missing lane/queue/ledger/blocker/pending-gate/evidence review handoff:\n%s", out.String())
 	}
 	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 }

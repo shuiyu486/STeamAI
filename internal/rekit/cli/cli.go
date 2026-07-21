@@ -1275,6 +1275,24 @@ type statusProjectHandoff struct {
 	ValidationCommands         []string `json:"validationCommands"`
 }
 
+type statusPendingGateHandoff struct {
+	EventID          string   `json:"eventId,omitempty"`
+	Lane             string   `json:"lane,omitempty"`
+	Subject          string   `json:"subject,omitempty"`
+	Action           string   `json:"action,omitempty"`
+	Target           string   `json:"target,omitempty"`
+	Status           string   `json:"status,omitempty"`
+	Risk             string   `json:"risk,omitempty"`
+	Authorization    string   `json:"authorization,omitempty"`
+	Profile          string   `json:"profile,omitempty"`
+	ReviewCommand    string   `json:"reviewCommand,omitempty"`
+	WhatIfCommand    string   `json:"whatIfCommand,omitempty"`
+	ApplyCommand     string   `json:"applyCommand,omitempty"`
+	DecisionBoundary string   `json:"decisionBoundary,omitempty"`
+	ContinueBoundary string   `json:"continueBoundary,omitempty"`
+	Evidence         []string `json:"evidence,omitempty"`
+}
+
 type statusAuthorizedGateHandoff struct {
 	EventID          string   `json:"eventId,omitempty"`
 	Lane             string   `json:"lane,omitempty"`
@@ -1302,6 +1320,7 @@ type statusCaseMission struct {
 	BlockedLanes                  []string                                 `json:"blockedLanes,omitempty"`
 	LaneExecutorActions           []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions,omitempty"`
 	PendingGates                  []string                                 `json:"pendingGates,omitempty"`
+	PendingGateHandoffs           []statusPendingGateHandoff               `json:"pendingGateHandoffs,omitempty"`
 	AuthorizedGates               []string                                 `json:"authorizedGates,omitempty"`
 	AuthorizedGateHandoffs        []statusAuthorizedGateHandoff            `json:"authorizedGateHandoffs,omitempty"`
 	OpenDecisions                 []string                                 `json:"openDecisions,omitempty"`
@@ -1542,6 +1561,11 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 			return err
 		}
 	}
+	for _, handoff := range summary.PendingGateHandoffs {
+		if err := writeStatusPendingGateHandoffText(out, handoff); err != nil {
+			return err
+		}
+	}
 	for _, gate := range summary.AuthorizedGates {
 		if _, err := fmt.Fprintf(out, "status case mission authorized gate：%s\n", gate); err != nil {
 			return err
@@ -1640,6 +1664,28 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 	}
 	if _, err := fmt.Fprintf(out, "status case mission handoff：preview=%s apply=%s continueBoundary=%s\n", summary.HandoffPreviewCommand, summary.HandoffApplyCommand, summary.ContinueRequiresExplicitApply); err != nil {
 		return err
+	}
+	return nil
+}
+
+func writeStatusPendingGateHandoffText(out io.Writer, handoff statusPendingGateHandoff) error {
+	if _, err := fmt.Fprintf(out, "status case mission pending gate handoff：eventId=%s lane=%s subject=%s action=%s target=%s status=%s risk=%s auth=%s profile=%s review=%s whatIf=%s apply=%s\n", handoff.EventID, handoff.Lane, handoff.Subject, handoff.Action, handoff.Target, handoff.Status, handoff.Risk, handoff.Authorization, handoff.Profile, handoff.ReviewCommand, handoff.WhatIfCommand, handoff.ApplyCommand); err != nil {
+		return err
+	}
+	if strings.TrimSpace(handoff.DecisionBoundary) != "" {
+		if _, err := fmt.Fprintf(out, "status case mission pending gate decision boundary：eventId=%s boundary=%s\n", handoff.EventID, handoff.DecisionBoundary); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(handoff.ContinueBoundary) != "" {
+		if _, err := fmt.Fprintf(out, "status case mission pending gate continue boundary：eventId=%s boundary=%s\n", handoff.EventID, handoff.ContinueBoundary); err != nil {
+			return err
+		}
+	}
+	for _, evidence := range handoff.Evidence {
+		if _, err := fmt.Fprintf(out, "status case mission pending gate evidence：eventId=%s evidence=%s\n", handoff.EventID, evidence); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1940,6 +1986,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		ReadyLanes:                    append([]string{}, inventory.MissionBrief.ReadyLanes...),
 		BlockedLanes:                  append([]string{}, inventory.MissionBrief.BlockedLanes...),
 		PendingGates:                  append([]string{}, inventory.MissionBrief.PendingGates...),
+		PendingGateHandoffs:           statusPendingGateHandoffs(caseRoot, pack, inventory.Sections.PendingGates.Events),
 		AuthorizedGates:               append([]string{}, inventory.MissionBrief.AuthorizedGates...),
 		AuthorizedGateHandoffs:        statusAuthorizedGateHandoffs(caseRoot, pack, inventory.Sections.AuthorizedGates.Events),
 		OpenDecisions:                 append([]string{}, inventory.MissionBrief.OpenDecisions...),
@@ -1957,6 +2004,127 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		HandoffApplyCommand:           applyCommand,
 		ContinueRequiresExplicitApply: continueBoundary,
 	}, nil
+}
+
+func statusPendingGateHandoffs(caseRoot, pack string, events []map[string]any) []statusPendingGateHandoff {
+	out := []statusPendingGateHandoff{}
+	for _, event := range events {
+		handoff := statusPendingGateHandoffFor(caseRoot, pack, event)
+		if strings.TrimSpace(handoff.EventID) == "" && strings.TrimSpace(handoff.Subject) == "" {
+			continue
+		}
+		out = append(out, handoff)
+	}
+	return out
+}
+
+func statusPendingGateHandoffFor(caseRoot, pack string, event map[string]any) statusPendingGateHandoff {
+	gate := statusEventMap(event, "gate")
+	authorization := statusEventMap(gate, "authorization")
+	eventID := statusEventValue(event, "eventId")
+	lane := statusEventValue(event, "lane")
+	evidence := []string{}
+	if eventID != "" {
+		evidence = append(evidence, "pending-gate ledger event "+eventID)
+	}
+	if reasons := statusEventValue(authorization, "reasons"); reasons != "" {
+		evidence = append(evidence, "authorization reasons "+reasons)
+	}
+	if budget := statusEventValue(gate, "budget"); budget != "" {
+		evidence = append(evidence, "requested budget "+budget)
+	}
+	if budget := statusGateRequestedBudgetEvidence(gate); budget != "" {
+		evidence = append(evidence, "requestedBudget "+budget)
+	}
+	if outputs := statusEventValue(gate, "outputPaths"); outputs != "" {
+		evidence = append(evidence, "requested outputPaths "+outputs)
+	}
+	if stops := statusEventValue(gate, "stopConditions"); stops != "" {
+		evidence = append(evidence, "requested stopConditions "+stops)
+	}
+	if tried := statusEventValue(gate, "triedLightSteps"); tried != "" {
+		evidence = append(evidence, "triedLightSteps "+tried)
+	}
+	return statusPendingGateHandoff{
+		EventID:          eventID,
+		Lane:             lane,
+		Subject:          statusEventValue(event, "subject"),
+		Action:           statusEventValue(gate, "action"),
+		Target:           statusEventValue(event, "target"),
+		Status:           statusEventValue(event, "status"),
+		Risk:             statusEventValue(event, "risk"),
+		Authorization:    statusEventValue(authorization, "decision"),
+		Profile:          statusEventValue(authorization, "profileId"),
+		ReviewCommand:    "/rekit handoff " + statusLaneCommandLabel(lane),
+		WhatIfCommand:    statusGateRequestCommand(caseRoot, pack, event, false),
+		ApplyCommand:     statusGateRequestCommand(caseRoot, pack, event, true),
+		DecisionBoundary: "review with the main agent/user or update strict durable autonomy before any heavy action; apply command only replays/records the gate request decision and does not execute or approve heavy action by itself",
+		ContinueBoundary: "blocked lane can only continue with -WhatIf until the pending gate is resolved or deliberately deferred; no heavy-tool, authority, or confirmed writes",
+		Evidence:         evidence,
+	}
+}
+
+func statusGateRequestedBudgetEvidence(gate map[string]any) string {
+	budget := statusEventMap(gate, "requestedBudget")
+	if len(budget) == 0 {
+		return ""
+	}
+	parts := []string{}
+	if value := statusEventValue(budget, "runtimeSeconds"); !statusEmptyBudgetValue(value) {
+		parts = append(parts, "runtimeSeconds="+value)
+	}
+	if value := statusEventValue(budget, "diskMB"); !statusEmptyBudgetValue(value) {
+		parts = append(parts, "diskMB="+value)
+	}
+	if value := statusEventValue(budget, "requests"); !statusEmptyBudgetValue(value) {
+		parts = append(parts, "requests="+value)
+	}
+	return strings.Join(parts, ",")
+}
+
+func statusEmptyBudgetValue(value string) bool {
+	value = strings.TrimSpace(value)
+	return value == "" || value == "0" || value == "0.0"
+}
+
+func statusGateRequestCommand(caseRoot, pack string, event map[string]any, apply bool) string {
+	gate := statusEventMap(event, "gate")
+	action := statusEventValue(gate, "action")
+	lane := statusEventValue(event, "lane")
+	if strings.TrimSpace(action) == "" || strings.TrimSpace(lane) == "" {
+		return ""
+	}
+	args := []string{"/rekit", "gate", "-Target", statusQuoteCommandArg(caseRoot), "-Pack", statusFirstText(pack, defaults.DefaultPack), "-Action", action, "-Lane", lane}
+	if apply {
+		actor := statusFirstText(statusEventValue(event, "actor"), "<actor>")
+		args = append(args, "-Apply", "-Actor", actor)
+	} else {
+		args = append(args, "-WhatIf")
+	}
+	args = statusAppendGateRequestArg(args, "-Subject", statusEventValue(event, "subject"))
+	args = statusAppendGateRequestArg(args, "-Summary", statusEventValue(event, "summary"))
+	args = statusAppendGateRequestArg(args, "-TargetRef", statusEventValue(event, "target"))
+	args = statusAppendGateRequestArg(args, "-BatchId", statusEventValue(event, "batchId"))
+	args = statusAppendGateRequestArg(args, "-Scope", statusEventValue(gate, "scope"))
+	args = statusAppendGateRequestArg(args, "-Budget", statusEventValue(gate, "budget"))
+	budget := statusEventMap(gate, "requestedBudget")
+	args = statusAppendGateRequestArg(args, "-RuntimeSeconds", statusEventValue(budget, "runtimeSeconds"))
+	args = statusAppendGateRequestArg(args, "-DiskMB", statusEventValue(budget, "diskMB"))
+	args = statusAppendGateRequestArg(args, "-Requests", statusEventValue(budget, "requests"))
+	args = statusAppendGateRequestArg(args, "-OutputPaths", statusEventValue(gate, "outputPaths"))
+	args = statusAppendGateRequestArg(args, "-TriedLightSteps", statusEventValue(gate, "triedLightSteps"))
+	args = statusAppendGateRequestArg(args, "-StopConditions", statusEventValue(gate, "stopConditions"))
+	args = statusAppendGateRequestArg(args, "-Risk", statusEventValue(event, "risk"))
+	args = append(args, "-Format", "json")
+	return strings.Join(args, " ")
+}
+
+func statusAppendGateRequestArg(args []string, flag, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return args
+	}
+	return append(args, flag, statusQuoteCommandArg(value))
 }
 
 func statusAuthorizedGateHandoffs(caseRoot, pack string, events []map[string]any) []statusAuthorizedGateHandoff {

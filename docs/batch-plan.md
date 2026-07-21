@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 483：case status authorized-gate handoff closure
+### Batch 484：case status pending-gate handoff closure
 
-状态：已完成 case-mode `status` authorized-gate handoff implementation、durable docs、focused status/gate coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29807532417` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 case-mode `status` pending-gate handoff implementation、durable docs、focused status coverage 与完整本地 release minimum；远程 release-gate inspection 待本批 commit/push 后记录。
 
-目标：Batch 379/392/393 已让 authorized-gate、adapter execution report contract、read-only validation 与 execution evidence record result 分别有 Mission Commander handoff，但新会话第一屏 `status` 仍只看到 authorized-gate summary line；替换 executor 需要先跑 `gate -ExecutionReportContract` 或回查 overview/handoff 才知道可复制 contract command、validation/record 边界与授权 output/stop evidence。Batch 483 将 authorized-gate → execution report contract → validate sidecar → record bounded evidence 的接手提示直接投影到 case-mode `status.caseMission.authorizedGateHandoffs[]` 与 text 第一屏。
+目标：Batch 483 已把 authorized-gate → execution report contract → validate sidecar → record bounded evidence 的接手提示投影到第一屏，但 pending-gate 仍主要表现为 summary line、blocked lane reason 和 generic next action。替换 executor 看到 pending gate 后仍要从 overview/handoff/gate 语义里拼接“先 review lane、只跑 WhatIf preview、如需记录 request decision 再显式 apply、blocked lane 不继续”的边界。Batch 484 将 pending-gate 的 review / WhatIf / request-decision / continue boundary 直接投影到 case-mode `status.caseMission.pendingGateHandoffs[]` 与 text 第一屏。
 
-边界：只增强只读 case-mode `status` handoff；不执行 heavy-tool、不 replay adapter、不写 observations/authority/confirmed、不改变 `gate -Apply` request/evidence 语义、sync/promote/workstream、case durable schema 或 PowerShell runtime logic。
+边界：只增强只读 case-mode `status` handoff；不执行 heavy-tool、不 replay adapter、不写 observations/authority/confirmed、不改变 `gate -Apply` request/evidence 语义、sync/promote/workstream、case durable schema 或 PowerShell runtime logic。`pendingGateHandoffs[].applyCommand` 仅用于 replay/record gate request decision，不代表执行或批准 heavy action；actual heavy action 仍必须等 strict durable autonomy + `authorized-gate` decision 完全覆盖后由 lane executor / tool adapter 在 `/rekit` 外执行并写回 evidence。
 
 已完成内容：
 
-- `status.caseMission.authorizedGateHandoffs[]` 新增 per authorized-gate structured handoff，包含 `eventId`、lane、subject/action/target、status/risk、authorization/profile、可复制 `gate -ExecutionReportContract` command、lane handoff command、validation boundary、record boundary 与 evidence。
-- `status -Format text` / 默认 status 在 authorized-gate summary 后直接输出 handoff、validate boundary、record boundary 与 authorized outputPaths/stopConditions evidence lines。
-- Coverage 在 authorized-gate apply product path 后同时验证 `status -Format json`、`status -Format text`、默认 status visibility 与 `.rekit` snapshot no-write invariant。
+- `status.caseMission.pendingGateHandoffs[]` 新增 per pending-gate structured handoff，包含 `eventId`、lane、subject/action/target、status/risk、authorization/profile、lane review command、`gate -WhatIf` preview command、request-decision `gate -Apply` command、decision boundary、continue boundary 与 requested evidence。
+- `status -Format text` / 默认 status 在 pending-gate summary 后直接输出 handoff、decision boundary、continue boundary，以及 pending request 的 budget、requestedBudget、outputPaths、stopConditions、triedLightSteps evidence lines。
+- Coverage 在 case Mission status fixture 后同时验证 `status -Format json`、`status -Format text`、默认 status visibility 与 `.rekit` snapshot no-write invariant。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunStatusJsonCase|TestRunStatusCaseMissionIncludesExecutionEvidenceReview" -count=1`、`go test ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`。已提交并推送 `b5d16bd Add status authorized gate handoff`；远程 release-gate run `29807532417` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunGoGateDispatchE2EPlanGateOverviewHandoff" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。远程 release-gate inspection 待本批 commit/push 后记录，不能声明远程 CI green。
 
-上一批摘要：Batch 482 已完成 latest-batch validation handoff closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 483 已完成 case status authorized-gate handoff closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
