@@ -8685,6 +8685,89 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		t.Fatalf("no-pack handoff text after adapter evidence should not emit JSON:\n%s", out.String())
 	}
 	assertSnapshotEqual(t, beforeHandoff, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	beforeHandoffApplyFacts := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var handoffApply handoffResult
+	if err := json.Unmarshal(out.Bytes(), &handoffApply); err != nil {
+		t.Fatalf("no-pack handoff apply after adapter evidence stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if handoffApply.Command != "handoff" || handoffApply.Pack != "_template" || !handoffApply.IsMutation || !handoffApply.Applied || handoffApply.RequiresConfirmation || handoffApply.Project || handoffApply.Lane == nil || handoffApply.Lane.ID != "main" || len(handoffApply.ExecutionEvidenceReview) != 1 {
+		t.Fatalf("unexpected no-pack handoff apply after adapter evidence: %+v", handoffApply)
+	}
+	assertWriteKind(t, handoffApply.Writes, "lane-resume", "refresh")
+	assertWriteKind(t, handoffApply.Writes, "lane-checkpoint", "refresh")
+	assertWriteKind(t, handoffApply.Writes, "handoff", "write-lane-handoff")
+	assertWriteKind(t, handoffApply.Writes, "handoff", "write-latest-lane-handoff")
+	handoffApplyEvidence := handoffApply.ExecutionEvidenceReview[0]
+	if handoffApplyEvidence.EventID != evidence.EventID || handoffApplyEvidence.GateEventID != applied.EventID || handoffApplyEvidence.Status != "succeeded" || handoffApplyEvidence.Action != "debug" || !containsSubstring(handoffApplyEvidence.OutputRefs, "workspace/main/debug/session-1/result.json") || handoffApplyEvidence.MissionCommanderAction.State != "ready-for-evidence-review" || handoffApplyEvidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || handoffApplyEvidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(handoffApplyEvidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
+		t.Fatalf("no-pack handoff apply omitted recorded adapter evidence review handoff: %+v", handoffApplyEvidence)
+	}
+	handoffApplyQueue := handoffApply.MissionCommanderActionQueue
+	if handoffApplyQueue.CurrentAction == nil || handoffApplyQueue.CurrentAction.Source != "executionEvidenceReview" || handoffApplyQueue.CurrentAction.Command != "/rekit handoff main" || !handoffApplyQueue.CurrentAction.RequiresReview || handoffApplyQueue.Counts.Total == 0 || handoffApplyQueue.Counts.RequiresReview == 0 {
+		t.Fatalf("no-pack handoff apply omitted evidence review action queue: %+v", handoffApplyQueue)
+	}
+	latestHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "main-latest.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"## execution evidence review",
+		"gateEventId=" + applied.EventID,
+		"action=debug",
+		"outputRefs=workspace/main/debug/session-1/result.json",
+		"review command: `review outputRefs/evidenceRefs for gateEventId " + applied.EventID + "`",
+		"handoff command: `/rekit handoff main`",
+		"commander state: ready-for-evidence-review",
+		"commander primary: `/rekit handoff main`",
+		"evidence: workspace/main/debug/session-1/result.json",
+	} {
+		if !strings.Contains(string(latestHandoff), expected) {
+			t.Fatalf("written no-pack handoff after adapter evidence missing %q:\n%s", expected, string(latestHandoff))
+		}
+	}
+	resume, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "prompts", "RESUME.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"- execution evidence review:",
+		"gateEventId=" + applied.EventID,
+		"outputRefs: workspace/main/debug/session-1/result.json",
+		"review command: `review outputRefs/evidenceRefs for gateEventId " + applied.EventID + "`",
+		"handoff command: `/rekit handoff main`",
+		"commander primary: `/rekit handoff main`",
+		"evidence: workspace/main/debug/session-1/result.json",
+	} {
+		if !strings.Contains(string(resume), expected) {
+			t.Fatalf("written no-pack RESUME after adapter evidence missing %q:\n%s", expected, string(resume))
+		}
+	}
+	checkpointBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "checkpoints", "latest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Resume                      string                              `json:"resume"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("written no-pack checkpoint after adapter evidence is not JSON: %v\n%s", err, string(checkpointBytes))
+	}
+	if checkpoint.Resume != ".rekit/lanes/main/prompts/RESUME.md" || len(checkpoint.ExecutionEvidenceReview) != 1 || checkpoint.ExecutionEvidenceReview[0].EventID != evidence.EventID || checkpoint.ExecutionEvidenceReview[0].GateEventID != applied.EventID || checkpoint.ExecutionEvidenceReview[0].MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || len(checkpoint.MissionCommanderNextActions) == 0 || checkpoint.MissionCommanderActionQueue.CurrentAction == nil || checkpoint.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff main" {
+		t.Fatalf("written no-pack checkpoint omitted evidence review handoff: %+v", checkpoint)
+	}
+	assertSnapshotEqual(t, beforeHandoffApplyFacts, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("no-pack handoff apply wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("no-pack handoff apply wrote confirmed ledger or stat failed: %v", err)
+	}
 }
 
 func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
