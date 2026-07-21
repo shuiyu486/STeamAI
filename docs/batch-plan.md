@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 487：case status open-decision source-detail closure
 
-状态：已完成 case-mode `status` open decision source-detail implementation、durable docs、focused status coverage 与完整本地 release minimum；待提交推送并检查远程 release-gate。
+状态：已完成 case-mode `status` open decision source-detail implementation、durable docs、focused status coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29817229375` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 486 已把 open candidate / defer decision 的 review、decision note WhatIf/record 与 continue boundary 投影到第一屏，但 replacement executor 仍只能从 `kind` 与 evidence refs 推断源账本位置和 outcome 记录位置；要复核原始 source event 时还需知道应该查 `.rekit/facts/candidates.jsonl` 还是 `.rekit/facts/decisions.jsonl`，以及 source review 可用的 no-write command。Batch 487 将 open-decision handoff 的 provenance/source detail 直接投影到 status 第一屏，形成 source review → note WhatIf → append-only decision record 的闭环。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `status -Format text` / 默认 status 在 open decision handoff line 直接输出 `sourceKind`、`sourcePath`、`recordPath` 与 read-only `sourceCommand=/rekit note -List -Kind ... -Lane ... -Format json`，并新增 source/record path evidence lines。
 - Coverage 扩展 case Mission status fixture，验证 JSON/text/default status visibility 与 `.rekit` snapshot no-write invariant，锁定 source command 不执行、只作为 handoff guidance。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunOverviewJsonEmitsReadOnlyInventory|TestRunOverviewEmitsReadOnlySummary" -count=1`、`go test ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunOverviewJsonEmitsReadOnlyInventory|TestRunOverviewEmitsReadOnlySummary" -count=1`、`go test ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `5a49bca Add status open decision source detail`；远程 release-gate run `29817229375` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 486 已完成 case status open-decision handoff closure，详见 `docs/batch-history.md`。
 
