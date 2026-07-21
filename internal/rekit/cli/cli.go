@@ -686,7 +686,7 @@ func emitReleaseCheckResult(out io.Writer, result releasecheck.Result, format st
 		fmt.Fprintf(out, "case shim: %s ready=%t required=%d canonical=%d forbidden=%d\n", result.CaseShim.Summary, result.CaseShim.Ready, caseShimCounts.RequiredPhrases, caseShimCounts.CanonicalSkillPhrases, caseShimCounts.ForbiddenStrings)
 		fmt.Fprintf(out, "public default docs: %s ready=%t documents=%d required=%d forbiddenCommands=%d forbiddenShellFences=%d\n", result.PublicDefaultDocs.Summary, result.PublicDefaultDocs.Ready, publicDefaultDocCounts.Documents, publicDefaultDocCounts.RequiredPhrases, publicDefaultDocCounts.ForbiddenCommands, publicDefaultDocCounts.ForbiddenShellFences)
 		handoffCounts := releasecheck.ReleaseHandoffCountsFor(result.ReleaseHandoff)
-		fmt.Fprintf(out, "release handoff: %s ready=%t readFirst=%d signals=%d knownGaps=%d packMaturity=%d validation=%d releaseNotes=%t latest=%s\n", result.ReleaseHandoff.Summary, result.ReleaseHandoff.Ready, handoffCounts.ReadFirst, handoffCounts.Signals, handoffCounts.KnownGaps, handoffCounts.PackMaturity.Total, handoffCounts.Validation, result.ReleaseHandoff.ReleaseNotes.Covered, result.ReleaseHandoff.LatestBatch.Title)
+		fmt.Fprintf(out, "release handoff: %s ready=%t readFirst=%d signals=%d knownGaps=%d packMaturity=%d packMemoryCandidates=%d validation=%d releaseNotes=%t latest=%s\n", result.ReleaseHandoff.Summary, result.ReleaseHandoff.Ready, handoffCounts.ReadFirst, handoffCounts.Signals, handoffCounts.KnownGaps, handoffCounts.PackMaturity.Total, handoffCounts.PackMemoryCandidates, handoffCounts.Validation, result.ReleaseHandoff.ReleaseNotes.Covered, result.ReleaseHandoff.LatestBatch.Title)
 		if surfaceCounts.Warnings > 0 {
 			fmt.Fprintln(out, "Go-native public surface warnings:")
 			for _, warning := range result.GoNativePublicSurface.Warnings {
@@ -1070,7 +1070,7 @@ func writeReleasePublicDefaultDocsText(out io.Writer, docs defaultdocs.Readiness
 
 func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff) error {
 	handoffCounts := releasecheck.ReleaseHandoffCountsFor(handoff)
-	if _, err := fmt.Fprintf(out, "release-check release handoff：summary=%s ready=%t readFirst=%d signals=%d knownGaps=%d packMaturity=%d validation=%d nextActions=%d warnings=%d releaseNotes=%t latest=%s\n", handoff.Summary, handoff.Ready, handoffCounts.ReadFirst, handoffCounts.Signals, handoffCounts.KnownGaps, handoffCounts.PackMaturity.Total, handoffCounts.Validation, handoffCounts.NextActions, handoffCounts.Warnings, handoff.ReleaseNotes.Covered, handoff.LatestBatch.Title); err != nil {
+	if _, err := fmt.Fprintf(out, "release-check release handoff：summary=%s ready=%t readFirst=%d signals=%d knownGaps=%d packMaturity=%d packMemoryCandidates=%d validation=%d nextActions=%d warnings=%d releaseNotes=%t latest=%s\n", handoff.Summary, handoff.Ready, handoffCounts.ReadFirst, handoffCounts.Signals, handoffCounts.KnownGaps, handoffCounts.PackMaturity.Total, handoffCounts.PackMemoryCandidates, handoffCounts.Validation, handoffCounts.NextActions, handoffCounts.Warnings, handoff.ReleaseNotes.Covered, handoff.LatestBatch.Title); err != nil {
 		return err
 	}
 	latest := handoff.LatestBatch
@@ -1113,6 +1113,30 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 	}
 	for _, pack := range maturity.HeavyToolGatesByPack {
 		if _, err := fmt.Fprintf(out, "release-check pack gate：id=%s maturity=%s schemaValid=%t schemaVersion=%s heavyToolGates=%d actions=%s\n", pack.ID, pack.Maturity, pack.SchemaValid, pack.SchemaVersion, pack.HeavyToolGates, strings.Join(pack.Actions, ",")); err != nil {
+			return err
+		}
+	}
+	candidates := handoff.PackMemoryCandidates
+	if _, err := fmt.Fprintf(out, "release-check pack-memory candidates：summary=%s ready=%t total=%d packs=%d nextAction=%s\n", candidates.Summary, candidates.Ready, candidates.Total, len(candidates.Packs), candidates.NextAction); err != nil {
+		return err
+	}
+	for _, pack := range candidates.Packs {
+		if _, err := fmt.Fprintf(out, "release-check pack-memory candidate pack：pack=%s maturity=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d review=%t cleanup=%t action=%s\n", pack.Pack, pack.Maturity, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action); err != nil {
+			return err
+		}
+		for _, evidence := range pack.Evidence {
+			if _, err := fmt.Fprintf(out, "release-check pack-memory candidate evidence：pack=%s evidence=%s\n", pack.Pack, evidence); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range pack.Boundary {
+			if _, err := fmt.Fprintf(out, "release-check pack-memory candidate boundary：pack=%s boundary=%s\n", pack.Pack, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, warning := range candidates.Warnings {
+		if _, err := fmt.Fprintf(out, "release-check pack-memory candidate warning：%s\n", warning); err != nil {
 			return err
 		}
 	}
@@ -1257,22 +1281,23 @@ type statusManifestSummary struct {
 }
 
 type statusProjectHandoff struct {
-	Ready                      bool     `json:"ready"`
-	Summary                    string   `json:"summary"`
-	ReadFirst                  []string `json:"readFirst"`
-	LatestBatch                string   `json:"latestBatch"`
-	LatestBatchStatus          string   `json:"latestBatchStatus"`
-	LatestBatchGoal            string   `json:"latestBatchGoal"`
-	LatestValidation           string   `json:"latestValidation"`
-	LatestLocalValidationReady bool     `json:"latestLocalValidationReady"`
-	LatestReleaseCheckReady    bool     `json:"latestReleaseCheckReady"`
-	LatestRemoteReleaseGate    string   `json:"latestRemoteReleaseGate"`
-	LatestNextAction           string   `json:"latestNextAction"`
-	LatestEvidence             []string `json:"latestEvidence,omitempty"`
-	LatestCommits              []string `json:"latestCommits,omitempty"`
-	KnownGaps                  []string `json:"knownGaps"`
-	NextActions                []string `json:"nextActions"`
-	ValidationCommands         []string `json:"validationCommands"`
+	Ready                      bool                                               `json:"ready"`
+	Summary                    string                                             `json:"summary"`
+	ReadFirst                  []string                                           `json:"readFirst"`
+	LatestBatch                string                                             `json:"latestBatch"`
+	LatestBatchStatus          string                                             `json:"latestBatchStatus"`
+	LatestBatchGoal            string                                             `json:"latestBatchGoal"`
+	LatestValidation           string                                             `json:"latestValidation"`
+	LatestLocalValidationReady bool                                               `json:"latestLocalValidationReady"`
+	LatestReleaseCheckReady    bool                                               `json:"latestReleaseCheckReady"`
+	LatestRemoteReleaseGate    string                                             `json:"latestRemoteReleaseGate"`
+	LatestNextAction           string                                             `json:"latestNextAction"`
+	LatestEvidence             []string                                           `json:"latestEvidence,omitempty"`
+	LatestCommits              []string                                           `json:"latestCommits,omitempty"`
+	PackMemoryCandidates       releasecheck.ReleaseHandoffPackMemoryCandidateList `json:"packMemoryCandidates"`
+	KnownGaps                  []string                                           `json:"knownGaps"`
+	NextActions                []string                                           `json:"nextActions"`
+	ValidationCommands         []string                                           `json:"validationCommands"`
 }
 
 type statusPendingGateHandoff struct {
@@ -1992,6 +2017,30 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 			return err
 		}
 	}
+	candidates := handoff.PackMemoryCandidates
+	if _, err := fmt.Fprintf(out, "status pack-memory candidates：summary=%s ready=%t total=%d packs=%d nextAction=%s\n", candidates.Summary, candidates.Ready, candidates.Total, len(candidates.Packs), candidates.NextAction); err != nil {
+		return err
+	}
+	for _, pack := range candidates.Packs {
+		if _, err := fmt.Fprintf(out, "status pack-memory candidate pack：pack=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d review=%t cleanup=%t action=%s\n", pack.Pack, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action); err != nil {
+			return err
+		}
+		for _, evidence := range pack.Evidence {
+			if _, err := fmt.Fprintf(out, "status pack-memory candidate evidence：pack=%s evidence=%s\n", pack.Pack, evidence); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range pack.Boundary {
+			if _, err := fmt.Fprintf(out, "status pack-memory candidate boundary：pack=%s boundary=%s\n", pack.Pack, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, warning := range candidates.Warnings {
+		if _, err := fmt.Fprintf(out, "status pack-memory candidate warning：%s\n", warning); err != nil {
+			return err
+		}
+	}
 	if strings.TrimSpace(handoff.LatestBatchGoal) != "" {
 		if _, err := fmt.Fprintf(out, "status latest batch goal：%s\n", handoff.LatestBatchGoal); err != nil {
 			return err
@@ -2622,6 +2671,7 @@ func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProje
 		LatestNextAction:           handoff.LatestBatch.Handoff.NextAction,
 		LatestEvidence:             append([]string{}, handoff.LatestBatch.Handoff.Evidence...),
 		LatestCommits:              append([]string{}, handoff.LatestBatch.Handoff.CommitRefs...),
+		PackMemoryCandidates:       handoff.PackMemoryCandidates,
 		KnownGaps:                  knownGaps,
 		NextActions:                append([]string{}, handoff.NextActions...),
 		ValidationCommands:         validationCommands,

@@ -1,6 +1,7 @@
 package releasecheck
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,38 +14,41 @@ import (
 )
 
 type ReleaseHandoff struct {
-	Ready        bool                       `json:"ready"`
-	Summary      string                     `json:"summary"`
-	ReadFirst    []ReleaseHandoffDocument   `json:"readFirst"`
-	Signals      []ReleaseHandoffSignal     `json:"signals"`
-	LatestBatch  ReleaseHandoffLatestBatch  `json:"latestBatch"`
-	ReleaseNotes ReleaseHandoffReleaseNotes `json:"releaseNotes"`
-	KnownGaps    []ReleaseHandoffKnownGap   `json:"knownGaps"`
-	PackMaturity ReleaseHandoffPackMaturity `json:"packMaturity"`
-	Validation   []ReleaseHandoffValidation `json:"validation"`
-	NextActions  []string                   `json:"nextActions"`
-	Warnings     []string                   `json:"warnings"`
+	Ready                bool                                  `json:"ready"`
+	Summary              string                                `json:"summary"`
+	ReadFirst            []ReleaseHandoffDocument              `json:"readFirst"`
+	Signals              []ReleaseHandoffSignal                `json:"signals"`
+	LatestBatch          ReleaseHandoffLatestBatch             `json:"latestBatch"`
+	ReleaseNotes         ReleaseHandoffReleaseNotes            `json:"releaseNotes"`
+	KnownGaps            []ReleaseHandoffKnownGap              `json:"knownGaps"`
+	PackMaturity         ReleaseHandoffPackMaturity            `json:"packMaturity"`
+	PackMemoryCandidates ReleaseHandoffPackMemoryCandidateList `json:"packMemoryCandidates"`
+	Validation           []ReleaseHandoffValidation            `json:"validation"`
+	NextActions          []string                              `json:"nextActions"`
+	Warnings             []string                              `json:"warnings"`
 }
 
 type ReleaseHandoffCounts struct {
-	ReadFirst    int
-	Signals      int
-	KnownGaps    int
-	Validation   int
-	NextActions  int
-	Warnings     int
-	PackMaturity ReleaseHandoffPackMaturityCounts
+	ReadFirst            int
+	Signals              int
+	KnownGaps            int
+	Validation           int
+	NextActions          int
+	Warnings             int
+	PackMaturity         ReleaseHandoffPackMaturityCounts
+	PackMemoryCandidates int
 }
 
 func ReleaseHandoffCountsFor(handoff ReleaseHandoff) ReleaseHandoffCounts {
 	return ReleaseHandoffCounts{
-		ReadFirst:    len(handoff.ReadFirst),
-		Signals:      len(handoff.Signals),
-		KnownGaps:    len(handoff.KnownGaps),
-		Validation:   len(handoff.Validation),
-		NextActions:  len(handoff.NextActions),
-		Warnings:     len(handoff.Warnings),
-		PackMaturity: ReleaseHandoffPackMaturityCountsFor(handoff.PackMaturity),
+		ReadFirst:            len(handoff.ReadFirst),
+		Signals:              len(handoff.Signals),
+		KnownGaps:            len(handoff.KnownGaps),
+		Validation:           len(handoff.Validation),
+		NextActions:          len(handoff.NextActions),
+		Warnings:             len(handoff.Warnings),
+		PackMaturity:         ReleaseHandoffPackMaturityCountsFor(handoff.PackMaturity),
+		PackMemoryCandidates: len(handoff.PackMemoryCandidates.Packs),
 	}
 }
 
@@ -109,6 +113,32 @@ type ReleaseHandoffPackMaturity struct {
 	Summary              string                         `json:"summary"`
 }
 
+type ReleaseHandoffPackMemoryCandidateList struct {
+	Ready      bool                                      `json:"ready"`
+	Summary    string                                    `json:"summary"`
+	Total      int                                       `json:"total"`
+	Packs      []ReleaseHandoffPackMemoryCandidateStatus `json:"packs"`
+	NextAction string                                    `json:"nextAction,omitempty"`
+	Warnings   []string                                  `json:"warnings,omitempty"`
+}
+
+type ReleaseHandoffPackMemoryCandidateStatus struct {
+	Pack            string   `json:"pack"`
+	Maturity        string   `json:"maturity"`
+	CandidateRoot   string   `json:"candidateRoot"`
+	ToolingRoot     string   `json:"toolingRoot"`
+	IndexPath       string   `json:"indexPath,omitempty"`
+	CandidateFiles  int      `json:"candidateFiles"`
+	ToolingFiles    int      `json:"toolingFiles"`
+	IndexEntries    int      `json:"indexEntries"`
+	HasOpenWork     bool     `json:"hasOpenWork"`
+	RequiresReview  bool     `json:"requiresReview"`
+	RequiresCleanup bool     `json:"requiresCleanup"`
+	Action          string   `json:"action,omitempty"`
+	Evidence        []string `json:"evidence,omitempty"`
+	Boundary        []string `json:"boundary,omitempty"`
+}
+
 type ReleaseHandoffPackMaturityCounts struct {
 	Total                int
 	MaturityCounts       int
@@ -165,7 +195,8 @@ func releaseHandoff(repo string, check Result) ReleaseHandoff {
 	handoff.ReleaseNotes = latestReleaseNotes(repo, handoff.LatestBatch)
 	handoff.KnownGaps = releaseHandoffKnownGaps(check.KnownGaps)
 	handoff.PackMaturity = releaseHandoffPackMaturity(check.Packs, check.HeavyToolGateActions)
-	handoff.Signals = releaseHandoffSignals(check, handoff.LatestBatch, handoff.ReleaseNotes, handoff.KnownGaps, handoff.PackMaturity)
+	handoff.PackMemoryCandidates = releaseHandoffPackMemoryCandidates(repo, check.Packs)
+	handoff.Signals = releaseHandoffSignals(check, handoff.LatestBatch, handoff.ReleaseNotes, handoff.KnownGaps, handoff.PackMaturity, handoff.PackMemoryCandidates)
 	handoff.Warnings = releaseHandoffWarnings(handoff)
 	if ReleaseHandoffCountsFor(handoff).Warnings > 0 {
 		handoff.Ready = false
@@ -184,7 +215,7 @@ func releaseHandoffDocuments(repo string) []ReleaseHandoffDocument {
 	return docs
 }
 
-func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes ReleaseHandoffReleaseNotes, gaps []ReleaseHandoffKnownGap, packMaturity ReleaseHandoffPackMaturity) []ReleaseHandoffSignal {
+func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes ReleaseHandoffReleaseNotes, gaps []ReleaseHandoffKnownGap, packMaturity ReleaseHandoffPackMaturity, packCandidates ReleaseHandoffPackMemoryCandidateList) []ReleaseHandoffSignal {
 	resultCounts := ReleaseCheckResultCountsFor(check)
 	ciGateCounts := CIReleaseGateCountsFor(check.CIReleaseGate)
 	powerShellCounts := PowerShellDeprecationCountsFor(check.PowerShellDeprecation)
@@ -283,6 +314,12 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			},
 		},
 		{
+			Name:    "pack-memory candidates",
+			Ready:   packCandidates.Ready,
+			Summary: packCandidates.Summary,
+			Details: releaseHandoffPackMemoryCandidateDetails(packCandidates),
+		},
+		{
 			Name:    "release notes freshness",
 			Ready:   notes.Present && notes.Covered,
 			Summary: notes.Summary,
@@ -358,6 +395,168 @@ func releaseHandoffPackMaturity(packs []manifest.PackSummary, actions []string) 
 		inventory.Summary = "pack maturity inventory has warnings"
 	}
 	return inventory
+}
+
+func releaseHandoffPackMemoryCandidates(repo string, packs []manifest.PackSummary) ReleaseHandoffPackMemoryCandidateList {
+	inventory := ReleaseHandoffPackMemoryCandidateList{
+		Ready:   true,
+		Summary: "pack-memory candidate inventory ok",
+		Packs:   []ReleaseHandoffPackMemoryCandidateStatus{},
+	}
+	warnings := []string{}
+	for _, pack := range packs {
+		if strings.TrimSpace(pack.ID) == "" {
+			continue
+		}
+		status, err := releaseHandoffPackMemoryCandidateStatus(repo, pack)
+		if err != nil {
+			warnings = append(warnings, err.Error())
+			continue
+		}
+		if !status.HasOpenWork {
+			continue
+		}
+		openUnits := status.CandidateFiles + status.ToolingFiles + status.IndexEntries
+		if openUnits == 0 && status.IndexPath != "" {
+			openUnits = 1
+		}
+		inventory.Total += openUnits
+		inventory.Packs = append(inventory.Packs, status)
+	}
+	sort.Slice(inventory.Packs, func(i, j int) bool {
+		return strings.ToLower(inventory.Packs[i].Pack) < strings.ToLower(inventory.Packs[j].Pack)
+	})
+	if len(warnings) > 0 {
+		inventory.Ready = false
+		inventory.Summary = "pack-memory candidate inventory has warnings"
+		inventory.Warnings = warnings
+		inventory.NextAction = "repair pack-memory candidate index or candidate directory inventory before release handoff"
+		return inventory
+	}
+	if inventory.Total > 0 {
+		inventory.Ready = false
+		inventory.Summary = "pack-memory candidate inventory has open review/cleanup work"
+		inventory.NextAction = "review listed pack-memory candidates, record decisions, cleanup candidate roots/indexPath, then rerun release-check/status"
+		inventory.Warnings = []string{"open pack-memory candidates require review/cleanup before release handoff"}
+	} else {
+		inventory.NextAction = "no pack-memory candidate cleanup is pending"
+	}
+	return inventory
+}
+
+func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSummary) (ReleaseHandoffPackMemoryCandidateStatus, error) {
+	packRoot := filepath.Join(repo, "packs", filepath.FromSlash(pack.ID))
+	candidateRoot := filepath.Join(packRoot, "promote-candidates")
+	toolingRoot := filepath.Join(packRoot, "tooling", "candidates")
+	indexPath := filepath.Join(candidateRoot, "index.json")
+	candidateFiles, err := countCandidateFiles(candidateRoot)
+	if err != nil {
+		return ReleaseHandoffPackMemoryCandidateStatus{}, fmt.Errorf("pack-memory candidate scan failed for %s: %w", pack.ID, err)
+	}
+	toolingFiles, err := countCandidateFiles(toolingRoot)
+	if err != nil {
+		return ReleaseHandoffPackMemoryCandidateStatus{}, fmt.Errorf("pack-memory tooling candidate scan failed for %s: %w", pack.ID, err)
+	}
+	indexEntries, indexExists, err := countCandidateIndexEntries(indexPath)
+	if err != nil {
+		return ReleaseHandoffPackMemoryCandidateStatus{}, fmt.Errorf("pack-memory candidate index invalid for %s: %w", pack.ID, err)
+	}
+	candidateRootRel := filepath.ToSlash(filepath.Join("packs", pack.ID, "promote-candidates"))
+	toolingRootRel := filepath.ToSlash(filepath.Join("packs", pack.ID, "tooling", "candidates"))
+	indexRel := ""
+	if indexExists {
+		indexRel = filepath.ToSlash(filepath.Join(candidateRootRel, "index.json"))
+	}
+	status := ReleaseHandoffPackMemoryCandidateStatus{
+		Pack:           pack.ID,
+		Maturity:       pack.Maturity,
+		CandidateRoot:  candidateRootRel,
+		ToolingRoot:    toolingRootRel,
+		IndexPath:      indexRel,
+		CandidateFiles: candidateFiles,
+		ToolingFiles:   toolingFiles,
+		IndexEntries:   indexEntries,
+		HasOpenWork:    candidateFiles > 0 || toolingFiles > 0 || indexEntries > 0 || indexExists,
+	}
+	if !status.HasOpenWork {
+		return status, nil
+	}
+	status.RequiresReview = candidateFiles > 0 || toolingFiles > 0
+	status.RequiresCleanup = true
+	status.Action = "review candidate files against pack targets, record accept/reject/superseded decisions, then cleanup candidatePath and indexPath"
+	if !status.RequiresReview && indexExists {
+		status.Action = "cleanup stale pack-memory candidate indexPath or regenerate candidates before review"
+	}
+	status.Evidence = append(status.Evidence, "candidateRoot "+candidateRootRel, "toolingRoot "+toolingRootRel)
+	if candidateFiles > 0 {
+		status.Evidence = append(status.Evidence, fmt.Sprintf("promote-candidates files=%d", candidateFiles))
+	}
+	if toolingFiles > 0 {
+		status.Evidence = append(status.Evidence, fmt.Sprintf("tooling/candidates files=%d", toolingFiles))
+	}
+	if indexExists {
+		status.Evidence = append(status.Evidence, fmt.Sprintf("indexPath %s entries=%d", indexRel, indexEntries))
+	}
+	status.Boundary = []string{
+		"release handoff only inventories pack-memory candidate residue; it does not merge or delete candidates",
+		"review candidates before merge; do not write authority/confirmed",
+		"do not promote case-specific artifacts, traces, dumps, captures, payloads, flags, or customer data",
+	}
+	return status, nil
+}
+
+func countCandidateFiles(root string) (int, error) {
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return 0, nil
+	} else if err != nil {
+		return 0, err
+	}
+	count := 0
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".candidate.md") {
+			count++
+		}
+		return nil
+	})
+	return count, err
+}
+
+func countCandidateIndexEntries(path string) (int, bool, error) {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	entries := []struct {
+		Path      string `json:"path"`
+		Candidate string `json:"candidate"`
+	}{}
+	if err := json.Unmarshal(b, &entries); err != nil {
+		return 0, true, err
+	}
+	return len(entries), true, nil
+}
+
+func releaseHandoffPackMemoryCandidateDetails(inventory ReleaseHandoffPackMemoryCandidateList) []string {
+	details := []string{
+		fmt.Sprintf("openPacks=%d total=%d ready=%t", len(inventory.Packs), inventory.Total, inventory.Ready),
+		fmt.Sprintf("nextAction=%s", inventory.NextAction),
+	}
+	for _, pack := range inventory.Packs {
+		details = append(details, fmt.Sprintf("pack=%s maturity=%s candidateFiles=%d toolingFiles=%d indexEntries=%d requiresReview=%t requiresCleanup=%t action=%s", pack.Pack, pack.Maturity, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action))
+	}
+	for _, warning := range inventory.Warnings {
+		details = append(details, "warning="+warning)
+	}
+	return details
 }
 
 func releaseHandoffPackMaturityDetails(inventory ReleaseHandoffPackMaturity) []string {
@@ -490,6 +689,7 @@ func releaseHandoffWarnings(handoff ReleaseHandoff) []string {
 	if ReleaseHandoffCountsFor(handoff).Validation == 0 {
 		warnings = append(warnings, "release handoff validation command list is empty")
 	}
+	warnings = append(warnings, handoff.PackMemoryCandidates.Warnings...)
 	for _, signal := range handoff.Signals {
 		if !signal.Ready {
 			warnings = append(warnings, fmt.Sprintf("release handoff signal not ready: %s", signal.Name))

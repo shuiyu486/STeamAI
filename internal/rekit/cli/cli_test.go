@@ -297,9 +297,25 @@ func TestRunStatusJsonKit(t *testing.T) {
 			LatestRemoteReleaseGate    string   `json:"latestRemoteReleaseGate"`
 			LatestNextAction           string   `json:"latestNextAction"`
 			LatestEvidence             []string `json:"latestEvidence"`
-			KnownGaps                  []string `json:"knownGaps"`
-			NextActions                []string `json:"nextActions"`
-			ValidationCommands         []string `json:"validationCommands"`
+			PackMemoryCandidates       struct {
+				Ready bool `json:"ready"`
+				Total int  `json:"total"`
+				Packs []struct {
+					Pack            string `json:"pack"`
+					CandidateRoot   string `json:"candidateRoot"`
+					ToolingRoot     string `json:"toolingRoot"`
+					IndexPath       string `json:"indexPath"`
+					CandidateFiles  int    `json:"candidateFiles"`
+					ToolingFiles    int    `json:"toolingFiles"`
+					IndexEntries    int    `json:"indexEntries"`
+					RequiresReview  bool   `json:"requiresReview"`
+					RequiresCleanup bool   `json:"requiresCleanup"`
+				} `json:"packs"`
+				NextAction string `json:"nextAction"`
+			} `json:"packMemoryCandidates"`
+			KnownGaps          []string `json:"knownGaps"`
+			NextActions        []string `json:"nextActions"`
+			ValidationCommands []string `json:"validationCommands"`
 		} `json:"projectHandoff"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
@@ -337,6 +353,9 @@ func TestRunStatusJsonKit(t *testing.T) {
 			t.Fatalf("project handoff validation commands missing %q: %+v", want, status.ProjectHandoff.ValidationCommands)
 		}
 	}
+	if !status.ProjectHandoff.PackMemoryCandidates.Ready || status.ProjectHandoff.PackMemoryCandidates.Total != 0 || len(status.ProjectHandoff.PackMemoryCandidates.Packs) != 0 || status.ProjectHandoff.PackMemoryCandidates.NextAction != "no pack-memory candidate cleanup is pending" {
+		t.Fatalf("project handoff pack-memory candidate inventory drifted: %+v", status.ProjectHandoff.PackMemoryCandidates)
+	}
 	if len(status.ProjectHandoff.KnownGaps) == 0 || len(status.ProjectHandoff.NextActions) == 0 {
 		t.Fatalf("project handoff should expose known gaps and next actions: %+v", status.ProjectHandoff)
 	}
@@ -357,6 +376,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"localValidationReady=",
 		"status latest batch next action：",
 		"status latest batch evidence：release-check ready=true recorded",
+		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
 		"status latest batch goal：",
 		"status latest batch validation：",
 		"status read first：docs/context-routing.md",
@@ -378,6 +398,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"localValidationReady=",
 		"status latest batch next action：",
 		"status latest batch evidence：release-check ready=true recorded",
+		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
 		"status read first：docs/context-routing.md",
 		"status validation command：go run ./cmd/rekit -- -Command release-check -Format json",
 		"status next action：Read docs/context-routing.md first",
@@ -923,6 +944,82 @@ func TestRunStatusMovedCaseNextSteps(t *testing.T) {
 	}
 }
 
+func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
+	root := repoRoot(t)
+	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
+	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
+	candidateBefore := snapshotFiles(t, candidateRoot)
+	toolingBefore := snapshotFiles(t, toolingRoot)
+	t.Cleanup(func() {
+		removeNewFiles(t, candidateRoot, candidateBefore)
+		removeNewFiles(t, toolingRoot, toolingBefore)
+	})
+	writePathFile(t, filepath.Join(candidateRoot, "batch501-status.candidate.md"), "# candidate\n")
+	writePathFile(t, filepath.Join(toolingRoot, "batch501-tooling.candidate.md"), "# tooling\n")
+	writePathFile(t, filepath.Join(candidateRoot, "index.json"), `[
+  {
+    "path": "references/template/README.md",
+    "candidate": "batch501-status.candidate.md"
+  }
+]
+`)
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		ProjectHandoff struct {
+			Ready                bool `json:"ready"`
+			PackMemoryCandidates struct {
+				Ready      bool   `json:"ready"`
+				Summary    string `json:"summary"`
+				Total      int    `json:"total"`
+				NextAction string `json:"nextAction"`
+				Packs      []struct {
+					Pack            string   `json:"pack"`
+					CandidateRoot   string   `json:"candidateRoot"`
+					ToolingRoot     string   `json:"toolingRoot"`
+					IndexPath       string   `json:"indexPath"`
+					CandidateFiles  int      `json:"candidateFiles"`
+					ToolingFiles    int      `json:"toolingFiles"`
+					IndexEntries    int      `json:"indexEntries"`
+					RequiresReview  bool     `json:"requiresReview"`
+					RequiresCleanup bool     `json:"requiresCleanup"`
+					Evidence        []string `json:"evidence"`
+					Boundary        []string `json:"boundary"`
+				} `json:"packs"`
+			} `json:"packMemoryCandidates"`
+		} `json:"projectHandoff"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("status JSON with pack-memory candidates did not decode: %v\n%s", err, out.String())
+	}
+	candidates := status.ProjectHandoff.PackMemoryCandidates
+	if status.ProjectHandoff.Ready || candidates.Ready || candidates.Summary != "pack-memory candidate inventory has open review/cleanup work" || candidates.Total != 3 || len(candidates.Packs) != 1 || !strings.Contains(candidates.NextAction, "review listed pack-memory candidates") {
+		t.Fatalf("unexpected status pack-memory candidate handoff: %+v", status.ProjectHandoff)
+	}
+	pack := candidates.Packs[0]
+	if pack.Pack != "_template" || pack.CandidateRoot != "packs/_template/promote-candidates" || pack.ToolingRoot != "packs/_template/tooling/candidates" || pack.IndexPath != "packs/_template/promote-candidates/index.json" || pack.CandidateFiles != 1 || pack.ToolingFiles != 1 || pack.IndexEntries != 1 || !pack.RequiresReview || !pack.RequiresCleanup || !containsSubstring(pack.Evidence, "promote-candidates files=1") || !containsSubstring(pack.Boundary, "does not merge or delete") {
+		t.Fatalf("unexpected status pack-memory candidate pack: %+v", pack)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates",
+		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 review=true cleanup=true",
+		"status pack-memory candidate evidence：pack=_template evidence=promote-candidates files=1",
+		"status pack-memory candidate boundary：pack=_template boundary=release handoff only inventories pack-memory candidate residue; it does not merge or delete candidates",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status text missing pack-memory candidate handoff %q:\n%s", expected, out.String())
+		}
+	}
+}
+
 func TestRunStatusRejectsUnsupportedFormat(t *testing.T) {
 	var out bytes.Buffer
 	err := Run([]string{"-Command", "status", "-Format", "yaml"}, &out)
@@ -1050,6 +1147,9 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		"release-check signal detail：name=Go-native public surface detail=profileGroups readOnly=doctor,packs,release-check,status,validate",
 		"release-check pack maturity：summary=pack maturity inventory ok total=10",
 		"release-check pack gate：id=vmp-re maturity=mature schemaValid=true schemaVersion=1 heavyToolGates=7 actions=debug,dump,full-trace,inject,network,patch,symex",
+		"release-check pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
+		"release-check signal：name=pack-memory candidates ready=true summary=pack-memory candidate inventory ok",
+		"release-check signal detail：name=pack-memory candidates detail=openPacks=0 total=0 ready=true",
 		"release-check validation：command=go run ./cmd/rekit -- -Command release-check -Format json kind=go-run repoPath=cmd/rekit required=true present=true resolved=true",
 		"release-check known gap：index=1 category=ci-release-gate",
 		"release-check known gap detail：远程 release-gate",
@@ -1170,7 +1270,7 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected release handoff summary: %+v", handoff)
 	}
-	if counts.ReadFirst != 4 || counts.Signals != 12 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
+	if counts.ReadFirst != 4 || counts.Signals != 13 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertReleaseHandoffReadFirst(t, handoff, "docs/context-routing.md")
@@ -1851,7 +1951,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"validationCommands=",
 		"migrationTargets=74 migrationValidationCommands=592",
 		"smokeMigrationTargets=29 smokeMigrationValidationCommands=232",
-		"release handoff: release handoff summary ok ready=true readFirst=4 signals=12 knownGaps=5 packMaturity=10",
+		"release handoff: release handoff summary ok ready=true readFirst=4 signals=13 knownGaps=5 packMaturity=10 packMemoryCandidates=0",
 		"releaseNotes=true",
 		"latest=Batch ",
 		"known gaps:",
@@ -10791,6 +10891,16 @@ func assertSyncPreviewWrite(t *testing.T, writes []syncWrite, path, action strin
 		return
 	}
 	t.Fatalf("sync preview write %s not found in %+v", path, writes)
+}
+
+func writePathFile(t *testing.T, path, text string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeCaseFile(t *testing.T, caseRoot, rel, text string) {

@@ -20,7 +20,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected release handoff inventory: %+v", handoff)
 	}
-	if counts.ReadFirst != 4 || counts.Signals != 12 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
+	if counts.ReadFirst != 4 || counts.Signals != 13 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertHandoffReadFirst(t, handoff, "docs/context-routing.md")
@@ -111,6 +111,11 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignal(t, handoff, "pack maturity summary")
 	assertHandoffPackMaturity(t, handoff)
 	assertHandoffSignal(t, handoff, "latest batch documentation")
+	assertHandoffSignalDetail(t, handoff, "pack-memory candidates", "openPacks=0 total=0 ready=true")
+	assertHandoffSignalDetail(t, handoff, "pack-memory candidates", "nextAction=no pack-memory candidate cleanup is pending")
+	if !handoff.PackMemoryCandidates.Ready || handoff.PackMemoryCandidates.Total != 0 || len(handoff.PackMemoryCandidates.Packs) != 0 || handoff.PackMemoryCandidates.NextAction != "no pack-memory candidate cleanup is pending" {
+		t.Fatalf("unexpected pack-memory candidate handoff: %+v", handoff.PackMemoryCandidates)
+	}
 	assertHandoffSignal(t, handoff, "release notes freshness")
 	assertHandoffSignal(t, handoff, "known gaps summary")
 	assertHandoffKnownGap(t, handoff, "ci-release-gate")
@@ -165,6 +170,36 @@ func TestLatestBatchRemoteGateDoesNotTreatNegativeGreenAsGreen(t *testing.T) {
 	section := `验证结果：已通过完整本地 release minimum；release-check ready=true。远程 release-gate inspection 待 commit/push 后执行；若仍为 jobs steps: []，按既有 blocker 记录，不能声明远程 CI green。`
 	if got := latestBatchRemoteReleaseGate(section); got != "not-recorded" {
 		t.Fatalf("remote gate should stay not-recorded before inspection, got %q", got)
+	}
+}
+
+func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, filepath.Join(repo, "packs", "fixture", "promote-candidates", "candidate.candidate.md"), "# candidate\n")
+	writeFile(t, filepath.Join(repo, "packs", "fixture", "tooling", "candidates", "tool.candidate.md"), "# tooling\n")
+	writeFile(t, filepath.Join(repo, "packs", "fixture", "promote-candidates", "index.json"), `[
+  {
+    "path": "references/template/README.md",
+    "candidate": "candidate.candidate.md"
+  }
+]
+`)
+
+	inventory := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if inventory.Ready || inventory.Summary != "pack-memory candidate inventory has open review/cleanup work" || inventory.Total != 3 || len(inventory.Packs) != 1 || !strings.Contains(inventory.NextAction, "review listed pack-memory candidates") || len(inventory.Warnings) == 0 {
+		t.Fatalf("unexpected pack-memory candidate inventory: %+v", inventory)
+	}
+	pack := inventory.Packs[0]
+	if pack.Pack != "fixture" || pack.CandidateRoot != "packs/fixture/promote-candidates" || pack.ToolingRoot != "packs/fixture/tooling/candidates" || pack.IndexPath != "packs/fixture/promote-candidates/index.json" || pack.CandidateFiles != 1 || pack.ToolingFiles != 1 || pack.IndexEntries != 1 || !pack.HasOpenWork || !pack.RequiresReview || !pack.RequiresCleanup {
+		t.Fatalf("unexpected pack-memory candidate status: %+v", pack)
+	}
+	for _, evidence := range []string{"promote-candidates files=1", "tooling/candidates files=1", "indexPath packs/fixture/promote-candidates/index.json entries=1"} {
+		if !slices.Contains(pack.Evidence, evidence) {
+			t.Fatalf("pack-memory candidate evidence missing %q: %+v", evidence, pack.Evidence)
+		}
+	}
+	if !releaseHandoffStringsContain(pack.Boundary, "does not merge or delete") || !releaseHandoffStringsContain(releaseHandoffPackMemoryCandidateDetails(inventory), "pack=fixture") {
+		t.Fatalf("pack-memory candidate handoff omitted boundary/detail: pack=%+v details=%+v", pack, releaseHandoffPackMemoryCandidateDetails(inventory))
 	}
 }
 
@@ -308,6 +343,15 @@ func assertHandoffSignalDetailContains(t *testing.T, handoff ReleaseHandoff, nam
 		}
 	}
 	t.Fatalf("missing signal %s: %+v", name, handoff.Signals)
+}
+
+func releaseHandoffStringsContain(values []string, want string) bool {
+	for _, value := range values {
+		if strings.Contains(value, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func assertHandoffPackMaturity(t *testing.T, handoff ReleaseHandoff) {
