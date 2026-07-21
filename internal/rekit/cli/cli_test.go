@@ -8827,6 +8827,132 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		t.Fatalf("no-pack continue text after adapter evidence should not emit JSON:\n%s", out.String())
 	}
 	assertSnapshotEqual(t, beforeContinue, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	beforeContinueApplyFacts := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continueApply struct {
+		Command                     string                              `json:"command"`
+		Pack                        string                              `json:"pack"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		Selector                    string                              `json:"selector"`
+		RunID                       string                              `json:"runId"`
+		Lane                        startLane                           `json:"lane"`
+		ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Writes                      []startWrite                        `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
+		t.Fatalf("no-pack continue apply after adapter evidence stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if continueApply.Command != "continue" || continueApply.Pack != "_template" || !continueApply.IsMutation || !continueApply.Applied || continueApply.RequiresConfirmation || continueApply.Selector != "main" || continueApply.RunID == "" || continueApply.Lane.ID != "main" || len(continueApply.ExecutionEvidenceReview) != 1 {
+		t.Fatalf("unexpected no-pack continue apply after adapter evidence: %+v", continueApply)
+	}
+	assertWriteKind(t, continueApply.Writes, "lane-resume", "refresh")
+	assertWriteKind(t, continueApply.Writes, "lane-checkpoint", "refresh")
+	assertWriteKind(t, continueApply.Writes, "board", "refresh")
+	assertWriteKind(t, continueApply.Writes, "run-status", "write")
+	assertWriteKind(t, continueApply.Writes, "run-digest", "write")
+	continueApplyEvidence := continueApply.ExecutionEvidenceReview[0]
+	if continueApplyEvidence.EventID != evidence.EventID || continueApplyEvidence.GateEventID != applied.EventID || continueApplyEvidence.Status != "succeeded" || continueApplyEvidence.Action != "debug" || !containsSubstring(continueApplyEvidence.OutputRefs, "workspace/main/debug/session-1/result.json") || continueApplyEvidence.MissionCommanderAction.State != "ready-for-evidence-review" || continueApplyEvidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || continueApplyEvidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(continueApplyEvidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
+		t.Fatalf("no-pack continue apply omitted recorded adapter evidence review handoff: %+v", continueApplyEvidence)
+	}
+	continueApplyQueue := continueApply.MissionCommanderActionQueue
+	if continueApplyQueue.CurrentAction == nil || continueApplyQueue.CurrentAction.Source != "executionEvidenceReview" || continueApplyQueue.CurrentAction.Command != "/rekit handoff main" || !continueApplyQueue.CurrentAction.RequiresReview || continueApplyQueue.Counts.Total == 0 || continueApplyQueue.Counts.RequiresReview == 0 {
+		t.Fatalf("no-pack continue apply omitted evidence review action queue: %+v", continueApplyQueue)
+	}
+	continueStatusBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "runs", continueApply.RunID, "status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var continueStatus struct {
+		ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(continueStatusBytes, &continueStatus); err != nil {
+		t.Fatalf("written no-pack continue status after adapter evidence is not JSON: %v\n%s", err, string(continueStatusBytes))
+	}
+	if len(continueStatus.ExecutionEvidenceReview) != 1 || continueStatus.ExecutionEvidenceReview[0].EventID != evidence.EventID || continueStatus.ExecutionEvidenceReview[0].GateEventID != applied.EventID || continueStatus.ExecutionEvidenceReview[0].MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || len(continueStatus.MissionCommanderNextActions) == 0 || continueStatus.MissionCommanderActionQueue.CurrentAction == nil || continueStatus.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff main" {
+		t.Fatalf("written no-pack continue status omitted evidence review handoff: %+v", continueStatus)
+	}
+	continueDigest, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "runs", continueApply.RunID, "digest.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"## Execution evidence review",
+		"gateEventId=" + applied.EventID,
+		"action=debug",
+		"outputRefs:",
+		"workspace/main/debug/session-1/result.json",
+		"review command: `review outputRefs/evidenceRefs for gateEventId " + applied.EventID + "`",
+		"handoff command: `/rekit handoff main`",
+		"commander state: ready-for-evidence-review",
+		"commander primary: `/rekit handoff main`",
+		"evidence: workspace/main/debug/session-1/result.json",
+	} {
+		if !strings.Contains(string(continueDigest), expected) {
+			t.Fatalf("written no-pack continue digest after adapter evidence missing %q:\n%s", expected, string(continueDigest))
+		}
+	}
+	resumeAfterContinue, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "prompts", "RESUME.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(resumeAfterContinue), "gateEventId="+applied.EventID) || !strings.Contains(string(resumeAfterContinue), "evidence: workspace/main/debug/session-1/result.json") {
+		t.Fatalf("no-pack continue apply refreshed RESUME without evidence review handoff:\n%s", string(resumeAfterContinue))
+	}
+	checkpointAfterContinueBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "checkpoints", "latest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpointAfterContinue struct {
+		ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(checkpointAfterContinueBytes, &checkpointAfterContinue); err != nil {
+		t.Fatalf("written no-pack checkpoint after continue apply is not JSON: %v\n%s", err, string(checkpointAfterContinueBytes))
+	}
+	if len(checkpointAfterContinue.ExecutionEvidenceReview) != 1 || checkpointAfterContinue.ExecutionEvidenceReview[0].EventID != evidence.EventID || checkpointAfterContinue.ExecutionEvidenceReview[0].GateEventID != applied.EventID || len(checkpointAfterContinue.MissionCommanderNextActions) == 0 || checkpointAfterContinue.MissionCommanderActionQueue.CurrentAction == nil || checkpointAfterContinue.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff main" {
+		t.Fatalf("no-pack continue apply refreshed checkpoint without evidence review handoff: %+v", checkpointAfterContinue)
+	}
+	assertSnapshotEqual(t, beforeContinueApplyFacts, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("no-pack continue apply wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("no-pack continue apply wrote confirmed ledger or stat failed: %v", err)
+	}
+
+	beforeContinueTextApplyFacts := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "text", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"已选择工作线：main",
+		"工作区：workspace/main",
+		"continue execution evidence review：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=succeeded action=debug",
+		"continue execution evidence output ref：eventId=" + evidence.EventID + " ref=workspace/main/debug/session-1/result.json",
+		"continue execution evidence follow-through：eventId=" + evidence.EventID + " state=ready-for-evidence-review gateEventId=" + applied.EventID,
+		"continue execution evidence outcome evidence：eventId=" + evidence.EventID + " name=recorded-evidence-review evidence=workspace/main/debug/session-1/result.json",
+		"mission commander action queue current：state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("no-pack continue apply text after adapter evidence missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("no-pack continue apply text after adapter evidence should not emit JSON:\n%s", out.String())
+	}
+	assertSnapshotEqual(t, beforeContinueTextApplyFacts, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
 }
 
 func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
