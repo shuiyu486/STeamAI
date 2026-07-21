@@ -1339,6 +1339,10 @@ type statusOpenDecisionHandoff struct {
 	Status           string   `json:"status,omitempty"`
 	Target           string   `json:"target,omitempty"`
 	Confidence       string   `json:"confidence,omitempty"`
+	SourceKind       string   `json:"sourceKind,omitempty"`
+	SourcePath       string   `json:"sourcePath,omitempty"`
+	SourceCommand    string   `json:"sourceCommand,omitempty"`
+	RecordPath       string   `json:"recordPath,omitempty"`
 	ReviewCommand    string   `json:"reviewCommand,omitempty"`
 	WhatIfCommand    string   `json:"whatIfCommand,omitempty"`
 	RecordCommand    string   `json:"recordCommand,omitempty"`
@@ -1762,7 +1766,7 @@ func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorize
 }
 
 func writeStatusOpenDecisionHandoffText(out io.Writer, handoff statusOpenDecisionHandoff) error {
-	if _, err := fmt.Fprintf(out, "status case mission open decision handoff：eventId=%s kind=%s lane=%s subject=%s summary=%s decision=%s reason=%s status=%s target=%s confidence=%s review=%s whatIf=%s record=%s\n", handoff.EventID, handoff.Kind, handoff.Lane, handoff.Subject, handoff.Summary, handoff.Decision, handoff.Reason, handoff.Status, handoff.Target, handoff.Confidence, handoff.ReviewCommand, handoff.WhatIfCommand, handoff.RecordCommand); err != nil {
+	if _, err := fmt.Fprintf(out, "status case mission open decision handoff：eventId=%s kind=%s lane=%s subject=%s summary=%s decision=%s reason=%s status=%s target=%s confidence=%s sourceKind=%s sourcePath=%s recordPath=%s review=%s sourceCommand=%s whatIf=%s record=%s\n", handoff.EventID, handoff.Kind, handoff.Lane, handoff.Subject, handoff.Summary, handoff.Decision, handoff.Reason, handoff.Status, handoff.Target, handoff.Confidence, handoff.SourceKind, handoff.SourcePath, handoff.RecordPath, handoff.ReviewCommand, handoff.SourceCommand, handoff.WhatIfCommand, handoff.RecordCommand); err != nil {
 		return err
 	}
 	if strings.TrimSpace(handoff.DecisionBoundary) != "" {
@@ -2074,7 +2078,6 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 	if err != nil {
 		return nil, err
 	}
-	openDecisionItems := mission.OpenDecisionItems(ledgerFacts.Facts)
 	return &statusCaseMission{
 		Ready:                         inventory.MissionCommanderActionQueue.CurrentAction != nil && inventory.MissionCommanderActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
 		Summary:                       inventory.MissionBrief.Summary,
@@ -2088,7 +2091,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		AuthorizedGates:               append([]string{}, inventory.MissionBrief.AuthorizedGates...),
 		AuthorizedGateHandoffs:        statusAuthorizedGateHandoffs(caseRoot, pack, inventory.Sections.AuthorizedGates.Events),
 		OpenDecisions:                 append([]string{}, inventory.MissionBrief.OpenDecisions...),
-		OpenDecisionHandoffs:          statusOpenDecisionHandoffs(caseRoot, pack, openDecisionItems),
+		OpenDecisionHandoffs:          statusOpenDecisionHandoffs(caseRoot, pack, ledgerFacts.Facts),
 		Interventions:                 append([]string{}, inventory.MissionBrief.Interventions...),
 		InterventionHandoffs:          statusInterventionHandoffs(caseRoot, pack, inventory.Sections.OpenInterventions.Events),
 		LaneExecutorActions:           append([]mission.LaneExecutorActionSnapshot{}, inventory.LaneExecutorActions...),
@@ -2106,18 +2109,30 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 	}, nil
 }
 
-func statusLimitEventHandoffs(events []map[string]any, n int) []map[string]any {
+type statusOpenDecisionItem struct {
+	SourceKind string
+	Event      map[string]any
+}
+
+func statusLimitOpenDecisionItems(events []statusOpenDecisionItem, n int) []statusOpenDecisionItem {
 	if n <= 0 || len(events) <= n {
 		return events
 	}
 	return events[len(events)-n:]
 }
 
-func statusOpenDecisionHandoffs(caseRoot, pack string, events []map[string]any) []statusOpenDecisionHandoff {
-	events = statusLimitEventHandoffs(events, mission.DefaultMaxRows)
+func statusOpenDecisionHandoffs(caseRoot, pack string, facts mission.Facts) []statusOpenDecisionHandoff {
+	events := []statusOpenDecisionItem{}
+	for _, event := range mission.OpenCandidates(facts.Candidates) {
+		events = append(events, statusOpenDecisionItem{SourceKind: "candidate", Event: event})
+	}
+	for _, event := range mission.OpenDecisionEvents(facts.Decisions) {
+		events = append(events, statusOpenDecisionItem{SourceKind: "decision", Event: event})
+	}
+	events = statusLimitOpenDecisionItems(events, mission.DefaultMaxRows)
 	out := []statusOpenDecisionHandoff{}
-	for _, event := range events {
-		handoff := statusOpenDecisionHandoffFor(caseRoot, pack, event)
+	for _, item := range events {
+		handoff := statusOpenDecisionHandoffFor(caseRoot, pack, item.SourceKind, item.Event)
 		if strings.TrimSpace(handoff.EventID) == "" && strings.TrimSpace(handoff.Subject) == "" && strings.TrimSpace(handoff.Summary) == "" {
 			continue
 		}
@@ -2126,10 +2141,13 @@ func statusOpenDecisionHandoffs(caseRoot, pack string, events []map[string]any) 
 	return out
 }
 
-func statusOpenDecisionHandoffFor(caseRoot, pack string, event map[string]any) statusOpenDecisionHandoff {
+func statusOpenDecisionHandoffFor(caseRoot, pack, sourceKind string, event map[string]any) statusOpenDecisionHandoff {
 	eventID := statusEventValue(event, "eventId")
-	kind := statusFirstText(statusEventValue(event, "kind"), "decision")
+	sourceKind = statusOpenDecisionSourceKind(sourceKind)
+	kind := statusFirstText(statusEventValue(event, "kind"), sourceKind, "decision")
 	lane := statusEventValue(event, "lane")
+	sourcePath := mission.FactRelPath(sourceKind)
+	recordPath := mission.FactRelPath("decision")
 	decision := statusEventValue(event, "decision")
 	if decision == "" {
 		decision = statusEventValue(event, "action")
@@ -2146,6 +2164,8 @@ func statusOpenDecisionHandoffFor(caseRoot, pack string, event map[string]any) s
 	if refs := statusEventValue(event, "evidenceRefs"); refs != "" {
 		evidence = append(evidence, "evidenceRefs "+refs)
 	}
+	evidence = append(evidence, "sourcePath "+sourcePath)
+	evidence = append(evidence, "recordPath "+recordPath)
 	if target := statusEventValue(event, "target"); target != "" {
 		evidence = append(evidence, "target "+target)
 	}
@@ -2163,6 +2183,10 @@ func statusOpenDecisionHandoffFor(caseRoot, pack string, event map[string]any) s
 		Status:           statusFirstText(statusEventValue(event, "status"), "open"),
 		Target:           statusEventValue(event, "target"),
 		Confidence:       statusEventValue(event, "confidence"),
+		SourceKind:       sourceKind,
+		SourcePath:       sourcePath,
+		SourceCommand:    statusOpenDecisionSourceCommand(caseRoot, pack, sourceKind, lane),
+		RecordPath:       recordPath,
 		ReviewCommand:    "/rekit handoff " + statusLaneCommandLabel(lane),
 		WhatIfCommand:    statusDecisionNoteCommand(caseRoot, pack, event, true),
 		RecordCommand:    statusDecisionNoteCommand(caseRoot, pack, event, false),
@@ -2170,6 +2194,26 @@ func statusOpenDecisionHandoffFor(caseRoot, pack string, event map[string]any) s
 		ContinueBoundary: "blocked lane can only continue with -WhatIf after open candidate/decision review is recorded or deliberately deferred; do not continue autonomously while the open decision remains unresolved",
 		Evidence:         evidence,
 	}
+}
+
+func statusOpenDecisionSourceKind(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "candidate":
+		return "candidate"
+	case "decision":
+		return "decision"
+	default:
+		return "decision"
+	}
+}
+
+func statusOpenDecisionSourceCommand(caseRoot, pack, kind, lane string) string {
+	args := []string{"/rekit", "note", "-Target", statusQuoteCommandArg(caseRoot), "-Pack", statusFirstText(pack, defaults.DefaultPack), "-List", "-Kind", statusFirstText(kind, "decision")}
+	if strings.TrimSpace(lane) != "" {
+		args = append(args, "-Lane", lane)
+	}
+	args = append(args, "-Format", "json")
+	return strings.Join(args, " ")
 }
 
 func statusDecisionNoteCommand(caseRoot, pack string, event map[string]any, whatIf bool) string {
