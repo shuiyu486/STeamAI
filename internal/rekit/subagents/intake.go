@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -967,6 +968,11 @@ func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerD
 		OwnerGeneration:    ownerGeneration,
 		OwnerBindingMode:   packet.OwnerBinding.BindingMode,
 		OwnerBindingTarget: packet.OwnerBinding.TargetLane,
+		ReviewerDecision:   result.Decision,
+		RecommendedVerdict: result.RecommendedVerdict,
+		ReviewerRisks:      result.Risks,
+		ReviewerConflicts:  result.Conflicts,
+		RouteOutput:        result.RouteOutput,
 	}
 	decision := note.Options{
 		Kind:               "decision",
@@ -991,6 +997,11 @@ func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerD
 		OwnerGeneration:    ownerGeneration,
 		OwnerBindingMode:   packet.OwnerBinding.BindingMode,
 		OwnerBindingTarget: packet.OwnerBinding.TargetLane,
+		ReviewerDecision:   result.Decision,
+		RecommendedVerdict: result.RecommendedVerdict,
+		ReviewerRisks:      result.Risks,
+		ReviewerConflicts:  result.Conflicts,
+		RouteOutput:        result.RouteOutput,
 	}
 	return verification, decision
 }
@@ -1326,6 +1337,28 @@ func eventValue(event map[string]any, key string) string {
 		parts := make([]string, 0, len(typed))
 		for _, item := range typed {
 			parts = append(parts, strings.TrimSpace(fmt.Sprint(item)))
+		}
+		return strings.Join(parts, "\x1f")
+	case map[string]any:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, key := range keys {
+			parts = append(parts, key+"="+strings.TrimSpace(fmt.Sprint(typed[key])))
+		}
+		return strings.Join(parts, "\x1f")
+	case map[string]string:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, key := range keys {
+			parts = append(parts, key+"="+strings.TrimSpace(typed[key]))
 		}
 		return strings.Join(parts, "\x1f")
 	case float64:

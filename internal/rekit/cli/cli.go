@@ -1972,6 +1972,9 @@ func writeStatusCaseMissionReviewerWritebackText(out io.Writer, items []workstre
 				return err
 			}
 		}
+		if err := writeReviewerWritebackDetailText(out, "status case mission reviewer", item); err != nil {
+			return err
+		}
 		for _, ref := range item.EvidenceRefs {
 			if _, err := fmt.Fprintf(out, "status case mission reviewer evidence ref：eventId=%s ref=%s\n", item.EventID, ref); err != nil {
 				return err
@@ -3330,6 +3333,26 @@ func writeReviewerEventDetailText(out io.Writer, prefix, eventID string, event m
 			return err
 		}
 	}
+	if eventText(event, "reviewerDecision") != "" || eventText(event, "recommendedVerdict") != "" {
+		if _, err := fmt.Fprintf(out, "%s reviewer decision detail：eventId=%s reviewerDecision=%s recommendedVerdict=%s\n", prefix, eventID, eventText(event, "reviewerDecision"), eventText(event, "recommendedVerdict")); err != nil {
+			return err
+		}
+	}
+	for _, risk := range eventStringList(event["reviewerRisks"]) {
+		if _, err := fmt.Fprintf(out, "%s reviewer risk：eventId=%s risk=%s\n", prefix, eventID, risk); err != nil {
+			return err
+		}
+	}
+	for _, conflict := range eventStringList(event["reviewerConflicts"]) {
+		if _, err := fmt.Fprintf(out, "%s reviewer conflict：eventId=%s conflict=%s\n", prefix, eventID, conflict); err != nil {
+			return err
+		}
+	}
+	for _, line := range eventRouteOutputLines(event["routeOutput"]) {
+		if _, err := fmt.Fprintf(out, "%s reviewer route output：eventId=%s %s\n", prefix, eventID, line); err != nil {
+			return err
+		}
+	}
 	for _, ref := range eventStringList(event["evidenceRefs"]) {
 		if _, err := fmt.Fprintf(out, "%s reviewer evidence ref：eventId=%s ref=%s\n", prefix, eventID, ref); err != nil {
 			return err
@@ -3477,11 +3500,26 @@ func writeNoteEventText(out io.Writer, result note.AppendResult) error {
 	if _, err := fmt.Fprintf(out, "note event：eventId=%s kind=%s lane=%s subject=%s summary=%s actor=%s status=%s confidence=%s decision=%s verifier=%s verdict=%s action=%s risk=%s target=%s batch=%s\n", result.EventID, eventText(event, "kind"), eventText(event, "lane"), eventText(event, "subject"), eventText(event, "summary"), eventText(event, "actor"), eventText(event, "status"), eventText(event, "confidence"), eventText(event, "decision"), eventText(event, "verifier"), eventText(event, "verdict"), eventText(event, "action"), eventText(event, "risk"), eventText(event, "target"), eventText(event, "batchId")); err != nil {
 		return err
 	}
-	for _, key := range []string{"packetId", "routeId", "shardId", "packetPath", "reviewerResultPath", "reviewerSession", "ownerExecutor", "ownerGeneration", "ownerBindingMode", "ownerBindingTarget", "approvedBy", "scope", "expires", "reason"} {
+	for _, key := range []string{"packetId", "routeId", "shardId", "packetPath", "reviewerResultPath", "reviewerSession", "ownerExecutor", "ownerGeneration", "ownerBindingMode", "ownerBindingTarget", "reviewerDecision", "recommendedVerdict", "approvedBy", "scope", "expires", "reason"} {
 		if value := eventText(event, key); strings.TrimSpace(value) != "" {
 			if _, err := fmt.Fprintf(out, "note event field：eventId=%s key=%s value=%s\n", result.EventID, key, value); err != nil {
 				return err
 			}
+		}
+	}
+	for _, risk := range noteEventListValues(event["reviewerRisks"]) {
+		if _, err := fmt.Fprintf(out, "note event reviewer risk：eventId=%s risk=%s\n", result.EventID, risk); err != nil {
+			return err
+		}
+	}
+	for _, conflict := range noteEventListValues(event["reviewerConflicts"]) {
+		if _, err := fmt.Fprintf(out, "note event reviewer conflict：eventId=%s conflict=%s\n", result.EventID, conflict); err != nil {
+			return err
+		}
+	}
+	for _, line := range eventRouteOutputLines(event["routeOutput"]) {
+		if _, err := fmt.Fprintf(out, "note event route output：eventId=%s %s\n", result.EventID, line); err != nil {
+			return err
 		}
 	}
 	for _, ref := range noteEventListValues(event["evidenceRefs"]) {
@@ -3524,6 +3562,46 @@ func noteEventListValues(value any) []string {
 		}
 		return []string{trimmed}
 	}
+}
+
+func eventRouteOutputLines(value any) []string {
+	entries := map[string]string{}
+	add := func(key, value string) {
+		key = strings.TrimSpace(key)
+		value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+		if key != "" && value != "" {
+			entries[key] = value
+		}
+	}
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case map[string]string:
+		for key, value := range typed {
+			add(key, value)
+		}
+	case map[string]any:
+		for key, value := range typed {
+			add(key, fmt.Sprint(value))
+		}
+	case map[any]any:
+		for key, value := range typed {
+			add(fmt.Sprint(key), fmt.Sprint(value))
+		}
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		lines = append(lines, key+"="+entries[key])
+	}
+	return lines
 }
 
 func writeNoteMissionBriefText(out io.Writer, brief mission.Brief) error {
@@ -3979,10 +4057,37 @@ func writeReviewerWritebackText(out io.Writer, prefix string, items []workstream
 				return err
 			}
 		}
+		if err := writeReviewerWritebackDetailText(out, prefix+" reviewer", item); err != nil {
+			return err
+		}
 		for _, ref := range item.EvidenceRefs {
 			if _, err := fmt.Fprintf(out, "%s reviewer evidence ref：eventId=%s ref=%s\n", prefix, item.EventID, ref); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func writeReviewerWritebackDetailText(out io.Writer, prefix string, item workstream.ReviewerWritebackItem) error {
+	if strings.TrimSpace(item.ReviewerDecision) != "" || strings.TrimSpace(item.RecommendedVerdict) != "" {
+		if _, err := fmt.Fprintf(out, "%s decision detail：eventId=%s reviewerDecision=%s recommendedVerdict=%s\n", prefix, item.EventID, item.ReviewerDecision, item.RecommendedVerdict); err != nil {
+			return err
+		}
+	}
+	for _, risk := range item.ReviewerRisks {
+		if _, err := fmt.Fprintf(out, "%s risk：eventId=%s risk=%s\n", prefix, item.EventID, risk); err != nil {
+			return err
+		}
+	}
+	for _, conflict := range item.ReviewerConflicts {
+		if _, err := fmt.Fprintf(out, "%s conflict：eventId=%s conflict=%s\n", prefix, item.EventID, conflict); err != nil {
+			return err
+		}
+	}
+	for _, line := range eventRouteOutputLines(item.RouteOutput) {
+		if _, err := fmt.Fprintf(out, "%s route output：eventId=%s %s\n", prefix, item.EventID, line); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -4661,11 +4766,26 @@ func writePlanSubagentsReviewerIntakeEventText(out io.Writer, label string, resu
 			return err
 		}
 	}
-	for _, key := range []string{"verdict", "decision", "reason", "packetId", "routeId", "shardId", "reviewerSession", "ownerExecutor", "ownerGeneration", "ownerBindingMode", "ownerBindingTarget"} {
+	for _, key := range []string{"verdict", "decision", "reason", "packetId", "routeId", "shardId", "reviewerSession", "ownerExecutor", "ownerGeneration", "ownerBindingMode", "ownerBindingTarget", "reviewerDecision", "recommendedVerdict"} {
 		if value := reviewerIntakeEventTextValue(result.Event, key); strings.TrimSpace(value) != "" {
 			if _, err := fmt.Fprintf(out, "reviewer intake %s event field：%s=%s\n", label, key, planSubagentsTextInline(value)); err != nil {
 				return err
 			}
+		}
+	}
+	for _, risk := range noteEventListValues(result.Event["reviewerRisks"]) {
+		if _, err := fmt.Fprintf(out, "reviewer intake %s event reviewer risk：%s\n", label, planSubagentsTextInline(risk)); err != nil {
+			return err
+		}
+	}
+	for _, conflict := range noteEventListValues(result.Event["reviewerConflicts"]) {
+		if _, err := fmt.Fprintf(out, "reviewer intake %s event reviewer conflict：%s\n", label, planSubagentsTextInline(conflict)); err != nil {
+			return err
+		}
+	}
+	for _, line := range eventRouteOutputLines(result.Event["routeOutput"]) {
+		if _, err := fmt.Fprintf(out, "reviewer intake %s event route output：%s\n", label, planSubagentsTextInline(line)); err != nil {
+			return err
 		}
 	}
 	return nil

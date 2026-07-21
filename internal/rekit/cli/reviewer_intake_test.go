@@ -231,7 +231,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 		"confidence":         "high",
 		"summary":            "reviewed alpha from nested case-local workspace",
 		"evidenceRefs":       []string{evidenceRel},
-		"risks":              []string{},
+		"risks":              []string{"bounded residual risk"},
 		"conflicts":          []string{},
 		"recommendedVerdict": "accepted",
 		"routeOutput": map[string]any{
@@ -256,6 +256,9 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	}
 	if preview.MissionCommanderAction.State != "ready-for-reviewer-intake-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, `-Target "`+caseRoot+`"`) || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, `-Pack "_template"`) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed", preview.MissionCommanderAction.PrimaryCommand, false, true) {
 		t.Fatalf("nested preview omitted recoverable Mission Commander guidance: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
+	}
+	if preview.Verification.Event["reviewerDecision"] != "accept" || preview.Verification.Event["recommendedVerdict"] != "accepted" || !containsSubstring(eventStringList(preview.Verification.Event["reviewerRisks"]), "bounded residual risk") || preview.Verification.Event["routeOutput"] == nil || preview.Decision.Event["reviewerDecision"] != "accept" {
+		t.Fatalf("nested preview omitted reviewer result provenance in note events: verification=%+v decision=%+v", preview.Verification.Event, preview.Decision.Event)
 	}
 	assertCLIActionQueue(t, preview.MissionCommanderActionQueue, 2, 2, 0, 2, 1, preview.MissionCommanderAction.PrimaryCommand)
 
@@ -290,7 +293,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	if applied.MissionCommanderAction.State != "reviewer-intake-writeback-complete" || applied.MissionCommanderActionQueue.CurrentAction == nil || !strings.HasPrefix(applied.MissionCommanderActionQueue.CurrentAction.Source, "reviewerIntake.postValidation.") {
 		t.Fatalf("nested apply omitted post-validation Mission Commander guidance: action=%+v queue=%+v", applied.MissionCommanderAction, applied.MissionCommanderActionQueue)
 	}
-	if len(applied.PostValidation.Handoff.ReviewerWritebacks) != 2 || applied.PostValidation.Handoff.ReviewerWritebacks[0].ReviewerSession != "reviewer-session-product-path" || applied.PostValidation.Handoff.ReviewerWritebacks[0].ShardID != "shard-01" || applied.PostValidation.Handoff.ReviewerWritebacks[1].Kind != "decision" || !containsSubstring(applied.PostValidation.Handoff.ReviewerWritebacks[1].EvidenceRefs, applied.Verification.EventID) {
+	if len(applied.PostValidation.Handoff.ReviewerWritebacks) != 2 || applied.PostValidation.Handoff.ReviewerWritebacks[0].ReviewerSession != "reviewer-session-product-path" || applied.PostValidation.Handoff.ReviewerWritebacks[0].ShardID != "shard-01" || applied.PostValidation.Handoff.ReviewerWritebacks[0].ReviewerDecision != "accept" || applied.PostValidation.Handoff.ReviewerWritebacks[0].RecommendedVerdict != "accepted" || !containsSubstring(applied.PostValidation.Handoff.ReviewerWritebacks[0].ReviewerRisks, "bounded residual risk") || applied.PostValidation.Handoff.ReviewerWritebacks[0].RouteOutput["tool_scope"] != "read-only" || applied.PostValidation.Handoff.ReviewerWritebacks[1].Kind != "decision" || applied.PostValidation.Handoff.ReviewerWritebacks[1].ReviewerDecision != "accept" || !containsSubstring(applied.PostValidation.Handoff.ReviewerWritebacks[1].EvidenceRefs, applied.Verification.EventID) {
 		t.Fatalf("nested apply omitted reviewer writeback handoff identity: %+v", applied.PostValidation.Handoff.ReviewerWritebacks)
 	}
 
@@ -322,9 +325,15 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 		"status case mission section：name=verifications total=1 shown=1",
 		"status case mission section event：section=verifications index=1 eventId=evt-",
 		"status case mission section reviewer detail：eventId=evt-",
+		"status case mission section reviewer decision detail：eventId=evt-",
+		"status case mission section reviewer risk：eventId=evt-",
+		"status case mission section reviewer route output：eventId=evt-",
 		"status case mission reviewer writeback：kind=verification eventId=evt-",
 		"status case mission reviewer result：eventId=evt-",
 		"status case mission reviewer owner：eventId=evt-",
+		"status case mission reviewer decision detail：eventId=evt-",
+		"status case mission reviewer risk：eventId=evt-",
+		"status case mission reviewer route output：eventId=evt-",
 		"status case mission reviewer evidence ref：eventId=evt-",
 		"status case mission section：name=decisions total=1 shown=1",
 		"status case mission section event：section=decisions index=1 eventId=evt-",
@@ -347,6 +356,9 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	for _, expected := range []string{
 		"overview section reviewer detail：eventId=evt-",
 		"overview section reviewer owner：eventId=evt-",
+		"overview section reviewer decision detail：eventId=evt-",
+		"overview section reviewer risk：eventId=evt-",
+		"overview section reviewer route output：eventId=evt-",
 		"overview section reviewer evidence ref：eventId=evt-",
 	} {
 		if !strings.Contains(out.String(), expected) {
@@ -365,6 +377,9 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 		"handoff reviewer writeback：kind=verification eventId=evt-",
 		"handoff reviewer result：eventId=evt-",
 		"handoff reviewer owner：eventId=evt-",
+		"handoff reviewer decision detail：eventId=evt-",
+		"handoff reviewer risk：eventId=evt-",
+		"handoff reviewer route output：eventId=evt-",
 		"handoff reviewer evidence ref：eventId=evt-",
 	} {
 		if !strings.Contains(out.String(), expected) {
@@ -388,7 +403,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## reviewer writeback", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`", "owner binding: target=main mode="} {
+	for _, expected := range []string{"## reviewer writeback", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`", "owner binding: target=main mode=", "reviewer decision detail: reviewerDecision=accept recommendedVerdict=accepted", "reviewer risk: bounded residual risk", "reviewer route output:"} {
 		if !strings.Contains(string(latestText), expected) {
 			t.Fatalf("written handoff omitted reviewer writeback %q:\n%s", expected, string(latestText))
 		}
@@ -398,7 +413,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Reviewer writeback", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`"} {
+	for _, expected := range []string{"## Reviewer writeback", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`", "reviewer decision detail: reviewerDecision=accept recommendedVerdict=accepted", "reviewer risk: bounded residual risk", "reviewer route output:"} {
 		if !strings.Contains(string(resumeText), expected) {
 			t.Fatalf("lane RESUME omitted reviewer writeback %q:\n%s", expected, string(resumeText))
 		}
@@ -425,6 +440,9 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 		"continue reviewer writeback：kind=verification eventId=evt-",
 		"continue reviewer result：eventId=evt-",
 		"continue reviewer owner：eventId=evt-",
+		"continue reviewer decision detail：eventId=evt-",
+		"continue reviewer risk：eventId=evt-",
+		"continue reviewer route output：eventId=evt-",
 		"continue reviewer evidence ref：eventId=evt-",
 	} {
 		if !strings.Contains(out.String(), expected) {
@@ -450,7 +468,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Reviewer writeback", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`"} {
+	for _, expected := range []string{"## Reviewer writeback", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`", "reviewer decision detail: reviewerDecision=accept recommendedVerdict=accepted", "reviewer risk: bounded residual risk", "reviewer route output:"} {
 		if !strings.Contains(string(digest), expected) {
 			t.Fatalf("continue digest omitted reviewer writeback %q:\n%s", expected, string(digest))
 		}

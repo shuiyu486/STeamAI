@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -52,6 +53,11 @@ type Options struct {
 	OwnerGeneration    string
 	OwnerBindingMode   string
 	OwnerBindingTarget string
+	ReviewerDecision   string
+	RecommendedVerdict string
+	ReviewerRisks      []string
+	ReviewerConflicts  []string
+	RouteOutput        map[string]any
 }
 
 type AppendResult struct {
@@ -310,6 +316,17 @@ func buildEvent(kind, lane string, opt Options) map[string]any {
 	addString("ownerGeneration", opt.OwnerGeneration)
 	addString("ownerBindingMode", opt.OwnerBindingMode)
 	addString("ownerBindingTarget", opt.OwnerBindingTarget)
+	addString("reviewerDecision", opt.ReviewerDecision)
+	addString("recommendedVerdict", opt.RecommendedVerdict)
+	if risks := cleanList(opt.ReviewerRisks); len(risks) > 0 {
+		event["reviewerRisks"] = risks
+	}
+	if conflicts := cleanList(opt.ReviewerConflicts); len(conflicts) > 0 {
+		event["reviewerConflicts"] = conflicts
+	}
+	if routeOutput := routeOutputStrings(opt.RouteOutput); len(routeOutput) > 0 {
+		event["routeOutput"] = routeOutput
+	}
 	addString("risk", opt.Risk)
 	if related := splitList(opt.Related); len(related) > 0 {
 		event["related"] = related
@@ -497,12 +514,41 @@ func stringValue(m map[string]any, key string) string {
 
 func splitList(value string) []string {
 	parts := strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' || r == '\n' })
+	return cleanList(parts)
+}
+
+func cleanList(values []string) []string {
 	out := []string{}
-	for _, part := range parts {
+	for _, part := range values {
 		part = strings.TrimSpace(part)
 		if part != "" {
 			out = append(out, part)
 		}
+	}
+	return out
+}
+
+func routeOutputStrings(values map[string]any) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		if strings.TrimSpace(key) != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	out := map[string]string{}
+	for _, key := range keys {
+		value := strings.TrimSpace(fmt.Sprint(values[key]))
+		value = strings.Join(strings.Fields(value), " ")
+		if value != "" {
+			out[strings.TrimSpace(key)] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

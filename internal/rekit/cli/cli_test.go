@@ -10017,17 +10017,22 @@ type handoffLaneExecutorAction struct {
 }
 
 type reviewerWritebackCLIItem struct {
-	Kind               string   `json:"kind"`
-	EventID            string   `json:"eventId"`
-	Lane               string   `json:"lane"`
-	PacketID           string   `json:"packetId"`
-	RouteID            string   `json:"routeId"`
-	ShardID            string   `json:"shardId"`
-	ReviewerSession    string   `json:"reviewerSession"`
-	ReviewerResultPath string   `json:"reviewerResultPath"`
-	OwnerBindingTarget string   `json:"ownerBindingTarget"`
-	OwnerBindingMode   string   `json:"ownerBindingMode"`
-	EvidenceRefs       []string `json:"evidenceRefs"`
+	Kind               string            `json:"kind"`
+	EventID            string            `json:"eventId"`
+	Lane               string            `json:"lane"`
+	PacketID           string            `json:"packetId"`
+	RouteID            string            `json:"routeId"`
+	ShardID            string            `json:"shardId"`
+	ReviewerSession    string            `json:"reviewerSession"`
+	ReviewerResultPath string            `json:"reviewerResultPath"`
+	OwnerBindingTarget string            `json:"ownerBindingTarget"`
+	OwnerBindingMode   string            `json:"ownerBindingMode"`
+	ReviewerDecision   string            `json:"reviewerDecision"`
+	RecommendedVerdict string            `json:"recommendedVerdict"`
+	ReviewerRisks      []string          `json:"reviewerRisks"`
+	ReviewerConflicts  []string          `json:"reviewerConflicts"`
+	RouteOutput        map[string]string `json:"routeOutput"`
+	EvidenceRefs       []string          `json:"evidenceRefs"`
 }
 
 type executionEvidenceReviewItem struct {
