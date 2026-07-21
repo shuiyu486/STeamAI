@@ -11172,7 +11172,7 @@ git diff --check
 
 ### Batch 512：remote release-gate detail handoff closure
 
-状态：已完成 `remoteReleaseGateDetail` JSON contract、release-check/status text detail、focused releasecheck/CLI coverage、用户与 durable docs、本地 release minimum、commit/push 与远程 release-gate inspection；已提交并推送 `f738faa Add remote release gate detail handoff`，远程 release-gate run `29875214813` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+状态：已完成 `remoteReleaseGateDetail` JSON contract、release-check/status text detail、focused releasecheck/CLI coverage、用户与 durable docs、本地 release minimum、commit/push 与远程 release-gate inspection；已提交并推送 `f738faa Add remote release gate detail handoff`，远程 release-gate runs `29875214813` / `29875386689` 均为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 目标：Batch 511 已修复 latest-batch remote blocker truthfulness，把 `steps=[]` / `steps: []` / `steps 为空` 的 completed failure 解析为 blocked；但 downstream handoff 仍只有扁平 `remoteReleaseGate` 字符串、evidence 与 nextAction。replacement executor / release maintainer 若要复核 run id、受影响 jobs、empty steps、completed failure、是否可声明 green 与具体 boundary，仍要回查 `docs/batch-plan.md` 文字或 GitHub Actions JSON。Batch 512 将 remote release-gate inspection 细节结构化投影到 release/status JSON 与 text。
 
