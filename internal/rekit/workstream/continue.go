@@ -850,6 +850,10 @@ func appendContinueExecutionEvidenceReview(lines []string, items []ExecutionEvid
 	}
 	for _, item := range shown {
 		lines = append(lines, fmt.Sprintf("- %s | status=%s | gateEventId=%s | action=%s", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, firstText(item.Action, "none")))
+		lines = appendMissionBriefDigestList(lines, "boundaryHits", item.BoundaryHits)
+		if strings.TrimSpace(item.Escalation) != "" {
+			lines = append(lines, "- escalation: "+item.Escalation)
+		}
 		lines = appendMissionBriefDigestList(lines, "outputRefs", item.OutputRefs)
 		lines = appendMissionBriefDigestList(lines, "evidenceRefs", item.EvidenceRefs)
 		lines = append(lines, "- review command: `"+item.ReviewCommand+"`")

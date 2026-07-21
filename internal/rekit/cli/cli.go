@@ -1669,6 +1669,9 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 		if _, err := fmt.Fprintf(out, "status case mission evidence review：eventId=%s gateEventId=%s status=%s action=%s target=%s subject=%s summary=%s review=%s handoff=%s commanderState=%s commanderPrimary=%s\n", item.EventID, item.GateEventID, item.Status, item.Action, item.Target, item.Subject, item.Summary, item.ReviewCommand, item.HandoffCommand, item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand); err != nil {
 			return err
 		}
+		if err := writeExecutionEvidenceBoundaryDetailText(out, "status case mission evidence", item.EventID, item.BoundaryHits, item.Escalation); err != nil {
+			return err
+		}
 		for _, ref := range item.OutputRefs {
 			if _, err := fmt.Fprintf(out, "status case mission evidence output ref：eventId=%s ref=%s\n", item.EventID, ref); err != nil {
 				return err
@@ -3086,6 +3089,9 @@ func writeOverviewExecutionEvidenceReviewText(out io.Writer, items []workstream.
 		if _, err := fmt.Fprintf(out, "overview execution evidence item：eventId=%s gateEventId=%s status=%s action=%s target=%s subject=%s summary=%s review=%s handoff=%s commanderState=%s commanderPrimary=%s\n", item.EventID, item.GateEventID, item.Status, item.Action, item.Target, item.Subject, item.Summary, item.ReviewCommand, item.HandoffCommand, item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand); err != nil {
 			return err
 		}
+		if err := writeExecutionEvidenceBoundaryDetailText(out, "overview execution evidence", item.EventID, item.BoundaryHits, item.Escalation); err != nil {
+			return err
+		}
 		for _, ref := range item.OutputRefs {
 			if _, err := fmt.Fprintf(out, "overview execution evidence output ref：eventId=%s ref=%s\n", item.EventID, ref); err != nil {
 				return err
@@ -3745,9 +3751,26 @@ func writeHandoffExecutionEvidenceReviewText(out io.Writer, items []workstream.E
 	return writeExecutionEvidenceReviewText(out, "handoff execution evidence", items)
 }
 
+func writeExecutionEvidenceBoundaryDetailText(out io.Writer, prefix, eventID string, boundaryHits []string, escalation string) error {
+	for _, hit := range boundaryHits {
+		if _, err := fmt.Fprintf(out, "%s boundary hit：eventId=%s hit=%s\n", prefix, eventID, hit); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(escalation) != "" {
+		if _, err := fmt.Fprintf(out, "%s escalation：eventId=%s escalation=%s\n", prefix, eventID, escalation); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeExecutionEvidenceReviewText(out io.Writer, prefix string, items []workstream.ExecutionEvidenceReviewItem) error {
 	for _, item := range items {
 		if _, err := fmt.Fprintf(out, "%s review：eventId=%s gateEventId=%s status=%s action=%s target=%s subject=%s summary=%s review=%s handoff=%s commanderState=%s commanderPrimary=%s\n", prefix, item.EventID, item.GateEventID, item.Status, item.Action, item.Target, item.Subject, item.Summary, item.ReviewCommand, item.HandoffCommand, item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand); err != nil {
+			return err
+		}
+		if err := writeExecutionEvidenceBoundaryDetailText(out, prefix, item.EventID, item.BoundaryHits, item.Escalation); err != nil {
 			return err
 		}
 		for _, ref := range item.OutputRefs {

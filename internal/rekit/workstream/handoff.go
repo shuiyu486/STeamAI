@@ -527,6 +527,7 @@ func writeProjectLaneExecutionEvidenceReview(out *bytes.Buffer, items []Executio
 	}
 	for _, item := range items {
 		fmt.Fprintf(out, "  - execution evidence review：%s status=%s gateEventId=%s action=%s\n", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, firstText(item.Action, "none"))
+		writeProjectLaneExecutionEvidenceBoundaryDetail(out, item)
 		fmt.Fprintf(out, "  - evidence review command：`%s`\n", item.ReviewCommand)
 		fmt.Fprintf(out, "  - evidence handoff：`%s`\n", item.HandoffCommand)
 		fmt.Fprintf(out, "  - evidence commander：state=%s primary=`%s`\n", item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand)
@@ -537,6 +538,15 @@ func writeProjectLaneExecutionEvidenceReview(out *bytes.Buffer, items []Executio
 		for _, boundary := range mission.LimitStrings(item.Boundary, maxHandoffRows) {
 			fmt.Fprintf(out, "  - evidence boundary：%s\n", boundary)
 		}
+	}
+}
+
+func writeProjectLaneExecutionEvidenceBoundaryDetail(out *bytes.Buffer, item ExecutionEvidenceReviewItem) {
+	for _, hit := range mission.LimitStrings(item.BoundaryHits, maxHandoffRows) {
+		fmt.Fprintf(out, "  - evidence boundary hit：%s\n", hit)
+	}
+	if strings.TrimSpace(item.Escalation) != "" {
+		fmt.Fprintf(out, "  - evidence escalation：%s\n", item.Escalation)
 	}
 }
 
@@ -1069,6 +1079,7 @@ func writeExecutionEvidenceReviewSection(out *bytes.Buffer, items []ExecutionEvi
 	fmt.Fprintln(out)
 	for _, item := range items {
 		fmt.Fprintf(out, "- %s | status=%s | gateEventId=%s | action=%s | outputRefs=%s | evidenceRefs=%s\n", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, item.Action, firstText(strings.Join(item.OutputRefs, ","), "none"), firstText(strings.Join(item.EvidenceRefs, ","), "none"))
+		writeExecutionEvidenceBoundaryDetail(out, item)
 		fmt.Fprintf(out, "  - review command: `%s`\n", item.ReviewCommand)
 		fmt.Fprintf(out, "  - handoff command: `%s`\n", item.HandoffCommand)
 		fmt.Fprintf(out, "  - commander state: %s\n", item.MissionCommanderAction.State)
@@ -1078,6 +1089,15 @@ func writeExecutionEvidenceReviewSection(out *bytes.Buffer, items []ExecutionEvi
 		writeHandoffBriefList(out, "review boundary", item.Boundary)
 	}
 	fmt.Fprintln(out)
+}
+
+func writeExecutionEvidenceBoundaryDetail(out *bytes.Buffer, item ExecutionEvidenceReviewItem) {
+	for _, hit := range mission.LimitStrings(item.BoundaryHits, maxHandoffRows) {
+		fmt.Fprintf(out, "  - boundary hit: %s\n", hit)
+	}
+	if strings.TrimSpace(item.Escalation) != "" {
+		fmt.Fprintf(out, "  - escalation: %s\n", item.Escalation)
+	}
 }
 
 func writeExecutionEvidenceFollowThrough(out *bytes.Buffer, follow mission.ExecutionEvidenceFollowThrough) {

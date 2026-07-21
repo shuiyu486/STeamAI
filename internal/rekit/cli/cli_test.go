@@ -8955,6 +8955,341 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	assertSnapshotEqual(t, beforeContinueTextApplyFacts, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
 }
 
+func TestRunGateAdapterReportBoundaryHitNoPackProductPathSuppressesContinue(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeAuthorizedGateVisibilityFixture(t, caseRoot)
+	var out bytes.Buffer
+	if err := Run([]string{
+		"-Command", "gate",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Apply",
+		"-Action", "debug",
+		"-Lane", "main",
+		"-Actor", "runtime-test",
+		"-Subject", "authorized timeout debug",
+		"-TargetRef", "target-alpha",
+		"-BatchId", "batch-boundary-hit-product-path",
+		"-Scope", "handler only",
+		"-RuntimeSeconds", "30",
+		"-DiskMB", "64",
+		"-Requests", "1",
+		"-OutputPaths", "workspace/main/debug/session-1",
+		"-StopConditions", "timeout",
+		"-Format", "json",
+	}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var applied struct {
+		EventID string `json:"eventId"`
+		Applied bool   `json:"applied"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("authorized boundary-hit gate apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !applied.Applied || applied.EventID == "" {
+		t.Fatalf("unexpected authorized boundary-hit gate result: %+v", applied)
+	}
+
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "boundary-cli-adapter",
+  "action": "debug",
+  "status": "boundary-hit",
+  "gateEventId": "`+applied.EventID+`",
+  "actualBudget": {"runtimeSeconds": 20, "diskMB": 32, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/timeout.json"],
+  "boundaryHits": ["timeout"],
+  "summary": "Adapter stopped at authorized timeout boundary"
+}`)
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/timeout.json", `{"stopped":"timeout"}`)
+
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1")
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	beforeValidation := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-ValidateExecutionReport", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var validation struct {
+		Kind       string `json:"kind"`
+		CaseRoot   string `json:"caseRoot"`
+		Pack       string `json:"pack"`
+		Valid      bool   `json:"valid"`
+		IsMutation bool   `json:"isMutation"`
+		Applied    bool   `json:"applied"`
+		ReportPath string `json:"reportPath"`
+		Report     *struct {
+			Status       string   `json:"status"`
+			BoundaryHits []string `json:"boundaryHits"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &validation); err != nil {
+		t.Fatalf("boundary-hit adapter report validation stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if validation.Kind != "adapter-execution-report-validation" || validation.CaseRoot != caseRoot || validation.Pack != "_template" || !validation.Valid || validation.IsMutation || validation.Applied || validation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || validation.Report == nil || validation.Report.Status != "boundary-hit" || strings.Join(validation.Report.BoundaryHits, ",") != "timeout" {
+		t.Fatalf("unexpected no-pack boundary-hit validation: %+v", validation)
+	}
+	assertSnapshotEqual(t, beforeValidation, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	if err := os.Chdir(filepath.Join(caseRoot, "workspace", "main")); err != nil {
+		t.Fatal(err)
+	}
+	recordArgs := []string{"-Command", "gate", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "debug/session-1/adapter-report.json", "-Actor", "executor-1", "-Format", "json"}
+	out.Reset()
+	if err := Run(recordArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var evidence struct {
+		Applied           bool   `json:"applied"`
+		EventID           string `json:"eventId"`
+		Pack              string `json:"pack"`
+		ExecutionEvidence struct {
+			Status    string `json:"status"`
+			Summary   string `json:"summary"`
+			Execution struct {
+				GateEventID         string   `json:"gateEventId"`
+				ExecutionReportPath string   `json:"executionReportPath"`
+				OutputRefs          []string `json:"outputRefs"`
+				BoundaryHits        []string `json:"boundaryHits"`
+			} `json:"execution"`
+		} `json:"executionEvidence"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		NextSteps                   []string                            `json:"nextSteps"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &evidence); err != nil {
+		t.Fatalf("boundary-hit adapter evidence stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !evidence.Applied || evidence.EventID == "" || evidence.Pack != "_template" || evidence.ExecutionEvidence.Status != "boundary-hit" || evidence.ExecutionEvidence.Summary != "Adapter stopped at authorized timeout boundary" || evidence.ExecutionEvidence.Execution.GateEventID != applied.EventID || evidence.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || strings.Join(evidence.ExecutionEvidence.Execution.OutputRefs, ",") != "workspace/main/debug/session-1/timeout.json" || strings.Join(evidence.ExecutionEvidence.Execution.BoundaryHits, ",") != "timeout" {
+		t.Fatalf("unexpected no-pack boundary-hit evidence: %+v", evidence)
+	}
+	if evidence.MissionCommanderAction.State != "needs-main-escalation" || evidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || containsSubstring(evidence.MissionCommanderAction.FollowUpCommands, "/rekit continue") || !containsSubstring(evidence.MissionCommanderAction.Boundary, "stop autonomous work") || !containsSubstring(evidence.NextSteps, "boundary hit or escalation") {
+		t.Fatalf("boundary-hit evidence omitted main escalation commander handoff: action=%+v next=%+v", evidence.MissionCommanderAction, evidence.NextSteps)
+	}
+	if len(evidence.ExecutionEvidenceReview) != 1 || evidence.ExecutionEvidenceReview[0].EventID != evidence.EventID || evidence.ExecutionEvidenceReview[0].GateEventID != applied.EventID || evidence.ExecutionEvidenceReview[0].Status != "boundary-hit" || strings.Join(evidence.ExecutionEvidenceReview[0].BoundaryHits, ",") != "timeout" || evidence.ExecutionEvidenceReview[0].MissionCommanderAction.State != "needs-main-escalation" || evidence.ExecutionEvidenceReview[0].FollowThrough.State != "needs-main-escalation" || !cliExecutionEvidenceFollowThroughContains(evidence.ExecutionEvidenceReview[0].FollowThrough, "boundary-or-escalation-review", "main Agent reviews boundary/escalation") {
+		t.Fatalf("boundary-hit evidence omitted review follow-through: %+v", evidence.ExecutionEvidenceReview)
+	}
+	if len(evidence.MissionCommanderNextActions) != 2 || evidence.MissionCommanderNextActions[0].Command != "/rekit handoff main" || !evidence.MissionCommanderNextActions[0].Blocked || evidence.MissionCommanderNextActions[1].Command != "/rekit overview" || containsMissionCommanderNextActionsCommand(evidence.MissionCommanderNextActions, "/rekit continue main") || evidence.MissionCommanderActionQueue.CurrentAction == nil || evidence.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff main" || !evidence.MissionCommanderActionQueue.CurrentAction.Blocked || evidence.MissionCommanderActionQueue.Counts.Unblocked != 0 || evidence.MissionCommanderActionQueue.Counts.Blocked != 2 {
+		t.Fatalf("boundary-hit evidence next actions should suppress continue: next=%+v queue=%+v", evidence.MissionCommanderNextActions, evidence.MissionCommanderActionQueue)
+	}
+	observations, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(observations), `"boundaryHits":["timeout"]`) || strings.Contains(string(observations), `"kind":"authority"`) || strings.Contains(string(observations), `"kind":"confirmed"`) {
+		t.Fatalf("boundary-hit evidence ledger mismatch:\n%s", string(observations))
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("boundary-hit adapter evidence wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("boundary-hit adapter evidence wrote confirmed ledger or stat failed: %v", err)
+	}
+
+	beforeStatus := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Pack        string `json:"pack"`
+		PackSource  string `json:"packSource"`
+		CaseMission struct {
+			ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+			MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("boundary-hit no-pack status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if status.Pack != "_template" || status.PackSource != "case-metadata" || len(status.CaseMission.ExecutionEvidenceReview) != 1 || strings.Join(status.CaseMission.ExecutionEvidenceReview[0].BoundaryHits, ",") != "timeout" || status.CaseMission.ExecutionEvidenceReview[0].MissionCommanderAction.State != "needs-main-escalation" || containsMissionCommanderNextActionsCommand(status.CaseMission.MissionCommanderNextActions, "/rekit continue main") || status.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || !status.CaseMission.MissionCommanderActionQueue.CurrentAction.Blocked {
+		t.Fatalf("boundary-hit status omitted escalation/no-continue handoff: %+v", status.CaseMission)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status case mission evidence review：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=boundary-hit action=debug",
+		"status case mission evidence boundary hit：eventId=" + evidence.EventID + " hit=timeout",
+		"status case mission evidence follow-through：eventId=" + evidence.EventID + " state=needs-main-escalation gateEventId=" + applied.EventID,
+		"status case mission evidence outcome：eventId=" + evidence.EventID + " name=boundary-or-escalation-review",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("boundary-hit status text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "command=/rekit continue main") || strings.Contains(out.String(), "{\n") {
+		t.Fatalf("boundary-hit status text should suppress continue next action and not emit JSON:\n%s", out.String())
+	}
+	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"overview execution evidence item：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=boundary-hit action=debug",
+		"overview execution evidence boundary hit：eventId=" + evidence.EventID + " hit=timeout",
+		"overview execution evidence follow-through：eventId=" + evidence.EventID + " state=needs-main-escalation gateEventId=" + applied.EventID,
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("boundary-hit overview text missing %q:\n%s", expected, out.String())
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "text", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"handoff execution evidence review：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=boundary-hit action=debug",
+		"handoff execution evidence boundary hit：eventId=" + evidence.EventID + " hit=timeout",
+		"mission commander action queue current：state=needs-main-escalation source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff main`",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("boundary-hit handoff preview text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "command=`/rekit continue main") || strings.Contains(out.String(), "{\n") {
+		t.Fatalf("boundary-hit handoff preview text should suppress continue next action and not emit JSON:\n%s", out.String())
+	}
+
+	beforeHandoffApplyFacts := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var handoffApply handoffResult
+	if err := json.Unmarshal(out.Bytes(), &handoffApply); err != nil {
+		t.Fatalf("boundary-hit handoff apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !handoffApply.Applied || len(handoffApply.ExecutionEvidenceReview) != 1 || strings.Join(handoffApply.ExecutionEvidenceReview[0].BoundaryHits, ",") != "timeout" || handoffApply.ExecutionEvidenceReview[0].MissionCommanderAction.State != "needs-main-escalation" || containsMissionCommanderNextActionsCommand(handoffApply.MissionCommanderNextActions, "/rekit continue main") || handoffApply.MissionCommanderActionQueue.CurrentAction == nil || !handoffApply.MissionCommanderActionQueue.CurrentAction.Blocked {
+		t.Fatalf("boundary-hit handoff apply omitted escalation/no-continue handoff: %+v", handoffApply)
+	}
+	latestHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "main-latest.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"当前不要执行 `/rekit continue main`",
+		"status=boundary-hit | gateEventId=" + applied.EventID,
+		"boundary hit: timeout",
+		"follow-through: state=needs-main-escalation",
+		"outcome: name=boundary-or-escalation-review",
+	} {
+		if !strings.Contains(string(latestHandoff), expected) {
+			t.Fatalf("boundary-hit written handoff missing %q:\n%s", expected, string(latestHandoff))
+		}
+	}
+	resume, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "prompts", "RESUME.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status=boundary-hit | gateEventId=" + applied.EventID,
+		"boundaryHits: timeout",
+		"follow-through: state=needs-main-escalation",
+		"outcome: name=boundary-or-escalation-review",
+	} {
+		if !strings.Contains(string(resume), expected) {
+			t.Fatalf("boundary-hit RESUME missing %q:\n%s", expected, string(resume))
+		}
+	}
+	assertSnapshotEqual(t, beforeHandoffApplyFacts, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+
+	beforeContinueApplyFacts := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "text", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"continue execution evidence review：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=boundary-hit action=debug",
+		"continue execution evidence boundary hit：eventId=" + evidence.EventID + " hit=timeout",
+		"mission commander action queue current：state=needs-main-escalation source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff main`",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("boundary-hit continue preview text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "command=`/rekit continue main") || strings.Contains(out.String(), "{\n") {
+		t.Fatalf("boundary-hit continue preview text should suppress continue next action and not emit JSON:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continueApply struct {
+		Applied                     bool                                `json:"applied"`
+		RunID                       string                              `json:"runId"`
+		ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Writes                      []startWrite                        `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
+		t.Fatalf("boundary-hit continue apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !continueApply.Applied || continueApply.RunID == "" || len(continueApply.ExecutionEvidenceReview) != 1 || strings.Join(continueApply.ExecutionEvidenceReview[0].BoundaryHits, ",") != "timeout" || continueApply.ExecutionEvidenceReview[0].MissionCommanderAction.State != "needs-main-escalation" || containsMissionCommanderNextActionsCommand(continueApply.MissionCommanderNextActions, "/rekit continue main") || continueApply.MissionCommanderActionQueue.CurrentAction == nil || !continueApply.MissionCommanderActionQueue.CurrentAction.Blocked {
+		t.Fatalf("boundary-hit continue apply omitted escalation/no-continue handoff: %+v", continueApply)
+	}
+	continueDigest, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "runs", continueApply.RunID, "digest.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status=boundary-hit | gateEventId=" + applied.EventID,
+		"boundaryHits:",
+		"timeout",
+		"follow-through: state=needs-main-escalation",
+		"outcome: name=boundary-or-escalation-review",
+	} {
+		if !strings.Contains(string(continueDigest), expected) {
+			t.Fatalf("boundary-hit continue digest missing %q:\n%s", expected, string(continueDigest))
+		}
+	}
+	checkpointBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "checkpoints", "latest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("boundary-hit checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
+	}
+	if len(checkpoint.ExecutionEvidenceReview) != 1 || strings.Join(checkpoint.ExecutionEvidenceReview[0].BoundaryHits, ",") != "timeout" || checkpoint.ExecutionEvidenceReview[0].MissionCommanderAction.State != "needs-main-escalation" || containsMissionCommanderNextActionsCommand(checkpoint.MissionCommanderNextActions, "/rekit continue main") || checkpoint.MissionCommanderActionQueue.CurrentAction == nil || !checkpoint.MissionCommanderActionQueue.CurrentAction.Blocked {
+		t.Fatalf("boundary-hit checkpoint omitted escalation/no-continue handoff: %+v", checkpoint)
+	}
+	assertSnapshotEqual(t, beforeContinueApplyFacts, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("boundary-hit continue apply wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("boundary-hit continue apply wrote confirmed ledger or stat failed: %v", err)
+	}
+}
+
 func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	caseRoot := attachedCaseWithPack(t, "generic-binary-re")
 	for _, dir := range []string{".rekit/facts", ".rekit/lanes/main", "workspace/main/debug/session-1"} {
@@ -9438,6 +9773,7 @@ type executionEvidenceReviewItem struct {
 	Action                 string                                 `json:"action"`
 	OutputRefs             []string                               `json:"outputRefs"`
 	EvidenceRefs           []string                               `json:"evidenceRefs"`
+	BoundaryHits           []string                               `json:"boundaryHits"`
 	Escalation             string                                 `json:"escalation"`
 	FollowThrough          executionEvidenceFollowThroughSnapshot `json:"followThrough"`
 	ReviewCommand          string                                 `json:"reviewCommand"`

@@ -1152,6 +1152,12 @@ func appendResumeExecutionEvidenceReview(lines []string, items []ExecutionEviden
 	lines = append(lines, "- execution evidence review:")
 	for _, item := range items {
 		lines = append(lines, "  - "+firstText(item.Subject, item.Summary, item.EventID)+" | status="+item.Status+" | gateEventId="+item.GateEventID+" | action="+firstText(item.Action, "none"))
+		if refs := strings.Join(item.BoundaryHits, ","); refs != "" {
+			lines = append(lines, "    - boundaryHits: "+refs)
+		}
+		if strings.TrimSpace(item.Escalation) != "" {
+			lines = append(lines, "    - escalation: "+item.Escalation)
+		}
 		if refs := strings.Join(item.OutputRefs, ","); refs != "" {
 			lines = append(lines, "    - outputRefs: "+refs)
 		}
