@@ -1529,7 +1529,14 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 		if err != nil {
 			return err
 		}
-		return writeStatusCaseMissionText(out, caseMission)
+		if err := writeStatusCaseMissionText(out, caseMission); err != nil {
+			return err
+		}
+		release, err := releasecheck.Build(ctx.RepoRoot)
+		if err != nil {
+			return err
+		}
+		return writeStatusProjectHandoffText(out, buildStatusProjectHandoff(release.ReleaseHandoff))
 	}
 	fmt.Fprintf(out, "case shim: %s ready=%t\n", caseShim.Summary, caseShim.Ready)
 	m, err := manifest.Load(ctx.RepoRoot, ctx.Pack)
@@ -2116,6 +2123,11 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 		if err != nil {
 			return statusInventory{}, err
 		}
+		release, err := releasecheck.Build(ctx.RepoRoot)
+		if err != nil {
+			return statusInventory{}, err
+		}
+		status.ProjectHandoff = buildStatusProjectHandoff(release.ReleaseHandoff)
 		return status, nil
 	}
 	m, err := manifest.Load(ctx.RepoRoot, ctx.Pack)

@@ -6847,6 +6847,92 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 	}
 
 	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Command        string `json:"command"`
+		Mode           string `json:"mode"`
+		Pack           string `json:"pack"`
+		PackSource     string `json:"packSource"`
+		Target         string `json:"target"`
+		TargetProvided bool   `json:"targetProvided"`
+		ProjectHandoff *struct {
+			Ready                bool `json:"ready"`
+			PackMemoryCandidates struct {
+				Ready      bool   `json:"ready"`
+				Summary    string `json:"summary"`
+				Total      int    `json:"total"`
+				NextAction string `json:"nextAction"`
+				Packs      []struct {
+					Pack            string   `json:"pack"`
+					CandidateRoot   string   `json:"candidateRoot"`
+					ToolingRoot     string   `json:"toolingRoot"`
+					IndexPath       string   `json:"indexPath"`
+					CandidateFiles  int      `json:"candidateFiles"`
+					ToolingFiles    int      `json:"toolingFiles"`
+					IndexEntries    int      `json:"indexEntries"`
+					RequiresReview  bool     `json:"requiresReview"`
+					RequiresCleanup bool     `json:"requiresCleanup"`
+					Evidence        []string `json:"evidence"`
+					Boundary        []string `json:"boundary"`
+				} `json:"packs"`
+			} `json:"packMemoryCandidates"`
+		} `json:"projectHandoff"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("nested status with open pack-memory candidates did not decode: %v\n%s", err, out.String())
+	}
+	if status.Command != "status" || status.Mode != "case" || status.Pack != "_template" || status.PackSource != "case-metadata" || status.TargetProvided || status.Target != caseRoot || status.ProjectHandoff == nil {
+		t.Fatalf("unexpected nested status identity with pack-memory candidates: %+v", status)
+	}
+	candidates := status.ProjectHandoff.PackMemoryCandidates
+	if status.ProjectHandoff.Ready || candidates.Ready || candidates.Summary != "pack-memory candidate inventory has open review/cleanup work" || candidates.Total != 3 || len(candidates.Packs) != 1 || !strings.Contains(candidates.NextAction, "review listed pack-memory candidates") {
+		t.Fatalf("unexpected nested status pack-memory candidate handoff: %+v", status.ProjectHandoff)
+	}
+	pack := candidates.Packs[0]
+	if pack.Pack != "_template" || pack.CandidateRoot != "packs/_template/promote-candidates" || pack.ToolingRoot != "packs/_template/tooling/candidates" || pack.IndexPath != "packs/_template/promote-candidates/index.json" || pack.CandidateFiles != 1 || pack.ToolingFiles != 1 || pack.IndexEntries != 1 || !pack.RequiresReview || !pack.RequiresCleanup || !containsSubstring(pack.Evidence, "promote-candidates files=1") || !containsSubstring(pack.Boundary, "does not merge or delete") {
+		t.Fatalf("unexpected nested status pack-memory candidate pack: %+v", pack)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status：mutation=false mode=case targetProvided=false pack=_template packSource=case-metadata",
+		"status project handoff：summary=release handoff summary has warnings ready=false",
+		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates",
+		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 review=true cleanup=true",
+		"status pack-memory candidate evidence：pack=_template evidence=promote-candidates files=1",
+		"status pack-memory candidate boundary：pack=_template boundary=release handoff only inventories pack-memory candidate residue; it does not merge or delete candidates",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested status text missing pack-memory handoff %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("nested status text should not emit JSON object:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run(nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"pack source: case-metadata",
+		"status project handoff：summary=release handoff summary has warnings ready=false",
+		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested default status missing pack-memory handoff %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("nested default status should not emit JSON object:\n%s", out.String())
+	}
+
+	out.Reset()
 	if err := Run([]string{"-Command", "promote", "-CreateCandidates", "-WhatIf", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
