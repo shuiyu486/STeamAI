@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 487：case status open-decision source-detail closure
+### Batch 488：case-local open-decision source-detail product-path smoke closure
 
-状态：已完成 case-mode `status` open decision source-detail implementation、durable docs、focused status coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29817229375` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 product-path smoke implementation、durable docs、focused product-path coverage 与完整本地 release minimum；待提交推送并检查远程 release-gate。
 
-目标：Batch 486 已把 open candidate / defer decision 的 review、decision note WhatIf/record 与 continue boundary 投影到第一屏，但 replacement executor 仍只能从 `kind` 与 evidence refs 推断源账本位置和 outcome 记录位置；要复核原始 source event 时还需知道应该查 `.rekit/facts/candidates.jsonl` 还是 `.rekit/facts/decisions.jsonl`，以及 source review 可用的 no-write command。Batch 487 将 open-decision handoff 的 provenance/source detail 直接投影到 status 第一屏，形成 source review → note WhatIf → append-only decision record 的闭环。
+目标：Batch 487 已把 open candidate / defer decision 的 source kind/path/list command 与 decision record path 投影到 case-mode `status.caseMission.openDecisionHandoffs[]`，但该覆盖主要来自 synthetic status fixture；还缺真实 case-local nested lane workspace product-path 证明：attached case metadata pack default、无子命令 `/rekit` 默认 status、真实 `note` append 的 open candidate/defer decision events 也能在 replacement executor 第一屏消费同一 source-detail handoff。Batch 488 将该路径补成 Windows 本机可验证 product smoke。
 
-边界：只增强只读 case-mode `status` handoff；不执行 `note -List`、不执行 `note` append、不写 facts ledger、不执行 `continue`、不执行 heavy-tool、不写 observations/authority/confirmed、不改变 note、workstream、gate、sync/promote、case durable schema 或 PowerShell runtime logic。`sourceCommand` 只是 read-only list guidance；`recordCommand` 仍只是 append-only decision note command，需要先 review evidence 并替换/确认 decision outcome；blocked lane 继续仍必须先 `-WhatIf`。
+边界：只增强本机 product-path coverage，不新增 runtime 行为；status 仍只读，不执行 `sourceCommand` / `note -List`、不执行 heavy-tool、不写 observations/authority/confirmed、不改变 note、workstream、gate、sync/promote、case durable schema 或 PowerShell runtime logic。测试中的 `note` append 只写临时 case facts，用于构造 open candidate / defer decision fixture。
 
 已完成内容：
 
-- `status.caseMission.openDecisionHandoffs[]` 新增 `sourceKind`、`sourcePath`、`sourceCommand` 与 `recordPath`，明确 open candidate 来自 `.rekit/facts/candidates.jsonl`，open/defer decision 来自 `.rekit/facts/decisions.jsonl`，decision outcome 统一记录到 `.rekit/facts/decisions.jsonl`。
-- `status -Format text` / 默认 status 在 open decision handoff line 直接输出 `sourceKind`、`sourcePath`、`recordPath` 与 read-only `sourceCommand=/rekit note -List -Kind ... -Lane ... -Format json`，并新增 source/record path evidence lines。
-- Coverage 扩展 case Mission status fixture，验证 JSON/text/default status visibility 与 `.rekit` snapshot no-write invariant，锁定 source command 不执行、只作为 handoff guidance。
+- 扩展 `TestRunCaseLocalProductPathUsesCaseMetadataRuntime`：在真实 `init -Apply` → `start -Apply` → `continue -Apply` 后，通过 case-local `note` append 写入 open candidate 与 open/defer decision 到临时 case facts ledger。
+- 在 nested lane workspace 中验证 explicit-pack `status -Format json/text`、默认 status 与无子命令 no-pack status 都能输出 `openDecisionHandoffs[]` 的 `sourceKind`、`sourcePath`、read-only `sourceCommand`、`recordPath`、`note -WhatIf` command、append-only `recordCommand` 与 source/record evidence lines。
+- Coverage 保持 attached case metadata pack default、case-local nested cwd target discovery 与 `.rekit` product-path smoke，不改变 runtime contract。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunOverviewJsonEmitsReadOnlyInventory|TestRunOverviewEmitsReadOnlySummary" -count=1`、`go test ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `5a49bca Add status open decision source detail`；远程 release-gate run `29817229375` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1`、`go test ./internal/rekit/cli -run "TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory" -count=1`、`go test ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。
 
-上一批摘要：Batch 486 已完成 case status open-decision handoff closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 487 已完成 case status open-decision source-detail closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

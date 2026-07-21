@@ -2643,6 +2643,9 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 			NextSteps           []string `json:"nextSteps"`
 			ProjectName         string   `json:"projectName"`
 		} `json:"case"`
+		CaseMission struct {
+			OpenDecisionHandoffs []statusOpenDecisionHandoff `json:"openDecisionHandoffs"`
+		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("case-local status stdout is not JSON: %v\n%s", err, out.String())
@@ -2732,6 +2735,44 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 	assertContinueWrite(t, cont.Writes, ".rekit/lanes/main/tasks.jsonl", "append")
 
 	out.Reset()
+	if err := Run([]string{"-Command", "note", "-Pack", "_template", "-Kind", "candidate", "-Lane", "feature-login", "-Subject", "nested source candidate", "-Summary", "candidate needs main review", "-Confidence", "high", "-Status", "open", "-TargetRef", "candidate-product-path", "-EvidenceRefs", "evidence/nested-candidate.json", "-EventId", "cand-product-path-1", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var openCandidateNote struct {
+		Command    string `json:"command"`
+		Pack       string `json:"pack"`
+		IsMutation bool   `json:"isMutation"`
+		Applied    bool   `json:"applied"`
+		EventID    string `json:"eventId"`
+		Path       string `json:"path"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &openCandidateNote); err != nil {
+		t.Fatalf("nested case-local candidate note stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if openCandidateNote.Command != "note" || openCandidateNote.Pack != "_template" || !openCandidateNote.IsMutation || !openCandidateNote.Applied || openCandidateNote.EventID != "cand-product-path-1" || openCandidateNote.Path != ".rekit/facts/candidates.jsonl" {
+		t.Fatalf("unexpected nested case-local candidate note: %+v", openCandidateNote)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "note", "-Pack", "_template", "-Kind", "decision", "-Lane", "feature-login", "-Subject", "nested deferred decision", "-Decision", "defer", "-Reason", "awaiting main review", "-Status", "open", "-TargetRef", "decision-product-path", "-EvidenceRefs", "evidence/nested-decision.json", "-EventId", "dec-product-path-1", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var openDecisionNote struct {
+		Command    string `json:"command"`
+		Pack       string `json:"pack"`
+		IsMutation bool   `json:"isMutation"`
+		Applied    bool   `json:"applied"`
+		EventID    string `json:"eventId"`
+		Path       string `json:"path"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &openDecisionNote); err != nil {
+		t.Fatalf("nested case-local decision note stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if openDecisionNote.Command != "note" || openDecisionNote.Pack != "_template" || !openDecisionNote.IsMutation || !openDecisionNote.Applied || openDecisionNote.EventID != "dec-product-path-1" || openDecisionNote.Path != ".rekit/facts/decisions.jsonl" {
+		t.Fatalf("unexpected nested case-local decision note: %+v", openDecisionNote)
+	}
+
+	out.Reset()
 	if err := Run([]string{"-Command", "handoff", "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -2756,6 +2797,17 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 	if status.Command != "status" || status.Mode != "case" || status.Pack != "_template" || status.PackSource != "explicit" || status.TargetProvided || status.Target != caseRoot || status.TemplateRoot != root || status.Case.TemplateRoot != root || status.Case.TemplatePack != "_template" {
 		t.Fatalf("unexpected nested case-local status: %+v", status)
 	}
+	if len(status.CaseMission.OpenDecisionHandoffs) != 2 {
+		t.Fatalf("nested case-local status missing open decision source handoffs: %+v", status.CaseMission.OpenDecisionHandoffs)
+	}
+	productCandidateHandoff := status.CaseMission.OpenDecisionHandoffs[0]
+	if productCandidateHandoff.EventID != "cand-product-path-1" || productCandidateHandoff.Kind != "candidate" || productCandidateHandoff.Lane != "feature-login" || productCandidateHandoff.SourceKind != "candidate" || productCandidateHandoff.SourcePath != ".rekit/facts/candidates.jsonl" || productCandidateHandoff.RecordPath != ".rekit/facts/decisions.jsonl" || productCandidateHandoff.SourceCommand != `/rekit note -Target "`+caseRoot+`" -Pack _template -List -Kind candidate -Lane feature-login -Format json` || !strings.Contains(productCandidateHandoff.WhatIfCommand, `-Related "cand-product-path-1"`) || !strings.Contains(productCandidateHandoff.WhatIfCommand, `-EvidenceRefs "evidence/nested-candidate.json"`) || strings.Contains(productCandidateHandoff.RecordCommand, "-WhatIf") || !containsSubstring(productCandidateHandoff.Evidence, "sourcePath .rekit/facts/candidates.jsonl") || !containsSubstring(productCandidateHandoff.Evidence, "recordPath .rekit/facts/decisions.jsonl") {
+		t.Fatalf("unexpected nested candidate source handoff: %+v", productCandidateHandoff)
+	}
+	productDecisionHandoff := status.CaseMission.OpenDecisionHandoffs[1]
+	if productDecisionHandoff.EventID != "dec-product-path-1" || productDecisionHandoff.Kind != "decision" || productDecisionHandoff.Lane != "feature-login" || productDecisionHandoff.Decision != "defer" || productDecisionHandoff.SourceKind != "decision" || productDecisionHandoff.SourcePath != ".rekit/facts/decisions.jsonl" || productDecisionHandoff.RecordPath != ".rekit/facts/decisions.jsonl" || productDecisionHandoff.SourceCommand != `/rekit note -Target "`+caseRoot+`" -Pack _template -List -Kind decision -Lane feature-login -Format json` || !strings.Contains(productDecisionHandoff.WhatIfCommand, `-Related "dec-product-path-1"`) || !strings.Contains(productDecisionHandoff.WhatIfCommand, `-EvidenceRefs "evidence/nested-decision.json"`) || strings.Contains(productDecisionHandoff.RecordCommand, "-WhatIf") || !containsSubstring(productDecisionHandoff.Evidence, "sourcePath .rekit/facts/decisions.jsonl") || !containsSubstring(productDecisionHandoff.Evidence, "recordPath .rekit/facts/decisions.jsonl") {
+		t.Fatalf("unexpected nested decision source handoff: %+v", productDecisionHandoff)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "text"}, &out); err != nil {
@@ -2768,8 +2820,15 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 		"status case mission queue：total=",
 		"status case mission queue action：bucket=current",
 		"status case mission lane action：lane=feature-login",
-		"status case mission facts：observations=1 requests=1",
-		"status case mission section：name=openCandidates",
+		"status case mission facts：observations=1 requests=1 candidates=1",
+		"status case mission section：name=openCandidates total=1 shown=1",
+		"status case mission open decision handoff：eventId=cand-product-path-1 kind=candidate lane=feature-login subject=nested source candidate",
+		"sourceKind=candidate sourcePath=.rekit/facts/candidates.jsonl recordPath=.rekit/facts/decisions.jsonl",
+		"sourceCommand=/rekit note -Target \"" + caseRoot + "\" -Pack _template -List -Kind candidate -Lane feature-login -Format json whatIf=/rekit note",
+		"status case mission open decision handoff：eventId=dec-product-path-1 kind=decision lane=feature-login subject=nested deferred decision",
+		"sourceCommand=/rekit note -Target \"" + caseRoot + "\" -Pack _template -List -Kind decision -Lane feature-login -Format json whatIf=/rekit note",
+		"status case mission open decision evidence：eventId=cand-product-path-1 evidence=sourcePath .rekit/facts/candidates.jsonl",
+		"status case mission open decision evidence：eventId=dec-product-path-1 evidence=recordPath .rekit/facts/decisions.jsonl",
 		"status case mission handoff：preview=/rekit handoff -Target",
 		"continueBoundary=status is read-only; run continue with -WhatIf first",
 	} {
@@ -2794,8 +2853,15 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 		"status case mission queue：total=",
 		"status case mission queue action：bucket=current",
 		"status case mission lane action：lane=feature-login",
-		"status case mission facts：observations=1 requests=1",
-		"status case mission section：name=openCandidates",
+		"status case mission facts：observations=1 requests=1 candidates=1",
+		"status case mission section：name=openCandidates total=1 shown=1",
+		"status case mission open decision handoff：eventId=cand-product-path-1 kind=candidate lane=feature-login subject=nested source candidate",
+		"sourceKind=candidate sourcePath=.rekit/facts/candidates.jsonl recordPath=.rekit/facts/decisions.jsonl",
+		"sourceCommand=/rekit note -Target \"" + caseRoot + "\" -Pack _template -List -Kind candidate -Lane feature-login -Format json whatIf=/rekit note",
+		"status case mission open decision handoff：eventId=dec-product-path-1 kind=decision lane=feature-login subject=nested deferred decision",
+		"sourceCommand=/rekit note -Target \"" + caseRoot + "\" -Pack _template -List -Kind decision -Lane feature-login -Format json whatIf=/rekit note",
+		"status case mission open decision evidence：eventId=cand-product-path-1 evidence=sourcePath .rekit/facts/candidates.jsonl",
+		"status case mission open decision evidence：eventId=dec-product-path-1 evidence=recordPath .rekit/facts/decisions.jsonl",
 		"status case mission handoff：preview=/rekit handoff -Target",
 		"continueBoundary=status is read-only; run continue with -WhatIf first",
 	}
