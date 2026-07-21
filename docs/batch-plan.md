@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 484：case status pending-gate handoff closure
 
-状态：已完成 case-mode `status` pending-gate handoff implementation、durable docs、focused status coverage 与完整本地 release minimum；远程 release-gate inspection 待本批 commit/push 后记录。
+状态：已完成 case-mode `status` pending-gate handoff implementation、durable docs、focused status coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29809730162` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 483 已把 authorized-gate → execution report contract → validate sidecar → record bounded evidence 的接手提示投影到第一屏，但 pending-gate 仍主要表现为 summary line、blocked lane reason 和 generic next action。替换 executor 看到 pending gate 后仍要从 overview/handoff/gate 语义里拼接“先 review lane、只跑 WhatIf preview、如需记录 request decision 再显式 apply、blocked lane 不继续”的边界。Batch 484 将 pending-gate 的 review / WhatIf / request-decision / continue boundary 直接投影到 case-mode `status.caseMission.pendingGateHandoffs[]` 与 text 第一屏。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `status -Format text` / 默认 status 在 pending-gate summary 后直接输出 handoff、decision boundary、continue boundary，以及 pending request 的 budget、requestedBudget、outputPaths、stopConditions、triedLightSteps evidence lines。
 - Coverage 在 case Mission status fixture 后同时验证 `status -Format json`、`status -Format text`、默认 status visibility 与 `.rekit` snapshot no-write invariant。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunGoGateDispatchE2EPlanGateOverviewHandoff" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。远程 release-gate inspection 待本批 commit/push 后记录，不能声明远程 CI green。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunGoGateDispatchE2EPlanGateOverviewHandoff" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `93ce262 Add status pending gate handoff`；远程 release-gate run `29809730162` 为 completed failure，Windows/macOS/Linux jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 483 已完成 case status authorized-gate handoff closure，详见 `docs/batch-history.md`。
 
