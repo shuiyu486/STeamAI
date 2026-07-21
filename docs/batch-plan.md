@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 481：moved-case preview-first diagnostics closure
 
-状态：已完成 moved-case preview-first diagnostics implementation、durable docs、focused tests 与 public CLI moved-case validation；完整本地 release minimum、commit/push 与远程 release-gate inspection 正在本轮收口。
+状态：已完成 moved-case preview-first diagnostics implementation、durable docs、focused tests、public CLI moved-case validation、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29803379028` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 480 让只读 status 在 moved metadata / shim drift 时给出 bounded `repair -WhatIf -Format text` next step，但写入型 guard 的错误提示仍可能优先推荐直接 `repair -Apply`。Batch 481 将 attach/init/sync/promote 等 moved-case / stale metadata 拒绝路径统一为 preview-first diagnostic，让新会话先预览 metadata 与 thin-shim refresh，再显式确认 apply。
 
