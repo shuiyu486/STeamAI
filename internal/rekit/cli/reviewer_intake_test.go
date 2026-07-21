@@ -151,6 +151,12 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 		"reviewer intake route output：next_action=main-agent-writeback",
 		"reviewer intake post-validation：valid=true overviewVerifications=1 overviewDecisions=1 doctorRows=",
 		"reviewer intake post-validation handoff：lane=main project=false executorAction=true",
+		"reviewer intake post-validation reviewer writeback：kind=verification eventId=evt-",
+		"reviewer intake post-validation reviewer result：eventId=evt-",
+		"reviewer intake post-validation reviewer owner：eventId=evt-",
+		"reviewer intake post-validation reviewer decision detail：eventId=evt-",
+		"reviewer intake post-validation reviewer route output：eventId=evt-",
+		"reviewer intake post-validation reviewer evidence ref：eventId=evt-",
 		"reviewer intake post-validation handoff queue：summary=total=",
 		"reviewer intake post-validation handoff queue current：state=",
 		"reviewer intake verification note handoff：mutation=false applied=false reason=duplicate eventId eventId=evt-",
@@ -295,6 +301,25 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	}
 	if len(applied.PostValidation.Handoff.ReviewerWritebacks) != 2 || applied.PostValidation.Handoff.ReviewerWritebacks[0].ReviewerSession != "reviewer-session-product-path" || applied.PostValidation.Handoff.ReviewerWritebacks[0].ShardID != "shard-01" || applied.PostValidation.Handoff.ReviewerWritebacks[0].ReviewerDecision != "accept" || applied.PostValidation.Handoff.ReviewerWritebacks[0].RecommendedVerdict != "accepted" || !containsSubstring(applied.PostValidation.Handoff.ReviewerWritebacks[0].ReviewerRisks, "bounded residual risk") || applied.PostValidation.Handoff.ReviewerWritebacks[0].RouteOutput["tool_scope"] != "read-only" || applied.PostValidation.Handoff.ReviewerWritebacks[1].Kind != "decision" || applied.PostValidation.Handoff.ReviewerWritebacks[1].ReviewerDecision != "accept" || !containsSubstring(applied.PostValidation.Handoff.ReviewerWritebacks[1].EvidenceRefs, applied.Verification.EventID) {
 		t.Fatalf("nested apply omitted reviewer writeback handoff identity: %+v", applied.PostValidation.Handoff.ReviewerWritebacks)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"plan-subagents reviewer intake：status=already-complete mutation=false applied=false readyForWriteback=true lane=main shard=shard-01",
+		"reviewer intake post-validation reviewer writeback：kind=verification eventId=evt-",
+		"reviewer intake post-validation reviewer result：eventId=evt-",
+		"reviewer intake post-validation reviewer owner：eventId=evt-",
+		"reviewer intake post-validation reviewer decision detail：eventId=evt-",
+		"reviewer intake post-validation reviewer risk：eventId=evt-",
+		"reviewer intake post-validation reviewer route output：eventId=evt-",
+		"reviewer intake post-validation reviewer evidence ref：eventId=evt-",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested already-complete reviewer intake post-validation text missing %q:\n%s", expected, out.String())
+		}
 	}
 
 	out.Reset()

@@ -4891,6 +4891,9 @@ func writeReviewerIntakePostValidationText(out io.Writer, validation subagents.R
 			return err
 		}
 	}
+	if err := writeReviewerWritebackText(out, "reviewer intake post-validation", validation.Handoff.ReviewerWritebacks); err != nil {
+		return err
+	}
 	queue := validation.Handoff.MissionCommanderActionQueue
 	if strings.TrimSpace(queue.Summary) != "" {
 		if _, err := fmt.Fprintf(out, "reviewer intake post-validation handoff queue：summary=%s\n", queue.Summary); err != nil {
