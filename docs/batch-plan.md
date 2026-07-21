@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 485：case status intervention handoff closure
 
-状态：已完成 case-mode `status` open intervention handoff implementation、durable docs、focused status/overview coverage 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待执行。
+状态：已完成 case-mode `status` open intervention handoff implementation、durable docs、focused status/overview coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29812239975` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 484 已把 pending-gate 的 review / WhatIf / request-decision / continue boundary 投影到第一屏，但 open intervention 仍主要表现为 generic intervention summary、blocked lane reason 和 Mission Commander placeholder `<eventId>` reconcile command。替换 executor 看到 intervention blocker 后仍要从 overview/handoff/reconcile 语义里拼接“先 review lane、只跑 reconcile WhatIf preview、如需 resolved intervention 再显式 apply、blocked lane 不继续”的边界。Batch 485 将 open intervention 的 review / reconcile WhatIf / reconcile Apply / continue boundary 直接投影到 case-mode `status.caseMission.interventionHandoffs[]` 与 text 第一屏。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `status -Format text` / 默认 status 在 intervention summary 后直接输出 handoff、decision boundary、continue boundary，以及 open intervention 的 eventId、approvedBy、scope、target、batchId evidence lines。
 - Coverage 在 case Mission status fixture 后同时验证 `status -Format json`、`status -Format text`、默认 status visibility 与 `.rekit` snapshot no-write invariant；overview fixture 为 open intervention 增加 concrete `eventId`，让 status handoff 能输出可复制 reconcile command。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunOverviewJsonEmitsReadOnlyInventory|TestRunOverviewEmitsReadOnlySummary" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。commit/push 与远程 release-gate inspection 待执行。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunOverviewJsonEmitsReadOnlyInventory|TestRunOverviewEmitsReadOnlySummary" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `ebe7c8c Add status intervention handoff`；远程 release-gate run `29812239975` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 484 已完成 case status pending-gate handoff closure，详见 `docs/batch-history.md`。
 
