@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 510：adapter context validation text handoff closure
 
-状态：已完成 adapter tooling candidate / selected adapter provenance contract text 与 validation text handoff、focused CLI coverage、用户与 durable docs、本地 release minimum；commit/push 与远程 release-gate inspection 待执行。
+状态：已完成 adapter tooling candidate / selected adapter provenance contract text 与 validation text handoff、focused CLI coverage、用户与 durable docs、本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29872298902` completed failure，Linux/Windows/macOS jobs `steps=[]`，按既有 GitHub Actions runner/billing blocker 记录，不能声明远程 CI green。
 
 目标：Batch 509 已把 adapter validation repair hints 的 evidence/boundary 收口到 contract/validation JSON/text 与 Mission Commander next actions；但 valid sidecar validation text 仍只显示 normalized sidecar identity、budget、refs、summary 与 follow-through。虽然 JSON 已携带 `adapterContext.candidates[]` / `adapterContext.selected`，replacement executor 在 case-local / authorized workspace 用 no-target validation 确认 sidecar 时，仍要切回 JSON 才能核对 sidecar `adapterId` 对应哪个 concrete tooling candidate、是否就是 selected adapter、以及该 adapter 的 report/evidence/stop-condition guidance。Batch 510 将 adapter context provenance 投影到 contract text 与 validation text。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - `TestRunGateProjectsPackToolingAdapterCandidateProductPath` 覆盖 generic-binary-re pack tooling adapter：contract text selected adapter projection、case-local authorized workspace no-target validation text adapter context projection、record path仍保留 selected adapter evidence provenance。
 - README、`/rekit` skill、Agent Team usage、CHANGELOG 与 batch docs同步说明 adapter context validation text handoff。
 
-验证结果：已通过 `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/cli -run "TestRunGateProjectsPackToolingAdapterCandidateProductPath|TestRunGenericBinaryReAdapterLiveValidationProductPath|TestRunGateAdapterReportTextOutputsNextActions" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`。远程 release-gate 待 commit/push 后 inspection。
+验证结果：已通过 `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/cli -run "TestRunGateProjectsPackToolingAdapterCandidateProductPath|TestRunGenericBinaryReAdapterLiveValidationProductPath|TestRunGateAdapterReportTextOutputsNextActions" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`。提交 `d71d6a7` 已 push 到 `main`；远程 release-gate run `29872298902` completed failure，Linux/Windows/macOS jobs 均 `steps=[]`，按既有 GitHub Actions runner/billing blocker 记录，不能声明远程 CI green。
 
 上一批摘要：Batch 509 已完成 adapter validation repair evidence/boundary handoff closure，并归档到 `docs/batch-history.md`。
 
