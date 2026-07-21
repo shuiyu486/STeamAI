@@ -8639,6 +8639,52 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		t.Fatalf("no-command no-pack status after adapter evidence should not emit JSON:\n%s", out.String())
 	}
 	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	beforeHandoff := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var handoffPreview handoffResult
+	if err := json.Unmarshal(out.Bytes(), &handoffPreview); err != nil {
+		t.Fatalf("no-pack handoff preview after adapter evidence stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if handoffPreview.Command != "handoff" || handoffPreview.Pack != "_template" || handoffPreview.IsMutation || handoffPreview.Applied || !handoffPreview.RequiresConfirmation || handoffPreview.Project || handoffPreview.Lane == nil || handoffPreview.Lane.ID != "main" || len(handoffPreview.ExecutionEvidenceReview) != 1 {
+		t.Fatalf("unexpected no-pack handoff preview after adapter evidence: %+v", handoffPreview)
+	}
+	handoffEvidence := handoffPreview.ExecutionEvidenceReview[0]
+	if handoffEvidence.EventID != evidence.EventID || handoffEvidence.GateEventID != applied.EventID || handoffEvidence.Status != "succeeded" || handoffEvidence.Action != "debug" || !containsSubstring(handoffEvidence.OutputRefs, "workspace/main/debug/session-1/result.json") || handoffEvidence.MissionCommanderAction.State != "ready-for-evidence-review" || handoffEvidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || handoffEvidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(handoffEvidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
+		t.Fatalf("no-pack handoff preview omitted recorded adapter evidence review handoff: %+v", handoffEvidence)
+	}
+	handoffQueue := handoffPreview.MissionCommanderActionQueue
+	if handoffQueue.CurrentAction == nil || handoffQueue.CurrentAction.Source != "executionEvidenceReview" || handoffQueue.CurrentAction.Command != "/rekit handoff main" || !handoffQueue.CurrentAction.RequiresReview || handoffQueue.Counts.Total == 0 || handoffQueue.Counts.RequiresReview == 0 {
+		t.Fatalf("no-pack handoff preview omitted evidence review action queue: %+v", handoffQueue)
+	}
+	if !containsSubstring(handoffPreview.NextSteps, "review execution evidence for gateEventId "+applied.EventID) || !containsSubstring(handoffPreview.NextSteps, "/rekit handoff main") || !containsSubstring(handoffPreview.NextSteps, "/rekit continue main -WhatIf") {
+		t.Fatalf("no-pack handoff preview omitted evidence review next steps: %+v", handoffPreview.NextSteps)
+	}
+	assertSnapshotEqual(t, beforeHandoff, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "text", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"would write workstream handoff: main",
+		"handoff execution evidence review：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=succeeded action=debug",
+		"review=review outputRefs/evidenceRefs for gateEventId " + applied.EventID + " handoff=/rekit handoff main commanderState=ready-for-evidence-review commanderPrimary=/rekit handoff main",
+		"handoff execution evidence output ref：eventId=" + evidence.EventID + " ref=workspace/main/debug/session-1/result.json",
+		"handoff execution evidence follow-through：eventId=" + evidence.EventID + " state=ready-for-evidence-review gateEventId=" + applied.EventID,
+		"handoff execution evidence outcome evidence：eventId=" + evidence.EventID + " name=recorded-evidence-review evidence=workspace/main/debug/session-1/result.json",
+		"mission commander action queue current：state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("no-pack handoff text after adapter evidence missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("no-pack handoff text after adapter evidence should not emit JSON:\n%s", out.String())
+	}
+	assertSnapshotEqual(t, beforeHandoff, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 }
 
 func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {

@@ -16,23 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 493：execution evidence review no-pack status product-path smoke closure
+### Batch 494：execution evidence review no-pack handoff product-path smoke closure
 
-状态：已完成 execution evidence review no-pack status product-path smoke implementation、durable docs、focused status coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate runs `29823002179` / `29823086080` 均为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 execution evidence review no-pack handoff product-path smoke implementation、durable docs、focused handoff/status coverage 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待执行。
 
-目标：Batch 492 已证明 replacement lane executor 位于 case-local lane workspace 时可无 `-Target` / 无 `-Pack` 记录 bounded adapter observation evidence，但 evidence record 后的接手第一屏仍需要 product-path smoke 证明：同一 case-local lane cwd 应能无 `-Target` / 无 `-Pack` 运行 `status -Format json`、`status -Format text` 与无子命令默认 status，通过 cwd target discovery 与 case metadata pack default 直接看到 execution evidence review、Mission Commander action queue、`ready-for-evidence-review` handoff、outputRefs 与 follow-through outcome evidence。Batch 493 将该路径补成本机 Windows 可验证 smoke。
+目标：Batch 493 已证明 adapter observation evidence record 后，case-local lane cwd 可无 `-Target` / 无 `-Pack` 通过 `status` 第一屏看到 execution evidence review 与 Mission Commander action queue；但 action queue 的 primary command 是 `/rekit handoff main`，还需要 product-path smoke 证明 replacement executor 直接运行该 handoff primary command（no-target/no-pack、WhatIf/text/JSON）时也能消费同一 evidence review、outputRefs、follow-through outcome 与 action queue，而不必回到 status 或打开 ledger 手工拼接。Batch 494 将该路径补成本机 Windows 可验证 smoke。
 
-边界：只增强本机 product-path coverage，不新增 runtime 行为；status 仍只读、不写 `.rekit`、不执行 heavy-tool、不写 authority/confirmed；record evidence 仍要求显式 `gate -Apply` 与 `-Actor`，只写 bounded observation evidence；contract/validation 仍只读，sync/promote、case durable schema 与 PowerShell runtime logic 均不改变。
+边界：只增强本机 product-path coverage 与只读 handoff text visibility，不新增 heavy execution；`handoff -WhatIf` 仍不写 `.rekit`，`handoff -Apply` 仍只写 case-local handoff docs，不写 authority/confirmed；record evidence 仍要求显式 `gate -Apply` 与 `-Actor`，只写 bounded observation evidence；contract/validation/status 语义、sync/promote、case durable schema 与 PowerShell runtime logic 均不改变。
 
 已完成内容：
 
-- 扩展 `TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace`：在 no-pack adapter evidence record/replay 后，从同一 case-local `workspace/main` lane cwd 无 `-Target` / 无 `-Pack` 运行 `status -Format json`，验证 `packSource=case-metadata`、`targetProvided=false`、`executionEvidenceReviewCount=1` 与 Mission Commander action queue 当前 action 均来自 execution evidence review。
-- 验证 JSON status 第一屏包含 recorded adapter evidence 的 `eventId`、`gateEventId`、`status=succeeded`、`action=debug`、output ref `workspace/main/debug/session-1/result.json`、`ready-for-evidence-review`、primary `/rekit handoff main` 与 follow-through outcome `recorded-evidence-review`。
-- 验证 `status -Format text` 与无子命令默认 status 同样输出 pack metadata source、evidence review handoff、output ref、follow-through outcome evidence，且不输出 JSON object；用 `.rekit` snapshot 锁定 status 不写 case durable state。
+- 扩展 `writeHandoffText`：在 handoff text 第一屏输出 `executionEvidenceReview[]` 的 event/gate/status/action/review/handoff/commander、outputRefs/evidenceRefs、follow-through、outcome evidence 与 boundary，与 status/overview 的 evidence review text 形状保持一致。
+- 扩展 `TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace`：在 no-pack adapter evidence record 与 no-pack status smoke 后，从同一 case-local `workspace/main` lane cwd 无 `-Target` / 无 `-Pack` 运行 `handoff main -WhatIf -Format json`，验证 `_template` pack 来自 case metadata、preview 只读、lane 为 `main`、execution evidence review/action queue/nextSteps 保持 `ready-for-evidence-review` handoff。
+- 验证 `handoff main -WhatIf -Format text` 输出 same evidence review、output ref、follow-through outcome evidence 与 Mission Commander action queue current action，且不输出 JSON object；用 `.rekit` snapshot 锁定 no-pack handoff preview/text 均不写 case durable state。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace" -count=1`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace|TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `0270b11 Add evidence review no pack status smoke` 与 release inspection follow-up `763f84c Record Batch 493 release gate inspection`；远程 release-gate runs `29823002179` / `29823086080` 均为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace" -count=1`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace|TestRunHandoff.*|TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，status handoff recorded，go test ./... recorded，go vet ./... recorded，git diff --check recorded（仅 Windows LF/CRLF conversion warnings，无 whitespace error）。commit/push 与远程 release-gate 尚未重新检查，不能声明远程 CI green。
 
-上一批摘要：Batch 492 已完成 adapter execution evidence record no-pack product-path smoke closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 493 已完成 execution evidence review no-pack status product-path smoke closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
