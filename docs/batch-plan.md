@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 486：case status open-decision handoff closure
 
-状态：已完成 case-mode `status` open decision handoff implementation、durable docs、focused status/overview coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29815020294` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 case-mode `status` open decision handoff implementation、durable docs、focused status/overview coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate runs `29815020294` / `29815120892` 均为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 485 已把 open intervention 的 review / reconcile WhatIf / reconcile Apply / continue boundary 投影到第一屏，但 open candidate / defer decision 仍主要表现为 generic open decision summary、blocked lane reason 和 lane handoff。替换 executor 看到 open-decision blocker 后仍要从 overview/handoff/note 语义里拼接“先 review evidence、选择 accept/reject/defer/supersede、先跑 note WhatIf、如需记录再 append decision、blocked lane 不继续”的边界。Batch 486 将 open candidate / open decision event 的 review / decision note WhatIf / append-only record / continue boundary 直接投影到 case-mode `status.caseMission.openDecisionHandoffs[]` 与 text 第一屏。
 
