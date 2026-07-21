@@ -500,6 +500,118 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	}
 }
 
+func TestRunPlanSubagentsReviewerIntakeBlockedRepairGuidanceCaseLocalProductPath(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	start := decodeStartResult(t, out.Bytes())
+	evidenceRel := start.Lane.Workspace + "/blocked-reviewer-evidence.md"
+	writeCaseFile(t, caseRoot, evidenceRel, "bounded blocked reviewer evidence\n")
+
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(caseRoot, filepath.FromSlash(start.Lane.Workspace))
+	if err := os.Chdir(nested); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-TaskType", "feature-analysis", "-Items", "alpha"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
+	resultPath := plan.ShardHandoffs[0].ReviewerResultPath
+	reviewerResult := map[string]any{
+		"packetId":           packet.PacketID,
+		"routeId":            packet.Route.ID,
+		"shardId":            "shard-01",
+		"items":              []string{"alpha"},
+		"reviewerSession":    "reviewer-session-blocked-product-path",
+		"decision":           "accept",
+		"confidence":         "high",
+		"summary":            "reviewed alpha but found conflicting shard ownership",
+		"evidenceRefs":       []string{evidenceRel},
+		"risks":              []string{},
+		"conflicts":          []string{"overlaps another shard"},
+		"recommendedVerdict": "accepted",
+		"routeOutput": map[string]any{
+			"item": "alpha", "decision": "accept", "confidence": "high", "evidence": evidenceRel, "risk": "blocked", "next_action": "main-agent-resolve-conflict", "tier_used": "light", "tool_scope": "read-only", "feature": "review", "request_id": "n/a", "candidate_path": "n/a", "defer_reason": "conflict",
+		},
+	}
+	data, err := json.Marshal(reviewerResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(resultPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	blocked := decodeReviewerIntakeResult(t, out.Bytes())
+	if blocked.CaseRoot != caseRoot || blocked.Pack != "_template" || blocked.WritebackStatus != "blocked" || blocked.IsMutation || blocked.Applied || blocked.ReadyForWriteback || blocked.Verification != nil || blocked.Decision != nil || blocked.PostValidation == nil || !blocked.PostValidation.Valid {
+		t.Fatalf("unexpected nested blocked reviewer intake: %+v", blocked)
+	}
+	if !containsStringWith(blocked.BlockedReasons, "unresolved conflicts: overlaps another shard") {
+		t.Fatalf("blocked reviewer intake omitted conflict reason: %+v", blocked.BlockedReasons)
+	}
+	if !containsRepairGuidance(blocked.RepairGuidance, "resolve or split", "overlaps another shard", "do not apply reviewer intake until this blocker is resolved") {
+		t.Fatalf("blocked reviewer intake omitted repair guidance: %+v", blocked.RepairGuidance)
+	}
+	if blocked.MissionCommanderAction.State != "reviewer-intake-blocked" || !strings.Contains(blocked.MissionCommanderAction.PrimaryCommand, `-Target "`+caseRoot+`"`) || !strings.Contains(blocked.MissionCommanderAction.PrimaryCommand, `-Pack "_template"`) || !containsMissionCommanderNextAction(blocked.MissionCommanderNextActions, "reviewerIntake.blocked", blocked.MissionCommanderAction.PrimaryCommand, true, true) || !nextActionReasonContains(blocked.MissionCommanderNextActions, "repair: resolve or split") {
+		t.Fatalf("blocked reviewer intake omitted Mission Commander repair guidance: action=%+v next=%+v", blocked.MissionCommanderAction, blocked.MissionCommanderNextActions)
+	}
+	assertCLIActionQueue(t, blocked.MissionCommanderActionQueue, 1, 0, 1, 1, 0, blocked.MissionCommanderAction.PrimaryCommand)
+	if got := readCLIOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
+		t.Fatalf("blocked reviewer intake wrote verification ledger:\n%s", got)
+	}
+	if got := readCLIOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl")); got != "" {
+		t.Fatalf("blocked reviewer intake wrote decision ledger:\n%s", got)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"plan-subagents reviewer intake：status=blocked mutation=false applied=false readyForWriteback=false lane=main shard=shard-01",
+		"reviewer intake blocked reason：reviewer result reports unresolved conflicts: overlaps another shard",
+		"reviewer intake repair guidance：reason=reviewer result reports unresolved conflicts: overlaps another shard action=resolve or split",
+		"reviewer intake repair evidence：reason=reviewer result reports unresolved conflicts: overlaps another shard evidence=overlaps another shard",
+		"reviewer intake repair boundary：reason=reviewer result reports unresolved conflicts: overlaps another shard boundary=do not apply reviewer intake until this blocker is resolved",
+		"reviewer intake commander action：state=reviewer-intake-blocked",
+		"mission commander action queue：summary=total=1 unblocked=0 blocked=1 requiresReview=1 followUp=0",
+		"mission commander action queue current：state=reviewer-intake-blocked source=reviewerIntake.blocked blocked=true requiresReview=true command=`/rekit plan-subagents",
+		"mission commander next action：state=reviewer-intake-blocked source=reviewerIntake.blocked blocked=true requiresReview=true command=`/rekit plan-subagents",
+		"mission commander next action reason：repair: resolve or split",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested blocked reviewer intake text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("nested blocked reviewer intake text should not emit JSON object:\n%s", out.String())
+	}
+	if got := readCLIOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
+		t.Fatalf("blocked reviewer intake text wrote verification ledger:\n%s", got)
+	}
+	if got := readCLIOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl")); got != "" {
+		t.Fatalf("blocked reviewer intake text wrote decision ledger:\n%s", got)
+	}
+}
+
 func TestRunPlanSubagentsReviewerIntakeRequiresExplicitMode(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
@@ -601,15 +713,17 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 }
 
 type reviewerIntakeCLIResult struct {
-	Command               string `json:"command"`
-	Mode                  string `json:"mode"`
-	CaseRoot              string `json:"caseRoot"`
-	Pack                  string `json:"pack"`
-	Lane                  string `json:"lane"`
-	IsMutation            bool   `json:"isMutation"`
-	Applied               bool   `json:"applied"`
-	WritebackStatus       string `json:"writebackStatus"`
-	ReadyForWriteback     bool   `json:"readyForWriteback"`
+	Command               string                                `json:"command"`
+	Mode                  string                                `json:"mode"`
+	CaseRoot              string                                `json:"caseRoot"`
+	Pack                  string                                `json:"pack"`
+	Lane                  string                                `json:"lane"`
+	IsMutation            bool                                  `json:"isMutation"`
+	Applied               bool                                  `json:"applied"`
+	WritebackStatus       string                                `json:"writebackStatus"`
+	ReadyForWriteback     bool                                  `json:"readyForWriteback"`
+	BlockedReasons        []string                              `json:"blockedReasons"`
+	RepairGuidance        []reviewerIntakeRepairGuidanceCLIItem `json:"repairGuidance"`
 	OrchestrationSnapshot struct {
 		Mode              string   `json:"mode"`
 		ReviewerCount     int      `json:"reviewerCount"`
@@ -661,4 +775,57 @@ func decodeReviewerIntakeResult(t *testing.T, data []byte) reviewerIntakeCLIResu
 		t.Fatalf("reviewer intake stdout is not JSON: %v\n%s", err, string(data))
 	}
 	return result
+}
+
+type reviewerIntakeRepairGuidanceCLIItem struct {
+	Reason   string   `json:"reason"`
+	Action   string   `json:"action"`
+	Evidence []string `json:"evidence"`
+	Boundary []string `json:"boundary"`
+}
+
+func containsStringWith(values []string, want string) bool {
+	for _, value := range values {
+		if strings.Contains(value, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsRepairGuidance(items []reviewerIntakeRepairGuidanceCLIItem, action, evidence, boundary string) bool {
+	for _, item := range items {
+		if !strings.Contains(item.Action, action) {
+			continue
+		}
+		if !containsStringWith(item.Evidence, evidence) {
+			continue
+		}
+		if !containsStringWith(item.Boundary, boundary) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func nextActionReasonContains(items []missionCommanderNextActionItem, want string) bool {
+	for _, item := range items {
+		if containsStringWith(item.Reasons, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func readCLIOptionalFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return ""
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

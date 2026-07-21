@@ -4842,6 +4842,21 @@ func writePlanSubagentsReviewerIntakeText(out io.Writer, result subagents.Review
 			return err
 		}
 	}
+	for _, repair := range result.RepairGuidance {
+		if _, err := fmt.Fprintf(out, "reviewer intake repair guidance：reason=%s action=%s\n", planSubagentsTextInline(repair.Reason), planSubagentsTextInline(repair.Action)); err != nil {
+			return err
+		}
+		for _, evidence := range repair.Evidence {
+			if _, err := fmt.Fprintf(out, "reviewer intake repair evidence：reason=%s evidence=%s\n", planSubagentsTextInline(repair.Reason), planSubagentsTextInline(evidence)); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range repair.Boundary {
+			if _, err := fmt.Fprintf(out, "reviewer intake repair boundary：reason=%s boundary=%s\n", planSubagentsTextInline(repair.Reason), planSubagentsTextInline(boundary)); err != nil {
+				return err
+			}
+		}
+	}
 	if result.Verification != nil {
 		if _, err := fmt.Fprintf(out, "reviewer intake verification：applied=%t eventId=%s reason=%s\n", result.Verification.Applied, result.Verification.EventID, result.Verification.Reason); err != nil {
 			return err

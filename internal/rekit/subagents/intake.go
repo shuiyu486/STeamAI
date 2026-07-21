@@ -81,6 +81,7 @@ type ReviewerIntakeResult struct {
 	VerificationVerdict         string                                   `json:"verificationVerdict"`
 	MainDecision                string                                   `json:"mainDecision"`
 	BlockedReasons              []string                                 `json:"blockedReasons"`
+	RepairGuidance              []ReviewerIntakeRepairGuidance           `json:"repairGuidance,omitempty"`
 	OrchestrationSnapshot       ReviewerOrchestrationIntake              `json:"orchestrationSnapshot"`
 	Verification                *note.AppendResult                       `json:"verification,omitempty"`
 	Decision                    *note.AppendResult                       `json:"decision,omitempty"`
@@ -89,6 +90,13 @@ type ReviewerIntakeResult struct {
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	NextSteps                   []string                                 `json:"nextSteps"`
+}
+
+type ReviewerIntakeRepairGuidance struct {
+	Reason   string   `json:"reason"`
+	Action   string   `json:"action"`
+	Evidence []string `json:"evidence,omitempty"`
+	Boundary []string `json:"boundary,omitempty"`
 }
 
 type ReviewerPostValidation struct {
@@ -229,6 +237,7 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		result.IsMutation = false
 		result.WritebackStatus = "blocked"
 		result.OrchestrationSnapshot.ShardStatusAfter = result.WritebackStatus
+		result.RepairGuidance = reviewerIntakeRepairGuidance(result)
 		result.NextSteps = []string{"resolve reviewer intake blockers or dispatch a smaller read-only shard; no ledger events were written"}
 		validation, validationErr := reviewerPostValidation(repoRoot, caseRoot, pack, lane, false)
 		if validationErr != nil {
@@ -357,6 +366,9 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 }
 
 func finalizeReviewerIntakeResult(result ReviewerIntakeResult) ReviewerIntakeResult {
+	if reviewerIntakeNeedsRepairGuidance(result.WritebackStatus) && len(result.RepairGuidance) == 0 {
+		result.RepairGuidance = reviewerIntakeRepairGuidance(result)
+	}
 	action := reviewerIntakeMissionCommanderAction(result)
 	result.MissionCommanderAction = action
 	result.MissionCommanderNextActions = reviewerIntakeMissionCommanderNextActions(result, action)
@@ -442,6 +454,84 @@ func reviewerIntakeMissionCommanderAction(result ReviewerIntakeResult) mission.M
 			Boundary:         boundary,
 		}
 	}
+}
+
+func reviewerIntakeNeedsRepairGuidance(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "blocked", "event-id-collision", "complete-post-validation-failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func reviewerIntakeRepairGuidance(result ReviewerIntakeResult) []ReviewerIntakeRepairGuidance {
+	guidance := []ReviewerIntakeRepairGuidance{}
+	for _, reason := range result.BlockedReasons {
+		reason = strings.TrimSpace(reason)
+		if reason == "" {
+			continue
+		}
+		guidance = append(guidance, reviewerIntakeRepairGuidanceForReason(reason, result))
+	}
+	if len(guidance) == 0 && reviewerIntakeNeedsRepairGuidance(result.WritebackStatus) {
+		guidance = append(guidance, reviewerIntakeRepairGuidanceForReason(strings.TrimSpace(result.WritebackStatus), result))
+	}
+	return guidance
+}
+
+func reviewerIntakeRepairGuidanceForReason(reason string, result ReviewerIntakeResult) ReviewerIntakeRepairGuidance {
+	lower := strings.ToLower(reason)
+	item := ReviewerIntakeRepairGuidance{Reason: reason, Boundary: []string{"do not apply reviewer intake until this blocker is resolved", "do not write authority/confirmed or execute heavy tools from reviewer intake"}}
+	switch {
+	case strings.Contains(lower, "evidenceref") || strings.Contains(lower, "evidencerefs") || strings.Contains(lower, "no inspectable evidence"):
+		item.Action = "add a non-empty case-local bounded evidence file, or cite the packetId when the packet itself is the reviewed evidence; rerun reviewer intake -WhatIf before -Apply"
+		item.Evidence = append([]string{}, result.ReviewerResult.EvidenceRefs...)
+		if len(item.Evidence) == 0 && result.ReviewerResult.RouteOutput != nil {
+			if ref := routeOutputString(result.ReviewerResult.RouteOutput, "evidence"); ref != "" {
+				item.Evidence = append(item.Evidence, ref)
+			}
+		}
+	case strings.Contains(lower, "unresolved conflicts"):
+		item.Action = "resolve or split the conflicted reviewer shard, then write a new conflict-free ReviewerResult and rerun -WhatIf"
+		item.Evidence = append([]string{}, result.ReviewerResult.Conflicts...)
+	case strings.Contains(lower, "blocked write") || strings.Contains(lower, "heavy-tool") || strings.Contains(lower, "authority/confirmed") || strings.Contains(lower, "external-effect"):
+		item.Action = "replace requested reviewer routeOutput with read-only main-agent handoff; any write, heavy-tool, authority/confirmed, or external-effect action needs a separate gate"
+		for _, key := range []string{"tool_scope", "next_action"} {
+			if value := routeOutputString(result.ReviewerResult.RouteOutput, key); value != "" {
+				item.Evidence = append(item.Evidence, key+"="+value)
+			}
+		}
+	case strings.Contains(lower, "recommendedverdict") || strings.Contains(lower, "mapped verification verdict"):
+		item.Action = "align recommendedVerdict with the mapped reviewer decision verdict, or change reviewer decision and rerun -WhatIf"
+		item.Evidence = []string{"recommendedVerdict=" + result.ReviewerResult.RecommendedVerdict, "mappedVerdict=" + result.VerificationVerdict, "reviewerDecision=" + result.ReviewerResult.Decision}
+	case strings.Contains(lower, "low-confidence"):
+		item.Action = "collect independent evidence or dispatch a smaller read-only reviewer shard before accepting/rejecting this result"
+		item.Evidence = []string{"confidence=" + result.ReviewerResult.Confidence, "reviewerDecision=" + result.ReviewerResult.Decision}
+	case strings.Contains(lower, "event-id") || strings.Contains(lower, "eventid") || strings.Contains(lower, "collision"):
+		item.Action = "inspect the existing ledger event for this deterministic eventId and rerun only after the conflicting event is resolved by the main Agent"
+		item.Evidence = []string{"intakeId=" + result.IntakeID}
+	case strings.Contains(lower, "post-validation"):
+		item.Action = "rerun overview, handoff, and doctor to recover post-validation snapshots before continuing the lane"
+		item.Evidence = []string{"intakeId=" + result.IntakeID}
+	default:
+		item.Action = "inspect blockedReasons and reviewer result provenance, then rerun reviewer intake -WhatIf after repair"
+		item.Evidence = []string{"intakeId=" + result.IntakeID}
+	}
+	item.Evidence = mission.UniqueStrings(cleanRepairGuidanceStrings(item.Evidence))
+	item.Boundary = mission.UniqueStrings(cleanRepairGuidanceStrings(item.Boundary))
+	return item
+}
+
+func cleanRepairGuidanceStrings(values []string) []string {
+	out := []string{}
+	for _, value := range values {
+		value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func reviewerIntakeMissionCommanderNextActions(result ReviewerIntakeResult, action mission.MissionCommanderAction) []mission.MissionCommanderNextActionItem {
@@ -534,6 +624,11 @@ func reviewerIntakeNextActionReasons(result ReviewerIntakeResult) []string {
 		reasons = append(reasons, "reviewer intake "+result.IntakeID)
 	}
 	reasons = append(reasons, result.BlockedReasons...)
+	for _, repair := range result.RepairGuidance {
+		if strings.TrimSpace(repair.Action) != "" {
+			reasons = append(reasons, "repair: "+repair.Action)
+		}
+	}
 	switch strings.TrimSpace(result.WritebackStatus) {
 	case "previewed":
 		reasons = append(reasons, "WhatIf preview passed; apply only after main-agent evidence review")

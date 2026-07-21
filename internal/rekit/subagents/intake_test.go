@@ -395,6 +395,14 @@ func TestIntakeReviewerResultBlocksConflictsWithoutWrites(t *testing.T) {
 	if result.MissionCommanderAction.State != "reviewer-intake-blocked" || !hasReviewerIntakeCommanderNextAction(result.MissionCommanderNextActions, "reviewerIntake.blocked", result.MissionCommanderAction.PrimaryCommand, true, true) {
 		t.Fatalf("blocked intake omitted blocked Mission Commander preview guidance: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
+	if len(result.RepairGuidance) == 0 || !slices.ContainsFunc(result.RepairGuidance, func(item ReviewerIntakeRepairGuidance) bool {
+		return strings.Contains(item.Action, "resolve or split") && slices.Contains(item.Evidence, "overlaps another shard") && slices.Contains(item.Boundary, "do not apply reviewer intake until this blocker is resolved")
+	}) {
+		t.Fatalf("blocked intake omitted conflict repair guidance: %+v", result.RepairGuidance)
+	}
+	if !slices.ContainsFunc(result.MissionCommanderNextActions[0].Reasons, func(reason string) bool { return strings.Contains(reason, "repair: resolve or split") }) {
+		t.Fatalf("blocked intake next action omitted repair reason: %+v", result.MissionCommanderNextActions[0].Reasons)
+	}
 	assertReviewerIntakeActionQueue(t, result.MissionCommanderActionQueue, 1, 0, 1, 1, 0, result.MissionCommanderAction.PrimaryCommand)
 	if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
 		t.Fatalf("blocked intake wrote verification ledger:\n%s", got)
