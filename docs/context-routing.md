@@ -18,6 +18,12 @@
 4. `CHANGELOG.md` 顶部 `Unreleased`：确认最新用户可见变化是否覆盖当前 batch。
 5. 真实状态：`git status --short`、必要的 focused tests、本机 release gate；远程 CI 只在需要 release 判断时检查。
 
+### 上下文节流
+
+- 大文件（如 `internal/rekit/cli/cli_test.go`、`docs/batch-history.md`）只按 symbol、Batch ID 或行号读取小片段；不要为一次批次接手或文档更新全量读取。
+- 查看 diff 时优先 `git diff --stat`、目标文件 diff 或 targeted grep；避免把完整大 diff 输出进对话上下文。
+- 测试失败时先保留失败摘要、测试名和关键错误；只有定位需要时再读取完整日志文件或重跑 focused test，避免长日志挤占上下文。
+
 ### 文档维护时
 
 - 修改或新建 durable docs 时，同样保持按需路由：顶部保留短 `读取指南` / `实施摘要` / `执行清单` / `验证标准` / `风险与注意事项`，细节按章节或专文渐进披露。
