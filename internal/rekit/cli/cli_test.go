@@ -2246,6 +2246,16 @@ func TestRunAttachRejectsDifferentBinding(t *testing.T) {
 	}
 }
 
+func TestRunAttachRejectsMovedCaseWithPreviewFirstDiagnostic(t *testing.T) {
+	caseRoot := movedAttachedCase(t)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "attach", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for attach on moved case")
+	}
+	assertMovedCaseRepairPreviewDiagnostic(t, err, caseRoot, "_template")
+}
+
 func TestRunRepairPreviewDoesNotWrite(t *testing.T) {
 	caseRoot := movedAttachedCase(t)
 	var out bytes.Buffer
@@ -3159,9 +3169,7 @@ func TestRunInitRejectsMovedCase(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run returned nil error for init on moved case")
 	}
-	if !strings.Contains(err.Error(), "case metadata points to a different directory") {
-		t.Fatalf("error = %q, want moved case guard", err.Error())
-	}
+	assertMovedCaseRepairPreviewDiagnostic(t, err, caseRoot, "_template")
 }
 
 func TestRunInitRejectsDifferentBinding(t *testing.T) {
@@ -3332,9 +3340,7 @@ func TestRunSyncApplyRejectsMovedCase(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run returned nil error for sync -Apply on moved case")
 	}
-	if !strings.Contains(err.Error(), "case metadata points to a different directory") {
-		t.Fatalf("error = %q, want moved case guard", err.Error())
-	}
+	assertMovedCaseRepairPreviewDiagnostic(t, err, caseRoot, "_template")
 }
 
 func TestRunSyncApplyRejectsDifferentBinding(t *testing.T) {
@@ -3359,6 +3365,16 @@ func TestRunPromoteReviewRequiresAttachedCase(t *testing.T) {
 	if !strings.Contains(err.Error(), "target is not an attached rekit case") {
 		t.Fatalf("error = %q, want attached case guard", err.Error())
 	}
+}
+
+func TestRunPromoteReviewRejectsMovedCaseWithPreviewFirstDiagnostic(t *testing.T) {
+	caseRoot := movedAttachedCase(t)
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template"}, &out)
+	if err == nil {
+		t.Fatal("Run returned nil error for promote on moved case")
+	}
+	assertMovedCaseRepairPreviewDiagnostic(t, err, caseRoot, "_template")
 }
 
 func TestRunOverviewInitializesMissingBoard(t *testing.T) {
@@ -9305,6 +9321,27 @@ func containsSubstring(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func assertMovedCaseRepairPreviewDiagnostic(t *testing.T, err error, caseRoot, pack string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected moved case diagnostic error")
+	}
+	text := err.Error()
+	for _, expected := range []string{
+		"case metadata points to a different directory",
+		`/rekit repair -Target "` + caseRoot + `" -Pack ` + pack + ` -WhatIf -Format text`,
+		"preview metadata and thin-shim refresh",
+		"repair -Apply only after explicit confirmation",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("moved case diagnostic missing %q: %s", expected, text)
+		}
+	}
+	if strings.Contains(text, "Run 'rekit repair -Target") {
+		t.Fatalf("moved case diagnostic should not recommend direct repair -Apply first: %s", text)
+	}
 }
 
 func containsMissionCommanderNextActionsCommand(items []missionCommanderNextActionItem, want string) bool {

@@ -63,6 +63,18 @@ func (i Instance) Moved() bool {
 	return !strings.EqualFold(strings.TrimRight(filepath.Clean(recorded), string(filepath.Separator)), strings.TrimRight(filepath.Clean(actual), string(filepath.Separator)))
 }
 
+func MovedRepairPreviewError(caseRoot, pack string) error {
+	pack = strings.TrimSpace(pack)
+	if pack == "" {
+		pack = defaults.DefaultPack
+	}
+	return fmt.Errorf("case metadata points to a different directory. Run '/rekit repair -Target %s -Pack %s -WhatIf -Format text' to preview metadata and thin-shim refresh; run repair -Apply only after explicit confirmation", quoteCommandArg(caseRoot), pack)
+}
+
+func quoteCommandArg(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+}
+
 func AssertAttached(target, repoRoot, pack string) (Instance, error) {
 	caseRoot, err := filepath.Abs(target)
 	if err != nil {
@@ -79,7 +91,7 @@ func AssertAttached(target, repoRoot, pack string) (Instance, error) {
 		return Instance{}, fmt.Errorf("target is not an attached rekit case. Use 'rekit attach -Target %q' or 'rekit init -Target %q' first", caseRoot, caseRoot)
 	}
 	if inst.Moved() {
-		return Instance{}, fmt.Errorf("case metadata points to a different directory. Run 'rekit repair -Target %q -Apply' after confirming the move", caseRoot)
+		return Instance{}, MovedRepairPreviewError(caseRoot, pack)
 	}
 	if strings.TrimSpace(inst.TemplateRoot) == "" {
 		return Instance{}, fmt.Errorf("missing templateRoot in case metadata: %s", caseRoot)

@@ -138,7 +138,7 @@ internal/rekit/sync
 | 编号 | 场景 | 预期 |
 |---|---|---|
 | S1 | 普通目录执行 `sync -Apply` | 拒绝，不创建假 case。 |
-| S2 | moved case 执行 `sync -Apply` | 拒绝，提示先 repair。 |
+| S2 | moved case 执行 `sync -Apply` | 拒绝，提示先运行 `repair -WhatIf -Format text` 预览 metadata 与 thin-shim refresh，再显式确认 `repair -Apply`。 |
 | S3 | 不同 `templateRoot` / `templatePack` | 拒绝，不静默重绑。 |
 | S4 | managed file 缺失 | 创建文件，state 记录 sourceHash/targetHashAtSync。 |
 | S5 | managed file 与 pack 不同 | 写入前 backup，写入后内容等于 pack。 |

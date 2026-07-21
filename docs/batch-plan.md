@@ -16,25 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 480：status remediation handoff closure
+### Batch 481：moved-case preview-first diagnostics closure
 
-状态：已完成 status remediation handoff implementation、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29772464210` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 moved-case preview-first diagnostics implementation、durable docs、focused tests 与 public CLI moved-case validation；完整本地 release minimum、commit/push 与远程 release-gate inspection 正在本轮收口。
 
-目标：Batch 478/479 已让 status 显示 pack 来源与 pack/metadata mismatch 诊断，但新会话看到 mismatch、moved case metadata 或 case-local shim drift 后仍要凭经验选择下一步。Batch 480 在只读 status 中直接给出 bounded remediation handoff：可复制的 status recheck 或 `repair -WhatIf -Format text` preview，并明确任何 `repair -Apply` 仍需显式确认。
+目标：Batch 480 让只读 status 在 moved metadata / shim drift 时给出 bounded `repair -WhatIf -Format text` next step，但写入型 guard 的错误提示仍可能优先推荐直接 `repair -Apply`。Batch 481 将 attach/init/sync/promote 等 moved-case / stale metadata 拒绝路径统一为 preview-first diagnostic，让新会话先预览 metadata 与 thin-shim refresh，再显式确认 apply。
 
-边界：只增强只读 status handoff；不改变显式 `-Pack` 优先级、attached case metadata default、runtime default-pack placeholder、repair 写入确认、sync/promote/workstream/gate 语义或 durable schema；不执行 repair/heavy-tool，不 replay adapter，不写 authority/confirmed，不新增 PowerShell runtime logic，不改变 release blocker。
+边界：只改 Go-native moved-case guard 的错误 handoff 与对应 coverage；不改变 repair 写入确认、sync/promote review-first、case durable schema、actual heavy-tool、authority/confirmed、PowerShell runtime logic 或 release blocker 状态。
 
 已完成内容：
 
-- `statusCase` 新增 `nextSteps`，在 moved metadata 或 pack mismatch 时输出 bounded next steps；explicit pack mismatch 推荐无显式 pack 的 status recheck，保留 explicit `-Pack` 优先级说明。
-- `statusCaseShim` 新增 `nextSteps`，在 installed shim drift/missing 时推荐 `repair -WhatIf -Format text` 预览 case-local thin shim refresh；healthy case 保持无 next step。
-- `status -Format text` 输出 `status case next step：...` / `status case shim next step：...`；默认 table/tsv legacy status 输出 `case next step:` / `case shim next step:`。
-- `TestRunStatusJsonCase`、`TestRunStatusJsonCaseShimDrift`、`TestRunStatusMovedCaseNextSteps`、`TestRunCaseLocalProductPathUsesCaseMetadataRuntime` 与 installed shim product-path coverage 锁定 healthy no-next-step、explicit mismatch guidance、moved metadata repair preview guidance 与 shim drift repair preview guidance。
-- `/rekit` skill、Agent Team 使用指南与 CHANGELOG 同步说明 status 只读检测并给出 bounded next steps，`repair -Apply` 仍需显式确认。
+- `instance.MovedRepairPreviewError(caseRoot, pack)` 统一生成 moved-case preview-first diagnostic，空 pack 时仍回退 repo default pack。
+- `instance.AssertAttached`、`attach.buildPlan` 与 `sync.readApplyInstance` 复用该 helper，使 init/sync/promote 间接 guard 与 attach guard 一致。
+- CLI coverage 新增 attach/promote moved-case 拒绝路径，并把 init/sync moved-case tests 升级为 preview-first wording 断言；helper 同时防止旧 `Run 'rekit repair -Target ... -Apply'` direct-apply diagnostic 回归。
+- CHANGELOG、`/rekit` skill、Agent Team 使用指南、init/bootstrap 与 sync apply migration docs 同步说明 moved case 先运行 `repair -WhatIf -Format text` 预览，再显式确认 `repair -Apply`。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunStatusJsonCaseShimDrift|TestRunStatusMovedCaseNextSteps|TestRunCaseLocalProductPathUsesCaseMetadataRuntime|TestRunInstalledCaseShimProductPathStatusAndRefresh" -count=1` 与完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `538697b Add status remediation handoff`；远程 release-gate run `29772464210` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/cli ./internal/rekit/instance -run "TestRunAttachRejectsMovedCaseWithPreviewFirstDiagnostic|TestRunInitRejectsMovedCase|TestRunSyncApplyRejectsMovedCase|TestRunPromoteReviewRejectsMovedCaseWithPreviewFirstDiagnostic|TestReadScalarFileStripsSimpleQuotes" -count=1`；已通过 public CLI 临时 moved-case 验证，确认 `attach -Apply`、`init -Apply`、`sync -Apply` 与 `promote` review 均拒绝 moved metadata，输出 `/rekit repair -Target "<caseRoot>" -Pack _template -WhatIf -Format text`、`preview metadata and thin-shim refresh`、`repair -Apply only after explicit confirmation`，且不再输出旧 direct `Run 'rekit repair -Target ... -Apply'` diagnostic。已通过完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。
 
-上一批摘要：Batch 479 已完成 status pack mismatch diagnostic closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 480 已完成 status remediation handoff closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 

@@ -107,7 +107,7 @@ func buildPlan(repoRoot, target, pack string, opt Options) (PreviewPlan, error) 
 	}
 	if inst.Source != "missing" {
 		if inst.Moved() {
-			return PreviewPlan{}, fmt.Errorf("case metadata points to a different directory. Run 'rekit repair -Target %q -Apply' after confirming the move", caseRoot)
+			return PreviewPlan{}, instance.MovedRepairPreviewError(caseRoot, pack)
 		}
 		if strings.TrimSpace(inst.TemplateRoot) != "" && !samePath(inst.TemplateRoot, repoFull) {
 			return PreviewPlan{}, fmt.Errorf("case is attached to a different templateRoot: %s", inst.TemplateRoot)

@@ -113,7 +113,7 @@ Go CLI 行为：
 | I4 | `bootstrap -Apply` | 与 `init -Apply` 同语义，输出 command 为 `bootstrap`。 |
 | I5 | target 是 kit repo root | 拒绝，不写 `.rekit` case state。 |
 | I6 | existing same binding case 执行 `init -Apply` | 等价 sync apply refresh，changed managed files 有 backup。 |
-| I7 | moved case 执行 `init -Apply` | 拒绝，提示先 repair。 |
+| I7 | moved case 执行 `init -Apply` | 拒绝，提示先运行 `repair -WhatIf -Format text` 预览 metadata 与 thin-shim refresh，再显式确认 `repair -Apply`。 |
 | I8 | different templateRoot/templatePack | 拒绝，不静默重绑。 |
 | I9 | local template exists and no force | skip，不覆盖。 |
 | I10 | local template exists with `-Force` | backup 后覆盖并替换 placeholders。 |

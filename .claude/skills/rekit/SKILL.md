@@ -92,7 +92,7 @@ disable-model-invocation: true
 4. `promote` 只做 `case -> kit` 的 review、`-CreateCandidates` 候选提取或 `-Apply` 显式写回；永不提升 `CLAUDE.local.md`、`task-handoff.md`、`tools.local.yml`、`captures/**`、`artifacts/**`。
 5. `promote` 同时处理 tooling：从 case 的工具链文档抽象候选，供人工合入 `tooling/catalog.yml` 或 `tooling/recipes/*`。
 6. 若 promote 命中绝对路径、样本名、trace/dump/artifact/capture 路径或明显地址快照，先阻止或生成候选报告，不要静默写回模板。
-7. `sync` / `promote` 发现 case 路径迁移但 metadata 未修复时必须拒绝执行，提示用户确认后运行 `repair`。
+7. `sync` / `promote` 发现 case 路径迁移但 metadata 未修复时必须拒绝执行，提示先运行 `repair -WhatIf -Format text` 预览 metadata 与 thin-shim refresh，再显式确认 `repair -Apply`。
 8. 工作线必须持久、agent 可以短命；长期成员身份绑定 durable lane，不绑定旧 Claude Code session。旧会话上下文污染、模型硬切或用户要求重开时，新会话应通过 handoff / packet / evidence 接手同一 lane。跨工作线协同通过 `.rekit/facts/*.jsonl`、inbox/tasks 和 publication 完成，不要求用户手动合并普通事实。
 9. 用户可随时进入任意 lane 打断、纠错、改向或硬切模型；当前 runtime 在 `continue` 时对 effective open intervention fail-closed，要求先显式 `reconcile`，再把 resolution、executor takeover、resume/checkpoint 和 board 写回 durable state。lane 文档或 task packet 只能表达预授权意图；确定性执行依据是 strict validated `.rekit/lanes/<lane>/autonomy.json` 加 `gate` 记录的 `authorized-gate` decision。executor 仅可在 action、exact target、typed budget、stop conditions、output paths、record/notify 边界完全覆盖时不逐步询问地执行 heavy action；越界、新风险或需要 confirmed/authority/promote 时必须升级。
 10. `/rekit continue <name>` 可以写 case-local `.rekit/board.json`、`.rekit/facts/**`、`.rekit/lanes/**`、`.rekit/runs/**`、`.rekit/handovers/**` 和所选支线 workspace；candidate 满足 evidence、accepted verifier、confidence、schema、no-conflict、backup、diff、max rows 时只代表可进入 authority review。`continue -Apply` 不写 authority/confirmed；这类写入必须由主 Agent 在独立 gate 和显式用户确认后处理。

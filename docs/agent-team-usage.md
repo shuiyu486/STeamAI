@@ -83,7 +83,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 /rekit attach -Target <caseRoot> -Pack <pack> -WhatIf -Format text # 旧 case 接入前预览 metadata/shim/state writes
 /rekit attach -Target <caseRoot> -Pack <pack> -Apply -Format text  # 写入 binding metadata/shim/state，并打印 next steps
 /rekit repair -Target <caseRoot> -Pack <pack> -WhatIf -Format text # case 移动后预览 metadata/shim refresh
-/rekit repair -Target <caseRoot> -Pack <pack> -Apply -Format text  # 修复 moved case 绑定，并打印 handoff
+/rekit repair -Target <caseRoot> -Pack <pack> -Apply -Format text  # 在 WhatIf preview 与显式确认后修复 moved case 绑定，并打印 handoff
 /rekit init -Target <caseRoot> -Pack <pack> -WhatIf -Format text   # 新 case 初始化前预览 managed/template writes
 /rekit init -Target <caseRoot> -Pack <pack> -Apply -Format text    # 初始化完整 case，并打印 doctor handoff
 /rekit bootstrap -Target <caseRoot> -Pack <pack> -WhatIf -Format text # compat bootstrap 预览，保持 bootstrap identity

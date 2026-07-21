@@ -329,7 +329,7 @@ func readApplyInstance(caseRoot, repoRoot, pack string, createLocalFiles bool) (
 		return inst, nil
 	}
 	if inst.Moved() {
-		return instance.Instance{}, fmt.Errorf("case metadata points to a different directory. Run 'rekit repair -Target %q -Apply' after confirming the move", caseRoot)
+		return instance.Instance{}, instance.MovedRepairPreviewError(caseRoot, pack)
 	}
 	if strings.TrimSpace(inst.TemplateRoot) == "" {
 		return instance.Instance{}, fmt.Errorf("missing templateRoot in case metadata: %s", caseRoot)
