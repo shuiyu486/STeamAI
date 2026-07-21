@@ -9746,6 +9746,7 @@ type handoffResult struct {
 	ExecutorAction              *executorActionSnapshot             `json:"executorAction"`
 	LaneExecutorActions         []handoffLaneExecutorAction         `json:"laneExecutorActions"`
 	ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+	ReviewerWritebacks          []reviewerWritebackCLIItem          `json:"reviewerWritebacks"`
 	MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
 	MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
 	Writes                      []startWrite                        `json:"writes"`
@@ -9763,6 +9764,20 @@ type handoffLaneExecutorAction struct {
 	LastTakeoverBy     string                 `json:"lastTakeoverBy"`
 	LastTakeoverReason string                 `json:"lastTakeoverReason"`
 	ExecutorAction     executorActionSnapshot `json:"executorAction"`
+}
+
+type reviewerWritebackCLIItem struct {
+	Kind               string   `json:"kind"`
+	EventID            string   `json:"eventId"`
+	Lane               string   `json:"lane"`
+	PacketID           string   `json:"packetId"`
+	RouteID            string   `json:"routeId"`
+	ShardID            string   `json:"shardId"`
+	ReviewerSession    string   `json:"reviewerSession"`
+	ReviewerResultPath string   `json:"reviewerResultPath"`
+	OwnerBindingTarget string   `json:"ownerBindingTarget"`
+	OwnerBindingMode   string   `json:"ownerBindingMode"`
+	EvidenceRefs       []string `json:"evidenceRefs"`
 }
 
 type executionEvidenceReviewItem struct {

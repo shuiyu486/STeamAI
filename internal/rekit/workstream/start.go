@@ -128,6 +128,7 @@ type laneCheckpoint struct {
 	PendingGates                []string                                 `json:"pendingGates"`
 	AuthorizedGates             []string                                 `json:"authorizedGates"`
 	ExecutionEvidenceReview     []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
+	ReviewerWritebacks          []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	OpenInterventions           []InterventionSummary                    `json:"openInterventions"`
@@ -817,6 +818,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		return "", "", err
 	}
 	laneFacts := mission.LaneFacts(ledgerFacts.Facts, lane.ID)
+	reviewerWritebacks := ReviewerWritebackItems(ledgerFacts, lane.ID)
 	brief := laneMissionBrief(lane, ledgerFacts)
 	pendingGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate"), mission.LaneGateLine)
 	authorizedGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "authorized-gate"), mission.LaneGateLine)
@@ -891,6 +893,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	)
 	lines = appendResumeList(lines, "commander follow-up commands", executorAction.MissionCommanderAction.FollowUpCommands)
 	lines = appendResumeList(lines, "commander boundary", executorAction.MissionCommanderAction.Boundary)
+	lines = appendResumeReviewerWritebacks(lines, reviewerWritebacks)
 	lines = appendMissionCommanderActionQueue(lines, missionCommanderActionQueue)
 	lines = appendResumeMissionCommanderNextActions(lines, missionCommanderNextActions)
 	lines = appendResumeList(lines, "blocker reasons", executorAction.BlockerReasons)
@@ -963,6 +966,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		PendingGates:                pendingGateLines,
 		AuthorizedGates:             authorizedGateLines,
 		ExecutionEvidenceReview:     executionEvidenceReview,
+		ReviewerWritebacks:          reviewerWritebacks,
 		MissionCommanderNextActions: missionCommanderNextActions,
 		MissionCommanderActionQueue: missionCommanderActionQueue,
 		OpenInterventions:           openInterventions,

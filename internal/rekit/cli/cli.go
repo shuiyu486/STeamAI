@@ -1370,6 +1370,7 @@ type statusCaseMission struct {
 	InterventionHandoffs          []statusInterventionHandoff              `json:"interventionHandoffs,omitempty"`
 	FactCounts                    *overview.FactCounts                     `json:"factCounts,omitempty"`
 	Sections                      *overview.OverviewSections               `json:"sections,omitempty"`
+	ReviewerWritebacks            []workstream.ReviewerWritebackItem       `json:"reviewerWritebacks,omitempty"`
 	ExecutionEvidenceReviewCount  int                                      `json:"executionEvidenceReviewCount"`
 	ExecutionEvidenceReview       []workstream.ExecutionEvidenceReviewItem `json:"executionEvidenceReview,omitempty"`
 	MissionCommanderActionQueue   mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
@@ -1650,6 +1651,9 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 			return err
 		}
 	}
+	if err := writeStatusCaseMissionReviewerWritebackText(out, summary.ReviewerWritebacks); err != nil {
+		return err
+	}
 	for _, action := range summary.MissionCommanderNextActions {
 		if _, err := fmt.Fprintf(out, "status case mission next action：lane=%s label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s\n", action.Lane, action.Label, action.State, action.Source, action.Blocked, action.RequiresReview, action.Command); err != nil {
 			return err
@@ -1888,6 +1892,30 @@ func statusMissionActionCommand(action *mission.MissionCommanderNextActionItem) 
 	return textOr(strings.TrimSpace(action.Command), "none")
 }
 
+func writeStatusCaseMissionReviewerWritebackText(out io.Writer, items []workstream.ReviewerWritebackItem) error {
+	for _, item := range items {
+		if _, err := fmt.Fprintf(out, "status case mission reviewer writeback：kind=%s eventId=%s lane=%s shard=%s reviewerSession=%s verdict=%s decision=%s packetId=%s routeId=%s\n", item.Kind, item.EventID, item.Lane, item.ShardID, item.ReviewerSession, item.Verdict, item.Decision, item.PacketID, item.RouteID); err != nil {
+			return err
+		}
+		if strings.TrimSpace(item.ReviewerResultPath) != "" {
+			if _, err := fmt.Fprintf(out, "status case mission reviewer result：eventId=%s path=%s\n", item.EventID, item.ReviewerResultPath); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(item.OwnerBindingTarget) != "" || strings.TrimSpace(item.OwnerBindingMode) != "" || strings.TrimSpace(item.OwnerExecutor) != "" || strings.TrimSpace(item.OwnerGeneration) != "" {
+			if _, err := fmt.Fprintf(out, "status case mission reviewer owner：eventId=%s target=%s mode=%s executor=%s generation=%s\n", item.EventID, item.OwnerBindingTarget, item.OwnerBindingMode, item.OwnerExecutor, item.OwnerGeneration); err != nil {
+				return err
+			}
+		}
+		for _, ref := range item.EvidenceRefs {
+			if _, err := fmt.Fprintf(out, "status case mission reviewer evidence ref：eventId=%s ref=%s\n", item.EventID, ref); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func writeStatusCaseMissionSectionsText(out io.Writer, sections overview.OverviewSections) error {
 	for _, section := range []struct {
 		name string
@@ -1907,6 +1935,9 @@ func writeStatusCaseMissionSectionsText(out io.Writer, sections overview.Overvie
 		}
 		for idx, event := range section.data.Events {
 			if _, err := fmt.Fprintf(out, "status case mission section event：section=%s index=%d eventId=%s kind=%s status=%s lane=%s subject=%s summary=%s action=%s decision=%s\n", section.name, idx+1, eventText(event, "eventId"), eventText(event, "kind"), eventText(event, "status"), eventText(event, "lane"), eventText(event, "subject"), eventText(event, "summary"), eventText(event, "action"), eventText(event, "decision")); err != nil {
+				return err
+			}
+			if err := writeReviewerEventDetailText(out, "status case mission section", eventText(event, "eventId"), event); err != nil {
 				return err
 			}
 		}
@@ -2100,6 +2131,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		LaneExecutorActions:           append([]mission.LaneExecutorActionSnapshot{}, inventory.LaneExecutorActions...),
 		FactCounts:                    &inventory.Counts,
 		Sections:                      &inventory.Sections,
+		ReviewerWritebacks:            workstream.ReviewerWritebackItems(ledgerFacts, ""),
 		ExecutionEvidenceReviewCount:  len(inventory.ExecutionEvidenceReview),
 		ExecutionEvidenceReview:       append([]workstream.ExecutionEvidenceReviewItem{}, inventory.ExecutionEvidenceReview...),
 		MissionCommanderActionQueue:   inventory.MissionCommanderActionQueue,
@@ -3142,6 +3174,9 @@ func writeOverviewSectionsText(out io.Writer, sections overview.OverviewSections
 			if _, err := fmt.Fprintf(out, "overview section event：section=%s index=%d eventId=%s kind=%s status=%s lane=%s subject=%s summary=%s action=%s decision=%s\n", section.name, idx+1, eventText(event, "eventId"), eventText(event, "kind"), eventText(event, "status"), eventText(event, "lane"), eventText(event, "subject"), eventText(event, "summary"), eventText(event, "action"), eventText(event, "decision")); err != nil {
 				return err
 			}
+			if err := writeReviewerEventDetailText(out, "overview section", eventText(event, "eventId"), event); err != nil {
+				return err
+			}
 		}
 	}
 	if _, err := fmt.Fprintf(out, "overview section：name=batches total=%d shown=%d\n", sections.Batches.Total, sections.Batches.Shown); err != nil {
@@ -3153,6 +3188,53 @@ func writeOverviewSectionsText(out io.Writer, sections overview.OverviewSections
 		}
 	}
 	return nil
+}
+
+func writeReviewerEventDetailText(out io.Writer, prefix, eventID string, event map[string]any) error {
+	if eventText(event, "packetId") == "" && eventText(event, "routeId") == "" && eventText(event, "shardId") == "" && eventText(event, "reviewerSession") == "" && eventText(event, "reviewerResultPath") == "" {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s reviewer detail：eventId=%s packetId=%s routeId=%s shardId=%s reviewerSession=%s reviewerResultPath=%s\n", prefix, eventID, eventText(event, "packetId"), eventText(event, "routeId"), eventText(event, "shardId"), eventText(event, "reviewerSession"), eventText(event, "reviewerResultPath")); err != nil {
+		return err
+	}
+	if eventText(event, "ownerBindingTarget") != "" || eventText(event, "ownerBindingMode") != "" || eventText(event, "ownerExecutor") != "" || eventText(event, "ownerGeneration") != "" {
+		if _, err := fmt.Fprintf(out, "%s reviewer owner：eventId=%s target=%s mode=%s executor=%s generation=%s\n", prefix, eventID, eventText(event, "ownerBindingTarget"), eventText(event, "ownerBindingMode"), eventText(event, "ownerExecutor"), eventText(event, "ownerGeneration")); err != nil {
+			return err
+		}
+	}
+	for _, ref := range eventStringList(event["evidenceRefs"]) {
+		if _, err := fmt.Fprintf(out, "%s reviewer evidence ref：eventId=%s ref=%s\n", prefix, eventID, ref); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func eventStringList(value any) []string {
+	out := []string{}
+	add := func(value string) {
+		for _, part := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' || r == '\n' || r == '\r' }) {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	switch t := value.(type) {
+	case nil:
+		return nil
+	case []string:
+		for _, item := range t {
+			add(item)
+		}
+	case []any:
+		for _, item := range t {
+			add(fmt.Sprint(item))
+		}
+	default:
+		add(fmt.Sprint(t))
+	}
+	return mission.UniqueStrings(out)
 }
 
 func eventText(event map[string]any, key string) string {
@@ -3741,6 +3823,9 @@ func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 	if err := writeHandoffExecutionEvidenceReviewText(out, result.ExecutionEvidenceReview); err != nil {
 		return err
 	}
+	if err := writeReviewerWritebackText(out, "handoff", result.ReviewerWritebacks); err != nil {
+		return err
+	}
 	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
 		return err
 	}
@@ -3749,6 +3834,30 @@ func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 
 func writeHandoffExecutionEvidenceReviewText(out io.Writer, items []workstream.ExecutionEvidenceReviewItem) error {
 	return writeExecutionEvidenceReviewText(out, "handoff execution evidence", items)
+}
+
+func writeReviewerWritebackText(out io.Writer, prefix string, items []workstream.ReviewerWritebackItem) error {
+	for _, item := range items {
+		if _, err := fmt.Fprintf(out, "%s reviewer writeback：kind=%s eventId=%s lane=%s shard=%s reviewerSession=%s verdict=%s decision=%s packetId=%s routeId=%s\n", prefix, item.Kind, item.EventID, item.Lane, item.ShardID, item.ReviewerSession, item.Verdict, item.Decision, item.PacketID, item.RouteID); err != nil {
+			return err
+		}
+		if strings.TrimSpace(item.ReviewerResultPath) != "" {
+			if _, err := fmt.Fprintf(out, "%s reviewer result：eventId=%s path=%s\n", prefix, item.EventID, item.ReviewerResultPath); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(item.OwnerBindingTarget) != "" || strings.TrimSpace(item.OwnerBindingMode) != "" || strings.TrimSpace(item.OwnerExecutor) != "" || strings.TrimSpace(item.OwnerGeneration) != "" {
+			if _, err := fmt.Fprintf(out, "%s reviewer owner：eventId=%s target=%s mode=%s executor=%s generation=%s\n", prefix, item.EventID, item.OwnerBindingTarget, item.OwnerBindingMode, item.OwnerExecutor, item.OwnerGeneration); err != nil {
+				return err
+			}
+		}
+		for _, ref := range item.EvidenceRefs {
+			if _, err := fmt.Fprintf(out, "%s reviewer evidence ref：eventId=%s ref=%s\n", prefix, item.EventID, ref); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func writeExecutionEvidenceBoundaryDetailText(out io.Writer, prefix, eventID string, boundaryHits []string, escalation string) error {
@@ -3876,6 +3985,9 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 		if err := writeExecutionEvidenceReviewText(out, "continue execution evidence", result.ExecutionEvidenceReview); err != nil {
 			return err
 		}
+		if err := writeReviewerWritebackText(out, "continue", result.ReviewerWritebacks); err != nil {
+			return err
+		}
 		if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
 			return err
 		}
@@ -3898,6 +4010,9 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 		return err
 	}
 	if err := writeExecutionEvidenceReviewText(out, "continue execution evidence", result.ExecutionEvidenceReview); err != nil {
+		return err
+	}
+	if err := writeReviewerWritebackText(out, "continue", result.ReviewerWritebacks); err != nil {
 		return err
 	}
 	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {

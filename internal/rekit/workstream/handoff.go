@@ -38,6 +38,7 @@ type HandoffResult struct {
 	ExecutorAction              *laneExecutorAction                      `json:"executorAction,omitempty"`
 	LaneExecutorActions         []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions,omitempty"`
 	ExecutionEvidenceReview     []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
+	ReviewerWritebacks          []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	Writes                      []StartWrite                             `json:"writes"`
@@ -128,6 +129,15 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	var executorAction *laneExecutorAction
 	laneExecutorActions := []mission.LaneExecutorActionSnapshot{}
 	executionEvidenceReview := []ExecutionEvidenceReviewItem{}
+	reviewerWritebacks := []ReviewerWritebackItem{}
+	facts, factsErr := readHandoffFacts(ctx.inst.CaseRoot)
+	if factsErr == nil {
+		if lane != nil {
+			reviewerWritebacks = ReviewerWritebackItems(facts, lane.ID)
+		} else if ctx.project {
+			reviewerWritebacks = ReviewerWritebackItems(facts, "")
+		}
+	}
 	if lane != nil {
 		action := ctx.executorAction(*lane)
 		executorAction = &action
@@ -171,6 +181,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		ExecutorAction:              executorAction,
 		LaneExecutorActions:         laneExecutorActions,
 		ExecutionEvidenceReview:     executionEvidenceReview,
+		ReviewerWritebacks:          reviewerWritebacks,
 		MissionCommanderNextActions: missionCommanderNext,
 		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(missionCommanderNext),
 		Writes:                      writes,
@@ -360,6 +371,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	}
 	fmt.Fprintln(&out)
 	writeProjectMissionBrief(&out, ctx.board.Lanes, facts)
+	writeReviewerWritebackItems(&out, ReviewerWritebackItems(facts, ""))
 	fmt.Fprintln(&out, "## 工作线")
 	fmt.Fprintln(&out)
 	for _, row := range ctx.board.Lanes {
@@ -661,6 +673,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	writeAutonomyProfileSection(&out, ctx.inst.CaseRoot, lane, ctx.manifest)
 	writeVerificationSection(&out, facts.Verifications, lane.ID)
 	writeDecisionSection(&out, facts.Decisions, lane.ID)
+	writeReviewerWritebackItems(&out, ReviewerWritebackItems(facts, lane.ID))
 	writePendingGateSection(&out, facts.Requests, lane.ID)
 	writeAuthorizedGateSection(&out, facts.Requests, lane.ID)
 	writeExecutionEvidenceReviewSection(&out, executionEvidenceReview)
@@ -1017,6 +1030,9 @@ func writeVerificationSection(out *bytes.Buffer, verifications []map[string]any,
 			reviewerTag = " | reviewerSession=" + reviewer
 		}
 		fmt.Fprintf(out, "- %s | verifier=%s | verdict=%s | target=%s%s%s%s\n", subj, firstObjectText(v, "verifier"), firstObjectText(v, "verdict"), firstObjectText(v, "target"), byTag, reviewerTag, batchTag(v))
+		if item, ok := reviewerWritebackItem("verification", v); ok {
+			writeReviewerWritebackEventDetail(out, "  ", item)
+		}
 	}
 	fmt.Fprintln(out)
 }
@@ -1041,6 +1057,9 @@ func writeDecisionSection(out *bytes.Buffer, decisions []map[string]any, laneID 
 			reviewerTag = " | reviewerSession=" + reviewer
 		}
 		fmt.Fprintf(out, "- %s | decision=%s%s%s | reason=%s\n", subj, dec, byTag, reviewerTag, firstObjectText(d, "reason"))
+		if item, ok := reviewerWritebackItem("decision", d); ok {
+			writeReviewerWritebackEventDetail(out, "  ", item)
+		}
 	}
 	fmt.Fprintln(out)
 }

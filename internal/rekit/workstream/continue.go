@@ -46,6 +46,7 @@ type ContinueResult struct {
 	MissionBrief                mission.Brief                            `json:"missionBrief"`
 	ExecutorAction              laneExecutorAction                       `json:"executorAction"`
 	ExecutionEvidenceReview     []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
+	ReviewerWritebacks          []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	Inputs                      []string                                 `json:"inputs"`
@@ -163,6 +164,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(commanderNextActions),
 		Inputs:                      uniqueStrings(inputs),
 		PacketRefs:                  uniqueStrings(packets),
+		ReviewerWritebacks:          ctx.reviewerWritebacks(),
 		BlockedActions:              []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
 		NextSteps: []string{
 			"review this preview, then re-run continue with -Apply when the case-local facts/route/digest writes are acceptable",
@@ -331,6 +333,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 	result.MissionBrief = ctx.missionBrief()
 	result.ExecutorAction = ctx.executorAction()
 	result.ExecutionEvidenceReview = ctx.executionEvidenceReview()
+	result.ReviewerWritebacks = ctx.reviewerWritebacks()
 	result.MissionCommanderNextActions = ctx.missionCommanderNextActions(result.ExecutorAction, result.ExecutionEvidenceReview)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	result.NextSteps = workstreamNextSteps(result.ExecutorAction, true)
@@ -417,6 +420,14 @@ func (ctx continueContext) executionEvidenceReview() []ExecutionEvidenceReviewIt
 	return laneExecutionEvidenceReview(ctx.lane, facts.Observations)
 }
 
+func (ctx continueContext) reviewerWritebacks() []ReviewerWritebackItem {
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		return nil
+	}
+	return ReviewerWritebackItems(facts, ctx.lane.ID)
+}
+
 func (ctx continueContext) missionCommanderNextActions(action laneExecutorAction, evidenceReview []ExecutionEvidenceReviewItem) []mission.MissionCommanderNextActionItem {
 	return mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(ctx.lane, action)}, evidenceReview, action.Blocked)
 }
@@ -451,6 +462,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 		ExecutionEvidenceReview:     executionEvidenceReview,
 		MissionCommanderNextActions: commanderNextActions,
 		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(commanderNextActions),
+		ReviewerWritebacks:          ctx.reviewerWritebacks(),
 		OpenRisks:                   interventionRiskLines(open),
 		Blocked:                     true,
 		ReconcileRequired:           true,
@@ -768,6 +780,7 @@ func continueDigestText(result ContinueResult) string {
 	lines = appendMissionCommanderActionQueue(lines, result.MissionCommanderActionQueue)
 	lines = appendContinueMissionCommanderNextActions(lines, result.MissionCommanderNextActions)
 	lines = appendContinueExecutionEvidenceReview(lines, result.ExecutionEvidenceReview)
+	lines = appendDigestReviewerWritebacks(lines, result.ReviewerWritebacks)
 	lines = appendMissionBriefDigestList(lines, "blocker reasons", result.ExecutorAction.BlockerReasons)
 	lines = appendMissionBriefDigestList(lines, "executor next actions", result.ExecutorAction.NextAgentActions)
 	lines = appendMissionBriefDigestList(lines, "executor escalations", result.ExecutorAction.Escalations)

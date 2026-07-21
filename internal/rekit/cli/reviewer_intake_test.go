@@ -290,6 +290,9 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	if applied.MissionCommanderAction.State != "reviewer-intake-writeback-complete" || applied.MissionCommanderActionQueue.CurrentAction == nil || !strings.HasPrefix(applied.MissionCommanderActionQueue.CurrentAction.Source, "reviewerIntake.postValidation.") {
 		t.Fatalf("nested apply omitted post-validation Mission Commander guidance: action=%+v queue=%+v", applied.MissionCommanderAction, applied.MissionCommanderActionQueue)
 	}
+	if len(applied.PostValidation.Handoff.ReviewerWritebacks) != 2 || applied.PostValidation.Handoff.ReviewerWritebacks[0].ReviewerSession != "reviewer-session-product-path" || applied.PostValidation.Handoff.ReviewerWritebacks[0].ShardID != "shard-01" || applied.PostValidation.Handoff.ReviewerWritebacks[1].Kind != "decision" || !containsSubstring(applied.PostValidation.Handoff.ReviewerWritebacks[1].EvidenceRefs, applied.Verification.EventID) {
+		t.Fatalf("nested apply omitted reviewer writeback handoff identity: %+v", applied.PostValidation.Handoff.ReviewerWritebacks)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
@@ -299,8 +302,11 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("nested status stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if status.Command != "status" || status.Mode != "case" || status.Pack != "_template" || status.PackSource != "case-metadata" || status.TargetProvided || status.Target != caseRoot || status.TemplateRoot != root || status.Case == nil || status.Case.TemplatePack != "_template" || status.CaseMission == nil || status.CaseMission.Sections == nil || status.CaseMission.Sections.Verifications.Total != 1 || status.CaseMission.Sections.Decisions.Total != 1 || status.CaseMission.MissionCommanderActionQueue.CurrentAction == nil {
+	if status.Command != "status" || status.Mode != "case" || status.Pack != "_template" || status.PackSource != "case-metadata" || status.TargetProvided || status.Target != caseRoot || status.TemplateRoot != root || status.Case == nil || status.Case.TemplatePack != "_template" || status.CaseMission == nil || status.CaseMission.Sections == nil || status.CaseMission.Sections.Verifications.Total != 1 || status.CaseMission.Sections.Decisions.Total != 1 || status.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || len(status.CaseMission.ReviewerWritebacks) != 2 {
 		t.Fatalf("nested status omitted reviewer intake post-validation handoff state: %+v", status)
+	}
+	if status.CaseMission.ReviewerWritebacks[0].PacketID != packet.PacketID || status.CaseMission.ReviewerWritebacks[0].RouteID != packet.Route.ID || status.CaseMission.ReviewerWritebacks[0].ReviewerResultPath != resultPath || status.CaseMission.ReviewerWritebacks[0].OwnerBindingTarget != "main" || status.CaseMission.ReviewerWritebacks[1].Kind != "decision" || !containsSubstring(status.CaseMission.ReviewerWritebacks[1].EvidenceRefs, applied.Verification.EventID) {
+		t.Fatalf("nested status reviewer writeback identity missing: %+v", status.CaseMission.ReviewerWritebacks)
 	}
 
 	out.Reset()
@@ -315,8 +321,14 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 		"case: " + caseRoot,
 		"status case mission section：name=verifications total=1 shown=1",
 		"status case mission section event：section=verifications index=1 eventId=evt-",
+		"status case mission section reviewer detail：eventId=evt-",
+		"status case mission reviewer writeback：kind=verification eventId=evt-",
+		"status case mission reviewer result：eventId=evt-",
+		"status case mission reviewer owner：eventId=evt-",
+		"status case mission reviewer evidence ref：eventId=evt-",
 		"status case mission section：name=decisions total=1 shown=1",
 		"status case mission section event：section=decisions index=1 eventId=evt-",
+		"status case mission reviewer writeback：kind=decision eventId=evt-",
 		"status case mission queue action：bucket=current",
 		"continueBoundary=status is read-only; run continue with -WhatIf first",
 	} {
@@ -326,6 +338,122 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	}
 	if strings.Contains(out.String(), "{\n  ") {
 		t.Fatalf("nested default status should not emit JSON object:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"overview section reviewer detail：eventId=evt-",
+		"overview section reviewer owner：eventId=evt-",
+		"overview section reviewer evidence ref：eventId=evt-",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested overview reviewer writeback text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("nested overview text should not emit JSON object:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"handoff reviewer writeback：kind=verification eventId=evt-",
+		"handoff reviewer result：eventId=evt-",
+		"handoff reviewer owner：eventId=evt-",
+		"handoff reviewer evidence ref：eventId=evt-",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested handoff reviewer writeback text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("nested handoff text should not emit JSON object:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	handoffApply := decodeHandoffResult(t, out.Bytes())
+	if len(handoffApply.ReviewerWritebacks) != 2 || handoffApply.ReviewerWritebacks[0].ReviewerSession != "reviewer-session-product-path" || handoffApply.ReviewerWritebacks[1].Kind != "decision" {
+		t.Fatalf("nested handoff apply JSON omitted reviewer writebacks: %+v", handoffApply.ReviewerWritebacks)
+	}
+	latestPath := assertStartWrite(t, handoffApply.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff").TargetPath
+	latestText, err := os.ReadFile(latestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"## reviewer writeback", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`", "owner binding: target=main mode="} {
+		if !strings.Contains(string(latestText), expected) {
+			t.Fatalf("written handoff omitted reviewer writeback %q:\n%s", expected, string(latestText))
+		}
+	}
+	resumePath := filepath.Join(caseRoot, ".rekit", "lanes", "main", "prompts", "RESUME.md")
+	resumeText, err := os.ReadFile(resumePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"## Reviewer writeback", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`"} {
+		if !strings.Contains(string(resumeText), expected) {
+			t.Fatalf("lane RESUME omitted reviewer writeback %q:\n%s", expected, string(resumeText))
+		}
+	}
+	checkpointBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "checkpoints", "latest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		ReviewerWritebacks []reviewerWritebackCLIItem `json:"reviewerWritebacks"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("checkpoint is not JSON: %v\n%s", err, string(checkpointBytes))
+	}
+	if len(checkpoint.ReviewerWritebacks) != 2 || checkpoint.ReviewerWritebacks[0].PacketID != packet.PacketID || checkpoint.ReviewerWritebacks[1].Kind != "decision" {
+		t.Fatalf("checkpoint omitted reviewer writebacks: %+v", checkpoint.ReviewerWritebacks)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"continue reviewer writeback：kind=verification eventId=evt-",
+		"continue reviewer result：eventId=evt-",
+		"continue reviewer owner：eventId=evt-",
+		"continue reviewer evidence ref：eventId=evt-",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested continue reviewer writeback text missing %q:\n%s", expected, out.String())
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continueApply struct {
+		RunID              string                     `json:"runId"`
+		ReviewerWritebacks []reviewerWritebackCLIItem `json:"reviewerWritebacks"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
+		t.Fatalf("continue apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if len(continueApply.ReviewerWritebacks) != 2 || continueApply.ReviewerWritebacks[0].ReviewerSession != "reviewer-session-product-path" || continueApply.ReviewerWritebacks[1].Kind != "decision" {
+		t.Fatalf("continue apply omitted reviewer writebacks: %+v", continueApply.ReviewerWritebacks)
+	}
+	digest, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "runs", continueApply.RunID, "digest.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"## Reviewer writeback", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`"} {
+		if !strings.Contains(string(digest), expected) {
+			t.Fatalf("continue digest omitted reviewer writeback %q:\n%s", expected, string(digest))
+		}
 	}
 }
 
@@ -476,7 +604,8 @@ type reviewerIntakeCLIResult struct {
 			Lane *struct {
 				ID string `json:"id"`
 			} `json:"lane"`
-			ExecutorAction map[string]any `json:"executorAction"`
+			ExecutorAction     map[string]any             `json:"executorAction"`
+			ReviewerWritebacks []reviewerWritebackCLIItem `json:"reviewerWritebacks"`
 		} `json:"handoff"`
 		Valid bool `json:"valid"`
 	} `json:"postValidation"`
