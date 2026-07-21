@@ -8224,7 +8224,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 }
 
-func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testing.T) {
+func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeAuthorizedGateVisibilityFixture(t, caseRoot)
 	var out bytes.Buffer
@@ -8288,12 +8288,13 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 
 	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	out.Reset()
-	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-ExecutionReportContract", "-GateEventId", applied.EventID, "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "gate", "-ExecutionReportContract", "-GateEventId", applied.EventID, "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var contract struct {
 		Kind                   string   `json:"kind"`
 		CaseRoot               string   `json:"caseRoot"`
+		Pack                   string   `json:"pack"`
 		GateEventID            string   `json:"gateEventId"`
 		IsMutation             bool     `json:"isMutation"`
 		AllowedOutputPaths     []string `json:"allowedOutputPaths"`
@@ -8340,8 +8341,8 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	if err := json.Unmarshal(out.Bytes(), &contract); err != nil {
 		t.Fatalf("nested workspace adapter report contract stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if contract.Kind != "adapter-execution-report-contract" || contract.CaseRoot != caseRoot || contract.GateEventID != applied.EventID || contract.IsMutation || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || contract.DefaultReportPath != "workspace/main/debug/session-1/adapter-report.json" {
-		t.Fatalf("unexpected nested workspace adapter report contract: %+v", contract)
+	if contract.Kind != "adapter-execution-report-contract" || contract.CaseRoot != caseRoot || contract.Pack != "_template" || contract.GateEventID != applied.EventID || contract.IsMutation || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || contract.DefaultReportPath != "workspace/main/debug/session-1/adapter-report.json" {
+		t.Fatalf("unexpected nested no-pack workspace adapter report contract: %+v", contract)
 	}
 	if !containsSubstring(contract.RefPathRequires, "evidenceRefs must stay under authorized outputPaths") || !containsSubstring(contract.BoundaryStatusRequires, "authorized stopConditions") || !containsSubstring(contract.StatusSummaryRequires, "failed/boundary-hit/escalated/aborted") {
 		t.Fatalf("nested workspace adapter report contract omitted live enforcement rules: %+v", contract)
@@ -8355,7 +8356,7 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 		t.Fatalf("nested workspace adapter report contract omitted Mission Commander next actions: %+v", contract.MissionCommanderNextActions)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-ExecutionReportContract", "-GateEventId", applied.EventID, "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "gate", "-ExecutionReportContract", "-GateEventId", applied.EventID, "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -8383,12 +8384,13 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-ValidateExecutionReport", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "gate", "-ValidateExecutionReport", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var validation struct {
 		Kind       string `json:"kind"`
 		CaseRoot   string `json:"caseRoot"`
+		Pack       string `json:"pack"`
 		Valid      bool   `json:"valid"`
 		IsMutation bool   `json:"isMutation"`
 		Applied    bool   `json:"applied"`
@@ -8401,8 +8403,8 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 	if err := json.Unmarshal(out.Bytes(), &validation); err != nil {
 		t.Fatalf("nested workspace adapter report validation stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if validation.Kind != "adapter-execution-report-validation" || validation.CaseRoot != caseRoot || !validation.Valid || validation.IsMutation || validation.Applied || validation.Error != "" || validation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || validation.Report == nil || validation.Report.AdapterID != "nested-cli-adapter" {
-		t.Fatalf("unexpected nested workspace adapter report validation: %+v", validation)
+	if validation.Kind != "adapter-execution-report-validation" || validation.CaseRoot != caseRoot || validation.Pack != "_template" || !validation.Valid || validation.IsMutation || validation.Applied || validation.Error != "" || validation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || validation.Report == nil || validation.Report.AdapterID != "nested-cli-adapter" {
+		t.Fatalf("unexpected nested no-pack workspace adapter report validation: %+v", validation)
 	}
 	var validationCommander struct {
 		MissionCommanderAction struct {
@@ -8458,7 +8460,7 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
   "evidenceRefs": ["workspace/main/other/evidence.json"]
 }`)
 	out.Reset()
-	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-ValidateExecutionReport", "-GateEventId", applied.EventID, "-ExecutionReportPath", "bad-evidence-refs-report.json", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "gate", "-ValidateExecutionReport", "-GateEventId", applied.EventID, "-ExecutionReportPath", "bad-evidence-refs-report.json", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var invalidValidation struct {
@@ -8474,13 +8476,14 @@ func TestRunGateAdapterReportReadOnlyPreflightFromNestedOutputWorkspace(t *testi
 			RerunValidation    bool     `json:"rerunValidation"`
 		} `json:"repairHints"`
 		Error      string `json:"error"`
+		Pack       string `json:"pack"`
 		ReportPath string `json:"reportPath"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &invalidValidation); err != nil {
 		t.Fatalf("nested workspace invalid evidenceRefs validation stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if invalidValidation.Valid || invalidValidation.IsMutation || invalidValidation.Applied || invalidValidation.FailureCode != "evidence-refs-out-of-scope" || invalidValidation.FailureStage != "refs" || !strings.Contains(invalidValidation.Error, "evidenceRefs must stay within authorized gate outputPaths") || invalidValidation.ReportPath != "workspace/main/debug/session-1/bad-evidence-refs-report.json" {
-		t.Fatalf("unexpected nested workspace invalid evidenceRefs validation: %+v", invalidValidation)
+	if invalidValidation.Valid || invalidValidation.IsMutation || invalidValidation.Applied || invalidValidation.Pack != "_template" || invalidValidation.FailureCode != "evidence-refs-out-of-scope" || invalidValidation.FailureStage != "refs" || !strings.Contains(invalidValidation.Error, "evidenceRefs must stay within authorized gate outputPaths") || invalidValidation.ReportPath != "workspace/main/debug/session-1/bad-evidence-refs-report.json" {
+		t.Fatalf("unexpected nested no-pack workspace invalid evidenceRefs validation: %+v", invalidValidation)
 	}
 	if len(invalidValidation.RepairHints) != 1 || invalidValidation.RepairHints[0].RepairAction != "move-evidence-refs-under-authorized-output-paths" || strings.Join(invalidValidation.RepairHints[0].AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || !invalidValidation.RepairHints[0].RecordBlocked || !invalidValidation.RepairHints[0].RerunValidation {
 		t.Fatalf("nested workspace invalid evidenceRefs validation omitted repair hints: %+v", invalidValidation)

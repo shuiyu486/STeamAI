@@ -16,24 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 490：pack-memory promote candidate case-local product-path smoke closure
+### Batch 491：adapter execution report no-pack product-path smoke closure
 
-状态：已完成 pack-memory promote candidate product-path smoke implementation、durable docs、focused promote coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29820924165` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 adapter execution report no-pack product-path smoke implementation、CHANGELOG 记录、focused gate coverage 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本段 durable docs 提交后执行。
 
-目标：Pack-memory `promote -CreateCandidates` 已有直接 `-Target` / `-Pack` 覆盖与 text/JSON handoff，但还缺真实 case-local nested lane workspace product-path 证明：replacement executor 从 feature lane workspace 接手时，无 `-Target` / 无 `-Pack` 的 candidate materialization 与 WhatIf preview 也能通过 attached case metadata pack default / cwd target discovery 消费同一 reviewPlan、cleanup、reconsume 与 Mission Commander action queue handoff。Batch 490 将该路径补成本机 Windows 可验证 smoke。
+目标：Authorized gate → adapter report contract → read-only validation → bounded evidence record 已有 nested output workspace coverage，但 contract/validation preflight 仍主要通过显式 `-Pack` 验证；还缺真实 case-local authorized output workspace product-path 证明：lane executor 位于授权 output workspace 时，无 `-Target` / 无 `-Pack` 的 `gate -ExecutionReportContract` 与 `gate -ValidateExecutionReport` valid/invalid preflight 也能通过 attached case metadata pack default / cwd target discovery 消费同一 liveValidation、record handoff 与 no-write validation boundary。Batch 491 将该路径补成本机 Windows 可验证 smoke。
 
-边界：只增强本机 product-path coverage，不新增 runtime 行为；`promote -CreateCandidates` 仍只在非 WhatIf 时写 `promote-candidates` 与 `tooling/candidates` 候选区，不 merge pack sources、不执行 cleanup/init/doctor/heavy-tool、不写 authority/confirmed；blocked deny-pattern source 只作为 reviewPlan blocked item 呈现，sync/promote apply、case durable schema 与 PowerShell runtime logic 均不改变。
+边界：只增强本机 product-path coverage，不新增 runtime 行为；`gate -ExecutionReportContract` 与 `gate -ValidateExecutionReport` 仍只读，不执行 heavy-tool、不记录 observation evidence；record evidence 仍需 valid=true 后显式 `gate -Apply`，只写 bounded observation evidence，不写 authority/confirmed；sync/promote、case durable schema 与 PowerShell runtime logic 均不改变。
 
 已完成内容：
 
-- 新增 `TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime`：从 attached case `start -Apply` 的 nested feature lane workspace 中无 `-Target` / 无 `-Pack` 运行 `promote -CreateCandidates -Format json`，验证 `caseRoot` 回到 attached case、pack 使用 `_template` case metadata default，并实际创建 managed-doc 与 tooling candidate。
-- 在同一测试中验证 candidate writes 只落入 `_template` pack 的 `promote-candidates` / `tooling/candidates` 候选区，deny-pattern source 保持 blocked，不覆盖原 pack source；测试通过 snapshot cleanup 移除新增 candidate/index 文件，避免污染 pack state。
-- 验证 `reviewPlan` 的 per-item cleanup path、decision checklist、decision follow-through、fresh/attached reconsume guidance、Mission Commander action queue 与 next-action runtime boundary 都能从 nested product path 直接消费。
-- 继续在 nested workspace 中运行 `promote -CreateCandidates -WhatIf -Format text`，验证 text 第一屏包含 review items、top-level reconsume command、reconsume check、Mission Commander action queue 与 WhatIf no-write boundary，且不输出 JSON object。
+- 将 nested output workspace adapter report smoke 收敛为 `TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace`：从 attached case authorized output workspace 中无 `-Target` / 无 `-Pack` 运行 `gate -ExecutionReportContract -Format json/text`，验证 `caseRoot` 回到 attached case、pack 使用 `_template` case metadata default，并保留 allowed output path、default report path、liveValidation args、Mission Commander validation/record handoff 与 no-heavy boundary。
+- 在同一 authorized output workspace 中无 `-Target` / 无 `-Pack` 运行 `gate -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json`，验证 valid preflight 解析 workspace-relative report path、保持 read-only/no-write，并继续投影 ready-to-record-evidence 的 bounded observation evidence handoff。
+- 继续覆盖 invalid evidenceRefs preflight 的无 `-Target` / 无 `-Pack` 路径，验证 out-of-scope evidenceRefs 仍 fail closed、给出 repair hints、保持 read-only no-write；实际 record/replay 分支仍使用 contract 生成的显式 case-relative record args，锁定 valid=true 后显式 apply 才写 bounded observation evidence且不写 authority/confirmed。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime" -count=1`、`go test ./internal/rekit/cli -run "TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime|TestRunPromoteCreateCandidatesWritesCandidates|TestRunPromoteCreateCandidatesWhatIf|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `f120afd Add pack memory product path smoke`；远程 release-gate run `29820924165` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace" -count=1`、`go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace|TestRunGateProjectsPackToolingAdapterCandidateProductPath|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。远程 release-gate inspection 待 commit/push 后记录；在此之前不能声明远程 CI green。
 
-上一批摘要：Batch 489 已完成 reviewer intake case-local product-path smoke closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 490 已完成 pack-memory promote candidate case-local product-path smoke closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
