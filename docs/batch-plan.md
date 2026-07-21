@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 482：latest-batch validation handoff closure
 
-状态：已完成 latest-batch validation handoff implementation、durable docs、focused tests、public CLI text validation 与完整本地 release minimum；commit/push 与远程 release-gate inspection 正在本轮收口。
+状态：已完成 latest-batch validation handoff implementation、durable docs、focused tests、public CLI text validation、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29805484529` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
 
 目标：Batch 464 起 kit-mode status 能显示 latest batch 摘要，Batch 481 也记录了完整本地验证和远程 steps=[] blocker，但新会话第一屏仍要读长 `验证结果` 文本才能判断“本地是否已跑完 release minimum”“是否已经检查远程 release-gate”“下一步是继续本机可验证批次还是先补验证”。Batch 482 将 latest batch validation/remote state 结构化到 `releaseHandoff.latestBatch.handoff` 与 kit-mode `status.projectHandoff`。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - kit-mode `status -Format json/text` 与默认 status 的 `projectHandoff` 同步输出 latest batch local validation readiness、release-check readiness、remote gate state、evidence 与 next action，让新会话第一屏不用解析长 validation prose。
 - Coverage 锁定 release handoff JSON、latest-batch evidence extraction、release-check text、status JSON/text/default output。
 
-验证结果：已通过 focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestLatestBatchHandoffExtractsValidationEvidence|TestLatestBatchRemoteGateDoesNotTreatNegativeGreenAsGreen|TestReleaseHandoff|TestRunStatusJsonKit|TestRunReleaseCheck" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`。远程 release-gate inspection 待 commit/push 后执行；若仍为 jobs `steps: []`，按既有 GitHub Actions runner/billing blocker 记录，不能声明远程 CI green。
+验证结果：已通过 focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestLatestBatchHandoffExtractsValidationEvidence|TestLatestBatchRemoteGateDoesNotTreatNegativeGreenAsGreen|TestReleaseHandoff|TestRunStatusJsonKit|TestRunReleaseCheck" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`。已提交并推送 `b3f4d4c Add latest batch validation handoff`；远程 release-gate run `29805484529` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
 
 上一批摘要：Batch 481 已完成 moved-case preview-first diagnostics closure，详见 `docs/batch-history.md`。
 
