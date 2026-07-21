@@ -6650,6 +6650,111 @@ func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
 	}
 }
 
+func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	root := repoRoot(t)
+	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
+	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
+	candidateBefore := snapshotFiles(t, candidateRoot)
+	toolingBefore := snapshotFiles(t, toolingRoot)
+	t.Cleanup(func() {
+		removeNewFiles(t, candidateRoot, candidateBefore)
+		removeNewFiles(t, toolingRoot, toolingBefore)
+	})
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "pack-memory", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	start := decodeStartResult(t, out.Bytes())
+	if start.Lane.ID != "feature-pack-memory" || start.Lane.Workspace != "workspace/features/feature-pack-memory" {
+		t.Fatalf("unexpected pack-memory product-path lane: %+v", start.Lane)
+	}
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Product path candidate\n\nReusable safe pack-memory update.\n")
+	writeCaseFile(t, caseRoot, "references/template/workflow-template.md", "# Blocked\n\nDo not promote C:\\case\\artifact\\sample-trace.csv.\n")
+	writeCaseFile(t, caseRoot, "references/template/toolchain-router.md", "# Tooling\n\nCase root: "+caseRoot+"\nAbsolute: C:\\cases\\demo.exe\nTrace: artifacts/run/demo-trace.csv\nAddress: 0x401000\nContext: ctx123 round7 Task #99\n")
+
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(caseRoot, filepath.FromSlash(start.Lane.Workspace))
+	if err := os.Chdir(nested); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-CreateCandidates", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	result := decodeCandidateResult(t, out.Bytes())
+	if result.Command != "promote" || result.CaseRoot != caseRoot || result.Pack != "_template" || !result.IsMutation || !result.Applied || result.Created != 2 || result.Blocked == 0 || !result.RequiresCleanup {
+		t.Fatalf("unexpected nested no-pack promote candidates result: %+v", result)
+	}
+	readmeWrite := assertCandidateWrite(t, result.Writes, "references/template/README.md", "create-candidate")
+	workflowWrite := assertCandidateWrite(t, result.Writes, "references/template/workflow-template.md", "blocked-deny-pattern")
+	toolingWrite := assertCandidateWrite(t, result.Writes, "references/template/toolchain-router.md", "create-candidate")
+	if !strings.HasPrefix(readmeWrite.TargetPath, result.CandidateRoot) || !strings.HasPrefix(toolingWrite.TargetPath, result.ToolingRoot) || result.CandidateRoot != candidateRoot || result.ToolingRoot != toolingRoot || workflowWrite.TargetPath != filepath.Join(root, "packs", "_template", filepath.FromSlash("references/template/workflow-template.md")) {
+		t.Fatalf("unexpected nested candidate roots/writes: result=%+v readme=%+v tooling=%+v workflow=%+v", result, readmeWrite, toolingWrite, workflowWrite)
+	}
+	assertFileExists(t, readmeWrite.TargetPath)
+	assertFileExists(t, toolingWrite.TargetPath)
+	if result.IndexPath == "" {
+		t.Fatal("missing nested promote candidate index path")
+	}
+	assertFileExists(t, result.IndexPath)
+	readmeReview := assertCandidateReviewItem(t, result.ReviewPlan.ReviewItems, "references/template/README.md", "pending-review")
+	toolingReview := assertCandidateReviewItem(t, result.ReviewPlan.ReviewItems, "references/template/toolchain-router.md", "pending-review")
+	assertCandidateReviewItem(t, result.ReviewPlan.ReviewItems, "references/template/workflow-template.md", "blocked")
+	if readmeReview.CleanupPath != readmeWrite.TargetPath || toolingReview.CleanupPath != toolingWrite.TargetPath || result.ReviewPlan.Mode != "candidate-review" || result.ReviewPlan.Reconsume.Mode != "pack-memory-reconsume-after-merge" || result.ReviewPlan.MissionCommanderActionQueue.CurrentAction == nil || result.ReviewPlan.MissionCommanderActionQueue.CurrentAction.Command != "review reviewPlan.decisionChecklist" {
+		t.Fatalf("nested product-path review plan omitted cleanup/reconsume handoff: reviewPlan=%+v readme=%+v tooling=%+v", result.ReviewPlan, readmeReview, toolingReview)
+	}
+	if !candidateJSONDecisionChecklistContains(result.ReviewPlan.DecisionChecklist, "references/template/toolchain-router.md", "fresh-case-reconsume") || !candidateJSONDecisionFollowThroughContains(result.ReviewPlan.DecisionFollowThrough, "references/template/toolchain-router.md", "accept", "doctor -Target <attached-case>") || !candidateJSONExecutionPlanContains(result.ReviewPlan.MainAgentExecutionPlan, "fresh-case-reconsume-after-tooling-merge", "fresh-case") || !candidateJSONNextActionContains(result.ReviewPlan.MissionCommanderNextActions, "reviewPlan.reconsume.verificationChecklist", "doctor -Target <attached-case>") || !candidateJSONNextActionBoundaryContains(result.ReviewPlan.MissionCommanderNextActions, "runtime does not execute") {
+		t.Fatalf("nested product-path review plan missing reconsume/next-action guidance: reviewPlan=%+v", result.ReviewPlan)
+	}
+	toolingText, err := os.ReadFile(toolingWrite.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"<caseRoot>", "<absolutePath>", "<artifactsPath>", "<address>", "<ctxNNN>", "<roundN>", "Task #<n>"} {
+		if !strings.Contains(string(toolingText), expected) {
+			t.Fatalf("nested tooling candidate missing %q:\n%s", expected, string(toolingText))
+		}
+	}
+	for _, unexpected := range []string{caseRoot, "C:\\cases", "demo-trace.csv", "0x401000", "ctx123", "round7", "Task #99"} {
+		if strings.Contains(string(toolingText), unexpected) {
+			t.Fatalf("nested tooling candidate contains %q:\n%s", unexpected, string(toolingText))
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-CreateCandidates", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"promote candidates：applied=false created=2",
+		"promote candidates review item：path=references/template/README.md kind=managed-doc decision=pending-review action=would-create-candidate",
+		"promote candidates review item：path=references/template/toolchain-router.md kind=tooling-candidate-source decision=pending-review action=would-create-candidate",
+		"promote candidates reconsume top-level command：go run ./cmd/rekit -- -Command doctor -Pack _template",
+		"promote candidates reconsume check：name=fresh-case-reconsume",
+		"promote candidates commander action：state=preview-pack-memory-candidates",
+		"mission commander action queue：summary=total=7 unblocked=7 blocked=0 requiresReview=3 followUp=0 current=review reviewPlan.decisionChecklist",
+		"mission commander next action boundary：WhatIf did not write candidate files or indexPath",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("nested promote create-candidates text output missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n") {
+		t.Fatalf("nested promote create-candidates text should not emit JSON:\n%s", out.String())
+	}
+}
+
 func TestRunPromoteCreateCandidatesRejectsReviewArtifacts(t *testing.T) {
 	caseRoot := attachedCase(t)
 	var out bytes.Buffer
@@ -9322,6 +9427,8 @@ type startWrite struct {
 
 type candidateResult struct {
 	Command         string              `json:"command"`
+	CaseRoot        string              `json:"caseRoot"`
+	Pack            string              `json:"pack"`
 	IsMutation      bool                `json:"isMutation"`
 	Applied         bool                `json:"applied"`
 	CandidateRoot   string              `json:"candidateRoot"`

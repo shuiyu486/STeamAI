@@ -16,23 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 489：reviewer intake case-local product-path smoke closure
+### Batch 490：pack-memory promote candidate case-local product-path smoke closure
 
-状态：已完成 reviewer intake product-path smoke implementation、durable docs、focused reviewer-intake coverage、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29819784449` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 pack-memory promote candidate product-path smoke implementation、CHANGELOG 记录、focused promote coverage 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本段 durable docs 提交后执行。
 
-目标：Reviewer orchestration / strict intake / verification-before-decision writeback 已有直接 `-Target` E2E，但还缺真实 case-local nested lane workspace product-path 证明：在 replacement executor 从 feature lane workspace 接手时，无 `-Target` / 无 `-Pack` 的 `plan-subagents` planning、reviewer result placement、`plan-subagents -ReviewerResultPath` WhatIf/Apply、postValidation 以及默认 `status` 第一屏都能通过 case metadata pack default 与 cwd target discovery 消费同一 reviewer intake handoff。Batch 489 将该路径补成本机 Windows 可验证 smoke。
+目标：Pack-memory `promote -CreateCandidates` 已有直接 `-Target` / `-Pack` 覆盖与 text/JSON handoff，但还缺真实 case-local nested lane workspace product-path 证明：replacement executor 从 feature lane workspace 接手时，无 `-Target` / 无 `-Pack` 的 candidate materialization 与 WhatIf preview 也能通过 attached case metadata pack default / cwd target discovery 消费同一 reviewPlan、cleanup、reconsume 与 Mission Commander action queue handoff。Batch 490 将该路径补成本机 Windows 可验证 smoke。
 
-边界：只增强本机 product-path coverage，不新增 runtime 行为；runtime 仍不 spawn、monitor、stop 或管理 reviewer/member sessions；reviewer output 本身不是 ledger event；reviewer intake 仍由主 Agent 显式 `-WhatIf` 后 `-Apply`，只追加 case-local verification/decision facts，不执行 heavy-tool、不写 authority/confirmed、不改变 note、workstream、gate、sync/promote、case durable schema 或 PowerShell runtime logic。
+边界：只增强本机 product-path coverage，不新增 runtime 行为；`promote -CreateCandidates` 仍只在非 WhatIf 时写 `promote-candidates` 与 `tooling/candidates` 候选区，不 merge pack sources、不执行 cleanup/init/doctor/heavy-tool、不写 authority/confirmed；blocked deny-pattern source 只作为 reviewPlan blocked item 呈现，sync/promote apply、case durable schema 与 PowerShell runtime logic 均不改变。
 
 已完成内容：
 
-- 新增 `TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime`：从 attached case `start -Apply` 的 nested feature lane workspace 中无 `-Target` / 无 `-Pack` 运行 `plan-subagents`，验证 `planRoot` 回到 caseRoot、pack 使用 `_template` case metadata default，reviewer result path 位于 case-local `.rekit` review output 下。
-- 在同一 nested workspace 中写入 bounded reviewer evidence 与 reviewer result JSON，运行 reviewer intake `-WhatIf` / text preview 与 `-Apply` / JSON writeback，验证 Mission Commander action queue、`reviewerIntake.previewed`、verification-before-decision append、postValidation overview/handoff/doctor snapshot 与 `reviewerIntake.postValidation.*` guidance。
-- 继续在 nested workspace 中运行 `status -Format json` 与无子命令默认 status，验证 case metadata pack source、verifications/decisions sections、Mission Commander action queue 与 status read-only continue boundary 能在 replacement executor 第一屏可见。
+- 新增 `TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime`：从 attached case `start -Apply` 的 nested feature lane workspace 中无 `-Target` / 无 `-Pack` 运行 `promote -CreateCandidates -Format json`，验证 `caseRoot` 回到 attached case、pack 使用 `_template` case metadata default，并实际创建 managed-doc 与 tooling candidate。
+- 在同一测试中验证 candidate writes 只落入 `_template` pack 的 `promote-candidates` / `tooling/candidates` 候选区，deny-pattern source 保持 blocked，不覆盖原 pack source；测试通过 snapshot cleanup 移除新增 candidate/index 文件，避免污染 pack state。
+- 验证 `reviewPlan` 的 per-item cleanup path、decision checklist、decision follow-through、fresh/attached reconsume guidance、Mission Commander action queue 与 next-action runtime boundary 都能从 nested product path 直接消费。
+- 继续在 nested workspace 中运行 `promote -CreateCandidates -WhatIf -Format text`，验证 text 第一屏包含 review items、top-level reconsume command、reconsume check、Mission Commander action queue 与 WhatIf no-write boundary，且不输出 JSON object。
 
-验证结果：已通过 focused `gofmt -w internal/rekit/cli/reviewer_intake_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime" -count=1`、`go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime|TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON" -count=1`、`go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime|TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。已提交并推送 `2e130d3 Add reviewer intake product path smoke`；远程 release-gate run `29819784449` 为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 focused `gofmt -w internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/cli -run "TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime" -count=1`、`go test ./internal/rekit/cli -run "TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime|TestRunPromoteCreateCandidatesWritesCandidates|TestRunPromoteCreateCandidatesWhatIf|TestRunCaseLocalProductPathUsesCaseMetadataRuntime" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。远程 release-gate inspection 待 commit/push 后记录；在此之前不能声明远程 CI green。
 
-上一批摘要：Batch 488 已完成 case-local open-decision source-detail product-path smoke closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 489 已完成 reviewer intake case-local product-path smoke closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
