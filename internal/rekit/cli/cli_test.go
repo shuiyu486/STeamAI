@@ -285,16 +285,21 @@ func TestRunStatusJsonKit(t *testing.T) {
 			ToolingFiles  int    `json:"toolingFiles"`
 		} `json:"manifest"`
 		ProjectHandoff struct {
-			Ready              bool     `json:"ready"`
-			Summary            string   `json:"summary"`
-			ReadFirst          []string `json:"readFirst"`
-			LatestBatch        string   `json:"latestBatch"`
-			LatestBatchStatus  string   `json:"latestBatchStatus"`
-			LatestBatchGoal    string   `json:"latestBatchGoal"`
-			LatestValidation   string   `json:"latestValidation"`
-			KnownGaps          []string `json:"knownGaps"`
-			NextActions        []string `json:"nextActions"`
-			ValidationCommands []string `json:"validationCommands"`
+			Ready                      bool     `json:"ready"`
+			Summary                    string   `json:"summary"`
+			ReadFirst                  []string `json:"readFirst"`
+			LatestBatch                string   `json:"latestBatch"`
+			LatestBatchStatus          string   `json:"latestBatchStatus"`
+			LatestBatchGoal            string   `json:"latestBatchGoal"`
+			LatestValidation           string   `json:"latestValidation"`
+			LatestLocalValidationReady bool     `json:"latestLocalValidationReady"`
+			LatestReleaseCheckReady    bool     `json:"latestReleaseCheckReady"`
+			LatestRemoteReleaseGate    string   `json:"latestRemoteReleaseGate"`
+			LatestNextAction           string   `json:"latestNextAction"`
+			LatestEvidence             []string `json:"latestEvidence"`
+			KnownGaps                  []string `json:"knownGaps"`
+			NextActions                []string `json:"nextActions"`
+			ValidationCommands         []string `json:"validationCommands"`
 		} `json:"projectHandoff"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
@@ -311,6 +316,16 @@ func TestRunStatusJsonKit(t *testing.T) {
 	}
 	if !status.ProjectHandoff.Ready || status.ProjectHandoff.Summary != "release handoff summary ok" || !strings.HasPrefix(status.ProjectHandoff.LatestBatch, "Batch ") || !strings.Contains(status.ProjectHandoff.LatestBatchStatus, "已完成") || status.ProjectHandoff.LatestBatchGoal == "" || status.ProjectHandoff.LatestValidation == "" {
 		t.Fatalf("unexpected project handoff summary: %+v", status.ProjectHandoff)
+	}
+	if strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGate) == "" || strings.TrimSpace(status.ProjectHandoff.LatestNextAction) == "" || len(status.ProjectHandoff.LatestEvidence) == 0 {
+		t.Fatalf("project handoff omitted latest batch validation handoff: %+v", status.ProjectHandoff)
+	}
+	if status.ProjectHandoff.LatestLocalValidationReady {
+		for _, want := range []string{"release-check -Format json recorded", "status handoff recorded", "go test ./... recorded", "git diff --check recorded"} {
+			if !slices.Contains(status.ProjectHandoff.LatestEvidence, want) {
+				t.Fatalf("project handoff latest evidence missing %q: %+v", want, status.ProjectHandoff.LatestEvidence)
+			}
+		}
 	}
 	for _, want := range []string{"docs/context-routing.md", "docs/batch-plan.md", "docs/release-readiness.md", "CHANGELOG.md"} {
 		if !slices.Contains(status.ProjectHandoff.ReadFirst, want) {
@@ -339,6 +354,10 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"warnings=0",
 		"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
 		"latestStatus=已完成",
+		"localValidationReady=",
+		"status latest batch next action：",
+		"status latest batch evidence：release-check ready=true recorded",
+		"status latest batch evidence：go test ./... recorded",
 		"status latest batch goal：",
 		"status latest batch validation：",
 		"status read first：docs/context-routing.md",
@@ -357,6 +376,9 @@ func TestRunStatusJsonKit(t *testing.T) {
 	defaultStatusExpected := []string{
 		"rekit go backend:",
 		"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
+		"localValidationReady=",
+		"status latest batch next action：",
+		"status latest batch evidence：release-check ready=true recorded",
 		"status read first：docs/context-routing.md",
 		"status validation command：go run ./cmd/rekit -- -Command release-check -Format json",
 		"status next action：Read docs/context-routing.md first",
@@ -972,9 +994,14 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		"release-check public default docs boundary：",
 		"release-check release handoff：summary=release handoff summary ok ready=true",
 		"release-check latest batch：batch=Batch ",
+		"localValidationReady=",
+		"release-check latest batch evidence：release-check ready=true recorded",
+		"release-check latest batch evidence：go test ./... recorded",
 		"release-check release notes：path=CHANGELOG.md present=true",
 		"release-check read first：path=docs/context-routing.md present=true",
 		"release-check signal：name=CI release gate ready=true summary=CI release gate inventory ok",
+		"release-check signal detail：name=latest batch documentation detail=localValidationReady=",
+		"release-check signal detail：name=latest batch documentation detail=nextAction=",
 		"release-check signal detail：name=Go-native public surface detail=profileGroups readOnly=doctor,packs,release-check,status,validate",
 		"release-check pack maturity：summary=pack maturity inventory ok total=10",
 		"release-check pack gate：id=vmp-re maturity=mature schemaValid=true schemaVersion=1 heavyToolGates=7 actions=debug,dump,full-trace,inject,network,patch,symex",

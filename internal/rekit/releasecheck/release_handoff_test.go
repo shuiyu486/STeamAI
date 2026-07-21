@@ -128,6 +128,44 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if handoff.LatestBatch.PlanPath != "docs/batch-plan.md" || !handoff.LatestBatch.Present || !strings.Contains(handoff.LatestBatch.Title, "Batch ") || !strings.Contains(handoff.LatestBatch.Status, "已完成") || strings.TrimSpace(handoff.LatestBatch.Goal) == "" || strings.TrimSpace(handoff.LatestBatch.ValidationResult) == "" {
 		t.Fatalf("unexpected latest batch summary: %+v", handoff.LatestBatch)
 	}
+	latestHandoff := handoff.LatestBatch.Handoff
+	if !latestHandoff.Completed || strings.TrimSpace(latestHandoff.RemoteReleaseGate) == "" || strings.TrimSpace(latestHandoff.NextAction) == "" || len(latestHandoff.Evidence) == 0 {
+		t.Fatalf("unexpected latest batch handoff: %+v", latestHandoff)
+	}
+	if latestHandoff.LocalValidationReady {
+		for _, evidence := range []string{"release-check -Format json recorded", "status handoff recorded", "go test ./... recorded", "git diff --check recorded"} {
+			if !slices.Contains(latestHandoff.Evidence, evidence) {
+				t.Fatalf("latest batch handoff evidence missing %q: %+v", evidence, latestHandoff.Evidence)
+			}
+		}
+	}
+}
+
+func TestLatestBatchHandoffExtractsValidationEvidence(t *testing.T) {
+	section := `状态：已完成 fixture implementation、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection。
+
+验证结果：已通过 public CLI 临时 product-path 验证与完整本地 release minimum：` + "`" + `go run ./cmd/rekit -- -Command release-check -Format json` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + `、` + "`" + `git diff --check` + "`" + `；` + "`" + `release-check ready=true` + "`" + `。已提交并推送 ` + "`" + `abc123d` + "`" + `；远程 release-gate run ` + "`" + `123456789` + "`" + ` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 ` + "`" + `steps: []` + "`" + `。`
+
+	latest := ReleaseHandoffLatestBatch{Status: "已完成 fixture", ValidationResult: "fixture validation"}
+	handoff := latestBatchHandoff(latest, section)
+	if !handoff.Completed || !handoff.LocalValidationReady || !handoff.ReleaseCheckReady || handoff.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" || !strings.Contains(handoff.NextAction, "known blocker") {
+		t.Fatalf("unexpected latest batch handoff: %+v", handoff)
+	}
+	for _, evidence := range []string{"public CLI product-path validation recorded", "release-check -Format json recorded", "status handoff recorded", "packs inventory recorded", "doctor validation recorded", "go test ./... recorded", "go vet ./... recorded", "git diff --check recorded", "release-check ready=true recorded", "remote release-gate jobs steps=[] recorded"} {
+		if !slices.Contains(handoff.Evidence, evidence) {
+			t.Fatalf("latest batch handoff evidence missing %q: %+v", evidence, handoff.Evidence)
+		}
+	}
+	if !slices.Contains(handoff.CommitRefs, "abc123d") || slices.Contains(handoff.CommitRefs, "123456789") {
+		t.Fatalf("unexpected commit refs: %+v", handoff.CommitRefs)
+	}
+}
+
+func TestLatestBatchRemoteGateDoesNotTreatNegativeGreenAsGreen(t *testing.T) {
+	section := `验证结果：已通过完整本地 release minimum；release-check ready=true。远程 release-gate inspection 待 commit/push 后执行；若仍为 jobs steps: []，按既有 blocker 记录，不能声明远程 CI green。`
+	if got := latestBatchRemoteReleaseGate(section); got != "not-recorded" {
+		t.Fatalf("remote gate should stay not-recorded before inspection, got %q", got)
+	}
 }
 
 func TestReleaseHandoffPackMaturityDetectsMissingHeavyToolGates(t *testing.T) {

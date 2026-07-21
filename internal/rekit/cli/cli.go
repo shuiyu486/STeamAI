@@ -1074,8 +1074,19 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 		return err
 	}
 	latest := handoff.LatestBatch
-	if _, err := fmt.Fprintf(out, "release-check latest batch：batch=%s title=%s present=%t status=%s goal=%s validation=%s plan=%s\n", latest.BatchID, latest.Title, latest.Present, latest.Status, latest.Goal, latest.ValidationResult, latest.PlanPath); err != nil {
+	latestHandoff := latest.Handoff
+	if _, err := fmt.Fprintf(out, "release-check latest batch：batch=%s title=%s present=%t status=%s localValidationReady=%t releaseCheckReady=%t remoteReleaseGate=%s nextAction=%s goal=%s validation=%s plan=%s\n", latest.BatchID, latest.Title, latest.Present, latest.Status, latestHandoff.LocalValidationReady, latestHandoff.ReleaseCheckReady, latestHandoff.RemoteReleaseGate, latestHandoff.NextAction, latest.Goal, latest.ValidationResult, latest.PlanPath); err != nil {
 		return err
+	}
+	for _, evidence := range latestHandoff.Evidence {
+		if _, err := fmt.Fprintf(out, "release-check latest batch evidence：%s\n", evidence); err != nil {
+			return err
+		}
+	}
+	for _, commit := range latestHandoff.CommitRefs {
+		if _, err := fmt.Fprintf(out, "release-check latest batch commit：%s\n", commit); err != nil {
+			return err
+		}
 	}
 	notes := handoff.ReleaseNotes
 	if _, err := fmt.Fprintf(out, "release-check release notes：path=%s present=%t section=%s latestBatch=%s covered=%t summary=%s\n", notes.Path, notes.Present, notes.Section, notes.LatestBatchID, notes.Covered, notes.Summary); err != nil {
@@ -1246,16 +1257,22 @@ type statusManifestSummary struct {
 }
 
 type statusProjectHandoff struct {
-	Ready              bool     `json:"ready"`
-	Summary            string   `json:"summary"`
-	ReadFirst          []string `json:"readFirst"`
-	LatestBatch        string   `json:"latestBatch"`
-	LatestBatchStatus  string   `json:"latestBatchStatus"`
-	LatestBatchGoal    string   `json:"latestBatchGoal"`
-	LatestValidation   string   `json:"latestValidation"`
-	KnownGaps          []string `json:"knownGaps"`
-	NextActions        []string `json:"nextActions"`
-	ValidationCommands []string `json:"validationCommands"`
+	Ready                      bool     `json:"ready"`
+	Summary                    string   `json:"summary"`
+	ReadFirst                  []string `json:"readFirst"`
+	LatestBatch                string   `json:"latestBatch"`
+	LatestBatchStatus          string   `json:"latestBatchStatus"`
+	LatestBatchGoal            string   `json:"latestBatchGoal"`
+	LatestValidation           string   `json:"latestValidation"`
+	LatestLocalValidationReady bool     `json:"latestLocalValidationReady"`
+	LatestReleaseCheckReady    bool     `json:"latestReleaseCheckReady"`
+	LatestRemoteReleaseGate    string   `json:"latestRemoteReleaseGate"`
+	LatestNextAction           string   `json:"latestNextAction"`
+	LatestEvidence             []string `json:"latestEvidence,omitempty"`
+	LatestCommits              []string `json:"latestCommits,omitempty"`
+	KnownGaps                  []string `json:"knownGaps"`
+	NextActions                []string `json:"nextActions"`
+	ValidationCommands         []string `json:"validationCommands"`
 }
 
 type statusCaseMission struct {
@@ -1735,8 +1752,23 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 	if handoff == nil {
 		return nil
 	}
-	if _, err := fmt.Fprintf(out, "status project handoff：summary=%s ready=%t latestBatch=%s latestStatus=%s readFirst=%d knownGaps=%d validationCommands=%d nextActions=%d\n", handoff.Summary, handoff.Ready, handoff.LatestBatch, handoff.LatestBatchStatus, len(handoff.ReadFirst), len(handoff.KnownGaps), len(handoff.ValidationCommands), len(handoff.NextActions)); err != nil {
+	if _, err := fmt.Fprintf(out, "status project handoff：summary=%s ready=%t latestBatch=%s latestStatus=%s localValidationReady=%t releaseCheckReady=%t remoteReleaseGate=%s readFirst=%d knownGaps=%d validationCommands=%d nextActions=%d\n", handoff.Summary, handoff.Ready, handoff.LatestBatch, handoff.LatestBatchStatus, handoff.LatestLocalValidationReady, handoff.LatestReleaseCheckReady, handoff.LatestRemoteReleaseGate, len(handoff.ReadFirst), len(handoff.KnownGaps), len(handoff.ValidationCommands), len(handoff.NextActions)); err != nil {
 		return err
+	}
+	if strings.TrimSpace(handoff.LatestNextAction) != "" {
+		if _, err := fmt.Fprintf(out, "status latest batch next action：%s\n", handoff.LatestNextAction); err != nil {
+			return err
+		}
+	}
+	for _, evidence := range handoff.LatestEvidence {
+		if _, err := fmt.Fprintf(out, "status latest batch evidence：%s\n", evidence); err != nil {
+			return err
+		}
+	}
+	for _, commit := range handoff.LatestCommits {
+		if _, err := fmt.Fprintf(out, "status latest batch commit：%s\n", commit); err != nil {
+			return err
+		}
 	}
 	if strings.TrimSpace(handoff.LatestBatchGoal) != "" {
 		if _, err := fmt.Fprintf(out, "status latest batch goal：%s\n", handoff.LatestBatchGoal); err != nil {
@@ -1899,16 +1931,22 @@ func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProje
 		validationCommands = append(validationCommands, validation.Command)
 	}
 	return &statusProjectHandoff{
-		Ready:              handoff.Ready,
-		Summary:            handoff.Summary,
-		ReadFirst:          readFirst,
-		LatestBatch:        handoff.LatestBatch.BatchID,
-		LatestBatchStatus:  handoff.LatestBatch.Status,
-		LatestBatchGoal:    handoff.LatestBatch.Goal,
-		LatestValidation:   handoff.LatestBatch.ValidationResult,
-		KnownGaps:          knownGaps,
-		NextActions:        append([]string{}, handoff.NextActions...),
-		ValidationCommands: validationCommands,
+		Ready:                      handoff.Ready,
+		Summary:                    handoff.Summary,
+		ReadFirst:                  readFirst,
+		LatestBatch:                handoff.LatestBatch.BatchID,
+		LatestBatchStatus:          handoff.LatestBatch.Status,
+		LatestBatchGoal:            handoff.LatestBatch.Goal,
+		LatestValidation:           handoff.LatestBatch.ValidationResult,
+		LatestLocalValidationReady: handoff.LatestBatch.Handoff.LocalValidationReady,
+		LatestReleaseCheckReady:    handoff.LatestBatch.Handoff.ReleaseCheckReady,
+		LatestRemoteReleaseGate:    handoff.LatestBatch.Handoff.RemoteReleaseGate,
+		LatestNextAction:           handoff.LatestBatch.Handoff.NextAction,
+		LatestEvidence:             append([]string{}, handoff.LatestBatch.Handoff.Evidence...),
+		LatestCommits:              append([]string{}, handoff.LatestBatch.Handoff.CommitRefs...),
+		KnownGaps:                  knownGaps,
+		NextActions:                append([]string{}, handoff.NextActions...),
+		ValidationCommands:         validationCommands,
 	}
 }
 

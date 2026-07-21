@@ -62,13 +62,24 @@ type ReleaseHandoffSignal struct {
 }
 
 type ReleaseHandoffLatestBatch struct {
-	PlanPath         string `json:"planPath"`
-	Present          bool   `json:"present"`
-	Title            string `json:"title"`
-	BatchID          string `json:"batchId"`
-	Status           string `json:"status"`
-	Goal             string `json:"goal"`
-	ValidationResult string `json:"validationResult"`
+	PlanPath         string                           `json:"planPath"`
+	Present          bool                             `json:"present"`
+	Title            string                           `json:"title"`
+	BatchID          string                           `json:"batchId"`
+	Status           string                           `json:"status"`
+	Goal             string                           `json:"goal"`
+	ValidationResult string                           `json:"validationResult"`
+	Handoff          ReleaseHandoffLatestBatchHandoff `json:"handoff"`
+}
+
+type ReleaseHandoffLatestBatchHandoff struct {
+	Completed            bool     `json:"completed"`
+	LocalValidationReady bool     `json:"localValidationReady"`
+	ReleaseCheckReady    bool     `json:"releaseCheckReady"`
+	RemoteReleaseGate    string   `json:"remoteReleaseGate,omitempty"`
+	CommitRefs           []string `json:"commitRefs,omitempty"`
+	Evidence             []string `json:"evidence,omitempty"`
+	NextAction           string   `json:"nextAction,omitempty"`
 }
 
 type ReleaseHandoffReleaseNotes struct {
@@ -261,11 +272,13 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 		},
 		{
 			Name:    "latest batch documentation",
-			Ready:   latest.Present && strings.Contains(latest.Status, "已完成") && strings.TrimSpace(latest.Goal) != "" && strings.TrimSpace(latest.ValidationResult) != "",
+			Ready:   latest.Present && latest.Handoff.Completed && strings.TrimSpace(latest.Goal) != "" && strings.TrimSpace(latest.ValidationResult) != "",
 			Summary: latest.Title,
 			Details: []string{
 				fmt.Sprintf("batch=%s", latest.BatchID),
 				fmt.Sprintf("status=%s", latest.Status),
+				fmt.Sprintf("localValidationReady=%t releaseCheckReady=%t remoteReleaseGate=%s", latest.Handoff.LocalValidationReady, latest.Handoff.ReleaseCheckReady, latest.Handoff.RemoteReleaseGate),
+				fmt.Sprintf("nextAction=%s", latest.Handoff.NextAction),
 				fmt.Sprintf("plan=%s", latest.PlanPath),
 			},
 		},
@@ -457,7 +470,7 @@ func releaseHandoffWarnings(handoff ReleaseHandoff) []string {
 		if strings.TrimSpace(handoff.LatestBatch.Title) == "" {
 			warnings = append(warnings, "release handoff latest batch title is empty")
 		}
-		if !strings.Contains(handoff.LatestBatch.Status, "已完成") {
+		if !handoff.LatestBatch.Handoff.Completed {
 			warnings = append(warnings, fmt.Sprintf("release handoff latest batch is not completed: %s", handoff.LatestBatch.Status))
 		}
 		if strings.TrimSpace(handoff.LatestBatch.Goal) == "" {
@@ -513,7 +526,8 @@ func latestBatchSummary(repo string) ReleaseHandoffLatestBatch {
 			break
 		}
 	}
-	for _, line := range lines[start+1 : end] {
+	sectionLines := lines[start+1 : end]
+	for _, line := range sectionLines {
 		trimmed := strings.TrimSpace(line)
 		if value, ok := markdownFieldValue(trimmed, "状态"); ok {
 			latest.Status = compactHandoffText(value, 160)
@@ -525,7 +539,150 @@ func latestBatchSummary(repo string) ReleaseHandoffLatestBatch {
 			latest.ValidationResult = compactHandoffText(value, 240)
 		}
 	}
+	latest.Handoff = latestBatchHandoff(latest, strings.Join(sectionLines, "\n"))
 	return latest
+}
+
+func latestBatchHandoff(latest ReleaseHandoffLatestBatch, section string) ReleaseHandoffLatestBatchHandoff {
+	handoff := ReleaseHandoffLatestBatchHandoff{
+		Completed:            strings.Contains(latest.Status, "已完成"),
+		LocalValidationReady: latestBatchHasLocalValidation(section),
+		ReleaseCheckReady:    strings.Contains(strings.ToLower(section), "release-check ready=true"),
+		RemoteReleaseGate:    latestBatchRemoteReleaseGate(section),
+		CommitRefs:           latestBatchCommitRefs(section),
+		Evidence:             latestBatchEvidence(section),
+	}
+	handoff.NextAction = latestBatchNextAction(handoff)
+	return handoff
+}
+
+func latestBatchHasLocalValidation(text string) bool {
+	lower := strings.ToLower(text)
+	for _, command := range []string{
+		"go run ./cmd/rekit -- -Command release-check -Format json",
+		"go run ./cmd/rekit -- -Command status",
+		"go run ./cmd/rekit -- -Command packs",
+		"go run ./cmd/rekit -- -Command doctor",
+		"go test ./...",
+		"go vet ./...",
+		"git diff --check",
+	} {
+		if !strings.Contains(lower, strings.ToLower(command)) {
+			return false
+		}
+	}
+	return true
+}
+
+func latestBatchRemoteReleaseGate(text string) string {
+	lower := strings.ToLower(text)
+	switch {
+	case strings.Contains(text, "远程 release-gate inspection 待") || strings.Contains(lower, "remote release-gate inspection pending") || strings.Contains(lower, "release-gate inspection pending"):
+		return "not-recorded"
+	case strings.Contains(text, "steps: []") && strings.Contains(lower, "completed failure"):
+		return "blocked: completed failure with jobs steps=[]"
+	case strings.Contains(text, "steps: []"):
+		return "blocked: jobs steps=[]"
+	case latestBatchRemoteGreen(text, lower):
+		return "green"
+	case strings.Contains(text, "远程 release-gate") || strings.Contains(lower, "release-gate run"):
+		return "inspected"
+	default:
+		return "not-recorded"
+	}
+}
+
+func latestBatchRemoteGreen(text, lower string) bool {
+	if strings.Contains(text, "不能声明远程 CI green") || strings.Contains(lower, "cannot claim remote ci green") || strings.Contains(lower, "not remote ci green") {
+		return false
+	}
+	return strings.Contains(lower, "remote ci green") || strings.Contains(text, "远程 CI green")
+}
+
+func latestBatchCommitRefs(text string) []string {
+	refs := []string{}
+	seen := map[string]bool{}
+	for {
+		start := strings.Index(text, "`")
+		if start < 0 {
+			break
+		}
+		text = text[start+1:]
+		end := strings.Index(text, "`")
+		if end < 0 {
+			break
+		}
+		token := strings.TrimSpace(text[:end])
+		if looksLikeCommitRef(token) && !seen[token] {
+			seen[token] = true
+			refs = append(refs, token)
+		}
+		text = text[end+1:]
+	}
+	return refs
+}
+
+func looksLikeCommitRef(value string) bool {
+	if len(value) < 7 || len(value) > 40 {
+		return false
+	}
+	hasHexLetter := false
+	for _, r := range value {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+			hasHexLetter = true
+		case r >= 'A' && r <= 'F':
+			hasHexLetter = true
+		default:
+			return false
+		}
+	}
+	return hasHexLetter
+}
+
+func latestBatchEvidence(text string) []string {
+	lower := strings.ToLower(text)
+	evidence := []string{}
+	for _, candidate := range []struct {
+		match string
+		label string
+	}{
+		{match: "public cli", label: "public CLI product-path validation recorded"},
+		{match: "go run ./cmd/rekit -- -command release-check -format json", label: "release-check -Format json recorded"},
+		{match: "go run ./cmd/rekit -- -command status", label: "status handoff recorded"},
+		{match: "go run ./cmd/rekit -- -command packs", label: "packs inventory recorded"},
+		{match: "go run ./cmd/rekit -- -command doctor", label: "doctor validation recorded"},
+		{match: "go test ./...", label: "go test ./... recorded"},
+		{match: "go vet ./...", label: "go vet ./... recorded"},
+		{match: "git diff --check", label: "git diff --check recorded"},
+		{match: "release-check ready=true", label: "release-check ready=true recorded"},
+		{match: "steps: []", label: "remote release-gate jobs steps=[] recorded"},
+	} {
+		if !strings.Contains(lower, candidate.match) {
+			continue
+		}
+		if candidate.match == "steps: []" && latestBatchRemoteReleaseGate(text) == "not-recorded" {
+			continue
+		}
+		evidence = append(evidence, candidate.label)
+	}
+	return evidence
+}
+
+func latestBatchNextAction(handoff ReleaseHandoffLatestBatchHandoff) string {
+	switch {
+	case !handoff.Completed:
+		return "finish the current batch before treating status as a handoff"
+	case !handoff.LocalValidationReady:
+		return "run the full local release minimum and update docs/batch-plan.md"
+	case handoff.RemoteReleaseGate == "not-recorded":
+		return "inspect the remote release-gate run before claiming remote CI status"
+	case strings.HasPrefix(handoff.RemoteReleaseGate, "blocked:"):
+		return "treat remote release-gate steps=[] as a known blocker and continue the next Windows-verifiable batch"
+	default:
+		return "continue the next batch from docs/context-routing.md and docs/batch-plan.md"
+	}
 }
 
 func latestReleaseNotes(repo string, latest ReleaseHandoffLatestBatch) ReleaseHandoffReleaseNotes {

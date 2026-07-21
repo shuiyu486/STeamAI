@@ -53,7 +53,7 @@ disable-model-invocation: true
 
 | 用户意图 | 行为 |
 |---|---|
-| `/rekit` / `/rekit status` | 无子命令时默认走只读 status；attached case 中未显式传 `-Pack` 时使用 case metadata 的 `templatePack`；第一屏显示当前 pack 及来源（显式 `-Pack`、case metadata 或 repo default），case 模式还显示当前 pack 是否匹配 metadata `templatePack` 及不一致诊断；pack mismatch、moved metadata 或 case-local thin shim drift/missing 时输出 bounded next steps（status recheck 或 `repair -WhatIf -Format text` preview，`repair -Apply` 仍需显式确认）；同时显示 kit / case 绑定状态与 case-local thin shim / canonical skill readiness；检测迁移或 shim drift 但不修复；`-Format json` 输出机器可读 status envelope、`packSource`、case pack diagnostic、case `nextSteps` 与 `caseShim` readiness。 |
+| `/rekit` / `/rekit status` | 无子命令时默认走只读 status；attached case 中未显式传 `-Pack` 时使用 case metadata 的 `templatePack`；第一屏显示当前 pack 及来源（显式 `-Pack`、case metadata 或 repo default），case 模式还显示当前 pack 是否匹配 metadata `templatePack` 及不一致诊断；pack mismatch、moved metadata 或 case-local thin shim drift/missing 时输出 bounded next steps（status recheck 或 `repair -WhatIf -Format text` preview，`repair -Apply` 仍需显式确认）；kit 模式 project handoff 还直接显示最新 batch 的 local validation readiness、`release-check ready=true` evidence、remote release-gate state、validation evidence 与 next action；同时显示 kit / case 绑定状态与 case-local thin shim / canonical skill readiness；检测迁移或 shim drift 但不修复；`-Format json` 输出机器可读 status envelope、`packSource`、case pack diagnostic、case `nextSteps`、`caseShim` readiness 与 project handoff。 |
 | `/rekit packs` | 维护者只读查看当前 kit 内 pack 矩阵：成熟度、schema、route、managed/tooling 和 authority lane 概览；`-Format json` 输出机器可读 inventory。 |
 | `/rekit attach` | 将已有 case 绑定到当前 template root 和 pack。 |
 | `/rekit repair` | 预览迁移后的 metadata 修复；用户确认后才写入。 |

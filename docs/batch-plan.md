@@ -16,24 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 481：moved-case preview-first diagnostics closure
+### Batch 482：latest-batch validation handoff closure
 
-状态：已完成 moved-case preview-first diagnostics implementation、durable docs、focused tests、public CLI moved-case validation、完整本地 release minimum、commit/push 与远程 release-gate inspection；远程 release-gate run `29803379028` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 `steps: []`，仍是既有 GitHub Actions runner/billing blocker。
+状态：已完成 latest-batch validation handoff implementation、durable docs、focused tests、public CLI text validation 与完整本地 release minimum；commit/push 与远程 release-gate inspection 正在本轮收口。
 
-目标：Batch 480 让只读 status 在 moved metadata / shim drift 时给出 bounded `repair -WhatIf -Format text` next step，但写入型 guard 的错误提示仍可能优先推荐直接 `repair -Apply`。Batch 481 将 attach/init/sync/promote 等 moved-case / stale metadata 拒绝路径统一为 preview-first diagnostic，让新会话先预览 metadata 与 thin-shim refresh，再显式确认 apply。
+目标：Batch 464 起 kit-mode status 能显示 latest batch 摘要，Batch 481 也记录了完整本地验证和远程 steps=[] blocker，但新会话第一屏仍要读长 `验证结果` 文本才能判断“本地是否已跑完 release minimum”“是否已经检查远程 release-gate”“下一步是继续本机可验证批次还是先补验证”。Batch 482 将 latest batch validation/remote state 结构化到 `releaseHandoff.latestBatch.handoff` 与 kit-mode `status.projectHandoff`。
 
-边界：只改 Go-native moved-case guard 的错误 handoff 与对应 coverage；不改变 repair 写入确认、sync/promote review-first、case durable schema、actual heavy-tool、authority/confirmed、PowerShell runtime logic 或 release blocker 状态。
+边界：只增强只读 `release-check` / kit-mode `status` handoff；不执行远程 CI、不改变 release-check inventory readiness 语义、case-mode runtime、sync/promote/workstream/gate、authority/confirmed、heavy-tool 或 PowerShell runtime logic。
 
 已完成内容：
 
-- `instance.MovedRepairPreviewError(caseRoot, pack)` 统一生成 moved-case preview-first diagnostic，空 pack 时仍回退 repo default pack。
-- `instance.AssertAttached`、`attach.buildPlan` 与 `sync.readApplyInstance` 复用该 helper，使 init/sync/promote 间接 guard 与 attach guard 一致。
-- CLI coverage 新增 attach/promote moved-case 拒绝路径，并把 init/sync moved-case tests 升级为 preview-first wording 断言；helper 同时防止旧 `Run 'rekit repair -Target ... -Apply'` direct-apply diagnostic 回归。
-- CHANGELOG、`/rekit` skill、Agent Team 使用指南、init/bootstrap 与 sync apply migration docs 同步说明 moved case 先运行 `repair -WhatIf -Format text` 预览，再显式确认 `repair -Apply`。
+- `ReleaseHandoffLatestBatch` 新增 `handoff`，投影 `completed`、`localValidationReady`、`releaseCheckReady`、`remoteReleaseGate`、`evidence[]`、`commitRefs[]` 与 `nextAction`。
+- latest batch parser 从 `docs/batch-plan.md` 当前 batch 区提取完整本地 release minimum 命令、`release-check ready=true`、远程 release-gate `steps: []` blocker、public CLI/product-path evidence 与 commit refs。
+- `release-check -Format text` 输出 latest batch local/remote readiness、evidence 与 next action；latest-batch documentation signal 也携带同一 handoff，但只把 current batch 文档存在性、completion、goal 与 validation summary 作为 release handoff inventory readiness，未记录完整 local validation 时由 `nextAction` 指向补跑本地 gate。
+- kit-mode `status -Format json/text` 与默认 status 的 `projectHandoff` 同步输出 latest batch local validation readiness、release-check readiness、remote gate state、evidence 与 next action，让新会话第一屏不用解析长 validation prose。
+- Coverage 锁定 release handoff JSON、latest-batch evidence extraction、release-check text、status JSON/text/default output。
 
-验证结果：已通过 focused `go test ./internal/rekit/cli ./internal/rekit/instance -run "TestRunAttachRejectsMovedCaseWithPreviewFirstDiagnostic|TestRunInitRejectsMovedCase|TestRunSyncApplyRejectsMovedCase|TestRunPromoteReviewRejectsMovedCaseWithPreviewFirstDiagnostic|TestReadScalarFileStripsSimpleQuotes" -count=1`；已通过 public CLI 临时 moved-case 验证，确认 `attach -Apply`、`init -Apply`、`sync -Apply` 与 `promote` review 均拒绝 moved metadata，输出 `/rekit repair -Target "<caseRoot>" -Pack _template -WhatIf -Format text`、`preview metadata and thin-shim refresh`、`repair -Apply only after explicit confirmation`，且不再输出旧 direct `Run 'rekit repair -Target ... -Apply'` diagnostic。已通过完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`，`git diff --check` 仅报告 Windows LF/CRLF conversion warnings，无 whitespace error。
+验证结果：已通过 focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestLatestBatchHandoffExtractsValidationEvidence|TestLatestBatchRemoteGateDoesNotTreatNegativeGreenAsGreen|TestReleaseHandoff|TestRunStatusJsonKit|TestRunReleaseCheck" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；`release-check ready=true`。远程 release-gate inspection 待 commit/push 后执行；若仍为 jobs `steps: []`，按既有 GitHub Actions runner/billing blocker 记录，不能声明远程 CI green。
 
-上一批摘要：Batch 480 已完成 status remediation handoff closure，详见 `docs/batch-history.md`。
+上一批摘要：Batch 481 已完成 moved-case preview-first diagnostics closure，详见 `docs/batch-history.md`。
 
 ### Next candidates
 
