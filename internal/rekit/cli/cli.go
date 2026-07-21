@@ -1124,6 +1124,36 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 		if _, err := fmt.Fprintf(out, "release-check pack-memory candidate pack：pack=%s maturity=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d review=%t cleanup=%t action=%s\n", pack.Pack, pack.Maturity, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action); err != nil {
 			return err
 		}
+		for _, path := range pack.CandidatePaths {
+			if _, err := fmt.Fprintf(out, "release-check pack-memory candidate path：pack=%s path=%s\n", pack.Pack, path); err != nil {
+				return err
+			}
+		}
+		for _, path := range pack.ToolingPaths {
+			if _, err := fmt.Fprintf(out, "release-check pack-memory tooling candidate path：pack=%s path=%s\n", pack.Pack, path); err != nil {
+				return err
+			}
+		}
+		for _, entry := range pack.IndexCandidates {
+			if _, err := fmt.Fprintf(out, "release-check pack-memory candidate index：pack=%s path=%s candidate=%s\n", pack.Pack, entry.Path, entry.Candidate); err != nil {
+				return err
+			}
+		}
+		for _, artifact := range pack.ReviewArtifacts {
+			if _, err := fmt.Fprintf(out, "release-check pack-memory review artifact：pack=%s name=%s candidatePath=%s packTarget=%s when=%s action=%s format=%s\n", pack.Pack, artifact.Name, artifact.CandidatePath, artifact.PackTarget, artifact.When, artifact.Action, artifact.Format); err != nil {
+				return err
+			}
+			for _, evidence := range artifact.Evidence {
+				if _, err := fmt.Fprintf(out, "release-check pack-memory review artifact evidence：pack=%s name=%s evidence=%s\n", pack.Pack, artifact.Name, evidence); err != nil {
+					return err
+				}
+			}
+			for _, boundary := range artifact.Boundary {
+				if _, err := fmt.Fprintf(out, "release-check pack-memory review artifact boundary：pack=%s name=%s boundary=%s\n", pack.Pack, artifact.Name, boundary); err != nil {
+					return err
+				}
+			}
+		}
 		for _, evidence := range pack.Evidence {
 			if _, err := fmt.Fprintf(out, "release-check pack-memory candidate evidence：pack=%s evidence=%s\n", pack.Pack, evidence); err != nil {
 				return err
@@ -2031,6 +2061,36 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 	for _, pack := range candidates.Packs {
 		if _, err := fmt.Fprintf(out, "status pack-memory candidate pack：pack=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d review=%t cleanup=%t action=%s\n", pack.Pack, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action); err != nil {
 			return err
+		}
+		for _, path := range pack.CandidatePaths {
+			if _, err := fmt.Fprintf(out, "status pack-memory candidate path：pack=%s path=%s\n", pack.Pack, path); err != nil {
+				return err
+			}
+		}
+		for _, path := range pack.ToolingPaths {
+			if _, err := fmt.Fprintf(out, "status pack-memory tooling candidate path：pack=%s path=%s\n", pack.Pack, path); err != nil {
+				return err
+			}
+		}
+		for _, entry := range pack.IndexCandidates {
+			if _, err := fmt.Fprintf(out, "status pack-memory candidate index：pack=%s path=%s candidate=%s\n", pack.Pack, entry.Path, entry.Candidate); err != nil {
+				return err
+			}
+		}
+		for _, artifact := range pack.ReviewArtifacts {
+			if _, err := fmt.Fprintf(out, "status pack-memory review artifact：pack=%s name=%s candidatePath=%s packTarget=%s when=%s action=%s format=%s\n", pack.Pack, artifact.Name, artifact.CandidatePath, artifact.PackTarget, artifact.When, artifact.Action, artifact.Format); err != nil {
+				return err
+			}
+			for _, evidence := range artifact.Evidence {
+				if _, err := fmt.Fprintf(out, "status pack-memory review artifact evidence：pack=%s name=%s evidence=%s\n", pack.Pack, artifact.Name, evidence); err != nil {
+					return err
+				}
+			}
+			for _, boundary := range artifact.Boundary {
+				if _, err := fmt.Fprintf(out, "status pack-memory review artifact boundary：pack=%s name=%s boundary=%s\n", pack.Pack, artifact.Name, boundary); err != nil {
+					return err
+				}
+			}
 		}
 		for _, evidence := range pack.Evidence {
 			if _, err := fmt.Fprintf(out, "status pack-memory candidate evidence：pack=%s evidence=%s\n", pack.Pack, evidence); err != nil {

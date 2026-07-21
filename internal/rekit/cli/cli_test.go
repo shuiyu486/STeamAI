@@ -1011,6 +1011,12 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 	for _, expected := range []string{
 		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates",
 		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 review=true cleanup=true",
+		"status pack-memory candidate path：pack=_template path=packs/_template/promote-candidates/",
+		"status pack-memory tooling candidate path：pack=_template path=packs/_template/tooling/candidates/",
+		"status pack-memory candidate index：pack=_template path=references/template/README.md candidate=packs/_template/promote-candidates/",
+		"status pack-memory review artifact：pack=_template name=candidate-decision-note",
+		"status pack-memory review artifact evidence：pack=_template name=candidate-decision-note evidence=selected decisionFollowThrough outcome",
+		"status pack-memory review artifact boundary：pack=_template name=candidate-cleanup-proof boundary=cleanup is limited to candidateRoot/toolingRoot and indexPath",
 		"status pack-memory candidate evidence：pack=_template evidence=promote-candidates files=1",
 		"status pack-memory candidate boundary：pack=_template boundary=release handoff only inventories pack-memory candidate residue; it does not merge or delete candidates",
 	} {
@@ -6904,6 +6910,12 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 		"status project handoff：summary=release handoff summary has warnings ready=false",
 		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates",
 		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 review=true cleanup=true",
+		"status pack-memory candidate path：pack=_template path=packs/_template/promote-candidates/",
+		"status pack-memory tooling candidate path：pack=_template path=packs/_template/tooling/candidates/",
+		"status pack-memory candidate index：pack=_template path=references/template/README.md candidate=packs/_template/promote-candidates/",
+		"status pack-memory review artifact：pack=_template name=candidate-decision-note",
+		"status pack-memory review artifact evidence：pack=_template name=candidate-decision-note evidence=selected decisionFollowThrough outcome",
+		"status pack-memory review artifact boundary：pack=_template name=candidate-cleanup-proof boundary=cleanup is limited to candidateRoot/toolingRoot and indexPath",
 		"status pack-memory candidate evidence：pack=_template evidence=promote-candidates files=1",
 		"status pack-memory candidate boundary：pack=_template boundary=release handoff only inventories pack-memory candidate residue; it does not merge or delete candidates",
 	} {

@@ -123,20 +123,40 @@ type ReleaseHandoffPackMemoryCandidateList struct {
 }
 
 type ReleaseHandoffPackMemoryCandidateStatus struct {
-	Pack            string   `json:"pack"`
-	Maturity        string   `json:"maturity"`
-	CandidateRoot   string   `json:"candidateRoot"`
-	ToolingRoot     string   `json:"toolingRoot"`
-	IndexPath       string   `json:"indexPath,omitempty"`
-	CandidateFiles  int      `json:"candidateFiles"`
-	ToolingFiles    int      `json:"toolingFiles"`
-	IndexEntries    int      `json:"indexEntries"`
-	HasOpenWork     bool     `json:"hasOpenWork"`
-	RequiresReview  bool     `json:"requiresReview"`
-	RequiresCleanup bool     `json:"requiresCleanup"`
-	Action          string   `json:"action,omitempty"`
-	Evidence        []string `json:"evidence,omitempty"`
-	Boundary        []string `json:"boundary,omitempty"`
+	Pack            string                                            `json:"pack"`
+	Maturity        string                                            `json:"maturity"`
+	CandidateRoot   string                                            `json:"candidateRoot"`
+	ToolingRoot     string                                            `json:"toolingRoot"`
+	IndexPath       string                                            `json:"indexPath,omitempty"`
+	CandidateFiles  int                                               `json:"candidateFiles"`
+	ToolingFiles    int                                               `json:"toolingFiles"`
+	IndexEntries    int                                               `json:"indexEntries"`
+	CandidatePaths  []string                                          `json:"candidatePaths,omitempty"`
+	ToolingPaths    []string                                          `json:"toolingPaths,omitempty"`
+	IndexCandidates []ReleaseHandoffPackMemoryCandidateIndexEntry     `json:"indexCandidates,omitempty"`
+	ReviewArtifacts []ReleaseHandoffPackMemoryCandidateReviewArtifact `json:"reviewArtifacts,omitempty"`
+	HasOpenWork     bool                                              `json:"hasOpenWork"`
+	RequiresReview  bool                                              `json:"requiresReview"`
+	RequiresCleanup bool                                              `json:"requiresCleanup"`
+	Action          string                                            `json:"action,omitempty"`
+	Evidence        []string                                          `json:"evidence,omitempty"`
+	Boundary        []string                                          `json:"boundary,omitempty"`
+}
+
+type ReleaseHandoffPackMemoryCandidateIndexEntry struct {
+	Path      string `json:"path"`
+	Candidate string `json:"candidate"`
+}
+
+type ReleaseHandoffPackMemoryCandidateReviewArtifact struct {
+	Name          string   `json:"name"`
+	CandidatePath string   `json:"candidatePath,omitempty"`
+	PackTarget    string   `json:"packTarget,omitempty"`
+	When          string   `json:"when"`
+	Action        string   `json:"action"`
+	Format        string   `json:"format"`
+	Evidence      []string `json:"evidence,omitempty"`
+	Boundary      []string `json:"boundary,omitempty"`
 }
 
 type ReleaseHandoffPackMaturityCounts struct {
@@ -449,54 +469,61 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 	candidateRoot := filepath.Join(packRoot, "promote-candidates")
 	toolingRoot := filepath.Join(packRoot, "tooling", "candidates")
 	indexPath := filepath.Join(candidateRoot, "index.json")
-	candidateFiles, err := countCandidateFiles(candidateRoot)
+	candidateRootRel := filepath.ToSlash(filepath.Join("packs", pack.ID, "promote-candidates"))
+	toolingRootRel := filepath.ToSlash(filepath.Join("packs", pack.ID, "tooling", "candidates"))
+	candidatePaths, err := candidateFiles(candidateRoot, candidateRootRel)
 	if err != nil {
 		return ReleaseHandoffPackMemoryCandidateStatus{}, fmt.Errorf("pack-memory candidate scan failed for %s: %w", pack.ID, err)
 	}
-	toolingFiles, err := countCandidateFiles(toolingRoot)
+	toolingPaths, err := candidateFiles(toolingRoot, toolingRootRel)
 	if err != nil {
 		return ReleaseHandoffPackMemoryCandidateStatus{}, fmt.Errorf("pack-memory tooling candidate scan failed for %s: %w", pack.ID, err)
 	}
-	indexEntries, indexExists, err := countCandidateIndexEntries(indexPath)
+	indexCandidates, indexExists, err := candidateIndexEntries(indexPath, repo, candidateRoot, candidateRootRel)
 	if err != nil {
 		return ReleaseHandoffPackMemoryCandidateStatus{}, fmt.Errorf("pack-memory candidate index invalid for %s: %w", pack.ID, err)
 	}
-	candidateRootRel := filepath.ToSlash(filepath.Join("packs", pack.ID, "promote-candidates"))
-	toolingRootRel := filepath.ToSlash(filepath.Join("packs", pack.ID, "tooling", "candidates"))
+	candidateFileCount := len(candidatePaths)
+	toolingFileCount := len(toolingPaths)
+	indexEntryCount := len(indexCandidates)
 	indexRel := ""
 	if indexExists {
 		indexRel = filepath.ToSlash(filepath.Join(candidateRootRel, "index.json"))
 	}
 	status := ReleaseHandoffPackMemoryCandidateStatus{
-		Pack:           pack.ID,
-		Maturity:       pack.Maturity,
-		CandidateRoot:  candidateRootRel,
-		ToolingRoot:    toolingRootRel,
-		IndexPath:      indexRel,
-		CandidateFiles: candidateFiles,
-		ToolingFiles:   toolingFiles,
-		IndexEntries:   indexEntries,
-		HasOpenWork:    candidateFiles > 0 || toolingFiles > 0 || indexEntries > 0 || indexExists,
+		Pack:            pack.ID,
+		Maturity:        pack.Maturity,
+		CandidateRoot:   candidateRootRel,
+		ToolingRoot:     toolingRootRel,
+		IndexPath:       indexRel,
+		CandidateFiles:  candidateFileCount,
+		ToolingFiles:    toolingFileCount,
+		IndexEntries:    indexEntryCount,
+		CandidatePaths:  candidatePaths,
+		ToolingPaths:    toolingPaths,
+		IndexCandidates: indexCandidates,
+		HasOpenWork:     candidateFileCount > 0 || toolingFileCount > 0 || indexEntryCount > 0 || indexExists,
 	}
 	if !status.HasOpenWork {
 		return status, nil
 	}
-	status.RequiresReview = candidateFiles > 0 || toolingFiles > 0
+	status.RequiresReview = candidateFileCount > 0 || toolingFileCount > 0
 	status.RequiresCleanup = true
 	status.Action = "review candidate files against pack targets, record accept/reject/superseded decisions, then cleanup candidatePath and indexPath"
 	if !status.RequiresReview && indexExists {
 		status.Action = "cleanup stale pack-memory candidate indexPath or regenerate candidates before review"
 	}
 	status.Evidence = append(status.Evidence, "candidateRoot "+candidateRootRel, "toolingRoot "+toolingRootRel)
-	if candidateFiles > 0 {
-		status.Evidence = append(status.Evidence, fmt.Sprintf("promote-candidates files=%d", candidateFiles))
+	if candidateFileCount > 0 {
+		status.Evidence = append(status.Evidence, fmt.Sprintf("promote-candidates files=%d", candidateFileCount))
 	}
-	if toolingFiles > 0 {
-		status.Evidence = append(status.Evidence, fmt.Sprintf("tooling/candidates files=%d", toolingFiles))
+	if toolingFileCount > 0 {
+		status.Evidence = append(status.Evidence, fmt.Sprintf("tooling/candidates files=%d", toolingFileCount))
 	}
 	if indexExists {
-		status.Evidence = append(status.Evidence, fmt.Sprintf("indexPath %s entries=%d", indexRel, indexEntries))
+		status.Evidence = append(status.Evidence, fmt.Sprintf("indexPath %s entries=%d", indexRel, indexEntryCount))
 	}
+	status.ReviewArtifacts = packMemoryCandidateReviewArtifacts(status)
 	status.Boundary = []string{
 		"release handoff only inventories pack-memory candidate residue; it does not merge or delete candidates",
 		"review candidates before merge; do not write authority/confirmed",
@@ -505,13 +532,152 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 	return status, nil
 }
 
-func countCandidateFiles(root string) (int, error) {
-	if _, err := os.Stat(root); os.IsNotExist(err) {
-		return 0, nil
-	} else if err != nil {
-		return 0, err
+func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidateStatus) []ReleaseHandoffPackMemoryCandidateReviewArtifact {
+	artifacts := []ReleaseHandoffPackMemoryCandidateReviewArtifact{}
+	baseBoundary := []string{
+		"review artifact is guidance only; runtime does not write decision, cleanup, or reconsume proof",
+		"do not write authority/confirmed",
+		"do not execute heavy tools",
 	}
-	count := 0
+	for _, path := range status.CandidatePaths {
+		packTarget := packMemoryCandidatePackTarget(status.IndexCandidates, path)
+		artifacts = append(artifacts,
+			ReleaseHandoffPackMemoryCandidateReviewArtifact{
+				Name:          "candidate-decision-note",
+				CandidatePath: path,
+				PackTarget:    packTarget,
+				When:          "before merge, cleanup, or reconsume; choose accept, reject, or superseded for this candidate",
+				Action:        "record reviewed decision and selected decisionFollowThrough outcome outside authority/confirmed stores",
+				Format:        "markdown or JSON note with decision, reason, candidatePath, packTarget, and selected decisionFollowThrough outcome",
+				Evidence:      []string{"decision note path/ref", "selected decisionFollowThrough outcome"},
+				Boundary:      append([]string{}, baseBoundary...),
+			},
+			ReleaseHandoffPackMemoryCandidateReviewArtifact{
+				Name:          "candidate-cleanup-proof",
+				CandidatePath: path,
+				PackTarget:    packTarget,
+				When:          "after deleting candidatePath because it was rejected, superseded, or accepted and merged into pack source",
+				Action:        "record candidatePath deletion check and indexPath update/removal proof",
+				Format:        "markdown or command transcript with candidatePath missing check and indexPath diff/removal check",
+				Evidence:      []string{"candidatePath deletion check", "indexPath update/removal check"},
+				Boundary: append(append([]string{}, baseBoundary...),
+					"cleanup is limited to candidateRoot/toolingRoot and indexPath",
+					"do not delete pack source files",
+				),
+			},
+			ReleaseHandoffPackMemoryCandidateReviewArtifact{
+				Name:       "pack-doctor-output",
+				PackTarget: packTarget,
+				When:       "after an accept decision merges reusable content into packTarget",
+				Action:     "record doctor command output before declaring accepted merge complete",
+				Format:     "command transcript or Markdown evidence containing `go run ./cmd/rekit -- -Command doctor -Pack " + status.Pack + "` output",
+				Evidence:   []string{"doctor command output"},
+				Boundary: append(append([]string{}, baseBoundary...),
+					"doctor validates pack state only",
+					"do not create case-local artifacts while checking pack",
+				),
+			},
+		)
+	}
+	for _, path := range status.ToolingPaths {
+		artifacts = append(artifacts,
+			ReleaseHandoffPackMemoryCandidateReviewArtifact{
+				Name:          "candidate-decision-note",
+				CandidatePath: path,
+				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
+				When:          "before merge, cleanup, or reconsume; choose accept, reject, or superseded for this tooling candidate",
+				Action:        "record reviewed decision and selected decisionFollowThrough outcome outside authority/confirmed stores",
+				Format:        "markdown or JSON note with decision, reason, candidatePath, packTarget, and selected decisionFollowThrough outcome",
+				Evidence:      []string{"decision note path/ref", "selected decisionFollowThrough outcome"},
+				Boundary:      append([]string{}, baseBoundary...),
+			},
+			ReleaseHandoffPackMemoryCandidateReviewArtifact{
+				Name:          "candidate-cleanup-proof",
+				CandidatePath: path,
+				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
+				When:          "after deleting candidatePath because it was rejected, superseded, or accepted and merged into pack tooling",
+				Action:        "record candidatePath deletion check and tooling candidate directory cleanup proof",
+				Format:        "markdown or command transcript with candidatePath missing check",
+				Evidence:      []string{"candidatePath deletion check", "tooling/candidates cleanup check"},
+				Boundary: append(append([]string{}, baseBoundary...),
+					"cleanup is limited to candidateRoot/toolingRoot and indexPath",
+					"do not delete pack source files",
+				),
+			},
+			ReleaseHandoffPackMemoryCandidateReviewArtifact{
+				Name:          "pack-doctor-output",
+				CandidatePath: path,
+				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
+				When:          "after an accept decision merges reusable tooling into packTarget",
+				Action:        "record doctor command output before declaring accepted tooling merge complete",
+				Format:        "command transcript or Markdown evidence containing `go run ./cmd/rekit -- -Command doctor -Pack " + status.Pack + "` output",
+				Evidence:      []string{"doctor command output"},
+				Boundary: append(append([]string{}, baseBoundary...),
+					"doctor validates pack state only",
+					"do not create case-local artifacts while checking pack",
+				),
+			},
+			ReleaseHandoffPackMemoryCandidateReviewArtifact{
+				Name:          "fresh-case-reconsume-proof",
+				CandidatePath: path,
+				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
+				When:          "after accepting tooling candidate into tooling/catalog.yml or tooling/recipes/*",
+				Action:        "record temporary fresh-case init and doctor output proving pack tooling reconsume",
+				Format:        "command transcript with init -Target <fresh-case> -Apply and doctor -Target <fresh-case> output",
+				Evidence:      []string{"fresh case .rekit/instance.yml", "fresh case doctor output"},
+				Boundary: append(append([]string{}, baseBoundary...),
+					"use a temporary fresh case only",
+					"do not create real case state in the kit repo",
+					"sync does not copy tooling recipes into case-local managed docs",
+				),
+			},
+			ReleaseHandoffPackMemoryCandidateReviewArtifact{
+				Name:          "attached-case-reconsume-proof",
+				CandidatePath: path,
+				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
+				When:          "when validating an existing attached case after accepted tooling merge",
+				Action:        "record attached-case doctor output proving pack tooling is resolved through templateRoot/templatePack",
+				Format:        "command transcript with doctor -Target <attached-case> output",
+				Evidence:      []string{"attached case doctor output"},
+				Boundary: append(append([]string{}, baseBoundary...),
+					"do not overwrite case-local files while checking reconsume",
+					"fresh/attached case verification reads pack tooling through templateRoot/templatePack",
+				),
+			},
+		)
+	}
+	if len(artifacts) == 0 && status.IndexPath != "" {
+		artifacts = append(artifacts, ReleaseHandoffPackMemoryCandidateReviewArtifact{
+			Name:          "candidate-cleanup-proof",
+			CandidatePath: status.IndexPath,
+			When:          "after confirming stale indexPath has no matching candidate files",
+			Action:        "record indexPath removal or regeneration proof",
+			Format:        "markdown or command transcript with indexPath diff/removal check",
+			Evidence:      []string{"indexPath update/removal check"},
+			Boundary: append(append([]string{}, baseBoundary...),
+				"cleanup is limited to candidateRoot/toolingRoot and indexPath",
+			),
+		})
+	}
+	return artifacts
+}
+
+func packMemoryCandidatePackTarget(entries []ReleaseHandoffPackMemoryCandidateIndexEntry, candidatePath string) string {
+	for _, entry := range entries {
+		if entry.Candidate == candidatePath {
+			return entry.Path
+		}
+	}
+	return ""
+}
+
+func candidateFiles(root, relRoot string) ([]string, error) {
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	paths := []string{}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -519,30 +685,67 @@ func countCandidateFiles(root string) (int, error) {
 		if d.IsDir() {
 			return nil
 		}
-		if strings.HasSuffix(d.Name(), ".candidate.md") {
-			count++
+		if !strings.HasSuffix(d.Name(), ".candidate.md") {
+			return nil
 		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, filepath.ToSlash(filepath.Join(relRoot, rel)))
 		return nil
 	})
-	return count, err
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	return paths, nil
 }
 
-func countCandidateIndexEntries(path string) (int, bool, error) {
+func candidateIndexEntries(path, repo, candidateRoot, candidateRootRel string) ([]ReleaseHandoffPackMemoryCandidateIndexEntry, bool, error) {
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return 0, false, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return 0, false, err
+		return nil, false, err
 	}
-	entries := []struct {
-		Path      string `json:"path"`
-		Candidate string `json:"candidate"`
-	}{}
+	entries := []ReleaseHandoffPackMemoryCandidateIndexEntry{}
 	if err := json.Unmarshal(b, &entries); err != nil {
-		return 0, true, err
+		return nil, true, err
 	}
-	return len(entries), true, nil
+	for i := range entries {
+		entries[i].Path = filepath.ToSlash(strings.TrimSpace(entries[i].Path))
+		entries[i].Candidate = normalizeCandidateIndexPath(repo, candidateRoot, candidateRootRel, entries[i].Candidate)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Path == entries[j].Path {
+			return entries[i].Candidate < entries[j].Candidate
+		}
+		return entries[i].Path < entries[j].Path
+	})
+	return entries, true, nil
+}
+
+func normalizeCandidateIndexPath(repo, candidateRoot, candidateRootRel, candidate string) string {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return ""
+	}
+	if filepath.IsAbs(candidate) {
+		if rel, err := filepath.Rel(repo, candidate); err == nil && !strings.HasPrefix(rel, "..") && rel != ".." {
+			return filepath.ToSlash(rel)
+		}
+		if rel, err := filepath.Rel(candidateRoot, candidate); err == nil && !strings.HasPrefix(rel, "..") && rel != ".." {
+			return filepath.ToSlash(filepath.Join(candidateRootRel, rel))
+		}
+		return filepath.ToSlash(candidate)
+	}
+	normalized := filepath.ToSlash(candidate)
+	if strings.HasPrefix(normalized, candidateRootRel+"/") || normalized == candidateRootRel {
+		return normalized
+	}
+	return filepath.ToSlash(filepath.Join(candidateRootRel, normalized))
 }
 
 func releaseHandoffPackMemoryCandidateDetails(inventory ReleaseHandoffPackMemoryCandidateList) []string {
@@ -551,7 +754,19 @@ func releaseHandoffPackMemoryCandidateDetails(inventory ReleaseHandoffPackMemory
 		fmt.Sprintf("nextAction=%s", inventory.NextAction),
 	}
 	for _, pack := range inventory.Packs {
-		details = append(details, fmt.Sprintf("pack=%s maturity=%s candidateFiles=%d toolingFiles=%d indexEntries=%d requiresReview=%t requiresCleanup=%t action=%s", pack.Pack, pack.Maturity, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action))
+		details = append(details, fmt.Sprintf("pack=%s maturity=%s candidateFiles=%d toolingFiles=%d indexEntries=%d reviewArtifacts=%d requiresReview=%t requiresCleanup=%t action=%s", pack.Pack, pack.Maturity, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, len(pack.ReviewArtifacts), pack.RequiresReview, pack.RequiresCleanup, pack.Action))
+		for _, path := range pack.CandidatePaths {
+			details = append(details, fmt.Sprintf("candidatePath pack=%s path=%s", pack.Pack, path))
+		}
+		for _, path := range pack.ToolingPaths {
+			details = append(details, fmt.Sprintf("toolingPath pack=%s path=%s", pack.Pack, path))
+		}
+		for _, entry := range pack.IndexCandidates {
+			details = append(details, fmt.Sprintf("indexCandidate pack=%s path=%s candidate=%s", pack.Pack, entry.Path, entry.Candidate))
+		}
+		for _, artifact := range pack.ReviewArtifacts {
+			details = append(details, fmt.Sprintf("reviewArtifact pack=%s name=%s candidatePath=%s packTarget=%s", pack.Pack, artifact.Name, artifact.CandidatePath, artifact.PackTarget))
+		}
 	}
 	for _, warning := range inventory.Warnings {
 		details = append(details, "warning="+warning)

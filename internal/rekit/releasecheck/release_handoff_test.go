@@ -193,6 +193,12 @@ func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
 	if pack.Pack != "fixture" || pack.CandidateRoot != "packs/fixture/promote-candidates" || pack.ToolingRoot != "packs/fixture/tooling/candidates" || pack.IndexPath != "packs/fixture/promote-candidates/index.json" || pack.CandidateFiles != 1 || pack.ToolingFiles != 1 || pack.IndexEntries != 1 || !pack.HasOpenWork || !pack.RequiresReview || !pack.RequiresCleanup {
 		t.Fatalf("unexpected pack-memory candidate status: %+v", pack)
 	}
+	if !slices.Contains(pack.CandidatePaths, "packs/fixture/promote-candidates/candidate.candidate.md") || !slices.Contains(pack.ToolingPaths, "packs/fixture/tooling/candidates/tool.candidate.md") || len(pack.IndexCandidates) != 1 || pack.IndexCandidates[0].Candidate != "packs/fixture/promote-candidates/candidate.candidate.md" || pack.IndexCandidates[0].Path != "references/template/README.md" {
+		t.Fatalf("pack-memory candidate identity handoff drifted: %+v", pack)
+	}
+	if !releaseHandoffReviewArtifactContains(pack.ReviewArtifacts, "candidate-decision-note", "packs/fixture/promote-candidates/candidate.candidate.md", "references/template/README.md") || !releaseHandoffReviewArtifactContains(pack.ReviewArtifacts, "candidate-cleanup-proof", "packs/fixture/promote-candidates/candidate.candidate.md", "references/template/README.md") || !releaseHandoffReviewArtifactContains(pack.ReviewArtifacts, "fresh-case-reconsume-proof", "packs/fixture/tooling/candidates/tool.candidate.md", "tooling/catalog.yml or tooling/recipes/*") || !releaseHandoffReviewArtifactContains(pack.ReviewArtifacts, "attached-case-reconsume-proof", "packs/fixture/tooling/candidates/tool.candidate.md", "tooling/catalog.yml or tooling/recipes/*") {
+		t.Fatalf("pack-memory candidate review artifact handoff drifted: %+v", pack.ReviewArtifacts)
+	}
 	for _, evidence := range []string{"promote-candidates files=1", "tooling/candidates files=1", "indexPath packs/fixture/promote-candidates/index.json entries=1"} {
 		if !slices.Contains(pack.Evidence, evidence) {
 			t.Fatalf("pack-memory candidate evidence missing %q: %+v", evidence, pack.Evidence)
@@ -348,6 +354,15 @@ func assertHandoffSignalDetailContains(t *testing.T, handoff ReleaseHandoff, nam
 func releaseHandoffStringsContain(values []string, want string) bool {
 	for _, value := range values {
 		if strings.Contains(value, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func releaseHandoffReviewArtifactContains(items []ReleaseHandoffPackMemoryCandidateReviewArtifact, name, candidatePath, packTarget string) bool {
+	for _, item := range items {
+		if item.Name == name && item.CandidatePath == candidatePath && item.PackTarget == packTarget && strings.TrimSpace(item.When) != "" && strings.TrimSpace(item.Action) != "" && len(item.Evidence) > 0 && len(item.Boundary) > 0 {
 			return true
 		}
 	}
