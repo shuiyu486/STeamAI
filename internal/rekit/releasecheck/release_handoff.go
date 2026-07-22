@@ -172,19 +172,25 @@ type ReleaseHandoffPackMemoryCandidateReviewSummary struct {
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewProofSummary struct {
-	Total            int      `json:"total"`
-	Present          int      `json:"present"`
-	Missing          int      `json:"missing"`
-	DecisionPresent  int      `json:"decisionPresent"`
-	DecisionMissing  int      `json:"decisionMissing"`
-	CleanupPresent   int      `json:"cleanupPresent"`
-	CleanupMissing   int      `json:"cleanupMissing"`
-	ReconsumePresent int      `json:"reconsumePresent"`
-	ReconsumeMissing int      `json:"reconsumeMissing"`
-	ProofRoot        string   `json:"proofRoot,omitempty"`
-	Complete         bool     `json:"complete"`
-	NextAction       string   `json:"nextAction,omitempty"`
-	Boundary         []string `json:"boundary,omitempty"`
+	Total                    int      `json:"total"`
+	Present                  int      `json:"present"`
+	Missing                  int      `json:"missing"`
+	DecisionPresent          int      `json:"decisionPresent"`
+	DecisionMissing          int      `json:"decisionMissing"`
+	CleanupPresent           int      `json:"cleanupPresent"`
+	CleanupMissing           int      `json:"cleanupMissing"`
+	ReconsumePresent         int      `json:"reconsumePresent"`
+	ReconsumeMissing         int      `json:"reconsumeMissing"`
+	ProofRoot                string   `json:"proofRoot,omitempty"`
+	ProofProgress            string   `json:"proofProgress,omitempty"`
+	CurrentStage             string   `json:"currentStage,omitempty"`
+	NextMissingProofType     string   `json:"nextMissingProofType,omitempty"`
+	NextMissingProofPath     string   `json:"nextMissingProofPath,omitempty"`
+	NextMissingCandidatePath string   `json:"nextMissingCandidatePath,omitempty"`
+	NextMissingPackTarget    string   `json:"nextMissingPackTarget,omitempty"`
+	Complete                 bool     `json:"complete"`
+	NextAction               string   `json:"nextAction,omitempty"`
+	Boundary                 []string `json:"boundary,omitempty"`
 }
 
 type ReleaseHandoffPackMemoryCandidateStatus struct {
@@ -797,6 +803,7 @@ func packMemoryCandidateReviewProofSummary(status ReleaseHandoffPackMemoryCandid
 		ProofRoot: status.ProofRoot,
 		Complete:  len(status.ReviewArtifacts) == 0,
 	}
+	missingByStage := map[string]ReleaseHandoffPackMemoryCandidateReviewArtifact{}
 	for _, artifact := range status.ReviewArtifacts {
 		if artifact.ProofPresent {
 			summary.Present++
@@ -809,31 +816,48 @@ func packMemoryCandidateReviewProofSummary(status ReleaseHandoffPackMemoryCandid
 				summary.ProofRoot = filepath.ToSlash(filepath.Dir(artifact.ExpectedProofs[0]))
 			}
 		}
-		switch strings.TrimSpace(artifact.Name) {
-		case "candidate-decision-note", "blocked-review-note":
+		switch stage := packMemoryCandidateProofArtifactStage(artifact.Name); stage {
+		case "decision-proof-required":
 			if artifact.ProofPresent {
 				summary.DecisionPresent++
 			} else {
 				summary.DecisionMissing++
+				if _, ok := missingByStage[stage]; !ok {
+					missingByStage[stage] = artifact
+				}
 			}
-		case "candidate-cleanup-proof":
+		case "cleanup-proof-required":
 			if artifact.ProofPresent {
 				summary.CleanupPresent++
 			} else {
 				summary.CleanupMissing++
+				if _, ok := missingByStage[stage]; !ok {
+					missingByStage[stage] = artifact
+				}
 			}
-		case "pack-doctor-output", "fresh-case-reconsume-proof", "attached-case-reconsume-proof":
+		case "reconsume-proof-required":
 			if artifact.ProofPresent {
 				summary.ReconsumePresent++
 			} else {
 				summary.ReconsumeMissing++
+				if _, ok := missingByStage[stage]; !ok {
+					missingByStage[stage] = artifact
+				}
 			}
 		}
 	}
 	if summary.Total > 0 {
+		summary.ProofProgress = fmt.Sprintf("%d/%d", summary.Present, summary.Total)
+		summary.CurrentStage = packMemoryCandidateProofStage(summary)
+		if artifact, ok := missingByStage[summary.CurrentStage]; ok {
+			summary.NextMissingProofType = artifact.Name
+			summary.NextMissingProofPath = packMemoryCandidateNextExpectedProof(artifact)
+			summary.NextMissingCandidatePath = artifact.CandidatePath
+			summary.NextMissingPackTarget = artifact.PackTarget
+		}
 		summary.Complete = summary.Missing == 0
 		if summary.Missing > 0 {
-			summary.NextAction = "record missing pack-memory review proof under " + summary.ProofRoot + " before declaring candidate cleanup/reconsume complete"
+			summary.NextAction = "record missing pack-memory review proof: " + summary.NextMissingProofType + " at " + summary.NextMissingProofPath + " for " + summary.NextMissingCandidatePath
 		} else {
 			summary.NextAction = "all expected pack-memory review proof files are present; review candidate cleanup/reconsume outcomes before release handoff"
 		}
@@ -843,6 +867,44 @@ func packMemoryCandidateReviewProofSummary(status ReleaseHandoffPackMemoryCandid
 		}
 	}
 	return summary
+}
+
+func packMemoryCandidateNextExpectedProof(artifact ReleaseHandoffPackMemoryCandidateReviewArtifact) string {
+	if strings.TrimSpace(artifact.ProofPath) != "" {
+		return artifact.ProofPath
+	}
+	if len(artifact.ExpectedProofs) > 0 {
+		return artifact.ExpectedProofs[0]
+	}
+	return ""
+}
+
+func packMemoryCandidateProofArtifactStage(name string) string {
+	switch strings.TrimSpace(name) {
+	case "candidate-decision-note", "blocked-review-note":
+		return "decision-proof-required"
+	case "candidate-cleanup-proof":
+		return "cleanup-proof-required"
+	case "pack-doctor-output", "fresh-case-reconsume-proof", "attached-case-reconsume-proof":
+		return "reconsume-proof-required"
+	default:
+		return ""
+	}
+}
+
+func packMemoryCandidateProofStage(summary ReleaseHandoffPackMemoryCandidateReviewProofSummary) string {
+	switch {
+	case summary.DecisionMissing > 0:
+		return "decision-proof-required"
+	case summary.CleanupMissing > 0:
+		return "cleanup-proof-required"
+	case summary.ReconsumeMissing > 0:
+		return "reconsume-proof-required"
+	case summary.Total > 0:
+		return "proof-complete-review-cleanup"
+	default:
+		return "no-proof-required"
+	}
 }
 
 func packMemoryCandidateReviewArtifactWithProof(status ReleaseHandoffPackMemoryCandidateStatus, artifact ReleaseHandoffPackMemoryCandidateReviewArtifact, proofRoot string) ReleaseHandoffPackMemoryCandidateReviewArtifact {
@@ -995,7 +1057,7 @@ func releaseHandoffPackMemoryCandidateDetails(inventory ReleaseHandoffPackMemory
 		}
 		summary := pack.ReviewSummary
 		details = append(details, fmt.Sprintf("reviewSummary pack=%s total=%d decisionArtifacts=%d cleanupArtifacts=%d reconsumeArtifacts=%d proofPresent=%d proofMissing=%d proofComplete=%t nextAction=%s", pack.Pack, summary.Total, summary.DecisionArtifactCount, summary.CleanupArtifactCount, summary.ReconsumeArtifactCount, summary.ProofSummary.Present, summary.ProofSummary.Missing, summary.ProofSummary.Complete, summary.NextAction))
-		details = append(details, fmt.Sprintf("proofSummary pack=%s total=%d present=%d missing=%d complete=%t proofRoot=%s nextAction=%s", pack.Pack, pack.ProofSummary.Total, pack.ProofSummary.Present, pack.ProofSummary.Missing, pack.ProofSummary.Complete, pack.ProofSummary.ProofRoot, pack.ProofSummary.NextAction))
+		details = append(details, fmt.Sprintf("proofSummary pack=%s total=%d present=%d missing=%d progress=%s stage=%s nextMissingType=%s nextMissingPath=%s nextMissingCandidate=%s nextMissingTarget=%s complete=%t proofRoot=%s nextAction=%s", pack.Pack, pack.ProofSummary.Total, pack.ProofSummary.Present, pack.ProofSummary.Missing, pack.ProofSummary.ProofProgress, pack.ProofSummary.CurrentStage, pack.ProofSummary.NextMissingProofType, pack.ProofSummary.NextMissingProofPath, pack.ProofSummary.NextMissingCandidatePath, pack.ProofSummary.NextMissingPackTarget, pack.ProofSummary.Complete, pack.ProofSummary.ProofRoot, pack.ProofSummary.NextAction))
 		for _, artifact := range pack.ReviewArtifacts {
 			details = append(details, fmt.Sprintf("reviewArtifact pack=%s name=%s candidatePath=%s packTarget=%s proofPresent=%t proofPath=%s expectedProofs=%s", pack.Pack, artifact.Name, artifact.CandidatePath, artifact.PackTarget, artifact.ProofPresent, artifact.ProofPath, strings.Join(artifact.ExpectedProofs, ",")))
 		}
