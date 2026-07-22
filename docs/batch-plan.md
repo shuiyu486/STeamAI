@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 543：pack-memory candidate decision receipt / reconsume verification closure
 
-状态：已完成；implementation待提交、推送并检查远程 release gate。
+状态：已完成；implementation commit `8458ec7 Close candidate decision verification` 已推送。对应 release-gate run `29958441694` completed failure；Linux/macOS/Windows jobs均 `steps=[]`，仍为既有 runner/billing blocker，不能声明 remote CI green。
 
 目标：补齐 Batch 542 Apply后 candidate/index消失导致 replacement executor与 release/status丢失后续 doctor/reconsume工作的 operational断点。让 reviewed decision留下 durable receipt，并提供严格、显式、可幂等的 pack/fresh/attached verification product path；release/status在 candidate residue清零后仍能交付 pending verification，proof完成后自动闭环。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：runtime不创建或初始化 fresh/attached cases，不执行 sync、heavy-tool或 authority/confirmed写入；调用者必须先准备两个不同的 attached cases，并先审查 WhatIf再Apply。verification只读取 pack/cases并写 repo-local proof；tooling candidate仍不允许自动accept；不新增 PowerShell runtime logic。
 
-验证结果：focused candidate promote/releasecheck/CLI测试、`go test ./...`、`go vet ./...`、`git diff --check`、`release-check -Format json`（`ready=true`）、`status`、`packs`与`doctor`均通过；远程 release gate待 implementation push后检查。
+验证结果：focused candidate promote/releasecheck/CLI测试、`go test ./...`、`go vet ./...`、`git diff --check`、`release-check -Format json`（`ready=true`）、`status`、`packs`与`doctor`均通过。implementation run `29958441694` 的 Linux/macOS/Windows jobs均 completed failure且 `steps=[]`；这是既有 GitHub Actions runner/billing blocker，不是远程测试执行失败。
 
 上一批摘要：Batch 542已完成 reviewed candidate decision/cleanup product path，implementation commit `882a553 Close pack memory candidate decisions` 与 release inspection commit `32650b9 Record Batch 542 release gate inspection` 已推送；implementation run `29953603900` 的 Linux/macOS/Windows jobs均 completed failure且 `steps=[]`，仍为既有 runner/billing blocker，不能声明 remote CI green。
 
