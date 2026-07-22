@@ -4529,6 +4529,41 @@ func writeExecutionEvidenceBoundaryDetailText(out io.Writer, prefix, eventID str
 	return nil
 }
 
+func writeExecutionEvidenceAdapterContextText(out io.Writer, prefix, eventID string, context *mission.ExecutionEvidenceAdapterContext) error {
+	if context == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s adapter context：eventId=%s id=%s status=%s entry=%s gateActions=%s recordOnlyAfterGate=%t toolingCatalogPath=%s\n", prefix, eventID, context.ID, context.Status, context.Entry, strings.Join(context.GateActions, ","), context.RecordOnlyAfterGate, context.ToolingCatalogPath); err != nil {
+		return err
+	}
+	if strings.TrimSpace(context.Purpose) != "" {
+		if _, err := fmt.Fprintf(out, "%s adapter context purpose：eventId=%s id=%s purpose=%s\n", prefix, eventID, context.ID, context.Purpose); err != nil {
+			return err
+		}
+	}
+	if len(context.SideEffects) > 0 {
+		if _, err := fmt.Fprintf(out, "%s adapter context side effects：eventId=%s id=%s sideEffects=%s\n", prefix, eventID, context.ID, strings.Join(context.SideEffects, ",")); err != nil {
+			return err
+		}
+	}
+	for _, guidance := range context.ReportGuidance {
+		if _, err := fmt.Fprintf(out, "%s adapter context report guidance：eventId=%s id=%s guidance=%s\n", prefix, eventID, context.ID, guidance); err != nil {
+			return err
+		}
+	}
+	for _, guidance := range context.EvidenceGuidance {
+		if _, err := fmt.Fprintf(out, "%s adapter context evidence guidance：eventId=%s id=%s guidance=%s\n", prefix, eventID, context.ID, guidance); err != nil {
+			return err
+		}
+	}
+	if len(context.StopConditionHints) > 0 {
+		if _, err := fmt.Fprintf(out, "%s adapter context stop conditions：eventId=%s id=%s hints=%s\n", prefix, eventID, context.ID, strings.Join(context.StopConditionHints, ",")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeExecutionEvidenceReportDetailText(out io.Writer, prefix, eventID string, item workstream.ExecutionEvidenceReviewItem) error {
 	if strings.TrimSpace(item.ExecutionReportPath) != "" {
 		if _, err := fmt.Fprintf(out, "%s report：eventId=%s path=%s\n", prefix, eventID, item.ExecutionReportPath); err != nil {
@@ -4545,6 +4580,9 @@ func writeExecutionEvidenceReportDetailText(out io.Writer, prefix, eventID strin
 			return err
 		}
 	}
+	if err := writeExecutionEvidenceAdapterContextText(out, prefix, eventID, item.AdapterContext); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -4559,6 +4597,9 @@ func writeExecutionEvidenceReviewSummaryText(out io.Writer, prefix string, summa
 		if _, err := fmt.Fprintf(out, "%s review summary action queue：%s\n", prefix, summary.ActionQueueSummary); err != nil {
 			return err
 		}
+	}
+	if err := writeExecutionEvidenceAdapterContextText(out, prefix+" review summary latest", summary.LatestEventID, summary.LatestAdapterContext); err != nil {
+		return err
 	}
 	for _, hit := range summary.LatestBoundaryHits {
 		if _, err := fmt.Fprintf(out, "%s review summary latest boundary hit：%s\n", prefix, hit); err != nil {

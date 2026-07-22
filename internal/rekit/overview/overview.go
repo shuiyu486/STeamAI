@@ -482,6 +482,7 @@ func writeExecutionEvidenceReview(out *bytes.Buffer, items []workstream.Executio
 	writeExecutionEvidenceReviewSummary(out, summary)
 	for _, item := range items {
 		fmt.Fprintf(out, "- %s：status=%s gateEventId=%s action=%s laneHandoff=`%s`\n", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, firstText(item.Action, "none"), item.HandoffCommand)
+		writeExecutionEvidenceReportDetail(out, item)
 		if refs := strings.Join(item.OutputRefs, ","); refs != "" {
 			fmt.Fprintf(out, "  - outputRefs: %s\n", refs)
 		}
@@ -517,6 +518,7 @@ func writeExecutionEvidenceReviewSummary(out *bytes.Buffer, summary workstream.E
 	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
 		fmt.Fprintf(out, "  - summary report: path=%s adapterId=%s adapterStatus=%s\n", firstText(summary.LatestExecutionReportPath, "none"), firstText(summary.LatestAdapterID, "none"), firstText(summary.LatestAdapterStatus, "none"))
 	}
+	writeExecutionEvidenceAdapterContext(out, "  - summary adapter context", summary.LatestAdapterContext)
 	for _, hit := range summary.LatestBoundaryHits {
 		fmt.Fprintf(out, "  - summary latest boundary hit: %s\n", hit)
 	}
@@ -527,6 +529,41 @@ func writeExecutionEvidenceReviewSummary(out *bytes.Buffer, summary workstream.E
 		fmt.Fprintf(out, "  - summary follow-through: state=%s outcomes=%d\n", summary.FollowThroughState, summary.OutcomeCount)
 	}
 	writeActionIndexList(out, "summary boundary", summary.Boundary)
+}
+
+func writeExecutionEvidenceReportDetail(out *bytes.Buffer, item workstream.ExecutionEvidenceReviewItem) {
+	if strings.TrimSpace(item.ExecutionReportPath) != "" {
+		fmt.Fprintf(out, "  - execution report: %s\n", item.ExecutionReportPath)
+	}
+	if item.ActualBudget != nil {
+		fmt.Fprintf(out, "  - actual budget: runtimeSeconds=%d diskMB=%d requests=%d\n", item.ActualBudget.RuntimeSeconds, item.ActualBudget.DiskMB, item.ActualBudget.Requests)
+	}
+	if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" {
+		fmt.Fprintf(out, "  - adapter report: adapterId=%s status=%s\n", item.AdapterID, item.AdapterStatus)
+	}
+	writeExecutionEvidenceAdapterContext(out, "  - adapter context", item.AdapterContext)
+}
+
+func writeExecutionEvidenceAdapterContext(out *bytes.Buffer, prefix string, context *mission.ExecutionEvidenceAdapterContext) {
+	if context == nil {
+		return
+	}
+	fmt.Fprintf(out, "%s: id=%s status=%s entry=%s gateActions=%s recordOnlyAfterGate=%t toolingCatalogPath=%s\n", prefix, context.ID, context.Status, context.Entry, strings.Join(context.GateActions, ","), context.RecordOnlyAfterGate, context.ToolingCatalogPath)
+	if strings.TrimSpace(context.Purpose) != "" {
+		fmt.Fprintf(out, "%s purpose: %s\n", prefix, context.Purpose)
+	}
+	if len(context.SideEffects) > 0 {
+		fmt.Fprintf(out, "%s side effects: %s\n", prefix, strings.Join(context.SideEffects, ","))
+	}
+	for _, guidance := range context.ReportGuidance {
+		fmt.Fprintf(out, "%s report guidance: %s\n", prefix, guidance)
+	}
+	for _, guidance := range context.EvidenceGuidance {
+		fmt.Fprintf(out, "%s evidence guidance: %s\n", prefix, guidance)
+	}
+	if len(context.StopConditionHints) > 0 {
+		fmt.Fprintf(out, "%s stop conditions: %s\n", prefix, strings.Join(context.StopConditionHints, ","))
+	}
 }
 
 func writeExecutionEvidenceFollowThrough(out *bytes.Buffer, follow mission.ExecutionEvidenceFollowThrough) {

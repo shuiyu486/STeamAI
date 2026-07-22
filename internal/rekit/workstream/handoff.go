@@ -578,6 +578,7 @@ func writeProjectLaneExecutionEvidenceReviewSummary(out *bytes.Buffer, summary E
 	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
 		fmt.Fprintf(out, "  - evidence review summary report：path=%s adapterId=%s adapterStatus=%s\n", firstText(summary.LatestExecutionReportPath, "none"), firstText(summary.LatestAdapterID, "none"), firstText(summary.LatestAdapterStatus, "none"))
 	}
+	writeProjectLaneExecutionEvidenceAdapterContext(out, summary.LatestAdapterContext)
 	for _, hit := range mission.LimitStrings(summary.LatestBoundaryHits, maxHandoffRows) {
 		fmt.Fprintf(out, "  - evidence review summary latest boundary hit：%s\n", hit)
 	}
@@ -632,6 +633,29 @@ func writeProjectLaneExecutionEvidenceReportDetail(out *bytes.Buffer, item Execu
 	}
 	if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" {
 		fmt.Fprintf(out, "  - evidence adapter：adapterId=%s status=%s\n", item.AdapterID, item.AdapterStatus)
+	}
+	writeProjectLaneExecutionEvidenceAdapterContext(out, item.AdapterContext)
+}
+
+func writeProjectLaneExecutionEvidenceAdapterContext(out *bytes.Buffer, context *mission.ExecutionEvidenceAdapterContext) {
+	if context == nil {
+		return
+	}
+	fmt.Fprintf(out, "  - evidence adapter context：id=%s status=%s entry=%s gateActions=%s recordOnlyAfterGate=%t toolingCatalogPath=%s\n", context.ID, context.Status, context.Entry, strings.Join(context.GateActions, ","), context.RecordOnlyAfterGate, context.ToolingCatalogPath)
+	if strings.TrimSpace(context.Purpose) != "" {
+		fmt.Fprintf(out, "  - evidence adapter context purpose：%s\n", context.Purpose)
+	}
+	if len(context.SideEffects) > 0 {
+		fmt.Fprintf(out, "  - evidence adapter context side effects：%s\n", strings.Join(context.SideEffects, ","))
+	}
+	for _, guidance := range mission.LimitStrings(context.ReportGuidance, maxHandoffRows) {
+		fmt.Fprintf(out, "  - evidence adapter context report guidance：%s\n", guidance)
+	}
+	for _, guidance := range mission.LimitStrings(context.EvidenceGuidance, maxHandoffRows) {
+		fmt.Fprintf(out, "  - evidence adapter context evidence guidance：%s\n", guidance)
+	}
+	if len(context.StopConditionHints) > 0 {
+		fmt.Fprintf(out, "  - evidence adapter context stop conditions：%s\n", strings.Join(context.StopConditionHints, ","))
 	}
 }
 func writeProjectLaneEvidenceFollowThrough(out *bytes.Buffer, follow mission.ExecutionEvidenceFollowThrough) {
@@ -1212,6 +1236,7 @@ func writeExecutionEvidenceReviewSummary(out *bytes.Buffer, summary ExecutionEvi
 	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
 		fmt.Fprintf(out, "  - summary report: path=%s adapterId=%s adapterStatus=%s\n", firstText(summary.LatestExecutionReportPath, "none"), firstText(summary.LatestAdapterID, "none"), firstText(summary.LatestAdapterStatus, "none"))
 	}
+	writeExecutionEvidenceAdapterContext(out, summary.LatestAdapterContext)
 	for _, hit := range mission.LimitStrings(summary.LatestBoundaryHits, maxHandoffRows) {
 		fmt.Fprintf(out, "  - summary latest boundary hit: %s\n", hit)
 	}
@@ -1269,6 +1294,29 @@ func writeExecutionEvidenceReportDetail(out *bytes.Buffer, item ExecutionEvidenc
 	}
 	if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" {
 		fmt.Fprintf(out, "  - adapter report: adapterId=%s status=%s\n", item.AdapterID, item.AdapterStatus)
+	}
+	writeExecutionEvidenceAdapterContext(out, item.AdapterContext)
+}
+
+func writeExecutionEvidenceAdapterContext(out *bytes.Buffer, context *mission.ExecutionEvidenceAdapterContext) {
+	if context == nil {
+		return
+	}
+	fmt.Fprintf(out, "  - adapter context: id=%s status=%s entry=%s gateActions=%s recordOnlyAfterGate=%t toolingCatalogPath=%s\n", context.ID, context.Status, context.Entry, strings.Join(context.GateActions, ","), context.RecordOnlyAfterGate, context.ToolingCatalogPath)
+	if strings.TrimSpace(context.Purpose) != "" {
+		fmt.Fprintf(out, "  - adapter context purpose: %s\n", context.Purpose)
+	}
+	if len(context.SideEffects) > 0 {
+		fmt.Fprintf(out, "  - adapter context side effects: %s\n", strings.Join(context.SideEffects, ","))
+	}
+	for _, guidance := range mission.LimitStrings(context.ReportGuidance, maxHandoffRows) {
+		fmt.Fprintf(out, "  - adapter context report guidance: %s\n", guidance)
+	}
+	for _, guidance := range mission.LimitStrings(context.EvidenceGuidance, maxHandoffRows) {
+		fmt.Fprintf(out, "  - adapter context evidence guidance: %s\n", guidance)
+	}
+	if len(context.StopConditionHints) > 0 {
+		fmt.Fprintf(out, "  - adapter context stop conditions: %s\n", strings.Join(context.StopConditionHints, ","))
 	}
 }
 func writeInterventionSection(out *bytes.Buffer, interventions []map[string]any, laneID string) {

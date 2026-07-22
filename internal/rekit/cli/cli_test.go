@@ -10440,14 +10440,13 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	var evidence struct {
-		Applied           bool `json:"applied"`
+		Applied           bool   `json:"applied"`
+		EventID           string `json:"eventId"`
 		ExecutionEvidence struct {
 			Execution struct {
-				ExecutionReportPath string `json:"executionReportPath"`
-				AdapterContext      *struct {
-					ID string `json:"id"`
-				} `json:"adapterContext"`
-				Adapter struct {
+				ExecutionReportPath string                        `json:"executionReportPath"`
+				AdapterContext      *adapterToolCandidateSnapshot `json:"adapterContext"`
+				Adapter             struct {
 					AdapterID string `json:"adapterId"`
 				} `json:"adapter"`
 			} `json:"execution"`
@@ -10456,9 +10455,168 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &evidence); err != nil {
 		t.Fatalf("generic-binary-re adapter evidence stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if !evidence.Applied || evidence.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || evidence.ExecutionEvidence.Execution.Adapter.AdapterID != candidate.ID || evidence.ExecutionEvidence.Execution.AdapterContext == nil || evidence.ExecutionEvidence.Execution.AdapterContext.ID != candidate.ID {
+	if !evidence.Applied || evidence.EventID == "" || evidence.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || evidence.ExecutionEvidence.Execution.Adapter.AdapterID != candidate.ID || evidence.ExecutionEvidence.Execution.AdapterContext == nil || evidence.ExecutionEvidence.Execution.AdapterContext.ID != candidate.ID {
 		t.Fatalf("generic-binary-re adapter evidence omitted selected candidate provenance: %+v", evidence)
 	}
+	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re record evidence", evidence.ExecutionEvidence.Execution.AdapterContext, candidate.ID)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var recordedStatus struct {
+		CaseMission struct {
+			ExecutionEvidenceReviewCount   int                                    `json:"executionEvidenceReviewCount"`
+			ExecutionEvidenceReview        []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
+			ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &recordedStatus); err != nil {
+		t.Fatalf("generic-binary-re recorded status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if recordedStatus.CaseMission.ExecutionEvidenceReviewCount != 1 || len(recordedStatus.CaseMission.ExecutionEvidenceReview) != 1 {
+		t.Fatalf("generic-binary-re status omitted execution evidence review: %+v", recordedStatus.CaseMission)
+	}
+	statusEvidence := recordedStatus.CaseMission.ExecutionEvidenceReview[0]
+	if statusEvidence.EventID != evidence.EventID || statusEvidence.GateEventID != applied.EventID || statusEvidence.AdapterID != candidate.ID || statusEvidence.AdapterStatus != "succeeded" || statusEvidence.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" {
+		t.Fatalf("generic-binary-re status execution evidence identity drifted: %+v", statusEvidence)
+	}
+	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re status evidence", statusEvidence.AdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re status summary", recordedStatus.CaseMission.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status case mission evidence review summary latest adapter context：eventId=" + evidence.EventID + " id=dynamic-debug-or-writeback-action status=cautious entry=",
+		"status case mission evidence review summary latest adapter context evidence guidance：eventId=" + evidence.EventID + " id=dynamic-debug-or-writeback-action guidance=",
+		"status case mission evidence adapter context：eventId=" + evidence.EventID + " id=dynamic-debug-or-writeback-action status=cautious entry=",
+		"status case mission evidence adapter context report guidance：eventId=" + evidence.EventID + " id=dynamic-debug-or-writeback-action guidance=",
+		"status case mission evidence adapter context evidence guidance：eventId=" + evidence.EventID + " id=dynamic-debug-or-writeback-action guidance=",
+		"status case mission evidence adapter context stop conditions：eventId=" + evidence.EventID + " id=dynamic-debug-or-writeback-action hints=timeout,unexpected-side-effect,scope-drift",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("generic-binary-re status text omitted recorded adapter context %q:\n%s", expected, out.String())
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var recordedOverview struct {
+		ExecutionEvidenceReview        []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
+		ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &recordedOverview); err != nil {
+		t.Fatalf("generic-binary-re recorded overview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if len(recordedOverview.ExecutionEvidenceReview) != 1 {
+		t.Fatalf("generic-binary-re overview omitted execution evidence review: %+v", recordedOverview)
+	}
+	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re overview evidence", recordedOverview.ExecutionEvidenceReview[0].AdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re overview summary", recordedOverview.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"overview execution evidence review summary latest adapter context：eventId=" + evidence.EventID + " id=dynamic-debug-or-writeback-action status=cautious entry=",
+		"overview execution evidence adapter context：eventId=" + evidence.EventID + " id=dynamic-debug-or-writeback-action status=cautious entry=",
+		"overview execution evidence adapter context evidence guidance：eventId=" + evidence.EventID + " id=dynamic-debug-or-writeback-action guidance=",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("generic-binary-re overview text omitted recorded adapter context %q:\n%s", expected, out.String())
+		}
+	}
+
+	beforeDurableFacts := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var handoffApply handoffResult
+	if err := json.Unmarshal(out.Bytes(), &handoffApply); err != nil {
+		t.Fatalf("generic-binary-re handoff apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !handoffApply.Applied || len(handoffApply.ExecutionEvidenceReview) != 1 {
+		t.Fatalf("generic-binary-re handoff apply omitted execution evidence review: %+v", handoffApply)
+	}
+	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re handoff apply evidence", handoffApply.ExecutionEvidenceReview[0].AdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re handoff apply summary", handoffApply.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
+	latestHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "main-latest.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resume, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "prompts", "RESUME.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, content := range map[string]string{"handoff": string(latestHandoff), "RESUME": string(resume)} {
+		for _, expected := range []string{
+			"adapter context: id=dynamic-debug-or-writeback-action status=cautious entry=",
+			"adapter context evidence guidance:",
+			"adapter context stop conditions: timeout,unexpected-side-effect,scope-drift",
+		} {
+			if !strings.Contains(content, expected) {
+				t.Fatalf("generic-binary-re %s durable handoff omitted adapter context %q:\n%s", label, expected, content)
+			}
+		}
+	}
+	checkpointBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "checkpoints", "latest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		ExecutionEvidenceReview        []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
+		ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("generic-binary-re checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
+	}
+	if len(checkpoint.ExecutionEvidenceReview) != 1 {
+		t.Fatalf("generic-binary-re checkpoint omitted execution evidence review: %+v", checkpoint)
+	}
+	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re checkpoint evidence", checkpoint.ExecutionEvidenceReview[0].AdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re checkpoint summary", checkpoint.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
+	assertSnapshotEqual(t, beforeDurableFacts, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continueApply struct {
+		Applied                        bool                                   `json:"applied"`
+		RunID                          string                                 `json:"runId"`
+		ExecutionEvidenceReview        []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
+		ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
+		t.Fatalf("generic-binary-re continue apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !continueApply.Applied || continueApply.RunID == "" || len(continueApply.ExecutionEvidenceReview) != 1 {
+		t.Fatalf("generic-binary-re continue apply omitted execution evidence review: %+v", continueApply)
+	}
+	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re continue apply evidence", continueApply.ExecutionEvidenceReview[0].AdapterContext, candidate.ID)
+	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re continue apply summary", continueApply.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
+	continueDigest, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "runs", continueApply.RunID, "digest.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"adapter context: id=dynamic-debug-or-writeback-action status=cautious entry=",
+		"adapter context report guidance:",
+		"adapter context evidence guidance:",
+		"adapter context stop conditions: timeout,unexpected-side-effect,scope-drift",
+	} {
+		if !strings.Contains(string(continueDigest), expected) {
+			t.Fatalf("generic-binary-re continue digest omitted adapter context %q:\n%s", expected, string(continueDigest))
+		}
+	}
+	assertSnapshotEqual(t, beforeDurableFacts, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("generic-binary-re adapter evidence wrote authority ledger or stat failed: %v", err)
 	}
@@ -10793,6 +10951,13 @@ type adapterToolCandidateSnapshot struct {
 	RecordOnlyAfterGate bool     `json:"recordOnlyAfterGate"`
 }
 
+func assertExecutionEvidenceAdapterContextSnapshot(t *testing.T, label string, candidate *adapterToolCandidateSnapshot, wantID string) {
+	t.Helper()
+	if candidate == nil || candidate.ID != wantID || candidate.Status != "cautious" || !strings.Contains(candidate.Entry, "dynamic-debug") || !strings.Contains(candidate.Purpose, "bounded debug") || !containsSubstring(candidate.SideEffects, "process execution") || !slices.Contains(candidate.GateActions, "debug") || candidate.ToolingCatalogPath != "tooling/catalog.yml" || !containsSubstring(candidate.ReportGuidance, "adapterId") || !containsSubstring(candidate.EvidenceGuidance, "ValidateArgs") || strings.Join(candidate.StopConditionHints, ",") != "timeout,unexpected-side-effect,scope-drift" || !candidate.RecordOnlyAfterGate {
+		t.Fatalf("%s omitted execution evidence adapter context detail: %+v", label, candidate)
+	}
+}
+
 func assertAuthorizedGateAdapterHandoffSnapshot(t *testing.T, label string, items []authorizedGateAdapterHandoffSnapshot, eventID, wantContract string) {
 	t.Helper()
 	wantReportPath := "workspace/main/debug/session-1/adapter-report.json"
@@ -10948,37 +11113,38 @@ type reviewerWritebackSummaryCLIItem struct {
 }
 
 type executionEvidenceReviewSummarySnapshot struct {
-	Total                     int      `json:"total"`
-	ReadyForReviewCount       int      `json:"readyForReviewCount"`
-	MainEscalationCount       int      `json:"mainEscalationCount"`
-	DuplicateCount            int      `json:"duplicateCount"`
-	OutputRefCount            int      `json:"outputRefCount"`
-	EvidenceRefCount          int      `json:"evidenceRefCount"`
-	BoundaryHitCount          int      `json:"boundaryHitCount"`
-	HasEscalation             bool     `json:"hasEscalation"`
-	HasExecutionReport        bool     `json:"hasExecutionReport"`
-	HasAdapter                bool     `json:"hasAdapter"`
-	LatestEventID             string   `json:"latestEventId"`
-	LatestGateEventID         string   `json:"latestGateEventId"`
-	LatestStatus              string   `json:"latestStatus"`
-	LatestAction              string   `json:"latestAction"`
-	LatestTarget              string   `json:"latestTarget"`
-	LatestReviewCommand       string   `json:"latestReviewCommand"`
-	LatestHandoffCommand      string   `json:"latestHandoffCommand"`
-	LatestCommanderState      string   `json:"latestCommanderState"`
-	LatestCommanderPrimary    string   `json:"latestCommanderPrimary"`
-	LatestExecutionReportPath string   `json:"latestExecutionReportPath"`
-	LatestAdapterID           string   `json:"latestAdapterId"`
-	LatestAdapterStatus       string   `json:"latestAdapterStatus"`
-	LatestBoundaryHits        []string `json:"latestBoundaryHits"`
-	LatestEscalation          string   `json:"latestEscalation"`
-	OutcomeCount              int      `json:"outcomeCount"`
-	FollowThroughState        string   `json:"followThroughState"`
-	ActionQueueSummary        string   `json:"actionQueueSummary"`
-	CurrentAction             string   `json:"currentAction"`
-	NextActionCount           int      `json:"nextActionCount"`
-	ReviewRequiredActionCount int      `json:"reviewRequiredActionCount"`
-	Boundary                  []string `json:"boundary"`
+	Total                     int                           `json:"total"`
+	ReadyForReviewCount       int                           `json:"readyForReviewCount"`
+	MainEscalationCount       int                           `json:"mainEscalationCount"`
+	DuplicateCount            int                           `json:"duplicateCount"`
+	OutputRefCount            int                           `json:"outputRefCount"`
+	EvidenceRefCount          int                           `json:"evidenceRefCount"`
+	BoundaryHitCount          int                           `json:"boundaryHitCount"`
+	HasEscalation             bool                          `json:"hasEscalation"`
+	HasExecutionReport        bool                          `json:"hasExecutionReport"`
+	HasAdapter                bool                          `json:"hasAdapter"`
+	LatestEventID             string                        `json:"latestEventId"`
+	LatestGateEventID         string                        `json:"latestGateEventId"`
+	LatestStatus              string                        `json:"latestStatus"`
+	LatestAction              string                        `json:"latestAction"`
+	LatestTarget              string                        `json:"latestTarget"`
+	LatestReviewCommand       string                        `json:"latestReviewCommand"`
+	LatestHandoffCommand      string                        `json:"latestHandoffCommand"`
+	LatestCommanderState      string                        `json:"latestCommanderState"`
+	LatestCommanderPrimary    string                        `json:"latestCommanderPrimary"`
+	LatestExecutionReportPath string                        `json:"latestExecutionReportPath"`
+	LatestAdapterID           string                        `json:"latestAdapterId"`
+	LatestAdapterStatus       string                        `json:"latestAdapterStatus"`
+	LatestAdapterContext      *adapterToolCandidateSnapshot `json:"latestAdapterContext"`
+	LatestBoundaryHits        []string                      `json:"latestBoundaryHits"`
+	LatestEscalation          string                        `json:"latestEscalation"`
+	OutcomeCount              int                           `json:"outcomeCount"`
+	FollowThroughState        string                        `json:"followThroughState"`
+	ActionQueueSummary        string                        `json:"actionQueueSummary"`
+	CurrentAction             string                        `json:"currentAction"`
+	NextActionCount           int                           `json:"nextActionCount"`
+	ReviewRequiredActionCount int                           `json:"reviewRequiredActionCount"`
+	Boundary                  []string                      `json:"boundary"`
 }
 
 func assertNestedAdapterExecutionEvidenceReviewSummary(t *testing.T, label string, summary executionEvidenceReviewSummarySnapshot, eventID, gateEventID string) {
@@ -11014,6 +11180,7 @@ type executionEvidenceReviewItem struct {
 	ActualBudget           *executionEvidenceBudgetSnapshot       `json:"actualBudget"`
 	AdapterID              string                                 `json:"adapterId"`
 	AdapterStatus          string                                 `json:"adapterStatus"`
+	AdapterContext         *adapterToolCandidateSnapshot          `json:"adapterContext"`
 	BoundaryHits           []string                               `json:"boundaryHits"`
 	Escalation             string                                 `json:"escalation"`
 	FollowThrough          executionEvidenceFollowThroughSnapshot `json:"followThrough"`

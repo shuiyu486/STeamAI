@@ -80,6 +80,7 @@ func ExecutionEvidenceReviewItemFromObservation(observation map[string]any, lane
 		ActualBudget:        executionEvidenceBudget(execution),
 		AdapterID:           firstObjectText(objectMap(execution["adapter"]), "adapterId"),
 		AdapterStatus:       firstObjectText(objectMap(execution["adapter"]), "status"),
+		AdapterContext:      executionEvidenceAdapterContext(execution),
 		BoundaryHits:        boundaryHits,
 		Escalation:          escalation,
 		ReviewCommand:       "review outputRefs/evidenceRefs for gateEventId " + gateEventID,
@@ -263,6 +264,30 @@ func executionEvidenceBudget(execution map[string]any) *ExecutionEvidenceBudget 
 	}
 }
 
+func executionEvidenceAdapterContext(execution map[string]any) *ExecutionEvidenceAdapterContext {
+	context := objectMap(execution["adapterContext"])
+	if len(context) == 0 {
+		return nil
+	}
+	candidate := ExecutionEvidenceAdapterContext{
+		ID:                  firstObjectText(context, "id"),
+		Status:              firstObjectText(context, "status"),
+		Entry:               firstObjectText(context, "entry"),
+		Purpose:             firstObjectText(context, "purpose"),
+		SideEffects:         objectStringList(context["sideEffects"]),
+		GateActions:         objectStringList(context["gateActions"]),
+		ToolingCatalogPath:  firstObjectText(context, "toolingCatalogPath"),
+		ReportGuidance:      objectStringList(context["reportGuidance"]),
+		EvidenceGuidance:    objectStringList(context["evidenceGuidance"]),
+		StopConditionHints:  objectStringList(context["stopConditionHints"]),
+		RecordOnlyAfterGate: objectBool(context["recordOnlyAfterGate"]),
+	}
+	if candidate.ID == "" && candidate.Status == "" && candidate.Entry == "" && candidate.Purpose == "" && len(candidate.SideEffects) == 0 && len(candidate.GateActions) == 0 && candidate.ToolingCatalogPath == "" && len(candidate.ReportGuidance) == 0 && len(candidate.EvidenceGuidance) == 0 && len(candidate.StopConditionHints) == 0 && !candidate.RecordOnlyAfterGate {
+		return nil
+	}
+	return &candidate
+}
+
 func objectMap(value any) map[string]any {
 	if item, ok := value.(map[string]any); ok {
 		return item
@@ -331,6 +356,17 @@ func objectInt(value any) int {
 		return n
 	default:
 		return 0
+	}
+}
+
+func objectBool(value any) bool {
+	switch t := value.(type) {
+	case bool:
+		return t
+	case string:
+		return strings.EqualFold(strings.TrimSpace(t), "true")
+	default:
+		return false
 	}
 }
 

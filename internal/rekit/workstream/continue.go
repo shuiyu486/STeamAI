@@ -971,6 +971,7 @@ func appendExecutionEvidenceReviewSummary(lines []string, summary ExecutionEvide
 	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
 		lines = append(lines, "- summary report: path="+firstText(summary.LatestExecutionReportPath, "none")+" adapterId="+firstText(summary.LatestAdapterID, "none")+" adapterStatus="+firstText(summary.LatestAdapterStatus, "none"))
 	}
+	lines = appendContinueExecutionEvidenceAdapterContext(lines, summary.LatestAdapterContext)
 	for _, hit := range mission.LimitStrings(summary.LatestBoundaryHits, maxHandoffRows) {
 		lines = append(lines, "- summary latest boundary hit: "+hit)
 	}
@@ -995,6 +996,29 @@ func appendContinueExecutionEvidenceReportDetail(lines []string, item ExecutionE
 	}
 	if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" {
 		lines = append(lines, fmt.Sprintf("- adapter report: adapterId=%s status=%s", item.AdapterID, item.AdapterStatus))
+	}
+	return appendContinueExecutionEvidenceAdapterContext(lines, item.AdapterContext)
+}
+
+func appendContinueExecutionEvidenceAdapterContext(lines []string, context *mission.ExecutionEvidenceAdapterContext) []string {
+	if context == nil {
+		return lines
+	}
+	lines = append(lines, fmt.Sprintf("- adapter context: id=%s status=%s entry=%s gateActions=%s recordOnlyAfterGate=%t toolingCatalogPath=%s", context.ID, context.Status, context.Entry, strings.Join(context.GateActions, ","), context.RecordOnlyAfterGate, context.ToolingCatalogPath))
+	if strings.TrimSpace(context.Purpose) != "" {
+		lines = append(lines, "- adapter context purpose: "+context.Purpose)
+	}
+	if len(context.SideEffects) > 0 {
+		lines = append(lines, "- adapter context side effects: "+strings.Join(context.SideEffects, ","))
+	}
+	for _, guidance := range mission.LimitStrings(context.ReportGuidance, maxHandoffRows) {
+		lines = append(lines, "- adapter context report guidance: "+guidance)
+	}
+	for _, guidance := range mission.LimitStrings(context.EvidenceGuidance, maxHandoffRows) {
+		lines = append(lines, "- adapter context evidence guidance: "+guidance)
+	}
+	if len(context.StopConditionHints) > 0 {
+		lines = append(lines, "- adapter context stop conditions: "+strings.Join(context.StopConditionHints, ","))
 	}
 	return lines
 }

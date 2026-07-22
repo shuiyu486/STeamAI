@@ -115,60 +115,76 @@ type MissionCommanderActionQueueCounts struct {
 }
 
 type ExecutionEvidenceReviewItem struct {
-	EventID                string                         `json:"eventId,omitempty"`
-	GateEventID            string                         `json:"gateEventId,omitempty"`
-	Subject                string                         `json:"subject,omitempty"`
-	Summary                string                         `json:"summary,omitempty"`
-	Status                 string                         `json:"status,omitempty"`
-	Action                 string                         `json:"action,omitempty"`
-	Target                 string                         `json:"target,omitempty"`
-	OutputRefs             []string                       `json:"outputRefs,omitempty"`
-	EvidenceRefs           []string                       `json:"evidenceRefs,omitempty"`
-	ExecutionReportPath    string                         `json:"executionReportPath,omitempty"`
-	ActualBudget           *ExecutionEvidenceBudget       `json:"actualBudget,omitempty"`
-	AdapterID              string                         `json:"adapterId,omitempty"`
-	AdapterStatus          string                         `json:"adapterStatus,omitempty"`
-	BoundaryHits           []string                       `json:"boundaryHits,omitempty"`
-	Escalation             string                         `json:"escalation,omitempty"`
-	FollowThrough          ExecutionEvidenceFollowThrough `json:"followThrough"`
-	ReviewCommand          string                         `json:"reviewCommand"`
-	HandoffCommand         string                         `json:"handoffCommand"`
-	Boundary               []string                       `json:"boundary"`
-	MissionCommanderAction MissionCommanderAction         `json:"missionCommanderAction"`
+	EventID                string                           `json:"eventId,omitempty"`
+	GateEventID            string                           `json:"gateEventId,omitempty"`
+	Subject                string                           `json:"subject,omitempty"`
+	Summary                string                           `json:"summary,omitempty"`
+	Status                 string                           `json:"status,omitempty"`
+	Action                 string                           `json:"action,omitempty"`
+	Target                 string                           `json:"target,omitempty"`
+	OutputRefs             []string                         `json:"outputRefs,omitempty"`
+	EvidenceRefs           []string                         `json:"evidenceRefs,omitempty"`
+	ExecutionReportPath    string                           `json:"executionReportPath,omitempty"`
+	ActualBudget           *ExecutionEvidenceBudget         `json:"actualBudget,omitempty"`
+	AdapterID              string                           `json:"adapterId,omitempty"`
+	AdapterStatus          string                           `json:"adapterStatus,omitempty"`
+	AdapterContext         *ExecutionEvidenceAdapterContext `json:"adapterContext,omitempty"`
+	BoundaryHits           []string                         `json:"boundaryHits,omitempty"`
+	Escalation             string                           `json:"escalation,omitempty"`
+	FollowThrough          ExecutionEvidenceFollowThrough   `json:"followThrough"`
+	ReviewCommand          string                           `json:"reviewCommand"`
+	HandoffCommand         string                           `json:"handoffCommand"`
+	Boundary               []string                         `json:"boundary"`
+	MissionCommanderAction MissionCommanderAction           `json:"missionCommanderAction"`
+}
+
+type ExecutionEvidenceAdapterContext struct {
+	ID                  string   `json:"id,omitempty"`
+	Status              string   `json:"status,omitempty"`
+	Entry               string   `json:"entry,omitempty"`
+	Purpose             string   `json:"purpose,omitempty"`
+	SideEffects         []string `json:"sideEffects,omitempty"`
+	GateActions         []string `json:"gateActions,omitempty"`
+	ToolingCatalogPath  string   `json:"toolingCatalogPath,omitempty"`
+	ReportGuidance      []string `json:"reportGuidance,omitempty"`
+	EvidenceGuidance    []string `json:"evidenceGuidance,omitempty"`
+	StopConditionHints  []string `json:"stopConditionHints,omitempty"`
+	RecordOnlyAfterGate bool     `json:"recordOnlyAfterGate"`
 }
 
 type ExecutionEvidenceReviewSummary struct {
-	Total                     int      `json:"total"`
-	ReadyForReviewCount       int      `json:"readyForReviewCount"`
-	MainEscalationCount       int      `json:"mainEscalationCount"`
-	DuplicateCount            int      `json:"duplicateCount"`
-	OutputRefCount            int      `json:"outputRefCount"`
-	EvidenceRefCount          int      `json:"evidenceRefCount"`
-	BoundaryHitCount          int      `json:"boundaryHitCount"`
-	HasEscalation             bool     `json:"hasEscalation"`
-	HasExecutionReport        bool     `json:"hasExecutionReport"`
-	HasAdapter                bool     `json:"hasAdapter"`
-	LatestEventID             string   `json:"latestEventId,omitempty"`
-	LatestGateEventID         string   `json:"latestGateEventId,omitempty"`
-	LatestStatus              string   `json:"latestStatus,omitempty"`
-	LatestAction              string   `json:"latestAction,omitempty"`
-	LatestTarget              string   `json:"latestTarget,omitempty"`
-	LatestReviewCommand       string   `json:"latestReviewCommand,omitempty"`
-	LatestHandoffCommand      string   `json:"latestHandoffCommand,omitempty"`
-	LatestCommanderState      string   `json:"latestCommanderState,omitempty"`
-	LatestCommanderPrimary    string   `json:"latestCommanderPrimary,omitempty"`
-	LatestExecutionReportPath string   `json:"latestExecutionReportPath,omitempty"`
-	LatestAdapterID           string   `json:"latestAdapterId,omitempty"`
-	LatestAdapterStatus       string   `json:"latestAdapterStatus,omitempty"`
-	LatestBoundaryHits        []string `json:"latestBoundaryHits,omitempty"`
-	LatestEscalation          string   `json:"latestEscalation,omitempty"`
-	OutcomeCount              int      `json:"outcomeCount"`
-	FollowThroughState        string   `json:"followThroughState,omitempty"`
-	ActionQueueSummary        string   `json:"actionQueueSummary,omitempty"`
-	CurrentAction             string   `json:"currentAction,omitempty"`
-	NextActionCount           int      `json:"nextActionCount"`
-	ReviewRequiredActionCount int      `json:"reviewRequiredActionCount"`
-	Boundary                  []string `json:"boundary,omitempty"`
+	Total                     int                              `json:"total"`
+	ReadyForReviewCount       int                              `json:"readyForReviewCount"`
+	MainEscalationCount       int                              `json:"mainEscalationCount"`
+	DuplicateCount            int                              `json:"duplicateCount"`
+	OutputRefCount            int                              `json:"outputRefCount"`
+	EvidenceRefCount          int                              `json:"evidenceRefCount"`
+	BoundaryHitCount          int                              `json:"boundaryHitCount"`
+	HasEscalation             bool                             `json:"hasEscalation"`
+	HasExecutionReport        bool                             `json:"hasExecutionReport"`
+	HasAdapter                bool                             `json:"hasAdapter"`
+	LatestEventID             string                           `json:"latestEventId,omitempty"`
+	LatestGateEventID         string                           `json:"latestGateEventId,omitempty"`
+	LatestStatus              string                           `json:"latestStatus,omitempty"`
+	LatestAction              string                           `json:"latestAction,omitempty"`
+	LatestTarget              string                           `json:"latestTarget,omitempty"`
+	LatestReviewCommand       string                           `json:"latestReviewCommand,omitempty"`
+	LatestHandoffCommand      string                           `json:"latestHandoffCommand,omitempty"`
+	LatestCommanderState      string                           `json:"latestCommanderState,omitempty"`
+	LatestCommanderPrimary    string                           `json:"latestCommanderPrimary,omitempty"`
+	LatestExecutionReportPath string                           `json:"latestExecutionReportPath,omitempty"`
+	LatestAdapterID           string                           `json:"latestAdapterId,omitempty"`
+	LatestAdapterStatus       string                           `json:"latestAdapterStatus,omitempty"`
+	LatestAdapterContext      *ExecutionEvidenceAdapterContext `json:"latestAdapterContext,omitempty"`
+	LatestBoundaryHits        []string                         `json:"latestBoundaryHits,omitempty"`
+	LatestEscalation          string                           `json:"latestEscalation,omitempty"`
+	OutcomeCount              int                              `json:"outcomeCount"`
+	FollowThroughState        string                           `json:"followThroughState,omitempty"`
+	ActionQueueSummary        string                           `json:"actionQueueSummary,omitempty"`
+	CurrentAction             string                           `json:"currentAction,omitempty"`
+	NextActionCount           int                              `json:"nextActionCount"`
+	ReviewRequiredActionCount int                              `json:"reviewRequiredActionCount"`
+	Boundary                  []string                         `json:"boundary,omitempty"`
 }
 
 type ExecutionEvidenceBudget struct {
@@ -393,7 +409,7 @@ func ExecutionEvidenceReviewSummaryFor(items []ExecutionEvidenceReviewItem, queu
 		if strings.TrimSpace(item.ExecutionReportPath) != "" {
 			summary.HasExecutionReport = true
 		}
-		if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" {
+		if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" || item.AdapterContext != nil {
 			summary.HasAdapter = true
 		}
 		summary.OutcomeCount += len(item.FollowThrough.Outcomes)
@@ -412,6 +428,7 @@ func ExecutionEvidenceReviewSummaryFor(items []ExecutionEvidenceReviewItem, queu
 		summary.LatestExecutionReportPath = latest.ExecutionReportPath
 		summary.LatestAdapterID = latest.AdapterID
 		summary.LatestAdapterStatus = latest.AdapterStatus
+		summary.LatestAdapterContext = cloneExecutionEvidenceAdapterContext(latest.AdapterContext)
 		summary.LatestBoundaryHits = LimitStrings(latest.BoundaryHits, DefaultMaxRows)
 		summary.LatestEscalation = latest.Escalation
 		summary.FollowThroughState = latest.FollowThrough.State
@@ -435,6 +452,19 @@ func executionEvidenceReviewSummaryBoundary() []string {
 		"review outputRefs/evidenceRefs before any authority/confirmed outcome",
 		"no authority/confirmed writes",
 	}
+}
+
+func cloneExecutionEvidenceAdapterContext(context *ExecutionEvidenceAdapterContext) *ExecutionEvidenceAdapterContext {
+	if context == nil {
+		return nil
+	}
+	copy := *context
+	copy.SideEffects = append([]string{}, context.SideEffects...)
+	copy.GateActions = append([]string{}, context.GateActions...)
+	copy.ReportGuidance = append([]string{}, context.ReportGuidance...)
+	copy.EvidenceGuidance = append([]string{}, context.EvidenceGuidance...)
+	copy.StopConditionHints = append([]string{}, context.StopConditionHints...)
+	return &copy
 }
 
 func commanderActionReasons(action ExecutorAction) []string {
