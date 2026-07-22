@@ -1,6 +1,8 @@
 # Common policies
 
-本目录是 `re-context-kits` 的跨 pack 规范注册中心。它保存通用工作原则；具体 pack 只写 overlay，不复制通用规范全文。
+## 读取指南
+
+本目录是 `re-context-kits` 的跨 pack 规范注册中心。它保存通用工作原则；具体 pack 只写 overlay，不复制通用规范全文。本文件是 policy 索引，不是默认必读清单；先通过 `docs/context-routing.md` 或 pack `references/<pack>/README.md` 定位具体需求，再只读对应 policy 顶部或相关小节。
 
 ## 分层
 

@@ -1,5 +1,31 @@
 # Evidence ledger and intervention model
 
+## 读取指南
+
+本文件是 `.rekit/facts/*.jsonl` 与 evidence/decision/intervention 语义契约参考，不是日常默认必读清单。维护 ledger、reviewer writeback、gate evidence、confirmed/authority 边界或 schema 兼容时，先读本顶部区，再按事件类型读取对应小节。
+
+## 实施摘要
+
+ledger 采用 append-only、人可读、evidence-ref-first 模式：candidate、verification、decision、intervention 等事件只记录摘要和 evidenceRefs，大输出保留在 sidecar。当前 runtime 已实现多类事实读写与 downstream handoff；本文件约束字段语义和兼容边界，具体产品状态由 `status` / `handoff` / `continue` 与 `docs/batch-plan.md` 反映。
+
+## 执行清单
+
+- 新增或修改 ledger 字段前，确认是否影响 append-only、历史兼容和 downstream handoff。
+- reviewer intake 写回必须先 verification 后 decision；confirmed/authority 写入仍需额外 gate。
+- 大输出、trace、dump、capture、artifact 只用 evidenceRefs 指向 sidecar，不写入 ledger 或模板文档。
+- runtime schema 迁移或 authority 策略变化需要升级，不作为普通文档补丁处理。
+
+## 验证标准
+
+- JSONL 仍可逐行解析、grep、diff 和手工恢复。
+- 旧事件字段保持读层兼容，新事件优先使用 canonical 字段。
+- status/overview/handoff/continue 能投影关键 ledger handoff，而不是要求新会话读取完整 ledger。
+
+## 风险与注意事项
+
+- Append-only 不等于所有事实都可确认；accepted/resolved/decision 与 confirmed/authority 是不同边界。
+- 不要把真实样本、绝对路径、payload、flag、客户信息或 case-specific 进度写入模板仓库。
+
 ## 目的
 
 定义 `.rekit/facts/*.jsonl`、lane outbox/inbox 和 review packet 的统一事件模型。当前 runtime 已支持 9 种 kind 的 append/read 基础能力；本文件仍作为字段语义的 canonical contract，后续优化应保持 append-only 和历史兼容。

@@ -1,5 +1,32 @@
 # rekit promote / sync
 
+## 读取指南
+
+本文件是 `sync` / `promote` 方向与边界参考，不是默认必读清单。日常维护先读 `docs/context-routing.md` 和当前 batch 顶部；只有改 kit→case 同步、case→kit 回流、review-first、candidate/proof handoff 或 deny/sanitization 行为时，才读本文件相关小节。
+
+## 实施摘要
+
+`sync` 是 kit → case，`promote` 是 case → kit；两者默认 review-first。当前 Go runtime 已覆盖 review、apply、candidate、tooling candidate 与 pack-memory downstream handoff，但仍禁止把 case-specific artifact、trace、dump、capture、绝对路径或 live state 写回模板仓库。
+
+## 执行清单
+
+- 改 `sync` / `promote` 前先确认 manifest `managedFiles`、`promoteFiles`、`toolingCandidateSources` 和 deny patterns。
+- 写入路径必须先 WhatIf/review，再显式 Apply 或 CreateCandidates；不要绕过 review-first。
+- pack-memory 候选只生成 guidance/proof handoff，不自动 merge、cleanup、doctor、init 或 reconsume。
+- 具体实现影响面优先用 CodeGraph 查询 `internal/rekit/sync/**`、`internal/rekit/promote/**`、`internal/rekit/cli/**`。
+
+## 验证标准
+
+- sync/promote focused package tests 通过，必要时用临时 case 验证 attached/nested no-pack product path。
+- `git diff --check` 无 whitespace error；候选目录、backup、临时 case 不进入提交。
+- 文档只保留可复用流程和边界；批次日志放 `docs/batch-plan.md` / `docs/batch-history.md`。
+
+## 风险与注意事项
+
+- `sync -Apply` 会写 case，`promote -Apply` 会写 pack source；必须使用显式范围、backup、deny pattern、validation 和 cleanup guard。
+- `promote -CreateCandidates` 写入 pack candidate/tooling candidate 目录，测试必须清理新增 residue。
+- 不写 authority/confirmed，不执行 heavy-tool，不把 case-private state 提升为 pack memory。
+
 ## 方向
 
 | 命令 | 方向 | 目标 |

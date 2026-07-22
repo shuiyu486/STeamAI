@@ -1,5 +1,9 @@
 # 项目实例目录示例
 
+## 读取指南
+
+本文件只是 `vmp-re` workspace layout 示例，不是默认必读清单。只有规划 kit/case/tools 目录、迁移旧 case 或解释 `.rekit` / case-local shim 位置时再读取；具体 case 进度、目标、样本和 artifact 仍保存在 case-local handoff 与 sidecar，不写入本示例。
+
 推荐根目录：`C:\AI\m_projects\RE`
 
 ```text

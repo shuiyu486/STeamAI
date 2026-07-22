@@ -2,7 +2,30 @@
 
 ## 读取指南
 
-本文件用于新增或维护 `packs/<pack>`。如果只使用现有 `vmp-re`，不需要先读全文。
+本文件用于新增或维护 `packs/<pack>`。如果只使用现有 pack 或处理当前 batch，先读 `docs/context-routing.md` 和目标 pack 的 `references/<pack>/README.md` 顶部；只有 authoring / manifest / sync-promote policy 需要判断时，才读本文件对应小节，不要默认阅读全文。
+
+## 实施摘要
+
+新增 pack 应从最小路由入口、manifest 单一事实源、managed/local 边界和 review-first sync/promote 开始。pack reference 本身也必须按需路由、渐进披露：顶部说明何时读取、不要默认读取什么，长流程拆到专题文档或 tooling recipe。
+
+## 执行清单
+
+- 先判断是否真的需要新 pack，还是更新现有 reference、tooling recipe 或 common policy。
+- 新 pack 首批至少有 `manifest.yml`、`README.md`、`agent-team.md`、`workflow-template.md`、`toolchain-router.md` 的清晰边界。
+- `references/<pack>/README.md` 必须是 pack-local 路由入口，不是长必读清单。
+- tooling 经验优先进入 `tooling/catalog.yml` / `tooling/recipes/*`，不要混入 case-local artifact。
+
+## 验证标准
+
+- `go run ./cmd/rekit -- -Command doctor -Pack <pack>` 通过，必要时用临时 fresh/attached case 验证 init/sync/promote。
+- manifest paths 不越界，managed/promote/local/tooling 边界明确。
+- pack docs 顶部具备按需读取说明，且不包含真实样本、trace、dump、capture、绝对路径、payload、flag 或客户信息。
+
+## 风险与注意事项
+
+- 不要盲目复制 `vmp-re`；先抽象领域共性，再补最小可验证路由。
+- 不把文档索引变成默认 read-first 清单；超过 5 个入口时压缩为 pack README + 当前场景顶部区。
+- 新增 pack 不等于授权执行 heavy-tool；heavy action 仍由 autonomy profile + authorized-gate decision 控制。
 
 新增 pack 前先确认：该能力是否真的是新的安全领域，还是应作为现有 pack（当前主要是 `vmp-re`）的 reference、tooling recipe 或 common policy 改进。候选方向可以包括 Web/API 安全、恶意样本分析、漏洞研究、CTF/靶场、Android native、OLLVM 或通用二进制分析，但不要盲目复制 `vmp-re`。
 

@@ -84,25 +84,17 @@ Mission Control 相关批次还应检查：
 在发正式 goal 前，可先复制这段给新会话：
 
 ```text
-请在 C:\AI\m_projects\RE\re-context-kits 接手长期推进；先读取仓库文档校准方向，当前重点是 PowerShell-free、Go-native、跨平台的 Lane-centric Agent Team Mission Control，不要把单个 batch、提交或工作树干净视为长期 goal 完成。先只读取并确认接手，等我发正式 goal。
+请在 C:\AI\m_projects\RE\re-context-kits 接手长期推进；先按仓库路由读取最小上下文并确认当前状态，不要开始改动。我随后会发送正式 goal。
 ```
 
 ## 给新会话的 goal 语句
 
-推荐直接复制这段给新会话，保持短而明确：
+推荐直接复制这段给新会话，保持短而明确；更细边界由仓库文档和实际验证承载，不塞进 goal：
 
 ```text
-在 C:\AI\m_projects\RE\re-context-kits 中，长期、自主、连续推进项目向 docs/mission-control-product-direction.md 定义的 Lane-centric Agent Team Mission Control 收敛。
+在 C:\AI\m_projects\RE\re-context-kits 中，长期、自主、连续推进项目向 Lane-centric Agent Team Mission Control 收敛。每轮先按 docs/context-routing.md 读取最小上下文，确认 docs/batch-plan.md 当前状态、CHANGELOG.md 顶部和真实 git/验证状态，再选择一个中大型、可验证、能提升真实产品闭环或降低维护风险的 vertical slice 实施。
 
-当前阶段优先推进 PowerShell-free default/product path、Go-native、跨平台与 Mission Commander operational closure：Go CLI/backend 已是 canonical runtime，所有 public commands 已 no-fallback，legacy runtime modules 已删除；后续让默认入口、验证、release gate、case shim 和文档路径不依赖 retained PowerShell façade。每批禁止新增 PowerShell runtime logic；PowerShell convergence batch 必须实际减少 residue 或完成删除门禁，其它 batch 可推进 lane、reconcile、autonomy、reviewer dispatch/intake 或 pack-memory 闭环。
+近期优先 PowerShell-free default/product path、Go-native、Mission Commander operational closure、replaceable session executor、reviewer dispatch/intake/writeback、authorized execution evidence、tool-adapter live validation、pack-memory UX 和 Windows 本机 product-path 稳定；不要连续做一两行或逐字段 metadata 微批次。禁止新增 PowerShell runtime logic，远程 CI steps=[] 只如实记录为 known gap。
 
-为防止上下文压缩导致方向偏移，每轮开始先用仓库事实校准方向，优先读取 docs/mission-control-product-direction.md、docs/autonomous-goal.md、docs/release-readiness.md、docs/go-first-convergence-plan.md、docs/powershell-deprecation.md、docs/batch-plan.md 的 current/最新区、README.md、CHANGELOG.md，并检查 git、本地 gate 与远程 CI 实际状态。聊天摘要或 durable docs 与代码/运行结果冲突时，以代码和实际验证为准，并先修正文档。
-
-每轮选择一个 coherent、中大型、可验证、能提升真实可用性或降低维护风险的 vertical slice，不做一两行或逐字段 metadata 微批次。优先方向包括 Mission Commander orchestration、replaceable session executor operational closure、reviewer orchestration hardening、reconcile UX、lane executor / tool-adapter live validation hardening、pack-memory product UX、PowerShell retained façade 收束，以及 Windows 本机 product-path readiness；macOS/Linux/远程三平台 CI 在 GitHub runner/billing blocker 解除前保持 known gap 记录，不作为近期迭代效率的主要约束。
-
-详细路线、关键决策、验证结果、下一步方向和未完成风险必须持续写回 repo docs，尤其是 docs/batch-plan.md；涉及 PowerShell、Go-native、跨平台或 release readiness 时，同步更新相关设计文档。不要只把计划和结论留在聊天上下文中。
-
-每批完成后运行必要的真实验证，更新 docs/batch-plan.md 的 active/next 状态、相关 durable docs 与必要的 CHANGELOG；仅在当前用户 goal/session 明确授权时提交并推送指定分支。若长期目标未整体完成，先重新校准实际 gate/CI 和风险，无升级条件时写入并继续下一批。除产品方向变化、公共入口删除门禁不完整、schema 迁移、confirmed/authority 策略变化、未授权外部副作用或难以判断的架构取舍外，自主判断并持续推进。
-
-不要声称长期 goal 已完成，除非 PowerShell 已退出默认 runtime/入口/验证/release gate，repository/runtime portability、direct CLI/case E2E 与 installed `/rekit`/case-shim product path 均在 macOS/Linux/Windows 有实际验证，且 Mission Commander、durable lanes、replaceable session executor、Human-in-the-Lane、typed autonomy + authorized execution evidence + tool-adapter live validation、bounded reviewer dispatch/intake/writeback + orchestration、pack-memory promote/reconsume + product UX 与 Go-native runtime 的核心闭环均已实现、验证并文档化。`release-check` inventory ready 或 workflow 定义存在不等于远程 CI jobs green。
+完成一批后更新必要文档和 CHANGELOG，运行合适验证；若本 session 已授权，提交并推送 main。除非遇到产品方向变化、公共入口删除门禁不完整、schema/authority 策略变化、未授权外部副作用或明显不可逆风险，否则自主判断并继续下一批；不要把单个 batch、一次提交、inventory ready 或工作树干净当成长期 goal 完成。
 ```

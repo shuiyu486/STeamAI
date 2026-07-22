@@ -27,12 +27,15 @@ Batch 推送节奏（仅在当前 goal/session 已明确授权 commit/push 时�
 | 场景 | 首选入口 |
 |---|---|
 | 产品方向 | `docs/mission-control-product-direction.md` 顶部 |
+| 架构边界 / 四层模型 | `docs/design.md` 顶部和对应小节 |
 | 自主 goal / 停止条件 | `docs/autonomous-goal.md` 顶部 |
 | 当前批次 / 下一步 | `docs/batch-plan.md` 顶部 |
 | 旧批次考古 | `docs/batch-history.md` 中按 Batch ID 搜索 |
 | release / CI 判断 | `docs/release-readiness.md` 顶部 + `release-check -Format json` |
 | PowerShell façade / removal | `docs/powershell-deprecation.md` 顶部和相关矩阵行 |
-| runtime 调用链 / symbol 影响面 | CodeGraph MCP 优先查询 `internal/rekit/**` / `cmd/rekit/**` |
+| runtime 调用链 / symbol 影响面 | CodeGraph MCP 优先查询 `internal/rekit/**` / `cmd/rekit/**`；legacy 迁移只按需读 `docs/go-runtime-migration.md` 顶部 |
+| ledger / evidence 字段语义 | `docs/evidence-ledger.md` 顶部和对应事件类型 |
+| 旧 case 迁移 / moved metadata | `docs/case-migration.md` 顶部和对应步骤 |
 | 文档减压 / 路由审计 | `docs/context-routing.md` + 目标文档顶部；用搜索定位旧 read-first 列表 |
 | smoke 选择 | `rekit/tests/README.md` 对应类别 |
 

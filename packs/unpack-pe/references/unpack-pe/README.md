@@ -4,6 +4,12 @@
 
 当前不是自动脱壳器、样本执行器、动态调试平台、patch/dump 自动化引擎或 IOC/样本库；它只提供 case workspace 组织规则与工具经验入口。
 
+## 读取指南
+
+本文件是 `unpack-pe` case 的 pack-local 路由入口，不是默认必读长清单。先读 case 的 `CLAUDE.local.md` 和 `/rekit status` 第一屏；只有进入 PE unpacking、loader triage、import recovery 或 unpack candidate review 任务时，再按下方路由读取对应顶部区，不要默认串读全部 reference。
+
+新增 reference、tooling 或示例文档时，必须说明何时读取、不要默认读取什么；样本、unpacked binary、dump、trace、memory snapshot、patch、hash 和 case-specific 进度只保存在 case-local artifacts。
+
 ## 路由表
 
 | 任务 | 读取文档 | 说明 |

@@ -4,6 +4,12 @@
 
 当前不是面向真实目标的攻击执行平台、自动利用链生成器、flag 泄漏库或远程靶场刷题器；它只提供可审计、可交接、review-first 的 case workspace 规则。
 
+## 读取指南
+
+本文件是 `ctf` case 的 pack-local 路由入口，不是默认必读长清单。先读 case 的 `CLAUDE.local.md` 和 `/rekit status` 第一屏；只有进入 CTF、靶场、课程实验或本地 challenge 分析任务时，再按下方路由读取对应顶部区，不要默认串读全部 reference。
+
+新增 reference、tooling 或示例文档时，必须说明何时读取、不要默认读取什么；flag、challenge 原始文件、payload、solver 私有脚本、远程靶场地址、凭据和 case-specific 进度只保存在 case-local artifacts。
+
 ## 路由表
 
 | 任务 | 读取文档 | 说明 |

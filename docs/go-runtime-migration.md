@@ -1,5 +1,32 @@
 # Go runtime migration plan
 
+## 读取指南
+
+本文件是 Go runtime 迁移历史与兼容边界参考，不是日常默认必读清单。维护当前 Go-native command path 时，优先读 `docs/context-routing.md`、`docs/batch-plan.md` 顶部，并用 CodeGraph 查询 `cmd/rekit/**` / `internal/rekit/**`；只有需要追溯 legacy façade、parser parity、迁移阶段或 fallback retirement 时，再读本文件对应小节。
+
+## 实施摘要
+
+`/rekit` 已收敛为 public ABI + Go deterministic backend；`rekit.ps1` 仅 retained compatibility façade。本文保留迁移路线和历史语义，避免上下文压缩后把当前 Go-native default path 误读成仍需扩展 PowerShell runtime。
+
+## 执行清单
+
+- 改 Go runtime 前先用 CodeGraph 定位 owner symbols 和调用链。
+- 只在改 compatibility/fallback/façade 时按需读取历史迁移批次和 PowerShell baseline。
+- 不把本文件当当前 release 状态来源；release 判断看 `docs/release-readiness.md` 顶部和实际 `release-check` / GitHub Actions。
+- 新迁移记录优先写短摘要；长验证日志放 batch history 或专门 release inspection 记录。
+
+## 验证标准
+
+- Go-native release minimum 仍通过：`release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`。
+- case-local thin shim 不复制 runtime logic，公共入口不推荐 low-level backend command。
+- 修改 façade/compatibility 时才追加 façade smoke；普通 Go runtime/doc patch 不默认运行 PowerShell smoke。
+
+## 风险与注意事项
+
+- 不新增 PowerShell runtime logic。
+- 不把历史 fallback 当现行默认路径；`REKIT_GO_DISABLE` 等只按当前 release readiness 和 façade retirement 状态解释。
+- parser、manifest、sync/promote、case shim、authority/confirmed 边界变更可能影响旧 case，需要 focused tests 与 release handoff 记录。
+
 ## 目的
 
 本文件记录 `/rekit` runtime 从 legacy PowerShell backend / fallback 渐进迁移到 Go backend 的实施方案，避免后续上下文压缩导致路线失真。

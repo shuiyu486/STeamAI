@@ -1,6 +1,31 @@
 # Case 迁移与路径相对化指南
 
-本文件描述把已有安全 case（当前常见示例为 `vmp-re` RE case）移到新目录时的通用流程。具体目标/样本名、真实绝对路径、当前进度和脚本状态应保存在 case-local 文档中，不写入 kit 仓库。
+## 读取指南
+
+本文件用于旧 case 移动、路径相对化、attach/repair 接入时按需查阅，不是日常维护默认必读清单。先读 `docs/context-routing.md`；只有 status 提示 moved/stale metadata、需要接入旧 case、或需要修复脚本绝对路径时，再读本文件对应步骤。
+
+## 实施摘要
+
+已有安全 case 不需要一次性重建；推荐先用 `/rekit attach` / `/rekit status` / `/rekit repair` 绑定 metadata 与 thin shim，再按需 `sync` managed docs。具体目标、样本名、真实绝对路径、当前进度和脚本状态应保存在 case-local 文档中，不写入 kit 仓库。
+
+## 执行清单
+
+- 先确认 case root、templateRoot、templatePack 和 moved metadata 诊断。
+- repair 必须 preview-first；确认后才 apply。
+- 大 artifact/capture/dump 不随文档迁移进入模板仓库；脚本路径优先相对化。
+- 迁移后运行 `/rekit doctor`，必要时再 `/rekit sync` review。
+
+## 验证标准
+
+- `/rekit status` 不再提示 stale/moved metadata，case-local shim 匹配 canonical template。
+- `/rekit doctor` 通过；旧 `.re-template.yml` 与新 `.rekit/instance.yml` 兼容读取。
+- 文档中不出现真实样本、客户信息、payload、flag、绝对 case 路径或 case-specific 进度。
+
+## 风险与注意事项
+
+- 不在同一轮直接移动或上传大型 captures/dumps；先规划、复制、验证，再归档旧目录。
+- 不把 `bootstrap.ps1` / `update.ps1` 当主流程；底层 runtime 只作为 `/rekit` 内部实现。
+- 公共模板仓库只保留通用迁移流程，不记录具体 case 操作日志。
 
 ## 推荐 workspace 结构
 

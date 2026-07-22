@@ -36,6 +36,14 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 上一批摘要：Batch 536 已完成 execution evidence adapter context downstream handoff closure，implementation commit `6e2fb2a Add execution evidence adapter context handoff` 与 release inspection commit `e8f6a76 Record Batch 536 release gate inspection` 已推送；implementation run `29931195286` completed failure，Linux/macOS/Windows jobs 均 completed failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green；Batch 536 已归档到 `docs/batch-history.md`。
 
+### Post-Batch 537：documentation routing / goal handoff cleanup
+
+状态：已完成文档上下文治理收尾并准备提交推送。该收尾不是新的 product batch；它响应用户对上下文污染、新会话交接、按需路由/渐进披露和 goal 语句过长的反馈，补齐 durable docs、reference、配置说明与示例入口的路由边界，并将 `docs/autonomous-goal.md` 中给新会话的接手语句和 goal 语句压缩为更短的中大型 vertical slice 导向。
+
+交接判断：当前适合切到新会话继续。新会话先按 `docs/context-routing.md` 读取最小上下文，确认本文件 current state、`CHANGELOG.md` 顶部与真实 git/验证状态；正式 goal 使用 `docs/autonomous-goal.md` 顶部给出的短 goal 语句。下一轮若继续长期推进，应从下面 Next candidates 中选择中大型 product-path vertical slice，不再把本轮文档收尾延伸成连续文档微批次。
+
+验证结果：已通过 `go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF→CRLF working-copy warning，无 whitespace error）。
+
 ### Next candidates
 
 1. **Lane/tool-adapter live validation residuals（如仍有缺口）**：Batch 421/424/432 已覆盖 adapter contract/validation/report action queue、follow-through 与 contract liveValidation text，Batch 458-462 已补齐 authorizedExecutionFollowThrough / evidence review follow-through text，Batch 504 已补齐 recorded adapter sidecar path、actualBudget 与 adapter provenance，Batch 518 已补齐 contract/validation compact `reportSummary`；后续仅在 Windows 本机 product-path 仍存在 validation/record/evidence review handoff 到 replacement executor 的真实断点时推进；不新增 adapter/heavy-tool execution。

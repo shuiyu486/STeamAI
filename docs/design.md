@@ -1,5 +1,32 @@
 # re-context-kits design
 
+## 读取指南
+
+本文件是架构总览，不是默认必读清单。日常维护先读 `docs/context-routing.md` 和 `docs/batch-plan.md` 顶部；只有需要确认四层模型、manifest 边界、sync/promote 方向或 case shim 职责时，才读取本文件对应小节。
+
+## 实施摘要
+
+当前产品北极星已收敛为 Lane-centric Agent Team Mission Control：用户指挥主 Agent，durable lane 承载长期身份，Go-native `/rekit` 是 canonical runtime，PowerShell façade 仅保留兼容。本文件保留稳定架构边界，具体批次进度与 release 判断转到 `docs/batch-plan.md` / `docs/release-readiness.md`。
+
+## 执行清单
+
+- 架构判断先确认本文件顶部四层模型和 managed/local 边界。
+- runtime 调用链或 symbol 影响面优先用 CodeGraph 查询 `internal/rekit/**` / `cmd/rekit/**`。
+- 旧迁移细节按需读 `docs/go-runtime-migration.md`、`docs/powershell-deprecation.md` 或历史 batch，不把它们并回本文件。
+- 新增设计内容先判断是否应放入专题文档、pack reference 或 `docs/context-routing.md` 路由表。
+
+## 验证标准
+
+- 新维护者只读 `docs/context-routing.md` + 本文件顶部即可判断设计入口，不需要串读全部 durable docs。
+- 本文件只描述稳定边界；当前状态、批次验证和远程 CI 结论不在这里维护。
+- 修改架构边界后至少运行 `go run ./cmd/rekit -- -Command release-check -Format json` 和相关 focused tests。
+
+## 风险与注意事项
+
+- 渐进式披露不是删除设计事实；细节应放在正确专题文档并由 `docs/context-routing.md` 路由。
+- 不要把 batch 日志、release 记录、真实 case 进度或工具输出塞入本架构总览。
+- case-local shim 必须保持 thin shim，回到 kit 仓库 canonical runtime；不要复制 runtime logic。
+
 ## 产品北极星
 
 最终产品方向见 `docs/mission-control-product-direction.md`：`re-context-kits` 应收敛为 Lane-centric Agent Team Mission Control。用户主要指挥主 Agent / Mission Commander；长期成员身份绑定 durable member lane，而不是绑定旧聊天窗口；Claude Code session 只是可替换 executor；主 Agent 可按需启动短命 tactical subagents；用户可进入任意 lane 纠错、改向或硬切模型，当前通过显式 reconcile 把干预写入 durable state。lane 文档/packet 只表达授权意图；成员 lane 只有在 strict durable autonomy profile + `authorized-gate` decision 完全覆盖 action、exact target、typed budget、stop conditions、output paths、record/notify 和 grant/expiry 时才可执行 heavy/debug/patch/dump/hook/network/exploit-replay。

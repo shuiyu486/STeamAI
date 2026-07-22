@@ -1,5 +1,31 @@
 # Agent Team orchestration plan
 
+## 读取指南
+
+本文件是 Agent Team 编排设计参考，不是当前批次默认必读清单。日常推进先读 `docs/context-routing.md`、`docs/batch-plan.md` 顶部和相关 Go symbols；只有需要复核 planner / dispatcher / gate / digest / ledger 的长期分层时，再读本文件顶部和对应阶段。
+
+## 实施摘要
+
+当前 runtime 已采用 `plan-subagents` 生成 packet、主 Agent 显式 dispatch reviewer、strict intake 写回 verification/decision 的模式；本文件保留长期 orchestration 设计，不代表 runtime 会自动 spawn reviewer 或执行 heavy-tool。实际产品路径和已完成闭环以 `docs/batch-plan.md` 当前批次和 CLI tests 为准。
+
+## 执行清单
+
+- reviewer / lane / gate product-path 问题先查 CodeGraph 与 `docs/agent-team-usage.md` 顶部。
+- 需要设计取舍时只读取本文件相关层级或阶段，不默认读取全部历史计划。
+- 自动化边界必须回到 gate / autonomy / authorized-gate contract，不从本设计文档推断授权。
+- 变更后把用户可见行为记录到 `CHANGELOG.md`，批次细节放 `docs/batch-plan.md` 或归档。
+
+## 验证标准
+
+- `plan-subagents` 仍只生成 bounded packet，不自动 spawn/monitor reviewer。
+- reviewer intake 仍保持 WhatIf-before-Apply、verification-before-decision、no authority/confirmed、no heavy-tool。
+- 新会话能从 status/handoff/continue/durable artifacts 接手，不需要读完整 orchestration 设计。
+
+## 风险与注意事项
+
+- 本文件是设计参考，不是授权来源；heavy/debug/patch/dump/hook/network/exploit replay 必须由 strict durable autonomy profile + authorized-gate decision 覆盖。
+- 不要把具体 case packet、reviewer result、trace、dump 或客户信息写入本仓库文档。
+
 ## 目的
 
 定义未来 `/rekit` 半自动 Agent Team runtime 的实施计划。当前文件是设计计划，不表示 runtime 已实现自动分派。

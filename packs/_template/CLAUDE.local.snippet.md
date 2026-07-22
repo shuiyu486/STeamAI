@@ -11,6 +11,7 @@
 
 规则：
 
+- 本 router block 只提供按需入口，不是默认必读长清单；先读 `/rekit status` 第一屏，再按 `references/<new-pack-name>/README.md` 的场景路由读取顶部区。
 - 保持 case 私有事实在 case-local 文件中。
 - 不把真实样本、trace、dump、artifact、绝对路径写回 pack。
 - 外部工具按 tooling catalog / recipe 记录能力、风险和止损条件。
