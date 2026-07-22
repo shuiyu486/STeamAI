@@ -1,6 +1,7 @@
 package releasecheck
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -149,6 +150,43 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 				t.Fatalf("latest batch handoff evidence missing %q: %+v", evidence, latestHandoff.Evidence)
 			}
 		}
+	}
+}
+
+func TestLatestBatchSummarySelectsFirstCurrentBatchSection(t *testing.T) {
+	repo := t.TempDir()
+	planPath := filepath.Join(repo, "docs", "batch-plan.md")
+	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan := `# Batch implementation plan
+
+### Current batch state
+
+### Batch 539：current batch
+
+状态：已完成 current implementation、完整本地 release minimum、implementation commit/push 与远程 release-gate inspection。
+
+目标：current goal
+
+验证结果：已通过 ` + "`go run ./cmd/rekit -- -Command release-check -Format json`" + `（ready=true）、` + "`go run ./cmd/rekit -- -Command status`" + `、` + "`go run ./cmd/rekit -- -Command packs`" + `、` + "`go run ./cmd/rekit -- -Command doctor`" + `、` + "`go test ./...`" + `、` + "`go vet ./...`" + `、` + "`git diff --check`" + `；远程 release-gate run ` + "`29945764199`" + ` completed failure，Linux/macOS/Windows jobs 均 ` + "`steps=[]`" + `。
+
+上一批摘要：Batch 538 已完成。
+
+### Batch 538：previous batch
+
+状态：已完成 previous implementation。
+
+目标：previous goal
+
+验证结果：previous validation。
+`
+	if err := os.WriteFile(planPath, []byte(plan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	latest := latestBatchSummary(repo)
+	if latest.BatchID != "Batch 539" || !strings.Contains(latest.Title, "current batch") || latest.Goal != "current goal" || !strings.Contains(latest.ValidationResult, "release-check -Format json") || !latest.Handoff.ReleaseCheckReady || latest.Handoff.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" {
+		t.Fatalf("latest batch parser selected stale historical section: %+v", latest)
 	}
 }
 

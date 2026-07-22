@@ -1254,6 +1254,7 @@ func latestBatchSummary(repo string) ReleaseHandoffLatestBatch {
 			start = i
 			latest.Title = strings.TrimSpace(strings.TrimPrefix(trimmed, "### "))
 			latest.BatchID = batchIDFromTitle(latest.Title)
+			break
 		}
 	}
 	if start < 0 {
@@ -1267,19 +1268,29 @@ func latestBatchSummary(repo string) ReleaseHandoffLatestBatch {
 		}
 	}
 	sectionLines := lines[start+1 : end]
-	for _, line := range sectionLines {
+	operationalLines := sectionLines
+	for i, line := range sectionLines {
+		if _, ok := markdownFieldValue(strings.TrimSpace(line), "上一批摘要"); ok {
+			operationalLines = sectionLines[:i]
+			break
+		}
+	}
+	handoffFields := []string{}
+	for _, line := range operationalLines {
 		trimmed := strings.TrimSpace(line)
 		if value, ok := markdownFieldValue(trimmed, "状态"); ok {
 			latest.Status = compactHandoffText(value, 160)
+			handoffFields = append(handoffFields, value)
 		}
 		if value, ok := markdownFieldValue(trimmed, "目标"); ok {
 			latest.Goal = compactHandoffText(value, 240)
 		}
 		if value, ok := markdownFieldValue(trimmed, "验证结果"); ok {
 			latest.ValidationResult = compactHandoffText(value, 240)
+			handoffFields = append(handoffFields, value)
 		}
 	}
-	latest.Handoff = latestBatchHandoff(latest, strings.Join(sectionLines, "\n"))
+	latest.Handoff = latestBatchHandoff(latest, strings.Join(handoffFields, "\n"))
 	return latest
 }
 
@@ -1287,7 +1298,7 @@ func latestBatchHandoff(latest ReleaseHandoffLatestBatch, section string) Releas
 	handoff := ReleaseHandoffLatestBatchHandoff{
 		Completed:               strings.Contains(latest.Status, "已完成"),
 		LocalValidationReady:    latestBatchHasLocalValidation(section),
-		ReleaseCheckReady:       strings.Contains(strings.ToLower(section), "release-check ready=true"),
+		ReleaseCheckReady:       latestBatchReleaseCheckReady(section),
 		RemoteReleaseGate:       latestBatchRemoteReleaseGate(section),
 		RemoteReleaseGateDetail: latestBatchRemoteReleaseGateDetail(section),
 		CommitRefs:              latestBatchCommitRefs(section),
@@ -1296,6 +1307,12 @@ func latestBatchHandoff(latest ReleaseHandoffLatestBatch, section string) Releas
 	handoff.ReleaseInspectionCadence = latestBatchReleaseInspectionCadence(section, handoff)
 	handoff.NextAction = latestBatchNextAction(handoff)
 	return handoff
+}
+
+func latestBatchReleaseCheckReady(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "release-check ready=true") ||
+		(strings.Contains(lower, "release-check -format json") && strings.Contains(lower, "ready=true"))
 }
 
 func latestBatchHasLocalValidation(text string) bool {

@@ -401,7 +401,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"matchesTemplate=unknown",
 		"warnings=0",
 		"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
-		"latestStatus=已完成",
+		"latestStatus=",
 		"localValidationReady=",
 		"status latest batch remote gate：state=",
 		"status latest batch remote gate boundary：",

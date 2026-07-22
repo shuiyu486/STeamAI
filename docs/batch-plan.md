@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 540：release handoff current-batch truthfulness repair
+
+状态：implementation、focused/package validation 与完整本地 release minimum 已完成；implementation commit/push 与远程 release-gate inspection 待执行。
+
+目标：修复真实 product-path truthfulness 断点：Batch 539 已完成并发布后，`release-check` / kit `status.projectHandoff` 仍报告 Batch 537。根因是 latest-batch parser 遍历整个 active document 并选择最后一个历史 `### Batch` section；这会让 replacement executor/release maintainer看到错误的 goal、validation、run 和 cadence evidence。
+
+已完成内容：
+
+- `latestBatchSummary` 现在选择 `docs/batch-plan.md` 中第一个 `### Batch` section，即 `Current batch state` 的 active batch，不再被后续历史 section 覆盖。
+- `releaseCheckReady` 解析同时识别 `release-check ready=true` 与当前文档使用的 ``release-check -Format json`（ready=true）` 表述。
+- regression fixture 包含 current Batch 539 与 previous Batch 538，锁定 current title/ID/goal/validation、local/release-check readiness 与 remote `steps=[]` gate；真实 `status -Format text` 已确认 latestBatch=Batch 539、releaseCheckReady=true、run=29945764199。
+
+边界：本批只修复 repo-local release handoff 文档解析与只读 status/release-check truthfulness；不执行远程 CI、不改变 release policy、case runtime、heavy-tool、authority/confirmed、PowerShell façade 或 public removal gate。
+
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli_test.go`、`go test ./internal/rekit/releasecheck ./internal/rekit/cli -count=1`，以及 `go run ./cmd/rekit -- -Command status -Format text` 真实 product-path 检查；完整本地 release minimum 已通过 `go run ./cmd/rekit -- -Command release-check -Format json`（ready=true / release gate inventory ok）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF→CRLF working-copy warning，无 whitespace error）。
+
+上一批摘要：Batch 539 已完成 multi-reviewer ready-result batch intake，implementation commit `e368a0d Add multi-reviewer batch intake` 与 release inspection commit `226a2c3 Record Batch 539 release gate inspection` 已推送；implementation run `29945764199` completed failure，Linux/macOS/Windows jobs 均 `steps=[]`，仍是既有 runner/billing blocker，不能声明 remote CI green。
+
 ### Batch 539：multi-reviewer ready-result batch intake vertical slice
 
 状态：已完成 implementation、focused/package 验证、完整本地 release minimum、implementation commit/push 与远程 release-gate inspection；implementation commit `e368a0d Add multi-reviewer batch intake` 已推送到 `main`。远程 release-gate run `29945764199` completed failure，Linux/macOS/Windows jobs 均 completed failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。按 cadence 只记录 implementation commit 触发的远程 run；不为本 release inspection commit 自身触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker 的新信号。
