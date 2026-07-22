@@ -355,6 +355,25 @@ func refsfExists(path string) bool {
 	return err == nil
 }
 
+func appendReviewerDispatchIntakeHandoff(lines []string, items []ReviewerDispatchIntakeHandoff) []string {
+	lines = append(lines, "", "## Reviewer dispatch intake handoff", "")
+	if len(items) == 0 {
+		return append(lines, "- none")
+	}
+	summary := ReviewerDispatchIntakeSummaryFor(items)
+	lines = append(lines, fmt.Sprintf("- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d latestShard=%s latestState=%s nextAction=`%s`", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.LatestShardID, summary.LatestState, summary.NextAction))
+	for _, item := range items {
+		lines = append(lines, fmt.Sprintf("- dispatch intake: lane=%s shard=%s state=%s resultPresent=%t packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s`", item.TargetLane, item.ShardID, item.State, item.ReviewerResultPresent, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand))
+		for _, evidence := range mission.LimitStrings(item.Evidence, maxHandoffRows) {
+			lines = append(lines, "  - evidence: "+evidence)
+		}
+		for _, boundary := range mission.LimitStrings(item.Boundary, maxHandoffRows) {
+			lines = append(lines, "  - boundary: "+boundary)
+		}
+	}
+	return lines
+}
+
 func WriteReviewerDispatchIntakeHandoffSection(out *bytes.Buffer, title string, items []ReviewerDispatchIntakeHandoff) {
 	if len(items) == 0 {
 		return

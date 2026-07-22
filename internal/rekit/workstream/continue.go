@@ -754,7 +754,25 @@ func writeContinueRunArtifacts(runRoot string, result ContinueResult) (string, s
 		return "", "", err
 	}
 	statusPath := filepath.Join(runRoot, "status.json")
-	status := map[string]any{"schemaVersion": 1, "runId": result.RunID, "batchId": result.BatchID, "summary": result.Summary, "autonomyProfile": result.AutonomyProfile, "missionBrief": result.MissionBrief, "executorAction": result.ExecutorAction, "executionEvidenceReview": result.ExecutionEvidenceReview, "executionEvidenceReviewSummary": result.ExecutionEvidenceReviewSummary, "missionCommanderNextActions": result.MissionCommanderNextActions, "missionCommanderActionQueue": result.MissionCommanderActionQueue, "inputs": result.Inputs, "packetRefs": result.PacketRefs, "openRisks": result.OpenRisks, "time": isoNow()}
+	status := map[string]any{
+		"schemaVersion":                  1,
+		"runId":                          result.RunID,
+		"batchId":                        result.BatchID,
+		"summary":                        result.Summary,
+		"autonomyProfile":                result.AutonomyProfile,
+		"missionBrief":                   result.MissionBrief,
+		"executorAction":                 result.ExecutorAction,
+		"executionEvidenceReview":        result.ExecutionEvidenceReview,
+		"executionEvidenceReviewSummary": result.ExecutionEvidenceReviewSummary,
+		"reviewerDispatchIntakeHandoffs": result.ReviewerDispatchIntakeHandoffs,
+		"reviewerDispatchIntakeSummary":  result.ReviewerDispatchIntakeSummary,
+		"missionCommanderNextActions":    result.MissionCommanderNextActions,
+		"missionCommanderActionQueue":    result.MissionCommanderActionQueue,
+		"inputs":                         result.Inputs,
+		"packetRefs":                     result.PacketRefs,
+		"openRisks":                      result.OpenRisks,
+		"time":                           isoNow(),
+	}
 	if err := writeJSON(statusPath, status); err != nil {
 		return "", "", err
 	}
@@ -815,6 +833,7 @@ func continueDigestText(result ContinueResult) string {
 	lines = appendContinueMissionCommanderNextActions(lines, result.MissionCommanderNextActions)
 	lines = appendContinueExecutionEvidenceReview(lines, result.ExecutionEvidenceReview, result.ExecutionEvidenceReviewSummary)
 	lines = appendDigestReviewerWritebacks(lines, result.ReviewerWritebacks)
+	lines = appendReviewerDispatchIntakeHandoff(lines, result.ReviewerDispatchIntakeHandoffs)
 	lines = appendMissionBriefDigestList(lines, "blocker reasons", result.ExecutorAction.BlockerReasons)
 	lines = appendMissionBriefDigestList(lines, "executor next actions", result.ExecutorAction.NextAgentActions)
 	lines = appendMissionBriefDigestList(lines, "executor escalations", result.ExecutorAction.Escalations)

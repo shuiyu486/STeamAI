@@ -133,6 +133,8 @@ type laneCheckpoint struct {
 	ExecutionEvidenceReviewSummary ExecutionEvidenceReviewSummary           `json:"executionEvidenceReviewSummary"`
 	ReviewerWritebacks             []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
 	ReviewerWritebackSummary       ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
+	ReviewerDispatchIntakeHandoffs []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary  ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
 	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue    mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	OpenInterventions              []InterventionSummary                    `json:"openInterventions"`
@@ -823,6 +825,10 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	}
 	laneFacts := mission.LaneFacts(ledgerFacts.Facts, lane.ID)
 	reviewerWritebacks := ReviewerWritebackItems(ledgerFacts, lane.ID)
+	reviewerDispatchIntakeHandoffs, err := ReviewerDispatchIntakeHandoffs(caseRoot, ledgerFacts, lane.ID)
+	if err != nil {
+		return "", "", err
+	}
 	brief := laneMissionBrief(lane, ledgerFacts)
 	pendingGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate"), mission.LaneGateLine)
 	authorizedGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "authorized-gate"), mission.LaneGateLine)
@@ -898,6 +904,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	lines = appendResumeList(lines, "commander follow-up commands", executorAction.MissionCommanderAction.FollowUpCommands)
 	lines = appendResumeList(lines, "commander boundary", executorAction.MissionCommanderAction.Boundary)
 	lines = appendResumeReviewerWritebacks(lines, reviewerWritebacks)
+	lines = appendReviewerDispatchIntakeHandoff(lines, reviewerDispatchIntakeHandoffs)
 	lines = appendMissionCommanderActionQueue(lines, missionCommanderActionQueue)
 	lines = appendResumeMissionCommanderNextActions(lines, missionCommanderNextActions)
 	lines = appendResumeList(lines, "blocker reasons", executorAction.BlockerReasons)
@@ -973,6 +980,8 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue),
 		ReviewerWritebacks:             reviewerWritebacks,
 		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
 		MissionCommanderNextActions:    missionCommanderNextActions,
 		MissionCommanderActionQueue:    missionCommanderActionQueue,
 		OpenInterventions:              openInterventions,

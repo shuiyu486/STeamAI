@@ -5625,6 +5625,73 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 		t.Fatalf("continue text omitted reviewer dispatch intake handoff:\n%s", out.String())
 	}
 
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continueApplyBeforeIntake struct {
+		RunID                          string                               `json:"runId"`
+		ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		Writes                         []startWrite                         `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continueApplyBeforeIntake); err != nil {
+		t.Fatalf("continue apply before reviewer intake JSON did not decode: %v\n%s", err, out.String())
+	}
+	assertReviewerDispatchIntakeSummary(t, "continue apply before reviewer intake", continueApplyBeforeIntake.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
+	if _, ok := reviewerDispatchIntakeByShard(continueApplyBeforeIntake.ReviewerDispatchIntakeHandoffs, "shard-01"); !ok {
+		t.Fatalf("continue apply omitted open reviewer dispatch handoffs: %+v", continueApplyBeforeIntake.ReviewerDispatchIntakeHandoffs)
+	}
+	continueStatusPath := assertStartWrite(t, continueApplyBeforeIntake.Writes, ".rekit/runs/"+continueApplyBeforeIntake.RunID+"/status.json", "write").TargetPath
+	continueDigestPath := assertStartWrite(t, continueApplyBeforeIntake.Writes, ".rekit/runs/"+continueApplyBeforeIntake.RunID+"/digest.md", "write").TargetPath
+	resumePath := assertStartWrite(t, continueApplyBeforeIntake.Writes, ".rekit/lanes/feature-login/prompts/RESUME.md", "refresh").TargetPath
+	checkpointPath := assertStartWrite(t, continueApplyBeforeIntake.Writes, ".rekit/lanes/feature-login/checkpoints/latest.json", "refresh").TargetPath
+	continueStatusBytes, err := os.ReadFile(continueStatusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var continueStatus struct {
+		ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+	}
+	if err := json.Unmarshal(continueStatusBytes, &continueStatus); err != nil {
+		t.Fatalf("continue run status JSON did not decode: %v\n%s", err, string(continueStatusBytes))
+	}
+	assertReviewerDispatchIntakeSummary(t, "continue run status", continueStatus.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
+	if _, ok := reviewerDispatchIntakeByShard(continueStatus.ReviewerDispatchIntakeHandoffs, "shard-01"); !ok {
+		t.Fatalf("continue run status omitted reviewer dispatch intake handoff: %+v", continueStatus.ReviewerDispatchIntakeHandoffs)
+	}
+	continueDigest, err := os.ReadFile(continueDigestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumeBytes, err := os.ReadFile(resumePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, text := range map[string]string{"continue digest": string(continueDigest), "lane resume": string(resumeBytes)} {
+		for _, expected := range []string{"## Reviewer dispatch intake handoff", "summary: total=2 waitingForReviewerResult=2 readyForPreview=0", "dispatch intake: lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "runtime does not spawn"} {
+			if !strings.Contains(text, expected) {
+				t.Fatalf("%s omitted durable reviewer dispatch handoff %q:\n%s", label, expected, text)
+			}
+		}
+	}
+	checkpointBytes, err := os.ReadFile(checkpointPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("lane checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
+	}
+	assertReviewerDispatchIntakeSummary(t, "lane checkpoint", checkpoint.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
+	if _, ok := reviewerDispatchIntakeByShard(checkpoint.ReviewerDispatchIntakeHandoffs, "shard-01"); !ok {
+		t.Fatalf("lane checkpoint omitted reviewer dispatch intake handoff: %+v", checkpoint.ReviewerDispatchIntakeHandoffs)
+	}
+
 	for idx, handoff := range packet.ShardHandoffs {
 		decision := "accept"
 		verdict := "accepted"
