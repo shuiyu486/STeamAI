@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 539：multi-reviewer ready-result batch intake vertical slice
 
-状态：implementation、focused/package 验证与完整本地 release minimum 已完成；尚未提交或推送。
+状态：已完成 implementation、focused/package 验证、完整本地 release minimum、implementation commit/push 与远程 release-gate inspection；implementation commit `e368a0d Add multi-reviewer batch intake` 已推送到 `main`。远程 release-gate run `29945764199` completed failure，Linux/macOS/Windows jobs 均 completed failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。按 cadence 只记录 implementation commit 触发的远程 run；不为本 release inspection commit 自身触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker 的新信号。
 
 目标：解决 multi-reviewer packet 的多个 result path 已到位后，Mission Commander 仍需逐 shard 手工拼接并重复执行 `-ReviewerResultPath ... -WhatIf/-Apply` 的 operational 断点。新增单一 Go-native case-local batch intake 入口，按 durable packet order 发现 ready results 并复用既有 strict single-result intake，而不是新增并行 writeback 实现或继续投影 summary 字段。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批不自动 spawn、轮询或监控 reviewer，不创建 reviewer result，不绕过 strict single-result validation，不并发写 ledger；不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。最终 merge decision 仍由主 Agent拥有。
 
-验证结果：已通过 `gofmt -w internal/rekit/subagents/intake.go internal/rekit/subagents/intake_test.go internal/rekit/cli/cli.go internal/rekit/cli/reviewer_intake_test.go`、focused `go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestIntakeReadyReviewerResults|TestRunPlanSubagentsReadyReviewerResults|TestRunPlanSubagentsReviewerIntake" -count=1`、package `go test ./internal/rekit/subagents ./internal/rekit/cli -count=1`；完整本地 release minimum 已通过 `go run ./cmd/rekit -- -Command release-check -Format json`（ready=true / release gate inventory ok）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF→CRLF working-copy warning，无 whitespace error）。
+验证结果：已通过 `gofmt -w internal/rekit/subagents/intake.go internal/rekit/subagents/intake_test.go internal/rekit/cli/cli.go internal/rekit/cli/reviewer_intake_test.go`、focused `go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestIntakeReadyReviewerResults|TestRunPlanSubagentsReadyReviewerResults|TestRunPlanSubagentsReviewerIntake" -count=1`、package `go test ./internal/rekit/subagents ./internal/rekit/cli -count=1`；完整本地 release minimum 已通过 `go run ./cmd/rekit -- -Command release-check -Format json`（ready=true / release gate inventory ok）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF→CRLF working-copy warning，无 whitespace error）。implementation commit `e368a0d Add multi-reviewer batch intake` 已推送；远程 release-gate run `29945764199` 已检查，Linux/macOS/Windows jobs 均 completed failure 且 `steps=[]`，仍符合既有 runner/billing blocker，不能声明 remote CI green。
 
 上一批摘要：Batch 538 已完成 pack-memory durable candidate review workspace，implementation commit `a00c605 Add durable candidate review workspace` 与 release inspection commit `3ce9362 Record Batch 538 release gate inspection` 已推送；implementation run `29943533595` completed failure，Linux/macOS/Windows jobs 均 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。
 
