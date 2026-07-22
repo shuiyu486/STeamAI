@@ -5728,9 +5728,6 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		return fmt.Errorf("promote -WhatIf is only supported with -CreateCandidates or -Apply")
 	}
 	if opt.CreateCandidates {
-		if wantsReviewArtifacts(opt) {
-			return fmt.Errorf("promote -CreateCandidates cannot be combined with review artifact options")
-		}
 		format, err := promoteCandidatesFormat(opt.Format)
 		if err != nil {
 			return fmt.Errorf("unsupported promote create-candidates format: %s", opt.Format)
@@ -5738,6 +5735,16 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		result, err := promote.CreateCandidates(ctx.RepoRoot, target, ctx.Pack, promote.CandidateOptions{WhatIf: opt.WhatIf})
 		if err != nil {
 			return err
+		}
+		if wantsReviewArtifacts(opt) {
+			result, err = promote.WriteCandidateReviewWorkspace(result, promote.CandidateArtifactOptions{
+				ReviewOutputDir: opt.ReviewOutputDir,
+				PacketPath:      opt.PacketPath,
+				DiffPath:        opt.DiffPath,
+			})
+			if err != nil {
+				return err
+			}
 		}
 		if format == "json" {
 			return writeJSON(out, result)
@@ -6496,6 +6503,15 @@ func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) e
 	}
 	if _, err := fmt.Fprintf(out, "promote candidates review plan：mode=%s items=%d candidateRoot=%s toolingRoot=%s indexPath=%s\n", result.ReviewPlan.Mode, result.ReviewPlan.ItemCount, result.CandidateRoot, result.ToolingRoot, result.IndexPath); err != nil {
 		return err
+	}
+	if result.ReviewWorkspace != nil {
+		workspace := result.ReviewWorkspace
+		if _, err := fmt.Fprintf(out, "promote candidates review workspace：root=%s packet=%s summary=%s combinedDiff=%s mutation=%t\n", workspace.ReviewRoot, workspace.PacketPath, workspace.SummaryPath, workspace.CombinedDiffPath, workspace.WritesArtifacts); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(out, "promote candidates review workspace boundary：workspace records bounded review artifacts only; it does not merge/cleanup candidates, update pack sources, run doctor/init/reconsume, create proof files, write authority/confirmed, or execute heavy tools"); err != nil {
+			return err
+		}
 	}
 	if err := writePromoteCandidateReviewSummaryText(out, result.ReviewPlan.ReviewSummary); err != nil {
 		return err

@@ -7432,13 +7432,24 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 		}
 	})
 
+	reviewRoot := filepath.Join(caseRoot, ".rekit", "reviews", "pack-memory-product-path")
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-CreateCandidates", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "promote", "-CreateCandidates", "-Review", "-ReviewOutputDir", reviewRoot, "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	result := decodeCandidateResult(t, out.Bytes())
-	if result.Command != "promote" || result.CaseRoot != caseRoot || result.Pack != "_template" || !result.IsMutation || !result.Applied || result.Created != 2 || result.Blocked == 0 || !result.RequiresCleanup {
+	if result.Command != "promote" || result.CaseRoot != caseRoot || result.Pack != "_template" || !result.IsMutation || !result.Applied || result.Created != 2 || result.Blocked == 0 || !result.RequiresCleanup || result.ReviewWorkspace == nil || result.ReviewWorkspace.ReviewRoot != reviewRoot {
 		t.Fatalf("unexpected nested no-pack promote candidates result: %+v", result)
+	}
+	for _, path := range []string{result.ReviewWorkspace.PacketPath, result.ReviewWorkspace.SummaryPath, result.ReviewWorkspace.CombinedDiffPath} {
+		assertFileExists(t, path)
+	}
+	packetBytes, err := os.ReadFile(result.ReviewWorkspace.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(packetBytes), `"kind": "pack-memory-candidate-review"`) || !strings.Contains(string(packetBytes), `"candidateResult"`) || !strings.Contains(string(packetBytes), `"reviewInput"`) {
+		t.Fatalf("nested product-path candidate review packet omitted durable context:\n%s", string(packetBytes))
 	}
 	readmeWrite := assertCandidateWrite(t, result.Writes, "references/template/README.md", "create-candidate")
 	workflowWrite := assertCandidateWrite(t, result.Writes, "references/template/workflow-template.md", "blocked-deny-pattern")
@@ -7608,16 +7619,108 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 	}
 }
 
-func TestRunPromoteCreateCandidatesRejectsReviewArtifacts(t *testing.T) {
-	caseRoot := attachedCase(t)
+func TestRunPromoteCreateCandidatesWritesDurableReviewWorkspace(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Candidate review workspace\n\nReusable safe update.\n")
+	writeCaseFile(t, caseRoot, "references/template/toolchain-router.md", "# Tooling\n\nCase root: "+caseRoot+"\nTrace: artifacts/run/review-workspace-trace.csv\n")
+	reviewRoot := filepath.Join(caseRoot, ".rekit", "reviews", "pack-memory-candidates")
+	packetPath := filepath.Join(reviewRoot, "candidate-packet.json")
+	diffPath := filepath.Join(reviewRoot, "diffs", "candidate-combined.diff")
 	var out bytes.Buffer
-	err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-CreateCandidates", "-ReviewOutputDir", filepath.Join(t.TempDir(), "review")}, &out)
-	if err == nil {
-		t.Fatal("Run returned nil error for promote -CreateCandidates with review artifacts")
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-CreateCandidates", "-WhatIf", "-Review", "-ReviewOutputDir", reviewRoot, "-PacketPath", packetPath, "-DiffPath", diffPath, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "cannot be combined") {
-		t.Fatalf("error = %q, want combination guard", err.Error())
+	result := decodeCandidateResult(t, out.Bytes())
+	if result.ReviewWorkspace == nil || !result.ReviewWorkspace.WritesArtifacts || result.ReviewWorkspace.ReviewRoot != reviewRoot || result.ReviewWorkspace.PacketPath != packetPath || result.ReviewWorkspace.CombinedDiffPath != diffPath {
+		t.Fatalf("candidate review workspace missing from result: %+v", result.ReviewWorkspace)
 	}
+	for _, path := range []string{packetPath, result.ReviewWorkspace.SummaryPath, diffPath} {
+		assertFileExists(t, path)
+	}
+	packetBytes, err := os.ReadFile(packetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packet struct {
+		Kind            string          `json:"kind"`
+		CandidateResult candidateResult `json:"candidateResult"`
+		ReviewInput     struct {
+			Summary struct {
+				Changed        int  `json:"changed"`
+				Blocked        int  `json:"blocked"`
+				ReviewRequired bool `json:"reviewRequired"`
+			} `json:"summary"`
+			Items []struct {
+				Path     string `json:"path"`
+				DiffPath string `json:"diffPath"`
+			} `json:"items"`
+			ToolingItems []struct {
+				Path                 string `json:"path"`
+				SanitizedPreviewPath string `json:"sanitizedPreviewPath"`
+			} `json:"toolingCandidateSources"`
+		} `json:"reviewInput"`
+		Boundary []string `json:"boundary"`
+	}
+	if err := json.Unmarshal(packetBytes, &packet); err != nil {
+		t.Fatalf("candidate review packet is not JSON: %v\n%s", err, string(packetBytes))
+	}
+	if packet.Kind != "pack-memory-candidate-review" || packet.CandidateResult.ReviewPlan.ReviewSummary.PendingReviewCount != 2 || packet.ReviewInput.Summary.Changed == 0 || !packet.ReviewInput.Summary.ReviewRequired || !containsSubstring(packet.Boundary, "does not merge or delete candidates") {
+		t.Fatalf("candidate review packet omitted operational handoff: %+v", packet)
+	}
+	foundDiff := false
+	for _, item := range packet.ReviewInput.Items {
+		if item.Path == "references/template/README.md" && item.DiffPath != "" {
+			assertFileExists(t, item.DiffPath)
+			foundDiff = true
+		}
+	}
+	if !foundDiff {
+		t.Fatalf("candidate review packet missing managed-doc bounded diff: %+v", packet.ReviewInput.Items)
+	}
+	foundPreview := false
+	for _, item := range packet.ReviewInput.ToolingItems {
+		if item.Path == "references/template/toolchain-router.md" && item.SanitizedPreviewPath != "" {
+			assertFileExists(t, item.SanitizedPreviewPath)
+			preview, err := os.ReadFile(item.SanitizedPreviewPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(preview), caseRoot) || !strings.Contains(string(preview), "<caseRoot>") {
+				t.Fatalf("candidate review sanitized preview leaked case path or omitted placeholder:\n%s", string(preview))
+			}
+			foundPreview = true
+		}
+	}
+	if !foundPreview {
+		t.Fatalf("candidate review packet missing sanitized tooling preview: %+v", packet.ReviewInput.ToolingItems)
+	}
+	summaryBytes, err := os.ReadFile(result.ReviewWorkspace.SummaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"# rekit pack-memory candidate review workspace", "## 执行清单", "pending=2", "candidate-decision-note", "does not merge or delete candidates"} {
+		if !strings.Contains(string(summaryBytes), expected) {
+			t.Fatalf("candidate review workspace summary missing %q:\n%s", expected, string(summaryBytes))
+		}
+	}
+	for _, write := range result.Writes {
+		if write.Action == "would-create-candidate" {
+			if _, err := os.Stat(write.TargetPath); !os.IsNotExist(err) {
+				t.Fatalf("WhatIf review workspace created candidate %s", write.TargetPath)
+			}
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-CreateCandidates", "-WhatIf", "-ReviewOutputDir", filepath.Join(caseRoot, ".rekit", "reviews", "pack-memory-text"), "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"promote candidates review workspace：root=", "packet=", "combinedDiff=", "promote candidates review workspace boundary：workspace records bounded review artifacts only"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("candidate review workspace text missing %q:\n%s", expected, out.String())
+		}
+	}
+
 	out.Reset()
 	err = Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-CreateCandidates", "-WhatIf", "-Format", "xml"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "unsupported promote create-candidates format") {
@@ -11824,19 +11927,28 @@ type startWrite struct {
 }
 
 type candidateResult struct {
-	Command         string              `json:"command"`
-	CaseRoot        string              `json:"caseRoot"`
-	Pack            string              `json:"pack"`
-	IsMutation      bool                `json:"isMutation"`
-	Applied         bool                `json:"applied"`
-	CandidateRoot   string              `json:"candidateRoot"`
-	ToolingRoot     string              `json:"toolingRoot"`
-	IndexPath       string              `json:"indexPath"`
-	Created         int                 `json:"created"`
-	Blocked         int                 `json:"blocked"`
-	RequiresCleanup bool                `json:"requiresCleanup"`
-	ReviewPlan      candidateReviewPlan `json:"reviewPlan"`
-	Writes          []candidateWrite    `json:"writes"`
+	Command         string                    `json:"command"`
+	CaseRoot        string                    `json:"caseRoot"`
+	Pack            string                    `json:"pack"`
+	IsMutation      bool                      `json:"isMutation"`
+	Applied         bool                      `json:"applied"`
+	CandidateRoot   string                    `json:"candidateRoot"`
+	ToolingRoot     string                    `json:"toolingRoot"`
+	IndexPath       string                    `json:"indexPath"`
+	Created         int                       `json:"created"`
+	Blocked         int                       `json:"blocked"`
+	RequiresCleanup bool                      `json:"requiresCleanup"`
+	ReviewPlan      candidateReviewPlan       `json:"reviewPlan"`
+	ReviewWorkspace *candidateReviewWorkspace `json:"reviewWorkspace"`
+	Writes          []candidateWrite          `json:"writes"`
+}
+
+type candidateReviewWorkspace struct {
+	WritesArtifacts  bool   `json:"writesArtifacts"`
+	ReviewRoot       string `json:"reviewRoot"`
+	PacketPath       string `json:"packetPath"`
+	SummaryPath      string `json:"summaryPath"`
+	CombinedDiffPath string `json:"combinedDiffPath"`
 }
 
 type candidateReviewSummary struct {

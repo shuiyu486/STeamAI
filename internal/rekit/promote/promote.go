@@ -21,6 +21,12 @@ type CandidateOptions struct {
 	WhatIf bool
 }
 
+type CandidateArtifactOptions struct {
+	ReviewOutputDir string
+	PacketPath      string
+	DiffPath        string
+}
+
 type ApplyOptions struct {
 	WhatIf bool
 }
@@ -259,25 +265,35 @@ type CandidateReconsumeVerification struct {
 }
 
 type CandidateResult struct {
-	SchemaVersion     int                 `json:"schemaVersion"`
-	Command           string              `json:"command"`
-	CaseRoot          string              `json:"caseRoot"`
-	RepoRoot          string              `json:"repoRoot"`
-	Pack              string              `json:"pack"`
-	IsMutation        bool                `json:"isMutation"`
-	Applied           bool                `json:"applied"`
-	CandidateRoot     string              `json:"candidateRoot"`
-	ToolingRoot       string              `json:"toolingRoot"`
-	IndexPath         string              `json:"indexPath,omitempty"`
-	Created           int                 `json:"created"`
-	Blocked           int                 `json:"blocked"`
-	Skipped           int                 `json:"skipped"`
-	Writes            []CandidateWrite    `json:"writes"`
-	ReviewPlan        CandidateReviewPlan `json:"reviewPlan"`
-	RequiresReview    bool                `json:"requiresReview"`
-	RequiresCleanup   bool                `json:"requiresCleanup"`
-	DeniedWriteAction []string            `json:"deniedWriteAction"`
-	NextSteps         []string            `json:"nextSteps"`
+	SchemaVersion     int                    `json:"schemaVersion"`
+	Command           string                 `json:"command"`
+	CaseRoot          string                 `json:"caseRoot"`
+	RepoRoot          string                 `json:"repoRoot"`
+	Pack              string                 `json:"pack"`
+	IsMutation        bool                   `json:"isMutation"`
+	Applied           bool                   `json:"applied"`
+	CandidateRoot     string                 `json:"candidateRoot"`
+	ToolingRoot       string                 `json:"toolingRoot"`
+	IndexPath         string                 `json:"indexPath,omitempty"`
+	Created           int                    `json:"created"`
+	Blocked           int                    `json:"blocked"`
+	Skipped           int                    `json:"skipped"`
+	Writes            []CandidateWrite       `json:"writes"`
+	ReviewPlan        CandidateReviewPlan    `json:"reviewPlan"`
+	ReviewWorkspace   *review.ArtifactResult `json:"reviewWorkspace,omitempty"`
+	RequiresReview    bool                   `json:"requiresReview"`
+	RequiresCleanup   bool                   `json:"requiresCleanup"`
+	DeniedWriteAction []string               `json:"deniedWriteAction"`
+	NextSteps         []string               `json:"nextSteps"`
+}
+
+type CandidateReviewPacket struct {
+	SchemaVersion   int             `json:"schemaVersion"`
+	Kind            string          `json:"kind"`
+	Command         string          `json:"command"`
+	CandidateResult CandidateResult `json:"candidateResult"`
+	ReviewInput     review.Plan     `json:"reviewInput"`
+	Boundary        []string        `json:"boundary"`
 }
 
 type candidateIndexEntry struct {
@@ -504,6 +520,89 @@ func CreateCandidates(repoRoot, caseRoot, pack string, opt CandidateOptions) (Ca
 	result := CandidateResult{SchemaVersion: 1, Command: "promote", CaseRoot: plan.CaseRoot, RepoRoot: plan.RepoRoot, Pack: plan.Pack, IsMutation: !opt.WhatIf, Applied: !opt.WhatIf, CandidateRoot: candidateRoot, ToolingRoot: toolingRoot, IndexPath: indexPath, Created: created, Blocked: blocked, Skipped: skipped, Writes: writes, RequiresReview: true, RequiresCleanup: !opt.WhatIf && created > 0, DeniedWriteAction: []string{"promote -Apply", "pack managed file overwrite", "authority/confirmed writes", "heavy-tool execution"}, NextSteps: []string{"review each reviewPlan.reviewItems entry before merging", "merge accepted managed-doc candidates into pack sources only after review-first confirmation", "merge accepted tooling candidates into tooling/catalog.yml or tooling/recipes/*", "delete rejected or superseded candidate files and update or remove indexPath after review", "run doctor after accepted merges and reconsume from a fresh or attached case"}}
 	result.ReviewPlan = candidateReviewPlan(result, opt.WhatIf)
 	return result, nil
+}
+
+func WriteCandidateReviewWorkspace(result CandidateResult, opt CandidateArtifactOptions) (CandidateResult, error) {
+	plan, err := Plan(result.RepoRoot, result.CaseRoot, result.Pack)
+	if err != nil {
+		return CandidateResult{}, err
+	}
+	workspace, err := review.WriteArtifacts(plan, review.ArtifactOptions{
+		ReviewOutputDir: opt.ReviewOutputDir,
+		PacketPath:      opt.PacketPath,
+		DiffPath:        opt.DiffPath,
+	})
+	if err != nil {
+		return CandidateResult{}, err
+	}
+	packetBytes, err := os.ReadFile(workspace.PacketPath)
+	if err != nil {
+		return CandidateResult{}, err
+	}
+	var reviewInput review.Plan
+	if err := json.Unmarshal(packetBytes, &reviewInput); err != nil {
+		return CandidateResult{}, fmt.Errorf("decode candidate review input: %w", err)
+	}
+	result.ReviewWorkspace = &workspace
+	packetResult := result
+	packet := CandidateReviewPacket{
+		SchemaVersion:   1,
+		Kind:            "pack-memory-candidate-review",
+		Command:         "promote",
+		CandidateResult: packetResult,
+		ReviewInput:     reviewInput,
+		Boundary: []string{
+			"review workspace records candidate review context, bounded diffs, and sanitized previews only",
+			"review workspace does not merge or delete candidates, update pack sources, run doctor/init/reconsume, or create expected proof files",
+			"review workspace does not write authority/confirmed or execute heavy tools",
+		},
+	}
+	encoded, err := json.MarshalIndent(packet, "", "  ")
+	if err != nil {
+		return CandidateResult{}, err
+	}
+	if err := os.WriteFile(workspace.PacketPath, append(encoded, '\n'), 0o644); err != nil {
+		return CandidateResult{}, err
+	}
+	if err := os.WriteFile(workspace.SummaryPath, []byte(candidateReviewWorkspaceSummary(result, reviewInput, workspace)), 0o644); err != nil {
+		return CandidateResult{}, err
+	}
+	return result, nil
+}
+
+func candidateReviewWorkspaceSummary(result CandidateResult, plan review.Plan, workspace review.ArtifactResult) string {
+	summary := result.ReviewPlan.ReviewSummary
+	lines := []string{
+		"# rekit pack-memory candidate review workspace",
+		"",
+		"## 执行摘要",
+		"",
+		fmt.Sprintf("- pack: %s", result.Pack),
+		fmt.Sprintf("- candidates: created=%d blocked=%d skipped=%d", result.Created, result.Blocked, result.Skipped),
+		fmt.Sprintf("- review: pending=%d artifacts=%d proof=%s stage=%s", summary.PendingReviewCount, summary.ReviewArtifactCount, summary.ProofSummary.ProofProgress, summary.ProofSummary.CurrentStage),
+		fmt.Sprintf("- packet: %s", workspace.PacketPath),
+		fmt.Sprintf("- combined diff: %s", workspace.CombinedDiffPath),
+		"",
+		"## 执行清单",
+		"",
+		"1. Read packet.json candidateResult.reviewPlan and reviewInput before choosing candidate decisions.",
+		"2. Inspect bounded diffs and sanitized previews under this workspace.",
+		"3. Record one expected decision proof per pending or blocked review item.",
+		"4. Follow only the selected decisionFollowThrough outcome; cleanup and reconsume remain explicit main-Agent actions.",
+		"",
+		"## 验证标准",
+		"",
+		fmt.Sprintf("- review input changed/planned items: %d", plan.Summary.Changed),
+		fmt.Sprintf("- review input blocked items: %d", plan.Summary.Blocked),
+		fmt.Sprintf("- next missing proof: %s", summary.ProofSummary.NextMissingProofPath),
+		"",
+		"## 风险与注意事项",
+		"",
+		"- This workspace is review evidence only; it does not merge or delete candidates, update pack sources, run doctor/init/reconsume, or create expected proof files.",
+		"- Do not write authority/confirmed state or execute heavy tools from this workspace.",
+		"- Do not copy case-specific samples, traces, dumps, captures, payloads, flags, customer data, or absolute case paths into pack sources.",
+	}
+	return strings.Join(lines, "\r\n") + "\r\n"
 }
 
 func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (ApplyResult, error) {

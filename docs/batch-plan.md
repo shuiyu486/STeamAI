@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 538：pack-memory durable candidate review workspace vertical slice
+
+状态：implementation、focused/package 验证与完整本地 release minimum 已完成；尚未提交/推送或检查本批 implementation commit 的远程 release-gate run。
+
+目标：解决 `promote -CreateCandidates` 生成 candidate reviewPlan 后，replacement executor 若需要 inspectable managed-doc diff、sanitized tooling preview 与 durable packet，必须额外重新运行 generic `promote -Review`，且该 generic packet 又不包含 candidate-specific decision/cleanup/reconsume plan 的 operational 断点。把 candidate generation/WhatIf、generic review inputs 与完整 candidate review plan 收口为同一次 case-local Go-native product-path 调用和一个跨会话可接手 workspace，而不是再增加一个 summary 字段。
+
+已完成内容：
+
+- `promote -CreateCandidates` 现在可与 `-Review`、`-ReviewOutputDir`、`-PacketPath`、`-DiffPath` 组合；CLI 在 candidate result 生成后写 durable candidate review workspace，并在 JSON `reviewWorkspace` / text 输出中返回 root、packet、summary 与 combined diff paths。
+- workspace `packet.json` 封装完整 `candidateResult.reviewPlan` 和已写入 artifact paths 的 generic promote `reviewInput`，让 replacement executor 在一个 packet 中同时获得 candidate decisions/follow-through/proof handoff、managed-doc bounded diff 与 tooling sanitized preview。
+- workspace `summary.md` 保持短执行区，直接给出 candidate totals、pending review/proof stage、packet/diff paths、接手 checklist、验证标准与 no-merge/no-cleanup/no-heavy/no-authority boundary。
+- focused CLI coverage 验证 explicit workspace/packet/diff paths、WhatIf candidate no-write、managed-doc bounded diff、tooling sanitized preview 去 case path、packet/summary durable handoff与 text output；既有 nested cwd / no `-Target` / no `-Pack` pack-memory product-path smoke 已升级为 actual candidate generation + durable review workspace。
+
+边界：本批只写 case-local review workspace 和既有 candidate roots；不自动 merge/cleanup candidate，不更新 pack source，不运行 doctor/init/reconsume，不创建 expected decision/cleanup/reconsume proof，不写 authority/confirmed、不执行 heavy-tool，不新增 PowerShell runtime logic。`-WhatIf` 仍不创建 candidate/index，但允许显式 `-Review` 写 review artifacts，这与既有 generic sync/promote review artifact 语义一致。
+
+验证结果：已通过 `gofmt -w internal/rekit/promote/promote.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/promote ./internal/rekit/cli -run "TestCreateCandidates|TestRunPromoteCreateCandidatesWritesDurableReviewWorkspace|TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime" -count=1`、package `go test ./internal/rekit/promote ./internal/rekit/cli -count=1`；完整本地 release minimum 已通过 `go run ./cmd/rekit -- -Command release-check -Format json`（ready=true / release gate inventory ok）、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF→CRLF working-copy warning，无 whitespace error）。
+
+上一批摘要：Batch 537 已完成 installed entrypoint product-path vertical slice closure，implementation commit `8e3c2fc Add installed entrypoint product slice` 与 release inspection commit `3b5205b Record Batch 537 release gate inspection` 已推送；implementation run `29938234343` completed failure，Linux/macOS/Windows jobs 均 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。
+
 ### Batch 537：installed entrypoint product-path vertical slice closure
 
 状态：已完成 runtime/CLI/test/docs implementation、focused/package validation、完整本地 release minimum、implementation commit/push 与远程 release-gate inspection；已提交并推送 implementation commit `8e3c2fc Add installed entrypoint product slice`。远程 release-gate run `29938234343` completed failure，Linux/macOS/Windows jobs 均 completed failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。本批按 release inspection cadence 只记录 implementation commit 的远程 run；不再为 release inspection commit 自身触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker 的新信号。用户本轮要求完成本批次后停止，因此 Batch 537 完成并记录 release inspection 后不自动开启下一批。
