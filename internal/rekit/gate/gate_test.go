@@ -552,6 +552,10 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 		t.Fatalf("adapter report contract omitted Mission Commander next actions: %+v", contract.MissionCommanderNextActions)
 	}
 	assertGateActionQueue(t, contract.MissionCommanderActionQueue, 3, 2, 1, 3, 2, wantValidate)
+	summary := contract.ReportSummary
+	if summary.State != "needs-adapter-report-validation" || summary.GateEventID != authorized.EventID || summary.Action != "debug" || summary.Lane != "main" || summary.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || summary.DefaultReportPath != "workspace/main/debug/session-1/adapter-report.json" || summary.ReportPresent || summary.Valid || summary.RecordReady || !summary.RecordBlocked || !summary.RequiresValidation || summary.RequiresRepair || summary.RequiresMainEscalation || summary.AllowedStatusCount != 5 || summary.AllowedOutputPathCount != 1 || summary.AuthorizedStopCount != 1 || summary.RepairHintCount != len(contract.ValidationRepairHints) || summary.RecordBlockedHintCount != len(contract.ValidationRepairHints) || summary.EscalateHintCount != 1 || summary.OutcomeCount != 3 || summary.NextActionCount != 3 || summary.ReviewRequiredActionCount != 3 || summary.CurrentAction != wantValidate || summary.ActionQueueSummary != contract.MissionCommanderActionQueue.Summary || !gateContainsSubstring(summary.Boundary, "summary is read-only") {
+		t.Fatalf("adapter report contract omitted compact summary: %+v", summary)
+	}
 	if !gateContainsSubstring(contract.NextSteps, wantValidate) || !gateContainsSubstring(contract.NextSteps, wantRecord) || !gateContainsSubstring(contract.NextSteps, "valid=true") || !gateContainsSubstring(contract.NextSteps, "never executes the heavy tool") {
 		t.Fatalf("adapter report contract omitted concrete Mission Commander next steps: %+v", contract.NextSteps)
 	}
@@ -700,6 +704,10 @@ func TestValidateAdapterExecutionReportReadOnlyPreflight(t *testing.T) {
 		t.Fatalf("valid adapter report validation omitted record next actions: %+v", validation.MissionCommanderNextActions)
 	}
 	assertGateActionQueue(t, validation.MissionCommanderActionQueue, 2, 2, 0, 2, 1, wantRecord)
+	summary := validation.ReportSummary
+	if summary.State != "ready-to-record-evidence" || summary.GateEventID != authorized.EventID || summary.Action != "debug" || summary.Lane != "main" || summary.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || !summary.ReportPresent || !summary.Valid || !summary.RecordReady || summary.RecordBlocked || summary.RequiresValidation || summary.RequiresRepair || summary.RequiresMainEscalation || summary.ReportStatus != "succeeded" || summary.AdapterID != "unit-adapter" || summary.ActualRuntimeSeconds != 24 || summary.ActualDiskMB != 33 || summary.ActualRequests != 1 || summary.OutputRefCount != 1 || summary.EvidenceRefCount != 1 || summary.BoundaryHitCount != 0 || summary.HasEscalation || !summary.HasSummary || summary.OutcomeCount != 1 || summary.NextActionCount != 2 || summary.ReviewRequiredActionCount != 2 || summary.CurrentAction != wantRecord || summary.ActionQueueSummary != validation.MissionCommanderActionQueue.Summary || !gateContainsSubstring(summary.Boundary, "validation is read-only") {
+		t.Fatalf("valid adapter report validation omitted compact summary: %+v", summary)
+	}
 	follow := validation.AuthorizedExecutionFollowThrough
 	if follow.State != "ready-to-record-evidence" || follow.GateEventID != authorized.EventID || follow.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || follow.ActionQueue.Summary != validation.MissionCommanderActionQueue.Summary || !authorizedFollowThroughContainsForTest(follow, "valid-report-record", "replace <executor-id>") || !authorizedFollowThroughContainsForTest(follow, "valid-report-record", "observation evidence records adapter status") {
 		t.Fatalf("valid adapter report validation omitted record follow-through: %+v", follow)
@@ -818,6 +826,10 @@ func TestValidateAdapterExecutionReportReturnsInvalidEnvelopeReadOnly(t *testing
 		t.Fatalf("invalid adapter report validation omitted repair next actions: %+v", validation.MissionCommanderNextActions)
 	}
 	assertGateActionQueue(t, validation.MissionCommanderActionQueue, 2, 2, 0, 2, 0, "add-boundary-marker")
+	summary := validation.ReportSummary
+	if summary.State != "repair-adapter-report" || summary.GateEventID != authorized.EventID || summary.ReportPath != "workspace/main/debug/session-1/bad-report.json" || !summary.ReportPresent || summary.Valid || summary.RecordReady || !summary.RecordBlocked || summary.RequiresValidation || !summary.RequiresRepair || summary.RequiresMainEscalation || summary.ReportStatus != "boundary-hit" || summary.AdapterID != "unit-adapter" || summary.ActualRuntimeSeconds != 24 || summary.OutputRefCount != 1 || summary.BoundaryHitCount != 0 || summary.HasSummary || summary.ValidationFailureCode != "boundary-marker-missing" || summary.ValidationFailureStage != "boundary" || summary.RepairHintCount != 1 || summary.RecordBlockedHintCount != 1 || summary.OutcomeCount != 1 || summary.NextActionCount != 2 || summary.ReviewRequiredActionCount != 2 || summary.CurrentAction != "add-boundary-marker" || summary.ActionQueueSummary != validation.MissionCommanderActionQueue.Summary || !gateContainsSubstring(summary.Boundary, "valid=true") {
+		t.Fatalf("invalid adapter report validation omitted compact summary: %+v", summary)
+	}
 	follow := validation.AuthorizedExecutionFollowThrough
 	if follow.State != "repair-adapter-report" || follow.ReportPath != "workspace/main/debug/session-1/bad-report.json" || follow.ActionQueue.Summary != validation.MissionCommanderActionQueue.Summary || !authorizedFollowThroughContainsForTest(follow, "invalid-report-repair", "add-boundary-marker") || !authorizedFollowThroughContainsForTest(follow, "invalid-report-repair", "failureCode/failureStage") {
 		t.Fatalf("invalid adapter report validation omitted repair follow-through: %+v", follow)

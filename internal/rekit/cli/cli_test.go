@@ -7786,6 +7786,8 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"gate adapter report contract：gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " mutation=false",
+		"gate adapter report contract summary：state=needs-adapter-report-validation gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " defaultReportPath=" + wantReportPath + " reportPresent=false valid=false recordReady=false recordBlocked=true requiresValidation=true requiresRepair=false requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=27 recordBlockedHints=27 escalateHints=1 outcomes=3 nextActions=3 reviewRequiredActions=3 currentAction=" + wantValidate,
+		"gate adapter report contract summary boundary：adapter report summary is read-only; full contract/validation/follow-through arrays remain available",
 		"gate adapter report validate command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath " + wantReportPath + " -Format json",
 		"gate adapter report record command：rekit -Command gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath " + wantReportPath + " -Actor <executor-id> -Format json",
 		"gate adapter report live validation：cwd=authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target; or use caseRelativeReportPath with case-relative commands from any case-local cwd reportFileName=adapter-report.json caseRelativeReportPath=" + wantReportPath,
@@ -7829,6 +7831,8 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"gate adapter report validation：valid=true gateEventId=" + applied.EventID + " reportPath=" + wantReportPath + " mutation=false applied=false",
+		"gate adapter report validation summary：state=ready-to-record-evidence gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " defaultReportPath=" + wantReportPath + " reportPresent=true valid=true recordReady=true recordBlocked=false requiresValidation=false requiresRepair=false requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=0 recordBlockedHints=0 escalateHints=0 outcomes=1 nextActions=2 reviewRequiredActions=2 currentAction=" + wantRecord + " reportStatus=succeeded adapterId=text-cli-adapter actualBudget=runtimeSeconds=20,diskMB=32,requests=1 outputRefs=1 evidenceRefs=0 boundaryHits=0 hasEscalation=false hasSummary=true",
+		"gate adapter report validation summary boundary：validation is read-only and must return valid=true before evidence record",
 		"gate adapter report sidecar：kind=adapter-execution-report adapterId=text-cli-adapter action=debug status=succeeded gateEventId=" + applied.EventID + " actualBudget=runtimeSeconds=20,diskMB=32,requests=1",
 		"gate adapter report sidecar outputRefs：workspace/main/debug/session-1/result.json",
 		"gate adapter report sidecar summary：escalation= summary=Adapter report from text output test",
@@ -7870,6 +7874,8 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"gate adapter report validation：valid=false gateEventId=" + applied.EventID + " reportPath=" + invalidReportPath + " mutation=false applied=false",
+		"gate adapter report validation summary：state=repair-adapter-report gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + invalidReportPath + " defaultReportPath=" + wantReportPath + " reportPresent=true valid=false recordReady=false recordBlocked=true requiresValidation=false requiresRepair=true requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=1 recordBlockedHints=1 escalateHints=0 outcomes=1 nextActions=2 reviewRequiredActions=2 currentAction=add-boundary-marker reportStatus=boundary-hit adapterId=text-cli-adapter actualBudget=runtimeSeconds=20,diskMB=32,requests=1 outputRefs=1 evidenceRefs=0 boundaryHits=0 hasEscalation=false hasSummary=true failureCode=boundary-marker-missing failureStage=boundary",
+		"gate adapter report validation summary boundary：record command writes bounded observation evidence only; /rekit does not execute the heavy tool",
 		"gate adapter report validation failure：code=boundary-marker-missing stage=boundary",
 		"gate adapter report repair hint：action=add-boundary-marker recordBlocked=true rerunValidation=true code=boundary-marker-missing stage=boundary fields=boundaryHits,escalation allowedValues= allowedOutputPaths= allowedStopConditions=timeout maxBytes=0 escalateToMain=false detail=boundary-hit or escalated status requires authorized boundaryHits or a bounded escalation",
 		"gate adapter report repair hint evidence：action=add-boundary-marker evidence=allowedStopConditions=timeout",
@@ -8035,6 +8041,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		ReportSchemaVersion              int                                      `json:"reportSchemaVersion"`
 		GateEventID                      string                                   `json:"gateEventId"`
 		Action                           string                                   `json:"action"`
+		ReportSummary                    adapterReportHandoffSummarySnapshot      `json:"reportSummary"`
 		AuthorizedExecutionFollowThrough authorizedExecutionFollowThroughSnapshot `json:"authorizedExecutionFollowThrough"`
 		AllowedStatuses                  []string                                 `json:"allowedStatuses"`
 		AllowedOutputPaths               []string                                 `json:"allowedOutputPaths"`
@@ -8071,6 +8078,10 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if contract.Kind != "adapter-execution-report-contract" || contract.ReportKind != "adapter-execution-report" || contract.ReportSchemaVersion != 1 || contract.GateEventID != authorizedEventID || contract.Action != "debug" {
 		t.Fatalf("unexpected adapter report contract identity: %+v", contract)
+	}
+	contractSummary := contract.ReportSummary
+	if contractSummary.State != "needs-adapter-report-validation" || contractSummary.GateEventID != authorizedEventID || contractSummary.Action != "debug" || contractSummary.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || contractSummary.ReportPresent || contractSummary.Valid || !contractSummary.RecordBlocked || !contractSummary.RequiresValidation || contractSummary.RequiresRepair || contractSummary.RequiresMainEscalation || contractSummary.OutcomeCount != 3 || contractSummary.NextActionCount != 3 || contractSummary.ReviewRequiredActionCount != 3 || !containsSubstring(contractSummary.Boundary, "summary is read-only") {
+		t.Fatalf("adapter report contract omitted compact summary: %+v", contractSummary)
 	}
 	contractFollow := contract.AuthorizedExecutionFollowThrough
 	if contractFollow.State != "needs-adapter-report-validation" || contractFollow.GateEventID != authorizedEventID || contractFollow.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || !cliAuthorizedFollowThroughContains(contractFollow, "write-and-validate-report", "run read-only validation") || !cliAuthorizedFollowThroughContains(contractFollow, "valid-report-record", "bounded observation evidence") || !cliAuthorizedFollowThroughContains(contractFollow, "invalid-report-repair", "record remains blocked") {
@@ -8194,13 +8205,14 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	var adapterValidation struct {
-		Kind       string `json:"kind"`
-		Valid      bool   `json:"valid"`
-		IsMutation bool   `json:"isMutation"`
-		Applied    bool   `json:"applied"`
-		Error      string `json:"error"`
-		ReportPath string `json:"reportPath"`
-		Report     *struct {
+		Kind          string                              `json:"kind"`
+		Valid         bool                                `json:"valid"`
+		IsMutation    bool                                `json:"isMutation"`
+		Applied       bool                                `json:"applied"`
+		Error         string                              `json:"error"`
+		ReportPath    string                              `json:"reportPath"`
+		ReportSummary adapterReportHandoffSummarySnapshot `json:"reportSummary"`
+		Report        *struct {
 			AdapterID  string `json:"adapterId"`
 			Escalation string `json:"escalation"`
 		} `json:"report"`
@@ -8214,6 +8226,10 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if adapterValidation.Kind != "adapter-execution-report-validation" || !adapterValidation.Valid || adapterValidation.IsMutation || adapterValidation.Applied || adapterValidation.Error != "" || adapterValidation.ReportPath != "workspace/main/debug/session-1/adapter-escalation.json" || adapterValidation.Report == nil || adapterValidation.Report.AdapterID != "cli-adapter" || adapterValidation.Report.Escalation != "adapter escalated from CLI E2E" || adapterValidation.Contract.GateEventID != authorizedEventID || adapterValidation.Contract.Action != "debug" {
 		t.Fatalf("adapter execution report validation drifted: %+v", adapterValidation)
+	}
+	validationSummary := adapterValidation.ReportSummary
+	if validationSummary.State != "ready-to-record-evidence" || validationSummary.GateEventID != authorizedEventID || validationSummary.Action != "debug" || validationSummary.ReportPath != "workspace/main/debug/session-1/adapter-escalation.json" || !validationSummary.ReportPresent || !validationSummary.Valid || !validationSummary.RecordReady || validationSummary.RecordBlocked || validationSummary.RequiresValidation || validationSummary.RequiresRepair || validationSummary.RequiresMainEscalation || validationSummary.ReportStatus != "escalated" || validationSummary.AdapterID != "cli-adapter" || validationSummary.ActualRuntimeSeconds != 24 || validationSummary.ActualDiskMB != 33 || validationSummary.ActualRequests != 1 || validationSummary.OutputRefCount != 1 || validationSummary.EvidenceRefCount != 0 || validationSummary.BoundaryHitCount != 0 || !validationSummary.HasEscalation || !validationSummary.HasSummary || validationSummary.OutcomeCount != 1 || validationSummary.NextActionCount != 2 || validationSummary.ReviewRequiredActionCount != 2 || !containsSubstring(validationSummary.Boundary, "valid=true") {
+		t.Fatalf("adapter execution report validation omitted compact summary: %+v", validationSummary)
 	}
 	observationsAfterValidation, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if err != nil {
@@ -8238,12 +8254,13 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	var invalidAdapterValidation struct {
-		Valid        bool     `json:"valid"`
-		Error        string   `json:"error"`
-		Errors       []string `json:"errors"`
-		FailureCode  string   `json:"failureCode"`
-		FailureStage string   `json:"failureStage"`
-		RepairHints  []struct {
+		Valid         bool                                `json:"valid"`
+		Error         string                              `json:"error"`
+		Errors        []string                            `json:"errors"`
+		FailureCode   string                              `json:"failureCode"`
+		FailureStage  string                              `json:"failureStage"`
+		ReportSummary adapterReportHandoffSummarySnapshot `json:"reportSummary"`
+		RepairHints   []struct {
 			Code                  string   `json:"code"`
 			Stage                 string   `json:"stage"`
 			RepairAction          string   `json:"repairAction"`
@@ -8265,6 +8282,10 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if invalidAdapterValidation.Valid || invalidAdapterValidation.Error == "" || !strings.Contains(invalidAdapterValidation.Error, "requires boundaryHits or escalation") || len(invalidAdapterValidation.Errors) != 1 || invalidAdapterValidation.FailureCode != "boundary-marker-missing" || invalidAdapterValidation.FailureStage != "boundary" || invalidAdapterValidation.IsMutation || invalidAdapterValidation.Applied || invalidAdapterValidation.ReportPath != "workspace/main/debug/session-1/adapter-invalid.json" || invalidAdapterValidation.Report == nil || invalidAdapterValidation.Report.Status != "boundary-hit" {
 		t.Fatalf("invalid adapter execution report validation drifted: %+v", invalidAdapterValidation)
+	}
+	invalidValidationSummary := invalidAdapterValidation.ReportSummary
+	if invalidValidationSummary.State != "repair-adapter-report" || invalidValidationSummary.GateEventID != authorizedEventID || invalidValidationSummary.Action != "debug" || invalidValidationSummary.ReportPath != "workspace/main/debug/session-1/adapter-invalid.json" || !invalidValidationSummary.ReportPresent || invalidValidationSummary.Valid || invalidValidationSummary.RecordReady || !invalidValidationSummary.RecordBlocked || invalidValidationSummary.RequiresValidation || !invalidValidationSummary.RequiresRepair || invalidValidationSummary.RequiresMainEscalation || invalidValidationSummary.ReportStatus != "boundary-hit" || invalidValidationSummary.AdapterID != "cli-adapter" || invalidValidationSummary.ActualRuntimeSeconds != 24 || invalidValidationSummary.ActualDiskMB != 33 || invalidValidationSummary.ActualRequests != 1 || invalidValidationSummary.OutputRefCount != 1 || invalidValidationSummary.EvidenceRefCount != 0 || invalidValidationSummary.BoundaryHitCount != 0 || invalidValidationSummary.HasEscalation || !invalidValidationSummary.HasSummary || invalidValidationSummary.ValidationFailureCode != "boundary-marker-missing" || invalidValidationSummary.ValidationFailureStage != "boundary" || invalidValidationSummary.RepairHintCount != 1 || invalidValidationSummary.RecordBlockedHintCount != 1 || invalidValidationSummary.EscalateHintCount != 0 || invalidValidationSummary.OutcomeCount != 1 || invalidValidationSummary.NextActionCount != 2 || invalidValidationSummary.ReviewRequiredActionCount != 2 || !containsSubstring(invalidValidationSummary.Boundary, "valid=true") {
+		t.Fatalf("invalid adapter execution report validation omitted compact summary: %+v", invalidValidationSummary)
 	}
 	if len(invalidAdapterValidation.RepairHints) != 1 || invalidAdapterValidation.RepairHints[0].Code != "boundary-marker-missing" || invalidAdapterValidation.RepairHints[0].Stage != "boundary" || invalidAdapterValidation.RepairHints[0].RepairAction != "add-boundary-marker" || strings.Join(invalidAdapterValidation.RepairHints[0].AllowedStopConditions, ",") != "timeout" || !invalidAdapterValidation.RepairHints[0].RecordBlocked || !invalidAdapterValidation.RepairHints[0].RerunValidation || !strings.Contains(strings.Join(invalidAdapterValidation.NextSteps, ","), "repairAction: add-boundary-marker") {
 		t.Fatalf("invalid adapter execution report validation omitted repair hints: %+v", invalidAdapterValidation)
@@ -10316,6 +10337,47 @@ type authorizedExecutionFollowThroughSnapshot struct {
 	Outcomes    []authorizedExecutionOutcome        `json:"outcomes"`
 	Boundary    []string                            `json:"boundary"`
 	ActionQueue missionCommanderActionQueueSnapshot `json:"actionQueue"`
+}
+
+type adapterReportHandoffSummarySnapshot struct {
+	State                     string   `json:"state"`
+	GateEventID               string   `json:"gateEventId"`
+	Action                    string   `json:"action"`
+	Lane                      string   `json:"lane"`
+	ReportPath                string   `json:"reportPath"`
+	DefaultReportPath         string   `json:"defaultReportPath"`
+	ReportPresent             bool     `json:"reportPresent"`
+	Valid                     bool     `json:"valid"`
+	RecordReady               bool     `json:"recordReady"`
+	RecordBlocked             bool     `json:"recordBlocked"`
+	RequiresValidation        bool     `json:"requiresValidation"`
+	RequiresRepair            bool     `json:"requiresRepair"`
+	RequiresMainEscalation    bool     `json:"requiresMainEscalation"`
+	AllowedStatusCount        int      `json:"allowedStatusCount"`
+	AllowedOutputPathCount    int      `json:"allowedOutputPathCount"`
+	AuthorizedStopCount       int      `json:"authorizedStopCount"`
+	AdapterCandidateCount     int      `json:"adapterCandidateCount"`
+	RepairHintCount           int      `json:"repairHintCount"`
+	RecordBlockedHintCount    int      `json:"recordBlockedHintCount"`
+	EscalateHintCount         int      `json:"escalateHintCount"`
+	OutcomeCount              int      `json:"outcomeCount"`
+	NextActionCount           int      `json:"nextActionCount"`
+	ReviewRequiredActionCount int      `json:"reviewRequiredActionCount"`
+	ActionQueueSummary        string   `json:"actionQueueSummary"`
+	CurrentAction             string   `json:"currentAction"`
+	ReportStatus              string   `json:"reportStatus"`
+	AdapterID                 string   `json:"adapterId"`
+	ActualRuntimeSeconds      int      `json:"actualRuntimeSeconds"`
+	ActualDiskMB              int      `json:"actualDiskMB"`
+	ActualRequests            int      `json:"actualRequests"`
+	OutputRefCount            int      `json:"outputRefCount"`
+	EvidenceRefCount          int      `json:"evidenceRefCount"`
+	BoundaryHitCount          int      `json:"boundaryHitCount"`
+	HasEscalation             bool     `json:"hasEscalation"`
+	HasSummary                bool     `json:"hasSummary"`
+	ValidationFailureCode     string   `json:"validationFailureCode"`
+	ValidationFailureStage    string   `json:"validationFailureStage"`
+	Boundary                  []string `json:"boundary"`
 }
 
 type authorizedExecutionOutcome struct {

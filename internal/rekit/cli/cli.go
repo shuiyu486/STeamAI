@@ -5398,8 +5398,31 @@ func writeGateAdapterReportLiveValidationText(out io.Writer, live gate.AdapterRe
 	return nil
 }
 
+func writeGateAdapterReportSummaryText(out io.Writer, prefix string, summary gate.AdapterReportHandoffSummary) error {
+	if strings.TrimSpace(summary.GateEventID) == "" && strings.TrimSpace(summary.State) == "" {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s summary：state=%s gateEventId=%s action=%s lane=%s reportPath=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t requiresValidation=%t requiresRepair=%t requiresMainEscalation=%t allowedStatuses=%d allowedOutputPaths=%d stopConditions=%d adapterCandidates=%d repairHints=%d recordBlockedHints=%d escalateHints=%d outcomes=%d nextActions=%d reviewRequiredActions=%d currentAction=%s reportStatus=%s adapterId=%s actualBudget=runtimeSeconds=%d,diskMB=%d,requests=%d outputRefs=%d evidenceRefs=%d boundaryHits=%d hasEscalation=%t hasSummary=%t failureCode=%s failureStage=%s\n", prefix, summary.State, summary.GateEventID, summary.Action, summary.Lane, summary.ReportPath, summary.DefaultReportPath, summary.ReportPresent, summary.Valid, summary.RecordReady, summary.RecordBlocked, summary.RequiresValidation, summary.RequiresRepair, summary.RequiresMainEscalation, summary.AllowedStatusCount, summary.AllowedOutputPathCount, summary.AuthorizedStopCount, summary.AdapterCandidateCount, summary.RepairHintCount, summary.RecordBlockedHintCount, summary.EscalateHintCount, summary.OutcomeCount, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction, summary.ReportStatus, summary.AdapterID, summary.ActualRuntimeSeconds, summary.ActualDiskMB, summary.ActualRequests, summary.OutputRefCount, summary.EvidenceRefCount, summary.BoundaryHitCount, summary.HasEscalation, summary.HasSummary, summary.ValidationFailureCode, summary.ValidationFailureStage); err != nil {
+		return err
+	}
+	if strings.TrimSpace(summary.ActionQueueSummary) != "" {
+		if _, err := fmt.Fprintf(out, "%s summary action queue：%s\n", prefix, summary.ActionQueueSummary); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range summary.Boundary {
+		if _, err := fmt.Fprintf(out, "%s summary boundary：%s\n", prefix, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeGateAdapterReportContractText(out io.Writer, contract gate.AdapterExecutionReportContract) error {
 	if _, err := fmt.Fprintf(out, "gate adapter report contract：gateEventId=%s action=%s lane=%s reportPath=%s mutation=%t\n", contract.GateEventID, contract.Action, contract.Lane, contract.DefaultReportPath, contract.IsMutation); err != nil {
+		return err
+	}
+	if err := writeGateAdapterReportSummaryText(out, "gate adapter report contract", contract.ReportSummary); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(out, "gate adapter report contract validation：readOnly=true recordRequired=%t allowedStatuses=%s\n", contract.RecordRequired, strings.Join(contract.AllowedStatuses, ",")); err != nil {
@@ -5465,6 +5488,9 @@ func writeGateAdapterReportRepairHintText(out io.Writer, prefix string, hint gat
 
 func writeGateAdapterReportValidationText(out io.Writer, validation gate.AdapterExecutionReportValidation) error {
 	if _, err := fmt.Fprintf(out, "gate adapter report validation：valid=%t gateEventId=%s reportPath=%s mutation=%t applied=%t\n", validation.Valid, validation.GateEventID, validation.ReportPath, validation.IsMutation, validation.Applied); err != nil {
+		return err
+	}
+	if err := writeGateAdapterReportSummaryText(out, "gate adapter report validation", validation.ReportSummary); err != nil {
 		return err
 	}
 	if strings.TrimSpace(validation.FailureCode) != "" || strings.TrimSpace(validation.FailureStage) != "" {

@@ -157,6 +157,7 @@ type AdapterExecutionReportContract struct {
 	ValidationRepairHints            []AdapterReportRepairHint                `json:"validationRepairHints,omitempty"`
 	DeniedActions                    []string                                 `json:"deniedActions,omitempty"`
 	LiveValidation                   AdapterReportLiveValidation              `json:"liveValidation"`
+	ReportSummary                    AdapterReportHandoffSummary              `json:"reportSummary"`
 	AuthorizedExecutionFollowThrough AuthorizedExecutionFollowThrough         `json:"authorizedExecutionFollowThrough"`
 	MissionCommanderAction           mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
@@ -182,6 +183,47 @@ type AdapterReportLiveValidation struct {
 	SelectedAdapter             *AdapterToolCandidate        `json:"selectedAdapter,omitempty"`
 	ReplayBehavior              string                       `json:"replayBehavior"`
 	Notes                       []string                     `json:"notes,omitempty"`
+}
+
+type AdapterReportHandoffSummary struct {
+	State                     string   `json:"state"`
+	GateEventID               string   `json:"gateEventId"`
+	Action                    string   `json:"action"`
+	Lane                      string   `json:"lane"`
+	ReportPath                string   `json:"reportPath,omitempty"`
+	DefaultReportPath         string   `json:"defaultReportPath,omitempty"`
+	ReportPresent             bool     `json:"reportPresent"`
+	Valid                     bool     `json:"valid"`
+	RecordReady               bool     `json:"recordReady"`
+	RecordBlocked             bool     `json:"recordBlocked"`
+	RequiresValidation        bool     `json:"requiresValidation"`
+	RequiresRepair            bool     `json:"requiresRepair"`
+	RequiresMainEscalation    bool     `json:"requiresMainEscalation"`
+	AllowedStatusCount        int      `json:"allowedStatusCount"`
+	AllowedOutputPathCount    int      `json:"allowedOutputPathCount"`
+	AuthorizedStopCount       int      `json:"authorizedStopCount"`
+	AdapterCandidateCount     int      `json:"adapterCandidateCount"`
+	RepairHintCount           int      `json:"repairHintCount"`
+	RecordBlockedHintCount    int      `json:"recordBlockedHintCount"`
+	EscalateHintCount         int      `json:"escalateHintCount"`
+	OutcomeCount              int      `json:"outcomeCount"`
+	NextActionCount           int      `json:"nextActionCount"`
+	ReviewRequiredActionCount int      `json:"reviewRequiredActionCount"`
+	ActionQueueSummary        string   `json:"actionQueueSummary,omitempty"`
+	CurrentAction             string   `json:"currentAction,omitempty"`
+	ReportStatus              string   `json:"reportStatus,omitempty"`
+	AdapterID                 string   `json:"adapterId,omitempty"`
+	ActualRuntimeSeconds      int      `json:"actualRuntimeSeconds,omitempty"`
+	ActualDiskMB              int      `json:"actualDiskMB,omitempty"`
+	ActualRequests            int      `json:"actualRequests,omitempty"`
+	OutputRefCount            int      `json:"outputRefCount"`
+	EvidenceRefCount          int      `json:"evidenceRefCount"`
+	BoundaryHitCount          int      `json:"boundaryHitCount"`
+	HasEscalation             bool     `json:"hasEscalation"`
+	HasSummary                bool     `json:"hasSummary"`
+	ValidationFailureCode     string   `json:"validationFailureCode,omitempty"`
+	ValidationFailureStage    string   `json:"validationFailureStage,omitempty"`
+	Boundary                  []string `json:"boundary,omitempty"`
 }
 
 type AuthorizedExecutionFollowThrough struct {
@@ -288,6 +330,7 @@ type AdapterExecutionReportValidation struct {
 	Report                           *AdapterReport                           `json:"report,omitempty"`
 	AdapterContext                   *AdapterContext                          `json:"adapterContext,omitempty"`
 	Contract                         AdapterExecutionReportContract           `json:"contract"`
+	ReportSummary                    AdapterReportHandoffSummary              `json:"reportSummary"`
 	AuthorizedExecutionFollowThrough AuthorizedExecutionFollowThrough         `json:"authorizedExecutionFollowThrough"`
 	MissionCommanderAction           mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
@@ -636,6 +679,78 @@ func adapterReportRepairNextSteps(hints []AdapterReportRepairHint) []string {
 	}
 	steps = append(steps, "rerun gate -ValidateExecutionReport before recording evidence", "do not record it with gate -Apply until valid=true")
 	return steps
+}
+
+func adapterReportHandoffSummary(gateEvent EventPreview, state, reportPath string, report *AdapterReport, allowedStatuses, allowedOutputPaths []string, adapterCandidates []AdapterToolCandidate, stopConditions []string, hints []AdapterReportRepairHint, follow AuthorizedExecutionFollowThrough, queue mission.MissionCommanderActionQueue, items []mission.MissionCommanderNextActionItem, valid bool, failureCode, failureStage string) AdapterReportHandoffSummary {
+	reportPath = strings.TrimSpace(reportPath)
+	summary := AdapterReportHandoffSummary{
+		State:                  state,
+		GateEventID:            gateEvent.EventID,
+		Action:                 gateEvent.Gate.Action,
+		Lane:                   gateEvent.Lane,
+		ReportPath:             reportPath,
+		DefaultReportPath:      adapterReportDefaultPath(gateEvent.Gate.OutputPaths),
+		ReportPresent:          report != nil,
+		Valid:                  valid,
+		RecordReady:            valid && state == "ready-to-record-evidence",
+		RecordBlocked:          !valid,
+		RequiresValidation:     state == "needs-adapter-report-validation",
+		RequiresRepair:         !valid && state != "needs-adapter-report-validation" && len(hints) > 0,
+		RequiresMainEscalation: state == "needs-main-escalation",
+		AllowedStatusCount:     len(allowedStatuses),
+		AllowedOutputPathCount: len(allowedOutputPaths),
+		AuthorizedStopCount:    len(stopConditions),
+		AdapterCandidateCount:  len(adapterCandidates),
+		RepairHintCount:        len(hints),
+		OutcomeCount:           len(follow.Outcomes),
+		NextActionCount:        len(items),
+		ActionQueueSummary:     queue.Summary,
+		ValidationFailureCode:  strings.TrimSpace(failureCode),
+		ValidationFailureStage: strings.TrimSpace(failureStage),
+	}
+	if reportPath == "" {
+		summary.ReportPath = summary.DefaultReportPath
+	}
+	for _, hint := range hints {
+		if hint.RecordBlocked {
+			summary.RecordBlockedHintCount++
+		}
+		if hint.EscalateToMain {
+			summary.EscalateHintCount++
+			if state != "needs-adapter-report-validation" {
+				summary.RequiresMainEscalation = true
+			}
+		}
+	}
+	for _, item := range items {
+		if item.RequiresReview {
+			summary.ReviewRequiredActionCount++
+		}
+	}
+	if queue.CurrentAction != nil {
+		summary.CurrentAction = queue.CurrentAction.Command
+	}
+	if report != nil {
+		summary.ReportStatus = strings.TrimSpace(report.Status)
+		summary.AdapterID = strings.TrimSpace(report.AdapterID)
+		summary.ActualRuntimeSeconds = report.ActualBudget.RuntimeSeconds
+		summary.ActualDiskMB = report.ActualBudget.DiskMB
+		summary.ActualRequests = report.ActualBudget.Requests
+		summary.OutputRefCount = len(report.OutputRefs)
+		summary.EvidenceRefCount = len(report.EvidenceRefs)
+		summary.BoundaryHitCount = len(report.BoundaryHits)
+		summary.HasEscalation = strings.TrimSpace(report.Escalation) != ""
+		summary.HasSummary = strings.TrimSpace(report.Summary) != ""
+	}
+	if summary.RequiresValidation || summary.RecordReady || summary.RequiresRepair || summary.RequiresMainEscalation || summary.OutcomeCount > 0 {
+		summary.Boundary = []string{
+			"adapter report summary is read-only; full contract/validation/follow-through arrays remain available",
+			"validation is read-only and must return valid=true before evidence record",
+			"record command writes bounded observation evidence only; /rekit does not execute the heavy tool",
+			"do not write authority/confirmed",
+		}
+	}
+	return summary
 }
 
 func authorizedExecutionFollowThrough(gateEvent EventPreview, state, reportPath string, commander mission.MissionCommanderAction, items []mission.MissionCommanderNextActionItem, hints []AdapterReportRepairHint, valid, duplicate bool) AuthorizedExecutionFollowThrough {
@@ -1059,6 +1174,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, false, validation.RepairHints)
 		validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
 		validation.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.MissionCommanderAction, validation.MissionCommanderNextActions, validation.RepairHints, false, false)
+		validation.ReportSummary = adapterReportHandoffSummary(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.Report, validation.Contract.AllowedStatuses, validation.Contract.AllowedOutputPaths, adapterCandidates, validation.Contract.StopConditions, validation.RepairHints, validation.AuthorizedExecutionFollowThrough, validation.MissionCommanderActionQueue, validation.MissionCommanderNextActions, false, validation.FailureCode, validation.FailureStage)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		return validation, nil
 	}
@@ -1071,6 +1187,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, false, validation.RepairHints)
 		validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
 		validation.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.MissionCommanderAction, validation.MissionCommanderNextActions, validation.RepairHints, false, false)
+		validation.ReportSummary = adapterReportHandoffSummary(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.Report, validation.Contract.AllowedStatuses, validation.Contract.AllowedOutputPaths, adapterCandidates, validation.Contract.StopConditions, validation.RepairHints, validation.AuthorizedExecutionFollowThrough, validation.MissionCommanderActionQueue, validation.MissionCommanderNextActions, false, validation.FailureCode, validation.FailureStage)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		return validation, nil
 	}
@@ -1079,6 +1196,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 	validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, true, nil)
 	validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
 	validation.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.MissionCommanderAction, validation.MissionCommanderNextActions, nil, true, false)
+	validation.ReportSummary = adapterReportHandoffSummary(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.Report, validation.Contract.AllowedStatuses, validation.Contract.AllowedOutputPaths, adapterCandidates, validation.Contract.StopConditions, nil, validation.AuthorizedExecutionFollowThrough, validation.MissionCommanderActionQueue, validation.MissionCommanderNextActions, true, "", "")
 	validation.NextSteps = adapterReportValidationNextSteps(pack, gateEvent, validation.ReportPath)
 	return validation, nil
 }
@@ -1159,6 +1277,7 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, 
 	}
 	contract.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(contract.MissionCommanderNextActions)
 	contract.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(event, commander.State, liveValidation.CaseRelativeReportPath, commander, contract.MissionCommanderNextActions, nil, false, false)
+	contract.ReportSummary = adapterReportHandoffSummary(event, commander.State, liveValidation.CaseRelativeReportPath, nil, contract.AllowedStatuses, contract.AllowedOutputPaths, liveValidation.AdapterCandidates, contract.StopConditions, contract.ValidationRepairHints, contract.AuthorizedExecutionFollowThrough, contract.MissionCommanderActionQueue, contract.MissionCommanderNextActions, false, "", "")
 	return contract
 }
 
