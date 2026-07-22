@@ -16,25 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 514：reviewer planning orchestration summary handoff closure
+### Batch 515：reviewer intake progress summary handoff closure
 
-状态：已完成 `ReviewerOrchestrationPlan.summary` JSON projection、planning `summary.md` compact orchestration lines、`plan-subagents -Format text` summary lines、focused planning/orchestration coverage、用户与 durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection；已提交并推送 `6c7f87c Add reviewer planning orchestration summary` 与 docs follow-up `9a09c8e Record Batch 514 release gate inspection`，远程 release-gate runs `29878209310` / `29878282445` 均为 completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps=[]`，仍是 GitHub Actions runner/billing blocker，不能声明远程 CI green。
+状态：已完成 `ReviewerIntakeResult.summary` JSON projection、reviewer-intake summary text lines、focused reviewer intake coverage、用户与 durable docs、完整本地 release minimum；commit/push 后检查远程 release-gate，若仍为 jobs `steps=[]` 则按既有 runner/billing blocker 记录，不能声明远程 CI green。
 
-目标：Batch 489/499/505/506/507/508/513 已覆盖 reviewer planning/intake/writeback/provenance/repair/post-validation handoff，但 `plan-subagents` planning 成功后，replacement executor 若只想确认 dispatch 前的 mode、target lane、reviewer/dispatch counts、owner binding、first dispatch、current action、preview/apply blocked order 与 no-spawn/no-heavy/no-authority boundary，仍要解析 nested `reviewerOrchestration.dispatches[]`、lifecycle、Mission Commander action queue、next actions 或 shard handoffs。Batch 514 将 planning orchestration 接续状态压缩为 compact summary，同时保留完整 dispatch/lifecycle/action queue/shard handoff snapshots。
+目标：Batch 489/499/505/506/507/508/513/514 已覆盖 reviewer planning、strict intake、repair、post-validation 与 planning orchestration summary，但 reviewer intake preview、blocked、complete 或 already-complete 后，replacement executor 若只想确认 writeback status、是否可 apply、dispatch progress、blocked/repair counts、postValidation totals、reviewer writeback count、current/next action 与 no-heavy/no-authority boundary，仍要把 `orchestrationSnapshot`、`blockedReasons`、`repairGuidance[]`、`postValidation.summary` 与 Mission Commander action queue 手工拼接。Batch 515 将 reviewer intake progress 接续状态压缩为 top-level compact summary，同时保留完整 snapshots。
 
-边界：只增强 `plan-subagents` planning result、`packet.json`、terminal text 与 `summary.md` 的只读 reviewer orchestration summary projection 和测试；不自动 spawn/monitor reviewer、不改变 reviewer result contract、route output validation、reviewer intake postValidation full snapshots、verification-before-decision 写回顺序、owner binding、sync/promote、case durable schema、authority/confirmed、heavy-tool、PowerShell façade 或公共 façade removal 门禁。
+边界：只增强 `plan-subagents -ReviewerResultPath ... -WhatIf/-Apply` 的 reviewer intake JSON/text progress summary projection 和测试；不自动 spawn/monitor reviewer、不改变 reviewer result contract、route output validation、planning summary、postValidation full snapshots、verification-before-decision 写回顺序、owner binding、sync/promote、case durable schema、authority/confirmed、heavy-tool、PowerShell façade 或公共 façade removal 门禁。
 
 已完成内容：
 
-- `ReviewerOrchestrationPlan` 新增 `summary`，包含 mode/scope、target lane、reviewer/dispatch counts、maxParallel、packet/result paths、owner binding、intakeAvailable/dispatchOnly、Mission Commander action queue counts/summary、first dispatch、current action、next actions 与 boundary。
-- `WritePlan` 在构造 Mission Commander action queue 后生成同一 compact summary，并同步写入 top-level result 与 `packet.json`；完整 `dispatches[]`、`lifecycle[]`、`MissionCommanderActionQueue`、`ShardHandoffs[]` 仍保留给深度复核。
-- planning `summary.md` 新增 reviewer orchestration summary、summary owner、first dispatch、current action、next action 与 boundary lines。
-- `plan-subagents -Format text` 新增 `plan-subagents reviewer orchestration summary...`、summary owner、summary first dispatch、summary current action、summary next action 与 summary boundary lines。
-- subagents/CLI focused coverage 锁定 out-of-case dispatch-only、attached case runnable intake、empty plan replanning summary，以及 JSON/packet/text/summary visibility。
+- `ReviewerIntakeResult` 新增 top-level `summary`，包含 writeback status、ready/applied、lane/shard/intake/reviewer session、verification/main decision、dispatch progress、blocked/repair counts、postValidation presence/validity/totals、reviewer writeback count、Mission Commander action queue counts/summary、current action、next actions 与 boundary。
+- reviewer intake finalize 阶段在 Mission Commander action queue 生成后构造同一 compact summary；blocked/repair 场景加入 no-apply boundary，postValidation 场景加入 consume-postValidation boundary。
+- `plan-subagents -ReviewerResultPath ... -Format text` 新增 `reviewer intake summary...`、summary current action、summary next action 与 summary boundary lines。
+- CLI reviewer intake E2E 覆盖 preview/apply/already-complete JSON summary 与 text summary visibility；case-local blocked repair product-path 覆盖 blocked summary、repair count、current action 与 no-apply boundary。
 
-验证结果：已通过 `gofmt -w internal/rekit/subagents/plan.go internal/rekit/subagents/plan_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/subagents ./internal/rekit/cli -run 'TestWritePlanIncludesShardHandoffs|TestWritePlanBindsAttachedCaseLaneExecutor|TestWritePlanNoItemsKeepsEmptyShardHandoffs|TestRunPlanSubagentsReviewerOrchestrationE2E' -count=1`、package `go test ./internal/rekit/subagents ./internal/rekit/cli -count=1`、focused `go vet ./internal/rekit/subagents ./internal/rekit/cli`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF/CRLF conversion warnings，无 whitespace error）。远程 release-gate runs `29878209310` / `29878282445` completed failure，Linux/Windows/macOS jobs 均 failure 且 `steps=[]`；这是既有 runner/billing blocker，不能声明远程 CI green。
+验证结果：已通过 `gofmt -w internal/rekit/subagents/intake.go internal/rekit/cli/cli.go internal/rekit/cli/reviewer_intake_test.go`、focused `go test ./internal/rekit/cli -run 'TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunPlanSubagentsReviewerIntakeBlockedRepairGuidanceCaseLocalProductPath' -count=1`、package `go test ./internal/rekit/subagents ./internal/rekit/cli -count=1`、focused `go vet ./internal/rekit/subagents ./internal/rekit/cli`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF/CRLF conversion warnings，无 whitespace error）。远程 release-gate inspection 待 commit/push 后执行，不能声明远程 CI green。
 
-上一批摘要：Batch 513 已完成 reviewer intake post-validation summary handoff closure，并归档到 `docs/batch-history.md`。
+上一批摘要：Batch 514 已完成 reviewer planning orchestration summary handoff closure，并归档到 `docs/batch-history.md`。
 
 ### Next candidates
 

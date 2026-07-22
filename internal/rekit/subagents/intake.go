@@ -90,6 +90,48 @@ type ReviewerIntakeResult struct {
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	NextSteps                   []string                                 `json:"nextSteps"`
+	Summary                     ReviewerIntakeSummary                    `json:"summary"`
+}
+
+type ReviewerIntakeSummary struct {
+	Status                              string                            `json:"status"`
+	ReadyForWriteback                   bool                              `json:"readyForWriteback"`
+	Applied                             bool                              `json:"applied"`
+	Lane                                string                            `json:"lane,omitempty"`
+	ShardID                             string                            `json:"shardId,omitempty"`
+	IntakeID                            string                            `json:"intakeId,omitempty"`
+	ReviewerSession                     string                            `json:"reviewerSession,omitempty"`
+	VerificationVerdict                 string                            `json:"verificationVerdict,omitempty"`
+	MainDecision                        string                            `json:"mainDecision,omitempty"`
+	DispatchIndex                       int                               `json:"dispatchIndex"`
+	DispatchTotal                       int                               `json:"dispatchTotal"`
+	ShardStatusBefore                   string                            `json:"shardStatusBefore,omitempty"`
+	ShardStatusAfter                    string                            `json:"shardStatusAfter,omitempty"`
+	NextDispatches                      []string                          `json:"nextDispatches,omitempty"`
+	BlockedCount                        int                               `json:"blockedCount"`
+	RepairGuidanceCount                 int                               `json:"repairGuidanceCount"`
+	PostValidationPresent               bool                              `json:"postValidationPresent"`
+	PostValidationValid                 bool                              `json:"postValidationValid"`
+	PostValidationOverviewVerifications int                               `json:"postValidationOverviewVerifications"`
+	PostValidationOverviewDecisions     int                               `json:"postValidationOverviewDecisions"`
+	ReviewerWritebacks                  int                               `json:"reviewerWritebacks"`
+	ActionTotal                         int                               `json:"actionTotal"`
+	ActionUnblocked                     int                               `json:"actionUnblocked"`
+	ActionBlocked                       int                               `json:"actionBlocked"`
+	ActionRequiresReview                int                               `json:"actionRequiresReview"`
+	ActionFollowUp                      int                               `json:"actionFollowUp"`
+	QueueSummary                        string                            `json:"queueSummary,omitempty"`
+	CurrentAction                       *ReviewerIntakeNextActionSummary  `json:"currentAction,omitempty"`
+	NextActions                         []ReviewerIntakeNextActionSummary `json:"nextActions,omitempty"`
+	Boundary                            []string                          `json:"boundary,omitempty"`
+}
+
+type ReviewerIntakeNextActionSummary struct {
+	State          string `json:"state"`
+	Source         string `json:"source"`
+	Command        string `json:"command"`
+	Blocked        bool   `json:"blocked,omitempty"`
+	RequiresReview bool   `json:"requiresReview,omitempty"`
 }
 
 type ReviewerIntakeRepairGuidance struct {
@@ -400,7 +442,72 @@ func finalizeReviewerIntakeResult(result ReviewerIntakeResult) ReviewerIntakeRes
 	result.MissionCommanderAction = action
 	result.MissionCommanderNextActions = reviewerIntakeMissionCommanderNextActions(result, action)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	result.Summary = reviewerIntakeSummary(result)
 	return result
+}
+
+func reviewerIntakeSummary(result ReviewerIntakeResult) ReviewerIntakeSummary {
+	summary := ReviewerIntakeSummary{
+		Status:              result.WritebackStatus,
+		ReadyForWriteback:   result.ReadyForWriteback,
+		Applied:             result.Applied,
+		Lane:                result.Lane,
+		ShardID:             result.ShardID,
+		IntakeID:            result.IntakeID,
+		ReviewerSession:     result.ReviewerSession,
+		VerificationVerdict: result.VerificationVerdict,
+		MainDecision:        result.MainDecision,
+		DispatchIndex:       result.OrchestrationSnapshot.DispatchIndex,
+		DispatchTotal:       result.OrchestrationSnapshot.DispatchTotal,
+		ShardStatusBefore:   result.OrchestrationSnapshot.ShardStatusBefore,
+		ShardStatusAfter:    result.OrchestrationSnapshot.ShardStatusAfter,
+		NextDispatches:      append([]string{}, result.OrchestrationSnapshot.NextDispatches...),
+		BlockedCount:        len(result.BlockedReasons),
+		RepairGuidanceCount: len(result.RepairGuidance),
+		Boundary: []string{
+			"intake summary is read-only; full reviewer result, note writebacks, orchestration snapshot, postValidation, and action queue remain available",
+			"reviewer intake must run -WhatIf before -Apply and must not execute heavy tools",
+			"reviewer intake does not write authority/confirmed state",
+		},
+	}
+	if result.PostValidation != nil {
+		summary.PostValidationPresent = true
+		summary.PostValidationValid = result.PostValidation.Summary.Valid
+		summary.PostValidationOverviewVerifications = result.PostValidation.Summary.OverviewVerifications
+		summary.PostValidationOverviewDecisions = result.PostValidation.Summary.OverviewDecisions
+		summary.ReviewerWritebacks = result.PostValidation.Summary.ReviewerWritebacks
+	}
+	queue := result.MissionCommanderActionQueue
+	summary.QueueSummary = strings.TrimSpace(queue.Summary)
+	summary.ActionTotal = queue.Counts.Total
+	summary.ActionUnblocked = queue.Counts.Unblocked
+	summary.ActionBlocked = queue.Counts.Blocked
+	summary.ActionRequiresReview = queue.Counts.RequiresReview
+	summary.ActionFollowUp = queue.Counts.FollowUp
+	if queue.CurrentAction != nil {
+		current := reviewerIntakeNextActionSummary(*queue.CurrentAction)
+		summary.CurrentAction = &current
+	}
+	for _, item := range result.MissionCommanderNextActions {
+		summary.NextActions = append(summary.NextActions, reviewerIntakeNextActionSummary(item))
+	}
+	if len(result.BlockedReasons) > 0 || len(result.RepairGuidance) > 0 {
+		summary.Boundary = append(summary.Boundary, "do not apply reviewer intake while blockedReasons or repairGuidance remain unresolved")
+	}
+	if result.PostValidation != nil {
+		summary.Boundary = append(summary.Boundary, "consume postValidation summary before continuing or handing off the lane")
+	}
+	return summary
+}
+
+func reviewerIntakeNextActionSummary(item mission.MissionCommanderNextActionItem) ReviewerIntakeNextActionSummary {
+	return ReviewerIntakeNextActionSummary{
+		State:          item.State,
+		Source:         item.Source,
+		Command:        item.Command,
+		Blocked:        item.Blocked,
+		RequiresReview: item.RequiresReview,
+	}
 }
 
 func reviewerIntakeMissionCommanderAction(result ReviewerIntakeResult) mission.MissionCommanderAction {

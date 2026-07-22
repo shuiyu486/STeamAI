@@ -4897,8 +4897,39 @@ func writePlanSubagentsReviewerIntakeNoteText(out io.Writer, label string, resul
 	return nil
 }
 
+func writeReviewerIntakeSummaryText(out io.Writer, summary subagents.ReviewerIntakeSummary) error {
+	if _, err := fmt.Fprintf(out, "reviewer intake summary：status=%s readyForWriteback=%t applied=%t lane=%s shard=%s intakeId=%s reviewerSession=%s verification=%s decision=%s dispatch=%d/%d shardBefore=%s shardAfter=%s blocked=%d repairs=%d postValidation=%t valid=%t postValidationVerifications=%d postValidationDecisions=%d reviewerWritebacks=%d actions=%d unblocked=%d blockedActions=%d requiresReview=%d followUp=%d queue=%s\n", summary.Status, summary.ReadyForWriteback, summary.Applied, summary.Lane, summary.ShardID, summary.IntakeID, summary.ReviewerSession, summary.VerificationVerdict, summary.MainDecision, summary.DispatchIndex, summary.DispatchTotal, summary.ShardStatusBefore, summary.ShardStatusAfter, summary.BlockedCount, summary.RepairGuidanceCount, summary.PostValidationPresent, summary.PostValidationValid, summary.PostValidationOverviewVerifications, summary.PostValidationOverviewDecisions, summary.ReviewerWritebacks, summary.ActionTotal, summary.ActionUnblocked, summary.ActionBlocked, summary.ActionRequiresReview, summary.ActionFollowUp, summary.QueueSummary); err != nil {
+		return err
+	}
+	if len(summary.NextDispatches) > 0 {
+		if _, err := fmt.Fprintf(out, "reviewer intake summary next dispatches：%s\n", strings.Join(summary.NextDispatches, ",")); err != nil {
+			return err
+		}
+	}
+	if summary.CurrentAction != nil {
+		item := *summary.CurrentAction
+		if _, err := fmt.Fprintf(out, "reviewer intake summary current action：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+			return err
+		}
+	}
+	for _, item := range summary.NextActions {
+		if _, err := fmt.Fprintf(out, "reviewer intake summary next action：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range summary.Boundary {
+		if _, err := fmt.Fprintf(out, "reviewer intake summary boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writePlanSubagentsReviewerIntakeText(out io.Writer, result subagents.ReviewerIntakeResult) error {
 	if _, err := fmt.Fprintf(out, "plan-subagents reviewer intake：status=%s mutation=%t applied=%t readyForWriteback=%t lane=%s shard=%s intakeId=%s\n", result.WritebackStatus, result.IsMutation, result.Applied, result.ReadyForWriteback, result.Lane, result.ShardID, result.IntakeID); err != nil {
+		return err
+	}
+	if err := writeReviewerIntakeSummaryText(out, result.Summary); err != nil {
 		return err
 	}
 	if err := writePlanSubagentsReviewerResultText(out, result.ReviewerResult); err != nil {

@@ -71,6 +71,9 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 		t.Fatalf("preview omitted reviewer intake Mission Commander guidance: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
 	}
 	assertCLIActionQueue(t, preview.MissionCommanderActionQueue, 2, 2, 0, 2, 1, preview.MissionCommanderAction.PrimaryCommand)
+	if preview.Summary.Status != "previewed" || !preview.Summary.ReadyForWriteback || preview.Summary.Applied || preview.Summary.Lane != packet.TargetLane || preview.Summary.ShardID != "shard-01" || preview.Summary.DispatchIndex != 1 || preview.Summary.DispatchTotal != 1 || preview.Summary.BlockedCount != 0 || !preview.Summary.PostValidationPresent || !preview.Summary.PostValidationValid || preview.Summary.CurrentAction == nil || preview.Summary.ActionTotal != 2 || !containsStringWith(preview.Summary.Boundary, "intake summary is read-only") {
+		t.Fatalf("preview compact summary omitted intake state: %+v", preview.Summary)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "text"}, &out); err != nil {
@@ -78,6 +81,12 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"plan-subagents reviewer intake：status=previewed mutation=false applied=false readyForWriteback=true lane=main shard=shard-01",
+		"reviewer intake summary：status=previewed readyForWriteback=true applied=false lane=main shard=shard-01",
+		"reviewerSession=reviewer-session-cli verification=accepted decision=accept dispatch=1/1 shardBefore=planned shardAfter=previewed blocked=0 repairs=0 postValidation=true valid=true",
+		"reviewer intake summary current action：state=ready-for-reviewer-intake-apply source=reviewerIntake.previewed blocked=false requiresReview=true command=`/rekit plan-subagents",
+		"reviewer intake summary next action：state=ready-for-reviewer-intake-apply source=reviewerIntake.previewed blocked=false requiresReview=true command=`/rekit plan-subagents",
+		"reviewer intake summary boundary：intake summary is read-only; full reviewer result, note writebacks, orchestration snapshot, postValidation, and action queue remain available",
+		"reviewer intake summary boundary：consume postValidation summary before continuing or handing off the lane",
 		"reviewer intake result：packetId=" + packet.PacketID + " routeId=" + packet.Route.ID + " shard=shard-01 decision=accept confidence=high reviewerSession=reviewer-session-cli recommendedVerdict=accepted",
 		"reviewer intake result summary：reviewed alpha against bounded evidence",
 		"reviewer intake result evidenceRefs：workspace/review-evidence.md",
@@ -144,6 +153,9 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	if applied.PostValidation.Overview.Sections.Verifications.Total != 1 || applied.PostValidation.Overview.Sections.Decisions.Total != 1 || applied.PostValidation.Handoff.Lane == nil || applied.PostValidation.Handoff.Lane.ID != packet.TargetLane {
 		t.Fatalf("post-review validation omitted ledger/handoff state: %+v", applied.PostValidation)
 	}
+	if applied.Summary.Status != "complete" || !applied.Summary.Applied || applied.Summary.PostValidationOverviewVerifications != 1 || applied.Summary.PostValidationOverviewDecisions != 1 || applied.Summary.ReviewerWritebacks != len(applied.PostValidation.Handoff.ReviewerWritebacks) || applied.Summary.CurrentAction == nil || !strings.HasPrefix(applied.Summary.CurrentAction.Source, "reviewerIntake.postValidation.") || !containsStringWith(applied.Summary.Boundary, "consume postValidation summary") {
+		t.Fatalf("apply compact summary omitted post-validation progress: %+v", applied.Summary)
+	}
 	if !applied.PostValidation.Summary.Valid || applied.PostValidation.Summary.OverviewVerifications != 1 || applied.PostValidation.Summary.OverviewDecisions != 1 || applied.PostValidation.Summary.Lane != packet.TargetLane || !applied.PostValidation.Summary.ExecutorActionPresent || applied.PostValidation.Summary.CurrentAction == nil || len(applied.PostValidation.Summary.NextActions) == 0 || !containsStringWith(applied.PostValidation.Summary.Boundary, "postValidation summary is read-only") || !strings.HasPrefix(applied.PostValidation.Summary.CurrentAction.Source, "missionCommanderActions") {
 		t.Fatalf("post-review validation compact summary omitted takeover state: %+v", applied.PostValidation.Summary)
 	}
@@ -154,6 +166,11 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"plan-subagents reviewer intake：status=already-complete mutation=false applied=false readyForWriteback=true lane=main shard=shard-01",
+		"reviewer intake summary：status=already-complete readyForWriteback=true applied=false lane=main shard=shard-01",
+		"postValidation=true valid=true postValidationVerifications=1 postValidationDecisions=1 reviewerWritebacks=2",
+		"reviewer intake summary current action：state=ready-to-continue source=reviewerIntake.postValidation.missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main`",
+		"reviewer intake summary next action：state=ready-to-continue source=reviewerIntake.postValidation.missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main`",
+		"reviewer intake summary boundary：intake summary is read-only; full reviewer result, note writebacks, orchestration snapshot, postValidation, and action queue remain available",
 		"reviewer intake result：packetId=" + packet.PacketID + " routeId=" + packet.Route.ID + " shard=shard-01 decision=accept confidence=high reviewerSession=reviewer-session-cli recommendedVerdict=accepted",
 		"reviewer intake result items：alpha",
 		"reviewer intake route output：next_action=main-agent-writeback",
@@ -583,6 +600,9 @@ func TestRunPlanSubagentsReviewerIntakeBlockedRepairGuidanceCaseLocalProductPath
 	if !containsRepairGuidance(blocked.RepairGuidance, "resolve or split", "overlaps another shard", "do not apply reviewer intake until this blocker is resolved") {
 		t.Fatalf("blocked reviewer intake omitted repair guidance: %+v", blocked.RepairGuidance)
 	}
+	if blocked.Summary.Status != "blocked" || blocked.Summary.ReadyForWriteback || blocked.Summary.BlockedCount == 0 || blocked.Summary.RepairGuidanceCount == 0 || blocked.Summary.CurrentAction == nil || !blocked.Summary.CurrentAction.Blocked || !containsStringWith(blocked.Summary.Boundary, "do not apply reviewer intake while blockedReasons") {
+		t.Fatalf("blocked reviewer intake compact summary omitted repair state: %+v", blocked.Summary)
+	}
 	if blocked.MissionCommanderAction.State != "reviewer-intake-blocked" || !strings.Contains(blocked.MissionCommanderAction.PrimaryCommand, `-Target "`+caseRoot+`"`) || !strings.Contains(blocked.MissionCommanderAction.PrimaryCommand, `-Pack "_template"`) || !containsMissionCommanderNextAction(blocked.MissionCommanderNextActions, "reviewerIntake.blocked", blocked.MissionCommanderAction.PrimaryCommand, true, true) || !nextActionReasonContains(blocked.MissionCommanderNextActions, "repair: resolve or split") {
 		t.Fatalf("blocked reviewer intake omitted Mission Commander repair guidance: action=%+v next=%+v", blocked.MissionCommanderAction, blocked.MissionCommanderNextActions)
 	}
@@ -600,6 +620,10 @@ func TestRunPlanSubagentsReviewerIntakeBlockedRepairGuidanceCaseLocalProductPath
 	}
 	for _, expected := range []string{
 		"plan-subagents reviewer intake：status=blocked mutation=false applied=false readyForWriteback=false lane=main shard=shard-01",
+		"reviewer intake summary：status=blocked readyForWriteback=false applied=false lane=main shard=shard-01",
+		"blocked=1 repairs=1 postValidation=true valid=true",
+		"reviewer intake summary current action：state=reviewer-intake-blocked source=reviewerIntake.blocked blocked=true requiresReview=true command=`/rekit plan-subagents",
+		"reviewer intake summary boundary：do not apply reviewer intake while blockedReasons or repairGuidance remain unresolved",
 		"reviewer intake blocked reason：reviewer result reports unresolved conflicts: overlaps another shard",
 		"reviewer intake repair guidance：reason=reviewer result reports unresolved conflicts: overlaps another shard action=resolve or split",
 		"reviewer intake repair evidence：reason=reviewer result reports unresolved conflicts: overlaps another shard evidence=overlaps another shard",
@@ -746,6 +770,49 @@ type reviewerIntakeCLIResult struct {
 		ShardStatusAfter  string   `json:"shardStatusAfter"`
 		NextDispatches    []string `json:"nextDispatches"`
 	} `json:"orchestrationSnapshot"`
+	Summary struct {
+		Status                              string `json:"status"`
+		ReadyForWriteback                   bool   `json:"readyForWriteback"`
+		Applied                             bool   `json:"applied"`
+		Lane                                string `json:"lane"`
+		ShardID                             string `json:"shardId"`
+		IntakeID                            string `json:"intakeId"`
+		ReviewerSession                     string `json:"reviewerSession"`
+		VerificationVerdict                 string `json:"verificationVerdict"`
+		MainDecision                        string `json:"mainDecision"`
+		DispatchIndex                       int    `json:"dispatchIndex"`
+		DispatchTotal                       int    `json:"dispatchTotal"`
+		ShardStatusBefore                   string `json:"shardStatusBefore"`
+		ShardStatusAfter                    string `json:"shardStatusAfter"`
+		BlockedCount                        int    `json:"blockedCount"`
+		RepairGuidanceCount                 int    `json:"repairGuidanceCount"`
+		PostValidationPresent               bool   `json:"postValidationPresent"`
+		PostValidationValid                 bool   `json:"postValidationValid"`
+		PostValidationOverviewVerifications int    `json:"postValidationOverviewVerifications"`
+		PostValidationOverviewDecisions     int    `json:"postValidationOverviewDecisions"`
+		ReviewerWritebacks                  int    `json:"reviewerWritebacks"`
+		ActionTotal                         int    `json:"actionTotal"`
+		ActionUnblocked                     int    `json:"actionUnblocked"`
+		ActionBlocked                       int    `json:"actionBlocked"`
+		ActionRequiresReview                int    `json:"actionRequiresReview"`
+		ActionFollowUp                      int    `json:"actionFollowUp"`
+		QueueSummary                        string `json:"queueSummary"`
+		CurrentAction                       *struct {
+			State          string `json:"state"`
+			Source         string `json:"source"`
+			Command        string `json:"command"`
+			Blocked        bool   `json:"blocked"`
+			RequiresReview bool   `json:"requiresReview"`
+		} `json:"currentAction"`
+		NextActions []struct {
+			State          string `json:"state"`
+			Source         string `json:"source"`
+			Command        string `json:"command"`
+			Blocked        bool   `json:"blocked"`
+			RequiresReview bool   `json:"requiresReview"`
+		} `json:"nextActions"`
+		Boundary []string `json:"boundary"`
+	} `json:"summary"`
 	MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
 	MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
 	MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
