@@ -10,6 +10,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 )
 
 func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
@@ -452,32 +453,155 @@ func TestReleaseHandoffPackMemoryToolingRejectReceiptDoesNotBlock(t *testing.T) 
 	proofRoot := filepath.Join(candidateRoot, "review-artifacts")
 	toolingRoot := filepath.Join(repo, "packs", "fixture", "tooling", "candidates")
 	backupRoot := filepath.Join(candidateRoot, ".decision-backup", "tooling-reject")
-	receiptPath := filepath.Join(proofRoot, "tooling-reject.candidate-decision-receipt.json")
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	packetPath := filepath.Join(caseRoot, "packet.json")
+	decisionPath := filepath.Join(caseRoot, "decisions.json")
+	candidatePath := filepath.Join(toolingRoot, "tool.candidate.md")
+	candidateBackupPath := filepath.Join(backupRoot, "candidate-backup.md")
+	evidencePath := filepath.Join(caseRoot, "tooling-review.md")
+	packet := promote.CandidateReviewPacket{
+		SchemaVersion: 1,
+		Kind:          "pack-memory-candidate-review",
+		Command:       "promote",
+		CandidateResult: promote.CandidateResult{
+			SchemaVersion: 1,
+			Command:       "promote",
+			CaseRoot:      caseRoot,
+			RepoRoot:      repo,
+			Pack:          "fixture",
+			IsMutation:    true,
+			Applied:       true,
+			CandidateRoot: candidateRoot,
+			ToolingRoot:   toolingRoot,
+			Created:       1,
+			Writes: []promote.CandidateWrite{{
+				Path:       "tooling/tool.md",
+				Kind:       "tooling-candidate-source",
+				Action:     "create-candidate",
+				SourcePath: filepath.Join(caseRoot, "tooling", "tool.md"),
+				TargetPath: candidatePath,
+			}},
+			ReviewPlan: promote.CandidateReviewPlan{
+				Mode:          "candidate-review",
+				Scope:         "pack-memory",
+				CandidateRoot: candidateRoot,
+				ToolingRoot:   toolingRoot,
+				ItemCount:     1,
+				ReviewItems: []promote.CandidateReviewItem{{
+					Path:           "tooling/tool.md",
+					Kind:           "tooling-candidate-source",
+					Action:         "review-sanitized-tooling-candidate",
+					ReviewDecision: "pending-review",
+					CandidatePath:  candidatePath,
+					CleanupPath:    candidatePath,
+				}},
+			},
+			RequiresReview:  true,
+			RequiresCleanup: true,
+		},
+		Boundary: []string{"fixture review boundary"},
+	}
+	packetJSON, err := json.MarshalIndent(packet, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, packetPath, string(packetJSON)+"\n")
+	writeFile(t, candidateBackupPath, "reviewed tooling candidate\n")
+	writeFile(t, evidencePath, "reviewed reject evidence\n")
+	packetData, err := os.ReadFile(packetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetHash := sha256ReleaseHandoff(packetData)
+	decision := map[string]any{
+		"schemaVersion": 1,
+		"kind":          "pack-memory-candidate-decisions",
+		"packetHash":    packetHash,
+		"decisions": []map[string]any{{
+			"candidatePath": candidatePath,
+			"decision":      "reject",
+			"candidateHash": fileSHA256ReleaseHandoff(candidateBackupPath),
+			"reason":        "reviewed tooling observation is not reusable",
+			"actor":         "mission-commander",
+			"evidenceRefs": []map[string]any{{
+				"path":   evidencePath,
+				"sha256": fileSHA256ReleaseHandoff(evidencePath),
+			}},
+		}},
+	}
+	decisionData, err := json.MarshalIndent(decision, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, decisionPath, string(decisionData)+"\n")
+	decisionFileData, err := os.ReadFile(decisionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decisionHash := sha256ReleaseHandoff(decisionFileData)
+	receiptID := sha256ReleaseHandoff([]byte(packetHash + decisionHash))[:16]
+	receiptPath := filepath.Join(proofRoot, receiptID+".candidate-decision-receipt.json")
 	action := map[string]any{
-		"candidatePath":       filepath.Join(toolingRoot, "tool.candidate.md"),
+		"candidatePath":       candidatePath,
 		"kind":                "tooling-candidate-source",
 		"decision":            "reject",
 		"action":              "cleanup-rejected-candidate",
-		"candidateBackupPath": filepath.Join(backupRoot, "tool.candidate.md"),
-		"evidenceRefs":        []string{},
+		"candidateBackupPath": candidateBackupPath,
+		"evidenceRefs":        []string{evidencePath},
 	}
+	indexPath := filepath.Join(candidateRoot, "index.json")
+	result := map[string]any{
+		"schemaVersion": 1,
+		"command":       "promote",
+		"mode":          "candidate-decision",
+		"caseRoot":      caseRoot,
+		"repoRoot":      repo,
+		"pack":          "fixture",
+		"packetPath":    packetPath,
+		"decisionPath":  decisionPath,
+		"packetHash":    packetHash,
+		"isMutation":    true,
+		"applied":       true,
+		"accepted":      0,
+		"rejected":      1,
+		"superseded":    0,
+		"backupRoot":    backupRoot,
+		"indexPath":     indexPath,
+		"actions":       []map[string]any{action},
+		"nextSteps":     []string{"rerun release-check"},
+		"boundary":      []string{"fixture boundary"},
+	}
+	transaction := map[string]any{
+		"schemaVersion": 1,
+		"kind":          "pack-memory-candidate-decision-transaction",
+		"packetHash":    packetHash,
+		"decisionHash":  decisionHash,
+		"indexExisted":  false,
+		"result":        result,
+		"actions":       []map[string]any{action},
+	}
+	transactionData, err := json.MarshalIndent(transaction, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(backupRoot, "transaction.json"), string(transactionData)+"\n")
 	receipt := map[string]any{
 		"schemaVersion":       1,
 		"kind":                "pack-memory-candidate-decision-receipt",
 		"pack":                "fixture",
 		"repoRoot":            repo,
-		"caseRoot":            filepath.Join(repo, "case"),
-		"packetPath":          filepath.Join(repo, "case", "packet.json"),
-		"decisionPath":        filepath.Join(repo, "case", "decisions.json"),
-		"packetHash":          "packet-hash",
-		"decisionHash":        "decision-hash",
+		"caseRoot":            caseRoot,
+		"packetPath":          packetPath,
+		"decisionPath":        decisionPath,
+		"packetHash":          packetHash,
+		"decisionHash":        decisionHash,
 		"backupRoot":          backupRoot,
-		"indexPath":           filepath.Join(candidateRoot, "index.json"),
+		"indexPath":           indexPath,
 		"accepted":            0,
 		"rejected":            1,
 		"superseded":          0,
 		"actions":             []map[string]any{action},
-		"decisionEvidence":    []string{},
+		"decisionEvidence":    []string{evidencePath},
 		"receiptPath":         receiptPath,
 		"verificationPending": false,
 		"boundary":            []string{"fixture boundary"},
@@ -486,12 +610,49 @@ func TestReleaseHandoffPackMemoryToolingRejectReceiptDoesNotBlock(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(backupRoot, "committed.json"), "{\"applied\":true}\n")
+	result["receiptPath"] = receiptPath
+	result["receipt"] = receipt
+	committedData, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(backupRoot, "committed.json"), string(committedData)+"\n")
 	writeFile(t, receiptPath, string(data)+"\n")
 	inventory := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
 	if !inventory.Ready || inventory.Total != 0 || len(inventory.Packs) != 0 || len(inventory.Warnings) != 0 {
 		t.Fatalf("completed tooling reject receipt blocked release handoff: %+v", inventory)
 	}
+	renamedReceiptPath := filepath.Join(proofRoot, "renamed.candidate-decision-receipt.json")
+	receipt["receiptPath"] = renamedReceiptPath
+	renamedData, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, renamedReceiptPath, string(renamedData)+"\n")
+	if err := os.Remove(receiptPath); err != nil {
+		t.Fatal(err)
+	}
+	renamed := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if renamed.Ready || renamed.Summary != "pack-memory candidate inventory has warnings" || len(renamed.Warnings) == 0 {
+		t.Fatalf("renamed terminal receipt was not rejected: %+v", renamed)
+	}
+	if err := os.Remove(renamedReceiptPath); err != nil {
+		t.Fatal(err)
+	}
+	receipt["receiptPath"] = receiptPath
+	writeFile(t, receiptPath, string(data)+"\n")
+	writeFile(t, decisionPath, "{\"schemaVersion\":1}\n")
+	drifted := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if drifted.Ready || drifted.Summary != "pack-memory candidate inventory has warnings" || len(drifted.Warnings) == 0 {
+		t.Fatalf("terminal receipt accepted decision hash drift: %+v", drifted)
+	}
+	writeFile(t, decisionPath, string(decisionData)+"\n")
+	writeFile(t, candidateBackupPath, "tampered candidate backup\n")
+	tamperedBackup := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if tamperedBackup.Ready || tamperedBackup.Summary != "pack-memory candidate inventory has warnings" || len(tamperedBackup.Warnings) == 0 {
+		t.Fatalf("terminal receipt accepted candidate backup drift: %+v", tamperedBackup)
+	}
+	writeFile(t, candidateBackupPath, "reviewed tooling candidate\n")
 	action["decision"] = "accept"
 	action["action"] = "merge-accepted-candidate-and-cleanup"
 	action["packTarget"] = filepath.Join(repo, "packs", "fixture", "tooling", "recipes", "tool.md")

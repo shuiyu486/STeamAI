@@ -9,12 +9,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 )
 
 type ReleaseHandoff struct {
@@ -1018,6 +1020,67 @@ type candidateDecisionReceiptInventory struct {
 	Boundary              []string                           `json:"boundary"`
 }
 
+type candidateDecisionEvidenceInventory struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}
+
+type candidateDecisionItemInventory struct {
+	CandidatePath  string                               `json:"candidatePath"`
+	Decision       string                               `json:"decision"`
+	CandidateHash  string                               `json:"candidateHash"`
+	PackTargetHash string                               `json:"packTargetHash,omitempty"`
+	Reason         string                               `json:"reason"`
+	Actor          string                               `json:"actor"`
+	EvidenceRefs   []candidateDecisionEvidenceInventory `json:"evidenceRefs"`
+}
+
+type candidateDecisionFileInventory struct {
+	SchemaVersion int                              `json:"schemaVersion"`
+	Kind          string                           `json:"kind"`
+	PacketHash    string                           `json:"packetHash"`
+	Decisions     []candidateDecisionItemInventory `json:"decisions"`
+}
+
+type candidateDecisionResultInventory struct {
+	SchemaVersion    int                                `json:"schemaVersion"`
+	Command          string                             `json:"command"`
+	Mode             string                             `json:"mode"`
+	CaseRoot         string                             `json:"caseRoot"`
+	RepoRoot         string                             `json:"repoRoot"`
+	Pack             string                             `json:"pack"`
+	PacketPath       string                             `json:"packetPath"`
+	DecisionPath     string                             `json:"decisionPath"`
+	PacketHash       string                             `json:"packetHash"`
+	IsMutation       bool                               `json:"isMutation"`
+	Applied          bool                               `json:"applied"`
+	RolledBack       bool                               `json:"rolledBack,omitempty"`
+	RecoveryRequired bool                               `json:"recoveryRequired,omitempty"`
+	FailedAction     string                             `json:"failedAction,omitempty"`
+	Accepted         int                                `json:"accepted"`
+	Rejected         int                                `json:"rejected"`
+	Superseded       int                                `json:"superseded"`
+	BackupRoot       string                             `json:"backupRoot,omitempty"`
+	IndexPath        string                             `json:"indexPath,omitempty"`
+	ReceiptPath      string                             `json:"receiptPath,omitempty"`
+	Receipt          *candidateDecisionReceiptInventory `json:"receipt,omitempty"`
+	Actions          []candidateDecisionActionInventory `json:"actions"`
+	RecoveryActions  []string                           `json:"recoveryActions,omitempty"`
+	NextSteps        []string                           `json:"nextSteps"`
+	Boundary         []string                           `json:"boundary"`
+}
+
+type candidateDecisionTransactionInventory struct {
+	SchemaVersion   int                                `json:"schemaVersion"`
+	Kind            string                             `json:"kind"`
+	PacketHash      string                             `json:"packetHash"`
+	DecisionHash    string                             `json:"decisionHash"`
+	IndexExisted    bool                               `json:"indexExisted"`
+	IndexBackupPath string                             `json:"indexBackupPath,omitempty"`
+	Result          candidateDecisionResultInventory   `json:"result"`
+	Actions         []candidateDecisionActionInventory `json:"actions"`
+}
+
 type candidateDecisionVerificationInventory struct {
 	SchemaVersion         int                                `json:"schemaVersion"`
 	Kind                  string                             `json:"kind"`
@@ -1095,8 +1158,13 @@ func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) (
 			return nil, err
 		}
 		markerInfo, markerErr := os.Lstat(markerPath)
-		if markerErr != nil || markerInfo.Mode()&os.ModeSymlink != 0 || !markerInfo.Mode().IsRegular() || markerInfo.Size() == 0 {
+		if markerErr != nil || markerInfo.Mode()&os.ModeSymlink != 0 || !markerInfo.Mode().IsRegular() || markerInfo.Size() == 0 || markerInfo.Size() > 1024*1024 {
 			return nil, fmt.Errorf("candidate decision receipt transaction is not committed: %s", raw.BackupRoot)
+		}
+		if !raw.VerificationPending {
+			if err := validateCandidateDecisionReceiptAttestation(repo, path, data, raw); err != nil {
+				return nil, fmt.Errorf("candidate decision receipt attestation mismatch %s: %w", path, err)
+			}
 		}
 		proofComplete := false
 		proofRel := ""
@@ -1144,6 +1212,173 @@ func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) (
 	}
 	sort.Slice(receipts, func(i, j int) bool { return receipts[i].Path < receipts[j].Path })
 	return receipts, nil
+}
+
+func validateCandidateDecisionReceiptAttestation(repo, receiptPath string, receiptData []byte, receipt candidateDecisionReceiptInventory) error {
+	for _, path := range []string{receipt.PacketPath, receipt.DecisionPath} {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > 1024*1024 {
+			return fmt.Errorf("packet or decision must be a non-empty regular file: %s", path)
+		}
+	}
+	packetData, err := os.ReadFile(receipt.PacketPath)
+	if err != nil {
+		return err
+	}
+	decisionData, err := os.ReadFile(receipt.DecisionPath)
+	if err != nil {
+		return err
+	}
+	if sha256ReleaseHandoff(packetData) != receipt.PacketHash || sha256ReleaseHandoff(decisionData) != receipt.DecisionHash {
+		return fmt.Errorf("packet or decision hash mismatch")
+	}
+	var packet promote.CandidateReviewPacket
+	if err := decodeReleaseHandoffStrictJSON(packetData, &packet); err != nil {
+		return fmt.Errorf("decode candidate review packet: %w", err)
+	}
+	candidateRoot := filepath.Join(repo, "packs", receipt.Pack, "promote-candidates")
+	toolingRoot := filepath.Join(repo, "packs", receipt.Pack, "tooling", "candidates")
+	canonicalIndex := filepath.Join(candidateRoot, "index.json")
+	if packet.SchemaVersion != 1 || packet.Kind != "pack-memory-candidate-review" || packet.Command != "promote" || packet.CandidateResult.Pack != receipt.Pack || !sameReleaseHandoffPath(packet.CandidateResult.RepoRoot, repo) || !sameReleaseHandoffPath(packet.CandidateResult.CaseRoot, receipt.CaseRoot) || !sameReleaseHandoffPath(packet.CandidateResult.CandidateRoot, candidateRoot) || !sameReleaseHandoffPath(packet.CandidateResult.ToolingRoot, toolingRoot) || strings.TrimSpace(packet.CandidateResult.IndexPath) != "" && !sameReleaseHandoffPath(packet.CandidateResult.IndexPath, canonicalIndex) {
+		return fmt.Errorf("candidate review packet binding mismatch")
+	}
+	var decision candidateDecisionFileInventory
+	if err := decodeReleaseHandoffStrictJSON(decisionData, &decision); err != nil {
+		return fmt.Errorf("decode candidate decision: %w", err)
+	}
+	if decision.SchemaVersion != 1 || decision.Kind != "pack-memory-candidate-decisions" || decision.PacketHash != receipt.PacketHash || len(decision.Decisions) != len(receipt.Actions) {
+		return fmt.Errorf("candidate decision binding mismatch")
+	}
+	reviewByCandidate := map[string]promote.CandidateReviewItem{}
+	for _, review := range packet.CandidateResult.ReviewPlan.ReviewItems {
+		reviewByCandidate[filepath.Clean(review.CandidatePath)] = review
+	}
+	writeByCandidate := map[string]promote.CandidateWrite{}
+	for _, write := range packet.CandidateResult.Writes {
+		if write.Action == "create-candidate" {
+			writeByCandidate[filepath.Clean(write.TargetPath)] = write
+		}
+	}
+	transactionPath := filepath.Join(receipt.BackupRoot, "transaction.json")
+	markerPath := filepath.Join(receipt.BackupRoot, "committed.json")
+	for _, path := range []string{transactionPath, markerPath} {
+		if err := rejectReleaseHandoffSymlinkPath(receipt.BackupRoot, path, false); err != nil {
+			return err
+		}
+	}
+	transactionData, err := os.ReadFile(transactionPath)
+	if err != nil {
+		return err
+	}
+	markerData, err := os.ReadFile(markerPath)
+	if err != nil {
+		return err
+	}
+	var transaction candidateDecisionTransactionInventory
+	if err := decodeReleaseHandoffStrictJSON(transactionData, &transaction); err != nil {
+		return fmt.Errorf("decode candidate transaction: %w", err)
+	}
+	var committed candidateDecisionResultInventory
+	if err := decodeReleaseHandoffStrictJSON(markerData, &committed); err != nil {
+		return fmt.Errorf("decode candidate committed result: %w", err)
+	}
+	if transaction.SchemaVersion != 1 || transaction.Kind != "pack-memory-candidate-decision-transaction" || transaction.PacketHash != receipt.PacketHash || transaction.DecisionHash != receipt.DecisionHash || !sameReleaseHandoffPath(transaction.Result.RepoRoot, repo) || !sameReleaseHandoffPath(transaction.Result.CaseRoot, receipt.CaseRoot) || transaction.Result.Pack != receipt.Pack || !sameReleaseHandoffPath(transaction.Result.BackupRoot, receipt.BackupRoot) || !sameReleaseHandoffPath(transaction.Result.IndexPath, receipt.IndexPath) || !sameReleaseHandoffPath(committed.RepoRoot, repo) || !sameReleaseHandoffPath(committed.CaseRoot, receipt.CaseRoot) || committed.Pack != receipt.Pack || !sameReleaseHandoffPath(committed.PacketPath, receipt.PacketPath) || !sameReleaseHandoffPath(committed.DecisionPath, receipt.DecisionPath) || !sameReleaseHandoffPath(committed.BackupRoot, receipt.BackupRoot) || !sameReleaseHandoffPath(committed.IndexPath, receipt.IndexPath) || committed.PacketHash != receipt.PacketHash || !committed.IsMutation || !committed.Applied || committed.RolledBack || committed.RecoveryRequired || committed.Accepted != receipt.Accepted || committed.Rejected != receipt.Rejected || committed.Superseded != receipt.Superseded || !sameReleaseHandoffPath(committed.ReceiptPath, receiptPath) || committed.Receipt == nil || !reflect.DeepEqual(*committed.Receipt, receipt) || !candidateDecisionActionsEqual(transaction.Actions, receipt.Actions) || !candidateDecisionActionsEqual(transaction.Result.Actions, receipt.Actions) || !candidateDecisionActionsEqual(committed.Actions, receipt.Actions) {
+		return fmt.Errorf("transaction or committed result binding mismatch")
+	}
+	decisionByCandidate := map[string]candidateDecisionItemInventory{}
+	for _, item := range decision.Decisions {
+		candidatePath, err := filepath.Abs(strings.TrimSpace(item.CandidatePath))
+		if err != nil || strings.TrimSpace(item.CandidatePath) == "" {
+			return fmt.Errorf("candidate decision has invalid candidatePath %q", item.CandidatePath)
+		}
+		candidatePath = filepath.Clean(candidatePath)
+		if _, exists := decisionByCandidate[candidatePath]; exists {
+			return fmt.Errorf("duplicate candidate decision: %s", candidatePath)
+		}
+		decisionByCandidate[candidatePath] = item
+	}
+	for _, action := range receipt.Actions {
+		item, ok := decisionByCandidate[filepath.Clean(action.CandidatePath)]
+		review, reviewed := reviewByCandidate[filepath.Clean(action.CandidatePath)]
+		write, written := writeByCandidate[filepath.Clean(action.CandidatePath)]
+		expectedAction := map[string]string{"accept": "merge-accepted-candidate-and-cleanup", "reject": "cleanup-rejected-candidate", "superseded": "cleanup-superseded-candidate"}[action.Decision]
+		if !ok || !reviewed || !written || review.ReviewDecision != "pending-review" || review.Kind != action.Kind || write.Kind != action.Kind || write.Path != review.Path || action.Action != expectedAction || strings.ToLower(strings.TrimSpace(item.Decision)) != action.Decision || strings.TrimSpace(item.CandidateHash) == "" || strings.TrimSpace(item.Reason) == "" || strings.TrimSpace(item.Actor) == "" || len(item.EvidenceRefs) == 0 || action.PackTarget != review.PackTarget {
+			return fmt.Errorf("action is not bound to reviewed packet decision: %s", action.CandidatePath)
+		}
+		if strings.TrimSpace(action.CandidateBackupPath) == "" || !pathWithinReleaseHandoffRoot(receipt.BackupRoot, action.CandidateBackupPath) {
+			return fmt.Errorf("candidate backup leaves backup root: %s", action.CandidatePath)
+		}
+		if err := validateReleaseHandoffHashedFile(receipt.BackupRoot, action.CandidateBackupPath, item.CandidateHash, "candidate backup"); err != nil {
+			return err
+		}
+		if strings.TrimSpace(action.TargetBackupPath) != "" {
+			if !pathWithinReleaseHandoffRoot(receipt.BackupRoot, action.TargetBackupPath) {
+				return fmt.Errorf("target backup leaves backup root: %s", action.PackTarget)
+			}
+			if err := validateReleaseHandoffHashedFile(receipt.BackupRoot, action.TargetBackupPath, item.PackTargetHash, "target backup"); err != nil {
+				return err
+			}
+		}
+		expectedEvidence := make([]string, 0, len(item.EvidenceRefs))
+		for _, evidence := range item.EvidenceRefs {
+			full := evidence.Path
+			if !filepath.IsAbs(full) {
+				full = filepath.Join(receipt.CaseRoot, filepath.FromSlash(full))
+			}
+			root := receipt.CaseRoot
+			if pathWithinReleaseHandoffRoot(repo, full) {
+				root = repo
+			} else if !pathWithinReleaseHandoffRoot(receipt.CaseRoot, full) {
+				return fmt.Errorf("decision evidence leaves repo/case roots: %s", full)
+			}
+			if err := rejectReleaseHandoffSymlinkPath(root, full, false); err != nil {
+				return err
+			}
+			if strings.TrimSpace(evidence.SHA256) == "" || !strings.EqualFold(fileSHA256ReleaseHandoff(full), evidence.SHA256) {
+				return fmt.Errorf("decision evidence hash mismatch: %s", full)
+			}
+			expectedEvidence = append(expectedEvidence, filepath.Clean(full))
+		}
+		if !slicesEqual(action.EvidenceRefs, expectedEvidence) {
+			return fmt.Errorf("action evidence binding mismatch: %s", action.CandidatePath)
+		}
+	}
+	canonicalReceipt := filepath.Join(filepath.Dir(receiptPath), shortReleaseHandoffHash(receipt.PacketHash+receipt.DecisionHash)+".candidate-decision-receipt.json")
+	if len(receiptData) == 0 || !sameReleaseHandoffPath(receipt.ReceiptPath, receiptPath) || !sameReleaseHandoffPath(receiptPath, canonicalReceipt) {
+		return fmt.Errorf("receipt path binding mismatch")
+	}
+	return nil
+}
+
+func fileSHA256ReleaseHandoff(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return sha256ReleaseHandoff(data)
+}
+
+func validateReleaseHandoffHashedFile(root, path, expectedHash, label string) error {
+	if strings.TrimSpace(path) == "" || strings.TrimSpace(expectedHash) == "" {
+		return fmt.Errorf("%s path or hash is empty", label)
+	}
+	if err := rejectReleaseHandoffSymlinkPath(root, path, false); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 {
+		return fmt.Errorf("%s must be a non-empty regular file: %s", label, path)
+	}
+	if !strings.EqualFold(fileSHA256ReleaseHandoff(path), expectedHash) {
+		return fmt.Errorf("%s hash mismatch: %s", label, path)
+	}
+	return nil
 }
 
 func rejectReleaseHandoffSymlinkPath(root, path string, allowMissingLeaf bool) error {
@@ -1237,6 +1472,10 @@ func validateCandidateDecisionReceiptActions(candidateRoot string, receipt candi
 func sha256ReleaseHandoff(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+func shortReleaseHandoffHash(value string) string {
+	return sha256ReleaseHandoff([]byte(value))[:16]
 }
 
 func decodeReleaseHandoffStrictJSON(data []byte, out any) error {
