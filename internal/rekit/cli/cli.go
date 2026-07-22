@@ -1468,25 +1468,28 @@ type statusPendingGateHandoff struct {
 }
 
 type statusAuthorizedGateHandoff struct {
-	EventID             string                                     `json:"eventId,omitempty"`
-	Lane                string                                     `json:"lane,omitempty"`
-	Subject             string                                     `json:"subject,omitempty"`
-	Action              string                                     `json:"action,omitempty"`
-	Target              string                                     `json:"target,omitempty"`
-	Status              string                                     `json:"status,omitempty"`
-	Risk                string                                     `json:"risk,omitempty"`
-	Authorization       string                                     `json:"authorization,omitempty"`
-	Profile             string                                     `json:"profile,omitempty"`
-	ReportContract      string                                     `json:"reportContract,omitempty"`
-	DefaultReportPath   string                                     `json:"defaultReportPath,omitempty"`
-	ReportPath          string                                     `json:"reportPath,omitempty"`
-	ReportSummary       *gate.AdapterReportHandoffSummary          `json:"reportSummary,omitempty"`
-	LiveValidation      *statusAuthorizedGateLiveValidationHandoff `json:"liveValidation,omitempty"`
-	ReportContractError string                                     `json:"reportContractError,omitempty"`
-	HandoffCommand      string                                     `json:"handoffCommand,omitempty"`
-	ValidateBoundary    string                                     `json:"validateBoundary,omitempty"`
-	RecordBoundary      string                                     `json:"recordBoundary,omitempty"`
-	Evidence            []string                                   `json:"evidence,omitempty"`
+	EventID                   string                                     `json:"eventId,omitempty"`
+	Lane                      string                                     `json:"lane,omitempty"`
+	Subject                   string                                     `json:"subject,omitempty"`
+	Action                    string                                     `json:"action,omitempty"`
+	Target                    string                                     `json:"target,omitempty"`
+	Status                    string                                     `json:"status,omitempty"`
+	Risk                      string                                     `json:"risk,omitempty"`
+	Authorization             string                                     `json:"authorization,omitempty"`
+	Profile                   string                                     `json:"profile,omitempty"`
+	ReportContract            string                                     `json:"reportContract,omitempty"`
+	DefaultReportPath         string                                     `json:"defaultReportPath,omitempty"`
+	ReportPath                string                                     `json:"reportPath,omitempty"`
+	ReportSummary             *gate.AdapterReportHandoffSummary          `json:"reportSummary,omitempty"`
+	LiveValidation            *statusAuthorizedGateLiveValidationHandoff `json:"liveValidation,omitempty"`
+	LiveValidationRepairHints []gate.AdapterReportRepairHint             `json:"liveValidationRepairHints,omitempty"`
+	LiveValidationNextSteps   []string                                   `json:"liveValidationNextSteps,omitempty"`
+	LiveValidationError       string                                     `json:"liveValidationError,omitempty"`
+	ReportContractError       string                                     `json:"reportContractError,omitempty"`
+	HandoffCommand            string                                     `json:"handoffCommand,omitempty"`
+	ValidateBoundary          string                                     `json:"validateBoundary,omitempty"`
+	RecordBoundary            string                                     `json:"recordBoundary,omitempty"`
+	Evidence                  []string                                   `json:"evidence,omitempty"`
 }
 
 type statusAuthorizedGateLiveValidationHandoff struct {
@@ -2053,6 +2056,21 @@ func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorize
 			if _, err := fmt.Fprintf(out, "status case mission authorized gate live workspace：eventId=%s workspace=%s\n", handoff.EventID, workspace); err != nil {
 				return err
 			}
+		}
+	}
+	for _, hint := range handoff.LiveValidationRepairHints {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate live validation repair：eventId=%s action=%s code=%s stage=%s recordBlocked=%t rerunValidation=%t detail=%s\n", handoff.EventID, hint.RepairAction, hint.Code, hint.Stage, hint.RecordBlocked, hint.RerunValidation, hint.Detail); err != nil {
+			return err
+		}
+	}
+	for _, step := range handoff.LiveValidationNextSteps {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate live validation next step：eventId=%s step=%s\n", handoff.EventID, step); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(handoff.LiveValidationError) != "" {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate live validation error：eventId=%s error=%s\n", handoff.EventID, handoff.LiveValidationError); err != nil {
+			return err
 		}
 	}
 	if strings.TrimSpace(handoff.ReportContractError) != "" {
@@ -2983,9 +3001,27 @@ func statusAuthorizedGateHandoffFor(repoRoot, caseRoot, pack string, event map[s
 	reportSummary := contract.ReportSummary
 	handoff.DefaultReportPath = contract.DefaultReportPath
 	handoff.ReportPath = statusFirstText(reportSummary.ReportPath, contract.LiveValidation.CaseRelativeReportPath)
-	handoff.ReportSummary = &reportSummary
 	liveValidation := statusAuthorizedGateLiveValidationHandoffFor(contract.LiveValidation)
 	handoff.LiveValidation = &liveValidation
+	if validation, present, err := gate.AdapterReportLiveSnapshot(repoRoot, caseRoot, pack, gate.Options{GateEventID: eventID, ExecutionReportPath: handoff.ReportPath}); err != nil {
+		handoff.LiveValidationError = err.Error()
+	} else if present {
+		reportSummary = validation.ReportSummary
+		handoff.ReportPath = statusFirstText(validation.ReportPath, handoff.ReportPath)
+		handoff.LiveValidationRepairHints = append([]gate.AdapterReportRepairHint{}, validation.RepairHints...)
+		handoff.LiveValidationNextSteps = append([]string{}, validation.NextSteps...)
+		if validation.AdapterContext != nil && validation.AdapterContext.Selected != nil {
+			selected := cloneGateAdapterToolCandidate(*validation.AdapterContext.Selected)
+			liveValidation.SelectedAdapterID = selected.ID
+			liveValidation.SelectedAdapter = &selected
+		}
+		if reportSummary.State == "evidence-already-recorded" {
+			liveValidation.RecordCommand = ""
+			liveValidation.CaseRelativeRecordCommand = ""
+			liveValidation.ReplayBehavior = ""
+		}
+	}
+	handoff.ReportSummary = &reportSummary
 	return handoff
 }
 
@@ -3571,7 +3607,7 @@ func writeAuthorizedGateAdapterHandoffText(out io.Writer, prefix string, items [
 			return err
 		}
 		if summary := handoff.ReportSummary; summary != nil {
-			if _, err := fmt.Fprintf(out, "%s authorized gate adapter report summary：eventId=%s state=%s reportPath=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t requiresValidation=%t requiresRepair=%t requiresMainEscalation=%t allowedStatuses=%d allowedOutputPaths=%d authorizedStops=%d adapterCandidates=%d repairHints=%d outcomes=%d nextActions=%d reviewRequired=%d currentAction=%s\n", prefix, handoff.EventID, summary.State, summary.ReportPath, summary.DefaultReportPath, summary.ReportPresent, summary.Valid, summary.RecordReady, summary.RecordBlocked, summary.RequiresValidation, summary.RequiresRepair, summary.RequiresMainEscalation, summary.AllowedStatusCount, summary.AllowedOutputPathCount, summary.AuthorizedStopCount, summary.AdapterCandidateCount, summary.RepairHintCount, summary.OutcomeCount, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction); err != nil {
+			if _, err := fmt.Fprintf(out, "%s authorized gate adapter report summary：eventId=%s state=%s reportPath=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t requiresValidation=%t requiresRepair=%t requiresMainEscalation=%t allowedStatuses=%d allowedOutputPaths=%d authorizedStops=%d adapterCandidates=%d repairHints=%d outcomes=%d nextActions=%d reviewRequired=%d currentAction=%s failureCode=%s failureStage=%s\n", prefix, handoff.EventID, summary.State, summary.ReportPath, summary.DefaultReportPath, summary.ReportPresent, summary.Valid, summary.RecordReady, summary.RecordBlocked, summary.RequiresValidation, summary.RequiresRepair, summary.RequiresMainEscalation, summary.AllowedStatusCount, summary.AllowedOutputPathCount, summary.AuthorizedStopCount, summary.AdapterCandidateCount, summary.RepairHintCount, summary.OutcomeCount, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction, summary.ValidationFailureCode, summary.ValidationFailureStage); err != nil {
 				return err
 			}
 			for _, boundary := range summary.Boundary {
@@ -3593,6 +3629,21 @@ func writeAuthorizedGateAdapterHandoffText(out io.Writer, prefix string, items [
 				if _, err := fmt.Fprintf(out, "%s authorized gate adapter live workspace：eventId=%s workspace=%s\n", prefix, handoff.EventID, workspace); err != nil {
 					return err
 				}
+			}
+		}
+		for _, hint := range handoff.LiveValidationRepairHints {
+			if _, err := fmt.Fprintf(out, "%s authorized gate adapter live validation repair：eventId=%s action=%s code=%s stage=%s recordBlocked=%t rerunValidation=%t detail=%s\n", prefix, handoff.EventID, hint.RepairAction, hint.Code, hint.Stage, hint.RecordBlocked, hint.RerunValidation, hint.Detail); err != nil {
+				return err
+			}
+		}
+		for _, step := range handoff.LiveValidationNextSteps {
+			if _, err := fmt.Fprintf(out, "%s authorized gate adapter live validation next step：eventId=%s step=%s\n", prefix, handoff.EventID, step); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(handoff.LiveValidationError) != "" {
+			if _, err := fmt.Fprintf(out, "%s authorized gate adapter live validation error：eventId=%s error=%s\n", prefix, handoff.EventID, handoff.LiveValidationError); err != nil {
+				return err
 			}
 		}
 		if strings.TrimSpace(handoff.ReportContractError) != "" {

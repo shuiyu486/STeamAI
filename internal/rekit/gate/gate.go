@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -383,6 +384,7 @@ func adapterReportValidationFailureCodes() []AdapterReportValidationFailureCode 
 		{Code: "report-path-out-of-scope", Stage: "path", Description: "Execution report path must stay within one authorized output path."},
 		{Code: "report-not-readable", Stage: "read", Description: "Execution report file could not be stat/open/read."},
 		{Code: "report-path-directory", Stage: "read", Description: "Execution report path names a directory instead of a file."},
+		{Code: "report-not-regular", Stage: "read", Description: "Execution report path must name a regular non-symlink file."},
 		{Code: "report-too-large", Stage: "read", Description: "Execution report sidecar exceeds 1048576 bytes."},
 		{Code: "report-json-invalid", Stage: "decode", Description: "Execution report JSON could not be decoded or contains unknown fields."},
 		{Code: "report-trailing-data", Stage: "decode", Description: "Execution report contains trailing JSON data after the first object."},
@@ -464,6 +466,10 @@ func adapterReportRepairHints(gateEvent EventPreview, code, stage string) []Adap
 		hint.RepairAction = "use-report-file-not-directory"
 		hint.Fields = []string{"executionReportPath"}
 		hint.Detail = "point -ExecutionReportPath at the sidecar JSON file, not a directory"
+	case "report-not-regular":
+		hint.RepairAction = "use-regular-report-file"
+		hint.Fields = []string{"executionReportPath"}
+		hint.Detail = "replace symlink or special-file sidecars with a regular JSON file"
 	case "report-too-large":
 		hint.RepairAction = "shrink-report-sidecar"
 		hint.Fields = []string{"executionReportPath"}
@@ -1129,6 +1135,112 @@ func AdapterReportContract(repoRoot, caseRoot, pack string, opt Options) (Adapte
 	return adapterReportContract(repoRoot, inst.CaseRoot, pack, event, m), nil
 }
 
+func AdapterReportLiveSnapshot(repoRoot, caseRoot, pack string, opt Options) (AdapterExecutionReportValidation, bool, error) {
+	reportPath := strings.TrimSpace(opt.ExecutionReportPath)
+	if reportPath == "" {
+		return AdapterExecutionReportValidation{}, false, nil
+	}
+	fullPath, _, err := executionReportPath(caseRoot, reportPath)
+	if err != nil {
+		return AdapterExecutionReportValidation{}, false, err
+	}
+	if _, err := os.Lstat(fullPath); os.IsNotExist(err) {
+		return AdapterExecutionReportValidation{}, false, nil
+	} else if err != nil {
+		return AdapterExecutionReportValidation{}, true, err
+	}
+	opt.ExecutionReportPath = reportPath
+	validation, err := ValidateAdapterExecutionReport(repoRoot, caseRoot, pack, opt)
+	validation.ReportSummary.ReportPresent = true
+	if err != nil || !validation.Valid {
+		return validation, true, err
+	}
+	recorded, err := adapterReportEvidenceRecorded(caseRoot, validation.GateEventID, validation.ReportPath, validation.Report)
+	if err != nil {
+		return AdapterExecutionReportValidation{}, true, err
+	}
+	if recorded {
+		validation.ReportSummary.State = "evidence-already-recorded"
+		validation.ReportSummary.RecordReady = false
+		validation.ReportSummary.RecordBlocked = true
+		validation.ReportSummary.RequiresValidation = false
+		validation.ReportSummary.CurrentAction = "/rekit handoff " + mission.BoardLaneLabel(mission.BoardLane{ID: validation.ReportSummary.Lane})
+		validation.NextSteps = []string{"review the recorded observation evidence; do not record or replay the adapter report again", validation.ReportSummary.CurrentAction}
+	}
+	return validation, true, nil
+}
+
+func adapterReportEvidenceRecorded(caseRoot, gateEventID, reportPath string, report *AdapterReport) (bool, error) {
+	if report == nil {
+		return false, nil
+	}
+	observations, err := mission.ReadStrictFact(caseRoot, "observation")
+	if err != nil {
+		return false, err
+	}
+	for _, observation := range observations {
+		items := mission.ExecutionEvidenceReviewItems([]map[string]any{observation}, "", nil, 0)
+		if len(items) != 1 {
+			continue
+		}
+		item := items[0]
+		recordedReport, ok := adapterReportFromObservation(observation)
+		if ok && adapterReportMatchesRecordedEvidence(item, gateEventID, reportPath, report, recordedReport) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func adapterReportMatchesRecordedEvidence(item mission.ExecutionEvidenceReviewItem, gateEventID, reportPath string, report, recordedReport *AdapterReport) bool {
+	if item.GateEventID != gateEventID || filepath.Clean(filepath.FromSlash(item.ExecutionReportPath)) != filepath.Clean(filepath.FromSlash(reportPath)) {
+		return false
+	}
+	if item.AdapterID != report.AdapterID || item.AdapterStatus != report.Status || item.Status != report.Status || item.Escalation != report.Escalation {
+		return false
+	}
+	if item.ActualBudget == nil || item.ActualBudget.RuntimeSeconds != report.ActualBudget.RuntimeSeconds || item.ActualBudget.DiskMB != report.ActualBudget.DiskMB || item.ActualBudget.Requests != report.ActualBudget.Requests {
+		return false
+	}
+	if !reflect.DeepEqual(normalizedGatePaths(item.OutputRefs), normalizedGatePaths(report.OutputRefs)) || !reflect.DeepEqual(normalizedGatePaths(item.EvidenceRefs), normalizedGatePaths(report.EvidenceRefs)) || !reflect.DeepEqual(item.BoundaryHits, report.BoundaryHits) {
+		return false
+	}
+	return recordedReport.SchemaVersion == report.SchemaVersion &&
+		recordedReport.Kind == report.Kind &&
+		recordedReport.AdapterID == report.AdapterID &&
+		recordedReport.Action == report.Action &&
+		recordedReport.Status == report.Status &&
+		recordedReport.GateEventID == report.GateEventID &&
+		recordedReport.ActualBudget == report.ActualBudget &&
+		reflect.DeepEqual(normalizedGatePaths(recordedReport.OutputRefs), normalizedGatePaths(report.OutputRefs)) &&
+		reflect.DeepEqual(normalizedGatePaths(recordedReport.EvidenceRefs), normalizedGatePaths(report.EvidenceRefs)) &&
+		reflect.DeepEqual(recordedReport.BoundaryHits, report.BoundaryHits) &&
+		recordedReport.Escalation == report.Escalation &&
+		recordedReport.Summary == report.Summary
+}
+
+func adapterReportFromObservation(observation map[string]any) (*AdapterReport, bool) {
+	execution, ok := observation["execution"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	value, ok := execution["adapter"]
+	if !ok || value == nil {
+		return nil, false
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, false
+	}
+	var report AdapterReport
+	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&report); err != nil {
+		return nil, false
+	}
+	return &report, true
+}
+
 func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options) (AdapterExecutionReportValidation, error) {
 	inst, gateEvent, err := authorizedGateEvent(repoRoot, caseRoot, pack, opt)
 	if err != nil {
@@ -1743,12 +1855,18 @@ func readAdapterExecutionReport(caseRoot string, gateEvent EventPreview, cwd, va
 			return relPath, nil, adapterReportValidationErrorf("report-path-out-of-scope", "path", "gate execution report path must stay within authorized gate outputPaths")
 		}
 	}
-	st, err := os.Stat(fullPath)
+	if err := rejectAdapterReportSymlinkPath(caseRoot, fullPath); err != nil {
+		return relPath, nil, err
+	}
+	st, err := os.Lstat(fullPath)
 	if err != nil {
 		return relPath, nil, adapterReportValidationErrorf("report-not-readable", "read", "read adapter execution report %s: %w", relPath, err)
 	}
-	if st.IsDir() {
-		return relPath, nil, adapterReportValidationErrorf("report-path-directory", "read", "adapter execution report path is a directory: %s", relPath)
+	if st.Mode()&os.ModeSymlink != 0 || !st.Mode().IsRegular() {
+		if st.IsDir() {
+			return relPath, nil, adapterReportValidationErrorf("report-path-directory", "read", "adapter execution report path is a directory: %s", relPath)
+		}
+		return relPath, nil, adapterReportValidationErrorf("report-not-regular", "read", "adapter execution report must be a regular non-symlink file: %s", relPath)
 	}
 	if st.Size() > 1<<20 {
 		return relPath, nil, adapterReportValidationErrorf("report-too-large", "read", "adapter execution report is too large: %s %d > %d", relPath, st.Size(), 1<<20)
@@ -1758,6 +1876,20 @@ func readAdapterExecutionReport(caseRoot string, gateEvent EventPreview, cwd, va
 		return relPath, nil, adapterReportValidationErrorf("report-not-readable", "read", "read adapter execution report %s: %w", relPath, err)
 	}
 	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil {
+		return relPath, nil, adapterReportValidationErrorf("report-not-readable", "read", "stat opened adapter execution report %s: %w", relPath, err)
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(st, opened) {
+		return relPath, nil, adapterReportValidationErrorf("report-not-regular", "read", "adapter execution report changed or is not a regular file: %s", relPath)
+	}
+	if err := rejectAdapterReportSymlinkPath(caseRoot, fullPath); err != nil {
+		return relPath, nil, err
+	}
+	postOpen, err := os.Lstat(fullPath)
+	if err != nil || postOpen.Mode()&os.ModeSymlink != 0 || !postOpen.Mode().IsRegular() || !os.SameFile(opened, postOpen) {
+		return relPath, nil, adapterReportValidationErrorf("report-not-regular", "read", "adapter execution report path changed after open: %s", relPath)
+	}
 	var report AdapterReport
 	dec := json.NewDecoder(io.LimitReader(f, 1<<20))
 	dec.DisallowUnknownFields()
@@ -1775,6 +1907,36 @@ func readAdapterExecutionReport(caseRoot string, gateEvent EventPreview, cwd, va
 		return relPath, &report, err
 	}
 	return relPath, &report, nil
+}
+
+func rejectAdapterReportSymlinkPath(caseRoot, path string) error {
+	rootFull, err := filepath.Abs(caseRoot)
+	if err != nil {
+		return adapterReportValidationErrorf("path-invalid", "path", "%w", err)
+	}
+	pathFull, err := filepath.Abs(path)
+	if err != nil {
+		return adapterReportValidationErrorf("path-invalid", "path", "%w", err)
+	}
+	rel, err := filepath.Rel(rootFull, pathFull)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return adapterReportValidationErrorf("path-invalid", "path", "adapter execution report path escapes case root: %s", path)
+	}
+	current := rootFull
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		st, err := os.Lstat(current)
+		if err != nil {
+			return adapterReportValidationErrorf("report-not-readable", "read", "read adapter execution report path %s: %w", current, err)
+		}
+		if st.Mode()&os.ModeSymlink != 0 {
+			return adapterReportValidationErrorf("report-not-regular", "read", "adapter execution report path must not traverse symlink: %s", current)
+		}
+	}
+	return nil
 }
 
 func executionReportPath(caseRoot, value string) (string, string, error) {

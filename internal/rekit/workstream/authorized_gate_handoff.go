@@ -10,24 +10,27 @@ import (
 )
 
 type AuthorizedGateAdapterHandoff struct {
-	EventID             string                               `json:"eventId,omitempty"`
-	Lane                string                               `json:"lane,omitempty"`
-	Subject             string                               `json:"subject,omitempty"`
-	Action              string                               `json:"action,omitempty"`
-	Target              string                               `json:"target,omitempty"`
-	Status              string                               `json:"status,omitempty"`
-	Risk                string                               `json:"risk,omitempty"`
-	Authorization       string                               `json:"authorization,omitempty"`
-	Profile             string                               `json:"profile,omitempty"`
-	ReportContract      string                               `json:"reportContract,omitempty"`
-	DefaultReportPath   string                               `json:"defaultReportPath,omitempty"`
-	ReportPath          string                               `json:"reportPath,omitempty"`
-	ReportSummary       *gate.AdapterReportHandoffSummary    `json:"reportSummary,omitempty"`
-	LiveValidation      *AuthorizedGateLiveValidationHandoff `json:"liveValidation,omitempty"`
-	ReportContractError string                               `json:"reportContractError,omitempty"`
-	HandoffCommand      string                               `json:"handoffCommand,omitempty"`
-	Boundary            []string                             `json:"boundary,omitempty"`
-	Evidence            []string                             `json:"evidence,omitempty"`
+	EventID                   string                               `json:"eventId,omitempty"`
+	Lane                      string                               `json:"lane,omitempty"`
+	Subject                   string                               `json:"subject,omitempty"`
+	Action                    string                               `json:"action,omitempty"`
+	Target                    string                               `json:"target,omitempty"`
+	Status                    string                               `json:"status,omitempty"`
+	Risk                      string                               `json:"risk,omitempty"`
+	Authorization             string                               `json:"authorization,omitempty"`
+	Profile                   string                               `json:"profile,omitempty"`
+	ReportContract            string                               `json:"reportContract,omitempty"`
+	DefaultReportPath         string                               `json:"defaultReportPath,omitempty"`
+	ReportPath                string                               `json:"reportPath,omitempty"`
+	ReportSummary             *gate.AdapterReportHandoffSummary    `json:"reportSummary,omitempty"`
+	LiveValidation            *AuthorizedGateLiveValidationHandoff `json:"liveValidation,omitempty"`
+	LiveValidationRepairHints []gate.AdapterReportRepairHint       `json:"liveValidationRepairHints,omitempty"`
+	LiveValidationNextSteps   []string                             `json:"liveValidationNextSteps,omitempty"`
+	LiveValidationError       string                               `json:"liveValidationError,omitempty"`
+	ReportContractError       string                               `json:"reportContractError,omitempty"`
+	HandoffCommand            string                               `json:"handoffCommand,omitempty"`
+	Boundary                  []string                             `json:"boundary,omitempty"`
+	Evidence                  []string                             `json:"evidence,omitempty"`
 }
 
 type AuthorizedGateLiveValidationHandoff struct {
@@ -107,7 +110,7 @@ func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[s
 			"authorized-gate adapter handoff is read-only; full gate -ExecutionReportContract remains the source of truth",
 			"validate command is read-only and never writes observations",
 			"record command writes bounded observation evidence only after validation returns valid=true; replace <executor-id> first",
-			"projection does not validate or record sidecar; no heavy-tool replay and no authority/confirmed writes",
+			"projection may read and validate an existing canonical sidecar, but never records it; no heavy-tool replay and no authority/confirmed writes",
 		},
 		Evidence: evidence,
 	}
@@ -122,9 +125,27 @@ func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[s
 	reportSummary := contract.ReportSummary
 	handoff.DefaultReportPath = contract.DefaultReportPath
 	handoff.ReportPath = firstText(reportSummary.ReportPath, contract.LiveValidation.CaseRelativeReportPath, contract.DefaultReportPath)
-	handoff.ReportSummary = &reportSummary
 	liveValidation := authorizedGateLiveValidationHandoffFor(contract.LiveValidation)
 	handoff.LiveValidation = &liveValidation
+	if validation, present, err := gate.AdapterReportLiveSnapshot(repoRoot, caseRoot, pack, gate.Options{GateEventID: eventID, ExecutionReportPath: handoff.ReportPath}); err != nil {
+		handoff.LiveValidationError = err.Error()
+	} else if present {
+		reportSummary = validation.ReportSummary
+		handoff.ReportPath = firstText(validation.ReportPath, handoff.ReportPath)
+		handoff.LiveValidationRepairHints = append([]gate.AdapterReportRepairHint{}, validation.RepairHints...)
+		handoff.LiveValidationNextSteps = append([]string{}, validation.NextSteps...)
+		if validation.AdapterContext != nil && validation.AdapterContext.Selected != nil {
+			selected := cloneAdapterToolCandidate(*validation.AdapterContext.Selected)
+			liveValidation.SelectedAdapterID = selected.ID
+			liveValidation.SelectedAdapter = &selected
+		}
+		if reportSummary.State == "evidence-already-recorded" {
+			liveValidation.RecordCommand = ""
+			liveValidation.CaseRelativeRecordCommand = ""
+			liveValidation.ReplayBehavior = ""
+		}
+	}
+	handoff.ReportSummary = &reportSummary
 	return handoff
 }
 
@@ -222,6 +243,15 @@ func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item Authorize
 		if strings.TrimSpace(live.ReplayBehavior) != "" {
 			fmt.Fprintf(out, "  - replay behavior: %s\n", live.ReplayBehavior)
 		}
+	}
+	for _, hint := range item.LiveValidationRepairHints {
+		fmt.Fprintf(out, "  - live validation repair: action=%s code=%s stage=%s recordBlocked=%t rerunValidation=%t detail=%s\n", hint.RepairAction, hint.Code, hint.Stage, hint.RecordBlocked, hint.RerunValidation, hint.Detail)
+	}
+	for _, step := range item.LiveValidationNextSteps {
+		fmt.Fprintf(out, "  - live validation next step: %s\n", step)
+	}
+	if strings.TrimSpace(item.LiveValidationError) != "" {
+		fmt.Fprintf(out, "  - live validation error: %s\n", item.LiveValidationError)
 	}
 	if strings.TrimSpace(item.ReportContractError) != "" {
 		fmt.Fprintf(out, "  - report contract error: %s\n", item.ReportContractError)

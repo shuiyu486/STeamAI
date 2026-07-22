@@ -2,6 +2,7 @@ package gate
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -724,6 +725,129 @@ func TestValidateAdapterExecutionReportReadOnlyPreflight(t *testing.T) {
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
+func TestAdapterReportLiveSnapshotMarksMalformedSidecarPresent(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "adapter-report.json")
+	writeGateText(t, reportPath, `{not-json`)
+
+	validation, present, err := AdapterReportLiveSnapshot(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: reportPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present || validation.Valid || !validation.ReportSummary.ReportPresent || validation.ReportSummary.State != "repair-adapter-report" || validation.FailureCode != "report-json-invalid" || validation.FailureStage != "decode" {
+		t.Fatalf("malformed arrived sidecar must be present and repairable: %+v", validation)
+	}
+}
+
+func TestAdapterReportLiveSnapshotTracksRecordedReportIdentity(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "adapter-report.json")
+	writeReport := func(summary string, requests int) {
+		writeGateText(t, reportPath, `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": `+fmt.Sprint(requests)+`},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "summary": "`+summary+`"
+}`)
+	}
+	writeReport("first bounded execution", 1)
+
+	observationsPath := filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl")
+	live, present, err := AdapterReportLiveSnapshot(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: reportPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present || !live.Valid || live.ReportSummary.State != "ready-to-record-evidence" || !live.ReportSummary.RecordReady {
+		t.Fatalf("unrecorded live report should be record-ready: %+v", live)
+	}
+	assertGateNotExists(t, observationsPath)
+
+	recorded, err := RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionReportPath: reportPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recorded.Applied {
+		t.Fatalf("expected report evidence record: %+v", recorded)
+	}
+	live, present, err = AdapterReportLiveSnapshot(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: reportPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present || live.ReportSummary.State != "evidence-already-recorded" || live.ReportSummary.RecordReady || !live.ReportSummary.RecordBlocked || live.ReportSummary.RequiresValidation || len(live.NextSteps) != 2 || !strings.Contains(live.NextSteps[0], "do not record or replay") {
+		t.Fatalf("recorded live report should route to evidence review: %+v", live)
+	}
+
+	writeReport("changed bounded execution", 0)
+	live, present, err = AdapterReportLiveSnapshot(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: reportPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present || live.ReportSummary.State != "ready-to-record-evidence" || !live.ReportSummary.RecordReady {
+		t.Fatalf("changed same-path report must not match old evidence: %+v", live)
+	}
+}
+
+func TestValidateAdapterExecutionReportRejectsSymlinkPathComponents(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "` + authorized.EventID + `",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "summary": "bounded execution"
+}`
+	realPath := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "real-report.json")
+	writeGateText(t, realPath, report)
+	leafLink := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "adapter-report.json")
+	if err := os.Symlink(realPath, leafLink); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	validation, err := ValidateAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: leafLink})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validation.Valid || validation.FailureCode != "report-not-regular" || validation.FailureStage != "read" {
+		t.Fatalf("leaf symlink should fail closed: %+v", validation)
+	}
+
+	realDir := filepath.Join(caseRoot, "workspace", "real-session")
+	writeGateText(t, filepath.Join(realDir, "adapter-report.json"), report)
+	linkedDir := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "linked-dir")
+	if err := os.Symlink(realDir, linkedDir); err != nil {
+		t.Skipf("directory symlinks unavailable: %v", err)
+	}
+	validation, err = ValidateAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: filepath.Join(linkedDir, "adapter-report.json")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validation.Valid || validation.FailureCode != "report-not-regular" || validation.FailureStage != "read" {
+		t.Fatalf("intermediate symlink should fail closed: %+v", validation)
+	}
 }
 
 func TestValidateAdapterExecutionReportAcceptsCwdRelativeAuthorizedPath(t *testing.T) {

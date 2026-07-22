@@ -8556,7 +8556,7 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"gate adapter report contract：gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " mutation=false",
-		"gate adapter report contract summary：state=needs-adapter-report-validation gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " defaultReportPath=" + wantReportPath + " reportPresent=false valid=false recordReady=false recordBlocked=true requiresValidation=true requiresRepair=false requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=27 recordBlockedHints=27 escalateHints=1 outcomes=3 nextActions=3 reviewRequiredActions=3 currentAction=" + wantValidate,
+		"gate adapter report contract summary：state=needs-adapter-report-validation gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " defaultReportPath=" + wantReportPath + " reportPresent=false valid=false recordReady=false recordBlocked=true requiresValidation=true requiresRepair=false requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=28 recordBlockedHints=28 escalateHints=1 outcomes=3 nextActions=3 reviewRequiredActions=3 currentAction=" + wantValidate,
 		"gate adapter report contract summary boundary：adapter report summary is read-only; full contract/validation/follow-through arrays remain available",
 		"gate adapter report validate command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath " + wantReportPath + " -Format json",
 		"gate adapter report record command：rekit -Command gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath " + wantReportPath + " -Actor <executor-id> -Format json",
@@ -9251,7 +9251,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "main", "-WhatIf", "-Executor", "session-authorized-preview", "-Actor", "mission-commander", "-Reason", "preview authorized adapter handoff", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"start authorized gate adapter handoff：eventId=" + authorizedEventID, "start authorized gate adapter report summary：eventId=" + authorizedEventID, "start authorized gate adapter live validation：eventId=" + authorizedEventID, "start authorized gate adapter boundary：eventId=" + authorizedEventID + " boundary=projection does not validate or record sidecar"} {
+	for _, expected := range []string{"start authorized gate adapter handoff：eventId=" + authorizedEventID, "start authorized gate adapter report summary：eventId=" + authorizedEventID, "start authorized gate adapter live validation：eventId=" + authorizedEventID, "start authorized gate adapter boundary：eventId=" + authorizedEventID + " boundary=projection may read and validate an existing canonical sidecar"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("start text missing %q:\n%s", expected, out.String())
 		}
@@ -9289,7 +9289,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "main", "-InterventionId", "int-authorized-main", "-Executor", "session-reconcile", "-Actor", "mission-commander", "-Reason", "resolve authorized adapter handoff intervention", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"reconcile authorized gate adapter handoff：eventId=" + authorizedEventID, "reconcile authorized gate adapter report summary：eventId=" + authorizedEventID, "reconcile authorized gate adapter live validation：eventId=" + authorizedEventID, "reconcile authorized gate adapter boundary：eventId=" + authorizedEventID + " boundary=projection does not validate or record sidecar"} {
+	for _, expected := range []string{"reconcile authorized gate adapter handoff：eventId=" + authorizedEventID, "reconcile authorized gate adapter report summary：eventId=" + authorizedEventID, "reconcile authorized gate adapter live validation：eventId=" + authorizedEventID, "reconcile authorized gate adapter boundary：eventId=" + authorizedEventID + " boundary=projection may read and validate an existing canonical sidecar"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("reconcile preview text missing %q:\n%s", expected, out.String())
 		}
@@ -9328,7 +9328,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main", "-InterventionId", "int-authorized-main-text", "-Executor", "session-reconcile-text", "-Actor", "mission-commander", "-Reason", "resolve authorized adapter handoff intervention text", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"reconcile authorized gate adapter handoff：eventId=" + authorizedEventID, "reconcile authorized gate adapter report summary：eventId=" + authorizedEventID, "reconcile authorized gate adapter live validation：eventId=" + authorizedEventID, "reconcile authorized gate adapter boundary：eventId=" + authorizedEventID + " boundary=projection does not validate or record sidecar"} {
+	for _, expected := range []string{"reconcile authorized gate adapter handoff：eventId=" + authorizedEventID, "reconcile authorized gate adapter report summary：eventId=" + authorizedEventID, "reconcile authorized gate adapter live validation：eventId=" + authorizedEventID, "reconcile authorized gate adapter boundary：eventId=" + authorizedEventID + " boundary=projection may read and validate an existing canonical sidecar"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("reconcile apply text missing %q:\n%s", expected, out.String())
 		}
@@ -9391,7 +9391,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"- authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "## Authorized gate adapter handoff", "defaultReportPath=workspace/main/debug/session-1/adapter-report.json", "caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json", "validate: `rekit -Command gate -Pack _template", "case record: `rekit -Command gate -Pack _template -Apply -GateEventId " + authorizedEventID, "boundary: projection does not validate or record sidecar", "## Executor action snapshot", "- open decisions: `1`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "## Mission Commander next actions", "state=ready-for-evidence-review source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff main`", "state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=true requiresReview=true command=`/rekit overview`", "review execution evidence for gateEventId " + authorizedEventID, "boundary hit or escalation in execution evidence", "follow-through: state=ready-for-evidence-review", "outcome: name=recorded-evidence-review", "when: bounded observation evidence was recorded for an authorized gate", "evidence: workspace/main/debug/session-1/result.json", "follow-through: state=needs-main-escalation", "outcome: name=boundary-or-escalation-review", "when: recorded evidence reports boundaryHits, escalation, boundary-hit, or escalated status", "evidence: workspace/main/debug/session-1/adapter-result.json", "- blocker reasons:", "open-decision"} {
+	for _, expected := range []string{"- authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "## Authorized gate adapter handoff", "defaultReportPath=workspace/main/debug/session-1/adapter-report.json", "caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json", "validate: `rekit -Command gate -Pack _template", "case record: `rekit -Command gate -Pack _template -Apply -GateEventId " + authorizedEventID, "boundary: projection may read and validate an existing canonical sidecar", "## Executor action snapshot", "- open decisions: `1`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "## Mission Commander next actions", "state=ready-for-evidence-review source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff main`", "state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=true requiresReview=true command=`/rekit overview`", "review execution evidence for gateEventId " + authorizedEventID, "boundary hit or escalation in execution evidence", "follow-through: state=ready-for-evidence-review", "outcome: name=recorded-evidence-review", "when: bounded observation evidence was recorded for an authorized gate", "evidence: workspace/main/debug/session-1/result.json", "follow-through: state=needs-main-escalation", "outcome: name=boundary-or-escalation-review", "when: recorded evidence reports boundaryHits, escalation, boundary-hit, or escalated status", "evidence: workspace/main/debug/session-1/adapter-result.json", "- blocker reasons:", "open-decision"} {
 		if !strings.Contains(string(digest), expected) {
 			t.Fatalf("continue digest missing %q:\n%s", expected, string(digest))
 		}
@@ -10778,6 +10778,51 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		}
 	}
 
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.json", `{"ok":true}`)
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "dynamic-debug-or-writeback-action",
+  "action": "debug",
+  "status": "boundary-hit",
+  "gateEventId": "`+applied.EventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "summary": "Generic binary adapter stopped without boundary marker"
+}`)
+	beforeInvalidLiveStatus := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var invalidLiveStatus struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs []statusAuthorizedGateHandoff `json:"authorizedGateHandoffs"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &invalidLiveStatus); err != nil {
+		t.Fatalf("generic-binary-re invalid live status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	invalidLiveHandoff := invalidLiveStatus.CaseMission.AuthorizedGateHandoffs[0]
+	if invalidLiveHandoff.ReportSummary == nil || invalidLiveHandoff.ReportSummary.State != "repair-adapter-report" || !invalidLiveHandoff.ReportSummary.ReportPresent || invalidLiveHandoff.ReportSummary.Valid || invalidLiveHandoff.ReportSummary.RecordReady || !invalidLiveHandoff.ReportSummary.RecordBlocked || !invalidLiveHandoff.ReportSummary.RequiresRepair || invalidLiveHandoff.ReportSummary.ValidationFailureCode != "boundary-marker-missing" || invalidLiveHandoff.ReportSummary.ValidationFailureStage != "boundary" || len(invalidLiveHandoff.LiveValidationRepairHints) != 1 || invalidLiveHandoff.LiveValidationRepairHints[0].RepairAction != "add-boundary-marker" || !invalidLiveHandoff.LiveValidationRepairHints[0].RerunValidation || len(invalidLiveHandoff.LiveValidationNextSteps) == 0 || invalidLiveHandoff.LiveValidationError != "" {
+		t.Fatalf("generic-binary-re invalid live status did not expose repair state: %+v", invalidLiveHandoff)
+	}
+	assertSnapshotEqual(t, beforeInvalidLiveStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "generic-binary-re", "-WhatIf", "main", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"handoff authorized gate adapter report summary：eventId=" + applied.EventID + " state=repair-adapter-report",
+		"failureCode=boundary-marker-missing failureStage=boundary",
+		"handoff authorized gate adapter live validation repair：eventId=" + applied.EventID + " action=add-boundary-marker code=boundary-marker-missing stage=boundary",
+		"handoff authorized gate adapter live validation next step：eventId=" + applied.EventID,
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("generic-binary-re invalid handoff text omitted live repair %q:\n%s", expected, out.String())
+		}
+	}
+
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
   "schemaVersion": 1,
   "kind": "adapter-execution-report",
@@ -10790,7 +10835,51 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
   "evidenceRefs": ["workspace/main/debug/session-1/result.json"],
   "summary": "Generic binary adapter completed bounded debug handoff"
 }`)
-	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.json", `{"ok":true}`)
+	beforeLiveStatus := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var liveStatus struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs []statusAuthorizedGateHandoff `json:"authorizedGateHandoffs"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &liveStatus); err != nil {
+		t.Fatalf("generic-binary-re live status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if len(liveStatus.CaseMission.AuthorizedGateHandoffs) != 1 {
+		t.Fatalf("generic-binary-re live status omitted authorized gate handoff: %+v", liveStatus.CaseMission)
+	}
+	liveHandoff := liveStatus.CaseMission.AuthorizedGateHandoffs[0]
+	if liveHandoff.ReportSummary == nil || liveHandoff.ReportSummary.State != "ready-to-record-evidence" || !liveHandoff.ReportSummary.ReportPresent || !liveHandoff.ReportSummary.Valid || !liveHandoff.ReportSummary.RecordReady || liveHandoff.ReportSummary.RecordBlocked || liveHandoff.ReportSummary.RequiresValidation || liveHandoff.ReportSummary.RequiresRepair || liveHandoff.ReportSummary.AdapterID != candidate.ID || liveHandoff.LiveValidation == nil || liveHandoff.LiveValidation.SelectedAdapter == nil || liveHandoff.LiveValidation.SelectedAdapter.ID != candidate.ID || liveHandoff.LiveValidationError != "" {
+		t.Fatalf("generic-binary-re live status did not promote valid sidecar to record-ready: %+v", liveHandoff)
+	}
+	assertSnapshotEqual(t, beforeLiveStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "generic-binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	liveHandoffPreview := decodeHandoffResult(t, out.Bytes())
+	if len(liveHandoffPreview.AuthorizedGateAdapterHandoffs) != 1 || liveHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary == nil || !liveHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary.RecordReady || !liveHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary.Valid {
+		t.Fatalf("generic-binary-re handoff preview omitted live record-ready sidecar: %+v", liveHandoffPreview.AuthorizedGateAdapterHandoffs)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "generic-binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var liveContinue struct {
+		IsMutation                    bool                                   `json:"isMutation"`
+		Applied                       bool                                   `json:"applied"`
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &liveContinue); err != nil {
+		t.Fatalf("generic-binary-re continue live snapshot stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if liveContinue.IsMutation || liveContinue.Applied || len(liveContinue.AuthorizedGateAdapterHandoffs) != 1 || liveContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary == nil || !liveContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary.RecordReady || !liveContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary.Valid {
+		t.Fatalf("generic-binary-re continue preview omitted live record-ready sidecar: %+v", liveContinue)
+	}
+	assertSnapshotEqual(t, beforeLiveStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 	oldwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -10872,6 +10961,45 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	}
 	if !evidence.Applied || evidence.EventID == "" || evidence.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || evidence.ExecutionEvidence.Execution.Adapter.AdapterID != candidate.ID || evidence.ExecutionEvidence.Execution.AdapterContext == nil || evidence.ExecutionEvidence.Execution.AdapterContext.ID != candidate.ID {
 		t.Fatalf("generic-binary-re adapter evidence omitted selected candidate provenance: %+v", evidence)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var recordedHandoffStatus struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs []statusAuthorizedGateHandoff `json:"authorizedGateHandoffs"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &recordedHandoffStatus); err != nil {
+		t.Fatalf("generic-binary-re recorded handoff status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	recordedHandoff := recordedHandoffStatus.CaseMission.AuthorizedGateHandoffs[0]
+	if recordedHandoff.ReportSummary == nil || recordedHandoff.ReportSummary.State != "evidence-already-recorded" || recordedHandoff.ReportSummary.RecordReady || !recordedHandoff.ReportSummary.RecordBlocked || recordedHandoff.ReportSummary.RequiresValidation || recordedHandoff.ReportSummary.CurrentAction != "/rekit handoff main" || len(recordedHandoff.LiveValidationNextSteps) != 2 || !strings.Contains(recordedHandoff.LiveValidationNextSteps[0], "do not record or replay") || recordedHandoff.LiveValidation == nil || recordedHandoff.LiveValidation.RecordCommand != "" || recordedHandoff.LiveValidation.CaseRelativeRecordCommand != "" || recordedHandoff.LiveValidation.ReplayBehavior != "" {
+		t.Fatalf("generic-binary-re recorded status still recommends duplicate record: %+v", recordedHandoff)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "generic-binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	recordedHandoffPreview := decodeHandoffResult(t, out.Bytes())
+	if len(recordedHandoffPreview.AuthorizedGateAdapterHandoffs) != 1 || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary == nil || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary.State != "evidence-already-recorded" || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary.RecordReady || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].LiveValidation == nil || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].LiveValidation.RecordCommand != "" || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].LiveValidation.CaseRelativeRecordCommand != "" || recordedHandoffPreview.AuthorizedGateAdapterHandoffs[0].LiveValidation.ReplayBehavior != "" {
+		t.Fatalf("generic-binary-re recorded handoff still recommends duplicate record: %+v", recordedHandoffPreview.AuthorizedGateAdapterHandoffs)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "generic-binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var recordedContinue struct {
+		IsMutation                    bool                                   `json:"isMutation"`
+		Applied                       bool                                   `json:"applied"`
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &recordedContinue); err != nil {
+		t.Fatalf("generic-binary-re recorded continue stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if recordedContinue.IsMutation || recordedContinue.Applied || len(recordedContinue.AuthorizedGateAdapterHandoffs) != 1 || recordedContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary == nil || recordedContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary.State != "evidence-already-recorded" || recordedContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary.RecordReady || recordedContinue.AuthorizedGateAdapterHandoffs[0].LiveValidation == nil || recordedContinue.AuthorizedGateAdapterHandoffs[0].LiveValidation.RecordCommand != "" || recordedContinue.AuthorizedGateAdapterHandoffs[0].LiveValidation.CaseRelativeRecordCommand != "" || recordedContinue.AuthorizedGateAdapterHandoffs[0].LiveValidation.ReplayBehavior != "" {
+		t.Fatalf("generic-binary-re recorded continue still recommends duplicate record: %+v", recordedContinue)
 	}
 	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re record evidence", evidence.ExecutionEvidence.Execution.AdapterContext, candidate.ID)
 
@@ -11389,7 +11517,7 @@ func assertAuthorizedGateAdapterHandoffSnapshot(t *testing.T, label string, item
 	if item.LiveValidation == nil || item.LiveValidation.ReportFileName != "adapter-report.json" || item.LiveValidation.CaseRelativeReportPath != wantReportPath || item.LiveValidation.AdapterCandidateCount != 0 || item.LiveValidation.SidecarTemplateAdapterID != "<adapter-id>" || !strings.Contains(item.LiveValidation.CaseRelativeValidateCommand, wantReportPath) || !strings.Contains(item.LiveValidation.CaseRelativeRecordCommand, wantReportPath) {
 		t.Fatalf("%s authorized gate adapter handoff missing live validation: %+v", label, item.LiveValidation)
 	}
-	if !containsSubstring(item.LiveValidation.AuthorizedWorkspaces, "workspace/main/debug/session-1") || !containsSubstring(item.Evidence, "authorized outputPaths workspace/main/debug/session-1") || !containsSubstring(item.Evidence, "authorized stopConditions timeout") || !containsSubstring(item.Boundary, "projection does not validate or record sidecar") || !containsSubstring(item.Boundary, "no heavy-tool replay") {
+	if !containsSubstring(item.LiveValidation.AuthorizedWorkspaces, "workspace/main/debug/session-1") || !containsSubstring(item.Evidence, "authorized outputPaths workspace/main/debug/session-1") || !containsSubstring(item.Evidence, "authorized stopConditions timeout") || !containsSubstring(item.Boundary, "projection may read and validate an existing canonical sidecar") || !containsSubstring(item.Boundary, "no heavy-tool replay") {
 		t.Fatalf("%s authorized gate adapter handoff missing workspace/evidence/boundary: %+v", label, item)
 	}
 }

@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 546：canonical adapter sidecar live Mission Commander closure
+
+状态：已完成 implementation、focused/package validation、独立审查修复、完整本地 release minimum 与文档更新；implementation commit/push 与远程 release inspection 待完成。
+
+目标：关闭 adapter sidecar已写入canonical/default path后，replacement executor仍需显式运行另一条validation命令并手工判断是否可record、是否已record的operational断点。让只读`status`、`handoff`与`continue`自动复用strict validation，投影missing / invalid repair / valid record-ready / exact evidence already-recorded状态，同时保持record显式、无adapter/heavy replay。
+
+已完成内容：
+
+- authorized-gate compact handoff在canonical sidecar存在时复用`ValidateAdapterExecutionReport`，把真实`reportSummary`、selected adapter、repair hints、next steps与validation error投影到status、overview、handoff、start/reconcile、continue及durable resume/checkpoint/digest；sidecar缺失时保持contract-only状态。
+- exact recorded detection绑定gate/report path和sidecar完整执行身份（adapter/status/budget/refs/boundary/escalation/summary），旧observation不会把同路径新内容误判为已记录；exact evidence到位后切换为`evidence-already-recorded`并只推荐evidence handoff/review，不再推荐record/replay。
+- strict reader拒绝leaf或intermediate symlink、directory与其它non-regular sidecar，open后重新`f.Stat`并绑定同一file identity，避免只读status跟随symlink、阻塞特殊文件或在read窗口接受替换对象；新增`report-not-regular`failure/repair taxonomy。
+- focused/package与nested case-local product-path coverage锁定invalid→repair、valid→record-ready、recorded→evidence review、same-path changed report、status/handoff/continue no-write及symlink fail-closed。
+
+边界：live projection只读取并strict validate已存在canonical sidecar；不执行adapter/heavy-tool、不自动record observation、不写authority/confirmed。record仍要求主Agent复核`valid=true`后显式执行`gate -Apply ... -Actor ...`；不新增PowerShell runtime logic。
+
+验证结果：focused gate identity/symlink/malformed-arrival tests、`go test ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -count=1`、两轮独立审查及其record/replay suppression、malformed presence、text repair handoff修复均通过；完整本地release minimum已通过`release-check -Format json`（`ready=true`）、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`与`git diff --check`。implementation/release inspection尚待完成。
+
+上一批摘要：Batch 545已完成terminal decision receipt attestation，implementation commit `a7681b4 Attest terminal candidate decisions` 与 release inspection commit `482e19f Record Batch 545 release gate inspection` 已推送；implementation run `29961478940` 的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
+
 ### Batch 545：pack-memory terminal decision receipt attestation closure
 
 状态：已完成；implementation commit `a7681b4 Attest terminal candidate decisions` 已推送。对应 release-gate run `29961478940` completed failure；Linux/macOS/Windows jobs均 `steps=[]`，仍为既有 runner/billing blocker，不能声明 remote CI green。
