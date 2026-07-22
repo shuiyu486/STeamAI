@@ -1080,6 +1080,22 @@ func writePackMemoryCandidateReviewSummaryText(out io.Writer, prefix, pack strin
 		if _, err := fmt.Fprintf(out, "%s pack-memory proof summary：pack=%s total=%d present=%d missing=%d progress=%s stage=%s decisionPresent=%d decisionMissing=%d cleanupPresent=%d cleanupMissing=%d reconsumePresent=%d reconsumeMissing=%d nextMissingType=%s nextMissingPath=%s nextMissingCandidate=%s nextMissingTarget=%s complete=%t proofRoot=%s nextAction=%s\n", prefix, pack, proof.Total, proof.Present, proof.Missing, proof.ProofProgress, proof.CurrentStage, proof.DecisionPresent, proof.DecisionMissing, proof.CleanupPresent, proof.CleanupMissing, proof.ReconsumePresent, proof.ReconsumeMissing, proof.NextMissingProofType, proof.NextMissingProofPath, proof.NextMissingCandidatePath, proof.NextMissingPackTarget, proof.Complete, proof.ProofRoot, proof.NextAction); err != nil {
 			return err
 		}
+		if proof.NextMissingProof != nil {
+			next := proof.NextMissingProof
+			if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof：pack=%s stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s when=%s action=%s format=%s\n", prefix, pack, textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none")); err != nil {
+				return err
+			}
+			for _, evidence := range next.Evidence {
+				if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof evidence：pack=%s evidence=%s\n", prefix, pack, evidence); err != nil {
+					return err
+				}
+			}
+			for _, boundary := range next.Boundary {
+				if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof boundary：pack=%s boundary=%s\n", prefix, pack, boundary); err != nil {
+					return err
+				}
+			}
+		}
 		for _, boundary := range proof.Boundary {
 			if _, err := fmt.Fprintf(out, "%s pack-memory proof summary boundary：pack=%s boundary=%s\n", prefix, pack, boundary); err != nil {
 				return err
@@ -6210,6 +6226,22 @@ func writePromoteCandidateReviewSummaryText(out io.Writer, summary promote.Candi
 		proof := summary.ProofSummary
 		if _, err := fmt.Fprintf(out, "promote candidates review proof summary：progress=%s total=%d present=%d missing=%d decisionMissing=%d cleanupMissing=%d reconsumeMissing=%d currentStage=%s nextMissingProofType=%s nextMissingProofPath=%s nextMissingCandidatePath=%s nextMissingPackTarget=%s proofRoot=%s complete=%t nextAction=%s\n", textOr(proof.ProofProgress, "none"), proof.Total, proof.Present, proof.Missing, proof.DecisionMissing, proof.CleanupMissing, proof.ReconsumeMissing, textOr(proof.CurrentStage, "none"), textOr(proof.NextMissingProofType, "none"), textOr(proof.NextMissingProofPath, "none"), textOr(proof.NextMissingCandidatePath, "none"), textOr(proof.NextMissingPackTarget, "none"), textOr(proof.ProofRoot, "none"), proof.Complete, textOr(proof.NextAction, "none")); err != nil {
 			return err
+		}
+		if proof.NextMissingProof != nil {
+			next := proof.NextMissingProof
+			if _, err := fmt.Fprintf(out, "promote candidates review next missing proof：stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s when=%s action=%s format=%s\n", textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none")); err != nil {
+				return err
+			}
+			for _, evidence := range next.Evidence {
+				if _, err := fmt.Fprintf(out, "promote candidates review next missing proof evidence：%s\n", evidence); err != nil {
+					return err
+				}
+			}
+			for _, boundary := range next.Boundary {
+				if _, err := fmt.Fprintf(out, "promote candidates review next missing proof boundary：%s\n", boundary); err != nil {
+					return err
+				}
+			}
 		}
 		for _, boundary := range proof.Boundary {
 			if _, err := fmt.Fprintf(out, "promote candidates review proof summary boundary：%s\n", boundary); err != nil {

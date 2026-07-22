@@ -80,7 +80,7 @@ disable-model-invocation: true
 2. 用户确认前，不要执行会写入 managed files、pack docs、promote candidates、tooling candidates 或 state 的动作。
 3. review 报告必须按大项说明：方向、变化、收益、风险、冲突、推荐动作，并给出可选择项。
 4. `/rekit sync` 的确认选项优先使用：同步全部推荐项、只同步无冲突项、逐项选择、取消。
-5. `/rekit promote` 的确认选项优先使用：用 `-CreateCandidates` 仅生成候选、只生成 tooling candidate、用 `-Apply` 按报告改写进模板、逐项选择、取消；`-CreateCandidates` 的 `reviewPlan.reviewSummary` / text summary 只压缩候选 review、cleanup、reconsume 与 boundary，不代表已合入、已清理或已验证。
+5. `/rekit promote` 的确认选项优先使用：用 `-CreateCandidates` 仅生成候选、只生成 tooling candidate、用 `-Apply` 按报告改写进模板、逐项选择、取消；`-CreateCandidates` 的 `reviewPlan.reviewSummary` / text summary 只压缩候选 review、cleanup、reconsume、proofSummary / nextMissingProof detail 与 boundary，不代表已合入、已清理或已验证。
 6. “继续”“好”“confirm”不能扩大授权；写入前必须确认具体动作、target、pack 与文件范围。
 7. 内部 review 模式是强只读；旧式 dry run 不等同于 LLM review。
 
@@ -90,7 +90,7 @@ disable-model-invocation: true
 2. `sync` 只做 `kit -> case`：更新 manifest 声明的 managed files 与 managed blocks，并为覆盖前文件创建 backup；template files 默认 create-if-missing，只有显式 `-Force` 才会备份并覆盖本地模板目标。
 3. `sync` / `promote` 必须要求目标是已经 `attach/init` 的 case；不要对普通目录或拼错路径隐式创建 case 或生成回流候选。
 4. `promote` 只做 `case -> kit` 的 review、`-CreateCandidates` 候选提取或 `-Apply` 显式写回；永不提升 `CLAUDE.local.md`、`task-handoff.md`、`tools.local.yml`、`captures/**`、`artifacts/**`。
-5. `promote` 同时处理 tooling：从 case 的工具链文档抽象候选，供人工合入 `tooling/catalog.yml` 或 `tooling/recipes/*`；`promote -CreateCandidates`、`status` 与 `release-check` 的 pack-memory review summary 只读投影 candidate/tooling/index、decision/cleanup/reconsume artifact 与 next action counts，不能替代人工 accept/reject、cleanup、doctor 或 fresh/attached reconsume proof。
+5. `promote` 同时处理 tooling：从 case 的工具链文档抽象候选，供人工合入 `tooling/catalog.yml` 或 `tooling/recipes/*`；`promote -CreateCandidates`、`status` 与 `release-check` 的 pack-memory review/proof summary 只读投影 candidate/tooling/index、decision/cleanup/reconsume artifact、next action counts 与 `proofSummary.nextMissingProof` 的 stage/path/when/action/format/evidence/boundary，不能替代人工 accept/reject、cleanup、doctor 或 fresh/attached reconsume proof。
 6. 若 promote 命中绝对路径、样本名、trace/dump/artifact/capture 路径或明显地址快照，先阻止或生成候选报告，不要静默写回模板。
 7. `sync` / `promote` 发现 case 路径迁移但 metadata 未修复时必须拒绝执行，提示先运行 `repair -WhatIf -Format text` 预览 metadata 与 thin-shim refresh，再显式确认 `repair -Apply`。
 8. 工作线必须持久、agent 可以短命；长期成员身份绑定 durable lane，不绑定旧 Claude Code session。旧会话上下文污染、模型硬切或用户要求重开时，新会话应通过 handoff / packet / evidence 接手同一 lane。跨工作线协同通过 `.rekit/facts/*.jsonl`、inbox/tasks 和 publication 完成，不要求用户手动合并普通事实。

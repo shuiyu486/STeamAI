@@ -77,26 +77,40 @@ type CandidateReviewArtifact struct {
 	Boundary      []string `json:"boundary,omitempty"`
 }
 
+type CandidateReviewNextMissingProof struct {
+	Stage         string   `json:"stage,omitempty"`
+	ProofType     string   `json:"proofType,omitempty"`
+	Path          string   `json:"path,omitempty"`
+	CandidatePath string   `json:"candidatePath,omitempty"`
+	PackTarget    string   `json:"packTarget,omitempty"`
+	When          string   `json:"when,omitempty"`
+	Action        string   `json:"action,omitempty"`
+	Format        string   `json:"format,omitempty"`
+	Evidence      []string `json:"evidence,omitempty"`
+	Boundary      []string `json:"boundary,omitempty"`
+}
+
 type CandidateReviewProofSummary struct {
-	Total                    int      `json:"total"`
-	Present                  int      `json:"present"`
-	Missing                  int      `json:"missing"`
-	DecisionPresent          int      `json:"decisionPresent"`
-	DecisionMissing          int      `json:"decisionMissing"`
-	CleanupPresent           int      `json:"cleanupPresent"`
-	CleanupMissing           int      `json:"cleanupMissing"`
-	ReconsumePresent         int      `json:"reconsumePresent"`
-	ReconsumeMissing         int      `json:"reconsumeMissing"`
-	ProofRoot                string   `json:"proofRoot,omitempty"`
-	ProofProgress            string   `json:"proofProgress,omitempty"`
-	CurrentStage             string   `json:"currentStage,omitempty"`
-	NextMissingProofType     string   `json:"nextMissingProofType,omitempty"`
-	NextMissingProofPath     string   `json:"nextMissingProofPath,omitempty"`
-	NextMissingCandidatePath string   `json:"nextMissingCandidatePath,omitempty"`
-	NextMissingPackTarget    string   `json:"nextMissingPackTarget,omitempty"`
-	Complete                 bool     `json:"complete"`
-	NextAction               string   `json:"nextAction,omitempty"`
-	Boundary                 []string `json:"boundary,omitempty"`
+	Total                    int                              `json:"total"`
+	Present                  int                              `json:"present"`
+	Missing                  int                              `json:"missing"`
+	DecisionPresent          int                              `json:"decisionPresent"`
+	DecisionMissing          int                              `json:"decisionMissing"`
+	CleanupPresent           int                              `json:"cleanupPresent"`
+	CleanupMissing           int                              `json:"cleanupMissing"`
+	ReconsumePresent         int                              `json:"reconsumePresent"`
+	ReconsumeMissing         int                              `json:"reconsumeMissing"`
+	ProofRoot                string                           `json:"proofRoot,omitempty"`
+	ProofProgress            string                           `json:"proofProgress,omitempty"`
+	CurrentStage             string                           `json:"currentStage,omitempty"`
+	NextMissingProofType     string                           `json:"nextMissingProofType,omitempty"`
+	NextMissingProofPath     string                           `json:"nextMissingProofPath,omitempty"`
+	NextMissingCandidatePath string                           `json:"nextMissingCandidatePath,omitempty"`
+	NextMissingPackTarget    string                           `json:"nextMissingPackTarget,omitempty"`
+	NextMissingProof         *CandidateReviewNextMissingProof `json:"nextMissingProof,omitempty"`
+	Complete                 bool                             `json:"complete"`
+	NextAction               string                           `json:"nextAction,omitempty"`
+	Boundary                 []string                         `json:"boundary,omitempty"`
 }
 
 type CandidateReviewSummary struct {
@@ -796,6 +810,8 @@ func candidateReviewProofSummary(result CandidateResult, plan CandidateReviewPla
 			summary.NextMissingProofPath = candidateReviewNextExpectedProof(summary.ProofRoot, artifact)
 			summary.NextMissingCandidatePath = artifact.CandidatePath
 			summary.NextMissingPackTarget = artifact.PackTarget
+			nextMissingProof := candidateReviewNextMissingProof(summary.CurrentStage, summary.NextMissingProofPath, artifact)
+			summary.NextMissingProof = &nextMissingProof
 		}
 		summary.Complete = summary.Missing == 0
 		if summary.Missing > 0 {
@@ -839,6 +855,21 @@ func candidateReviewProofStage(summary CandidateReviewProofSummary) string {
 func candidateReviewNextExpectedProof(proofRoot string, artifact CandidateReviewArtifact) string {
 	stem := candidateReviewProofStem(artifact.CandidatePath, artifact.PackTarget)
 	return filepath.ToSlash(filepath.Join(proofRoot, stem+"."+artifact.Name+".md"))
+}
+
+func candidateReviewNextMissingProof(stage, proofPath string, artifact CandidateReviewArtifact) CandidateReviewNextMissingProof {
+	return CandidateReviewNextMissingProof{
+		Stage:         stage,
+		ProofType:     artifact.Name,
+		Path:          proofPath,
+		CandidatePath: artifact.CandidatePath,
+		PackTarget:    artifact.PackTarget,
+		When:          artifact.When,
+		Action:        artifact.Action,
+		Format:        artifact.Format,
+		Evidence:      append([]string{}, artifact.Evidence...),
+		Boundary:      append([]string{}, artifact.Boundary...),
+	}
 }
 
 func candidateReviewProofStem(candidatePath, packTarget string) string {
