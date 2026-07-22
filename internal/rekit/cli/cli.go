@@ -4513,6 +4513,11 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 	if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake summary：total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d lanes=%d packets=%d latestPacketProgress=%d/%d latestPacketOpen=%d latestPacketNextOpen=%s latestCompletedShard=%s remaining=%s latestPacket=%s latestShard=%s latestState=%s latestReviewerResult=%s nextAction=%s\n", prefix, summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.LaneCount, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, summary.LatestCompletedShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestPacketPath, summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultPath, summary.NextAction); err != nil {
 		return err
 	}
+	if strings.TrimSpace(summary.LatestBatchPreviewCommand) != "" {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch batch intake：preview=`%s` apply=`%s`\n", prefix, summary.LatestBatchPreviewCommand, summary.LatestBatchApplyCommand); err != nil {
+			return err
+		}
+	}
 	for _, lane := range summary.Lanes {
 		if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake summary lane：%s\n", prefix, lane); err != nil {
 			return err
@@ -5172,6 +5177,11 @@ func writePlanSubagentsReviewerOrchestrationSummaryText(out io.Writer, summary s
 	binding := summary.OwnerBinding
 	if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration summary owner：targetLane=%s mode=%s currentExecutor=%s generation=%d requiredForIntake=%t spawnOwner=%s\n", binding.TargetLane, binding.BindingMode, planSubagentsTextValue(binding.CurrentExecutor, "unassigned"), binding.ExecutorGeneration, binding.RequiredForIntake, binding.SpawnOwner); err != nil {
 		return err
+	}
+	if strings.TrimSpace(summary.BatchPreviewCommand) != "" {
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration summary batch intake：preview=`%s` apply=`%s`\n", summary.BatchPreviewCommand, summary.BatchApplyCommand); err != nil {
+			return err
+		}
 	}
 	if summary.FirstDispatch != nil {
 		dispatch := *summary.FirstDispatch

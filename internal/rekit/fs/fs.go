@@ -73,6 +73,32 @@ func Exists(path string) bool {
 	return err == nil
 }
 
+type RegularFileState string
+
+const (
+	RegularFileMissing RegularFileState = "missing"
+	RegularFileWaiting RegularFileState = "waiting"
+	RegularFileReady   RegularFileState = "ready"
+	RegularFileSymlink RegularFileState = "symlink"
+)
+
+func ClassifyNonEmptyRegularFile(path string) (RegularFileState, error) {
+	st, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return RegularFileMissing, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if st.Mode()&os.ModeSymlink != 0 {
+		return RegularFileSymlink, nil
+	}
+	if !st.Mode().IsRegular() || st.Size() == 0 {
+		return RegularFileWaiting, nil
+	}
+	return RegularFileReady, nil
+}
+
 func IsTextNonEmptyUnder(path string, limit int64) (int64, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {

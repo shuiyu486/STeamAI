@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 541：reviewer batch Mission Commander / durable handoff closure
+
+状态：implementation 与 focused/package validation 已完成，正在运行完整本地 release minimum；implementation commit/push 待完成，远程 release-gate inspection 待完成。
+
+目标：补齐 Batch 539 的真实 operational handoff：runtime 已支持 `-ReadyReviewerResults`，但 planning packet、Mission Commander action queue 与 downstream durable handoff 仍主要暴露逐 shard `-ReviewerResultPath ... -WhatIf/-Apply`，replacement executor 仍需手工发现并拼接 batch intake。让 attached-case reviewer planning、action queue、status/handoff/continue 与 durable artifacts 直接交付 packet-level batch preview/apply，同时保留旧 packet和 out-of-case安全语义。
+
+已完成内容：
+
+- attached-case `plan-subagents` 的 `reviewerOrchestration` / compact summary 新增 `batchPreviewCommand` 与 `batchApplyCommand`；`packet.json`、`summary.md` 和 CLI text 同步输出可复制的 `-ReadyReviewerResults` commands。out-of-case dispatch-only planning 保持 batch commands 为空。
+- Mission Commander action queue 保留每个 shard 的 read-only dispatch，但将每 shard preview/apply 收口为 packet-level batch preview/apply；两 shard queue 从 6 个 action 收敛为 4 个，batch Apply 仍 blocked/requiresReview，直到 reviewer JSON、WhatIf 与 evidence review通过。
+- downstream reviewer dispatch intake handoff / summary 现在携带 batch commands，status/handoff/continue、run status/digest、lane `RESUME.md` 与 checkpoint 可直接接手；ready 判定与 strict batch intake 共享 non-empty regular-file classifier，empty/directory 保持 waiting、symlink 显式 blocked；存在 ready shard 时 summary 选择该 ready packet 的 batch preview，不被最后一个 waiting shard或 5-row detail cap 覆盖。legacy packet无 batch fields时回退 single-result preview。
+- package/CLI coverage锁定 attached/out-of-case command生成、action queue、summary artifact/text、ready+waiting packet选择、empty/directory/symlink classification、detail-cap ready preservation、legacy fallback，以及 status/continue/durable projection。
+
+边界：本批只增强 reviewer orchestration command handoff 与 Mission Commander ordering；不自动 spawn、轮询或监控 reviewer，不创建 result，不绕过 strict batch intake、packet order、waiting/evidence/blocker review 或 verification-before-decision；不执行 heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic。
+
+验证结果：已通过 `gofmt`、`go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`；完整本地 release minimum 已通过 `go run ./cmd/rekit -- -Command release-check -Format json`（ready=true / release gate inventory ok）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF→CRLF working-copy warning，无 whitespace error）。implementation commit/push 与远程 release-gate inspection 待完成。
+
+上一批摘要：Batch 540 已完成 release handoff current-batch truthfulness repair，implementation commit `74327c3 Fix current batch release handoff` 与 release inspection commit `d4e65f2 Record Batch 540 release gate inspection` 已推送；implementation run `29946738172` completed failure，Linux/macOS/Windows jobs 均 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。
+
 ### Batch 540：release handoff current-batch truthfulness repair
 
 状态：已完成 implementation、focused/package validation、完整本地 release minimum、implementation commit/push 与远程 release-gate inspection；implementation commit `74327c3 Fix current batch release handoff` 已推送到 `main`。远程 release-gate run `29946738172` completed failure，Linux/macOS/Windows jobs 均 completed failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。按 cadence 只记录 implementation commit 触发的远程 run；不为本 release inspection commit 自身触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker 的新信号。

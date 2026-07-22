@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
+	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
@@ -34,6 +36,7 @@ type ReviewerDispatchIntakeHandoff struct {
 	State                            string   `json:"state"`
 	ReviewerResultPath               string   `json:"reviewerResultPath,omitempty"`
 	ReviewerResultPresent            bool     `json:"reviewerResultPresent"`
+	ReviewerResultState              string   `json:"reviewerResultState,omitempty"`
 	IntakeAvailable                  bool     `json:"intakeAvailable"`
 	DispatchOnly                     bool     `json:"dispatchOnly"`
 	VerificationRecorded             bool     `json:"verificationRecorded"`
@@ -41,6 +44,8 @@ type ReviewerDispatchIntakeHandoff struct {
 	DispatchCommand                  string   `json:"dispatchCommand,omitempty"`
 	PreviewCommand                   string   `json:"previewCommand,omitempty"`
 	ApplyCommand                     string   `json:"applyCommand,omitempty"`
+	BatchPreviewCommand              string   `json:"batchPreviewCommand,omitempty"`
+	BatchApplyCommand                string   `json:"batchApplyCommand,omitempty"`
 	OwnerExecutor                    string   `json:"ownerExecutor,omitempty"`
 	OwnerGeneration                  int      `json:"ownerGeneration,omitempty"`
 	OwnerBindingMode                 string   `json:"ownerBindingMode,omitempty"`
@@ -69,6 +74,8 @@ type ReviewerDispatchIntakeSummary struct {
 	LatestReviewerResultPath      string   `json:"latestReviewerResultPath,omitempty"`
 	LatestPreviewCommand          string   `json:"latestPreviewCommand,omitempty"`
 	LatestApplyCommand            string   `json:"latestApplyCommand,omitempty"`
+	LatestBatchPreviewCommand     string   `json:"latestBatchPreviewCommand,omitempty"`
+	LatestBatchApplyCommand       string   `json:"latestBatchApplyCommand,omitempty"`
 	NextAction                    string   `json:"nextAction,omitempty"`
 	Boundary                      []string `json:"boundary,omitempty"`
 }
@@ -86,12 +93,14 @@ type reviewerDispatchPacketObservability struct {
 }
 
 type reviewerDispatchPacketOrchestration struct {
-	Mode         string                           `json:"mode"`
-	TargetLane   string                           `json:"targetLane"`
-	PacketPath   string                           `json:"packetPath"`
-	ResultRoot   string                           `json:"resultRoot"`
-	OwnerBinding reviewerDispatchPacketOwner      `json:"ownerBinding"`
-	Dispatches   []reviewerDispatchPacketDispatch `json:"dispatches"`
+	Mode                string                           `json:"mode"`
+	TargetLane          string                           `json:"targetLane"`
+	PacketPath          string                           `json:"packetPath"`
+	ResultRoot          string                           `json:"resultRoot"`
+	OwnerBinding        reviewerDispatchPacketOwner      `json:"ownerBinding"`
+	Dispatches          []reviewerDispatchPacketDispatch `json:"dispatches"`
+	BatchPreviewCommand string                           `json:"batchPreviewCommand"`
+	BatchApplyCommand   string                           `json:"batchApplyCommand"`
 }
 
 type reviewerDispatchPacketOwner struct {
@@ -127,10 +136,26 @@ func ReviewerDispatchIntakeHandoffs(caseRoot string, facts mission.LedgerFacts, 
 		packetPathText := firstText(packet.ReviewerOrchestration.PacketPath, packetPath)
 		items = append(items, reviewerDispatchIntakeHandoffsForPacket(caseRoot, facts, packet, packetPathText, packetTargetLane)...)
 	}
-	if maxHandoffRows > 0 && len(items) > maxHandoffRows {
-		items = items[len(items)-maxHandoffRows:]
+	return limitReviewerDispatchIntakeHandoffs(items, maxHandoffRows), nil
+}
+
+func limitReviewerDispatchIntakeHandoffs(items []ReviewerDispatchIntakeHandoff, limit int) []ReviewerDispatchIntakeHandoff {
+	if limit <= 0 || len(items) <= limit {
+		return items
 	}
-	return items, nil
+	limited := append([]ReviewerDispatchIntakeHandoff{}, items[len(items)-limit:]...)
+	if slices.ContainsFunc(limited, func(item ReviewerDispatchIntakeHandoff) bool {
+		return item.State == "ready-for-reviewer-intake-preview"
+	}) {
+		return limited
+	}
+	for idx := len(items) - limit - 1; idx >= 0; idx-- {
+		if items[idx].State == "ready-for-reviewer-intake-preview" {
+			limited[0] = items[idx]
+			break
+		}
+	}
+	return limited
 }
 
 func reviewerDispatchIntakeHandoffsForPacket(caseRoot string, facts mission.LedgerFacts, packet reviewerDispatchPacket, packetPath, targetLane string) []ReviewerDispatchIntakeHandoff {
@@ -202,7 +227,9 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 	summary := ReviewerDispatchIntakeSummary{}
 	lanes := map[string]bool{}
 	packets := map[string]bool{}
-	for _, item := range items {
+	var latestReady *ReviewerDispatchIntakeHandoff
+	for idx := range items {
+		item := items[idx]
 		summary.Total++
 		if lane := strings.TrimSpace(item.TargetLane); lane != "" {
 			lanes[lane] = true
@@ -219,6 +246,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 			summary.WaitingForReviewerResult++
 		case "ready-for-reviewer-intake-preview":
 			summary.ReadyForPreview++
+			latestReady = &items[idx]
 		case "attach-required-before-reviewer-intake":
 			summary.AttachRequired++
 		}
@@ -237,6 +265,8 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		summary.LatestReviewerResultPath = latest.ReviewerResultPath
 		summary.LatestPreviewCommand = latest.PreviewCommand
 		summary.LatestApplyCommand = latest.ApplyCommand
+		summary.LatestBatchPreviewCommand = latest.BatchPreviewCommand
+		summary.LatestBatchApplyCommand = latest.BatchApplyCommand
 		summary.LatestPacketDispatchTotal = latest.DispatchTotal
 		summary.LatestPacketDispatchCompleted = latest.DispatchCompleted
 		summary.LatestPacketDispatchOpen = latest.DispatchOpen
@@ -244,6 +274,15 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		summary.LatestCompletedShardID = latest.LatestCompletedShardID
 		summary.RemainingShardIDs = append([]string{}, latest.RemainingShardIDs...)
 		summary.NextAction = reviewerDispatchIntakeNextAction(latest)
+		if latestReady != nil {
+			summary.LatestBatchPreviewCommand = latestReady.BatchPreviewCommand
+			summary.LatestBatchApplyCommand = latestReady.BatchApplyCommand
+			if strings.TrimSpace(summary.LatestBatchPreviewCommand) != "" {
+				summary.NextAction = summary.LatestBatchPreviewCommand
+			} else {
+				summary.NextAction = reviewerDispatchIntakeNextAction(*latestReady)
+			}
+		}
 		summary.Boundary = reviewerDispatchIntakeSummaryBoundary()
 	}
 	return summary
@@ -286,11 +325,20 @@ func readReviewerDispatchPacket(path string) (reviewerDispatchPacket, bool) {
 
 func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts, packet reviewerDispatchPacket, packetPath, targetLane string, dispatch reviewerDispatchPacketDispatch, idx int) ReviewerDispatchIntakeHandoff {
 	resultPath := strings.TrimSpace(dispatch.ReviewerResultPath)
-	present := resultPath != "" && refsfExists(resultPath)
+	resultState := refsf.RegularFileMissing
+	if resultPath != "" {
+		classified, err := refsf.ClassifyNonEmptyRegularFile(resultPath)
+		if err != nil {
+			resultState = refsf.RegularFileWaiting
+		} else {
+			resultState = classified
+		}
+	}
+	present := resultState == refsf.RegularFileReady
 	intakeAvailable := reviewerDispatchIntakeCommandAvailable(dispatch.PreviewCommand) && reviewerDispatchIntakeCommandAvailable(dispatch.ApplyCommand)
 	verificationRecorded := reviewerDispatchWritebackRecorded(facts.Verifications, packet.PacketID, dispatch.ShardID, resultPath)
 	decisionRecorded := reviewerDispatchWritebackRecorded(facts.Decisions, packet.PacketID, dispatch.ShardID, resultPath)
-	state := reviewerDispatchIntakeState(present, intakeAvailable)
+	state := reviewerDispatchIntakeState(resultState, intakeAvailable)
 	item := ReviewerDispatchIntakeHandoff{
 		PacketID:              packet.PacketID,
 		PacketPath:            packetPath,
@@ -303,6 +351,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		State:                 state,
 		ReviewerResultPath:    resultPath,
 		ReviewerResultPresent: present,
+		ReviewerResultState:   string(resultState),
 		IntakeAvailable:       intakeAvailable,
 		DispatchOnly:          !intakeAvailable,
 		VerificationRecorded:  verificationRecorded,
@@ -310,6 +359,8 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		DispatchCommand:       reviewerDispatchCommand(dispatch.ShardID, resultPath, idx),
 		PreviewCommand:        dispatch.PreviewCommand,
 		ApplyCommand:          dispatch.ApplyCommand,
+		BatchPreviewCommand:   packet.ReviewerOrchestration.BatchPreviewCommand,
+		BatchApplyCommand:     packet.ReviewerOrchestration.BatchApplyCommand,
 		OwnerExecutor:         packet.ReviewerOrchestration.OwnerBinding.CurrentExecutor,
 		OwnerGeneration:       packet.ReviewerOrchestration.OwnerBinding.ExecutorGeneration,
 		OwnerBindingMode:      packet.ReviewerOrchestration.OwnerBinding.BindingMode,
@@ -324,13 +375,15 @@ func reviewerDispatchIntakeCommandAvailable(command string) bool {
 	return command != "" && !strings.HasPrefix(command, "n/a:")
 }
 
-func reviewerDispatchIntakeState(resultPresent, intakeAvailable bool) string {
+func reviewerDispatchIntakeState(resultState refsf.RegularFileState, intakeAvailable bool) string {
 	switch {
-	case !intakeAvailable && resultPresent:
+	case resultState == refsf.RegularFileSymlink:
+		return "reviewer-result-symlink-blocked"
+	case !intakeAvailable && resultState == refsf.RegularFileReady:
 		return "attach-required-before-reviewer-intake"
 	case !intakeAvailable:
 		return "dispatch-only-waiting-for-result"
-	case resultPresent:
+	case resultState == refsf.RegularFileReady:
 		return "ready-for-reviewer-intake-preview"
 	default:
 		return "waiting-for-reviewer-result"
@@ -394,6 +447,9 @@ func reviewerDispatchIntakeBoundary(item ReviewerDispatchIntakeHandoff) []string
 	if item.DispatchOnly {
 		boundary = append(boundary, "dispatch-only packets require an attached rekit case before reviewer-intake writeback")
 	}
+	if item.ReviewerResultState == string(refsf.RegularFileSymlink) {
+		boundary = append(boundary, "reviewer result symlinks are rejected by strict batch intake; replace the path with a regular non-empty file")
+	}
 	return mission.UniqueStrings(boundary)
 }
 
@@ -401,16 +457,18 @@ func reviewerDispatchIntakeSummaryBoundary() []string {
 	return []string{
 		"reviewer dispatch intake summary is read-only; full packet.json, summary.md, and reviewerOrchestration remain available",
 		"runtime does not spawn, stop, monitor, or manage reviewer sessions from status/handoff/continue",
-		"run reviewer-intake -WhatIf before -Apply; do not write authority/confirmed or execute heavy tools",
+		"run ready-result batch intake -WhatIf before -Apply; packet order, fail-fast, waiting results, no-authority, and no-heavy boundaries remain enforced",
 	}
 }
 
 func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string {
 	switch item.State {
 	case "ready-for-reviewer-intake-preview":
-		return firstText(item.PreviewCommand, "run reviewer-intake -WhatIf for "+item.ShardID)
+		return firstText(item.BatchPreviewCommand, item.PreviewCommand, "run reviewer-intake -WhatIf for "+item.ShardID)
 	case "attach-required-before-reviewer-intake":
 		return "attach or init the target as a rekit case before reviewer-intake writeback for " + item.ShardID
+	case "reviewer-result-symlink-blocked":
+		return "replace the symlink reviewer result with a regular non-empty file for " + item.ShardID
 	default:
 		return "collect read-only reviewer JSON for " + item.ShardID + " at " + item.ReviewerResultPath
 	}
@@ -454,7 +512,7 @@ func appendReviewerDispatchIntakeHandoff(lines []string, items []ReviewerDispatc
 	summary := ReviewerDispatchIntakeSummaryFor(items)
 	lines = append(lines, fmt.Sprintf("- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d packets=%d latestPacketProgress=%d/%d open=%d nextOpen=%s remaining=%s latestShard=%s latestState=%s nextAction=`%s`", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestShardID, summary.LatestState, summary.NextAction))
 	for _, item := range items {
-		lines = append(lines, fmt.Sprintf("- dispatch intake: lane=%s shard=%s state=%s progress=%d/%d open=%d nextOpen=%s remaining=%s resultPresent=%t packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s`", item.TargetLane, item.ShardID, item.State, item.DispatchCompleted, item.DispatchTotal, item.DispatchOpen, item.NextOpenShardID, strings.Join(item.RemainingShardIDs, ","), item.ReviewerResultPresent, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand))
+		lines = append(lines, fmt.Sprintf("- dispatch intake: lane=%s shard=%s state=%s progress=%d/%d open=%d nextOpen=%s remaining=%s resultPresent=%t resultState=%s packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s` batchPreview=`%s` batchApply=`%s`", item.TargetLane, item.ShardID, item.State, item.DispatchCompleted, item.DispatchTotal, item.DispatchOpen, item.NextOpenShardID, strings.Join(item.RemainingShardIDs, ","), item.ReviewerResultPresent, item.ReviewerResultState, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand, item.BatchPreviewCommand, item.BatchApplyCommand))
 		for _, evidence := range mission.LimitStrings(item.Evidence, maxHandoffRows) {
 			lines = append(lines, "  - evidence: "+evidence)
 		}

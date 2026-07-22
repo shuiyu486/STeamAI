@@ -5778,18 +5778,18 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if plan.ReviewerOrchestration.Mode != "manual-main-agent-intake" || plan.ReviewerOrchestration.TargetLane != "feature-login" || plan.ReviewerOrchestration.ReviewerCount != 2 || plan.ReviewerOrchestration.MaxParallel != 2 || len(plan.ReviewerOrchestration.Dispatches) != 2 || len(plan.ReviewerOrchestration.Lifecycle) != 5 {
 		t.Fatalf("unexpected reviewer orchestration plan: %+v", plan.ReviewerOrchestration)
 	}
-	if plan.MissionCommanderAction.State != "ready-for-reviewer-dispatch" || plan.ReviewerOrchestration.MissionCommanderAction == nil || plan.ReviewerOrchestration.MissionCommanderAction.PrimaryCommand != plan.MissionCommanderAction.PrimaryCommand || !containsMissionCommanderNextAction(plan.MissionCommanderNextActions, "reviewerOrchestration.dispatch", plan.MissionCommanderAction.PrimaryCommand, false, true) || !containsMissionCommanderNextAction(plan.MissionCommanderNextActions, "reviewerOrchestration.intake.preview", plan.ReviewerOrchestration.Dispatches[0].PreviewCommand, true, true) || !containsMissionCommanderNextAction(plan.MissionCommanderNextActions, "reviewerOrchestration.intake.apply", plan.ReviewerOrchestration.Dispatches[0].ApplyCommand, true, true) {
+	if plan.MissionCommanderAction.State != "ready-for-reviewer-dispatch" || plan.ReviewerOrchestration.MissionCommanderAction == nil || plan.ReviewerOrchestration.MissionCommanderAction.PrimaryCommand != plan.MissionCommanderAction.PrimaryCommand || !containsMissionCommanderNextAction(plan.MissionCommanderNextActions, "reviewerOrchestration.dispatch", plan.MissionCommanderAction.PrimaryCommand, false, true) || !containsMissionCommanderNextAction(plan.MissionCommanderNextActions, "reviewerOrchestration.batchIntake.preview", plan.ReviewerOrchestration.BatchPreviewCommand, true, true) || !containsMissionCommanderNextAction(plan.MissionCommanderNextActions, "reviewerOrchestration.batchIntake.apply", plan.ReviewerOrchestration.BatchApplyCommand, true, true) {
 		t.Fatalf("plan-subagents omitted top-level Mission Commander reviewer plan guidance: action=%+v next=%+v orchestration=%+v", plan.MissionCommanderAction, plan.MissionCommanderNextActions, plan.ReviewerOrchestration)
 	}
-	assertCLIActionQueue(t, plan.MissionCommanderActionQueue, 6, 2, 4, 6, 0, plan.MissionCommanderAction.PrimaryCommand)
+	assertCLIActionQueue(t, plan.MissionCommanderActionQueue, 4, 2, 2, 4, 0, plan.MissionCommanderAction.PrimaryCommand)
 	if plan.ReviewerOrchestration.MissionCommanderActionQueue == nil {
 		t.Fatalf("plan-subagents omitted nested reviewer orchestration action queue: %+v", plan.ReviewerOrchestration)
 	}
-	assertCLIActionQueue(t, *plan.ReviewerOrchestration.MissionCommanderActionQueue, 6, 2, 4, 6, 0, plan.MissionCommanderAction.PrimaryCommand)
-	if packet.OwnerBinding.CurrentExecutor != "session-login" || packet.OwnerBinding.ExecutorGeneration != 1 || !packet.OwnerBinding.RequiredForIntake || packet.ReviewerOrchestration.Dispatches[0].ReviewerResultPath != packet.ShardHandoffs[0].ReviewerResultPath || !strings.Contains(packet.ReviewerOrchestration.Dispatches[0].PreviewCommand, "-WhatIf -Format json") || !strings.Contains(packet.ReviewerOrchestration.Lifecycle[0].Action, "does not spawn") || packet.ReviewerOrchestration.MissionCommanderAction == nil || len(packet.ReviewerOrchestration.MissionCommanderNextActions) != len(plan.MissionCommanderNextActions) || packet.ReviewerOrchestration.MissionCommanderActionQueue == nil {
+	assertCLIActionQueue(t, *plan.ReviewerOrchestration.MissionCommanderActionQueue, 4, 2, 2, 4, 0, plan.MissionCommanderAction.PrimaryCommand)
+	if packet.OwnerBinding.CurrentExecutor != "session-login" || packet.OwnerBinding.ExecutorGeneration != 1 || !packet.OwnerBinding.RequiredForIntake || packet.ReviewerOrchestration.Dispatches[0].ReviewerResultPath != packet.ShardHandoffs[0].ReviewerResultPath || !strings.Contains(packet.ReviewerOrchestration.Dispatches[0].PreviewCommand, "-WhatIf -Format json") || !strings.Contains(packet.ReviewerOrchestration.BatchPreviewCommand, "-ReadyReviewerResults") || !strings.Contains(packet.ReviewerOrchestration.BatchApplyCommand, "-Apply -Format json") || !strings.Contains(packet.ReviewerOrchestration.Lifecycle[0].Action, "does not spawn") || packet.ReviewerOrchestration.MissionCommanderAction == nil || len(packet.ReviewerOrchestration.MissionCommanderNextActions) != len(plan.MissionCommanderNextActions) || packet.ReviewerOrchestration.MissionCommanderActionQueue == nil {
 		t.Fatalf("unexpected reviewer orchestration packet: %+v", packet)
 	}
-	assertCLIActionQueue(t, *packet.ReviewerOrchestration.MissionCommanderActionQueue, 6, 2, 4, 6, 0, plan.MissionCommanderAction.PrimaryCommand)
+	assertCLIActionQueue(t, *packet.ReviewerOrchestration.MissionCommanderActionQueue, 4, 2, 2, 4, 0, plan.MissionCommanderAction.PrimaryCommand)
 
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
@@ -5930,8 +5930,8 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 			}
 			assertReviewerDispatchIntakeSummary(t, "status with reviewer result", statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeSummary, 2, 1, 1, "shard-02", "waiting-for-reviewer-result")
 			readyDispatch, ok := reviewerDispatchIntakeByShard(statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
-			if !ok || !readyDispatch.ReviewerResultPresent || readyDispatch.State != "ready-for-reviewer-intake-preview" || !strings.Contains(readyDispatch.PreviewCommand, handoff.ReviewerResultPath) || readyDispatch.DispatchOnly {
-				t.Fatalf("status JSON omitted ready reviewer dispatch intake handoff: %+v", statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeHandoffs)
+			if !ok || !readyDispatch.ReviewerResultPresent || readyDispatch.State != "ready-for-reviewer-intake-preview" || !strings.Contains(readyDispatch.PreviewCommand, handoff.ReviewerResultPath) || !strings.Contains(readyDispatch.BatchPreviewCommand, "-ReadyReviewerResults") || !strings.Contains(statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "-ReadyReviewerResults") || statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeSummary.LatestBatchApplyCommand == "" || readyDispatch.DispatchOnly {
+				t.Fatalf("status JSON omitted ready reviewer batch intake handoff: %+v", statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeHandoffs)
 			}
 		}
 
@@ -6812,13 +6812,13 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if result.ReviewerOrchestration.MissionCommanderActionQueue == nil || packet.ReviewerOrchestration.MissionCommanderActionQueue == nil || result.ReviewerOrchestration.MissionCommanderActionQueue.Summary != result.MissionCommanderActionQueue.Summary || packet.ReviewerOrchestration.MissionCommanderActionQueue.Summary != result.MissionCommanderActionQueue.Summary {
 		t.Fatalf("reviewer orchestration omitted mirrored Mission Commander queue: result=%+v packet=%+v", result.ReviewerOrchestration, packet.ReviewerOrchestration)
 	}
-	if result.ReviewerOrchestration.Summary.Mode != "manual-main-agent-intake" || result.ReviewerOrchestration.Summary.TargetLane != "devirt-main" || result.ReviewerOrchestration.Summary.DispatchCount != 2 || !result.ReviewerOrchestration.Summary.IntakeAvailable || result.ReviewerOrchestration.Summary.DispatchOnly || result.ReviewerOrchestration.Summary.FirstDispatch == nil || result.ReviewerOrchestration.Summary.FirstDispatch.ShardID != "shard-01" || !strings.Contains(result.ReviewerOrchestration.Summary.FirstDispatch.DispatchCommand, "dispatch read-only reviewer for shard-01") || result.ReviewerOrchestration.Summary.CurrentAction == nil || result.ReviewerOrchestration.Summary.ActionTotal != 6 || !containsStringWith(result.ReviewerOrchestration.Summary.Boundary, "planning summary is read-only") {
+	if result.ReviewerOrchestration.Summary.Mode != "manual-main-agent-intake" || result.ReviewerOrchestration.Summary.TargetLane != "devirt-main" || result.ReviewerOrchestration.Summary.DispatchCount != 2 || !result.ReviewerOrchestration.Summary.IntakeAvailable || result.ReviewerOrchestration.Summary.DispatchOnly || result.ReviewerOrchestration.Summary.FirstDispatch == nil || result.ReviewerOrchestration.Summary.FirstDispatch.ShardID != "shard-01" || !strings.Contains(result.ReviewerOrchestration.Summary.FirstDispatch.DispatchCommand, "dispatch read-only reviewer for shard-01") || result.ReviewerOrchestration.Summary.CurrentAction == nil || result.ReviewerOrchestration.Summary.ActionTotal != 4 || !containsStringWith(result.ReviewerOrchestration.Summary.Boundary, "planning summary is read-only") {
 		t.Fatalf("reviewer orchestration compact summary omitted takeover state: %+v", result.ReviewerOrchestration.Summary)
 	}
 	if packet.ReviewerOrchestration.Summary.DispatchCount != result.ReviewerOrchestration.Summary.DispatchCount || packet.ReviewerOrchestration.Summary.FirstDispatch == nil || packet.ReviewerOrchestration.Summary.CurrentAction == nil {
 		t.Fatalf("packet reviewer orchestration compact summary drifted: result=%+v packet=%+v", result.ReviewerOrchestration.Summary, packet.ReviewerOrchestration.Summary)
 	}
-	assertCLIActionQueue(t, result.MissionCommanderActionQueue, 6, 2, 4, 6, 0, result.MissionCommanderAction.PrimaryCommand)
+	assertCLIActionQueue(t, result.MissionCommanderActionQueue, 4, 2, 2, 4, 0, result.MissionCommanderAction.PrimaryCommand)
 	firstHandoff := packet.ShardHandoffs[0]
 	if !strings.Contains(packet.Shards[0].Prompt, "Return one reviewer result JSON object") || strings.Contains(packet.Shards[0].Prompt, "Return the route output contract only") {
 		t.Fatalf("unexpected shard prompt: %+v", packet.Shards[0])
@@ -6861,7 +6861,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing summary: %v", err)
 	}
-	for _, expected := range []string{"## bounded dispatch observability", "### reviewer orchestration", "reviewer orchestration summary:", "reviewer orchestration summary first dispatch:", "reviewer orchestration summary current action:", "reviewer orchestration summary next action:", "reviewer orchestration summary boundary:", "intakeAvailable=`true`; dispatchOnly=`false`", "mission commander action queue:", "orchestration-step:", "reviewer-dispatch:", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result path:", "reviewer result skeleton:", "\"packetId\":\"packet-", "reviewer routeOutput field hints:", "tool_scope=read-only", "reviewer result binding: packetId=`packet-", "routeOutput evidence inside evidenceRefs", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "-ReviewerResultPath", "-WhatIf -Format json", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"## bounded dispatch observability", "### reviewer orchestration", "reviewer orchestration summary:", "reviewer orchestration summary batch intake:", "-ReadyReviewerResults", "reviewer orchestration summary first dispatch:", "reviewer orchestration summary current action:", "reviewer orchestration summary next action:", "reviewer orchestration summary boundary:", "intakeAvailable=`true`; dispatchOnly=`false`", "mission commander action queue:", "orchestration-step:", "reviewer-dispatch:", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result path:", "reviewer result skeleton:", "\"packetId\":\"packet-", "reviewer routeOutput field hints:", "tool_scope=read-only", "reviewer result binding: packetId=`packet-", "routeOutput evidence inside evidenceRefs", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "-ReviewerResultPath", "-WhatIf -Format json", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -6876,11 +6876,13 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents reviewer orchestration：mode=manual-main-agent-intake",
 		"plan-subagents reviewer orchestration summary：mode=manual-main-agent-intake targetLane=devirt-main reviewers=2 dispatches=2 maxParallel=2 intakeAvailable=true dispatchOnly=false",
 		"plan-subagents reviewer orchestration summary owner：targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
+		"plan-subagents reviewer orchestration summary batch intake：preview=`/rekit plan-subagents",
+		"-ReadyReviewerResults",
 		"plan-subagents reviewer orchestration summary first dispatch：shard=shard-01 status=planned",
 		"plan-subagents reviewer orchestration summary current action：state=ready-for-reviewer-dispatch source=reviewerOrchestration.dispatch blocked=false requiresReview=true command=`dispatch read-only reviewer for shard-01",
-		"plan-subagents reviewer orchestration summary next action：state=ready-for-reviewer-intake-preview source=reviewerOrchestration.intake.preview blocked=true requiresReview=true",
+		"plan-subagents reviewer orchestration summary next action：state=ready-for-reviewer-batch-intake-preview source=reviewerOrchestration.batchIntake.preview blocked=true requiresReview=true",
 		"plan-subagents reviewer orchestration summary boundary：planning summary is read-only; full reviewerOrchestration dispatches, lifecycle, action queue, and shard handoffs remain available",
-		"plan-subagents reviewer orchestration scope：scope=dispatch read-only reviewers, collect one JSON result per shard, then run reviewer-intake preview/apply for each shard packet=",
+		"plan-subagents reviewer orchestration scope：scope=dispatch read-only reviewers, collect one JSON result per shard, then run packet-level ready-result batch intake preview/apply packet=",
 		"plan-subagents reviewer orchestration owner：targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
 		"plan-subagents reviewer orchestration lifecycle：step=dispatch-reviewers owner=main-agent inputs=reviewerOrchestration.dispatches[].dispatchPrompt,ownerBinding,packetPath mustPass=one reviewerSession is assigned per reviewer result,reviewers receive only read-only boundary and shard items,no reviewer writes files or ledgers nextOnSuccess=collect-results",
 		"plan-subagents reviewer orchestration boundary：boundary=runtime does not spawn subagents",
@@ -6923,9 +6925,9 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents reviewer writeback command binding：shard=shard-01 step=preview-reviewer-intake binding=reviewer-intake-preview source=reviewerIntakeCommands.previewCommand kind=reviewer-intake command=`/rekit plan-subagents",
 		"plan-subagents reviewer post-review：shard=shard-01 item=run reviewerIntakeCommands.previewCommand and inspect verification, decision, and postValidation before applyCommand",
 		"plan-subagents commander action：state=ready-for-reviewer-dispatch",
-		"mission commander action queue：summary=total=6 unblocked=2 blocked=4 requiresReview=6 followUp=0 current=dispatch read-only reviewer for shard-01",
+		"mission commander action queue：summary=total=4 unblocked=2 blocked=2 requiresReview=4 followUp=0 current=dispatch read-only reviewer for shard-01",
 		"mission commander action queue current：state=ready-for-reviewer-dispatch source=reviewerOrchestration.dispatch blocked=false requiresReview=true command=`dispatch read-only reviewer for shard-01",
-		"mission commander next action：state=ready-for-reviewer-intake-preview source=reviewerOrchestration.intake.preview blocked=true requiresReview=true",
+		"mission commander next action：state=ready-for-reviewer-batch-intake-preview source=reviewerOrchestration.batchIntake.preview blocked=true requiresReview=true",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("plan-subagents text output missing %q:\n%s", expected, out.String())
@@ -11297,6 +11299,8 @@ type reviewerDispatchIntakeCLIItem struct {
 	DispatchCommand                  string   `json:"dispatchCommand"`
 	PreviewCommand                   string   `json:"previewCommand"`
 	ApplyCommand                     string   `json:"applyCommand"`
+	BatchPreviewCommand              string   `json:"batchPreviewCommand"`
+	BatchApplyCommand                string   `json:"batchApplyCommand"`
 	OwnerExecutor                    string   `json:"ownerExecutor"`
 	OwnerGeneration                  int      `json:"ownerGeneration"`
 	OwnerBindingMode                 string   `json:"ownerBindingMode"`
@@ -11325,13 +11329,16 @@ type reviewerDispatchIntakeSummaryCLIItem struct {
 	LatestReviewerResultPath      string   `json:"latestReviewerResultPath"`
 	LatestPreviewCommand          string   `json:"latestPreviewCommand"`
 	LatestApplyCommand            string   `json:"latestApplyCommand"`
+	LatestBatchPreviewCommand     string   `json:"latestBatchPreviewCommand"`
+	LatestBatchApplyCommand       string   `json:"latestBatchApplyCommand"`
 	NextAction                    string   `json:"nextAction"`
 	Boundary                      []string `json:"boundary"`
 }
 
 func assertReviewerDispatchIntakeSummary(t *testing.T, label string, summary reviewerDispatchIntakeSummaryCLIItem, total, waiting, ready int, latestShard, latestState string) {
 	t.Helper()
-	if summary.Total != total || summary.WaitingForReviewerResult != waiting || summary.ReadyForPreview != ready || summary.LatestShardID != latestShard || summary.LatestState != latestState || !containsSubstring(summary.Boundary, "summary is read-only") || !strings.Contains(summary.NextAction, latestShard) {
+	nextActionMatches := strings.Contains(summary.NextAction, latestShard) || (ready > 0 && strings.Contains(summary.NextAction, "-ReadyReviewerResults"))
+	if summary.Total != total || summary.WaitingForReviewerResult != waiting || summary.ReadyForPreview != ready || summary.LatestShardID != latestShard || summary.LatestState != latestState || !containsSubstring(summary.Boundary, "summary is read-only") || !nextActionMatches {
 		t.Fatalf("%s missing reviewer dispatch intake summary: %+v", label, summary)
 	}
 	if total > 0 && (summary.PacketCount == 0 || summary.LatestPacketDispatchTotal == 0 || summary.LatestPacketDispatchOpen == 0 || len(summary.RemainingShardIDs) == 0) {
@@ -11742,15 +11749,17 @@ type planSubagentsPacket struct {
 }
 
 type planSubagentsOrchestration struct {
-	Mode          string                            `json:"mode"`
-	Scope         string                            `json:"scope"`
-	TargetLane    string                            `json:"targetLane"`
-	PacketPath    string                            `json:"packetPath"`
-	ResultRoot    string                            `json:"resultRoot"`
-	ReviewerCount int                               `json:"reviewerCount"`
-	MaxParallel   int                               `json:"maxParallel"`
-	Summary       planSubagentsOrchestrationSummary `json:"summary"`
-	Dispatches    []struct {
+	Mode                string                            `json:"mode"`
+	Scope               string                            `json:"scope"`
+	TargetLane          string                            `json:"targetLane"`
+	PacketPath          string                            `json:"packetPath"`
+	ResultRoot          string                            `json:"resultRoot"`
+	BatchPreviewCommand string                            `json:"batchPreviewCommand"`
+	BatchApplyCommand   string                            `json:"batchApplyCommand"`
+	ReviewerCount       int                               `json:"reviewerCount"`
+	MaxParallel         int                               `json:"maxParallel"`
+	Summary             planSubagentsOrchestrationSummary `json:"summary"`
+	Dispatches          []struct {
 		ShardID            string   `json:"shardId"`
 		ReviewerRole       string   `json:"reviewerRole"`
 		Status             string   `json:"status"`
@@ -11783,6 +11792,8 @@ type planSubagentsOrchestrationSummary struct {
 	MaxParallel          int                              `json:"maxParallel"`
 	PacketPath           string                           `json:"packetPath"`
 	ResultRoot           string                           `json:"resultRoot"`
+	BatchPreviewCommand  string                           `json:"batchPreviewCommand"`
+	BatchApplyCommand    string                           `json:"batchApplyCommand"`
 	OwnerBinding         planSubagentsOwnerBinding        `json:"ownerBinding"`
 	DispatchCount        int                              `json:"dispatchCount"`
 	IntakeAvailable      bool                             `json:"intakeAvailable"`

@@ -310,20 +310,16 @@ func IntakeReadyReviewerResults(repoRoot, caseRoot, pack string, opt ReviewerBat
 		if !pathInside(packet.ReviewerOrchestration.ResultRoot, resultPath) {
 			return result, fmt.Errorf("reviewer batch intake result path %q for shard %s is outside packet resultRoot %q", resultPath, handoff.ShardID, packet.ReviewerOrchestration.ResultRoot)
 		}
-		st, err := os.Lstat(resultPath)
-		if os.IsNotExist(err) {
-			result.Waiting++
-			continue
-		}
+		fileState, err := refsf.ClassifyNonEmptyRegularFile(resultPath)
 		if err != nil {
 			return result, err
 		}
-		if st.Mode()&os.ModeSymlink != 0 {
-			return result, fmt.Errorf("reviewer batch intake result path %q for shard %s must not be a symlink", resultPath, handoff.ShardID)
-		}
-		if st.IsDir() || st.Size() == 0 {
+		switch fileState {
+		case refsf.RegularFileMissing, refsf.RegularFileWaiting:
 			result.Waiting++
 			continue
+		case refsf.RegularFileSymlink:
+			return result, fmt.Errorf("reviewer batch intake result path %q for shard %s must not be a symlink", resultPath, handoff.ShardID)
 		}
 		result.Ready++
 		intake, intakeErr := IntakeReviewerResult(repoRoot, caseRoot, pack, ReviewerIntakeOptions{
