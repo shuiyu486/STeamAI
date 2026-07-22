@@ -170,6 +170,34 @@ func TestMissionCommanderNextActionsIncludeLaneFollowUps(t *testing.T) {
 	}
 }
 
+func TestMissionCommanderNextActionsKeepGateSpecificEvidenceActions(t *testing.T) {
+	review := func(gateEventID, status string) ExecutionEvidenceReviewItem {
+		return ExecutionEvidenceReviewItem{
+			GateEventID: gateEventID,
+			Status:      status,
+			MissionCommanderAction: MissionCommanderAction{
+				State:            "ready-for-evidence-review",
+				PrimaryCommand:   "/rekit handoff main",
+				FollowUpCommands: []string{"/rekit overview"},
+			},
+		}
+	}
+	items := MissionCommanderNextActions(nil, []ExecutionEvidenceReviewItem{
+		review("gate-a", "succeeded"),
+		review("gate-b", "escalated"),
+	}, false)
+	if len(items) != 4 {
+		t.Fatalf("gate-specific evidence actions were deduplicated: %+v", items)
+	}
+	for _, gateEventID := range []string{"gate-a", "gate-b"} {
+		if !slices.ContainsFunc(items, func(item MissionCommanderNextActionItem) bool {
+			return item.GateEventID == gateEventID && item.Source == "executionEvidenceReview" && item.Command == "/rekit handoff main"
+		}) {
+			t.Fatalf("missing evidence action for %s: %+v", gateEventID, items)
+		}
+	}
+}
+
 func TestFactsWithEventCopiesAndRoutesBlockerKinds(t *testing.T) {
 	base := Facts{Candidates: []map[string]any{{"kind": "candidate", "lane": "main", "subject": "existing"}}}
 	candidate := map[string]any{"kind": "candidate", "lane": "main", "subject": "new"}

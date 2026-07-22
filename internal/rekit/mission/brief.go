@@ -87,6 +87,7 @@ type MissionCommanderAction struct {
 type MissionCommanderNextActionItem struct {
 	Lane           string   `json:"lane,omitempty"`
 	Label          string   `json:"label,omitempty"`
+	GateEventID    string   `json:"gateEventId,omitempty"`
 	State          string   `json:"state"`
 	Command        string   `json:"command"`
 	Source         string   `json:"source"`
@@ -315,6 +316,7 @@ func MissionCommanderNextActions(actions []LaneExecutorActionSnapshot, evidenceR
 			items = append(items, MissionCommanderNextActionItem{
 				Lane:           evidenceReviewLane(item),
 				Label:          evidenceReviewLabel(item),
+				GateEventID:    item.GateEventID,
 				State:          item.MissionCommanderAction.State,
 				Command:        item.MissionCommanderAction.PrimaryCommand,
 				Source:         "executionEvidenceReview",
@@ -331,6 +333,7 @@ func MissionCommanderNextActions(actions []LaneExecutorActionSnapshot, evidenceR
 			items = append(items, MissionCommanderNextActionItem{
 				Lane:           evidenceReviewLane(item),
 				Label:          evidenceReviewLabel(item),
+				GateEventID:    item.GateEventID,
 				State:          item.MissionCommanderAction.State,
 				Command:        followUp,
 				Source:         "executionEvidenceReview.followUp",
@@ -517,7 +520,7 @@ func UniqueCommanderNextActions(items []MissionCommanderNextActionItem) []Missio
 		if item.Command == "" {
 			continue
 		}
-		key := item.Source + "\x00" + item.Lane + "\x00" + item.Command
+		key := item.Source + "\x00" + item.Lane + "\x00" + item.GateEventID + "\x00" + item.Command
 		if seen[key] {
 			continue
 		}

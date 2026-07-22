@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 547：authorized adapter Mission Commander action queue closure
+
+状态：已完成 implementation、focused/package validation、三轮独立审查修复与完整本地 release minimum；尚未执行 commit/push 或远程 release-gate inspection。
+
+目标：关闭canonical adapter live state虽已进入status/handoff/continue独立字段、但replacement executor仍需把repair/record/escalation与普通lane continue手工拼接优先级的operational断点。把missing validation、invalid repair、valid record-ready、recorded evidence review与recorded main escalation收口到统一`MissionCommanderNextActions[]` / `MissionCommanderActionQueue`及durable handoff。
+
+已完成内容：
+
+- authorized-gate handoff保留contract/live validation产生的typed Mission Commander actions，并通过共享builder与lane/evidence actions合并；`GateEventID`进入typed action identity与去重键，多个gate的recorded/escalated/repair/record动作不再因同lane、同command互相吞并。
+- exact recorded evidence逐gate去重adapter record动作；changed sidecar可替换同gate旧evidence；missing contract-only sidecar不会误删已有evidence。main escalation evidence排在普通evidence review之前成为current，其它gate adapter actions继续可见但blocked，并停止自主continue。
+- status/overview、project/lane handoff、start、reconcile、continue preview/apply/blocked path、lane`RESUME.md`/checkpoint与durable handoff均复用统一queue；invalid sidecar repair与valid sidecar显式record可成为review-owned current action，而不是被普通lane continue抢占。start/reconcile显式preview Apply保持command-local priority，blocked lane takeover不会被adapter action抢占。
+- product-path与unit coverage锁定invalid repair current、valid record-ready current、recorded evidence去重、same-path changed sidecar、多gate identity/main escalation priority、missing sidecar evidence preservation、blocked start takeover priority，以及status/handoff/continue只读状态不写`.rekit`。
+
+边界：queue只排序并投影已有typed commands；不执行adapter/heavy-tool、不自动record observation、不写authority/confirmed。record仍要求主Agent显式复核并执行；不新增PowerShell runtime logic。
+
+验证结果：focused adapter product-path、Mission Commander multi-gate identity/main escalation、missing sidecar preservation、blocked start takeover priority tests，以及`go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli -count=1`均通过；三轮独立审查发现并修复same-path changed sidecar误去重、跨gate actions消失、start/reconcile preview优先级、多gate identity去重与main escalation current排序。完整本地release minimum已通过`release-check -Format json`（`ready=true`）、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`与`git diff --check`。
+
+上一批摘要：Batch 546已完成canonical adapter sidecar live Mission Commander closure，implementation commits `fb1bd07 Close adapter sidecar live handoff`、`7038f04 Align recorded adapter handoff state`与release inspection commit `ca976d4 Record Batch 546 release gate inspection`已推送；最终implementation run `29964742726`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
+
 ### Batch 546：canonical adapter sidecar live Mission Commander closure
 
 状态：已完成 implementation、focused/package validation、独立审查修复、完整本地 release minimum、implementation commits/push 与远程 release-gate inspection；最终 implementation commit `7038f04 Align recorded adapter handoff state` 已推送。对应 run `29964742726` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。

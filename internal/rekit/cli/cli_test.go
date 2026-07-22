@@ -9195,8 +9195,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if !containsSubstring(project.NextSteps, "review execution evidence for gateEventId "+authorizedEventID) || !slices.Contains(project.NextSteps, "/rekit handoff main") || containsSubstring(project.NextSteps, "/rekit continue main") || !containsSubstring(project.NextSteps, "boundary hit or escalation") {
 		t.Fatalf("project handoff next steps should route through evidence review before continuation: %+v", project.NextSteps)
 	}
-	if len(project.MissionCommanderNextActions) != 2 || project.MissionCommanderNextActions[0].Command != "/rekit handoff main" || project.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || !project.MissionCommanderNextActions[0].RequiresReview || !containsSubstring(project.MissionCommanderNextActions[0].Reasons, authorizedEventID) || !containsSubstring(project.MissionCommanderNextActions[0].Boundary, "do not replay heavy tool") || project.MissionCommanderNextActions[1].Command != "/rekit overview" || containsMissionCommanderNextActionsCommand(project.MissionCommanderNextActions, "/rekit continue main") {
-		t.Fatalf("project handoff JSON should prioritize evidence next actions and suppress continue: %+v", project.MissionCommanderNextActions)
+	assertEvidenceReviewBeforeBlockedAdapterActions(t, "project handoff", project.MissionCommanderNextActions, authorizedEventID)
+	if project.MissionCommanderActionQueue.CurrentAction == nil || project.MissionCommanderActionQueue.CurrentAction.Source != "executionEvidenceReview" || project.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff main" {
+		t.Fatalf("project handoff queue should keep evidence review current: %+v", project.MissionCommanderActionQueue)
 	}
 	projectLatest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
 	projectText, err := os.ReadFile(projectLatest.TargetPath)
@@ -9224,8 +9225,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if !containsSubstring(lane.NextSteps, "review execution evidence for gateEventId "+authorizedEventID) || !slices.Contains(lane.NextSteps, "/rekit handoff main") || containsSubstring(lane.NextSteps, "/rekit continue main") || !containsSubstring(lane.NextSteps, "boundary hit or escalation") {
 		t.Fatalf("lane handoff next steps should route through evidence review before continuation: %+v", lane.NextSteps)
 	}
-	if len(lane.MissionCommanderNextActions) != 2 || lane.MissionCommanderNextActions[0].Lane != "main" || lane.MissionCommanderNextActions[0].Command != "/rekit handoff main" || lane.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || !lane.MissionCommanderNextActions[0].RequiresReview || lane.MissionCommanderNextActions[1].Command != "/rekit overview" || containsMissionCommanderNextActionsCommand(lane.MissionCommanderNextActions, "/rekit continue main") || containsMissionCommanderNextActionsCommand(lane.MissionCommanderNextActions, "/rekit continue main -WhatIf") {
-		t.Fatalf("lane handoff JSON should prioritize evidence next actions and suppress continue: %+v", lane.MissionCommanderNextActions)
+	assertEvidenceReviewBeforeBlockedAdapterActions(t, "lane handoff", lane.MissionCommanderNextActions, authorizedEventID)
+	if lane.MissionCommanderActionQueue.CurrentAction == nil || lane.MissionCommanderActionQueue.CurrentAction.Source != "executionEvidenceReview" || lane.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff main" {
+		t.Fatalf("lane handoff queue should keep evidence review current: %+v", lane.MissionCommanderActionQueue)
 	}
 	laneLatest := assertStartWrite(t, lane.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
 	laneText, err := os.ReadFile(laneLatest.TargetPath)
@@ -9372,9 +9374,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if len(cont.ExecutionEvidenceReview) != 2 || cont.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || cont.ExecutionEvidenceReview[1].Status != "escalated" {
 		t.Fatalf("continue JSON missing execution evidence review queue: %+v", cont.ExecutionEvidenceReview)
 	}
-	if len(cont.MissionCommanderNextActions) != 2 || cont.MissionCommanderNextActions[0].Lane != "main" || cont.MissionCommanderNextActions[0].Command != "/rekit handoff main" || cont.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || !cont.MissionCommanderNextActions[0].RequiresReview || cont.MissionCommanderNextActions[1].Command != "/rekit overview" || containsMissionCommanderNextActionsCommand(cont.MissionCommanderNextActions, "/rekit continue main") || containsMissionCommanderNextActionsCommand(cont.MissionCommanderNextActions, "/rekit continue main -WhatIf") {
-		t.Fatalf("continue JSON missing Mission Commander next actions: %+v", cont.MissionCommanderNextActions)
-	}
+	assertEvidenceReviewBeforeBlockedAdapterActions(t, "continue", cont.MissionCommanderNextActions, authorizedEventID)
 	if slices.Contains(cont.NextSteps, "/rekit continue main") || !containsSubstring(cont.NextSteps, "review open candidate/decision") {
 		t.Fatalf("authorized-gate continue should stay blocked only by open decision: %+v", cont.NextSteps)
 	}
@@ -9451,9 +9451,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if len(checkpoint.ExecutionEvidenceReview) != 2 || checkpoint.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || checkpoint.ExecutionEvidenceReview[0].Status != "succeeded" || !containsSubstring(checkpoint.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/session-1/result.json") || checkpoint.ExecutionEvidenceReview[0].HandoffCommand != "/rekit handoff main" || checkpoint.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || !containsSubstring(checkpoint.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || checkpoint.ExecutionEvidenceReview[1].Status != "escalated" || !containsSubstring(checkpoint.ExecutionEvidenceReview[1].Boundary, "requires main review") || checkpoint.ExecutionEvidenceReview[1].MissionCommanderAction.State != "needs-main-escalation" || containsSubstring(checkpoint.ExecutionEvidenceReview[1].MissionCommanderAction.FollowUpCommands, "/rekit continue main") {
 		t.Fatalf("lane checkpoint missing execution evidence review queue: %+v", checkpoint.ExecutionEvidenceReview)
 	}
-	if len(checkpoint.MissionCommanderNextActions) != 2 || checkpoint.MissionCommanderNextActions[0].Lane != "main" || checkpoint.MissionCommanderNextActions[0].Command != "/rekit handoff main" || checkpoint.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || !checkpoint.MissionCommanderNextActions[0].RequiresReview || checkpoint.MissionCommanderNextActions[1].Command != "/rekit overview" || containsMissionCommanderNextActionsCommand(checkpoint.MissionCommanderNextActions, "/rekit continue main") || containsMissionCommanderNextActionsCommand(checkpoint.MissionCommanderNextActions, "/rekit continue main -WhatIf") {
-		t.Fatalf("lane checkpoint missing Mission Commander next actions: %+v", checkpoint.MissionCommanderNextActions)
-	}
+	assertEvidenceReviewBeforeBlockedAdapterActions(t, "lane checkpoint", checkpoint.MissionCommanderNextActions, authorizedEventID)
 }
 
 func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testing.T) {
@@ -10797,7 +10795,9 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	}
 	var invalidLiveStatus struct {
 		CaseMission struct {
-			AuthorizedGateHandoffs []statusAuthorizedGateHandoff `json:"authorizedGateHandoffs"`
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+			MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &invalidLiveStatus); err != nil {
@@ -10806,6 +10806,9 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	invalidLiveHandoff := invalidLiveStatus.CaseMission.AuthorizedGateHandoffs[0]
 	if invalidLiveHandoff.ReportSummary == nil || invalidLiveHandoff.ReportSummary.State != "repair-adapter-report" || !invalidLiveHandoff.ReportSummary.ReportPresent || invalidLiveHandoff.ReportSummary.Valid || invalidLiveHandoff.ReportSummary.RecordReady || !invalidLiveHandoff.ReportSummary.RecordBlocked || !invalidLiveHandoff.ReportSummary.RequiresRepair || invalidLiveHandoff.ReportSummary.ValidationFailureCode != "boundary-marker-missing" || invalidLiveHandoff.ReportSummary.ValidationFailureStage != "boundary" || len(invalidLiveHandoff.LiveValidationRepairHints) != 1 || invalidLiveHandoff.LiveValidationRepairHints[0].RepairAction != "add-boundary-marker" || !invalidLiveHandoff.LiveValidationRepairHints[0].RerunValidation || len(invalidLiveHandoff.LiveValidationNextSteps) == 0 || invalidLiveHandoff.LiveValidationError != "" {
 		t.Fatalf("generic-binary-re invalid live status did not expose repair state: %+v", invalidLiveHandoff)
+	}
+	if invalidLiveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || invalidLiveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "repair-adapter-report" || invalidLiveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command != "add-boundary-marker" || !invalidLiveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.RequiresReview || len(invalidLiveStatus.CaseMission.MissionCommanderNextActions) == 0 || strings.Contains(invalidLiveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, "/rekit continue") {
+		t.Fatalf("generic-binary-re invalid sidecar repair did not become Mission Commander current action: %+v", invalidLiveStatus.CaseMission.MissionCommanderActionQueue)
 	}
 	assertSnapshotEqual(t, beforeInvalidLiveStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 	out.Reset()
@@ -10842,7 +10845,8 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	}
 	var liveStatus struct {
 		CaseMission struct {
-			AuthorizedGateHandoffs []statusAuthorizedGateHandoff `json:"authorizedGateHandoffs"`
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &liveStatus); err != nil {
@@ -10855,6 +10859,9 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	if liveHandoff.ReportSummary == nil || liveHandoff.ReportSummary.State != "ready-to-record-evidence" || !liveHandoff.ReportSummary.ReportPresent || !liveHandoff.ReportSummary.Valid || !liveHandoff.ReportSummary.RecordReady || liveHandoff.ReportSummary.RecordBlocked || liveHandoff.ReportSummary.RequiresValidation || liveHandoff.ReportSummary.RequiresRepair || liveHandoff.ReportSummary.AdapterID != candidate.ID || liveHandoff.LiveValidation == nil || liveHandoff.LiveValidation.SelectedAdapter == nil || liveHandoff.LiveValidation.SelectedAdapter.ID != candidate.ID || liveHandoff.LiveValidationError != "" {
 		t.Fatalf("generic-binary-re live status did not promote valid sidecar to record-ready: %+v", liveHandoff)
 	}
+	if liveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || liveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "ready-to-record-evidence" || !strings.Contains(liveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, " -Apply ") || !liveStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.RequiresReview {
+		t.Fatalf("generic-binary-re valid sidecar record did not become review-owned Mission Commander current action: %+v", liveStatus.CaseMission.MissionCommanderActionQueue)
+	}
 	assertSnapshotEqual(t, beforeLiveStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 	out.Reset()
 	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "generic-binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
@@ -10864,6 +10871,9 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	if len(liveHandoffPreview.AuthorizedGateAdapterHandoffs) != 1 || liveHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary == nil || !liveHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary.RecordReady || !liveHandoffPreview.AuthorizedGateAdapterHandoffs[0].ReportSummary.Valid {
 		t.Fatalf("generic-binary-re handoff preview omitted live record-ready sidecar: %+v", liveHandoffPreview.AuthorizedGateAdapterHandoffs)
 	}
+	if liveHandoffPreview.MissionCommanderActionQueue.CurrentAction == nil || liveHandoffPreview.MissionCommanderActionQueue.CurrentAction.State != "ready-to-record-evidence" || !strings.Contains(liveHandoffPreview.MissionCommanderActionQueue.CurrentAction.Command, " -Apply ") {
+		t.Fatalf("generic-binary-re handoff queue omitted record-ready current action: %+v", liveHandoffPreview.MissionCommanderActionQueue)
+	}
 	out.Reset()
 	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "generic-binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
@@ -10872,12 +10882,16 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		IsMutation                    bool                                   `json:"isMutation"`
 		Applied                       bool                                   `json:"applied"`
 		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &liveContinue); err != nil {
 		t.Fatalf("generic-binary-re continue live snapshot stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if liveContinue.IsMutation || liveContinue.Applied || len(liveContinue.AuthorizedGateAdapterHandoffs) != 1 || liveContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary == nil || !liveContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary.RecordReady || !liveContinue.AuthorizedGateAdapterHandoffs[0].ReportSummary.Valid {
 		t.Fatalf("generic-binary-re continue preview omitted live record-ready sidecar: %+v", liveContinue)
+	}
+	if liveContinue.MissionCommanderActionQueue.CurrentAction == nil || liveContinue.MissionCommanderActionQueue.CurrentAction.State != "ready-to-record-evidence" || !strings.Contains(liveContinue.MissionCommanderActionQueue.CurrentAction.Command, " -Apply ") {
+		t.Fatalf("generic-binary-re continue queue omitted record-ready current action: %+v", liveContinue.MissionCommanderActionQueue)
 	}
 	assertSnapshotEqual(t, beforeLiveStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 	oldwd, err := os.Getwd()
@@ -10968,7 +10982,8 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	}
 	var recordedHandoffStatus struct {
 		CaseMission struct {
-			AuthorizedGateHandoffs []statusAuthorizedGateHandoff `json:"authorizedGateHandoffs"`
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &recordedHandoffStatus); err != nil {
@@ -10977,6 +10992,9 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	recordedHandoff := recordedHandoffStatus.CaseMission.AuthorizedGateHandoffs[0]
 	if recordedHandoff.ReportSummary == nil || recordedHandoff.ReportSummary.State != "evidence-already-recorded" || recordedHandoff.ReportSummary.RecordReady || !recordedHandoff.ReportSummary.RecordBlocked || recordedHandoff.ReportSummary.RequiresValidation || recordedHandoff.ReportSummary.CurrentAction != "/rekit handoff main" || len(recordedHandoff.LiveValidationNextSteps) != 2 || !strings.Contains(recordedHandoff.LiveValidationNextSteps[0], "do not record or replay") || recordedHandoff.LiveValidation == nil || recordedHandoff.LiveValidation.RecordCommand != "" || recordedHandoff.LiveValidation.CaseRelativeRecordCommand != "" || recordedHandoff.LiveValidation.ReplayBehavior != "" {
 		t.Fatalf("generic-binary-re recorded status still recommends duplicate record: %+v", recordedHandoff)
+	}
+	if recordedHandoffStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || recordedHandoffStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Source != "executionEvidenceReview" || strings.Contains(recordedHandoffStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, " -Apply ") {
+		t.Fatalf("generic-binary-re recorded status did not deduplicate into evidence review: %+v", recordedHandoffStatus.CaseMission.MissionCommanderActionQueue)
 	}
 	out.Reset()
 	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "generic-binary-re", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
@@ -11026,6 +11044,47 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	}
 	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re status evidence", statusEvidence.AdapterContext, candidate.ID)
 	assertExecutionEvidenceAdapterContextSnapshot(t, "generic-binary-re status summary", recordedStatus.CaseMission.ExecutionEvidenceReviewSummary.LatestAdapterContext, candidate.ID)
+
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "dynamic-debug-or-writeback-action",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+applied.EventID+`",
+  "actualBudget": {"runtimeSeconds": 23, "diskMB": 32, "requests": 0},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/debug/session-1/result.json"],
+  "summary": "Generic binary adapter produced a changed bounded sidecar"
+}`)
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var changedSidecarStatus struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &changedSidecarStatus); err != nil {
+		t.Fatalf("generic-binary-re changed sidecar status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if len(changedSidecarStatus.CaseMission.AuthorizedGateHandoffs) != 1 || changedSidecarStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary == nil || changedSidecarStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary.State != "ready-to-record-evidence" || changedSidecarStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || changedSidecarStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "ready-to-record-evidence" || !strings.Contains(changedSidecarStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, " -Apply ") {
+		t.Fatalf("generic-binary-re changed sidecar was hidden by old execution evidence: %+v", changedSidecarStatus.CaseMission)
+	}
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "dynamic-debug-or-writeback-action",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+applied.EventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/debug/session-1/result.json"],
+  "summary": "Generic binary adapter completed bounded debug handoff"
+}`)
 
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "text"}, &out); err != nil {
@@ -11805,6 +11864,7 @@ type missionCommanderActionItem struct {
 type missionCommanderNextActionItem struct {
 	Lane           string   `json:"lane"`
 	Label          string   `json:"label"`
+	GateEventID    string   `json:"gateEventId"`
 	State          string   `json:"state"`
 	Command        string   `json:"command"`
 	Source         string   `json:"source"`
@@ -12508,6 +12568,29 @@ func containsMissionCommanderNextActionsCommand(items []missionCommanderNextActi
 		}
 	}
 	return false
+}
+
+func assertEvidenceReviewBeforeBlockedAdapterActions(t *testing.T, label string, items []missionCommanderNextActionItem, gateEventID string) {
+	t.Helper()
+	if len(items) < 3 || items[0].Lane != "main" || items[0].Command != "/rekit handoff main" || items[0].Source != "executionEvidenceReview" || !items[0].Blocked || !items[0].RequiresReview || !containsSubstring(items[0].Reasons, gateEventID) || !containsSubstring(items[0].Boundary, "do not replay heavy tool") || items[1].Source != "executionEvidenceReview.followUp" || items[1].Command != "/rekit overview" {
+		t.Fatalf("%s should prioritize execution evidence review: %+v", label, items)
+	}
+	adapterActions := items[2:]
+	if !slices.ContainsFunc(adapterActions, func(item missionCommanderNextActionItem) bool {
+		return strings.HasPrefix(item.Source, "adapterReportContract.missionCommanderAction")
+	}) {
+		t.Fatalf("%s should preserve adapter report actions after evidence review: %+v", label, items)
+	}
+	for _, item := range adapterActions {
+		if strings.HasPrefix(item.Source, "adapterReport") && (!item.Blocked || !item.RequiresReview || !containsSubstring(item.Reasons, "another execution evidence item requires main review") || !containsSubstring(item.Boundary, "until main evidence review completes")) {
+			t.Fatalf("%s adapter action should remain visible but blocked by main evidence review: %+v", label, item)
+		}
+	}
+	if slices.ContainsFunc(items, func(item missionCommanderNextActionItem) bool {
+		return strings.HasPrefix(item.Command, "/rekit continue main")
+	}) {
+		t.Fatalf("%s should suppress autonomous continue while main evidence review is open: %+v", label, items)
+	}
 }
 
 func containsMissionCommanderNextAction(items []missionCommanderNextActionItem, source, command string, blocked, requiresReview bool) bool {

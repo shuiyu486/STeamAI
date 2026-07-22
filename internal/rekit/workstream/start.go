@@ -195,6 +195,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 		executorAction.MissionCommanderAction = startApplyCommanderAction(lane, opt, claim)
 	}
 	commanderNextActions := startMissionCommanderNextActions(lane, executorAction)
+	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
 	return StartResult{
 		SchemaVersion:                 1,
 		Command:                       "start",
@@ -253,6 +254,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 	authorizedGateAdapterHandoffs := authorizedGateAdapterHandoffsForLane(m.RepoRoot, inst.CaseRoot, m.Pack, lane.ID)
 	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
 	commanderNextActions := startMissionCommanderNextActions(lane, executorAction)
+	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
 	return StartResult{
 		SchemaVersion:                 1,
 		Command:                       "start",
@@ -292,6 +294,10 @@ func startMissionCommanderNextActions(lane Lane, action laneExecutorAction) []mi
 	for idx := range items {
 		items[idx].RequiresReview = true
 		items[idx].Reasons = append(items[idx].Reasons, "review start preview before applying case-local lane/board/resume/checkpoint writes")
+		if items[idx].Source == "missionCommanderActions" {
+			items[idx].Blocked = false
+			items[idx].Reasons = append(items[idx].Reasons, "start apply only performs the bounded case-local lane/executor takeover")
+		}
 		if items[idx].Source == "missionCommanderActions.followUp" {
 			items[idx].Blocked = true
 			items[idx].Reasons = append(items[idx].Reasons, "run only after start apply succeeds and the refreshed executor action remains ready")
@@ -843,6 +849,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	autonomySummary := autonomy.ReadSummary(caseRoot, lane.ID, m)
 	executorAction := laneExecutorActionFor(lane, laneFacts, brief)
 	missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
+	missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(missionCommanderNextActions, authorizedGateAdapterHandoffs)
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
 	lines := []string{
 		"# RESUME：" + lane.ID,

@@ -297,8 +297,9 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 		executorAction.MissionCommanderAction = ctx.reconcileApplyCommanderAction()
 	}
 	commanderAction := executorAction.MissionCommanderAction
-	commanderNextActions := reconcileMissionCommanderNextActions(ctx.lane, executorAction, applied)
 	authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.facts.Requests, ctx.lane.ID)
+	commanderNextActions := reconcileMissionCommanderNextActions(ctx.lane, executorAction, applied)
+	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
 	result := ReconcileResult{
 		SchemaVersion:                 1,
 		Command:                       "reconcile",

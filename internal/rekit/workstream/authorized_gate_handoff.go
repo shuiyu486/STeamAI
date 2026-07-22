@@ -10,27 +10,28 @@ import (
 )
 
 type AuthorizedGateAdapterHandoff struct {
-	EventID                   string                               `json:"eventId,omitempty"`
-	Lane                      string                               `json:"lane,omitempty"`
-	Subject                   string                               `json:"subject,omitempty"`
-	Action                    string                               `json:"action,omitempty"`
-	Target                    string                               `json:"target,omitempty"`
-	Status                    string                               `json:"status,omitempty"`
-	Risk                      string                               `json:"risk,omitempty"`
-	Authorization             string                               `json:"authorization,omitempty"`
-	Profile                   string                               `json:"profile,omitempty"`
-	ReportContract            string                               `json:"reportContract,omitempty"`
-	DefaultReportPath         string                               `json:"defaultReportPath,omitempty"`
-	ReportPath                string                               `json:"reportPath,omitempty"`
-	ReportSummary             *gate.AdapterReportHandoffSummary    `json:"reportSummary,omitempty"`
-	LiveValidation            *AuthorizedGateLiveValidationHandoff `json:"liveValidation,omitempty"`
-	LiveValidationRepairHints []gate.AdapterReportRepairHint       `json:"liveValidationRepairHints,omitempty"`
-	LiveValidationNextSteps   []string                             `json:"liveValidationNextSteps,omitempty"`
-	LiveValidationError       string                               `json:"liveValidationError,omitempty"`
-	ReportContractError       string                               `json:"reportContractError,omitempty"`
-	HandoffCommand            string                               `json:"handoffCommand,omitempty"`
-	Boundary                  []string                             `json:"boundary,omitempty"`
-	Evidence                  []string                             `json:"evidence,omitempty"`
+	EventID                     string                               `json:"eventId,omitempty"`
+	Lane                        string                               `json:"lane,omitempty"`
+	Subject                     string                               `json:"subject,omitempty"`
+	Action                      string                               `json:"action,omitempty"`
+	Target                      string                               `json:"target,omitempty"`
+	Status                      string                               `json:"status,omitempty"`
+	Risk                        string                               `json:"risk,omitempty"`
+	Authorization               string                               `json:"authorization,omitempty"`
+	Profile                     string                               `json:"profile,omitempty"`
+	ReportContract              string                               `json:"reportContract,omitempty"`
+	DefaultReportPath           string                               `json:"defaultReportPath,omitempty"`
+	ReportPath                  string                               `json:"reportPath,omitempty"`
+	ReportSummary               *gate.AdapterReportHandoffSummary    `json:"reportSummary,omitempty"`
+	LiveValidation              *AuthorizedGateLiveValidationHandoff `json:"liveValidation,omitempty"`
+	LiveValidationRepairHints   []gate.AdapterReportRepairHint       `json:"liveValidationRepairHints,omitempty"`
+	LiveValidationNextSteps     []string                             `json:"liveValidationNextSteps,omitempty"`
+	LiveValidationError         string                               `json:"liveValidationError,omitempty"`
+	ReportContractError         string                               `json:"reportContractError,omitempty"`
+	HandoffCommand              string                               `json:"handoffCommand,omitempty"`
+	Boundary                    []string                             `json:"boundary,omitempty"`
+	Evidence                    []string                             `json:"evidence,omitempty"`
+	missionCommanderNextActions []mission.MissionCommanderNextActionItem
 }
 
 type AuthorizedGateLiveValidationHandoff struct {
@@ -127,6 +128,7 @@ func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[s
 	handoff.ReportPath = firstText(reportSummary.ReportPath, contract.LiveValidation.CaseRelativeReportPath, contract.DefaultReportPath)
 	liveValidation := authorizedGateLiveValidationHandoffFor(contract.LiveValidation)
 	handoff.LiveValidation = &liveValidation
+	handoff.missionCommanderNextActions = append([]mission.MissionCommanderNextActionItem{}, contract.MissionCommanderNextActions...)
 	if validation, present, err := gate.AdapterReportLiveSnapshot(repoRoot, caseRoot, pack, gate.Options{GateEventID: eventID, ExecutionReportPath: handoff.ReportPath}); err != nil {
 		handoff.LiveValidationError = err.Error()
 	} else if present {
@@ -134,6 +136,7 @@ func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[s
 		handoff.ReportPath = firstText(validation.ReportPath, handoff.ReportPath)
 		handoff.LiveValidationRepairHints = append([]gate.AdapterReportRepairHint{}, validation.RepairHints...)
 		handoff.LiveValidationNextSteps = append([]string{}, validation.NextSteps...)
+		handoff.missionCommanderNextActions = append([]mission.MissionCommanderNextActionItem{}, validation.MissionCommanderNextActions...)
 		if validation.AdapterContext != nil && validation.AdapterContext.Selected != nil {
 			selected := cloneAdapterToolCandidate(*validation.AdapterContext.Selected)
 			liveValidation.SelectedAdapterID = selected.ID
@@ -181,6 +184,77 @@ func cloneAdapterToolCandidate(candidate gate.AdapterToolCandidate) gate.Adapter
 	candidate.EvidenceGuidance = append([]string{}, candidate.EvidenceGuidance...)
 	candidate.StopConditionHints = append([]string{}, candidate.StopConditionHints...)
 	return candidate
+}
+
+func MissionCommanderNextActionsWithAuthorizedGateAdapters(base []mission.MissionCommanderNextActionItem, handoffs []AuthorizedGateAdapterHandoff) []mission.MissionCommanderNextActionItem {
+	recordedGateEvents := map[string]bool{}
+	evidenceNeedsMainReview := false
+	evidenceActions := []mission.MissionCommanderNextActionItem{}
+	previewActions := []mission.MissionCommanderNextActionItem{}
+	laneActions := []mission.MissionCommanderNextActionItem{}
+	for _, item := range base {
+		if strings.HasPrefix(item.Source, "executionEvidenceReview") {
+			evidenceActions = append(evidenceActions, item)
+			gateEventID := firstText(item.GateEventID, item.Label)
+			if gateEventID != "" {
+				recordedGateEvents[gateEventID] = true
+			}
+			if item.Blocked {
+				evidenceNeedsMainReview = true
+			}
+			continue
+		}
+		if item.Source == "missionCommanderActions" && (item.State == "needs-start-apply" || item.State == "needs-reconcile") {
+			previewActions = append(previewActions, item)
+			continue
+		}
+		laneActions = append(laneActions, item)
+	}
+	adapterActions := []mission.MissionCommanderNextActionItem{}
+	supersededEvidence := map[string]bool{}
+	for _, handoff := range handoffs {
+		exactRecorded := handoff.ReportSummary != nil && (handoff.ReportSummary.State == "evidence-already-recorded" || handoff.ReportSummary.RequiresMainEscalation)
+		if recordedGateEvents[handoff.EventID] && exactRecorded {
+			continue
+		}
+		liveSidecarSupersedesEvidence := handoff.ReportSummary != nil &&
+			handoff.ReportSummary.ReportPresent &&
+			!exactRecorded &&
+			(handoff.ReportSummary.RequiresRepair || handoff.ReportSummary.RecordReady)
+		if recordedGateEvents[handoff.EventID] && liveSidecarSupersedesEvidence {
+			supersededEvidence[handoff.EventID] = true
+		}
+		for _, action := range handoff.missionCommanderNextActions {
+			action.GateEventID = handoff.EventID
+			if evidenceNeedsMainReview {
+				action.Blocked = true
+				action.Reasons = append(action.Reasons, "another execution evidence item requires main review before this adapter action")
+				action.Boundary = append(action.Boundary, "do not execute this adapter action until main evidence review completes")
+			}
+			adapterActions = append(adapterActions, action)
+		}
+	}
+	if len(adapterActions) == 0 {
+		return mission.UniqueCommanderNextActions(base)
+	}
+	items := []mission.MissionCommanderNextActionItem{}
+	for _, item := range evidenceActions {
+		if item.Source == "executionEvidenceReview" && item.State == "needs-main-escalation" && !supersededEvidence[firstText(item.GateEventID, item.Label)] {
+			items = append(items, item)
+		}
+	}
+	for _, item := range evidenceActions {
+		if item.Source == "executionEvidenceReview" && item.State == "needs-main-escalation" {
+			continue
+		}
+		if !supersededEvidence[firstText(item.GateEventID, item.Label)] {
+			items = append(items, item)
+		}
+	}
+	items = append(items, previewActions...)
+	items = append(items, adapterActions...)
+	items = append(items, laneActions...)
+	return mission.UniqueCommanderNextActions(items)
 }
 
 func authorizedGateReportContractCommand(pack, eventID string) string {

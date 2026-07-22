@@ -164,6 +164,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		commanderActions = []mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(*lane, *executorAction)}
 	}
 	missionCommanderNext := mission.MissionCommanderNextActions(commanderActions, executionEvidenceReview, handoffHasBlockedAction(commanderActions))
+	missionCommanderNext = MissionCommanderNextActionsWithAuthorizedGateAdapters(missionCommanderNext, authorizedGateAdapterHandoffs)
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNext)
 	next := []string{"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default"}
 	next = append(next, ExecutionEvidenceReviewNextSteps(executionEvidenceReview, includeEvidenceContinue)...)
@@ -417,7 +418,9 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		autonomySummary := autonomy.ReadSummary(ctx.inst.CaseRoot, lane.ID, ctx.manifest)
 		executorAction := ctx.executorAction(lane)
 		executionEvidenceReview := ctx.executionEvidenceReview(lane)
+		authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, lane.ID)
 		missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
+		missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(missionCommanderNextActions, authorizedGateAdapterHandoffs)
 		missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
 		executionEvidenceReviewSummary := ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue)
 		evidenceNeedsMainReview := ExecutionEvidenceReviewNeedsMainReview(executionEvidenceReview)
@@ -706,7 +709,13 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	executorAction := ctx.executorAction(lane)
 	executionEvidenceReview := ctx.executionEvidenceReview(lane)
 	evidenceNeedsMainReview := ExecutionEvidenceReviewNeedsMainReview(executionEvidenceReview)
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		return "", nil, err
+	}
+	authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, lane.ID)
 	missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
+	missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(missionCommanderNextActions, authorizedGateAdapterHandoffs)
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
 	executionEvidenceReviewSummary := ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue)
 	var out bytes.Buffer
@@ -760,10 +769,6 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	if err := writeWorkspacePackets(&out, ctx.inst.CaseRoot, lane); err != nil {
 		return "", nil, err
 	}
-	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
-	if err != nil {
-		return "", nil, err
-	}
 	writeLaneMissionBrief(&out, lane, facts, executorAction)
 	writeLaneMissionCommanderActionQueue(&out, missionCommanderActionQueue)
 	writeLaneMissionCommanderNextActions(&out, missionCommanderNextActions)
@@ -779,7 +784,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	WriteReviewerDispatchIntakeHandoffSection(&out, "## Reviewer dispatch intake handoff", reviewerDispatchIntakeHandoffs)
 	writePendingGateSection(&out, facts.Requests, lane.ID)
 	writeAuthorizedGateSection(&out, facts.Requests, lane.ID)
-	WriteAuthorizedGateAdapterHandoffSection(&out, "## Authorized gate adapter handoff", AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, lane.ID))
+	WriteAuthorizedGateAdapterHandoffSection(&out, "## Authorized gate adapter handoff", authorizedGateAdapterHandoffs)
 	writeExecutionEvidenceReviewSection(&out, executionEvidenceReview, executionEvidenceReviewSummary)
 	writeInterventionSection(&out, facts.Interventions, lane.ID)
 	writeRollbackSection(&out, facts.Rollbacks, lane.ID)

@@ -173,7 +173,9 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	brief := buildMissionBrief(data.lanes, facts)
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
 	evidenceReview := overviewExecutionEvidenceReview(data.lanes, facts)
+	authorizedGateAdapterHandoffs := workstream.AuthorizedGateAdapterHandoffs(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, "")
 	nextActions := missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief))
+	nextActions = workstream.MissionCommanderNextActionsWithAuthorizedGateAdapters(nextActions, authorizedGateAdapterHandoffs)
 	actionQueue := missionCommanderActionQueue(nextActions)
 	writeMissionBrief(&out, brief)
 	writeLaneExecutorActions(&out, actions)
@@ -181,7 +183,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	writeMissionCommanderActionQueue(&out, actionQueue)
 	writeMissionCommanderNextActions(&out, nextActions)
 	writeExecutionEvidenceReview(&out, evidenceReview, workstream.ExecutionEvidenceReviewSummaryFor(evidenceReview, actionQueue))
-	workstream.WriteAuthorizedGateAdapterHandoffSection(&out, "Authorized gate adapter handoff：", workstream.AuthorizedGateAdapterHandoffs(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, ""))
+	workstream.WriteAuthorizedGateAdapterHandoffSection(&out, "Authorized gate adapter handoff：", authorizedGateAdapterHandoffs)
 	writeOpenCandidates(&out, facts.Candidates)
 	writePendingGates(&out, facts.Requests)
 	writeAuthorizedGates(&out, facts.Requests)
@@ -228,7 +230,9 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 	brief := buildMissionBrief(data.lanes, facts)
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
 	evidenceReview := overviewExecutionEvidenceReview(data.lanes, facts)
+	authorizedGateAdapterHandoffs := workstream.AuthorizedGateAdapterHandoffs(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, "")
 	nextActions := missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief))
+	nextActions = workstream.MissionCommanderNextActionsWithAuthorizedGateAdapters(nextActions, authorizedGateAdapterHandoffs)
 	actionQueue := missionCommanderActionQueue(nextActions)
 	return Inventory{
 		SchemaVersion:  1,
@@ -253,7 +257,7 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 		MissionCommanderActionQueue:    actionQueue,
 		ExecutionEvidenceReview:        evidenceReview,
 		ExecutionEvidenceReviewSummary: workstream.ExecutionEvidenceReviewSummaryFor(evidenceReview, actionQueue),
-		AuthorizedGateAdapterHandoffs:  workstream.AuthorizedGateAdapterHandoffs(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, ""),
+		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
 		Sections:                       data.sections,
 		NextSteps:                      overviewNextSteps(brief, evidenceReview),
 	}, nil

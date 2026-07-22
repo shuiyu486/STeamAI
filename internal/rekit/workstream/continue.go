@@ -150,7 +150,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	reviewerWritebacks := ctx.reviewerWritebacks()
 	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
 	authorizedGateAdapterHandoffs := ctx.authorizedGateAdapterHandoffs()
-	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview)
+	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview, authorizedGateAdapterHandoffs)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	result := ContinueResult{
 		SchemaVersion:                  1,
@@ -352,7 +352,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 	result.ReviewerDispatchIntakeHandoffs = ctx.reviewerDispatchIntakeHandoffs()
 	result.ReviewerDispatchIntakeSummary = ReviewerDispatchIntakeSummaryFor(result.ReviewerDispatchIntakeHandoffs)
 	result.AuthorizedGateAdapterHandoffs = ctx.authorizedGateAdapterHandoffs()
-	result.MissionCommanderNextActions = ctx.missionCommanderNextActions(result.ExecutorAction, result.ExecutionEvidenceReview)
+	result.MissionCommanderNextActions = ctx.missionCommanderNextActions(result.ExecutorAction, result.ExecutionEvidenceReview, result.AuthorizedGateAdapterHandoffs)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	result.ExecutionEvidenceReviewSummary = ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
 	result.NextSteps = workstreamNextSteps(result.ExecutorAction, true)
@@ -467,8 +467,9 @@ func (ctx continueContext) authorizedGateAdapterHandoffs() []AuthorizedGateAdapt
 	return AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, ctx.lane.ID)
 }
 
-func (ctx continueContext) missionCommanderNextActions(action laneExecutorAction, evidenceReview []ExecutionEvidenceReviewItem) []mission.MissionCommanderNextActionItem {
-	return mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(ctx.lane, action)}, evidenceReview, action.Blocked)
+func (ctx continueContext) missionCommanderNextActions(action laneExecutorAction, evidenceReview []ExecutionEvidenceReviewItem, adapterHandoffs []AuthorizedGateAdapterHandoff) []mission.MissionCommanderNextActionItem {
+	items := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(ctx.lane, action)}, evidenceReview, action.Blocked)
+	return MissionCommanderNextActionsWithAuthorizedGateAdapters(items, adapterHandoffs)
 }
 
 func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResult, error) {
@@ -484,7 +485,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 	reviewerWritebacks := ctx.reviewerWritebacks()
 	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
 	authorizedGateAdapterHandoffs := ctx.authorizedGateAdapterHandoffs()
-	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview)
+	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview, authorizedGateAdapterHandoffs)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	return ContinueResult{
 		SchemaVersion:                  1,

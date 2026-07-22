@@ -80,6 +80,29 @@ func TestStartMissionCommanderNextActionsRequireReviewBeforeApply(t *testing.T) 
 	}
 }
 
+func TestStartMissionCommanderNextActionsKeepBlockedLaneTakeoverApplyConsumable(t *testing.T) {
+	lane := Lane{ID: "feature-login", Name: "login", Status: "open"}
+	action := laneExecutorAction{
+		Blocked:                true,
+		MissionCommanderAction: startApplyCommanderAction(lane, StartOptions{}, executorClaim{}),
+	}
+	items := startMissionCommanderNextActions(lane, action)
+	if !hasStartCommanderNextAction(items, "missionCommanderActions", "/rekit start login -Apply", false, true) {
+		t.Fatalf("blocked lane start preview should keep bounded takeover apply consumable: %+v", items)
+	}
+	queue := mission.MissionCommanderActionQueueFor(append(items, mission.MissionCommanderNextActionItem{
+		Lane:           "feature-login",
+		GateEventID:    "gate-invalid",
+		State:          "repair-adapter-report",
+		Command:        "add-boundary-marker",
+		Source:         "adapterReportValidation.repairHints",
+		RequiresReview: true,
+	}))
+	if queue.CurrentAction == nil || queue.CurrentAction.State != "needs-start-apply" {
+		t.Fatalf("start takeover apply should remain current before adapter repair: %+v", queue)
+	}
+}
+
 func TestStartMissionCommanderNextActionsKeepReadyApplyConsumable(t *testing.T) {
 	lane := Lane{ID: "feature-login", Name: "login", Status: "open"}
 	action := laneExecutorAction{
