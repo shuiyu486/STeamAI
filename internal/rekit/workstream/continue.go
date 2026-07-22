@@ -49,6 +49,8 @@ type ContinueResult struct {
 	ExecutionEvidenceReviewSummary ExecutionEvidenceReviewSummary           `json:"executionEvidenceReviewSummary"`
 	ReviewerWritebacks             []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
 	ReviewerWritebackSummary       ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
+	ReviewerDispatchIntakeHandoffs []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary  ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
 	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue    mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	Inputs                         []string                                 `json:"inputs"`
@@ -145,6 +147,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	executorAction := ctx.executorAction()
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
+	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	result := ContinueResult{
@@ -167,6 +170,8 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, commanderActionQueue),
 		ReviewerWritebacks:             reviewerWritebacks,
 		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
 		MissionCommanderNextActions:    commanderNextActions,
 		MissionCommanderActionQueue:    commanderActionQueue,
 		Inputs:                         uniqueStrings(inputs),
@@ -341,6 +346,8 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 	result.ExecutionEvidenceReview = ctx.executionEvidenceReview()
 	result.ReviewerWritebacks = ctx.reviewerWritebacks()
 	result.ReviewerWritebackSummary = ReviewerWritebackSummaryFor(result.ReviewerWritebacks)
+	result.ReviewerDispatchIntakeHandoffs = ctx.reviewerDispatchIntakeHandoffs()
+	result.ReviewerDispatchIntakeSummary = ReviewerDispatchIntakeSummaryFor(result.ReviewerDispatchIntakeHandoffs)
 	result.MissionCommanderNextActions = ctx.missionCommanderNextActions(result.ExecutorAction, result.ExecutionEvidenceReview)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	result.ExecutionEvidenceReviewSummary = ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
@@ -436,6 +443,18 @@ func (ctx continueContext) reviewerWritebacks() []ReviewerWritebackItem {
 	return ReviewerWritebackItems(facts, ctx.lane.ID)
 }
 
+func (ctx continueContext) reviewerDispatchIntakeHandoffs() []ReviewerDispatchIntakeHandoff {
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		return nil
+	}
+	items, err := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, ctx.lane.ID)
+	if err != nil {
+		return nil
+	}
+	return items
+}
+
 func (ctx continueContext) missionCommanderNextActions(action laneExecutorAction, evidenceReview []ExecutionEvidenceReviewItem) []mission.MissionCommanderNextActionItem {
 	return mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(ctx.lane, action)}, evidenceReview, action.Blocked)
 }
@@ -451,6 +470,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 	executorAction := ctx.executorAction()
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
+	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	return ContinueResult{
@@ -473,6 +493,8 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, commanderActionQueue),
 		ReviewerWritebacks:             reviewerWritebacks,
 		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
 		MissionCommanderNextActions:    commanderNextActions,
 		MissionCommanderActionQueue:    commanderActionQueue,
 		OpenRisks:                      interventionRiskLines(open),

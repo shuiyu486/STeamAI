@@ -5580,6 +5580,51 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	}
 	assertCLIActionQueue(t, *packet.ReviewerOrchestration.MissionCommanderActionQueue, 6, 2, 4, 6, 0, plan.MissionCommanderAction.PrimaryCommand)
 
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var statusBeforeDispatch struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &statusBeforeDispatch); err != nil {
+		t.Fatalf("status JSON did not decode: %v\n%s", err, out.String())
+	}
+	assertReviewerDispatchIntakeSummary(t, "status before reviewer result", statusBeforeDispatch.CaseMission.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
+	firstDispatch, ok := reviewerDispatchIntakeByShard(statusBeforeDispatch.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
+	if !ok || firstDispatch.PacketPath != plan.PacketPath || firstDispatch.ReviewerResultPresent || firstDispatch.State != "waiting-for-reviewer-result" || !strings.Contains(firstDispatch.DispatchCommand, "dispatch read-only reviewer for shard-01") || !strings.Contains(firstDispatch.PreviewCommand, "-WhatIf -Format json") || !containsSubstring(firstDispatch.Boundary, "does not spawn") {
+		t.Fatalf("status JSON omitted waiting reviewer dispatch intake handoff: %+v", statusBeforeDispatch.CaseMission.ReviewerDispatchIntakeHandoffs)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"status case mission reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0", "status case mission reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "status case mission reviewer dispatch intake dispatch：shard=shard-01 command=`dispatch read-only reviewer for shard-01"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status text omitted reviewer dispatch intake handoff %q:\n%s", expected, out.String())
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "login", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "handoff reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "handoff reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") {
+		t.Fatalf("handoff text omitted reviewer dispatch intake handoff:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "login", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "continue reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "continue reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") {
+		t.Fatalf("continue text omitted reviewer dispatch intake handoff:\n%s", out.String())
+	}
+
 	for idx, handoff := range packet.ShardHandoffs {
 		decision := "accept"
 		verdict := "accepted"
@@ -5590,6 +5635,26 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 		data := reviewerResultForCLIPlan(t, packet, handoff, decision, verdict, "reviewer-session-"+handoff.ShardID)
 		if err := os.WriteFile(handoff.ReviewerResultPath, data, 0o644); err != nil {
 			t.Fatal(err)
+		}
+		if idx == 0 {
+			out.Reset()
+			if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+				t.Fatal(err)
+			}
+			var statusWithReviewerResult struct {
+				CaseMission struct {
+					ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+					ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+				} `json:"caseMission"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &statusWithReviewerResult); err != nil {
+				t.Fatalf("status JSON with reviewer result did not decode: %v\n%s", err, out.String())
+			}
+			assertReviewerDispatchIntakeSummary(t, "status with reviewer result", statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeSummary, 2, 1, 1, "shard-02", "waiting-for-reviewer-result")
+			readyDispatch, ok := reviewerDispatchIntakeByShard(statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
+			if !ok || !readyDispatch.ReviewerResultPresent || readyDispatch.State != "ready-for-reviewer-intake-preview" || !strings.Contains(readyDispatch.PreviewCommand, handoff.ReviewerResultPath) || readyDispatch.DispatchOnly {
+				t.Fatalf("status JSON omitted ready reviewer dispatch intake handoff: %+v", statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeHandoffs)
+			}
 		}
 
 		out.Reset()
@@ -5612,6 +5677,23 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 		if !applied.IsMutation || !applied.Applied || applied.WritebackStatus != "complete" || !applied.ReadyForWriteback || applied.OrchestrationSnapshot.DispatchIndex != idx+1 || applied.OrchestrationSnapshot.ShardStatusAfter != "complete" || applied.Verification == nil || applied.Decision == nil || !applied.PostValidation.Valid {
 			t.Fatalf("unexpected reviewer intake apply for %s: %+v", handoff.ShardID, applied)
 		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var statusAfterIntake struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &statusAfterIntake); err != nil {
+		t.Fatalf("post-intake status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if statusAfterIntake.CaseMission.ReviewerDispatchIntakeSummary.Total != 0 || len(statusAfterIntake.CaseMission.ReviewerDispatchIntakeHandoffs) != 0 {
+		t.Fatalf("completed reviewer dispatch intake should no longer be open: %+v", statusAfterIntake.CaseMission)
 	}
 
 	verifications := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl")
@@ -10268,6 +10350,8 @@ type handoffResult struct {
 	ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
 	ReviewerWritebacks             []reviewerWritebackCLIItem             `json:"reviewerWritebacks"`
 	ReviewerWritebackSummary       reviewerWritebackSummaryCLIItem        `json:"reviewerWritebackSummary"`
+	ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem        `json:"reviewerDispatchIntakeHandoffs"`
+	ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem   `json:"reviewerDispatchIntakeSummary"`
 	MissionCommanderNextActions    []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
 	MissionCommanderActionQueue    missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
 	Writes                         []startWrite                           `json:"writes"`
@@ -10285,6 +10369,64 @@ type handoffLaneExecutorAction struct {
 	LastTakeoverBy     string                 `json:"lastTakeoverBy"`
 	LastTakeoverReason string                 `json:"lastTakeoverReason"`
 	ExecutorAction     executorActionSnapshot `json:"executorAction"`
+}
+
+type reviewerDispatchIntakeCLIItem struct {
+	PacketID              string   `json:"packetId"`
+	PacketPath            string   `json:"packetPath"`
+	SummaryPath           string   `json:"summaryPath"`
+	ResultRoot            string   `json:"resultRoot"`
+	TargetLane            string   `json:"targetLane"`
+	ShardID               string   `json:"shardId"`
+	State                 string   `json:"state"`
+	ReviewerResultPath    string   `json:"reviewerResultPath"`
+	ReviewerResultPresent bool     `json:"reviewerResultPresent"`
+	IntakeAvailable       bool     `json:"intakeAvailable"`
+	DispatchOnly          bool     `json:"dispatchOnly"`
+	VerificationRecorded  bool     `json:"verificationRecorded"`
+	DecisionRecorded      bool     `json:"decisionRecorded"`
+	DispatchCommand       string   `json:"dispatchCommand"`
+	PreviewCommand        string   `json:"previewCommand"`
+	ApplyCommand          string   `json:"applyCommand"`
+	OwnerExecutor         string   `json:"ownerExecutor"`
+	OwnerGeneration       int      `json:"ownerGeneration"`
+	OwnerBindingMode      string   `json:"ownerBindingMode"`
+	Evidence              []string `json:"evidence"`
+	Boundary              []string `json:"boundary"`
+}
+
+type reviewerDispatchIntakeSummaryCLIItem struct {
+	Total                    int      `json:"total"`
+	WaitingForReviewerResult int      `json:"waitingForReviewerResult"`
+	ReadyForPreview          int      `json:"readyForPreview"`
+	AttachRequired           int      `json:"attachRequired"`
+	DispatchOnly             int      `json:"dispatchOnly"`
+	LaneCount                int      `json:"laneCount"`
+	Lanes                    []string `json:"lanes"`
+	LatestPacketPath         string   `json:"latestPacketPath"`
+	LatestShardID            string   `json:"latestShardId"`
+	LatestState              string   `json:"latestState"`
+	LatestReviewerResultPath string   `json:"latestReviewerResultPath"`
+	LatestPreviewCommand     string   `json:"latestPreviewCommand"`
+	LatestApplyCommand       string   `json:"latestApplyCommand"`
+	NextAction               string   `json:"nextAction"`
+	Boundary                 []string `json:"boundary"`
+}
+
+func assertReviewerDispatchIntakeSummary(t *testing.T, label string, summary reviewerDispatchIntakeSummaryCLIItem, total, waiting, ready int, latestShard, latestState string) {
+	t.Helper()
+	if summary.Total != total || summary.WaitingForReviewerResult != waiting || summary.ReadyForPreview != ready || summary.LatestShardID != latestShard || summary.LatestState != latestState || !containsSubstring(summary.Boundary, "summary is read-only") || !strings.Contains(summary.NextAction, latestShard) {
+		t.Fatalf("%s missing reviewer dispatch intake summary: %+v", label, summary)
+	}
+}
+
+func reviewerDispatchIntakeByShard(items []reviewerDispatchIntakeCLIItem, shard string) (reviewerDispatchIntakeCLIItem, bool) {
+	for _, item := range items {
+		if item.ShardID == shard {
+			return item, true
+		}
+	}
+	return reviewerDispatchIntakeCLIItem{}, false
 }
 
 type reviewerWritebackCLIItem struct {

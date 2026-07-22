@@ -41,6 +41,8 @@ type HandoffResult struct {
 	ExecutionEvidenceReviewSummary ExecutionEvidenceReviewSummary           `json:"executionEvidenceReviewSummary"`
 	ReviewerWritebacks             []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
 	ReviewerWritebackSummary       ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
+	ReviewerDispatchIntakeHandoffs []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary  ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
 	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue    mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	Writes                         []StartWrite                             `json:"writes"`
@@ -132,12 +134,15 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	laneExecutorActions := []mission.LaneExecutorActionSnapshot{}
 	executionEvidenceReview := []ExecutionEvidenceReviewItem{}
 	reviewerWritebacks := []ReviewerWritebackItem{}
+	reviewerDispatchIntakeHandoffs := []ReviewerDispatchIntakeHandoff{}
 	facts, factsErr := readHandoffFacts(ctx.inst.CaseRoot)
 	if factsErr == nil {
 		if lane != nil {
 			reviewerWritebacks = ReviewerWritebackItems(facts, lane.ID)
+			reviewerDispatchIntakeHandoffs, _ = ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, lane.ID)
 		} else if ctx.project {
 			reviewerWritebacks = ReviewerWritebackItems(facts, "")
+			reviewerDispatchIntakeHandoffs, _ = ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, "")
 		}
 	}
 	if lane != nil {
@@ -187,6 +192,8 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue),
 		ReviewerWritebacks:             reviewerWritebacks,
 		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
 		MissionCommanderNextActions:    missionCommanderNext,
 		MissionCommanderActionQueue:    missionCommanderActionQueue,
 		Writes:                         writes,
@@ -377,6 +384,11 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	fmt.Fprintln(&out)
 	writeProjectMissionBrief(&out, ctx.board.Lanes, facts)
 	writeReviewerWritebackItems(&out, ReviewerWritebackItems(facts, ""))
+	reviewerDispatchIntakeHandoffs, err := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, "")
+	if err != nil {
+		return "", nil, err
+	}
+	WriteReviewerDispatchIntakeHandoffSection(&out, "## Reviewer dispatch intake handoff", reviewerDispatchIntakeHandoffs)
 	fmt.Fprintln(&out, "## 工作线")
 	fmt.Fprintln(&out)
 	for _, row := range ctx.board.Lanes {
@@ -730,6 +742,11 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	writeVerificationSection(&out, facts.Verifications, lane.ID)
 	writeDecisionSection(&out, facts.Decisions, lane.ID)
 	writeReviewerWritebackItems(&out, ReviewerWritebackItems(facts, lane.ID))
+	reviewerDispatchIntakeHandoffs, err := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, lane.ID)
+	if err != nil {
+		return "", nil, err
+	}
+	WriteReviewerDispatchIntakeHandoffSection(&out, "## Reviewer dispatch intake handoff", reviewerDispatchIntakeHandoffs)
 	writePendingGateSection(&out, facts.Requests, lane.ID)
 	writeAuthorizedGateSection(&out, facts.Requests, lane.ID)
 	writeExecutionEvidenceReviewSection(&out, executionEvidenceReview, executionEvidenceReviewSummary)
