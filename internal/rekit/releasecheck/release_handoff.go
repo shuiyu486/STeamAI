@@ -77,14 +77,27 @@ type ReleaseHandoffLatestBatch struct {
 }
 
 type ReleaseHandoffLatestBatchHandoff struct {
-	Completed               bool                                   `json:"completed"`
-	LocalValidationReady    bool                                   `json:"localValidationReady"`
-	ReleaseCheckReady       bool                                   `json:"releaseCheckReady"`
-	RemoteReleaseGate       string                                 `json:"remoteReleaseGate,omitempty"`
-	RemoteReleaseGateDetail *ReleaseHandoffRemoteReleaseGateDetail `json:"remoteReleaseGateDetail,omitempty"`
-	CommitRefs              []string                               `json:"commitRefs,omitempty"`
-	Evidence                []string                               `json:"evidence,omitempty"`
-	NextAction              string                                 `json:"nextAction,omitempty"`
+	Completed                bool                                   `json:"completed"`
+	LocalValidationReady     bool                                   `json:"localValidationReady"`
+	ReleaseCheckReady        bool                                   `json:"releaseCheckReady"`
+	RemoteReleaseGate        string                                 `json:"remoteReleaseGate,omitempty"`
+	RemoteReleaseGateDetail  *ReleaseHandoffRemoteReleaseGateDetail `json:"remoteReleaseGateDetail,omitempty"`
+	ReleaseInspectionCadence ReleaseHandoffReleaseInspectionCadence `json:"releaseInspectionCadence"`
+	CommitRefs               []string                               `json:"commitRefs,omitempty"`
+	Evidence                 []string                               `json:"evidence,omitempty"`
+	NextAction               string                                 `json:"nextAction,omitempty"`
+}
+
+type ReleaseHandoffReleaseInspectionCadence struct {
+	MaxPushes                 int      `json:"maxPushes"`
+	ImplementationCommitReady bool     `json:"implementationCommitReady"`
+	InspectionCommitReady     bool     `json:"inspectionCommitReady"`
+	ThirdInspectionAllowed    bool     `json:"thirdInspectionAllowed"`
+	NewRemoteSignal           bool     `json:"newRemoteSignal"`
+	State                     string   `json:"state"`
+	NextAction                string   `json:"nextAction"`
+	Evidence                  []string `json:"evidence,omitempty"`
+	Boundary                  []string `json:"boundary,omitempty"`
 }
 
 type ReleaseHandoffRemoteReleaseGateDetail struct {
@@ -365,6 +378,8 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 				fmt.Sprintf("batch=%s", latest.BatchID),
 				fmt.Sprintf("status=%s", latest.Status),
 				fmt.Sprintf("localValidationReady=%t releaseCheckReady=%t remoteReleaseGate=%s", latest.Handoff.LocalValidationReady, latest.Handoff.ReleaseCheckReady, latest.Handoff.RemoteReleaseGate),
+				fmt.Sprintf("releaseInspectionCadence state=%s maxPushes=%d implementationReady=%t inspectionReady=%t thirdInspectionAllowed=%t newRemoteSignal=%t", latest.Handoff.ReleaseInspectionCadence.State, latest.Handoff.ReleaseInspectionCadence.MaxPushes, latest.Handoff.ReleaseInspectionCadence.ImplementationCommitReady, latest.Handoff.ReleaseInspectionCadence.InspectionCommitReady, latest.Handoff.ReleaseInspectionCadence.ThirdInspectionAllowed, latest.Handoff.ReleaseInspectionCadence.NewRemoteSignal),
+				fmt.Sprintf("releaseInspectionNextAction=%s", latest.Handoff.ReleaseInspectionCadence.NextAction),
 				fmt.Sprintf("nextAction=%s", latest.Handoff.NextAction),
 				fmt.Sprintf("plan=%s", latest.PlanPath),
 			},
@@ -1053,12 +1068,18 @@ func latestBatchHandoff(latest ReleaseHandoffLatestBatch, section string) Releas
 		CommitRefs:              latestBatchCommitRefs(section),
 		Evidence:                latestBatchEvidence(section),
 	}
+	handoff.ReleaseInspectionCadence = latestBatchReleaseInspectionCadence(section, handoff)
 	handoff.NextAction = latestBatchNextAction(handoff)
 	return handoff
 }
 
 func latestBatchHasLocalValidation(text string) bool {
 	lower := strings.ToLower(text)
+	for _, pending := range []string{"完整本地 release minimum 待", "本地 release minimum 待", "local release minimum pending", "full local release minimum pending"} {
+		if strings.Contains(lower, pending) {
+			return false
+		}
+	}
 	for _, command := range []string{
 		"go run ./cmd/rekit -- -Command release-check -Format json",
 		"go run ./cmd/rekit -- -Command status",
@@ -1123,6 +1144,75 @@ func latestBatchRemoteReleaseGateDetail(text string) *ReleaseHandoffRemoteReleas
 func latestBatchRemoteHasEmptySteps(text, lower string) bool {
 	compact := strings.NewReplacer(" ", "", "\t", "", "`", "").Replace(lower)
 	return strings.Contains(compact, "steps:[]") || strings.Contains(compact, "steps=[]") || strings.Contains(text, "steps 为空") || strings.Contains(text, "steps为空")
+}
+
+func latestBatchReleaseInspectionCadence(text string, handoff ReleaseHandoffLatestBatchHandoff) ReleaseHandoffReleaseInspectionCadence {
+	lower := strings.ToLower(text)
+	cadence := ReleaseHandoffReleaseInspectionCadence{
+		MaxPushes:                 2,
+		ImplementationCommitReady: latestBatchImplementationCommitReady(lower),
+		InspectionCommitReady:     latestBatchInspectionCommitReady(lower, handoff),
+		NewRemoteSignal:           latestBatchHasNewRemoteSignal(lower, handoff),
+		Boundary: []string{
+			"normal batches stop after implementation commit/push plus one release inspection commit/push",
+			"do not add a third record commit for the release inspection commit's own CI run",
+			"only a remote signal different from the existing steps=[] runner/billing blocker may justify another inspection record",
+		},
+	}
+	cadence.ThirdInspectionAllowed = cadence.NewRemoteSignal
+	if cadence.ImplementationCommitReady {
+		cadence.Evidence = append(cadence.Evidence, "implementation commit/push recorded")
+	}
+	if cadence.InspectionCommitReady {
+		cadence.Evidence = append(cadence.Evidence, "release inspection commit/run recorded")
+	}
+	if handoff.RemoteReleaseGateDetail != nil && handoff.RemoteReleaseGateDetail.EmptySteps {
+		cadence.Evidence = append(cadence.Evidence, "remote release-gate steps=[] blocker recorded")
+	}
+	if cadence.NewRemoteSignal {
+		cadence.Evidence = append(cadence.Evidence, "new remote signal differs from existing steps=[] blocker")
+	}
+	switch {
+	case !cadence.ImplementationCommitReady:
+		cadence.State = "implementation-pending"
+		cadence.NextAction = "create/push the implementation commit after local validation"
+	case !cadence.InspectionCommitReady:
+		cadence.State = "inspection-pending"
+		cadence.NextAction = "inspect the implementation commit's remote release-gate run and record exactly one release inspection commit"
+	case cadence.NewRemoteSignal:
+		cadence.State = "new-remote-signal"
+		cadence.NextAction = "review the new remote signal before deciding whether another inspection record is justified"
+	default:
+		cadence.State = "complete"
+		cadence.NextAction = "do not create a third inspection record for the release inspection commit's own CI; continue the next batch"
+	}
+	return cadence
+}
+
+func latestBatchImplementationCommitReady(lower string) bool {
+	for _, pending := range []string{"待 implementation commit/push", "pending implementation commit/push", "after implementation commit/push"} {
+		if strings.Contains(lower, pending) {
+			return false
+		}
+	}
+	return strings.Contains(lower, "implementation commit") || strings.Contains(lower, "commit/push") || strings.Contains(lower, "提交并推送")
+}
+
+func latestBatchInspectionCommitReady(lower string, handoff ReleaseHandoffLatestBatchHandoff) bool {
+	return handoff.RemoteReleaseGate != "not-recorded" || strings.Contains(lower, "release inspection commit/push") || strings.Contains(lower, "inspection commit/push")
+}
+
+func latestBatchHasNewRemoteSignal(lower string, handoff ReleaseHandoffLatestBatchHandoff) bool {
+	if strings.Contains(lower, "new remote signal recorded") || strings.Contains(lower, "新远程信号已记录") || strings.Contains(lower, "新信号已记录") {
+		return true
+	}
+	if handoff.RemoteReleaseGate == "green" {
+		return true
+	}
+	if handoff.RemoteReleaseGateDetail == nil || handoff.RemoteReleaseGate == "not-recorded" {
+		return false
+	}
+	return handoff.RemoteReleaseGateDetail.CompletedFailure && !handoff.RemoteReleaseGateDetail.EmptySteps
 }
 
 func latestBatchRemoteJobs(lower string) []string {
@@ -1265,10 +1355,16 @@ func latestBatchNextAction(handoff ReleaseHandoffLatestBatchHandoff) string {
 		return "finish the current batch before treating status as a handoff"
 	case !handoff.LocalValidationReady:
 		return "run the full local release minimum and update docs/batch-plan.md"
+	case handoff.ReleaseInspectionCadence.State == "implementation-pending":
+		return handoff.ReleaseInspectionCadence.NextAction
+	case handoff.ReleaseInspectionCadence.State == "inspection-pending":
+		return handoff.ReleaseInspectionCadence.NextAction
+	case handoff.ReleaseInspectionCadence.State == "new-remote-signal":
+		return handoff.ReleaseInspectionCadence.NextAction
 	case handoff.RemoteReleaseGate == "not-recorded":
 		return "inspect the remote release-gate run before claiming remote CI status"
 	case strings.HasPrefix(handoff.RemoteReleaseGate, "blocked:"):
-		return "treat remote release-gate steps=[] as a known blocker and continue the next Windows-verifiable batch"
+		return "do not create a third inspection record for the release inspection commit's own CI; treat steps=[] as known blocker and continue the next Windows-verifiable batch"
 	default:
 		return "continue the next batch from docs/context-routing.md and docs/batch-plan.md"
 	}

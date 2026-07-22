@@ -18,6 +18,12 @@
 4. `CHANGELOG.md` 顶部 `Unreleased`：确认最新用户可见变化是否覆盖当前 batch。
 5. 真实状态：`git status --short`、必要的 focused tests、本机 release gate；远程 CI 只在需要 release 判断时检查。
 
+### Batch push cadence
+
+- 一个正常 batch 最多两次 push：implementation commit（代码、测试、文档、本地验证）和 release inspection commit（只记录 implementation commit 触发的远程 run）。
+- 不要再为 release inspection commit 自己触发的 CI 追加第三个记录提交；除非该 run 出现不同于既有 GitHub Actions runner/billing `steps=[]` blocker 的新信号，否则只在当前上下文或下一批 planning 中引用既有 blocker。
+- 若用户 goal 尚未授权 commit/push，仍只维护工作树和验证结果；不要为了满足 cadence 规则自行 push。
+
 ### 上下文节流
 
 - 大文件（如 `internal/rekit/cli/cli_test.go`、`docs/batch-history.md`）只按 symbol、Batch ID 或行号读取小片段；不要为一次批次接手或文档更新全量读取。

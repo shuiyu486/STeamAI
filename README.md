@@ -435,4 +435,4 @@ packs/vmp-re/scripts/promote.ps1
 - case-local `.claude/skills/rekit/SKILL.md` 只是 thin shim，不维护业务逻辑。
 - `.re-template.yml` 只保留兼容旧入口；新状态看 `.rekit/instance.yml`。
 - 不默认安装用户级 skill。
-- 不默认 commit / push；只有当前用户 goal/session 明确授权具体仓库和分支时才执行。
+- 不默认 commit / push；只有当前用户 goal/session 明确授权具体仓库和分支时才执行。已授权 batch 正常最多两次 push：implementation commit 覆盖代码、测试、文档、本地验证；release inspection commit 只记录 implementation commit 的远程 run。不要为 release inspection commit 自己触发的 CI 再追加第三个记录提交，除非出现不同于既有 `steps=[]` runner/billing blocker 的新信号。

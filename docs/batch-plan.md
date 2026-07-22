@@ -16,25 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 520：execution evidence review summary boundary product-path smoke closure
+### Batch 521：release inspection cadence product-path handoff closure
 
-状态：已完成 runtime/test/docs implementation、focused/package validation、完整本地 release minimum、implementation commit/push 与远程 release-gate inspection；已提交并推送 `e350333 Add evidence summary boundary smoke`。远程 release-gate run `29891396971` completed failure，Linux/Windows/macOS jobs 均 completed failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。
+状态：已完成 runtime/CLI/test/docs implementation、focused/package validation 与完整本地 release minimum；implementation commit/push 与远程 release-gate inspection 待提交后执行。
 
-目标：Batch 519 已新增 compact `executionEvidenceReviewSummary`，但 replacement executor 的真实 product path 还需要证明该 summary 在 case-local/no-pack/nested output workspace 中不只存在于 package-level JSON：succeeded adapter provenance、boundary-hit stopCondition 与 adapter/main escalation 场景都应能从 status/overview/handoff/continue artifacts 第一屏或 compact summary 中看到 latest report、adapter id/status、boundary/escalation、Mission Commander action queue、follow-through 与 no-heavy/no-authority 边界。
+目标：用户已确认正常 batch 最多两次 push：implementation commit 记录代码、测试、文档和本地验证，release inspection commit 只记录 implementation commit 触发的远程 run，不再为 release inspection commit 自己触发的 CI 追加第三个记录提交。此前该规则只在 durable docs 中，人或 replacement executor 若只看 `release-check` / kit-mode `status` 仍要回读文档才能知道当前 batch 是否还该 inspect、是否可继续下一批、什么时候第三个记录提交才被允许。Batch 521 将该 cadence 提升为 `releaseHandoff.latestBatch.handoff.releaseInspectionCadence` 与 `status.projectHandoff.releaseInspectionCadence` 的机器可读 contract，并同步到 text 第一屏。
 
-边界：只增强已记录 authorized execution observation evidence summary 的 product-path visibility、Markdown/digest/RESUME text projection 与 CLI E2E smoke；不执行 heavy tool、不 replay adapter、不改变 evidence record validation、sidecar schema、authorized gate decision、sync/promote、case durable schema、authority/confirmed、PowerShell façade 或公共 façade removal 门禁。`continue -Apply` 仍不写 authority/confirmed，`gate -Apply -GateEventId ...` 仍只记录 bounded observation evidence。
+边界：只增强 release/status latest-batch handoff 的只读 cadence projection、parser、nextAction 与 tests；不执行远程 CI、不改变 GitHub workflow inventory、本地 release minimum、case runtime、sync/promote、authority/confirmed、heavy-tool、PowerShell façade 或公共 façade removal 门禁。`releaseInspectionCadence.thirdInspectionAllowed` 只有在出现不同于既有 `steps=[]` runner/billing blocker 的新远程信号时才为 true；`steps=[]` blocker 继续如实记录为 known gap，不阻塞 Windows 本机可验证 product-path 工作。
 
 已完成内容：
 
-- Project/lane handoff Markdown、continue digest、lane `RESUME.md` 与 overview text 的 execution evidence review summary lines 现在输出 action queue、latest review/handoff、commander state、adapter report provenance、boundary hits/escalation 与 follow-through compact detail。
-- Continue run `status.json` 在完整 `executionEvidenceReview[]` 旁写入同一 `executionEvidenceReviewSummary`，避免 replacement executor 从 written run status 接手时看到零值 summary。
-- Case-local nested output workspace no-pack product-path smoke 覆盖 status JSON/text、overview text、handoff WhatIf/Apply JSON、continue WhatIf/Apply JSON/text、continue run `status.json`、run `digest.md`、lane `RESUME.md` 与 checkpoint summary visibility。
-- Adapter escalation 与 boundary-hit product-path coverage 锁定 latest escalation、boundary hits、adapter id/status、main escalation counts、action queue counts、follow-through state 与 no-heavy/no-authority boundary。
-- `CHANGELOG.md` 已记录 Batch 520 用户可见变化；Batch 519 active summary 已归档到 `docs/batch-history.md`，保持 `docs/batch-plan.md` 只承载当前批次。
+- `ReleaseHandoffLatestBatchHandoff` 新增 `releaseInspectionCadence`，包含 `maxPushes=2`、implementation / inspection readiness、`thirdInspectionAllowed`、`newRemoteSignal`、state、nextAction、evidence 与 boundary。
+- Latest batch handoff 会区分 `implementation-pending`、`inspection-pending`、`complete` 与 `new-remote-signal`，并把主 `nextAction` 收敛到“不为 release inspection commit 自己触发的 CI 创建第三个记录提交，继续下一批”。
+- `release-check -Format text` 与 kit-mode `status -Format text` 输出 release inspection cadence summary/evidence/boundary lines；kit-mode `status -Format json` 投影同一 `projectHandoff.releaseInspectionCadence`。
+- `releaseHandoff.signals[]` 的 latest batch documentation detail 同步输出 cadence state/maxPushes/thirdInspectionAllowed/newRemoteSignal 和 release inspection next action，避免只消费 signals 的 replacement executor 漏掉两次 push 规则。
+- 接手文档收尾同步完成：`docs/context-routing.md`、根 `CLAUDE.md`、`README.md`、`docs/release-readiness.md`、`docs/autonomous-goal.md`、`docs/batch-plan.md` 与 `common/stop-hook-checklist.md` 均记录同一 cadence；Batch 520 已归档到 `docs/batch-history.md`。
 
-验证结果：已通过 `gofmt -w internal/rekit/cli/cli_test.go internal/rekit/overview/overview.go internal/rekit/workstream/continue.go internal/rekit/workstream/handoff.go internal/rekit/workstream/start.go`、focused `go test ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility|TestRunGateAdapterReportBoundaryHitNoPackProductPathSuppressesContinue" -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF/CRLF conversion warnings，无 whitespace error）。focused CLI test 曾发现 continue run `status.json` 未写入 `executionEvidenceReviewSummary` 而解码为零值；已在 `writeContinueRunArtifacts` 写入 summary 后重跑 focused smoke 通过。远程 release-gate run `29891396971` 已检查，run completed failure，Linux/Windows/macOS jobs 均 completed failure 且 `steps=[]`。该远程失败符合既有 runner/billing blocker，不能声明 remote CI green。
+验证结果：已通过 `gofmt -w internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestReleaseHandoffInventoryFromRepo|TestLatestBatchHandoffExtractsValidationEvidence|TestLatestBatchReleaseInspectionCadenceWaitsForImplementationCommit|TestLatestBatchRemoteGateRecognizesEqualsEmptyStepsAndChineseNegativeGreen|TestRunStatusJsonKit|TestRunReleaseCheckTextInventory|TestRunReleaseCheckJsonInventory" -count=1`、focused `go vet ./internal/rekit/releasecheck ./internal/rekit/cli`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF/CRLF conversion warnings，无 whitespace error）。完整 `status -Format text` 复核显示本批在写入完整本地验证前会正确输出 `localValidationReady=false` 与 `implementation-pending`，避免未提交/未 inspection 阶段误导 replacement executor。远程 release-gate inspection 待 implementation commit/push 后执行；若仍为 `steps=[]`，按既有 runner/billing blocker 记录，不能声明 remote CI green。
 
-上一批摘要：Batch 519 已完成 execution evidence review summary downstream closure，并归档到 `docs/batch-history.md`。
+上一批摘要：Batch 520 已完成 execution evidence review summary boundary product-path smoke closure，并归档到 `docs/batch-history.md`。
 
 ### Next candidates
 
@@ -51,6 +51,8 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 ## 验证标准
 
 每个 active batch 记录实际执行过的命令及结果；`release-check`/`ciReleaseGate.ready` 只算 inventory readiness，不能替代本地命令执行或远程 job conclusions。优先保持 coherent vertical slice，不用逐字段 metadata batch 维持连续推进。
+
+Batch 推送节奏默认收敛为最多两次 push：先用 implementation commit 覆盖代码、测试、文档与本地验证，再用 release inspection commit 只记录 implementation commit 的远程 run。不要继续为 release inspection commit 自己触发的 CI 追加第三个记录提交；除非出现不同于既有 `steps=[]` runner/billing blocker 的新远程信号，否则保持该 blocker 为已记录 known gap。
 
 ## 风险与注意事项
 

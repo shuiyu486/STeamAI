@@ -1103,6 +1103,20 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 			}
 		}
 	}
+	cadence := latestHandoff.ReleaseInspectionCadence
+	if _, err := fmt.Fprintf(out, "release-check latest batch release inspection cadence：state=%s maxPushes=%d implementationReady=%t inspectionReady=%t thirdInspectionAllowed=%t newRemoteSignal=%t nextAction=%s\n", cadence.State, cadence.MaxPushes, cadence.ImplementationCommitReady, cadence.InspectionCommitReady, cadence.ThirdInspectionAllowed, cadence.NewRemoteSignal, cadence.NextAction); err != nil {
+		return err
+	}
+	for _, evidence := range cadence.Evidence {
+		if _, err := fmt.Fprintf(out, "release-check latest batch release inspection cadence evidence：%s\n", evidence); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range cadence.Boundary {
+		if _, err := fmt.Fprintf(out, "release-check latest batch release inspection cadence boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
 	for _, evidence := range latestHandoff.Evidence {
 		if _, err := fmt.Fprintf(out, "release-check latest batch evidence：%s\n", evidence); err != nil {
 			return err
@@ -1350,6 +1364,7 @@ type statusProjectHandoff struct {
 	LatestReleaseCheckReady       bool                                                `json:"latestReleaseCheckReady"`
 	LatestRemoteReleaseGate       string                                              `json:"latestRemoteReleaseGate"`
 	LatestRemoteReleaseGateDetail *releasecheck.ReleaseHandoffRemoteReleaseGateDetail `json:"latestRemoteReleaseGateDetail,omitempty"`
+	ReleaseInspectionCadence      releasecheck.ReleaseHandoffReleaseInspectionCadence `json:"releaseInspectionCadence"`
 	LatestNextAction              string                                              `json:"latestNextAction"`
 	LatestEvidence                []string                                            `json:"latestEvidence,omitempty"`
 	LatestCommits                 []string                                            `json:"latestCommits,omitempty"`
@@ -2092,6 +2107,20 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 			}
 		}
 	}
+	cadence := handoff.ReleaseInspectionCadence
+	if _, err := fmt.Fprintf(out, "status latest batch release inspection cadence：state=%s maxPushes=%d implementationReady=%t inspectionReady=%t thirdInspectionAllowed=%t newRemoteSignal=%t nextAction=%s\n", cadence.State, cadence.MaxPushes, cadence.ImplementationCommitReady, cadence.InspectionCommitReady, cadence.ThirdInspectionAllowed, cadence.NewRemoteSignal, cadence.NextAction); err != nil {
+		return err
+	}
+	for _, evidence := range cadence.Evidence {
+		if _, err := fmt.Fprintf(out, "status latest batch release inspection cadence evidence：%s\n", evidence); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range cadence.Boundary {
+		if _, err := fmt.Fprintf(out, "status latest batch release inspection cadence boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
 	if strings.TrimSpace(handoff.LatestNextAction) != "" {
 		if _, err := fmt.Fprintf(out, "status latest batch next action：%s\n", handoff.LatestNextAction); err != nil {
 			return err
@@ -2800,6 +2829,7 @@ func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProje
 		LatestReleaseCheckReady:       handoff.LatestBatch.Handoff.ReleaseCheckReady,
 		LatestRemoteReleaseGate:       handoff.LatestBatch.Handoff.RemoteReleaseGate,
 		LatestRemoteReleaseGateDetail: handoff.LatestBatch.Handoff.RemoteReleaseGateDetail,
+		ReleaseInspectionCadence:      handoff.LatestBatch.Handoff.ReleaseInspectionCadence,
 		LatestNextAction:              handoff.LatestBatch.Handoff.NextAction,
 		LatestEvidence:                append([]string{}, handoff.LatestBatch.Handoff.Evidence...),
 		LatestCommits:                 append([]string{}, handoff.LatestBatch.Handoff.CommitRefs...),

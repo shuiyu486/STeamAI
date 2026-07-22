@@ -304,6 +304,17 @@ func TestRunStatusJsonKit(t *testing.T) {
 				CanClaimGreen    bool     `json:"canClaimGreen"`
 				Boundary         []string `json:"boundary"`
 			} `json:"latestRemoteReleaseGateDetail"`
+			ReleaseInspectionCadence struct {
+				MaxPushes                 int      `json:"maxPushes"`
+				ImplementationCommitReady bool     `json:"implementationCommitReady"`
+				InspectionCommitReady     bool     `json:"inspectionCommitReady"`
+				ThirdInspectionAllowed    bool     `json:"thirdInspectionAllowed"`
+				NewRemoteSignal           bool     `json:"newRemoteSignal"`
+				State                     string   `json:"state"`
+				NextAction                string   `json:"nextAction"`
+				Evidence                  []string `json:"evidence"`
+				Boundary                  []string `json:"boundary"`
+			} `json:"releaseInspectionCadence"`
 			LatestNextAction     string   `json:"latestNextAction"`
 			LatestEvidence       []string `json:"latestEvidence"`
 			PackMemoryCandidates struct {
@@ -351,6 +362,9 @@ func TestRunStatusJsonKit(t *testing.T) {
 	if len(status.ProjectHandoff.LatestRemoteReleaseGateDetail.Boundary) == 0 {
 		t.Fatalf("project handoff remote gate detail omitted boundary: %+v", status.ProjectHandoff.LatestRemoteReleaseGateDetail)
 	}
+	if cadence := status.ProjectHandoff.ReleaseInspectionCadence; cadence.MaxPushes != 2 || cadence.State == "" || cadence.NextAction == "" || cadence.ThirdInspectionAllowed != cadence.NewRemoteSignal || len(cadence.Boundary) == 0 || !containsSubstring(cadence.Boundary, "do not add a third record commit") {
+		t.Fatalf("project handoff release inspection cadence drifted: %+v", cadence)
+	}
 	if status.ProjectHandoff.LatestLocalValidationReady {
 		for _, want := range []string{"release-check -Format json recorded", "status handoff recorded", "go test ./... recorded", "git diff --check recorded"} {
 			if !slices.Contains(status.ProjectHandoff.LatestEvidence, want) {
@@ -391,8 +405,12 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"localValidationReady=",
 		"status latest batch remote gate：state=",
 		"status latest batch remote gate boundary：",
+		"status latest batch release inspection cadence：state=",
+		"maxPushes=2",
+		"thirdInspectionAllowed=",
+		"status latest batch release inspection cadence boundary：do not add a third record commit",
 		"status latest batch next action：",
-		"status latest batch evidence：release-check ready=true recorded",
+		"status latest batch evidence：release-check -Format json recorded",
 		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
 		"status latest batch goal：",
 		"status latest batch validation：",
@@ -415,8 +433,12 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"localValidationReady=",
 		"status latest batch remote gate：state=",
 		"status latest batch remote gate boundary：",
+		"status latest batch release inspection cadence：state=",
+		"maxPushes=2",
+		"thirdInspectionAllowed=",
+		"status latest batch release inspection cadence boundary：do not add a third record commit",
 		"status latest batch next action：",
-		"status latest batch evidence：release-check ready=true recorded",
+		"status latest batch evidence：release-check -Format json recorded",
 		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
 		"status read first：docs/context-routing.md",
 		"status validation command：go run ./cmd/rekit -- -Command release-check -Format json",
@@ -1212,7 +1234,11 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		"localValidationReady=",
 		"release-check latest batch remote gate：state=",
 		"release-check latest batch remote gate boundary：",
-		"release-check latest batch evidence：release-check ready=true recorded",
+		"release-check latest batch release inspection cadence：state=",
+		"maxPushes=2",
+		"thirdInspectionAllowed=",
+		"release-check latest batch release inspection cadence boundary：do not add a third record commit",
+		"release-check latest batch evidence：release-check -Format json recorded",
 		"release-check release notes：path=CHANGELOG.md present=true",
 		"release-check read first：path=docs/context-routing.md present=true",
 		"release-check signal：name=CI release gate ready=true summary=CI release gate inventory ok",

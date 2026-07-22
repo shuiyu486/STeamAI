@@ -137,6 +137,9 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if !latestHandoff.Completed || strings.TrimSpace(latestHandoff.RemoteReleaseGate) == "" || latestHandoff.RemoteReleaseGateDetail == nil || strings.TrimSpace(latestHandoff.RemoteReleaseGateDetail.State) == "" || strings.TrimSpace(latestHandoff.NextAction) == "" || len(latestHandoff.Evidence) == 0 {
 		t.Fatalf("unexpected latest batch handoff: %+v", latestHandoff)
 	}
+	if cadence := latestHandoff.ReleaseInspectionCadence; cadence.MaxPushes != 2 || cadence.State == "" || cadence.NextAction == "" || cadence.ThirdInspectionAllowed != cadence.NewRemoteSignal || len(cadence.Boundary) == 0 || !releaseHandoffStringsContain(cadence.Boundary, "do not add a third record commit") {
+		t.Fatalf("latest batch release inspection cadence drifted: %+v", cadence)
+	}
 	if latestHandoff.RemoteReleaseGateDetail.State != latestHandoff.RemoteReleaseGate {
 		t.Fatalf("remote gate detail state drifted from summary: %+v", latestHandoff.RemoteReleaseGateDetail)
 	}
@@ -156,8 +159,11 @@ func TestLatestBatchHandoffExtractsValidationEvidence(t *testing.T) {
 
 	latest := ReleaseHandoffLatestBatch{Status: "已完成 fixture", ValidationResult: "fixture validation"}
 	handoff := latestBatchHandoff(latest, section)
-	if !handoff.Completed || !handoff.LocalValidationReady || !handoff.ReleaseCheckReady || handoff.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" || !strings.Contains(handoff.NextAction, "known blocker") {
+	if !handoff.Completed || !handoff.LocalValidationReady || !handoff.ReleaseCheckReady || handoff.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" || !strings.Contains(handoff.NextAction, "third inspection") {
 		t.Fatalf("unexpected latest batch handoff: %+v", handoff)
+	}
+	if cadence := handoff.ReleaseInspectionCadence; cadence.MaxPushes != 2 || cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || cadence.ThirdInspectionAllowed || cadence.NewRemoteSignal || !strings.Contains(cadence.NextAction, "third inspection") || !releaseHandoffStringsContain(cadence.Evidence, "implementation commit/push recorded") || !releaseHandoffStringsContain(cadence.Evidence, "release inspection commit/run recorded") || !releaseHandoffStringsContain(cadence.Boundary, "only a remote signal different") {
+		t.Fatalf("unexpected release inspection cadence: %+v", cadence)
 	}
 	for _, evidence := range []string{"public CLI product-path validation recorded", "release-check -Format json recorded", "status handoff recorded", "packs inventory recorded", "doctor validation recorded", "go test ./... recorded", "go vet ./... recorded", "git diff --check recorded", "release-check ready=true recorded", "remote release-gate jobs steps=[] recorded"} {
 		if !slices.Contains(handoff.Evidence, evidence) {
@@ -166,6 +172,24 @@ func TestLatestBatchHandoffExtractsValidationEvidence(t *testing.T) {
 	}
 	if !slices.Contains(handoff.CommitRefs, "abc123d") || slices.Contains(handoff.CommitRefs, "123456789") {
 		t.Fatalf("unexpected commit refs: %+v", handoff.CommitRefs)
+	}
+}
+
+func TestLatestBatchReleaseInspectionCadenceWaitsForImplementationCommit(t *testing.T) {
+	section := `状态：已完成 runtime/test/docs implementation，但尚未提交推送。
+
+目标：正常批次最多两次 push；第三个记录提交只有出现不同于既有 ` + "`" + `steps=[]` + "`" + ` runner/billing blocker 的新远程信号时才允许。
+
+验证结果：完整本地 release minimum 待最终执行；当前仅已通过 ` + "`" + `go run ./cmd/rekit -- -Command release-check -Format json` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + `、` + "`" + `git diff --check` + "`" + `。远程 release-gate inspection 待 implementation commit/push 后执行。`
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if handoff.LocalValidationReady {
+		t.Fatalf("pending local release minimum should not be marked ready: %+v", handoff)
+	}
+	if cadence := handoff.ReleaseInspectionCadence; cadence.State != "implementation-pending" || cadence.ImplementationCommitReady || cadence.InspectionCommitReady || len(cadence.Evidence) != 0 || cadence.ThirdInspectionAllowed || !strings.Contains(cadence.NextAction, "implementation commit") {
+		t.Fatalf("unexpected pre-commit cadence: %+v", cadence)
+	}
+	if !strings.Contains(handoff.NextAction, "local release minimum") {
+		t.Fatalf("latest next action should wait for local validation before implementation commit: %+v", handoff)
 	}
 }
 
