@@ -16,25 +16,26 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 526：pack-memory proof stage handoff closure
+### Batch 527：authorized-gate status compact adapter handoff closure
 
-状态：已完成 runtime/CLI/test/docs implementation、focused package validation、完整本地 release minimum、implementation commit/push 与远程 release-gate inspection；已提交并推送 implementation commit `b21f3c1 Add pack-memory proof stage handoff`。远程 release-gate run `29902623124` completed failure，Linux/Windows/macOS jobs 均 completed failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。本批按 release inspection cadence 只记录 implementation commit 的远程 run；不再为后续 release inspection commit 自己触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker 的新信号。
+状态：已完成 runtime/CLI/test/docs implementation、focused/package validation 与完整本地 release minimum；implementation commit/push 与远程 release-gate inspection 待 commit/push 后执行。本批仍按 release inspection cadence 只记录 implementation commit 的远程 run；不为 release inspection commit 自己触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker 的新远程信号。
 
-目标：Batch 500/501/503/517/522 已把 pack-memory candidate residue、candidate identity、`reviewArtifacts[]`、compact `reviewSummary` 与 proof presence counts 投影到 `release-check` / `status`，但 replacement executor 仍需从完整 artifacts 或 proof 目录手工判断当前应该先补 decision note、cleanup proof，还是 doctor/fresh/attached reconsume proof。Batch 526 将 proof progress、current stage 与 next-missing proof handoff 提升到同一 first-screen status/release-check summary。
+目标：Batch 421/424/432/458-462/504/518 已覆盖 adapter execution report contract、strict validation、bounded evidence record、follow-through 与 compact `reportSummary`，但 replacement executor 若只看 case-mode `status.caseMission.authorizedGateHandoffs[]`，仍需额外先运行 `gate -ExecutionReportContract -GateEventId ...` 才能看到 default report path、当前 sidecar path、compact validation state、validate/record commands、authorized workspaces、adapter candidate/selected/sidecar guidance 与 replay behavior。Batch 527 将同一只读 compact contract handoff 投影到 status 第一屏。
 
-边界：只增强 release/status 只读 pack-memory proof summary、JSON/text projection 与 releasecheck/CLI coverage；不创建 proof、不验证 proof 内容、不 merge 或删除 candidate/index、不运行 doctor/init/reconsume、不执行 heavy-tool、不写 ledger/authority/confirmed、不改变 sync/promote review-first、case durable schema、PowerShell façade 或公共 façade removal 门禁。`reviewArtifacts[]`、candidate paths、index entries 与 repo-local proof files 仍是 source of truth；stage/next-missing handoff 只是 replacement executor 的第一屏接续入口。
+边界：只增强 case-mode `status` 的 authorized-gate 只读 JSON/text projection 与 CLI product-path coverage；status 可读取同一 bounded adapter report contract 并暴露 `reportContractError`，但不执行 adapter/heavy-tool、不 replay、不 validate sidecar、不 record observation、不写 ledger/authority/confirmed，不改变 pending-gate blocker、authorized-gate strict record validation、sync/promote review-first、case durable schema、PowerShell façade 或公共 façade removal 门禁。`gate -ExecutionReportContract`、`gate -ValidateExecutionReport` 与 `gate -Apply -GateEventId ... -ExecutionReportPath ...` 仍是完整 contract / validation / record source of truth。
 
 已完成内容：
 
-- `ReleaseHandoffPackMemoryCandidateReviewProofSummary` 新增 `proofProgress`、`currentStage`、`nextMissingProofType`、`nextMissingProofPath`、`nextMissingCandidatePath` 与 `nextMissingPackTarget`。
-- Proof summary 现在按 decision → cleanup → reconsume 顺序计算当前阶段；next-missing artifact 从当前阶段内选择，避免 decision proof 未完成时跳到 cleanup/reconsume proof。
-- `release-check -Format text`、kit-mode `status -Format text` 与 case-mode `status -Format text` 的 pack-memory review/proof summary lines 输出 proof progress、stage 与 next-missing proof/candidate/target。
-- Releasecheck 与 CLI tests 覆盖 open pack-memory residue 中已有一份 decision note、仍缺 tooling decision proof 的场景，验证 JSON summary、release-check text 与 status text 都指向下一份 missing decision proof。
-- 文档同步更新 `README.md`、`docs/release-readiness.md`、`rekit/tests/README.md`、`CHANGELOG.md`，并将 Batch 525 归档到 `docs/batch-history.md`。
+- `statusAuthorizedGateHandoff` 新增 `defaultReportPath`、`reportPath`、compact `reportSummary`、bounded `liveValidation` 与 `reportContractError`。
+- `buildStatusCaseMission` 将 `repoRoot` 传入 authorized-gate handoff builder；每个 authorized-gate event 只读调用 `gate.AdapterReportContract(...)`，成功时投影 default/current report path、report summary 与 live validation，失败时保留 contract error 而不让 status fail closed。
+- `statusAuthorizedGateLiveValidationHandoff` 输出 invocation cwd、authorized workspaces、report file/case-relative path、workspace-relative 与 case-relative validate/record command strings、adapter candidate count、selected adapter、sidecar template adapter id 与 replay behavior。
+- `status -Format text` 新增 authorized gate report summary、summary boundary、live validation、live workspace 与 report contract error lines，同时保留原 reportContract、handoff、validate boundary、record boundary 与 evidence lines。
+- CLI product-path test 覆盖 authorized-gate request 后 status JSON/text 中的 default report path、current report path、compact `reportSummary`、bounded `liveValidation`、sidecar adapter guidance 与 workspace line。
+- 文档同步更新 `README.md`、`docs/release-readiness.md`、`rekit/tests/README.md`、`CHANGELOG.md`，并将 Batch 526 归档到 `docs/batch-history.md`。
 
-验证结果：已通过 `gofmt -w internal/rekit/releasecheck/release_handoff.go internal/rekit/releasecheck/release_handoff_test.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue|TestRunStatusKitShowsOpenPackMemoryCandidates" -count=1`、package `go test ./internal/rekit/releasecheck ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF/CRLF conversion warnings，无 whitespace error）。implementation commit `b21f3c1 Add pack-memory proof stage handoff` 已推送；远程 release-gate run `29902623124` 已检查，run completed failure，Linux/Windows/macOS jobs 均 completed failure 且 `steps=[]`。该远程失败符合既有 runner/billing blocker，不能声明 remote CI green。本批不再为 release inspection commit 自己触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker 的新信号。
+验证结果：已通过 `gofmt -w internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/cli -run TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility -count=1`、package `go test ./internal/rekit/cli -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF/CRLF conversion warnings，无 whitespace error）。implementation commit/push 与远程 release-gate inspection 待执行并回填。
 
-上一批摘要：Batch 525 已完成 reviewer dispatch progress handoff closure，并归档到 `docs/batch-history.md`。
+上一批摘要：Batch 526 已完成 pack-memory proof stage handoff closure，并归档到 `docs/batch-history.md`。
 
 ### Next candidates
 
