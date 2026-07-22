@@ -67,6 +67,14 @@ func AuthorizedGateAdapterHandoffs(repoRoot, caseRoot, pack string, requests []m
 	return out
 }
 
+func authorizedGateAdapterHandoffsForLane(repoRoot, caseRoot, pack, laneID string) []AuthorizedGateAdapterHandoff {
+	facts, err := readHandoffFacts(caseRoot)
+	if err != nil {
+		return nil
+	}
+	return AuthorizedGateAdapterHandoffs(repoRoot, caseRoot, pack, facts.Requests, laneID)
+}
+
 func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[string]any) AuthorizedGateAdapterHandoff {
 	gateEvent, _ := item["gate"].(map[string]any)
 	authorization, _ := gateEvent["authorization"].(map[string]any)

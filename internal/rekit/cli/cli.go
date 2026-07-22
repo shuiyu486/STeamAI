@@ -4076,6 +4076,9 @@ func writeStartText(out io.Writer, result workstream.StartResult) error {
 		if _, err := fmt.Fprintf(out, "would create or enter feature workstream: %s\n", result.Lane.ID); err != nil {
 			return err
 		}
+		if err := writeAuthorizedGateAdapterHandoffText(out, "start", result.AuthorizedGateAdapterHandoffs); err != nil {
+			return err
+		}
 		return writeStartExecutorActionText(out, result)
 	}
 	if _, err := fmt.Fprintf(out, "功能支线已准备：%s\n", result.Lane.ID); err != nil {
@@ -4092,6 +4095,9 @@ func writeStartText(out io.Writer, result workstream.StartResult) error {
 			return err
 		}
 	} else if err := writeExecutorNextActionsText(out, result.ExecutorAction); err != nil {
+		return err
+	}
+	if err := writeAuthorizedGateAdapterHandoffText(out, "start", result.AuthorizedGateAdapterHandoffs); err != nil {
 		return err
 	}
 	return writeStartExecutorActionText(out, result)
@@ -4526,6 +4532,9 @@ func writeReconcileText(out io.Writer, result workstream.ReconcileResult) error 
 		if _, err := fmt.Fprintf(out, "would reconcile intervention: %s on lane %s\n", result.Intervention.EventID, result.Lane.ID); err != nil {
 			return err
 		}
+		if err := writeAuthorizedGateAdapterHandoffText(out, "reconcile", result.AuthorizedGateAdapterHandoffs); err != nil {
+			return err
+		}
 		return writeReconcileExecutorActionText(out, result)
 	}
 	if _, err := fmt.Fprintf(out, "已 reconcile intervention：%s\n", result.Intervention.EventID); err != nil {
@@ -4544,6 +4553,9 @@ func writeReconcileText(out io.Writer, result workstream.ReconcileResult) error 
 			return err
 		}
 	} else if err := writeExecutorNextActionsText(out, result.ExecutorAction); err != nil {
+		return err
+	}
+	if err := writeAuthorizedGateAdapterHandoffText(out, "reconcile", result.AuthorizedGateAdapterHandoffs); err != nil {
 		return err
 	}
 	return writeReconcileExecutorActionText(out, result)

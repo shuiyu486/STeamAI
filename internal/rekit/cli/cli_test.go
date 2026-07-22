@@ -8766,6 +8766,102 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		}
 	}
 
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "main", "-WhatIf", "-Executor", "session-authorized-preview", "-Actor", "mission-commander", "-Reason", "preview authorized adapter handoff"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	startPreview := decodeStartResult(t, out.Bytes())
+	if startPreview.IsMutation || startPreview.Applied || startPreview.Lane.ID != "main" {
+		t.Fatalf("unexpected authorized gate start preview: %+v", startPreview)
+	}
+	assertAuthorizedGateAdapterHandoffSnapshot(t, "start preview", startPreview.AuthorizedGateAdapterHandoffs, authorizedEventID, wantContractCommand)
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "main", "-WhatIf", "-Executor", "session-authorized-preview", "-Actor", "mission-commander", "-Reason", "preview authorized adapter handoff", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"start authorized gate adapter handoff：eventId=" + authorizedEventID, "start authorized gate adapter report summary：eventId=" + authorizedEventID, "start authorized gate adapter live validation：eventId=" + authorizedEventID, "start authorized gate adapter boundary：eventId=" + authorizedEventID + " boundary=projection does not validate or record sidecar"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("start text missing %q:\n%s", expected, out.String())
+		}
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "main", "-Apply", "-Executor", "session-authorized", "-Actor", "mission-commander", "-Reason", "take over authorized adapter handoff"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	startApply := decodeStartResult(t, out.Bytes())
+	if !startApply.IsMutation || !startApply.Applied || startApply.Lane.ID != "main" || startApply.Lane.CurrentExecutor != "session-authorized" {
+		t.Fatalf("unexpected authorized gate start apply: %+v", startApply)
+	}
+	assertAuthorizedGateAdapterHandoffSnapshot(t, "start apply", startApply.AuthorizedGateAdapterHandoffs, authorizedEventID, wantContractCommand)
+
+	writeCaseFile(t, caseRoot, ".rekit/facts/interventions.jsonl", `{"eventId":"int-authorized-main","kind":"intervention","lane":"main","subject":"authorized handoff reconcile","summary":"refresh executor after authorized gate","action":"override","status":"open","target":"workspace/main/main"}`+"\n")
+	out.Reset()
+	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "main", "-InterventionId", "int-authorized-main", "-Executor", "session-reconcile", "-Actor", "mission-commander", "-Reason", "resolve authorized adapter handoff intervention"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var reconcilePreview struct {
+		Command                       string                                 `json:"command"`
+		IsMutation                    bool                                   `json:"isMutation"`
+		Applied                       bool                                   `json:"applied"`
+		Lane                          startLane                              `json:"lane"`
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &reconcilePreview); err != nil {
+		t.Fatalf("reconcile preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if reconcilePreview.Command != "reconcile" || reconcilePreview.IsMutation || reconcilePreview.Applied || reconcilePreview.Lane.ID != "main" {
+		t.Fatalf("unexpected authorized gate reconcile preview: %+v", reconcilePreview)
+	}
+	assertAuthorizedGateAdapterHandoffSnapshot(t, "reconcile preview", reconcilePreview.AuthorizedGateAdapterHandoffs, authorizedEventID, wantContractCommand)
+	out.Reset()
+	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "main", "-InterventionId", "int-authorized-main", "-Executor", "session-reconcile", "-Actor", "mission-commander", "-Reason", "resolve authorized adapter handoff intervention", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"reconcile authorized gate adapter handoff：eventId=" + authorizedEventID, "reconcile authorized gate adapter report summary：eventId=" + authorizedEventID, "reconcile authorized gate adapter live validation：eventId=" + authorizedEventID, "reconcile authorized gate adapter boundary：eventId=" + authorizedEventID + " boundary=projection does not validate or record sidecar"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("reconcile preview text missing %q:\n%s", expected, out.String())
+		}
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main", "-InterventionId", "int-authorized-main", "-Executor", "session-reconcile", "-Actor", "mission-commander", "-Reason", "resolve authorized adapter handoff intervention"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var reconcileApply struct {
+		Command                       string                                 `json:"command"`
+		IsMutation                    bool                                   `json:"isMutation"`
+		Applied                       bool                                   `json:"applied"`
+		Lane                          startLane                              `json:"lane"`
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &reconcileApply); err != nil {
+		t.Fatalf("reconcile apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if reconcileApply.Command != "reconcile" || !reconcileApply.IsMutation || !reconcileApply.Applied || reconcileApply.Lane.ID != "main" {
+		t.Fatalf("unexpected authorized gate reconcile apply: %+v", reconcileApply)
+	}
+	assertAuthorizedGateAdapterHandoffSnapshot(t, "reconcile apply", reconcileApply.AuthorizedGateAdapterHandoffs, authorizedEventID, wantContractCommand)
+	interventionsPath := filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl")
+	interventionsFile, err := os.OpenFile(interventionsPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := interventionsFile.WriteString(`{"eventId":"int-authorized-main-text","kind":"intervention","lane":"main","subject":"authorized handoff reconcile text","summary":"refresh executor text path","action":"override","status":"open","target":"workspace/main/main"}` + "\n"); err != nil {
+		_ = interventionsFile.Close()
+		t.Fatal(err)
+	}
+	if err := interventionsFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main", "-InterventionId", "int-authorized-main-text", "-Executor", "session-reconcile-text", "-Actor", "mission-commander", "-Reason", "resolve authorized adapter handoff intervention text", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"reconcile authorized gate adapter handoff：eventId=" + authorizedEventID, "reconcile authorized gate adapter report summary：eventId=" + authorizedEventID, "reconcile authorized gate adapter live validation：eventId=" + authorizedEventID, "reconcile authorized gate adapter boundary：eventId=" + authorizedEventID + " boundary=projection does not validate or record sidecar"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("reconcile apply text missing %q:\n%s", expected, out.String())
+		}
+	}
+
 	writeCaseFile(t, caseRoot, ".rekit/facts/candidates.jsonl", `{"eventId":"evt-open-candidate","kind":"candidate","lane":"main","subject":"review candidate","summary":"needs authority review","status":"open","evidenceRefs":["workspace/main/main/packet.md"]}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/lanes/main/outbox.jsonl", `{"eventId":"evt-authorized-continue","kind":"observation","subject":"post auth observation","summary":"continue after authorized gate","evidence":"evidence-authorized-gate"}`+"\n")
 	out.Reset()
@@ -10478,17 +10574,18 @@ type promoteApplyWrite struct {
 }
 
 type startResult struct {
-	Command                     string                              `json:"command"`
-	IsMutation                  bool                                `json:"isMutation"`
-	Applied                     bool                                `json:"applied"`
-	Lane                        startLane                           `json:"lane"`
-	MissionBrief                missionBrief                        `json:"missionBrief"`
-	ExecutorAction              executorActionSnapshot              `json:"executorAction"`
-	MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
-	MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
-	MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
-	Writes                      []startWrite                        `json:"writes"`
-	NextSteps                   []string                            `json:"nextSteps"`
+	Command                       string                                 `json:"command"`
+	IsMutation                    bool                                   `json:"isMutation"`
+	Applied                       bool                                   `json:"applied"`
+	Lane                          startLane                              `json:"lane"`
+	MissionBrief                  missionBrief                           `json:"missionBrief"`
+	AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+	ExecutorAction                executorActionSnapshot                 `json:"executorAction"`
+	MissionCommanderAction        missionCommanderActionSnapshot         `json:"missionCommanderAction"`
+	MissionCommanderNextActions   []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
+	MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	Writes                        []startWrite                           `json:"writes"`
+	NextSteps                     []string                               `json:"nextSteps"`
 }
 
 type handoffResult struct {
