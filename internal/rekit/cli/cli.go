@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -34,35 +35,36 @@ import (
 )
 
 type Options struct {
-	Command              string
-	Target               string
-	Pack                 string
-	PackProvided         bool
-	Review               bool
-	Apply                bool
-	CreateCandidates     bool
-	WhatIf               bool
-	Force                bool
-	List                 bool
-	ReviewOutputDir      string
-	PacketPath           string
-	ReviewerResultPath   string
-	ReadyReviewerResults bool
-	DiffPath             string
-	ProjectName          string
-	Route                string
-	TaskType             string
-	Items                string
-	ItemsFile            string
-	ItemsPerAgent        int
-	MaxParallel          int
-	Format               string
-	Gate                 gate.Options
-	Note                 note.Options
-	Start                workstream.StartOptions
-	Handoff              workstream.HandoffOptions
-	Continue             workstream.ContinueOptions
-	Reconcile            workstream.ReconcileOptions
+	Command               string
+	Target                string
+	Pack                  string
+	PackProvided          bool
+	Review                bool
+	Apply                 bool
+	CreateCandidates      bool
+	WhatIf                bool
+	Force                 bool
+	List                  bool
+	ReviewOutputDir       string
+	PacketPath            string
+	CandidateDecisionPath string
+	ReviewerResultPath    string
+	ReadyReviewerResults  bool
+	DiffPath              string
+	ProjectName           string
+	Route                 string
+	TaskType              string
+	Items                 string
+	ItemsFile             string
+	ItemsPerAgent         int
+	MaxParallel           int
+	Format                string
+	Gate                  gate.Options
+	Note                  note.Options
+	Start                 workstream.StartOptions
+	Handoff               workstream.HandoffOptions
+	Continue              workstream.ContinueOptions
+	Reconcile             workstream.ReconcileOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -128,6 +130,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -PacketPath")
 			}
 			opt.PacketPath = args[i]
+		case "-CandidateDecisionPath", "--candidate-decision-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -CandidateDecisionPath")
+			}
+			opt.CandidateDecisionPath = args[i]
 		case "-ReviewerResultPath", "--reviewer-result-path":
 			i++
 			if i >= len(args) {
@@ -5796,6 +5804,40 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(opt.CandidateDecisionPath) != "" {
+		if opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" {
+			return fmt.Errorf("promote -CandidateDecisionPath cannot be combined with create/review artifact options")
+		}
+		if strings.TrimSpace(opt.PacketPath) == "" {
+			return fmt.Errorf("promote -CandidateDecisionPath requires -PacketPath")
+		}
+		if opt.Apply == opt.WhatIf {
+			return fmt.Errorf("promote -CandidateDecisionPath requires exactly one of -WhatIf or -Apply")
+		}
+		format, err := workstreamFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported promote candidate decision format: %s", opt.Format)
+		}
+		result, err := promote.ApplyCandidateDecisions(ctx.RepoRoot, target, ctx.Pack, promote.CandidateDecisionOptions{PacketPath: opt.PacketPath, DecisionPath: opt.CandidateDecisionPath, WhatIf: opt.WhatIf})
+		if err != nil {
+			var applyErr *promote.CandidateDecisionApplyError
+			if !errors.As(err, &applyErr) {
+				return err
+			}
+			if format == "json" {
+				if writeErr := writeJSON(out, applyErr.Result); writeErr != nil {
+					return writeErr
+				}
+			} else if writeErr := writePromoteCandidateDecisionText(out, applyErr.Result); writeErr != nil {
+				return writeErr
+			}
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePromoteCandidateDecisionText(out, result)
+	}
 	if opt.Apply {
 		if opt.CreateCandidates {
 			return fmt.Errorf("promote -Apply cannot be combined with -CreateCandidates")
@@ -6514,6 +6556,33 @@ func writeSyncApplyText(out io.Writer, result syncreview.ApplyResult) error {
 	}
 	for _, step := range result.NextSteps {
 		if _, err := fmt.Fprintf(out, "%s apply next step：%s\n", result.Command, step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writePromoteCandidateDecisionText(out io.Writer, result promote.CandidateDecisionResult) error {
+	if _, err := fmt.Fprintf(out, "promote candidate decision：mode=%s mutation=%t applied=%t rolledBack=%t recoveryRequired=%t failedAction=%s accepted=%d rejected=%d superseded=%d packet=%s decisions=%s packetHash=%s backupRoot=%s indexPath=%s\n", result.Mode, result.IsMutation, result.Applied, result.RolledBack, result.RecoveryRequired, result.FailedAction, result.Accepted, result.Rejected, result.Superseded, result.PacketPath, result.DecisionPath, result.PacketHash, result.BackupRoot, result.IndexPath); err != nil {
+		return err
+	}
+	for _, action := range result.Actions {
+		if _, err := fmt.Fprintf(out, "promote candidate decision action：candidate=%s kind=%s decision=%s action=%s packTarget=%s candidateBackup=%s targetBackup=%s evidence=%s\n", action.CandidatePath, action.Kind, action.Decision, action.Action, action.PackTarget, action.CandidateBackupPath, action.TargetBackupPath, strings.Join(action.EvidenceRefs, ",")); err != nil {
+			return err
+		}
+	}
+	for _, recovery := range result.RecoveryActions {
+		if _, err := fmt.Fprintf(out, "promote candidate decision recovery：%s\n", recovery); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "promote candidate decision boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "promote candidate decision next step：%s\n", step); err != nil {
 			return err
 		}
 	}

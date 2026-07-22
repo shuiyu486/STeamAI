@@ -1,0 +1,506 @@
+package promote
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestApplyCandidateDecisionsPreviewsAndAppliesReviewedManagedCandidate(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, err := CreateCandidates(repoRoot, caseRoot, pack, CandidateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceRoot := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-decision")
+	created, err = WriteCandidateReviewWorkspace(created, CandidateArtifactOptions{ReviewOutputDir: workspaceRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetBytes, err := os.ReadFile(created.ReviewWorkspace.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packet CandidateReviewPacket
+	if err := json.Unmarshal(packetBytes, &packet); err != nil {
+		t.Fatal(err)
+	}
+	var managed CandidateReviewItem
+	for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
+		if item.Kind == "managed-doc" && item.ReviewDecision == "pending-review" {
+			managed = item
+			break
+		}
+	}
+	if managed.CandidatePath == "" {
+		t.Fatalf("review packet omitted pending managed candidate: %+v", packet.CandidateResult.ReviewPlan.ReviewItems)
+	}
+	decisionPath := filepath.Join(workspaceRoot, "decisions.json")
+	decision := CandidateDecisionFile{
+		SchemaVersion: 1,
+		Kind:          "pack-memory-candidate-decisions",
+		PacketHash:    sha256Hex(packetBytes),
+		Decisions: []CandidateDecisionItem{{
+			CandidatePath:  managed.CandidatePath,
+			Decision:       "accept",
+			CandidateHash:  fileSHA256(managed.CandidatePath),
+			PackTargetHash: fileSHA256(managed.PackTarget),
+			Reason:         "reviewed bounded diff and accepted reusable content",
+			Actor:          "mission-commander",
+			EvidenceRefs:   []CandidateDecisionEvidence{{Path: created.ReviewWorkspace.CombinedDiffPath, SHA256: fileSHA256(created.ReviewWorkspace.CombinedDiffPath)}},
+		}},
+	}
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	originalPack, err := os.ReadFile(managed.PackTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	preview, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.IsMutation || preview.Applied || preview.Accepted != 1 || len(preview.Actions) != 1 || preview.Actions[0].Action != "merge-accepted-candidate-and-cleanup" {
+		t.Fatalf("unexpected candidate decision preview: %+v", preview)
+	}
+	packAfterPreview, err := os.ReadFile(managed.PackTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(packAfterPreview) != string(originalPack) {
+		t.Fatal("candidate decision WhatIf changed pack target")
+	}
+
+	applied, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.IsMutation || !applied.Applied || applied.Accepted != 1 || applied.BackupRoot == "" || applied.Actions[0].CandidateBackupPath == "" || applied.Actions[0].TargetBackupPath == "" {
+		t.Fatalf("unexpected candidate decision apply: %+v", applied)
+	}
+	targetBytes, err := os.ReadFile(applied.Actions[0].TargetBackupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(targetBytes) != string(originalPack) {
+		t.Fatalf("target backup mismatch: %q", string(targetBytes))
+	}
+	candidateBytes, err := os.ReadFile(applied.Actions[0].CandidateBackupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(candidateBytes) != "# README\n\nReusable package-test candidate.\n" {
+		t.Fatalf("candidate backup mismatch: %q", string(candidateBytes))
+	}
+	packBytes, err := os.ReadFile(managed.PackTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(packBytes) != "# README\n\nReusable package-test candidate.\n" {
+		t.Fatalf("accepted candidate was not merged: %q", string(packBytes))
+	}
+	if _, err := os.Stat(managed.CandidatePath); !os.IsNotExist(err) {
+		t.Fatalf("accepted candidate was not cleaned up: %v", err)
+	}
+}
+
+func TestApplyCandidateDecisionsRejectsHashDriftAndToolingAutoAccept(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, err := CreateCandidates(repoRoot, caseRoot, pack, CandidateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err = WriteCandidateReviewWorkspace(created, CandidateArtifactOptions{ReviewOutputDir: filepath.Join(caseRoot, ".rekit", "reviews", "candidate-drift")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetBytes, err := os.ReadFile(created.ReviewWorkspace.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packet CandidateReviewPacket
+	if err := json.Unmarshal(packetBytes, &packet); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
+		if item.ReviewDecision != "pending-review" {
+			continue
+		}
+		decision := CandidateDecisionFile{SchemaVersion: 1, Kind: "pack-memory-candidate-decisions", PacketHash: sha256Hex(packetBytes), Decisions: []CandidateDecisionItem{{CandidatePath: item.CandidatePath, Decision: "accept", CandidateHash: fileSHA256(item.CandidatePath), PackTargetHash: fileSHA256(item.PackTarget), Reason: "reviewed", Actor: "mission-commander", EvidenceRefs: []CandidateDecisionEvidence{{Path: created.ReviewWorkspace.CombinedDiffPath, SHA256: fileSHA256(created.ReviewWorkspace.CombinedDiffPath)}}}}}
+		decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-drift", safeCandidateName(item.Kind)+"-decision.json")
+		writeCandidateDecisionFixture(t, decisionPath, decision)
+		if item.Kind == "tooling-candidate-source" {
+			if _, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, WhatIf: true}); err == nil {
+				t.Fatal("tooling candidate auto-accept should be rejected")
+			}
+			continue
+		}
+		if err := os.WriteFile(item.CandidatePath, []byte("drifted candidate\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, WhatIf: true}); err == nil {
+			t.Fatal("candidate hash drift should be rejected")
+		}
+		break
+	}
+}
+
+func TestApplyCandidateDecisionsRejectsForgedPacketBindingsAndEvidenceDrift(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*CandidateReviewPacket, *CandidateDecisionFile, CandidateReviewItem, CandidateResult)
+	}{
+		{
+			name: "canonical root",
+			mutate: func(packet *CandidateReviewPacket, _ *CandidateDecisionFile, _ CandidateReviewItem, _ CandidateResult) {
+				packet.CandidateResult.CandidateRoot = packet.CandidateResult.RepoRoot
+			},
+		},
+		{
+			name: "manifest target",
+			mutate: func(packet *CandidateReviewPacket, _ *CandidateDecisionFile, managed CandidateReviewItem, _ CandidateResult) {
+				for idx := range packet.CandidateResult.ReviewPlan.ReviewItems {
+					if packet.CandidateResult.ReviewPlan.ReviewItems[idx].CandidatePath == managed.CandidatePath {
+						packet.CandidateResult.ReviewPlan.ReviewItems[idx].PackTarget = filepath.Join(packet.CandidateResult.RepoRoot, "packs", packet.CandidateResult.Pack, "manifest.yml")
+					}
+				}
+			},
+		},
+		{
+			name: "packet writes",
+			mutate: func(packet *CandidateReviewPacket, _ *CandidateDecisionFile, managed CandidateReviewItem, _ CandidateResult) {
+				for idx := range packet.CandidateResult.Writes {
+					if packet.CandidateResult.Writes[idx].TargetPath == managed.CandidatePath {
+						packet.CandidateResult.Writes[idx].Action = "skip"
+					}
+				}
+			},
+		},
+		{
+			name: "evidence drift",
+			mutate: func(_ *CandidateReviewPacket, decision *CandidateDecisionFile, _ CandidateReviewItem, created CandidateResult) {
+				if err := os.WriteFile(created.ReviewWorkspace.CombinedDiffPath, []byte("changed evidence\n"), 0o644); err != nil {
+					panic(err)
+				}
+				decision.Decisions[0].EvidenceRefs[0].SHA256 = strings.Repeat("0", 64)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoRoot, caseRoot, pack := promoteFixture(t)
+			created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, tt.name)
+			decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+			tt.mutate(&packet, &decision, managed, created)
+			packetBytes, err := json.MarshalIndent(packet, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(created.ReviewWorkspace.PacketPath, append(packetBytes, '\n'), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			decision.PacketHash = sha256Hex(append(packetBytes, '\n'))
+			decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-bindings", safeCandidateName(tt.name)+".json")
+			writeCandidateDecisionFixture(t, decisionPath, decision)
+			if _, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, WhatIf: true}); err == nil {
+				t.Fatalf("forged %s binding should be rejected", tt.name)
+			}
+		})
+	}
+}
+
+func TestApplyCandidateDecisionsRejectAndRollbackCleanupFailure(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "rollback")
+	decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+	decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-rollback", "decisions.json")
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	originalTarget, err := os.ReadFile(managed.PackTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalRemove := removeCandidateDecisionFile
+	removeCandidateDecisionFile = func(path string) error {
+		if sameCandidateDecisionPath(path, managed.CandidatePath) {
+			return os.ErrPermission
+		}
+		return originalRemove(path)
+	}
+	t.Cleanup(func() { removeCandidateDecisionFile = originalRemove })
+
+	result, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
+	if err == nil || !result.RolledBack || result.RecoveryRequired || result.FailedAction != "cleanup candidate" {
+		t.Fatalf("cleanup failure did not return rolled-back recovery envelope: result=%+v err=%v", result, err)
+	}
+	target, readErr := os.ReadFile(managed.PackTarget)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(target) != string(originalTarget) {
+		t.Fatalf("rollback did not restore target: %q", target)
+	}
+	if _, statErr := os.Stat(managed.CandidatePath); statErr != nil {
+		t.Fatalf("rollback lost candidate: %v", statErr)
+	}
+}
+
+func TestApplyCandidateDecisionsRecoversInterruptedTransactionBeforePlanning(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "interrupted")
+	decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+	decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-interrupted", "decisions.json")
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	packetBytes, err := os.ReadFile(created.ReviewWorkspace.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decisionBytes, err := os.ReadFile(decisionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalTarget, err := os.ReadFile(managed.PackTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidateBytes, err := os.ReadFile(managed.CandidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transactionRoot := filepath.Join(created.CandidateRoot, ".decision-backup", "interrupted-fixture")
+	if err := os.MkdirAll(transactionRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	candidateBackup := filepath.Join(transactionRoot, "candidate.md")
+	targetBackup := filepath.Join(transactionRoot, "target.md")
+	indexBackup := filepath.Join(transactionRoot, "index.json")
+	if err := os.WriteFile(candidateBackup, candidateBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetBackup, originalTarget, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	indexBytes, err := os.ReadFile(created.IndexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(indexBackup, indexBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := CandidateDecisionResult{SchemaVersion: 1, Command: "promote", Mode: "candidate-decision", CaseRoot: caseRoot, RepoRoot: repoRoot, Pack: pack, PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, PacketHash: sha256Hex(packetBytes), IsMutation: true, BackupRoot: transactionRoot, IndexPath: created.IndexPath}
+	action := CandidateDecisionAction{CandidatePath: managed.CandidatePath, PackTarget: managed.PackTarget, CandidateBackupPath: candidateBackup, TargetBackupPath: targetBackup}
+	transaction := candidateDecisionTransaction{SchemaVersion: 1, Kind: "pack-memory-candidate-decision-transaction", PacketHash: sha256Hex(packetBytes), DecisionHash: sha256Hex(decisionBytes), IndexExisted: true, IndexBackupPath: indexBackup, Result: result, Actions: []CandidateDecisionAction{action}}
+	if err := writeCandidateDecisionTransaction(filepath.Join(transactionRoot, "transaction.json"), transaction); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(managed.PackTarget, candidateBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(managed.CandidatePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(created.IndexPath); err != nil {
+		t.Fatal(err)
+	}
+
+	recovered, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
+	if err == nil || !recovered.RolledBack || recovered.RecoveryRequired || recovered.FailedAction != "recover interrupted transaction" {
+		t.Fatalf("interrupted transaction did not return recovery envelope: result=%+v err=%v", recovered, err)
+	}
+	target, err := os.ReadFile(managed.PackTarget)
+	if err != nil || string(target) != string(originalTarget) {
+		t.Fatalf("interrupted recovery target mismatch: %q err=%v", target, err)
+	}
+	if _, err := os.Stat(managed.CandidatePath); err != nil {
+		t.Fatalf("interrupted recovery did not restore candidate: %v", err)
+	}
+	if _, err := os.Stat(created.IndexPath); err != nil {
+		t.Fatalf("interrupted recovery did not restore index: %v", err)
+	}
+}
+
+func TestApplyCandidateDecisionsRejectsForgedApplyRecoveryPacket(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "forged-recovery")
+	packet.CandidateResult.CandidateRoot = repoRoot
+	packetBytes, err := json.MarshalIndent(packet, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetBytes = append(packetBytes, '\n')
+	if err := os.WriteFile(created.ReviewWorkspace.PacketPath, packetBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+	decision.PacketHash = sha256Hex(packetBytes)
+	decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-forged-recovery", "decisions.json")
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("unchanged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath}); err == nil {
+		t.Fatal("forged apply recovery packet should be rejected")
+	}
+	content, err := os.ReadFile(outside)
+	if err != nil || string(content) != "unchanged\n" {
+		t.Fatalf("forged recovery changed external file: %q err=%v", content, err)
+	}
+}
+
+func TestApplyCandidateDecisionsRejectsConcurrentLock(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "lock")
+	decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+	decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-lock", "decisions.json")
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	lockPath := filepath.Join(created.CandidateRoot, ".decision.lock")
+	if err := os.WriteFile(lockPath, fmt.Appendf(nil, "pid=%d\n", os.Getpid()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath}); err == nil || !strings.Contains(err.Error(), "another candidate decision transaction is active") {
+		t.Fatalf("concurrent lock should fail closed: %v", err)
+	}
+}
+
+func TestApplyCandidateDecisionsTakesOverMalformedLock(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "malformed-lock")
+	decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+	decision.Decisions[0].Decision = "reject"
+	decision.Decisions[0].PackTargetHash = ""
+	decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-malformed-lock", "decisions.json")
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	lockPath := filepath.Join(created.CandidateRoot, ".decision.lock")
+	if err := os.WriteFile(lockPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
+	if err != nil || !result.Applied || result.Rejected != 1 {
+		t.Fatalf("malformed stale lock takeover failed: result=%+v err=%v", result, err)
+	}
+}
+
+func TestApplyCandidateDecisionsTakesOverStaleLock(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "stale-lock")
+	decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+	decision.Decisions[0].Decision = "reject"
+	decision.Decisions[0].PackTargetHash = ""
+	decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-stale-lock", "decisions.json")
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	lockPath := filepath.Join(created.CandidateRoot, ".decision.lock")
+	if err := os.WriteFile(lockPath, []byte("pid=2147483647\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
+	if err != nil || !result.Applied || result.Rejected != 1 {
+		t.Fatalf("stale lock takeover failed: result=%+v err=%v", result, err)
+	}
+}
+
+func TestApplyCandidateDecisionsRejectsSymlinkBackupParent(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation is not reliably available on Windows test hosts")
+	}
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "backup-symlink")
+	decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+	decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-backup-symlink", "decisions.json")
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	external := t.TempDir()
+	if err := os.Symlink(external, filepath.Join(created.CandidateRoot, ".decision-backup")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath}); err == nil {
+		t.Fatal("symlink backup parent should be rejected")
+	}
+	entries, err := os.ReadDir(external)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("symlink backup parent wrote outside candidate root: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestApplyCandidateDecisionsRejectsSymlinkCandidate(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation is not reliably available on Windows test hosts")
+	}
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "symlink")
+	realCandidate := managed.CandidatePath + ".real"
+	if err := os.Rename(managed.CandidatePath, realCandidate); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realCandidate, managed.CandidatePath); err != nil {
+		t.Fatal(err)
+	}
+	decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+	decision.Decisions[0].CandidateHash = fileSHA256(realCandidate)
+	decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-symlink", "decisions.json")
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	if _, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, WhatIf: true}); err == nil {
+		t.Fatal("symlink candidate should be rejected")
+	}
+}
+
+func candidateDecisionFixture(t *testing.T, repoRoot, caseRoot, pack, name string) (CandidateResult, CandidateReviewPacket, CandidateReviewItem) {
+	t.Helper()
+	created, err := CreateCandidates(repoRoot, caseRoot, pack, CandidateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err = WriteCandidateReviewWorkspace(created, CandidateArtifactOptions{ReviewOutputDir: filepath.Join(caseRoot, ".rekit", "reviews", "candidate-"+safeCandidateName(name))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetBytes, err := os.ReadFile(created.ReviewWorkspace.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packet CandidateReviewPacket
+	if err := json.Unmarshal(packetBytes, &packet); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
+		if item.Kind == "managed-doc" && item.ReviewDecision == "pending-review" {
+			return created, packet, item
+		}
+	}
+	t.Fatal("review packet omitted pending managed candidate")
+	return CandidateResult{}, CandidateReviewPacket{}, CandidateReviewItem{}
+}
+
+func reviewedCandidateDecision(packet CandidateReviewPacket, managed CandidateReviewItem, evidencePath string) CandidateDecisionFile {
+	packetBytes, _ := json.MarshalIndent(packet, "", "  ")
+	packetBytes = append(packetBytes, '\n')
+	return CandidateDecisionFile{
+		SchemaVersion: 1,
+		Kind:          "pack-memory-candidate-decisions",
+		PacketHash:    sha256Hex(packetBytes),
+		Decisions: []CandidateDecisionItem{{
+			CandidatePath:  managed.CandidatePath,
+			Decision:       "accept",
+			CandidateHash:  fileSHA256(managed.CandidatePath),
+			PackTargetHash: fileSHA256(managed.PackTarget),
+			Reason:         "reviewed bounded candidate diff",
+			Actor:          "mission-commander",
+			EvidenceRefs:   []CandidateDecisionEvidence{{Path: evidencePath, SHA256: fileSHA256(evidencePath)}},
+		}},
+	}
+}
+
+func writeCandidateDecisionFixture(t *testing.T, path string, decision CandidateDecisionFile) {
+	t.Helper()
+	data, err := json.MarshalIndent(decision, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

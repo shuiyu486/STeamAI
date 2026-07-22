@@ -2,7 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +18,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 )
@@ -7730,6 +7734,96 @@ func TestRunPromoteCreateCandidatesWritesDurableReviewWorkspace(t *testing.T) {
 	}
 }
 
+func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	root := repoRoot(t)
+	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
+	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
+	candidateBefore := snapshotFiles(t, candidateRoot)
+	toolingBefore := snapshotFiles(t, toolingRoot)
+	t.Cleanup(func() {
+		removeNewFiles(t, candidateRoot, candidateBefore)
+		removeNewFiles(t, toolingRoot, toolingBefore)
+	})
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Reviewed decision candidate\n\nReusable safe update.\n")
+	reviewRoot := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-decision-product-path")
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-CreateCandidates", "-Review", "-ReviewOutputDir", reviewRoot, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	created := decodeCandidateResult(t, out.Bytes())
+	var managed candidateReviewItem
+	for _, item := range created.ReviewPlan.ReviewItems {
+		if item.Kind == "managed-doc" && item.ReviewDecision == "pending-review" {
+			managed = item
+			break
+		}
+	}
+	if managed.CandidatePath == "" || managed.PackTarget == "" || created.ReviewWorkspace == nil {
+		t.Fatalf("candidate result omitted reviewed managed item: %+v", created)
+	}
+	packetBytes, err := os.ReadFile(created.ReviewWorkspace.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidateBytes, err := os.ReadFile(managed.CandidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packBytes, err := os.ReadFile(managed.PackTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.WriteFile(managed.PackTarget, packBytes, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	evidenceBytes, err := os.ReadFile(created.ReviewWorkspace.CombinedDiffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decisionPath := filepath.Join(reviewRoot, "decisions.json")
+	decisionJSON := fmt.Sprintf(`{"schemaVersion":1,"kind":"pack-memory-candidate-decisions","packetHash":"%s","decisions":[{"candidatePath":%q,"decision":"accept","candidateHash":"%s","packTargetHash":"%s","reason":"reviewed bounded candidate diff","actor":"mission-commander","evidenceRefs":[{"path":%q,"sha256":"%s"}]}]}`+"\n", testSHA256(packetBytes), managed.CandidatePath, testSHA256(candidateBytes), testSHA256(packBytes), created.ReviewWorkspace.CombinedDiffPath, testSHA256(evidenceBytes))
+	if err := os.WriteFile(decisionPath, []byte(decisionJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var preview promote.CandidateDecisionResult
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.IsMutation || preview.Applied || preview.Accepted != 1 || len(preview.Actions) != 1 {
+		t.Fatalf("unexpected candidate decision preview: %+v", preview)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-Apply", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"promote candidate decision：mode=candidate-decision mutation=true applied=true rolledBack=false recoveryRequired=false", "accepted=1 rejected=0 superseded=0", "promote candidate decision action：candidate=", "candidateBackup=", "targetBackup=", "merge-accepted-candidate-and-cleanup", "no authority/confirmed writes"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("candidate decision text omitted %q:\n%s", expected, out.String())
+		}
+	}
+	merged, err := os.ReadFile(managed.PackTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(merged) != string(candidateBytes) {
+		t.Fatalf("candidate decision did not merge reviewed candidate: %q", string(merged))
+	}
+}
+
+func testSHA256(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
 func TestRunSyncReviewEmitsNonMutatingPlan(t *testing.T) {
 	caseRoot := attachedCase(t)
 	var out bytes.Buffer
@@ -12114,6 +12208,7 @@ type candidateReviewItem struct {
 	Kind             string   `json:"kind"`
 	ReviewDecision   string   `json:"reviewDecision"`
 	CandidatePath    string   `json:"candidatePath"`
+	PackTarget       string   `json:"packTarget"`
 	MergeTargetHint  string   `json:"mergeTargetHint"`
 	CleanupPath      string   `json:"cleanupPath"`
 	MainAgentActions []string `json:"mainAgentActions"`
