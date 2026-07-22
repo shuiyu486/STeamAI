@@ -39,6 +39,7 @@ type HandoffResult struct {
 	LaneExecutorActions         []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions,omitempty"`
 	ExecutionEvidenceReview     []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
 	ReviewerWritebacks          []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
+	ReviewerWritebackSummary    ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	Writes                      []StartWrite                             `json:"writes"`
@@ -182,6 +183,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		LaneExecutorActions:         laneExecutorActions,
 		ExecutionEvidenceReview:     executionEvidenceReview,
 		ReviewerWritebacks:          reviewerWritebacks,
+		ReviewerWritebackSummary:    ReviewerWritebackSummaryFor(reviewerWritebacks),
 		MissionCommanderNextActions: missionCommanderNext,
 		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(missionCommanderNext),
 		Writes:                      writes,

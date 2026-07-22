@@ -1437,6 +1437,7 @@ type statusCaseMission struct {
 	FactCounts                    *overview.FactCounts                     `json:"factCounts,omitempty"`
 	Sections                      *overview.OverviewSections               `json:"sections,omitempty"`
 	ReviewerWritebacks            []workstream.ReviewerWritebackItem       `json:"reviewerWritebacks,omitempty"`
+	ReviewerWritebackSummary      workstream.ReviewerWritebackSummary      `json:"reviewerWritebackSummary"`
 	ExecutionEvidenceReviewCount  int                                      `json:"executionEvidenceReviewCount"`
 	ExecutionEvidenceReview       []workstream.ExecutionEvidenceReviewItem `json:"executionEvidenceReview,omitempty"`
 	MissionCommanderActionQueue   mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
@@ -1655,6 +1656,9 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 	}
 	queue := summary.MissionCommanderActionQueue
 	if _, err := fmt.Fprintf(out, "status case mission：summary=%s ready=%t lanes=%d readyLanes=%d blockedLanes=%d evidenceReview=%d queueCurrent=%s queueTotal=%d queueBlocked=%d queueRequiresReview=%d nextActions=%d escalations=%d\n", summary.Summary, summary.Ready, summary.LaneCount, summary.ReadyLaneCount, summary.BlockedLaneCount, summary.ExecutionEvidenceReviewCount, statusMissionCurrentActionLabel(queue.CurrentAction), queue.Counts.Total, queue.Counts.Blocked, queue.Counts.RequiresReview, len(summary.MissionCommanderNextActions), len(summary.Escalations)); err != nil {
+		return err
+	}
+	if err := writeReviewerWritebackSummaryText(out, "status case mission", summary.ReviewerWritebackSummary); err != nil {
 		return err
 	}
 	if err := writeStatusCaseMissionQueueText(out, queue); err != nil {
@@ -2260,6 +2264,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 	if err != nil {
 		return nil, err
 	}
+	reviewerWritebacks := workstream.ReviewerWritebackItems(ledgerFacts, "")
 	return &statusCaseMission{
 		Ready:                         inventory.MissionCommanderActionQueue.CurrentAction != nil && inventory.MissionCommanderActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
 		Summary:                       inventory.MissionBrief.Summary,
@@ -2279,7 +2284,8 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		LaneExecutorActions:           append([]mission.LaneExecutorActionSnapshot{}, inventory.LaneExecutorActions...),
 		FactCounts:                    &inventory.Counts,
 		Sections:                      &inventory.Sections,
-		ReviewerWritebacks:            workstream.ReviewerWritebackItems(ledgerFacts, ""),
+		ReviewerWritebacks:            reviewerWritebacks,
+		ReviewerWritebackSummary:      workstream.ReviewerWritebackSummaryFor(reviewerWritebacks),
 		ExecutionEvidenceReviewCount:  len(inventory.ExecutionEvidenceReview),
 		ExecutionEvidenceReview:       append([]workstream.ExecutionEvidenceReviewItem{}, inventory.ExecutionEvidenceReview...),
 		MissionCommanderActionQueue:   inventory.MissionCommanderActionQueue,
@@ -4064,7 +4070,35 @@ func writeHandoffExecutionEvidenceReviewText(out io.Writer, items []workstream.E
 	return writeExecutionEvidenceReviewText(out, "handoff execution evidence", items)
 }
 
+func writeReviewerWritebackSummaryText(out io.Writer, prefix string, summary workstream.ReviewerWritebackSummary) error {
+	if summary.Total == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s reviewer writeback summary：total=%d verifications=%d decisions=%d lanes=%d latestKind=%s latestEventId=%s latestLane=%s latestShard=%s latestReviewerSession=%s latestReviewerResult=%s latestPacketId=%s latestRouteId=%s latestReviewerDecision=%s latestRecommendedVerdict=%s hasOwnerBinding=%t hasRisks=%t hasConflicts=%t hasRouteOutput=%t\n", prefix, summary.Total, summary.VerificationCount, summary.DecisionCount, summary.LaneCount, summary.LatestKind, summary.LatestEventID, summary.LatestLane, summary.LatestShardID, summary.LatestReviewerSession, summary.LatestReviewerResult, summary.LatestPacketID, summary.LatestRouteID, summary.LatestReviewerDecision, summary.LatestRecommendedVerdict, summary.HasOwnerBinding, summary.HasRisks, summary.HasConflicts, summary.HasRouteOutput); err != nil {
+		return err
+	}
+	for _, lane := range summary.Lanes {
+		if _, err := fmt.Fprintf(out, "%s reviewer writeback summary lane：%s\n", prefix, lane); err != nil {
+			return err
+		}
+	}
+	for _, ref := range summary.LatestEvidenceRefs {
+		if _, err := fmt.Fprintf(out, "%s reviewer writeback summary latest evidence ref：%s\n", prefix, ref); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range summary.Boundary {
+		if _, err := fmt.Fprintf(out, "%s reviewer writeback summary boundary：%s\n", prefix, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeReviewerWritebackText(out io.Writer, prefix string, items []workstream.ReviewerWritebackItem) error {
+	if err := writeReviewerWritebackSummaryText(out, prefix, workstream.ReviewerWritebackSummaryFor(items)); err != nil {
+		return err
+	}
 	for _, item := range items {
 		if _, err := fmt.Fprintf(out, "%s reviewer writeback：kind=%s eventId=%s lane=%s shard=%s reviewerSession=%s verdict=%s decision=%s packetId=%s routeId=%s\n", prefix, item.Kind, item.EventID, item.Lane, item.ShardID, item.ReviewerSession, item.Verdict, item.Decision, item.PacketID, item.RouteID); err != nil {
 			return err

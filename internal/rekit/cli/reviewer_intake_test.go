@@ -366,6 +366,9 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	if status.CaseMission.ReviewerWritebacks[0].PacketID != packet.PacketID || status.CaseMission.ReviewerWritebacks[0].RouteID != packet.Route.ID || status.CaseMission.ReviewerWritebacks[0].ReviewerResultPath != resultPath || status.CaseMission.ReviewerWritebacks[0].OwnerBindingTarget != "main" || status.CaseMission.ReviewerWritebacks[1].Kind != "decision" || !containsSubstring(status.CaseMission.ReviewerWritebacks[1].EvidenceRefs, applied.Verification.EventID) {
 		t.Fatalf("nested status reviewer writeback identity missing: %+v", status.CaseMission.ReviewerWritebacks)
 	}
+	if status.CaseMission.ReviewerWritebackSummary.Total != 2 || status.CaseMission.ReviewerWritebackSummary.VerificationCount != 1 || status.CaseMission.ReviewerWritebackSummary.DecisionCount != 1 || status.CaseMission.ReviewerWritebackSummary.LaneCount != 1 || status.CaseMission.ReviewerWritebackSummary.LatestKind != "decision" || status.CaseMission.ReviewerWritebackSummary.LatestReviewerSession != "reviewer-session-product-path" || status.CaseMission.ReviewerWritebackSummary.LatestShardID != "shard-01" || status.CaseMission.ReviewerWritebackSummary.LatestPacketID != packet.PacketID || !status.CaseMission.ReviewerWritebackSummary.HasOwnerBinding || !status.CaseMission.ReviewerWritebackSummary.HasRisks || !status.CaseMission.ReviewerWritebackSummary.HasRouteOutput || !containsStringWith(status.CaseMission.ReviewerWritebackSummary.Boundary, "reviewer writeback summary is read-only") {
+		t.Fatalf("nested status reviewer writeback summary missing: %+v", status.CaseMission.ReviewerWritebackSummary)
+	}
 
 	out.Reset()
 	if err := Run([]string{}, &out); err != nil {
@@ -383,6 +386,8 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 		"status case mission section reviewer decision detail：eventId=evt-",
 		"status case mission section reviewer risk：eventId=evt-",
 		"status case mission section reviewer route output：eventId=evt-",
+		"status case mission reviewer writeback summary：total=2 verifications=1 decisions=1 lanes=1 latestKind=decision",
+		"status case mission reviewer writeback summary boundary：reviewer writeback summary is read-only; full reviewerWritebacks remain available",
 		"status case mission reviewer writeback：kind=verification eventId=evt-",
 		"status case mission reviewer result：eventId=evt-",
 		"status case mission reviewer owner：eventId=evt-",
@@ -429,6 +434,8 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
+		"handoff reviewer writeback summary：total=2 verifications=1 decisions=1 lanes=1 latestKind=decision",
+		"handoff reviewer writeback summary boundary：reviewer writeback summary is read-only; full reviewerWritebacks remain available",
 		"handoff reviewer writeback：kind=verification eventId=evt-",
 		"handoff reviewer result：eventId=evt-",
 		"handoff reviewer owner：eventId=evt-",
@@ -453,12 +460,15 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	if len(handoffApply.ReviewerWritebacks) != 2 || handoffApply.ReviewerWritebacks[0].ReviewerSession != "reviewer-session-product-path" || handoffApply.ReviewerWritebacks[1].Kind != "decision" {
 		t.Fatalf("nested handoff apply JSON omitted reviewer writebacks: %+v", handoffApply.ReviewerWritebacks)
 	}
+	if handoffApply.ReviewerWritebackSummary.Total != 2 || handoffApply.ReviewerWritebackSummary.LatestKind != "decision" || handoffApply.ReviewerWritebackSummary.LatestReviewerSession != "reviewer-session-product-path" || !handoffApply.ReviewerWritebackSummary.HasRouteOutput {
+		t.Fatalf("nested handoff apply JSON omitted reviewer writeback summary: %+v", handoffApply.ReviewerWritebackSummary)
+	}
 	latestPath := assertStartWrite(t, handoffApply.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff").TargetPath
 	latestText, err := os.ReadFile(latestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## reviewer writeback", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`", "owner binding: target=main mode=", "reviewer decision detail: reviewerDecision=accept recommendedVerdict=accepted", "reviewer risk: bounded residual risk", "reviewer route output:"} {
+	for _, expected := range []string{"## reviewer writeback", "reviewer writeback summary: total=`2`", "reviewer writeback summary boundary: reviewer writeback summary is read-only", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`", "owner binding: target=main mode=", "reviewer decision detail: reviewerDecision=accept recommendedVerdict=accepted", "reviewer risk: bounded residual risk", "reviewer route output:"} {
 		if !strings.Contains(string(latestText), expected) {
 			t.Fatalf("written handoff omitted reviewer writeback %q:\n%s", expected, string(latestText))
 		}
@@ -468,7 +478,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Reviewer writeback", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`", "reviewer decision detail: reviewerDecision=accept recommendedVerdict=accepted", "reviewer risk: bounded residual risk", "reviewer route output:"} {
+	for _, expected := range []string{"## Reviewer writeback", "summary: total=`2`", "summary boundary: reviewer writeback summary is read-only", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`", "reviewer decision detail: reviewerDecision=accept recommendedVerdict=accepted", "reviewer risk: bounded residual risk", "reviewer route output:"} {
 		if !strings.Contains(string(resumeText), expected) {
 			t.Fatalf("lane RESUME omitted reviewer writeback %q:\n%s", expected, string(resumeText))
 		}
@@ -478,7 +488,8 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 		t.Fatal(err)
 	}
 	var checkpoint struct {
-		ReviewerWritebacks []reviewerWritebackCLIItem `json:"reviewerWritebacks"`
+		ReviewerWritebacks       []reviewerWritebackCLIItem      `json:"reviewerWritebacks"`
+		ReviewerWritebackSummary reviewerWritebackSummaryCLIItem `json:"reviewerWritebackSummary"`
 	}
 	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
 		t.Fatalf("checkpoint is not JSON: %v\n%s", err, string(checkpointBytes))
@@ -486,12 +497,17 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	if len(checkpoint.ReviewerWritebacks) != 2 || checkpoint.ReviewerWritebacks[0].PacketID != packet.PacketID || checkpoint.ReviewerWritebacks[1].Kind != "decision" {
 		t.Fatalf("checkpoint omitted reviewer writebacks: %+v", checkpoint.ReviewerWritebacks)
 	}
+	if checkpoint.ReviewerWritebackSummary.Total != 2 || checkpoint.ReviewerWritebackSummary.LatestKind != "decision" || !checkpoint.ReviewerWritebackSummary.HasOwnerBinding {
+		t.Fatalf("checkpoint omitted reviewer writeback summary: %+v", checkpoint.ReviewerWritebackSummary)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "continue", "main", "-WhatIf", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
+		"continue reviewer writeback summary：total=2 verifications=1 decisions=1 lanes=1 latestKind=decision",
+		"continue reviewer writeback summary boundary：reviewer writeback summary is read-only; full reviewerWritebacks remain available",
 		"continue reviewer writeback：kind=verification eventId=evt-",
 		"continue reviewer result：eventId=evt-",
 		"continue reviewer owner：eventId=evt-",
@@ -510,8 +526,9 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 		t.Fatal(err)
 	}
 	var continueApply struct {
-		RunID              string                     `json:"runId"`
-		ReviewerWritebacks []reviewerWritebackCLIItem `json:"reviewerWritebacks"`
+		RunID                    string                          `json:"runId"`
+		ReviewerWritebacks       []reviewerWritebackCLIItem      `json:"reviewerWritebacks"`
+		ReviewerWritebackSummary reviewerWritebackSummaryCLIItem `json:"reviewerWritebackSummary"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
 		t.Fatalf("continue apply stdout is not JSON: %v\n%s", err, out.String())
@@ -519,11 +536,14 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	if len(continueApply.ReviewerWritebacks) != 2 || continueApply.ReviewerWritebacks[0].ReviewerSession != "reviewer-session-product-path" || continueApply.ReviewerWritebacks[1].Kind != "decision" {
 		t.Fatalf("continue apply omitted reviewer writebacks: %+v", continueApply.ReviewerWritebacks)
 	}
+	if continueApply.ReviewerWritebackSummary.Total != 2 || continueApply.ReviewerWritebackSummary.LatestKind != "decision" || continueApply.ReviewerWritebackSummary.LatestReviewerSession != "reviewer-session-product-path" || !continueApply.ReviewerWritebackSummary.HasRouteOutput {
+		t.Fatalf("continue apply omitted reviewer writeback summary: %+v", continueApply.ReviewerWritebackSummary)
+	}
 	digest, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "runs", continueApply.RunID, "digest.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Reviewer writeback", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`", "reviewer decision detail: reviewerDecision=accept recommendedVerdict=accepted", "reviewer risk: bounded residual risk", "reviewer route output:"} {
+	for _, expected := range []string{"## Reviewer writeback", "summary: total=`2`", "summary boundary: reviewer writeback summary is read-only", "reviewerSession=reviewer-session-product-path", "reviewer result: `" + resultPath + "`", "reviewer decision detail: reviewerDecision=accept recommendedVerdict=accepted", "reviewer risk: bounded residual risk", "reviewer route output:"} {
 		if !strings.Contains(string(digest), expected) {
 			t.Fatalf("continue digest omitted reviewer writeback %q:\n%s", expected, string(digest))
 		}

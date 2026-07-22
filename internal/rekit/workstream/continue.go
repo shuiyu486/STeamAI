@@ -47,6 +47,7 @@ type ContinueResult struct {
 	ExecutorAction              laneExecutorAction                       `json:"executorAction"`
 	ExecutionEvidenceReview     []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
 	ReviewerWritebacks          []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
+	ReviewerWritebackSummary    ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	Inputs                      []string                                 `json:"inputs"`
@@ -142,6 +143,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	}
 	executorAction := ctx.executorAction()
 	executionEvidenceReview := ctx.executionEvidenceReview()
+	reviewerWritebacks := ctx.reviewerWritebacks()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview)
 	result := ContinueResult{
 		SchemaVersion:               1,
@@ -160,11 +162,12 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		MissionBrief:                ctx.missionBrief(),
 		ExecutorAction:              executorAction,
 		ExecutionEvidenceReview:     executionEvidenceReview,
+		ReviewerWritebacks:          reviewerWritebacks,
+		ReviewerWritebackSummary:    ReviewerWritebackSummaryFor(reviewerWritebacks),
 		MissionCommanderNextActions: commanderNextActions,
 		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(commanderNextActions),
 		Inputs:                      uniqueStrings(inputs),
 		PacketRefs:                  uniqueStrings(packets),
-		ReviewerWritebacks:          ctx.reviewerWritebacks(),
 		BlockedActions:              []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
 		NextSteps: []string{
 			"review this preview, then re-run continue with -Apply when the case-local facts/route/digest writes are acceptable",
@@ -334,6 +337,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 	result.ExecutorAction = ctx.executorAction()
 	result.ExecutionEvidenceReview = ctx.executionEvidenceReview()
 	result.ReviewerWritebacks = ctx.reviewerWritebacks()
+	result.ReviewerWritebackSummary = ReviewerWritebackSummaryFor(result.ReviewerWritebacks)
 	result.MissionCommanderNextActions = ctx.missionCommanderNextActions(result.ExecutorAction, result.ExecutionEvidenceReview)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	result.NextSteps = workstreamNextSteps(result.ExecutorAction, true)
@@ -442,6 +446,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 	}
 	executorAction := ctx.executorAction()
 	executionEvidenceReview := ctx.executionEvidenceReview()
+	reviewerWritebacks := ctx.reviewerWritebacks()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview)
 	return ContinueResult{
 		SchemaVersion:               1,
@@ -460,9 +465,10 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 		MissionBrief:                ctx.missionBrief(),
 		ExecutorAction:              executorAction,
 		ExecutionEvidenceReview:     executionEvidenceReview,
+		ReviewerWritebacks:          reviewerWritebacks,
+		ReviewerWritebackSummary:    ReviewerWritebackSummaryFor(reviewerWritebacks),
 		MissionCommanderNextActions: commanderNextActions,
 		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(commanderNextActions),
-		ReviewerWritebacks:          ctx.reviewerWritebacks(),
 		OpenRisks:                   interventionRiskLines(open),
 		Blocked:                     true,
 		ReconcileRequired:           true,

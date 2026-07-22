@@ -10068,6 +10068,7 @@ type handoffResult struct {
 	LaneExecutorActions         []handoffLaneExecutorAction         `json:"laneExecutorActions"`
 	ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
 	ReviewerWritebacks          []reviewerWritebackCLIItem          `json:"reviewerWritebacks"`
+	ReviewerWritebackSummary    reviewerWritebackSummaryCLIItem     `json:"reviewerWritebackSummary"`
 	MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
 	MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
 	Writes                      []startWrite                        `json:"writes"`
@@ -10104,6 +10105,31 @@ type reviewerWritebackCLIItem struct {
 	ReviewerConflicts  []string          `json:"reviewerConflicts"`
 	RouteOutput        map[string]string `json:"routeOutput"`
 	EvidenceRefs       []string          `json:"evidenceRefs"`
+}
+
+type reviewerWritebackSummaryCLIItem struct {
+	Total                    int      `json:"total"`
+	VerificationCount        int      `json:"verificationCount"`
+	DecisionCount            int      `json:"decisionCount"`
+	LaneCount                int      `json:"laneCount"`
+	Lanes                    []string `json:"lanes"`
+	LatestKind               string   `json:"latestKind"`
+	LatestEventID            string   `json:"latestEventId"`
+	LatestLane               string   `json:"latestLane"`
+	LatestShardID            string   `json:"latestShardId"`
+	LatestReviewerSession    string   `json:"latestReviewerSession"`
+	LatestReviewerResult     string   `json:"latestReviewerResult"`
+	LatestPacketID           string   `json:"latestPacketId"`
+	LatestRouteID            string   `json:"latestRouteId"`
+	LatestReviewerDecision   string   `json:"latestReviewerDecision"`
+	LatestRecommendedVerdict string   `json:"latestRecommendedVerdict"`
+	LatestEvidenceRefs       []string `json:"latestEvidenceRefs"`
+	HasReviewerResult        bool     `json:"hasReviewerResult"`
+	HasOwnerBinding          bool     `json:"hasOwnerBinding"`
+	HasRisks                 bool     `json:"hasRisks"`
+	HasConflicts             bool     `json:"hasConflicts"`
+	HasRouteOutput           bool     `json:"hasRouteOutput"`
+	Boundary                 []string `json:"boundary"`
 }
 
 type executionEvidenceReviewItem struct {

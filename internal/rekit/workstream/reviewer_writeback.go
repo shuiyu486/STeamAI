@@ -39,6 +39,31 @@ type ReviewerWritebackItem struct {
 	EvidenceRefs       []string          `json:"evidenceRefs,omitempty"`
 }
 
+type ReviewerWritebackSummary struct {
+	Total                    int      `json:"total"`
+	VerificationCount        int      `json:"verificationCount"`
+	DecisionCount            int      `json:"decisionCount"`
+	LaneCount                int      `json:"laneCount"`
+	Lanes                    []string `json:"lanes,omitempty"`
+	LatestKind               string   `json:"latestKind,omitempty"`
+	LatestEventID            string   `json:"latestEventId,omitempty"`
+	LatestLane               string   `json:"latestLane,omitempty"`
+	LatestShardID            string   `json:"latestShardId,omitempty"`
+	LatestReviewerSession    string   `json:"latestReviewerSession,omitempty"`
+	LatestReviewerResult     string   `json:"latestReviewerResult,omitempty"`
+	LatestPacketID           string   `json:"latestPacketId,omitempty"`
+	LatestRouteID            string   `json:"latestRouteId,omitempty"`
+	LatestReviewerDecision   string   `json:"latestReviewerDecision,omitempty"`
+	LatestRecommendedVerdict string   `json:"latestRecommendedVerdict,omitempty"`
+	LatestEvidenceRefs       []string `json:"latestEvidenceRefs,omitempty"`
+	HasReviewerResult        bool     `json:"hasReviewerResult"`
+	HasOwnerBinding          bool     `json:"hasOwnerBinding"`
+	HasRisks                 bool     `json:"hasRisks"`
+	HasConflicts             bool     `json:"hasConflicts"`
+	HasRouteOutput           bool     `json:"hasRouteOutput"`
+	Boundary                 []string `json:"boundary,omitempty"`
+}
+
 func ReviewerWritebackItems(facts mission.LedgerFacts, laneID string) []ReviewerWritebackItem {
 	items := []ReviewerWritebackItem{}
 	items = appendReviewerWritebackEvents(items, "verification", facts.Verifications, laneID)
@@ -47,6 +72,67 @@ func ReviewerWritebackItems(facts mission.LedgerFacts, laneID string) []Reviewer
 		items = items[len(items)-maxHandoffRows:]
 	}
 	return items
+}
+
+func ReviewerWritebackSummaryFor(items []ReviewerWritebackItem) ReviewerWritebackSummary {
+	summary := ReviewerWritebackSummary{}
+	lanes := map[string]bool{}
+	for _, item := range items {
+		summary.Total++
+		switch strings.ToLower(strings.TrimSpace(item.Kind)) {
+		case "verification":
+			summary.VerificationCount++
+		case "decision":
+			summary.DecisionCount++
+		}
+		if lane := strings.TrimSpace(item.Lane); lane != "" {
+			lanes[lane] = true
+		}
+		if strings.TrimSpace(item.ReviewerResultPath) != "" {
+			summary.HasReviewerResult = true
+		}
+		if strings.TrimSpace(item.OwnerBindingTarget) != "" || strings.TrimSpace(item.OwnerBindingMode) != "" || strings.TrimSpace(item.OwnerExecutor) != "" || strings.TrimSpace(item.OwnerGeneration) != "" {
+			summary.HasOwnerBinding = true
+		}
+		if len(item.ReviewerRisks) > 0 {
+			summary.HasRisks = true
+		}
+		if len(item.ReviewerConflicts) > 0 {
+			summary.HasConflicts = true
+		}
+		if len(item.RouteOutput) > 0 {
+			summary.HasRouteOutput = true
+		}
+	}
+	if len(items) > 0 {
+		summary.Boundary = reviewerWritebackSummaryBoundary()
+		latest := items[len(items)-1]
+		summary.LatestKind = latest.Kind
+		summary.LatestEventID = latest.EventID
+		summary.LatestLane = latest.Lane
+		summary.LatestShardID = latest.ShardID
+		summary.LatestReviewerSession = latest.ReviewerSession
+		summary.LatestReviewerResult = latest.ReviewerResultPath
+		summary.LatestPacketID = latest.PacketID
+		summary.LatestRouteID = latest.RouteID
+		summary.LatestReviewerDecision = latest.ReviewerDecision
+		summary.LatestRecommendedVerdict = latest.RecommendedVerdict
+		summary.LatestEvidenceRefs = mission.LimitStrings(latest.EvidenceRefs, maxHandoffRows)
+	}
+	for lane := range lanes {
+		summary.Lanes = append(summary.Lanes, lane)
+	}
+	sort.Strings(summary.Lanes)
+	summary.LaneCount = len(summary.Lanes)
+	return summary
+}
+
+func reviewerWritebackSummaryBoundary() []string {
+	return []string{
+		"reviewer writeback summary is read-only; full reviewerWritebacks remain available",
+		"reviewer writeback evidence records verification/decision provenance only and does not write authority/confirmed state",
+		"reviewer writeback downstream handoff must not execute heavy tools or spawn reviewer sessions",
+	}
 }
 
 func appendReviewerWritebackEvents(out []ReviewerWritebackItem, kind string, events []map[string]any, laneID string) []ReviewerWritebackItem {
@@ -173,6 +259,39 @@ func reviewerWritebackRouteOutputLines(routeOutput map[string]string) []string {
 	return lines
 }
 
+func writeReviewerWritebackSummary(out *bytes.Buffer, summary ReviewerWritebackSummary) {
+	if summary.Total == 0 {
+		return
+	}
+	fmt.Fprintf(out, "- reviewer writeback summary: total=`%d` verifications=`%d` decisions=`%d` lanes=`%d` latestKind=`%s` latestEventId=`%s` latestLane=`%s` latestShard=`%s` latestReviewerSession=`%s` latestReviewerResult=`%s` latestPacketId=`%s` latestRouteId=`%s` latestReviewerDecision=`%s` latestRecommendedVerdict=`%s` hasOwnerBinding=`%t` hasRisks=`%t` hasConflicts=`%t` hasRouteOutput=`%t`\n", summary.Total, summary.VerificationCount, summary.DecisionCount, summary.LaneCount, summary.LatestKind, summary.LatestEventID, summary.LatestLane, summary.LatestShardID, summary.LatestReviewerSession, summary.LatestReviewerResult, summary.LatestPacketID, summary.LatestRouteID, summary.LatestReviewerDecision, summary.LatestRecommendedVerdict, summary.HasOwnerBinding, summary.HasRisks, summary.HasConflicts, summary.HasRouteOutput)
+	for _, lane := range mission.LimitStrings(summary.Lanes, maxHandoffRows) {
+		fmt.Fprintf(out, "- reviewer writeback summary lane: %s\n", lane)
+	}
+	for _, ref := range mission.LimitStrings(summary.LatestEvidenceRefs, maxHandoffRows) {
+		fmt.Fprintf(out, "- reviewer writeback summary latest evidence ref: %s\n", ref)
+	}
+	for _, boundary := range summary.Boundary {
+		fmt.Fprintf(out, "- reviewer writeback summary boundary: %s\n", boundary)
+	}
+}
+
+func appendReviewerWritebackSummary(lines []string, summary ReviewerWritebackSummary) []string {
+	if summary.Total == 0 {
+		return lines
+	}
+	lines = append(lines, fmt.Sprintf("- summary: total=`%d` verifications=`%d` decisions=`%d` lanes=`%d` latestKind=`%s` latestEventId=`%s` latestLane=`%s` latestShard=`%s` latestReviewerSession=`%s` latestReviewerResult=`%s` latestPacketId=`%s` latestRouteId=`%s` latestReviewerDecision=`%s` latestRecommendedVerdict=`%s` hasOwnerBinding=`%t` hasRisks=`%t` hasConflicts=`%t` hasRouteOutput=`%t`", summary.Total, summary.VerificationCount, summary.DecisionCount, summary.LaneCount, summary.LatestKind, summary.LatestEventID, summary.LatestLane, summary.LatestShardID, summary.LatestReviewerSession, summary.LatestReviewerResult, summary.LatestPacketID, summary.LatestRouteID, summary.LatestReviewerDecision, summary.LatestRecommendedVerdict, summary.HasOwnerBinding, summary.HasRisks, summary.HasConflicts, summary.HasRouteOutput))
+	for _, lane := range mission.LimitStrings(summary.Lanes, maxHandoffRows) {
+		lines = append(lines, "- summary lane: "+lane)
+	}
+	for _, ref := range mission.LimitStrings(summary.LatestEvidenceRefs, maxHandoffRows) {
+		lines = append(lines, "- summary latest evidence ref: "+ref)
+	}
+	for _, boundary := range summary.Boundary {
+		lines = append(lines, "- summary boundary: "+boundary)
+	}
+	return lines
+}
+
 func writeReviewerWritebackEventDetail(out *bytes.Buffer, prefix string, item ReviewerWritebackItem) {
 	if item.PacketID != "" || item.RouteID != "" || item.ShardID != "" {
 		fmt.Fprintf(out, "%s- reviewer packet: packetId=%s routeId=%s shardId=%s\n", prefix, item.PacketID, item.RouteID, item.ShardID)
@@ -209,6 +328,7 @@ func writeReviewerWritebackItems(out *bytes.Buffer, items []ReviewerWritebackIte
 	}
 	fmt.Fprintln(out, "## reviewer writeback")
 	fmt.Fprintln(out)
+	writeReviewerWritebackSummary(out, ReviewerWritebackSummaryFor(items))
 	for _, item := range mission.LimitStrings(reviewerWritebackMarkdownLines(items), maxHandoffRows*6) {
 		fmt.Fprintln(out, item)
 	}
@@ -252,6 +372,7 @@ func appendResumeReviewerWritebacks(lines []string, items []ReviewerWritebackIte
 	if len(items) == 0 {
 		return append(lines, "- none")
 	}
+	lines = appendReviewerWritebackSummary(lines, ReviewerWritebackSummaryFor(items))
 	return append(lines, reviewerWritebackMarkdownLines(items)...)
 }
 
@@ -260,5 +381,6 @@ func appendDigestReviewerWritebacks(lines []string, items []ReviewerWritebackIte
 	if len(items) == 0 {
 		return append(lines, "- none")
 	}
+	lines = appendReviewerWritebackSummary(lines, ReviewerWritebackSummaryFor(items))
 	return append(lines, reviewerWritebackMarkdownLines(items)...)
 }

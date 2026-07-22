@@ -129,6 +129,7 @@ type laneCheckpoint struct {
 	AuthorizedGates             []string                                 `json:"authorizedGates"`
 	ExecutionEvidenceReview     []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
 	ReviewerWritebacks          []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
+	ReviewerWritebackSummary    ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	OpenInterventions           []InterventionSummary                    `json:"openInterventions"`
@@ -967,6 +968,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		AuthorizedGates:             authorizedGateLines,
 		ExecutionEvidenceReview:     executionEvidenceReview,
 		ReviewerWritebacks:          reviewerWritebacks,
+		ReviewerWritebackSummary:    ReviewerWritebackSummaryFor(reviewerWritebacks),
 		MissionCommanderNextActions: missionCommanderNextActions,
 		MissionCommanderActionQueue: missionCommanderActionQueue,
 		OpenInterventions:           openInterventions,
