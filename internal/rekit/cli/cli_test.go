@@ -10273,8 +10273,68 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	if candidate.ID != "dynamic-debug-or-writeback-action" || candidate.Status != "cautious" || candidate.ToolingCatalogPath != "tooling/catalog.yml" || !slices.Contains(candidate.GateActions, "debug") || !candidate.RecordOnlyAfterGate {
 		t.Fatalf("generic-binary-re adapter candidate identity drifted: %+v", candidate)
 	}
-	if !strings.Contains(candidate.Entry, "dynamic-debug") || !strings.Contains(candidate.Purpose, "bounded debug") || !containsSubstring(candidate.ReportGuidance, "adapterId") || !containsSubstring(candidate.EvidenceGuidance, "ValidateArgs") || strings.Join(candidate.StopConditionHints, ",") != "timeout,unexpected-side-effect,scope-drift" {
+	if !strings.Contains(candidate.Entry, "dynamic-debug") || !strings.Contains(candidate.Purpose, "bounded debug") || !containsSubstring(candidate.SideEffects, "process execution") || !containsSubstring(candidate.ReportGuidance, "adapterId") || !containsSubstring(candidate.EvidenceGuidance, "ValidateArgs") || strings.Join(candidate.StopConditionHints, ",") != "timeout,unexpected-side-effect,scope-drift" {
 		t.Fatalf("generic-binary-re adapter candidate omitted operational guidance: %+v", candidate)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs []statusAuthorizedGateHandoff `json:"authorizedGateHandoffs"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("generic-binary-re status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if len(status.CaseMission.AuthorizedGateHandoffs) != 1 {
+		t.Fatalf("generic-binary-re status omitted authorized gate handoff: %+v", status.CaseMission)
+	}
+	statusLive := status.CaseMission.AuthorizedGateHandoffs[0].LiveValidation
+	if statusLive == nil || statusLive.SelectedAdapter == nil || statusLive.SelectedAdapter.ID != candidate.ID || !strings.Contains(statusLive.SelectedAdapter.Purpose, "bounded debug") || !containsSubstring(statusLive.SelectedAdapter.SideEffects, "process execution") || !containsSubstring(statusLive.SelectedAdapter.ReportGuidance, "adapterId") || !containsSubstring(statusLive.SelectedAdapter.EvidenceGuidance, "ValidateArgs") || strings.Join(statusLive.SelectedAdapter.StopConditionHints, ",") != "timeout,unexpected-side-effect,scope-drift" {
+		t.Fatalf("generic-binary-re status handoff omitted selected adapter detail: %+v", statusLive)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status case mission authorized gate selected adapter：eventId=" + applied.EventID + " id=dynamic-debug-or-writeback-action status=cautious entry=",
+		"status case mission authorized gate selected adapter report guidance：eventId=" + applied.EventID + " id=dynamic-debug-or-writeback-action guidance=",
+		"status case mission authorized gate selected adapter evidence guidance：eventId=" + applied.EventID + " id=dynamic-debug-or-writeback-action guidance=",
+		"status case mission authorized gate selected adapter stop conditions：eventId=" + applied.EventID + " id=dynamic-debug-or-writeback-action hints=timeout,unexpected-side-effect,scope-drift",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("generic-binary-re status text omitted selected adapter handoff %q:\n%s", expected, out.String())
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var overview struct {
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("generic-binary-re overview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if len(overview.AuthorizedGateAdapterHandoffs) != 1 || overview.AuthorizedGateAdapterHandoffs[0].LiveValidation == nil || overview.AuthorizedGateAdapterHandoffs[0].LiveValidation.SelectedAdapter == nil || overview.AuthorizedGateAdapterHandoffs[0].LiveValidation.SelectedAdapter.ID != candidate.ID || !containsSubstring(overview.AuthorizedGateAdapterHandoffs[0].LiveValidation.SelectedAdapter.EvidenceGuidance, "ValidateArgs") {
+		t.Fatalf("generic-binary-re overview omitted selected adapter detail: %+v", overview.AuthorizedGateAdapterHandoffs)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"overview authorized gate adapter selected adapter：eventId=" + applied.EventID + " id=dynamic-debug-or-writeback-action status=cautious entry=",
+		"overview authorized gate adapter selected adapter evidence guidance：eventId=" + applied.EventID + " id=dynamic-debug-or-writeback-action guidance=",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("generic-binary-re overview text omitted selected adapter handoff %q:\n%s", expected, out.String())
+		}
 	}
 
 	out.Reset()
@@ -10704,18 +10764,33 @@ type authorizedGateAdapterHandoffSnapshot struct {
 }
 
 type authorizedGateLiveValidationSnapshot struct {
-	InvocationCwd               string   `json:"invocationCwd"`
-	AuthorizedWorkspaces        []string `json:"authorizedWorkspaces"`
-	ReportFileName              string   `json:"reportFileName"`
-	CaseRelativeReportPath      string   `json:"caseRelativeReportPath"`
-	ValidateCommand             string   `json:"validateCommand"`
-	RecordCommand               string   `json:"recordCommand"`
-	CaseRelativeValidateCommand string   `json:"caseRelativeValidateCommand"`
-	CaseRelativeRecordCommand   string   `json:"caseRelativeRecordCommand"`
-	AdapterCandidateCount       int      `json:"adapterCandidateCount"`
-	SelectedAdapterID           string   `json:"selectedAdapterId"`
-	SidecarTemplateAdapterID    string   `json:"sidecarTemplateAdapterId"`
-	ReplayBehavior              string   `json:"replayBehavior"`
+	InvocationCwd               string                        `json:"invocationCwd"`
+	AuthorizedWorkspaces        []string                      `json:"authorizedWorkspaces"`
+	ReportFileName              string                        `json:"reportFileName"`
+	CaseRelativeReportPath      string                        `json:"caseRelativeReportPath"`
+	ValidateCommand             string                        `json:"validateCommand"`
+	RecordCommand               string                        `json:"recordCommand"`
+	CaseRelativeValidateCommand string                        `json:"caseRelativeValidateCommand"`
+	CaseRelativeRecordCommand   string                        `json:"caseRelativeRecordCommand"`
+	AdapterCandidateCount       int                           `json:"adapterCandidateCount"`
+	SelectedAdapterID           string                        `json:"selectedAdapterId"`
+	SelectedAdapter             *adapterToolCandidateSnapshot `json:"selectedAdapter"`
+	SidecarTemplateAdapterID    string                        `json:"sidecarTemplateAdapterId"`
+	ReplayBehavior              string                        `json:"replayBehavior"`
+}
+
+type adapterToolCandidateSnapshot struct {
+	ID                  string   `json:"id"`
+	Status              string   `json:"status"`
+	Entry               string   `json:"entry"`
+	Purpose             string   `json:"purpose"`
+	SideEffects         []string `json:"sideEffects"`
+	GateActions         []string `json:"gateActions"`
+	ToolingCatalogPath  string   `json:"toolingCatalogPath"`
+	ReportGuidance      []string `json:"reportGuidance"`
+	EvidenceGuidance    []string `json:"evidenceGuidance"`
+	StopConditionHints  []string `json:"stopConditionHints"`
+	RecordOnlyAfterGate bool     `json:"recordOnlyAfterGate"`
 }
 
 func assertAuthorizedGateAdapterHandoffSnapshot(t *testing.T, label string, items []authorizedGateAdapterHandoffSnapshot, eventID, wantContract string) {

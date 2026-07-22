@@ -1442,18 +1442,19 @@ type statusAuthorizedGateHandoff struct {
 }
 
 type statusAuthorizedGateLiveValidationHandoff struct {
-	InvocationCwd               string   `json:"invocationCwd,omitempty"`
-	AuthorizedWorkspaces        []string `json:"authorizedWorkspaces,omitempty"`
-	ReportFileName              string   `json:"reportFileName,omitempty"`
-	CaseRelativeReportPath      string   `json:"caseRelativeReportPath,omitempty"`
-	ValidateCommand             string   `json:"validateCommand,omitempty"`
-	RecordCommand               string   `json:"recordCommand,omitempty"`
-	CaseRelativeValidateCommand string   `json:"caseRelativeValidateCommand,omitempty"`
-	CaseRelativeRecordCommand   string   `json:"caseRelativeRecordCommand,omitempty"`
-	AdapterCandidateCount       int      `json:"adapterCandidateCount"`
-	SelectedAdapterID           string   `json:"selectedAdapterId,omitempty"`
-	SidecarTemplateAdapterID    string   `json:"sidecarTemplateAdapterId,omitempty"`
-	ReplayBehavior              string   `json:"replayBehavior,omitempty"`
+	InvocationCwd               string                     `json:"invocationCwd,omitempty"`
+	AuthorizedWorkspaces        []string                   `json:"authorizedWorkspaces,omitempty"`
+	ReportFileName              string                     `json:"reportFileName,omitempty"`
+	CaseRelativeReportPath      string                     `json:"caseRelativeReportPath,omitempty"`
+	ValidateCommand             string                     `json:"validateCommand,omitempty"`
+	RecordCommand               string                     `json:"recordCommand,omitempty"`
+	CaseRelativeValidateCommand string                     `json:"caseRelativeValidateCommand,omitempty"`
+	CaseRelativeRecordCommand   string                     `json:"caseRelativeRecordCommand,omitempty"`
+	AdapterCandidateCount       int                        `json:"adapterCandidateCount"`
+	SelectedAdapterID           string                     `json:"selectedAdapterId,omitempty"`
+	SelectedAdapter             *gate.AdapterToolCandidate `json:"selectedAdapter,omitempty"`
+	SidecarTemplateAdapterID    string                     `json:"sidecarTemplateAdapterId,omitempty"`
+	ReplayBehavior              string                     `json:"replayBehavior,omitempty"`
 }
 
 type statusInterventionHandoff struct {
@@ -1937,6 +1938,11 @@ func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorize
 		if _, err := fmt.Fprintf(out, "status case mission authorized gate live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s validate=%s record=%s caseValidate=%s caseRecord=%s\n", handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.ValidateCommand, live.RecordCommand, live.CaseRelativeValidateCommand, live.CaseRelativeRecordCommand); err != nil {
 			return err
 		}
+		if live.SelectedAdapter != nil {
+			if err := writeStatusAuthorizedGateSelectedAdapterText(out, handoff.EventID, *live.SelectedAdapter); err != nil {
+				return err
+			}
+		}
 		for _, workspace := range live.AuthorizedWorkspaces {
 			if _, err := fmt.Fprintf(out, "status case mission authorized gate live workspace：eventId=%s workspace=%s\n", handoff.EventID, workspace); err != nil {
 				return err
@@ -1960,6 +1966,38 @@ func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorize
 	}
 	for _, evidence := range handoff.Evidence {
 		if _, err := fmt.Fprintf(out, "status case mission authorized gate evidence：eventId=%s evidence=%s\n", handoff.EventID, evidence); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusAuthorizedGateSelectedAdapterText(out io.Writer, eventID string, candidate gate.AdapterToolCandidate) error {
+	if _, err := fmt.Fprintf(out, "status case mission authorized gate selected adapter：eventId=%s id=%s status=%s entry=%s gateActions=%s recordOnlyAfterGate=%t toolingCatalogPath=%s\n", eventID, candidate.ID, candidate.Status, candidate.Entry, strings.Join(candidate.GateActions, ","), candidate.RecordOnlyAfterGate, candidate.ToolingCatalogPath); err != nil {
+		return err
+	}
+	if strings.TrimSpace(candidate.Purpose) != "" {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate selected adapter purpose：eventId=%s id=%s purpose=%s\n", eventID, candidate.ID, candidate.Purpose); err != nil {
+			return err
+		}
+	}
+	if len(candidate.SideEffects) > 0 {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate selected adapter side effects：eventId=%s id=%s sideEffects=%s\n", eventID, candidate.ID, strings.Join(candidate.SideEffects, ",")); err != nil {
+			return err
+		}
+	}
+	for _, guidance := range candidate.ReportGuidance {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate selected adapter report guidance：eventId=%s id=%s guidance=%s\n", eventID, candidate.ID, guidance); err != nil {
+			return err
+		}
+	}
+	for _, guidance := range candidate.EvidenceGuidance {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate selected adapter evidence guidance：eventId=%s id=%s guidance=%s\n", eventID, candidate.ID, guidance); err != nil {
+			return err
+		}
+	}
+	if len(candidate.StopConditionHints) > 0 {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate selected adapter stop conditions：eventId=%s id=%s hints=%s\n", eventID, candidate.ID, strings.Join(candidate.StopConditionHints, ",")); err != nil {
 			return err
 		}
 	}
@@ -2842,8 +2880,11 @@ func statusAuthorizedGateHandoffFor(repoRoot, caseRoot, pack string, event map[s
 
 func statusAuthorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveValidation) statusAuthorizedGateLiveValidationHandoff {
 	selectedAdapterID := ""
+	var selectedAdapter *gate.AdapterToolCandidate
 	if live.SelectedAdapter != nil {
 		selectedAdapterID = live.SelectedAdapter.ID
+		candidate := cloneGateAdapterToolCandidate(*live.SelectedAdapter)
+		selectedAdapter = &candidate
 	}
 	return statusAuthorizedGateLiveValidationHandoff{
 		InvocationCwd:               live.InvocationCwd,
@@ -2856,9 +2897,19 @@ func statusAuthorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveVal
 		CaseRelativeRecordCommand:   live.CaseRelativeRecordCommand,
 		AdapterCandidateCount:       len(live.AdapterCandidates),
 		SelectedAdapterID:           selectedAdapterID,
+		SelectedAdapter:             selectedAdapter,
 		SidecarTemplateAdapterID:    live.SidecarTemplate.AdapterID,
 		ReplayBehavior:              live.ReplayBehavior,
 	}
+}
+
+func cloneGateAdapterToolCandidate(candidate gate.AdapterToolCandidate) gate.AdapterToolCandidate {
+	candidate.SideEffects = append([]string{}, candidate.SideEffects...)
+	candidate.GateActions = append([]string{}, candidate.GateActions...)
+	candidate.ReportGuidance = append([]string{}, candidate.ReportGuidance...)
+	candidate.EvidenceGuidance = append([]string{}, candidate.EvidenceGuidance...)
+	candidate.StopConditionHints = append([]string{}, candidate.StopConditionHints...)
+	return candidate
 }
 
 func statusEventMap(event map[string]any, key string) map[string]any {
@@ -3388,6 +3439,11 @@ func writeAuthorizedGateAdapterHandoffText(out io.Writer, prefix string, items [
 			if _, err := fmt.Fprintf(out, "%s authorized gate adapter live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s validate=%s record=%s caseValidate=%s caseRecord=%s\n", prefix, handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.ValidateCommand, live.RecordCommand, live.CaseRelativeValidateCommand, live.CaseRelativeRecordCommand); err != nil {
 				return err
 			}
+			if live.SelectedAdapter != nil {
+				if err := writeAuthorizedGateAdapterSelectedAdapterText(out, prefix, handoff.EventID, *live.SelectedAdapter); err != nil {
+					return err
+				}
+			}
 			for _, workspace := range live.AuthorizedWorkspaces {
 				if _, err := fmt.Fprintf(out, "%s authorized gate adapter live workspace：eventId=%s workspace=%s\n", prefix, handoff.EventID, workspace); err != nil {
 					return err
@@ -3408,6 +3464,38 @@ func writeAuthorizedGateAdapterHandoffText(out io.Writer, prefix string, items [
 			if _, err := fmt.Fprintf(out, "%s authorized gate adapter boundary：eventId=%s boundary=%s\n", prefix, handoff.EventID, boundary); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func writeAuthorizedGateAdapterSelectedAdapterText(out io.Writer, prefix, eventID string, candidate gate.AdapterToolCandidate) error {
+	if _, err := fmt.Fprintf(out, "%s authorized gate adapter selected adapter：eventId=%s id=%s status=%s entry=%s gateActions=%s recordOnlyAfterGate=%t toolingCatalogPath=%s\n", prefix, eventID, candidate.ID, candidate.Status, candidate.Entry, strings.Join(candidate.GateActions, ","), candidate.RecordOnlyAfterGate, candidate.ToolingCatalogPath); err != nil {
+		return err
+	}
+	if strings.TrimSpace(candidate.Purpose) != "" {
+		if _, err := fmt.Fprintf(out, "%s authorized gate adapter selected adapter purpose：eventId=%s id=%s purpose=%s\n", prefix, eventID, candidate.ID, candidate.Purpose); err != nil {
+			return err
+		}
+	}
+	if len(candidate.SideEffects) > 0 {
+		if _, err := fmt.Fprintf(out, "%s authorized gate adapter selected adapter side effects：eventId=%s id=%s sideEffects=%s\n", prefix, eventID, candidate.ID, strings.Join(candidate.SideEffects, ",")); err != nil {
+			return err
+		}
+	}
+	for _, guidance := range candidate.ReportGuidance {
+		if _, err := fmt.Fprintf(out, "%s authorized gate adapter selected adapter report guidance：eventId=%s id=%s guidance=%s\n", prefix, eventID, candidate.ID, guidance); err != nil {
+			return err
+		}
+	}
+	for _, guidance := range candidate.EvidenceGuidance {
+		if _, err := fmt.Fprintf(out, "%s authorized gate adapter selected adapter evidence guidance：eventId=%s id=%s guidance=%s\n", prefix, eventID, candidate.ID, guidance); err != nil {
+			return err
+		}
+	}
+	if len(candidate.StopConditionHints) > 0 {
+		if _, err := fmt.Fprintf(out, "%s authorized gate adapter selected adapter stop conditions：eventId=%s id=%s hints=%s\n", prefix, eventID, candidate.ID, strings.Join(candidate.StopConditionHints, ",")); err != nil {
+			return err
 		}
 	}
 	return nil

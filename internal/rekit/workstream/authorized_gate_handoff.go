@@ -31,18 +31,19 @@ type AuthorizedGateAdapterHandoff struct {
 }
 
 type AuthorizedGateLiveValidationHandoff struct {
-	InvocationCwd               string   `json:"invocationCwd,omitempty"`
-	AuthorizedWorkspaces        []string `json:"authorizedWorkspaces,omitempty"`
-	ReportFileName              string   `json:"reportFileName,omitempty"`
-	CaseRelativeReportPath      string   `json:"caseRelativeReportPath,omitempty"`
-	ValidateCommand             string   `json:"validateCommand,omitempty"`
-	RecordCommand               string   `json:"recordCommand,omitempty"`
-	CaseRelativeValidateCommand string   `json:"caseRelativeValidateCommand,omitempty"`
-	CaseRelativeRecordCommand   string   `json:"caseRelativeRecordCommand,omitempty"`
-	AdapterCandidateCount       int      `json:"adapterCandidateCount"`
-	SelectedAdapterID           string   `json:"selectedAdapterId,omitempty"`
-	SidecarTemplateAdapterID    string   `json:"sidecarTemplateAdapterId,omitempty"`
-	ReplayBehavior              string   `json:"replayBehavior,omitempty"`
+	InvocationCwd               string                     `json:"invocationCwd,omitempty"`
+	AuthorizedWorkspaces        []string                   `json:"authorizedWorkspaces,omitempty"`
+	ReportFileName              string                     `json:"reportFileName,omitempty"`
+	CaseRelativeReportPath      string                     `json:"caseRelativeReportPath,omitempty"`
+	ValidateCommand             string                     `json:"validateCommand,omitempty"`
+	RecordCommand               string                     `json:"recordCommand,omitempty"`
+	CaseRelativeValidateCommand string                     `json:"caseRelativeValidateCommand,omitempty"`
+	CaseRelativeRecordCommand   string                     `json:"caseRelativeRecordCommand,omitempty"`
+	AdapterCandidateCount       int                        `json:"adapterCandidateCount"`
+	SelectedAdapterID           string                     `json:"selectedAdapterId,omitempty"`
+	SelectedAdapter             *gate.AdapterToolCandidate `json:"selectedAdapter,omitempty"`
+	SidecarTemplateAdapterID    string                     `json:"sidecarTemplateAdapterId,omitempty"`
+	ReplayBehavior              string                     `json:"replayBehavior,omitempty"`
 }
 
 func AuthorizedGateAdapterHandoffs(repoRoot, caseRoot, pack string, requests []map[string]any, laneID string) []AuthorizedGateAdapterHandoff {
@@ -129,8 +130,11 @@ func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[s
 
 func authorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveValidation) AuthorizedGateLiveValidationHandoff {
 	selectedAdapterID := ""
+	var selectedAdapter *gate.AdapterToolCandidate
 	if live.SelectedAdapter != nil {
 		selectedAdapterID = live.SelectedAdapter.ID
+		candidate := cloneAdapterToolCandidate(*live.SelectedAdapter)
+		selectedAdapter = &candidate
 	}
 	return AuthorizedGateLiveValidationHandoff{
 		InvocationCwd:               live.InvocationCwd,
@@ -143,9 +147,19 @@ func authorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveValidatio
 		CaseRelativeRecordCommand:   live.CaseRelativeRecordCommand,
 		AdapterCandidateCount:       len(live.AdapterCandidates),
 		SelectedAdapterID:           selectedAdapterID,
+		SelectedAdapter:             selectedAdapter,
 		SidecarTemplateAdapterID:    live.SidecarTemplate.AdapterID,
 		ReplayBehavior:              live.ReplayBehavior,
 	}
+}
+
+func cloneAdapterToolCandidate(candidate gate.AdapterToolCandidate) gate.AdapterToolCandidate {
+	candidate.SideEffects = append([]string{}, candidate.SideEffects...)
+	candidate.GateActions = append([]string{}, candidate.GateActions...)
+	candidate.ReportGuidance = append([]string{}, candidate.ReportGuidance...)
+	candidate.EvidenceGuidance = append([]string{}, candidate.EvidenceGuidance...)
+	candidate.StopConditionHints = append([]string{}, candidate.StopConditionHints...)
+	return candidate
 }
 
 func authorizedGateReportContractCommand(pack, eventID string) string {
@@ -195,6 +209,9 @@ func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item Authorize
 	fmt.Fprintf(out, "  - counts: allowedStatuses=%d allowedOutputPaths=%d authorizedStops=%d adapterCandidates=%d\n", allowedStatuses, allowedOutputs, authorizedStops, adapterCandidates)
 	if live := item.LiveValidation; live != nil {
 		fmt.Fprintf(out, "  - live validation: reportFileName=%s caseRelativeReportPath=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s\n", live.ReportFileName, live.CaseRelativeReportPath, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID)
+		if live.SelectedAdapter != nil {
+			writeAuthorizedGateSelectedAdapterMarkdown(out, *live.SelectedAdapter)
+		}
 		fmt.Fprintf(out, "  - validate: `%s`\n", live.ValidateCommand)
 		fmt.Fprintf(out, "  - record: `%s`\n", live.RecordCommand)
 		fmt.Fprintf(out, "  - case validate: `%s`\n", live.CaseRelativeValidateCommand)
@@ -214,6 +231,25 @@ func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item Authorize
 	}
 	for _, boundary := range item.Boundary {
 		fmt.Fprintf(out, "  - boundary: %s\n", boundary)
+	}
+}
+
+func writeAuthorizedGateSelectedAdapterMarkdown(out *bytes.Buffer, candidate gate.AdapterToolCandidate) {
+	fmt.Fprintf(out, "  - selected adapter: id=%s status=%s entry=%s gateActions=%s recordOnlyAfterGate=%t toolingCatalogPath=%s\n", candidate.ID, candidate.Status, candidate.Entry, strings.Join(candidate.GateActions, ","), candidate.RecordOnlyAfterGate, candidate.ToolingCatalogPath)
+	if strings.TrimSpace(candidate.Purpose) != "" {
+		fmt.Fprintf(out, "  - selected adapter purpose: %s\n", candidate.Purpose)
+	}
+	if len(candidate.SideEffects) > 0 {
+		fmt.Fprintf(out, "  - selected adapter side effects: %s\n", strings.Join(candidate.SideEffects, ","))
+	}
+	for _, guidance := range candidate.ReportGuidance {
+		fmt.Fprintf(out, "  - selected adapter report guidance: %s\n", guidance)
+	}
+	for _, guidance := range candidate.EvidenceGuidance {
+		fmt.Fprintf(out, "  - selected adapter evidence guidance: %s\n", guidance)
+	}
+	if len(candidate.StopConditionHints) > 0 {
+		fmt.Fprintf(out, "  - selected adapter stop conditions: %s\n", strings.Join(candidate.StopConditionHints, ","))
 	}
 }
 
