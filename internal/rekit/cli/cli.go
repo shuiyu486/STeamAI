@@ -1072,8 +1072,19 @@ func writePackMemoryCandidateReviewSummaryText(out io.Writer, prefix, pack strin
 	if summary.Total == 0 && !summary.HasIndex {
 		return nil
 	}
-	if _, err := fmt.Fprintf(out, "%s pack-memory review summary：pack=%s total=%d candidateFiles=%d toolingFiles=%d indexEntries=%d reviewArtifacts=%d decisionArtifacts=%d cleanupArtifacts=%d reconsumeArtifacts=%d candidateRoot=%s toolingRoot=%s indexPath=%s review=%t cleanup=%t hasCandidatePaths=%t hasToolingPaths=%t hasIndex=%t hasDecisionArtifacts=%t hasCleanupArtifacts=%t hasReconsumeArtifacts=%t nextAction=%s\n", prefix, pack, summary.Total, summary.CandidateFiles, summary.ToolingFiles, summary.IndexEntries, summary.ReviewArtifactCount, summary.DecisionArtifactCount, summary.CleanupArtifactCount, summary.ReconsumeArtifactCount, summary.CandidateRoot, summary.ToolingRoot, summary.IndexPath, summary.RequiresReview, summary.RequiresCleanup, summary.HasCandidatePaths, summary.HasToolingPaths, summary.HasIndex, summary.HasDecisionArtifacts, summary.HasCleanupArtifacts, summary.HasReconsumeArtifacts, summary.NextAction); err != nil {
+	proof := summary.ProofSummary
+	if _, err := fmt.Fprintf(out, "%s pack-memory review summary：pack=%s total=%d candidateFiles=%d toolingFiles=%d indexEntries=%d reviewArtifacts=%d decisionArtifacts=%d cleanupArtifacts=%d reconsumeArtifacts=%d proofTotal=%d proofPresent=%d proofMissing=%d proofComplete=%t proofRoot=%s candidateRoot=%s toolingRoot=%s indexPath=%s review=%t cleanup=%t hasCandidatePaths=%t hasToolingPaths=%t hasIndex=%t hasDecisionArtifacts=%t hasCleanupArtifacts=%t hasReconsumeArtifacts=%t nextAction=%s\n", prefix, pack, summary.Total, summary.CandidateFiles, summary.ToolingFiles, summary.IndexEntries, summary.ReviewArtifactCount, summary.DecisionArtifactCount, summary.CleanupArtifactCount, summary.ReconsumeArtifactCount, proof.Total, proof.Present, proof.Missing, proof.Complete, proof.ProofRoot, summary.CandidateRoot, summary.ToolingRoot, summary.IndexPath, summary.RequiresReview, summary.RequiresCleanup, summary.HasCandidatePaths, summary.HasToolingPaths, summary.HasIndex, summary.HasDecisionArtifacts, summary.HasCleanupArtifacts, summary.HasReconsumeArtifacts, summary.NextAction); err != nil {
 		return err
+	}
+	if proof.Total > 0 || strings.TrimSpace(proof.ProofRoot) != "" {
+		if _, err := fmt.Fprintf(out, "%s pack-memory proof summary：pack=%s total=%d present=%d missing=%d decisionPresent=%d decisionMissing=%d cleanupPresent=%d cleanupMissing=%d reconsumePresent=%d reconsumeMissing=%d complete=%t proofRoot=%s nextAction=%s\n", prefix, pack, proof.Total, proof.Present, proof.Missing, proof.DecisionPresent, proof.DecisionMissing, proof.CleanupPresent, proof.CleanupMissing, proof.ReconsumePresent, proof.ReconsumeMissing, proof.Complete, proof.ProofRoot, proof.NextAction); err != nil {
+			return err
+		}
+		for _, boundary := range proof.Boundary {
+			if _, err := fmt.Fprintf(out, "%s pack-memory proof summary boundary：pack=%s boundary=%s\n", prefix, pack, boundary); err != nil {
+				return err
+			}
+		}
 	}
 	for _, boundary := range summary.Boundary {
 		if _, err := fmt.Fprintf(out, "%s pack-memory review summary boundary：pack=%s boundary=%s\n", prefix, pack, boundary); err != nil {
@@ -1160,7 +1171,7 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 		return err
 	}
 	for _, pack := range candidates.Packs {
-		if _, err := fmt.Fprintf(out, "release-check pack-memory candidate pack：pack=%s maturity=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d review=%t cleanup=%t action=%s\n", pack.Pack, pack.Maturity, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action); err != nil {
+		if _, err := fmt.Fprintf(out, "release-check pack-memory candidate pack：pack=%s maturity=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d review=%t cleanup=%t action=%s proofRoot=%s\n", pack.Pack, pack.Maturity, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action, pack.ProofRoot); err != nil {
 			return err
 		}
 		if err := writePackMemoryCandidateReviewSummaryText(out, "release-check", pack.Pack, pack.ReviewSummary); err != nil {
@@ -1182,7 +1193,7 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 			}
 		}
 		for _, artifact := range pack.ReviewArtifacts {
-			if _, err := fmt.Fprintf(out, "release-check pack-memory review artifact：pack=%s name=%s candidatePath=%s packTarget=%s when=%s action=%s format=%s\n", pack.Pack, artifact.Name, artifact.CandidatePath, artifact.PackTarget, artifact.When, artifact.Action, artifact.Format); err != nil {
+			if _, err := fmt.Fprintf(out, "release-check pack-memory review artifact：pack=%s name=%s candidatePath=%s packTarget=%s proofPresent=%t proofPath=%s expectedProofs=%s when=%s action=%s format=%s\n", pack.Pack, artifact.Name, artifact.CandidatePath, artifact.PackTarget, artifact.ProofPresent, artifact.ProofPath, strings.Join(artifact.ExpectedProofs, ","), artifact.When, artifact.Action, artifact.Format); err != nil {
 				return err
 			}
 			for _, evidence := range artifact.Evidence {
@@ -2141,7 +2152,7 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 		return err
 	}
 	for _, pack := range candidates.Packs {
-		if _, err := fmt.Fprintf(out, "status pack-memory candidate pack：pack=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d review=%t cleanup=%t action=%s\n", pack.Pack, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action); err != nil {
+		if _, err := fmt.Fprintf(out, "status pack-memory candidate pack：pack=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d review=%t cleanup=%t action=%s proofRoot=%s\n", pack.Pack, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action, pack.ProofRoot); err != nil {
 			return err
 		}
 		if err := writePackMemoryCandidateReviewSummaryText(out, "status", pack.Pack, pack.ReviewSummary); err != nil {
@@ -2163,7 +2174,7 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 			}
 		}
 		for _, artifact := range pack.ReviewArtifacts {
-			if _, err := fmt.Fprintf(out, "status pack-memory review artifact：pack=%s name=%s candidatePath=%s packTarget=%s when=%s action=%s format=%s\n", pack.Pack, artifact.Name, artifact.CandidatePath, artifact.PackTarget, artifact.When, artifact.Action, artifact.Format); err != nil {
+			if _, err := fmt.Fprintf(out, "status pack-memory review artifact：pack=%s name=%s candidatePath=%s packTarget=%s proofPresent=%t proofPath=%s expectedProofs=%s when=%s action=%s format=%s\n", pack.Pack, artifact.Name, artifact.CandidatePath, artifact.PackTarget, artifact.ProofPresent, artifact.ProofPath, strings.Join(artifact.ExpectedProofs, ","), artifact.When, artifact.Action, artifact.Format); err != nil {
 				return err
 			}
 			for _, evidence := range artifact.Evidence {

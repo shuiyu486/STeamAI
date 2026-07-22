@@ -353,7 +353,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 	if !status.ProjectHandoff.Ready || status.ProjectHandoff.Summary != "release handoff summary ok" || !strings.HasPrefix(status.ProjectHandoff.LatestBatch, "Batch ") || !strings.Contains(status.ProjectHandoff.LatestBatchStatus, "已完成") || status.ProjectHandoff.LatestBatchGoal == "" || status.ProjectHandoff.LatestValidation == "" {
 		t.Fatalf("unexpected project handoff summary: %+v", status.ProjectHandoff)
 	}
-	if strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGate) == "" || status.ProjectHandoff.LatestRemoteReleaseGateDetail == nil || strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGateDetail.State) == "" || strings.TrimSpace(status.ProjectHandoff.LatestNextAction) == "" || len(status.ProjectHandoff.LatestEvidence) == 0 {
+	if strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGate) == "" || status.ProjectHandoff.LatestRemoteReleaseGateDetail == nil || strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGateDetail.State) == "" || strings.TrimSpace(status.ProjectHandoff.LatestNextAction) == "" {
 		t.Fatalf("project handoff omitted latest batch validation handoff: %+v", status.ProjectHandoff)
 	}
 	if status.ProjectHandoff.LatestRemoteReleaseGateDetail.State != status.ProjectHandoff.LatestRemoteReleaseGate {
@@ -410,7 +410,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"thirdInspectionAllowed=",
 		"status latest batch release inspection cadence boundary：do not add a third record commit",
 		"status latest batch next action：",
-		"status latest batch evidence：release-check -Format json recorded",
+		"status latest batch release inspection cadence boundary：normal batches stop after implementation commit/push plus one release inspection commit/push",
 		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
 		"status latest batch goal：",
 		"status latest batch validation：",
@@ -438,7 +438,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"thirdInspectionAllowed=",
 		"status latest batch release inspection cadence boundary：do not add a third record commit",
 		"status latest batch next action：",
-		"status latest batch evidence：release-check -Format json recorded",
+		"status latest batch release inspection cadence boundary：normal batches stop after implementation commit/push plus one release inspection commit/push",
 		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
 		"status read first：docs/context-routing.md",
 		"status validation command：go run ./cmd/rekit -- -Command release-check -Format json",
@@ -1014,6 +1014,7 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
   }
 ]
 `)
+	writePathFile(t, filepath.Join(candidateRoot, "review-artifacts", "batch501-status.candidate-decision-note.md"), "# decision\n")
 
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
@@ -1055,7 +1056,7 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 	if pack.Pack != "_template" || pack.CandidateRoot != "packs/_template/promote-candidates" || pack.ToolingRoot != "packs/_template/tooling/candidates" || pack.IndexPath != "packs/_template/promote-candidates/index.json" || pack.CandidateFiles != 1 || pack.ToolingFiles != 1 || pack.IndexEntries != 1 || !pack.RequiresReview || !pack.RequiresCleanup || !containsSubstring(pack.Evidence, "promote-candidates files=1") || !containsSubstring(pack.Boundary, "does not merge or delete") {
 		t.Fatalf("unexpected status pack-memory candidate pack: %+v", pack)
 	}
-	if summary := pack.ReviewSummary; summary.Total != 3 || summary.CandidateFiles != 1 || summary.ToolingFiles != 1 || summary.IndexEntries != 1 || summary.DecisionArtifactCount != 2 || summary.CleanupArtifactCount != 2 || summary.ReconsumeArtifactCount != 4 || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || !containsSubstring(summary.Boundary, "reviewSummary is read-only") {
+	if summary := pack.ReviewSummary; summary.Total != 3 || summary.CandidateFiles != 1 || summary.ToolingFiles != 1 || summary.IndexEntries != 1 || summary.DecisionArtifactCount != 2 || summary.CleanupArtifactCount != 2 || summary.ReconsumeArtifactCount != 4 || summary.ProofSummary.Total != 8 || summary.ProofSummary.Present != 1 || summary.ProofSummary.Missing != 7 || summary.ProofSummary.DecisionPresent != 1 || summary.ProofSummary.DecisionMissing != 1 || summary.ProofSummary.CleanupMissing != 2 || summary.ProofSummary.ReconsumeMissing != 4 || summary.ProofSummary.Complete || summary.ProofSummary.ProofRoot != "packs/_template/promote-candidates/review-artifacts" || !strings.Contains(summary.ProofSummary.NextAction, "record missing pack-memory review proof") || !containsSubstring(summary.ProofSummary.Boundary, "read-only") || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || !containsSubstring(summary.Boundary, "reviewSummary is read-only") {
 		t.Fatalf("unexpected status pack-memory candidate review summary: %+v", summary)
 	}
 
@@ -1066,12 +1067,15 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 	for _, expected := range []string{
 		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates",
 		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 review=true cleanup=true",
-		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4",
+		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4 proofTotal=8 proofPresent=1 proofMissing=7 proofComplete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
+		"status pack-memory proof summary：pack=_template total=8 present=1 missing=7 decisionPresent=1 decisionMissing=1 cleanupPresent=0 cleanupMissing=2 reconsumePresent=0 reconsumeMissing=4 complete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
+		"status pack-memory proof summary boundary：pack=_template boundary=proofSummary is read-only; release/status detects proof files but does not create or validate their contents",
 		"status pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
 		"status pack-memory candidate path：pack=_template path=packs/_template/promote-candidates/",
 		"status pack-memory tooling candidate path：pack=_template path=packs/_template/tooling/candidates/",
 		"status pack-memory candidate index：pack=_template path=references/template/README.md candidate=packs/_template/promote-candidates/",
-		"status pack-memory review artifact：pack=_template name=candidate-decision-note",
+		"status pack-memory review artifact：pack=_template name=candidate-decision-note candidatePath=packs/_template/promote-candidates/batch501-status.candidate.md packTarget=references/template/README.md proofPresent=true proofPath=packs/_template/promote-candidates/review-artifacts/batch501-status.candidate-decision-note.md",
+		"status pack-memory review artifact：pack=_template name=candidate-cleanup-proof candidatePath=packs/_template/promote-candidates/batch501-status.candidate.md packTarget=references/template/README.md proofPresent=false proofPath= expectedProofs=packs/_template/promote-candidates/review-artifacts/batch501-status.candidate-cleanup-proof.md",
 		"status pack-memory review artifact evidence：pack=_template name=candidate-decision-note evidence=selected decisionFollowThrough outcome",
 		"status pack-memory review artifact boundary：pack=_template name=candidate-cleanup-proof boundary=cleanup is limited to candidateRoot/toolingRoot and indexPath",
 		"status pack-memory candidate evidence：pack=_template evidence=promote-candidates files=1",
@@ -1088,7 +1092,9 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		t.Fatalf("release-check with open pack-memory candidates error = %v, want pack-memory candidates warning", err)
 	}
 	for _, expected := range []string{
-		"release-check pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4",
+		"release-check pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4 proofTotal=8 proofPresent=1 proofMissing=7 proofComplete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
+		"release-check pack-memory proof summary：pack=_template total=8 present=1 missing=7 decisionPresent=1 decisionMissing=1 cleanupPresent=0 cleanupMissing=2 reconsumePresent=0 reconsumeMissing=4 complete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
+		"release-check pack-memory review artifact：pack=_template name=candidate-decision-note candidatePath=packs/_template/promote-candidates/batch501-status.candidate.md packTarget=references/template/README.md proofPresent=true proofPath=packs/_template/promote-candidates/review-artifacts/batch501-status.candidate-decision-note.md",
 		"release-check pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
 	} {
 		if !strings.Contains(out.String(), expected) {
@@ -1098,20 +1104,35 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 }
 
 type packMemoryCandidateReviewSummaryJSON struct {
-	Total                  int      `json:"total"`
-	CandidateFiles         int      `json:"candidateFiles"`
-	ToolingFiles           int      `json:"toolingFiles"`
-	IndexEntries           int      `json:"indexEntries"`
-	ReviewArtifactCount    int      `json:"reviewArtifactCount"`
-	DecisionArtifactCount  int      `json:"decisionArtifactCount"`
-	CleanupArtifactCount   int      `json:"cleanupArtifactCount"`
-	ReconsumeArtifactCount int      `json:"reconsumeArtifactCount"`
-	RequiresReview         bool     `json:"requiresReview"`
-	RequiresCleanup        bool     `json:"requiresCleanup"`
-	HasDecisionArtifacts   bool     `json:"hasDecisionArtifacts"`
-	HasCleanupArtifacts    bool     `json:"hasCleanupArtifacts"`
-	HasReconsumeArtifacts  bool     `json:"hasReconsumeArtifacts"`
-	Boundary               []string `json:"boundary"`
+	Total                  int                             `json:"total"`
+	CandidateFiles         int                             `json:"candidateFiles"`
+	ToolingFiles           int                             `json:"toolingFiles"`
+	IndexEntries           int                             `json:"indexEntries"`
+	ReviewArtifactCount    int                             `json:"reviewArtifactCount"`
+	DecisionArtifactCount  int                             `json:"decisionArtifactCount"`
+	CleanupArtifactCount   int                             `json:"cleanupArtifactCount"`
+	ReconsumeArtifactCount int                             `json:"reconsumeArtifactCount"`
+	ProofSummary           packMemoryCandidateProofSummary `json:"proofSummary"`
+	RequiresReview         bool                            `json:"requiresReview"`
+	RequiresCleanup        bool                            `json:"requiresCleanup"`
+	HasDecisionArtifacts   bool                            `json:"hasDecisionArtifacts"`
+	HasCleanupArtifacts    bool                            `json:"hasCleanupArtifacts"`
+	HasReconsumeArtifacts  bool                            `json:"hasReconsumeArtifacts"`
+	Boundary               []string                        `json:"boundary"`
+}
+
+type packMemoryCandidateProofSummary struct {
+	Total            int      `json:"total"`
+	Present          int      `json:"present"`
+	Missing          int      `json:"missing"`
+	DecisionPresent  int      `json:"decisionPresent"`
+	DecisionMissing  int      `json:"decisionMissing"`
+	CleanupMissing   int      `json:"cleanupMissing"`
+	ReconsumeMissing int      `json:"reconsumeMissing"`
+	ProofRoot        string   `json:"proofRoot"`
+	Complete         bool     `json:"complete"`
+	NextAction       string   `json:"nextAction"`
+	Boundary         []string `json:"boundary"`
 }
 
 func TestRunStatusRejectsUnsupportedFormat(t *testing.T) {
@@ -1238,7 +1259,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		"maxPushes=2",
 		"thirdInspectionAllowed=",
 		"release-check latest batch release inspection cadence boundary：do not add a third record commit",
-		"release-check latest batch evidence：release-check -Format json recorded",
+		"release-check latest batch release inspection cadence：state=",
 		"release-check release notes：path=CHANGELOG.md present=true",
 		"release-check read first：path=docs/context-routing.md present=true",
 		"release-check signal：name=CI release gate ready=true summary=CI release gate inventory ok",

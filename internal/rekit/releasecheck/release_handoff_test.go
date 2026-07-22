@@ -134,7 +134,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 		t.Fatalf("unexpected latest batch summary: %+v", handoff.LatestBatch)
 	}
 	latestHandoff := handoff.LatestBatch.Handoff
-	if !latestHandoff.Completed || strings.TrimSpace(latestHandoff.RemoteReleaseGate) == "" || latestHandoff.RemoteReleaseGateDetail == nil || strings.TrimSpace(latestHandoff.RemoteReleaseGateDetail.State) == "" || strings.TrimSpace(latestHandoff.NextAction) == "" || len(latestHandoff.Evidence) == 0 {
+	if !latestHandoff.Completed || strings.TrimSpace(latestHandoff.RemoteReleaseGate) == "" || latestHandoff.RemoteReleaseGateDetail == nil || strings.TrimSpace(latestHandoff.RemoteReleaseGateDetail.State) == "" || strings.TrimSpace(latestHandoff.NextAction) == "" {
 		t.Fatalf("unexpected latest batch handoff: %+v", latestHandoff)
 	}
 	if cadence := latestHandoff.ReleaseInspectionCadence; cadence.MaxPushes != 2 || cadence.State == "" || cadence.NextAction == "" || cadence.ThirdInspectionAllowed != cadence.NewRemoteSignal || len(cadence.Boundary) == 0 || !releaseHandoffStringsContain(cadence.Boundary, "do not add a third record commit") {
@@ -176,7 +176,7 @@ func TestLatestBatchHandoffExtractsValidationEvidence(t *testing.T) {
 }
 
 func TestLatestBatchReleaseInspectionCadenceWaitsForImplementationCommit(t *testing.T) {
-	section := `状态：已完成 runtime/test/docs implementation，但尚未提交推送。
+	section := `状态：已完成 runtime/test/docs implementation，但尚未提交推送；完整本地 release minimum、implementation commit/push 与远程 release-gate inspection 待最终执行。
 
 目标：正常批次最多两次 push；第三个记录提交只有出现不同于既有 ` + "`" + `steps=[]` + "`" + ` runner/billing blocker 的新远程信号时才允许。
 
@@ -241,6 +241,7 @@ func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
   }
 ]
 `)
+	writeFile(t, filepath.Join(repo, "packs", "fixture", "promote-candidates", "review-artifacts", "candidate.candidate-decision-note.md"), "# decision\n")
 
 	inventory := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
 	if inventory.Ready || inventory.Summary != "pack-memory candidate inventory has open review/cleanup work" || inventory.Total != 3 || len(inventory.Packs) != 1 || !strings.Contains(inventory.NextAction, "review listed pack-memory candidates") || len(inventory.Warnings) == 0 {
@@ -256,8 +257,14 @@ func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
 	if !releaseHandoffReviewArtifactContains(pack.ReviewArtifacts, "candidate-decision-note", "packs/fixture/promote-candidates/candidate.candidate.md", "references/template/README.md") || !releaseHandoffReviewArtifactContains(pack.ReviewArtifacts, "candidate-cleanup-proof", "packs/fixture/promote-candidates/candidate.candidate.md", "references/template/README.md") || !releaseHandoffReviewArtifactContains(pack.ReviewArtifacts, "fresh-case-reconsume-proof", "packs/fixture/tooling/candidates/tool.candidate.md", "tooling/catalog.yml or tooling/recipes/*") || !releaseHandoffReviewArtifactContains(pack.ReviewArtifacts, "attached-case-reconsume-proof", "packs/fixture/tooling/candidates/tool.candidate.md", "tooling/catalog.yml or tooling/recipes/*") {
 		t.Fatalf("pack-memory candidate review artifact handoff drifted: %+v", pack.ReviewArtifacts)
 	}
-	if summary := pack.ReviewSummary; summary.Total != 3 || summary.CandidateFiles != 1 || summary.ToolingFiles != 1 || summary.IndexEntries != 1 || summary.ReviewArtifactCount != len(pack.ReviewArtifacts) || summary.DecisionArtifactCount != 2 || summary.CleanupArtifactCount != 2 || summary.ReconsumeArtifactCount != 4 || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasCandidatePaths || !summary.HasToolingPaths || !summary.HasIndex || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || !strings.Contains(summary.NextAction, "record accept/reject") || !releaseHandoffStringsContain(summary.Boundary, "reviewSummary is read-only") {
+	if summary := pack.ReviewSummary; summary.Total != 3 || summary.CandidateFiles != 1 || summary.ToolingFiles != 1 || summary.IndexEntries != 1 || summary.ReviewArtifactCount != len(pack.ReviewArtifacts) || summary.DecisionArtifactCount != 2 || summary.CleanupArtifactCount != 2 || summary.ReconsumeArtifactCount != 4 || summary.ProofSummary.Total != len(pack.ReviewArtifacts) || summary.ProofSummary.Present != 1 || summary.ProofSummary.Missing != 7 || summary.ProofSummary.DecisionPresent != 1 || summary.ProofSummary.DecisionMissing != 1 || summary.ProofSummary.CleanupMissing != 2 || summary.ProofSummary.ReconsumeMissing != 4 || summary.ProofSummary.Complete || summary.ProofSummary.ProofRoot != "packs/fixture/promote-candidates/review-artifacts" || !strings.Contains(summary.ProofSummary.NextAction, "record missing pack-memory review proof") || !releaseHandoffStringsContain(summary.ProofSummary.Boundary, "read-only") || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasCandidatePaths || !summary.HasToolingPaths || !summary.HasIndex || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || !strings.Contains(summary.NextAction, "record accept/reject") || !releaseHandoffStringsContain(summary.Boundary, "reviewSummary is read-only") {
 		t.Fatalf("pack-memory candidate review summary drifted: %+v", summary)
+	}
+	if pack.ProofRoot != "packs/fixture/promote-candidates/review-artifacts" || pack.ProofSummary.Total != len(pack.ReviewArtifacts) || pack.ProofSummary.Present != 1 || pack.ProofSummary.Missing != 7 || pack.ProofSummary.Complete {
+		t.Fatalf("pack-memory candidate proof summary drifted: %+v", pack.ProofSummary)
+	}
+	if !releaseHandoffReviewArtifactProofContains(pack.ReviewArtifacts, "candidate-decision-note", "packs/fixture/promote-candidates/candidate.candidate.md", "packs/fixture/promote-candidates/review-artifacts/candidate.candidate-decision-note.md", true) || !releaseHandoffReviewArtifactProofContains(pack.ReviewArtifacts, "candidate-cleanup-proof", "packs/fixture/promote-candidates/candidate.candidate.md", "packs/fixture/promote-candidates/review-artifacts/candidate.candidate-cleanup-proof.md", false) {
+		t.Fatalf("pack-memory candidate proof handoff drifted: %+v", pack.ReviewArtifacts)
 	}
 	for _, evidence := range []string{"promote-candidates files=1", "tooling/candidates files=1", "indexPath packs/fixture/promote-candidates/index.json entries=1"} {
 		if !slices.Contains(pack.Evidence, evidence) {
@@ -424,6 +431,18 @@ func releaseHandoffReviewArtifactContains(items []ReleaseHandoffPackMemoryCandid
 	for _, item := range items {
 		if item.Name == name && item.CandidatePath == candidatePath && item.PackTarget == packTarget && strings.TrimSpace(item.When) != "" && strings.TrimSpace(item.Action) != "" && len(item.Evidence) > 0 && len(item.Boundary) > 0 {
 			return true
+		}
+	}
+	return false
+}
+
+func releaseHandoffReviewArtifactProofContains(items []ReleaseHandoffPackMemoryCandidateReviewArtifact, name, candidatePath, proofPath string, present bool) bool {
+	for _, item := range items {
+		if item.Name == name && item.CandidatePath == candidatePath && item.ProofPresent == present && slices.Contains(item.ExpectedProofs, proofPath) {
+			if present {
+				return item.ProofPath == proofPath
+			}
+			return item.ProofPath == ""
 		}
 	}
 	return false

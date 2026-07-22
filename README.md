@@ -280,7 +280,7 @@ CLAUDE.local.md 中 block 外的 case 私有内容
 1. `-CreateCandidates`：生成 managed docs 候选或 tooling candidate。
 2. `-Apply`：按已确认内容写回 pack。
 
-`-CreateCandidates` 的 JSON `reviewPlan.reviewSummary` 与文本 `promote candidates review summary...` 会先给出 candidate/tooling/index、review/cleanup/reconsume artifact、Mission Commander next action 和 no-merge/no-cleanup/no-heavy/no-authority boundary；`status` / `release-check` 的 pack-memory handoff 也输出 compact review summary，便于 replacement executor 不扫描完整候选列表就判断是否还需 review、cleanup 或 reconsume proof。
+`-CreateCandidates` 的 JSON `reviewPlan.reviewSummary` 与文本 `promote candidates review summary...` 会先给出 candidate/tooling/index、review/cleanup/reconsume artifact、Mission Commander next action 和 no-merge/no-cleanup/no-heavy/no-authority boundary；`status` / `release-check` 的 pack-memory handoff 也输出 compact review/proof summary、expected proof paths 与 present/missing counts，便于 replacement executor 不扫描完整候选列表或 proof 目录就判断是否还需 review、cleanup 或 reconsume proof。
 
 `promote` 很保守：若 managed docs 含真实绝对路径、样本名、RVA/VA、ctx/round 快照、artifact/capture/trace/dump 路径，会阻止直接回流。工具链经验只有在脱敏后不再命中 deny pattern 时才写 sanitized preview；候选由你审查后合入正式 tooling 文档。合入 `tooling/catalog.yml` 或 `tooling/recipes/*` 后，后续 init/attached fresh case 通过 `templateRoot` + `templatePack` 读取同一 pack tooling 资产；`sync` 不把 tooling files 复制进 case managed docs，避免把候选经验静默混入 case 私有路由。
 
