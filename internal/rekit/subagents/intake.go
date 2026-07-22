@@ -110,6 +110,7 @@ type ReviewerIntakeSummary struct {
 	NextDispatches                      []string                             `json:"nextDispatches,omitempty"`
 	BlockedCount                        int                                  `json:"blockedCount"`
 	RepairGuidanceCount                 int                                  `json:"repairGuidanceCount"`
+	RepairGuidanceSummary               *ReviewerIntakeRepairGuidanceSummary `json:"repairGuidanceSummary,omitempty"`
 	PostValidationPresent               bool                                 `json:"postValidationPresent"`
 	PostValidationValid                 bool                                 `json:"postValidationValid"`
 	PostValidationOverviewVerifications int                                  `json:"postValidationOverviewVerifications"`
@@ -140,6 +141,15 @@ type ReviewerIntakeRepairGuidance struct {
 	Action   string   `json:"action"`
 	Evidence []string `json:"evidence,omitempty"`
 	Boundary []string `json:"boundary,omitempty"`
+}
+
+type ReviewerIntakeRepairGuidanceSummary struct {
+	Total           int      `json:"total"`
+	PrimaryReason   string   `json:"primaryReason,omitempty"`
+	PrimaryAction   string   `json:"primaryAction,omitempty"`
+	Evidence        []string `json:"evidence,omitempty"`
+	Boundary        []string `json:"boundary,omitempty"`
+	NextSafeCommand string   `json:"nextSafeCommand,omitempty"`
 }
 
 type ReviewerPostValidation struct {
@@ -487,6 +497,10 @@ func reviewerIntakeSummary(result ReviewerIntakeResult) ReviewerIntakeSummary {
 	summary.ActionBlocked = queue.Counts.Blocked
 	summary.ActionRequiresReview = queue.Counts.RequiresReview
 	summary.ActionFollowUp = queue.Counts.FollowUp
+	if len(result.RepairGuidance) > 0 {
+		repairSummary := reviewerIntakeRepairGuidanceSummary(result.RepairGuidance, result.MissionCommanderAction.PrimaryCommand)
+		summary.RepairGuidanceSummary = &repairSummary
+	}
 	if queue.CurrentAction != nil {
 		current := reviewerIntakeNextActionSummary(*queue.CurrentAction)
 		summary.CurrentAction = &current
@@ -591,6 +605,23 @@ func reviewerIntakeMissionCommanderAction(result ReviewerIntakeResult) mission.M
 			Boundary:         boundary,
 		}
 	}
+}
+
+func reviewerIntakeRepairGuidanceSummary(guidance []ReviewerIntakeRepairGuidance, nextSafeCommand string) ReviewerIntakeRepairGuidanceSummary {
+	summary := ReviewerIntakeRepairGuidanceSummary{Total: len(guidance), NextSafeCommand: strings.TrimSpace(nextSafeCommand)}
+	for _, item := range guidance {
+		if summary.PrimaryReason == "" {
+			summary.PrimaryReason = strings.TrimSpace(item.Reason)
+		}
+		if summary.PrimaryAction == "" {
+			summary.PrimaryAction = strings.TrimSpace(item.Action)
+		}
+		summary.Evidence = append(summary.Evidence, item.Evidence...)
+		summary.Boundary = append(summary.Boundary, item.Boundary...)
+	}
+	summary.Evidence = mission.UniqueStrings(cleanRepairGuidanceStrings(summary.Evidence))
+	summary.Boundary = mission.UniqueStrings(cleanRepairGuidanceStrings(summary.Boundary))
+	return summary
 }
 
 func reviewerIntakeNeedsRepairGuidance(status string) bool {

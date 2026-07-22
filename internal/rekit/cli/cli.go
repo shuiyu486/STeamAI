@@ -5250,6 +5250,22 @@ func writeReviewerIntakeSummaryText(out io.Writer, summary subagents.ReviewerInt
 			return err
 		}
 	}
+	if summary.RepairGuidanceSummary != nil {
+		repair := *summary.RepairGuidanceSummary
+		if _, err := fmt.Fprintf(out, "reviewer intake summary repair guidance：total=%d primaryReason=%s primaryAction=%s nextSafeCommand=`%s`\n", repair.Total, planSubagentsTextInline(repair.PrimaryReason), planSubagentsTextInline(repair.PrimaryAction), repair.NextSafeCommand); err != nil {
+			return err
+		}
+		for _, evidence := range repair.Evidence {
+			if _, err := fmt.Fprintf(out, "reviewer intake summary repair evidence：%s\n", planSubagentsTextInline(evidence)); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range repair.Boundary {
+			if _, err := fmt.Fprintf(out, "reviewer intake summary repair boundary：%s\n", planSubagentsTextInline(boundary)); err != nil {
+				return err
+			}
+		}
+	}
 	if len(summary.NextDispatches) > 0 {
 		if _, err := fmt.Fprintf(out, "reviewer intake summary next dispatches：%s\n", strings.Join(summary.NextDispatches, ",")); err != nil {
 			return err

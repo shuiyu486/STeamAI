@@ -622,7 +622,7 @@ func TestRunPlanSubagentsReviewerIntakeBlockedRepairGuidanceCaseLocalProductPath
 	if !containsRepairGuidance(blocked.RepairGuidance, "resolve or split", "overlaps another shard", "do not apply reviewer intake until this blocker is resolved") {
 		t.Fatalf("blocked reviewer intake omitted repair guidance: %+v", blocked.RepairGuidance)
 	}
-	if blocked.Summary.Status != "blocked" || blocked.Summary.ReadyForWriteback || blocked.Summary.BlockedCount == 0 || blocked.Summary.RepairGuidanceCount == 0 || blocked.Summary.CurrentAction == nil || !blocked.Summary.CurrentAction.Blocked || !containsStringWith(blocked.Summary.Boundary, "do not apply reviewer intake while blockedReasons") {
+	if blocked.Summary.Status != "blocked" || blocked.Summary.ReadyForWriteback || blocked.Summary.BlockedCount == 0 || blocked.Summary.RepairGuidanceCount == 0 || blocked.Summary.RepairGuidanceSummary == nil || blocked.Summary.RepairGuidanceSummary.Total != 1 || !strings.Contains(blocked.Summary.RepairGuidanceSummary.PrimaryAction, "resolve or split") || !containsStringWith(blocked.Summary.RepairGuidanceSummary.Evidence, "overlaps another shard") || !containsStringWith(blocked.Summary.RepairGuidanceSummary.Boundary, "do not apply reviewer intake until this blocker is resolved") || !strings.Contains(blocked.Summary.RepairGuidanceSummary.NextSafeCommand, "-WhatIf") || blocked.Summary.CurrentAction == nil || !blocked.Summary.CurrentAction.Blocked || !containsStringWith(blocked.Summary.Boundary, "do not apply reviewer intake while blockedReasons") {
 		t.Fatalf("blocked reviewer intake compact summary omitted repair state: %+v", blocked.Summary)
 	}
 	if blocked.MissionCommanderAction.State != "reviewer-intake-blocked" || !strings.Contains(blocked.MissionCommanderAction.PrimaryCommand, `-Target "`+caseRoot+`"`) || !strings.Contains(blocked.MissionCommanderAction.PrimaryCommand, `-Pack "_template"`) || !containsMissionCommanderNextAction(blocked.MissionCommanderNextActions, "reviewerIntake.blocked", blocked.MissionCommanderAction.PrimaryCommand, true, true) || !nextActionReasonContains(blocked.MissionCommanderNextActions, "repair: resolve or split") {
@@ -644,6 +644,9 @@ func TestRunPlanSubagentsReviewerIntakeBlockedRepairGuidanceCaseLocalProductPath
 		"plan-subagents reviewer intake：status=blocked mutation=false applied=false readyForWriteback=false lane=main shard=shard-01",
 		"reviewer intake summary：status=blocked readyForWriteback=false applied=false lane=main shard=shard-01",
 		"blocked=1 repairs=1 postValidation=true valid=true",
+		"reviewer intake summary repair guidance：total=1 primaryReason=reviewer result reports unresolved conflicts: overlaps another shard primaryAction=resolve or split",
+		"reviewer intake summary repair evidence：overlaps another shard",
+		"reviewer intake summary repair boundary：do not apply reviewer intake until this blocker is resolved",
 		"reviewer intake summary current action：state=reviewer-intake-blocked source=reviewerIntake.blocked blocked=true requiresReview=true command=`/rekit plan-subagents",
 		"reviewer intake summary boundary：do not apply reviewer intake while blockedReasons or repairGuidance remain unresolved",
 		"reviewer intake blocked reason：reviewer result reports unresolved conflicts: overlaps another shard",
@@ -793,33 +796,34 @@ type reviewerIntakeCLIResult struct {
 		NextDispatches    []string `json:"nextDispatches"`
 	} `json:"orchestrationSnapshot"`
 	Summary struct {
-		Status                              string                           `json:"status"`
-		ReadyForWriteback                   bool                             `json:"readyForWriteback"`
-		Applied                             bool                             `json:"applied"`
-		Lane                                string                           `json:"lane"`
-		ShardID                             string                           `json:"shardId"`
-		IntakeID                            string                           `json:"intakeId"`
-		ReviewerSession                     string                           `json:"reviewerSession"`
-		VerificationVerdict                 string                           `json:"verificationVerdict"`
-		MainDecision                        string                           `json:"mainDecision"`
-		DispatchIndex                       int                              `json:"dispatchIndex"`
-		DispatchTotal                       int                              `json:"dispatchTotal"`
-		ShardStatusBefore                   string                           `json:"shardStatusBefore"`
-		ShardStatusAfter                    string                           `json:"shardStatusAfter"`
-		BlockedCount                        int                              `json:"blockedCount"`
-		RepairGuidanceCount                 int                              `json:"repairGuidanceCount"`
-		PostValidationPresent               bool                             `json:"postValidationPresent"`
-		PostValidationValid                 bool                             `json:"postValidationValid"`
-		PostValidationOverviewVerifications int                              `json:"postValidationOverviewVerifications"`
-		PostValidationOverviewDecisions     int                              `json:"postValidationOverviewDecisions"`
-		ReviewerWritebacks                  int                              `json:"reviewerWritebacks"`
-		ReviewerWritebackSummary            *reviewerWritebackSummaryCLIItem `json:"reviewerWritebackSummary"`
-		ActionTotal                         int                              `json:"actionTotal"`
-		ActionUnblocked                     int                              `json:"actionUnblocked"`
-		ActionBlocked                       int                              `json:"actionBlocked"`
-		ActionRequiresReview                int                              `json:"actionRequiresReview"`
-		ActionFollowUp                      int                              `json:"actionFollowUp"`
-		QueueSummary                        string                           `json:"queueSummary"`
+		Status                              string                                   `json:"status"`
+		ReadyForWriteback                   bool                                     `json:"readyForWriteback"`
+		Applied                             bool                                     `json:"applied"`
+		Lane                                string                                   `json:"lane"`
+		ShardID                             string                                   `json:"shardId"`
+		IntakeID                            string                                   `json:"intakeId"`
+		ReviewerSession                     string                                   `json:"reviewerSession"`
+		VerificationVerdict                 string                                   `json:"verificationVerdict"`
+		MainDecision                        string                                   `json:"mainDecision"`
+		DispatchIndex                       int                                      `json:"dispatchIndex"`
+		DispatchTotal                       int                                      `json:"dispatchTotal"`
+		ShardStatusBefore                   string                                   `json:"shardStatusBefore"`
+		ShardStatusAfter                    string                                   `json:"shardStatusAfter"`
+		BlockedCount                        int                                      `json:"blockedCount"`
+		RepairGuidanceCount                 int                                      `json:"repairGuidanceCount"`
+		RepairGuidanceSummary               *reviewerIntakeRepairGuidanceSummaryItem `json:"repairGuidanceSummary"`
+		PostValidationPresent               bool                                     `json:"postValidationPresent"`
+		PostValidationValid                 bool                                     `json:"postValidationValid"`
+		PostValidationOverviewVerifications int                                      `json:"postValidationOverviewVerifications"`
+		PostValidationOverviewDecisions     int                                      `json:"postValidationOverviewDecisions"`
+		ReviewerWritebacks                  int                                      `json:"reviewerWritebacks"`
+		ReviewerWritebackSummary            *reviewerWritebackSummaryCLIItem         `json:"reviewerWritebackSummary"`
+		ActionTotal                         int                                      `json:"actionTotal"`
+		ActionUnblocked                     int                                      `json:"actionUnblocked"`
+		ActionBlocked                       int                                      `json:"actionBlocked"`
+		ActionRequiresReview                int                                      `json:"actionRequiresReview"`
+		ActionFollowUp                      int                                      `json:"actionFollowUp"`
+		QueueSummary                        string                                   `json:"queueSummary"`
 		CurrentAction                       *struct {
 			State          string `json:"state"`
 			Source         string `json:"source"`
@@ -914,6 +918,15 @@ type reviewerIntakeRepairGuidanceCLIItem struct {
 	Action   string   `json:"action"`
 	Evidence []string `json:"evidence"`
 	Boundary []string `json:"boundary"`
+}
+
+type reviewerIntakeRepairGuidanceSummaryItem struct {
+	Total           int      `json:"total"`
+	PrimaryReason   string   `json:"primaryReason"`
+	PrimaryAction   string   `json:"primaryAction"`
+	Evidence        []string `json:"evidence"`
+	Boundary        []string `json:"boundary"`
+	NextSafeCommand string   `json:"nextSafeCommand"`
 }
 
 func containsStringWith(values []string, want string) bool {
