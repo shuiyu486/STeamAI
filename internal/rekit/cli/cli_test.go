@@ -5741,6 +5741,25 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 		if idx == 0 && !slices.Contains(preview.OrchestrationSnapshot.NextDispatches, "shard-02") {
 			t.Fatalf("preview did not identify remaining dispatch: %+v", preview.OrchestrationSnapshot)
 		}
+		previewRemaining := []string{handoff.ShardID}
+		if idx == 0 {
+			previewRemaining = []string{"shard-01", "shard-02"}
+		}
+		assertReviewerIntakeOrchestrationProgress(t, "reviewer intake preview for "+handoff.ShardID, preview.Summary.OrchestrationProgress, idx+1, 2, idx, 2-idx, handoff.ShardID, "previewed", handoff.ShardID, previewRemaining)
+		if idx == 0 {
+			out.Reset()
+			if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", handoff.ReviewerResultPath, "-Lane", "feature-login", "-Actor", "mission-commander", "-WhatIf", "-Format", "text"}, &out); err != nil {
+				t.Fatal(err)
+			}
+			for _, expected := range []string{
+				"reviewer intake summary orchestration progress：dispatch=1/2 completed=0 open=2 current=shard-01 status=previewed nextOpen=shard-01 remaining=shard-01,shard-02",
+				"reviewer intake summary orchestration boundary：orchestration progress is read-only; main Agent remains responsible for reviewer dispatch and intake ordering",
+			} {
+				if !strings.Contains(out.String(), expected) {
+					t.Fatalf("reviewer intake text omitted orchestration progress %q:\n%s", expected, out.String())
+				}
+			}
+		}
 
 		out.Reset()
 		if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", handoff.ReviewerResultPath, "-Lane", "feature-login", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
@@ -5750,6 +5769,13 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 		if !applied.IsMutation || !applied.Applied || applied.WritebackStatus != "complete" || !applied.ReadyForWriteback || applied.OrchestrationSnapshot.DispatchIndex != idx+1 || applied.OrchestrationSnapshot.ShardStatusAfter != "complete" || applied.Verification == nil || applied.Decision == nil || !applied.PostValidation.Valid {
 			t.Fatalf("unexpected reviewer intake apply for %s: %+v", handoff.ShardID, applied)
 		}
+		appliedRemaining := []string{}
+		appliedNextOpen := ""
+		if idx == 0 {
+			appliedRemaining = []string{"shard-02"}
+			appliedNextOpen = "shard-02"
+		}
+		assertReviewerIntakeOrchestrationProgress(t, "reviewer intake apply for "+handoff.ShardID, applied.Summary.OrchestrationProgress, idx+1, 2, idx+1, 1-idx, handoff.ShardID, "complete", appliedNextOpen, appliedRemaining)
 		if idx == 0 {
 			out.Reset()
 			if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
@@ -10749,6 +10775,16 @@ func assertReviewerDispatchIntakeSummary(t *testing.T, label string, summary rev
 	}
 	if total > 0 && (summary.PacketCount == 0 || summary.LatestPacketDispatchTotal == 0 || summary.LatestPacketDispatchOpen == 0 || len(summary.RemainingShardIDs) == 0) {
 		t.Fatalf("%s missing reviewer dispatch intake progress summary: %+v", label, summary)
+	}
+}
+
+func assertReviewerIntakeOrchestrationProgress(t *testing.T, label string, progress *reviewerIntakeOrchestrationProgressItem, dispatchIndex, dispatchTotal, completed, open int, currentShardID, currentStatus, nextOpenShardID string, remainingShardIDs []string) {
+	t.Helper()
+	if progress == nil {
+		t.Fatalf("%s omitted reviewer intake orchestration progress", label)
+	}
+	if progress.DispatchIndex != dispatchIndex || progress.DispatchTotal != dispatchTotal || progress.Completed != completed || progress.Open != open || progress.CurrentShardID != currentShardID || progress.CurrentShardStatus != currentStatus || progress.NextOpenShardID != nextOpenShardID || !slices.Equal(progress.RemainingShardIDs, remainingShardIDs) || !containsStringWith(progress.Boundary, "orchestration progress is read-only") {
+		t.Fatalf("%s missing reviewer intake orchestration progress: %+v", label, progress)
 	}
 }
 

@@ -108,6 +108,7 @@ type ReviewerIntakeSummary struct {
 	ShardStatusBefore                   string                               `json:"shardStatusBefore,omitempty"`
 	ShardStatusAfter                    string                               `json:"shardStatusAfter,omitempty"`
 	NextDispatches                      []string                             `json:"nextDispatches,omitempty"`
+	OrchestrationProgress               *ReviewerIntakeOrchestrationProgress `json:"orchestrationProgress,omitempty"`
 	BlockedCount                        int                                  `json:"blockedCount"`
 	RepairGuidanceCount                 int                                  `json:"repairGuidanceCount"`
 	RepairGuidanceSummary               *ReviewerIntakeRepairGuidanceSummary `json:"repairGuidanceSummary,omitempty"`
@@ -134,6 +135,18 @@ type ReviewerIntakeNextActionSummary struct {
 	Command        string `json:"command"`
 	Blocked        bool   `json:"blocked,omitempty"`
 	RequiresReview bool   `json:"requiresReview,omitempty"`
+}
+
+type ReviewerIntakeOrchestrationProgress struct {
+	DispatchIndex      int      `json:"dispatchIndex"`
+	DispatchTotal      int      `json:"dispatchTotal"`
+	Completed          int      `json:"completed"`
+	Open               int      `json:"open"`
+	CurrentShardID     string   `json:"currentShardId,omitempty"`
+	CurrentShardStatus string   `json:"currentShardStatus,omitempty"`
+	NextOpenShardID    string   `json:"nextOpenShardId,omitempty"`
+	RemainingShardIDs  []string `json:"remainingShardIds,omitempty"`
+	Boundary           []string `json:"boundary,omitempty"`
 }
 
 type ReviewerIntakeRepairGuidance struct {
@@ -460,22 +473,23 @@ func finalizeReviewerIntakeResult(result ReviewerIntakeResult) ReviewerIntakeRes
 
 func reviewerIntakeSummary(result ReviewerIntakeResult) ReviewerIntakeSummary {
 	summary := ReviewerIntakeSummary{
-		Status:              result.WritebackStatus,
-		ReadyForWriteback:   result.ReadyForWriteback,
-		Applied:             result.Applied,
-		Lane:                result.Lane,
-		ShardID:             result.ShardID,
-		IntakeID:            result.IntakeID,
-		ReviewerSession:     result.ReviewerSession,
-		VerificationVerdict: result.VerificationVerdict,
-		MainDecision:        result.MainDecision,
-		DispatchIndex:       result.OrchestrationSnapshot.DispatchIndex,
-		DispatchTotal:       result.OrchestrationSnapshot.DispatchTotal,
-		ShardStatusBefore:   result.OrchestrationSnapshot.ShardStatusBefore,
-		ShardStatusAfter:    result.OrchestrationSnapshot.ShardStatusAfter,
-		NextDispatches:      append([]string{}, result.OrchestrationSnapshot.NextDispatches...),
-		BlockedCount:        len(result.BlockedReasons),
-		RepairGuidanceCount: len(result.RepairGuidance),
+		Status:                result.WritebackStatus,
+		ReadyForWriteback:     result.ReadyForWriteback,
+		Applied:               result.Applied,
+		Lane:                  result.Lane,
+		ShardID:               result.ShardID,
+		IntakeID:              result.IntakeID,
+		ReviewerSession:       result.ReviewerSession,
+		VerificationVerdict:   result.VerificationVerdict,
+		MainDecision:          result.MainDecision,
+		DispatchIndex:         result.OrchestrationSnapshot.DispatchIndex,
+		DispatchTotal:         result.OrchestrationSnapshot.DispatchTotal,
+		ShardStatusBefore:     result.OrchestrationSnapshot.ShardStatusBefore,
+		ShardStatusAfter:      result.OrchestrationSnapshot.ShardStatusAfter,
+		NextDispatches:        append([]string{}, result.OrchestrationSnapshot.NextDispatches...),
+		OrchestrationProgress: reviewerIntakeOrchestrationProgress(result),
+		BlockedCount:          len(result.BlockedReasons),
+		RepairGuidanceCount:   len(result.RepairGuidance),
 		Boundary: []string{
 			"intake summary is read-only; full reviewer result, note writebacks, orchestration snapshot, postValidation, and action queue remain available",
 			"reviewer intake must run -WhatIf before -Apply and must not execute heavy tools",
@@ -524,6 +538,64 @@ func reviewerIntakeNextActionSummary(item mission.MissionCommanderNextActionItem
 		Command:        item.Command,
 		Blocked:        item.Blocked,
 		RequiresReview: item.RequiresReview,
+	}
+}
+
+func reviewerIntakeOrchestrationProgress(result ReviewerIntakeResult) *ReviewerIntakeOrchestrationProgress {
+	snapshot := result.OrchestrationSnapshot
+	currentShardID := strings.TrimSpace(result.ShardID)
+	if snapshot.DispatchTotal == 0 && snapshot.DispatchIndex == 0 && currentShardID == "" && len(snapshot.NextDispatches) == 0 {
+		return nil
+	}
+	currentComplete := reviewerIntakeShardCountsAsComplete(result.WritebackStatus)
+	remaining := append([]string{}, snapshot.NextDispatches...)
+	if !currentComplete && currentShardID != "" {
+		remaining = append([]string{currentShardID}, remaining...)
+	}
+	remaining = mission.UniqueStrings(cleanRepairGuidanceStrings(remaining))
+	progress := ReviewerIntakeOrchestrationProgress{
+		DispatchIndex:      snapshot.DispatchIndex,
+		DispatchTotal:      snapshot.DispatchTotal,
+		CurrentShardID:     currentShardID,
+		CurrentShardStatus: strings.TrimSpace(snapshot.ShardStatusAfter),
+		Open:               len(remaining),
+		RemainingShardIDs:  remaining,
+		Boundary: []string{
+			"orchestration progress is read-only; main Agent remains responsible for reviewer dispatch and intake ordering",
+			"remainingShardIds includes the current shard until verification-before-decision writeback completes",
+		},
+	}
+	if progress.DispatchTotal <= 0 {
+		progress.DispatchTotal = len(progress.RemainingShardIDs)
+		if currentComplete && progress.DispatchIndex > progress.DispatchTotal {
+			progress.DispatchTotal = progress.DispatchIndex
+		}
+	}
+	if progress.DispatchTotal > 0 {
+		progress.Completed = progress.DispatchTotal - progress.Open
+	}
+	if progress.Completed < 0 {
+		progress.Completed = 0
+	}
+	if progress.DispatchTotal > 0 && progress.Completed > progress.DispatchTotal {
+		progress.Completed = progress.DispatchTotal
+	}
+	if progress.DispatchTotal > 0 && progress.Open > progress.DispatchTotal {
+		progress.Open = progress.DispatchTotal
+	}
+	if len(progress.RemainingShardIDs) > 0 {
+		progress.NextOpenShardID = progress.RemainingShardIDs[0]
+	}
+	progress.Boundary = mission.UniqueStrings(cleanRepairGuidanceStrings(progress.Boundary))
+	return &progress
+}
+
+func reviewerIntakeShardCountsAsComplete(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "complete", "already-complete":
+		return true
+	default:
+		return false
 	}
 }
 

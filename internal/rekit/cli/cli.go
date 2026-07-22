@@ -5250,6 +5250,17 @@ func writeReviewerIntakeSummaryText(out io.Writer, summary subagents.ReviewerInt
 			return err
 		}
 	}
+	if summary.OrchestrationProgress != nil {
+		progress := *summary.OrchestrationProgress
+		if _, err := fmt.Fprintf(out, "reviewer intake summary orchestration progress：dispatch=%d/%d completed=%d open=%d current=%s status=%s nextOpen=%s remaining=%s\n", progress.DispatchIndex, progress.DispatchTotal, progress.Completed, progress.Open, textOr(progress.CurrentShardID, "none"), textOr(progress.CurrentShardStatus, "none"), textOr(progress.NextOpenShardID, "none"), textOr(strings.Join(progress.RemainingShardIDs, ","), "none")); err != nil {
+			return err
+		}
+		for _, boundary := range progress.Boundary {
+			if _, err := fmt.Fprintf(out, "reviewer intake summary orchestration boundary：%s\n", planSubagentsTextInline(boundary)); err != nil {
+				return err
+			}
+		}
+	}
 	if summary.RepairGuidanceSummary != nil {
 		repair := *summary.RepairGuidanceSummary
 		if _, err := fmt.Fprintf(out, "reviewer intake summary repair guidance：total=%d primaryReason=%s primaryAction=%s nextSafeCommand=`%s`\n", repair.Total, planSubagentsTextInline(repair.PrimaryReason), planSubagentsTextInline(repair.PrimaryAction), repair.NextSafeCommand); err != nil {

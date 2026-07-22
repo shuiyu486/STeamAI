@@ -809,6 +809,7 @@ type reviewerIntakeCLIResult struct {
 		DispatchTotal                       int                                      `json:"dispatchTotal"`
 		ShardStatusBefore                   string                                   `json:"shardStatusBefore"`
 		ShardStatusAfter                    string                                   `json:"shardStatusAfter"`
+		OrchestrationProgress               *reviewerIntakeOrchestrationProgressItem `json:"orchestrationProgress"`
 		BlockedCount                        int                                      `json:"blockedCount"`
 		RepairGuidanceCount                 int                                      `json:"repairGuidanceCount"`
 		RepairGuidanceSummary               *reviewerIntakeRepairGuidanceSummaryItem `json:"repairGuidanceSummary"`
@@ -918,6 +919,18 @@ type reviewerIntakeRepairGuidanceCLIItem struct {
 	Action   string   `json:"action"`
 	Evidence []string `json:"evidence"`
 	Boundary []string `json:"boundary"`
+}
+
+type reviewerIntakeOrchestrationProgressItem struct {
+	DispatchIndex      int      `json:"dispatchIndex"`
+	DispatchTotal      int      `json:"dispatchTotal"`
+	Completed          int      `json:"completed"`
+	Open               int      `json:"open"`
+	CurrentShardID     string   `json:"currentShardId"`
+	CurrentShardStatus string   `json:"currentShardStatus"`
+	NextOpenShardID    string   `json:"nextOpenShardId"`
+	RemainingShardIDs  []string `json:"remainingShardIds"`
+	Boundary           []string `json:"boundary"`
 }
 
 type reviewerIntakeRepairGuidanceSummaryItem struct {
