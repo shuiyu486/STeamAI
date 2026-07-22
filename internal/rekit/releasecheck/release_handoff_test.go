@@ -446,6 +446,71 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 	}
 }
 
+func TestReleaseHandoffPackMemoryToolingRejectReceiptDoesNotBlock(t *testing.T) {
+	repo := t.TempDir()
+	candidateRoot := filepath.Join(repo, "packs", "fixture", "promote-candidates")
+	proofRoot := filepath.Join(candidateRoot, "review-artifacts")
+	toolingRoot := filepath.Join(repo, "packs", "fixture", "tooling", "candidates")
+	backupRoot := filepath.Join(candidateRoot, ".decision-backup", "tooling-reject")
+	receiptPath := filepath.Join(proofRoot, "tooling-reject.candidate-decision-receipt.json")
+	action := map[string]any{
+		"candidatePath":       filepath.Join(toolingRoot, "tool.candidate.md"),
+		"kind":                "tooling-candidate-source",
+		"decision":            "reject",
+		"action":              "cleanup-rejected-candidate",
+		"candidateBackupPath": filepath.Join(backupRoot, "tool.candidate.md"),
+		"evidenceRefs":        []string{},
+	}
+	receipt := map[string]any{
+		"schemaVersion":       1,
+		"kind":                "pack-memory-candidate-decision-receipt",
+		"pack":                "fixture",
+		"repoRoot":            repo,
+		"caseRoot":            filepath.Join(repo, "case"),
+		"packetPath":          filepath.Join(repo, "case", "packet.json"),
+		"decisionPath":        filepath.Join(repo, "case", "decisions.json"),
+		"packetHash":          "packet-hash",
+		"decisionHash":        "decision-hash",
+		"backupRoot":          backupRoot,
+		"indexPath":           filepath.Join(candidateRoot, "index.json"),
+		"accepted":            0,
+		"rejected":            1,
+		"superseded":          0,
+		"actions":             []map[string]any{action},
+		"decisionEvidence":    []string{},
+		"receiptPath":         receiptPath,
+		"verificationPending": false,
+		"boundary":            []string{"fixture boundary"},
+	}
+	data, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(backupRoot, "committed.json"), "{\"applied\":true}\n")
+	writeFile(t, receiptPath, string(data)+"\n")
+	inventory := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if !inventory.Ready || inventory.Total != 0 || len(inventory.Packs) != 0 || len(inventory.Warnings) != 0 {
+		t.Fatalf("completed tooling reject receipt blocked release handoff: %+v", inventory)
+	}
+	action["decision"] = "accept"
+	action["action"] = "merge-accepted-candidate-and-cleanup"
+	action["packTarget"] = filepath.Join(repo, "packs", "fixture", "tooling", "recipes", "tool.md")
+	receipt["accepted"] = 1
+	receipt["rejected"] = 0
+	receipt["verificationPending"] = true
+	receipt["verificationCommand"] = "/rekit promote -VerifyCandidateDecision -WhatIf"
+	receipt["verificationProofPath"] = filepath.Join(proofRoot, "tooling-accept.candidate-verification-proof.json")
+	forged, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, receiptPath, string(forged)+"\n")
+	invalid := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if invalid.Ready || invalid.Summary != "pack-memory candidate inventory has warnings" || len(invalid.Warnings) == 0 {
+		t.Fatalf("forged tooling accept receipt was not rejected: %+v", invalid)
+	}
+}
+
 func TestReleaseHandoffPackMaturityDetectsMissingHeavyToolGates(t *testing.T) {
 	inventory := releaseHandoffPackMaturity([]manifest.PackSummary{
 		{ID: "fixture", Maturity: "skeleton", SchemaValid: true, SchemaVersion: "1"},

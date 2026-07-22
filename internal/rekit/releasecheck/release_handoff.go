@@ -1200,6 +1200,9 @@ func validateCandidateDecisionReceiptActions(candidateRoot string, receipt candi
 		candidatePath := filepath.Clean(action.CandidatePath)
 		actionRoot := candidateRoot
 		if action.Kind == "tooling-candidate-source" {
+			if action.Decision == "accept" {
+				return fmt.Errorf("tooling candidate cannot be accepted automatically: %s", action.CandidatePath)
+			}
 			actionRoot = toolingRoot
 		} else if action.Kind != "managed-doc" {
 			return fmt.Errorf("unsupported action kind %q", action.Kind)

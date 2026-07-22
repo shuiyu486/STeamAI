@@ -316,15 +316,23 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 		if !reflect.DeepEqual(action.EvidenceRefs, expectedEvidence) {
 			return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate decision receipt evidence binding mismatch: %s", action.CandidatePath)
 		}
-		expectedAction := "cleanup-" + action.Decision + "-candidate"
-		if action.Decision == "accept" {
+		expectedAction := ""
+		switch action.Decision {
+		case "accept":
 			expectedAction = "merge-accepted-candidate-and-cleanup"
+		case "reject":
+			expectedAction = "cleanup-rejected-candidate"
+		case "superseded":
+			expectedAction = "cleanup-superseded-candidate"
 		}
 		if action.Action != expectedAction {
 			return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate decision receipt action outcome mismatch: %s", action.CandidatePath)
 		}
 		actionRoot := canonicalCandidateRoot
 		if action.Kind == "tooling-candidate-source" {
+			if action.Decision == "accept" {
+				return CandidateDecisionVerificationResult{}, fmt.Errorf("tooling candidate cannot be accepted automatically: %s", action.CandidatePath)
+			}
 			actionRoot = filepath.Join(m.PackRoot, "tooling", "candidates")
 		} else if action.Kind != "managed-doc" {
 			return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate decision receipt has unsupported action kind: %s", action.Kind)
@@ -441,6 +449,12 @@ func ApplyCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecis
 		return CandidateDecisionResult{}, err
 	}
 	candidateRoot := filepath.Join(m.PackRoot, "promote-candidates")
+	if err := rejectCandidateDecisionSymlinkPath(m.PackRoot, candidateRoot, true); err != nil {
+		return CandidateDecisionResult{}, err
+	}
+	if err := os.MkdirAll(candidateRoot, 0o755); err != nil {
+		return CandidateDecisionResult{}, err
+	}
 	unlock, err := acquireCandidateDecisionLock(candidateRoot)
 	if err != nil {
 		return CandidateDecisionResult{}, err
@@ -503,15 +517,17 @@ func planCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecisi
 	if !sameCandidateDecisionPath(packet.CandidateResult.CandidateRoot, canonicalCandidateRoot) || !sameCandidateDecisionPath(packet.CandidateResult.ToolingRoot, canonicalToolingRoot) {
 		return candidateDecisionPlan{}, fmt.Errorf("candidate review packet roots do not match canonical pack candidate roots")
 	}
-	if strings.TrimSpace(packet.CandidateResult.IndexPath) == "" || !sameCandidateDecisionPath(packet.CandidateResult.IndexPath, canonicalIndexPath) {
+	if !candidateDecisionPacketIndexValid(packet, canonicalIndexPath) {
 		return candidateDecisionPlan{}, fmt.Errorf("candidate review packet indexPath does not match canonical index")
 	}
+	allowMissingCandidateRoot := strings.TrimSpace(packet.CandidateResult.IndexPath) == ""
 	for _, path := range []string{m.PackRoot, canonicalCandidateRoot, canonicalToolingRoot, canonicalIndexPath} {
-		if err := rejectCandidateDecisionSymlinkPath(m.PackRoot, path, path == canonicalIndexPath); err != nil {
+		allowMissing := path == canonicalIndexPath || path == canonicalCandidateRoot && allowMissingCandidateRoot
+		if err := rejectCandidateDecisionSymlinkPath(m.PackRoot, path, allowMissing); err != nil {
 			return candidateDecisionPlan{}, err
 		}
 	}
-	indexEntries, err := readCandidateIndex(packet.CandidateResult.IndexPath)
+	indexEntries, err := readCandidateIndex(canonicalIndexPath)
 	if err != nil {
 		return candidateDecisionPlan{}, err
 	}
@@ -541,7 +557,7 @@ func planCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecisi
 		PacketHash:    packetHash,
 		IsMutation:    !opt.WhatIf,
 		Applied:       false,
-		IndexPath:     packet.CandidateResult.IndexPath,
+		IndexPath:     canonicalIndexPath,
 		Actions:       []CandidateDecisionAction{},
 		Boundary: []string{
 			"candidate decisions are bound to the exact durable review packet and reviewed candidate/pack-target hashes",
@@ -649,7 +665,7 @@ func planCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecisi
 	sort.Slice(result.Actions, func(i, j int) bool { return result.Actions[i].CandidatePath < result.Actions[j].CandidatePath })
 	indexHash := ""
 	indexExisted := false
-	if indexBytes, err := os.ReadFile(packet.CandidateResult.IndexPath); err == nil {
+	if indexBytes, err := os.ReadFile(canonicalIndexPath); err == nil {
 		indexHash = sha256Hex(indexBytes)
 		indexExisted = true
 	} else if !os.IsNotExist(err) {
@@ -703,10 +719,10 @@ func applyCandidateDecisionPlan(plan candidateDecisionPlan) (CandidateDecisionRe
 
 	indexBackup := filepath.Join(backupRoot, "candidate-index.json")
 	if plan.indexExisted {
-		if err := copyFileExclusive(plan.packet.CandidateResult.IndexPath, indexBackup); err != nil {
+		if err := copyFileExclusive(plan.result.IndexPath, indexBackup); err != nil {
 			return fail("stage candidate index backup", err)
 		}
-		result.RecoveryActions = append(result.RecoveryActions, fmt.Sprintf("restore %s to %s", indexBackup, plan.packet.CandidateResult.IndexPath))
+		result.RecoveryActions = append(result.RecoveryActions, fmt.Sprintf("restore %s to %s", indexBackup, plan.result.IndexPath))
 	}
 	for idx := range plan.items {
 		item := &plan.items[idx]
@@ -755,7 +771,7 @@ func applyCandidateDecisionPlan(plan candidateDecisionPlan) (CandidateDecisionRe
 		}
 		mutated = append(mutated, item)
 	}
-	if err := writeCandidateIndexAtomic(plan.packet.CandidateResult.IndexPath, newIndexEntries); err != nil {
+	if err := writeCandidateIndexAtomic(plan.result.IndexPath, newIndexEntries); err != nil {
 		return rollbackCandidateDecision(result, mutated, plan, "write candidate index", err)
 	}
 	for _, item := range plan.items {
@@ -813,7 +829,7 @@ func writeCandidateDecisionReceipt(plan candidateDecisionPlan, result CandidateD
 		PacketHash:            result.PacketHash,
 		DecisionHash:          plan.decisionHash,
 		BackupRoot:            result.BackupRoot,
-		IndexPath:             result.IndexPath,
+		IndexPath:             filepath.Join(plan.packet.CandidateResult.CandidateRoot, "index.json"),
 		Accepted:              result.Accepted,
 		Rejected:              result.Rejected,
 		Superseded:            result.Superseded,
@@ -874,6 +890,18 @@ func verifyCandidateDecisionCommittedState(receipt CandidateDecisionReceipt) err
 		}
 	}
 	return nil
+}
+
+func candidateDecisionPacketIndexValid(packet CandidateReviewPacket, canonicalIndexPath string) bool {
+	if strings.TrimSpace(packet.CandidateResult.IndexPath) != "" {
+		return sameCandidateDecisionPath(packet.CandidateResult.IndexPath, canonicalIndexPath)
+	}
+	for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
+		if item.Kind == "managed-doc" && item.ReviewDecision == "pending-review" {
+			return false
+		}
+	}
+	return true
 }
 
 func candidateDecisionReceiptPath(candidateRoot, packetHash, decisionHash string) string {
@@ -1019,7 +1047,7 @@ func recoverCandidateDecisionTransaction(repoRoot, caseRoot, pack string, opt Ca
 	canonicalCandidateRoot := filepath.Join(m.PackRoot, "promote-candidates")
 	canonicalToolingRoot := filepath.Join(m.PackRoot, "tooling", "candidates")
 	canonicalIndexPath := filepath.Join(canonicalCandidateRoot, "index.json")
-	if !sameCandidateDecisionPath(packet.CandidateResult.CandidateRoot, canonicalCandidateRoot) || !sameCandidateDecisionPath(packet.CandidateResult.ToolingRoot, canonicalToolingRoot) || !sameCandidateDecisionPath(packet.CandidateResult.IndexPath, canonicalIndexPath) {
+	if !sameCandidateDecisionPath(packet.CandidateResult.CandidateRoot, canonicalCandidateRoot) || !sameCandidateDecisionPath(packet.CandidateResult.ToolingRoot, canonicalToolingRoot) || !candidateDecisionPacketIndexValid(packet, canonicalIndexPath) {
 		return CandidateDecisionResult{}, true, fmt.Errorf("candidate review packet roots do not match canonical pack candidate roots")
 	}
 	backupParent := filepath.Join(canonicalCandidateRoot, ".decision-backup")

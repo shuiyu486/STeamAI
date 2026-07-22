@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 544：pack-memory mixed candidate decision closure
+
+状态：已完成；implementation待提交、推送并检查远程 release gate。
+
+目标：关闭 Batch 543 strict receipt consumer暴露的合法多决策断点：tooling-only reject/superseded packet没有 managed index时不能Apply，managed accept与 tooling reject混合 receipt在verification/release scanner中可能因candidate root不同而 fail-closed。让 replacement executor可在同一 reviewed packet内完成不同kind/outcome，并在无需reconsume时自动清除release阻塞。
+
+已完成内容：
+
+- candidate planning允许packet没有 managed pending item时使用 canonical missing index；WhatIf在全新 pack上不创建 candidate root/index/lock，Apply才安全建立 canonical candidate lock root；receipt始终记录canonical index path。
+- receipt/verification按 action kind选择 managed `promote-candidates` 或 `tooling/candidates` root；混合 managed accept + tooling reject仍严格绑定 transaction、backup、decision hash、evidence与 accepted reconsume proof；tooling auto-accept继续拒绝。
+- tooling-only reject生成非 pending receipt，清理candidate后不要求无意义的 fresh/attached verification，release/status scanner接受该完整receipt并保持ready。
+- focused coverage新增混合 accept/reject product path、tooling-only reject和 completed non-verification receipt release handoff。
+
+边界：所有decision仍必须来自exact durable packet并先WhatIf后Apply；tooling candidate只能reject/superseded或由人工另行review/merge，runtime不自动accept或写tooling catalog，不执行heavy-tool、不写authority/confirmed、不新增PowerShell runtime logic。
+
+验证结果：focused promote mixed/tooling-only WhatIf→Apply与releasecheck completed/forged receipt测试、`go test ./...`、`go vet ./...`、`git diff --check`、`release-check -Format json`（`ready=true`）、`status`、`packs`与`doctor`均通过；远程 release gate待 implementation push后检查。
+
+上一批摘要：Batch 543已完成 candidate decision receipt/reconsume verification closure，implementation commit `8458ec7 Close candidate decision verification` 与 release inspection commit `12ab902 Record Batch 543 release gate inspection` 已推送；implementation run `29958441694` 的 Linux/macOS/Windows jobs均 completed failure且 `steps=[]`，仍为既有 runner/billing blocker。
+
 ### Batch 543：pack-memory candidate decision receipt / reconsume verification closure
 
 状态：已完成；implementation commit `8458ec7 Close candidate decision verification` 已推送。对应 release-gate run `29958441694` completed failure；Linux/macOS/Windows jobs均 `steps=[]`，仍为既有 runner/billing blocker，不能声明 remote CI green。

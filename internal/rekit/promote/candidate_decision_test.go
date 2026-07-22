@@ -171,6 +171,180 @@ func TestVerifyCandidateDecisionPreviewsAppliesAndReplays(t *testing.T) {
 	}
 }
 
+func TestVerifyCandidateDecisionClosesMixedManagedAcceptAndToolingReject(t *testing.T) {
+	repoRoot, sourceCase, freshCase, pack := packMemoryReconsumeFixture(t)
+	attachedCase := filepath.Join(t.TempDir(), "attachedcase")
+	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceCase, filepath.FromSlash("references/template/README.md")), []byte("# README\n\nReviewed reusable candidate.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	created, err := CreateCandidates(repoRoot, sourceCase, pack, CandidateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err = WriteCandidateReviewWorkspace(created, CandidateArtifactOptions{ReviewOutputDir: filepath.Join(sourceCase, ".rekit", "reviews", "candidate-mixed-decision")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetBytes, err := os.ReadFile(created.ReviewWorkspace.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packet CandidateReviewPacket
+	if err := decodeStrictJSON(packetBytes, &packet); err != nil {
+		t.Fatal(err)
+	}
+	var managed, tooling CandidateReviewItem
+	for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
+		if item.ReviewDecision != "pending-review" {
+			continue
+		}
+		switch item.Kind {
+		case "managed-doc":
+			if item.Path == "references/template/README.md" {
+				managed = item
+			}
+		case "tooling-candidate-source":
+			tooling = item
+		}
+	}
+	if managed.CandidatePath == "" || tooling.CandidatePath == "" {
+		t.Fatalf("mixed decision fixture omitted candidates: managed=%+v tooling=%+v", managed, tooling)
+	}
+	evidence := CandidateDecisionEvidence{Path: created.ReviewWorkspace.CombinedDiffPath, SHA256: fileSHA256(created.ReviewWorkspace.CombinedDiffPath)}
+	decision := CandidateDecisionFile{
+		SchemaVersion: 1,
+		Kind:          "pack-memory-candidate-decisions",
+		PacketHash:    sha256Hex(packetBytes),
+		Decisions: []CandidateDecisionItem{
+			{CandidatePath: managed.CandidatePath, Decision: "accept", CandidateHash: fileSHA256(managed.CandidatePath), PackTargetHash: fileSHA256(managed.PackTarget), Reason: "reviewed reusable managed content", Actor: "mission-commander", EvidenceRefs: []CandidateDecisionEvidence{evidence}},
+			{CandidatePath: tooling.CandidatePath, Decision: "reject", CandidateHash: fileSHA256(tooling.CandidatePath), Reason: "tooling observation is not reusable", Actor: "mission-commander", EvidenceRefs: []CandidateDecisionEvidence{evidence}},
+		},
+	}
+	decisionPath := filepath.Join(sourceCase, ".rekit", "reviews", "candidate-mixed-decision", "decisions.json")
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	preview, err := ApplyCandidateDecisions(repoRoot, sourceCase, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Accepted != 1 || preview.Rejected != 1 || len(preview.Actions) != 2 {
+		t.Fatalf("mixed decision preview drifted: %+v", preview)
+	}
+	applied, err := ApplyCandidateDecisions(repoRoot, sourceCase, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.Receipt == nil || applied.Accepted != 1 || applied.Rejected != 1 || len(applied.Actions) != 2 || !applied.Receipt.VerificationPending {
+		t.Fatalf("mixed decision apply omitted durable verification handoff: %+v", applied)
+	}
+	for _, action := range applied.Actions {
+		if _, err := os.Lstat(action.CandidatePath); !os.IsNotExist(err) {
+			t.Fatalf("mixed decision candidate was not cleaned up: action=%+v err=%v", action, err)
+		}
+	}
+	if _, err := syncpkg.Apply(repoRoot, freshCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "fresh"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncpkg.Apply(repoRoot, attachedCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "attached"}); err != nil {
+		t.Fatal(err)
+	}
+	verified, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshCase, AttachedCaseRoot: attachedCase})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verified.Applied || !verified.Ready || len(verified.VerifiedActions) != 2 {
+		t.Fatalf("mixed decision verification did not close: %+v", verified)
+	}
+	kinds := map[string]string{}
+	for _, action := range verified.VerifiedActions {
+		kinds[action.Kind] = action.Decision
+	}
+	if kinds["managed-doc"] != "accept" || kinds["tooling-candidate-source"] != "reject" {
+		t.Fatalf("mixed verification action binding drifted: %+v", verified.VerifiedActions)
+	}
+}
+
+func TestApplyCandidateDecisionsClosesToolingOnlyReject(t *testing.T) {
+	repoRoot, sourceCase, _, pack := packMemoryReconsumeFixture(t)
+	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
+		t.Fatal(err)
+	}
+	created, err := CreateCandidates(repoRoot, sourceCase, pack, CandidateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err = WriteCandidateReviewWorkspace(created, CandidateArtifactOptions{ReviewOutputDir: filepath.Join(sourceCase, ".rekit", "reviews", "candidate-tooling-reject")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetBytes, err := os.ReadFile(created.ReviewWorkspace.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packet CandidateReviewPacket
+	if err := decodeStrictJSON(packetBytes, &packet); err != nil {
+		t.Fatal(err)
+	}
+	var tooling CandidateReviewItem
+	for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
+		if item.Kind == "tooling-candidate-source" && item.ReviewDecision == "pending-review" {
+			tooling = item
+			break
+		}
+	}
+	if tooling.CandidatePath == "" {
+		t.Fatal("tooling-only decision fixture omitted tooling candidate")
+	}
+	evidencePath := ""
+	for _, item := range packet.ReviewInput.ToolingItems {
+		if item.Kind == tooling.Kind && item.Path == tooling.Path {
+			evidencePath = item.SanitizedPreviewPath
+			break
+		}
+	}
+	if evidencePath == "" {
+		t.Fatal("tooling-only decision fixture omitted sanitized preview evidence")
+	}
+	decision := CandidateDecisionFile{
+		SchemaVersion: 1,
+		Kind:          "pack-memory-candidate-decisions",
+		PacketHash:    sha256Hex(packetBytes),
+		Decisions: []CandidateDecisionItem{{
+			CandidatePath: tooling.CandidatePath,
+			Decision:      "reject",
+			CandidateHash: fileSHA256(tooling.CandidatePath),
+			Reason:        "reviewed tooling observation is not reusable",
+			Actor:         "mission-commander",
+			EvidenceRefs:  []CandidateDecisionEvidence{{Path: evidencePath, SHA256: fileSHA256(evidencePath)}},
+		}},
+	}
+	decisionPath := filepath.Join(sourceCase, ".rekit", "reviews", "candidate-tooling-reject", "decisions.json")
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	canonicalCandidateRoot := filepath.Join(repoRoot, "packs", pack, "promote-candidates")
+	preview, err := ApplyCandidateDecisions(repoRoot, sourceCase, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.IsMutation || preview.Applied || preview.Rejected != 1 || len(preview.Actions) != 1 {
+		t.Fatalf("tooling-only reject preview drifted: %+v", preview)
+	}
+	if _, err := os.Lstat(canonicalCandidateRoot); !os.IsNotExist(err) {
+		t.Fatalf("tooling-only WhatIf created candidate root: %v", err)
+	}
+	applied, err := ApplyCandidateDecisions(repoRoot, sourceCase, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.Accepted != 0 || applied.Rejected != 1 || applied.Receipt == nil || applied.Receipt.VerificationPending || applied.Receipt.VerificationProofPath != "" || len(applied.Actions) != 1 || applied.Actions[0].Kind != "tooling-candidate-source" {
+		t.Fatalf("tooling-only reject receipt drifted: %+v", applied)
+	}
+	if _, err := os.Lstat(tooling.CandidatePath); !os.IsNotExist(err) {
+		t.Fatalf("tooling reject did not clean candidate: %v", err)
+	}
+}
+
 func TestVerifyCandidateDecisionRejectsDriftAndInvalidRoots(t *testing.T) {
 	repoRoot, sourceCase, freshCase, pack := packMemoryReconsumeFixture(t)
 	attachedCase := filepath.Join(t.TempDir(), "attachedcase")
