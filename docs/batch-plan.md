@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 542：pack-memory reviewed candidate decision / cleanup product-path closure
 
-状态：implementation、focused/package validation 与完整本地 release minimum 已完成；implementation commit/push 待完成，远程 release-gate inspection 待完成。
+状态：已完成 implementation、focused/package validation、完整本地 release minimum、implementation commit/push 与远程 release-gate inspection；implementation commit `882a553 Close pack memory candidate decisions` 已推送到 `main`。远程 release-gate run `29953603900` completed failure，Linux/macOS/Windows jobs 均 completed failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。按 cadence 只记录 implementation commit触发的远程 run；不为本 release inspection commit自身触发的 CI追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker的新信号。
 
 目标：解决 Batch 538 durable candidate review workspace 之后仍需主 Agent手工复制 candidate到 pack target、删除 candidate并编辑 index 的 operational 断点。提供一个 strict、review-first、Go-native `promote -PacketPath ... -CandidateDecisionPath ... -WhatIf/-Apply` 闭环，让 replacement executor可从同一 durable packet预览并执行 reviewed accept/reject/superseded，同时保持 tooling merge、authority/confirmed与 heavy action边界。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只执行已由主 Agent在 durable packet上明确记录的 reviewed candidate decision；必须先 WhatIf再显式 Apply。runtime不自动决定 accept/reject/superseded，不自动 accept tooling candidate，不运行 doctor/init/reconsume，不创建 expected proof，不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/promote ./internal/rekit/cli -run "TestApplyCandidateDecisions|TestRunPromoteCandidateDecision" -count=1` 与 package `go test ./internal/rekit/promote -count=1` 已通过；完整本地 release minimum 已通过 `go run ./cmd/rekit -- -Command release-check -Format json`（ready=true / release gate inventory ok）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF→CRLF working-copy warning，无 whitespace error）；implementation commit/push与远程 release inspection待完成。
+验证结果：focused `go test ./internal/rekit/promote ./internal/rekit/cli -run "TestApplyCandidateDecisions|TestRunPromoteCandidateDecision" -count=1` 与 package `go test ./internal/rekit/promote -count=1` 已通过；完整本地 release minimum 已通过 `go run ./cmd/rekit -- -Command release-check -Format json`（ready=true / release gate inventory ok）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF→CRLF working-copy warning，无 whitespace error）。implementation commit `882a553 Close pack memory candidate decisions` 已推送；远程 release-gate run `29953603900` 已检查，Linux/macOS/Windows jobs均 completed failure且 `steps=[]`，仍符合既有 runner/billing blocker，不能声明 remote CI green。
 
 上一批摘要：Batch 541 已完成 reviewer batch Mission Commander / durable handoff closure，implementation commit `5a128f9 Close reviewer batch commander handoff` 与 release inspection commit `ff077a8 Record Batch 541 release gate inspection` 已推送；implementation run `29949565383` completed failure，Linux/macOS/Windows jobs均 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。
 
