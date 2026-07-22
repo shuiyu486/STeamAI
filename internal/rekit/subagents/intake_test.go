@@ -119,6 +119,173 @@ func TestReviewerIntakeBlockedActionScanIgnoresEvidencePathAndSummaryWords(t *te
 	}
 }
 
+func TestIntakeReadyReviewerResultsPreviewsAndAppliesAllReadyShards(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha,beta", ItemsPerAgent: 1, MaxParallel: 2, Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	if len(packet.ShardHandoffs) != 2 {
+		t.Fatalf("reviewer batch fixture shard count = %d, want 2", len(packet.ShardHandoffs))
+	}
+	evidencePath := filepath.Join(caseRoot, "workspace", "review-evidence.md")
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("bounded reviewer batch evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i, handoff := range packet.ShardHandoffs {
+		value := ReviewerResult{
+			PacketID: packet.PacketID, RouteID: packet.Route.ID, ShardID: handoff.ShardID, Items: append([]string{}, handoff.Items...),
+			ReviewerSession: fmt.Sprintf("reviewer-batch-%d", i+1), Decision: "accept", Confidence: "high",
+			Summary: "reviewed " + handoff.ShardID + " against bounded evidence", EvidenceRefs: []string{"workspace/review-evidence.md"}, Risks: []string{}, Conflicts: []string{}, RecommendedVerdict: "accepted",
+			RouteOutput: map[string]any{"item": strings.Join(handoff.Items, ","), "decision": "accept", "confidence": "high", "evidence": "workspace/review-evidence.md", "risk": "low", "next_action": "main-agent-writeback", "tier_used": "light", "tool_scope": "read-only", "feature": "intake", "request_id": "n/a", "candidate_path": "n/a", "defer_reason": "n/a"},
+		}
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(handoff.ReviewerResultPath, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	preview, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Mode != "reviewer-batch-intake" || preview.IsMutation || preview.Applied || preview.Total != 2 || preview.Ready != 2 || preview.Waiting != 0 || preview.Processed != 2 || preview.Stopped || len(preview.Results) != 2 || preview.Results[0].WritebackStatus != "previewed" || preview.Results[1].WritebackStatus != "previewed" {
+		t.Fatalf("unexpected reviewer batch preview: %+v", preview)
+	}
+	if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
+		t.Fatalf("reviewer batch WhatIf wrote verification ledger:\n%s", got)
+	}
+
+	applied, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.IsMutation || !applied.Applied || applied.Processed != 2 || applied.Completed != 2 || applied.AlreadyComplete != 0 || applied.Stopped || len(applied.Results) != 2 || applied.Results[0].WritebackStatus != "complete" || applied.Results[1].WritebackStatus != "complete" {
+		t.Fatalf("unexpected reviewer batch apply: %+v", applied)
+	}
+	if got := strings.Count(readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")), `"shardId"`); got != 2 {
+		t.Fatalf("verification shard writeback count = %d, want 2", got)
+	}
+	if got := strings.Count(readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl")), `"shardId"`); got != 2 {
+		t.Fatalf("decision shard writeback count = %d, want 2", got)
+	}
+
+	replay, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.Processed != 2 || replay.Completed != 0 || replay.AlreadyComplete != 2 || replay.Applied || replay.Stopped {
+		t.Fatalf("reviewer batch replay was not idempotent: %+v", replay)
+	}
+}
+
+func TestIntakeReadyReviewerResultsBindsPathToShardAndPreservesWaiting(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha,beta", ItemsPerAgent: 1, MaxParallel: 2, Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	evidencePath := filepath.Join(caseRoot, "workspace", "review-evidence.md")
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("bounded evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first, second := packet.ShardHandoffs[0], packet.ShardHandoffs[1]
+	swapped := ReviewerResult{PacketID: packet.PacketID, RouteID: packet.Route.ID, ShardID: second.ShardID, Items: append([]string{}, second.Items...), ReviewerSession: "reviewer-swapped", Decision: "accept", Confidence: "high", Summary: "wrong path binding", EvidenceRefs: []string{"workspace/review-evidence.md"}, Risks: []string{}, Conflicts: []string{}, RecommendedVerdict: "accepted", RouteOutput: map[string]any{"item": strings.Join(second.Items, ","), "decision": "accept", "confidence": "high", "evidence": "workspace/review-evidence.md", "risk": "low", "next_action": "main-agent-writeback", "tier_used": "light", "tool_scope": "read-only", "feature": "intake", "request_id": "n/a", "candidate_path": "n/a", "defer_reason": "n/a"}}
+	data, err := json.Marshal(swapped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first.ReviewerResultPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander"})
+	if err == nil || !strings.Contains(err.Error(), "does not match expected packet handoff shard") || !result.Stopped || result.StopShardID != first.ShardID {
+		t.Fatalf("swapped reviewer result did not fail closed: result=%+v err=%v", result, err)
+	}
+	if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
+		t.Fatalf("swapped reviewer result wrote verification ledger:\n%s", got)
+	}
+
+	valid := swapped
+	valid.ShardID = first.ShardID
+	valid.Items = append([]string{}, first.Items...)
+	valid.RouteOutput["item"] = strings.Join(first.Items, ",")
+	data, err = json.Marshal(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first.ReviewerResultPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waiting.Ready != 1 || waiting.Waiting != 1 || waiting.Completed != 1 || waiting.Stopped || len(waiting.NextSteps) != 1 || !strings.Contains(waiting.NextSteps[0], "collect the remaining reviewer result JSON") {
+		t.Fatalf("partial ready batch omitted waiting guidance: %+v", waiting)
+	}
+}
+
+func TestIntakeReadyReviewerResultsStopsBeforeLaterShardOnBlocker(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha,beta", ItemsPerAgent: 1, MaxParallel: 2, Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	evidencePath := filepath.Join(caseRoot, "workspace", "review-evidence.md")
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("bounded evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i, handoff := range packet.ShardHandoffs {
+		conflicts := []string{}
+		if i == 1 {
+			conflicts = []string{"unresolved batch conflict"}
+		}
+		value := ReviewerResult{PacketID: packet.PacketID, RouteID: packet.Route.ID, ShardID: handoff.ShardID, Items: append([]string{}, handoff.Items...), ReviewerSession: fmt.Sprintf("reviewer-block-%d", i+1), Decision: "accept", Confidence: "high", Summary: "batch blocker fixture", EvidenceRefs: []string{"workspace/review-evidence.md"}, Risks: []string{}, Conflicts: conflicts, RecommendedVerdict: "accepted", RouteOutput: map[string]any{"item": strings.Join(handoff.Items, ","), "decision": "accept", "confidence": "high", "evidence": "workspace/review-evidence.md", "risk": "low", "next_action": "main-agent-writeback", "tier_used": "light", "tool_scope": "read-only", "feature": "intake", "request_id": "n/a", "candidate_path": "n/a", "defer_reason": "n/a"}}
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(handoff.ReviewerResultPath, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Stopped || result.StopShardID != "shard-02" || result.Processed != 2 || result.Completed != 1 || len(result.Results) != 2 || result.Results[0].WritebackStatus != "complete" || result.Results[1].WritebackStatus != "blocked" || !strings.Contains(result.StopReason, "writebackStatus=blocked") {
+		t.Fatalf("reviewer batch did not stop on second-shard blocker: %+v", result)
+	}
+	if got := strings.Count(readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")), `"shardId"`); got != 1 {
+		t.Fatalf("verification shard writeback count = %d, want only completed first shard", got)
+	}
+	if got := strings.Count(readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl")), `"shardId"`); got != 1 {
+		t.Fatalf("decision shard writeback count = %d, want only completed first shard", got)
+	}
+}
+
 func TestIntakeReviewerResultRejectsWrongPacketAndRouteBindings(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")

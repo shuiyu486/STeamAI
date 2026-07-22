@@ -34,34 +34,35 @@ import (
 )
 
 type Options struct {
-	Command            string
-	Target             string
-	Pack               string
-	PackProvided       bool
-	Review             bool
-	Apply              bool
-	CreateCandidates   bool
-	WhatIf             bool
-	Force              bool
-	List               bool
-	ReviewOutputDir    string
-	PacketPath         string
-	ReviewerResultPath string
-	DiffPath           string
-	ProjectName        string
-	Route              string
-	TaskType           string
-	Items              string
-	ItemsFile          string
-	ItemsPerAgent      int
-	MaxParallel        int
-	Format             string
-	Gate               gate.Options
-	Note               note.Options
-	Start              workstream.StartOptions
-	Handoff            workstream.HandoffOptions
-	Continue           workstream.ContinueOptions
-	Reconcile          workstream.ReconcileOptions
+	Command              string
+	Target               string
+	Pack                 string
+	PackProvided         bool
+	Review               bool
+	Apply                bool
+	CreateCandidates     bool
+	WhatIf               bool
+	Force                bool
+	List                 bool
+	ReviewOutputDir      string
+	PacketPath           string
+	ReviewerResultPath   string
+	ReadyReviewerResults bool
+	DiffPath             string
+	ProjectName          string
+	Route                string
+	TaskType             string
+	Items                string
+	ItemsFile            string
+	ItemsPerAgent        int
+	MaxParallel          int
+	Format               string
+	Gate                 gate.Options
+	Note                 note.Options
+	Start                workstream.StartOptions
+	Handoff              workstream.HandoffOptions
+	Continue             workstream.ContinueOptions
+	Reconcile            workstream.ReconcileOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -133,6 +134,8 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ReviewerResultPath")
 			}
 			opt.ReviewerResultPath = args[i]
+		case "-ReadyReviewerResults", "--ready-reviewer-results":
+			opt.ReadyReviewerResults = true
 		case "-DiffPath", "--diff-path":
 			i++
 			if i >= len(args) {
@@ -544,6 +547,9 @@ func Run(args []string, stdout io.Writer) error {
 	}
 	if strings.TrimSpace(opt.ReviewerResultPath) != "" && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("-ReviewerResultPath is supported only by plan-subagents reviewer intake")
+	}
+	if opt.ReadyReviewerResults && opt.Command != commands.PlanSubagents {
+		return fmt.Errorf("-ReadyReviewerResults is supported only by plan-subagents reviewer batch intake")
 	}
 	switch opt.Command {
 	case commands.Status:
@@ -4946,6 +4952,49 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if opt.ReadyReviewerResults {
+		if strings.TrimSpace(opt.ReviewerResultPath) != "" {
+			return fmt.Errorf("plan-subagents reviewer batch intake cannot combine -ReadyReviewerResults with -ReviewerResultPath")
+		}
+		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" {
+			return fmt.Errorf("plan-subagents reviewer batch intake does not support -CreateCandidates, -Review, -Force, -ReviewOutputDir, or -DiffPath")
+		}
+		if strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
+			return fmt.Errorf("plan-subagents reviewer batch intake does not support planning scope flags; intake scope is fixed by -PacketPath")
+		}
+		if opt.Apply && opt.WhatIf {
+			return fmt.Errorf("plan-subagents reviewer batch intake cannot combine -Apply and -WhatIf")
+		}
+		if !opt.Apply && !opt.WhatIf {
+			return fmt.Errorf("plan-subagents reviewer batch intake requires -WhatIf or -Apply")
+		}
+		if strings.TrimSpace(opt.PacketPath) == "" {
+			return fmt.Errorf("plan-subagents reviewer batch intake requires -PacketPath")
+		}
+		format, err := planSubagentsFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
+		}
+		result, err := subagents.IntakeReadyReviewerResults(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerBatchIntakeOptions{PacketPath: opt.PacketPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
+		if err != nil {
+			if result.Mode != "" {
+				var writeErr error
+				if format == "json" {
+					writeErr = writeJSON(out, result)
+				} else {
+					writeErr = writePlanSubagentsReviewerBatchIntakeText(out, result)
+				}
+				if writeErr != nil {
+					return fmt.Errorf("%v; write reviewer batch intake recovery result: %w", err, writeErr)
+				}
+			}
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePlanSubagentsReviewerBatchIntakeText(out, result)
+	}
 	if strings.TrimSpace(opt.ReviewerResultPath) != "" {
 		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" {
 			return fmt.Errorf("plan-subagents reviewer intake does not support -CreateCandidates, -Review, -Force, -ReviewOutputDir, or -DiffPath")
@@ -5544,6 +5593,39 @@ func writeReviewerIntakeSummaryText(out io.Writer, summary subagents.ReviewerInt
 	}
 	for _, boundary := range summary.Boundary {
 		if _, err := fmt.Fprintf(out, "reviewer intake summary boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writePlanSubagentsReviewerBatchIntakeText(out io.Writer, result subagents.ReviewerBatchIntakeResult) error {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer batch intake：mutation=%t applied=%t lane=%s total=%d ready=%d waiting=%d processed=%d completed=%d alreadyComplete=%d stopped=%t stopShard=%s\n", result.IsMutation, result.Applied, result.Lane, result.Total, result.Ready, result.Waiting, result.Processed, result.Completed, result.AlreadyComplete, result.Stopped, result.StopShardID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(result.StopReason) != "" {
+		if _, err := fmt.Fprintf(out, "reviewer batch intake stop reason：%s\n", planSubagentsTextInline(result.StopReason)); err != nil {
+			return err
+		}
+	}
+	for _, item := range result.Results {
+		if _, err := fmt.Fprintf(out, "reviewer batch intake shard：shard=%s status=%s readyForWriteback=%t applied=%t reviewerSession=%s resultPath=%s\n", item.ShardID, item.WritebackStatus, item.ReadyForWriteback, item.Applied, item.ReviewerSession, item.ReviewerResultPath); err != nil {
+			return err
+		}
+		if item.Summary.OrchestrationProgress != nil {
+			progress := item.Summary.OrchestrationProgress
+			if _, err := fmt.Fprintf(out, "reviewer batch intake progress：shard=%s completed=%d open=%d nextOpen=%s remaining=%s\n", item.ShardID, progress.Completed, progress.Open, progress.NextOpenShardID, strings.Join(progress.RemainingShardIDs, ",")); err != nil {
+				return err
+			}
+		}
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "reviewer batch intake next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "reviewer batch intake boundary：%s\n", boundary); err != nil {
 			return err
 		}
 	}

@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 539：multi-reviewer ready-result batch intake vertical slice
+
+状态：implementation、focused/package 验证与完整本地 release minimum 已完成；尚未提交或推送。
+
+目标：解决 multi-reviewer packet 的多个 result path 已到位后，Mission Commander 仍需逐 shard 手工拼接并重复执行 `-ReviewerResultPath ... -WhatIf/-Apply` 的 operational 断点。新增单一 Go-native case-local batch intake 入口，按 durable packet order 发现 ready results 并复用既有 strict single-result intake，而不是新增并行 writeback 实现或继续投影 summary 字段。
+
+已完成内容：
+
+- `plan-subagents -ReadyReviewerResults` 要求显式 `-PacketPath`、`-Lane`、`-Actor` 和 `-WhatIf` 或 `-Apply`；拒绝 planning scope flags，因为 intake scope 完全由 durable packet 决定；从 packet `shardHandoffs[]` 读取 reviewer result paths，只将存在、非目录、非 symlink 且非空的结果视为 ready，missing/empty 计入 waiting。
+- ready shard 按 packet 顺序逐个复用 `IntakeReviewerResult`，并额外绑定当前 handoff expected shard，保留 packet/route/shard/items、owner binding、evidence、route output strict validation，以及每 shard verification-before-decision、post-validation 和 `already-complete` 幂等语义。
+- batch 在首个 blocked、partial writeback、event-id collision、post-validation failure 或 strict intake error 处停止；strict error 返回非成功命令状态，同时 CLI 仍输出 recovery envelope；此前完整 shard 保留已完成写回，后续 shard 不处理。存在 waiting shard 时不会建议继续 lane。JSON/text 输出 totals、ready/waiting/processed/completed/alreadyComplete、stop shard/reason、逐 shard status/progress、next steps 与 no-spawn/no-heavy/no-authority boundary。
+- package coverage 验证两 shard WhatIf no-write、Apply 写入两 verification + 两 decision、幂等 replay、path-to-shard binding、partial ready waiting guidance，以及第二 shard blocker 时第一 shard完整落账、第二 shard和后续不写；CLI nested cwd / no `-Target` / no `-Pack` product-path coverage验证 JSON/text preview、Apply、planning scope guard 与 malformed result strict error envelope。
+
+边界：本批不自动 spawn、轮询或监控 reviewer，不创建 reviewer result，不绕过 strict single-result validation，不并发写 ledger；不写 authority/confirmed、不执行 heavy-tool、不新增 PowerShell runtime logic。最终 merge decision 仍由主 Agent拥有。
+
+验证结果：已通过 `gofmt -w internal/rekit/subagents/intake.go internal/rekit/subagents/intake_test.go internal/rekit/cli/cli.go internal/rekit/cli/reviewer_intake_test.go`、focused `go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestIntakeReadyReviewerResults|TestRunPlanSubagentsReadyReviewerResults|TestRunPlanSubagentsReviewerIntake" -count=1`、package `go test ./internal/rekit/subagents ./internal/rekit/cli -count=1`；完整本地 release minimum 已通过 `go run ./cmd/rekit -- -Command release-check -Format json`（ready=true / release gate inventory ok）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF→CRLF working-copy warning，无 whitespace error）。
+
+上一批摘要：Batch 538 已完成 pack-memory durable candidate review workspace，implementation commit `a00c605 Add durable candidate review workspace` 与 release inspection commit `3ce9362 Record Batch 538 release gate inspection` 已推送；implementation run `29943533595` completed failure，Linux/macOS/Windows jobs 均 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。
+
 ### Batch 538：pack-memory durable candidate review workspace vertical slice
 
 状态：已完成 implementation、focused/package 验证、完整本地 release minimum、implementation commit/push 与远程 release-gate inspection；implementation commit `a00c605 Add durable candidate review workspace` 已推送到 `main`。远程 release-gate run `29943533595` completed failure，Linux/macOS/Windows jobs 均 completed failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。按 cadence 只记录 implementation commit 触发的远程 run；不为本 release inspection commit 自身触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker 的新信号。

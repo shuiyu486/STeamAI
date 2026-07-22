@@ -52,9 +52,43 @@ type ReviewerResult struct {
 type ReviewerIntakeOptions struct {
 	PacketPath         string
 	ReviewerResultPath string
+	ExpectedShardID    string
 	Lane               string
 	Actor              string
 	WhatIf             bool
+}
+
+type ReviewerBatchIntakeOptions struct {
+	PacketPath string
+	Lane       string
+	Actor      string
+	WhatIf     bool
+}
+
+type ReviewerBatchIntakeResult struct {
+	SchemaVersion   int                    `json:"schemaVersion"`
+	Command         string                 `json:"command"`
+	Mode            string                 `json:"mode"`
+	CaseRoot        string                 `json:"caseRoot"`
+	RepoRoot        string                 `json:"repoRoot"`
+	Pack            string                 `json:"pack"`
+	IsMutation      bool                   `json:"isMutation"`
+	Applied         bool                   `json:"applied"`
+	PacketPath      string                 `json:"packetPath"`
+	Lane            string                 `json:"lane"`
+	Actor           string                 `json:"actor"`
+	Total           int                    `json:"total"`
+	Ready           int                    `json:"ready"`
+	Waiting         int                    `json:"waiting"`
+	Processed       int                    `json:"processed"`
+	Completed       int                    `json:"completed"`
+	AlreadyComplete int                    `json:"alreadyComplete"`
+	Stopped         bool                   `json:"stopped"`
+	StopShardID     string                 `json:"stopShardId,omitempty"`
+	StopReason      string                 `json:"stopReason,omitempty"`
+	Results         []ReviewerIntakeResult `json:"results"`
+	NextSteps       []string               `json:"nextSteps"`
+	Boundary        []string               `json:"boundary"`
 }
 
 type ReviewerIntakeResult struct {
@@ -215,6 +249,129 @@ type ReviewerOrchestrationIntake struct {
 	NextDispatches       []string `json:"nextDispatches"`
 }
 
+func IntakeReadyReviewerResults(repoRoot, caseRoot, pack string, opt ReviewerBatchIntakeOptions) (ReviewerBatchIntakeResult, error) {
+	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
+	if err != nil {
+		return ReviewerBatchIntakeResult{}, err
+	}
+	caseRoot = inst.CaseRoot
+	packetPath, err := requiredAbsolutePath(opt.PacketPath, "review packet")
+	if err != nil {
+		return ReviewerBatchIntakeResult{}, err
+	}
+	packetBytes, err := readBoundedFile(packetPath, "review packet", maxReviewPacketBytes)
+	if err != nil {
+		return ReviewerBatchIntakeResult{}, err
+	}
+	packet, err := decodeIntakePacket(packetBytes)
+	if err != nil {
+		return ReviewerBatchIntakeResult{}, err
+	}
+	if err := validateIntakePacket(packet, packetPath, repoRoot, caseRoot, pack); err != nil {
+		return ReviewerBatchIntakeResult{}, err
+	}
+	if err := validateIntakePacketRoute(repoRoot, pack, packet); err != nil {
+		return ReviewerBatchIntakeResult{}, err
+	}
+	lane := strings.TrimSpace(opt.Lane)
+	if lane == "" {
+		return ReviewerBatchIntakeResult{}, fmt.Errorf("reviewer batch intake requires -Lane <lane id>")
+	}
+	if lane != packet.TargetLane {
+		return ReviewerBatchIntakeResult{}, fmt.Errorf("reviewer batch intake lane %q does not match packet targetLane %q", lane, packet.TargetLane)
+	}
+	actor := strings.TrimSpace(opt.Actor)
+	if actor == "" {
+		return ReviewerBatchIntakeResult{}, fmt.Errorf("reviewer batch intake requires -Actor <main-agent actor>")
+	}
+	result := ReviewerBatchIntakeResult{
+		SchemaVersion: 1,
+		Command:       commandName,
+		Mode:          "reviewer-batch-intake",
+		CaseRoot:      caseRoot,
+		RepoRoot:      repoRoot,
+		Pack:          pack,
+		IsMutation:    !opt.WhatIf,
+		PacketPath:    packetPath,
+		Lane:          lane,
+		Actor:         actor,
+		Total:         len(packet.ShardHandoffs),
+		Boundary: []string{
+			"batch intake processes packet shard handoffs in deterministic packet order and stops at the first blocked, partial, or failed intake",
+			"each shard preserves strict reviewer result validation and verification-before-decision writeback",
+			"runtime does not spawn or monitor reviewers, execute heavy tools, or write authority/confirmed state",
+		},
+	}
+	for _, handoff := range packet.ShardHandoffs {
+		resultPath, err := requiredAbsolutePath(handoff.ReviewerResultPath, "reviewer result")
+		if err != nil {
+			return result, err
+		}
+		if !pathInside(packet.ReviewerOrchestration.ResultRoot, resultPath) {
+			return result, fmt.Errorf("reviewer batch intake result path %q for shard %s is outside packet resultRoot %q", resultPath, handoff.ShardID, packet.ReviewerOrchestration.ResultRoot)
+		}
+		st, err := os.Lstat(resultPath)
+		if os.IsNotExist(err) {
+			result.Waiting++
+			continue
+		}
+		if err != nil {
+			return result, err
+		}
+		if st.Mode()&os.ModeSymlink != 0 {
+			return result, fmt.Errorf("reviewer batch intake result path %q for shard %s must not be a symlink", resultPath, handoff.ShardID)
+		}
+		if st.IsDir() || st.Size() == 0 {
+			result.Waiting++
+			continue
+		}
+		result.Ready++
+		intake, intakeErr := IntakeReviewerResult(repoRoot, caseRoot, pack, ReviewerIntakeOptions{
+			PacketPath:         packetPath,
+			ReviewerResultPath: resultPath,
+			ExpectedShardID:    handoff.ShardID,
+			Lane:               lane,
+			Actor:              actor,
+			WhatIf:             opt.WhatIf,
+		})
+		if intake.WritebackStatus != "" {
+			result.Results = append(result.Results, intake)
+			result.Processed++
+			if intake.WritebackStatus == "complete" {
+				result.Completed++
+				result.Applied = result.Applied || intake.Applied
+			} else if intake.WritebackStatus == "already-complete" {
+				result.AlreadyComplete++
+			}
+		}
+		if intakeErr != nil {
+			result.Stopped = true
+			result.StopShardID = handoff.ShardID
+			result.StopReason = intakeErr.Error()
+			result.NextSteps = []string{"repair or retry the stop shard using its strict single-result intake handoff before rerunning batch intake"}
+			return result, intakeErr
+		}
+		if intake.WritebackStatus == "blocked" || intake.WritebackStatus == "event-id-collision" || intake.WritebackStatus == "verification-recorded" || intake.WritebackStatus == "complete-post-validation-failed" {
+			result.Stopped = true
+			result.StopShardID = handoff.ShardID
+			result.StopReason = "reviewer intake stopped with writebackStatus=" + intake.WritebackStatus
+			break
+		}
+	}
+	if result.Ready == 0 {
+		result.NextSteps = []string{"collect reviewer result JSON at packet shard result paths, then rerun the same batch intake with -WhatIf"}
+	} else if result.Stopped {
+		result.NextSteps = []string{"repair or retry the stop shard using its strict single-result intake handoff before rerunning batch intake"}
+	} else if result.Waiting > 0 {
+		result.NextSteps = []string{"collect the remaining reviewer result JSON, then rerun the same batch intake with -WhatIf before applying or continuing the lane"}
+	} else if opt.WhatIf {
+		result.NextSteps = []string{"inspect every previewed shard result, then rerun the same batch intake with -Apply"}
+	} else {
+		result.NextSteps = []string{"consume the final shard postValidation and downstream reviewer writeback handoff before continuing the lane"}
+	}
+	return result, nil
+}
+
 func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOptions) (ReviewerIntakeResult, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
@@ -265,6 +422,9 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 	reviewerResult, err := decodeReviewerResult(resultBytes)
 	if err != nil {
 		return ReviewerIntakeResult{}, err
+	}
+	if expectedShardID := strings.TrimSpace(opt.ExpectedShardID); expectedShardID != "" && reviewerResult.ShardID != expectedShardID {
+		return ReviewerIntakeResult{}, fmt.Errorf("reviewer result shard %q does not match expected packet handoff shard %q", reviewerResult.ShardID, expectedShardID)
 	}
 	if reviewerResult.PacketID != packet.PacketID {
 		return ReviewerIntakeResult{}, fmt.Errorf("reviewer result packetId %q does not match packet %q", reviewerResult.PacketID, packet.PacketID)
