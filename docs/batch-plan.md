@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 544：pack-memory mixed candidate decision closure
 
-状态：已完成；implementation待提交、推送并检查远程 release gate。
+状态：已完成；implementation commit `1f36471 Close mixed candidate decisions` 已推送。对应 release-gate run `29959376352` completed failure；Linux/macOS/Windows jobs均 `steps=[]`，仍为既有 runner/billing blocker，不能声明 remote CI green。
 
 目标：关闭 Batch 543 strict receipt consumer暴露的合法多决策断点：tooling-only reject/superseded packet没有 managed index时不能Apply，managed accept与 tooling reject混合 receipt在verification/release scanner中可能因candidate root不同而 fail-closed。让 replacement executor可在同一 reviewed packet内完成不同kind/outcome，并在无需reconsume时自动清除release阻塞。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：所有decision仍必须来自exact durable packet并先WhatIf后Apply；tooling candidate只能reject/superseded或由人工另行review/merge，runtime不自动accept或写tooling catalog，不执行heavy-tool、不写authority/confirmed、不新增PowerShell runtime logic。
 
-验证结果：focused promote mixed/tooling-only WhatIf→Apply与releasecheck completed/forged receipt测试、`go test ./...`、`go vet ./...`、`git diff --check`、`release-check -Format json`（`ready=true`）、`status`、`packs`与`doctor`均通过；远程 release gate待 implementation push后检查。
+验证结果：focused promote mixed/tooling-only WhatIf→Apply与releasecheck completed/forged receipt测试、`go test ./...`、`go vet ./...`、`git diff --check`、`release-check -Format json`（`ready=true`）、`status`、`packs`与`doctor`均通过。implementation run `29959376352` 的 Linux/macOS/Windows jobs均 completed failure且 `steps=[]`；这是既有 GitHub Actions runner/billing blocker，不是远程测试执行失败。
 
 上一批摘要：Batch 543已完成 candidate decision receipt/reconsume verification closure，implementation commit `8458ec7 Close candidate decision verification` 与 release inspection commit `12ab902 Record Batch 543 release gate inspection` 已推送；implementation run `29958441694` 的 Linux/macOS/Windows jobs均 completed failure且 `steps=[]`，仍为既有 runner/billing blocker。
 
