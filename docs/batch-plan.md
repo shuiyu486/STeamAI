@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 541：reviewer batch Mission Commander / durable handoff closure
 
-状态：implementation 与 focused/package validation 已完成，正在运行完整本地 release minimum；implementation commit/push 待完成，远程 release-gate inspection 待完成。
+状态：已完成 implementation、focused/package validation、完整本地 release minimum、implementation commit/push 与远程 release-gate inspection；implementation commit `5a128f9 Close reviewer batch commander handoff` 已推送到 `main`。远程 release-gate run `29949565383` completed failure，Linux/macOS/Windows jobs 均 completed failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。按 cadence 只记录 implementation commit 触发的远程 run；不为本 release inspection commit 自身触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker 的新信号。
 
 目标：补齐 Batch 539 的真实 operational handoff：runtime 已支持 `-ReadyReviewerResults`，但 planning packet、Mission Commander action queue 与 downstream durable handoff 仍主要暴露逐 shard `-ReviewerResultPath ... -WhatIf/-Apply`，replacement executor 仍需手工发现并拼接 batch intake。让 attached-case reviewer planning、action queue、status/handoff/continue 与 durable artifacts 直接交付 packet-level batch preview/apply，同时保留旧 packet和 out-of-case安全语义。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只增强 reviewer orchestration command handoff 与 Mission Commander ordering；不自动 spawn、轮询或监控 reviewer，不创建 result，不绕过 strict batch intake、packet order、waiting/evidence/blocker review 或 verification-before-decision；不执行 heavy-tool、不写 authority/confirmed、不新增 PowerShell runtime logic。
 
-验证结果：已通过 `gofmt`、`go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`；完整本地 release minimum 已通过 `go run ./cmd/rekit -- -Command release-check -Format json`（ready=true / release gate inventory ok）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF→CRLF working-copy warning，无 whitespace error）。implementation commit/push 与远程 release-gate inspection 待完成。
+验证结果：已通过 `gofmt`、`go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`；完整本地 release minimum 已通过 `go run ./cmd/rekit -- -Command release-check -Format json`（ready=true / release gate inventory ok）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF→CRLF working-copy warning，无 whitespace error）。implementation commit `5a128f9 Close reviewer batch commander handoff` 已推送；远程 release-gate run `29949565383` 已检查，Linux/macOS/Windows jobs 均 completed failure 且 `steps=[]`，仍符合既有 runner/billing blocker，不能声明 remote CI green。
 
 上一批摘要：Batch 540 已完成 release handoff current-batch truthfulness repair，implementation commit `74327c3 Fix current batch release handoff` 与 release inspection commit `d4e65f2 Record Batch 540 release gate inspection` 已推送；implementation run `29946738172` completed failure，Linux/macOS/Windows jobs 均 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。
 
