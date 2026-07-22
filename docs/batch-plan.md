@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 530：reviewer intake terminal compact writeback summary closure
 
-状态：已完成 runtime/CLI/test/docs implementation、focused/package validation 与完整本地 release minimum；待 implementation commit/push 与远程 release-gate inspection。本批延续 reviewer orchestration E2E residual closure，把 reviewer intake terminal summary 与 postValidation summary 的 writeback provenance 补齐到第一屏。
+状态：已完成 runtime/CLI/test/docs implementation、focused/package validation、完整本地 release minimum、implementation commit/push 与远程 release-gate inspection；已提交并推送 implementation commit `4ac2f64 Add reviewer intake summary handoff`。远程 release-gate run `29913454816` completed failure，Linux/Windows/macOS jobs 均 completed failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。本批按 release inspection cadence 只记录 implementation commit 的远程 run；不再为后续 release inspection commit 自身触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker 的新信号。
 
 目标：Batch 516 已把 compact `reviewerWritebackSummary` 投影到 downstream status/handoff/continue 与 durable artifacts，Batch 529 又补齐 start/reconcile takeover compact handoff；但 replacement executor 若只看 reviewer intake terminal top-level `summary` 或 `postValidation.summary`，仍只能看到 reviewer writeback count，需要回退 `postValidation.handoff.reviewerWritebacks[]` 或 reviewer result artifact 才能复核 latest reviewer result、packet/route/shard/session、owner binding、risks/conflicts、route output flags、latest evidence refs 与 no-heavy/no-authority/no-spawn boundary。Batch 530 将同一 compact reviewer writeback summary 直接提升到 reviewer intake terminal envelope 与 text。
 
