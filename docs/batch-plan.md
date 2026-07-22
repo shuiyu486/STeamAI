@@ -16,25 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-### Batch 524：reviewer dispatch durable artifact handoff closure
+### Batch 525：reviewer dispatch progress handoff closure
 
-状态：已完成 runtime/CLI/test/docs implementation、focused package validation、完整本地 release minimum、implementation commit/push 与远程 release-gate inspection；已提交并推送 implementation commit `c77e845 Add reviewer dispatch durable handoff`。远程 release-gate run `29899617100` completed failure，Linux/Windows/macOS jobs 均 completed failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。本批按 release inspection cadence 只记录 implementation commit 的远程 run；不再为后续 release inspection commit 自己触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker 的新信号。
+状态：已完成 runtime/CLI/test/docs implementation、focused package validation 与完整本地 release minimum；implementation commit/push 与远程 release-gate inspection 待完成。本批完成后按 release inspection cadence 只记录 implementation commit 触发的远程 run；不为 release inspection commit 自己触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker 的新信号。
 
-目标：Batch 523 已让 open reviewer dispatch intake handoff 在 live `status` / `handoff` / `continue` 第一屏可见，但 replacement executor 若从 durable lane `RESUME.md`、lane checkpoint 或 `continue -Apply` 写出的 run artifact 接手，仍可能回退打开完整 `packet.json` / `summary.md` / nested JSON 才知道 reviewer result 应写到哪里、如何 intake、当前是 waiting 还是 intake-ready。Batch 524 将同一 open handoff 写入 durable artifact product path。
+目标：Batch 523/524 已把 open reviewer dispatch intake handoff 投影到 live commands 与 durable artifacts，但 multi-shard packet 部分 intake 完成后，replacement executor 仍需从 reviewer writebacks 或 packet nested dispatches 手工拼出“这个 packet 总共几个 reviewer、已完成几个、还剩哪个 shard、下一步 open shard 是哪个”。Batch 525 将 packet-level dispatch progress 纳入同一 handoff。
 
-边界：只增强已存在 reviewer dispatch/intake handoff 的 durable projection、Markdown/digest/checkpoint/status JSON visibility 与 CLI E2E coverage；不 spawn/monitor/stop reviewer、不创建 reviewer result、不执行 reviewer intake、不写 ledger/authority/confirmed、不执行 heavy-tool、不改变 sync/promote review-first、case durable schema、PowerShell façade 或公共 façade removal 门禁。完整 `packet.json` / `summary.md` / `reviewerOrchestration` 仍是 source of truth；durable handoff 只是 replacement executor 的第一屏接续入口。
+边界：只增强已存在 reviewer dispatch/intake handoff 的只读 progress projection、text/Markdown/durable visibility 与 CLI E2E coverage；不 spawn/monitor/stop reviewer、不创建 reviewer result、不执行 reviewer intake、不写 ledger/authority/confirmed、不执行 heavy-tool、不改变 sync/promote review-first、case durable schema、PowerShell façade 或公共 façade removal 门禁。完整 `packet.json` / `summary.md` / `reviewerOrchestration` 与 reviewer writeback facts 仍是 source of truth；progress handoff 只是 replacement executor 的第一屏接续入口。
 
 已完成内容：
 
-- `continue -Apply` run `status.json` 现在在既有 execution evidence review、Mission Commander queue、inputs 与 packet refs 旁写入 `reviewerDispatchIntakeHandoffs[]` 与 `reviewerDispatchIntakeSummary`。
-- `continue -Apply` run `digest.md` 新增 `## Reviewer dispatch intake handoff` section，输出 compact counts、latest shard/state/nextAction、per-shard reviewer result path、preview/apply command、evidence 与 no-spawn/no-heavy/no-authority boundary。
-- lane `RESUME.md` 写入同一 durable handoff section；lane checkpoint `latest.json` 写入 typed `reviewerDispatchIntakeHandoffs[]` 与 `reviewerDispatchIntakeSummary`，与既有 reviewer writeback summary / execution evidence summary 并列。
-- `TestRunPlanSubagentsReviewerOrchestrationE2E` 覆盖 planning 后 reviewer result 尚未存在时运行 `continue -Apply`，并验证 run `status.json`、run `digest.md`、lane `RESUME.md` 与 checkpoint 都包含 waiting handoff、reviewer result path、intake commands 和 runtime no-spawn boundary。
-- 文档同步更新 `README.md`、`docs/release-readiness.md`、`rekit/tests/README.md`、`CHANGELOG.md`，并将 Batch 523 归档到 `docs/batch-history.md`。
+- `ReviewerDispatchIntakeHandoff` 新增 per-open-shard `dispatchIndex`、`dispatchTotal`、`dispatchCompleted`、`dispatchOpen`、waiting/ready/attach-required/dispatch-only counts、`latestCompletedShardId`、`nextOpenShardId` 与 `remainingShardIds[]`。
+- `ReviewerDispatchIntakeSummary` 新增 `packetCount`、latest packet progress（total/completed/open/nextOpen/latestCompleted/remaining），让 status/handoff/continue summary 直接说明当前 packet 的 multi-shard intake 进度。
+- CLI text、handoff Markdown、continue digest 与 lane `RESUME.md` 的 reviewer dispatch intake lines 输出 `latestPacketProgress=completed/total open=N nextOpen=... remaining=...` 以及每个 open shard 的 progress。
+- `TestRunPlanSubagentsReviewerOrchestrationE2E` 新增 partial-intake product path：shard-01 Apply 后、shard-02 仍 open 时，验证 status JSON、continue Apply JSON、run digest、lane RESUME 与 checkpoint 都显示 completed=1/open=1/nextOpen=shard-02/remaining=shard-02；最终全部 intake 后 open handoff 仍清零。
+- 文档同步更新 `README.md`、`docs/release-readiness.md`、`rekit/tests/README.md`、`CHANGELOG.md`，并将 Batch 524 归档到 `docs/batch-history.md`。
 
-验证结果：已通过 `gofmt -w internal/rekit/workstream/reviewer_dispatch_intake.go internal/rekit/workstream/start.go internal/rekit/workstream/continue.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerOrchestrationE2E|TestRunContinueApplyWritesDigestAndFacts" -count=1`、package `go test ./internal/rekit/cli ./internal/rekit/workstream ./internal/rekit/subagents -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF/CRLF conversion warnings，无 whitespace error）。implementation commit `c77e845 Add reviewer dispatch durable handoff` 已推送；远程 release-gate run `29899617100` 已检查，run completed failure，Linux/Windows/macOS jobs 均 completed failure 且 `steps=[]`。该远程失败符合既有 runner/billing blocker，不能声明 remote CI green。本批不再为 release inspection commit 自己触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker 的新信号。
+验证结果：已通过 `gofmt -w internal/rekit/workstream/reviewer_dispatch_intake.go internal/rekit/cli/cli.go internal/rekit/cli/cli_test.go`、focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerOrchestrationE2E" -count=1`、package `go test ./internal/rekit/cli ./internal/rekit/workstream ./internal/rekit/subagents -count=1`，以及完整本地 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`（release-check ready=true）、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF/CRLF conversion warnings，无 whitespace error）。远程 release-gate inspection 待 implementation commit/push 后检查；在检查前不能声明 remote CI green。
 
-上一批摘要：Batch 523 已完成 reviewer dispatch intake downstream handoff closure，并归档到 `docs/batch-history.md`。
+上一批摘要：Batch 524 已完成 reviewer dispatch durable artifact handoff closure，并归档到 `docs/batch-history.md`。
 
 ### Next candidates
 

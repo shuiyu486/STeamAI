@@ -5744,6 +5744,78 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 		if !applied.IsMutation || !applied.Applied || applied.WritebackStatus != "complete" || !applied.ReadyForWriteback || applied.OrchestrationSnapshot.DispatchIndex != idx+1 || applied.OrchestrationSnapshot.ShardStatusAfter != "complete" || applied.Verification == nil || applied.Decision == nil || !applied.PostValidation.Valid {
 			t.Fatalf("unexpected reviewer intake apply for %s: %+v", handoff.ShardID, applied)
 		}
+		if idx == 0 {
+			out.Reset()
+			if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+				t.Fatal(err)
+			}
+			var statusAfterFirstIntake struct {
+				CaseMission struct {
+					ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+					ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+				} `json:"caseMission"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &statusAfterFirstIntake); err != nil {
+				t.Fatalf("status JSON after first reviewer intake did not decode: %v\n%s", err, out.String())
+			}
+			assertReviewerDispatchIntakeSummary(t, "status after first reviewer intake", statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-02", "waiting-for-reviewer-result")
+			if statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary.LatestPacketDispatchTotal != 2 || statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary.LatestPacketDispatchCompleted != 1 || statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary.LatestPacketDispatchOpen != 1 || statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary.LatestPacketNextOpenShardID != "shard-02" || statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary.LatestCompletedShardID != "shard-01" || !slices.Equal(statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary.RemainingShardIDs, []string{"shard-02"}) {
+				t.Fatalf("status after first reviewer intake omitted packet progress: %+v", statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary)
+			}
+			remainingDispatch, ok := reviewerDispatchIntakeByShard(statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-02")
+			if !ok || remainingDispatch.DispatchTotal != 2 || remainingDispatch.DispatchCompleted != 1 || remainingDispatch.DispatchOpen != 1 || remainingDispatch.NextOpenShardID != "shard-02" || remainingDispatch.LatestCompletedShardID != "shard-01" || !slices.Equal(remainingDispatch.RemainingShardIDs, []string{"shard-02"}) {
+				t.Fatalf("status after first reviewer intake omitted per-dispatch progress: %+v", statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeHandoffs)
+			}
+
+			out.Reset()
+			if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Format", "json"}, &out); err != nil {
+				t.Fatal(err)
+			}
+			var continueApplyAfterFirstIntake struct {
+				RunID                          string                               `json:"runId"`
+				ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+				ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+				Writes                         []startWrite                         `json:"writes"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &continueApplyAfterFirstIntake); err != nil {
+				t.Fatalf("continue apply after first reviewer intake JSON did not decode: %v\n%s", err, out.String())
+			}
+			assertReviewerDispatchIntakeSummary(t, "continue apply after first reviewer intake", continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-02", "waiting-for-reviewer-result")
+			if continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary.LatestPacketDispatchCompleted != 1 || continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary.LatestPacketDispatchOpen != 1 || continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary.LatestPacketNextOpenShardID != "shard-02" || continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary.LatestCompletedShardID != "shard-01" {
+				t.Fatalf("continue apply after first reviewer intake omitted progress summary: %+v", continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary)
+			}
+			partialDigestPath := assertStartWrite(t, continueApplyAfterFirstIntake.Writes, ".rekit/runs/"+continueApplyAfterFirstIntake.RunID+"/digest.md", "write").TargetPath
+			partialResumePath := assertStartWrite(t, continueApplyAfterFirstIntake.Writes, ".rekit/lanes/feature-login/prompts/RESUME.md", "refresh").TargetPath
+			partialCheckpointPath := assertStartWrite(t, continueApplyAfterFirstIntake.Writes, ".rekit/lanes/feature-login/checkpoints/latest.json", "refresh").TargetPath
+			partialDigest, err := os.ReadFile(partialDigestPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			partialResume, err := os.ReadFile(partialResumePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for label, text := range map[string]string{"partial continue digest": string(partialDigest), "partial lane resume": string(partialResume)} {
+				for _, expected := range []string{"latestPacketProgress=1/2 open=1 nextOpen=shard-02 remaining=shard-02", "dispatch intake: lane=feature-login shard=shard-02 state=waiting-for-reviewer-result progress=1/2 open=1 nextOpen=shard-02 remaining=shard-02"} {
+					if !strings.Contains(text, expected) {
+						t.Fatalf("%s omitted partial reviewer dispatch progress %q:\n%s", label, expected, text)
+					}
+				}
+			}
+			partialCheckpointBytes, err := os.ReadFile(partialCheckpointPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var partialCheckpoint struct {
+				ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			}
+			if err := json.Unmarshal(partialCheckpointBytes, &partialCheckpoint); err != nil {
+				t.Fatalf("partial lane checkpoint did not decode: %v\n%s", err, string(partialCheckpointBytes))
+			}
+			if partialCheckpoint.ReviewerDispatchIntakeSummary.LatestPacketDispatchCompleted != 1 || partialCheckpoint.ReviewerDispatchIntakeSummary.LatestPacketDispatchOpen != 1 || partialCheckpoint.ReviewerDispatchIntakeSummary.LatestPacketNextOpenShardID != "shard-02" {
+				t.Fatalf("partial checkpoint omitted reviewer dispatch progress: %+v", partialCheckpoint.ReviewerDispatchIntakeSummary)
+			}
+		}
 	}
 
 	out.Reset()
@@ -10439,51 +10511,72 @@ type handoffLaneExecutorAction struct {
 }
 
 type reviewerDispatchIntakeCLIItem struct {
-	PacketID              string   `json:"packetId"`
-	PacketPath            string   `json:"packetPath"`
-	SummaryPath           string   `json:"summaryPath"`
-	ResultRoot            string   `json:"resultRoot"`
-	TargetLane            string   `json:"targetLane"`
-	ShardID               string   `json:"shardId"`
-	State                 string   `json:"state"`
-	ReviewerResultPath    string   `json:"reviewerResultPath"`
-	ReviewerResultPresent bool     `json:"reviewerResultPresent"`
-	IntakeAvailable       bool     `json:"intakeAvailable"`
-	DispatchOnly          bool     `json:"dispatchOnly"`
-	VerificationRecorded  bool     `json:"verificationRecorded"`
-	DecisionRecorded      bool     `json:"decisionRecorded"`
-	DispatchCommand       string   `json:"dispatchCommand"`
-	PreviewCommand        string   `json:"previewCommand"`
-	ApplyCommand          string   `json:"applyCommand"`
-	OwnerExecutor         string   `json:"ownerExecutor"`
-	OwnerGeneration       int      `json:"ownerGeneration"`
-	OwnerBindingMode      string   `json:"ownerBindingMode"`
-	Evidence              []string `json:"evidence"`
-	Boundary              []string `json:"boundary"`
+	PacketID                         string   `json:"packetId"`
+	PacketPath                       string   `json:"packetPath"`
+	SummaryPath                      string   `json:"summaryPath"`
+	ResultRoot                       string   `json:"resultRoot"`
+	TargetLane                       string   `json:"targetLane"`
+	ShardID                          string   `json:"shardId"`
+	DispatchIndex                    int      `json:"dispatchIndex"`
+	DispatchTotal                    int      `json:"dispatchTotal"`
+	DispatchCompleted                int      `json:"dispatchCompleted"`
+	DispatchOpen                     int      `json:"dispatchOpen"`
+	DispatchWaitingForReviewerResult int      `json:"dispatchWaitingForReviewerResult"`
+	DispatchReadyForPreview          int      `json:"dispatchReadyForPreview"`
+	DispatchAttachRequired           int      `json:"dispatchAttachRequired"`
+	DispatchOnlyOpen                 int      `json:"dispatchOnlyOpen"`
+	LatestCompletedShardID           string   `json:"latestCompletedShardId"`
+	NextOpenShardID                  string   `json:"nextOpenShardId"`
+	RemainingShardIDs                []string `json:"remainingShardIds"`
+	State                            string   `json:"state"`
+	ReviewerResultPath               string   `json:"reviewerResultPath"`
+	ReviewerResultPresent            bool     `json:"reviewerResultPresent"`
+	IntakeAvailable                  bool     `json:"intakeAvailable"`
+	DispatchOnly                     bool     `json:"dispatchOnly"`
+	VerificationRecorded             bool     `json:"verificationRecorded"`
+	DecisionRecorded                 bool     `json:"decisionRecorded"`
+	DispatchCommand                  string   `json:"dispatchCommand"`
+	PreviewCommand                   string   `json:"previewCommand"`
+	ApplyCommand                     string   `json:"applyCommand"`
+	OwnerExecutor                    string   `json:"ownerExecutor"`
+	OwnerGeneration                  int      `json:"ownerGeneration"`
+	OwnerBindingMode                 string   `json:"ownerBindingMode"`
+	Evidence                         []string `json:"evidence"`
+	Boundary                         []string `json:"boundary"`
 }
 
 type reviewerDispatchIntakeSummaryCLIItem struct {
-	Total                    int      `json:"total"`
-	WaitingForReviewerResult int      `json:"waitingForReviewerResult"`
-	ReadyForPreview          int      `json:"readyForPreview"`
-	AttachRequired           int      `json:"attachRequired"`
-	DispatchOnly             int      `json:"dispatchOnly"`
-	LaneCount                int      `json:"laneCount"`
-	Lanes                    []string `json:"lanes"`
-	LatestPacketPath         string   `json:"latestPacketPath"`
-	LatestShardID            string   `json:"latestShardId"`
-	LatestState              string   `json:"latestState"`
-	LatestReviewerResultPath string   `json:"latestReviewerResultPath"`
-	LatestPreviewCommand     string   `json:"latestPreviewCommand"`
-	LatestApplyCommand       string   `json:"latestApplyCommand"`
-	NextAction               string   `json:"nextAction"`
-	Boundary                 []string `json:"boundary"`
+	Total                         int      `json:"total"`
+	WaitingForReviewerResult      int      `json:"waitingForReviewerResult"`
+	ReadyForPreview               int      `json:"readyForPreview"`
+	AttachRequired                int      `json:"attachRequired"`
+	DispatchOnly                  int      `json:"dispatchOnly"`
+	LaneCount                     int      `json:"laneCount"`
+	Lanes                         []string `json:"lanes"`
+	PacketCount                   int      `json:"packetCount"`
+	LatestPacketDispatchTotal     int      `json:"latestPacketDispatchTotal"`
+	LatestPacketDispatchCompleted int      `json:"latestPacketDispatchCompleted"`
+	LatestPacketDispatchOpen      int      `json:"latestPacketDispatchOpen"`
+	LatestPacketNextOpenShardID   string   `json:"latestPacketNextOpenShardId"`
+	LatestCompletedShardID        string   `json:"latestCompletedShardId"`
+	RemainingShardIDs             []string `json:"remainingShardIds"`
+	LatestPacketPath              string   `json:"latestPacketPath"`
+	LatestShardID                 string   `json:"latestShardId"`
+	LatestState                   string   `json:"latestState"`
+	LatestReviewerResultPath      string   `json:"latestReviewerResultPath"`
+	LatestPreviewCommand          string   `json:"latestPreviewCommand"`
+	LatestApplyCommand            string   `json:"latestApplyCommand"`
+	NextAction                    string   `json:"nextAction"`
+	Boundary                      []string `json:"boundary"`
 }
 
 func assertReviewerDispatchIntakeSummary(t *testing.T, label string, summary reviewerDispatchIntakeSummaryCLIItem, total, waiting, ready int, latestShard, latestState string) {
 	t.Helper()
 	if summary.Total != total || summary.WaitingForReviewerResult != waiting || summary.ReadyForPreview != ready || summary.LatestShardID != latestShard || summary.LatestState != latestState || !containsSubstring(summary.Boundary, "summary is read-only") || !strings.Contains(summary.NextAction, latestShard) {
 		t.Fatalf("%s missing reviewer dispatch intake summary: %+v", label, summary)
+	}
+	if total > 0 && (summary.PacketCount == 0 || summary.LatestPacketDispatchTotal == 0 || summary.LatestPacketDispatchOpen == 0 || len(summary.RemainingShardIDs) == 0) {
+		t.Fatalf("%s missing reviewer dispatch intake progress summary: %+v", label, summary)
 	}
 }
 

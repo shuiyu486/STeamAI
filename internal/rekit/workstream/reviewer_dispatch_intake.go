@@ -14,45 +14,63 @@ import (
 )
 
 type ReviewerDispatchIntakeHandoff struct {
-	PacketID              string   `json:"packetId,omitempty"`
-	PacketPath            string   `json:"packetPath"`
-	SummaryPath           string   `json:"summaryPath,omitempty"`
-	ResultRoot            string   `json:"resultRoot,omitempty"`
-	TargetLane            string   `json:"targetLane,omitempty"`
-	ShardID               string   `json:"shardId"`
-	State                 string   `json:"state"`
-	ReviewerResultPath    string   `json:"reviewerResultPath,omitempty"`
-	ReviewerResultPresent bool     `json:"reviewerResultPresent"`
-	IntakeAvailable       bool     `json:"intakeAvailable"`
-	DispatchOnly          bool     `json:"dispatchOnly"`
-	VerificationRecorded  bool     `json:"verificationRecorded"`
-	DecisionRecorded      bool     `json:"decisionRecorded"`
-	DispatchCommand       string   `json:"dispatchCommand,omitempty"`
-	PreviewCommand        string   `json:"previewCommand,omitempty"`
-	ApplyCommand          string   `json:"applyCommand,omitempty"`
-	OwnerExecutor         string   `json:"ownerExecutor,omitempty"`
-	OwnerGeneration       int      `json:"ownerGeneration,omitempty"`
-	OwnerBindingMode      string   `json:"ownerBindingMode,omitempty"`
-	Evidence              []string `json:"evidence,omitempty"`
-	Boundary              []string `json:"boundary,omitempty"`
+	PacketID                         string   `json:"packetId,omitempty"`
+	PacketPath                       string   `json:"packetPath"`
+	SummaryPath                      string   `json:"summaryPath,omitempty"`
+	ResultRoot                       string   `json:"resultRoot,omitempty"`
+	TargetLane                       string   `json:"targetLane,omitempty"`
+	ShardID                          string   `json:"shardId"`
+	DispatchIndex                    int      `json:"dispatchIndex,omitempty"`
+	DispatchTotal                    int      `json:"dispatchTotal,omitempty"`
+	DispatchCompleted                int      `json:"dispatchCompleted"`
+	DispatchOpen                     int      `json:"dispatchOpen"`
+	DispatchWaitingForReviewerResult int      `json:"dispatchWaitingForReviewerResult"`
+	DispatchReadyForPreview          int      `json:"dispatchReadyForPreview"`
+	DispatchAttachRequired           int      `json:"dispatchAttachRequired"`
+	DispatchOnlyOpen                 int      `json:"dispatchOnlyOpen"`
+	LatestCompletedShardID           string   `json:"latestCompletedShardId,omitempty"`
+	NextOpenShardID                  string   `json:"nextOpenShardId,omitempty"`
+	RemainingShardIDs                []string `json:"remainingShardIds,omitempty"`
+	State                            string   `json:"state"`
+	ReviewerResultPath               string   `json:"reviewerResultPath,omitempty"`
+	ReviewerResultPresent            bool     `json:"reviewerResultPresent"`
+	IntakeAvailable                  bool     `json:"intakeAvailable"`
+	DispatchOnly                     bool     `json:"dispatchOnly"`
+	VerificationRecorded             bool     `json:"verificationRecorded"`
+	DecisionRecorded                 bool     `json:"decisionRecorded"`
+	DispatchCommand                  string   `json:"dispatchCommand,omitempty"`
+	PreviewCommand                   string   `json:"previewCommand,omitempty"`
+	ApplyCommand                     string   `json:"applyCommand,omitempty"`
+	OwnerExecutor                    string   `json:"ownerExecutor,omitempty"`
+	OwnerGeneration                  int      `json:"ownerGeneration,omitempty"`
+	OwnerBindingMode                 string   `json:"ownerBindingMode,omitempty"`
+	Evidence                         []string `json:"evidence,omitempty"`
+	Boundary                         []string `json:"boundary,omitempty"`
 }
 
 type ReviewerDispatchIntakeSummary struct {
-	Total                    int      `json:"total"`
-	WaitingForReviewerResult int      `json:"waitingForReviewerResult"`
-	ReadyForPreview          int      `json:"readyForPreview"`
-	AttachRequired           int      `json:"attachRequired"`
-	DispatchOnly             int      `json:"dispatchOnly"`
-	LaneCount                int      `json:"laneCount"`
-	Lanes                    []string `json:"lanes,omitempty"`
-	LatestPacketPath         string   `json:"latestPacketPath,omitempty"`
-	LatestShardID            string   `json:"latestShardId,omitempty"`
-	LatestState              string   `json:"latestState,omitempty"`
-	LatestReviewerResultPath string   `json:"latestReviewerResultPath,omitempty"`
-	LatestPreviewCommand     string   `json:"latestPreviewCommand,omitempty"`
-	LatestApplyCommand       string   `json:"latestApplyCommand,omitempty"`
-	NextAction               string   `json:"nextAction,omitempty"`
-	Boundary                 []string `json:"boundary,omitempty"`
+	Total                         int      `json:"total"`
+	WaitingForReviewerResult      int      `json:"waitingForReviewerResult"`
+	ReadyForPreview               int      `json:"readyForPreview"`
+	AttachRequired                int      `json:"attachRequired"`
+	DispatchOnly                  int      `json:"dispatchOnly"`
+	LaneCount                     int      `json:"laneCount"`
+	Lanes                         []string `json:"lanes,omitempty"`
+	PacketCount                   int      `json:"packetCount"`
+	LatestPacketDispatchTotal     int      `json:"latestPacketDispatchTotal,omitempty"`
+	LatestPacketDispatchCompleted int      `json:"latestPacketDispatchCompleted"`
+	LatestPacketDispatchOpen      int      `json:"latestPacketDispatchOpen"`
+	LatestPacketNextOpenShardID   string   `json:"latestPacketNextOpenShardId,omitempty"`
+	LatestCompletedShardID        string   `json:"latestCompletedShardId,omitempty"`
+	RemainingShardIDs             []string `json:"remainingShardIds,omitempty"`
+	LatestPacketPath              string   `json:"latestPacketPath,omitempty"`
+	LatestShardID                 string   `json:"latestShardId,omitempty"`
+	LatestState                   string   `json:"latestState,omitempty"`
+	LatestReviewerResultPath      string   `json:"latestReviewerResultPath,omitempty"`
+	LatestPreviewCommand          string   `json:"latestPreviewCommand,omitempty"`
+	LatestApplyCommand            string   `json:"latestApplyCommand,omitempty"`
+	NextAction                    string   `json:"nextAction,omitempty"`
+	Boundary                      []string `json:"boundary,omitempty"`
 }
 
 type reviewerDispatchPacket struct {
@@ -107,13 +125,7 @@ func ReviewerDispatchIntakeHandoffs(caseRoot string, facts mission.LedgerFacts, 
 			continue
 		}
 		packetPathText := firstText(packet.ReviewerOrchestration.PacketPath, packetPath)
-		for idx, dispatch := range packet.ReviewerOrchestration.Dispatches {
-			item := reviewerDispatchIntakeHandoffFor(caseRoot, facts, packet, packetPathText, packetTargetLane, dispatch, idx)
-			if item.VerificationRecorded && item.DecisionRecorded {
-				continue
-			}
-			items = append(items, item)
-		}
+		items = append(items, reviewerDispatchIntakeHandoffsForPacket(caseRoot, facts, packet, packetPathText, packetTargetLane)...)
 	}
 	if maxHandoffRows > 0 && len(items) > maxHandoffRows {
 		items = items[len(items)-maxHandoffRows:]
@@ -121,13 +133,83 @@ func ReviewerDispatchIntakeHandoffs(caseRoot string, facts mission.LedgerFacts, 
 	return items, nil
 }
 
+func reviewerDispatchIntakeHandoffsForPacket(caseRoot string, facts mission.LedgerFacts, packet reviewerDispatchPacket, packetPath, targetLane string) []ReviewerDispatchIntakeHandoff {
+	all := make([]ReviewerDispatchIntakeHandoff, 0, len(packet.ReviewerOrchestration.Dispatches))
+	for idx, dispatch := range packet.ReviewerOrchestration.Dispatches {
+		all = append(all, reviewerDispatchIntakeHandoffFor(caseRoot, facts, packet, packetPath, targetLane, dispatch, idx))
+	}
+	progress := reviewerDispatchPacketProgress(all)
+	open := []ReviewerDispatchIntakeHandoff{}
+	for _, item := range all {
+		if item.VerificationRecorded && item.DecisionRecorded {
+			continue
+		}
+		item.DispatchCompleted = progress.Completed
+		item.DispatchOpen = progress.Open
+		item.DispatchWaitingForReviewerResult = progress.WaitingForReviewerResult
+		item.DispatchReadyForPreview = progress.ReadyForPreview
+		item.DispatchAttachRequired = progress.AttachRequired
+		item.DispatchOnlyOpen = progress.DispatchOnly
+		item.LatestCompletedShardID = progress.LatestCompletedShardID
+		item.NextOpenShardID = progress.NextOpenShardID
+		item.RemainingShardIDs = append([]string{}, progress.RemainingShardIDs...)
+		open = append(open, item)
+	}
+	return open
+}
+
+type reviewerDispatchProgress struct {
+	Completed                int
+	Open                     int
+	WaitingForReviewerResult int
+	ReadyForPreview          int
+	AttachRequired           int
+	DispatchOnly             int
+	LatestCompletedShardID   string
+	NextOpenShardID          string
+	RemainingShardIDs        []string
+}
+
+func reviewerDispatchPacketProgress(items []ReviewerDispatchIntakeHandoff) reviewerDispatchProgress {
+	progress := reviewerDispatchProgress{}
+	for _, item := range items {
+		if item.VerificationRecorded && item.DecisionRecorded {
+			progress.Completed++
+			progress.LatestCompletedShardID = item.ShardID
+			continue
+		}
+		progress.Open++
+		if progress.NextOpenShardID == "" {
+			progress.NextOpenShardID = item.ShardID
+		}
+		progress.RemainingShardIDs = append(progress.RemainingShardIDs, item.ShardID)
+		if item.DispatchOnly {
+			progress.DispatchOnly++
+		}
+		switch item.State {
+		case "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
+			progress.WaitingForReviewerResult++
+		case "ready-for-reviewer-intake-preview":
+			progress.ReadyForPreview++
+		case "attach-required-before-reviewer-intake":
+			progress.AttachRequired++
+		}
+	}
+	return progress
+}
+
 func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) ReviewerDispatchIntakeSummary {
 	summary := ReviewerDispatchIntakeSummary{}
 	lanes := map[string]bool{}
+	packets := map[string]bool{}
 	for _, item := range items {
 		summary.Total++
 		if lane := strings.TrimSpace(item.TargetLane); lane != "" {
 			lanes[lane] = true
+		}
+		packetKey := firstText(item.PacketID, item.PacketPath)
+		if packetKey != "" {
+			packets[packetKey] = true
 		}
 		if item.DispatchOnly {
 			summary.DispatchOnly++
@@ -146,6 +228,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 	}
 	sort.Strings(summary.Lanes)
 	summary.LaneCount = len(summary.Lanes)
+	summary.PacketCount = len(packets)
 	if len(items) > 0 {
 		latest := items[len(items)-1]
 		summary.LatestPacketPath = latest.PacketPath
@@ -154,6 +237,12 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		summary.LatestReviewerResultPath = latest.ReviewerResultPath
 		summary.LatestPreviewCommand = latest.PreviewCommand
 		summary.LatestApplyCommand = latest.ApplyCommand
+		summary.LatestPacketDispatchTotal = latest.DispatchTotal
+		summary.LatestPacketDispatchCompleted = latest.DispatchCompleted
+		summary.LatestPacketDispatchOpen = latest.DispatchOpen
+		summary.LatestPacketNextOpenShardID = latest.NextOpenShardID
+		summary.LatestCompletedShardID = latest.LatestCompletedShardID
+		summary.RemainingShardIDs = append([]string{}, latest.RemainingShardIDs...)
 		summary.NextAction = reviewerDispatchIntakeNextAction(latest)
 		summary.Boundary = reviewerDispatchIntakeSummaryBoundary()
 	}
@@ -209,6 +298,8 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		ResultRoot:            packet.ReviewerOrchestration.ResultRoot,
 		TargetLane:            targetLane,
 		ShardID:               dispatch.ShardID,
+		DispatchIndex:         idx + 1,
+		DispatchTotal:         len(packet.ReviewerOrchestration.Dispatches),
 		State:                 state,
 		ReviewerResultPath:    resultPath,
 		ReviewerResultPresent: present,
@@ -361,9 +452,9 @@ func appendReviewerDispatchIntakeHandoff(lines []string, items []ReviewerDispatc
 		return append(lines, "- none")
 	}
 	summary := ReviewerDispatchIntakeSummaryFor(items)
-	lines = append(lines, fmt.Sprintf("- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d latestShard=%s latestState=%s nextAction=`%s`", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.LatestShardID, summary.LatestState, summary.NextAction))
+	lines = append(lines, fmt.Sprintf("- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d packets=%d latestPacketProgress=%d/%d open=%d nextOpen=%s remaining=%s latestShard=%s latestState=%s nextAction=`%s`", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestShardID, summary.LatestState, summary.NextAction))
 	for _, item := range items {
-		lines = append(lines, fmt.Sprintf("- dispatch intake: lane=%s shard=%s state=%s resultPresent=%t packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s`", item.TargetLane, item.ShardID, item.State, item.ReviewerResultPresent, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand))
+		lines = append(lines, fmt.Sprintf("- dispatch intake: lane=%s shard=%s state=%s progress=%d/%d open=%d nextOpen=%s remaining=%s resultPresent=%t packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s`", item.TargetLane, item.ShardID, item.State, item.DispatchCompleted, item.DispatchTotal, item.DispatchOpen, item.NextOpenShardID, strings.Join(item.RemainingShardIDs, ","), item.ReviewerResultPresent, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand))
 		for _, evidence := range mission.LimitStrings(item.Evidence, maxHandoffRows) {
 			lines = append(lines, "  - evidence: "+evidence)
 		}
@@ -381,9 +472,9 @@ func WriteReviewerDispatchIntakeHandoffSection(out *bytes.Buffer, title string, 
 	summary := ReviewerDispatchIntakeSummaryFor(items)
 	fmt.Fprintln(out, title)
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d latestShard=%s latestState=%s nextAction=`%s`\n", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.LatestShardID, summary.LatestState, summary.NextAction)
+	fmt.Fprintf(out, "- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d packets=%d latestPacketProgress=%d/%d open=%d nextOpen=%s remaining=%s latestShard=%s latestState=%s nextAction=`%s`\n", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestShardID, summary.LatestState, summary.NextAction)
 	for _, item := range items {
-		fmt.Fprintf(out, "- dispatch intake: lane=%s shard=%s state=%s resultPresent=%t packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s`\n", item.TargetLane, item.ShardID, item.State, item.ReviewerResultPresent, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand)
+		fmt.Fprintf(out, "- dispatch intake: lane=%s shard=%s state=%s progress=%d/%d open=%d nextOpen=%s remaining=%s resultPresent=%t packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s`\n", item.TargetLane, item.ShardID, item.State, item.DispatchCompleted, item.DispatchTotal, item.DispatchOpen, item.NextOpenShardID, strings.Join(item.RemainingShardIDs, ","), item.ReviewerResultPresent, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand)
 		for _, evidence := range item.Evidence {
 			fmt.Fprintf(out, "  - evidence: %s\n", evidence)
 		}

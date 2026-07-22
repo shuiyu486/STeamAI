@@ -4158,7 +4158,7 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 	if summary.Total == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake summary：total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d lanes=%d latestPacket=%s latestShard=%s latestState=%s latestReviewerResult=%s nextAction=%s\n", prefix, summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.LaneCount, summary.LatestPacketPath, summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultPath, summary.NextAction); err != nil {
+	if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake summary：total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d lanes=%d packets=%d latestPacketProgress=%d/%d latestPacketOpen=%d latestPacketNextOpen=%s latestCompletedShard=%s remaining=%s latestPacket=%s latestShard=%s latestState=%s latestReviewerResult=%s nextAction=%s\n", prefix, summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.LaneCount, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, summary.LatestCompletedShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestPacketPath, summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultPath, summary.NextAction); err != nil {
 		return err
 	}
 	for _, lane := range summary.Lanes {
@@ -4172,7 +4172,7 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 		}
 	}
 	for _, item := range items {
-		if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake：lane=%s shard=%s state=%s resultPresent=%t intakeAvailable=%t dispatchOnly=%t verificationRecorded=%t decisionRecorded=%t packet=%s reviewerResult=%s preview=`%s` apply=`%s`\n", prefix, item.TargetLane, item.ShardID, item.State, item.ReviewerResultPresent, item.IntakeAvailable, item.DispatchOnly, item.VerificationRecorded, item.DecisionRecorded, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand); err != nil {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake：lane=%s shard=%s state=%s dispatchIndex=%d dispatchTotal=%d dispatchCompleted=%d dispatchOpen=%d dispatchWaitingForReviewerResult=%d dispatchReadyForPreview=%d dispatchAttachRequired=%d dispatchOnlyOpen=%d nextOpen=%s remaining=%s resultPresent=%t intakeAvailable=%t dispatchOnly=%t verificationRecorded=%t decisionRecorded=%t packet=%s reviewerResult=%s preview=`%s` apply=`%s`\n", prefix, item.TargetLane, item.ShardID, item.State, item.DispatchIndex, item.DispatchTotal, item.DispatchCompleted, item.DispatchOpen, item.DispatchWaitingForReviewerResult, item.DispatchReadyForPreview, item.DispatchAttachRequired, item.DispatchOnlyOpen, item.NextOpenShardID, strings.Join(item.RemainingShardIDs, ","), item.ReviewerResultPresent, item.IntakeAvailable, item.DispatchOnly, item.VerificationRecorded, item.DecisionRecorded, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand); err != nil {
 			return err
 		}
 		if strings.TrimSpace(item.DispatchCommand) != "" {
