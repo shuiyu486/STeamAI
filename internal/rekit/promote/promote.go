@@ -77,6 +77,41 @@ type CandidateReviewArtifact struct {
 	Boundary      []string `json:"boundary,omitempty"`
 }
 
+type CandidateReviewSummary struct {
+	Mode                       string   `json:"mode"`
+	Pack                       string   `json:"pack"`
+	Total                      int      `json:"total"`
+	PendingReviewCount         int      `json:"pendingReviewCount"`
+	BlockedCount               int      `json:"blockedCount"`
+	NotNeededCount             int      `json:"notNeededCount"`
+	CreatedCount               int      `json:"createdCount"`
+	SkippedCount               int      `json:"skippedCount"`
+	ManagedDocCount            int      `json:"managedDocCount"`
+	ToolingCandidateCount      int      `json:"toolingCandidateCount"`
+	CleanupTargetCount         int      `json:"cleanupTargetCount"`
+	ReviewArtifactCount        int      `json:"reviewArtifactCount"`
+	DecisionChecklistCount     int      `json:"decisionChecklistCount"`
+	DecisionFollowThroughCount int      `json:"decisionFollowThroughCount"`
+	ExecutionStepCount         int      `json:"executionStepCount"`
+	ReconsumeCheckCount        int      `json:"reconsumeCheckCount"`
+	NextActionCount            int      `json:"nextActionCount"`
+	ReviewRequiredActionCount  int      `json:"reviewRequiredActionCount"`
+	CurrentAction              string   `json:"currentAction,omitempty"`
+	CandidateRoot              string   `json:"candidateRoot"`
+	ToolingRoot                string   `json:"toolingRoot"`
+	IndexPath                  string   `json:"indexPath,omitempty"`
+	RequiresReview             bool     `json:"requiresReview"`
+	RequiresCleanup            bool     `json:"requiresCleanup"`
+	HasToolingCandidate        bool     `json:"hasToolingCandidate"`
+	HasBlockedItems            bool     `json:"hasBlockedItems"`
+	HasIndex                   bool     `json:"hasIndex"`
+	HasDecisionArtifacts       bool     `json:"hasDecisionArtifacts"`
+	HasCleanupArtifacts        bool     `json:"hasCleanupArtifacts"`
+	HasReconsumeArtifacts      bool     `json:"hasReconsumeArtifacts"`
+	WhatIf                     bool     `json:"whatIf"`
+	Boundary                   []string `json:"boundary,omitempty"`
+}
+
 type CandidateReviewPlan struct {
 	Mode                        string                                   `json:"mode"`
 	Scope                       string                                   `json:"scope"`
@@ -84,6 +119,7 @@ type CandidateReviewPlan struct {
 	ToolingRoot                 string                                   `json:"toolingRoot"`
 	IndexPath                   string                                   `json:"indexPath,omitempty"`
 	ItemCount                   int                                      `json:"itemCount"`
+	ReviewSummary               CandidateReviewSummary                   `json:"reviewSummary"`
 	ReviewItems                 []CandidateReviewItem                    `json:"reviewItems"`
 	DecisionChecklist           []CandidateDecisionChecklist             `json:"decisionChecklist"`
 	DecisionFollowThrough       []CandidateDecisionFollowThrough         `json:"decisionFollowThrough"`
@@ -619,7 +655,84 @@ func candidateReviewPlan(result CandidateResult, whatIf bool) CandidateReviewPla
 	plan.MissionCommanderAction = candidateReviewMissionCommanderAction(result, whatIf)
 	plan.MissionCommanderNextActions = candidateMissionCommanderNextActions(result, plan, whatIf)
 	plan.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(plan.MissionCommanderNextActions)
+	plan.ReviewSummary = CandidateReviewSummaryFor(result, plan, whatIf)
 	return plan
+}
+
+func CandidateReviewSummaryFor(result CandidateResult, plan CandidateReviewPlan, whatIf bool) CandidateReviewSummary {
+	summary := CandidateReviewSummary{
+		Mode:                       plan.Mode,
+		Pack:                       result.Pack,
+		Total:                      len(plan.ReviewItems),
+		CreatedCount:               result.Created,
+		BlockedCount:               result.Blocked,
+		SkippedCount:               result.Skipped,
+		CleanupTargetCount:         len(plan.CleanupTargets),
+		ReviewArtifactCount:        len(plan.ReviewArtifacts),
+		DecisionChecklistCount:     len(plan.DecisionChecklist),
+		DecisionFollowThroughCount: len(plan.DecisionFollowThrough),
+		ExecutionStepCount:         len(plan.MainAgentExecutionPlan),
+		ReconsumeCheckCount:        len(plan.Reconsume.VerificationChecklist),
+		NextActionCount:            len(plan.MissionCommanderNextActions),
+		CandidateRoot:              plan.CandidateRoot,
+		ToolingRoot:                plan.ToolingRoot,
+		IndexPath:                  plan.IndexPath,
+		RequiresReview:             result.RequiresReview,
+		RequiresCleanup:            result.RequiresCleanup,
+		HasIndex:                   strings.TrimSpace(plan.IndexPath) != "",
+		WhatIf:                     whatIf,
+	}
+	for _, item := range plan.ReviewItems {
+		switch strings.TrimSpace(item.ReviewDecision) {
+		case "pending-review":
+			summary.PendingReviewCount++
+		case "blocked":
+			summary.HasBlockedItems = true
+		case "not-needed":
+			summary.NotNeededCount++
+		}
+		switch strings.TrimSpace(item.Kind) {
+		case "managed-doc":
+			summary.ManagedDocCount++
+		case "tooling-candidate-source":
+			summary.ToolingCandidateCount++
+			summary.HasToolingCandidate = true
+		}
+	}
+	for _, artifact := range plan.ReviewArtifacts {
+		switch strings.TrimSpace(artifact.Name) {
+		case "candidate-decision-note", "blocked-review-note":
+			summary.HasDecisionArtifacts = true
+		case "candidate-cleanup-proof":
+			summary.HasCleanupArtifacts = true
+		case "pack-doctor-output", "fresh-case-reconsume-proof", "attached-case-reconsume-proof":
+			summary.HasReconsumeArtifacts = true
+		}
+	}
+	for _, action := range plan.MissionCommanderNextActions {
+		if action.RequiresReview {
+			summary.ReviewRequiredActionCount++
+		}
+	}
+	if plan.MissionCommanderActionQueue.CurrentAction != nil {
+		summary.CurrentAction = plan.MissionCommanderActionQueue.CurrentAction.Command
+	}
+	if summary.Total > 0 || summary.HasIndex {
+		summary.Boundary = candidateReviewSummaryBoundary(whatIf)
+	}
+	return summary
+}
+
+func candidateReviewSummaryBoundary(whatIf bool) []string {
+	boundary := []string{
+		"reviewSummary is read-only; full reviewPlan arrays remain available",
+		"reviewSummary does not merge candidates, cleanup candidate files, run doctor/init, or create review artifacts",
+		"reviewSummary preserves review-first pack-memory flow and does not write authority/confirmed or execute heavy tools",
+	}
+	if whatIf {
+		boundary = append([]string{"WhatIf did not write candidate files or indexPath"}, boundary...)
+	}
+	return boundary
 }
 
 func candidateMainAgentExecutionPlan(result CandidateResult, plan CandidateReviewPlan, whatIf bool) []CandidateExecutionStep {

@@ -996,17 +996,18 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 				Total      int    `json:"total"`
 				NextAction string `json:"nextAction"`
 				Packs      []struct {
-					Pack            string   `json:"pack"`
-					CandidateRoot   string   `json:"candidateRoot"`
-					ToolingRoot     string   `json:"toolingRoot"`
-					IndexPath       string   `json:"indexPath"`
-					CandidateFiles  int      `json:"candidateFiles"`
-					ToolingFiles    int      `json:"toolingFiles"`
-					IndexEntries    int      `json:"indexEntries"`
-					RequiresReview  bool     `json:"requiresReview"`
-					RequiresCleanup bool     `json:"requiresCleanup"`
-					Evidence        []string `json:"evidence"`
-					Boundary        []string `json:"boundary"`
+					Pack            string                               `json:"pack"`
+					CandidateRoot   string                               `json:"candidateRoot"`
+					ToolingRoot     string                               `json:"toolingRoot"`
+					IndexPath       string                               `json:"indexPath"`
+					CandidateFiles  int                                  `json:"candidateFiles"`
+					ToolingFiles    int                                  `json:"toolingFiles"`
+					IndexEntries    int                                  `json:"indexEntries"`
+					RequiresReview  bool                                 `json:"requiresReview"`
+					RequiresCleanup bool                                 `json:"requiresCleanup"`
+					ReviewSummary   packMemoryCandidateReviewSummaryJSON `json:"reviewSummary"`
+					Evidence        []string                             `json:"evidence"`
+					Boundary        []string                             `json:"boundary"`
 				} `json:"packs"`
 			} `json:"packMemoryCandidates"`
 		} `json:"projectHandoff"`
@@ -1022,6 +1023,9 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 	if pack.Pack != "_template" || pack.CandidateRoot != "packs/_template/promote-candidates" || pack.ToolingRoot != "packs/_template/tooling/candidates" || pack.IndexPath != "packs/_template/promote-candidates/index.json" || pack.CandidateFiles != 1 || pack.ToolingFiles != 1 || pack.IndexEntries != 1 || !pack.RequiresReview || !pack.RequiresCleanup || !containsSubstring(pack.Evidence, "promote-candidates files=1") || !containsSubstring(pack.Boundary, "does not merge or delete") {
 		t.Fatalf("unexpected status pack-memory candidate pack: %+v", pack)
 	}
+	if summary := pack.ReviewSummary; summary.Total != 3 || summary.CandidateFiles != 1 || summary.ToolingFiles != 1 || summary.IndexEntries != 1 || summary.DecisionArtifactCount != 2 || summary.CleanupArtifactCount != 2 || summary.ReconsumeArtifactCount != 4 || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || !containsSubstring(summary.Boundary, "reviewSummary is read-only") {
+		t.Fatalf("unexpected status pack-memory candidate review summary: %+v", summary)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "text"}, &out); err != nil {
@@ -1030,6 +1034,8 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 	for _, expected := range []string{
 		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates",
 		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 review=true cleanup=true",
+		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4",
+		"status pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
 		"status pack-memory candidate path：pack=_template path=packs/_template/promote-candidates/",
 		"status pack-memory tooling candidate path：pack=_template path=packs/_template/tooling/candidates/",
 		"status pack-memory candidate index：pack=_template path=references/template/README.md candidate=packs/_template/promote-candidates/",
@@ -1043,6 +1049,37 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 			t.Fatalf("status text missing pack-memory candidate handoff %q:\n%s", expected, out.String())
 		}
 	}
+
+	out.Reset()
+	err := Run([]string{"-Command", "release-check", "-Format", "text"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "pack-memory candidates") {
+		t.Fatalf("release-check with open pack-memory candidates error = %v, want pack-memory candidates warning", err)
+	}
+	for _, expected := range []string{
+		"release-check pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4",
+		"release-check pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("release-check text missing pack-memory review summary %q:\n%s", expected, out.String())
+		}
+	}
+}
+
+type packMemoryCandidateReviewSummaryJSON struct {
+	Total                  int      `json:"total"`
+	CandidateFiles         int      `json:"candidateFiles"`
+	ToolingFiles           int      `json:"toolingFiles"`
+	IndexEntries           int      `json:"indexEntries"`
+	ReviewArtifactCount    int      `json:"reviewArtifactCount"`
+	DecisionArtifactCount  int      `json:"decisionArtifactCount"`
+	CleanupArtifactCount   int      `json:"cleanupArtifactCount"`
+	ReconsumeArtifactCount int      `json:"reconsumeArtifactCount"`
+	RequiresReview         bool     `json:"requiresReview"`
+	RequiresCleanup        bool     `json:"requiresCleanup"`
+	HasDecisionArtifacts   bool     `json:"hasDecisionArtifacts"`
+	HasCleanupArtifacts    bool     `json:"hasCleanupArtifacts"`
+	HasReconsumeArtifacts  bool     `json:"hasReconsumeArtifacts"`
+	Boundary               []string `json:"boundary"`
 }
 
 func TestRunStatusRejectsUnsupportedFormat(t *testing.T) {
@@ -6616,6 +6653,9 @@ func TestRunPromoteCreateCandidatesWhatIf(t *testing.T) {
 	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.DecisionFollowThrough) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) == 0 || !containsSubstring(result.ReviewPlan.RuntimeBoundary, "when not WhatIf") {
 		t.Fatalf("unexpected promote candidates what-if review plan: %+v", result.ReviewPlan)
 	}
+	if summary := result.ReviewPlan.ReviewSummary; summary.Mode != "candidate-review-preview" || summary.Total != len(result.Writes) || summary.PendingReviewCount == 0 || summary.BlockedCount != result.Blocked || summary.CleanupTargetCount == 0 || summary.ReviewArtifactCount != len(result.ReviewPlan.ReviewArtifacts) || summary.DecisionChecklistCount != len(result.ReviewPlan.DecisionChecklist) || summary.DecisionFollowThroughCount != len(result.ReviewPlan.DecisionFollowThrough) || summary.ExecutionStepCount != len(result.ReviewPlan.MainAgentExecutionPlan) || summary.ReconsumeCheckCount != len(result.ReviewPlan.Reconsume.VerificationChecklist) || summary.NextActionCount != len(result.ReviewPlan.MissionCommanderNextActions) || !summary.RequiresReview || summary.RequiresCleanup || !summary.HasIndex || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || !summary.WhatIf || !containsSubstring(summary.Boundary, "reviewSummary is read-only") || !containsSubstring(summary.Boundary, "WhatIf did not write") {
+		t.Fatalf("promote what-if review summary missing compact handoff: %+v", summary)
+	}
 	if !candidateJSONDecisionFollowThroughContains(result.ReviewPlan.DecisionFollowThrough, "references/template/README.md", "accept", "promote -Apply is not a candidate-scoped accept path") || !candidateJSONDecisionFollowThroughContains(result.ReviewPlan.DecisionFollowThrough, "references/template/README.md", "reject", "update or remove indexPath") {
 		t.Fatalf("promote what-if review plan missing decision follow-through: %+v", result.ReviewPlan.DecisionFollowThrough)
 	}
@@ -6643,6 +6683,12 @@ func TestRunPromoteCreateCandidatesWhatIf(t *testing.T) {
 	text := out.String()
 	for _, expected := range []string{
 		"promote candidates：applied=false created=2",
+		"promote candidates review summary：mode=candidate-review-preview pack=_template",
+		"pending=2",
+		"created=2",
+		"managedDocs=4 toolingCandidates=1 cleanupTargets=2",
+		"promote candidates review summary boundary：WhatIf did not write candidate files or indexPath",
+		"promote candidates review summary boundary：reviewSummary is read-only; full reviewPlan arrays remain available",
 		"promote candidates review item：path=references/template/README.md kind=managed-doc decision=pending-review action=would-create-candidate",
 		"promote candidates review item merge hint：path=references/template/README.md hint=merge accepted reusable guidance into pack managed doc packTarget",
 		"promote candidates review checklist：path=references/template/README.md decision=pending-review reviewAction=inspect candidatePath against packTarget and choose accept, reject, or superseded",
@@ -6708,6 +6754,9 @@ func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
 	if result.ReviewPlan.Mode != "candidate-review" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.DecisionFollowThrough) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 || result.ReviewPlan.Reconsume.Mode != "pack-memory-reconsume-after-merge" {
 		t.Fatalf("unexpected promote candidates review plan: %+v", result.ReviewPlan)
 	}
+	if summary := result.ReviewPlan.ReviewSummary; summary.Mode != "candidate-review" || summary.Total != len(result.Writes) || summary.PendingReviewCount != 2 || summary.BlockedCount != result.Blocked || summary.ManagedDocCount != 4 || summary.ToolingCandidateCount != 1 || summary.CleanupTargetCount != 2 || summary.ReviewArtifactCount != len(result.ReviewPlan.ReviewArtifacts) || summary.DecisionChecklistCount != len(result.ReviewPlan.DecisionChecklist) || summary.DecisionFollowThroughCount != len(result.ReviewPlan.DecisionFollowThrough) || summary.ExecutionStepCount != len(result.ReviewPlan.MainAgentExecutionPlan) || summary.ReconsumeCheckCount != len(result.ReviewPlan.Reconsume.VerificationChecklist) || summary.NextActionCount != len(result.ReviewPlan.MissionCommanderNextActions) || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasToolingCandidate || !summary.HasBlockedItems || !summary.HasIndex || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || summary.WhatIf || !containsSubstring(summary.Boundary, "reviewSummary is read-only") || !containsSubstring(summary.Boundary, "does not merge candidates") {
+		t.Fatalf("promote create-candidates review summary missing compact handoff: %+v", summary)
+	}
 	readmeReview := assertCandidateReviewItem(t, result.ReviewPlan.ReviewItems, "references/template/README.md", "pending-review")
 	toolingReview := assertCandidateReviewItem(t, result.ReviewPlan.ReviewItems, "references/template/toolchain-router.md", "pending-review")
 	assertCandidateReviewItem(t, result.ReviewPlan.ReviewItems, "references/template/workflow-template.md", "blocked")
@@ -6747,6 +6796,12 @@ func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
 	text := out.String()
 	for _, expected := range []string{
 		"promote candidates：applied=true created=2",
+		"promote candidates review summary：mode=candidate-review pack=_template",
+		"pending=2",
+		"created=2",
+		"managedDocs=4 toolingCandidates=1 cleanupTargets=2",
+		"promote candidates review summary boundary：reviewSummary is read-only; full reviewPlan arrays remain available",
+		"promote candidates review summary boundary：reviewSummary does not merge candidates, cleanup candidate files, run doctor/init, or create review artifacts",
 		"promote candidates review item：path=references/template/README.md kind=managed-doc decision=pending-review action=create-candidate",
 		"promote candidates review item action：path=references/template/README.md action=extract reusable guidance and resolve conflicts",
 		"promote candidates review item：path=references/template/workflow-template.md kind=managed-doc decision=blocked action=blocked-deny-pattern",
@@ -6913,17 +6968,18 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 				Total      int    `json:"total"`
 				NextAction string `json:"nextAction"`
 				Packs      []struct {
-					Pack            string   `json:"pack"`
-					CandidateRoot   string   `json:"candidateRoot"`
-					ToolingRoot     string   `json:"toolingRoot"`
-					IndexPath       string   `json:"indexPath"`
-					CandidateFiles  int      `json:"candidateFiles"`
-					ToolingFiles    int      `json:"toolingFiles"`
-					IndexEntries    int      `json:"indexEntries"`
-					RequiresReview  bool     `json:"requiresReview"`
-					RequiresCleanup bool     `json:"requiresCleanup"`
-					Evidence        []string `json:"evidence"`
-					Boundary        []string `json:"boundary"`
+					Pack            string                               `json:"pack"`
+					CandidateRoot   string                               `json:"candidateRoot"`
+					ToolingRoot     string                               `json:"toolingRoot"`
+					IndexPath       string                               `json:"indexPath"`
+					CandidateFiles  int                                  `json:"candidateFiles"`
+					ToolingFiles    int                                  `json:"toolingFiles"`
+					IndexEntries    int                                  `json:"indexEntries"`
+					RequiresReview  bool                                 `json:"requiresReview"`
+					RequiresCleanup bool                                 `json:"requiresCleanup"`
+					ReviewSummary   packMemoryCandidateReviewSummaryJSON `json:"reviewSummary"`
+					Evidence        []string                             `json:"evidence"`
+					Boundary        []string                             `json:"boundary"`
 				} `json:"packs"`
 			} `json:"packMemoryCandidates"`
 		} `json:"projectHandoff"`
@@ -6952,6 +7008,8 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 		"status project handoff：summary=release handoff summary has warnings ready=false",
 		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates",
 		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 review=true cleanup=true",
+		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4",
+		"status pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
 		"status pack-memory candidate path：pack=_template path=packs/_template/promote-candidates/",
 		"status pack-memory tooling candidate path：pack=_template path=packs/_template/tooling/candidates/",
 		"status pack-memory candidate index：pack=_template path=references/template/README.md candidate=packs/_template/promote-candidates/",
@@ -6992,6 +7050,12 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 	}
 	for _, expected := range []string{
 		"promote candidates：applied=false created=2",
+		"promote candidates review summary：mode=candidate-review-preview pack=_template",
+		"pending=2",
+		"created=2",
+		"managedDocs=4 toolingCandidates=1 cleanupTargets=2",
+		"promote candidates review summary boundary：WhatIf did not write candidate files or indexPath",
+		"promote candidates review summary boundary：reviewSummary is read-only; full reviewPlan arrays remain available",
 		"promote candidates review item：path=references/template/README.md kind=managed-doc decision=pending-review action=would-create-candidate",
 		"promote candidates review item：path=references/template/toolchain-router.md kind=tooling-candidate-source decision=pending-review action=would-create-candidate",
 		"promote candidates review artifact：path=references/template/README.md kind=managed-doc name=candidate-decision-note",
@@ -10574,9 +10638,45 @@ type candidateResult struct {
 	Writes          []candidateWrite    `json:"writes"`
 }
 
+type candidateReviewSummary struct {
+	Mode                       string   `json:"mode"`
+	Pack                       string   `json:"pack"`
+	Total                      int      `json:"total"`
+	PendingReviewCount         int      `json:"pendingReviewCount"`
+	BlockedCount               int      `json:"blockedCount"`
+	NotNeededCount             int      `json:"notNeededCount"`
+	CreatedCount               int      `json:"createdCount"`
+	SkippedCount               int      `json:"skippedCount"`
+	ManagedDocCount            int      `json:"managedDocCount"`
+	ToolingCandidateCount      int      `json:"toolingCandidateCount"`
+	CleanupTargetCount         int      `json:"cleanupTargetCount"`
+	ReviewArtifactCount        int      `json:"reviewArtifactCount"`
+	DecisionChecklistCount     int      `json:"decisionChecklistCount"`
+	DecisionFollowThroughCount int      `json:"decisionFollowThroughCount"`
+	ExecutionStepCount         int      `json:"executionStepCount"`
+	ReconsumeCheckCount        int      `json:"reconsumeCheckCount"`
+	NextActionCount            int      `json:"nextActionCount"`
+	ReviewRequiredActionCount  int      `json:"reviewRequiredActionCount"`
+	CurrentAction              string   `json:"currentAction"`
+	CandidateRoot              string   `json:"candidateRoot"`
+	ToolingRoot                string   `json:"toolingRoot"`
+	IndexPath                  string   `json:"indexPath"`
+	RequiresReview             bool     `json:"requiresReview"`
+	RequiresCleanup            bool     `json:"requiresCleanup"`
+	HasToolingCandidate        bool     `json:"hasToolingCandidate"`
+	HasBlockedItems            bool     `json:"hasBlockedItems"`
+	HasIndex                   bool     `json:"hasIndex"`
+	HasDecisionArtifacts       bool     `json:"hasDecisionArtifacts"`
+	HasCleanupArtifacts        bool     `json:"hasCleanupArtifacts"`
+	HasReconsumeArtifacts      bool     `json:"hasReconsumeArtifacts"`
+	WhatIf                     bool     `json:"whatIf"`
+	Boundary                   []string `json:"boundary"`
+}
+
 type candidateReviewPlan struct {
 	Mode                        string                              `json:"mode"`
 	ItemCount                   int                                 `json:"itemCount"`
+	ReviewSummary               candidateReviewSummary              `json:"reviewSummary"`
 	MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
 	MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
 	MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`

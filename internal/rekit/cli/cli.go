@@ -1068,6 +1068,21 @@ func writeReleasePublicDefaultDocsText(out io.Writer, docs defaultdocs.Readiness
 	return nil
 }
 
+func writePackMemoryCandidateReviewSummaryText(out io.Writer, prefix, pack string, summary releasecheck.ReleaseHandoffPackMemoryCandidateReviewSummary) error {
+	if summary.Total == 0 && !summary.HasIndex {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s pack-memory review summary：pack=%s total=%d candidateFiles=%d toolingFiles=%d indexEntries=%d reviewArtifacts=%d decisionArtifacts=%d cleanupArtifacts=%d reconsumeArtifacts=%d candidateRoot=%s toolingRoot=%s indexPath=%s review=%t cleanup=%t hasCandidatePaths=%t hasToolingPaths=%t hasIndex=%t hasDecisionArtifacts=%t hasCleanupArtifacts=%t hasReconsumeArtifacts=%t nextAction=%s\n", prefix, pack, summary.Total, summary.CandidateFiles, summary.ToolingFiles, summary.IndexEntries, summary.ReviewArtifactCount, summary.DecisionArtifactCount, summary.CleanupArtifactCount, summary.ReconsumeArtifactCount, summary.CandidateRoot, summary.ToolingRoot, summary.IndexPath, summary.RequiresReview, summary.RequiresCleanup, summary.HasCandidatePaths, summary.HasToolingPaths, summary.HasIndex, summary.HasDecisionArtifacts, summary.HasCleanupArtifacts, summary.HasReconsumeArtifacts, summary.NextAction); err != nil {
+		return err
+	}
+	for _, boundary := range summary.Boundary {
+		if _, err := fmt.Fprintf(out, "%s pack-memory review summary boundary：pack=%s boundary=%s\n", prefix, pack, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff) error {
 	handoffCounts := releasecheck.ReleaseHandoffCountsFor(handoff)
 	if _, err := fmt.Fprintf(out, "release-check release handoff：summary=%s ready=%t readFirst=%d signals=%d knownGaps=%d packMaturity=%d packMemoryCandidates=%d validation=%d nextActions=%d warnings=%d releaseNotes=%t latest=%s\n", handoff.Summary, handoff.Ready, handoffCounts.ReadFirst, handoffCounts.Signals, handoffCounts.KnownGaps, handoffCounts.PackMaturity.Total, handoffCounts.PackMemoryCandidates, handoffCounts.Validation, handoffCounts.NextActions, handoffCounts.Warnings, handoff.ReleaseNotes.Covered, handoff.LatestBatch.Title); err != nil {
@@ -1132,6 +1147,9 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 	}
 	for _, pack := range candidates.Packs {
 		if _, err := fmt.Fprintf(out, "release-check pack-memory candidate pack：pack=%s maturity=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d review=%t cleanup=%t action=%s\n", pack.Pack, pack.Maturity, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action); err != nil {
+			return err
+		}
+		if err := writePackMemoryCandidateReviewSummaryText(out, "release-check", pack.Pack, pack.ReviewSummary); err != nil {
 			return err
 		}
 		for _, path := range pack.CandidatePaths {
@@ -2091,6 +2109,9 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 	}
 	for _, pack := range candidates.Packs {
 		if _, err := fmt.Fprintf(out, "status pack-memory candidate pack：pack=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d review=%t cleanup=%t action=%s\n", pack.Pack, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action); err != nil {
+			return err
+		}
+		if err := writePackMemoryCandidateReviewSummaryText(out, "status", pack.Pack, pack.ReviewSummary); err != nil {
 			return err
 		}
 		for _, path := range pack.CandidatePaths {
@@ -5823,11 +5844,29 @@ func writePromoteApplyText(out io.Writer, result promote.ApplyResult) error {
 	return nil
 }
 
+func writePromoteCandidateReviewSummaryText(out io.Writer, summary promote.CandidateReviewSummary) error {
+	if summary.Total == 0 && !summary.HasIndex {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "promote candidates review summary：mode=%s pack=%s total=%d pending=%d blocked=%d notNeeded=%d created=%d skipped=%d managedDocs=%d toolingCandidates=%d cleanupTargets=%d reviewArtifacts=%d decisionChecklist=%d decisionFollowThrough=%d executionSteps=%d reconsumeChecks=%d nextActions=%d reviewRequiredActions=%d currentAction=%s candidateRoot=%s toolingRoot=%s indexPath=%s requiresReview=%t requiresCleanup=%t hasTooling=%t hasBlocked=%t hasIndex=%t hasDecisionArtifacts=%t hasCleanupArtifacts=%t hasReconsumeArtifacts=%t whatIf=%t\n", summary.Mode, summary.Pack, summary.Total, summary.PendingReviewCount, summary.BlockedCount, summary.NotNeededCount, summary.CreatedCount, summary.SkippedCount, summary.ManagedDocCount, summary.ToolingCandidateCount, summary.CleanupTargetCount, summary.ReviewArtifactCount, summary.DecisionChecklistCount, summary.DecisionFollowThroughCount, summary.ExecutionStepCount, summary.ReconsumeCheckCount, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction, summary.CandidateRoot, summary.ToolingRoot, summary.IndexPath, summary.RequiresReview, summary.RequiresCleanup, summary.HasToolingCandidate, summary.HasBlockedItems, summary.HasIndex, summary.HasDecisionArtifacts, summary.HasCleanupArtifacts, summary.HasReconsumeArtifacts, summary.WhatIf); err != nil {
+		return err
+	}
+	for _, boundary := range summary.Boundary {
+		if _, err := fmt.Fprintf(out, "promote candidates review summary boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) error {
 	if _, err := fmt.Fprintf(out, "promote candidates：applied=%t created=%d blocked=%d cleanup=%t\n", result.Applied, result.Created, result.Blocked, result.RequiresCleanup); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(out, "promote candidates review plan：mode=%s items=%d candidateRoot=%s toolingRoot=%s indexPath=%s\n", result.ReviewPlan.Mode, result.ReviewPlan.ItemCount, result.CandidateRoot, result.ToolingRoot, result.IndexPath); err != nil {
+		return err
+	}
+	if err := writePromoteCandidateReviewSummaryText(out, result.ReviewPlan.ReviewSummary); err != nil {
 		return err
 	}
 	if err := writePromoteCandidateReviewPlanText(out, result.ReviewPlan.ReviewItems, result.ReviewPlan.DecisionChecklist); err != nil {

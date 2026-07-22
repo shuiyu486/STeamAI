@@ -133,6 +133,30 @@ type ReleaseHandoffPackMemoryCandidateList struct {
 	Warnings   []string                                  `json:"warnings,omitempty"`
 }
 
+type ReleaseHandoffPackMemoryCandidateReviewSummary struct {
+	Total                  int      `json:"total"`
+	CandidateFiles         int      `json:"candidateFiles"`
+	ToolingFiles           int      `json:"toolingFiles"`
+	IndexEntries           int      `json:"indexEntries"`
+	ReviewArtifactCount    int      `json:"reviewArtifactCount"`
+	DecisionArtifactCount  int      `json:"decisionArtifactCount"`
+	CleanupArtifactCount   int      `json:"cleanupArtifactCount"`
+	ReconsumeArtifactCount int      `json:"reconsumeArtifactCount"`
+	CandidateRoot          string   `json:"candidateRoot"`
+	ToolingRoot            string   `json:"toolingRoot"`
+	IndexPath              string   `json:"indexPath,omitempty"`
+	RequiresReview         bool     `json:"requiresReview"`
+	RequiresCleanup        bool     `json:"requiresCleanup"`
+	HasCandidatePaths      bool     `json:"hasCandidatePaths"`
+	HasToolingPaths        bool     `json:"hasToolingPaths"`
+	HasIndex               bool     `json:"hasIndex"`
+	HasDecisionArtifacts   bool     `json:"hasDecisionArtifacts"`
+	HasCleanupArtifacts    bool     `json:"hasCleanupArtifacts"`
+	HasReconsumeArtifacts  bool     `json:"hasReconsumeArtifacts"`
+	NextAction             string   `json:"nextAction,omitempty"`
+	Boundary               []string `json:"boundary,omitempty"`
+}
+
 type ReleaseHandoffPackMemoryCandidateStatus struct {
 	Pack            string                                            `json:"pack"`
 	Maturity        string                                            `json:"maturity"`
@@ -146,6 +170,7 @@ type ReleaseHandoffPackMemoryCandidateStatus struct {
 	ToolingPaths    []string                                          `json:"toolingPaths,omitempty"`
 	IndexCandidates []ReleaseHandoffPackMemoryCandidateIndexEntry     `json:"indexCandidates,omitempty"`
 	ReviewArtifacts []ReleaseHandoffPackMemoryCandidateReviewArtifact `json:"reviewArtifacts,omitempty"`
+	ReviewSummary   ReleaseHandoffPackMemoryCandidateReviewSummary    `json:"reviewSummary"`
 	HasOpenWork     bool                                              `json:"hasOpenWork"`
 	RequiresReview  bool                                              `json:"requiresReview"`
 	RequiresCleanup bool                                              `json:"requiresCleanup"`
@@ -535,12 +560,59 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 		status.Evidence = append(status.Evidence, fmt.Sprintf("indexPath %s entries=%d", indexRel, indexEntryCount))
 	}
 	status.ReviewArtifacts = packMemoryCandidateReviewArtifacts(status)
+	status.ReviewSummary = packMemoryCandidateReviewSummary(status)
 	status.Boundary = []string{
 		"release handoff only inventories pack-memory candidate residue; it does not merge or delete candidates",
 		"review candidates before merge; do not write authority/confirmed",
 		"do not promote case-specific artifacts, traces, dumps, captures, payloads, flags, or customer data",
 	}
 	return status, nil
+}
+
+func packMemoryCandidateReviewSummary(status ReleaseHandoffPackMemoryCandidateStatus) ReleaseHandoffPackMemoryCandidateReviewSummary {
+	summary := ReleaseHandoffPackMemoryCandidateReviewSummary{
+		Total:                 status.CandidateFiles + status.ToolingFiles + status.IndexEntries,
+		CandidateFiles:        status.CandidateFiles,
+		ToolingFiles:          status.ToolingFiles,
+		IndexEntries:          status.IndexEntries,
+		ReviewArtifactCount:   len(status.ReviewArtifacts),
+		CandidateRoot:         status.CandidateRoot,
+		ToolingRoot:           status.ToolingRoot,
+		IndexPath:             status.IndexPath,
+		RequiresReview:        status.RequiresReview,
+		RequiresCleanup:       status.RequiresCleanup,
+		HasCandidatePaths:     len(status.CandidatePaths) > 0,
+		HasToolingPaths:       len(status.ToolingPaths) > 0,
+		HasIndex:              strings.TrimSpace(status.IndexPath) != "",
+		HasDecisionArtifacts:  false,
+		HasCleanupArtifacts:   false,
+		HasReconsumeArtifacts: false,
+		NextAction:            status.Action,
+	}
+	if summary.Total == 0 && summary.HasIndex {
+		summary.Total = 1
+	}
+	for _, artifact := range status.ReviewArtifacts {
+		switch strings.TrimSpace(artifact.Name) {
+		case "candidate-decision-note", "blocked-review-note":
+			summary.DecisionArtifactCount++
+			summary.HasDecisionArtifacts = true
+		case "candidate-cleanup-proof":
+			summary.CleanupArtifactCount++
+			summary.HasCleanupArtifacts = true
+		case "pack-doctor-output", "fresh-case-reconsume-proof", "attached-case-reconsume-proof":
+			summary.ReconsumeArtifactCount++
+			summary.HasReconsumeArtifacts = true
+		}
+	}
+	if status.HasOpenWork {
+		summary.Boundary = []string{
+			"pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
+			"release/status handoff does not merge or delete candidates and does not create decision/cleanup/reconsume proof",
+			"review candidates before merge; do not write authority/confirmed or execute heavy tools",
+		}
+	}
+	return summary
 }
 
 func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidateStatus) []ReleaseHandoffPackMemoryCandidateReviewArtifact {
@@ -775,6 +847,8 @@ func releaseHandoffPackMemoryCandidateDetails(inventory ReleaseHandoffPackMemory
 		for _, entry := range pack.IndexCandidates {
 			details = append(details, fmt.Sprintf("indexCandidate pack=%s path=%s candidate=%s", pack.Pack, entry.Path, entry.Candidate))
 		}
+		summary := pack.ReviewSummary
+		details = append(details, fmt.Sprintf("reviewSummary pack=%s total=%d decisionArtifacts=%d cleanupArtifacts=%d reconsumeArtifacts=%d nextAction=%s", pack.Pack, summary.Total, summary.DecisionArtifactCount, summary.CleanupArtifactCount, summary.ReconsumeArtifactCount, summary.NextAction))
 		for _, artifact := range pack.ReviewArtifacts {
 			details = append(details, fmt.Sprintf("reviewArtifact pack=%s name=%s candidatePath=%s packTarget=%s", pack.Pack, artifact.Name, artifact.CandidatePath, artifact.PackTarget))
 		}
