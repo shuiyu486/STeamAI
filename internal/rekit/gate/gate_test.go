@@ -790,8 +790,8 @@ func TestAdapterReportLiveSnapshotTracksRecordedReportIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !present || live.ReportSummary.State != "evidence-already-recorded" || live.ReportSummary.RecordReady || !live.ReportSummary.RecordBlocked || live.ReportSummary.RequiresValidation || len(live.NextSteps) != 2 || !strings.Contains(live.NextSteps[0], "do not record or replay") {
-		t.Fatalf("recorded live report should route to evidence review: %+v", live)
+	if !present || live.ReportSummary.State != "evidence-already-recorded" || live.ReportSummary.RecordReady || !live.ReportSummary.RecordBlocked || live.ReportSummary.RequiresValidation || live.ReportSummary.RequiresMainEscalation || len(live.NextSteps) != 2 || !strings.Contains(live.NextSteps[0], "do not record or replay") || live.MissionCommanderAction.State != "evidence-already-recorded" || strings.Contains(live.MissionCommanderAction.PrimaryCommand, "-Apply") || len(live.MissionCommanderNextActions) != 2 || strings.Contains(live.MissionCommanderActionQueue.Summary, "-Apply") || live.AuthorizedExecutionFollowThrough.State != "evidence-already-recorded" || len(live.AuthorizedExecutionFollowThrough.Outcomes) != 1 || live.AuthorizedExecutionFollowThrough.Outcomes[0].Name != "duplicate-record-review" {
+		t.Fatalf("recorded live report should route to evidence review without record queue: %+v", live)
 	}
 
 	writeReport("changed bounded execution", 0)
@@ -801,6 +801,37 @@ func TestAdapterReportLiveSnapshotTracksRecordedReportIdentity(t *testing.T) {
 	}
 	if !present || live.ReportSummary.State != "ready-to-record-evidence" || !live.ReportSummary.RecordReady {
 		t.Fatalf("changed same-path report must not match old evidence: %+v", live)
+	}
+}
+
+func TestAdapterReportLiveSnapshotPreservesRecordedBoundaryEscalation(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "adapter-report.json")
+	writeGateText(t, reportPath, `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "boundary-hit",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "boundaryHits": ["timeout"],
+  "summary": "bounded execution stopped at timeout"
+}`)
+	if _, err := RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionReportPath: reportPath}); err != nil {
+		t.Fatal(err)
+	}
+	live, present, err := AdapterReportLiveSnapshot(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: reportPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present || live.ReportSummary.State != "needs-main-escalation" || !live.ReportSummary.RequiresMainEscalation || live.ReportSummary.RecordReady || live.MissionCommanderAction.State != "needs-main-escalation" || !strings.Contains(live.MissionCommanderAction.Prompt, "停止") || len(live.AuthorizedExecutionFollowThrough.Outcomes) != 1 || live.AuthorizedExecutionFollowThrough.Outcomes[0].Name != "boundary-or-escalation-review" || strings.Contains(live.MissionCommanderActionQueue.Summary, "-Apply") {
+		t.Fatalf("recorded boundary report must preserve main escalation: %+v", live)
 	}
 }
 

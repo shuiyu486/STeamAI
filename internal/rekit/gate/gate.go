@@ -1160,14 +1160,108 @@ func AdapterReportLiveSnapshot(repoRoot, caseRoot, pack string, opt Options) (Ad
 		return AdapterExecutionReportValidation{}, true, err
 	}
 	if recorded {
-		validation.ReportSummary.State = "evidence-already-recorded"
-		validation.ReportSummary.RecordReady = false
-		validation.ReportSummary.RecordBlocked = true
-		validation.ReportSummary.RequiresValidation = false
-		validation.ReportSummary.CurrentAction = "/rekit handoff " + mission.BoardLaneLabel(mission.BoardLane{ID: validation.ReportSummary.Lane})
-		validation.NextSteps = []string{"review the recorded observation evidence; do not record or replay the adapter report again", validation.ReportSummary.CurrentAction}
+		applyRecordedAdapterReportSnapshot(&validation)
 	}
 	return validation, true, nil
+}
+
+func applyRecordedAdapterReportSnapshot(validation *AdapterExecutionReportValidation) {
+	if validation == nil || validation.Report == nil {
+		return
+	}
+	label := gateCommanderActionLabel(validation.ReportSummary.Lane)
+	handoffCommand := "/rekit handoff " + label
+	needsMainReview := validation.Report.Status == "boundary-hit" || validation.Report.Status == "escalated" || len(validation.Report.BoundaryHits) > 0 || strings.TrimSpace(validation.Report.Escalation) != ""
+	state := "evidence-already-recorded"
+	prompt := fmt.Sprintf("authorized gate `%s` 的 exact observation evidence 已记录；只 review output/evidence refs，不要再次 record 或 replay。", validation.GateEventID)
+	boundary := []string{
+		"observation evidence is already recorded; do not replay heavy tool or adapter action",
+		"do not append duplicate observation evidence",
+		"review outputRefs/evidenceRefs before any authority/confirmed outcome",
+		"no authority/confirmed writes",
+	}
+	nextSteps := []string{"review the recorded observation evidence; do not record or replay the adapter report again", handoffCommand}
+	if needsMainReview {
+		state = "needs-main-escalation"
+		prompt = fmt.Sprintf("authorized gate `%s` 的 exact observation evidence记录了boundary/escalation；停止该action的自主推进并通知main Agent。", validation.GateEventID)
+		boundary = append(boundary, "stop autonomous work on this action until main review")
+		nextSteps = []string{"stop autonomous continuation; recorded boundary/escalation requires main Agent review", "review boundaryHits/escalation and output/evidence refs", handoffCommand}
+	}
+	commander := mission.MissionCommanderAction{
+		State:            state,
+		Prompt:           prompt,
+		PrimaryCommand:   handoffCommand,
+		FollowUpCommands: []string{"/rekit overview"},
+		Boundary:         boundary,
+	}
+	items := []mission.MissionCommanderNextActionItem{
+		{
+			Lane:           validation.ReportSummary.Lane,
+			Label:          label,
+			State:          state,
+			Command:        handoffCommand,
+			Source:         "adapterReportLiveSnapshot.recordedEvidence",
+			Blocked:        needsMainReview,
+			RequiresReview: true,
+			Reasons:        append([]string{}, nextSteps[:len(nextSteps)-1]...),
+			Boundary:       append([]string{}, boundary...),
+		},
+		{
+			Lane:           validation.ReportSummary.Lane,
+			Label:          label,
+			State:          state,
+			Command:        "/rekit overview",
+			Source:         "adapterReportLiveSnapshot.recordedEvidence.followUp",
+			Blocked:        needsMainReview,
+			RequiresReview: true,
+			Reasons:        []string{"refresh Mission Commander evidence review queue"},
+			Boundary:       append([]string{}, boundary...),
+		},
+	}
+	queue := mission.MissionCommanderActionQueueFor(items)
+	outcomeName := "duplicate-record-review"
+	outcomeActions := []string{"do not record or replay the adapter report again", "review the existing observation evidence and output/evidence refs"}
+	outcomeExpected := "exact recorded evidence routes to review without exposing a record action"
+	if needsMainReview {
+		outcomeName = "boundary-or-escalation-review"
+		outcomeActions = []string{"stop autonomous continuation for this action", "notify main Agent", "review boundaryHits/escalation and output/evidence refs"}
+		outcomeExpected = "main Agent reviews recorded boundary/escalation before autonomous continuation"
+	}
+	follow := AuthorizedExecutionFollowThrough{
+		State:       state,
+		GateEventID: validation.GateEventID,
+		ReportPath:  validation.ReportPath,
+		Outcomes: []AuthorizedExecutionOutcome{{
+			Name:                 outcomeName,
+			State:                state,
+			When:                 "the canonical sidecar exactly matches already recorded observation evidence",
+			Command:              handoffCommand,
+			Actions:              outcomeActions,
+			VerificationCommands: []string{handoffCommand, "/rekit overview"},
+			Expected:             outcomeExpected,
+			Evidence:             []string{"existing observation evidence", "adapter execution report sidecar"},
+			Boundary:             append([]string{}, boundary...),
+		}},
+		Boundary:    append([]string{}, boundary...),
+		ActionQueue: queue,
+	}
+	validation.MissionCommanderAction = commander
+	validation.MissionCommanderNextActions = items
+	validation.MissionCommanderActionQueue = queue
+	validation.AuthorizedExecutionFollowThrough = follow
+	validation.NextSteps = nextSteps
+	validation.ReportSummary.State = state
+	validation.ReportSummary.RecordReady = false
+	validation.ReportSummary.RecordBlocked = true
+	validation.ReportSummary.RequiresValidation = false
+	validation.ReportSummary.RequiresRepair = false
+	validation.ReportSummary.RequiresMainEscalation = needsMainReview
+	validation.ReportSummary.OutcomeCount = len(follow.Outcomes)
+	validation.ReportSummary.NextActionCount = len(items)
+	validation.ReportSummary.ReviewRequiredActionCount = len(items)
+	validation.ReportSummary.ActionQueueSummary = queue.Summary
+	validation.ReportSummary.CurrentAction = handoffCommand
+	validation.ReportSummary.Boundary = append([]string{}, boundary...)
 }
 
 func adapterReportEvidenceRecorded(caseRoot, gateEventID, reportPath string, report *AdapterReport) (bool, error) {

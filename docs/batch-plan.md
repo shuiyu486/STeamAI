@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：live projection只读取并strict validate已存在canonical sidecar；不执行adapter/heavy-tool、不自动record observation、不写authority/confirmed。record仍要求主Agent复核`valid=true`后显式执行`gate -Apply ... -Actor ...`；不新增PowerShell runtime logic。
 
-验证结果：focused gate identity/symlink/malformed-arrival tests、`go test ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -count=1`、两轮独立审查及其record/replay suppression、malformed presence、text repair handoff修复均通过；完整本地release minimum已通过`release-check -Format json`（`ready=true`）、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`与`git diff --check`。implementation/release inspection尚待完成。
+验证结果：focused gate identity/symlink/malformed-arrival/recorded-boundary tests、`go test ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -count=1`、三轮独立审查及其record/replay suppression、record-ready queue replacement、recorded main-escalation preservation、malformed presence、text repair handoff修复均通过；完整本地release minimum已通过`release-check -Format json`（`ready=true`）、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`与`git diff --check`。implementation commit `fb1bd07 Close adapter sidecar live handoff` 已推送；因终审后追加一致性修复，最终amend-style follow-up commit与release inspection尚待完成。
 
 上一批摘要：Batch 545已完成terminal decision receipt attestation，implementation commit `a7681b4 Attest terminal candidate decisions` 与 release inspection commit `482e19f Record Batch 545 release gate inspection` 已推送；implementation run `29961478940` 的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 

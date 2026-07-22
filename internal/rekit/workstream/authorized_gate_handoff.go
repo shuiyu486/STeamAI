@@ -139,7 +139,7 @@ func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[s
 			liveValidation.SelectedAdapterID = selected.ID
 			liveValidation.SelectedAdapter = &selected
 		}
-		if reportSummary.State == "evidence-already-recorded" {
+		if validation.Valid && reportSummary.RecordBlocked && !reportSummary.RecordReady {
 			liveValidation.RecordCommand = ""
 			liveValidation.CaseRelativeRecordCommand = ""
 			liveValidation.ReplayBehavior = ""
