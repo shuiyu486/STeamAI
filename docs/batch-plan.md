@@ -38,7 +38,9 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Post-Batch 537：documentation routing / goal handoff cleanup
 
-状态：已完成文档上下文治理收尾并准备提交推送。该收尾不是新的 product batch；它响应用户对上下文污染、新会话交接、按需路由/渐进披露和 goal 语句过长的反馈，补齐 durable docs、reference、配置说明与示例入口的路由边界，并将 `docs/autonomous-goal.md` 中给新会话的接手语句和 goal 语句压缩为更短的中大型 vertical slice 导向。
+状态：已完成文档上下文治理收尾，commit `04ebab1 Improve documentation context routing handoff` 已推送到 `main`。该收尾不是新的 product batch；它响应用户对上下文污染、新会话交接、按需路由/渐进披露和 goal 语句过长的反馈，补齐 durable docs、reference、配置说明与示例入口的路由边界，并将 `docs/autonomous-goal.md` 中给新会话的接手语句和 goal 语句压缩为更短的中大型 vertical slice 导向。
+
+补充纠偏：用户指出近期多个 batch 连续把某个字段、summary、handoff detail 或 text line 从 A 投影到 B，单批合理但连续会退化为内部 contract 可见性微调。已将该反模式固化到根 `CLAUDE.md`、`docs/context-routing.md` 与 `docs/autonomous-goal.md`：后续先找用户 / Mission Commander / replacement executor / reviewer / lane executor / pack-memory 的真实 operational 断点，再把字段或文本作为中大型 vertical slice 的支撑；不要为了继续推进而不断寻找下一个 `latestX` / `summaryX` / `contextX`。
 
 交接判断：当前适合切到新会话继续。新会话先按 `docs/context-routing.md` 读取最小上下文，确认本文件 current state、`CHANGELOG.md` 顶部与真实 git/验证状态；正式 goal 使用 `docs/autonomous-goal.md` 顶部给出的短 goal 语句。下一轮若继续长期推进，应从下面 Next candidates 中选择中大型 product-path vertical slice，不再把本轮文档收尾延伸成连续文档微批次。
 

@@ -24,6 +24,12 @@
 - 不要再为 release inspection commit 自己触发的 CI 追加第三个记录提交；除非该 run 出现不同于既有 GitHub Actions runner/billing `steps=[]` blocker 的新信号，否则只在当前上下文或下一批 planning 中引用既有 blocker。
 - 若用户 goal 尚未授权 commit/push，仍只维护工作树和验证结果；不要为了满足 cadence 规则自行 push。
 
+### 批次选题防局部最优
+
+- 连续多个 batch 如果都只是把字段、summary、handoff detail 或 text line 从一个 envelope 投影到另一个 envelope，就要视为“内部 contract 可见性微调”风险，而不是继续寻找下一个 `latestX` / `summaryX` / `contextX`。
+- 选题前先写清真实断点：哪个用户、Mission Commander、replacement executor、reviewer、lane executor 或 pack-memory review 流程现在不能完成下一步；没有真实断点时，不把投影补齐单独立批。
+- 字段/text/handoff 可以作为中大型 vertical slice 的支撑，但该 slice 必须能通过 package / CLI / 临时 case / product-path 验证体现用户可感知的 operational closure。
+
 ### 上下文节流
 
 - 大文件（如 `internal/rekit/cli/cli_test.go`、`docs/batch-history.md`）只按 symbol、Batch ID 或行号读取小片段；不要为一次批次接手或文档更新全量读取。

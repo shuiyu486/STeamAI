@@ -6,7 +6,7 @@
 
 如果用户已经在聊天里给出 goal，以用户聊天里的 goal 为准；若聊天摘要与仓库文档冲突，以仓库文档为准。本文件用于防止方向偏移：继续把 `re-context-kits` 收敛为 **Lane-centric Agent Team Mission Control**，并把当前阶段重点切到 **PowerShell-free / Go-native / 跨平台** convergence。最终产品北极星见 `docs/mission-control-product-direction.md`，具体路线写回 `docs/batch-plan.md`、`docs/go-first-convergence-plan.md`、`docs/powershell-deprecation.md` 与 `docs/release-readiness.md`。
 
-后续每批不需要过度拆小，也不要只做一两行微调。默认做一个中大型、能验证、能降低真实维护风险或提升实际可用性的 vertical slice。当前节奏校准：不要再连续推进单字段 contract / inventory / metadata 微批次；每批必须是用户或 Mission Commander 能感知的 operational slice。若确实需要新增 contract 字段，必须嵌入 Mission Commander orchestration、replaceable session executor、reviewer dispatch/intake/writeback E2E、authorized execution evidence closure、adapter-specific live validation、pack-memory promote/reconsume product UX 或跨平台 product-path E2E，并由 package / CLI / 临时 case / product-path 验证证明其解决真实断点。
+后续每批不需要过度拆小，也不要只做一两行微调。默认做一个中大型、能验证、能降低真实维护风险或提升实际可用性的 vertical slice。当前节奏校准：不要再连续推进单字段 contract / inventory / metadata 微批次；也不要连续推进字段、summary、handoff detail、text line 在不同 envelope 间的可见性投影。每批必须是用户或 Mission Commander 能感知的 operational slice。若确实需要新增 contract 字段或投影 detail，必须嵌入 Mission Commander orchestration、replaceable session executor、reviewer dispatch/intake/writeback E2E、authorized execution evidence closure、adapter-specific live validation、pack-memory promote/reconsume product UX 或跨平台 product-path E2E，并由 package / CLI / 临时 case / product-path 验证证明其解决真实断点。
 
 ## 实施摘要
 
@@ -27,7 +27,7 @@
 每轮自主推进按这个循环做：
 
 1. 读最近状态：`CLAUDE.md`、`docs/context-routing.md`、`docs/batch-plan.md` 顶部 current/next、`CHANGELOG.md` 顶部 `Unreleased`，并检查 git、本地 gate 与远程 CI 实际状态；再按 `docs/context-routing.md` 只读取当前场景需要的文档顶部区。
-2. 从下面大方向里选一个 coherent 中大型 vertical slice，优先选择能解决真实 Mission Commander/产品路径断点、提升当前 Windows 本机 Go-native product-path 稳定性、减少 retained PowerShell 依赖或增强 Mission Control 可用性的切片；macOS/Linux/远程三平台 CI 在 runner/billing blocker 解除前只作为 release known gap 和可延后 readiness 工作，不要让它挤占 Windows 本机可验证的 executor/reviewer/Mission Commander/pack-memory/product-path 闭环；不要继续拆 schema-field metadata 微批次，也不要让多个连续批次只扩 contract / inventory 字段而缺少 executor/reviewer/Mission Commander/pack-memory/product-path 的实际闭环。
+2. 从下面大方向里选一个 coherent 中大型 vertical slice，优先选择能解决真实 Mission Commander/产品路径断点、提升当前 Windows 本机 Go-native product-path 稳定性、减少 retained PowerShell 依赖或增强 Mission Control 可用性的切片；macOS/Linux/远程三平台 CI 在 runner/billing blocker 解除前只作为 release known gap 和可延后 readiness 工作，不要让它挤占 Windows 本机可验证的 executor/reviewer/Mission Commander/pack-memory/product-path 闭环；不要继续拆 schema-field metadata 微批次，也不要让多个连续批次只扩 contract / inventory 字段或做 envelope-to-envelope summary/text 投影，而缺少 executor/reviewer/Mission Commander/pack-memory/product-path 的实际闭环。
 3. 实施时优先 Go-native；禁止新增 PowerShell runtime logic。若迁移期必须保留 PowerShell，只能作为 legacy compatibility，并写清依赖方、阻塞原因和删除条件。
 4. 完成后自审、评估：看是否更接近 Mission Control 北极星，是否减少 PowerShell 默认路径，架构是否清晰，是否有重复逻辑，是否需要顺手做低风险调整。
 5. 自行做必要调整，不因小的低风险文档/测试/invariant 补齐而停下来问用户。
@@ -96,5 +96,5 @@ Mission Control 相关批次还应检查：
 
 近期优先 PowerShell-free default/product path、Go-native、Mission Commander operational closure、replaceable session executor、reviewer dispatch/intake/writeback、authorized execution evidence、tool-adapter live validation、pack-memory UX 和 Windows 本机 product-path 稳定；不要连续做一两行或逐字段 metadata 微批次。禁止新增 PowerShell runtime logic，远程 CI steps=[] 只如实记录为 known gap。
 
-完成一批后更新必要文档和 CHANGELOG，运行合适验证；若本 session 已授权，提交并推送 main。除非遇到产品方向变化、公共入口删除门禁不完整、schema/authority 策略变化、未授权外部副作用或明显不可逆风险，否则自主判断并继续下一批；不要把单个 batch、一次提交、inventory ready 或工作树干净当成长期 goal 完成。
+完成一批后更新必要文档和 CHANGELOG，运行合适验证；若本 session 已授权，提交并推送 main。除非遇到仓库文档规定必须升级的事项，否则自主判断并继续下一批；不要把单个 batch、一次提交、inventory ready 或工作树干净当成长期 goal 完成。
 ```

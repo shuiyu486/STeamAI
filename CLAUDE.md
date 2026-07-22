@@ -63,6 +63,8 @@ Batch 推送节奏（仅在当前 goal/session 已明确授权 commit/push 时�
 
 不要连续推进单字段 contract / inventory / metadata 微批次；新增 contract 字段必须嵌入 Mission Commander、replaceable executor、reviewer writeback、authorized execution evidence、adapter-specific live validation、pack-memory UX 或 product path，并由 package / CLI / 临时 case / product-path 验证证明解决真实断点。
 
+同样避免连续做“把某个字段、summary、handoff detail、text line 从 A 投影到 B”的可见性微调。单批可做投影补齐，但连续出现时必须升级为中大型能力闭环：先写清用户或 Mission Commander 能感知的断点，再把相关字段/文本作为该闭环的支撑，而不是为了寻找 `latestX` / `summaryX` / `contextX` 继续局部最优。
+
 PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问，但必须有 Go-native 替代、文档和验证；若要删除公共入口且替代、恢复或真实 release-gate-green 条件不完整，仍需升级。
 
 ## 关键边界
