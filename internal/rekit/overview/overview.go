@@ -38,6 +38,7 @@ type Inventory struct {
 	MissionCommanderActionQueue    MissionCommanderActionQueue               `json:"missionCommanderActionQueue"`
 	ExecutionEvidenceReview        []workstream.ExecutionEvidenceReviewItem  `json:"executionEvidenceReview"`
 	ExecutionEvidenceReviewSummary workstream.ExecutionEvidenceReviewSummary `json:"executionEvidenceReviewSummary"`
+	AuthorizedGateAdapterHandoffs  []workstream.AuthorizedGateAdapterHandoff `json:"authorizedGateAdapterHandoffs,omitempty"`
 	Sections                       OverviewSections                          `json:"sections"`
 	NextSteps                      []string                                  `json:"nextSteps"`
 }
@@ -180,6 +181,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	writeMissionCommanderActionQueue(&out, actionQueue)
 	writeMissionCommanderNextActions(&out, nextActions)
 	writeExecutionEvidenceReview(&out, evidenceReview, workstream.ExecutionEvidenceReviewSummaryFor(evidenceReview, actionQueue))
+	workstream.WriteAuthorizedGateAdapterHandoffSection(&out, "Authorized gate adapter handoff：", workstream.AuthorizedGateAdapterHandoffs(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, ""))
 	writeOpenCandidates(&out, facts.Candidates)
 	writePendingGates(&out, facts.Requests)
 	writeAuthorizedGates(&out, facts.Requests)
@@ -251,6 +253,7 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 		MissionCommanderActionQueue:    actionQueue,
 		ExecutionEvidenceReview:        evidenceReview,
 		ExecutionEvidenceReviewSummary: workstream.ExecutionEvidenceReviewSummaryFor(evidenceReview, actionQueue),
+		AuthorizedGateAdapterHandoffs:  workstream.AuthorizedGateAdapterHandoffs(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, ""),
 		Sections:                       data.sections,
 		NextSteps:                      overviewNextSteps(brief, evidenceReview),
 	}, nil

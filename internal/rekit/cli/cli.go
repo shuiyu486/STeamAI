@@ -3339,12 +3339,59 @@ func writeOverviewText(out io.Writer, result overview.Inventory) error {
 	if err := writeOverviewExecutionEvidenceReviewText(out, result.ExecutionEvidenceReview, result.ExecutionEvidenceReviewSummary); err != nil {
 		return err
 	}
+	if err := writeAuthorizedGateAdapterHandoffText(out, "overview", result.AuthorizedGateAdapterHandoffs); err != nil {
+		return err
+	}
 	if err := writeOverviewSectionsText(out, result.Sections); err != nil {
 		return err
 	}
 	for _, step := range result.NextSteps {
 		if _, err := fmt.Fprintf(out, "overview next step：%s\n", step); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func writeAuthorizedGateAdapterHandoffText(out io.Writer, prefix string, items []workstream.AuthorizedGateAdapterHandoff) error {
+	for _, handoff := range items {
+		if _, err := fmt.Fprintf(out, "%s authorized gate adapter handoff：eventId=%s lane=%s subject=%s action=%s target=%s status=%s risk=%s auth=%s profile=%s reportContract=%s defaultReportPath=%s reportPath=%s handoff=%s\n", prefix, handoff.EventID, handoff.Lane, handoff.Subject, handoff.Action, handoff.Target, handoff.Status, handoff.Risk, handoff.Authorization, handoff.Profile, handoff.ReportContract, handoff.DefaultReportPath, handoff.ReportPath, handoff.HandoffCommand); err != nil {
+			return err
+		}
+		if summary := handoff.ReportSummary; summary != nil {
+			if _, err := fmt.Fprintf(out, "%s authorized gate adapter report summary：eventId=%s state=%s reportPath=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t requiresValidation=%t requiresRepair=%t requiresMainEscalation=%t allowedStatuses=%d allowedOutputPaths=%d authorizedStops=%d adapterCandidates=%d repairHints=%d outcomes=%d nextActions=%d reviewRequired=%d currentAction=%s\n", prefix, handoff.EventID, summary.State, summary.ReportPath, summary.DefaultReportPath, summary.ReportPresent, summary.Valid, summary.RecordReady, summary.RecordBlocked, summary.RequiresValidation, summary.RequiresRepair, summary.RequiresMainEscalation, summary.AllowedStatusCount, summary.AllowedOutputPathCount, summary.AuthorizedStopCount, summary.AdapterCandidateCount, summary.RepairHintCount, summary.OutcomeCount, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction); err != nil {
+				return err
+			}
+			for _, boundary := range summary.Boundary {
+				if _, err := fmt.Fprintf(out, "%s authorized gate adapter report summary boundary：eventId=%s boundary=%s\n", prefix, handoff.EventID, boundary); err != nil {
+					return err
+				}
+			}
+		}
+		if live := handoff.LiveValidation; live != nil {
+			if _, err := fmt.Fprintf(out, "%s authorized gate adapter live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s validate=%s record=%s caseValidate=%s caseRecord=%s\n", prefix, handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.ValidateCommand, live.RecordCommand, live.CaseRelativeValidateCommand, live.CaseRelativeRecordCommand); err != nil {
+				return err
+			}
+			for _, workspace := range live.AuthorizedWorkspaces {
+				if _, err := fmt.Fprintf(out, "%s authorized gate adapter live workspace：eventId=%s workspace=%s\n", prefix, handoff.EventID, workspace); err != nil {
+					return err
+				}
+			}
+		}
+		if strings.TrimSpace(handoff.ReportContractError) != "" {
+			if _, err := fmt.Fprintf(out, "%s authorized gate adapter report contract error：eventId=%s error=%s\n", prefix, handoff.EventID, handoff.ReportContractError); err != nil {
+				return err
+			}
+		}
+		for _, evidence := range handoff.Evidence {
+			if _, err := fmt.Fprintf(out, "%s authorized gate adapter evidence：eventId=%s evidence=%s\n", prefix, handoff.EventID, evidence); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range handoff.Boundary {
+			if _, err := fmt.Fprintf(out, "%s authorized gate adapter boundary：eventId=%s boundary=%s\n", prefix, handoff.EventID, boundary); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -4226,6 +4273,9 @@ func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 	if err := writeReviewerDispatchIntakeHandoffText(out, "handoff", result.ReviewerDispatchIntakeHandoffs, result.ReviewerDispatchIntakeSummary); err != nil {
 		return err
 	}
+	if err := writeAuthorizedGateAdapterHandoffText(out, "handoff", result.AuthorizedGateAdapterHandoffs); err != nil {
+		return err
+	}
 	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
 		return err
 	}
@@ -4538,6 +4588,9 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 		if err := writeReviewerWritebackText(out, "continue", result.ReviewerWritebacks); err != nil {
 			return err
 		}
+		if err := writeAuthorizedGateAdapterHandoffText(out, "continue", result.AuthorizedGateAdapterHandoffs); err != nil {
+			return err
+		}
 		if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
 			return err
 		}
@@ -4566,6 +4619,9 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 		return err
 	}
 	if err := writeReviewerDispatchIntakeHandoffText(out, "continue", result.ReviewerDispatchIntakeHandoffs, result.ReviewerDispatchIntakeSummary); err != nil {
+		return err
+	}
+	if err := writeAuthorizedGateAdapterHandoffText(out, "continue", result.AuthorizedGateAdapterHandoffs); err != nil {
 		return err
 	}
 	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {

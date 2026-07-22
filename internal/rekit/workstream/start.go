@@ -135,6 +135,7 @@ type laneCheckpoint struct {
 	ReviewerWritebackSummary       ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
 	ReviewerDispatchIntakeHandoffs []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
 	ReviewerDispatchIntakeSummary  ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
+	AuthorizedGateAdapterHandoffs  []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
 	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue    mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	OpenInterventions              []InterventionSummary                    `json:"openInterventions"`
@@ -832,6 +833,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	brief := laneMissionBrief(lane, ledgerFacts)
 	pendingGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate"), mission.LaneGateLine)
 	authorizedGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "authorized-gate"), mission.LaneGateLine)
+	authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffs(m.RepoRoot, caseRoot, m.Pack, ledgerFacts.Requests, lane.ID)
 	executionEvidenceReview := laneExecutionEvidenceReview(lane, ledgerFacts.Observations)
 	autonomySummary := autonomy.ReadSummary(caseRoot, lane.ID, m)
 	executorAction := laneExecutorActionFor(lane, laneFacts, brief)
@@ -879,6 +881,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	lines = appendResumeList(lines, "blocked lanes", brief.BlockedLanes)
 	lines = appendResumeList(lines, "pending gates", brief.PendingGates)
 	lines = appendResumeList(lines, "authorized gates", brief.AuthorizedGates)
+	lines = AppendAuthorizedGateAdapterHandoffDigest(lines, "Authorized gate adapter handoff", authorizedGateAdapterHandoffs)
 	lines = appendResumeList(lines, "open decisions", brief.OpenDecisions)
 	lines = appendResumeList(lines, "interventions", brief.Interventions)
 	lines = appendResumeList(lines, "next agent actions", brief.NextAgentActions)
@@ -982,6 +985,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
 		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
 		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
 		MissionCommanderNextActions:    missionCommanderNextActions,
 		MissionCommanderActionQueue:    missionCommanderActionQueue,
 		OpenInterventions:              openInterventions,

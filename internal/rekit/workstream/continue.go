@@ -51,6 +51,7 @@ type ContinueResult struct {
 	ReviewerWritebackSummary       ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
 	ReviewerDispatchIntakeHandoffs []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
 	ReviewerDispatchIntakeSummary  ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
+	AuthorizedGateAdapterHandoffs  []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
 	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue    mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	Inputs                         []string                                 `json:"inputs"`
@@ -148,6 +149,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
 	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
+	authorizedGateAdapterHandoffs := ctx.authorizedGateAdapterHandoffs()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	result := ContinueResult{
@@ -172,6 +174,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
 		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
 		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
 		MissionCommanderNextActions:    commanderNextActions,
 		MissionCommanderActionQueue:    commanderActionQueue,
 		Inputs:                         uniqueStrings(inputs),
@@ -348,6 +351,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 	result.ReviewerWritebackSummary = ReviewerWritebackSummaryFor(result.ReviewerWritebacks)
 	result.ReviewerDispatchIntakeHandoffs = ctx.reviewerDispatchIntakeHandoffs()
 	result.ReviewerDispatchIntakeSummary = ReviewerDispatchIntakeSummaryFor(result.ReviewerDispatchIntakeHandoffs)
+	result.AuthorizedGateAdapterHandoffs = ctx.authorizedGateAdapterHandoffs()
 	result.MissionCommanderNextActions = ctx.missionCommanderNextActions(result.ExecutorAction, result.ExecutionEvidenceReview)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	result.ExecutionEvidenceReviewSummary = ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
@@ -455,6 +459,14 @@ func (ctx continueContext) reviewerDispatchIntakeHandoffs() []ReviewerDispatchIn
 	return items
 }
 
+func (ctx continueContext) authorizedGateAdapterHandoffs() []AuthorizedGateAdapterHandoff {
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		return nil
+	}
+	return AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, ctx.lane.ID)
+}
+
 func (ctx continueContext) missionCommanderNextActions(action laneExecutorAction, evidenceReview []ExecutionEvidenceReviewItem) []mission.MissionCommanderNextActionItem {
 	return mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(ctx.lane, action)}, evidenceReview, action.Blocked)
 }
@@ -471,6 +483,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
 	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
+	authorizedGateAdapterHandoffs := ctx.authorizedGateAdapterHandoffs()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	return ContinueResult{
@@ -495,6 +508,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
 		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
 		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
 		MissionCommanderNextActions:    commanderNextActions,
 		MissionCommanderActionQueue:    commanderActionQueue,
 		OpenRisks:                      interventionRiskLines(open),
@@ -766,6 +780,7 @@ func writeContinueRunArtifacts(runRoot string, result ContinueResult) (string, s
 		"executionEvidenceReviewSummary": result.ExecutionEvidenceReviewSummary,
 		"reviewerDispatchIntakeHandoffs": result.ReviewerDispatchIntakeHandoffs,
 		"reviewerDispatchIntakeSummary":  result.ReviewerDispatchIntakeSummary,
+		"authorizedGateAdapterHandoffs":  result.AuthorizedGateAdapterHandoffs,
 		"missionCommanderNextActions":    result.MissionCommanderNextActions,
 		"missionCommanderActionQueue":    result.MissionCommanderActionQueue,
 		"inputs":                         result.Inputs,
@@ -806,6 +821,7 @@ func continueDigestText(result ContinueResult) string {
 	lines = appendMissionBriefDigestList(lines, "blocked lanes", result.MissionBrief.BlockedLanes)
 	lines = appendMissionBriefDigestList(lines, "pending gates", result.MissionBrief.PendingGates)
 	lines = appendMissionBriefDigestList(lines, "authorized gates", result.MissionBrief.AuthorizedGates)
+	lines = AppendAuthorizedGateAdapterHandoffDigest(lines, "Authorized gate adapter handoff", result.AuthorizedGateAdapterHandoffs)
 	lines = appendMissionBriefDigestList(lines, "open decisions", result.MissionBrief.OpenDecisions)
 	lines = appendMissionBriefDigestList(lines, "interventions", result.MissionBrief.Interventions)
 	lines = appendMissionBriefDigestList(lines, "next agent actions", result.MissionBrief.NextAgentActions)
