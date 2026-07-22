@@ -77,39 +77,62 @@ type CandidateReviewArtifact struct {
 	Boundary      []string `json:"boundary,omitempty"`
 }
 
+type CandidateReviewProofSummary struct {
+	Total                    int      `json:"total"`
+	Present                  int      `json:"present"`
+	Missing                  int      `json:"missing"`
+	DecisionPresent          int      `json:"decisionPresent"`
+	DecisionMissing          int      `json:"decisionMissing"`
+	CleanupPresent           int      `json:"cleanupPresent"`
+	CleanupMissing           int      `json:"cleanupMissing"`
+	ReconsumePresent         int      `json:"reconsumePresent"`
+	ReconsumeMissing         int      `json:"reconsumeMissing"`
+	ProofRoot                string   `json:"proofRoot,omitempty"`
+	ProofProgress            string   `json:"proofProgress,omitempty"`
+	CurrentStage             string   `json:"currentStage,omitempty"`
+	NextMissingProofType     string   `json:"nextMissingProofType,omitempty"`
+	NextMissingProofPath     string   `json:"nextMissingProofPath,omitempty"`
+	NextMissingCandidatePath string   `json:"nextMissingCandidatePath,omitempty"`
+	NextMissingPackTarget    string   `json:"nextMissingPackTarget,omitempty"`
+	Complete                 bool     `json:"complete"`
+	NextAction               string   `json:"nextAction,omitempty"`
+	Boundary                 []string `json:"boundary,omitempty"`
+}
+
 type CandidateReviewSummary struct {
-	Mode                       string   `json:"mode"`
-	Pack                       string   `json:"pack"`
-	Total                      int      `json:"total"`
-	PendingReviewCount         int      `json:"pendingReviewCount"`
-	BlockedCount               int      `json:"blockedCount"`
-	NotNeededCount             int      `json:"notNeededCount"`
-	CreatedCount               int      `json:"createdCount"`
-	SkippedCount               int      `json:"skippedCount"`
-	ManagedDocCount            int      `json:"managedDocCount"`
-	ToolingCandidateCount      int      `json:"toolingCandidateCount"`
-	CleanupTargetCount         int      `json:"cleanupTargetCount"`
-	ReviewArtifactCount        int      `json:"reviewArtifactCount"`
-	DecisionChecklistCount     int      `json:"decisionChecklistCount"`
-	DecisionFollowThroughCount int      `json:"decisionFollowThroughCount"`
-	ExecutionStepCount         int      `json:"executionStepCount"`
-	ReconsumeCheckCount        int      `json:"reconsumeCheckCount"`
-	NextActionCount            int      `json:"nextActionCount"`
-	ReviewRequiredActionCount  int      `json:"reviewRequiredActionCount"`
-	CurrentAction              string   `json:"currentAction,omitempty"`
-	CandidateRoot              string   `json:"candidateRoot"`
-	ToolingRoot                string   `json:"toolingRoot"`
-	IndexPath                  string   `json:"indexPath,omitempty"`
-	RequiresReview             bool     `json:"requiresReview"`
-	RequiresCleanup            bool     `json:"requiresCleanup"`
-	HasToolingCandidate        bool     `json:"hasToolingCandidate"`
-	HasBlockedItems            bool     `json:"hasBlockedItems"`
-	HasIndex                   bool     `json:"hasIndex"`
-	HasDecisionArtifacts       bool     `json:"hasDecisionArtifacts"`
-	HasCleanupArtifacts        bool     `json:"hasCleanupArtifacts"`
-	HasReconsumeArtifacts      bool     `json:"hasReconsumeArtifacts"`
-	WhatIf                     bool     `json:"whatIf"`
-	Boundary                   []string `json:"boundary,omitempty"`
+	Mode                       string                      `json:"mode"`
+	Pack                       string                      `json:"pack"`
+	Total                      int                         `json:"total"`
+	PendingReviewCount         int                         `json:"pendingReviewCount"`
+	BlockedCount               int                         `json:"blockedCount"`
+	NotNeededCount             int                         `json:"notNeededCount"`
+	CreatedCount               int                         `json:"createdCount"`
+	SkippedCount               int                         `json:"skippedCount"`
+	ManagedDocCount            int                         `json:"managedDocCount"`
+	ToolingCandidateCount      int                         `json:"toolingCandidateCount"`
+	CleanupTargetCount         int                         `json:"cleanupTargetCount"`
+	ReviewArtifactCount        int                         `json:"reviewArtifactCount"`
+	DecisionChecklistCount     int                         `json:"decisionChecklistCount"`
+	DecisionFollowThroughCount int                         `json:"decisionFollowThroughCount"`
+	ExecutionStepCount         int                         `json:"executionStepCount"`
+	ReconsumeCheckCount        int                         `json:"reconsumeCheckCount"`
+	NextActionCount            int                         `json:"nextActionCount"`
+	ReviewRequiredActionCount  int                         `json:"reviewRequiredActionCount"`
+	CurrentAction              string                      `json:"currentAction,omitempty"`
+	CandidateRoot              string                      `json:"candidateRoot"`
+	ToolingRoot                string                      `json:"toolingRoot"`
+	IndexPath                  string                      `json:"indexPath,omitempty"`
+	RequiresReview             bool                        `json:"requiresReview"`
+	RequiresCleanup            bool                        `json:"requiresCleanup"`
+	HasToolingCandidate        bool                        `json:"hasToolingCandidate"`
+	HasBlockedItems            bool                        `json:"hasBlockedItems"`
+	HasIndex                   bool                        `json:"hasIndex"`
+	HasDecisionArtifacts       bool                        `json:"hasDecisionArtifacts"`
+	HasCleanupArtifacts        bool                        `json:"hasCleanupArtifacts"`
+	HasReconsumeArtifacts      bool                        `json:"hasReconsumeArtifacts"`
+	ProofSummary               CandidateReviewProofSummary `json:"proofSummary"`
+	WhatIf                     bool                        `json:"whatIf"`
+	Boundary                   []string                    `json:"boundary,omitempty"`
 }
 
 type CandidateReviewPlan struct {
@@ -680,6 +703,7 @@ func CandidateReviewSummaryFor(result CandidateResult, plan CandidateReviewPlan,
 		RequiresReview:             result.RequiresReview,
 		RequiresCleanup:            result.RequiresCleanup,
 		HasIndex:                   strings.TrimSpace(plan.IndexPath) != "",
+		ProofSummary:               candidateReviewProofSummary(result, plan, whatIf),
 		WhatIf:                     whatIf,
 	}
 	for _, item := range plan.ReviewItems {
@@ -731,6 +755,127 @@ func candidateReviewSummaryBoundary(whatIf bool) []string {
 	}
 	if whatIf {
 		boundary = append([]string{"WhatIf did not write candidate files or indexPath"}, boundary...)
+	}
+	return boundary
+}
+
+func candidateReviewProofSummary(result CandidateResult, plan CandidateReviewPlan, whatIf bool) CandidateReviewProofSummary {
+	summary := CandidateReviewProofSummary{
+		Total:     len(plan.ReviewArtifacts),
+		ProofRoot: filepath.ToSlash(filepath.Join("packs", result.Pack, "promote-candidates", "review-artifacts")),
+		Complete:  len(plan.ReviewArtifacts) == 0,
+	}
+	missingByStage := map[string]CandidateReviewArtifact{}
+	for _, artifact := range plan.ReviewArtifacts {
+		stage := candidateReviewProofArtifactStage(artifact.Name)
+		switch stage {
+		case "decision-proof-required":
+			summary.DecisionMissing++
+			if _, ok := missingByStage[stage]; !ok {
+				missingByStage[stage] = artifact
+			}
+		case "cleanup-proof-required":
+			summary.CleanupMissing++
+			if _, ok := missingByStage[stage]; !ok {
+				missingByStage[stage] = artifact
+			}
+		case "reconsume-proof-required":
+			summary.ReconsumeMissing++
+			if _, ok := missingByStage[stage]; !ok {
+				missingByStage[stage] = artifact
+			}
+		}
+	}
+	if summary.Total > 0 {
+		summary.Missing = summary.DecisionMissing + summary.CleanupMissing + summary.ReconsumeMissing
+		summary.Present = summary.Total - summary.Missing
+		summary.ProofProgress = fmt.Sprintf("%d/%d", summary.Present, summary.Total)
+		summary.CurrentStage = candidateReviewProofStage(summary)
+		if artifact, ok := missingByStage[summary.CurrentStage]; ok {
+			summary.NextMissingProofType = artifact.Name
+			summary.NextMissingProofPath = candidateReviewNextExpectedProof(summary.ProofRoot, artifact)
+			summary.NextMissingCandidatePath = artifact.CandidatePath
+			summary.NextMissingPackTarget = artifact.PackTarget
+		}
+		summary.Complete = summary.Missing == 0
+		if summary.Missing > 0 {
+			summary.NextAction = "record expected pack-memory review proof: " + summary.NextMissingProofType + " at " + summary.NextMissingProofPath + " for " + summary.NextMissingCandidatePath
+		} else {
+			summary.NextAction = "no pack-memory review proof is required"
+		}
+		summary.Boundary = candidateReviewProofSummaryBoundary(whatIf)
+	}
+	return summary
+}
+
+func candidateReviewProofArtifactStage(name string) string {
+	switch strings.TrimSpace(name) {
+	case "candidate-decision-note", "blocked-review-note":
+		return "decision-proof-required"
+	case "candidate-cleanup-proof":
+		return "cleanup-proof-required"
+	case "pack-doctor-output", "fresh-case-reconsume-proof", "attached-case-reconsume-proof":
+		return "reconsume-proof-required"
+	default:
+		return ""
+	}
+}
+
+func candidateReviewProofStage(summary CandidateReviewProofSummary) string {
+	switch {
+	case summary.DecisionMissing > 0:
+		return "decision-proof-required"
+	case summary.CleanupMissing > 0:
+		return "cleanup-proof-required"
+	case summary.ReconsumeMissing > 0:
+		return "reconsume-proof-required"
+	case summary.Total > 0:
+		return "proof-complete-review-cleanup"
+	default:
+		return "no-proof-required"
+	}
+}
+
+func candidateReviewNextExpectedProof(proofRoot string, artifact CandidateReviewArtifact) string {
+	stem := candidateReviewProofStem(artifact.CandidatePath, artifact.PackTarget)
+	return filepath.ToSlash(filepath.Join(proofRoot, stem+"."+artifact.Name+".md"))
+}
+
+func candidateReviewProofStem(candidatePath, packTarget string) string {
+	base := filepath.Base(filepath.FromSlash(strings.TrimSpace(candidatePath)))
+	if base == "." || base == string(filepath.Separator) || base == "" {
+		base = filepath.Base(filepath.FromSlash(strings.TrimSpace(packTarget)))
+	}
+	stem := strings.TrimSuffix(base, ".candidate.md")
+	if stem == base {
+		stem = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+	return sanitizeCandidateReviewProofStem(stem)
+}
+
+func sanitizeCandidateReviewProofStem(stem string) string {
+	var b strings.Builder
+	for _, r := range stem {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-._")
+	if out == "" {
+		return "candidate"
+	}
+	return out
+}
+
+func candidateReviewProofSummaryBoundary(whatIf bool) []string {
+	boundary := []string{
+		"proofSummary is read-only; promote create-candidates reports expected proof files but does not create or validate their contents",
+		"proof files must stay repo-local review evidence and must not contain case-specific artifacts, traces, dumps, captures, payloads, flags, or customer data",
+	}
+	if whatIf {
+		boundary = append([]string{"WhatIf did not create candidatePath, indexPath, or proof files"}, boundary...)
 	}
 	return boundary
 }

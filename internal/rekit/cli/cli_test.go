@@ -6967,7 +6967,7 @@ func TestRunPromoteCreateCandidatesWhatIf(t *testing.T) {
 	if result.ReviewPlan.Mode != "candidate-review-preview" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.DecisionFollowThrough) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) == 0 || !containsSubstring(result.ReviewPlan.RuntimeBoundary, "when not WhatIf") {
 		t.Fatalf("unexpected promote candidates what-if review plan: %+v", result.ReviewPlan)
 	}
-	if summary := result.ReviewPlan.ReviewSummary; summary.Mode != "candidate-review-preview" || summary.Total != len(result.Writes) || summary.PendingReviewCount == 0 || summary.BlockedCount != result.Blocked || summary.CleanupTargetCount == 0 || summary.ReviewArtifactCount != len(result.ReviewPlan.ReviewArtifacts) || summary.DecisionChecklistCount != len(result.ReviewPlan.DecisionChecklist) || summary.DecisionFollowThroughCount != len(result.ReviewPlan.DecisionFollowThrough) || summary.ExecutionStepCount != len(result.ReviewPlan.MainAgentExecutionPlan) || summary.ReconsumeCheckCount != len(result.ReviewPlan.Reconsume.VerificationChecklist) || summary.NextActionCount != len(result.ReviewPlan.MissionCommanderNextActions) || !summary.RequiresReview || summary.RequiresCleanup || !summary.HasIndex || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || !summary.WhatIf || !containsSubstring(summary.Boundary, "reviewSummary is read-only") || !containsSubstring(summary.Boundary, "WhatIf did not write") {
+	if summary := result.ReviewPlan.ReviewSummary; summary.Mode != "candidate-review-preview" || summary.Total != len(result.Writes) || summary.PendingReviewCount == 0 || summary.BlockedCount != result.Blocked || summary.CleanupTargetCount == 0 || summary.ReviewArtifactCount != len(result.ReviewPlan.ReviewArtifacts) || summary.DecisionChecklistCount != len(result.ReviewPlan.DecisionChecklist) || summary.DecisionFollowThroughCount != len(result.ReviewPlan.DecisionFollowThrough) || summary.ExecutionStepCount != len(result.ReviewPlan.MainAgentExecutionPlan) || summary.ReconsumeCheckCount != len(result.ReviewPlan.Reconsume.VerificationChecklist) || summary.NextActionCount != len(result.ReviewPlan.MissionCommanderNextActions) || !summary.RequiresReview || summary.RequiresCleanup || !summary.HasIndex || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || summary.ProofSummary.Total != len(result.ReviewPlan.ReviewArtifacts) || summary.ProofSummary.Present != 0 || summary.ProofSummary.Missing != len(result.ReviewPlan.ReviewArtifacts) || summary.ProofSummary.CurrentStage != "decision-proof-required" || summary.ProofSummary.NextMissingProofType != "candidate-decision-note" || !strings.HasSuffix(summary.ProofSummary.NextMissingProofPath, ".candidate-decision-note.md") || !containsSubstring(summary.ProofSummary.Boundary, "WhatIf did not create") || !summary.WhatIf || !containsSubstring(summary.Boundary, "reviewSummary is read-only") || !containsSubstring(summary.Boundary, "WhatIf did not write") {
 		t.Fatalf("promote what-if review summary missing compact handoff: %+v", summary)
 	}
 	if !candidateJSONDecisionFollowThroughContains(result.ReviewPlan.DecisionFollowThrough, "references/template/README.md", "accept", "promote -Apply is not a candidate-scoped accept path") || !candidateJSONDecisionFollowThroughContains(result.ReviewPlan.DecisionFollowThrough, "references/template/README.md", "reject", "update or remove indexPath") {
@@ -7001,6 +7001,11 @@ func TestRunPromoteCreateCandidatesWhatIf(t *testing.T) {
 		"pending=2",
 		"created=2",
 		"managedDocs=4 toolingCandidates=1 cleanupTargets=2",
+		"proofProgress=0/8 currentStage=decision-proof-required nextMissingProofType=candidate-decision-note",
+		"nextMissingProofPath=packs/_template/promote-candidates/review-artifacts/",
+		"promote candidates review proof summary：progress=0/8 total=8 present=0 missing=8 decisionMissing=2 cleanupMissing=2 reconsumeMissing=4 currentStage=decision-proof-required nextMissingProofType=candidate-decision-note",
+		"promote candidates review proof summary boundary：WhatIf did not create candidatePath, indexPath, or proof files",
+		"promote candidates review proof summary boundary：proofSummary is read-only; promote create-candidates reports expected proof files but does not create or validate their contents",
 		"promote candidates review summary boundary：WhatIf did not write candidate files or indexPath",
 		"promote candidates review summary boundary：reviewSummary is read-only; full reviewPlan arrays remain available",
 		"promote candidates review item：path=references/template/README.md kind=managed-doc decision=pending-review action=would-create-candidate",
@@ -7068,7 +7073,7 @@ func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
 	if result.ReviewPlan.Mode != "candidate-review" || result.ReviewPlan.ItemCount != len(result.Writes) || len(result.ReviewPlan.DecisionChecklist) != len(result.Writes) || len(result.ReviewPlan.DecisionFollowThrough) != len(result.Writes) || len(result.ReviewPlan.CleanupTargets) != 2 || result.ReviewPlan.Reconsume.Mode != "pack-memory-reconsume-after-merge" {
 		t.Fatalf("unexpected promote candidates review plan: %+v", result.ReviewPlan)
 	}
-	if summary := result.ReviewPlan.ReviewSummary; summary.Mode != "candidate-review" || summary.Total != len(result.Writes) || summary.PendingReviewCount != 2 || summary.BlockedCount != result.Blocked || summary.ManagedDocCount != 4 || summary.ToolingCandidateCount != 1 || summary.CleanupTargetCount != 2 || summary.ReviewArtifactCount != len(result.ReviewPlan.ReviewArtifacts) || summary.DecisionChecklistCount != len(result.ReviewPlan.DecisionChecklist) || summary.DecisionFollowThroughCount != len(result.ReviewPlan.DecisionFollowThrough) || summary.ExecutionStepCount != len(result.ReviewPlan.MainAgentExecutionPlan) || summary.ReconsumeCheckCount != len(result.ReviewPlan.Reconsume.VerificationChecklist) || summary.NextActionCount != len(result.ReviewPlan.MissionCommanderNextActions) || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasToolingCandidate || !summary.HasBlockedItems || !summary.HasIndex || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || summary.WhatIf || !containsSubstring(summary.Boundary, "reviewSummary is read-only") || !containsSubstring(summary.Boundary, "does not merge candidates") {
+	if summary := result.ReviewPlan.ReviewSummary; summary.Mode != "candidate-review" || summary.Total != len(result.Writes) || summary.PendingReviewCount != 2 || summary.BlockedCount != result.Blocked || summary.ManagedDocCount != 4 || summary.ToolingCandidateCount != 1 || summary.CleanupTargetCount != 2 || summary.ReviewArtifactCount != len(result.ReviewPlan.ReviewArtifacts) || summary.DecisionChecklistCount != len(result.ReviewPlan.DecisionChecklist) || summary.DecisionFollowThroughCount != len(result.ReviewPlan.DecisionFollowThrough) || summary.ExecutionStepCount != len(result.ReviewPlan.MainAgentExecutionPlan) || summary.ReconsumeCheckCount != len(result.ReviewPlan.Reconsume.VerificationChecklist) || summary.NextActionCount != len(result.ReviewPlan.MissionCommanderNextActions) || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasToolingCandidate || !summary.HasBlockedItems || !summary.HasIndex || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || summary.ProofSummary.Total != len(result.ReviewPlan.ReviewArtifacts) || summary.ProofSummary.Present != 0 || summary.ProofSummary.Missing != len(result.ReviewPlan.ReviewArtifacts) || summary.ProofSummary.CurrentStage != "decision-proof-required" || summary.ProofSummary.NextMissingProofType != "candidate-decision-note" || !strings.HasSuffix(summary.ProofSummary.NextMissingProofPath, ".candidate-decision-note.md") || !containsSubstring(summary.ProofSummary.Boundary, "proofSummary is read-only") || summary.WhatIf || !containsSubstring(summary.Boundary, "reviewSummary is read-only") || !containsSubstring(summary.Boundary, "does not merge candidates") {
 		t.Fatalf("promote create-candidates review summary missing compact handoff: %+v", summary)
 	}
 	readmeReview := assertCandidateReviewItem(t, result.ReviewPlan.ReviewItems, "references/template/README.md", "pending-review")
@@ -7368,6 +7373,11 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 		"pending=2",
 		"created=2",
 		"managedDocs=4 toolingCandidates=1 cleanupTargets=2",
+		"proofProgress=0/10 currentStage=decision-proof-required nextMissingProofType=candidate-decision-note",
+		"nextMissingProofPath=packs/_template/promote-candidates/review-artifacts/",
+		"promote candidates review proof summary：progress=0/10 total=10 present=0 missing=10 decisionMissing=4 cleanupMissing=2 reconsumeMissing=4 currentStage=decision-proof-required nextMissingProofType=candidate-decision-note",
+		"promote candidates review proof summary boundary：WhatIf did not create candidatePath, indexPath, or proof files",
+		"promote candidates review proof summary boundary：proofSummary is read-only; promote create-candidates reports expected proof files but does not create or validate their contents",
 		"promote candidates review summary boundary：WhatIf did not write candidate files or indexPath",
 		"promote candidates review summary boundary：reviewSummary is read-only; full reviewPlan arrays remain available",
 		"promote candidates review item：path=references/template/README.md kind=managed-doc decision=pending-review action=would-create-candidate",
@@ -11380,38 +11390,61 @@ type candidateResult struct {
 }
 
 type candidateReviewSummary struct {
-	Mode                       string   `json:"mode"`
-	Pack                       string   `json:"pack"`
-	Total                      int      `json:"total"`
-	PendingReviewCount         int      `json:"pendingReviewCount"`
-	BlockedCount               int      `json:"blockedCount"`
-	NotNeededCount             int      `json:"notNeededCount"`
-	CreatedCount               int      `json:"createdCount"`
-	SkippedCount               int      `json:"skippedCount"`
-	ManagedDocCount            int      `json:"managedDocCount"`
-	ToolingCandidateCount      int      `json:"toolingCandidateCount"`
-	CleanupTargetCount         int      `json:"cleanupTargetCount"`
-	ReviewArtifactCount        int      `json:"reviewArtifactCount"`
-	DecisionChecklistCount     int      `json:"decisionChecklistCount"`
-	DecisionFollowThroughCount int      `json:"decisionFollowThroughCount"`
-	ExecutionStepCount         int      `json:"executionStepCount"`
-	ReconsumeCheckCount        int      `json:"reconsumeCheckCount"`
-	NextActionCount            int      `json:"nextActionCount"`
-	ReviewRequiredActionCount  int      `json:"reviewRequiredActionCount"`
-	CurrentAction              string   `json:"currentAction"`
-	CandidateRoot              string   `json:"candidateRoot"`
-	ToolingRoot                string   `json:"toolingRoot"`
-	IndexPath                  string   `json:"indexPath"`
-	RequiresReview             bool     `json:"requiresReview"`
-	RequiresCleanup            bool     `json:"requiresCleanup"`
-	HasToolingCandidate        bool     `json:"hasToolingCandidate"`
-	HasBlockedItems            bool     `json:"hasBlockedItems"`
-	HasIndex                   bool     `json:"hasIndex"`
-	HasDecisionArtifacts       bool     `json:"hasDecisionArtifacts"`
-	HasCleanupArtifacts        bool     `json:"hasCleanupArtifacts"`
-	HasReconsumeArtifacts      bool     `json:"hasReconsumeArtifacts"`
-	WhatIf                     bool     `json:"whatIf"`
-	Boundary                   []string `json:"boundary"`
+	Mode                       string                      `json:"mode"`
+	Pack                       string                      `json:"pack"`
+	Total                      int                         `json:"total"`
+	PendingReviewCount         int                         `json:"pendingReviewCount"`
+	BlockedCount               int                         `json:"blockedCount"`
+	NotNeededCount             int                         `json:"notNeededCount"`
+	CreatedCount               int                         `json:"createdCount"`
+	SkippedCount               int                         `json:"skippedCount"`
+	ManagedDocCount            int                         `json:"managedDocCount"`
+	ToolingCandidateCount      int                         `json:"toolingCandidateCount"`
+	CleanupTargetCount         int                         `json:"cleanupTargetCount"`
+	ReviewArtifactCount        int                         `json:"reviewArtifactCount"`
+	DecisionChecklistCount     int                         `json:"decisionChecklistCount"`
+	DecisionFollowThroughCount int                         `json:"decisionFollowThroughCount"`
+	ExecutionStepCount         int                         `json:"executionStepCount"`
+	ReconsumeCheckCount        int                         `json:"reconsumeCheckCount"`
+	NextActionCount            int                         `json:"nextActionCount"`
+	ReviewRequiredActionCount  int                         `json:"reviewRequiredActionCount"`
+	CurrentAction              string                      `json:"currentAction"`
+	CandidateRoot              string                      `json:"candidateRoot"`
+	ToolingRoot                string                      `json:"toolingRoot"`
+	IndexPath                  string                      `json:"indexPath"`
+	RequiresReview             bool                        `json:"requiresReview"`
+	RequiresCleanup            bool                        `json:"requiresCleanup"`
+	HasToolingCandidate        bool                        `json:"hasToolingCandidate"`
+	HasBlockedItems            bool                        `json:"hasBlockedItems"`
+	HasIndex                   bool                        `json:"hasIndex"`
+	HasDecisionArtifacts       bool                        `json:"hasDecisionArtifacts"`
+	HasCleanupArtifacts        bool                        `json:"hasCleanupArtifacts"`
+	HasReconsumeArtifacts      bool                        `json:"hasReconsumeArtifacts"`
+	ProofSummary               candidateReviewProofSummary `json:"proofSummary"`
+	WhatIf                     bool                        `json:"whatIf"`
+	Boundary                   []string                    `json:"boundary"`
+}
+
+type candidateReviewProofSummary struct {
+	Total                    int      `json:"total"`
+	Present                  int      `json:"present"`
+	Missing                  int      `json:"missing"`
+	DecisionPresent          int      `json:"decisionPresent"`
+	DecisionMissing          int      `json:"decisionMissing"`
+	CleanupPresent           int      `json:"cleanupPresent"`
+	CleanupMissing           int      `json:"cleanupMissing"`
+	ReconsumePresent         int      `json:"reconsumePresent"`
+	ReconsumeMissing         int      `json:"reconsumeMissing"`
+	ProofRoot                string   `json:"proofRoot"`
+	ProofProgress            string   `json:"proofProgress"`
+	CurrentStage             string   `json:"currentStage"`
+	NextMissingProofType     string   `json:"nextMissingProofType"`
+	NextMissingProofPath     string   `json:"nextMissingProofPath"`
+	NextMissingCandidatePath string   `json:"nextMissingCandidatePath"`
+	NextMissingPackTarget    string   `json:"nextMissingPackTarget"`
+	Complete                 bool     `json:"complete"`
+	NextAction               string   `json:"nextAction"`
+	Boundary                 []string `json:"boundary"`
 }
 
 type candidateReviewPlan struct {
