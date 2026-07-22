@@ -2457,12 +2457,21 @@ func TestRunAttachApplyWritesBindingMetadataStateAndShim(t *testing.T) {
 }
 
 func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
-	caseRoot := filepath.Join(t.TempDir(), "case")
+	caseRoot := filepath.Join(t.TempDir(), "kit")
+	root := repoRoot(t)
+	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
+	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
+	candidateBefore := snapshotFiles(t, candidateRoot)
+	toolingBefore := snapshotFiles(t, toolingRoot)
+	t.Cleanup(func() {
+		removeNewFiles(t, candidateRoot, candidateBefore)
+		removeNewFiles(t, toolingRoot, toolingBefore)
+	})
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "attach", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "installed-entrypoint", "-Apply"}, &out); err != nil {
+	if err := Run([]string{"-Command", "init", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "installed-entrypoint", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	nested := filepath.Join(caseRoot, "workspace", "main")
+	nested := filepath.Join(caseRoot, "workspace", "main", "main")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -2480,12 +2489,167 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	})
 
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	status := decodeInstalledCaseShimStatus(t, out.Bytes())
-	if status.Mode != "case" || status.TargetProvided || status.Target != caseRoot || status.Case.CaseRoot != caseRoot || status.Case.ProjectName != "installed-entrypoint" || !status.Case.ShimMatchesTemplate || !status.CaseShim.Ready || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate {
+	if status.Mode != "case" || status.TargetProvided || status.Target != caseRoot || status.Case.CaseRoot != caseRoot || status.Case.ProjectName != "installed-entrypoint" || !status.Case.ShimMatchesTemplate || !status.CaseShim.Ready || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate || status.CaseShim.Entrypoint == nil || status.CaseShim.Entrypoint.CaseLocalFirstScreenCommand != "/rekit" || !strings.Contains(status.CaseShim.Entrypoint.ExplicitFirstScreenCommand, caseRoot) || !slices.Contains(status.CaseShim.Entrypoint.MetadataPaths, ".rekit/instance.yml") || !containsSubstring(status.CaseShim.Entrypoint.DurableArtifacts, ".rekit/lanes/<lane>/prompts/RESUME.md") || !containsSubstring(status.CaseShim.Entrypoint.FirstScreenChecks, "status case mission queue/current action") || !containsSubstring(status.CaseShim.Entrypoint.Boundary, "canonical skill") {
 		t.Fatalf("unexpected installed case shim status: %+v", status)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"pack source: case-metadata", "case shim: case shim readiness ok ready=true", "status case shim entrypoint: caseLocal=/rekit", "status case shim durable artifact: .rekit/handovers/<lane>-latest.md", "status case shim first-screen check: status case mission queue/current action", "status case mission handoff：preview=/rekit handoff"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("installed entrypoint default status missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("installed entrypoint default status leaked JSON:\n%s", out.String())
+	}
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.Contains(line, "status case shim") && (strings.Contains(line, "rekit.ps1") || strings.Contains(line, "go run") || strings.Contains(line, "PowerShell")) {
+			t.Fatalf("installed entrypoint shim handoff leaked low-level entrypoint detail: %s\n%s", line, out.String())
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Name", "login", "-Apply", "-Executor", "installed-session", "-Actor", "mission-commander", "-Reason", "installed entrypoint replacement executor handoff"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	start := decodeStartResult(t, out.Bytes())
+	if start.Lane.ID != "feature-login" || start.Lane.CurrentExecutor != "installed-session" || start.Lane.ExecutorGeneration != 1 {
+		t.Fatalf("unexpected installed entrypoint start result: %+v", start)
+	}
+	writeCaseFile(t, caseRoot, "workspace/features/feature-login/review-evidence.md", "bounded installed-entrypoint reviewer evidence\n")
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-TaskType", "feature-analysis", "-Items", "alpha,beta", "-ItemsPerAgent", "1", "-MaxParallel", "2", "-Lane", "feature-login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
+	if plan.Pack != "_template" || plan.ReviewerOrchestration.TargetLane != "feature-login" || plan.ReviewerOrchestration.ReviewerCount != 2 || len(packet.ShardHandoffs) != 2 {
+		t.Fatalf("unexpected installed entrypoint reviewer plan: result=%+v packet=%+v", plan, packet)
+	}
+
+	firstHandoff := packet.ShardHandoffs[0]
+	if err := os.WriteFile(firstHandoff.ReviewerResultPath, reviewerResultForCLIPlan(t, packet, firstHandoff, "accept", "accepted", "installed-reviewer-session-1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", firstHandoff.ReviewerResultPath, "-Lane", "feature-login", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	preview := decodeReviewerIntakeResult(t, out.Bytes())
+	if preview.Mode != "reviewer-intake" || preview.IsMutation || preview.Applied || !preview.ReadyForWriteback || preview.Summary.OrchestrationProgress == nil || preview.Summary.OrchestrationProgress.NextOpenShardID != "shard-01" {
+		t.Fatalf("unexpected installed entrypoint reviewer intake preview: %+v", preview)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", firstHandoff.ReviewerResultPath, "-Lane", "feature-login", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	applied := decodeReviewerIntakeResult(t, out.Bytes())
+	if !applied.IsMutation || !applied.Applied || applied.WritebackStatus != "complete" || applied.Summary.ReviewerWritebackSummary == nil || applied.Summary.ReviewerWritebackSummary.Total != 2 || applied.Summary.OrchestrationProgress == nil || applied.Summary.OrchestrationProgress.NextOpenShardID != "shard-02" {
+		t.Fatalf("unexpected installed entrypoint reviewer intake apply: %+v", applied)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Apply", "login", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continueApply struct {
+		RunID                         string                               `json:"runId"`
+		ReviewerWritebackSummary      reviewerWritebackSummaryCLIItem      `json:"reviewerWritebackSummary"`
+		ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		Writes                        []startWrite                         `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
+		t.Fatalf("installed entrypoint continue apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if continueApply.RunID == "" || continueApply.ReviewerWritebackSummary.Total != 2 || continueApply.ReviewerWritebackSummary.LatestShardID != "shard-01" || continueApply.ReviewerDispatchIntakeSummary.Total != 1 || continueApply.ReviewerDispatchIntakeSummary.LatestShardID != "shard-02" {
+		t.Fatalf("installed entrypoint continue apply omitted reviewer handoff: %+v", continueApply)
+	}
+	resumePath := assertStartWrite(t, continueApply.Writes, ".rekit/lanes/feature-login/prompts/RESUME.md", "refresh").TargetPath
+	checkpointPath := assertStartWrite(t, continueApply.Writes, ".rekit/lanes/feature-login/checkpoints/latest.json", "refresh").TargetPath
+	digestPath := assertStartWrite(t, continueApply.Writes, ".rekit/runs/"+continueApply.RunID+"/digest.md", "write").TargetPath
+	resume, err := os.ReadFile(resumePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := os.ReadFile(digestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, text := range map[string]string{"lane RESUME": string(resume), "continue digest": string(digest)} {
+		for _, expected := range []string{"## Reviewer writeback", "summary: total=`2` verifications=`1` decisions=`1`", "latestShard=`shard-01`", "installed-reviewer-session-1", "## Reviewer dispatch intake handoff", "summary: total=1 waitingForReviewerResult=1 readyForPreview=0", "nextOpen=shard-02"} {
+			if !strings.Contains(text, expected) {
+				t.Fatalf("installed entrypoint %s omitted reviewer durable handoff %q:\n%s", label, expected, text)
+			}
+		}
+	}
+	checkpointBytes, err := os.ReadFile(checkpointPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		ReviewerWritebackSummary      reviewerWritebackSummaryCLIItem      `json:"reviewerWritebackSummary"`
+		ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("installed entrypoint checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
+	}
+	if checkpoint.ReviewerWritebackSummary.Total != 2 || checkpoint.ReviewerDispatchIntakeSummary.LatestShardID != "shard-02" {
+		t.Fatalf("installed entrypoint checkpoint omitted reviewer handoff: %+v", checkpoint)
+	}
+
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Installed entrypoint candidate\n\nReusable safe installed-entrypoint pack-memory update.\n")
+	writeCaseFile(t, caseRoot, "references/template/workflow-template.md", "# Blocked\n\nDo not promote C:\\case\\artifact\\installed-entrypoint-trace.csv.\n")
+	writeCaseFile(t, caseRoot, "references/template/toolchain-router.md", "# Tooling\n\nCase root: "+caseRoot+"\nAbsolute: C:\\cases\\installed.exe\nTrace: artifacts/run/installed-trace.csv\nAddress: 0x401000\nContext: ctx123 round7 Task #99\n")
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-CreateCandidates", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	candidates := decodeCandidateResult(t, out.Bytes())
+	if candidates.CaseRoot != caseRoot || candidates.Pack != "_template" || !candidates.Applied || candidates.Created != 2 || candidates.Blocked == 0 || !candidates.RequiresCleanup || candidates.ReviewPlan.ReviewSummary.ProofSummary.NextMissingProof == nil {
+		t.Fatalf("unexpected installed entrypoint pack-memory candidates: %+v", candidates)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	status = decodeInstalledCaseShimStatus(t, out.Bytes())
+	if status.CaseMission.ReviewerWritebackSummary.Total != 2 || status.CaseMission.ReviewerDispatchIntakeSummary.Total != 1 || status.CaseMission.ReviewerDispatchIntakeSummary.LatestShardID != "shard-02" || status.ProjectHandoff == nil || status.ProjectHandoff.PackMemoryCandidates.Ready || status.ProjectHandoff.PackMemoryCandidates.Total != 3 || len(status.ProjectHandoff.PackMemoryCandidates.Packs) != 1 || status.ProjectHandoff.PackMemoryCandidates.Packs[0].ReviewSummary.ProofSummary.NextMissingProof == nil {
+		t.Fatalf("installed entrypoint first-screen JSON omitted reviewer/pack-memory handoff: %+v", status)
+	}
+
+	out.Reset()
+	if err := Run(nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"pack source: case-metadata",
+		"status case shim entrypoint: caseLocal=/rekit",
+		"status case shim first-screen check: reviewer writeback or reviewer dispatch intake summaries show reviewer state without reopening packet/result JSON",
+		"status case shim first-screen check: project handoff pack-memory candidate summary shows candidate review/cleanup/reconsume proof state",
+		"status case mission reviewer writeback summary：total=2 verifications=1 decisions=1 lanes=1 latestKind=decision",
+		"latestShard=shard-01",
+		"latestReviewerSession=installed-reviewer-session-1",
+		"status case mission reviewer dispatch intake summary：total=1 waitingForReviewerResult=1 readyForPreview=0",
+		"latestPacketNextOpen=shard-02",
+		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates",
+		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4",
+		"status pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("installed entrypoint first screen missing product handoff %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "{\n  ") {
+		t.Fatalf("installed entrypoint product first screen leaked JSON:\n%s", out.String())
 	}
 
 	writeCaseFile(t, caseRoot, ".claude/skills/rekit/SKILL.md", "drift\n")
@@ -2541,8 +2705,31 @@ type installedCaseShimStatus struct {
 		Ready                        bool     `json:"ready"`
 		InstalledShimMatchesTemplate *bool    `json:"installedShimMatchesTemplate"`
 		Warnings                     []string `json:"warnings"`
-		NextSteps                    []string `json:"nextSteps"`
+		Entrypoint                   *struct {
+			CaseLocalFirstScreenCommand string   `json:"caseLocalFirstScreenCommand"`
+			ExplicitFirstScreenCommand  string   `json:"explicitFirstScreenCommand"`
+			InstalledShimPath           string   `json:"installedShimPath"`
+			CanonicalSkillPath          string   `json:"canonicalSkillPath"`
+			MetadataPaths               []string `json:"metadataPaths"`
+			DurableArtifacts            []string `json:"durableArtifacts"`
+			FirstScreenChecks           []string `json:"firstScreenChecks"`
+			Boundary                    []string `json:"boundary"`
+		} `json:"entrypoint"`
+		NextSteps []string `json:"nextSteps"`
 	} `json:"caseShim"`
+	CaseMission struct {
+		ReviewerWritebackSummary      reviewerWritebackSummaryCLIItem      `json:"reviewerWritebackSummary"`
+		ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+	} `json:"caseMission"`
+	ProjectHandoff *struct {
+		PackMemoryCandidates struct {
+			Ready bool `json:"ready"`
+			Total int  `json:"total"`
+			Packs []struct {
+				ReviewSummary packMemoryCandidateReviewSummaryJSON `json:"reviewSummary"`
+			} `json:"packs"`
+		} `json:"packMemoryCandidates"`
+	} `json:"projectHandoff"`
 }
 
 func decodeInstalledCaseShimStatus(t *testing.T, data []byte) installedCaseShimStatus {

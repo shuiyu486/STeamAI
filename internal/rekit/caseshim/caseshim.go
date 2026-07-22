@@ -69,6 +69,10 @@ var requiredShimPhrases = []string{
 	"<templateRoot>/.claude/skills/rekit/SKILL.md",
 	"canonical runtime",
 	"sync` / `promote` 默认必须 review-first",
+	"新会话 first screen 先使用 `/rekit`",
+	"status case shim ready=true",
+	"installedShimMatchesTemplate=true",
+	"durable artifacts 接手",
 	"不要在本 shim 里维护模板规则",
 	"不要读取或修改用户级 `~/.claude/skills`",
 	"不要在 shim 中复制逻辑",
@@ -98,6 +102,7 @@ var forbiddenShimStrings = []string{
 var boundaries = []string{
 	"case-local shim contains no runtime logic",
 	"case-local shim delegates to templateRoot canonical skill",
+	"case-local first screen is /rekit status with installed shim readiness and durable artifact handoff",
 	"case-local shim does not name PowerShell, pwsh, Go CLI commands, or façade fallback switches",
 	"sync/promote remain review-first through the canonical runtime",
 }

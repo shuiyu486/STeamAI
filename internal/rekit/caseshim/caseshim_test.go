@@ -18,7 +18,10 @@ func TestInspectRepoCaseShimReady(t *testing.T) {
 	}
 	assertPhrasePresent(t, readiness.RequiredPhrases, "Go-native backend")
 	assertPhrasePresent(t, readiness.RequiredPhrases, "不展示底层脚本或 CLI 命令")
+	assertPhrasePresent(t, readiness.RequiredPhrases, "新会话 first screen 先使用 `/rekit`")
+	assertPhrasePresent(t, readiness.RequiredPhrases, "durable artifacts 接手")
 	assertPhrasePresent(t, readiness.CanonicalSkillPhrases, "底层 Go CLI 是 canonical runtime")
+	assertBoundaryPresent(t, readiness.Boundaries, "first screen")
 	assertForbiddenAbsent(t, readiness.ForbiddenStrings, "rekit.ps1")
 	assertForbiddenAbsent(t, readiness.ForbiddenStrings, "go run")
 }
@@ -93,6 +96,16 @@ func assertPhrasePresent(t *testing.T, phrases []PhraseCheck, want string) {
 		}
 	}
 	t.Fatalf("missing phrase check %q: %+v", want, phrases)
+}
+
+func assertBoundaryPresent(t *testing.T, boundaries []string, want string) {
+	t.Helper()
+	for _, boundary := range boundaries {
+		if strings.Contains(boundary, want) {
+			return
+		}
+	}
+	t.Fatalf("missing boundary containing %q: %+v", want, boundaries)
 }
 
 func assertForbiddenAbsent(t *testing.T, checks []StringCheck, want string) {

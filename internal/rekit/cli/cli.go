@@ -1357,18 +1357,30 @@ type statusCase struct {
 }
 
 type statusCaseShim struct {
-	Ready                 bool     `json:"ready"`
-	Summary               string   `json:"summary"`
-	TemplatePath          string   `json:"templatePath"`
-	CanonicalSkillPath    string   `json:"canonicalSkillPath"`
-	InstalledShimPath     string   `json:"installedShimPath,omitempty"`
-	InstalledShimMatches  *bool    `json:"installedShimMatchesTemplate,omitempty"`
-	RequiredPhrases       int      `json:"requiredPhrases"`
-	CanonicalSkillPhrases int      `json:"canonicalSkillPhrases"`
-	ForbiddenStrings      int      `json:"forbiddenStrings"`
-	Boundaries            int      `json:"boundaries"`
-	Warnings              []string `json:"warnings,omitempty"`
-	NextSteps             []string `json:"nextSteps,omitempty"`
+	Ready                 bool                      `json:"ready"`
+	Summary               string                    `json:"summary"`
+	TemplatePath          string                    `json:"templatePath"`
+	CanonicalSkillPath    string                    `json:"canonicalSkillPath"`
+	InstalledShimPath     string                    `json:"installedShimPath,omitempty"`
+	InstalledShimMatches  *bool                     `json:"installedShimMatchesTemplate,omitempty"`
+	RequiredPhrases       int                       `json:"requiredPhrases"`
+	CanonicalSkillPhrases int                       `json:"canonicalSkillPhrases"`
+	ForbiddenStrings      int                       `json:"forbiddenStrings"`
+	Boundaries            int                       `json:"boundaries"`
+	Warnings              []string                  `json:"warnings,omitempty"`
+	Entrypoint            *statusCaseShimEntrypoint `json:"entrypoint,omitempty"`
+	NextSteps             []string                  `json:"nextSteps,omitempty"`
+}
+
+type statusCaseShimEntrypoint struct {
+	CaseLocalFirstScreenCommand string   `json:"caseLocalFirstScreenCommand"`
+	ExplicitFirstScreenCommand  string   `json:"explicitFirstScreenCommand"`
+	InstalledShimPath           string   `json:"installedShimPath"`
+	CanonicalSkillPath          string   `json:"canonicalSkillPath"`
+	MetadataPaths               []string `json:"metadataPaths"`
+	DurableArtifacts            []string `json:"durableArtifacts"`
+	FirstScreenChecks           []string `json:"firstScreenChecks"`
+	Boundary                    []string `json:"boundary"`
 }
 
 type statusManifestSummary struct {
@@ -1645,6 +1657,9 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 			fmt.Fprintf(out, "case next step: %s\n", step)
 		}
 		fmt.Fprintf(out, "case shim: %s ready=%t installed=%s matchesTemplate=%t\n", caseShim.Summary, caseShim.Ready, caseShim.InstalledShimPath, boolPtrValue(caseShim.InstalledShimMatches))
+		if err := writeStatusCaseShimEntrypointText(out, caseShim.Entrypoint); err != nil {
+			return err
+		}
 		for _, step := range statusCaseShimNextSteps(caseShim, inst.CaseRoot, statusRepairPack(inst, ctx.Pack)) {
 			fmt.Fprintf(out, "case shim next step: %s\n", step)
 		}
@@ -1726,8 +1741,63 @@ func writeStatusCaseShimText(out io.Writer, shim statusCaseShim) error {
 			return err
 		}
 	}
+	if entry := shim.Entrypoint; entry != nil {
+		if _, err := fmt.Fprintf(out, "status case shim entrypoint：caseLocal=%s explicit=%s installed=%s canonical=%s\n", entry.CaseLocalFirstScreenCommand, entry.ExplicitFirstScreenCommand, entry.InstalledShimPath, entry.CanonicalSkillPath); err != nil {
+			return err
+		}
+		for _, path := range entry.MetadataPaths {
+			if _, err := fmt.Fprintf(out, "status case shim metadata path：%s\n", path); err != nil {
+				return err
+			}
+		}
+		for _, artifact := range entry.DurableArtifacts {
+			if _, err := fmt.Fprintf(out, "status case shim durable artifact：%s\n", artifact); err != nil {
+				return err
+			}
+		}
+		for _, check := range entry.FirstScreenChecks {
+			if _, err := fmt.Fprintf(out, "status case shim first-screen check：%s\n", check); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range entry.Boundary {
+			if _, err := fmt.Fprintf(out, "status case shim boundary：%s\n", boundary); err != nil {
+				return err
+			}
+		}
+	}
 	for _, step := range shim.NextSteps {
 		if _, err := fmt.Fprintf(out, "status case shim next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusCaseShimEntrypointText(out io.Writer, entry *statusCaseShimEntrypoint) error {
+	if entry == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "status case shim entrypoint: caseLocal=%s explicit=%s installed=%s canonical=%s\n", entry.CaseLocalFirstScreenCommand, entry.ExplicitFirstScreenCommand, entry.InstalledShimPath, entry.CanonicalSkillPath); err != nil {
+		return err
+	}
+	for _, path := range entry.MetadataPaths {
+		if _, err := fmt.Fprintf(out, "status case shim metadata path: %s\n", path); err != nil {
+			return err
+		}
+	}
+	for _, artifact := range entry.DurableArtifacts {
+		if _, err := fmt.Fprintf(out, "status case shim durable artifact: %s\n", artifact); err != nil {
+			return err
+		}
+	}
+	for _, check := range entry.FirstScreenChecks {
+		if _, err := fmt.Fprintf(out, "status case shim first-screen check: %s\n", check); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range entry.Boundary {
+		if _, err := fmt.Fprintf(out, "status case shim boundary: %s\n", boundary); err != nil {
 			return err
 		}
 	}
@@ -3031,6 +3101,7 @@ func buildStatusCaseShim(repoRoot, caseRoot string) statusCaseShim {
 	installed := caseshim.InspectInstalled(repoRoot, caseRoot)
 	shim.InstalledShimPath = installed.ShimPath
 	shim.InstalledShimMatches = &installed.MatchesTemplate
+	shim.Entrypoint = statusCaseShimEntrypointHandoff(caseRoot, shim.CanonicalSkillPath, installed.ShimPath)
 	if !installed.Ready {
 		shim.Ready = false
 		shim.Warnings = append(shim.Warnings, installed.Warnings...)
@@ -3039,6 +3110,39 @@ func buildStatusCaseShim(repoRoot, caseRoot string) statusCaseShim {
 		shim.Summary = "case shim readiness has warnings"
 	}
 	return shim
+}
+
+func statusCaseShimEntrypointHandoff(caseRoot, canonicalSkillPath, installedShimPath string) *statusCaseShimEntrypoint {
+	return &statusCaseShimEntrypoint{
+		CaseLocalFirstScreenCommand: "/rekit",
+		ExplicitFirstScreenCommand:  "/rekit status -Target " + statusQuoteCommandArg(caseRoot) + " -Format text",
+		InstalledShimPath:           installedShimPath,
+		CanonicalSkillPath:          canonicalSkillPath,
+		MetadataPaths: []string{
+			".rekit/instance.yml",
+			".re-template.yml",
+		},
+		DurableArtifacts: []string{
+			".claude/skills/rekit/SKILL.md",
+			".rekit/handovers/latest.md",
+			".rekit/handovers/<lane>-latest.md",
+			".rekit/lanes/<lane>/prompts/RESUME.md",
+			".rekit/lanes/<lane>/checkpoints/latest.json",
+			".rekit/runs/<run-id>/digest.md",
+		},
+		FirstScreenChecks: []string{
+			"status case shim ready=true and installedShimMatchesTemplate=true before trusting the case-local shim",
+			"status case mission queue/current action and next action lines choose the next safe command",
+			"reviewer writeback or reviewer dispatch intake summaries show reviewer state without reopening packet/result JSON",
+			"project handoff pack-memory candidate summary shows candidate review/cleanup/reconsume proof state",
+		},
+		Boundary: []string{
+			"case-local shim is metadata-only and delegates to the canonical skill",
+			"do not install or modify user-level ~/.claude skills",
+			"do not display retained facade or low-level backend commands as the product entrypoint",
+			"if the installed shim drifts, preview repair first and apply only after explicit confirmation",
+		},
+	}
 }
 
 func boolPtrValue(value *bool) bool {
