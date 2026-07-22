@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 518：authorized execution adapter report summary handoff closure
 
-状态：已完成 runtime/CLI/test/docs implementation、focused/package validation 与完整本地 release minimum；commit/push 与远程 release-gate inspection 待本轮收尾后记录。当前远程 release-gate 仍按既有 GitHub Actions runner/billing blocker 处理：`release-check` / `ciReleaseGate.ready` 只表示 inventory/workflow ready，不能声明 remote CI green。
+状态：已完成 runtime/CLI/test/docs implementation、focused/package validation、完整本地 release minimum、commit/push 与远程 release-gate inspection；已提交并推送 `5411612 Add adapter report summary handoff`。远程 release-gate run `29886295908` completed failure，Linux/Windows/macOS jobs 均为 failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。
 
 目标：Batch 421/424/432 已覆盖 adapter execution report contract / validation / Mission Commander action queue，Batch 458-462 已补齐 authorized execution follow-through text，Batch 504 已补齐 recorded sidecar path、actualBudget 与 adapter provenance；但 replacement executor 若只想确认当前 contract/validation state、report/default path、是否 valid、是否 ready to record、是否 blocked/repair/main escalation、allowed status/output/stop/candidate totals、repair hints、outcome/next-action counts、report status/adapter id/actualBudget/refs/boundary hits 与 no-heavy/no-authority boundary，仍要手工拼完整 contract、validation、follow-through 和 action queue。Batch 518 将这些 adapter report 接续状态压缩为 compact `reportSummary`，同时保留完整 arrays 与 strict validation 明细。
 
