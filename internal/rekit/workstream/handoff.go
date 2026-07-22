@@ -548,6 +548,27 @@ func writeProjectLaneExecutionEvidenceReviewSummary(out *bytes.Buffer, summary E
 	if strings.TrimSpace(summary.CurrentAction) != "" {
 		fmt.Fprintf(out, "  - evidence review summary current action：`%s`\n", summary.CurrentAction)
 	}
+	if strings.TrimSpace(summary.ActionQueueSummary) != "" {
+		fmt.Fprintf(out, "  - evidence review summary action queue：%s\n", summary.ActionQueueSummary)
+	}
+	if strings.TrimSpace(summary.LatestReviewCommand) != "" || strings.TrimSpace(summary.LatestHandoffCommand) != "" {
+		fmt.Fprintf(out, "  - evidence review summary handoff：review=`%s` handoff=`%s`\n", summary.LatestReviewCommand, summary.LatestHandoffCommand)
+	}
+	if strings.TrimSpace(summary.LatestCommanderState) != "" || strings.TrimSpace(summary.LatestCommanderPrimary) != "" {
+		fmt.Fprintf(out, "  - evidence review summary commander：state=%s primary=`%s`\n", summary.LatestCommanderState, summary.LatestCommanderPrimary)
+	}
+	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
+		fmt.Fprintf(out, "  - evidence review summary report：path=%s adapterId=%s adapterStatus=%s\n", firstText(summary.LatestExecutionReportPath, "none"), firstText(summary.LatestAdapterID, "none"), firstText(summary.LatestAdapterStatus, "none"))
+	}
+	for _, hit := range mission.LimitStrings(summary.LatestBoundaryHits, maxHandoffRows) {
+		fmt.Fprintf(out, "  - evidence review summary latest boundary hit：%s\n", hit)
+	}
+	if strings.TrimSpace(summary.LatestEscalation) != "" {
+		fmt.Fprintf(out, "  - evidence review summary latest escalation：%s\n", summary.LatestEscalation)
+	}
+	if strings.TrimSpace(summary.FollowThroughState) != "" || summary.OutcomeCount > 0 {
+		fmt.Fprintf(out, "  - evidence review summary follow-through：state=%s outcomes=%d\n", summary.FollowThroughState, summary.OutcomeCount)
+	}
 	for _, boundary := range mission.LimitStrings(summary.Boundary, maxHandoffRows) {
 		fmt.Fprintf(out, "  - evidence review summary boundary：%s\n", boundary)
 	}
@@ -1154,6 +1175,27 @@ func writeExecutionEvidenceReviewSummary(out *bytes.Buffer, summary ExecutionEvi
 	fmt.Fprintf(out, "- summary: total=%d readyForReview=%d mainEscalations=%d duplicates=%d outputRefs=%d evidenceRefs=%d boundaryHits=%d latestEventId=%s gateEventId=%s status=%s action=%s\n", summary.Total, summary.ReadyForReviewCount, summary.MainEscalationCount, summary.DuplicateCount, summary.OutputRefCount, summary.EvidenceRefCount, summary.BoundaryHitCount, summary.LatestEventID, summary.LatestGateEventID, summary.LatestStatus, firstText(summary.LatestAction, "none"))
 	if strings.TrimSpace(summary.CurrentAction) != "" {
 		fmt.Fprintf(out, "  - summary current action: `%s`\n", summary.CurrentAction)
+	}
+	if strings.TrimSpace(summary.ActionQueueSummary) != "" {
+		fmt.Fprintf(out, "  - summary action queue: %s\n", summary.ActionQueueSummary)
+	}
+	if strings.TrimSpace(summary.LatestReviewCommand) != "" || strings.TrimSpace(summary.LatestHandoffCommand) != "" {
+		fmt.Fprintf(out, "  - summary handoff: review=`%s` handoff=`%s`\n", summary.LatestReviewCommand, summary.LatestHandoffCommand)
+	}
+	if strings.TrimSpace(summary.LatestCommanderState) != "" || strings.TrimSpace(summary.LatestCommanderPrimary) != "" {
+		fmt.Fprintf(out, "  - summary commander: state=%s primary=`%s`\n", summary.LatestCommanderState, summary.LatestCommanderPrimary)
+	}
+	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
+		fmt.Fprintf(out, "  - summary report: path=%s adapterId=%s adapterStatus=%s\n", firstText(summary.LatestExecutionReportPath, "none"), firstText(summary.LatestAdapterID, "none"), firstText(summary.LatestAdapterStatus, "none"))
+	}
+	for _, hit := range mission.LimitStrings(summary.LatestBoundaryHits, maxHandoffRows) {
+		fmt.Fprintf(out, "  - summary latest boundary hit: %s\n", hit)
+	}
+	if strings.TrimSpace(summary.LatestEscalation) != "" {
+		fmt.Fprintf(out, "  - summary latest escalation: %s\n", summary.LatestEscalation)
+	}
+	if strings.TrimSpace(summary.FollowThroughState) != "" || summary.OutcomeCount > 0 {
+		fmt.Fprintf(out, "  - summary follow-through: state=%s outcomes=%d\n", summary.FollowThroughState, summary.OutcomeCount)
 	}
 	for _, boundary := range mission.LimitStrings(summary.Boundary, maxHandoffRows) {
 		fmt.Fprintf(out, "  - summary boundary: %s\n", boundary)

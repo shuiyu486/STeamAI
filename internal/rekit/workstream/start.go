@@ -1204,6 +1204,27 @@ func appendResumeExecutionEvidenceReviewSummary(lines []string, summary Executio
 	if strings.TrimSpace(summary.CurrentAction) != "" {
 		lines = append(lines, "    - summary current action: `"+summary.CurrentAction+"`")
 	}
+	if strings.TrimSpace(summary.ActionQueueSummary) != "" {
+		lines = append(lines, "    - summary action queue: "+summary.ActionQueueSummary)
+	}
+	if strings.TrimSpace(summary.LatestReviewCommand) != "" || strings.TrimSpace(summary.LatestHandoffCommand) != "" {
+		lines = append(lines, "    - summary handoff: review=`"+summary.LatestReviewCommand+"` handoff=`"+summary.LatestHandoffCommand+"`")
+	}
+	if strings.TrimSpace(summary.LatestCommanderState) != "" || strings.TrimSpace(summary.LatestCommanderPrimary) != "" {
+		lines = append(lines, "    - summary commander: state="+summary.LatestCommanderState+" primary=`"+summary.LatestCommanderPrimary+"`")
+	}
+	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
+		lines = append(lines, "    - summary report: path="+firstText(summary.LatestExecutionReportPath, "none")+" adapterId="+firstText(summary.LatestAdapterID, "none")+" adapterStatus="+firstText(summary.LatestAdapterStatus, "none"))
+	}
+	for _, hit := range mission.LimitStrings(summary.LatestBoundaryHits, maxHandoffRows) {
+		lines = append(lines, "    - summary latest boundary hit: "+hit)
+	}
+	if strings.TrimSpace(summary.LatestEscalation) != "" {
+		lines = append(lines, "    - summary latest escalation: "+summary.LatestEscalation)
+	}
+	if strings.TrimSpace(summary.FollowThroughState) != "" || summary.OutcomeCount > 0 {
+		lines = append(lines, fmt.Sprintf("    - summary follow-through: state=%s outcomes=%d", summary.FollowThroughState, summary.OutcomeCount))
+	}
 	for _, boundary := range mission.LimitStrings(summary.Boundary, maxHandoffRows) {
 		lines = append(lines, "    - summary boundary: "+boundary)
 	}

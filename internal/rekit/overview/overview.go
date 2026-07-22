@@ -505,6 +505,24 @@ func writeExecutionEvidenceReviewSummary(out *bytes.Buffer, summary workstream.E
 	if strings.TrimSpace(summary.ActionQueueSummary) != "" {
 		fmt.Fprintf(out, "  - summary action queue: %s\n", summary.ActionQueueSummary)
 	}
+	if strings.TrimSpace(summary.LatestReviewCommand) != "" || strings.TrimSpace(summary.LatestHandoffCommand) != "" {
+		fmt.Fprintf(out, "  - summary handoff: review=`%s` handoff=`%s`\n", summary.LatestReviewCommand, summary.LatestHandoffCommand)
+	}
+	if strings.TrimSpace(summary.LatestCommanderState) != "" || strings.TrimSpace(summary.LatestCommanderPrimary) != "" {
+		fmt.Fprintf(out, "  - summary commander: state=%s primary=`%s`\n", summary.LatestCommanderState, summary.LatestCommanderPrimary)
+	}
+	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
+		fmt.Fprintf(out, "  - summary report: path=%s adapterId=%s adapterStatus=%s\n", firstText(summary.LatestExecutionReportPath, "none"), firstText(summary.LatestAdapterID, "none"), firstText(summary.LatestAdapterStatus, "none"))
+	}
+	for _, hit := range summary.LatestBoundaryHits {
+		fmt.Fprintf(out, "  - summary latest boundary hit: %s\n", hit)
+	}
+	if strings.TrimSpace(summary.LatestEscalation) != "" {
+		fmt.Fprintf(out, "  - summary latest escalation: %s\n", summary.LatestEscalation)
+	}
+	if strings.TrimSpace(summary.FollowThroughState) != "" || summary.OutcomeCount > 0 {
+		fmt.Fprintf(out, "  - summary follow-through: state=%s outcomes=%d\n", summary.FollowThroughState, summary.OutcomeCount)
+	}
 	writeActionIndexList(out, "summary boundary", summary.Boundary)
 }
 
