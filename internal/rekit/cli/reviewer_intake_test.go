@@ -153,10 +153,10 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	if applied.PostValidation.Overview.Sections.Verifications.Total != 1 || applied.PostValidation.Overview.Sections.Decisions.Total != 1 || applied.PostValidation.Handoff.Lane == nil || applied.PostValidation.Handoff.Lane.ID != packet.TargetLane {
 		t.Fatalf("post-review validation omitted ledger/handoff state: %+v", applied.PostValidation)
 	}
-	if applied.Summary.Status != "complete" || !applied.Summary.Applied || applied.Summary.PostValidationOverviewVerifications != 1 || applied.Summary.PostValidationOverviewDecisions != 1 || applied.Summary.ReviewerWritebacks != len(applied.PostValidation.Handoff.ReviewerWritebacks) || applied.Summary.CurrentAction == nil || !strings.HasPrefix(applied.Summary.CurrentAction.Source, "reviewerIntake.postValidation.") || !containsStringWith(applied.Summary.Boundary, "consume postValidation summary") {
+	if applied.Summary.Status != "complete" || !applied.Summary.Applied || applied.Summary.PostValidationOverviewVerifications != 1 || applied.Summary.PostValidationOverviewDecisions != 1 || applied.Summary.ReviewerWritebacks != len(applied.PostValidation.Handoff.ReviewerWritebacks) || applied.Summary.ReviewerWritebackSummary == nil || applied.Summary.ReviewerWritebackSummary.Total != 2 || applied.Summary.ReviewerWritebackSummary.LatestReviewerResult != resultPath || applied.Summary.CurrentAction == nil || !strings.HasPrefix(applied.Summary.CurrentAction.Source, "reviewerIntake.postValidation.") || !containsStringWith(applied.Summary.Boundary, "consume postValidation summary") {
 		t.Fatalf("apply compact summary omitted post-validation progress: %+v", applied.Summary)
 	}
-	if !applied.PostValidation.Summary.Valid || applied.PostValidation.Summary.OverviewVerifications != 1 || applied.PostValidation.Summary.OverviewDecisions != 1 || applied.PostValidation.Summary.Lane != packet.TargetLane || !applied.PostValidation.Summary.ExecutorActionPresent || applied.PostValidation.Summary.CurrentAction == nil || len(applied.PostValidation.Summary.NextActions) == 0 || !containsStringWith(applied.PostValidation.Summary.Boundary, "postValidation summary is read-only") || !strings.HasPrefix(applied.PostValidation.Summary.CurrentAction.Source, "missionCommanderActions") {
+	if !applied.PostValidation.Summary.Valid || applied.PostValidation.Summary.OverviewVerifications != 1 || applied.PostValidation.Summary.OverviewDecisions != 1 || applied.PostValidation.Summary.Lane != packet.TargetLane || !applied.PostValidation.Summary.ExecutorActionPresent || applied.PostValidation.Summary.ReviewerWritebackSummary == nil || applied.PostValidation.Summary.ReviewerWritebackSummary.Total != 2 || applied.PostValidation.Summary.ReviewerWritebackSummary.LatestReviewerResult != resultPath || applied.PostValidation.Summary.CurrentAction == nil || len(applied.PostValidation.Summary.NextActions) == 0 || !containsStringWith(applied.PostValidation.Summary.Boundary, "postValidation summary is read-only") || !strings.HasPrefix(applied.PostValidation.Summary.CurrentAction.Source, "missionCommanderActions") {
 		t.Fatalf("post-review validation compact summary omitted takeover state: %+v", applied.PostValidation.Summary)
 	}
 
@@ -168,6 +168,7 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 		"plan-subagents reviewer intake：status=already-complete mutation=false applied=false readyForWriteback=true lane=main shard=shard-01",
 		"reviewer intake summary：status=already-complete readyForWriteback=true applied=false lane=main shard=shard-01",
 		"postValidation=true valid=true postValidationVerifications=1 postValidationDecisions=1 reviewerWritebacks=2",
+		"reviewer intake summary post-validation reviewer writeback summary：total=2 verifications=1 decisions=1 lanes=1 latestKind=decision",
 		"reviewer intake summary current action：state=ready-to-continue source=reviewerIntake.postValidation.missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main`",
 		"reviewer intake summary next action：state=ready-to-continue source=reviewerIntake.postValidation.missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main`",
 		"reviewer intake summary boundary：intake summary is read-only; full reviewer result, note writebacks, orchestration snapshot, postValidation, and action queue remain available",
@@ -177,6 +178,7 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 		"reviewer intake post-validation：valid=true overviewVerifications=1 overviewDecisions=1 doctorRows=",
 		"reviewer intake post-validation summary：valid=true",
 		"lane=main project=false executorAction=true ready=",
+		"reviewer intake post-validation summary reviewer writeback summary：total=2 verifications=1 decisions=1 lanes=1 latestKind=decision",
 		"reviewer intake post-validation summary current action：state=",
 		"reviewer intake post-validation summary next action：state=",
 		"reviewer intake post-validation summary boundary：postValidation summary is read-only; full overview/handoff/doctor snapshots remain available",
@@ -791,32 +793,33 @@ type reviewerIntakeCLIResult struct {
 		NextDispatches    []string `json:"nextDispatches"`
 	} `json:"orchestrationSnapshot"`
 	Summary struct {
-		Status                              string `json:"status"`
-		ReadyForWriteback                   bool   `json:"readyForWriteback"`
-		Applied                             bool   `json:"applied"`
-		Lane                                string `json:"lane"`
-		ShardID                             string `json:"shardId"`
-		IntakeID                            string `json:"intakeId"`
-		ReviewerSession                     string `json:"reviewerSession"`
-		VerificationVerdict                 string `json:"verificationVerdict"`
-		MainDecision                        string `json:"mainDecision"`
-		DispatchIndex                       int    `json:"dispatchIndex"`
-		DispatchTotal                       int    `json:"dispatchTotal"`
-		ShardStatusBefore                   string `json:"shardStatusBefore"`
-		ShardStatusAfter                    string `json:"shardStatusAfter"`
-		BlockedCount                        int    `json:"blockedCount"`
-		RepairGuidanceCount                 int    `json:"repairGuidanceCount"`
-		PostValidationPresent               bool   `json:"postValidationPresent"`
-		PostValidationValid                 bool   `json:"postValidationValid"`
-		PostValidationOverviewVerifications int    `json:"postValidationOverviewVerifications"`
-		PostValidationOverviewDecisions     int    `json:"postValidationOverviewDecisions"`
-		ReviewerWritebacks                  int    `json:"reviewerWritebacks"`
-		ActionTotal                         int    `json:"actionTotal"`
-		ActionUnblocked                     int    `json:"actionUnblocked"`
-		ActionBlocked                       int    `json:"actionBlocked"`
-		ActionRequiresReview                int    `json:"actionRequiresReview"`
-		ActionFollowUp                      int    `json:"actionFollowUp"`
-		QueueSummary                        string `json:"queueSummary"`
+		Status                              string                           `json:"status"`
+		ReadyForWriteback                   bool                             `json:"readyForWriteback"`
+		Applied                             bool                             `json:"applied"`
+		Lane                                string                           `json:"lane"`
+		ShardID                             string                           `json:"shardId"`
+		IntakeID                            string                           `json:"intakeId"`
+		ReviewerSession                     string                           `json:"reviewerSession"`
+		VerificationVerdict                 string                           `json:"verificationVerdict"`
+		MainDecision                        string                           `json:"mainDecision"`
+		DispatchIndex                       int                              `json:"dispatchIndex"`
+		DispatchTotal                       int                              `json:"dispatchTotal"`
+		ShardStatusBefore                   string                           `json:"shardStatusBefore"`
+		ShardStatusAfter                    string                           `json:"shardStatusAfter"`
+		BlockedCount                        int                              `json:"blockedCount"`
+		RepairGuidanceCount                 int                              `json:"repairGuidanceCount"`
+		PostValidationPresent               bool                             `json:"postValidationPresent"`
+		PostValidationValid                 bool                             `json:"postValidationValid"`
+		PostValidationOverviewVerifications int                              `json:"postValidationOverviewVerifications"`
+		PostValidationOverviewDecisions     int                              `json:"postValidationOverviewDecisions"`
+		ReviewerWritebacks                  int                              `json:"reviewerWritebacks"`
+		ReviewerWritebackSummary            *reviewerWritebackSummaryCLIItem `json:"reviewerWritebackSummary"`
+		ActionTotal                         int                              `json:"actionTotal"`
+		ActionUnblocked                     int                              `json:"actionUnblocked"`
+		ActionBlocked                       int                              `json:"actionBlocked"`
+		ActionRequiresReview                int                              `json:"actionRequiresReview"`
+		ActionFollowUp                      int                              `json:"actionFollowUp"`
+		QueueSummary                        string                           `json:"queueSummary"`
 		CurrentAction                       *struct {
 			State          string `json:"state"`
 			Source         string `json:"source"`
@@ -848,18 +851,19 @@ type reviewerIntakeCLIResult struct {
 	} `json:"decision"`
 	PostValidation *struct {
 		Summary struct {
-			Valid                 bool   `json:"valid"`
-			OverviewVerifications int    `json:"overviewVerifications"`
-			OverviewDecisions     int    `json:"overviewDecisions"`
-			DoctorRows            int    `json:"doctorRows"`
-			Lane                  string `json:"lane"`
-			ExecutorActionPresent bool   `json:"executorActionPresent"`
-			ExecutorActionReady   bool   `json:"executorActionReady"`
-			ExecutorActionBlocked bool   `json:"executorActionBlocked"`
-			ExecutorActionState   string `json:"executorActionState"`
-			ReviewerWritebacks    int    `json:"reviewerWritebacks"`
-			QueueSummary          string `json:"queueSummary"`
-			CurrentAction         *struct {
+			Valid                    bool                             `json:"valid"`
+			OverviewVerifications    int                              `json:"overviewVerifications"`
+			OverviewDecisions        int                              `json:"overviewDecisions"`
+			DoctorRows               int                              `json:"doctorRows"`
+			Lane                     string                           `json:"lane"`
+			ExecutorActionPresent    bool                             `json:"executorActionPresent"`
+			ExecutorActionReady      bool                             `json:"executorActionReady"`
+			ExecutorActionBlocked    bool                             `json:"executorActionBlocked"`
+			ExecutorActionState      string                           `json:"executorActionState"`
+			ReviewerWritebacks       int                              `json:"reviewerWritebacks"`
+			ReviewerWritebackSummary *reviewerWritebackSummaryCLIItem `json:"reviewerWritebackSummary"`
+			QueueSummary             string                           `json:"queueSummary"`
+			CurrentAction            *struct {
 				State          string `json:"state"`
 				Source         string `json:"source"`
 				Command        string `json:"command"`

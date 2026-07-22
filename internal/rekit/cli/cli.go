@@ -5245,6 +5245,11 @@ func writeReviewerIntakeSummaryText(out io.Writer, summary subagents.ReviewerInt
 	if _, err := fmt.Fprintf(out, "reviewer intake summary：status=%s readyForWriteback=%t applied=%t lane=%s shard=%s intakeId=%s reviewerSession=%s verification=%s decision=%s dispatch=%d/%d shardBefore=%s shardAfter=%s blocked=%d repairs=%d postValidation=%t valid=%t postValidationVerifications=%d postValidationDecisions=%d reviewerWritebacks=%d actions=%d unblocked=%d blockedActions=%d requiresReview=%d followUp=%d queue=%s\n", summary.Status, summary.ReadyForWriteback, summary.Applied, summary.Lane, summary.ShardID, summary.IntakeID, summary.ReviewerSession, summary.VerificationVerdict, summary.MainDecision, summary.DispatchIndex, summary.DispatchTotal, summary.ShardStatusBefore, summary.ShardStatusAfter, summary.BlockedCount, summary.RepairGuidanceCount, summary.PostValidationPresent, summary.PostValidationValid, summary.PostValidationOverviewVerifications, summary.PostValidationOverviewDecisions, summary.ReviewerWritebacks, summary.ActionTotal, summary.ActionUnblocked, summary.ActionBlocked, summary.ActionRequiresReview, summary.ActionFollowUp, summary.QueueSummary); err != nil {
 		return err
 	}
+	if summary.ReviewerWritebackSummary != nil {
+		if err := writeReviewerWritebackSummaryText(out, "reviewer intake summary post-validation", *summary.ReviewerWritebackSummary); err != nil {
+			return err
+		}
+	}
 	if len(summary.NextDispatches) > 0 {
 		if _, err := fmt.Fprintf(out, "reviewer intake summary next dispatches：%s\n", strings.Join(summary.NextDispatches, ",")); err != nil {
 			return err
@@ -5344,6 +5349,11 @@ func writePlanSubagentsReviewerIntakeText(out io.Writer, result subagents.Review
 func writeReviewerIntakePostValidationSummaryText(out io.Writer, summary subagents.ReviewerPostValidationSummary) error {
 	if _, err := fmt.Fprintf(out, "reviewer intake post-validation summary：valid=%t overviewVerifications=%d overviewDecisions=%d doctorRows=%d lane=%s project=%t executorAction=%t ready=%t blocked=%t state=%s reviewerWritebacks=%d queue=%s\n", summary.Valid, summary.OverviewVerifications, summary.OverviewDecisions, summary.DoctorRows, summary.Lane, summary.Project, summary.ExecutorActionPresent, summary.ExecutorActionReady, summary.ExecutorActionBlocked, summary.ExecutorActionState, summary.ReviewerWritebacks, summary.QueueSummary); err != nil {
 		return err
+	}
+	if summary.ReviewerWritebackSummary != nil {
+		if err := writeReviewerWritebackSummaryText(out, "reviewer intake post-validation summary", *summary.ReviewerWritebackSummary); err != nil {
+			return err
+		}
 	}
 	if summary.CurrentAction != nil {
 		item := *summary.CurrentAction

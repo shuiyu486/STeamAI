@@ -94,36 +94,37 @@ type ReviewerIntakeResult struct {
 }
 
 type ReviewerIntakeSummary struct {
-	Status                              string                            `json:"status"`
-	ReadyForWriteback                   bool                              `json:"readyForWriteback"`
-	Applied                             bool                              `json:"applied"`
-	Lane                                string                            `json:"lane,omitempty"`
-	ShardID                             string                            `json:"shardId,omitempty"`
-	IntakeID                            string                            `json:"intakeId,omitempty"`
-	ReviewerSession                     string                            `json:"reviewerSession,omitempty"`
-	VerificationVerdict                 string                            `json:"verificationVerdict,omitempty"`
-	MainDecision                        string                            `json:"mainDecision,omitempty"`
-	DispatchIndex                       int                               `json:"dispatchIndex"`
-	DispatchTotal                       int                               `json:"dispatchTotal"`
-	ShardStatusBefore                   string                            `json:"shardStatusBefore,omitempty"`
-	ShardStatusAfter                    string                            `json:"shardStatusAfter,omitempty"`
-	NextDispatches                      []string                          `json:"nextDispatches,omitempty"`
-	BlockedCount                        int                               `json:"blockedCount"`
-	RepairGuidanceCount                 int                               `json:"repairGuidanceCount"`
-	PostValidationPresent               bool                              `json:"postValidationPresent"`
-	PostValidationValid                 bool                              `json:"postValidationValid"`
-	PostValidationOverviewVerifications int                               `json:"postValidationOverviewVerifications"`
-	PostValidationOverviewDecisions     int                               `json:"postValidationOverviewDecisions"`
-	ReviewerWritebacks                  int                               `json:"reviewerWritebacks"`
-	ActionTotal                         int                               `json:"actionTotal"`
-	ActionUnblocked                     int                               `json:"actionUnblocked"`
-	ActionBlocked                       int                               `json:"actionBlocked"`
-	ActionRequiresReview                int                               `json:"actionRequiresReview"`
-	ActionFollowUp                      int                               `json:"actionFollowUp"`
-	QueueSummary                        string                            `json:"queueSummary,omitempty"`
-	CurrentAction                       *ReviewerIntakeNextActionSummary  `json:"currentAction,omitempty"`
-	NextActions                         []ReviewerIntakeNextActionSummary `json:"nextActions,omitempty"`
-	Boundary                            []string                          `json:"boundary,omitempty"`
+	Status                              string                               `json:"status"`
+	ReadyForWriteback                   bool                                 `json:"readyForWriteback"`
+	Applied                             bool                                 `json:"applied"`
+	Lane                                string                               `json:"lane,omitempty"`
+	ShardID                             string                               `json:"shardId,omitempty"`
+	IntakeID                            string                               `json:"intakeId,omitempty"`
+	ReviewerSession                     string                               `json:"reviewerSession,omitempty"`
+	VerificationVerdict                 string                               `json:"verificationVerdict,omitempty"`
+	MainDecision                        string                               `json:"mainDecision,omitempty"`
+	DispatchIndex                       int                                  `json:"dispatchIndex"`
+	DispatchTotal                       int                                  `json:"dispatchTotal"`
+	ShardStatusBefore                   string                               `json:"shardStatusBefore,omitempty"`
+	ShardStatusAfter                    string                               `json:"shardStatusAfter,omitempty"`
+	NextDispatches                      []string                             `json:"nextDispatches,omitempty"`
+	BlockedCount                        int                                  `json:"blockedCount"`
+	RepairGuidanceCount                 int                                  `json:"repairGuidanceCount"`
+	PostValidationPresent               bool                                 `json:"postValidationPresent"`
+	PostValidationValid                 bool                                 `json:"postValidationValid"`
+	PostValidationOverviewVerifications int                                  `json:"postValidationOverviewVerifications"`
+	PostValidationOverviewDecisions     int                                  `json:"postValidationOverviewDecisions"`
+	ReviewerWritebacks                  int                                  `json:"reviewerWritebacks"`
+	ReviewerWritebackSummary            *workstream.ReviewerWritebackSummary `json:"reviewerWritebackSummary,omitempty"`
+	ActionTotal                         int                                  `json:"actionTotal"`
+	ActionUnblocked                     int                                  `json:"actionUnblocked"`
+	ActionBlocked                       int                                  `json:"actionBlocked"`
+	ActionRequiresReview                int                                  `json:"actionRequiresReview"`
+	ActionFollowUp                      int                                  `json:"actionFollowUp"`
+	QueueSummary                        string                               `json:"queueSummary,omitempty"`
+	CurrentAction                       *ReviewerIntakeNextActionSummary     `json:"currentAction,omitempty"`
+	NextActions                         []ReviewerIntakeNextActionSummary    `json:"nextActions,omitempty"`
+	Boundary                            []string                             `json:"boundary,omitempty"`
 }
 
 type ReviewerIntakeNextActionSummary struct {
@@ -150,21 +151,22 @@ type ReviewerPostValidation struct {
 }
 
 type ReviewerPostValidationSummary struct {
-	Valid                 bool                                      `json:"valid"`
-	OverviewVerifications int                                       `json:"overviewVerifications"`
-	OverviewDecisions     int                                       `json:"overviewDecisions"`
-	DoctorRows            int                                       `json:"doctorRows"`
-	Lane                  string                                    `json:"lane,omitempty"`
-	Project               bool                                      `json:"project"`
-	ExecutorActionPresent bool                                      `json:"executorActionPresent"`
-	ExecutorActionReady   bool                                      `json:"executorActionReady"`
-	ExecutorActionBlocked bool                                      `json:"executorActionBlocked"`
-	ExecutorActionState   string                                    `json:"executorActionState,omitempty"`
-	ReviewerWritebacks    int                                       `json:"reviewerWritebacks"`
-	QueueSummary          string                                    `json:"queueSummary,omitempty"`
-	CurrentAction         *ReviewerPostValidationNextActionSummary  `json:"currentAction,omitempty"`
-	NextActions           []ReviewerPostValidationNextActionSummary `json:"nextActions,omitempty"`
-	Boundary              []string                                  `json:"boundary,omitempty"`
+	Valid                    bool                                      `json:"valid"`
+	OverviewVerifications    int                                       `json:"overviewVerifications"`
+	OverviewDecisions        int                                       `json:"overviewDecisions"`
+	DoctorRows               int                                       `json:"doctorRows"`
+	Lane                     string                                    `json:"lane,omitempty"`
+	Project                  bool                                      `json:"project"`
+	ExecutorActionPresent    bool                                      `json:"executorActionPresent"`
+	ExecutorActionReady      bool                                      `json:"executorActionReady"`
+	ExecutorActionBlocked    bool                                      `json:"executorActionBlocked"`
+	ExecutorActionState      string                                    `json:"executorActionState,omitempty"`
+	ReviewerWritebacks       int                                       `json:"reviewerWritebacks"`
+	ReviewerWritebackSummary *workstream.ReviewerWritebackSummary      `json:"reviewerWritebackSummary,omitempty"`
+	QueueSummary             string                                    `json:"queueSummary,omitempty"`
+	CurrentAction            *ReviewerPostValidationNextActionSummary  `json:"currentAction,omitempty"`
+	NextActions              []ReviewerPostValidationNextActionSummary `json:"nextActions,omitempty"`
+	Boundary                 []string                                  `json:"boundary,omitempty"`
 }
 
 type ReviewerPostValidationNextActionSummary struct {
@@ -476,6 +478,7 @@ func reviewerIntakeSummary(result ReviewerIntakeResult) ReviewerIntakeSummary {
 		summary.PostValidationOverviewVerifications = result.PostValidation.Summary.OverviewVerifications
 		summary.PostValidationOverviewDecisions = result.PostValidation.Summary.OverviewDecisions
 		summary.ReviewerWritebacks = result.PostValidation.Summary.ReviewerWritebacks
+		summary.ReviewerWritebackSummary = result.PostValidation.Summary.ReviewerWritebackSummary
 	}
 	queue := result.MissionCommanderActionQueue
 	summary.QueueSummary = strings.TrimSpace(queue.Summary)
@@ -1271,6 +1274,10 @@ func reviewerPostValidationSummary(validation ReviewerPostValidation) ReviewerPo
 		DoctorRows:            len(validation.DoctorRows),
 		Project:               validation.Handoff.Project,
 		ReviewerWritebacks:    len(validation.Handoff.ReviewerWritebacks),
+	}
+	if summary.ReviewerWritebacks > 0 {
+		writebackSummary := workstream.ReviewerWritebackSummaryFor(validation.Handoff.ReviewerWritebacks)
+		summary.ReviewerWritebackSummary = &writebackSummary
 	}
 	if validation.Handoff.Lane != nil {
 		summary.Lane = validation.Handoff.Lane.ID
