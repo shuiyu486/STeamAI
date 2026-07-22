@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 543：pack-memory candidate decision receipt / reconsume verification closure
+
+状态：已完成；implementation待提交、推送并检查远程 release gate。
+
+目标：补齐 Batch 542 Apply后 candidate/index消失导致 replacement executor与 release/status丢失后续 doctor/reconsume工作的 operational断点。让 reviewed decision留下 durable receipt，并提供严格、显式、可幂等的 pack/fresh/attached verification product path；release/status在 candidate residue清零后仍能交付 pending verification，proof完成后自动闭环。
+
+已完成内容：
+
+- candidate decision Apply在 canonical candidate root的 `review-artifacts` 写单一 durable receipt，绑定 repo/case/pack、packet/decision hashes、transaction backup/index、actions/evidence与 verification proof path；accepted receipt给出包含 `<fresh-case>` / `<attached-case>` 必需输入的 concrete WhatIf命令。receipt写失败仍走既有 target/index/candidate rollback。
+- 新增 `-VerifyCandidateDecision -FreshCaseRoot ... -AttachedCaseRoot ... -WhatIf/-Apply`：严格重读 packet/decision/receipt/transaction/committed marker，检查 receipt、transaction与 marker的 action/count/path bindings，reviewed candidate backup仍匹配 decision hash，accepted target与 staged reviewed candidate backup一致，candidate缺失、index不再引用 candidate、source/fresh/attached roots互异，并运行 pack/fresh/attached doctor和 fresh/attached accepted managed-content hash验证。WhatIf no-write；Apply持有 decision lock且在proof commit前重验状态，只写 repo-local durable proof，相同验证结果幂等 replay。
+- release/status扫描 strict repo-local decision receipts；candidate/index已清理但 accepted verification尚无 proof时继续投影 open work、pending count、concrete command和 proof path。proof必须严格绑定 schema/kind、pack、packet/decision hashes、source/fresh/attached roots、receipt/proof paths、doctor rows、mutation/applied/ready状态和完整 actions；malformed、trailing、unknown-field或错误绑定均 fail-closed，合法 proof到位后该 receipt不再阻塞。CLI text与 JSON同步输出 receipt/pending/completed/verification状态。
+- package/CLI coverage验证 receipt命令与 durable path、verification WhatIf no-write、Apply/replay、missing/same/source roots、stale fresh content、target drift、candidate/index重新出现、existing proof drift、malformed/wrong-hash/wrong-receipt/wrong-actions proof、release handoff pending/complete转换，以及 case-local CLI decision→fresh/attached init→verification全闭环。
+
+边界：runtime不创建或初始化 fresh/attached cases，不执行 sync、heavy-tool或 authority/confirmed写入；调用者必须先准备两个不同的 attached cases，并先审查 WhatIf再Apply。verification只读取 pack/cases并写 repo-local proof；tooling candidate仍不允许自动accept；不新增 PowerShell runtime logic。
+
+验证结果：focused candidate promote/releasecheck/CLI测试、`go test ./...`、`go vet ./...`、`git diff --check`、`release-check -Format json`（`ready=true`）、`status`、`packs`与`doctor`均通过；远程 release gate待 implementation push后检查。
+
+上一批摘要：Batch 542已完成 reviewed candidate decision/cleanup product path，implementation commit `882a553 Close pack memory candidate decisions` 与 release inspection commit `32650b9 Record Batch 542 release gate inspection` 已推送；implementation run `29953603900` 的 Linux/macOS/Windows jobs均 completed failure且 `steps=[]`，仍为既有 runner/billing blocker，不能声明 remote CI green。
+
 ### Batch 542：pack-memory reviewed candidate decision / cleanup product-path closure
 
 状态：已完成 implementation、focused/package validation、完整本地 release minimum、implementation commit/push 与远程 release-gate inspection；implementation commit `882a553 Close pack memory candidate decisions` 已推送到 `main`。远程 release-gate run `29953603900` completed failure，Linux/macOS/Windows jobs 均 completed failure 且 `steps=[]`，仍是既有 GitHub Actions runner/billing blocker，不能声明 remote CI green。按 cadence 只记录 implementation commit触发的远程 run；不为本 release inspection commit自身触发的 CI追加第三个记录提交，除非出现不同于既有 `steps=[]` blocker的新信号。

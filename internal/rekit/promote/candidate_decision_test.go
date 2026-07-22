@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
 func TestApplyCandidateDecisionsPreviewsAndAppliesReviewedManagedCandidate(t *testing.T) {
@@ -104,6 +106,168 @@ func TestApplyCandidateDecisionsPreviewsAndAppliesReviewedManagedCandidate(t *te
 	}
 	if _, err := os.Stat(managed.CandidatePath); !os.IsNotExist(err) {
 		t.Fatalf("accepted candidate was not cleaned up: %v", err)
+	}
+}
+
+func TestVerifyCandidateDecisionPreviewsAppliesAndReplays(t *testing.T) {
+	repoRoot, sourceCase, freshCase, pack := packMemoryReconsumeFixture(t)
+	attachedCase := filepath.Join(t.TempDir(), "attachedcase")
+	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceCase, filepath.FromSlash("references/template/README.md")), []byte("# README\n\nReviewed reusable candidate.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	created, packet, managed := candidateDecisionFixture(t, repoRoot, sourceCase, pack, "verification")
+	decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+	decisionPath := filepath.Join(sourceCase, ".rekit", "reviews", "candidate-verification", "decisions.json")
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	applied, err := ApplyCandidateDecisions(repoRoot, sourceCase, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.Receipt == nil || applied.ReceiptPath == "" || !applied.Receipt.VerificationPending || !strings.Contains(applied.Receipt.VerificationCommand, "-FreshCaseRoot <fresh-case>") {
+		t.Fatalf("candidate decision receipt omitted verification handoff: %+v", applied)
+	}
+	if _, err := syncpkg.Apply(repoRoot, freshCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "fresh"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncpkg.Apply(repoRoot, attachedCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "attached"}); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshCase, AttachedCaseRoot: attachedCase, WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.IsMutation || preview.Applied || !preview.Ready || preview.PackDoctorRows == 0 || preview.FreshDoctorRows == 0 || preview.AttachedDoctorRows == 0 {
+		t.Fatalf("unexpected candidate verification preview: %+v", preview)
+	}
+	if _, err := os.Stat(preview.VerificationProofPath); !os.IsNotExist(err) {
+		t.Fatalf("candidate verification WhatIf wrote proof: %v", err)
+	}
+	verified, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshCase, AttachedCaseRoot: attachedCase})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verified.IsMutation || !verified.Applied || !verified.Ready {
+		t.Fatalf("unexpected candidate verification apply: %+v", verified)
+	}
+	proofData, err := os.ReadFile(verified.VerificationProofPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var proof CandidateDecisionVerificationResult
+	if err := decodeStrictJSON(proofData, &proof); err != nil || proof.PacketHash != verified.PacketHash || proof.DecisionHash != verified.DecisionHash || !sameCandidateDecisionPath(proof.ReceiptPath, applied.ReceiptPath) || len(proof.VerifiedActions) != len(applied.Actions) {
+		t.Fatalf("candidate verification proof is not durably bound to receipt/actions: proof=%+v err=%v", proof, err)
+	}
+	if replay, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshCase, AttachedCaseRoot: attachedCase}); err != nil || !replay.Applied {
+		t.Fatalf("candidate verification replay failed: result=%+v err=%v", replay, err)
+	}
+	if err := os.WriteFile(verified.VerificationProofPath, []byte("{\"ready\":true}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshCase, AttachedCaseRoot: attachedCase}); err == nil {
+		t.Fatal("candidate verification replay should reject a mismatched existing proof")
+	}
+}
+
+func TestVerifyCandidateDecisionRejectsDriftAndInvalidRoots(t *testing.T) {
+	repoRoot, sourceCase, freshCase, pack := packMemoryReconsumeFixture(t)
+	attachedCase := filepath.Join(t.TempDir(), "attachedcase")
+	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
+		t.Fatal(err)
+	}
+	staleFreshCase := filepath.Join(t.TempDir(), "stale-fresh-case")
+	if _, err := syncpkg.Apply(repoRoot, staleFreshCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "stale-fresh"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceCase, filepath.FromSlash("references/template/README.md")), []byte("# README\n\nReviewed reusable candidate.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	created, packet, managed := candidateDecisionFixture(t, repoRoot, sourceCase, pack, "verification-drift")
+	decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+	decisionPath := filepath.Join(sourceCase, ".rekit", "reviews", "candidate-verification-drift", "decisions.json")
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	applied, err := ApplyCandidateDecisions(repoRoot, sourceCase, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncpkg.Apply(repoRoot, freshCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "fresh"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncpkg.Apply(repoRoot, attachedCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "attached"}); err != nil {
+		t.Fatal(err)
+	}
+	base := CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshCase, AttachedCaseRoot: attachedCase, WhatIf: true}
+	missing := base
+	missing.FreshCaseRoot = ""
+	if _, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, missing); err == nil {
+		t.Fatal("candidate verification should require fresh case root")
+	}
+	same := base
+	same.AttachedCaseRoot = freshCase
+	if _, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, same); err == nil {
+		t.Fatal("candidate verification should reject identical fresh/attached roots")
+	}
+	sourceAttached := base
+	sourceAttached.AttachedCaseRoot = sourceCase
+	if _, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, sourceAttached); err == nil {
+		t.Fatal("candidate verification should reject source case as attached root")
+	}
+	staleFresh := base
+	staleFresh.FreshCaseRoot = staleFreshCase
+	if _, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, staleFresh); err == nil {
+		t.Fatal("candidate verification should reject a fresh case initialized before acceptance")
+	}
+	staleAttached := base
+	staleAttached.AttachedCaseRoot = staleFreshCase
+	if _, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, staleAttached); err == nil {
+		t.Fatal("candidate verification should reject an attached case initialized before acceptance")
+	}
+	if err := os.WriteFile(managed.PackTarget, []byte("drifted target\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, base); err == nil {
+		t.Fatal("candidate verification should reject accepted target drift")
+	}
+	candidateBytes, err := os.ReadFile(applied.Actions[0].CandidateBackupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(managed.PackTarget, candidateBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(managed.CandidatePath, []byte("reappeared candidate\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, base); err == nil {
+		t.Fatal("candidate verification should reject reappeared candidate")
+	}
+	if err := os.Remove(managed.CandidatePath); err != nil {
+		t.Fatal(err)
+	}
+	indexData := fmt.Appendf(nil, "[{\"path\":%q,\"kind\":%q,\"candidate\":%q}]\n", managed.Path, managed.Kind, managed.CandidatePath)
+	if err := os.WriteFile(applied.IndexPath, indexData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, base); err == nil {
+		t.Fatal("candidate verification should reject reappeared candidate index entry")
+	}
+	if err := os.Remove(applied.IndexPath); err != nil {
+		t.Fatal(err)
+	}
+	originalBackup, err := os.ReadFile(applied.Actions[0].CandidateBackupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(applied.Actions[0].CandidateBackupPath, []byte("tampered reviewed backup\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, base); err == nil {
+		t.Fatal("candidate verification should reject a tampered reviewed candidate backup")
+	}
+	if err := os.WriteFile(applied.Actions[0].CandidateBackupPath, originalBackup, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

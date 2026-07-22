@@ -1,8 +1,12 @@
 package releasecheck
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -208,27 +212,44 @@ type ReleaseHandoffPackMemoryCandidateReviewProofSummary struct {
 }
 
 type ReleaseHandoffPackMemoryCandidateStatus struct {
-	Pack            string                                              `json:"pack"`
-	Maturity        string                                              `json:"maturity"`
-	CandidateRoot   string                                              `json:"candidateRoot"`
-	ToolingRoot     string                                              `json:"toolingRoot"`
-	IndexPath       string                                              `json:"indexPath,omitempty"`
-	CandidateFiles  int                                                 `json:"candidateFiles"`
-	ToolingFiles    int                                                 `json:"toolingFiles"`
-	IndexEntries    int                                                 `json:"indexEntries"`
-	CandidatePaths  []string                                            `json:"candidatePaths,omitempty"`
-	ToolingPaths    []string                                            `json:"toolingPaths,omitempty"`
-	IndexCandidates []ReleaseHandoffPackMemoryCandidateIndexEntry       `json:"indexCandidates,omitempty"`
-	ReviewArtifacts []ReleaseHandoffPackMemoryCandidateReviewArtifact   `json:"reviewArtifacts,omitempty"`
-	ReviewSummary   ReleaseHandoffPackMemoryCandidateReviewSummary      `json:"reviewSummary"`
-	ProofSummary    ReleaseHandoffPackMemoryCandidateReviewProofSummary `json:"proofSummary"`
-	ProofRoot       string                                              `json:"proofRoot,omitempty"`
-	HasOpenWork     bool                                                `json:"hasOpenWork"`
-	RequiresReview  bool                                                `json:"requiresReview"`
-	RequiresCleanup bool                                                `json:"requiresCleanup"`
-	Action          string                                              `json:"action,omitempty"`
-	Evidence        []string                                            `json:"evidence,omitempty"`
-	Boundary        []string                                            `json:"boundary,omitempty"`
+	Pack                   string                                              `json:"pack"`
+	Maturity               string                                              `json:"maturity"`
+	CandidateRoot          string                                              `json:"candidateRoot"`
+	ToolingRoot            string                                              `json:"toolingRoot"`
+	IndexPath              string                                              `json:"indexPath,omitempty"`
+	CandidateFiles         int                                                 `json:"candidateFiles"`
+	ToolingFiles           int                                                 `json:"toolingFiles"`
+	IndexEntries           int                                                 `json:"indexEntries"`
+	CandidatePaths         []string                                            `json:"candidatePaths,omitempty"`
+	ToolingPaths           []string                                            `json:"toolingPaths,omitempty"`
+	IndexCandidates        []ReleaseHandoffPackMemoryCandidateIndexEntry       `json:"indexCandidates,omitempty"`
+	ReviewArtifacts        []ReleaseHandoffPackMemoryCandidateReviewArtifact   `json:"reviewArtifacts,omitempty"`
+	ReviewSummary          ReleaseHandoffPackMemoryCandidateReviewSummary      `json:"reviewSummary"`
+	ProofSummary           ReleaseHandoffPackMemoryCandidateReviewProofSummary `json:"proofSummary"`
+	DecisionReceipts       []ReleaseHandoffPackMemoryCandidateDecisionReceipt  `json:"decisionReceipts,omitempty"`
+	PendingVerifications   int                                                 `json:"pendingVerifications"`
+	CompletedVerifications int                                                 `json:"completedVerifications"`
+	ProofRoot              string                                              `json:"proofRoot,omitempty"`
+	HasOpenWork            bool                                                `json:"hasOpenWork"`
+	RequiresReview         bool                                                `json:"requiresReview"`
+	RequiresCleanup        bool                                                `json:"requiresCleanup"`
+	RequiresVerification   bool                                                `json:"requiresVerification"`
+	Action                 string                                              `json:"action,omitempty"`
+	Evidence               []string                                            `json:"evidence,omitempty"`
+	Boundary               []string                                            `json:"boundary,omitempty"`
+}
+
+type ReleaseHandoffPackMemoryCandidateDecisionReceipt struct {
+	Path                  string `json:"path"`
+	Accepted              int    `json:"accepted"`
+	Rejected              int    `json:"rejected"`
+	Superseded            int    `json:"superseded"`
+	PacketPath            string `json:"packetPath"`
+	DecisionPath          string `json:"decisionPath"`
+	VerificationPending   bool   `json:"verificationPending"`
+	VerificationCommand   string `json:"verificationCommand,omitempty"`
+	VerificationProofPath string `json:"verificationProofPath,omitempty"`
+	VerificationComplete  bool   `json:"verificationComplete"`
 }
 
 type ReleaseHandoffPackMemoryCandidateIndexEntry struct {
@@ -529,7 +550,7 @@ func releaseHandoffPackMemoryCandidates(repo string, packs []manifest.PackSummar
 		if !status.HasOpenWork {
 			continue
 		}
-		openUnits := status.CandidateFiles + status.ToolingFiles + status.IndexEntries
+		openUnits := status.CandidateFiles + status.ToolingFiles + status.IndexEntries + status.PendingVerifications
 		if openUnits == 0 && status.IndexPath != "" {
 			openUnits = 1
 		}
@@ -548,9 +569,9 @@ func releaseHandoffPackMemoryCandidates(repo string, packs []manifest.PackSummar
 	}
 	if inventory.Total > 0 {
 		inventory.Ready = false
-		inventory.Summary = "pack-memory candidate inventory has open review/cleanup work"
-		inventory.NextAction = "review listed pack-memory candidates, record decisions and proof files, cleanup candidate roots/indexPath, then rerun release-check/status"
-		inventory.Warnings = []string{"open pack-memory candidates require review/cleanup before release handoff"}
+		inventory.Summary = "pack-memory candidate inventory has open review/cleanup/verification work"
+		inventory.NextAction = "review listed pack-memory candidates or complete listed candidate decision verification, then rerun release-check/status"
+		inventory.Warnings = []string{"open pack-memory candidates or candidate decision verifications require closure before release handoff"}
 	} else {
 		inventory.NextAction = "no pack-memory candidate cleanup is pending"
 	}
@@ -585,29 +606,50 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 	if indexExists {
 		indexRel = filepath.ToSlash(filepath.Join(candidateRootRel, "index.json"))
 	}
+	receipts, err := packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel)
+	if err != nil {
+		return ReleaseHandoffPackMemoryCandidateStatus{}, fmt.Errorf("pack-memory candidate receipt scan failed for %s: %w", pack.ID, err)
+	}
+	pendingVerifications := 0
+	completedVerifications := 0
+	for _, receipt := range receipts {
+		if receipt.VerificationPending && !receipt.VerificationComplete {
+			pendingVerifications++
+		}
+		if receipt.VerificationComplete {
+			completedVerifications++
+		}
+	}
 	status := ReleaseHandoffPackMemoryCandidateStatus{
-		Pack:            pack.ID,
-		Maturity:        pack.Maturity,
-		CandidateRoot:   candidateRootRel,
-		ToolingRoot:     toolingRootRel,
-		ProofRoot:       proofRootRel,
-		IndexPath:       indexRel,
-		CandidateFiles:  candidateFileCount,
-		ToolingFiles:    toolingFileCount,
-		IndexEntries:    indexEntryCount,
-		CandidatePaths:  candidatePaths,
-		ToolingPaths:    toolingPaths,
-		IndexCandidates: indexCandidates,
-		HasOpenWork:     candidateFileCount > 0 || toolingFileCount > 0 || indexEntryCount > 0 || indexExists,
+		Pack:                   pack.ID,
+		Maturity:               pack.Maturity,
+		CandidateRoot:          candidateRootRel,
+		ToolingRoot:            toolingRootRel,
+		ProofRoot:              proofRootRel,
+		IndexPath:              indexRel,
+		CandidateFiles:         candidateFileCount,
+		ToolingFiles:           toolingFileCount,
+		IndexEntries:           indexEntryCount,
+		CandidatePaths:         candidatePaths,
+		ToolingPaths:           toolingPaths,
+		IndexCandidates:        indexCandidates,
+		DecisionReceipts:       receipts,
+		PendingVerifications:   pendingVerifications,
+		CompletedVerifications: completedVerifications,
+		HasOpenWork:            candidateFileCount > 0 || toolingFileCount > 0 || indexEntryCount > 0 || indexExists || pendingVerifications > 0,
 	}
 	if !status.HasOpenWork {
 		return status, nil
 	}
 	status.RequiresReview = candidateFileCount > 0 || toolingFileCount > 0
-	status.RequiresCleanup = true
+	status.RequiresCleanup = candidateFileCount > 0 || toolingFileCount > 0 || indexEntryCount > 0 || indexExists
+	status.RequiresVerification = pendingVerifications > 0
 	status.Action = "review candidate files against pack targets, record accept/reject/superseded decisions, then cleanup candidatePath and indexPath"
-	if !status.RequiresReview && indexExists {
+	if !status.RequiresReview && status.RequiresCleanup {
 		status.Action = "cleanup stale pack-memory candidate indexPath or regenerate candidates before review"
+	}
+	if !status.RequiresReview && !status.RequiresCleanup && status.RequiresVerification {
+		status.Action = "run the candidate decision verification command with distinct prepared fresh/attached cases, review WhatIf, then Apply"
 	}
 	status.Evidence = append(status.Evidence, "candidateRoot "+candidateRootRel, "toolingRoot "+toolingRootRel)
 	if candidateFileCount > 0 {
@@ -619,12 +661,15 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 	if indexExists {
 		status.Evidence = append(status.Evidence, fmt.Sprintf("indexPath %s entries=%d", indexRel, indexEntryCount))
 	}
+	if len(receipts) > 0 {
+		status.Evidence = append(status.Evidence, fmt.Sprintf("candidate decision receipts=%d pendingVerification=%d completedVerification=%d", len(receipts), pendingVerifications, completedVerifications))
+	}
 	status.ReviewArtifacts = packMemoryCandidateReviewArtifacts(status, proofRoot)
 	status.ProofSummary = packMemoryCandidateReviewProofSummary(status)
 	status.ReviewSummary = packMemoryCandidateReviewSummary(status)
 	status.Boundary = []string{
-		"release handoff only inventories pack-memory candidate residue; it does not merge or delete candidates",
-		"review candidates before merge; do not write authority/confirmed",
+		"release handoff inventories candidate residue and durable decision verification receipts; it does not merge, delete, or validate cases",
+		"review candidates before merge and explicitly verify accepted decisions; do not write authority/confirmed",
 		"do not promote case-specific artifacts, traces, dumps, captures, payloads, flags, or customer data",
 	}
 	return status, nil
@@ -938,6 +983,339 @@ func packMemoryCandidateProofStage(summary ReleaseHandoffPackMemoryCandidateRevi
 	}
 }
 
+type candidateDecisionActionInventory struct {
+	CandidatePath       string   `json:"candidatePath"`
+	Kind                string   `json:"kind"`
+	Decision            string   `json:"decision"`
+	PackTarget          string   `json:"packTarget,omitempty"`
+	Action              string   `json:"action"`
+	CandidateBackupPath string   `json:"candidateBackupPath,omitempty"`
+	TargetBackupPath    string   `json:"targetBackupPath,omitempty"`
+	EvidenceRefs        []string `json:"evidenceRefs"`
+}
+
+type candidateDecisionReceiptInventory struct {
+	SchemaVersion         int                                `json:"schemaVersion"`
+	Kind                  string                             `json:"kind"`
+	Pack                  string                             `json:"pack"`
+	RepoRoot              string                             `json:"repoRoot"`
+	CaseRoot              string                             `json:"caseRoot"`
+	PacketPath            string                             `json:"packetPath"`
+	DecisionPath          string                             `json:"decisionPath"`
+	PacketHash            string                             `json:"packetHash"`
+	DecisionHash          string                             `json:"decisionHash"`
+	BackupRoot            string                             `json:"backupRoot"`
+	IndexPath             string                             `json:"indexPath"`
+	Accepted              int                                `json:"accepted"`
+	Rejected              int                                `json:"rejected"`
+	Superseded            int                                `json:"superseded"`
+	Actions               []candidateDecisionActionInventory `json:"actions"`
+	DecisionEvidence      []string                           `json:"decisionEvidence"`
+	ReceiptPath           string                             `json:"receiptPath"`
+	VerificationProofPath string                             `json:"verificationProofPath,omitempty"`
+	VerificationPending   bool                               `json:"verificationPending"`
+	VerificationCommand   string                             `json:"verificationCommand,omitempty"`
+	Boundary              []string                           `json:"boundary"`
+}
+
+type candidateDecisionVerificationInventory struct {
+	SchemaVersion         int                                `json:"schemaVersion"`
+	Kind                  string                             `json:"kind"`
+	Pack                  string                             `json:"pack"`
+	CaseRoot              string                             `json:"caseRoot"`
+	FreshCaseRoot         string                             `json:"freshCaseRoot"`
+	AttachedCaseRoot      string                             `json:"attachedCaseRoot"`
+	PacketHash            string                             `json:"packetHash"`
+	DecisionHash          string                             `json:"decisionHash"`
+	ReceiptHash           string                             `json:"receiptHash"`
+	ReceiptPath           string                             `json:"receiptPath"`
+	VerificationProofPath string                             `json:"verificationProofPath"`
+	IsMutation            bool                               `json:"isMutation"`
+	Applied               bool                               `json:"applied"`
+	Ready                 bool                               `json:"ready"`
+	PackDoctorRows        int                                `json:"packDoctorRows"`
+	FreshDoctorRows       int                                `json:"freshDoctorRows"`
+	AttachedDoctorRows    int                                `json:"attachedDoctorRows"`
+	VerifiedActions       []candidateDecisionActionInventory `json:"verifiedActions"`
+	NextSteps             []string                           `json:"nextSteps"`
+	Boundary              []string                           `json:"boundary"`
+}
+
+func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) ([]ReleaseHandoffPackMemoryCandidateDecisionReceipt, error) {
+	packID := filepath.Base(filepath.Dir(filepath.Dir(proofRoot)))
+	candidateRoot := filepath.Dir(proofRoot)
+	if err := rejectReleaseHandoffSymlinkPath(repo, proofRoot, true); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(proofRoot)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	receipts := []ReleaseHandoffPackMemoryCandidateDecisionReceipt{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".candidate-decision-receipt.json") {
+			continue
+		}
+		path := filepath.Join(proofRoot, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > 1024*1024 {
+			return nil, fmt.Errorf("candidate decision receipt must be a non-empty regular file: %s", path)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		var raw candidateDecisionReceiptInventory
+		if err := decodeReleaseHandoffStrictJSON(data, &raw); err != nil {
+			return nil, fmt.Errorf("decode candidate decision receipt %s: %w", path, err)
+		}
+		if raw.SchemaVersion != 1 || raw.Kind != "pack-memory-candidate-decision-receipt" || raw.Pack != packID || !sameReleaseHandoffPath(raw.RepoRoot, repo) || strings.TrimSpace(raw.CaseRoot) == "" || strings.TrimSpace(raw.PacketHash) == "" || strings.TrimSpace(raw.DecisionHash) == "" || strings.TrimSpace(raw.PacketPath) == "" || strings.TrimSpace(raw.DecisionPath) == "" || !sameReleaseHandoffPath(raw.ReceiptPath, path) || raw.Accepted < 0 || raw.Rejected < 0 || raw.Superseded < 0 || raw.Accepted+raw.Rejected+raw.Superseded != len(raw.Actions) || (raw.Accepted > 0 && (!raw.VerificationPending || strings.TrimSpace(raw.VerificationCommand) == "" || strings.TrimSpace(raw.VerificationProofPath) == "")) {
+			return nil, fmt.Errorf("candidate decision receipt binding mismatch: %s", path)
+		}
+		if !sameReleaseHandoffPath(raw.IndexPath, filepath.Join(candidateRoot, "index.json")) {
+			return nil, fmt.Errorf("candidate decision receipt index binding mismatch: %s", path)
+		}
+		if !pathWithinReleaseHandoffRoot(candidateRoot, raw.BackupRoot) {
+			return nil, fmt.Errorf("candidate decision receipt backup leaves candidate root: %s", raw.BackupRoot)
+		}
+		if err := validateCandidateDecisionReceiptActions(candidateRoot, raw); err != nil {
+			return nil, fmt.Errorf("candidate decision receipt action binding mismatch %s: %w", path, err)
+		}
+		if err := rejectReleaseHandoffSymlinkPath(repo, raw.BackupRoot, false); err != nil {
+			return nil, err
+		}
+		markerPath := filepath.Join(raw.BackupRoot, "committed.json")
+		if err := rejectReleaseHandoffSymlinkPath(raw.BackupRoot, markerPath, false); err != nil {
+			return nil, err
+		}
+		markerInfo, markerErr := os.Lstat(markerPath)
+		if markerErr != nil || markerInfo.Mode()&os.ModeSymlink != 0 || !markerInfo.Mode().IsRegular() || markerInfo.Size() == 0 {
+			return nil, fmt.Errorf("candidate decision receipt transaction is not committed: %s", raw.BackupRoot)
+		}
+		proofComplete := false
+		proofRel := ""
+		if raw.VerificationProofPath != "" {
+			if !pathWithinReleaseHandoffRoot(proofRoot, raw.VerificationProofPath) {
+				return nil, fmt.Errorf("candidate verification proof leaves proof root: %s", raw.VerificationProofPath)
+			}
+			if err := rejectReleaseHandoffSymlinkPath(repo, raw.VerificationProofPath, true); err != nil {
+				return nil, err
+			}
+			proofInfo, proofErr := os.Lstat(raw.VerificationProofPath)
+			if proofErr == nil {
+				if proofInfo.Mode()&os.ModeSymlink != 0 || !proofInfo.Mode().IsRegular() || proofInfo.Size() == 0 || proofInfo.Size() > 1024*1024 {
+					return nil, fmt.Errorf("candidate verification proof must be a non-empty regular file: %s", raw.VerificationProofPath)
+				}
+				proofData, err := os.ReadFile(raw.VerificationProofPath)
+				if err != nil {
+					return nil, err
+				}
+				var proof candidateDecisionVerificationInventory
+				if err := decodeReleaseHandoffStrictJSON(proofData, &proof); err != nil {
+					return nil, fmt.Errorf("decode candidate verification proof %s: %w", raw.VerificationProofPath, err)
+				}
+				if proof.SchemaVersion != 1 || proof.Kind != "pack-memory-candidate-decision-verification" || proof.Pack != raw.Pack || !strings.EqualFold(proof.PacketHash, raw.PacketHash) || !strings.EqualFold(proof.DecisionHash, raw.DecisionHash) || !strings.EqualFold(proof.ReceiptHash, sha256ReleaseHandoff(data)) || !sameReleaseHandoffPath(proof.CaseRoot, raw.CaseRoot) || strings.TrimSpace(proof.FreshCaseRoot) == "" || strings.TrimSpace(proof.AttachedCaseRoot) == "" || sameReleaseHandoffPath(proof.FreshCaseRoot, proof.CaseRoot) || sameReleaseHandoffPath(proof.AttachedCaseRoot, proof.CaseRoot) || sameReleaseHandoffPath(proof.FreshCaseRoot, proof.AttachedCaseRoot) || !sameReleaseHandoffPath(proof.ReceiptPath, path) || !sameReleaseHandoffPath(proof.VerificationProofPath, raw.VerificationProofPath) || !proof.IsMutation || !proof.Applied || !proof.Ready || proof.PackDoctorRows <= 0 || proof.FreshDoctorRows <= 0 || proof.AttachedDoctorRows <= 0 || !candidateDecisionActionsEqual(proof.VerifiedActions, raw.Actions) {
+					return nil, fmt.Errorf("candidate verification proof binding mismatch: %s", raw.VerificationProofPath)
+				}
+				proofComplete = true
+				proofRel = releaseHandoffRepoRelative(repo, raw.VerificationProofPath)
+			} else if !os.IsNotExist(proofErr) {
+				return nil, proofErr
+			}
+		}
+		receipts = append(receipts, ReleaseHandoffPackMemoryCandidateDecisionReceipt{
+			Path:                  filepath.ToSlash(filepath.Join(proofRootRel, entry.Name())),
+			Accepted:              raw.Accepted,
+			Rejected:              raw.Rejected,
+			Superseded:            raw.Superseded,
+			PacketPath:            releaseHandoffRepoRelative(repo, raw.PacketPath),
+			DecisionPath:          releaseHandoffRepoRelative(repo, raw.DecisionPath),
+			VerificationPending:   raw.VerificationPending,
+			VerificationCommand:   raw.VerificationCommand,
+			VerificationProofPath: proofRel,
+			VerificationComplete:  proofComplete,
+		})
+	}
+	sort.Slice(receipts, func(i, j int) bool { return receipts[i].Path < receipts[j].Path })
+	return receipts, nil
+}
+
+func rejectReleaseHandoffSymlinkPath(root, path string, allowMissingLeaf bool) error {
+	rootFull, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	rootInfo, err := os.Lstat(rootFull)
+	if os.IsNotExist(err) && allowMissingLeaf {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("release handoff root must not be a symlink: %s", rootFull)
+	}
+	pathFull, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(rootFull, pathFull)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("release handoff path escapes root: %s", path)
+	}
+	current := rootFull
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) && allowMissingLeaf {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("release handoff path must not traverse symlink: %s", current)
+		}
+	}
+	return nil
+}
+
+func validateCandidateDecisionReceiptActions(candidateRoot string, receipt candidateDecisionReceiptInventory) error {
+	packRoot := filepath.Dir(candidateRoot)
+	toolingRoot := filepath.Join(packRoot, "tooling", "candidates")
+	accepted := 0
+	rejected := 0
+	superseded := 0
+	seen := map[string]struct{}{}
+	for _, action := range receipt.Actions {
+		candidatePath := filepath.Clean(action.CandidatePath)
+		actionRoot := candidateRoot
+		if action.Kind == "tooling-candidate-source" {
+			actionRoot = toolingRoot
+		} else if action.Kind != "managed-doc" {
+			return fmt.Errorf("unsupported action kind %q", action.Kind)
+		}
+		if strings.TrimSpace(action.CandidatePath) == "" || !pathWithinReleaseHandoffRoot(actionRoot, candidatePath) || strings.TrimSpace(action.Action) == "" || action.EvidenceRefs == nil {
+			return fmt.Errorf("invalid action for candidate %s", action.CandidatePath)
+		}
+		if _, ok := seen[candidatePath]; ok {
+			return fmt.Errorf("duplicate candidate action: %s", action.CandidatePath)
+		}
+		seen[candidatePath] = struct{}{}
+		switch action.Decision {
+		case "accept":
+			accepted++
+			if strings.TrimSpace(action.PackTarget) == "" || strings.TrimSpace(action.CandidateBackupPath) == "" || !pathWithinReleaseHandoffRoot(receipt.BackupRoot, action.CandidateBackupPath) {
+				return fmt.Errorf("accepted action lacks target or candidate backup: %s", action.CandidatePath)
+			}
+		case "reject":
+			rejected++
+		case "superseded":
+			superseded++
+		default:
+			return fmt.Errorf("unsupported decision %q", action.Decision)
+		}
+	}
+	if accepted != receipt.Accepted || rejected != receipt.Rejected || superseded != receipt.Superseded {
+		return fmt.Errorf("decision counts do not match actions")
+	}
+	return nil
+}
+
+func sha256ReleaseHandoff(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func decodeReleaseHandoffStrictJSON(data []byte, out any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(out); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+func candidateDecisionActionsEqual(left, right []candidateDecisionActionInventory) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i].CandidatePath != right[i].CandidatePath ||
+			left[i].Kind != right[i].Kind ||
+			left[i].Decision != right[i].Decision ||
+			left[i].PackTarget != right[i].PackTarget ||
+			left[i].Action != right[i].Action ||
+			left[i].CandidateBackupPath != right[i].CandidateBackupPath ||
+			left[i].TargetBackupPath != right[i].TargetBackupPath ||
+			!slicesEqual(left[i].EvidenceRefs, right[i].EvidenceRefs) {
+			return false
+		}
+	}
+	return true
+}
+
+func slicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameReleaseHandoffPath(left, right string) bool {
+	leftAbs, leftErr := filepath.Abs(left)
+	rightAbs, rightErr := filepath.Abs(right)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	leftAbs = filepath.Clean(leftAbs)
+	rightAbs = filepath.Clean(rightAbs)
+	if leftAbs == rightAbs {
+		return true
+	}
+	leftInfo, leftErr := os.Stat(leftAbs)
+	rightInfo, rightErr := os.Stat(rightAbs)
+	return leftErr == nil && rightErr == nil && os.SameFile(leftInfo, rightInfo)
+}
+
+func pathWithinReleaseHandoffRoot(root, path string) bool {
+	rootAbs, rootErr := filepath.Abs(root)
+	pathAbs, pathErr := filepath.Abs(path)
+	if rootErr != nil || pathErr != nil {
+		return false
+	}
+	rel, err := filepath.Rel(rootAbs, pathAbs)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func releaseHandoffRepoRelative(repo, path string) string {
+	if rel, err := filepath.Rel(repo, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(rel)
+	}
+	return filepath.ToSlash(path)
+}
+
 func packMemoryCandidateReviewArtifactWithProof(status ReleaseHandoffPackMemoryCandidateStatus, artifact ReleaseHandoffPackMemoryCandidateReviewArtifact, proofRoot string) ReleaseHandoffPackMemoryCandidateReviewArtifact {
 	if strings.TrimSpace(status.ProofRoot) == "" {
 		return artifact
@@ -1076,7 +1454,7 @@ func releaseHandoffPackMemoryCandidateDetails(inventory ReleaseHandoffPackMemory
 		fmt.Sprintf("nextAction=%s", inventory.NextAction),
 	}
 	for _, pack := range inventory.Packs {
-		details = append(details, fmt.Sprintf("pack=%s maturity=%s candidateFiles=%d toolingFiles=%d indexEntries=%d reviewArtifacts=%d requiresReview=%t requiresCleanup=%t action=%s", pack.Pack, pack.Maturity, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, len(pack.ReviewArtifacts), pack.RequiresReview, pack.RequiresCleanup, pack.Action))
+		details = append(details, fmt.Sprintf("pack=%s maturity=%s candidateFiles=%d toolingFiles=%d indexEntries=%d reviewArtifacts=%d receipts=%d pendingVerification=%d completedVerification=%d requiresReview=%t requiresCleanup=%t requiresVerification=%t action=%s", pack.Pack, pack.Maturity, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, len(pack.ReviewArtifacts), len(pack.DecisionReceipts), pack.PendingVerifications, pack.CompletedVerifications, pack.RequiresReview, pack.RequiresCleanup, pack.RequiresVerification, pack.Action))
 		for _, path := range pack.CandidatePaths {
 			details = append(details, fmt.Sprintf("candidatePath pack=%s path=%s", pack.Pack, path))
 		}
@@ -1085,6 +1463,9 @@ func releaseHandoffPackMemoryCandidateDetails(inventory ReleaseHandoffPackMemory
 		}
 		for _, entry := range pack.IndexCandidates {
 			details = append(details, fmt.Sprintf("indexCandidate pack=%s path=%s candidate=%s", pack.Pack, entry.Path, entry.Candidate))
+		}
+		for _, receipt := range pack.DecisionReceipts {
+			details = append(details, fmt.Sprintf("decisionReceipt pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t proofPath=%s command=%s", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationProofPath, receipt.VerificationCommand))
 		}
 		summary := pack.ReviewSummary
 		details = append(details, fmt.Sprintf("reviewSummary pack=%s total=%d decisionArtifacts=%d cleanupArtifacts=%d reconsumeArtifacts=%d proofPresent=%d proofMissing=%d proofComplete=%t nextAction=%s", pack.Pack, summary.Total, summary.DecisionArtifactCount, summary.CleanupArtifactCount, summary.ReconsumeArtifactCount, summary.ProofSummary.Present, summary.ProofSummary.Missing, summary.ProofSummary.Complete, summary.NextAction))

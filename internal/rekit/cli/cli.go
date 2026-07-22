@@ -35,36 +35,39 @@ import (
 )
 
 type Options struct {
-	Command               string
-	Target                string
-	Pack                  string
-	PackProvided          bool
-	Review                bool
-	Apply                 bool
-	CreateCandidates      bool
-	WhatIf                bool
-	Force                 bool
-	List                  bool
-	ReviewOutputDir       string
-	PacketPath            string
-	CandidateDecisionPath string
-	ReviewerResultPath    string
-	ReadyReviewerResults  bool
-	DiffPath              string
-	ProjectName           string
-	Route                 string
-	TaskType              string
-	Items                 string
-	ItemsFile             string
-	ItemsPerAgent         int
-	MaxParallel           int
-	Format                string
-	Gate                  gate.Options
-	Note                  note.Options
-	Start                 workstream.StartOptions
-	Handoff               workstream.HandoffOptions
-	Continue              workstream.ContinueOptions
-	Reconcile             workstream.ReconcileOptions
+	Command                 string
+	Target                  string
+	Pack                    string
+	PackProvided            bool
+	Review                  bool
+	Apply                   bool
+	CreateCandidates        bool
+	WhatIf                  bool
+	Force                   bool
+	List                    bool
+	ReviewOutputDir         string
+	PacketPath              string
+	CandidateDecisionPath   string
+	VerifyCandidateDecision bool
+	FreshCaseRoot           string
+	AttachedCaseRoot        string
+	ReviewerResultPath      string
+	ReadyReviewerResults    bool
+	DiffPath                string
+	ProjectName             string
+	Route                   string
+	TaskType                string
+	Items                   string
+	ItemsFile               string
+	ItemsPerAgent           int
+	MaxParallel             int
+	Format                  string
+	Gate                    gate.Options
+	Note                    note.Options
+	Start                   workstream.StartOptions
+	Handoff                 workstream.HandoffOptions
+	Continue                workstream.ContinueOptions
+	Reconcile               workstream.ReconcileOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -136,6 +139,20 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -CandidateDecisionPath")
 			}
 			opt.CandidateDecisionPath = args[i]
+		case "-VerifyCandidateDecision", "--verify-candidate-decision":
+			opt.VerifyCandidateDecision = true
+		case "-FreshCaseRoot", "--fresh-case-root":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -FreshCaseRoot")
+			}
+			opt.FreshCaseRoot = args[i]
+		case "-AttachedCaseRoot", "--attached-case-root":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -AttachedCaseRoot")
+			}
+			opt.AttachedCaseRoot = args[i]
 		case "-ReviewerResultPath", "--reviewer-result-path":
 			i++
 			if i >= len(args) {
@@ -1201,7 +1218,7 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 		return err
 	}
 	for _, pack := range candidates.Packs {
-		if _, err := fmt.Fprintf(out, "release-check pack-memory candidate pack：pack=%s maturity=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d review=%t cleanup=%t action=%s proofRoot=%s\n", pack.Pack, pack.Maturity, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action, pack.ProofRoot); err != nil {
+		if _, err := fmt.Fprintf(out, "release-check pack-memory candidate pack：pack=%s maturity=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d receipts=%d pendingVerification=%d completedVerification=%d review=%t cleanup=%t verification=%t action=%s proofRoot=%s\n", pack.Pack, pack.Maturity, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, len(pack.DecisionReceipts), pack.PendingVerifications, pack.CompletedVerifications, pack.RequiresReview, pack.RequiresCleanup, pack.RequiresVerification, pack.Action, pack.ProofRoot); err != nil {
 			return err
 		}
 		if err := writePackMemoryCandidateReviewSummaryText(out, "release-check", pack.Pack, pack.ReviewSummary); err != nil {
@@ -1219,6 +1236,11 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 		}
 		for _, entry := range pack.IndexCandidates {
 			if _, err := fmt.Fprintf(out, "release-check pack-memory candidate index：pack=%s path=%s candidate=%s\n", pack.Pack, entry.Path, entry.Candidate); err != nil {
+				return err
+			}
+		}
+		for _, receipt := range pack.DecisionReceipts {
+			if _, err := fmt.Fprintf(out, "release-check pack-memory decision receipt：pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t proofPath=%s command=%s\n", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationProofPath, receipt.VerificationCommand); err != nil {
 				return err
 			}
 		}
@@ -2340,7 +2362,7 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 		return err
 	}
 	for _, pack := range candidates.Packs {
-		if _, err := fmt.Fprintf(out, "status pack-memory candidate pack：pack=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d review=%t cleanup=%t action=%s proofRoot=%s\n", pack.Pack, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.Action, pack.ProofRoot); err != nil {
+		if _, err := fmt.Fprintf(out, "status pack-memory candidate pack：pack=%s candidateRoot=%s toolingRoot=%s indexPath=%s candidateFiles=%d toolingFiles=%d indexEntries=%d receipts=%d pendingVerification=%d completedVerification=%d review=%t cleanup=%t verification=%t action=%s proofRoot=%s\n", pack.Pack, pack.CandidateRoot, pack.ToolingRoot, pack.IndexPath, pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, len(pack.DecisionReceipts), pack.PendingVerifications, pack.CompletedVerifications, pack.RequiresReview, pack.RequiresCleanup, pack.RequiresVerification, pack.Action, pack.ProofRoot); err != nil {
 			return err
 		}
 		if err := writePackMemoryCandidateReviewSummaryText(out, "status", pack.Pack, pack.ReviewSummary); err != nil {
@@ -2358,6 +2380,11 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 		}
 		for _, entry := range pack.IndexCandidates {
 			if _, err := fmt.Fprintf(out, "status pack-memory candidate index：pack=%s path=%s candidate=%s\n", pack.Pack, entry.Path, entry.Candidate); err != nil {
+				return err
+			}
+		}
+		for _, receipt := range pack.DecisionReceipts {
+			if _, err := fmt.Fprintf(out, "status pack-memory decision receipt：pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t proofPath=%s command=%s\n", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationProofPath, receipt.VerificationCommand); err != nil {
 				return err
 			}
 		}
@@ -5804,6 +5831,29 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if opt.VerifyCandidateDecision {
+		if strings.TrimSpace(opt.PacketPath) == "" || strings.TrimSpace(opt.CandidateDecisionPath) == "" {
+			return fmt.Errorf("promote -VerifyCandidateDecision requires -PacketPath and -CandidateDecisionPath")
+		}
+		if opt.Apply == opt.WhatIf {
+			return fmt.Errorf("promote -VerifyCandidateDecision requires exactly one of -WhatIf or -Apply")
+		}
+		if opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" {
+			return fmt.Errorf("promote -VerifyCandidateDecision cannot be combined with create/review artifact options")
+		}
+		format, err := workstreamFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported promote candidate verification format: %s", opt.Format)
+		}
+		result, err := promote.VerifyCandidateDecision(ctx.RepoRoot, target, ctx.Pack, promote.CandidateDecisionVerificationOptions{PacketPath: opt.PacketPath, DecisionPath: opt.CandidateDecisionPath, FreshCaseRoot: opt.FreshCaseRoot, AttachedCaseRoot: opt.AttachedCaseRoot, WhatIf: opt.WhatIf})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePromoteCandidateVerificationText(out, result)
+	}
 	if strings.TrimSpace(opt.CandidateDecisionPath) != "" {
 		if opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" {
 			return fmt.Errorf("promote -CandidateDecisionPath cannot be combined with create/review artifact options")
@@ -6562,8 +6612,30 @@ func writeSyncApplyText(out io.Writer, result syncreview.ApplyResult) error {
 	return nil
 }
 
+func writePromoteCandidateVerificationText(out io.Writer, result promote.CandidateDecisionVerificationResult) error {
+	if _, err := fmt.Fprintf(out, "promote candidate verification：mutation=%t applied=%t ready=%t pack=%s receipt=%s proof=%s packDoctorRows=%d freshDoctorRows=%d attachedDoctorRows=%d\n", result.IsMutation, result.Applied, result.Ready, result.Pack, result.ReceiptPath, result.VerificationProofPath, result.PackDoctorRows, result.FreshDoctorRows, result.AttachedDoctorRows); err != nil {
+		return err
+	}
+	for _, action := range result.VerifiedActions {
+		if _, err := fmt.Fprintf(out, "promote candidate verification action：candidate=%s decision=%s packTarget=%s candidateBackup=%s\n", action.CandidatePath, action.Decision, action.PackTarget, action.CandidateBackupPath); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "promote candidate verification boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "promote candidate verification next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writePromoteCandidateDecisionText(out io.Writer, result promote.CandidateDecisionResult) error {
-	if _, err := fmt.Fprintf(out, "promote candidate decision：mode=%s mutation=%t applied=%t rolledBack=%t recoveryRequired=%t failedAction=%s accepted=%d rejected=%d superseded=%d packet=%s decisions=%s packetHash=%s backupRoot=%s indexPath=%s\n", result.Mode, result.IsMutation, result.Applied, result.RolledBack, result.RecoveryRequired, result.FailedAction, result.Accepted, result.Rejected, result.Superseded, result.PacketPath, result.DecisionPath, result.PacketHash, result.BackupRoot, result.IndexPath); err != nil {
+	if _, err := fmt.Fprintf(out, "promote candidate decision：mode=%s mutation=%t applied=%t rolledBack=%t recoveryRequired=%t failedAction=%s accepted=%d rejected=%d superseded=%d packet=%s decisions=%s packetHash=%s backupRoot=%s indexPath=%s receiptPath=%s\n", result.Mode, result.IsMutation, result.Applied, result.RolledBack, result.RecoveryRequired, result.FailedAction, result.Accepted, result.Rejected, result.Superseded, result.PacketPath, result.DecisionPath, result.PacketHash, result.BackupRoot, result.IndexPath, result.ReceiptPath); err != nil {
 		return err
 	}
 	for _, action := range result.Actions {

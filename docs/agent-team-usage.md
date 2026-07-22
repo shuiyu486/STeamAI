@@ -97,7 +97,9 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 /rekit promote -CreateCandidates -WhatIf -Review -Format json # 生成 candidate review workspace（packet / bounded diff / sanitized preview），不生成候选
 /rekit promote -CreateCandidates -Review -Format json # 生成候选及 durable candidate review workspace；仍不 merge/cleanup/reconsume
 /rekit promote -PacketPath <candidate-review-packet> -CandidateDecisionPath <decisions.json> -WhatIf -Format json # 严格绑定 packet/candidate/target/evidence hashes，预览 reviewed accept/reject/superseded actions，不写入
-/rekit promote -PacketPath <candidate-review-packet> -CandidateDecisionPath <decisions.json> -Apply -Format json # 主 Agent复核同一 WhatIf 后显式执行 managed-doc merge 或 candidate cleanup；返回 candidate/target backups 与 recovery envelope
+/rekit promote -PacketPath <candidate-review-packet> -CandidateDecisionPath <decisions.json> -Apply -Format json # 主 Agent复核同一 WhatIf 后显式执行 managed-doc merge 或 candidate cleanup；返回 candidate/target backups、durable decision receipt 与 recovery envelope
+/rekit promote -PacketPath <candidate-review-packet> -CandidateDecisionPath <decisions.json> -VerifyCandidateDecision -FreshCaseRoot <fresh-case> -AttachedCaseRoot <attached-case> -WhatIf -Format json # accepted candidate 的 pack/fresh/attached doctor 与 cleanup/hash binding 只读验证；fresh/attached cases 必须预先 init/attach 且彼此不同
+/rekit promote -PacketPath <candidate-review-packet> -CandidateDecisionPath <decisions.json> -VerifyCandidateDecision -FreshCaseRoot <fresh-case> -AttachedCaseRoot <attached-case> -Apply -Format json # 复核同一 WhatIf 后只写 repo-local verification proof；幂等 replay，status/release-check 随后清除 pending verification
 /rekit plan-subagents -PacketPath <packet> -ReadyReviewerResults -Lane <lane> -Actor <actor> -WhatIf -Format json # planning packet / Mission Commander queue 提供的 packet-level 命令；按 packet 顺序预览所有已到位 reviewer results
 /rekit plan-subagents -PacketPath <packet> -ReadyReviewerResults -Lane <lane> -Actor <actor> -Apply -Format json # 主 Agent检查 batch preview 后显式执行；按 packet 顺序 strict intake，遇首个 blocked/partial/error 即停
 /rekit promote -Apply -WhatIf -Format text # 写回 pack 前预览 changed / blocked / write / next step

@@ -1053,11 +1053,11 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		t.Fatalf("status JSON with pack-memory candidates did not decode: %v\n%s", err, out.String())
 	}
 	candidates := status.ProjectHandoff.PackMemoryCandidates
-	if status.ProjectHandoff.Ready || candidates.Ready || candidates.Summary != "pack-memory candidate inventory has open review/cleanup work" || candidates.Total != 3 || len(candidates.Packs) != 1 || !strings.Contains(candidates.NextAction, "review listed pack-memory candidates") {
+	if status.ProjectHandoff.Ready || candidates.Ready || candidates.Summary != "pack-memory candidate inventory has open review/cleanup/verification work" || candidates.Total != 3 || len(candidates.Packs) != 1 || !strings.Contains(candidates.NextAction, "review listed pack-memory candidates or complete listed candidate decision verification") {
 		t.Fatalf("unexpected status pack-memory candidate handoff: %+v", status.ProjectHandoff)
 	}
 	pack := candidates.Packs[0]
-	if pack.Pack != "_template" || pack.CandidateRoot != "packs/_template/promote-candidates" || pack.ToolingRoot != "packs/_template/tooling/candidates" || pack.IndexPath != "packs/_template/promote-candidates/index.json" || pack.CandidateFiles != 1 || pack.ToolingFiles != 1 || pack.IndexEntries != 1 || !pack.RequiresReview || !pack.RequiresCleanup || !containsSubstring(pack.Evidence, "promote-candidates files=1") || !containsSubstring(pack.Boundary, "does not merge or delete") {
+	if pack.Pack != "_template" || pack.CandidateRoot != "packs/_template/promote-candidates" || pack.ToolingRoot != "packs/_template/tooling/candidates" || pack.IndexPath != "packs/_template/promote-candidates/index.json" || pack.CandidateFiles != 1 || pack.ToolingFiles != 1 || pack.IndexEntries != 1 || !pack.RequiresReview || !pack.RequiresCleanup || !containsSubstring(pack.Evidence, "promote-candidates files=1") || !containsSubstring(pack.Boundary, "does not merge, delete") {
 		t.Fatalf("unexpected status pack-memory candidate pack: %+v", pack)
 	}
 	if summary := pack.ReviewSummary; summary.Total != 3 || summary.CandidateFiles != 1 || summary.ToolingFiles != 1 || summary.IndexEntries != 1 || summary.DecisionArtifactCount != 2 || summary.CleanupArtifactCount != 2 || summary.ReconsumeArtifactCount != 4 || summary.ProofSummary.Total != 8 || summary.ProofSummary.Present != 1 || summary.ProofSummary.Missing != 7 || summary.ProofSummary.DecisionPresent != 1 || summary.ProofSummary.DecisionMissing != 1 || summary.ProofSummary.CleanupMissing != 2 || summary.ProofSummary.ReconsumeMissing != 4 || summary.ProofSummary.ProofProgress != "1/8" || summary.ProofSummary.CurrentStage != "decision-proof-required" || summary.ProofSummary.NextMissingProofType != "candidate-decision-note" || summary.ProofSummary.NextMissingProofPath != "packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md" || summary.ProofSummary.NextMissingCandidatePath != "packs/_template/tooling/candidates/batch501-tooling.candidate.md" || summary.ProofSummary.NextMissingPackTarget != "tooling/catalog.yml or tooling/recipes/*" || summary.ProofSummary.NextMissingProof == nil || summary.ProofSummary.NextMissingProof.ProofType != "candidate-decision-note" || summary.ProofSummary.NextMissingProof.Stage != "decision-proof-required" || !strings.Contains(summary.ProofSummary.NextMissingProof.Action, "selected decisionFollowThrough outcome") || !containsSubstring(summary.ProofSummary.NextMissingProof.Evidence, "decision note path/ref") || summary.ProofSummary.Complete || summary.ProofSummary.ProofRoot != "packs/_template/promote-candidates/review-artifacts" || !strings.Contains(summary.ProofSummary.NextAction, "candidate-decision-note") || !containsSubstring(summary.ProofSummary.Boundary, "read-only") || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || !containsSubstring(summary.Boundary, "reviewSummary is read-only") {
@@ -1069,8 +1069,8 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates",
-		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 review=true cleanup=true",
+		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup/verification work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates or complete listed candidate decision verification",
+		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 receipts=0 pendingVerification=0 completedVerification=0 review=true cleanup=true verification=false",
 		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4 proofTotal=8 proofPresent=1 proofMissing=7 proofProgress=1/8 proofStage=decision-proof-required nextMissingProofType=candidate-decision-note nextMissingProofPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md proofComplete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
 		"status pack-memory proof summary：pack=_template total=8 present=1 missing=7 progress=1/8 stage=decision-proof-required decisionPresent=1 decisionMissing=1 cleanupPresent=0 cleanupMissing=2 reconsumePresent=0 reconsumeMissing=4 nextMissingType=candidate-decision-note nextMissingPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingTarget=tooling/catalog.yml or tooling/recipes/* complete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
 		"status pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note path=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md candidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md packTarget=tooling/catalog.yml or tooling/recipes/*",
@@ -1085,7 +1085,7 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		"status pack-memory review artifact evidence：pack=_template name=candidate-decision-note evidence=selected decisionFollowThrough outcome",
 		"status pack-memory review artifact boundary：pack=_template name=candidate-cleanup-proof boundary=cleanup is limited to candidateRoot/toolingRoot and indexPath",
 		"status pack-memory candidate evidence：pack=_template evidence=promote-candidates files=1",
-		"status pack-memory candidate boundary：pack=_template boundary=release handoff only inventories pack-memory candidate residue; it does not merge or delete candidates",
+		"status pack-memory candidate boundary：pack=_template boundary=release handoff inventories candidate residue and durable decision verification receipts; it does not merge, delete, or validate cases",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status text missing pack-memory candidate handoff %q:\n%s", expected, out.String())
@@ -2644,7 +2644,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		"latestReviewerSession=installed-reviewer-session-1",
 		"status case mission reviewer dispatch intake summary：total=1 waitingForReviewerResult=1 readyForPreview=0",
 		"latestPacketNextOpen=shard-02",
-		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates",
+		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup/verification work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates or complete listed candidate decision verification",
 		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4",
 		"status pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note",
 	} {
@@ -7535,11 +7535,11 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 		t.Fatalf("unexpected nested status identity with pack-memory candidates: %+v", status)
 	}
 	candidates := status.ProjectHandoff.PackMemoryCandidates
-	if status.ProjectHandoff.Ready || candidates.Ready || candidates.Summary != "pack-memory candidate inventory has open review/cleanup work" || candidates.Total != 3 || len(candidates.Packs) != 1 || !strings.Contains(candidates.NextAction, "review listed pack-memory candidates") {
+	if status.ProjectHandoff.Ready || candidates.Ready || candidates.Summary != "pack-memory candidate inventory has open review/cleanup/verification work" || candidates.Total != 3 || len(candidates.Packs) != 1 || !strings.Contains(candidates.NextAction, "review listed pack-memory candidates or complete listed candidate decision verification") {
 		t.Fatalf("unexpected nested status pack-memory candidate handoff: %+v", status.ProjectHandoff)
 	}
 	pack := candidates.Packs[0]
-	if pack.Pack != "_template" || pack.CandidateRoot != "packs/_template/promote-candidates" || pack.ToolingRoot != "packs/_template/tooling/candidates" || pack.IndexPath != "packs/_template/promote-candidates/index.json" || pack.CandidateFiles != 1 || pack.ToolingFiles != 1 || pack.IndexEntries != 1 || !pack.RequiresReview || !pack.RequiresCleanup || !containsSubstring(pack.Evidence, "promote-candidates files=1") || !containsSubstring(pack.Boundary, "does not merge or delete") {
+	if pack.Pack != "_template" || pack.CandidateRoot != "packs/_template/promote-candidates" || pack.ToolingRoot != "packs/_template/tooling/candidates" || pack.IndexPath != "packs/_template/promote-candidates/index.json" || pack.CandidateFiles != 1 || pack.ToolingFiles != 1 || pack.IndexEntries != 1 || !pack.RequiresReview || !pack.RequiresCleanup || !containsSubstring(pack.Evidence, "promote-candidates files=1") || !containsSubstring(pack.Boundary, "does not merge, delete") {
 		t.Fatalf("unexpected nested status pack-memory candidate pack: %+v", pack)
 	}
 
@@ -7550,8 +7550,8 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 	for _, expected := range []string{
 		"status：mutation=false mode=case targetProvided=false pack=_template packSource=case-metadata",
 		"status project handoff：summary=release handoff summary has warnings ready=false",
-		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates",
-		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 review=true cleanup=true",
+		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup/verification work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates or complete listed candidate decision verification",
+		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 receipts=0 pendingVerification=0 completedVerification=0 review=true cleanup=true verification=false",
 		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4",
 		"status pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
 		"status pack-memory candidate path：pack=_template path=packs/_template/promote-candidates/",
@@ -7561,7 +7561,7 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 		"status pack-memory review artifact evidence：pack=_template name=candidate-decision-note evidence=selected decisionFollowThrough outcome",
 		"status pack-memory review artifact boundary：pack=_template name=candidate-cleanup-proof boundary=cleanup is limited to candidateRoot/toolingRoot and indexPath",
 		"status pack-memory candidate evidence：pack=_template evidence=promote-candidates files=1",
-		"status pack-memory candidate boundary：pack=_template boundary=release handoff only inventories pack-memory candidate residue; it does not merge or delete candidates",
+		"status pack-memory candidate boundary：pack=_template boundary=release handoff inventories candidate residue and durable decision verification receipts; it does not merge, delete, or validate cases",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("nested status text missing pack-memory handoff %q:\n%s", expected, out.String())
@@ -7578,7 +7578,7 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 	for _, expected := range []string{
 		"pack source: case-metadata",
 		"status project handoff：summary=release handoff summary has warnings ready=false",
-		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates",
+		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup/verification work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates or complete listed candidate decision verification",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("nested default status missing pack-memory handoff %q:\n%s", expected, out.String())
@@ -7816,6 +7816,35 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	}
 	if string(merged) != string(candidateBytes) {
 		t.Fatalf("candidate decision did not merge reviewed candidate: %q", string(merged))
+	}
+
+	freshCase := filepath.Join(t.TempDir(), "fresh-case")
+	attachedCase := filepath.Join(t.TempDir(), "attached-case")
+	for _, target := range []string{freshCase, attachedCase} {
+		out.Reset()
+		if err := Run([]string{"-Command", "init", "-Target", target, "-Pack", "_template", "-Apply", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var verification promote.CandidateDecisionVerificationResult
+	if err := json.Unmarshal(out.Bytes(), &verification); err != nil {
+		t.Fatal(err)
+	}
+	if verification.IsMutation || verification.Applied || !verification.Ready || verification.FreshDoctorRows == 0 || verification.AttachedDoctorRows == 0 {
+		t.Fatalf("unexpected candidate verification preview: %+v", verification)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-Apply", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"promote candidate verification：mutation=true applied=true ready=true", "freshDoctorRows=", "attachedDoctorRows=", "write authority/confirmed"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("candidate verification text omitted %q:\n%s", expected, out.String())
+		}
 	}
 }
 

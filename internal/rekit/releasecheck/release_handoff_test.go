@@ -1,6 +1,7 @@
 package releasecheck
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -282,7 +283,7 @@ func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "packs", "fixture", "promote-candidates", "review-artifacts", "candidate.candidate-decision-note.md"), "# decision\n")
 
 	inventory := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
-	if inventory.Ready || inventory.Summary != "pack-memory candidate inventory has open review/cleanup work" || inventory.Total != 3 || len(inventory.Packs) != 1 || !strings.Contains(inventory.NextAction, "review listed pack-memory candidates") || len(inventory.Warnings) == 0 {
+	if inventory.Ready || inventory.Summary != "pack-memory candidate inventory has open review/cleanup/verification work" || inventory.Total != 3 || len(inventory.Packs) != 1 || !strings.Contains(inventory.NextAction, "review listed pack-memory candidates") || len(inventory.Warnings) == 0 {
 		t.Fatalf("unexpected pack-memory candidate inventory: %+v", inventory)
 	}
 	pack := inventory.Packs[0]
@@ -309,8 +310,139 @@ func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
 			t.Fatalf("pack-memory candidate evidence missing %q: %+v", evidence, pack.Evidence)
 		}
 	}
-	if !releaseHandoffStringsContain(pack.Boundary, "does not merge or delete") || !releaseHandoffStringsContain(releaseHandoffPackMemoryCandidateDetails(inventory), "pack=fixture") {
+	if !releaseHandoffStringsContain(pack.Boundary, "does not merge, delete") || !releaseHandoffStringsContain(releaseHandoffPackMemoryCandidateDetails(inventory), "pack=fixture") {
 		t.Fatalf("pack-memory candidate handoff omitted boundary/detail: pack=%+v details=%+v", pack, releaseHandoffPackMemoryCandidateDetails(inventory))
+	}
+}
+
+func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing.T) {
+	repo := t.TempDir()
+	proofRoot := filepath.Join(repo, "packs", "fixture", "promote-candidates", "review-artifacts")
+	receiptPath := filepath.Join(proofRoot, "fixture.candidate-decision-receipt.json")
+	proofPath := filepath.Join(proofRoot, "fixture.candidate-verification-proof.json")
+	packetPath := filepath.Join(repo, "case", ".rekit", "reviews", "packet.json")
+	decisionPath := filepath.Join(repo, "case", ".rekit", "reviews", "decisions.json")
+	backupRoot := filepath.Join(repo, "packs", "fixture", "promote-candidates", ".decision-backup", "fixture")
+	writeFile(t, filepath.Join(backupRoot, "committed.json"), "{\"applied\":true}\n")
+	caseRoot := filepath.Join(repo, "case")
+	freshCaseRoot := filepath.Join(repo, "fresh-case")
+	attachedCaseRoot := filepath.Join(repo, "attached-case")
+	candidateRoot := filepath.Dir(proofRoot)
+	candidatePath := filepath.Join(candidateRoot, "memory.candidate.md")
+	candidateBackupPath := filepath.Join(backupRoot, "actions", "000", "candidate")
+	actions := []map[string]any{{
+		"candidatePath":       candidatePath,
+		"kind":                "managed-doc",
+		"decision":            "accept",
+		"packTarget":          filepath.Join(repo, "packs", "fixture", "memory.md"),
+		"action":              "replace pack target with reviewed candidate",
+		"candidateBackupPath": candidateBackupPath,
+		"evidenceRefs":        []string{},
+	}}
+	receipt := map[string]any{
+		"schemaVersion":         1,
+		"kind":                  "pack-memory-candidate-decision-receipt",
+		"pack":                  "fixture",
+		"repoRoot":              repo,
+		"caseRoot":              caseRoot,
+		"packetPath":            packetPath,
+		"decisionPath":          decisionPath,
+		"packetHash":            "packet-hash",
+		"decisionHash":          "decision-hash",
+		"backupRoot":            backupRoot,
+		"indexPath":             filepath.Join(candidateRoot, "index.json"),
+		"accepted":              1,
+		"rejected":              0,
+		"superseded":            0,
+		"actions":               actions,
+		"decisionEvidence":      []string{},
+		"receiptPath":           receiptPath,
+		"verificationPending":   true,
+		"verificationCommand":   "/rekit promote -VerifyCandidateDecision -FreshCaseRoot <fresh-case> -AttachedCaseRoot <attached-case> -WhatIf -Format json",
+		"verificationProofPath": proofPath,
+		"boundary":              []string{"fixture boundary"},
+	}
+	data, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, receiptPath, string(data)+"\n")
+
+	inventory := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if inventory.Ready || inventory.Total != 1 || len(inventory.Packs) != 1 {
+		t.Fatalf("pending candidate verification was not projected: %+v", inventory)
+	}
+	pack := inventory.Packs[0]
+	if pack.PendingVerifications != 1 || pack.CompletedVerifications != 0 || !pack.RequiresVerification || pack.RequiresReview || pack.RequiresCleanup || len(pack.DecisionReceipts) != 1 || pack.DecisionReceipts[0].VerificationComplete || !strings.Contains(pack.DecisionReceipts[0].VerificationCommand, "-FreshCaseRoot") {
+		t.Fatalf("pending candidate verification handoff drifted: %+v", pack)
+	}
+
+	proof := map[string]any{
+		"schemaVersion":         1,
+		"kind":                  "pack-memory-candidate-decision-verification",
+		"pack":                  "fixture",
+		"caseRoot":              caseRoot,
+		"freshCaseRoot":         freshCaseRoot,
+		"attachedCaseRoot":      attachedCaseRoot,
+		"packetHash":            "packet-hash",
+		"decisionHash":          "decision-hash",
+		"receiptHash":           sha256ReleaseHandoff(append(data, '\n')),
+		"receiptPath":           receiptPath,
+		"verificationProofPath": proofPath,
+		"isMutation":            true,
+		"applied":               true,
+		"ready":                 true,
+		"packDoctorRows":        1,
+		"freshDoctorRows":       1,
+		"attachedDoctorRows":    1,
+		"verifiedActions":       actions,
+		"nextSteps":             []string{"rerun release-check"},
+		"boundary":              []string{"fixture boundary"},
+	}
+	assertProofRejected := func(name, content string) {
+		t.Helper()
+		writeFile(t, proofPath, content)
+		invalid := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+		if invalid.Ready || invalid.Summary != "pack-memory candidate inventory has warnings" || len(invalid.Warnings) == 0 {
+			t.Fatalf("%s verification proof was not rejected: %+v", name, invalid)
+		}
+	}
+	assertProofRejected("malformed", "{\"ready\":true}\n")
+	proof["packetHash"] = "wrong-packet-hash"
+	wrongHashData, err := json.MarshalIndent(proof, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertProofRejected("wrong hash", string(wrongHashData)+"\n")
+	proof["packetHash"] = "packet-hash"
+	proof["receiptPath"] = filepath.Join(proofRoot, "wrong-receipt.json")
+	wrongReceiptData, err := json.MarshalIndent(proof, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertProofRejected("wrong receipt", string(wrongReceiptData)+"\n")
+	proof["receiptPath"] = receiptPath
+	proof["verifiedActions"] = []map[string]any{{
+		"candidatePath": candidatePath,
+		"kind":          "managed-doc",
+		"decision":      "reject",
+		"action":        "reject candidate",
+		"evidenceRefs":  []string{},
+	}}
+	wrongActionsData, err := json.MarshalIndent(proof, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertProofRejected("wrong actions", string(wrongActionsData)+"\n")
+	proof["verifiedActions"] = actions
+	proofData, err := json.MarshalIndent(proof, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, proofPath, string(proofData)+"\n")
+	completed := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if !completed.Ready || completed.Total != 0 || len(completed.Packs) != 0 {
+		t.Fatalf("completed candidate verification still blocks handoff: %+v", completed)
 	}
 }
 
