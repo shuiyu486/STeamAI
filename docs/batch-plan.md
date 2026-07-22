@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 546：canonical adapter sidecar live Mission Commander closure
 
-状态：已完成 implementation、focused/package validation、独立审查修复、完整本地 release minimum 与文档更新；implementation commit/push 与远程 release inspection 待完成。
+状态：已完成 implementation、focused/package validation、独立审查修复、完整本地 release minimum、implementation commits/push 与远程 release-gate inspection；最终 implementation commit `7038f04 Align recorded adapter handoff state` 已推送。对应 run `29964742726` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。
 
 目标：关闭 adapter sidecar已写入canonical/default path后，replacement executor仍需显式运行另一条validation命令并手工判断是否可record、是否已record的operational断点。让只读`status`、`handoff`与`continue`自动复用strict validation，投影missing / invalid repair / valid record-ready / exact evidence already-recorded状态，同时保持record显式、无adapter/heavy replay。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：live projection只读取并strict validate已存在canonical sidecar；不执行adapter/heavy-tool、不自动record observation、不写authority/confirmed。record仍要求主Agent复核`valid=true`后显式执行`gate -Apply ... -Actor ...`；不新增PowerShell runtime logic。
 
-验证结果：focused gate identity/symlink/malformed-arrival/recorded-boundary tests、`go test ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -count=1`、三轮独立审查及其record/replay suppression、record-ready queue replacement、recorded main-escalation preservation、malformed presence、text repair handoff修复均通过；完整本地release minimum已通过`release-check -Format json`（`ready=true`）、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`与`git diff --check`。implementation commit `fb1bd07 Close adapter sidecar live handoff` 已推送；因终审后追加一致性修复，最终amend-style follow-up commit与release inspection尚待完成。
+验证结果：focused gate identity/symlink/malformed-arrival/recorded-boundary tests、`go test ./internal/rekit/gate ./internal/rekit/workstream ./internal/rekit/overview ./internal/rekit/cli -count=1`、三轮独立审查及其record/replay suppression、record-ready queue replacement、recorded main-escalation preservation、malformed presence、text repair handoff修复均通过；完整本地release minimum已通过`release-check -Format json`（`ready=true`）、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`与`git diff --check`。implementation commits `fb1bd07 Close adapter sidecar live handoff`、`7038f04 Align recorded adapter handoff state` 已推送；最终implementation run `29964742726` 的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
 上一批摘要：Batch 545已完成terminal decision receipt attestation，implementation commit `a7681b4 Attest terminal candidate decisions` 与 release inspection commit `482e19f Record Batch 545 release gate inspection` 已推送；implementation run `29961478940` 的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
