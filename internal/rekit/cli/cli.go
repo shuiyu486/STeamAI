@@ -1436,35 +1436,36 @@ type statusOpenDecisionHandoff struct {
 }
 
 type statusCaseMission struct {
-	Ready                         bool                                     `json:"ready"`
-	Summary                       string                                   `json:"summary"`
-	LaneCount                     int                                      `json:"laneCount"`
-	ReadyLaneCount                int                                      `json:"readyLaneCount"`
-	BlockedLaneCount              int                                      `json:"blockedLaneCount"`
-	ReadyLanes                    []string                                 `json:"readyLanes,omitempty"`
-	BlockedLanes                  []string                                 `json:"blockedLanes,omitempty"`
-	LaneExecutorActions           []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions,omitempty"`
-	PendingGates                  []string                                 `json:"pendingGates,omitempty"`
-	PendingGateHandoffs           []statusPendingGateHandoff               `json:"pendingGateHandoffs,omitempty"`
-	AuthorizedGates               []string                                 `json:"authorizedGates,omitempty"`
-	AuthorizedGateHandoffs        []statusAuthorizedGateHandoff            `json:"authorizedGateHandoffs,omitempty"`
-	OpenDecisions                 []string                                 `json:"openDecisions,omitempty"`
-	OpenDecisionHandoffs          []statusOpenDecisionHandoff              `json:"openDecisionHandoffs,omitempty"`
-	Interventions                 []string                                 `json:"interventions,omitempty"`
-	InterventionHandoffs          []statusInterventionHandoff              `json:"interventionHandoffs,omitempty"`
-	FactCounts                    *overview.FactCounts                     `json:"factCounts,omitempty"`
-	Sections                      *overview.OverviewSections               `json:"sections,omitempty"`
-	ReviewerWritebacks            []workstream.ReviewerWritebackItem       `json:"reviewerWritebacks,omitempty"`
-	ReviewerWritebackSummary      workstream.ReviewerWritebackSummary      `json:"reviewerWritebackSummary"`
-	ExecutionEvidenceReviewCount  int                                      `json:"executionEvidenceReviewCount"`
-	ExecutionEvidenceReview       []workstream.ExecutionEvidenceReviewItem `json:"executionEvidenceReview,omitempty"`
-	MissionCommanderActionQueue   mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	MissionCommanderNextActions   []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions"`
-	MissionBriefNextActions       []string                                 `json:"missionBriefNextActions"`
-	Escalations                   []string                                 `json:"escalations"`
-	HandoffPreviewCommand         string                                   `json:"handoffPreviewCommand"`
-	HandoffApplyCommand           string                                   `json:"handoffApplyCommand"`
-	ContinueRequiresExplicitApply string                                   `json:"continueRequiresExplicitApply"`
+	Ready                          bool                                      `json:"ready"`
+	Summary                        string                                    `json:"summary"`
+	LaneCount                      int                                       `json:"laneCount"`
+	ReadyLaneCount                 int                                       `json:"readyLaneCount"`
+	BlockedLaneCount               int                                       `json:"blockedLaneCount"`
+	ReadyLanes                     []string                                  `json:"readyLanes,omitempty"`
+	BlockedLanes                   []string                                  `json:"blockedLanes,omitempty"`
+	LaneExecutorActions            []mission.LaneExecutorActionSnapshot      `json:"laneExecutorActions,omitempty"`
+	PendingGates                   []string                                  `json:"pendingGates,omitempty"`
+	PendingGateHandoffs            []statusPendingGateHandoff                `json:"pendingGateHandoffs,omitempty"`
+	AuthorizedGates                []string                                  `json:"authorizedGates,omitempty"`
+	AuthorizedGateHandoffs         []statusAuthorizedGateHandoff             `json:"authorizedGateHandoffs,omitempty"`
+	OpenDecisions                  []string                                  `json:"openDecisions,omitempty"`
+	OpenDecisionHandoffs           []statusOpenDecisionHandoff               `json:"openDecisionHandoffs,omitempty"`
+	Interventions                  []string                                  `json:"interventions,omitempty"`
+	InterventionHandoffs           []statusInterventionHandoff               `json:"interventionHandoffs,omitempty"`
+	FactCounts                     *overview.FactCounts                      `json:"factCounts,omitempty"`
+	Sections                       *overview.OverviewSections                `json:"sections,omitempty"`
+	ReviewerWritebacks             []workstream.ReviewerWritebackItem        `json:"reviewerWritebacks,omitempty"`
+	ReviewerWritebackSummary       workstream.ReviewerWritebackSummary       `json:"reviewerWritebackSummary"`
+	ExecutionEvidenceReviewCount   int                                       `json:"executionEvidenceReviewCount"`
+	ExecutionEvidenceReview        []workstream.ExecutionEvidenceReviewItem  `json:"executionEvidenceReview,omitempty"`
+	ExecutionEvidenceReviewSummary workstream.ExecutionEvidenceReviewSummary `json:"executionEvidenceReviewSummary"`
+	MissionCommanderActionQueue    mission.MissionCommanderActionQueue       `json:"missionCommanderActionQueue"`
+	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem  `json:"missionCommanderNextActions"`
+	MissionBriefNextActions        []string                                  `json:"missionBriefNextActions"`
+	Escalations                    []string                                  `json:"escalations"`
+	HandoffPreviewCommand          string                                    `json:"handoffPreviewCommand"`
+	HandoffApplyCommand            string                                    `json:"handoffApplyCommand"`
+	ContinueRequiresExplicitApply  string                                    `json:"continueRequiresExplicitApply"`
 }
 
 func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -1747,6 +1748,9 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 		}
 	}
 	if err := writeStatusCaseMissionReviewerWritebackText(out, summary.ReviewerWritebacks); err != nil {
+		return err
+	}
+	if err := writeExecutionEvidenceReviewSummaryText(out, "status case mission evidence", summary.ExecutionEvidenceReviewSummary); err != nil {
 		return err
 	}
 	for _, action := range summary.MissionCommanderNextActions {
@@ -2287,35 +2291,36 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 	}
 	reviewerWritebacks := workstream.ReviewerWritebackItems(ledgerFacts, "")
 	return &statusCaseMission{
-		Ready:                         inventory.MissionCommanderActionQueue.CurrentAction != nil && inventory.MissionCommanderActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
-		Summary:                       inventory.MissionBrief.Summary,
-		LaneCount:                     len(inventory.Lanes),
-		ReadyLaneCount:                len(inventory.MissionBrief.ReadyLanes),
-		BlockedLaneCount:              len(inventory.MissionBrief.BlockedLanes),
-		ReadyLanes:                    append([]string{}, inventory.MissionBrief.ReadyLanes...),
-		BlockedLanes:                  append([]string{}, inventory.MissionBrief.BlockedLanes...),
-		PendingGates:                  append([]string{}, inventory.MissionBrief.PendingGates...),
-		PendingGateHandoffs:           statusPendingGateHandoffs(caseRoot, pack, inventory.Sections.PendingGates.Events),
-		AuthorizedGates:               append([]string{}, inventory.MissionBrief.AuthorizedGates...),
-		AuthorizedGateHandoffs:        statusAuthorizedGateHandoffs(caseRoot, pack, inventory.Sections.AuthorizedGates.Events),
-		OpenDecisions:                 append([]string{}, inventory.MissionBrief.OpenDecisions...),
-		OpenDecisionHandoffs:          statusOpenDecisionHandoffs(caseRoot, pack, ledgerFacts.Facts),
-		Interventions:                 append([]string{}, inventory.MissionBrief.Interventions...),
-		InterventionHandoffs:          statusInterventionHandoffs(caseRoot, pack, inventory.Sections.OpenInterventions.Events),
-		LaneExecutorActions:           append([]mission.LaneExecutorActionSnapshot{}, inventory.LaneExecutorActions...),
-		FactCounts:                    &inventory.Counts,
-		Sections:                      &inventory.Sections,
-		ReviewerWritebacks:            reviewerWritebacks,
-		ReviewerWritebackSummary:      workstream.ReviewerWritebackSummaryFor(reviewerWritebacks),
-		ExecutionEvidenceReviewCount:  len(inventory.ExecutionEvidenceReview),
-		ExecutionEvidenceReview:       append([]workstream.ExecutionEvidenceReviewItem{}, inventory.ExecutionEvidenceReview...),
-		MissionCommanderActionQueue:   inventory.MissionCommanderActionQueue,
-		MissionCommanderNextActions:   append([]mission.MissionCommanderNextActionItem{}, inventory.MissionCommanderNextActions...),
-		MissionBriefNextActions:       append([]string{}, inventory.MissionBrief.NextAgentActions...),
-		Escalations:                   append([]string{}, inventory.MissionBrief.Escalations...),
-		HandoffPreviewCommand:         previewCommand,
-		HandoffApplyCommand:           applyCommand,
-		ContinueRequiresExplicitApply: continueBoundary,
+		Ready:                          inventory.MissionCommanderActionQueue.CurrentAction != nil && inventory.MissionCommanderActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
+		Summary:                        inventory.MissionBrief.Summary,
+		LaneCount:                      len(inventory.Lanes),
+		ReadyLaneCount:                 len(inventory.MissionBrief.ReadyLanes),
+		BlockedLaneCount:               len(inventory.MissionBrief.BlockedLanes),
+		ReadyLanes:                     append([]string{}, inventory.MissionBrief.ReadyLanes...),
+		BlockedLanes:                   append([]string{}, inventory.MissionBrief.BlockedLanes...),
+		PendingGates:                   append([]string{}, inventory.MissionBrief.PendingGates...),
+		PendingGateHandoffs:            statusPendingGateHandoffs(caseRoot, pack, inventory.Sections.PendingGates.Events),
+		AuthorizedGates:                append([]string{}, inventory.MissionBrief.AuthorizedGates...),
+		AuthorizedGateHandoffs:         statusAuthorizedGateHandoffs(caseRoot, pack, inventory.Sections.AuthorizedGates.Events),
+		OpenDecisions:                  append([]string{}, inventory.MissionBrief.OpenDecisions...),
+		OpenDecisionHandoffs:           statusOpenDecisionHandoffs(caseRoot, pack, ledgerFacts.Facts),
+		Interventions:                  append([]string{}, inventory.MissionBrief.Interventions...),
+		InterventionHandoffs:           statusInterventionHandoffs(caseRoot, pack, inventory.Sections.OpenInterventions.Events),
+		LaneExecutorActions:            append([]mission.LaneExecutorActionSnapshot{}, inventory.LaneExecutorActions...),
+		FactCounts:                     &inventory.Counts,
+		Sections:                       &inventory.Sections,
+		ReviewerWritebacks:             reviewerWritebacks,
+		ReviewerWritebackSummary:       workstream.ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ExecutionEvidenceReviewCount:   len(inventory.ExecutionEvidenceReview),
+		ExecutionEvidenceReview:        append([]workstream.ExecutionEvidenceReviewItem{}, inventory.ExecutionEvidenceReview...),
+		ExecutionEvidenceReviewSummary: inventory.ExecutionEvidenceReviewSummary,
+		MissionCommanderActionQueue:    inventory.MissionCommanderActionQueue,
+		MissionCommanderNextActions:    append([]mission.MissionCommanderNextActionItem{}, inventory.MissionCommanderNextActions...),
+		MissionBriefNextActions:        append([]string{}, inventory.MissionBrief.NextAgentActions...),
+		Escalations:                    append([]string{}, inventory.MissionBrief.Escalations...),
+		HandoffPreviewCommand:          previewCommand,
+		HandoffApplyCommand:            applyCommand,
+		ContinueRequiresExplicitApply:  continueBoundary,
 	}, nil
 }
 
@@ -3197,7 +3202,7 @@ func writeOverviewText(out io.Writer, result overview.Inventory) error {
 	if err := writeOverviewMissionCommanderNextActionsText(out, result.MissionCommanderNextActions); err != nil {
 		return err
 	}
-	if err := writeOverviewExecutionEvidenceReviewText(out, result.ExecutionEvidenceReview); err != nil {
+	if err := writeOverviewExecutionEvidenceReviewText(out, result.ExecutionEvidenceReview, result.ExecutionEvidenceReviewSummary); err != nil {
 		return err
 	}
 	if err := writeOverviewSectionsText(out, result.Sections); err != nil {
@@ -3290,8 +3295,11 @@ func writeOverviewMissionCommanderNextActionsText(out io.Writer, items []overvie
 	return nil
 }
 
-func writeOverviewExecutionEvidenceReviewText(out io.Writer, items []workstream.ExecutionEvidenceReviewItem) error {
+func writeOverviewExecutionEvidenceReviewText(out io.Writer, items []workstream.ExecutionEvidenceReviewItem, summary workstream.ExecutionEvidenceReviewSummary) error {
 	if _, err := fmt.Fprintf(out, "overview execution evidence review：items=%d\n", len(items)); err != nil {
+		return err
+	}
+	if err := writeExecutionEvidenceReviewSummaryText(out, "overview execution evidence", summary); err != nil {
 		return err
 	}
 	for _, item := range items {
@@ -4075,7 +4083,7 @@ func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 			return err
 		}
 	}
-	if err := writeHandoffExecutionEvidenceReviewText(out, result.ExecutionEvidenceReview); err != nil {
+	if err := writeHandoffExecutionEvidenceReviewText(out, result.ExecutionEvidenceReview, result.ExecutionEvidenceReviewSummary); err != nil {
 		return err
 	}
 	if err := writeReviewerWritebackText(out, "handoff", result.ReviewerWritebacks); err != nil {
@@ -4087,8 +4095,8 @@ func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
-func writeHandoffExecutionEvidenceReviewText(out io.Writer, items []workstream.ExecutionEvidenceReviewItem) error {
-	return writeExecutionEvidenceReviewText(out, "handoff execution evidence", items)
+func writeHandoffExecutionEvidenceReviewText(out io.Writer, items []workstream.ExecutionEvidenceReviewItem, summary workstream.ExecutionEvidenceReviewSummary) error {
+	return writeExecutionEvidenceReviewText(out, "handoff execution evidence", items, summary)
 }
 
 func writeReviewerWritebackSummaryText(out io.Writer, prefix string, summary workstream.ReviewerWritebackSummary) error {
@@ -4203,7 +4211,40 @@ func writeExecutionEvidenceReportDetailText(out io.Writer, prefix, eventID strin
 	return nil
 }
 
-func writeExecutionEvidenceReviewText(out io.Writer, prefix string, items []workstream.ExecutionEvidenceReviewItem) error {
+func writeExecutionEvidenceReviewSummaryText(out io.Writer, prefix string, summary workstream.ExecutionEvidenceReviewSummary) error {
+	if summary.Total == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s review summary：total=%d readyForReview=%d mainEscalations=%d duplicates=%d outputRefs=%d evidenceRefs=%d boundaryHits=%d hasEscalation=%t hasExecutionReport=%t hasAdapter=%t latestEventId=%s latestGateEventId=%s latestStatus=%s latestAction=%s latestTarget=%s latestReview=%s latestHandoff=%s latestCommanderState=%s latestCommanderPrimary=%s latestReport=%s latestAdapterId=%s latestAdapterStatus=%s outcomes=%d followThrough=%s nextActions=%d reviewRequiredActions=%d currentAction=%s\n", prefix, summary.Total, summary.ReadyForReviewCount, summary.MainEscalationCount, summary.DuplicateCount, summary.OutputRefCount, summary.EvidenceRefCount, summary.BoundaryHitCount, summary.HasEscalation, summary.HasExecutionReport, summary.HasAdapter, summary.LatestEventID, summary.LatestGateEventID, summary.LatestStatus, summary.LatestAction, summary.LatestTarget, summary.LatestReviewCommand, summary.LatestHandoffCommand, summary.LatestCommanderState, summary.LatestCommanderPrimary, summary.LatestExecutionReportPath, summary.LatestAdapterID, summary.LatestAdapterStatus, summary.OutcomeCount, summary.FollowThroughState, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction); err != nil {
+		return err
+	}
+	if strings.TrimSpace(summary.ActionQueueSummary) != "" {
+		if _, err := fmt.Fprintf(out, "%s review summary action queue：%s\n", prefix, summary.ActionQueueSummary); err != nil {
+			return err
+		}
+	}
+	for _, hit := range summary.LatestBoundaryHits {
+		if _, err := fmt.Fprintf(out, "%s review summary latest boundary hit：%s\n", prefix, hit); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(summary.LatestEscalation) != "" {
+		if _, err := fmt.Fprintf(out, "%s review summary latest escalation：%s\n", prefix, summary.LatestEscalation); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range summary.Boundary {
+		if _, err := fmt.Fprintf(out, "%s review summary boundary：%s\n", prefix, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeExecutionEvidenceReviewText(out io.Writer, prefix string, items []workstream.ExecutionEvidenceReviewItem, summary workstream.ExecutionEvidenceReviewSummary) error {
+	if err := writeExecutionEvidenceReviewSummaryText(out, prefix, summary); err != nil {
+		return err
+	}
 	for _, item := range items {
 		if _, err := fmt.Fprintf(out, "%s review：eventId=%s gateEventId=%s status=%s action=%s target=%s subject=%s summary=%s review=%s handoff=%s commanderState=%s commanderPrimary=%s\n", prefix, item.EventID, item.GateEventID, item.Status, item.Action, item.Target, item.Subject, item.Summary, item.ReviewCommand, item.HandoffCommand, item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand); err != nil {
 			return err
@@ -4314,7 +4355,7 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 		if err := writeExecutorNextActionsText(out, result.ExecutorAction); err != nil {
 			return err
 		}
-		if err := writeExecutionEvidenceReviewText(out, "continue execution evidence", result.ExecutionEvidenceReview); err != nil {
+		if err := writeExecutionEvidenceReviewText(out, "continue execution evidence", result.ExecutionEvidenceReview, result.ExecutionEvidenceReviewSummary); err != nil {
 			return err
 		}
 		if err := writeReviewerWritebackText(out, "continue", result.ReviewerWritebacks); err != nil {
@@ -4341,7 +4382,7 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 	if _, err := fmt.Fprintf(out, "接续提示：%s\n", resume); err != nil {
 		return err
 	}
-	if err := writeExecutionEvidenceReviewText(out, "continue execution evidence", result.ExecutionEvidenceReview); err != nil {
+	if err := writeExecutionEvidenceReviewText(out, "continue execution evidence", result.ExecutionEvidenceReview, result.ExecutionEvidenceReviewSummary); err != nil {
 		return err
 	}
 	if err := writeReviewerWritebackText(out, "continue", result.ReviewerWritebacks); err != nil {
@@ -5587,6 +5628,9 @@ func writeGateApplyText(out io.Writer, result gate.ApplyResult) error {
 			return err
 		}
 		if err := writeGateExecutionEvidenceDetailText(out, *result.ExecutionEvidence); err != nil {
+			return err
+		}
+		if err := writeExecutionEvidenceReviewSummaryText(out, "gate execution evidence", result.ExecutionEvidenceReviewSummary); err != nil {
 			return err
 		}
 		if err := writeAuthorizedExecutionFollowThroughText(out, "execution evidence", result.AuthorizedExecutionFollowThrough); err != nil {

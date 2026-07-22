@@ -22,23 +22,24 @@ const maxRows = 10
 type event = map[string]any
 
 type Inventory struct {
-	SchemaVersion               int                                      `json:"schemaVersion"`
-	Command                     string                                   `json:"command"`
-	CaseRoot                    string                                   `json:"caseRoot"`
-	RepoRoot                    string                                   `json:"repoRoot"`
-	Pack                        string                                   `json:"pack"`
-	IsMutation                  bool                                     `json:"isMutation"`
-	AutomationMode              string                                   `json:"automationMode"`
-	Lanes                       []LaneSummary                            `json:"lanes"`
-	Counts                      FactCounts                               `json:"counts"`
-	MissionBrief                MissionBrief                             `json:"missionBrief"`
-	LaneExecutorActions         []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions"`
-	MissionCommanderActions     []MissionCommanderActionIndexItem        `json:"missionCommanderActions"`
-	MissionCommanderNextActions []MissionCommanderNextActionItem         `json:"missionCommanderNextActions"`
-	MissionCommanderActionQueue MissionCommanderActionQueue              `json:"missionCommanderActionQueue"`
-	ExecutionEvidenceReview     []workstream.ExecutionEvidenceReviewItem `json:"executionEvidenceReview"`
-	Sections                    OverviewSections                         `json:"sections"`
-	NextSteps                   []string                                 `json:"nextSteps"`
+	SchemaVersion                  int                                       `json:"schemaVersion"`
+	Command                        string                                    `json:"command"`
+	CaseRoot                       string                                    `json:"caseRoot"`
+	RepoRoot                       string                                    `json:"repoRoot"`
+	Pack                           string                                    `json:"pack"`
+	IsMutation                     bool                                      `json:"isMutation"`
+	AutomationMode                 string                                    `json:"automationMode"`
+	Lanes                          []LaneSummary                             `json:"lanes"`
+	Counts                         FactCounts                                `json:"counts"`
+	MissionBrief                   MissionBrief                              `json:"missionBrief"`
+	LaneExecutorActions            []mission.LaneExecutorActionSnapshot      `json:"laneExecutorActions"`
+	MissionCommanderActions        []MissionCommanderActionIndexItem         `json:"missionCommanderActions"`
+	MissionCommanderNextActions    []MissionCommanderNextActionItem          `json:"missionCommanderNextActions"`
+	MissionCommanderActionQueue    MissionCommanderActionQueue               `json:"missionCommanderActionQueue"`
+	ExecutionEvidenceReview        []workstream.ExecutionEvidenceReviewItem  `json:"executionEvidenceReview"`
+	ExecutionEvidenceReviewSummary workstream.ExecutionEvidenceReviewSummary `json:"executionEvidenceReviewSummary"`
+	Sections                       OverviewSections                          `json:"sections"`
+	NextSteps                      []string                                  `json:"nextSteps"`
 }
 
 type LaneSummary struct {
@@ -178,7 +179,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	writeMissionCommanderActionIndex(&out, missionCommanderActionIndex(actions))
 	writeMissionCommanderActionQueue(&out, actionQueue)
 	writeMissionCommanderNextActions(&out, nextActions)
-	writeExecutionEvidenceReview(&out, evidenceReview)
+	writeExecutionEvidenceReview(&out, evidenceReview, workstream.ExecutionEvidenceReviewSummaryFor(evidenceReview, actionQueue))
 	writeOpenCandidates(&out, facts.Candidates)
 	writePendingGates(&out, facts.Requests)
 	writeAuthorizedGates(&out, facts.Requests)
@@ -226,6 +227,7 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
 	evidenceReview := overviewExecutionEvidenceReview(data.lanes, facts)
 	nextActions := missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief))
+	actionQueue := missionCommanderActionQueue(nextActions)
 	return Inventory{
 		SchemaVersion:  1,
 		Command:        "overview",
@@ -242,14 +244,15 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 			Publications:     len(facts.Publications),
 			PendingDecisions: data.pending,
 		},
-		MissionBrief:                brief,
-		LaneExecutorActions:         actions,
-		MissionCommanderActions:     missionCommanderActionIndex(actions),
-		MissionCommanderNextActions: nextActions,
-		MissionCommanderActionQueue: missionCommanderActionQueue(nextActions),
-		ExecutionEvidenceReview:     evidenceReview,
-		Sections:                    data.sections,
-		NextSteps:                   overviewNextSteps(brief, evidenceReview),
+		MissionBrief:                   brief,
+		LaneExecutorActions:            actions,
+		MissionCommanderActions:        missionCommanderActionIndex(actions),
+		MissionCommanderNextActions:    nextActions,
+		MissionCommanderActionQueue:    actionQueue,
+		ExecutionEvidenceReview:        evidenceReview,
+		ExecutionEvidenceReviewSummary: workstream.ExecutionEvidenceReviewSummaryFor(evidenceReview, actionQueue),
+		Sections:                       data.sections,
+		NextSteps:                      overviewNextSteps(brief, evidenceReview),
 	}, nil
 }
 
@@ -466,13 +469,14 @@ func writeMissionCommanderActionQueue(out *bytes.Buffer, queue MissionCommanderA
 	fmt.Fprintln(out)
 }
 
-func writeExecutionEvidenceReview(out *bytes.Buffer, items []workstream.ExecutionEvidenceReviewItem) {
+func writeExecutionEvidenceReview(out *bytes.Buffer, items []workstream.ExecutionEvidenceReviewItem, summary workstream.ExecutionEvidenceReviewSummary) {
 	fmt.Fprintln(out, "Execution evidence review：")
 	if len(items) == 0 {
 		fmt.Fprintln(out, "- none")
 		fmt.Fprintln(out)
 		return
 	}
+	writeExecutionEvidenceReviewSummary(out, summary)
 	for _, item := range items {
 		fmt.Fprintf(out, "- %s：status=%s gateEventId=%s action=%s laneHandoff=`%s`\n", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, firstText(item.Action, "none"), item.HandoffCommand)
 		if refs := strings.Join(item.OutputRefs, ","); refs != "" {
@@ -488,6 +492,20 @@ func writeExecutionEvidenceReview(out *bytes.Buffer, items []workstream.Executio
 		writeActionIndexList(out, "boundary", item.Boundary)
 	}
 	fmt.Fprintln(out)
+}
+
+func writeExecutionEvidenceReviewSummary(out *bytes.Buffer, summary workstream.ExecutionEvidenceReviewSummary) {
+	if summary.Total == 0 {
+		return
+	}
+	fmt.Fprintf(out, "- summary: total=%d readyForReview=%d mainEscalations=%d duplicates=%d outputRefs=%d evidenceRefs=%d boundaryHits=%d latestEventId=%s gateEventId=%s status=%s action=%s\n", summary.Total, summary.ReadyForReviewCount, summary.MainEscalationCount, summary.DuplicateCount, summary.OutputRefCount, summary.EvidenceRefCount, summary.BoundaryHitCount, summary.LatestEventID, summary.LatestGateEventID, summary.LatestStatus, firstText(summary.LatestAction, "none"))
+	if strings.TrimSpace(summary.CurrentAction) != "" {
+		fmt.Fprintf(out, "  - summary current action: `%s`\n", summary.CurrentAction)
+	}
+	if strings.TrimSpace(summary.ActionQueueSummary) != "" {
+		fmt.Fprintf(out, "  - summary action queue: %s\n", summary.ActionQueueSummary)
+	}
+	writeActionIndexList(out, "summary boundary", summary.Boundary)
 }
 
 func writeExecutionEvidenceFollowThrough(out *bytes.Buffer, follow mission.ExecutionEvidenceFollowThrough) {

@@ -900,6 +900,7 @@ type ApplyResult struct {
 	ExecutorAction                   mission.ExecutorAction                   `json:"executorAction"`
 	MissionCommanderAction           mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	ExecutionEvidenceReview          []mission.ExecutionEvidenceReviewItem    `json:"executionEvidenceReview,omitempty"`
+	ExecutionEvidenceReviewSummary   mission.ExecutionEvidenceReviewSummary   `json:"executionEvidenceReviewSummary"`
 	AuthorizedExecutionFollowThrough AuthorizedExecutionFollowThrough         `json:"authorizedExecutionFollowThrough"`
 	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
@@ -1080,6 +1081,7 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 		result.ExecutionEvidenceReview = gateDuplicateExecutionEvidenceReviewFromObservation(execution, result.MissionCommanderAction)
 		result.MissionCommanderNextActions = gateMissionCommanderNextActions(execution.Lane, mission.ExecutorAction{}, result.ExecutionEvidenceReview)
 		result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+		result.ExecutionEvidenceReviewSummary = mission.ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
 		result.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, result.MissionCommanderAction.State, execution.Execution.ExecutionReportPath, result.MissionCommanderAction, result.MissionCommanderNextActions, nil, false, true)
 		result.Reason = "duplicate eventId"
 		return result, nil
@@ -1094,6 +1096,7 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 	result.ExecutionEvidenceReview = gateExecutionEvidenceReviewFromObservation(execution)
 	result.MissionCommanderNextActions = gateMissionCommanderNextActions(execution.Lane, result.ExecutorAction, result.ExecutionEvidenceReview)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	result.ExecutionEvidenceReviewSummary = mission.ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
 	result.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, result.MissionCommanderAction.State, execution.Execution.ExecutionReportPath, result.MissionCommanderAction, result.MissionCommanderNextActions, nil, true, false)
 	return result, nil
 }

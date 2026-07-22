@@ -420,6 +420,9 @@ func TestRecordExecutionWritesObservationForAuthorizedGate(t *testing.T) {
 		t.Fatalf("execution evidence next steps omitted handoff/review guidance: %+v", result.NextSteps)
 	}
 	assertGateActionQueue(t, result.MissionCommanderActionQueue, 5, 5, 0, 3, 3, "/rekit handoff main")
+	if result.ExecutionEvidenceReviewSummary.Total != 1 || result.ExecutionEvidenceReviewSummary.ReadyForReviewCount != 1 || result.ExecutionEvidenceReviewSummary.MainEscalationCount != 0 || result.ExecutionEvidenceReviewSummary.OutputRefCount != 1 || result.ExecutionEvidenceReviewSummary.EvidenceRefCount != 1 || result.ExecutionEvidenceReviewSummary.LatestGateEventID != authorized.EventID || result.ExecutionEvidenceReviewSummary.LatestStatus != "succeeded" || result.ExecutionEvidenceReviewSummary.CurrentAction != "/rekit handoff main" || result.ExecutionEvidenceReviewSummary.NextActionCount != 5 || result.ExecutionEvidenceReviewSummary.ReviewRequiredActionCount != 3 || !gateContainsSubstring(result.ExecutionEvidenceReviewSummary.Boundary, "summary is read-only") || !gateContainsSubstring(result.ExecutionEvidenceReviewSummary.Boundary, "no authority/confirmed") {
+		t.Fatalf("execution evidence review summary omitted compact handoff: %+v", result.ExecutionEvidenceReviewSummary)
+	}
 	if len(result.ExecutionEvidenceReview) != 1 || result.ExecutionEvidenceReview[0].FollowThrough.State != "ready-for-evidence-review" || !executionEvidenceFollowThroughContainsForTest(result.ExecutionEvidenceReview[0].FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") || result.ExecutionEvidenceReview[0].FollowThrough.ActionQueue.CurrentAction == nil || result.ExecutionEvidenceReview[0].FollowThrough.ActionQueue.CurrentAction.Command != "/rekit handoff main" || strings.Contains(result.ExecutionEvidenceReview[0].FollowThrough.ActionQueue.Summary, "/rekit continue") {
 		t.Fatalf("execution evidence review omitted recorded follow-through: %+v", result.ExecutionEvidenceReview)
 	}
@@ -460,6 +463,9 @@ func TestRecordExecutionDuplicateDoesNotAppend(t *testing.T) {
 		t.Fatalf("duplicate execution evidence next actions should be review-only and idempotent: %+v", second.MissionCommanderNextActions)
 	}
 	assertGateActionQueue(t, second.MissionCommanderActionQueue, 2, 2, 0, 2, 1, "/rekit handoff main")
+	if second.ExecutionEvidenceReviewSummary.Total != 1 || second.ExecutionEvidenceReviewSummary.DuplicateCount != 1 || second.ExecutionEvidenceReviewSummary.ReadyForReviewCount != 1 || second.ExecutionEvidenceReviewSummary.LatestCommanderState != "evidence-already-recorded" || second.ExecutionEvidenceReviewSummary.NextActionCount != 2 || second.ExecutionEvidenceReviewSummary.ReviewRequiredActionCount != 2 || second.ExecutionEvidenceReviewSummary.CurrentAction != "/rekit handoff main" {
+		t.Fatalf("duplicate execution evidence review summary omitted idempotent handoff: %+v", second.ExecutionEvidenceReviewSummary)
+	}
 	lines := readGateLines(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if len(lines) != 1 {
 		t.Fatalf("duplicate execution evidence wrote %d lines, want 1: %q", len(lines), lines)

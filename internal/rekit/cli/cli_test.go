@@ -739,8 +739,9 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 					Shown int `json:"shown"`
 				} `json:"batches"`
 			} `json:"sections"`
-			ExecutionEvidenceReviewCount int                           `json:"executionEvidenceReviewCount"`
-			ExecutionEvidenceReview      []executionEvidenceReviewItem `json:"executionEvidenceReview"`
+			ExecutionEvidenceReviewCount   int                                    `json:"executionEvidenceReviewCount"`
+			ExecutionEvidenceReview        []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
+			ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
@@ -748,6 +749,9 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	}
 	if status.CaseMission.Ready || status.CaseMission.ExecutionEvidenceReviewCount != 1 || len(status.CaseMission.ExecutionEvidenceReview) != 1 || !containsSubstring(status.CaseMission.BlockedLanes, "main (pending-gate,intervention,open-decision)") || len(status.CaseMission.LaneExecutorActions) != 1 || !containsSubstring(status.CaseMission.PendingGates, "action=debug") || len(status.CaseMission.PendingGateHandoffs) != 1 || len(status.CaseMission.AuthorizedGates) != 0 || len(status.CaseMission.AuthorizedGateHandoffs) != 0 || len(status.CaseMission.OpenDecisionHandoffs) != 3 || len(status.CaseMission.InterventionHandoffs) != 1 || !containsSubstring(status.CaseMission.OpenDecisions, "candidate: handler") || !containsSubstring(status.CaseMission.Interventions, "manual override") || status.CaseMission.FactCounts == nil || status.CaseMission.Sections == nil {
 		t.Fatalf("unexpected case mission blocker/evidence review summary: %+v", status.CaseMission)
+	}
+	if summary := status.CaseMission.ExecutionEvidenceReviewSummary; summary.Total != 1 || summary.ReadyForReviewCount != 1 || summary.MainEscalationCount != 0 || summary.DuplicateCount != 0 || summary.OutputRefCount != 1 || summary.EvidenceRefCount != 1 || summary.LatestEventID != "obs-auth-1" || summary.LatestGateEventID != "gate-auth-1" || summary.LatestStatus != "complete" || summary.LatestAction != "debug" || summary.LatestTarget != "target-alpha" || summary.LatestReviewCommand != "review outputRefs/evidenceRefs for gateEventId gate-auth-1" || summary.LatestHandoffCommand != "/rekit handoff main" || summary.LatestCommanderState != "ready-for-evidence-review" || summary.LatestCommanderPrimary != "/rekit handoff main" || summary.OutcomeCount != 1 || summary.FollowThroughState != "ready-for-evidence-review" || summary.CurrentAction != "/rekit handoff main" || summary.NextActionCount != 5 || summary.ReviewRequiredActionCount != 5 || !strings.Contains(summary.ActionQueueSummary, "total=5") || !containsSubstring(summary.Boundary, "summary is read-only") || !containsSubstring(summary.Boundary, "no authority/confirmed") {
+		t.Fatalf("case mission JSON missing execution evidence review summary: %+v", summary)
 	}
 	pendingHandoff := status.CaseMission.PendingGateHandoffs[0]
 	if pendingHandoff.EventID != "" || pendingHandoff.Lane != "main" || pendingHandoff.Subject != "debug gate" || pendingHandoff.Action != "debug" || pendingHandoff.Target != "batch-overview" || pendingHandoff.Status != "pending-gate" || pendingHandoff.Risk != "high" || pendingHandoff.ReviewCommand != "/rekit handoff main" || !strings.Contains(pendingHandoff.WhatIfCommand, `/rekit gate -Target "`+caseRoot+`" -Pack _template -Action debug -Lane main -WhatIf`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-Subject "debug gate"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-Summary "needs confirmation"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-TargetRef "batch-overview"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-Scope "handler only"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-Budget "30s"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-TriedLightSteps "overview,static review"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-StopConditions "timeout"`) || !strings.Contains(pendingHandoff.WhatIfCommand, `-Risk "high" -Format json`) || !strings.Contains(pendingHandoff.ApplyCommand, `/rekit gate -Target "`+caseRoot+`" -Pack _template -Action debug -Lane main -Apply -Actor runtime-test`) || !strings.Contains(pendingHandoff.DecisionBoundary, "apply command only replays/records the gate request decision") || !strings.Contains(pendingHandoff.DecisionBoundary, "does not execute or approve heavy action by itself") || !strings.Contains(pendingHandoff.ContinueBoundary, "blocked lane can only continue with -WhatIf") || !containsSubstring(pendingHandoff.Evidence, "requested budget 30s") || !containsSubstring(pendingHandoff.Evidence, "requested stopConditions timeout") || !containsSubstring(pendingHandoff.Evidence, "triedLightSteps overview,static review") {
@@ -834,6 +838,12 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 		"status case mission section event：section=pendingGates index=1 eventId= kind=request status=pending-gate lane=main subject=debug gate summary=needs confirmation action= decision=",
 		"status case mission section：name=batches total=1 shown=1",
 		"status case mission batch：index=1 id=batch-overview events=5",
+		"status case mission evidence review summary：total=1 readyForReview=1 mainEscalations=0 duplicates=0 outputRefs=1 evidenceRefs=1 boundaryHits=0 hasEscalation=false hasExecutionReport=false hasAdapter=false latestEventId=obs-auth-1 latestGateEventId=gate-auth-1 latestStatus=complete latestAction=debug latestTarget=target-alpha",
+		"latestReview=review outputRefs/evidenceRefs for gateEventId gate-auth-1 latestHandoff=/rekit handoff main latestCommanderState=ready-for-evidence-review latestCommanderPrimary=/rekit handoff main",
+		"outcomes=1 followThrough=ready-for-evidence-review nextActions=5 reviewRequiredActions=5 currentAction=/rekit handoff main",
+		"status case mission evidence review summary action queue：total=5 unblocked=2 blocked=3 requiresReview=5 followUp=3 current=/rekit handoff main",
+		"status case mission evidence review summary boundary：execution evidence review summary is read-only; full executionEvidenceReview remains available",
+		"status case mission evidence review summary boundary：no authority/confirmed writes",
 		"status case mission evidence review：eventId=obs-auth-1 gateEventId=gate-auth-1 status=complete action=debug",
 		"review=review outputRefs/evidenceRefs for gateEventId gate-auth-1 handoff=/rekit handoff main commanderState=ready-for-evidence-review commanderPrimary=/rekit handoff main",
 		"status case mission evidence output ref：eventId=obs-auth-1 ref=workspace/main/debug/out.txt",
@@ -3734,7 +3744,7 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "Mission Control brief：", "ready lanes", "blocked lanes", "pending gates", "debug gate", "open decisions", "candidate: handler", "interventions", "manual override", "next agent actions", "escalations", "pending-gate requires main-agent/user decision", "Lane executor actions：", "main：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=3", "executor: current=session-main generation=3 lastTakeover=2026-01-01T00:00:00Z by=main-agent reason=fixture", "requirements: reconcile=true pendingGate=true openDecision=true", "blocker reasons: pending-gate,intervention,open-decision", "commander: state=needs-reconcile", "先 reconcile open intervention", "Execution evidence review：", "gate-auth-1", "outputRefs: workspace/main/debug/out.txt", "evidenceRefs: evidence/debug.json", "observation evidence is already recorded; do not replay heavy tool", "commander: state=ready-for-evidence-review primary=`/rekit handoff main`", "commander follow-up:", "/rekit continue main -WhatIf", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "reconcile open intervention(s) before continuing the affected lane"} {
+	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "Mission Control brief：", "ready lanes", "blocked lanes", "pending gates", "debug gate", "open decisions", "candidate: handler", "interventions", "manual override", "next agent actions", "escalations", "pending-gate requires main-agent/user decision", "Lane executor actions：", "main：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=3", "executor: current=session-main generation=3 lastTakeover=2026-01-01T00:00:00Z by=main-agent reason=fixture", "requirements: reconcile=true pendingGate=true openDecision=true", "blocker reasons: pending-gate,intervention,open-decision", "commander: state=needs-reconcile", "先 reconcile open intervention", "Execution evidence review：", "summary: total=1 readyForReview=1 mainEscalations=0 duplicates=0 outputRefs=1 evidenceRefs=1 boundaryHits=0 latestEventId=obs-auth-1 gateEventId=gate-auth-1 status=complete action=debug", "summary current action: `/rekit handoff main`", "summary boundary:", "gate-auth-1", "outputRefs: workspace/main/debug/out.txt", "evidenceRefs: evidence/debug.json", "observation evidence is already recorded; do not replay heavy tool", "commander: state=ready-for-evidence-review primary=`/rekit handoff main`", "commander follow-up:", "/rekit continue main -WhatIf", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "reconcile open intervention(s) before continuing the affected lane"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("overview missing %q:\n%s", expected, text)
 		}
@@ -3816,8 +3826,9 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 			ReviewRequiredActions []missionCommanderNextActionItem `json:"reviewRequiredActions"`
 			FollowUpActions       []missionCommanderNextActionItem `json:"followUpActions"`
 		} `json:"missionCommanderActionQueue"`
-		ExecutionEvidenceReview []executionEvidenceReviewItem `json:"executionEvidenceReview"`
-		Sections                struct {
+		ExecutionEvidenceReview        []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
+		ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
+		Sections                       struct {
 			OpenCandidates struct {
 				Total  int              `json:"total"`
 				Shown  int              `json:"shown"`
@@ -3882,6 +3893,9 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	}
 	if len(result.ExecutionEvidenceReview) != 1 || result.ExecutionEvidenceReview[0].GateEventID != "gate-auth-1" || result.ExecutionEvidenceReview[0].Action != "debug" || !containsSubstring(result.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/out.txt") || !containsSubstring(result.ExecutionEvidenceReview[0].EvidenceRefs, "evidence/debug.json") || !containsSubstring(result.ExecutionEvidenceReview[0].Boundary, "do not replay heavy tool") || result.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || result.ExecutionEvidenceReview[0].MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(result.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || result.ExecutionEvidenceReview[0].FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(result.ExecutionEvidenceReview[0].FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
 		t.Fatalf("overview JSON missing execution evidence review queue: %+v", result.ExecutionEvidenceReview)
+	}
+	if result.ExecutionEvidenceReviewSummary.Total != 1 || result.ExecutionEvidenceReviewSummary.ReadyForReviewCount != 1 || result.ExecutionEvidenceReviewSummary.MainEscalationCount != 0 || result.ExecutionEvidenceReviewSummary.OutputRefCount != 1 || result.ExecutionEvidenceReviewSummary.EvidenceRefCount != 1 || result.ExecutionEvidenceReviewSummary.LatestEventID != "obs-auth-1" || result.ExecutionEvidenceReviewSummary.LatestGateEventID != "gate-auth-1" || result.ExecutionEvidenceReviewSummary.LatestStatus != "complete" || result.ExecutionEvidenceReviewSummary.CurrentAction != "/rekit handoff main" || result.ExecutionEvidenceReviewSummary.NextActionCount != 5 || result.ExecutionEvidenceReviewSummary.ReviewRequiredActionCount != 5 || !containsSubstring(result.ExecutionEvidenceReviewSummary.Boundary, "summary is read-only") || !containsSubstring(result.ExecutionEvidenceReviewSummary.Boundary, "no authority/confirmed") {
+		t.Fatalf("overview JSON missing execution evidence review summary: %+v", result.ExecutionEvidenceReviewSummary)
 	}
 	if !containsSubstring(result.NextSteps, "review execution evidence for gateEventId gate-auth-1") || !slices.Contains(result.NextSteps, "/rekit handoff main") || containsSubstring(result.NextSteps, "/rekit continue main") {
 		t.Fatalf("overview next steps should promote execution evidence review without recommending blocked-lane continue: %+v", result.NextSteps)
@@ -7711,6 +7725,16 @@ func TestRunGateExecutionEvidenceTextOutputsNextActions(t *testing.T) {
 		"gate execution evidence detail：subject=execution evidence for authorized debug summary=Recorded execution evidence for authorized debug gate target=target-alpha recordRequired=true reportPath=",
 		"gate execution evidence budget：runtimeSeconds=25 diskMB=0 requests=0",
 		"gate execution evidence outputRefs：workspace/main/debug/session-1/text-result.json",
+		"gate execution evidence review summary：total=1 readyForReview=1 mainEscalations=0 duplicates=0 outputRefs=1 evidenceRefs=0 boundaryHits=0 hasEscalation=false hasExecutionReport=false hasAdapter=false latestEventId=",
+		"latestGateEventId=" + applied.EventID,
+		"latestStatus=succeeded latestAction=debug latestTarget=target-alpha latestReview=review outputRefs/evidenceRefs for gateEventId " + applied.EventID,
+		"latestHandoff=/rekit handoff main latestCommanderState=ready-for-evidence-review latestCommanderPrimary=/rekit handoff main",
+		"outcomes=1 followThrough=ready-for-evidence-review nextActions=5 reviewRequiredActions=3 currentAction=/rekit handoff main",
+		"gate execution evidence review summary action queue：total=5 unblocked=5 blocked=0 requiresReview=3 followUp=3 current=/rekit handoff main",
+		"gate execution evidence review summary boundary：execution evidence review summary is read-only; full executionEvidenceReview remains available",
+		"gate execution evidence review summary boundary：observation evidence is already recorded; do not replay heavy tool",
+		"gate execution evidence review summary boundary：review outputRefs/evidenceRefs before any authority/confirmed outcome",
+		"gate execution evidence review summary boundary：no authority/confirmed writes",
 		"execution evidence follow-through：state=ready-for-evidence-review gateEventId=" + applied.EventID,
 		"execution evidence follow-through outcome：name=recorded-evidence-review state=ready-for-evidence-review command=`/rekit handoff main`",
 		"execution evidence follow-through when：name=recorded-evidence-review when=gate -Apply records bounded observation evidence for the authorized gate",
@@ -10215,6 +10239,40 @@ type reviewerWritebackSummaryCLIItem struct {
 	HasConflicts             bool     `json:"hasConflicts"`
 	HasRouteOutput           bool     `json:"hasRouteOutput"`
 	Boundary                 []string `json:"boundary"`
+}
+
+type executionEvidenceReviewSummarySnapshot struct {
+	Total                     int      `json:"total"`
+	ReadyForReviewCount       int      `json:"readyForReviewCount"`
+	MainEscalationCount       int      `json:"mainEscalationCount"`
+	DuplicateCount            int      `json:"duplicateCount"`
+	OutputRefCount            int      `json:"outputRefCount"`
+	EvidenceRefCount          int      `json:"evidenceRefCount"`
+	BoundaryHitCount          int      `json:"boundaryHitCount"`
+	HasEscalation             bool     `json:"hasEscalation"`
+	HasExecutionReport        bool     `json:"hasExecutionReport"`
+	HasAdapter                bool     `json:"hasAdapter"`
+	LatestEventID             string   `json:"latestEventId"`
+	LatestGateEventID         string   `json:"latestGateEventId"`
+	LatestStatus              string   `json:"latestStatus"`
+	LatestAction              string   `json:"latestAction"`
+	LatestTarget              string   `json:"latestTarget"`
+	LatestReviewCommand       string   `json:"latestReviewCommand"`
+	LatestHandoffCommand      string   `json:"latestHandoffCommand"`
+	LatestCommanderState      string   `json:"latestCommanderState"`
+	LatestCommanderPrimary    string   `json:"latestCommanderPrimary"`
+	LatestExecutionReportPath string   `json:"latestExecutionReportPath"`
+	LatestAdapterID           string   `json:"latestAdapterId"`
+	LatestAdapterStatus       string   `json:"latestAdapterStatus"`
+	LatestBoundaryHits        []string `json:"latestBoundaryHits"`
+	LatestEscalation          string   `json:"latestEscalation"`
+	OutcomeCount              int      `json:"outcomeCount"`
+	FollowThroughState        string   `json:"followThroughState"`
+	ActionQueueSummary        string   `json:"actionQueueSummary"`
+	CurrentAction             string   `json:"currentAction"`
+	NextActionCount           int      `json:"nextActionCount"`
+	ReviewRequiredActionCount int      `json:"reviewRequiredActionCount"`
+	Boundary                  []string `json:"boundary"`
 }
 
 type executionEvidenceReviewItem struct {

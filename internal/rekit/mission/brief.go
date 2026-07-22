@@ -137,6 +137,40 @@ type ExecutionEvidenceReviewItem struct {
 	MissionCommanderAction MissionCommanderAction         `json:"missionCommanderAction"`
 }
 
+type ExecutionEvidenceReviewSummary struct {
+	Total                     int      `json:"total"`
+	ReadyForReviewCount       int      `json:"readyForReviewCount"`
+	MainEscalationCount       int      `json:"mainEscalationCount"`
+	DuplicateCount            int      `json:"duplicateCount"`
+	OutputRefCount            int      `json:"outputRefCount"`
+	EvidenceRefCount          int      `json:"evidenceRefCount"`
+	BoundaryHitCount          int      `json:"boundaryHitCount"`
+	HasEscalation             bool     `json:"hasEscalation"`
+	HasExecutionReport        bool     `json:"hasExecutionReport"`
+	HasAdapter                bool     `json:"hasAdapter"`
+	LatestEventID             string   `json:"latestEventId,omitempty"`
+	LatestGateEventID         string   `json:"latestGateEventId,omitempty"`
+	LatestStatus              string   `json:"latestStatus,omitempty"`
+	LatestAction              string   `json:"latestAction,omitempty"`
+	LatestTarget              string   `json:"latestTarget,omitempty"`
+	LatestReviewCommand       string   `json:"latestReviewCommand,omitempty"`
+	LatestHandoffCommand      string   `json:"latestHandoffCommand,omitempty"`
+	LatestCommanderState      string   `json:"latestCommanderState,omitempty"`
+	LatestCommanderPrimary    string   `json:"latestCommanderPrimary,omitempty"`
+	LatestExecutionReportPath string   `json:"latestExecutionReportPath,omitempty"`
+	LatestAdapterID           string   `json:"latestAdapterId,omitempty"`
+	LatestAdapterStatus       string   `json:"latestAdapterStatus,omitempty"`
+	LatestBoundaryHits        []string `json:"latestBoundaryHits,omitempty"`
+	LatestEscalation          string   `json:"latestEscalation,omitempty"`
+	OutcomeCount              int      `json:"outcomeCount"`
+	FollowThroughState        string   `json:"followThroughState,omitempty"`
+	ActionQueueSummary        string   `json:"actionQueueSummary,omitempty"`
+	CurrentAction             string   `json:"currentAction,omitempty"`
+	NextActionCount           int      `json:"nextActionCount"`
+	ReviewRequiredActionCount int      `json:"reviewRequiredActionCount"`
+	Boundary                  []string `json:"boundary,omitempty"`
+}
+
 type ExecutionEvidenceBudget struct {
 	RuntimeSeconds int `json:"runtimeSeconds"`
 	DiskMB         int `json:"diskMB"`
@@ -336,6 +370,71 @@ func ExecutionEvidenceReviewNeedsMainReview(items []ExecutionEvidenceReviewItem)
 
 func ExecutionEvidenceReviewItemNeedsMainReview(item ExecutionEvidenceReviewItem) bool {
 	return item.Status == "boundary-hit" || item.Status == "escalated" || item.Escalation != "" || len(item.BoundaryHits) > 0
+}
+
+func ExecutionEvidenceReviewSummaryFor(items []ExecutionEvidenceReviewItem, queue MissionCommanderActionQueue) ExecutionEvidenceReviewSummary {
+	summary := ExecutionEvidenceReviewSummary{}
+	for _, item := range items {
+		summary.Total++
+		if ExecutionEvidenceReviewItemNeedsMainReview(item) {
+			summary.MainEscalationCount++
+		} else {
+			summary.ReadyForReviewCount++
+		}
+		if item.MissionCommanderAction.State == "evidence-already-recorded" {
+			summary.DuplicateCount++
+		}
+		summary.OutputRefCount += len(item.OutputRefs)
+		summary.EvidenceRefCount += len(item.EvidenceRefs)
+		summary.BoundaryHitCount += len(item.BoundaryHits)
+		if strings.TrimSpace(item.Escalation) != "" {
+			summary.HasEscalation = true
+		}
+		if strings.TrimSpace(item.ExecutionReportPath) != "" {
+			summary.HasExecutionReport = true
+		}
+		if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" {
+			summary.HasAdapter = true
+		}
+		summary.OutcomeCount += len(item.FollowThrough.Outcomes)
+	}
+	if len(items) > 0 {
+		latest := items[len(items)-1]
+		summary.LatestEventID = latest.EventID
+		summary.LatestGateEventID = latest.GateEventID
+		summary.LatestStatus = latest.Status
+		summary.LatestAction = latest.Action
+		summary.LatestTarget = latest.Target
+		summary.LatestReviewCommand = latest.ReviewCommand
+		summary.LatestHandoffCommand = latest.HandoffCommand
+		summary.LatestCommanderState = latest.MissionCommanderAction.State
+		summary.LatestCommanderPrimary = latest.MissionCommanderAction.PrimaryCommand
+		summary.LatestExecutionReportPath = latest.ExecutionReportPath
+		summary.LatestAdapterID = latest.AdapterID
+		summary.LatestAdapterStatus = latest.AdapterStatus
+		summary.LatestBoundaryHits = LimitStrings(latest.BoundaryHits, DefaultMaxRows)
+		summary.LatestEscalation = latest.Escalation
+		summary.FollowThroughState = latest.FollowThrough.State
+		summary.Boundary = executionEvidenceReviewSummaryBoundary()
+	}
+	if len(items) > 0 {
+		summary.ActionQueueSummary = queue.Summary
+		if queue.CurrentAction != nil {
+			summary.CurrentAction = queue.CurrentAction.Command
+		}
+		summary.NextActionCount = queue.Counts.Total
+		summary.ReviewRequiredActionCount = queue.Counts.RequiresReview
+	}
+	return summary
+}
+
+func executionEvidenceReviewSummaryBoundary() []string {
+	return []string{
+		"execution evidence review summary is read-only; full executionEvidenceReview remains available",
+		"observation evidence is already recorded; do not replay heavy tool",
+		"review outputRefs/evidenceRefs before any authority/confirmed outcome",
+		"no authority/confirmed writes",
+	}
 }
 
 func commanderActionReasons(action ExecutorAction) []string {

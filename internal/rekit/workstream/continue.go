@@ -29,38 +29,39 @@ type ContinueOptions struct {
 }
 
 type ContinueResult struct {
-	SchemaVersion               int                                      `json:"schemaVersion"`
-	Command                     string                                   `json:"command"`
-	CaseRoot                    string                                   `json:"caseRoot"`
-	RepoRoot                    string                                   `json:"repoRoot"`
-	Pack                        string                                   `json:"pack"`
-	IsMutation                  bool                                     `json:"isMutation"`
-	Applied                     bool                                     `json:"applied"`
-	RequiresConfirmation        bool                                     `json:"requiresConfirmation"`
-	Selector                    string                                   `json:"selector"`
-	Lane                        Lane                                     `json:"lane"`
-	AutonomyProfile             autonomy.Summary                         `json:"autonomyProfile"`
-	RunID                       string                                   `json:"runId"`
-	BatchID                     string                                   `json:"batchId"`
-	Summary                     ContinueSummary                          `json:"summary"`
-	MissionBrief                mission.Brief                            `json:"missionBrief"`
-	ExecutorAction              laneExecutorAction                       `json:"executorAction"`
-	ExecutionEvidenceReview     []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
-	ReviewerWritebacks          []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
-	ReviewerWritebackSummary    ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
-	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	Inputs                      []string                                 `json:"inputs"`
-	PacketRefs                  []string                                 `json:"packetRefs"`
-	Events                      []ContinueEventPreview                   `json:"events"`
-	OpenRisks                   []string                                 `json:"openRisks"`
-	Blocked                     bool                                     `json:"blocked"`
-	ReconcileRequired           bool                                     `json:"reconcileRequired"`
-	OpenInterventions           []InterventionSummary                    `json:"openInterventions,omitempty"`
-	WouldWrites                 []StartWrite                             `json:"wouldWrites"`
-	Writes                      []StartWrite                             `json:"writes,omitempty"`
-	BlockedActions              []string                                 `json:"blockedActions"`
-	NextSteps                   []string                                 `json:"nextSteps"`
+	SchemaVersion                  int                                      `json:"schemaVersion"`
+	Command                        string                                   `json:"command"`
+	CaseRoot                       string                                   `json:"caseRoot"`
+	RepoRoot                       string                                   `json:"repoRoot"`
+	Pack                           string                                   `json:"pack"`
+	IsMutation                     bool                                     `json:"isMutation"`
+	Applied                        bool                                     `json:"applied"`
+	RequiresConfirmation           bool                                     `json:"requiresConfirmation"`
+	Selector                       string                                   `json:"selector"`
+	Lane                           Lane                                     `json:"lane"`
+	AutonomyProfile                autonomy.Summary                         `json:"autonomyProfile"`
+	RunID                          string                                   `json:"runId"`
+	BatchID                        string                                   `json:"batchId"`
+	Summary                        ContinueSummary                          `json:"summary"`
+	MissionBrief                   mission.Brief                            `json:"missionBrief"`
+	ExecutorAction                 laneExecutorAction                       `json:"executorAction"`
+	ExecutionEvidenceReview        []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
+	ExecutionEvidenceReviewSummary ExecutionEvidenceReviewSummary           `json:"executionEvidenceReviewSummary"`
+	ReviewerWritebacks             []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
+	ReviewerWritebackSummary       ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
+	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue    mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	Inputs                         []string                                 `json:"inputs"`
+	PacketRefs                     []string                                 `json:"packetRefs"`
+	Events                         []ContinueEventPreview                   `json:"events"`
+	OpenRisks                      []string                                 `json:"openRisks"`
+	Blocked                        bool                                     `json:"blocked"`
+	ReconcileRequired              bool                                     `json:"reconcileRequired"`
+	OpenInterventions              []InterventionSummary                    `json:"openInterventions,omitempty"`
+	WouldWrites                    []StartWrite                             `json:"wouldWrites"`
+	Writes                         []StartWrite                             `json:"writes,omitempty"`
+	BlockedActions                 []string                                 `json:"blockedActions"`
+	NextSteps                      []string                                 `json:"nextSteps"`
 }
 
 type ContinueSummary struct {
@@ -145,30 +146,32 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview)
+	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	result := ContinueResult{
-		SchemaVersion:               1,
-		Command:                     "continue",
-		CaseRoot:                    ctx.inst.CaseRoot,
-		RepoRoot:                    ctx.manifest.RepoRoot,
-		Pack:                        ctx.manifest.Pack,
-		IsMutation:                  false,
-		Applied:                     false,
-		RequiresConfirmation:        true,
-		Selector:                    ctx.selector,
-		Lane:                        ctx.lane,
-		AutonomyProfile:             autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
-		RunID:                       continuePreviewRunID,
-		BatchID:                     "batch-" + continuePreviewRunID,
-		MissionBrief:                ctx.missionBrief(),
-		ExecutorAction:              executorAction,
-		ExecutionEvidenceReview:     executionEvidenceReview,
-		ReviewerWritebacks:          reviewerWritebacks,
-		ReviewerWritebackSummary:    ReviewerWritebackSummaryFor(reviewerWritebacks),
-		MissionCommanderNextActions: commanderNextActions,
-		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(commanderNextActions),
-		Inputs:                      uniqueStrings(inputs),
-		PacketRefs:                  uniqueStrings(packets),
-		BlockedActions:              []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
+		SchemaVersion:                  1,
+		Command:                        "continue",
+		CaseRoot:                       ctx.inst.CaseRoot,
+		RepoRoot:                       ctx.manifest.RepoRoot,
+		Pack:                           ctx.manifest.Pack,
+		IsMutation:                     false,
+		Applied:                        false,
+		RequiresConfirmation:           true,
+		Selector:                       ctx.selector,
+		Lane:                           ctx.lane,
+		AutonomyProfile:                autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
+		RunID:                          continuePreviewRunID,
+		BatchID:                        "batch-" + continuePreviewRunID,
+		MissionBrief:                   ctx.missionBrief(),
+		ExecutorAction:                 executorAction,
+		ExecutionEvidenceReview:        executionEvidenceReview,
+		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, commanderActionQueue),
+		ReviewerWritebacks:             reviewerWritebacks,
+		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
+		MissionCommanderNextActions:    commanderNextActions,
+		MissionCommanderActionQueue:    commanderActionQueue,
+		Inputs:                         uniqueStrings(inputs),
+		PacketRefs:                     uniqueStrings(packets),
+		BlockedActions:                 []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
 		NextSteps: []string{
 			"review this preview, then re-run continue with -Apply when the case-local facts/route/digest writes are acceptable",
 			"use /rekit as the Mission Commander entrypoint; JSON preview and explicit apply are Go-owned by default",
@@ -340,6 +343,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 	result.ReviewerWritebackSummary = ReviewerWritebackSummaryFor(result.ReviewerWritebacks)
 	result.MissionCommanderNextActions = ctx.missionCommanderNextActions(result.ExecutorAction, result.ExecutionEvidenceReview)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	result.ExecutionEvidenceReviewSummary = ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
 	result.NextSteps = workstreamNextSteps(result.ExecutorAction, true)
 	statusPath, digestPath, err := writeContinueRunArtifacts(runRoot, result)
 	if err != nil {
@@ -448,35 +452,37 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview)
+	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	return ContinueResult{
-		SchemaVersion:               1,
-		Command:                     "continue",
-		CaseRoot:                    ctx.inst.CaseRoot,
-		RepoRoot:                    ctx.manifest.RepoRoot,
-		Pack:                        ctx.manifest.Pack,
-		IsMutation:                  apply,
-		Applied:                     false,
-		RequiresConfirmation:        false,
-		Selector:                    ctx.selector,
-		Lane:                        ctx.lane,
-		AutonomyProfile:             autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
-		RunID:                       continuePreviewRunID,
-		BatchID:                     "batch-" + continuePreviewRunID,
-		MissionBrief:                ctx.missionBrief(),
-		ExecutorAction:              executorAction,
-		ExecutionEvidenceReview:     executionEvidenceReview,
-		ReviewerWritebacks:          reviewerWritebacks,
-		ReviewerWritebackSummary:    ReviewerWritebackSummaryFor(reviewerWritebacks),
-		MissionCommanderNextActions: commanderNextActions,
-		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(commanderNextActions),
-		OpenRisks:                   interventionRiskLines(open),
-		Blocked:                     true,
-		ReconcileRequired:           true,
-		OpenInterventions:           open,
-		WouldWrites:                 []StartWrite{},
-		Writes:                      []StartWrite{},
-		BlockedActions:              []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
-		NextSteps:                   executorAction.NextAgentActions,
+		SchemaVersion:                  1,
+		Command:                        "continue",
+		CaseRoot:                       ctx.inst.CaseRoot,
+		RepoRoot:                       ctx.manifest.RepoRoot,
+		Pack:                           ctx.manifest.Pack,
+		IsMutation:                     apply,
+		Applied:                        false,
+		RequiresConfirmation:           false,
+		Selector:                       ctx.selector,
+		Lane:                           ctx.lane,
+		AutonomyProfile:                autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
+		RunID:                          continuePreviewRunID,
+		BatchID:                        "batch-" + continuePreviewRunID,
+		MissionBrief:                   ctx.missionBrief(),
+		ExecutorAction:                 executorAction,
+		ExecutionEvidenceReview:        executionEvidenceReview,
+		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, commanderActionQueue),
+		ReviewerWritebacks:             reviewerWritebacks,
+		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
+		MissionCommanderNextActions:    commanderNextActions,
+		MissionCommanderActionQueue:    commanderActionQueue,
+		OpenRisks:                      interventionRiskLines(open),
+		Blocked:                        true,
+		ReconcileRequired:              true,
+		OpenInterventions:              open,
+		WouldWrites:                    []StartWrite{},
+		Writes:                         []StartWrite{},
+		BlockedActions:                 []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
+		NextSteps:                      executorAction.NextAgentActions,
 	}, nil
 }
 
@@ -785,7 +791,7 @@ func continueDigestText(result ContinueResult) string {
 	lines = appendMissionBriefDigestList(lines, "commander boundary", result.ExecutorAction.MissionCommanderAction.Boundary)
 	lines = appendMissionCommanderActionQueue(lines, result.MissionCommanderActionQueue)
 	lines = appendContinueMissionCommanderNextActions(lines, result.MissionCommanderNextActions)
-	lines = appendContinueExecutionEvidenceReview(lines, result.ExecutionEvidenceReview)
+	lines = appendContinueExecutionEvidenceReview(lines, result.ExecutionEvidenceReview, result.ExecutionEvidenceReviewSummary)
 	lines = appendDigestReviewerWritebacks(lines, result.ReviewerWritebacks)
 	lines = appendMissionBriefDigestList(lines, "blocker reasons", result.ExecutorAction.BlockerReasons)
 	lines = appendMissionBriefDigestList(lines, "executor next actions", result.ExecutorAction.NextAgentActions)
@@ -858,11 +864,12 @@ func appendContinueMissionCommanderNextActions(lines []string, items []mission.M
 	return lines
 }
 
-func appendContinueExecutionEvidenceReview(lines []string, items []ExecutionEvidenceReviewItem) []string {
+func appendContinueExecutionEvidenceReview(lines []string, items []ExecutionEvidenceReviewItem, summary ExecutionEvidenceReviewSummary) []string {
 	lines = append(lines, "", "## Execution evidence review", "")
 	if len(items) == 0 {
 		return append(lines, "- none")
 	}
+	lines = appendExecutionEvidenceReviewSummary(lines, summary)
 	shown := items
 	if maxHandoffRows > 0 && len(shown) > maxHandoffRows {
 		shown = shown[len(shown)-maxHandoffRows:]
@@ -883,6 +890,23 @@ func appendContinueExecutionEvidenceReview(lines []string, items []ExecutionEvid
 		lines = appendContinueExecutionEvidenceFollowThrough(lines, item.FollowThrough)
 		lines = appendMissionBriefDigestList(lines, "commander follow-up", item.MissionCommanderAction.FollowUpCommands)
 		lines = appendMissionBriefDigestList(lines, "review boundary", item.Boundary)
+	}
+	return lines
+}
+
+func appendExecutionEvidenceReviewSummary(lines []string, summary ExecutionEvidenceReviewSummary) []string {
+	if summary.Total == 0 {
+		return lines
+	}
+	lines = append(lines, fmt.Sprintf("- summary: total=%d readyForReview=%d mainEscalations=%d duplicates=%d outputRefs=%d evidenceRefs=%d boundaryHits=%d latestEventId=%s gateEventId=%s status=%s action=%s", summary.Total, summary.ReadyForReviewCount, summary.MainEscalationCount, summary.DuplicateCount, summary.OutputRefCount, summary.EvidenceRefCount, summary.BoundaryHitCount, summary.LatestEventID, summary.LatestGateEventID, summary.LatestStatus, firstText(summary.LatestAction, "none")))
+	if strings.TrimSpace(summary.CurrentAction) != "" {
+		lines = append(lines, "- summary current action: `"+summary.CurrentAction+"`")
+	}
+	if strings.TrimSpace(summary.ActionQueueSummary) != "" {
+		lines = append(lines, "- summary action queue: "+summary.ActionQueueSummary)
+	}
+	for _, boundary := range mission.LimitStrings(summary.Boundary, maxHandoffRows) {
+		lines = append(lines, "- summary boundary: "+boundary)
 	}
 	return lines
 }

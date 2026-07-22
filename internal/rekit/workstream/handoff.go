@@ -23,28 +23,29 @@ type HandoffOptions struct {
 }
 
 type HandoffResult struct {
-	SchemaVersion               int                                      `json:"schemaVersion"`
-	Command                     string                                   `json:"command"`
-	CaseRoot                    string                                   `json:"caseRoot"`
-	RepoRoot                    string                                   `json:"repoRoot"`
-	Pack                        string                                   `json:"pack"`
-	IsMutation                  bool                                     `json:"isMutation"`
-	Applied                     bool                                     `json:"applied"`
-	RequiresConfirmation        bool                                     `json:"requiresConfirmation"`
-	Selector                    string                                   `json:"selector,omitempty"`
-	Project                     bool                                     `json:"project"`
-	Lane                        *Lane                                    `json:"lane,omitempty"`
-	MissionBrief                mission.Brief                            `json:"missionBrief"`
-	ExecutorAction              *laneExecutorAction                      `json:"executorAction,omitempty"`
-	LaneExecutorActions         []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions,omitempty"`
-	ExecutionEvidenceReview     []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
-	ReviewerWritebacks          []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
-	ReviewerWritebackSummary    ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
-	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	Writes                      []StartWrite                             `json:"writes"`
-	BlockedActions              []string                                 `json:"blockedActions"`
-	NextSteps                   []string                                 `json:"nextSteps"`
+	SchemaVersion                  int                                      `json:"schemaVersion"`
+	Command                        string                                   `json:"command"`
+	CaseRoot                       string                                   `json:"caseRoot"`
+	RepoRoot                       string                                   `json:"repoRoot"`
+	Pack                           string                                   `json:"pack"`
+	IsMutation                     bool                                     `json:"isMutation"`
+	Applied                        bool                                     `json:"applied"`
+	RequiresConfirmation           bool                                     `json:"requiresConfirmation"`
+	Selector                       string                                   `json:"selector,omitempty"`
+	Project                        bool                                     `json:"project"`
+	Lane                           *Lane                                    `json:"lane,omitempty"`
+	MissionBrief                   mission.Brief                            `json:"missionBrief"`
+	ExecutorAction                 *laneExecutorAction                      `json:"executorAction,omitempty"`
+	LaneExecutorActions            []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions,omitempty"`
+	ExecutionEvidenceReview        []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
+	ExecutionEvidenceReviewSummary ExecutionEvidenceReviewSummary           `json:"executionEvidenceReviewSummary"`
+	ReviewerWritebacks             []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
+	ReviewerWritebackSummary       ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
+	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue    mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	Writes                         []StartWrite                             `json:"writes"`
+	BlockedActions                 []string                                 `json:"blockedActions"`
+	NextSteps                      []string                                 `json:"nextSteps"`
 }
 
 func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (HandoffResult, error) {
@@ -154,6 +155,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		commanderActions = []mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(*lane, *executorAction)}
 	}
 	missionCommanderNext := mission.MissionCommanderNextActions(commanderActions, executionEvidenceReview, handoffHasBlockedAction(commanderActions))
+	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNext)
 	next := []string{"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default"}
 	next = append(next, ExecutionEvidenceReviewNextSteps(executionEvidenceReview, includeEvidenceContinue)...)
 	if applied {
@@ -167,28 +169,29 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	}
 	next = mission.UniqueStrings(next)
 	return HandoffResult{
-		SchemaVersion:               1,
-		Command:                     "handoff",
-		CaseRoot:                    ctx.inst.CaseRoot,
-		RepoRoot:                    ctx.manifest.RepoRoot,
-		Pack:                        ctx.manifest.Pack,
-		IsMutation:                  mutating,
-		Applied:                     applied,
-		RequiresConfirmation:        confirm,
-		Selector:                    ctx.selector,
-		Project:                     ctx.project,
-		Lane:                        lane,
-		MissionBrief:                brief,
-		ExecutorAction:              executorAction,
-		LaneExecutorActions:         laneExecutorActions,
-		ExecutionEvidenceReview:     executionEvidenceReview,
-		ReviewerWritebacks:          reviewerWritebacks,
-		ReviewerWritebackSummary:    ReviewerWritebackSummaryFor(reviewerWritebacks),
-		MissionCommanderNextActions: missionCommanderNext,
-		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(missionCommanderNext),
-		Writes:                      writes,
-		BlockedActions:              []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
-		NextSteps:                   next,
+		SchemaVersion:                  1,
+		Command:                        "handoff",
+		CaseRoot:                       ctx.inst.CaseRoot,
+		RepoRoot:                       ctx.manifest.RepoRoot,
+		Pack:                           ctx.manifest.Pack,
+		IsMutation:                     mutating,
+		Applied:                        applied,
+		RequiresConfirmation:           confirm,
+		Selector:                       ctx.selector,
+		Project:                        ctx.project,
+		Lane:                           lane,
+		MissionBrief:                   brief,
+		ExecutorAction:                 executorAction,
+		LaneExecutorActions:            laneExecutorActions,
+		ExecutionEvidenceReview:        executionEvidenceReview,
+		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue),
+		ReviewerWritebacks:             reviewerWritebacks,
+		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
+		MissionCommanderNextActions:    missionCommanderNext,
+		MissionCommanderActionQueue:    missionCommanderActionQueue,
+		Writes:                         writes,
+		BlockedActions:                 []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
+		NextSteps:                      next,
 	}
 }
 
@@ -397,13 +400,16 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		executorAction := ctx.executorAction(lane)
 		executionEvidenceReview := ctx.executionEvidenceReview(lane)
 		missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
+		missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
+		executionEvidenceReviewSummary := ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue)
 		evidenceNeedsMainReview := ExecutionEvidenceReviewNeedsMainReview(executionEvidenceReview)
 		fmt.Fprintf(&out, "- %s `%s`：status=%s，workspace=`%s`，autonomy=%s ready=%t，blocked=%t\n", kind, lane.ID, lane.Status, lane.Workspace, autonomySummary.Mode, autonomySummary.Ready, executorAction.Blocked)
 		fmt.Fprintf(&out, "  - executor owner：current=%s generation=%d lastTakeover=%s by=%s reason=%s\n", firstText(lane.CurrentExecutor, "unassigned"), lane.ExecutorGeneration, firstText(lane.LastTakeoverAt, "none"), firstText(lane.LastTakeoverBy, "none"), firstText(lane.LastTakeoverReason, "none"))
 		fmt.Fprintf(&out, "  - executor blockers：pendingGates=%d openInterventions=%d openDecisions=%d reasons=%s\n", executorAction.PendingGates, executorAction.OpenInterventions, executorAction.OpenDecisions, firstText(strings.Join(executorAction.BlockerReasons, ","), "none"))
 		fmt.Fprintf(&out, "  - requirements：reconcile=%t pendingGate=%t openDecision=%t\n", executorAction.ReconcileRequired, executorAction.PendingGateRequired, executorAction.OpenDecisionRequired)
 		writeProjectLaneEvidenceNextSteps(&out, executionEvidenceReview, executorAction.Ready && !executorAction.Blocked)
-		writeProjectLaneMissionCommanderActionQueue(&out, mission.MissionCommanderActionQueueFor(missionCommanderNextActions))
+		writeProjectLaneExecutionEvidenceReviewSummary(&out, executionEvidenceReviewSummary)
+		writeProjectLaneMissionCommanderActionQueue(&out, missionCommanderActionQueue)
 		writeProjectLaneMissionCommanderNextActions(&out, missionCommanderNextActions)
 		if !evidenceNeedsMainReview {
 			writeProjectLaneNextActions(&out, executorAction.NextAgentActions)
@@ -534,6 +540,19 @@ func writeProjectLaneCommanderList(out *bytes.Buffer, label string, items []stri
 	}
 }
 
+func writeProjectLaneExecutionEvidenceReviewSummary(out *bytes.Buffer, summary ExecutionEvidenceReviewSummary) {
+	if summary.Total == 0 {
+		return
+	}
+	fmt.Fprintf(out, "  - evidence review summary：total=%d readyForReview=%d mainEscalations=%d duplicates=%d outputRefs=%d evidenceRefs=%d boundaryHits=%d latestEventId=%s gateEventId=%s status=%s action=%s\n", summary.Total, summary.ReadyForReviewCount, summary.MainEscalationCount, summary.DuplicateCount, summary.OutputRefCount, summary.EvidenceRefCount, summary.BoundaryHitCount, summary.LatestEventID, summary.LatestGateEventID, summary.LatestStatus, firstText(summary.LatestAction, "none"))
+	if strings.TrimSpace(summary.CurrentAction) != "" {
+		fmt.Fprintf(out, "  - evidence review summary current action：`%s`\n", summary.CurrentAction)
+	}
+	for _, boundary := range mission.LimitStrings(summary.Boundary, maxHandoffRows) {
+		fmt.Fprintf(out, "  - evidence review summary boundary：%s\n", boundary)
+	}
+}
+
 func writeProjectLaneExecutionEvidenceReview(out *bytes.Buffer, items []ExecutionEvidenceReviewItem) {
 	if len(items) == 0 {
 		fmt.Fprintln(out, "  - execution evidence review：none")
@@ -624,6 +643,9 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	executorAction := ctx.executorAction(lane)
 	executionEvidenceReview := ctx.executionEvidenceReview(lane)
 	evidenceNeedsMainReview := ExecutionEvidenceReviewNeedsMainReview(executionEvidenceReview)
+	missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
+	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
+	executionEvidenceReviewSummary := ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue)
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "# rekit 工作线接手：%s\n", lane.ID)
 	fmt.Fprintln(&out)
@@ -679,9 +701,8 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	if err != nil {
 		return "", nil, err
 	}
-	missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
 	writeLaneMissionBrief(&out, lane, facts, executorAction)
-	writeLaneMissionCommanderActionQueue(&out, mission.MissionCommanderActionQueueFor(missionCommanderNextActions))
+	writeLaneMissionCommanderActionQueue(&out, missionCommanderActionQueue)
 	writeLaneMissionCommanderNextActions(&out, missionCommanderNextActions)
 	writeExecutorActionSection(&out, executorAction)
 	writeAutonomyProfileSection(&out, ctx.inst.CaseRoot, lane, ctx.manifest)
@@ -690,7 +711,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	writeReviewerWritebackItems(&out, ReviewerWritebackItems(facts, lane.ID))
 	writePendingGateSection(&out, facts.Requests, lane.ID)
 	writeAuthorizedGateSection(&out, facts.Requests, lane.ID)
-	writeExecutionEvidenceReviewSection(&out, executionEvidenceReview)
+	writeExecutionEvidenceReviewSection(&out, executionEvidenceReview, executionEvidenceReviewSummary)
 	writeInterventionSection(&out, facts.Interventions, lane.ID)
 	writeRollbackSection(&out, facts.Rollbacks, lane.ID)
 	fmt.Fprintln(&out, "## 边界")
@@ -1104,12 +1125,13 @@ func writeAuthorizedGateSection(out *bytes.Buffer, requests []map[string]any, la
 	fmt.Fprintln(out)
 }
 
-func writeExecutionEvidenceReviewSection(out *bytes.Buffer, items []ExecutionEvidenceReviewItem) {
+func writeExecutionEvidenceReviewSection(out *bytes.Buffer, items []ExecutionEvidenceReviewItem, summary ExecutionEvidenceReviewSummary) {
 	if len(items) == 0 {
 		return
 	}
 	fmt.Fprintln(out, "## execution evidence review")
 	fmt.Fprintln(out)
+	writeExecutionEvidenceReviewSummary(out, summary)
 	for _, item := range items {
 		fmt.Fprintf(out, "- %s | status=%s | gateEventId=%s | action=%s | outputRefs=%s | evidenceRefs=%s\n", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, item.Action, firstText(strings.Join(item.OutputRefs, ","), "none"), firstText(strings.Join(item.EvidenceRefs, ","), "none"))
 		writeExecutionEvidenceBoundaryDetail(out, item)
@@ -1123,6 +1145,19 @@ func writeExecutionEvidenceReviewSection(out *bytes.Buffer, items []ExecutionEvi
 		writeHandoffBriefList(out, "review boundary", item.Boundary)
 	}
 	fmt.Fprintln(out)
+}
+
+func writeExecutionEvidenceReviewSummary(out *bytes.Buffer, summary ExecutionEvidenceReviewSummary) {
+	if summary.Total == 0 {
+		return
+	}
+	fmt.Fprintf(out, "- summary: total=%d readyForReview=%d mainEscalations=%d duplicates=%d outputRefs=%d evidenceRefs=%d boundaryHits=%d latestEventId=%s gateEventId=%s status=%s action=%s\n", summary.Total, summary.ReadyForReviewCount, summary.MainEscalationCount, summary.DuplicateCount, summary.OutputRefCount, summary.EvidenceRefCount, summary.BoundaryHitCount, summary.LatestEventID, summary.LatestGateEventID, summary.LatestStatus, firstText(summary.LatestAction, "none"))
+	if strings.TrimSpace(summary.CurrentAction) != "" {
+		fmt.Fprintf(out, "  - summary current action: `%s`\n", summary.CurrentAction)
+	}
+	for _, boundary := range mission.LimitStrings(summary.Boundary, maxHandoffRows) {
+		fmt.Fprintf(out, "  - summary boundary: %s\n", boundary)
+	}
 }
 
 func writeExecutionEvidenceBoundaryDetail(out *bytes.Buffer, item ExecutionEvidenceReviewItem) {
