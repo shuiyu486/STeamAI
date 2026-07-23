@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 558：reviewer result staging / candidate publication closure
 
-状态：已完成implementation、focused/package/product-path validation、独立审查修复、最终复核与完整本地release minimum；等待implementation commit/push与远程release-gate inspection。
+状态：已完成implementation、focused/package/product-path validation、独立审查修复、最终复核、完整本地release minimum、implementation commit `8e79971 Stage reviewer results safely`/push与远程release-gate inspection。对应run `30000837518` completed failure；Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。
 
 目标：关闭主Agent必须把read-only reviewer返回JSON直接写入packet-derived canonical candidate path的产品断点。允许先保存到任意case-local source，再以Go-owned WhatIf→expected-source-hash Apply严格验证并no-overwrite发布candidate，随后进入既有collection→intake。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：staging不删除或修改source，不覆盖different candidate，不自动collection/intake，不spawn/stop/poll/monitor reviewer，不执行heavy-tool，不写facts/authority/confirmed，不新增PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli`已通过。独立审查发现并修复source/candidate publication祖先namespace换绑竞态与staging flags在非`plan-subagents`命令被静默忽略；复核进一步发现`os.Root`会跟随case内symlink，以及packet validation与publication之间仍可整体换绑普通namespace。现已用同一逐组件no-follow parent handle读取packet+integrity并绑定identity，保存validated result-root identity供publication重验，在link前后确认canonical result/candidates paths仍绑定prepared handles。case-internal source symlink、同步candidate directory换绑与prepare→publication result namespace替换测试证明错误namespace无写入、不会误报staged。完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）与Linux package交叉编译已通过。最终独立复核确认所有post-Link失败出口均执行SameFile限定清理，candidate bytes、result/candidates namespace与packet snapshot全部通过后才返回`staged`，无剩余高置信finding。
+验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli`已通过。独立审查发现并修复source/candidate publication祖先namespace换绑竞态与staging flags在非`plan-subagents`命令被静默忽略；复核进一步发现`os.Root`会跟随case内symlink，以及packet validation与publication之间仍可整体换绑普通namespace。现已用同一逐组件no-follow parent handle读取packet+integrity并绑定identity，保存validated result-root identity供publication重验，在link前后确认canonical result/candidates paths仍绑定prepared handles。case-internal source symlink、同步candidate directory换绑与prepare→publication result namespace替换测试证明错误namespace无写入、不会误报staged。完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）与Linux package交叉编译已通过。最终独立复核确认所有post-Link失败出口均执行SameFile限定清理，candidate bytes、result/candidates namespace与packet snapshot全部通过后才返回`staged`，无剩余高置信finding。implementation commit `8e79971`已推送；远程run `30000837518`三平台jobs均在执行任何step前失败，未提供不同于既有runner/billing blocker的新代码失败信号。
 
 上一批摘要：Batch 557已完成ambiguous recovery disposition closure，implementation commit `3f932d9 Resolve ambiguous reviewer recovery state`与release inspection commit `d9b8a15 Record Batch 557 release gate inspection`已推送；对应run `29994310884`仍为既有`steps=[]` runner/billing blocker。
 
