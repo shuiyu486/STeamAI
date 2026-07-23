@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 553：canonical reviewer result recovery / quarantine closure
+
+状态：implementation、focused/package/product-path validation、两轮独立审查修复与完整本地release minimum已完成；尚未commit/push，尚未检查implementation commit对应远程release gate。
+
+目标：关闭read-only reviewer candidate已正确生成、但canonical reviewer result已存在不同损坏或冲突bytes时，immutable collection拒绝覆盖且Mission Commander只能要求手工删除/修补result的operational断点。提供explicit WhatIf→Apply exact recovery，保留冲突bytes的可审计quarantine，再恢复collection→intake路径。
+
+已完成内容：
+
+- 新增`plan-subagents -RecoverReviewerResult -PacketPath ... -ShardId ... -Lane ... -Actor ... -Reason ... -WhatIf/-Apply`。WhatIf复用strict collection candidate、packet integrity、route/items/evidence/blocked-output validation，返回candidate与conflicting canonical result的exact SHA-256/size及expected-hash绑定Apply command；Apply在同一packet/shard collection lock内重读、重验并拒绝preview drift。
+- recovery在`results/recoveries/`先exclusive durable写strict intent，再把exact conflicting canonical bytes原样移动到hash-addressed quarantine，最后写committed receipt；若进程在quarantine与receipt之间中断，后续WhatIf投影finalize action，expected-hash Apply验证current candidate、intent和quarantine exact bytes后补齐receipt，不形成手工删除dead end。exact completed replay幂等。
+- receipt/intent strict绑定repo/case/pack、packet/route shard/lane、candidate/result/quarantine canonical paths、hash/size、actor/reason/timestamp与no-verdict/no-facts/no-heavy/no-authority flags；unknown/trailing JSON、invalid hash/size、forged path、symlink/non-regular quarantine或bytes drift fail-closed。已存在verification或decision writeback时禁止recovery，不撤销facts或伪造verdict。
+- durable workstream在candidate与regular canonical result bytes冲突且尚无writeback时投影`reviewer-result-recovery-required`与typed WhatIf action；collection仍不覆盖different bytes。nested case cwd/no Target/no Pack CLI product path覆盖planning→candidate→conflict→recovery WhatIf/text/Apply→collection WhatIf/Apply→batch intake WhatIf。
+
+边界：recovery只隔离一份exact conflicting regular canonical result，不自动spawn/stop/poll/monitor reviewer，不执行heavy-tool，不写facts/authority/confirmed，不替换candidate、不撤销既有verification/decision；collection与intake仍分别要求显式WhatIf→Apply。禁止新增PowerShell runtime logic。
+
+验证结果：focused `subagents` / `workstream` / `cli` tests与case-local nested CLI product path已通过；完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。两轮独立审查发现并修复最终路径直接写导致截断intent/receipt dead end、interrupted recovery可被collection绕过、actor/reason drift、workstream未strict区分intent/committed receipt四项问题；复核确认核心执行端与strict projection闭环。
+
+上一批摘要：Batch 552已完成invalid reviewer packet recovery / exact retirement closure，implementation commit `26d9061 Retire invalid reviewer packets safely`与release inspection commit `b9f8e46 Record Batch 552 release gate inspection`已推送；对应run `29981677697`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
+
 ### Batch 552：invalid reviewer packet recovery / exact retirement closure
 
 状态：已完成implementation、focused/package validation、两轮独立审查修复、完整本地release minimum、implementation commit `26d9061 Retire invalid reviewer packets safely`/push与远程release-gate inspection。对应run `29981677697` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。

@@ -102,6 +102,16 @@ func TestParsePlanSubagentsReviewerPacketRetirement(t *testing.T) {
 	}
 }
 
+func TestParsePlanSubagentsReviewerResultRecovery(t *testing.T) {
+	opt, err := Parse([]string{"-Command", "plan-subagents", "-RecoverReviewerResult", "-PacketPath", "packet.json", "-ShardId", "shard-01", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "quarantine conflict", "-ExpectedCandidateSha256", strings.Repeat("a", 64), "-ExpectedReviewerResultSha256", strings.Repeat("b", 64), "-Apply"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.RecoverReviewerResult || opt.PacketPath != "packet.json" || opt.ShardID != "shard-01" || opt.Note.Lane != "feature-review" || opt.Note.Actor != "mission-commander" || opt.Note.Reason != "quarantine conflict" || opt.ExpectedCandidateSHA256 != strings.Repeat("a", 64) || opt.ExpectedReviewerResultSHA256 != strings.Repeat("b", 64) || !opt.Apply {
+		t.Fatalf("unexpected reviewer result recovery options: %+v", opt)
+	}
+}
+
 func TestParsePlanSubagentsNumericOptionsRejectTrailingJunk(t *testing.T) {
 	_, err := Parse([]string{"-Command", "plan-subagents", "-ItemsPerAgent", "2x"})
 	if err == nil || !strings.Contains(err.Error(), "invalid -ItemsPerAgent") {

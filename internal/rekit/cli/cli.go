@@ -35,45 +35,48 @@ import (
 )
 
 type Options struct {
-	Command                     string
-	Target                      string
-	Pack                        string
-	PackProvided                bool
-	Review                      bool
-	Apply                       bool
-	CreateCandidates            bool
-	WhatIf                      bool
-	Force                       bool
-	List                        bool
-	ReviewOutputDir             string
-	PacketPath                  string
-	CandidateDecisionPath       string
-	VerifyCandidateDecision     bool
-	FreshCaseRoot               string
-	AttachedCaseRoot            string
-	ReviewerResultPath          string
-	ReadyReviewerResults        bool
-	AdoptReviewerPacket         bool
-	RetireInvalidReviewerPacket bool
-	ExpectedPacketSHA256        string
-	ExpectedIntegritySHA256     string
-	CollectReviewerResult       bool
-	ShardID                     string
-	DiffPath                    string
-	ProjectName                 string
-	Route                       string
-	TaskType                    string
-	Items                       string
-	ItemsFile                   string
-	ItemsPerAgent               int
-	MaxParallel                 int
-	Format                      string
-	Gate                        gate.Options
-	Note                        note.Options
-	Start                       workstream.StartOptions
-	Handoff                     workstream.HandoffOptions
-	Continue                    workstream.ContinueOptions
-	Reconcile                   workstream.ReconcileOptions
+	Command                      string
+	Target                       string
+	Pack                         string
+	PackProvided                 bool
+	Review                       bool
+	Apply                        bool
+	CreateCandidates             bool
+	WhatIf                       bool
+	Force                        bool
+	List                         bool
+	ReviewOutputDir              string
+	PacketPath                   string
+	CandidateDecisionPath        string
+	VerifyCandidateDecision      bool
+	FreshCaseRoot                string
+	AttachedCaseRoot             string
+	ReviewerResultPath           string
+	ReadyReviewerResults         bool
+	AdoptReviewerPacket          bool
+	RetireInvalidReviewerPacket  bool
+	ExpectedPacketSHA256         string
+	ExpectedIntegritySHA256      string
+	RecoverReviewerResult        bool
+	ExpectedCandidateSHA256      string
+	ExpectedReviewerResultSHA256 string
+	CollectReviewerResult        bool
+	ShardID                      string
+	DiffPath                     string
+	ProjectName                  string
+	Route                        string
+	TaskType                     string
+	Items                        string
+	ItemsFile                    string
+	ItemsPerAgent                int
+	MaxParallel                  int
+	Format                       string
+	Gate                         gate.Options
+	Note                         note.Options
+	Start                        workstream.StartOptions
+	Handoff                      workstream.HandoffOptions
+	Continue                     workstream.ContinueOptions
+	Reconcile                    workstream.ReconcileOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -183,6 +186,20 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedIntegritySha256")
 			}
 			opt.ExpectedIntegritySHA256 = args[i]
+		case "-RecoverReviewerResult", "--recover-reviewer-result":
+			opt.RecoverReviewerResult = true
+		case "-ExpectedCandidateSha256", "--expected-candidate-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedCandidateSha256")
+			}
+			opt.ExpectedCandidateSHA256 = args[i]
+		case "-ExpectedReviewerResultSha256", "--expected-reviewer-result-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedReviewerResultSha256")
+			}
+			opt.ExpectedReviewerResultSHA256 = args[i]
 		case "-CollectReviewerResult", "--collect-reviewer-result":
 			opt.CollectReviewerResult = true
 		case "-ShardId", "--shard-id":
@@ -611,6 +628,9 @@ func Run(args []string, stdout io.Writer) error {
 	}
 	if (opt.RetireInvalidReviewerPacket || strings.TrimSpace(opt.ExpectedPacketSHA256) != "" || strings.TrimSpace(opt.ExpectedIntegritySHA256) != "") && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("reviewer packet retirement flags are supported only by plan-subagents reviewer packet retirement")
+	}
+	if (opt.RecoverReviewerResult || strings.TrimSpace(opt.ExpectedCandidateSHA256) != "" || strings.TrimSpace(opt.ExpectedReviewerResultSHA256) != "") && opt.Command != commands.PlanSubagents {
+		return fmt.Errorf("reviewer result recovery flags are supported only by plan-subagents reviewer result recovery")
 	}
 	switch opt.Command {
 	case commands.Status:
@@ -5113,14 +5133,17 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(opt.ShardID) != "" && !opt.CollectReviewerResult {
-		return fmt.Errorf("-ShardId is supported only with -CollectReviewerResult")
+	if strings.TrimSpace(opt.ShardID) != "" && !opt.CollectReviewerResult && !opt.RecoverReviewerResult {
+		return fmt.Errorf("-ShardId is supported only with -CollectReviewerResult or -RecoverReviewerResult")
 	}
 	if !opt.RetireInvalidReviewerPacket && (strings.TrimSpace(opt.ExpectedPacketSHA256) != "" || strings.TrimSpace(opt.ExpectedIntegritySHA256) != "") {
 		return fmt.Errorf("expected packet/integrity hashes are supported only with -RetireInvalidReviewerPacket -Apply")
 	}
+	if !opt.RecoverReviewerResult && (strings.TrimSpace(opt.ExpectedCandidateSHA256) != "" || strings.TrimSpace(opt.ExpectedReviewerResultSHA256) != "") {
+		return fmt.Errorf("expected candidate/result hashes are supported only with -RecoverReviewerResult -Apply")
+	}
 	if opt.CollectReviewerResult {
-		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.RetireInvalidReviewerPacket || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.RetireInvalidReviewerPacket || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" {
 			return fmt.Errorf("plan-subagents reviewer result collection cannot combine with reviewer intake or adoption modes")
 		}
 		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
@@ -5146,7 +5169,7 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writePlanSubagentsReviewerResultCollectionText(out, result)
 	}
 	if opt.RetireInvalidReviewerPacket {
-		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.CollectReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" || strings.TrimSpace(opt.ShardID) != "" {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.CollectReviewerResult || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" || strings.TrimSpace(opt.ShardID) != "" {
 			return fmt.Errorf("plan-subagents reviewer packet retirement cannot combine with reviewer intake or adoption modes")
 		}
 		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
@@ -5176,6 +5199,38 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 			return writeJSON(out, result)
 		}
 		return writePlanSubagentsReviewerPacketRetirementText(out, result)
+	}
+	if opt.RecoverReviewerResult {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.CollectReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+			return fmt.Errorf("plan-subagents reviewer result recovery cannot combine with reviewer intake, adoption, or collection modes")
+		}
+		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
+			return fmt.Errorf("plan-subagents reviewer result recovery does not support planning scope flags")
+		}
+		if opt.Apply == opt.WhatIf {
+			return fmt.Errorf("plan-subagents reviewer result recovery requires exactly one of -WhatIf or -Apply")
+		}
+		if opt.WhatIf && (strings.TrimSpace(opt.ExpectedCandidateSHA256) != "" || strings.TrimSpace(opt.ExpectedReviewerResultSHA256) != "") {
+			return fmt.Errorf("plan-subagents reviewer result recovery preview does not accept expected hashes")
+		}
+		if opt.Apply && (strings.TrimSpace(opt.ExpectedCandidateSHA256) == "" || strings.TrimSpace(opt.ExpectedReviewerResultSHA256) == "") {
+			return fmt.Errorf("plan-subagents reviewer result recovery apply requires expected candidate and reviewer result hashes from WhatIf")
+		}
+		if strings.TrimSpace(opt.PacketPath) == "" || strings.TrimSpace(opt.ShardID) == "" {
+			return fmt.Errorf("plan-subagents reviewer result recovery requires -PacketPath and -ShardId")
+		}
+		format, err := planSubagentsFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
+		}
+		result, err := subagents.RecoverReviewerResult(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultRecoveryOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Reason: opt.Note.Reason, ExpectedCandidateSHA256: opt.ExpectedCandidateSHA256, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultSHA256, WhatIf: opt.WhatIf})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePlanSubagentsReviewerResultRecoveryText(out, result)
 	}
 	if opt.AdoptReviewerPacket {
 		if opt.ReadyReviewerResults || strings.TrimSpace(opt.ReviewerResultPath) != "" {
@@ -5884,6 +5939,26 @@ func writePlanSubagentsReviewerResultCollectionText(out io.Writer, result subage
 	}
 	for _, boundary := range result.Boundary {
 		if _, err := fmt.Fprintf(out, "reviewer result collection boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue)
+}
+
+func writePlanSubagentsReviewerResultRecoveryText(out io.Writer, result subagents.ReviewerResultRecoveryResult) error {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer result recovery：mutation=%t applied=%t alreadyRecovered=%t requiresConfirmation=%t packet=%s shard=%s lane=%s actor=%s\n", result.IsMutation, result.Applied, result.AlreadyRecovered, result.RequiresConfirmation, result.PacketID, result.ShardID, result.Lane, result.Actor); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "reviewer result recovery snapshot：candidate=%s candidateSha256=%s candidateBytes=%d canonical=%s canonicalSha256=%s canonicalBytes=%d quarantine=%s receipt=%s reason=%s\n", result.CandidatePath, result.CandidateSHA256, result.CandidateBytes, result.ReviewerResultPath, result.ReviewerResultSHA256, result.ReviewerResultBytes, result.QuarantinePath, result.ReceiptPath, planSubagentsTextInline(result.Reason)); err != nil {
+		return err
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "reviewer result recovery next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "reviewer result recovery boundary：%s\n", boundary); err != nil {
 			return err
 		}
 	}

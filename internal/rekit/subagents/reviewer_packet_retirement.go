@@ -189,13 +189,16 @@ func RetireInvalidReviewerPacket(repoRoot, caseRoot, pack string, opt ReviewerPa
 }
 
 func validateReviewerPacketRetirementExpectedHashes(opt ReviewerPacketRetirementOptions) error {
-	for label, value := range map[string]string{
-		"packet":    strings.TrimSpace(opt.ExpectedPacketSHA256),
-		"integrity": strings.TrimSpace(opt.ExpectedIntegritySHA256),
+	for _, expected := range []struct {
+		label string
+		value string
+	}{
+		{label: "packet", value: strings.TrimSpace(opt.ExpectedPacketSHA256)},
+		{label: "integrity", value: strings.TrimSpace(opt.ExpectedIntegritySHA256)},
 	} {
-		decoded, err := hex.DecodeString(value)
-		if value == "" || err != nil || len(decoded) != sha256.Size {
-			return fmt.Errorf("reviewer packet retirement Apply requires a valid expected %s SHA-256 from WhatIf", label)
+		decoded, err := hex.DecodeString(expected.value)
+		if expected.value == "" || err != nil || len(decoded) != sha256.Size {
+			return fmt.Errorf("reviewer packet retirement Apply requires a valid expected %s SHA-256 from WhatIf", expected.label)
 		}
 	}
 	return nil

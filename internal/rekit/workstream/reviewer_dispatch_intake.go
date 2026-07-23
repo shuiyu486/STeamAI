@@ -37,51 +37,79 @@ type ReviewerResultCollectionCommands struct {
 	ApplyCommand   string `json:"applyCommand"`
 }
 
+type reviewerResultRecoveryRecord struct {
+	SchemaVersion        int    `json:"schemaVersion"`
+	Kind                 string `json:"kind"`
+	RepoRoot             string `json:"repoRoot"`
+	CaseRoot             string `json:"caseRoot"`
+	Pack                 string `json:"pack"`
+	PacketID             string `json:"packetId"`
+	PacketPath           string `json:"packetPath"`
+	ShardID              string `json:"shardId"`
+	Lane                 string `json:"lane"`
+	CandidatePath        string `json:"candidatePath"`
+	CandidateSHA256      string `json:"candidateSha256"`
+	CandidateBytes       int    `json:"candidateBytes"`
+	ReviewerResultPath   string `json:"reviewerResultPath"`
+	ReviewerResultSHA256 string `json:"reviewerResultSha256"`
+	ReviewerResultBytes  int    `json:"reviewerResultBytes"`
+	QuarantinePath       string `json:"quarantinePath"`
+	Actor                string `json:"actor"`
+	Reason               string `json:"reason"`
+	CreatedAt            string `json:"createdAt"`
+	NoVerdict            bool   `json:"noReviewerVerdict"`
+	NoFacts              bool   `json:"noFactsWrite"`
+	NoHeavyTool          bool   `json:"noHeavyTool"`
+	NoAuthority          bool   `json:"noAuthorityOrConfirmed"`
+}
+
 type ReviewerDispatchIntakeHandoff struct {
-	PacketID                         string                            `json:"packetId,omitempty"`
-	PacketPath                       string                            `json:"packetPath"`
-	SummaryPath                      string                            `json:"summaryPath,omitempty"`
-	ResultRoot                       string                            `json:"resultRoot,omitempty"`
-	TargetLane                       string                            `json:"targetLane,omitempty"`
-	ShardID                          string                            `json:"shardId"`
-	DispatchIndex                    int                               `json:"dispatchIndex,omitempty"`
-	DispatchTotal                    int                               `json:"dispatchTotal,omitempty"`
-	DispatchCompleted                int                               `json:"dispatchCompleted"`
-	DispatchOpen                     int                               `json:"dispatchOpen"`
-	DispatchWaitingForReviewerResult int                               `json:"dispatchWaitingForReviewerResult"`
-	DispatchReadyForPreview          int                               `json:"dispatchReadyForPreview"`
-	DispatchAttachRequired           int                               `json:"dispatchAttachRequired"`
-	DispatchOnlyOpen                 int                               `json:"dispatchOnlyOpen"`
-	LatestCompletedShardID           string                            `json:"latestCompletedShardId,omitempty"`
-	NextOpenShardID                  string                            `json:"nextOpenShardId,omitempty"`
-	RemainingShardIDs                []string                          `json:"remainingShardIds,omitempty"`
-	State                            string                            `json:"state"`
-	ReviewerResultPath               string                            `json:"reviewerResultPath,omitempty"`
-	ReviewerResultPresent            bool                              `json:"reviewerResultPresent"`
-	ReviewerResultState              string                            `json:"reviewerResultState,omitempty"`
-	ReviewerResultCandidatePath      string                            `json:"reviewerResultCandidatePath,omitempty"`
-	ReviewerResultCandidateState     string                            `json:"reviewerResultCandidateState,omitempty"`
-	AgentToolRequest                 *ReviewerAgentToolRequest         `json:"agentToolRequest,omitempty"`
-	ReviewerResultCollectionCommands *ReviewerResultCollectionCommands `json:"reviewerResultCollectionCommands,omitempty"`
-	IntakeAvailable                  bool                              `json:"intakeAvailable"`
-	DispatchOnly                     bool                              `json:"dispatchOnly"`
-	VerificationRecorded             bool                              `json:"verificationRecorded"`
-	DecisionRecorded                 bool                              `json:"decisionRecorded"`
-	DispatchCommand                  string                            `json:"dispatchCommand,omitempty"`
-	PreviewCommand                   string                            `json:"previewCommand,omitempty"`
-	ApplyCommand                     string                            `json:"applyCommand,omitempty"`
-	BatchPreviewCommand              string                            `json:"batchPreviewCommand,omitempty"`
-	BatchApplyCommand                string                            `json:"batchApplyCommand,omitempty"`
-	OwnerExecutor                    string                            `json:"ownerExecutor,omitempty"`
-	OwnerGeneration                  int                               `json:"ownerGeneration,omitempty"`
-	OwnerBindingMode                 string                            `json:"ownerBindingMode,omitempty"`
-	CurrentExecutor                  string                            `json:"currentExecutor,omitempty"`
-	CurrentGeneration                int                               `json:"currentGeneration,omitempty"`
-	OwnerAdoptionRequired            bool                              `json:"ownerAdoptionRequired"`
-	OwnerAdoptionPath                string                            `json:"ownerAdoptionPath,omitempty"`
-	OwnerAdoptionPreviewCommand      string                            `json:"ownerAdoptionPreviewCommand,omitempty"`
-	Evidence                         []string                          `json:"evidence,omitempty"`
-	Boundary                         []string                          `json:"boundary,omitempty"`
+	PacketID                           string                            `json:"packetId,omitempty"`
+	PacketPath                         string                            `json:"packetPath"`
+	SummaryPath                        string                            `json:"summaryPath,omitempty"`
+	ResultRoot                         string                            `json:"resultRoot,omitempty"`
+	TargetLane                         string                            `json:"targetLane,omitempty"`
+	ShardID                            string                            `json:"shardId"`
+	DispatchIndex                      int                               `json:"dispatchIndex,omitempty"`
+	DispatchTotal                      int                               `json:"dispatchTotal,omitempty"`
+	DispatchCompleted                  int                               `json:"dispatchCompleted"`
+	DispatchOpen                       int                               `json:"dispatchOpen"`
+	DispatchWaitingForReviewerResult   int                               `json:"dispatchWaitingForReviewerResult"`
+	DispatchReadyForPreview            int                               `json:"dispatchReadyForPreview"`
+	DispatchAttachRequired             int                               `json:"dispatchAttachRequired"`
+	DispatchOnlyOpen                   int                               `json:"dispatchOnlyOpen"`
+	LatestCompletedShardID             string                            `json:"latestCompletedShardId,omitempty"`
+	NextOpenShardID                    string                            `json:"nextOpenShardId,omitempty"`
+	RemainingShardIDs                  []string                          `json:"remainingShardIds,omitempty"`
+	State                              string                            `json:"state"`
+	ReviewerResultPath                 string                            `json:"reviewerResultPath,omitempty"`
+	ReviewerResultPresent              bool                              `json:"reviewerResultPresent"`
+	ReviewerResultState                string                            `json:"reviewerResultState,omitempty"`
+	ReviewerResultCandidatePath        string                            `json:"reviewerResultCandidatePath,omitempty"`
+	ReviewerResultCandidateState       string                            `json:"reviewerResultCandidateState,omitempty"`
+	AgentToolRequest                   *ReviewerAgentToolRequest         `json:"agentToolRequest,omitempty"`
+	ReviewerResultCollectionCommands   *ReviewerResultCollectionCommands `json:"reviewerResultCollectionCommands,omitempty"`
+	ReviewerResultRecoveryCommand      string                            `json:"reviewerResultRecoveryCommand,omitempty"`
+	ReviewerResultRecoveryApplyCommand string                            `json:"reviewerResultRecoveryApplyCommand,omitempty"`
+	IntakeAvailable                    bool                              `json:"intakeAvailable"`
+	DispatchOnly                       bool                              `json:"dispatchOnly"`
+	VerificationRecorded               bool                              `json:"verificationRecorded"`
+	DecisionRecorded                   bool                              `json:"decisionRecorded"`
+	DispatchCommand                    string                            `json:"dispatchCommand,omitempty"`
+	PreviewCommand                     string                            `json:"previewCommand,omitempty"`
+	ApplyCommand                       string                            `json:"applyCommand,omitempty"`
+	BatchPreviewCommand                string                            `json:"batchPreviewCommand,omitempty"`
+	BatchApplyCommand                  string                            `json:"batchApplyCommand,omitempty"`
+	OwnerExecutor                      string                            `json:"ownerExecutor,omitempty"`
+	OwnerGeneration                    int                               `json:"ownerGeneration,omitempty"`
+	OwnerBindingMode                   string                            `json:"ownerBindingMode,omitempty"`
+	CurrentExecutor                    string                            `json:"currentExecutor,omitempty"`
+	CurrentGeneration                  int                               `json:"currentGeneration,omitempty"`
+	OwnerAdoptionRequired              bool                              `json:"ownerAdoptionRequired"`
+	OwnerAdoptionPath                  string                            `json:"ownerAdoptionPath,omitempty"`
+	OwnerAdoptionPreviewCommand        string                            `json:"ownerAdoptionPreviewCommand,omitempty"`
+	Evidence                           []string                          `json:"evidence,omitempty"`
+	Boundary                           []string                          `json:"boundary,omitempty"`
 }
 
 type ReviewerDispatchIntakeSummary struct {
@@ -385,7 +413,7 @@ func MissionCommanderNextActionsWithReviewerDispatches(base []mission.MissionCom
 	for _, packetID := range packetOrder {
 		handoff := packetRepresentatives[packetID]
 		state := handoff.State
-		blocked := state != "ready-for-reviewer-result-collection-preview" && state != "ready-for-reviewer-intake-preview" && state != "reviewer-packet-owner-adoption-required"
+		blocked := state != "ready-for-reviewer-result-collection-preview" && state != "ready-for-reviewer-intake-preview" && state != "reviewer-packet-owner-adoption-required" && state != "reviewer-result-recovery-required" && state != "reviewer-result-recovery-finalize-required"
 		packetActions = append(packetActions, mission.MissionCommanderNextActionItem{
 			Lane:           handoff.TargetLane,
 			Label:          packetID,
@@ -443,9 +471,9 @@ func reviewerDispatchActionPriority(item ReviewerDispatchIntakeHandoff) int {
 	switch item.State {
 	case "reviewer-packet-owner-adoption-required":
 		return 0
-	case "reviewer-packet-integrity-invalid", "reviewer-result-symlink-blocked", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "attach-required-before-reviewer-intake":
+	case "reviewer-packet-integrity-invalid", "reviewer-result-symlink-blocked", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "reviewer-result-recovery-invalid", "attach-required-before-reviewer-intake":
 		return 1
-	case "ready-for-reviewer-result-collection-preview", "ready-for-reviewer-intake-preview":
+	case "reviewer-result-recovery-required", "reviewer-result-recovery-finalize-required", "ready-for-reviewer-result-collection-preview", "ready-for-reviewer-intake-preview":
 		return 2
 	default:
 		return 3
@@ -689,6 +717,84 @@ func validateReviewerPacketIntegrity(caseRoot, packetPath string, packet reviewe
 	return nil
 }
 
+func reviewerDispatchResultRecoveryCommand(packetPath, shardID, lane string) string {
+	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) +
+		" -RecoverReviewerResult -ShardId " + quoteCommandArg(shardID) +
+		" -Lane " + quoteCommandArg(lane) + " -Actor <main-agent> -Reason " +
+		quoteCommandArg("quarantine conflicting canonical reviewer result") + " -WhatIf -Format json"
+}
+
+func readReviewerResultRecoveryRecord(caseRoot, path string) (reviewerResultRecoveryRecord, error) {
+	data, err := readStableReviewerWorkstreamArtifact(caseRoot, path, "reviewer result recovery record")
+	if err != nil {
+		return reviewerResultRecoveryRecord{}, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(data)))
+	dec.DisallowUnknownFields()
+	var record reviewerResultRecoveryRecord
+	if err := dec.Decode(&record); err != nil {
+		return reviewerResultRecoveryRecord{}, err
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return reviewerResultRecoveryRecord{}, fmt.Errorf("reviewer result recovery record must contain exactly one JSON object")
+	}
+	candidateHash, candidateErr := hex.DecodeString(record.CandidateSHA256)
+	resultHash, resultErr := hex.DecodeString(record.ReviewerResultSHA256)
+	if record.SchemaVersion != 1 || record.Kind != "reviewer-result-recovery" || candidateErr != nil || resultErr != nil || len(candidateHash) != sha256.Size || len(resultHash) != sha256.Size || record.CandidateBytes <= 0 || record.ReviewerResultBytes <= 0 {
+		return reviewerResultRecoveryRecord{}, fmt.Errorf("reviewer result recovery record contract is invalid")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, record.CreatedAt); err != nil || strings.TrimSpace(record.Actor) == "" || strings.TrimSpace(record.Reason) == "" || !record.NoVerdict || !record.NoFacts || !record.NoHeavyTool || !record.NoAuthority {
+		return reviewerResultRecoveryRecord{}, fmt.Errorf("reviewer result recovery record decision or boundary is invalid")
+	}
+	return record, nil
+}
+
+func reviewerResultRecoveryRecordMatches(record reviewerResultRecoveryRecord, caseRoot string, packet reviewerDispatchPacket, packetPath string, dispatch reviewerDispatchPacketDispatch, lane, candidatePath string) bool {
+	candidate, err := readStableReviewerWorkstreamArtifact(caseRoot, candidatePath, "reviewer result candidate")
+	if err != nil {
+		return false
+	}
+	expectedQuarantinePath := filepath.Join(packet.ReviewerOrchestration.ResultRoot, "recoveries", dispatch.ShardID+"-"+record.ReviewerResultSHA256+".json")
+	inst, instErr := instance.Read(caseRoot)
+	return instErr == nil && casebind.SamePath(record.RepoRoot, inst.TemplateRoot) && record.Pack == inst.TemplatePack &&
+		casebind.SamePath(record.CaseRoot, caseRoot) && record.PacketID == packet.PacketID && casebind.SamePath(record.PacketPath, packetPath) &&
+		record.ShardID == dispatch.ShardID && record.Lane == lane && casebind.SamePath(record.CandidatePath, candidatePath) &&
+		record.CandidateSHA256 == reviewerDispatchBytesSHA256(candidate) && record.CandidateBytes == len(candidate) &&
+		casebind.SamePath(record.ReviewerResultPath, dispatch.ReviewerResultPath) && casebind.SamePath(record.QuarantinePath, expectedQuarantinePath) &&
+		reviewpath.CollectionNamespacePathSafe(caseRoot, record.QuarantinePath, false)
+}
+
+func reviewerResultRecoveryQuarantineCurrent(caseRoot string, record reviewerResultRecoveryRecord) bool {
+	data, err := readStableReviewerWorkstreamArtifact(caseRoot, record.QuarantinePath, "quarantined reviewer result")
+	return err == nil && reviewerDispatchBytesSHA256(data) == record.ReviewerResultSHA256 && len(data) == record.ReviewerResultBytes
+}
+
+func reviewerResultRecoveryRecordsEquivalent(left, right reviewerResultRecoveryRecord) bool {
+	return left.SchemaVersion == right.SchemaVersion && left.Kind == right.Kind && left.CreatedAt == right.CreatedAt &&
+		casebind.SamePath(left.RepoRoot, right.RepoRoot) && casebind.SamePath(left.CaseRoot, right.CaseRoot) && left.Pack == right.Pack &&
+		left.PacketID == right.PacketID && casebind.SamePath(left.PacketPath, right.PacketPath) && left.ShardID == right.ShardID && left.Lane == right.Lane &&
+		casebind.SamePath(left.CandidatePath, right.CandidatePath) && left.CandidateSHA256 == right.CandidateSHA256 && left.CandidateBytes == right.CandidateBytes &&
+		casebind.SamePath(left.ReviewerResultPath, right.ReviewerResultPath) && left.ReviewerResultSHA256 == right.ReviewerResultSHA256 && left.ReviewerResultBytes == right.ReviewerResultBytes &&
+		casebind.SamePath(left.QuarantinePath, right.QuarantinePath) && left.Actor == right.Actor && left.Reason == right.Reason &&
+		left.NoVerdict == right.NoVerdict && left.NoFacts == right.NoFacts && left.NoHeavyTool == right.NoHeavyTool && left.NoAuthority == right.NoAuthority
+}
+
+func reviewerDispatchBytesSHA256(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func reviewerDispatchResultRecoveryApplyCommand(packetPath, shardID, lane string, record reviewerResultRecoveryRecord) string {
+	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) +
+		" -RecoverReviewerResult -ShardId " + quoteCommandArg(shardID) +
+		" -Lane " + quoteCommandArg(lane) + " -Actor " + quoteCommandArg(record.Actor) +
+		" -Reason " + quoteCommandArg(record.Reason) +
+		" -ExpectedCandidateSha256 " + quoteCommandArg(record.CandidateSHA256) +
+		" -ExpectedReviewerResultSha256 " + quoteCommandArg(record.ReviewerResultSHA256) +
+		" -Apply -Format json"
+}
+
 func reviewerDispatchCollectionCommands(packetPath, shardID, lane, candidatePath string) ReviewerResultCollectionCommands {
 	base := "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) +
 		" -CollectReviewerResult -ShardId " + quoteCommandArg(shardID) +
@@ -746,12 +852,40 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 	verificationRecorded := reviewerDispatchWritebackRecorded(facts.Verifications, packet.PacketID, dispatch.ShardID, resultPath)
 	decisionRecorded := reviewerDispatchWritebackRecorded(facts.Decisions, packet.PacketID, dispatch.ShardID, resultPath)
 	state := reviewerDispatchIntakeState(resultState, intakeAvailable)
+	recoveryCommand := ""
+	recoveryApplyCommand := ""
+	if present && candidateState == "collected" && !verificationRecorded && !decisionRecorded {
+		candidateBytes, candidateErr := readStableReviewerWorkstreamArtifact(caseRoot, candidatePath, "reviewer result candidate")
+		resultBytes, resultErr := readStableReviewerWorkstreamArtifact(caseRoot, resultPath, "canonical reviewer result")
+		if candidateErr == nil && resultErr == nil && !bytes.Equal(candidateBytes, resultBytes) {
+			state = "reviewer-result-recovery-required"
+			recoveryCommand = reviewerDispatchResultRecoveryCommand(packetPath, dispatch.ShardID, targetLane)
+		}
+	}
 	if !present && resultState == refsf.RegularFileWaiting && candidatePath != "" {
 		state = "reviewer-result-canonical-invalid"
 	} else if !present && candidateState == "invalid" {
 		state = "reviewer-result-candidate-invalid"
 	} else if !present && candidateState == "ready" && collectionCommands != nil && reviewerDispatchIntakeCommandAvailable(collectionCommands.PreviewCommand) {
 		state = "ready-for-reviewer-result-collection-preview"
+		intentPath := filepath.Join(packet.ReviewerOrchestration.ResultRoot, "recoveries", dispatch.ShardID+".recovery.intent.json")
+		receiptPath := filepath.Join(packet.ReviewerOrchestration.ResultRoot, "recoveries", dispatch.ShardID+".recovery.json")
+		if intentState, err := refsf.ClassifyNonEmptyRegularFile(intentPath); err == nil && intentState == refsf.RegularFileReady {
+			intent, intentErr := readReviewerResultRecoveryRecord(caseRoot, intentPath)
+			if intentErr != nil || !reviewerResultRecoveryRecordMatches(intent, caseRoot, packet, packetPath, dispatch, targetLane, candidatePath) || !reviewerResultRecoveryQuarantineCurrent(caseRoot, intent) {
+				state = "reviewer-result-recovery-invalid"
+			} else if receipt, receiptErr := readReviewerResultRecoveryRecord(caseRoot, receiptPath); receiptErr == nil && reviewerResultRecoveryRecordsEquivalent(intent, receipt) {
+				state = "ready-for-reviewer-result-collection-preview"
+			} else if _, receiptStatErr := os.Lstat(receiptPath); receiptStatErr == nil || !os.IsNotExist(receiptStatErr) {
+				state = "reviewer-result-recovery-invalid"
+			} else {
+				state = "reviewer-result-recovery-finalize-required"
+				recoveryCommand = reviewerDispatchResultRecoveryCommand(packetPath, dispatch.ShardID, targetLane)
+				recoveryApplyCommand = reviewerDispatchResultRecoveryApplyCommand(packetPath, dispatch.ShardID, targetLane, intent)
+			}
+		} else if err != nil || (intentState != refsf.RegularFileMissing && intentState != refsf.RegularFileReady) {
+			state = "reviewer-result-recovery-invalid"
+		}
 	}
 	currentExecutor, currentGeneration := reviewerDispatchCurrentOwner(caseRoot, targetLane)
 	adoptionPath := filepath.Join(caseRoot, ".rekit", "reviewer-adoptions", packet.PacketID+".json")
@@ -762,39 +896,41 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		state = "reviewer-packet-owner-adoption-required"
 	}
 	item := ReviewerDispatchIntakeHandoff{
-		PacketID:                         packet.PacketID,
-		PacketPath:                       packetPath,
-		SummaryPath:                      packet.Observability.SummaryPath,
-		ResultRoot:                       packet.ReviewerOrchestration.ResultRoot,
-		TargetLane:                       targetLane,
-		ShardID:                          dispatch.ShardID,
-		DispatchIndex:                    idx + 1,
-		DispatchTotal:                    len(packet.ReviewerOrchestration.Dispatches),
-		State:                            state,
-		ReviewerResultPath:               resultPath,
-		ReviewerResultPresent:            present,
-		ReviewerResultState:              string(resultState),
-		ReviewerResultCandidatePath:      candidatePath,
-		ReviewerResultCandidateState:     candidateState,
-		AgentToolRequest:                 dispatch.AgentToolRequest,
-		ReviewerResultCollectionCommands: collectionCommands,
-		IntakeAvailable:                  intakeAvailable,
-		DispatchOnly:                     !intakeAvailable,
-		VerificationRecorded:             verificationRecorded,
-		DecisionRecorded:                 decisionRecorded,
-		DispatchCommand:                  reviewerDispatchCommand(dispatch.ShardID, candidatePath, resultPath, dispatch.AgentToolRequest, idx),
-		PreviewCommand:                   dispatch.PreviewCommand,
-		ApplyCommand:                     dispatch.ApplyCommand,
-		BatchPreviewCommand:              packet.ReviewerOrchestration.BatchPreviewCommand,
-		BatchApplyCommand:                packet.ReviewerOrchestration.BatchApplyCommand,
-		OwnerExecutor:                    packet.ReviewerOrchestration.OwnerBinding.CurrentExecutor,
-		OwnerGeneration:                  packet.ReviewerOrchestration.OwnerBinding.ExecutorGeneration,
-		OwnerBindingMode:                 packet.ReviewerOrchestration.OwnerBinding.BindingMode,
-		CurrentExecutor:                  currentExecutor,
-		CurrentGeneration:                currentGeneration,
-		OwnerAdoptionRequired:            ownerStale && !adoptionCurrent,
-		OwnerAdoptionPath:                adoptionPath,
-		OwnerAdoptionPreviewCommand:      reviewerDispatchAdoptionPreviewCommand(packetPath, targetLane),
+		PacketID:                           packet.PacketID,
+		PacketPath:                         packetPath,
+		SummaryPath:                        packet.Observability.SummaryPath,
+		ResultRoot:                         packet.ReviewerOrchestration.ResultRoot,
+		TargetLane:                         targetLane,
+		ShardID:                            dispatch.ShardID,
+		DispatchIndex:                      idx + 1,
+		DispatchTotal:                      len(packet.ReviewerOrchestration.Dispatches),
+		State:                              state,
+		ReviewerResultPath:                 resultPath,
+		ReviewerResultPresent:              present,
+		ReviewerResultState:                string(resultState),
+		ReviewerResultCandidatePath:        candidatePath,
+		ReviewerResultCandidateState:       candidateState,
+		AgentToolRequest:                   dispatch.AgentToolRequest,
+		ReviewerResultCollectionCommands:   collectionCommands,
+		ReviewerResultRecoveryCommand:      recoveryCommand,
+		ReviewerResultRecoveryApplyCommand: recoveryApplyCommand,
+		IntakeAvailable:                    intakeAvailable,
+		DispatchOnly:                       !intakeAvailable,
+		VerificationRecorded:               verificationRecorded,
+		DecisionRecorded:                   decisionRecorded,
+		DispatchCommand:                    reviewerDispatchCommand(dispatch.ShardID, candidatePath, resultPath, dispatch.AgentToolRequest, idx),
+		PreviewCommand:                     dispatch.PreviewCommand,
+		ApplyCommand:                       dispatch.ApplyCommand,
+		BatchPreviewCommand:                packet.ReviewerOrchestration.BatchPreviewCommand,
+		BatchApplyCommand:                  packet.ReviewerOrchestration.BatchApplyCommand,
+		OwnerExecutor:                      packet.ReviewerOrchestration.OwnerBinding.CurrentExecutor,
+		OwnerGeneration:                    packet.ReviewerOrchestration.OwnerBinding.ExecutorGeneration,
+		OwnerBindingMode:                   packet.ReviewerOrchestration.OwnerBinding.BindingMode,
+		CurrentExecutor:                    currentExecutor,
+		CurrentGeneration:                  currentGeneration,
+		OwnerAdoptionRequired:              ownerStale && !adoptionCurrent,
+		OwnerAdoptionPath:                  adoptionPath,
+		OwnerAdoptionPreviewCommand:        reviewerDispatchAdoptionPreviewCommand(packetPath, targetLane),
 	}
 	if item.OwnerAdoptionRequired {
 		item.BatchPreviewCommand = ""
@@ -1012,6 +1148,12 @@ func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string
 		return firstText(item.OwnerAdoptionPreviewCommand, "adopt reviewer packet "+item.PacketID+" before intake")
 	case "reviewer-packet-integrity-invalid":
 		return "regenerate canonical reviewer packet at " + item.PacketPath + "; do not continue from invalid packet integrity"
+	case "reviewer-result-recovery-required":
+		return firstText(item.ReviewerResultRecoveryCommand, "run reviewer result recovery -WhatIf for "+item.ShardID)
+	case "reviewer-result-recovery-finalize-required":
+		return firstText(item.ReviewerResultRecoveryApplyCommand, item.ReviewerResultRecoveryCommand, "finalize reviewer result recovery for "+item.ShardID)
+	case "reviewer-result-recovery-invalid":
+		return "repair or regenerate the strict reviewer result recovery intent for " + item.ShardID + "; collection remains blocked"
 	case "ready-for-reviewer-result-collection-preview":
 		if item.ReviewerResultCollectionCommands != nil {
 			return firstText(item.ReviewerResultCollectionCommands.PreviewCommand, "run reviewer result collection -WhatIf for "+item.ShardID)

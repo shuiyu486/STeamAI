@@ -58,6 +58,7 @@ type preparedReviewerResultCollection struct {
 	packet           Packet
 	handoff          ShardHandoff
 	candidate        []byte
+	canonical        []byte
 	result           ReviewerResult
 	alreadyCollected bool
 	lane             string
@@ -146,6 +147,10 @@ func CollectReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultCo
 }
 
 func prepareReviewerResultCollection(repoRoot, caseRoot, pack string, opt ReviewerResultCollectionOptions) (preparedReviewerResultCollection, error) {
+	return prepareReviewerResultCollectionMode(repoRoot, caseRoot, pack, opt, false)
+}
+
+func prepareReviewerResultCollectionMode(repoRoot, caseRoot, pack string, opt ReviewerResultCollectionOptions, allowCollision bool) (preparedReviewerResultCollection, error) {
 	packetPath, err := requiredAbsolutePath(opt.PacketPath, "review packet")
 	if err != nil {
 		return preparedReviewerResultCollection{}, err
@@ -251,11 +256,20 @@ func prepareReviewerResultCollection(repoRoot, caseRoot, pack string, opt Review
 	if len(blocked) > 0 {
 		return preparedReviewerResultCollection{}, fmt.Errorf("reviewer result candidate is not ready for immutable collection: %s", strings.Join(blocked, "; "))
 	}
-	alreadyCollected, err := preflightReviewerResultTarget(resultRoot, resultPath, candidate)
-	if err != nil {
-		return preparedReviewerResultCollection{}, err
+	if !allowCollision {
+		if err := ensureReviewerResultCollectionRecoveryComplete(caseRoot, packet, packetPath, handoff, lane, candidate); err != nil {
+			return preparedReviewerResultCollection{}, err
+		}
 	}
-	return preparedReviewerResultCollection{packetPath: packetPath, packetData: packetData, packet: packet, handoff: handoff, candidate: candidate, result: reviewerResult, alreadyCollected: alreadyCollected, lane: lane, actor: actor}, nil
+	canonical, canonicalPresent, canonicalErr := existingReviewerResult(resultRoot, resultPath)
+	if canonicalErr != nil {
+		return preparedReviewerResultCollection{}, canonicalErr
+	}
+	alreadyCollected := canonicalPresent && bytes.Equal(canonical, candidate)
+	if canonicalPresent && !alreadyCollected && !allowCollision {
+		return preparedReviewerResultCollection{}, fmt.Errorf("canonical reviewer result %q already contains different bytes; run reviewer result recovery -WhatIf; refusing overwrite", resultPath)
+	}
+	return preparedReviewerResultCollection{packetPath: packetPath, packetData: packetData, packet: packet, handoff: handoff, candidate: candidate, canonical: canonical, result: reviewerResult, alreadyCollected: alreadyCollected, lane: lane, actor: actor}, nil
 }
 
 func newReviewerResultCollectionResult(repoRoot, caseRoot, pack string, opt ReviewerResultCollectionOptions, prepared preparedReviewerResultCollection) ReviewerResultCollectionResult {

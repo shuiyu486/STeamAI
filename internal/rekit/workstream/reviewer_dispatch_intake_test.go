@@ -11,8 +11,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
@@ -252,6 +254,66 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	collected := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, firstText(packet.ReviewerOrchestration.PacketPath, "packet.json"), "feature-review", dispatch, 0)
 	if collected.State != "ready-for-reviewer-intake-preview" || collected.ReviewerResultCandidateState != "collected" || !collected.ReviewerResultPresent {
 		t.Fatalf("collected candidate did not advance to intake: %+v", collected)
+	}
+	if err := os.WriteFile(resultPath, []byte("{\"different\":true}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	conflicting := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if conflicting.State != "reviewer-result-recovery-required" || conflicting.ReviewerResultRecoveryCommand == "" || reviewerDispatchIntakeNextAction(conflicting) != conflicting.ReviewerResultRecoveryCommand {
+		t.Fatalf("conflicting canonical result did not promote recovery: %+v", conflicting)
+	}
+	if err := os.MkdirAll(filepath.Join(resultRoot, "recoveries"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	candidateBytes, err := os.ReadFile(candidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quarantined := []byte("{\"different\":true}\n")
+	resultHash := reviewerDispatchBytesSHA256(quarantined)
+	quarantinePath := filepath.Join(resultRoot, "recoveries", "shard-01-"+resultHash+".json")
+	if err := os.WriteFile(quarantinePath, quarantined, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inst, err := instance.Read(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := reviewerResultRecoveryRecord{SchemaVersion: 1, Kind: "reviewer-result-recovery", RepoRoot: inst.TemplateRoot, CaseRoot: root, Pack: inst.TemplatePack, PacketID: packet.PacketID, PacketPath: packetPath, ShardID: "shard-01", Lane: "feature-review", CandidatePath: candidatePath, CandidateSHA256: reviewerDispatchBytesSHA256(candidateBytes), CandidateBytes: len(candidateBytes), ReviewerResultPath: resultPath, ReviewerResultSHA256: resultHash, ReviewerResultBytes: len(quarantined), QuarantinePath: quarantinePath, Actor: "mission-commander", Reason: "recover conflict", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), NoVerdict: true, NoFacts: true, NoHeavyTool: true, NoAuthority: true}
+	intentBytes, err := json.Marshal(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resultRoot, "recoveries", "shard-01.recovery.intent.json"), append(intentBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(resultPath); err != nil {
+		t.Fatal(err)
+	}
+	interrupted := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if interrupted.State != "reviewer-result-recovery-finalize-required" || interrupted.ReviewerResultRecoveryApplyCommand == "" || reviewerDispatchIntakeNextAction(interrupted) != interrupted.ReviewerResultRecoveryApplyCommand {
+		t.Fatalf("interrupted recovery did not block collection and promote exact finalize: %+v", interrupted)
+	}
+	actions = MissionCommanderNextActionsWithReviewerDispatches(nil, []ReviewerDispatchIntakeHandoff{interrupted})
+	if len(actions) != 1 || actions[0].Blocked || actions[0].Command != interrupted.ReviewerResultRecoveryApplyCommand || !strings.Contains(actions[0].Command, "-Actor mission-commander") || !strings.Contains(actions[0].Command, "-Reason \"recover conflict\"") {
+		t.Fatalf("interrupted recovery finalize was not exact and actionable: %+v", actions)
+	}
+	if err := os.WriteFile(filepath.Join(resultRoot, "recoveries", "shard-01.recovery.json"), append(append([]byte{}, intentBytes...), '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	committed := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if committed.State != "ready-for-reviewer-result-collection-preview" || committed.ReviewerResultRecoveryApplyCommand != "" {
+		t.Fatalf("committed recovery did not advance to collection preview: %+v", committed)
+	}
+	if err := os.Remove(filepath.Join(resultRoot, "recoveries", "shard-01.recovery.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resultRoot, "recoveries", "shard-01.recovery.intent.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	invalid := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if invalid.State != "reviewer-result-recovery-invalid" || invalid.ReviewerResultRecoveryApplyCommand != "" {
+		t.Fatalf("malformed recovery intent was not blocked: %+v", invalid)
 	}
 }
 
