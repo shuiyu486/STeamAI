@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 555：Windows symlink reviewer result recovery closure
 
-状态：implementation、focused validation、独立审查修复与完整本地release minimum已完成；commit/push和远程release-gate inspection待完成。
+状态：已完成implementation、focused validation、独立审查修复、完整本地release minimum、implementation commit `14585d1 Recover symlink reviewer result obstructions`/push与远程release-gate inspection。对应run `29991470157` completed failure；Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。
 
 目标：在Batch 554已验证的Windows source/destination handle与durable intent namespace guard基础上，关闭canonical reviewer result path被file symlink占据时仍需手工处置的断点。将expected symlink snapshot绑定到no-follow source handle所固定的canonical leaf，移动link本体而不打开或修改target；directory、其它non-regular object和非Windows仍保持fail-closed。
 
@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：不打开或修改symlink target；directory与其它non-regular object不自动移动或递归处理；非Windows不提升runnable recovery；runtime不spawn/monitor reviewer、不执行heavy-tool、不写facts/authority/confirmed，不新增PowerShell runtime logic。
 
-验证结果：focused/related `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`与Linux package交叉编译已通过。独立审查确认Windows source snapshot/namespace/no-follow/no-replace组合有效，并发现、修复非Windows workstream曾发布不可执行symlink recovery命令的问题；完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。
+验证结果：focused/related `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`与Linux package交叉编译已通过。独立审查确认Windows source snapshot/namespace/no-follow/no-replace组合有效，并发现、修复非Windows workstream曾发布不可执行symlink recovery命令的问题；完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。implementation commit `14585d1`已推送；远程run `29991470157`三平台jobs均completed failure且`steps=[]`，未出现不同于既有runner/billing blocker的新远程信号。
 
 上一批摘要：Batch 554已完成Windows empty regular-file typed recovery，implementation commit `18e6325 Recover obstructed reviewer result files`与release inspection commit `3722ceb Record Batch 554 release gate inspection`已推送。对应run `29990736280`中Linux/Windows completed failure且`steps=[]`，macOS在run完成后仍queued且`steps=[]`，仍为既有runner/billing blocker。
 
