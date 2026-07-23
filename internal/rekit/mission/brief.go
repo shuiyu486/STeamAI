@@ -88,6 +88,7 @@ type MissionCommanderNextActionItem struct {
 	Lane           string   `json:"lane,omitempty"`
 	Label          string   `json:"label,omitempty"`
 	GateEventID    string   `json:"gateEventId,omitempty"`
+	ActionID       string   `json:"actionId,omitempty"`
 	State          string   `json:"state"`
 	Command        string   `json:"command"`
 	Source         string   `json:"source"`
@@ -520,7 +521,7 @@ func UniqueCommanderNextActions(items []MissionCommanderNextActionItem) []Missio
 		if item.Command == "" {
 			continue
 		}
-		key := item.Source + "\x00" + item.Lane + "\x00" + item.GateEventID + "\x00" + item.Command
+		key := item.Source + "\x00" + item.Lane + "\x00" + item.GateEventID + "\x00" + item.ActionID + "\x00" + item.Command
 		if seen[key] {
 			continue
 		}

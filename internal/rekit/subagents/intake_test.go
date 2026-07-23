@@ -1,13 +1,16 @@
 package subagents
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -430,6 +433,230 @@ func TestIntakeReviewerResultRejectsStaleOwnerBinding(t *testing.T) {
 	}
 	if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
 		t.Fatalf("stale owner binding wrote verification ledger:\n%s", got)
+	}
+}
+
+func TestAdoptReviewerPacketPreservesPacketIdentityAndEnablesIntake(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetBefore, err := os.ReadFile(plan.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-replacement", Actor: "mission-commander", TakeoverReason: "adopt reviewer packet"}); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "accept prior reviewer work", WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Applied || preview.IsMutation || !preview.RequiresConfirmation || preview.MissionCommanderAction.State != "needs-reviewer-packet-adoption-apply" {
+		t.Fatalf("unexpected adoption preview: %+v", preview)
+	}
+	if _, err := os.Stat(preview.AdoptionPath); !os.IsNotExist(err) {
+		t.Fatalf("adoption WhatIf wrote receipt: %v", err)
+	}
+	applied, err := AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "accept prior reviewer work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.Applied || applied.AdoptedOwner.CurrentExecutor != "session-replacement" || applied.AdoptedOwner.ExecutorGeneration <= packet.OwnerBinding.ExecutorGeneration {
+		t.Fatalf("unexpected adoption apply: %+v", applied)
+	}
+	packetAfter, err := os.ReadFile(plan.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(packetBefore, packetAfter) {
+		t.Fatal("reviewer packet adoption modified immutable packet bytes")
+	}
+	resultPath := filepath.Join(t.TempDir(), "reviewer-result.json")
+	if err := os.WriteFile(resultPath, reviewerResultForPlan(t, plan.PacketPath, "accept", "accepted", nil), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	intake, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if intake.WritebackStatus != "previewed" || intake.OwnerBinding.CurrentExecutor != "session-replacement" {
+		t.Fatalf("adopted packet did not enable strict intake: %+v", intake)
+	}
+	if intake.Verification == nil || intake.Decision == nil || mission.Value(intake.Verification.Event, "ownerExecutor") != "session-replacement" || mission.Value(intake.Decision.Event, "ownerExecutor") != "session-replacement" {
+		t.Fatalf("reviewer writeback preview did not use effective adopted owner: verification=%+v decision=%+v", intake.Verification, intake.Decision)
+	}
+}
+
+func TestAdoptReviewerPacketRejectsSymlinkedAdoptionDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink fixture requires developer mode or elevated privileges on Windows")
+	}
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-replacement", Actor: "mission-commander", TakeoverReason: "symlink adoption test"}); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(caseRoot, ".rekit", "reviewer-adoptions")); err != nil {
+		t.Fatal(err)
+	}
+	_, err = AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "reject symlink traversal"})
+	if err == nil || !strings.Contains(err.Error(), "must not traverse symlink") {
+		t.Fatalf("error = %v, want symlink traversal rejection", err)
+	}
+}
+
+func TestAdoptReviewerPacketRejectsSymlinkedLockDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink fixture requires developer mode or elevated privileges on Windows")
+	}
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-replacement", Actor: "mission-commander", TakeoverReason: "symlink lock test"}); err != nil {
+		t.Fatal(err)
+	}
+	lockDir := filepath.Join(caseRoot, ".rekit", "locks")
+	if err := os.RemoveAll(lockDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), lockDir); err != nil {
+		t.Fatal(err)
+	}
+	_, err = AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "reject symlink lock traversal"})
+	if err == nil || !strings.Contains(err.Error(), "must not traverse symlink") {
+		t.Fatalf("error = %v, want symlink lock traversal rejection", err)
+	}
+}
+
+func TestReviewerPacketAdoptionBecomesStaleAfterSecondTakeover(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-replacement", Actor: "mission-commander", TakeoverReason: "first takeover"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "first adoption"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-third", Actor: "mission-commander", TakeoverReason: "second takeover"}); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := filepath.Join(t.TempDir(), "reviewer-result.json")
+	if err := os.WriteFile(resultPath, reviewerResultForPlan(t, plan.PacketPath, "accept", "accepted", nil), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	if err == nil || !strings.Contains(err.Error(), "adoption is stale") {
+		t.Fatalf("error = %v, want stale adoption rejection", err)
+	}
+	second, err := AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", Reason: "second adoption"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.AdoptedOwner.CurrentExecutor != "session-third" || second.AdoptedOwner.ExecutorGeneration != 3 {
+		t.Fatalf("unexpected second adoption: %+v", second)
+	}
+	historyPath := filepath.Join(filepath.Dir(second.AdoptionPath), "history", second.PacketID+"-generation-2.json")
+	if _, err := os.Stat(historyPath); err != nil {
+		t.Fatalf("previous adoption receipt was not archived: %v", err)
+	}
+	intake, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if intake.OwnerBinding.CurrentExecutor != "session-third" || intake.WritebackStatus != "previewed" {
+		t.Fatalf("second adoption did not restore strict intake: %+v", intake)
+	}
+}
+
+func TestIntakeReviewerResultRejectsForgedAdoptionOwnerContract(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetBytes, err := os.ReadFile(plan.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-replacement", Actor: "mission-commander", TakeoverReason: "forged adoption test"}); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, ok := mission.LookupBoardLane(board.Lanes, "feature-intake", false)
+	if !ok {
+		t.Fatal("feature-intake lane missing")
+	}
+	forged := ReviewerPacketAdoption{
+		SchemaVersion: 1, Kind: "reviewer-packet-owner-adoption", PacketID: packet.PacketID,
+		PacketPath: plan.PacketPath, PacketSHA256: sha256Hex(packetBytes), RepoRoot: root, CaseRoot: caseRoot, Pack: defaults.DefaultPack, Lane: packet.TargetLane,
+		DispatchedOwner: packet.OwnerBinding,
+		AdoptedOwner:    OwnerBinding{TargetLane: packet.TargetLane, CurrentExecutor: current.CurrentExecutor, ExecutorGeneration: current.ExecutorGeneration, BindingMode: "forged", RequiredForIntake: false, MainAgentSpawnOwner: packet.OwnerBinding.MainAgentSpawnOwner, RuntimeSessionBoundary: packet.OwnerBinding.RuntimeSessionBoundary},
+		Actor:           "mission-commander", Reason: "forged receipt", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), NoSpawn: true, NoHeavyTool: true, NoAuthorityOrConfirmed: true,
+	}
+	encoded, err := json.Marshal(forged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adoptionPath := reviewerPacketAdoptionPath(caseRoot, packet.PacketID)
+	if err := os.MkdirAll(filepath.Dir(adoptionPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(adoptionPath, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := filepath.Join(t.TempDir(), "reviewer-result.json")
+	if err := os.WriteFile(resultPath, reviewerResultForPlan(t, plan.PacketPath, "accept", "accepted", nil), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	if err == nil || !strings.Contains(err.Error(), "valid replacement executor owner binding") {
+		t.Fatalf("error = %v, want forged adoption rejection", err)
 	}
 }
 

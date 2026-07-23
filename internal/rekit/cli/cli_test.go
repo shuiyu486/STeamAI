@@ -2566,6 +2566,8 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	}
 	var continueApply struct {
 		RunID                         string                               `json:"runId"`
+		Applied                       bool                                 `json:"applied"`
+		Blocked                       bool                                 `json:"blocked"`
 		ReviewerWritebackSummary      reviewerWritebackSummaryCLIItem      `json:"reviewerWritebackSummary"`
 		ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
 		Writes                        []startWrite                         `json:"writes"`
@@ -2573,8 +2575,31 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
 		t.Fatalf("installed entrypoint continue apply stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if continueApply.RunID == "" || continueApply.ReviewerWritebackSummary.Total != 2 || continueApply.ReviewerWritebackSummary.LatestShardID != "shard-01" || continueApply.ReviewerDispatchIntakeSummary.Total != 1 || continueApply.ReviewerDispatchIntakeSummary.LatestShardID != "shard-02" {
-		t.Fatalf("installed entrypoint continue apply omitted reviewer handoff: %+v", continueApply)
+	if continueApply.RunID != "run-preview" || continueApply.Applied || !continueApply.Blocked || continueApply.ReviewerWritebackSummary.Total != 2 || continueApply.ReviewerWritebackSummary.LatestShardID != "shard-01" || continueApply.ReviewerDispatchIntakeSummary.Total != 1 || continueApply.ReviewerDispatchIntakeSummary.LatestShardID != "shard-02" || len(continueApply.Writes) != 0 {
+		t.Fatalf("installed entrypoint continue apply did not fail closed on remaining reviewer work: %+v", continueApply)
+	}
+
+	lastHandoff := packet.ShardHandoffs[1]
+	if err := os.WriteFile(lastHandoff.ReviewerResultPath, reviewerResultForCLIPlan(t, packet, lastHandoff, "accept", "accepted", "reviewer-session-installed-2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", lastHandoff.ReviewerResultPath, "-Lane", "feature-login", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", lastHandoff.ReviewerResultPath, "-Lane", "feature-login", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Apply", "login", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
+		t.Fatalf("installed entrypoint continue apply after reviewer completion is not JSON: %v\n%s", err, out.String())
+	}
+	if !continueApply.Applied || continueApply.Blocked || continueApply.RunID == "" || continueApply.RunID == "run-preview" {
+		t.Fatalf("installed entrypoint continue did not resume after reviewer completion: %+v", continueApply)
 	}
 	resumePath := assertStartWrite(t, continueApply.Writes, ".rekit/lanes/feature-login/prompts/RESUME.md", "refresh").TargetPath
 	checkpointPath := assertStartWrite(t, continueApply.Writes, ".rekit/lanes/feature-login/checkpoints/latest.json", "refresh").TargetPath
@@ -2588,7 +2613,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	for label, text := range map[string]string{"lane RESUME": string(resume), "continue digest": string(digest)} {
-		for _, expected := range []string{"## Reviewer writeback", "summary: total=`2` verifications=`1` decisions=`1`", "latestShard=`shard-01`", "installed-reviewer-session-1", "## Reviewer dispatch intake handoff", "summary: total=1 waitingForReviewerResult=1 readyForPreview=0", "nextOpen=shard-02"} {
+		for _, expected := range []string{"## Reviewer writeback", "summary: total=`4` verifications=`2` decisions=`2`", "latestShard=`shard-02`", "reviewer-session-installed-2", "## Reviewer dispatch intake handoff", "- none"} {
 			if !strings.Contains(text, expected) {
 				t.Fatalf("installed entrypoint %s omitted reviewer durable handoff %q:\n%s", label, expected, text)
 			}
@@ -2605,8 +2630,8 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
 		t.Fatalf("installed entrypoint checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
 	}
-	if checkpoint.ReviewerWritebackSummary.Total != 2 || checkpoint.ReviewerDispatchIntakeSummary.LatestShardID != "shard-02" {
-		t.Fatalf("installed entrypoint checkpoint omitted reviewer handoff: %+v", checkpoint)
+	if checkpoint.ReviewerWritebackSummary.Total != 4 || checkpoint.ReviewerDispatchIntakeSummary.Total != 0 {
+		t.Fatalf("installed entrypoint checkpoint omitted completed reviewer handoff: %+v", checkpoint)
 	}
 
 	writeCaseFile(t, caseRoot, "references/template/README.md", "# Installed entrypoint candidate\n\nReusable safe installed-entrypoint pack-memory update.\n")
@@ -2626,7 +2651,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	status = decodeInstalledCaseShimStatus(t, out.Bytes())
-	if status.CaseMission.ReviewerWritebackSummary.Total != 2 || status.CaseMission.ReviewerDispatchIntakeSummary.Total != 1 || status.CaseMission.ReviewerDispatchIntakeSummary.LatestShardID != "shard-02" || status.ProjectHandoff == nil || status.ProjectHandoff.PackMemoryCandidates.Ready || status.ProjectHandoff.PackMemoryCandidates.Total != 3 || len(status.ProjectHandoff.PackMemoryCandidates.Packs) != 1 || status.ProjectHandoff.PackMemoryCandidates.Packs[0].ReviewSummary.ProofSummary.NextMissingProof == nil {
+	if status.CaseMission.ReviewerWritebackSummary.Total != 4 || status.CaseMission.ReviewerDispatchIntakeSummary.Total != 0 || status.ProjectHandoff == nil || status.ProjectHandoff.PackMemoryCandidates.Ready || status.ProjectHandoff.PackMemoryCandidates.Total != 3 || len(status.ProjectHandoff.PackMemoryCandidates.Packs) != 1 || status.ProjectHandoff.PackMemoryCandidates.Packs[0].ReviewSummary.ProofSummary.NextMissingProof == nil {
 		t.Fatalf("installed entrypoint first-screen JSON omitted reviewer/pack-memory handoff: %+v", status)
 	}
 
@@ -2639,11 +2664,9 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		"status case shim entrypoint: caseLocal=/rekit",
 		"status case shim first-screen check: reviewer writeback or reviewer dispatch intake summaries show reviewer state without reopening packet/result JSON",
 		"status case shim first-screen check: project handoff pack-memory candidate summary shows candidate review/cleanup/reconsume proof state",
-		"status case mission reviewer writeback summary：total=2 verifications=1 decisions=1 lanes=1 latestKind=decision",
-		"latestShard=shard-01",
-		"latestReviewerSession=installed-reviewer-session-1",
-		"status case mission reviewer dispatch intake summary：total=1 waitingForReviewerResult=1 readyForPreview=0",
-		"latestPacketNextOpen=shard-02",
+		"status case mission reviewer writeback summary：total=4 verifications=2 decisions=2 lanes=1 latestKind=decision",
+		"latestShard=shard-02",
+		"latestReviewerSession=reviewer-session-installed-2",
 		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup/verification work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates or complete listed candidate decision verification",
 		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4",
 		"status pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note",
@@ -5846,6 +5869,8 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	}
 	var continueApplyBeforeIntake struct {
 		RunID                          string                               `json:"runId"`
+		Applied                        bool                                 `json:"applied"`
+		Blocked                        bool                                 `json:"blocked"`
 		ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
 		ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
 		Writes                         []startWrite                         `json:"writes"`
@@ -5857,54 +5882,13 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if _, ok := reviewerDispatchIntakeByShard(continueApplyBeforeIntake.ReviewerDispatchIntakeHandoffs, "shard-01"); !ok {
 		t.Fatalf("continue apply omitted open reviewer dispatch handoffs: %+v", continueApplyBeforeIntake.ReviewerDispatchIntakeHandoffs)
 	}
-	continueStatusPath := assertStartWrite(t, continueApplyBeforeIntake.Writes, ".rekit/runs/"+continueApplyBeforeIntake.RunID+"/status.json", "write").TargetPath
-	continueDigestPath := assertStartWrite(t, continueApplyBeforeIntake.Writes, ".rekit/runs/"+continueApplyBeforeIntake.RunID+"/digest.md", "write").TargetPath
-	resumePath := assertStartWrite(t, continueApplyBeforeIntake.Writes, ".rekit/lanes/feature-login/prompts/RESUME.md", "refresh").TargetPath
-	checkpointPath := assertStartWrite(t, continueApplyBeforeIntake.Writes, ".rekit/lanes/feature-login/checkpoints/latest.json", "refresh").TargetPath
-	continueStatusBytes, err := os.ReadFile(continueStatusPath)
-	if err != nil {
+	if !continueApplyBeforeIntake.Blocked || continueApplyBeforeIntake.Applied || continueApplyBeforeIntake.RunID != "run-preview" || len(continueApplyBeforeIntake.Writes) != 0 {
+		t.Fatalf("continue apply did not fail closed before reviewer intake: %+v", continueApplyBeforeIntake)
+	}
+	if entries, err := os.ReadDir(filepath.Join(caseRoot, ".rekit", "runs")); err == nil && len(entries) != 0 {
+		t.Fatalf("blocked continue apply created run artifacts: %+v", entries)
+	} else if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
-	}
-	var continueStatus struct {
-		ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
-		ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
-	}
-	if err := json.Unmarshal(continueStatusBytes, &continueStatus); err != nil {
-		t.Fatalf("continue run status JSON did not decode: %v\n%s", err, string(continueStatusBytes))
-	}
-	assertReviewerDispatchIntakeSummary(t, "continue run status", continueStatus.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
-	if _, ok := reviewerDispatchIntakeByShard(continueStatus.ReviewerDispatchIntakeHandoffs, "shard-01"); !ok {
-		t.Fatalf("continue run status omitted reviewer dispatch intake handoff: %+v", continueStatus.ReviewerDispatchIntakeHandoffs)
-	}
-	continueDigest, err := os.ReadFile(continueDigestPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resumeBytes, err := os.ReadFile(resumePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for label, text := range map[string]string{"continue digest": string(continueDigest), "lane resume": string(resumeBytes)} {
-		for _, expected := range []string{"## Reviewer dispatch intake handoff", "summary: total=2 waitingForReviewerResult=2 readyForPreview=0", "dispatch intake: lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "runtime does not spawn"} {
-			if !strings.Contains(text, expected) {
-				t.Fatalf("%s omitted durable reviewer dispatch handoff %q:\n%s", label, expected, text)
-			}
-		}
-	}
-	checkpointBytes, err := os.ReadFile(checkpointPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var checkpoint struct {
-		ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
-		ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
-	}
-	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
-		t.Fatalf("lane checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
-	}
-	assertReviewerDispatchIntakeSummary(t, "lane checkpoint", checkpoint.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
-	if _, ok := reviewerDispatchIntakeByShard(checkpoint.ReviewerDispatchIntakeHandoffs, "shard-01"); !ok {
-		t.Fatalf("lane checkpoint omitted reviewer dispatch intake handoff: %+v", checkpoint.ReviewerDispatchIntakeHandoffs)
 	}
 
 	for idx, handoff := range packet.ShardHandoffs {
@@ -6014,6 +5998,8 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 			}
 			var continueApplyAfterFirstIntake struct {
 				RunID                          string                               `json:"runId"`
+				Applied                        bool                                 `json:"applied"`
+				Blocked                        bool                                 `json:"blocked"`
 				ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
 				ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
 				Writes                         []startWrite                         `json:"writes"`
@@ -6025,36 +6011,8 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 			if continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary.LatestPacketDispatchCompleted != 1 || continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary.LatestPacketDispatchOpen != 1 || continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary.LatestPacketNextOpenShardID != "shard-02" || continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary.LatestCompletedShardID != "shard-01" {
 				t.Fatalf("continue apply after first reviewer intake omitted progress summary: %+v", continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary)
 			}
-			partialDigestPath := assertStartWrite(t, continueApplyAfterFirstIntake.Writes, ".rekit/runs/"+continueApplyAfterFirstIntake.RunID+"/digest.md", "write").TargetPath
-			partialResumePath := assertStartWrite(t, continueApplyAfterFirstIntake.Writes, ".rekit/lanes/feature-login/prompts/RESUME.md", "refresh").TargetPath
-			partialCheckpointPath := assertStartWrite(t, continueApplyAfterFirstIntake.Writes, ".rekit/lanes/feature-login/checkpoints/latest.json", "refresh").TargetPath
-			partialDigest, err := os.ReadFile(partialDigestPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			partialResume, err := os.ReadFile(partialResumePath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for label, text := range map[string]string{"partial continue digest": string(partialDigest), "partial lane resume": string(partialResume)} {
-				for _, expected := range []string{"latestPacketProgress=1/2 open=1 nextOpen=shard-02 remaining=shard-02", "dispatch intake: lane=feature-login shard=shard-02 state=waiting-for-reviewer-result progress=1/2 open=1 nextOpen=shard-02 remaining=shard-02"} {
-					if !strings.Contains(text, expected) {
-						t.Fatalf("%s omitted partial reviewer dispatch progress %q:\n%s", label, expected, text)
-					}
-				}
-			}
-			partialCheckpointBytes, err := os.ReadFile(partialCheckpointPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var partialCheckpoint struct {
-				ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
-			}
-			if err := json.Unmarshal(partialCheckpointBytes, &partialCheckpoint); err != nil {
-				t.Fatalf("partial lane checkpoint did not decode: %v\n%s", err, string(partialCheckpointBytes))
-			}
-			if partialCheckpoint.ReviewerDispatchIntakeSummary.LatestPacketDispatchCompleted != 1 || partialCheckpoint.ReviewerDispatchIntakeSummary.LatestPacketDispatchOpen != 1 || partialCheckpoint.ReviewerDispatchIntakeSummary.LatestPacketNextOpenShardID != "shard-02" {
-				t.Fatalf("partial checkpoint omitted reviewer dispatch progress: %+v", partialCheckpoint.ReviewerDispatchIntakeSummary)
+			if !continueApplyAfterFirstIntake.Blocked || continueApplyAfterFirstIntake.Applied || continueApplyAfterFirstIntake.RunID != "run-preview" || len(continueApplyAfterFirstIntake.Writes) != 0 {
+				t.Fatalf("partial reviewer intake did not keep continue fail closed: %+v", continueApplyAfterFirstIntake)
 			}
 		}
 	}

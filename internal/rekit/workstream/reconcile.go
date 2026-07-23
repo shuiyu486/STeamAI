@@ -31,32 +31,34 @@ type InterventionSummary struct {
 }
 
 type ReconcileResult struct {
-	SchemaVersion                 int                                      `json:"schemaVersion"`
-	Command                       string                                   `json:"command"`
-	CaseRoot                      string                                   `json:"caseRoot"`
-	RepoRoot                      string                                   `json:"repoRoot"`
-	Pack                          string                                   `json:"pack"`
-	IsMutation                    bool                                     `json:"isMutation"`
-	Applied                       bool                                     `json:"applied"`
-	RequiresConfirmation          bool                                     `json:"requiresConfirmation"`
-	Selector                      string                                   `json:"selector"`
-	Lane                          Lane                                     `json:"lane"`
-	Intervention                  InterventionSummary                      `json:"intervention"`
-	ResolutionEventID             string                                   `json:"resolutionEventId,omitempty"`
-	Actor                         string                                   `json:"actor"`
-	Executor                      string                                   `json:"executor"`
-	PreviousExecutor              string                                   `json:"previousExecutor,omitempty"`
-	ExecutorGeneration            int                                      `json:"executorGeneration"`
-	MissionBrief                  mission.Brief                            `json:"missionBrief"`
-	AuthorizedGateAdapterHandoffs []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
-	ExecutorAction                laneExecutorAction                       `json:"executorAction"`
-	MissionCommanderAction        mission.MissionCommanderAction           `json:"missionCommanderAction"`
-	MissionCommanderNextActions   []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue   mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	WouldWrites                   []StartWrite                             `json:"wouldWrites,omitempty"`
-	Writes                        []StartWrite                             `json:"writes,omitempty"`
-	BlockedActions                []string                                 `json:"blockedActions"`
-	NextSteps                     []string                                 `json:"nextSteps"`
+	SchemaVersion                  int                                      `json:"schemaVersion"`
+	Command                        string                                   `json:"command"`
+	CaseRoot                       string                                   `json:"caseRoot"`
+	RepoRoot                       string                                   `json:"repoRoot"`
+	Pack                           string                                   `json:"pack"`
+	IsMutation                     bool                                     `json:"isMutation"`
+	Applied                        bool                                     `json:"applied"`
+	RequiresConfirmation           bool                                     `json:"requiresConfirmation"`
+	Selector                       string                                   `json:"selector"`
+	Lane                           Lane                                     `json:"lane"`
+	Intervention                   InterventionSummary                      `json:"intervention"`
+	ResolutionEventID              string                                   `json:"resolutionEventId,omitempty"`
+	Actor                          string                                   `json:"actor"`
+	Executor                       string                                   `json:"executor"`
+	PreviousExecutor               string                                   `json:"previousExecutor,omitempty"`
+	ExecutorGeneration             int                                      `json:"executorGeneration"`
+	MissionBrief                   mission.Brief                            `json:"missionBrief"`
+	AuthorizedGateAdapterHandoffs  []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
+	ReviewerDispatchIntakeHandoffs []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary  ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
+	ExecutorAction                 laneExecutorAction                       `json:"executorAction"`
+	MissionCommanderAction         mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue    mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	WouldWrites                    []StartWrite                             `json:"wouldWrites,omitempty"`
+	Writes                         []StartWrite                             `json:"writes,omitempty"`
+	BlockedActions                 []string                                 `json:"blockedActions"`
+	NextSteps                      []string                                 `json:"nextSteps"`
 }
 
 type reconcileContext struct {
@@ -177,6 +179,11 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (Reco
 		return ReconcileResult{}, err
 	}
 	writes = append(writes, StartWrite{Path: relativePath(ctx.inst.CaseRoot, laneFile), Kind: "lane", Action: "update-reconcile-state", TargetPath: laneFile})
+	boardPath, err := saveBoard(ctx.inst.CaseRoot, ctx.manifest)
+	if err != nil {
+		return ReconcileResult{}, err
+	}
+	writes = append(writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
 	resumePath, checkpointPath, err := writeLaneResume(ctx.inst.CaseRoot, ctx.manifest, ctx.lane)
 	if err != nil {
 		return ReconcileResult{}, err
@@ -185,11 +192,6 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (Reco
 		StartWrite{Path: relativePath(ctx.inst.CaseRoot, resumePath), Kind: "lane-resume", Action: "refresh", TargetPath: resumePath},
 		StartWrite{Path: relativePath(ctx.inst.CaseRoot, checkpointPath), Kind: "lane-checkpoint", Action: "refresh", TargetPath: checkpointPath},
 	)
-	boardPath, err := saveBoard(ctx.inst.CaseRoot, ctx.manifest)
-	if err != nil {
-		return ReconcileResult{}, err
-	}
-	writes = append(writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
 	ctx.facts, err = readHandoffFacts(ctx.inst.CaseRoot)
 	if err != nil {
 		return ReconcileResult{}, err
@@ -298,31 +300,39 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 	}
 	commanderAction := executorAction.MissionCommanderAction
 	authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.facts.Requests, ctx.lane.ID)
+	reviewerDispatchIntakeHandoffs, _ := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, ctx.facts, ctx.lane.ID)
 	commanderNextActions := reconcileMissionCommanderNextActions(ctx.lane, executorAction, applied)
 	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
+	commanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(commanderNextActions, reviewerDispatchIntakeHandoffs)
+	if applied {
+		executorAction = withReviewerDispatchBlocker(executorAction, reviewerDispatchIntakeHandoffs)
+		commanderAction = executorAction.MissionCommanderAction
+	}
 	result := ReconcileResult{
-		SchemaVersion:                 1,
-		Command:                       "reconcile",
-		CaseRoot:                      ctx.inst.CaseRoot,
-		RepoRoot:                      ctx.manifest.RepoRoot,
-		Pack:                          ctx.manifest.Pack,
-		IsMutation:                    mutating,
-		Applied:                       applied,
-		RequiresConfirmation:          confirm,
-		Selector:                      ctx.selector,
-		Lane:                          ctx.lane,
-		Intervention:                  summarizeIntervention(ctx.intervention),
-		Actor:                         ctx.actor,
-		Executor:                      ctx.executor,
-		PreviousExecutor:              ctx.lane.CurrentExecutor,
-		ExecutorGeneration:            ctx.lane.ExecutorGeneration,
-		MissionBrief:                  brief,
-		AuthorizedGateAdapterHandoffs: authorizedGateAdapterHandoffs,
-		ExecutorAction:                executorAction,
-		MissionCommanderAction:        commanderAction,
-		MissionCommanderNextActions:   commanderNextActions,
-		MissionCommanderActionQueue:   mission.MissionCommanderActionQueueFor(commanderNextActions),
-		BlockedActions:                []string{"authority/confirmed writes", "heavy-tool execution", "external side effects"},
+		SchemaVersion:                  1,
+		Command:                        "reconcile",
+		CaseRoot:                       ctx.inst.CaseRoot,
+		RepoRoot:                       ctx.manifest.RepoRoot,
+		Pack:                           ctx.manifest.Pack,
+		IsMutation:                     mutating,
+		Applied:                        applied,
+		RequiresConfirmation:           confirm,
+		Selector:                       ctx.selector,
+		Lane:                           ctx.lane,
+		Intervention:                   summarizeIntervention(ctx.intervention),
+		Actor:                          ctx.actor,
+		Executor:                       ctx.executor,
+		PreviousExecutor:               ctx.lane.CurrentExecutor,
+		ExecutorGeneration:             ctx.lane.ExecutorGeneration,
+		MissionBrief:                   brief,
+		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
+		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ExecutorAction:                 executorAction,
+		MissionCommanderAction:         commanderAction,
+		MissionCommanderNextActions:    commanderNextActions,
+		MissionCommanderActionQueue:    mission.MissionCommanderActionQueueFor(commanderNextActions),
+		BlockedActions:                 []string{"authority/confirmed writes", "heavy-tool execution", "external side effects"},
 		NextSteps: []string{
 			"review this reconcile plan, then re-run reconcile with -Apply to write case-local ledger and lane state",
 			"reconcile never executes heavy-tool and never writes authority/confirmed state",

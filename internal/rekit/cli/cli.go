@@ -53,6 +53,7 @@ type Options struct {
 	AttachedCaseRoot        string
 	ReviewerResultPath      string
 	ReadyReviewerResults    bool
+	AdoptReviewerPacket     bool
 	DiffPath                string
 	ProjectName             string
 	Route                   string
@@ -161,6 +162,8 @@ func Parse(args []string) (Options, error) {
 			opt.ReviewerResultPath = args[i]
 		case "-ReadyReviewerResults", "--ready-reviewer-results":
 			opt.ReadyReviewerResults = true
+		case "-AdoptReviewerPacket", "--adopt-reviewer-packet":
+			opt.AdoptReviewerPacket = true
 		case "-DiffPath", "--diff-path":
 			i++
 			if i >= len(args) {
@@ -2563,10 +2566,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		return nil, err
 	}
 	reviewerWritebacks := workstream.ReviewerWritebackItems(ledgerFacts, "")
-	reviewerDispatchIntakeHandoffs, err := workstream.ReviewerDispatchIntakeHandoffs(caseRoot, ledgerFacts, "")
-	if err != nil {
-		return nil, err
-	}
+	reviewerDispatchIntakeHandoffs := append([]workstream.ReviewerDispatchIntakeHandoff{}, inventory.ReviewerDispatchIntakeHandoffs...)
 	return &statusCaseMission{
 		Ready:                          inventory.MissionCommanderActionQueue.CurrentAction != nil && inventory.MissionCommanderActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
 		Summary:                        inventory.MissionBrief.Summary,
@@ -4376,6 +4376,9 @@ func writeStartText(out io.Writer, result workstream.StartResult) error {
 		if _, err := fmt.Fprintf(out, "would create or enter feature workstream: %s\n", result.Lane.ID); err != nil {
 			return err
 		}
+		if err := writeReviewerDispatchIntakeHandoffText(out, "start", result.ReviewerDispatchIntakeHandoffs, result.ReviewerDispatchIntakeSummary); err != nil {
+			return err
+		}
 		if err := writeAuthorizedGateAdapterHandoffText(out, "start", result.AuthorizedGateAdapterHandoffs); err != nil {
 			return err
 		}
@@ -4395,6 +4398,9 @@ func writeStartText(out io.Writer, result workstream.StartResult) error {
 			return err
 		}
 	} else if err := writeExecutorNextActionsText(out, result.ExecutorAction); err != nil {
+		return err
+	}
+	if err := writeReviewerDispatchIntakeHandoffText(out, "start", result.ReviewerDispatchIntakeHandoffs, result.ReviewerDispatchIntakeSummary); err != nil {
 		return err
 	}
 	if err := writeAuthorizedGateAdapterHandoffText(out, "start", result.AuthorizedGateAdapterHandoffs); err != nil {
@@ -4878,6 +4884,9 @@ func writeReconcileText(out io.Writer, result workstream.ReconcileResult) error 
 		if _, err := fmt.Fprintf(out, "would reconcile intervention: %s on lane %s\n", result.Intervention.EventID, result.Lane.ID); err != nil {
 			return err
 		}
+		if err := writeReviewerDispatchIntakeHandoffText(out, "reconcile", result.ReviewerDispatchIntakeHandoffs, result.ReviewerDispatchIntakeSummary); err != nil {
+			return err
+		}
 		if err := writeAuthorizedGateAdapterHandoffText(out, "reconcile", result.AuthorizedGateAdapterHandoffs); err != nil {
 			return err
 		}
@@ -4899,6 +4908,9 @@ func writeReconcileText(out io.Writer, result workstream.ReconcileResult) error 
 			return err
 		}
 	} else if err := writeExecutorNextActionsText(out, result.ExecutorAction); err != nil {
+		return err
+	}
+	if err := writeReviewerDispatchIntakeHandoffText(out, "reconcile", result.ReviewerDispatchIntakeHandoffs, result.ReviewerDispatchIntakeSummary); err != nil {
 		return err
 	}
 	if err := writeAuthorizedGateAdapterHandoffText(out, "reconcile", result.AuthorizedGateAdapterHandoffs); err != nil {
@@ -4928,6 +4940,21 @@ func writeReconcileExecutorActionText(out io.Writer, result workstream.Reconcile
 }
 
 func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
+	if result.Blocked && len(result.ReviewerDispatchIntakeHandoffs) > 0 {
+		if _, err := fmt.Fprintf(out, "工作线被 reviewer dispatch/intake 阻塞：%s\n", result.Lane.ID); err != nil {
+			return err
+		}
+		if err := writeReviewerDispatchIntakeHandoffText(out, "continue", result.ReviewerDispatchIntakeHandoffs, result.ReviewerDispatchIntakeSummary); err != nil {
+			return err
+		}
+		if err := writeAuthorizedGateAdapterHandoffText(out, "continue", result.AuthorizedGateAdapterHandoffs); err != nil {
+			return err
+		}
+		if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
+			return err
+		}
+		return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
+	}
 	if result.ExecutorAction.Blocked {
 		if _, err := fmt.Fprintf(out, "工作线被 blocker 阻塞：%s reasons=%s\n", result.Lane.ID, strings.Join(result.ExecutorAction.BlockerReasons, ",")); err != nil {
 			return err
@@ -5042,6 +5069,32 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	target, err := commandTarget(ctx, "plan-subagents", "directory")
 	if err != nil {
 		return err
+	}
+	if opt.AdoptReviewerPacket {
+		if opt.ReadyReviewerResults || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+			return fmt.Errorf("plan-subagents reviewer packet adoption cannot combine with reviewer intake modes")
+		}
+		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
+			return fmt.Errorf("plan-subagents reviewer packet adoption does not support planning scope flags")
+		}
+		if opt.Apply == opt.WhatIf {
+			return fmt.Errorf("plan-subagents reviewer packet adoption requires exactly one of -WhatIf or -Apply")
+		}
+		if strings.TrimSpace(opt.PacketPath) == "" {
+			return fmt.Errorf("plan-subagents reviewer packet adoption requires -PacketPath")
+		}
+		format, err := planSubagentsFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
+		}
+		result, err := subagents.AdoptReviewerPacket(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerPacketAdoptionOptions{PacketPath: opt.PacketPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Reason: opt.Note.Reason, WhatIf: opt.WhatIf})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePlanSubagentsReviewerPacketAdoptionText(out, result)
 	}
 	if opt.ReadyReviewerResults {
 		if strings.TrimSpace(opt.ReviewerResultPath) != "" {
@@ -5693,6 +5746,26 @@ func writeReviewerIntakeSummaryText(out io.Writer, summary subagents.ReviewerInt
 		}
 	}
 	return nil
+}
+
+func writePlanSubagentsReviewerPacketAdoptionText(out io.Writer, result subagents.ReviewerPacketAdoptionResult) error {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer packet adoption：mutation=%t applied=%t requiresConfirmation=%t packet=%s lane=%s actor=%s adoptionPath=%s\n", result.IsMutation, result.Applied, result.RequiresConfirmation, result.PacketID, result.Lane, result.Actor, result.AdoptionPath); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "reviewer packet adoption owner：dispatched=%s generation=%d adopted=%s generation=%d reason=%s\n", result.DispatchedOwner.CurrentExecutor, result.DispatchedOwner.ExecutorGeneration, result.AdoptedOwner.CurrentExecutor, result.AdoptedOwner.ExecutorGeneration, planSubagentsTextInline(result.Reason)); err != nil {
+		return err
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "reviewer packet adoption next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "reviewer packet adoption boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue)
 }
 
 func writePlanSubagentsReviewerBatchIntakeText(out io.Writer, result subagents.ReviewerBatchIntakeResult) error {

@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 548：reviewer packet adoption / continuation preflight closure
+
+状态：implementation、focused/package validation、独立审查修复与完整本地 release minimum 已完成；待 implementation commit/push 与远程 release-gate inspection。
+
+目标：关闭 reviewer packet 由旧 executor/generation 创建、reviewer result 到达后 lane 被 replacement executor takeover 时，status/handoff仍可能看似可继续、strict intake却因 stale owner fail-closed 的 operational 断点。保持 packet与result binding immutable，用 case-local durable adoption receipt显式转移 strict intake ownership，并让 waiting/ready/partial/stale/blocked reviewer work统一阻止 lane continuation mutation。
+
+已完成内容：
+
+- 新增显式 reviewer packet owner adoption WhatIf→Apply product path，在`.rekit/reviewer-adoptions/<packetId>.json`写strict receipt，绑定exact packet SHA-256、repo/case/pack/lane、dispatched/adopted executor generation、actor/reason与no-spawn/no-heavy/no-authority boundary；packet bytes及既有reviewer result `packetId` binding保持不变，后续再次takeover会使receipt失效。
+- status/overview、project/lane handoff、start/reconcile、continue、lane`RESUME.md`/checkpoint复用同一reviewer-aware Mission Commander queue；stale adoption、result symlink/attach repair、ready intake preview与waiting state按packet identity去重和排序，start/reconcile本次bounded Apply与execution evidence main escalation仍保持更高优先级。
+- active reviewer work使continue WhatIf/Apply fail-closed：不创建run directory、不写facts、不刷新resume/checkpoint/board；partial verification-before-decision写回仍保持open并可通过deterministic event id重试。start/reconcile takeover先刷新board再生成durable resume/checkpoint，避免新executor owner快照滞后；handoff/resume prose不再把reviewer-blocked lane描述为ready continue。
+- owner stale判定覆盖packet创建时unassigned/generation 0、之后首次claim executor的场景；status侧receipt validator strict拒绝unknown/trailing JSON及错误case/pack/path/hash/owner/boundary，adoption与intake lock路径拒绝metadata root/intermediate/leaf symlink。
+
+边界：adoption只转移strict intake ownership，不修改原packet或reviewer result、不spawn/monitor reviewer、不执行heavy tool、不写authority/confirmed。reviewer intake仍由主Agent显式WhatIf后Apply；queue只排序和投影typed actions。禁止新增PowerShell runtime logic。
+
+验证结果：focused adoption、stale owner/re-adoption history、effective owner writeback、forged receipt、symlink lock/path、queue priority、多packet identity、partial intake与case-local product-path coverage，以及`go test ./internal/rekit/workstream ./internal/rekit/subagents ./internal/rekit/overview ./internal/rekit/cli -count=1`均通过。独立审查发现并修复authoritative intake receipt contract弱于status validator、第二次takeover无法再次adopt、ledger仍记录旧owner三项问题。完整本地release minimum已通过`release-check -Format json`（`ready=true`）、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`与`git diff --check`；远程release-gate inspection待implementation push后记录。
+
+上一批摘要：Batch 547已完成authorized adapter Mission Commander action queue closure，implementation commit `889c421 Close authorized adapter action queue`已推送；对应run `29967797366`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
+
 ### Batch 547：authorized adapter Mission Commander action queue closure
 
 状态：已完成 implementation、focused/package validation、三轮独立审查修复、完整本地 release minimum、implementation commit `889c421 Close authorized adapter action queue`/push 与远程 release-gate inspection。对应 run `29967797366` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有 runner/billing blocker，不能声明 remote CI green。

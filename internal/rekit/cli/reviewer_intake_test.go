@@ -215,6 +215,87 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	}
 }
 
+func TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Executor", "session-a", "-Actor", "mission-commander", "-Reason", "initial reviewer owner", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-Lane", "feature-review", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	packetBefore, err := os.ReadFile(plan.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Executor", "session-b", "-Actor", "mission-commander", "-Reason", "replacement reviewer owner", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || status.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "reviewer-packet-owner-adoption-required" {
+		t.Fatalf("status did not promote reviewer packet adoption: %+v", status.CaseMission.MissionCommanderActionQueue)
+	}
+	adoptionArgs := []string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-AdoptReviewerPacket", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "adopt existing reviewer work", "-WhatIf", "-Format", "json"}
+	out.Reset()
+	if err := Run(adoptionArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var preview struct {
+		Applied      bool   `json:"applied"`
+		IsMutation   bool   `json:"isMutation"`
+		AdoptionPath string `json:"adoptionPath"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.Applied || preview.IsMutation {
+		t.Fatalf("adoption WhatIf mutated: %+v", preview)
+	}
+	if _, err := os.Stat(preview.AdoptionPath); !os.IsNotExist(err) {
+		t.Fatalf("adoption WhatIf wrote receipt: %v", err)
+	}
+	adoptionArgs[15] = "-Apply"
+	out.Reset()
+	if err := Run(adoptionArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var applied struct {
+		Applied      bool   `json:"applied"`
+		AdoptionPath string `json:"adoptionPath"`
+		AdoptedOwner struct {
+			CurrentExecutor    string `json:"currentExecutor"`
+			ExecutorGeneration int    `json:"executorGeneration"`
+		} `json:"adoptedOwner"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatal(err)
+	}
+	if !applied.Applied || applied.AdoptedOwner.CurrentExecutor != "session-b" || applied.AdoptedOwner.ExecutorGeneration != 2 {
+		t.Fatalf("unexpected adoption apply: %+v", applied)
+	}
+	packetAfter, err := os.ReadFile(plan.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(packetBefore, packetAfter) {
+		t.Fatal("CLI adoption modified immutable reviewer packet")
+	}
+}
+
 func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t *testing.T) {
 	root := repoRoot(t)
 	caseRoot := fullAttachedCase(t)

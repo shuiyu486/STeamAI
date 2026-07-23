@@ -61,25 +61,27 @@ type StartWrite struct {
 }
 
 type StartResult struct {
-	SchemaVersion                 int                                      `json:"schemaVersion"`
-	Command                       string                                   `json:"command"`
-	CaseRoot                      string                                   `json:"caseRoot"`
-	RepoRoot                      string                                   `json:"repoRoot"`
-	Pack                          string                                   `json:"pack"`
-	IsMutation                    bool                                     `json:"isMutation"`
-	Applied                       bool                                     `json:"applied"`
-	RequiresConfirmation          bool                                     `json:"requiresConfirmation"`
-	Lane                          Lane                                     `json:"lane"`
-	AutonomyProfile               autonomy.Summary                         `json:"autonomyProfile"`
-	MissionBrief                  mission.Brief                            `json:"missionBrief"`
-	AuthorizedGateAdapterHandoffs []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
-	ExecutorAction                laneExecutorAction                       `json:"executorAction"`
-	MissionCommanderAction        mission.MissionCommanderAction           `json:"missionCommanderAction"`
-	MissionCommanderNextActions   []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue   mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	Writes                        []StartWrite                             `json:"writes"`
-	BlockedActions                []string                                 `json:"blockedActions"`
-	NextSteps                     []string                                 `json:"nextSteps"`
+	SchemaVersion                  int                                      `json:"schemaVersion"`
+	Command                        string                                   `json:"command"`
+	CaseRoot                       string                                   `json:"caseRoot"`
+	RepoRoot                       string                                   `json:"repoRoot"`
+	Pack                           string                                   `json:"pack"`
+	IsMutation                     bool                                     `json:"isMutation"`
+	Applied                        bool                                     `json:"applied"`
+	RequiresConfirmation           bool                                     `json:"requiresConfirmation"`
+	Lane                           Lane                                     `json:"lane"`
+	AutonomyProfile                autonomy.Summary                         `json:"autonomyProfile"`
+	MissionBrief                   mission.Brief                            `json:"missionBrief"`
+	AuthorizedGateAdapterHandoffs  []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
+	ReviewerDispatchIntakeHandoffs []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary  ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
+	ExecutorAction                 laneExecutorAction                       `json:"executorAction"`
+	MissionCommanderAction         mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue    mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	Writes                         []StartWrite                             `json:"writes"`
+	BlockedActions                 []string                                 `json:"blockedActions"`
+	NextSteps                      []string                                 `json:"nextSteps"`
 }
 
 type Lane struct {
@@ -190,28 +192,32 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 	}
 	brief := startMissionBrief(inst.CaseRoot)
 	authorizedGateAdapterHandoffs := authorizedGateAdapterHandoffsForLane(m.RepoRoot, inst.CaseRoot, m.Pack, lane.ID)
+	reviewerDispatchIntakeHandoffs := reviewerDispatchIntakeHandoffsForLane(inst.CaseRoot, lane.ID)
 	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
 	if strings.HasPrefix(action, "would-create-lane") || strings.Contains(action, "claim-executor") {
 		executorAction.MissionCommanderAction = startApplyCommanderAction(lane, opt, claim)
 	}
 	commanderNextActions := startMissionCommanderNextActions(lane, executorAction)
 	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
+	commanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(commanderNextActions, reviewerDispatchIntakeHandoffs)
 	return StartResult{
-		SchemaVersion:                 1,
-		Command:                       "start",
-		CaseRoot:                      inst.CaseRoot,
-		RepoRoot:                      m.RepoRoot,
-		Pack:                          m.Pack,
-		IsMutation:                    false,
-		Applied:                       false,
-		RequiresConfirmation:          true,
-		Lane:                          lane,
-		MissionBrief:                  brief,
-		AuthorizedGateAdapterHandoffs: authorizedGateAdapterHandoffs,
-		ExecutorAction:                executorAction,
-		MissionCommanderAction:        executorAction.MissionCommanderAction,
-		MissionCommanderNextActions:   commanderNextActions,
-		MissionCommanderActionQueue:   mission.MissionCommanderActionQueueFor(commanderNextActions),
+		SchemaVersion:                  1,
+		Command:                        "start",
+		CaseRoot:                       inst.CaseRoot,
+		RepoRoot:                       m.RepoRoot,
+		Pack:                           m.Pack,
+		IsMutation:                     false,
+		Applied:                        false,
+		RequiresConfirmation:           true,
+		Lane:                           lane,
+		MissionBrief:                   brief,
+		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
+		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ExecutorAction:                 executorAction,
+		MissionCommanderAction:         executorAction.MissionCommanderAction,
+		MissionCommanderNextActions:    commanderNextActions,
+		MissionCommanderActionQueue:    mission.MissionCommanderActionQueueFor(commanderNextActions),
 		Writes: []StartWrite{{
 			Path:       relJoin(".rekit", "lanes", laneID, "lane.json"),
 			Kind:       "lane",
@@ -250,31 +256,44 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (StartResult,
 		return StartResult{}, err
 	}
 	writes = append(writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
+	resumePath, checkpointPath, err := writeLaneResume(inst.CaseRoot, m, lane)
+	if err != nil {
+		return StartResult{}, err
+	}
+	writes = append(writes,
+		StartWrite{Path: relativePath(inst.CaseRoot, resumePath), Kind: "lane-resume", Action: "refresh", TargetPath: resumePath},
+		StartWrite{Path: relativePath(inst.CaseRoot, checkpointPath), Kind: "lane-checkpoint", Action: "refresh", TargetPath: checkpointPath},
+	)
 	brief := startMissionBrief(inst.CaseRoot)
 	authorizedGateAdapterHandoffs := authorizedGateAdapterHandoffsForLane(m.RepoRoot, inst.CaseRoot, m.Pack, lane.ID)
+	reviewerDispatchIntakeHandoffs := reviewerDispatchIntakeHandoffsForLane(inst.CaseRoot, lane.ID)
 	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
+	executorAction = withReviewerDispatchBlocker(executorAction, reviewerDispatchIntakeHandoffs)
 	commanderNextActions := startMissionCommanderNextActions(lane, executorAction)
 	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
+	commanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(commanderNextActions, reviewerDispatchIntakeHandoffs)
 	return StartResult{
-		SchemaVersion:                 1,
-		Command:                       "start",
-		CaseRoot:                      inst.CaseRoot,
-		RepoRoot:                      m.RepoRoot,
-		Pack:                          m.Pack,
-		IsMutation:                    true,
-		Applied:                       true,
-		RequiresConfirmation:          false,
-		Lane:                          lane,
-		AutonomyProfile:               autonomy.ReadSummary(inst.CaseRoot, lane.ID, m),
-		MissionBrief:                  brief,
-		AuthorizedGateAdapterHandoffs: authorizedGateAdapterHandoffs,
-		ExecutorAction:                executorAction,
-		MissionCommanderAction:        executorAction.MissionCommanderAction,
-		MissionCommanderNextActions:   commanderNextActions,
-		MissionCommanderActionQueue:   mission.MissionCommanderActionQueueFor(commanderNextActions),
-		Writes:                        writes,
-		BlockedActions:                []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
-		NextSteps:                     workstreamNextSteps(executorAction, true),
+		SchemaVersion:                  1,
+		Command:                        "start",
+		CaseRoot:                       inst.CaseRoot,
+		RepoRoot:                       m.RepoRoot,
+		Pack:                           m.Pack,
+		IsMutation:                     true,
+		Applied:                        true,
+		RequiresConfirmation:           false,
+		Lane:                           lane,
+		AutonomyProfile:                autonomy.ReadSummary(inst.CaseRoot, lane.ID, m),
+		MissionBrief:                   brief,
+		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
+		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ExecutorAction:                 executorAction,
+		MissionCommanderAction:         executorAction.MissionCommanderAction,
+		MissionCommanderNextActions:    commanderNextActions,
+		MissionCommanderActionQueue:    mission.MissionCommanderActionQueueFor(commanderNextActions),
+		Writes:                         writes,
+		BlockedActions:                 []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
+		NextSteps:                      workstreamNextSteps(executorAction, true),
 	}, nil
 }
 
@@ -368,6 +387,18 @@ func startExecutorAction(caseRoot string, lane Lane, brief mission.Brief) laneEx
 		return laneExecutorActionFor(lane, mission.Facts{}, brief)
 	}
 	return laneExecutorActionFor(lane, facts, brief)
+}
+
+func reviewerDispatchIntakeHandoffsForLane(caseRoot, laneID string) []ReviewerDispatchIntakeHandoff {
+	facts, err := mission.ReadLedgerFacts(caseRoot)
+	if err != nil {
+		return nil
+	}
+	items, err := ReviewerDispatchIntakeHandoffs(caseRoot, facts, laneID)
+	if err != nil {
+		return nil
+	}
+	return items
 }
 
 func EnsureBoard(repoRoot, caseRoot, pack string) error {
@@ -632,12 +663,6 @@ func writeLane(caseRoot string, m *manifest.Manifest, laneType manifest.LaneType
 					return Lane{}, nil, err
 				}
 				writes = append(writes, eventWrite)
-				resumePath, checkpointPath, err := writeLaneResume(caseRoot, m, lane)
-				if err != nil {
-					return Lane{}, nil, err
-				}
-				writes = append(writes, StartWrite{Path: relJoin(laneRootRel, "prompts", "RESUME.md"), Kind: "lane-resume", Action: "refresh", TargetPath: resumePath})
-				writes = append(writes, StartWrite{Path: relJoin(laneRootRel, "checkpoints", "latest.json"), Kind: "lane-checkpoint", Action: "refresh", TargetPath: checkpointPath})
 			}
 		}
 		profileRel, profilePath, err := autonomy.EnsureManualProfile(caseRoot, id)
@@ -848,8 +873,10 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	executionEvidenceReview := laneExecutionEvidenceReview(lane, ledgerFacts.Observations)
 	autonomySummary := autonomy.ReadSummary(caseRoot, lane.ID, m)
 	executorAction := laneExecutorActionFor(lane, laneFacts, brief)
+	executorAction = withReviewerDispatchBlocker(executorAction, reviewerDispatchIntakeHandoffs)
 	missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
 	missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(missionCommanderNextActions, authorizedGateAdapterHandoffs)
+	missionCommanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(missionCommanderNextActions, reviewerDispatchIntakeHandoffs)
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
 	lines := []string{
 		"# RESUME：" + lane.ID,
@@ -1014,6 +1041,26 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 
 func laneExecutorActionFor(lane Lane, laneFacts mission.Facts, brief mission.Brief) laneExecutorAction {
 	return mission.LaneExecutorAction(mission.Lane{ID: lane.ID, Label: workstreamLabel(lane), Status: lane.Status}, laneFacts, brief)
+}
+
+func withReviewerDispatchBlocker(action laneExecutorAction, handoffs []ReviewerDispatchIntakeHandoff) laneExecutorAction {
+	if len(handoffs) == 0 {
+		return action
+	}
+	action.Blocked = true
+	action.Ready = false
+	action.BlockerReasons = mission.UniqueStrings(append(action.BlockerReasons, "active reviewer dispatch/intake work must complete before lane continuation"))
+	action.NextAgentActions = mission.UniqueStrings(append([]string{ReviewerDispatchIntakeSummaryFor(handoffs).NextAction}, action.NextAgentActions...))
+	action.MissionCommanderAction = mission.MissionCommanderAction{
+		State:          "needs-reviewer-dispatch-intake",
+		Prompt:         "Complete the current reviewer packet action before lane continuation.",
+		PrimaryCommand: ReviewerDispatchIntakeSummaryFor(handoffs).NextAction,
+		Boundary: []string{
+			"do not continue while reviewer dispatch/intake work remains open",
+			"reviewer intake requires explicit WhatIf before Apply and does not write authority/confirmed or execute heavy tools",
+		},
+	}
+	return action
 }
 
 func defaultStartLaneType(m *manifest.Manifest) string {

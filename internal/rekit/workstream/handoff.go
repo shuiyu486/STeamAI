@@ -165,6 +165,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	}
 	missionCommanderNext := mission.MissionCommanderNextActions(commanderActions, executionEvidenceReview, handoffHasBlockedAction(commanderActions))
 	missionCommanderNext = MissionCommanderNextActionsWithAuthorizedGateAdapters(missionCommanderNext, authorizedGateAdapterHandoffs)
+	missionCommanderNext = MissionCommanderNextActionsWithReviewerDispatches(missionCommanderNext, reviewerDispatchIntakeHandoffs)
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNext)
 	next := []string{"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default"}
 	next = append(next, ExecutionEvidenceReviewNextSteps(executionEvidenceReview, includeEvidenceContinue)...)
@@ -419,8 +420,11 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		executorAction := ctx.executorAction(lane)
 		executionEvidenceReview := ctx.executionEvidenceReview(lane)
 		authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, lane.ID)
+		laneReviewerDispatches, _ := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, lane.ID)
+		executorAction = withReviewerDispatchBlocker(executorAction, laneReviewerDispatches)
 		missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
 		missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(missionCommanderNextActions, authorizedGateAdapterHandoffs)
+		missionCommanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(missionCommanderNextActions, laneReviewerDispatches)
 		missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
 		executionEvidenceReviewSummary := ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue)
 		evidenceNeedsMainReview := ExecutionEvidenceReviewNeedsMainReview(executionEvidenceReview)
@@ -714,8 +718,11 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 		return "", nil, err
 	}
 	authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, lane.ID)
+	laneReviewerDispatches, _ := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, lane.ID)
+	executorAction = withReviewerDispatchBlocker(executorAction, laneReviewerDispatches)
 	missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
 	missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(missionCommanderNextActions, authorizedGateAdapterHandoffs)
+	missionCommanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(missionCommanderNextActions, laneReviewerDispatches)
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
 	executionEvidenceReviewSummary := ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue)
 	var out bytes.Buffer

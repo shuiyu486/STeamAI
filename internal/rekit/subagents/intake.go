@@ -27,8 +27,10 @@ import (
 )
 
 const (
-	maxReviewerResultBytes = 64 * 1024
-	maxReviewPacketBytes   = 1024 * 1024
+	maxReviewerResultBytes          = 64 * 1024
+	maxReviewPacketBytes            = 1024 * 1024
+	maxReviewerPacketAdoptionBytes  = 32 * 1024
+	reviewerPacketAdoptionDirectory = ".rekit/reviewer-adoptions"
 )
 
 var appendReviewerNote = note.Append
@@ -63,6 +65,59 @@ type ReviewerBatchIntakeOptions struct {
 	Lane       string
 	Actor      string
 	WhatIf     bool
+}
+
+type ReviewerPacketAdoptionOptions struct {
+	PacketPath string
+	Lane       string
+	Actor      string
+	Reason     string
+	WhatIf     bool
+}
+
+type ReviewerPacketAdoption struct {
+	SchemaVersion          int          `json:"schemaVersion"`
+	Kind                   string       `json:"kind"`
+	PacketID               string       `json:"packetId"`
+	PacketPath             string       `json:"packetPath"`
+	PacketSHA256           string       `json:"packetSha256"`
+	RepoRoot               string       `json:"repoRoot"`
+	CaseRoot               string       `json:"caseRoot"`
+	Pack                   string       `json:"pack"`
+	Lane                   string       `json:"lane"`
+	DispatchedOwner        OwnerBinding `json:"dispatchedOwner"`
+	AdoptedOwner           OwnerBinding `json:"adoptedOwner"`
+	Actor                  string       `json:"actor"`
+	Reason                 string       `json:"reason"`
+	CreatedAt              string       `json:"createdAt"`
+	NoSpawn                bool         `json:"noSpawn"`
+	NoHeavyTool            bool         `json:"noHeavyTool"`
+	NoAuthorityOrConfirmed bool         `json:"noAuthorityOrConfirmed"`
+}
+
+type ReviewerPacketAdoptionResult struct {
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Command                     string                                   `json:"command"`
+	Mode                        string                                   `json:"mode"`
+	CaseRoot                    string                                   `json:"caseRoot"`
+	RepoRoot                    string                                   `json:"repoRoot"`
+	Pack                        string                                   `json:"pack"`
+	IsMutation                  bool                                     `json:"isMutation"`
+	Applied                     bool                                     `json:"applied"`
+	RequiresConfirmation        bool                                     `json:"requiresConfirmation"`
+	PacketID                    string                                   `json:"packetId"`
+	PacketPath                  string                                   `json:"packetPath"`
+	AdoptionPath                string                                   `json:"adoptionPath"`
+	Lane                        string                                   `json:"lane"`
+	Actor                       string                                   `json:"actor"`
+	Reason                      string                                   `json:"reason"`
+	DispatchedOwner             OwnerBinding                             `json:"dispatchedOwner"`
+	AdoptedOwner                OwnerBinding                             `json:"adoptedOwner"`
+	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	NextSteps                   []string                                 `json:"nextSteps"`
+	Boundary                    []string                                 `json:"boundary"`
 }
 
 type ReviewerBatchIntakeResult struct {
@@ -249,6 +304,137 @@ type ReviewerOrchestrationIntake struct {
 	NextDispatches       []string `json:"nextDispatches"`
 }
 
+func AdoptReviewerPacket(repoRoot, caseRoot, pack string, opt ReviewerPacketAdoptionOptions) (ReviewerPacketAdoptionResult, error) {
+	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
+	if err != nil {
+		return ReviewerPacketAdoptionResult{}, err
+	}
+	caseRoot = inst.CaseRoot
+	packetPath, err := requiredAbsolutePath(opt.PacketPath, "review packet")
+	if err != nil {
+		return ReviewerPacketAdoptionResult{}, err
+	}
+	packetBytes, err := readBoundedFile(packetPath, "review packet", maxReviewPacketBytes)
+	if err != nil {
+		return ReviewerPacketAdoptionResult{}, err
+	}
+	packet, err := decodeIntakePacket(packetBytes)
+	if err != nil {
+		return ReviewerPacketAdoptionResult{}, err
+	}
+	if err := validateIntakePacket(packet, packetPath, repoRoot, caseRoot, pack); err != nil {
+		return ReviewerPacketAdoptionResult{}, err
+	}
+	if err := validateIntakePacketRoute(repoRoot, pack, packet); err != nil {
+		return ReviewerPacketAdoptionResult{}, err
+	}
+	lane := strings.TrimSpace(opt.Lane)
+	if lane == "" || lane != packet.TargetLane {
+		return ReviewerPacketAdoptionResult{}, fmt.Errorf("reviewer packet adoption lane %q does not match packet targetLane %q", lane, packet.TargetLane)
+	}
+	actor := strings.TrimSpace(opt.Actor)
+	reason := strings.TrimSpace(opt.Reason)
+	if actor == "" || reason == "" {
+		return ReviewerPacketAdoptionResult{}, fmt.Errorf("reviewer packet adoption requires -Actor and -Reason")
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		return ReviewerPacketAdoptionResult{}, fmt.Errorf("read board for reviewer packet adoption: %w", err)
+	}
+	current, ok := mission.LookupBoardLane(board.Lanes, lane, false)
+	if !ok || strings.TrimSpace(current.CurrentExecutor) == "" {
+		return ReviewerPacketAdoptionResult{}, fmt.Errorf("reviewer packet adoption target lane %q has no current executor", lane)
+	}
+	adoptedOwner := OwnerBinding{
+		TargetLane:             lane,
+		CurrentExecutor:        strings.TrimSpace(current.CurrentExecutor),
+		ExecutorGeneration:     current.ExecutorGeneration,
+		LastTakeoverAt:         current.LastTakeoverAt,
+		LastTakeoverBy:         current.LastTakeoverBy,
+		LastTakeoverReason:     current.LastTakeoverReason,
+		BindingMode:            "durable-lane-executor-adoption",
+		RequiredForIntake:      true,
+		MainAgentSpawnOwner:    packet.OwnerBinding.MainAgentSpawnOwner,
+		RuntimeSessionBoundary: packet.OwnerBinding.RuntimeSessionBoundary,
+	}
+	if adoptedOwner.CurrentExecutor == strings.TrimSpace(packet.OwnerBinding.CurrentExecutor) && adoptedOwner.ExecutorGeneration == packet.OwnerBinding.ExecutorGeneration {
+		return ReviewerPacketAdoptionResult{}, fmt.Errorf("reviewer packet ownerBinding is already current; adoption is not needed")
+	}
+	if adoptedOwner.ExecutorGeneration <= packet.OwnerBinding.ExecutorGeneration {
+		return ReviewerPacketAdoptionResult{}, fmt.Errorf("reviewer packet adoption requires a newer executor generation: packet=%d current=%d", packet.OwnerBinding.ExecutorGeneration, adoptedOwner.ExecutorGeneration)
+	}
+	adoptionPath := reviewerPacketAdoptionPath(caseRoot, packet.PacketID)
+	result := ReviewerPacketAdoptionResult{
+		SchemaVersion:        1,
+		Command:              commandName,
+		Mode:                 "reviewer-packet-adoption",
+		CaseRoot:             caseRoot,
+		RepoRoot:             repoRoot,
+		Pack:                 pack,
+		IsMutation:           !opt.WhatIf,
+		RequiresConfirmation: true,
+		PacketID:             packet.PacketID,
+		PacketPath:           packetPath,
+		AdoptionPath:         adoptionPath,
+		Lane:                 lane,
+		Actor:                actor,
+		Reason:               reason,
+		DispatchedOwner:      packet.OwnerBinding,
+		AdoptedOwner:         adoptedOwner,
+		Boundary: []string{
+			"adoption preserves the immutable reviewer packet and existing reviewer result packetId bindings",
+			"adoption only transfers strict intake ownership to the current durable lane executor",
+			"runtime does not spawn or monitor reviewers, execute heavy tools, or write authority/confirmed state",
+		},
+	}
+	applyCommand := reviewerPacketAdoptionCommand(packetPath, lane, actor, reason, true)
+	if opt.WhatIf {
+		result.NextSteps = []string{"review the exact packet and executor generation change, then run the same adoption command with -Apply"}
+		result.MissionCommanderAction = mission.MissionCommanderAction{State: "needs-reviewer-packet-adoption-apply", PrimaryCommand: applyCommand, Boundary: result.Boundary}
+	} else {
+		unlock, lockErr := acquireReviewerIntakeLock(caseRoot, "reviewer-adoption-"+packet.PacketID)
+		if lockErr != nil {
+			return ReviewerPacketAdoptionResult{}, lockErr
+		}
+		defer unlock()
+		if err := validateAdoptedOwnerStillCurrent(caseRoot, adoptedOwner); err != nil {
+			return ReviewerPacketAdoptionResult{}, err
+		}
+		adoption := ReviewerPacketAdoption{
+			SchemaVersion:          1,
+			Kind:                   "reviewer-packet-owner-adoption",
+			PacketID:               packet.PacketID,
+			PacketPath:             packetPath,
+			PacketSHA256:           sha256Hex(packetBytes),
+			RepoRoot:               repoRoot,
+			CaseRoot:               caseRoot,
+			Pack:                   pack,
+			Lane:                   lane,
+			DispatchedOwner:        packet.OwnerBinding,
+			AdoptedOwner:           adoptedOwner,
+			Actor:                  actor,
+			Reason:                 reason,
+			CreatedAt:              time.Now().UTC().Format(time.RFC3339Nano),
+			NoSpawn:                true,
+			NoHeavyTool:            true,
+			NoAuthorityOrConfirmed: true,
+		}
+		if err := writeReviewerPacketAdoption(adoptionPath, adoption); err != nil {
+			return ReviewerPacketAdoptionResult{}, err
+		}
+		result.Applied = true
+		result.NextSteps = []string{"rerun the same packet-level reviewer batch intake with -WhatIf before -Apply"}
+		batchPreview := packet.ReviewerOrchestration.BatchPreviewCommand
+		if strings.TrimSpace(batchPreview) == "" {
+			batchPreview = reviewerPacketBatchPreviewCommand(packetPath, lane, actor)
+		}
+		result.MissionCommanderAction = mission.MissionCommanderAction{State: "reviewer-packet-adopted", PrimaryCommand: batchPreview, Boundary: result.Boundary}
+	}
+	result.MissionCommanderNextActions = []mission.MissionCommanderNextActionItem{{Lane: lane, Label: packet.PacketID, State: result.MissionCommanderAction.State, Command: result.MissionCommanderAction.PrimaryCommand, Source: "reviewerPacketAdoption", RequiresReview: true, Reasons: append([]string{}, result.NextSteps...), Boundary: append([]string{}, result.Boundary...)}}
+	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	return result, nil
+}
+
 func IntakeReadyReviewerResults(repoRoot, caseRoot, pack string, opt ReviewerBatchIntakeOptions) (ReviewerBatchIntakeResult, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
@@ -408,7 +594,8 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 	if lane != packet.TargetLane {
 		return ReviewerIntakeResult{}, fmt.Errorf("reviewer intake lane %q does not match packet targetLane %q", lane, packet.TargetLane)
 	}
-	if err := validateOwnerBinding(caseRoot, packet.OwnerBinding); err != nil {
+	effectiveOwner, _, err := validateOwnerBinding(caseRoot, packet, packetPath, packetBytes)
+	if err != nil {
 		return ReviewerIntakeResult{}, err
 	}
 	resultBytes, err := readBoundedFile(resultPath, "reviewer result", maxReviewerResultBytes)
@@ -475,7 +662,7 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		Lane:                  lane,
 		ShardID:               shard.ID,
 		Actor:                 actor,
-		OwnerBinding:          packet.OwnerBinding,
+		OwnerBinding:          effectiveOwner,
 		ReviewerSession:       reviewerResult.ReviewerSession,
 		ReviewerResult:        reviewerResult,
 		VerificationVerdict:   mapping.VerificationVerdict,
@@ -497,7 +684,7 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		return finalizeReviewerIntakeResult(result), nil
 	}
 
-	verificationOpt, decisionOpt := reviewerNoteOptions(packet, reviewerResult, mapping, lane, actor, intakeID, packetPath, resultPath)
+	verificationOpt, decisionOpt := reviewerNoteOptions(packet, reviewerResult, mapping, effectiveOwner, lane, actor, intakeID, packetPath, resultPath)
 	verificationPreview, err := appendReviewerNote(repoRoot, caseRoot, pack, verificationOpt, true)
 	if err != nil {
 		return ReviewerIntakeResult{}, fmt.Errorf("preview reviewer verification note: %w", err)
@@ -544,6 +731,9 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		return ReviewerIntakeResult{}, err
 	}
 	defer unlock()
+	if err := validateAdoptedOwnerStillCurrent(caseRoot, effectiveOwner); err != nil {
+		return ReviewerIntakeResult{}, fmt.Errorf("reviewer intake owner changed before writeback: %w", err)
+	}
 	priorBlocked, err = existingReviewerWritebackBlockers(caseRoot, packet, reviewerResult, lane, intakeID)
 	if err != nil {
 		return ReviewerIntakeResult{}, err
@@ -1235,13 +1425,36 @@ func validateRouteOutputBindings(result ReviewerResult) error {
 	return nil
 }
 
-func validateOwnerBinding(caseRoot string, binding OwnerBinding) error {
+func validateOwnerBinding(caseRoot string, packet Packet, packetPath string, packetBytes []byte) (OwnerBinding, *ReviewerPacketAdoption, error) {
+	binding := packet.OwnerBinding
 	if strings.TrimSpace(binding.TargetLane) == "" {
-		return fmt.Errorf("review packet ownerBinding.targetLane is required for reviewer intake")
+		return OwnerBinding{}, nil, fmt.Errorf("review packet ownerBinding.targetLane is required for reviewer intake")
 	}
 	if !binding.RequiredForIntake {
-		return nil
+		return binding, nil, nil
 	}
+	if err := validateAdoptedOwnerStillCurrent(caseRoot, binding); err == nil {
+		return binding, nil, nil
+	}
+	adoption, err := readReviewerPacketAdoption(caseRoot, packet, packetPath, packetBytes)
+	if err != nil {
+		return OwnerBinding{}, nil, err
+	}
+	if adoption == nil {
+		board, boardErr := mission.ReadBoard(caseRoot)
+		if boardErr != nil {
+			return OwnerBinding{}, nil, fmt.Errorf("read board for reviewer owner binding validation: %w", boardErr)
+		}
+		lane, _ := mission.LookupBoardLane(board.Lanes, binding.TargetLane, false)
+		return OwnerBinding{}, nil, fmt.Errorf("review packet ownerBinding is stale for lane %s: packet executor=%s generation=%d current executor=%s generation=%d; run reviewer packet adoption WhatIf then Apply", binding.TargetLane, textOr(binding.CurrentExecutor, "unassigned"), binding.ExecutorGeneration, textOr(lane.CurrentExecutor, "unassigned"), lane.ExecutorGeneration)
+	}
+	if err := validateAdoptedOwnerStillCurrent(caseRoot, adoption.AdoptedOwner); err != nil {
+		return OwnerBinding{}, nil, fmt.Errorf("reviewer packet adoption is stale: %w", err)
+	}
+	return adoption.AdoptedOwner, adoption, nil
+}
+
+func validateAdoptedOwnerStillCurrent(caseRoot string, binding OwnerBinding) error {
 	board, err := mission.ReadBoard(caseRoot)
 	if err != nil {
 		return fmt.Errorf("read board for reviewer owner binding validation: %w", err)
@@ -1251,10 +1464,277 @@ func validateOwnerBinding(caseRoot string, binding OwnerBinding) error {
 		return fmt.Errorf("review packet ownerBinding target lane %q is not present in current board", binding.TargetLane)
 	}
 	currentExecutor := strings.TrimSpace(lane.CurrentExecutor)
-	if currentExecutor == "" || binding.CurrentExecutor == "" || currentExecutor != strings.TrimSpace(binding.CurrentExecutor) || lane.ExecutorGeneration != binding.ExecutorGeneration {
-		return fmt.Errorf("review packet ownerBinding is stale for lane %s: packet executor=%s generation=%d current executor=%s generation=%d", binding.TargetLane, textOr(binding.CurrentExecutor, "unassigned"), binding.ExecutorGeneration, textOr(currentExecutor, "unassigned"), lane.ExecutorGeneration)
+	expectedExecutor := strings.TrimSpace(binding.CurrentExecutor)
+	if currentExecutor != expectedExecutor || lane.ExecutorGeneration != binding.ExecutorGeneration {
+		return fmt.Errorf("owner binding is not current for lane %s: expected executor=%s generation=%d current executor=%s generation=%d", binding.TargetLane, textOr(binding.CurrentExecutor, "unassigned"), binding.ExecutorGeneration, textOr(currentExecutor, "unassigned"), lane.ExecutorGeneration)
 	}
 	return nil
+}
+
+func reviewerPacketAdoptionPath(caseRoot, packetID string) string {
+	return filepath.Join(caseRoot, filepath.FromSlash(reviewerPacketAdoptionDirectory), strings.TrimSpace(packetID)+".json")
+}
+
+func reviewerPacketAdoptionCommand(packetPath, lane, actor, reason string, apply bool) string {
+	parts := []string{"/rekit", "plan-subagents", "-PacketPath", quoteReviewerCommandArg(packetPath), "-AdoptReviewerPacket", "-Lane", quoteReviewerCommandArg(lane), "-Actor", quoteReviewerCommandArg(actor), "-Reason", quoteReviewerCommandArg(reason)}
+	if apply {
+		parts = append(parts, "-Apply")
+	} else {
+		parts = append(parts, "-WhatIf")
+	}
+	parts = append(parts, "-Format", "json")
+	return strings.Join(parts, " ")
+}
+
+func reviewerPacketBatchPreviewCommand(packetPath, lane, actor string) string {
+	return strings.Join([]string{"/rekit", "plan-subagents", "-PacketPath", quoteReviewerCommandArg(packetPath), "-ReadyReviewerResults", "-Lane", quoteReviewerCommandArg(lane), "-Actor", quoteReviewerCommandArg(actor), "-WhatIf", "-Format", "json"}, " ")
+}
+
+func quoteReviewerCommandArg(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || !strings.ContainsAny(value, " \t\r\n\"") {
+		return value
+	}
+	return strconv.Quote(value)
+}
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func rejectReviewerAdoptionSymlinkPath(root, path string, allowMissing bool) error {
+	rootFull, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	rootState, err := os.Lstat(rootFull)
+	if os.IsNotExist(err) && allowMissing {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if rootState.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("reviewer packet adoption metadata root must not be a symlink: %s", rootFull)
+	}
+	pathFull, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(rootFull, pathFull)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("reviewer packet adoption path escapes case metadata root: %s", path)
+	}
+	current := rootFull
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		st, statErr := os.Lstat(current)
+		if os.IsNotExist(statErr) && allowMissing {
+			return nil
+		}
+		if statErr != nil {
+			return statErr
+		}
+		if st.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("reviewer packet adoption path must not traverse symlink: %s", current)
+		}
+	}
+	return nil
+}
+
+func writeReviewerPacketAdoption(path string, adoption ReviewerPacketAdoption) error {
+	root := filepath.Join(adoption.CaseRoot, ".rekit")
+	if err := rejectReviewerAdoptionSymlinkPath(root, filepath.Dir(path), true); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if err := rejectReviewerAdoptionSymlinkPath(root, path, true); err != nil {
+		return err
+	}
+	state, err := refsf.ClassifyNonEmptyRegularFile(path)
+	if err != nil {
+		return err
+	}
+	if state == refsf.RegularFileSymlink {
+		return fmt.Errorf("reviewer packet adoption path %q must not be a symlink", path)
+	}
+	if state == refsf.RegularFileReady {
+		data, readErr := readBoundedFile(path, "reviewer packet adoption", maxReviewerPacketAdoptionBytes)
+		if readErr != nil {
+			return readErr
+		}
+		existing, decodeErr := decodeReviewerPacketAdoption(data)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		if existing.PacketID == adoption.PacketID && existing.PacketSHA256 == adoption.PacketSHA256 && existing.AdoptedOwner == adoption.AdoptedOwner {
+			return nil
+		}
+		if !reviewerPacketAdoptionSameContract(existing, adoption) || existing.AdoptedOwner.ExecutorGeneration >= adoption.AdoptedOwner.ExecutorGeneration {
+			return fmt.Errorf("reviewer packet adoption path %q already contains a different or newer adoption", path)
+		}
+		if err := archiveReviewerPacketAdoption(path, existing); err != nil {
+			return err
+		}
+	}
+	encoded, err := json.MarshalIndent(adoption, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".reviewer-adoption-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err = tmp.Write(append(encoded, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err = tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+	if state == refsf.RegularFileReady && runtime.GOOS == "windows" {
+		backupPath := path + ".previous"
+		if previousState, err := refsf.ClassifyNonEmptyRegularFile(backupPath); err != nil {
+			return err
+		} else if previousState != refsf.RegularFileMissing {
+			return fmt.Errorf("reviewer packet adoption recovery path %q already exists", backupPath)
+		}
+		if err := os.Rename(path, backupPath); err != nil {
+			return err
+		}
+		if err := os.Rename(tmpPath, path); err != nil {
+			_ = os.Rename(backupPath, path)
+			return err
+		}
+		return os.Remove(backupPath)
+	}
+	return os.Rename(tmpPath, path)
+}
+
+func archiveReviewerPacketAdoption(path string, adoption ReviewerPacketAdoption) error {
+	historyDir := filepath.Join(filepath.Dir(path), "history")
+	root := filepath.Join(adoption.CaseRoot, ".rekit")
+	if err := rejectReviewerAdoptionSymlinkPath(root, historyDir, true); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(historyDir, 0o755); err != nil {
+		return err
+	}
+	historyPath := filepath.Join(historyDir, adoption.PacketID+"-generation-"+strconv.Itoa(adoption.AdoptedOwner.ExecutorGeneration)+".json")
+	if err := rejectReviewerAdoptionSymlinkPath(root, historyPath, true); err != nil {
+		return err
+	}
+	encoded, err := json.MarshalIndent(adoption, "", "  ")
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(historyPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if os.IsExist(err) {
+		existing, readErr := readBoundedFile(historyPath, "reviewer packet adoption history", maxReviewerPacketAdoptionBytes)
+		if readErr != nil {
+			return readErr
+		}
+		decoded, decodeErr := decodeReviewerPacketAdoption(existing)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		if decoded == adoption {
+			return nil
+		}
+		return fmt.Errorf("reviewer packet adoption history path %q already contains a different adoption", historyPath)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(append(encoded, '\n')); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	return file.Close()
+}
+
+func reviewerPacketAdoptionSameContract(left, right ReviewerPacketAdoption) bool {
+	return left.SchemaVersion == right.SchemaVersion &&
+		left.Kind == right.Kind &&
+		left.PacketID == right.PacketID &&
+		samePath(left.PacketPath, right.PacketPath) &&
+		left.PacketSHA256 == right.PacketSHA256 &&
+		samePath(left.RepoRoot, right.RepoRoot) &&
+		samePath(left.CaseRoot, right.CaseRoot) &&
+		strings.EqualFold(left.Pack, right.Pack) &&
+		left.Lane == right.Lane &&
+		left.DispatchedOwner == right.DispatchedOwner &&
+		left.NoSpawn && right.NoSpawn &&
+		left.NoHeavyTool && right.NoHeavyTool &&
+		left.NoAuthorityOrConfirmed && right.NoAuthorityOrConfirmed
+}
+
+func readReviewerPacketAdoption(caseRoot string, packet Packet, packetPath string, packetBytes []byte) (*ReviewerPacketAdoption, error) {
+	path := reviewerPacketAdoptionPath(caseRoot, packet.PacketID)
+	if err := rejectReviewerAdoptionSymlinkPath(filepath.Join(caseRoot, ".rekit"), path, true); err != nil {
+		return nil, err
+	}
+	state, err := refsf.ClassifyNonEmptyRegularFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if state == refsf.RegularFileMissing || state == refsf.RegularFileWaiting {
+		return nil, nil
+	}
+	if state == refsf.RegularFileSymlink {
+		return nil, fmt.Errorf("reviewer packet adoption path %q must not be a symlink", path)
+	}
+	data, err := readBoundedFile(path, "reviewer packet adoption", maxReviewerPacketAdoptionBytes)
+	if err != nil {
+		return nil, err
+	}
+	adoption, err := decodeReviewerPacketAdoption(data)
+	if err != nil {
+		return nil, err
+	}
+	if adoption.SchemaVersion != 1 || adoption.Kind != "reviewer-packet-owner-adoption" || adoption.PacketID != packet.PacketID || !samePath(adoption.PacketPath, packetPath) || adoption.PacketSHA256 != sha256Hex(packetBytes) || !samePath(adoption.RepoRoot, packet.RepoRoot) || !samePath(adoption.CaseRoot, caseRoot) || !strings.EqualFold(adoption.Pack, packet.Pack) || adoption.Lane != packet.TargetLane || adoption.DispatchedOwner != packet.OwnerBinding || !adoption.NoSpawn || !adoption.NoHeavyTool || !adoption.NoAuthorityOrConfirmed {
+		return nil, fmt.Errorf("reviewer packet adoption does not bind the exact packet, case, pack, lane, owner, and runtime boundary")
+	}
+	if adoption.AdoptedOwner.TargetLane != packet.TargetLane || adoption.AdoptedOwner.BindingMode != "durable-lane-executor-adoption" || !adoption.AdoptedOwner.RequiredForIntake || adoption.AdoptedOwner.MainAgentSpawnOwner != packet.OwnerBinding.MainAgentSpawnOwner || adoption.AdoptedOwner.RuntimeSessionBoundary != packet.OwnerBinding.RuntimeSessionBoundary || strings.TrimSpace(adoption.AdoptedOwner.CurrentExecutor) == "" || adoption.AdoptedOwner.ExecutorGeneration <= packet.OwnerBinding.ExecutorGeneration {
+		return nil, fmt.Errorf("reviewer packet adoption does not contain a valid replacement executor owner binding")
+	}
+	if strings.TrimSpace(adoption.Actor) == "" || strings.TrimSpace(adoption.Reason) == "" {
+		return nil, fmt.Errorf("reviewer packet adoption requires non-empty actor and reason provenance")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, adoption.CreatedAt); err != nil {
+		return nil, fmt.Errorf("reviewer packet adoption createdAt is invalid: %w", err)
+	}
+	return &adoption, nil
+}
+
+func decodeReviewerPacketAdoption(data []byte) (ReviewerPacketAdoption, error) {
+	dec := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(data)))
+	dec.DisallowUnknownFields()
+	var adoption ReviewerPacketAdoption
+	if err := dec.Decode(&adoption); err != nil {
+		return ReviewerPacketAdoption{}, fmt.Errorf("decode reviewer packet adoption: %w", err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return ReviewerPacketAdoption{}, fmt.Errorf("reviewer packet adoption must contain exactly one JSON object")
+	}
+	return adoption, nil
 }
 
 func validateIntakePacket(packet Packet, packetPath, repoRoot, caseRoot, pack string) error {
@@ -1428,13 +1908,13 @@ func normalizeActionText(value string) string {
 	}), " ")
 }
 
-func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerDecisionMapping, lane, actor, intakeID, packetPath, resultPath string) (note.Options, note.Options) {
+func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerDecisionMapping, owner OwnerBinding, lane, actor, intakeID, packetPath, resultPath string) (note.Options, note.Options) {
 	target := strings.Join(result.Items, ",")
 	evidence := strings.Join(result.EvidenceRefs, ",")
 	verificationID := "evt-" + intakeID + "-verification"
 	ownerGeneration := ""
-	if packet.OwnerBinding.ExecutorGeneration > 0 {
-		ownerGeneration = strconv.Itoa(packet.OwnerBinding.ExecutorGeneration)
+	if owner.ExecutorGeneration > 0 {
+		ownerGeneration = strconv.Itoa(owner.ExecutorGeneration)
 	}
 	verification := note.Options{
 		Kind:               "verification",
@@ -1455,10 +1935,10 @@ func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerD
 		PacketPath:         packetPath,
 		ReviewerResultPath: resultPath,
 		ReviewerSession:    result.ReviewerSession,
-		OwnerExecutor:      packet.OwnerBinding.CurrentExecutor,
+		OwnerExecutor:      owner.CurrentExecutor,
 		OwnerGeneration:    ownerGeneration,
-		OwnerBindingMode:   packet.OwnerBinding.BindingMode,
-		OwnerBindingTarget: packet.OwnerBinding.TargetLane,
+		OwnerBindingMode:   owner.BindingMode,
+		OwnerBindingTarget: owner.TargetLane,
 		ReviewerDecision:   result.Decision,
 		RecommendedVerdict: result.RecommendedVerdict,
 		ReviewerRisks:      result.Risks,
@@ -1484,10 +1964,10 @@ func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerD
 		PacketPath:         packetPath,
 		ReviewerResultPath: resultPath,
 		ReviewerSession:    result.ReviewerSession,
-		OwnerExecutor:      packet.OwnerBinding.CurrentExecutor,
+		OwnerExecutor:      owner.CurrentExecutor,
 		OwnerGeneration:    ownerGeneration,
-		OwnerBindingMode:   packet.OwnerBinding.BindingMode,
-		OwnerBindingTarget: packet.OwnerBinding.TargetLane,
+		OwnerBindingMode:   owner.BindingMode,
+		OwnerBindingTarget: owner.TargetLane,
 		ReviewerDecision:   result.Decision,
 		RecommendedVerdict: result.RecommendedVerdict,
 		ReviewerRisks:      result.Risks,
@@ -1779,11 +2259,18 @@ func isNA(value string) bool {
 }
 
 func acquireReviewerIntakeLock(caseRoot, key string) (func(), error) {
-	lockDir := filepath.Join(caseRoot, ".rekit", "locks")
+	metadataRoot := filepath.Join(caseRoot, ".rekit")
+	lockDir := filepath.Join(metadataRoot, "locks")
+	if err := rejectReviewerAdoptionSymlinkPath(metadataRoot, lockDir, true); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(lockDir, 0o755); err != nil {
 		return nil, err
 	}
 	lockPath := filepath.Join(lockDir, key+".lock")
+	if err := rejectReviewerAdoptionSymlinkPath(metadataRoot, lockPath, true); err != nil {
+		return nil, err
+	}
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)

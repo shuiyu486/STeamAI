@@ -22,25 +22,27 @@ const maxRows = 10
 type event = map[string]any
 
 type Inventory struct {
-	SchemaVersion                  int                                       `json:"schemaVersion"`
-	Command                        string                                    `json:"command"`
-	CaseRoot                       string                                    `json:"caseRoot"`
-	RepoRoot                       string                                    `json:"repoRoot"`
-	Pack                           string                                    `json:"pack"`
-	IsMutation                     bool                                      `json:"isMutation"`
-	AutomationMode                 string                                    `json:"automationMode"`
-	Lanes                          []LaneSummary                             `json:"lanes"`
-	Counts                         FactCounts                                `json:"counts"`
-	MissionBrief                   MissionBrief                              `json:"missionBrief"`
-	LaneExecutorActions            []mission.LaneExecutorActionSnapshot      `json:"laneExecutorActions"`
-	MissionCommanderActions        []MissionCommanderActionIndexItem         `json:"missionCommanderActions"`
-	MissionCommanderNextActions    []MissionCommanderNextActionItem          `json:"missionCommanderNextActions"`
-	MissionCommanderActionQueue    MissionCommanderActionQueue               `json:"missionCommanderActionQueue"`
-	ExecutionEvidenceReview        []workstream.ExecutionEvidenceReviewItem  `json:"executionEvidenceReview"`
-	ExecutionEvidenceReviewSummary workstream.ExecutionEvidenceReviewSummary `json:"executionEvidenceReviewSummary"`
-	AuthorizedGateAdapterHandoffs  []workstream.AuthorizedGateAdapterHandoff `json:"authorizedGateAdapterHandoffs,omitempty"`
-	Sections                       OverviewSections                          `json:"sections"`
-	NextSteps                      []string                                  `json:"nextSteps"`
+	SchemaVersion                  int                                        `json:"schemaVersion"`
+	Command                        string                                     `json:"command"`
+	CaseRoot                       string                                     `json:"caseRoot"`
+	RepoRoot                       string                                     `json:"repoRoot"`
+	Pack                           string                                     `json:"pack"`
+	IsMutation                     bool                                       `json:"isMutation"`
+	AutomationMode                 string                                     `json:"automationMode"`
+	Lanes                          []LaneSummary                              `json:"lanes"`
+	Counts                         FactCounts                                 `json:"counts"`
+	MissionBrief                   MissionBrief                               `json:"missionBrief"`
+	LaneExecutorActions            []mission.LaneExecutorActionSnapshot       `json:"laneExecutorActions"`
+	MissionCommanderActions        []MissionCommanderActionIndexItem          `json:"missionCommanderActions"`
+	MissionCommanderNextActions    []MissionCommanderNextActionItem           `json:"missionCommanderNextActions"`
+	MissionCommanderActionQueue    MissionCommanderActionQueue                `json:"missionCommanderActionQueue"`
+	ExecutionEvidenceReview        []workstream.ExecutionEvidenceReviewItem   `json:"executionEvidenceReview"`
+	ExecutionEvidenceReviewSummary workstream.ExecutionEvidenceReviewSummary  `json:"executionEvidenceReviewSummary"`
+	AuthorizedGateAdapterHandoffs  []workstream.AuthorizedGateAdapterHandoff  `json:"authorizedGateAdapterHandoffs,omitempty"`
+	ReviewerDispatchIntakeHandoffs []workstream.ReviewerDispatchIntakeHandoff `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary  workstream.ReviewerDispatchIntakeSummary   `json:"reviewerDispatchIntakeSummary"`
+	Sections                       OverviewSections                           `json:"sections"`
+	NextSteps                      []string                                   `json:"nextSteps"`
 }
 
 type LaneSummary struct {
@@ -174,8 +176,13 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
 	evidenceReview := overviewExecutionEvidenceReview(data.lanes, facts)
 	authorizedGateAdapterHandoffs := workstream.AuthorizedGateAdapterHandoffs(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, "")
+	reviewerDispatchIntakeHandoffs, err := workstream.ReviewerDispatchIntakeHandoffs(data.inst.CaseRoot, facts, "")
+	if err != nil {
+		return "", err
+	}
 	nextActions := missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief))
 	nextActions = workstream.MissionCommanderNextActionsWithAuthorizedGateAdapters(nextActions, authorizedGateAdapterHandoffs)
+	nextActions = workstream.MissionCommanderNextActionsWithReviewerDispatches(nextActions, reviewerDispatchIntakeHandoffs)
 	actionQueue := missionCommanderActionQueue(nextActions)
 	writeMissionBrief(&out, brief)
 	writeLaneExecutorActions(&out, actions)
@@ -184,6 +191,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	writeMissionCommanderNextActions(&out, nextActions)
 	writeExecutionEvidenceReview(&out, evidenceReview, workstream.ExecutionEvidenceReviewSummaryFor(evidenceReview, actionQueue))
 	workstream.WriteAuthorizedGateAdapterHandoffSection(&out, "Authorized gate adapter handoff：", authorizedGateAdapterHandoffs)
+	workstream.WriteReviewerDispatchIntakeHandoffSection(&out, "Reviewer dispatch intake handoff：", reviewerDispatchIntakeHandoffs)
 	writeOpenCandidates(&out, facts.Candidates)
 	writePendingGates(&out, facts.Requests)
 	writeAuthorizedGates(&out, facts.Requests)
@@ -231,8 +239,13 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
 	evidenceReview := overviewExecutionEvidenceReview(data.lanes, facts)
 	authorizedGateAdapterHandoffs := workstream.AuthorizedGateAdapterHandoffs(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, "")
+	reviewerDispatchIntakeHandoffs, err := workstream.ReviewerDispatchIntakeHandoffs(data.inst.CaseRoot, facts, "")
+	if err != nil {
+		return Inventory{}, err
+	}
 	nextActions := missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief))
 	nextActions = workstream.MissionCommanderNextActionsWithAuthorizedGateAdapters(nextActions, authorizedGateAdapterHandoffs)
+	nextActions = workstream.MissionCommanderNextActionsWithReviewerDispatches(nextActions, reviewerDispatchIntakeHandoffs)
 	actionQueue := missionCommanderActionQueue(nextActions)
 	return Inventory{
 		SchemaVersion:  1,
@@ -258,6 +271,8 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 		ExecutionEvidenceReview:        evidenceReview,
 		ExecutionEvidenceReviewSummary: workstream.ExecutionEvidenceReviewSummaryFor(evidenceReview, actionQueue),
 		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
+		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:  workstream.ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
 		Sections:                       data.sections,
 		NextSteps:                      overviewNextSteps(brief, evidenceReview),
 	}, nil

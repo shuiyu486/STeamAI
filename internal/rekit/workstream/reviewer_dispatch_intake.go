@@ -2,14 +2,19 @@ package workstream
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -49,6 +54,11 @@ type ReviewerDispatchIntakeHandoff struct {
 	OwnerExecutor                    string   `json:"ownerExecutor,omitempty"`
 	OwnerGeneration                  int      `json:"ownerGeneration,omitempty"`
 	OwnerBindingMode                 string   `json:"ownerBindingMode,omitempty"`
+	CurrentExecutor                  string   `json:"currentExecutor,omitempty"`
+	CurrentGeneration                int      `json:"currentGeneration,omitempty"`
+	OwnerAdoptionRequired            bool     `json:"ownerAdoptionRequired"`
+	OwnerAdoptionPath                string   `json:"ownerAdoptionPath,omitempty"`
+	OwnerAdoptionPreviewCommand      string   `json:"ownerAdoptionPreviewCommand,omitempty"`
 	Evidence                         []string `json:"evidence,omitempty"`
 	Boundary                         []string `json:"boundary,omitempty"`
 }
@@ -83,6 +93,8 @@ type ReviewerDispatchIntakeSummary struct {
 type reviewerDispatchPacket struct {
 	PacketID              string                              `json:"packetId"`
 	Command               string                              `json:"command"`
+	RepoRoot              string                              `json:"repoRoot"`
+	Pack                  string                              `json:"pack"`
 	TargetLane            string                              `json:"targetLane"`
 	Observability         reviewerDispatchPacketObservability `json:"observability"`
 	ReviewerOrchestration reviewerDispatchPacketOrchestration `json:"reviewerOrchestration"`
@@ -104,10 +116,16 @@ type reviewerDispatchPacketOrchestration struct {
 }
 
 type reviewerDispatchPacketOwner struct {
-	TargetLane         string `json:"targetLane"`
-	CurrentExecutor    string `json:"currentExecutor"`
-	ExecutorGeneration int    `json:"executorGeneration"`
-	BindingMode        string `json:"bindingMode"`
+	TargetLane             string `json:"targetLane"`
+	CurrentExecutor        string `json:"currentExecutor"`
+	ExecutorGeneration     int    `json:"executorGeneration"`
+	LastTakeoverAt         string `json:"lastTakeoverAt,omitempty"`
+	LastTakeoverBy         string `json:"lastTakeoverBy,omitempty"`
+	LastTakeoverReason     string `json:"lastTakeoverReason,omitempty"`
+	BindingMode            string `json:"bindingMode"`
+	RequiredForIntake      bool   `json:"requiredForIntake"`
+	MainAgentSpawnOwner    string `json:"mainAgentSpawnOwner"`
+	RuntimeSessionBoundary string `json:"runtimeSessionBoundary"`
 }
 
 type reviewerDispatchPacketDispatch struct {
@@ -144,15 +162,15 @@ func limitReviewerDispatchIntakeHandoffs(items []ReviewerDispatchIntakeHandoff, 
 		return items
 	}
 	limited := append([]ReviewerDispatchIntakeHandoff{}, items[len(items)-limit:]...)
-	if slices.ContainsFunc(limited, func(item ReviewerDispatchIntakeHandoff) bool {
-		return item.State == "ready-for-reviewer-intake-preview"
-	}) {
-		return limited
+	bestPriority := 4
+	for _, item := range limited {
+		bestPriority = min(bestPriority, reviewerDispatchActionPriority(item))
 	}
 	for idx := len(items) - limit - 1; idx >= 0; idx-- {
-		if items[idx].State == "ready-for-reviewer-intake-preview" {
+		priority := reviewerDispatchActionPriority(items[idx])
+		if priority < bestPriority {
 			limited[0] = items[idx]
-			break
+			bestPriority = priority
 		}
 	}
 	return limited
@@ -216,11 +234,103 @@ func reviewerDispatchPacketProgress(items []ReviewerDispatchIntakeHandoff) revie
 			progress.WaitingForReviewerResult++
 		case "ready-for-reviewer-intake-preview":
 			progress.ReadyForPreview++
+		case "reviewer-packet-owner-adoption-required":
+			progress.AttachRequired++
 		case "attach-required-before-reviewer-intake":
 			progress.AttachRequired++
 		}
 	}
 	return progress
+}
+
+func MissionCommanderNextActionsWithReviewerDispatches(base []mission.MissionCommanderNextActionItem, handoffs []ReviewerDispatchIntakeHandoff) []mission.MissionCommanderNextActionItem {
+	if len(handoffs) == 0 {
+		return mission.UniqueCommanderNextActions(base)
+	}
+	packetOrder := []string{}
+	packetRepresentatives := map[string]ReviewerDispatchIntakeHandoff{}
+	for _, handoff := range handoffs {
+		packetID := firstText(handoff.PacketID, handoff.PacketPath)
+		if packetID == "" {
+			continue
+		}
+		current, seen := packetRepresentatives[packetID]
+		if !seen {
+			packetOrder = append(packetOrder, packetID)
+		}
+		if !seen || reviewerDispatchActionPriority(handoff) < reviewerDispatchActionPriority(current) {
+			packetRepresentatives[packetID] = handoff
+		}
+	}
+	packetActions := []mission.MissionCommanderNextActionItem{}
+	for _, packetID := range packetOrder {
+		handoff := packetRepresentatives[packetID]
+		state := handoff.State
+		blocked := state != "ready-for-reviewer-intake-preview" && state != "reviewer-packet-owner-adoption-required"
+		packetActions = append(packetActions, mission.MissionCommanderNextActionItem{
+			Lane:           handoff.TargetLane,
+			Label:          packetID,
+			ActionID:       packetID,
+			State:          state,
+			Command:        reviewerDispatchIntakeNextAction(handoff),
+			Source:         "reviewerDispatchIntakeHandoffs",
+			Blocked:        blocked,
+			RequiresReview: true,
+			Reasons:        []string{"active reviewer packet must be resolved before ordinary lane continuation", "use packet-level WhatIf before any reviewer intake or adoption Apply"},
+			Boundary:       append([]string{}, handoff.Boundary...),
+		})
+	}
+	if len(packetActions) == 0 {
+		return mission.UniqueCommanderNextActions(base)
+	}
+	evidenceNeedsMainReview := slices.ContainsFunc(base, func(item mission.MissionCommanderNextActionItem) bool {
+		return item.Source == "executionEvidenceReview" && item.State == "needs-main-escalation"
+	})
+	if evidenceNeedsMainReview {
+		for idx := range packetActions {
+			packetActions[idx].Blocked = true
+			packetActions[idx].Reasons = append(packetActions[idx].Reasons, "execution evidence main review must complete before reviewer packet work")
+		}
+	}
+	priorityBase := []mission.MissionCommanderNextActionItem{}
+	ordinaryBase := []mission.MissionCommanderNextActionItem{}
+	for _, item := range base {
+		if strings.HasPrefix(item.Command, "/rekit continue ") {
+			item.Blocked = true
+			item.RequiresReview = true
+			item.Reasons = append(item.Reasons, "active reviewer packet must complete before lane continuation")
+			item.Boundary = append(item.Boundary, "do not continue while reviewer dispatch/intake work remains open")
+		}
+		if reviewerDispatchBaseActionHasPriority(item) {
+			priorityBase = append(priorityBase, item)
+		} else {
+			ordinaryBase = append(ordinaryBase, item)
+		}
+	}
+	items := append([]mission.MissionCommanderNextActionItem{}, priorityBase...)
+	items = append(items, packetActions...)
+	items = append(items, ordinaryBase...)
+	return mission.UniqueCommanderNextActions(items)
+}
+
+func reviewerDispatchBaseActionHasPriority(item mission.MissionCommanderNextActionItem) bool {
+	if item.Source == "executionEvidenceReview" && item.State == "needs-main-escalation" {
+		return true
+	}
+	return item.Source == "missionCommanderActions" && (item.State == "needs-start-apply" || item.State == "needs-reconcile")
+}
+
+func reviewerDispatchActionPriority(item ReviewerDispatchIntakeHandoff) int {
+	switch item.State {
+	case "reviewer-packet-owner-adoption-required":
+		return 0
+	case "reviewer-result-symlink-blocked", "attach-required-before-reviewer-intake":
+		return 1
+	case "ready-for-reviewer-intake-preview":
+		return 2
+	default:
+		return 3
+	}
 }
 
 func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) ReviewerDispatchIntakeSummary {
@@ -247,7 +357,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		case "ready-for-reviewer-intake-preview":
 			summary.ReadyForPreview++
 			latestReady = &items[idx]
-		case "attach-required-before-reviewer-intake":
+		case "attach-required-before-reviewer-intake", "reviewer-packet-owner-adoption-required":
 			summary.AttachRequired++
 		}
 	}
@@ -339,35 +449,149 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 	verificationRecorded := reviewerDispatchWritebackRecorded(facts.Verifications, packet.PacketID, dispatch.ShardID, resultPath)
 	decisionRecorded := reviewerDispatchWritebackRecorded(facts.Decisions, packet.PacketID, dispatch.ShardID, resultPath)
 	state := reviewerDispatchIntakeState(resultState, intakeAvailable)
+	currentExecutor, currentGeneration := reviewerDispatchCurrentOwner(caseRoot, targetLane)
+	adoptionPath := filepath.Join(caseRoot, ".rekit", "reviewer-adoptions", packet.PacketID+".json")
+	adoptionCurrent := reviewerDispatchAdoptionCurrent(caseRoot, adoptionPath, packet, packetPath, currentExecutor, currentGeneration)
+	ownerStale := currentExecutor != strings.TrimSpace(packet.ReviewerOrchestration.OwnerBinding.CurrentExecutor) ||
+		currentGeneration != packet.ReviewerOrchestration.OwnerBinding.ExecutorGeneration
+	if ownerStale && !adoptionCurrent {
+		state = "reviewer-packet-owner-adoption-required"
+	}
 	item := ReviewerDispatchIntakeHandoff{
-		PacketID:              packet.PacketID,
-		PacketPath:            packetPath,
-		SummaryPath:           packet.Observability.SummaryPath,
-		ResultRoot:            packet.ReviewerOrchestration.ResultRoot,
-		TargetLane:            targetLane,
-		ShardID:               dispatch.ShardID,
-		DispatchIndex:         idx + 1,
-		DispatchTotal:         len(packet.ReviewerOrchestration.Dispatches),
-		State:                 state,
-		ReviewerResultPath:    resultPath,
-		ReviewerResultPresent: present,
-		ReviewerResultState:   string(resultState),
-		IntakeAvailable:       intakeAvailable,
-		DispatchOnly:          !intakeAvailable,
-		VerificationRecorded:  verificationRecorded,
-		DecisionRecorded:      decisionRecorded,
-		DispatchCommand:       reviewerDispatchCommand(dispatch.ShardID, resultPath, idx),
-		PreviewCommand:        dispatch.PreviewCommand,
-		ApplyCommand:          dispatch.ApplyCommand,
-		BatchPreviewCommand:   packet.ReviewerOrchestration.BatchPreviewCommand,
-		BatchApplyCommand:     packet.ReviewerOrchestration.BatchApplyCommand,
-		OwnerExecutor:         packet.ReviewerOrchestration.OwnerBinding.CurrentExecutor,
-		OwnerGeneration:       packet.ReviewerOrchestration.OwnerBinding.ExecutorGeneration,
-		OwnerBindingMode:      packet.ReviewerOrchestration.OwnerBinding.BindingMode,
+		PacketID:                    packet.PacketID,
+		PacketPath:                  packetPath,
+		SummaryPath:                 packet.Observability.SummaryPath,
+		ResultRoot:                  packet.ReviewerOrchestration.ResultRoot,
+		TargetLane:                  targetLane,
+		ShardID:                     dispatch.ShardID,
+		DispatchIndex:               idx + 1,
+		DispatchTotal:               len(packet.ReviewerOrchestration.Dispatches),
+		State:                       state,
+		ReviewerResultPath:          resultPath,
+		ReviewerResultPresent:       present,
+		ReviewerResultState:         string(resultState),
+		IntakeAvailable:             intakeAvailable,
+		DispatchOnly:                !intakeAvailable,
+		VerificationRecorded:        verificationRecorded,
+		DecisionRecorded:            decisionRecorded,
+		DispatchCommand:             reviewerDispatchCommand(dispatch.ShardID, resultPath, idx),
+		PreviewCommand:              dispatch.PreviewCommand,
+		ApplyCommand:                dispatch.ApplyCommand,
+		BatchPreviewCommand:         packet.ReviewerOrchestration.BatchPreviewCommand,
+		BatchApplyCommand:           packet.ReviewerOrchestration.BatchApplyCommand,
+		OwnerExecutor:               packet.ReviewerOrchestration.OwnerBinding.CurrentExecutor,
+		OwnerGeneration:             packet.ReviewerOrchestration.OwnerBinding.ExecutorGeneration,
+		OwnerBindingMode:            packet.ReviewerOrchestration.OwnerBinding.BindingMode,
+		CurrentExecutor:             currentExecutor,
+		CurrentGeneration:           currentGeneration,
+		OwnerAdoptionRequired:       ownerStale && !adoptionCurrent,
+		OwnerAdoptionPath:           adoptionPath,
+		OwnerAdoptionPreviewCommand: reviewerDispatchAdoptionPreviewCommand(packetPath, targetLane),
+	}
+	if item.OwnerAdoptionRequired {
+		item.BatchPreviewCommand = ""
+		item.BatchApplyCommand = ""
+		item.PreviewCommand = ""
+		item.ApplyCommand = ""
 	}
 	item.Evidence = reviewerDispatchIntakeEvidence(caseRoot, item)
 	item.Boundary = reviewerDispatchIntakeBoundary(item)
 	return item
+}
+
+func reviewerDispatchCurrentOwner(caseRoot, laneID string) (string, int) {
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		return "", 0
+	}
+	lane, ok := mission.LookupBoardLane(board.Lanes, laneID, false)
+	if !ok {
+		return "", 0
+	}
+	return strings.TrimSpace(lane.CurrentExecutor), lane.ExecutorGeneration
+}
+
+func reviewerDispatchAdoptionCurrent(caseRoot, path string, packet reviewerDispatchPacket, packetPath, currentExecutor string, currentGeneration int) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var adoption struct {
+		SchemaVersion          int                         `json:"schemaVersion"`
+		Kind                   string                      `json:"kind"`
+		PacketID               string                      `json:"packetId"`
+		PacketPath             string                      `json:"packetPath"`
+		PacketSHA256           string                      `json:"packetSha256"`
+		RepoRoot               string                      `json:"repoRoot"`
+		CaseRoot               string                      `json:"caseRoot"`
+		Pack                   string                      `json:"pack"`
+		Lane                   string                      `json:"lane"`
+		DispatchedOwner        reviewerDispatchPacketOwner `json:"dispatchedOwner"`
+		AdoptedOwner           reviewerDispatchPacketOwner `json:"adoptedOwner"`
+		Actor                  string                      `json:"actor"`
+		Reason                 string                      `json:"reason"`
+		CreatedAt              string                      `json:"createdAt"`
+		NoSpawn                bool                        `json:"noSpawn"`
+		NoHeavyTool            bool                        `json:"noHeavyTool"`
+		NoAuthorityOrConfirmed bool                        `json:"noAuthorityOrConfirmed"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&adoption); err != nil {
+		return false
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return false
+	}
+	if _, err := time.Parse(time.RFC3339Nano, adoption.CreatedAt); err != nil {
+		return false
+	}
+	packetBytes, err := os.ReadFile(packetPath)
+	if err != nil {
+		return false
+	}
+	sum := sha256.Sum256(packetBytes)
+	owner := packet.ReviewerOrchestration.OwnerBinding
+	return adoption.SchemaVersion == 1 &&
+		adoption.Kind == "reviewer-packet-owner-adoption" &&
+		adoption.PacketID == packet.PacketID &&
+		reviewerDispatchSamePath(adoption.PacketPath, packetPath) &&
+		adoption.PacketSHA256 == hex.EncodeToString(sum[:]) &&
+		reviewerDispatchSamePath(adoption.RepoRoot, packet.RepoRoot) &&
+		reviewerDispatchSamePath(adoption.CaseRoot, caseRoot) &&
+		strings.EqualFold(strings.TrimSpace(adoption.Pack), strings.TrimSpace(packet.Pack)) &&
+		adoption.Lane == packet.TargetLane &&
+		adoption.DispatchedOwner == owner &&
+		adoption.AdoptedOwner.TargetLane == owner.TargetLane &&
+		strings.TrimSpace(adoption.AdoptedOwner.CurrentExecutor) == currentExecutor &&
+		adoption.AdoptedOwner.ExecutorGeneration == currentGeneration &&
+		adoption.AdoptedOwner.BindingMode == "durable-lane-executor-adoption" &&
+		adoption.AdoptedOwner.RequiredForIntake &&
+		adoption.AdoptedOwner.MainAgentSpawnOwner == owner.MainAgentSpawnOwner &&
+		adoption.AdoptedOwner.RuntimeSessionBoundary == owner.RuntimeSessionBoundary &&
+		strings.TrimSpace(adoption.Actor) != "" &&
+		strings.TrimSpace(adoption.Reason) != "" &&
+		strings.TrimSpace(adoption.CreatedAt) != "" &&
+		adoption.NoSpawn && adoption.NoHeavyTool && adoption.NoAuthorityOrConfirmed
+}
+
+func reviewerDispatchSamePath(left, right string) bool {
+	leftPath, leftErr := filepath.Abs(strings.TrimSpace(left))
+	rightPath, rightErr := filepath.Abs(strings.TrimSpace(right))
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	leftClean := filepath.Clean(leftPath)
+	rightClean := filepath.Clean(rightPath)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(leftClean, rightClean)
+	}
+	return leftClean == rightClean
+}
+
+func reviewerDispatchAdoptionPreviewCommand(packetPath, lane string) string {
+	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -AdoptReviewerPacket -Lane " + quoteCommandArg(lane) + " -Actor <actor> -Reason <reason> -WhatIf -Format json"
 }
 
 func reviewerDispatchIntakeCommandAvailable(command string) bool {
@@ -392,18 +616,18 @@ func reviewerDispatchIntakeState(resultState refsf.RegularFileState, intakeAvail
 
 func reviewerDispatchWritebackRecorded(events []map[string]any, packetID, shardID, reviewerResultPath string) bool {
 	for _, event := range events {
-		if strings.TrimSpace(packetID) != "" && firstObjectText(event, "packetId") != packetID {
+		eventPacketID := firstObjectText(event, "packetId")
+		eventShardID := firstObjectText(event, "shardId")
+		if strings.TrimSpace(packetID) != "" && eventPacketID != packetID {
 			continue
 		}
-		if strings.TrimSpace(shardID) != "" && firstObjectText(event, "shardId") != shardID {
+		if strings.TrimSpace(shardID) != "" && eventShardID != shardID {
 			continue
 		}
-		if strings.TrimSpace(reviewerResultPath) != "" {
-			if firstObjectText(event, "reviewerResultPath") != reviewerResultPath {
-				continue
-			}
+		if eventPacketID != "" && eventShardID != "" {
+			return true
 		}
-		if firstObjectText(event, "packetId") != "" || firstObjectText(event, "shardId") != "" || firstObjectText(event, "reviewerResultPath") != "" {
+		if strings.TrimSpace(reviewerResultPath) != "" && firstObjectText(event, "reviewerResultPath") == reviewerResultPath {
 			return true
 		}
 	}
@@ -450,6 +674,9 @@ func reviewerDispatchIntakeBoundary(item ReviewerDispatchIntakeHandoff) []string
 	if item.ReviewerResultState == string(refsf.RegularFileSymlink) {
 		boundary = append(boundary, "reviewer result symlinks are rejected by strict batch intake; replace the path with a regular non-empty file")
 	}
+	if item.OwnerAdoptionRequired {
+		boundary = append(boundary, "review packet owner binding is stale; adopt the immutable packet before intake or lane continuation")
+	}
 	return mission.UniqueStrings(boundary)
 }
 
@@ -463,6 +690,8 @@ func reviewerDispatchIntakeSummaryBoundary() []string {
 
 func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string {
 	switch item.State {
+	case "reviewer-packet-owner-adoption-required":
+		return firstText(item.OwnerAdoptionPreviewCommand, "adopt reviewer packet "+item.PacketID+" before intake")
 	case "ready-for-reviewer-intake-preview":
 		return firstText(item.BatchPreviewCommand, item.PreviewCommand, "run reviewer-intake -WhatIf for "+item.ShardID)
 	case "attach-required-before-reviewer-intake":
