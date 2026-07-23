@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 551：reviewer packet integrity / durable fail-closed closure
 
-状态：implementation、focused package/CLI validation、独立审查修复与完整本地release minimum已完成；尚未commit/push或检查对应远程release gate。
+状态：已完成implementation、focused/package validation、独立审查修复、完整本地release minimum、implementation commit `0d1f518 Attest durable reviewer packets`/push与远程release-gate inspection。对应run `29979488713` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。
 
 目标：关闭canonical reviewer packet在生成后被截断、篡改或与其durable bindings漂移时，workstream宽松decode/静默跳过会让Mission Commander误以为reviewer work消失的operational断点。让新packet携带exact-bytes integrity receipt，并在status/handoff/start/reconcile/continue共同复用的workstream入口中fail-closed为lane-scoped blocked repair action。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：integrity receipt不是外部授权证明，只用于repo-local durable packet完整性；不自动修复或覆盖packet/receipt，不spawn/stop/poll/monitor reviewer，不执行heavy tool，不写facts/authority/confirmed；collection与intake仍分别要求WhatIf→Apply。禁止新增PowerShell runtime logic。
 
-验证结果：focused `subagents` / `workstream` / `cli` package tests已通过，覆盖exact sidecar binding、fresh planning→durable projection、lane drift与malformed/truncated packet fail-closed、removed-reference downgrade拒绝、执行入口integrity enforcement、blocked Mission Commander action与legacy compatibility。独立审查发现的reference downgrade、lane filter ordering与execution-path bypass均已修复；完整本地release minimum（`release-check` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。
+验证结果：focused `subagents` / `workstream` / `cli` package tests已通过，覆盖exact sidecar binding、fresh planning→durable projection、lane drift与malformed/truncated packet fail-closed、removed-reference downgrade拒绝、执行入口integrity enforcement、blocked Mission Commander action与legacy compatibility。独立审查发现的reference downgrade、lane filter ordering与execution-path bypass均已修复；完整本地release minimum（`release-check` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。远程run `29979488713`三平台jobs均在执行任何step前失败，未提供新的代码失败信号。
 
 上一批摘要：Batch 550已完成reviewer collection capability gating closure，implementation commit `b0ea8c7 Gate reviewer collection capabilities`与release inspection commit `b995975 Record Batch 550 release gate inspection`已推送；对应run `29977522917`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
