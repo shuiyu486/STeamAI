@@ -153,7 +153,7 @@ func TestCollectReviewerResultRejectsRehashedPacketPathForgery(t *testing.T) {
 		t.Fatal(err)
 	}
 	opt := ReviewerResultCollectionOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", WhatIf: true}
-	if _, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "canonical case review namespace") {
+	if _, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || (!strings.Contains(err.Error(), "canonical case review namespace") && !strings.Contains(err.Error(), "packet integrity")) {
 		t.Fatalf("rehashed packet path forgery error = %v", err)
 	}
 }

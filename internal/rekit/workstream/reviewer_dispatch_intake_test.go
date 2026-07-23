@@ -16,6 +16,78 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
+func TestReviewerDispatchIntakeFailsClosedOnPacketIntegrityDrift(t *testing.T) {
+	root := t.TempDir()
+	reviewRoot := filepath.Join(root, ".rekit", "reviews", "integrity")
+	packetPath := filepath.Join(reviewRoot, "packet.json")
+	integrityPath := filepath.Join(reviewRoot, "packet.integrity.json")
+	resultRoot := filepath.Join(reviewRoot, "results")
+	if err := os.MkdirAll(resultRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	packet := reviewerDispatchPacket{
+		PacketID:        "packet-integrity",
+		PacketIntegrity: &reviewerPacketIntegrityReference{Algorithm: "sha256", Path: integrityPath},
+		Command:         "plan-subagents",
+		TargetLane:      "feature-review",
+		ReviewerOrchestration: reviewerDispatchPacketOrchestration{
+			TargetLane: "feature-review",
+			PacketPath: packetPath,
+			ResultRoot: resultRoot,
+			Dispatches: []reviewerDispatchPacketDispatch{{ShardID: "shard-01", ReviewerResultPath: filepath.Join(resultRoot, "shard-01.json"), PreviewCommand: "preview", ApplyCommand: "apply"}},
+		},
+	}
+	packetData, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetData = append(packetData, '\n')
+	if err := os.WriteFile(packetPath, packetData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(packetData)
+	integrity := reviewerPacketIntegrity{SchemaVersion: 1, Kind: "reviewer-packet-integrity", Algorithm: "sha256", PacketID: packet.PacketID, TargetLane: packet.TargetLane, PacketPath: packetPath, PacketSHA256: hex.EncodeToString(sum[:]), PacketBytes: len(packetData)}
+	integrityData, err := json.Marshal(integrity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(integrityPath, append(integrityData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items, err := ReviewerDispatchIntakeHandoffs(root, mission.LedgerFacts{}, "feature-review")
+	if err != nil || len(items) != 1 || items[0].State != "waiting-for-reviewer-result" {
+		t.Fatalf("valid integrity packet was not projected: items=%+v err=%v", items, err)
+	}
+	var tampered reviewerDispatchPacket
+	if err := json.Unmarshal(packetData, &tampered); err != nil {
+		t.Fatal(err)
+	}
+	tampered.TargetLane = "other-lane"
+	tampered.ReviewerOrchestration.TargetLane = "other-lane"
+	tamperedData, err := json.Marshal(tampered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packetPath, append(tamperedData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items, err = ReviewerDispatchIntakeHandoffs(root, mission.LedgerFacts{}, "feature-review")
+	if err != nil || len(items) != 1 || items[0].State != "reviewer-packet-integrity-invalid" || items[0].IntakeAvailable || items[0].ReviewerResultCollectionCommands != nil || !strings.Contains(reviewerDispatchIntakeNextAction(items[0]), "regenerate canonical reviewer packet") {
+		t.Fatalf("packet integrity drift did not fail closed: items=%+v err=%v", items, err)
+	}
+	actions := MissionCommanderNextActionsWithReviewerDispatches(nil, items)
+	if len(actions) != 1 || !actions[0].Blocked || actions[0].State != "reviewer-packet-integrity-invalid" {
+		t.Fatalf("integrity drift did not reach blocked Mission Commander action: %+v", actions)
+	}
+	if err := os.WriteFile(packetPath, []byte("{truncated"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items, err = ReviewerDispatchIntakeHandoffs(root, mission.LedgerFacts{}, "feature-review")
+	if err != nil || len(items) != 1 || items[0].State != "reviewer-packet-integrity-invalid" || items[0].TargetLane != "feature-review" {
+		t.Fatalf("truncated packet lost integrity lane provenance: items=%+v err=%v", items, err)
+	}
+}
+
 func TestReviewerDispatchIntakeSummaryPrefersReadyPacketBatchCommand(t *testing.T) {
 	readyBatchPreview := "/rekit plan-subagents -PacketPath ready-packet.json -ReadyReviewerResults -WhatIf -Format json"
 	readyBatchApply := "/rekit plan-subagents -PacketPath ready-packet.json -ReadyReviewerResults -Apply -Format json"

@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 551：reviewer packet integrity / durable fail-closed closure
+
+状态：implementation、focused package/CLI validation、独立审查修复与完整本地release minimum已完成；尚未commit/push或检查对应远程release gate。
+
+目标：关闭canonical reviewer packet在生成后被截断、篡改或与其durable bindings漂移时，workstream宽松decode/静默跳过会让Mission Commander误以为reviewer work消失的operational断点。让新packet携带exact-bytes integrity receipt，并在status/handoff/start/reconcile/continue共同复用的workstream入口中fail-closed为lane-scoped blocked repair action。
+
+已完成内容：
+
+- attached canonical planning写入`packet.integrity.json`，receipt绑定schema/kind/sha256、packetId、targetLane、canonical packet path、exact bytes hash与size；packet内只保存canonical algorithm/path reference，identity覆盖该reference，legacy/custom/out-of-case packet不强制新增sidecar。
+- durable workstream在提升任何dispatch/collection/intake/adoption command前验证canonical sidecar与exact packet bytes/bindings；hash/size/path/id/lane drift、missing/unknown/trailing sidecar或sidecar存在但packet移除reference均进入`reviewer-packet-integrity-invalid`，不投影runnable commands。adoption/direct/batch intake与collection执行端也在WhatIf/Apply路径复用stable packet reader与同一integrity validation，Apply mutation lock内再次校验exact packet。
+- packet被截断到无法decode时，workstream从strict sidecar保留packetId/targetLane provenance并生成同一blocked handoff，防止active reviewer work静默消失；Mission Commander queue阻止普通lane continuation并只建议重新生成canonical packet，不建议手工修补packet或receipt。
+- fresh canonical packet在candidate目录尚未创建时仍保持typed candidate/collection capability；legacy无sidecar packet继续按既有direct/batch intake兼容路径投影。
+
+边界：integrity receipt不是外部授权证明，只用于repo-local durable packet完整性；不自动修复或覆盖packet/receipt，不spawn/stop/poll/monitor reviewer，不执行heavy tool，不写facts/authority/confirmed；collection与intake仍分别要求WhatIf→Apply。禁止新增PowerShell runtime logic。
+
+验证结果：focused `subagents` / `workstream` / `cli` package tests已通过，覆盖exact sidecar binding、fresh planning→durable projection、lane drift与malformed/truncated packet fail-closed、removed-reference downgrade拒绝、执行入口integrity enforcement、blocked Mission Commander action与legacy compatibility。独立审查发现的reference downgrade、lane filter ordering与execution-path bypass均已修复；完整本地release minimum（`release-check` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。
+
+上一批摘要：Batch 550已完成reviewer collection capability gating closure，implementation commit `b0ea8c7 Gate reviewer collection capabilities`与release inspection commit `b995975 Record Batch 550 release gate inspection`已推送；对应run `29977522917`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
+
 ### Batch 550：reviewer collection capability gating closure
 
 状态：已完成implementation、focused/package validation、两轮独立审查修复、完整本地release minimum、implementation commit `b0ea8c7 Gate reviewer collection capabilities`/push与远程release-gate inspection。对应run `29977522917` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。

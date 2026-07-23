@@ -314,7 +314,7 @@ func AdoptReviewerPacket(repoRoot, caseRoot, pack string, opt ReviewerPacketAdop
 	if err != nil {
 		return ReviewerPacketAdoptionResult{}, err
 	}
-	packetBytes, err := readBoundedFile(packetPath, "review packet", maxReviewPacketBytes)
+	packetBytes, err := readStableReviewerArtifact(filepath.Dir(packetPath), packetPath, "review packet", maxReviewPacketBytes)
 	if err != nil {
 		return ReviewerPacketAdoptionResult{}, err
 	}
@@ -323,6 +323,9 @@ func AdoptReviewerPacket(repoRoot, caseRoot, pack string, opt ReviewerPacketAdop
 		return ReviewerPacketAdoptionResult{}, err
 	}
 	if err := validateIntakePacket(packet, packetPath, repoRoot, caseRoot, pack); err != nil {
+		return ReviewerPacketAdoptionResult{}, err
+	}
+	if err := validatePacketIntegrity(caseRoot, packetPath, packet, packetBytes); err != nil {
 		return ReviewerPacketAdoptionResult{}, err
 	}
 	if err := validateIntakePacketRoute(repoRoot, pack, packet); err != nil {
@@ -397,6 +400,20 @@ func AdoptReviewerPacket(repoRoot, caseRoot, pack string, opt ReviewerPacketAdop
 			return ReviewerPacketAdoptionResult{}, lockErr
 		}
 		defer unlock()
+		packetBytes, err = readStableReviewerArtifact(filepath.Dir(packetPath), packetPath, "review packet", maxReviewPacketBytes)
+		if err != nil {
+			return ReviewerPacketAdoptionResult{}, err
+		}
+		packet, err = decodeIntakePacket(packetBytes)
+		if err != nil {
+			return ReviewerPacketAdoptionResult{}, err
+		}
+		if err := validateIntakePacket(packet, packetPath, repoRoot, caseRoot, pack); err != nil {
+			return ReviewerPacketAdoptionResult{}, err
+		}
+		if err := validatePacketIntegrity(caseRoot, packetPath, packet, packetBytes); err != nil {
+			return ReviewerPacketAdoptionResult{}, err
+		}
 		if err := validateAdoptedOwnerStillCurrent(caseRoot, adoptedOwner); err != nil {
 			return ReviewerPacketAdoptionResult{}, err
 		}
@@ -445,7 +462,7 @@ func IntakeReadyReviewerResults(repoRoot, caseRoot, pack string, opt ReviewerBat
 	if err != nil {
 		return ReviewerBatchIntakeResult{}, err
 	}
-	packetBytes, err := readBoundedFile(packetPath, "review packet", maxReviewPacketBytes)
+	packetBytes, err := readStableReviewerArtifact(filepath.Dir(packetPath), packetPath, "review packet", maxReviewPacketBytes)
 	if err != nil {
 		return ReviewerBatchIntakeResult{}, err
 	}
@@ -454,6 +471,9 @@ func IntakeReadyReviewerResults(repoRoot, caseRoot, pack string, opt ReviewerBat
 		return ReviewerBatchIntakeResult{}, err
 	}
 	if err := validateIntakePacket(packet, packetPath, repoRoot, caseRoot, pack); err != nil {
+		return ReviewerBatchIntakeResult{}, err
+	}
+	if err := validatePacketIntegrity(caseRoot, packetPath, packet, packetBytes); err != nil {
 		return ReviewerBatchIntakeResult{}, err
 	}
 	if err := validateIntakePacketRoute(repoRoot, pack, packet); err != nil {
@@ -577,7 +597,7 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		return ReviewerIntakeResult{}, fmt.Errorf("reviewer intake requires -Actor <main-agent actor>")
 	}
 
-	packetBytes, err := readBoundedFile(packetPath, "review packet", maxReviewPacketBytes)
+	packetBytes, err := readStableReviewerArtifact(filepath.Dir(packetPath), packetPath, "review packet", maxReviewPacketBytes)
 	if err != nil {
 		return ReviewerIntakeResult{}, err
 	}
@@ -586,6 +606,9 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		return ReviewerIntakeResult{}, err
 	}
 	if err := validateIntakePacket(packet, packetPath, repoRoot, caseRoot, pack); err != nil {
+		return ReviewerIntakeResult{}, err
+	}
+	if err := validatePacketIntegrity(caseRoot, packetPath, packet, packetBytes); err != nil {
 		return ReviewerIntakeResult{}, err
 	}
 	if err := validateIntakePacketRoute(repoRoot, pack, packet); err != nil {
@@ -731,6 +754,20 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		return ReviewerIntakeResult{}, err
 	}
 	defer unlock()
+	packetBytes, err = readStableReviewerArtifact(filepath.Dir(packetPath), packetPath, "review packet", maxReviewPacketBytes)
+	if err != nil {
+		return ReviewerIntakeResult{}, err
+	}
+	packet, err = decodeIntakePacket(packetBytes)
+	if err != nil {
+		return ReviewerIntakeResult{}, err
+	}
+	if err := validateIntakePacket(packet, packetPath, repoRoot, caseRoot, pack); err != nil {
+		return ReviewerIntakeResult{}, err
+	}
+	if err := validatePacketIntegrity(caseRoot, packetPath, packet, packetBytes); err != nil {
+		return ReviewerIntakeResult{}, err
+	}
 	if err := validateAdoptedOwnerStillCurrent(caseRoot, effectiveOwner); err != nil {
 		return ReviewerIntakeResult{}, fmt.Errorf("reviewer intake owner changed before writeback: %w", err)
 	}
@@ -1249,6 +1286,39 @@ func reviewerIntakeCommand(result ReviewerIntakeResult, apply bool) string {
 
 func reviewerIntakeLaneLabel(lane string) string {
 	return mission.BoardLaneLabel(mission.BoardLane{ID: lane})
+}
+
+func validatePacketIntegrity(_ string, packetPath string, packet Packet, packetBytes []byte) error {
+	integrityPath := filepath.Join(filepath.Dir(packetPath), "packet.integrity.json")
+	if packet.PacketIntegrity == nil {
+		if _, err := os.Lstat(integrityPath); err == nil {
+			return fmt.Errorf("review packet integrity reference is missing while canonical sidecar exists")
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("inspect review packet integrity: %w", err)
+		}
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(packet.PacketIntegrity.Algorithm), "sha256") || !samePath(packet.PacketIntegrity.Path, integrityPath) {
+		return fmt.Errorf("review packet integrity reference is not canonical")
+	}
+	data, err := readStableReviewerArtifact(filepath.Dir(packetPath), integrityPath, "review packet integrity", maxReviewPacketBytes)
+	if err != nil {
+		return err
+	}
+	dec := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(data)))
+	dec.DisallowUnknownFields()
+	var integrity reviewerPacketIntegrity
+	if err := dec.Decode(&integrity); err != nil {
+		return fmt.Errorf("decode review packet integrity: %w", err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("review packet integrity must contain exactly one JSON object")
+	}
+	if integrity.SchemaVersion != 1 || integrity.Kind != "reviewer-packet-integrity" || !strings.EqualFold(integrity.Algorithm, "sha256") || integrity.PacketID != packet.PacketID || integrity.TargetLane != packet.TargetLane || !samePath(integrity.PacketPath, packetPath) || integrity.PacketSHA256 != sha256Hex(packetBytes) || integrity.PacketBytes != len(packetBytes) {
+		return fmt.Errorf("review packet integrity does not match packet bytes and bindings")
+	}
+	return nil
 }
 
 func readBoundedFile(path, label string, limit int64) ([]byte, error) {

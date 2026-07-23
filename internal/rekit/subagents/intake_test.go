@@ -689,8 +689,36 @@ func TestIntakeReviewerResultRejectsTamperedPacket(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "devirt-main", Actor: "mission-commander", WhatIf: true})
-	if err == nil || !strings.Contains(err.Error(), "not a supported non-mutating") {
-		t.Fatalf("error = %v, want packet identity rejection", err)
+	if err == nil || (!strings.Contains(err.Error(), "not a supported non-mutating") && !strings.Contains(err.Error(), "packet integrity")) {
+		t.Fatalf("error = %v, want packet identity/integrity rejection", err)
+	}
+}
+
+func TestIntakeReviewerResultRejectsRemovedIntegrityReference(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	packet.PacketIntegrity = nil
+	packet.PacketID = packetIdentity(packet)
+	data, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plan.PacketPath, append(data, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := filepath.Join(t.TempDir(), "reviewer-result.json")
+	if err := os.WriteFile(resultPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: packet.TargetLane, Actor: "mission-commander", WhatIf: true})
+	if err == nil || !strings.Contains(err.Error(), "integrity reference is missing") {
+		t.Fatalf("removed integrity reference error = %v", err)
 	}
 }
 

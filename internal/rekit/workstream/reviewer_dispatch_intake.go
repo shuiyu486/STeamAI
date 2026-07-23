@@ -114,8 +114,25 @@ type ReviewerDispatchIntakeSummary struct {
 	Boundary                           []string `json:"boundary,omitempty"`
 }
 
+type reviewerPacketIntegrityReference struct {
+	Algorithm string `json:"algorithm"`
+	Path      string `json:"path"`
+}
+
+type reviewerPacketIntegrity struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	Kind          string `json:"kind"`
+	Algorithm     string `json:"algorithm"`
+	PacketID      string `json:"packetId"`
+	TargetLane    string `json:"targetLane"`
+	PacketPath    string `json:"packetPath"`
+	PacketSHA256  string `json:"packetSha256"`
+	PacketBytes   int    `json:"packetBytes"`
+}
+
 type reviewerDispatchPacket struct {
 	PacketID              string                              `json:"packetId"`
+	PacketIntegrity       *reviewerPacketIntegrityReference   `json:"packetIntegrity"`
 	Command               string                              `json:"command"`
 	RepoRoot              string                              `json:"repoRoot"`
 	Pack                  string                              `json:"pack"`
@@ -170,12 +187,33 @@ func ReviewerDispatchIntakeHandoffs(caseRoot string, facts mission.LedgerFacts, 
 	}
 	items := []ReviewerDispatchIntakeHandoff{}
 	for _, packetPath := range packetPaths {
+		integrity, integrityErr := readReviewerPacketIntegrity(caseRoot, packetPath)
+		integrityPresent := integrityErr == nil
 		packet, ok := readReviewerDispatchPacket(packetPath)
-		if !ok || !strings.EqualFold(strings.TrimSpace(packet.Command), "plan-subagents") || len(packet.ReviewerOrchestration.Dispatches) == 0 {
+		if !ok {
+			if !integrityPresent {
+				continue
+			}
+			if strings.TrimSpace(laneID) != "" && integrity.TargetLane != laneID {
+				continue
+			}
+			packet.PacketID = integrity.PacketID
+			packet.TargetLane = integrity.TargetLane
+			items = append(items, reviewerPacketIntegrityInvalidHandoff(caseRoot, packet, packetPath, integrity.TargetLane, fmt.Errorf("decode reviewer packet failed while integrity metadata remains")))
 			continue
 		}
 		packetTargetLane := firstText(packet.ReviewerOrchestration.TargetLane, packet.TargetLane, packet.ReviewerOrchestration.OwnerBinding.TargetLane)
+		if integrityPresent {
+			packetTargetLane = integrity.TargetLane
+		}
 		if strings.TrimSpace(laneID) != "" && packetTargetLane != laneID {
+			continue
+		}
+		if err := validateReviewerPacketIntegrity(caseRoot, packetPath, packet); err != nil {
+			items = append(items, reviewerPacketIntegrityInvalidHandoff(caseRoot, packet, packetPath, packetTargetLane, err))
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(packet.Command), "plan-subagents") || len(packet.ReviewerOrchestration.Dispatches) == 0 {
 			continue
 		}
 		items = append(items, reviewerDispatchIntakeHandoffsForPacket(caseRoot, facts, packet, packetPath, packetTargetLane)...)
@@ -200,6 +238,35 @@ func limitReviewerDispatchIntakeHandoffs(items []ReviewerDispatchIntakeHandoff, 
 		}
 	}
 	return limited
+}
+
+func reviewerPacketIntegrityInvalidHandoff(caseRoot string, packet reviewerDispatchPacket, packetPath, targetLane string, integrityErr error) ReviewerDispatchIntakeHandoff {
+	item := ReviewerDispatchIntakeHandoff{
+		PacketID:      packet.PacketID,
+		PacketPath:    packetPath,
+		SummaryPath:   packet.Observability.SummaryPath,
+		ResultRoot:    packet.ReviewerOrchestration.ResultRoot,
+		TargetLane:    targetLane,
+		ShardID:       "packet-integrity",
+		DispatchIndex: 1,
+		DispatchTotal: 1,
+		DispatchOpen:  1,
+		RemainingShardIDs: []string{
+			"packet-integrity",
+		},
+		NextOpenShardID: "packet-integrity",
+		State:           "reviewer-packet-integrity-invalid",
+		Evidence: []string{
+			"packet " + reviewerDispatchDisplayPath(caseRoot, packetPath),
+			"integrity invalid: " + integrityErr.Error(),
+		},
+		Boundary: []string{
+			"reviewer packet integrity is invalid; do not dispatch, collect, intake, adopt, or continue this lane from the packet",
+			"regenerate a canonical reviewer packet; do not repair packet bytes or integrity metadata independently",
+			"runtime does not spawn, stop, monitor, or manage reviewer sessions and does not execute heavy tools or write authority/confirmed state",
+		},
+	}
+	return item
 }
 
 func reviewerDispatchIntakeHandoffsForPacket(caseRoot string, facts mission.LedgerFacts, packet reviewerDispatchPacket, packetPath, targetLane string) []ReviewerDispatchIntakeHandoff {
@@ -350,7 +417,7 @@ func reviewerDispatchActionPriority(item ReviewerDispatchIntakeHandoff) int {
 	switch item.State {
 	case "reviewer-packet-owner-adoption-required":
 		return 0
-	case "reviewer-result-symlink-blocked", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "attach-required-before-reviewer-intake":
+	case "reviewer-packet-integrity-invalid", "reviewer-result-symlink-blocked", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "attach-required-before-reviewer-intake":
 		return 1
 	case "ready-for-reviewer-result-collection-preview", "ready-for-reviewer-intake-preview":
 		return 2
@@ -463,6 +530,60 @@ func readReviewerDispatchPacket(path string) (reviewerDispatchPacket, bool) {
 		return reviewerDispatchPacket{}, false
 	}
 	return packet, true
+}
+
+func readReviewerPacketIntegrity(caseRoot, packetPath string) (reviewerPacketIntegrity, error) {
+	integrityPath := filepath.Join(filepath.Dir(packetPath), "packet.integrity.json")
+	if !reviewpath.CollectionNamespacePathSafe(caseRoot, integrityPath, false) {
+		return reviewerPacketIntegrity{}, fmt.Errorf("reviewer packet integrity path is not safe")
+	}
+	data, err := os.ReadFile(integrityPath)
+	if err != nil {
+		return reviewerPacketIntegrity{}, fmt.Errorf("read reviewer packet integrity: %w", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(data)))
+	dec.DisallowUnknownFields()
+	var integrity reviewerPacketIntegrity
+	if err := dec.Decode(&integrity); err != nil {
+		return reviewerPacketIntegrity{}, fmt.Errorf("decode reviewer packet integrity: %w", err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return reviewerPacketIntegrity{}, fmt.Errorf("reviewer packet integrity must contain exactly one JSON object")
+	}
+	return integrity, nil
+}
+
+func validateReviewerPacketIntegrity(caseRoot, packetPath string, packet reviewerDispatchPacket) error {
+	if packet.PacketIntegrity == nil {
+		if _, err := os.Lstat(filepath.Join(filepath.Dir(packetPath), "packet.integrity.json")); err == nil {
+			return fmt.Errorf("reviewer packet integrity reference is missing while canonical sidecar exists")
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("inspect reviewer packet integrity: %w", err)
+		}
+		return nil
+	}
+	integrityPath := strings.TrimSpace(packet.PacketIntegrity.Path)
+	if !strings.EqualFold(strings.TrimSpace(packet.PacketIntegrity.Algorithm), "sha256") ||
+		!casebind.SamePath(integrityPath, filepath.Join(filepath.Dir(packetPath), "packet.integrity.json")) {
+		return fmt.Errorf("reviewer packet integrity reference is not canonical")
+	}
+	integrity, err := readReviewerPacketIntegrity(caseRoot, packetPath)
+	if err != nil {
+		return err
+	}
+	packetData, err := os.ReadFile(packetPath)
+	if err != nil {
+		return fmt.Errorf("read reviewer packet for integrity: %w", err)
+	}
+	sum := sha256.Sum256(packetData)
+	if integrity.SchemaVersion != 1 || integrity.Kind != "reviewer-packet-integrity" ||
+		!strings.EqualFold(integrity.Algorithm, "sha256") || integrity.PacketID != packet.PacketID ||
+		integrity.TargetLane != packet.TargetLane || !casebind.SamePath(integrity.PacketPath, packetPath) ||
+		integrity.PacketSHA256 != hex.EncodeToString(sum[:]) || integrity.PacketBytes != len(packetData) {
+		return fmt.Errorf("reviewer packet integrity does not match packet bytes and bindings")
+	}
+	return nil
 }
 
 func reviewerDispatchCollectionCommands(packetPath, shardID, lane, candidatePath string) ReviewerResultCollectionCommands {
@@ -786,6 +907,8 @@ func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string
 	switch item.State {
 	case "reviewer-packet-owner-adoption-required":
 		return firstText(item.OwnerAdoptionPreviewCommand, "adopt reviewer packet "+item.PacketID+" before intake")
+	case "reviewer-packet-integrity-invalid":
+		return "regenerate canonical reviewer packet at " + item.PacketPath + "; do not continue from invalid packet integrity"
 	case "ready-for-reviewer-result-collection-preview":
 		if item.ReviewerResultCollectionCommands != nil {
 			return firstText(item.ReviewerResultCollectionCommands.PreviewCommand, "run reviewer result collection -WhatIf for "+item.ShardID)

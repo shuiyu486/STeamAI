@@ -126,6 +126,28 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 	if packet.OwnerBinding != result.OwnerBinding || !strings.Contains(packet.ShardHandoffs[0].DispatchPrompt, "currentExecutor=session-plan") || !slices.Contains(packet.ShardHandoffs[0].ReviewerResultContract.RequiredFields, "reviewerSession") {
 		t.Fatalf("packet omitted attached owner binding: %+v", packet)
 	}
+	if packet.PacketIntegrity == nil || packet.PacketIntegrity.Algorithm != "sha256" || !samePath(packet.PacketIntegrity.Path, filepath.Join(result.ReviewRoot, "packet.integrity.json")) {
+		t.Fatalf("canonical packet omitted integrity reference: %+v", packet.PacketIntegrity)
+	}
+	integrityData, err := os.ReadFile(packet.PacketIntegrity.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var integrity reviewerPacketIntegrity
+	if err := json.Unmarshal(integrityData, &integrity); err != nil {
+		t.Fatal(err)
+	}
+	packetData, err := os.ReadFile(result.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if integrity.PacketID != packet.PacketID || integrity.TargetLane != packet.TargetLane || !samePath(integrity.PacketPath, result.PacketPath) || integrity.PacketSHA256 != sha256Hex(packetData) || integrity.PacketBytes != len(packetData) {
+		t.Fatalf("canonical packet integrity does not bind exact packet: %+v", integrity)
+	}
+	handoffs, err := workstream.ReviewerDispatchIntakeHandoffs(caseRoot, mission.LedgerFacts{}, "feature-intake")
+	if err != nil || len(handoffs) != 1 || handoffs[0].State != "waiting-for-reviewer-result" || handoffs[0].ReviewerResultCollectionCommands == nil || handoffs[0].ReviewerResultCandidatePath == "" {
+		t.Fatalf("fresh canonical packet did not survive durable integrity validation: handoffs=%+v err=%v", handoffs, err)
+	}
 	if result.ReviewerOrchestration.Mode != "manual-main-agent-intake" || result.ReviewerOrchestration.TargetLane != "feature-intake" || result.ReviewerOrchestration.Dispatches[0].PreviewCommand == "" || strings.Contains(result.ReviewerOrchestration.Dispatches[0].PreviewCommand, "n/a:") {
 		t.Fatalf("attached case reviewer orchestration did not expose runnable intake: %+v", result.ReviewerOrchestration)
 	}

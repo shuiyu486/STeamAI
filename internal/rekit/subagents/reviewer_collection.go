@@ -165,6 +165,9 @@ func prepareReviewerResultCollection(repoRoot, caseRoot, pack string, opt Review
 	if err := validateIntakePacket(packet, packetPath, repoRoot, caseRoot, pack); err != nil {
 		return preparedReviewerResultCollection{}, err
 	}
+	if err := validatePacketIntegrity(caseRoot, packetPath, packet, packetData); err != nil {
+		return preparedReviewerResultCollection{}, err
+	}
 	if err := validateIntakePacketRoute(repoRoot, pack, packet); err != nil {
 		return preparedReviewerResultCollection{}, err
 	}

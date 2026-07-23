@@ -59,30 +59,47 @@ type Result struct {
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 }
 
+type ReviewerPacketIntegrityReference struct {
+	Algorithm string `json:"algorithm"`
+	Path      string `json:"path"`
+}
+
+type reviewerPacketIntegrity struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	Kind          string `json:"kind"`
+	Algorithm     string `json:"algorithm"`
+	PacketID      string `json:"packetId"`
+	TargetLane    string `json:"targetLane"`
+	PacketPath    string `json:"packetPath"`
+	PacketSHA256  string `json:"packetSha256"`
+	PacketBytes   int    `json:"packetBytes"`
+}
+
 type Packet struct {
-	SchemaVersion             int                       `json:"schemaVersion"`
-	PacketID                  string                    `json:"packetId"`
-	Command                   string                    `json:"command"`
-	IsMutation                bool                      `json:"isMutation"`
-	WritesReviewArtifacts     bool                      `json:"writesReviewArtifacts"`
-	PlanRoot                  string                    `json:"planRoot"`
-	RepoRoot                  string                    `json:"repoRoot"`
-	Pack                      string                    `json:"pack"`
-	ManifestPath              string                    `json:"manifestPath"`
-	TargetLane                string                    `json:"targetLane"`
-	OwnerBinding              OwnerBinding              `json:"ownerBinding"`
-	Route                     Route                     `json:"route"`
-	Input                     Input                     `json:"input"`
-	ShardPolicy               ShardPolicy               `json:"shardPolicy"`
-	Shards                    []Shard                   `json:"shards"`
-	ShardHandoffs             []ShardHandoff            `json:"shardHandoffs"`
-	ReviewerOrchestration     ReviewerOrchestrationPlan `json:"reviewerOrchestration"`
-	MainAgentResponsibilities string                    `json:"mainAgentResponsibilities"`
-	SubagentPermissions       string                    `json:"subagentPermissions"`
-	OutputContract            string                    `json:"outputContract"`
-	ReviewRequired            bool                      `json:"reviewRequired"`
-	Observability             Observability             `json:"observability"`
-	ReviewLoop                ReviewLoop                `json:"reviewLoop"`
+	SchemaVersion             int                               `json:"schemaVersion"`
+	PacketID                  string                            `json:"packetId"`
+	PacketIntegrity           *ReviewerPacketIntegrityReference `json:"packetIntegrity,omitempty"`
+	Command                   string                            `json:"command"`
+	IsMutation                bool                              `json:"isMutation"`
+	WritesReviewArtifacts     bool                              `json:"writesReviewArtifacts"`
+	PlanRoot                  string                            `json:"planRoot"`
+	RepoRoot                  string                            `json:"repoRoot"`
+	Pack                      string                            `json:"pack"`
+	ManifestPath              string                            `json:"manifestPath"`
+	TargetLane                string                            `json:"targetLane"`
+	OwnerBinding              OwnerBinding                      `json:"ownerBinding"`
+	Route                     Route                             `json:"route"`
+	Input                     Input                             `json:"input"`
+	ShardPolicy               ShardPolicy                       `json:"shardPolicy"`
+	Shards                    []Shard                           `json:"shards"`
+	ShardHandoffs             []ShardHandoff                    `json:"shardHandoffs"`
+	ReviewerOrchestration     ReviewerOrchestrationPlan         `json:"reviewerOrchestration"`
+	MainAgentResponsibilities string                            `json:"mainAgentResponsibilities"`
+	SubagentPermissions       string                            `json:"subagentPermissions"`
+	OutputContract            string                            `json:"outputContract"`
+	ReviewRequired            bool                              `json:"reviewRequired"`
+	Observability             Observability                     `json:"observability"`
+	ReviewLoop                ReviewLoop                        `json:"reviewLoop"`
 }
 
 type OwnerBinding struct {
@@ -462,9 +479,36 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 		Observability:             observability,
 		ReviewLoop:                reviewLoop,
 	}
+	if collectionAvailable {
+		packet.PacketIntegrity = &ReviewerPacketIntegrityReference{
+			Algorithm: "sha256",
+			Path:      filepath.Join(paths.Root, "packet.integrity.json"),
+		}
+	}
 	packet.PacketID = packetIdentity(packet)
-	if err := writeJSON(paths.PacketPath, packet); err != nil {
+	packetData, err := json.MarshalIndent(packet, "", "  ")
+	if err != nil {
 		return Result{}, err
+	}
+	packetData = append(packetData, '\n')
+	if err := os.WriteFile(paths.PacketPath, packetData, 0o644); err != nil {
+		return Result{}, err
+	}
+	if packet.PacketIntegrity != nil {
+		integrity := reviewerPacketIntegrity{
+			SchemaVersion: 1,
+			Kind:          "reviewer-packet-integrity",
+			Algorithm:     packet.PacketIntegrity.Algorithm,
+			PacketID:      packet.PacketID,
+			TargetLane:    packet.TargetLane,
+			PacketPath:    paths.PacketPath,
+			PacketSHA256:  sha256Hex(packetData),
+			PacketBytes:   len(packetData),
+		}
+		if err := writeJSON(packet.PacketIntegrity.Path, integrity); err != nil {
+			_ = os.Remove(paths.PacketPath)
+			return Result{}, err
+		}
 	}
 	if err := os.WriteFile(paths.SummaryPath, []byte(summaryText(packet.PacketID, route, opt.TaskType, len(items), len(shards), itemsPerAgent, maxParallel, observability, reviewLoop, ownerBinding, shardHandoffs, orchestration)), 0o644); err != nil {
 		return Result{}, err
