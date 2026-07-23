@@ -86,26 +86,31 @@ func (e *CandidateDecisionApplyError) Unwrap() error {
 }
 
 type CandidateDecisionVerificationResult struct {
-	SchemaVersion         int                       `json:"schemaVersion"`
-	Kind                  string                    `json:"kind"`
-	Pack                  string                    `json:"pack"`
-	CaseRoot              string                    `json:"caseRoot"`
-	FreshCaseRoot         string                    `json:"freshCaseRoot"`
-	AttachedCaseRoot      string                    `json:"attachedCaseRoot"`
-	PacketHash            string                    `json:"packetHash"`
-	DecisionHash          string                    `json:"decisionHash"`
-	ReceiptHash           string                    `json:"receiptHash"`
-	ReceiptPath           string                    `json:"receiptPath"`
-	VerificationProofPath string                    `json:"verificationProofPath"`
-	IsMutation            bool                      `json:"isMutation"`
-	Applied               bool                      `json:"applied"`
-	Ready                 bool                      `json:"ready"`
-	PackDoctorRows        int                       `json:"packDoctorRows"`
-	FreshDoctorRows       int                       `json:"freshDoctorRows"`
-	AttachedDoctorRows    int                       `json:"attachedDoctorRows"`
-	VerifiedActions       []CandidateDecisionAction `json:"verifiedActions"`
-	NextSteps             []string                  `json:"nextSteps"`
-	Boundary              []string                  `json:"boundary"`
+	SchemaVersion            int                       `json:"schemaVersion"`
+	Kind                     string                    `json:"kind"`
+	Pack                     string                    `json:"pack"`
+	CaseRoot                 string                    `json:"caseRoot"`
+	FreshCaseRoot            string                    `json:"freshCaseRoot"`
+	AttachedCaseRoot         string                    `json:"attachedCaseRoot"`
+	PacketHash               string                    `json:"packetHash"`
+	DecisionHash             string                    `json:"decisionHash"`
+	ReceiptHash              string                    `json:"receiptHash"`
+	ReceiptPath              string                    `json:"receiptPath"`
+	VerificationProofPath    string                    `json:"verificationProofPath"`
+	ProvisionIntentPath      string                    `json:"provisionIntentPath,omitempty"`
+	ProvisionIntentSHA256    string                    `json:"provisionIntentSha256,omitempty"`
+	ProvisionReceiptPath     string                    `json:"provisionReceiptPath,omitempty"`
+	ProvisionReceiptSHA256   string                    `json:"provisionReceiptSha256,omitempty"`
+	RetirementPreviewCommand string                    `json:"retirementPreviewCommand,omitempty"`
+	IsMutation               bool                      `json:"isMutation"`
+	Applied                  bool                      `json:"applied"`
+	Ready                    bool                      `json:"ready"`
+	PackDoctorRows           int                       `json:"packDoctorRows"`
+	FreshDoctorRows          int                       `json:"freshDoctorRows"`
+	AttachedDoctorRows       int                       `json:"attachedDoctorRows"`
+	VerifiedActions          []CandidateDecisionAction `json:"verifiedActions"`
+	NextSteps                []string                  `json:"nextSteps"`
+	Boundary                 []string                  `json:"boundary"`
 }
 
 type CandidateDecisionReceipt struct {
@@ -521,25 +526,53 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 		}
 	}
 	proofPath := candidateDecisionVerificationProofPath(canonicalCandidateRoot, packetHash, decisionHash)
+	workspace := candidateDecisionVerificationWorkspace(inst.CaseRoot, packetHash, decisionHash)
+	provisionIntentPath := filepath.Join(workspace, "provision.intent.json")
+	provisionReceiptPath := filepath.Join(workspace, "provision.receipt.json")
+	var provisionIntentBytes, provisionReceiptBytes []byte
+	if sameCandidateDecisionPath(freshRoot, filepath.Join(workspace, "fresh")) && sameCandidateDecisionPath(attachedRoot, filepath.Join(workspace, "attached")) {
+		_, provisionIntentBytes, err = readStrictCandidateDecisionFile(provisionIntentPath, "candidate verification provision intent")
+		if err != nil {
+			return CandidateDecisionVerificationResult{}, err
+		}
+		_, provisionReceiptBytes, err = readStrictCandidateDecisionFile(provisionReceiptPath, "candidate verification provision receipt")
+		if err != nil {
+			return CandidateDecisionVerificationResult{}, err
+		}
+	} else {
+		provisionIntentPath = ""
+		provisionReceiptPath = ""
+	}
+	provisionIntentHash, provisionReceiptHash, retirementPreviewCommand := "", "", ""
+	if len(provisionIntentBytes) > 0 {
+		provisionIntentHash = sha256Hex(provisionIntentBytes)
+		provisionReceiptHash = sha256Hex(provisionReceiptBytes)
+		retirementPreviewCommand = fmt.Sprintf("/rekit promote -PacketPath %s -CandidateDecisionPath %s -RetireCandidateVerificationWorkspace -WhatIf -Format json", quoteCandidateDecisionArg(authority.packetPath), quoteCandidateDecisionArg(authority.decisionPath))
+	}
 	result := CandidateDecisionVerificationResult{
-		SchemaVersion:         1,
-		Kind:                  "pack-memory-candidate-decision-verification",
-		Pack:                  pack,
-		CaseRoot:              inst.CaseRoot,
-		FreshCaseRoot:         freshRoot,
-		AttachedCaseRoot:      attachedRoot,
-		PacketHash:            packetHash,
-		DecisionHash:          decisionHash,
-		ReceiptHash:           sha256Hex(receiptBytes),
-		ReceiptPath:           receiptPath,
-		VerificationProofPath: proofPath,
-		IsMutation:            !opt.WhatIf,
-		Applied:               false,
-		Ready:                 true,
-		PackDoctorRows:        len(packRows),
-		FreshDoctorRows:       len(freshRows),
-		AttachedDoctorRows:    len(attachedRows),
-		VerifiedActions:       append([]CandidateDecisionAction(nil), receipt.Actions...),
+		SchemaVersion:            1,
+		Kind:                     "pack-memory-candidate-decision-verification",
+		Pack:                     pack,
+		CaseRoot:                 inst.CaseRoot,
+		FreshCaseRoot:            freshRoot,
+		AttachedCaseRoot:         attachedRoot,
+		PacketHash:               packetHash,
+		DecisionHash:             decisionHash,
+		ReceiptHash:              sha256Hex(receiptBytes),
+		ReceiptPath:              receiptPath,
+		VerificationProofPath:    proofPath,
+		ProvisionIntentPath:      provisionIntentPath,
+		ProvisionIntentSHA256:    provisionIntentHash,
+		ProvisionReceiptPath:     provisionReceiptPath,
+		ProvisionReceiptSHA256:   provisionReceiptHash,
+		RetirementPreviewCommand: retirementPreviewCommand,
+		IsMutation:               !opt.WhatIf,
+		Applied:                  false,
+		Ready:                    true,
+		PackDoctorRows:           len(packRows),
+		FreshDoctorRows:          len(freshRows),
+		AttachedDoctorRows:       len(attachedRows),
+		VerifiedActions:          append([]CandidateDecisionAction(nil), receipt.Actions...),
 		Boundary: []string{
 			"verification reads pack and attached cases, then writes only the repo-local proof on Apply",
 			"verification does not sync cases, merge candidates, write authority/confirmed, or execute heavy tools",
@@ -550,7 +583,7 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 		return result, nil
 	}
 	result.Applied = true
-	result.NextSteps = []string{"rerun /rekit status or release-check to confirm no pack-memory verification work remains"}
+	result.NextSteps = []string{"run the returned retirementPreviewCommand to preview exact cleanup of the generated verification workspace", "rerun /rekit status or release-check after retirement"}
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return CandidateDecisionVerificationResult{}, err

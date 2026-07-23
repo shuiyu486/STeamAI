@@ -2,6 +2,7 @@ package releasecheck
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
+	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
 func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
@@ -382,27 +384,46 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 		t.Fatalf("pending candidate verification handoff drifted: %+v", pack)
 	}
 
+	workspace := filepath.Join(caseRoot, ".rekit", "verifications", "candidate-decisions", shortReleaseHandoffHash(packetHash+decisionHash))
+	freshCaseRoot = filepath.Join(workspace, "fresh")
+	attachedCaseRoot = filepath.Join(workspace, "attached")
+	provisionIntentPath := filepath.Join(workspace, "provision.intent.json")
+	provisionReceiptPath := filepath.Join(workspace, "provision.receipt.json")
+	writeFile(t, provisionIntentPath, "{\"kind\":\"intent\"}\n")
+	writeFile(t, provisionReceiptPath, "{\"kind\":\"receipt\"}\n")
+	if err := os.MkdirAll(filepath.Join(workspace, "fresh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, "attached"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	retirementPreviewCommand := "/rekit promote -PacketPath " + packetPath + " -CandidateDecisionPath " + decisionPath + " -RetireCandidateVerificationWorkspace -WhatIf -Format json"
 	proof := map[string]any{
-		"schemaVersion":         1,
-		"kind":                  "pack-memory-candidate-decision-verification",
-		"pack":                  "fixture",
-		"caseRoot":              caseRoot,
-		"freshCaseRoot":         freshCaseRoot,
-		"attachedCaseRoot":      attachedCaseRoot,
-		"packetHash":            packetHash,
-		"decisionHash":          decisionHash,
-		"receiptHash":           sha256ReleaseHandoff(append(data, '\n')),
-		"receiptPath":           receiptPath,
-		"verificationProofPath": proofPath,
-		"isMutation":            true,
-		"applied":               true,
-		"ready":                 true,
-		"packDoctorRows":        1,
-		"freshDoctorRows":       1,
-		"attachedDoctorRows":    1,
-		"verifiedActions":       actions,
-		"nextSteps":             []string{"rerun release-check"},
-		"boundary":              []string{"fixture boundary"},
+		"schemaVersion":            1,
+		"kind":                     "pack-memory-candidate-decision-verification",
+		"pack":                     "fixture",
+		"caseRoot":                 caseRoot,
+		"freshCaseRoot":            freshCaseRoot,
+		"attachedCaseRoot":         attachedCaseRoot,
+		"packetHash":               packetHash,
+		"decisionHash":             decisionHash,
+		"receiptHash":              sha256ReleaseHandoff(append(data, '\n')),
+		"receiptPath":              receiptPath,
+		"verificationProofPath":    proofPath,
+		"provisionIntentPath":      provisionIntentPath,
+		"provisionIntentSha256":    fileSHA256ReleaseHandoff(provisionIntentPath),
+		"provisionReceiptPath":     provisionReceiptPath,
+		"provisionReceiptSha256":   fileSHA256ReleaseHandoff(provisionReceiptPath),
+		"retirementPreviewCommand": retirementPreviewCommand,
+		"isMutation":               true,
+		"applied":                  true,
+		"ready":                    true,
+		"packDoctorRows":           1,
+		"freshDoctorRows":          1,
+		"attachedDoctorRows":       1,
+		"verifiedActions":          actions,
+		"nextSteps":                []string{"rerun release-check"},
+		"boundary":                 []string{"fixture boundary"},
 	}
 	assertProofRejected := func(name, content string) {
 		t.Helper()
@@ -445,9 +466,240 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 		t.Fatal(err)
 	}
 	writeFile(t, proofPath, string(proofData)+"\n")
-	completed := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
-	if !completed.Ready || completed.Total != 0 || len(completed.Packs) != 0 {
-		t.Fatalf("completed candidate verification still blocks handoff: %+v", completed)
+	retirementRequired := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if retirementRequired.Ready || retirementRequired.Total != 1 || len(retirementRequired.Packs) != 1 {
+		t.Fatalf("completed candidate verification did not require retirement: %+v", retirementRequired)
+	}
+	retirement := retirementRequired.Packs[0].DecisionReceipts[0]
+	if retirement.RetirementStatus != "required" || !retirement.RetirementRequired || retirement.RetirementInProgress || retirement.Retired || retirement.RetirementPreviewCommand != retirementPreviewCommand || !strings.Contains(retirement.RetirementNextAction, "expected-hash Apply") {
+		t.Fatalf("required candidate verification retirement handoff drifted: %+v", retirement)
+	}
+}
+
+func TestReleaseHandoffPackMemoryCandidateVerificationRetirementLifecycle(t *testing.T) {
+	repo := t.TempDir()
+	proofRoot := filepath.Join(repo, "packs", "fixture", "promote-candidates", "review-artifacts")
+	candidateRoot := filepath.Dir(proofRoot)
+	caseRoot := filepath.Join(repo, "case")
+	packetPath := filepath.Join(caseRoot, ".rekit", "reviews", "packet.json")
+	decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "decisions.json")
+	packetHash := "packet-hash"
+	decisionHash := "decision-hash"
+	retirementID := shortReleaseHandoffHash(packetHash + decisionHash)
+	workspace := filepath.Join(caseRoot, ".rekit", "verifications", "candidate-decisions", retirementID)
+	freshRoot := filepath.Join(workspace, "fresh")
+	attachedRoot := filepath.Join(workspace, "attached")
+	provisionIntentPath := filepath.Join(workspace, "provision.intent.json")
+	provisionReceiptPath := filepath.Join(workspace, "provision.receipt.json")
+	proofPath := filepath.Join(proofRoot, "fixture.candidate-verification-proof.json")
+	receiptPath := filepath.Join(proofRoot, "fixture.candidate-decision-receipt.json")
+	retirementIntentPath := filepath.Join(proofRoot, retirementID+".candidate-verification-retirement-intent.json")
+	retirementReceiptPath := filepath.Join(proofRoot, retirementID+".candidate-verification-retirement-receipt.json")
+	backupRoot := filepath.Join(candidateRoot, ".decision-backup", "fixture")
+	writeFile(t, filepath.Join(backupRoot, "committed.json"), "{\"applied\":true}\n")
+	writeFile(t, provisionIntentPath, "{\"kind\":\"intent\"}\n")
+	writeFile(t, provisionReceiptPath, "{\"kind\":\"receipt\"}\n")
+	for _, root := range []string{freshRoot, attachedRoot} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	actions := []map[string]any{{
+		"candidatePath":       filepath.Join(candidateRoot, "memory.candidate.md"),
+		"kind":                "managed-doc",
+		"decision":            "accept",
+		"packTarget":          filepath.Join(repo, "packs", "fixture", "memory.md"),
+		"action":              "replace pack target with reviewed candidate",
+		"candidateBackupPath": filepath.Join(backupRoot, "actions", "000", "candidate"),
+		"evidenceRefs":        []string{},
+	}}
+	receipt := map[string]any{
+		"schemaVersion": 1, "kind": "pack-memory-candidate-decision-receipt", "pack": "fixture", "repoRoot": repo, "caseRoot": caseRoot,
+		"packetPath": packetPath, "decisionPath": decisionPath, "packetHash": packetHash, "decisionHash": decisionHash, "backupRoot": backupRoot,
+		"indexPath": filepath.Join(candidateRoot, "index.json"), "accepted": 1, "rejected": 0, "superseded": 0, "actions": actions,
+		"decisionEvidence": []string{}, "receiptPath": receiptPath, "verificationPending": true, "verificationWorkspaceRoot": workspace,
+		"verificationProvisionCommand": "/rekit promote -PacketPath " + packetPath + " -CandidateDecisionPath " + decisionPath + " -ProvisionCandidateVerificationCases -WhatIf",
+		"verificationCommand":          "/rekit promote -VerifyCandidateDecision -WhatIf", "verificationProofPath": proofPath, "boundary": []string{"fixture boundary"},
+	}
+	receiptData, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptData = append(receiptData, '\n')
+	writeFile(t, receiptPath, string(receiptData))
+	previewCommand := "/rekit promote -PacketPath " + packetPath + " -CandidateDecisionPath " + decisionPath + " -RetireCandidateVerificationWorkspace -WhatIf -Format json"
+	proof := map[string]any{
+		"schemaVersion": 1, "kind": "pack-memory-candidate-decision-verification", "pack": "fixture", "caseRoot": caseRoot,
+		"freshCaseRoot": freshRoot, "attachedCaseRoot": attachedRoot, "packetHash": packetHash, "decisionHash": decisionHash,
+		"receiptHash": sha256ReleaseHandoff(receiptData), "receiptPath": receiptPath, "verificationProofPath": proofPath,
+		"provisionIntentPath": provisionIntentPath, "provisionIntentSha256": fileSHA256ReleaseHandoff(provisionIntentPath),
+		"provisionReceiptPath": provisionReceiptPath, "provisionReceiptSha256": fileSHA256ReleaseHandoff(provisionReceiptPath),
+		"retirementPreviewCommand": previewCommand, "isMutation": true, "applied": true, "ready": true,
+		"packDoctorRows": 1, "freshDoctorRows": 1, "attachedDoctorRows": 1, "verifiedActions": actions,
+		"nextSteps": []string{"preview retirement"}, "boundary": []string{"fixture boundary"},
+	}
+	proofData, err := json.MarshalIndent(proof, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofData = append(proofData, '\n')
+	writeFile(t, proofPath, string(proofData))
+	ownedContent := "owned verification artifact\n"
+	freshOwned := filepath.Join(freshRoot, "owned.txt")
+	attachedOwned := filepath.Join(attachedRoot, "owned.txt")
+	writeFile(t, freshOwned, ownedContent)
+	writeFile(t, attachedOwned, ownedContent)
+	ownedHash := sha256ReleaseHandoff([]byte(ownedContent))
+	roots := []candidateVerificationRetirementRootInventory{
+		{Role: "fresh", CaseRoot: freshRoot, Deletes: []string{freshOwned}},
+		{Role: "attached", CaseRoot: attachedRoot, Deletes: []string{attachedOwned}},
+	}
+	plans := []syncpkg.ExclusiveInitRetirementPlan{
+		{SchemaVersion: 1, Command: "exclusive-init-retirement", CaseRoot: freshRoot, ProvisionID: retirementID, Role: "fresh", Leaves: []syncpkg.ExclusiveInitRetirementLeaf{{Path: "owned.txt", SHA256: ownedHash, Size: int64(len(ownedContent))}}},
+		{SchemaVersion: 1, Command: "exclusive-init-retirement", CaseRoot: attachedRoot, ProvisionID: retirementID, Role: "attached", Leaves: []syncpkg.ExclusiveInitRetirementLeaf{{Path: "owned.txt", SHA256: ownedHash, Size: int64(len(ownedContent))}}},
+	}
+	artifact := candidateVerificationRetirementArtifactInventory{
+		SchemaVersion: 1, Kind: "pack-memory-candidate-verification-retirement-intent", RepoRoot: repo, SourceCaseRoot: caseRoot, Pack: "fixture",
+		PacketPath: packetPath, PacketSHA256: packetHash, DecisionPath: decisionPath, DecisionSHA256: decisionHash,
+		DecisionReceiptPath: receiptPath, DecisionReceiptSHA256: sha256ReleaseHandoff(receiptData), VerificationProofPath: proofPath,
+		VerificationProofSHA256: sha256ReleaseHandoff(proofData), ProvisionIntentPath: provisionIntentPath,
+		ProvisionIntentSHA256: fileSHA256ReleaseHandoff(provisionIntentPath), ProvisionReceiptPath: provisionReceiptPath,
+		ProvisionReceiptSHA256: fileSHA256ReleaseHandoff(provisionReceiptPath), WorkspaceRoot: workspace,
+		RetirementIntentPath: retirementIntentPath, RetirementReceiptPath: retirementReceiptPath, Roots: roots,
+		ProvisionArtifactsToDelete: []string{provisionReceiptPath, provisionIntentPath},
+		EmptyAncestorsToRemove:     []string{filepath.Dir(workspace), filepath.Dir(filepath.Dir(workspace))},
+		Boundary:                   []string{"fixture boundary"}, RetirementPlans: plans,
+	}
+	artifact.RetirementSHA256 = candidateVerificationRetirementHash(candidateVerificationRetirementResultFromInventory(artifact, "-intent"))
+	writeRetirementArtifact := func(path, kind string) {
+		t.Helper()
+		artifact.Kind = kind
+		data, marshalErr := json.MarshalIndent(artifact, "", "  ")
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		writeFile(t, path, string(data)+"\n")
+	}
+	writeRetirementArtifact(retirementIntentPath, "pack-memory-candidate-verification-retirement-intent")
+	inProgress := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if inProgress.Ready || len(inProgress.Packs) != 1 || !inProgress.Packs[0].DecisionReceipts[0].RetirementInProgress || inProgress.Packs[0].DecisionReceipts[0].RetirementStatus != "in-progress" || !strings.Contains(inProgress.Packs[0].Action, "resume") {
+		t.Fatalf("retirement intent was not projected as in-progress: %+v", inProgress)
+	}
+	assertInvalidResume := func(name, want string, mutate func() func()) {
+		t.Helper()
+		restore := mutate()
+		invalid := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+		if invalid.Ready || invalid.Summary != "pack-memory candidate inventory has warnings" || len(invalid.Warnings) == 0 || !strings.Contains(fmt.Sprint(invalid.Warnings), want) || strings.Contains(fmt.Sprint(invalid.Packs), "retirementStatus:in-progress") {
+			t.Fatalf("%s retirement drift was not rejected: %+v", name, invalid)
+		}
+		restore()
+	}
+	assertInvalidResume("extra object", "extra object", func() func() {
+		extra := filepath.Join(freshRoot, "extra.txt")
+		writeFile(t, extra, "extra\n")
+		return func() { _ = os.Remove(extra) }
+	})
+	assertInvalidResume("different bytes", "different bytes", func() func() {
+		writeFile(t, freshOwned, "different\n")
+		return func() { writeFile(t, freshOwned, ownedContent) }
+	})
+	assertInvalidResume("symlink", "symlink", func() func() {
+		if err := os.Remove(freshOwned); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(attachedOwned, freshOwned); err != nil {
+			writeFile(t, freshOwned, ownedContent)
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		return func() {
+			_ = os.Remove(freshOwned)
+			writeFile(t, freshOwned, ownedContent)
+		}
+	})
+	assertInvalidResume("tree quarantine drift", "extra object", func() func() {
+		quarantine := filepath.Join(freshRoot, ".owned.txt.rekit-retire-deadbeefdeadbeef.tmp")
+		writeFile(t, quarantine, ownedContent)
+		return func() { _ = os.Remove(quarantine) }
+	})
+	provisionQuarantine := func(path, hash string) string {
+		return filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".retiring-"+hash[:16])
+	}
+	intentQuarantine := provisionQuarantine(provisionIntentPath, artifact.ProvisionIntentSHA256)
+	if err := os.Rename(provisionIntentPath, intentQuarantine); err != nil {
+		t.Fatal(err)
+	}
+	quarantineOnly := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if quarantineOnly.Ready || len(quarantineOnly.Packs) != 1 || !quarantineOnly.Packs[0].DecisionReceipts[0].RetirementInProgress {
+		t.Fatalf("exact quarantine-only provision artifact was not resumable: %+v", quarantineOnly)
+	}
+	writeFile(t, provisionIntentPath, "{\"kind\":\"intent\"}\n")
+	dual := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if dual.Ready || len(dual.Warnings) == 0 || !strings.Contains(fmt.Sprint(dual.Warnings), "both exist") {
+		t.Fatalf("dual canonical/quarantine provision artifact was not rejected: %+v", dual)
+	}
+	if err := os.Remove(provisionIntentPath); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, intentQuarantine, "different\n")
+	wrongQuarantine := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if wrongQuarantine.Ready || len(wrongQuarantine.Warnings) == 0 || !strings.Contains(fmt.Sprint(wrongQuarantine.Warnings), "changed") {
+		t.Fatalf("different quarantine bytes were not rejected: %+v", wrongQuarantine)
+	}
+	if err := os.Remove(intentQuarantine); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(provisionReceiptPath, intentQuarantine); err == nil {
+		symlinkQuarantine := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+		if symlinkQuarantine.Ready || len(symlinkQuarantine.Warnings) == 0 || !strings.Contains(fmt.Sprint(symlinkQuarantine.Warnings), "not regular") {
+			t.Fatalf("symlink quarantine was not rejected: %+v", symlinkQuarantine)
+		}
+		if err := os.Remove(intentQuarantine); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(intentQuarantine, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nonregularQuarantine := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if nonregularQuarantine.Ready || len(nonregularQuarantine.Warnings) == 0 || !strings.Contains(fmt.Sprint(nonregularQuarantine.Warnings), "not regular") {
+		t.Fatalf("non-regular quarantine was not rejected: %+v", nonregularQuarantine)
+	}
+	if err := os.Remove(intentQuarantine); err != nil {
+		t.Fatal(err)
+	}
+	bothAbsent := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if bothAbsent.Ready || len(bothAbsent.Packs) != 1 || !bothAbsent.Packs[0].DecisionReceipts[0].RetirementInProgress {
+		t.Fatalf("absent canonical/quarantine provision artifact was not resumable: %+v", bothAbsent)
+	}
+	writeRetirementArtifact(retirementReceiptPath, "pack-memory-candidate-verification-retirement-receipt")
+	for _, path := range []string{freshOwned, attachedOwned} {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{freshRoot, attachedRoot} {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{provisionReceiptPath, provisionIntentPath, workspace} {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+	retired := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if !retired.Ready || retired.Total != 0 || len(retired.Packs) != 0 || len(retired.Warnings) != 0 {
+		t.Fatalf("exact retirement receipt did not close handoff: %+v", retired)
+	}
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reappeared := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if reappeared.Ready || reappeared.Summary != "pack-memory candidate inventory has warnings" || len(reappeared.Warnings) == 0 || !strings.Contains(fmt.Sprint(reappeared.Warnings), "reappeared") {
+		t.Fatalf("reappeared retired workspace was not rejected: %+v", reappeared)
+	}
+	if _, err := os.Stat(workspace); err != nil {
+		t.Fatalf("release handoff mutated reappeared workspace: %v", err)
 	}
 }
 

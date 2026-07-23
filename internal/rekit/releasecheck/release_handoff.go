@@ -17,6 +17,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
+	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
 type ReleaseHandoff struct {
@@ -254,6 +255,15 @@ type ReleaseHandoffPackMemoryCandidateDecisionReceipt struct {
 	VerificationCommand          string `json:"verificationCommand,omitempty"`
 	VerificationProofPath        string `json:"verificationProofPath,omitempty"`
 	VerificationComplete         bool   `json:"verificationComplete"`
+	RetirementStatus             string `json:"retirementStatus,omitempty"`
+	RetirementPreviewCommand     string `json:"retirementPreviewCommand,omitempty"`
+	RetirementIntentPath         string `json:"retirementIntentPath,omitempty"`
+	RetirementReceiptPath        string `json:"retirementReceiptPath,omitempty"`
+	RetirementSHA256             string `json:"retirementSha256,omitempty"`
+	RetirementRequired           bool   `json:"retirementRequired"`
+	RetirementInProgress         bool   `json:"retirementInProgress"`
+	Retired                      bool   `json:"retired"`
+	RetirementNextAction         string `json:"retirementNextAction,omitempty"`
 }
 
 type ReleaseHandoffPackMemoryCandidateIndexEntry struct {
@@ -617,10 +627,10 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 	pendingVerifications := 0
 	completedVerifications := 0
 	for _, receipt := range receipts {
-		if receipt.VerificationPending && !receipt.VerificationComplete {
+		if receipt.VerificationPending && (!receipt.VerificationComplete || receipt.RetirementRequired || receipt.RetirementInProgress) {
 			pendingVerifications++
 		}
-		if receipt.VerificationComplete {
+		if receipt.VerificationComplete && (!receipt.VerificationPending || receipt.Retired) {
 			completedVerifications++
 		}
 	}
@@ -654,6 +664,15 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 	}
 	if !status.RequiresReview && !status.RequiresCleanup && status.RequiresVerification {
 		status.Action = "run the candidate verification case provisioning WhatIf/expected-hash Apply, then run candidate decision verification WhatIf/Apply"
+		for _, receipt := range receipts {
+			if receipt.RetirementInProgress {
+				status.Action = receipt.RetirementNextAction
+				break
+			}
+			if receipt.RetirementRequired {
+				status.Action = "run the candidate verification retirement WhatIf preview command; inspect the exact plan, then run its expected-hash Apply command"
+			}
+		}
 	}
 	status.Evidence = append(status.Evidence, "candidateRoot "+candidateRootRel, "toolingRoot "+toolingRootRel)
 	if candidateFileCount > 0 {
@@ -1086,26 +1105,66 @@ type candidateDecisionTransactionInventory struct {
 }
 
 type candidateDecisionVerificationInventory struct {
-	SchemaVersion         int                                `json:"schemaVersion"`
-	Kind                  string                             `json:"kind"`
-	Pack                  string                             `json:"pack"`
-	CaseRoot              string                             `json:"caseRoot"`
-	FreshCaseRoot         string                             `json:"freshCaseRoot"`
-	AttachedCaseRoot      string                             `json:"attachedCaseRoot"`
-	PacketHash            string                             `json:"packetHash"`
-	DecisionHash          string                             `json:"decisionHash"`
-	ReceiptHash           string                             `json:"receiptHash"`
-	ReceiptPath           string                             `json:"receiptPath"`
-	VerificationProofPath string                             `json:"verificationProofPath"`
-	IsMutation            bool                               `json:"isMutation"`
-	Applied               bool                               `json:"applied"`
-	Ready                 bool                               `json:"ready"`
-	PackDoctorRows        int                                `json:"packDoctorRows"`
-	FreshDoctorRows       int                                `json:"freshDoctorRows"`
-	AttachedDoctorRows    int                                `json:"attachedDoctorRows"`
-	VerifiedActions       []candidateDecisionActionInventory `json:"verifiedActions"`
-	NextSteps             []string                           `json:"nextSteps"`
-	Boundary              []string                           `json:"boundary"`
+	SchemaVersion            int                                `json:"schemaVersion"`
+	Kind                     string                             `json:"kind"`
+	Pack                     string                             `json:"pack"`
+	CaseRoot                 string                             `json:"caseRoot"`
+	FreshCaseRoot            string                             `json:"freshCaseRoot"`
+	AttachedCaseRoot         string                             `json:"attachedCaseRoot"`
+	PacketHash               string                             `json:"packetHash"`
+	DecisionHash             string                             `json:"decisionHash"`
+	ReceiptHash              string                             `json:"receiptHash"`
+	ReceiptPath              string                             `json:"receiptPath"`
+	VerificationProofPath    string                             `json:"verificationProofPath"`
+	ProvisionIntentPath      string                             `json:"provisionIntentPath,omitempty"`
+	ProvisionIntentSHA256    string                             `json:"provisionIntentSha256,omitempty"`
+	ProvisionReceiptPath     string                             `json:"provisionReceiptPath,omitempty"`
+	ProvisionReceiptSHA256   string                             `json:"provisionReceiptSha256,omitempty"`
+	RetirementPreviewCommand string                             `json:"retirementPreviewCommand,omitempty"`
+	IsMutation               bool                               `json:"isMutation"`
+	Applied                  bool                               `json:"applied"`
+	Ready                    bool                               `json:"ready"`
+	PackDoctorRows           int                                `json:"packDoctorRows"`
+	FreshDoctorRows          int                                `json:"freshDoctorRows"`
+	AttachedDoctorRows       int                                `json:"attachedDoctorRows"`
+	VerifiedActions          []candidateDecisionActionInventory `json:"verifiedActions"`
+	NextSteps                []string                           `json:"nextSteps"`
+	Boundary                 []string                           `json:"boundary"`
+}
+
+type candidateVerificationRetirementRootInventory struct {
+	Role     string   `json:"role"`
+	CaseRoot string   `json:"caseRoot"`
+	Deletes  []string `json:"deletes"`
+}
+
+type candidateVerificationRetirementArtifactInventory struct {
+	SchemaVersion              int                                            `json:"schemaVersion"`
+	Kind                       string                                         `json:"kind"`
+	RepoRoot                   string                                         `json:"repoRoot"`
+	SourceCaseRoot             string                                         `json:"sourceCaseRoot"`
+	Pack                       string                                         `json:"pack"`
+	PacketPath                 string                                         `json:"packetPath"`
+	PacketSHA256               string                                         `json:"packetSha256"`
+	DecisionPath               string                                         `json:"decisionPath"`
+	DecisionSHA256             string                                         `json:"decisionSha256"`
+	DecisionReceiptPath        string                                         `json:"decisionReceiptPath"`
+	DecisionReceiptSHA256      string                                         `json:"decisionReceiptSha256"`
+	VerificationProofPath      string                                         `json:"verificationProofPath"`
+	VerificationProofSHA256    string                                         `json:"verificationProofSha256"`
+	ProvisionIntentPath        string                                         `json:"provisionIntentPath"`
+	ProvisionIntentSHA256      string                                         `json:"provisionIntentSha256"`
+	ProvisionReceiptPath       string                                         `json:"provisionReceiptPath"`
+	ProvisionReceiptSHA256     string                                         `json:"provisionReceiptSha256"`
+	WorkspaceRoot              string                                         `json:"workspaceRoot"`
+	RetirementIntentPath       string                                         `json:"retirementIntentPath"`
+	RetirementReceiptPath      string                                         `json:"retirementReceiptPath"`
+	RetirementSHA256           string                                         `json:"retirementSha256"`
+	Roots                      []candidateVerificationRetirementRootInventory `json:"roots"`
+	ProvisionArtifactsToDelete []string                                       `json:"provisionArtifactsToDelete"`
+	EmptyAncestorsToRemove     []string                                       `json:"emptyAncestorsToRemove"`
+	Boundary                   []string                                       `json:"boundary"`
+	RetirementPlans            []syncpkg.ExclusiveInitRetirementPlan          `json:"retirementPlans"`
 }
 
 func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) ([]ReleaseHandoffPackMemoryCandidateDecisionReceipt, error) {
@@ -1179,6 +1238,7 @@ func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) (
 		}
 		proofComplete := false
 		proofRel := ""
+		proof := candidateDecisionVerificationInventory{}
 		if raw.VerificationProofPath != "" {
 			if !pathWithinReleaseHandoffRoot(proofRoot, raw.VerificationProofPath) {
 				return nil, fmt.Errorf("candidate verification proof leaves proof root: %s", raw.VerificationProofPath)
@@ -1195,12 +1255,18 @@ func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) (
 				if err != nil {
 					return nil, err
 				}
-				var proof candidateDecisionVerificationInventory
 				if err := decodeReleaseHandoffStrictJSON(proofData, &proof); err != nil {
 					return nil, fmt.Errorf("decode candidate verification proof %s: %w", raw.VerificationProofPath, err)
 				}
 				if proof.SchemaVersion != 1 || proof.Kind != "pack-memory-candidate-decision-verification" || proof.Pack != raw.Pack || !strings.EqualFold(proof.PacketHash, raw.PacketHash) || !strings.EqualFold(proof.DecisionHash, raw.DecisionHash) || !strings.EqualFold(proof.ReceiptHash, sha256ReleaseHandoff(data)) || !sameReleaseHandoffPath(proof.CaseRoot, raw.CaseRoot) || strings.TrimSpace(proof.FreshCaseRoot) == "" || strings.TrimSpace(proof.AttachedCaseRoot) == "" || sameReleaseHandoffPath(proof.FreshCaseRoot, proof.CaseRoot) || sameReleaseHandoffPath(proof.AttachedCaseRoot, proof.CaseRoot) || sameReleaseHandoffPath(proof.FreshCaseRoot, proof.AttachedCaseRoot) || !sameReleaseHandoffPath(proof.ReceiptPath, path) || !sameReleaseHandoffPath(proof.VerificationProofPath, raw.VerificationProofPath) || !proof.IsMutation || !proof.Applied || !proof.Ready || proof.PackDoctorRows <= 0 || proof.FreshDoctorRows <= 0 || proof.AttachedDoctorRows <= 0 || !candidateDecisionActionsEqual(proof.VerifiedActions, raw.Actions) {
 					return nil, fmt.Errorf("candidate verification proof binding mismatch: %s", raw.VerificationProofPath)
+				}
+				if raw.Accepted > 0 {
+					expectedIntentPath := filepath.Join(raw.VerificationWorkspaceRoot, "provision.intent.json")
+					expectedReceiptPath := filepath.Join(raw.VerificationWorkspaceRoot, "provision.receipt.json")
+					if !sameReleaseHandoffPath(proof.ProvisionIntentPath, expectedIntentPath) || !sameReleaseHandoffPath(proof.ProvisionReceiptPath, expectedReceiptPath) || strings.TrimSpace(proof.ProvisionIntentSHA256) == "" || strings.TrimSpace(proof.ProvisionReceiptSHA256) == "" || strings.TrimSpace(proof.RetirementPreviewCommand) == "" || !strings.Contains(proof.RetirementPreviewCommand, "-RetireCandidateVerificationWorkspace") || !strings.Contains(proof.RetirementPreviewCommand, "-WhatIf") || !strings.Contains(proof.RetirementPreviewCommand, raw.PacketPath) || !strings.Contains(proof.RetirementPreviewCommand, raw.DecisionPath) {
+						return nil, fmt.Errorf("candidate verification proof retirement binding mismatch: %s", raw.VerificationProofPath)
+					}
 				}
 				proofComplete = true
 				proofRel = releaseHandoffRepoRelative(repo, raw.VerificationProofPath)
@@ -1208,7 +1274,7 @@ func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) (
 				return nil, proofErr
 			}
 		}
-		receipts = append(receipts, ReleaseHandoffPackMemoryCandidateDecisionReceipt{
+		handoffReceipt := ReleaseHandoffPackMemoryCandidateDecisionReceipt{
 			Path:                         filepath.ToSlash(filepath.Join(proofRootRel, entry.Name())),
 			Accepted:                     raw.Accepted,
 			Rejected:                     raw.Rejected,
@@ -1221,10 +1287,220 @@ func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) (
 			VerificationCommand:          raw.VerificationCommand,
 			VerificationProofPath:        proofRel,
 			VerificationComplete:         proofComplete,
-		})
+		}
+		if proofComplete && raw.Accepted > 0 {
+			if err := populateCandidateVerificationRetirementHandoff(repo, proofRoot, path, data, raw, proof, &handoffReceipt); err != nil {
+				return nil, err
+			}
+		}
+		receipts = append(receipts, handoffReceipt)
 	}
 	sort.Slice(receipts, func(i, j int) bool { return receipts[i].Path < receipts[j].Path })
 	return receipts, nil
+}
+
+func populateCandidateVerificationRetirementHandoff(repo, proofRoot, decisionReceiptPath string, decisionReceiptData []byte, receipt candidateDecisionReceiptInventory, proof candidateDecisionVerificationInventory, handoff *ReleaseHandoffPackMemoryCandidateDecisionReceipt) error {
+	retirementID := shortReleaseHandoffHash(receipt.PacketHash + receipt.DecisionHash)
+	intentPath := filepath.Join(proofRoot, retirementID+".candidate-verification-retirement-intent.json")
+	retirementReceiptPath := filepath.Join(proofRoot, retirementID+".candidate-verification-retirement-receipt.json")
+	handoff.RetirementPreviewCommand = proof.RetirementPreviewCommand
+	handoff.RetirementIntentPath = releaseHandoffRepoRelative(repo, intentPath)
+	handoff.RetirementReceiptPath = releaseHandoffRepoRelative(repo, retirementReceiptPath)
+
+	intent, intentPresent, err := readCandidateVerificationRetirementHandoffArtifact(repo, intentPath)
+	if err != nil {
+		return err
+	}
+	retirementReceipt, receiptPresent, err := readCandidateVerificationRetirementHandoffArtifact(repo, retirementReceiptPath)
+	if err != nil {
+		return err
+	}
+	if !intentPresent && !receiptPresent {
+		if err := validateCandidateVerificationRetirementWorkspaceEvidence(receipt, proof); err != nil {
+			return err
+		}
+		handoff.RetirementStatus = "required"
+		handoff.RetirementRequired = true
+		handoff.RetirementNextAction = "run the returned retirementPreviewCommand; inspect the exact plan, then run its expected-hash Apply command"
+		return nil
+	}
+	if receiptPresent && !intentPresent {
+		return fmt.Errorf("candidate verification retirement receipt lacks current retained intent: %s", retirementReceiptPath)
+	}
+	if err := validateCandidateVerificationRetirementHandoffArtifact(repo, proofRoot, decisionReceiptPath, decisionReceiptData, receipt, proof, intent, "-intent"); err != nil {
+		return err
+	}
+	handoff.RetirementSHA256 = intent.RetirementSHA256
+	if !receiptPresent {
+		if err := validateCandidateVerificationRetirementIntentProgress(receipt, proof, intent); err != nil {
+			return err
+		}
+		handoff.RetirementStatus = "in-progress"
+		handoff.RetirementInProgress = true
+		handoff.RetirementNextAction = "resume candidate verification retirement with the expected-hash Apply command for retirementSha256=" + intent.RetirementSHA256
+		return nil
+	}
+	if !reflect.DeepEqual(intent, candidateVerificationRetirementIntentFromReceipt(retirementReceipt)) {
+		return fmt.Errorf("candidate verification retirement receipt/intent authority binding mismatch: %s", retirementReceiptPath)
+	}
+	if err := validateCandidateVerificationRetirementHandoffArtifact(repo, proofRoot, decisionReceiptPath, decisionReceiptData, receipt, proof, retirementReceipt, "-receipt"); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(receipt.VerificationWorkspaceRoot); err == nil || !os.IsNotExist(err) {
+		return fmt.Errorf("retired candidate verification workspace has reappeared; refusing automatic deletion: %s", receipt.VerificationWorkspaceRoot)
+	}
+	handoff.RetirementStatus = "retired"
+	handoff.Retired = true
+	handoff.RetirementNextAction = "retain the repo-local retirement intent and receipt as final evidence"
+	return nil
+}
+
+func readCandidateVerificationRetirementHandoffArtifact(repo, path string) (candidateVerificationRetirementArtifactInventory, bool, error) {
+	if err := rejectReleaseHandoffSymlinkPath(repo, path, true); err != nil {
+		return candidateVerificationRetirementArtifactInventory{}, false, err
+	}
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return candidateVerificationRetirementArtifactInventory{}, false, nil
+	}
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > 1024*1024 {
+		return candidateVerificationRetirementArtifactInventory{}, false, fmt.Errorf("candidate verification retirement artifact must be a non-empty regular file: %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return candidateVerificationRetirementArtifactInventory{}, false, err
+	}
+	var artifact candidateVerificationRetirementArtifactInventory
+	if err := decodeReleaseHandoffStrictJSON(data, &artifact); err != nil {
+		return candidateVerificationRetirementArtifactInventory{}, false, fmt.Errorf("decode candidate verification retirement artifact %s: %w", path, err)
+	}
+	return artifact, true, nil
+}
+
+func validateCandidateVerificationRetirementHandoffArtifact(repo, proofRoot, decisionReceiptPath string, decisionReceiptData []byte, receipt candidateDecisionReceiptInventory, proof candidateDecisionVerificationInventory, artifact candidateVerificationRetirementArtifactInventory, kindSuffix string) error {
+	retirementID := shortReleaseHandoffHash(receipt.PacketHash + receipt.DecisionHash)
+	workspace := receipt.VerificationWorkspaceRoot
+	intentPath := filepath.Join(proofRoot, retirementID+".candidate-verification-retirement-intent.json")
+	retirementReceiptPath := filepath.Join(proofRoot, retirementID+".candidate-verification-retirement-receipt.json")
+	expectedKind := "pack-memory-candidate-verification-retirement" + kindSuffix
+	if artifact.SchemaVersion != 1 || artifact.Kind != expectedKind || artifact.Pack != receipt.Pack || !sameReleaseHandoffPath(artifact.RepoRoot, repo) || !sameReleaseHandoffPath(artifact.SourceCaseRoot, receipt.CaseRoot) || !sameReleaseHandoffPath(artifact.PacketPath, receipt.PacketPath) || !strings.EqualFold(artifact.PacketSHA256, receipt.PacketHash) || !sameReleaseHandoffPath(artifact.DecisionPath, receipt.DecisionPath) || !strings.EqualFold(artifact.DecisionSHA256, receipt.DecisionHash) || !sameReleaseHandoffPath(artifact.DecisionReceiptPath, decisionReceiptPath) || !strings.EqualFold(artifact.DecisionReceiptSHA256, sha256ReleaseHandoff(decisionReceiptData)) || !sameReleaseHandoffPath(artifact.VerificationProofPath, proof.VerificationProofPath) || !strings.EqualFold(artifact.VerificationProofSHA256, fileSHA256ReleaseHandoff(proof.VerificationProofPath)) || !sameReleaseHandoffPath(artifact.ProvisionIntentPath, proof.ProvisionIntentPath) || !strings.EqualFold(artifact.ProvisionIntentSHA256, proof.ProvisionIntentSHA256) || !sameReleaseHandoffPath(artifact.ProvisionReceiptPath, proof.ProvisionReceiptPath) || !strings.EqualFold(artifact.ProvisionReceiptSHA256, proof.ProvisionReceiptSHA256) || !sameReleaseHandoffPath(artifact.WorkspaceRoot, workspace) || !sameReleaseHandoffPath(artifact.RetirementIntentPath, intentPath) || !sameReleaseHandoffPath(artifact.RetirementReceiptPath, retirementReceiptPath) || strings.TrimSpace(artifact.RetirementSHA256) == "" || len(artifact.Roots) != 2 || len(artifact.RetirementPlans) != 2 {
+		return fmt.Errorf("candidate verification retirement artifact authority binding mismatch: %s", artifact.RetirementIntentPath)
+	}
+	if len(artifact.ProvisionArtifactsToDelete) != 2 || !sameReleaseHandoffPath(artifact.ProvisionArtifactsToDelete[0], proof.ProvisionReceiptPath) || !sameReleaseHandoffPath(artifact.ProvisionArtifactsToDelete[1], proof.ProvisionIntentPath) || len(artifact.EmptyAncestorsToRemove) != 2 || !sameReleaseHandoffPath(artifact.EmptyAncestorsToRemove[0], filepath.Dir(workspace)) || !sameReleaseHandoffPath(artifact.EmptyAncestorsToRemove[1], filepath.Dir(filepath.Dir(workspace))) {
+		return fmt.Errorf("candidate verification retirement artifact cleanup binding mismatch: %s", artifact.RetirementIntentPath)
+	}
+	for i, role := range []string{"fresh", "attached"} {
+		if artifact.Roots[i].Role != role || !sameReleaseHandoffPath(artifact.Roots[i].CaseRoot, filepath.Join(workspace, role)) || len(artifact.Roots[i].Deletes) == 0 {
+			return fmt.Errorf("candidate verification retirement artifact root binding mismatch: %s", artifact.RetirementIntentPath)
+		}
+	}
+	result := candidateVerificationRetirementResultFromInventory(artifact, kindSuffix)
+	if !strings.EqualFold(artifact.RetirementSHA256, candidateVerificationRetirementHash(result)) {
+		return fmt.Errorf("candidate verification retirement artifact stable hash mismatch: %s", artifact.RetirementIntentPath)
+	}
+	return nil
+}
+
+func candidateVerificationRetirementResultFromInventory(artifact candidateVerificationRetirementArtifactInventory, kindSuffix string) promote.CandidateVerificationRetirementResult {
+	roots := make([]promote.CandidateVerificationRetirementRoot, 0, len(artifact.Roots))
+	for _, root := range artifact.Roots {
+		roots = append(roots, promote.CandidateVerificationRetirementRoot{Role: root.Role, CaseRoot: root.CaseRoot, Deletes: append([]string(nil), root.Deletes...)})
+	}
+	return promote.CandidateVerificationRetirementResult{
+		SchemaVersion: artifact.SchemaVersion, Kind: strings.TrimSuffix(artifact.Kind, kindSuffix), RepoRoot: artifact.RepoRoot, SourceCaseRoot: artifact.SourceCaseRoot, Pack: artifact.Pack, PacketPath: artifact.PacketPath, PacketSHA256: artifact.PacketSHA256, DecisionPath: artifact.DecisionPath, DecisionSHA256: artifact.DecisionSHA256, DecisionReceiptPath: artifact.DecisionReceiptPath, DecisionReceiptSHA256: artifact.DecisionReceiptSHA256, VerificationProofPath: artifact.VerificationProofPath, VerificationProofSHA256: artifact.VerificationProofSHA256, ProvisionIntentPath: artifact.ProvisionIntentPath, ProvisionIntentSHA256: artifact.ProvisionIntentSHA256, ProvisionReceiptPath: artifact.ProvisionReceiptPath, ProvisionReceiptSHA256: artifact.ProvisionReceiptSHA256, WorkspaceRoot: artifact.WorkspaceRoot, RetirementIntentPath: artifact.RetirementIntentPath, RetirementReceiptPath: artifact.RetirementReceiptPath, Roots: roots, ProvisionArtifactsToDelete: append([]string(nil), artifact.ProvisionArtifactsToDelete...), EmptyAncestorsToRemove: append([]string(nil), artifact.EmptyAncestorsToRemove...), Boundary: append([]string(nil), artifact.Boundary...), RetirementPlans: append([]syncpkg.ExclusiveInitRetirementPlan(nil), artifact.RetirementPlans...),
+	}
+}
+
+func candidateVerificationRetirementHash(result promote.CandidateVerificationRetirementResult) string {
+	result.Mode = ""
+	result.RetirementSHA256 = ""
+	result.IsMutation = false
+	result.Applied = false
+	result.Replay = false
+	result.ApplyCommand = ""
+	result.NextSteps = nil
+	data, _ := json.Marshal(result)
+	return sha256ReleaseHandoff(data)
+}
+
+func candidateVerificationRetirementIntentFromReceipt(receipt candidateVerificationRetirementArtifactInventory) candidateVerificationRetirementArtifactInventory {
+	receipt.Kind = strings.TrimSuffix(receipt.Kind, "-receipt") + "-intent"
+	return receipt
+}
+
+func validateCandidateVerificationRetirementIntentProgress(receipt candidateDecisionReceiptInventory, proof candidateDecisionVerificationInventory, intent candidateVerificationRetirementArtifactInventory) error {
+	if _, err := syncpkg.InspectExclusiveInitRetirementBatch(syncpkg.ExclusiveInitRetirementResume, intent.RetirementPlans...); err != nil {
+		return fmt.Errorf("candidate verification retirement cannot resume: %w", err)
+	}
+	for _, item := range []struct {
+		path   string
+		sha256 string
+	}{
+		{path: proof.ProvisionIntentPath, sha256: proof.ProvisionIntentSHA256},
+		{path: proof.ProvisionReceiptPath, sha256: proof.ProvisionReceiptSHA256},
+	} {
+		if err := validateCandidateVerificationRetiringArtifact(item.path, item.sha256); err != nil {
+			return err
+		}
+	}
+	if _, err := os.Lstat(receipt.VerificationWorkspaceRoot); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func validateCandidateVerificationRetiringArtifact(path, expectedHash string) error {
+	quarantine := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".retiring-"+expectedHash[:16])
+	canonicalInfo, canonicalErr := os.Lstat(path)
+	quarantineInfo, quarantineErr := os.Lstat(quarantine)
+	canonicalPresent := canonicalErr == nil
+	quarantinePresent := quarantineErr == nil
+	if canonicalErr != nil && !os.IsNotExist(canonicalErr) {
+		return canonicalErr
+	}
+	if quarantineErr != nil && !os.IsNotExist(quarantineErr) {
+		return quarantineErr
+	}
+	if canonicalPresent && quarantinePresent {
+		return fmt.Errorf("candidate verification retirement canonical artifact and quarantine both exist: %s", path)
+	}
+	if !canonicalPresent && !quarantinePresent {
+		return nil
+	}
+	currentPath, info := path, canonicalInfo
+	if quarantinePresent {
+		currentPath, info = quarantine, quarantineInfo
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("candidate verification retirement provision artifact is not regular: %s", currentPath)
+	}
+	if !strings.EqualFold(fileSHA256ReleaseHandoff(currentPath), expectedHash) {
+		return fmt.Errorf("candidate verification retirement provision artifact changed: %s", currentPath)
+	}
+	return nil
+}
+
+func validateCandidateVerificationRetirementWorkspaceEvidence(receipt candidateDecisionReceiptInventory, proof candidateDecisionVerificationInventory) error {
+	for _, item := range []struct {
+		path   string
+		sha256 string
+		label  string
+	}{
+		{path: proof.ProvisionIntentPath, sha256: proof.ProvisionIntentSHA256, label: "provision intent"},
+		{path: proof.ProvisionReceiptPath, sha256: proof.ProvisionReceiptSHA256, label: "provision receipt"},
+	} {
+		info, err := os.Lstat(item.path)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || !strings.EqualFold(fileSHA256ReleaseHandoff(item.path), item.sha256) {
+			return fmt.Errorf("candidate verification %s is missing or invalid: %s", item.label, item.path)
+		}
+	}
+	for _, path := range []string{receipt.VerificationWorkspaceRoot, proof.FreshCaseRoot, proof.AttachedCaseRoot} {
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("candidate verification workspace is missing or invalid: %s", path)
+		}
+	}
+	return nil
 }
 
 func validateCandidateDecisionReceiptAttestation(repo, receiptPath string, receiptData []byte, receipt candidateDecisionReceiptInventory) error {
@@ -1720,7 +1996,7 @@ func releaseHandoffPackMemoryCandidateDetails(inventory ReleaseHandoffPackMemory
 			details = append(details, fmt.Sprintf("indexCandidate pack=%s path=%s candidate=%s", pack.Pack, entry.Path, entry.Candidate))
 		}
 		for _, receipt := range pack.DecisionReceipts {
-			details = append(details, fmt.Sprintf("decisionReceipt pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t workspace=%s provisionCommand=%s proofPath=%s command=%s", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationWorkspaceRoot, receipt.VerificationProvisionCommand, receipt.VerificationProofPath, receipt.VerificationCommand))
+			details = append(details, fmt.Sprintf("decisionReceipt pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t workspace=%s provisionCommand=%s proofPath=%s command=%s retirementStatus=%s retirementRequired=%t retirementInProgress=%t retired=%t retirementIntent=%s retirementReceipt=%s retirementSha256=%s retirementPreviewCommand=%s retirementNextAction=%s", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationWorkspaceRoot, receipt.VerificationProvisionCommand, receipt.VerificationProofPath, receipt.VerificationCommand, receipt.RetirementStatus, receipt.RetirementRequired, receipt.RetirementInProgress, receipt.Retired, receipt.RetirementIntentPath, receipt.RetirementReceiptPath, receipt.RetirementSHA256, receipt.RetirementPreviewCommand, receipt.RetirementNextAction))
 		}
 		summary := pack.ReviewSummary
 		details = append(details, fmt.Sprintf("reviewSummary pack=%s total=%d decisionArtifacts=%d cleanupArtifacts=%d reconsumeArtifacts=%d proofPresent=%d proofMissing=%d proofComplete=%t nextAction=%s", pack.Pack, summary.Total, summary.DecisionArtifactCount, summary.CleanupArtifactCount, summary.ReconsumeArtifactCount, summary.ProofSummary.Present, summary.ProofSummary.Missing, summary.ProofSummary.Complete, summary.NextAction))

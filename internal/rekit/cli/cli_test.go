@@ -111,6 +111,17 @@ func TestParsePromoteCandidateVerificationProvisioning(t *testing.T) {
 	}
 }
 
+func TestParsePromoteCandidateVerificationRetirement(t *testing.T) {
+	expected := strings.Repeat("b", 64)
+	opt, err := Parse([]string{"--command", "promote", "--retire-candidate-verification-workspace", "--packet-path", "packet.json", "--candidate-decision-path", "decisions.json", "--expected-retirement-sha256", expected, "--apply", "--format", "json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.RetireCandidateVerificationWorkspace || opt.PacketPath != "packet.json" || opt.CandidateDecisionPath != "decisions.json" || opt.ExpectedRetirementSHA256 != expected || !opt.Apply {
+		t.Fatalf("unexpected retirement parse: %+v", opt)
+	}
+}
+
 func TestParsePlanSubagentsReviewerResultStaging(t *testing.T) {
 	opt, err := Parse([]string{"-Command", "plan-subagents", "-StageReviewerResult", "-PacketPath", "packet.json", "-ShardId", "shard-01", "-ReviewerResultSourcePath", "workspace/reviewer.json", "-Lane", "feature-review", "-Actor", "mission-commander", "-ExpectedSourceSha256", strings.Repeat("a", 64), "-Apply"})
 	if err != nil {
@@ -4745,6 +4756,39 @@ func TestRunRejectsCandidateVerificationProvisioningFlagsOutsidePromote(t *testi
 	}
 }
 
+func TestRunRejectsCandidateVerificationRetirementFlagsOutsidePromote(t *testing.T) {
+	for _, args := range [][]string{
+		{"-Command", "status", "-RetireCandidateVerificationWorkspace"},
+		{"-Command", "status", "-ExpectedRetirementSha256", strings.Repeat("a", 64)},
+	} {
+		var out bytes.Buffer
+		err := Run(args, &out)
+		if err == nil || !strings.Contains(err.Error(), "supported only by promote") {
+			t.Fatalf("candidate verification retirement flags outside promote error = %v", err)
+		}
+	}
+}
+
+func TestRunPromoteCandidateVerificationRetirementValidation(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-Command", "promote", "-RetireCandidateVerificationWorkspace", "-WhatIf"}, "requires -PacketPath and -CandidateDecisionPath"},
+		{[]string{"-Command", "promote", "-RetireCandidateVerificationWorkspace", "-PacketPath", "packet.json", "-CandidateDecisionPath", "decisions.json"}, "requires exactly one"},
+		{[]string{"-Command", "promote", "-RetireCandidateVerificationWorkspace", "-PacketPath", "packet.json", "-CandidateDecisionPath", "decisions.json", "-Apply"}, "requires -ExpectedRetirementSha256"},
+		{[]string{"-Command", "promote", "-RetireCandidateVerificationWorkspace", "-PacketPath", "packet.json", "-CandidateDecisionPath", "decisions.json", "-ExpectedRetirementSha256", strings.Repeat("a", 64), "-WhatIf"}, "does not accept -ExpectedRetirementSha256"},
+	} {
+		var out bytes.Buffer
+		args := append(append([]string(nil), tc.args...), "-Target", caseRoot, "-Pack", "_template")
+		err := Run(args, &out)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("retirement validation error = %v, want %q", err, tc.want)
+		}
+	}
+}
+
 func TestRunRejectsReviewerResultStagingFlagsOutsidePlanSubagents(t *testing.T) {
 	for _, args := range [][]string{
 		{"-Command", "status", "-StageReviewerResult"},
@@ -7965,6 +8009,130 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 			t.Fatalf("candidate verification text omitted %q:\n%s", expected, out.String())
 		}
 	}
+
+	candidateBeforeRequiredStatus := snapshotFiles(t, candidateRoot)
+	workspaceBeforeRequiredStatus := snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot)
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var requiredStatus statusInventory
+	if err := json.Unmarshal(out.Bytes(), &requiredStatus); err != nil {
+		t.Fatalf("required retirement status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if requiredStatus.IsMutation || requiredStatus.ProjectHandoff == nil {
+		t.Fatalf("required retirement status is not read-only or omitted project handoff: %+v", requiredStatus)
+	}
+	if !hasCandidateVerificationRetirementStatus(requiredStatus.ProjectHandoff.PackMemoryCandidates, "required") {
+		t.Fatalf("status omitted required candidate verification retirement: %+v", requiredStatus.ProjectHandoff.PackMemoryCandidates)
+	}
+	assertSnapshotEqual(t, candidateBeforeRequiredStatus, snapshotFiles(t, candidateRoot))
+	assertSnapshotEqual(t, workspaceBeforeRequiredStatus, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "retirementStatus=required retirementRequired=true retirementInProgress=false retired=false") {
+		t.Fatalf("status text omitted required candidate verification retirement:\n%s", out.String())
+	}
+	assertSnapshotEqual(t, candidateBeforeRequiredStatus, snapshotFiles(t, candidateRoot))
+	assertSnapshotEqual(t, workspaceBeforeRequiredStatus, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-RetireCandidateVerificationWorkspace", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var retirementPreview promote.CandidateVerificationRetirementResult
+	if err := json.Unmarshal(out.Bytes(), &retirementPreview); err != nil {
+		t.Fatal(err)
+	}
+	if retirementPreview.Mode != "previewed" || retirementPreview.IsMutation || retirementPreview.Applied || retirementPreview.RetirementSHA256 == "" || retirementPreview.WorkspaceRoot != decisionApplied.Receipt.VerificationWorkspaceRoot || retirementPreview.ApplyCommand == "" {
+		t.Fatalf("unexpected candidate verification retirement preview: %+v", retirementPreview)
+	}
+
+	workspaceBeforeWrongHash := snapshotFiles(t, retirementPreview.WorkspaceRoot)
+	out.Reset()
+	err = Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-RetireCandidateVerificationWorkspace", "-ExpectedRetirementSha256", strings.Repeat("0", 64), "-Apply", "-Format", "json"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "changed after preview") {
+		t.Fatalf("wrong expected retirement hash error = %v", err)
+	}
+	assertSnapshotEqual(t, workspaceBeforeWrongHash, snapshotFiles(t, retirementPreview.WorkspaceRoot))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-RetireCandidateVerificationWorkspace", "-ExpectedRetirementSha256", retirementPreview.RetirementSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var retirementApplied promote.CandidateVerificationRetirementResult
+	if err := json.Unmarshal(out.Bytes(), &retirementApplied); err != nil {
+		t.Fatal(err)
+	}
+	if retirementApplied.Mode != "retired" || !retirementApplied.IsMutation || !retirementApplied.Applied || retirementApplied.Replay {
+		t.Fatalf("unexpected candidate verification retirement apply: %+v", retirementApplied)
+	}
+	if _, err := os.Stat(retirementApplied.WorkspaceRoot); !os.IsNotExist(err) {
+		t.Fatalf("canonical candidate verification workspace still exists after retirement: %v", err)
+	}
+	if !strings.HasPrefix(retirementApplied.RetirementReceiptPath, candidateRoot+string(filepath.Separator)) {
+		t.Fatalf("retirement receipt is not repo-local: %s", retirementApplied.RetirementReceiptPath)
+	}
+	if _, err := os.Stat(retirementApplied.RetirementReceiptPath); err != nil {
+		t.Fatalf("repo-local retirement receipt missing: %v", err)
+	}
+
+	if err := os.MkdirAll(retirementApplied.WorkspaceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCaseFile(t, retirementApplied.WorkspaceRoot, "unexpected.txt", "invalid reappeared workspace\n")
+	candidateBeforeInvalidStatus := snapshotFiles(t, candidateRoot)
+	workspaceBeforeInvalidStatus := snapshotFiles(t, retirementApplied.WorkspaceRoot)
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var invalidStatus statusInventory
+	if err := json.Unmarshal(out.Bytes(), &invalidStatus); err != nil {
+		t.Fatalf("invalid retirement status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if invalidStatus.IsMutation || invalidStatus.ProjectHandoff == nil || invalidStatus.ProjectHandoff.PackMemoryCandidates.Ready || !containsSubstring(invalidStatus.ProjectHandoff.PackMemoryCandidates.Warnings, "retired candidate verification workspace has reappeared") {
+		t.Fatalf("status omitted invalid candidate verification retirement or mutated: %+v", invalidStatus)
+	}
+	assertSnapshotEqual(t, candidateBeforeInvalidStatus, snapshotFiles(t, candidateRoot))
+	assertSnapshotEqual(t, workspaceBeforeInvalidStatus, snapshotFiles(t, retirementApplied.WorkspaceRoot))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "status pack-memory candidate warning：") || !strings.Contains(out.String(), "retired candidate verification workspace has reappeared") {
+		t.Fatalf("status text omitted invalid candidate verification retirement:\n%s", out.String())
+	}
+	assertSnapshotEqual(t, candidateBeforeInvalidStatus, snapshotFiles(t, candidateRoot))
+	assertSnapshotEqual(t, workspaceBeforeInvalidStatus, snapshotFiles(t, retirementApplied.WorkspaceRoot))
+	if err := os.RemoveAll(retirementApplied.WorkspaceRoot); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-RetireCandidateVerificationWorkspace", "-ExpectedRetirementSha256", retirementPreview.RetirementSHA256, "-Apply", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"promote candidate verification retirement：mode=already-retired", "mutation=true", "applied=true", "replay=true", "promote candidate verification retirement root：role=fresh", "promote candidate verification retirement root：role=attached", "retain the repo-local retirement intent and receipt"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("candidate verification retirement text omitted %q:\n%s", expected, out.String())
+		}
+	}
+}
+
+func hasCandidateVerificationRetirementStatus(candidates releasecheck.ReleaseHandoffPackMemoryCandidateList, status string) bool {
+	for _, pack := range candidates.Packs {
+		for _, receipt := range pack.DecisionReceipts {
+			if receipt.RetirementStatus == status {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func testSHA256(data []byte) string {
