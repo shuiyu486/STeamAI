@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 548：reviewer packet adoption / continuation preflight closure
 
-状态：implementation、focused/package validation、独立审查修复与完整本地 release minimum 已完成；待 implementation commit/push 与远程 release-gate inspection。
+状态：已完成 implementation、focused/package validation、独立审查修复、完整本地 release minimum、implementation commit `cc451d0 Close reviewer packet continuation preflight`/push 与远程 release-gate inspection。对应run `29971220679` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。
 
 目标：关闭 reviewer packet 由旧 executor/generation 创建、reviewer result 到达后 lane 被 replacement executor takeover 时，status/handoff仍可能看似可继续、strict intake却因 stale owner fail-closed 的 operational 断点。保持 packet与result binding immutable，用 case-local durable adoption receipt显式转移 strict intake ownership，并让 waiting/ready/partial/stale/blocked reviewer work统一阻止 lane continuation mutation。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：adoption只转移strict intake ownership，不修改原packet或reviewer result、不spawn/monitor reviewer、不执行heavy tool、不写authority/confirmed。reviewer intake仍由主Agent显式WhatIf后Apply；queue只排序和投影typed actions。禁止新增PowerShell runtime logic。
 
-验证结果：focused adoption、stale owner/re-adoption history、effective owner writeback、forged receipt、symlink lock/path、queue priority、多packet identity、partial intake与case-local product-path coverage，以及`go test ./internal/rekit/workstream ./internal/rekit/subagents ./internal/rekit/overview ./internal/rekit/cli -count=1`均通过。独立审查发现并修复authoritative intake receipt contract弱于status validator、第二次takeover无法再次adopt、ledger仍记录旧owner三项问题。完整本地release minimum已通过`release-check -Format json`（`ready=true`）、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`与`git diff --check`；远程release-gate inspection待implementation push后记录。
+验证结果：focused adoption、stale owner/re-adoption history、effective owner writeback、forged receipt、symlink lock/path、queue priority、多packet identity、partial intake与case-local product-path coverage，以及`go test ./internal/rekit/workstream ./internal/rekit/subagents ./internal/rekit/overview ./internal/rekit/cli -count=1`均通过。独立审查发现并修复authoritative intake receipt contract弱于status validator、第二次takeover无法再次adopt、ledger仍记录旧owner三项问题。完整本地release minimum已通过`release-check -Format json`（`ready=true`）、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`与`git diff --check`。implementation run `29971220679`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
 上一批摘要：Batch 547已完成authorized adapter Mission Commander action queue closure，implementation commit `889c421 Close authorized adapter action queue`已推送；对应run `29967797366`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
