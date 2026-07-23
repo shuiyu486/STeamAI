@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 552：invalid reviewer packet recovery / exact retirement closure
+
+状态：implementation已完成，正在执行focused/full validation与独立审查；尚未commit/push或检查对应远程release gate。
+
+目标：关闭`reviewer-packet-integrity-invalid`只有“重新生成packet”提示、却没有durable且可审计地解除exact corrupted packet blocker的operational断点。让主Agent在strict sidecar仍提供可信lane provenance时显式WhatIf→Apply retirement，而不是删除、覆盖或手工修补packet/sidecar。
+
+已完成内容：
+
+- 新增`plan-subagents -RetireInvalidReviewerPacket -PacketPath ... -Lane ... -Actor ... -Reason ... -WhatIf/-Apply`。WhatIf返回exact invalid reason、packet/integrity hash与size、receipt path及携带expected hashes的Mission Commander apply action；Apply要求这两个preview hash，在canonical packet-path派生lock内重读并重验同一snapshot与strict integrity sidecar后写`packet.retirement.json`。
+- receipt绑定repo/case/pack、packetId/lane/canonical paths、exact packet与integrity hash/size、actor/reason、RFC3339Nano timestamp以及no-delete/no-heavy/no-authority标志；相同snapshot与decision的Apply replay幂等，不同decision或forged existing receipt fail-closed。
+- durable workstream只有在receipt strict JSON、attached metadata binding、timestamp、paths、hashes/sizes、provenance和boundary全部匹配当前bytes时才停止投影该invalid blocker；packet或sidecar bytes变化、receipt篡改、symlink/non-regular path会恢复`reviewer-packet-integrity-invalid`。
+- JSON/text CLI与case-local product-path coverage验证WhatIf no-write、Apply closure、exact replay、receipt forgery与packet drift。missing/malformed integrity sidecar因缺少可信lane provenance继续拒绝retirement，只能重新生成canonical packet。
+
+边界：retirement不删除、覆盖或修补packet/integrity，不spawn/stop/poll/monitor reviewer，不执行heavy-tool，不写facts/authority/confirmed。只支持strict sidecar可读但packet无效的exact snapshot recovery；禁止新增PowerShell runtime logic。
+
+验证结果：focused `subagents` / `workstream` / `cli` tests与case-local CLI WhatIf/text/Apply product path已通过；完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。独立审查发现并修复semantic-invalid sidecar provenance、WhatIf未绑定exact snapshot/锁外stale result、workstream无界non-regular读取，以及core mutation API未强制preview hashes四项问题；复核通过。implementation commit/push后再检查对应远程release gate。
+
+上一批摘要：Batch 551已完成reviewer packet integrity / durable fail-closed closure，implementation commit `0d1f518 Attest durable reviewer packets`与release inspection commit `d01f105 Record Batch 551 release gate inspection`已推送；对应run `29979488713`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
+
 ### Batch 551：reviewer packet integrity / durable fail-closed closure
 
 状态：已完成implementation、focused/package validation、独立审查修复、完整本地release minimum、implementation commit `0d1f518 Attest durable reviewer packets`/push与远程release-gate inspection。对应run `29979488713` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。

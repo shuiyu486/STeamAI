@@ -18,6 +18,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 )
@@ -119,6 +120,28 @@ type reviewerPacketIntegrityReference struct {
 	Path      string `json:"path"`
 }
 
+type reviewerPacketRetirement struct {
+	SchemaVersion   int    `json:"schemaVersion"`
+	Kind            string `json:"kind"`
+	RepoRoot        string `json:"repoRoot"`
+	CaseRoot        string `json:"caseRoot"`
+	Pack            string `json:"pack"`
+	PacketID        string `json:"packetId"`
+	Lane            string `json:"lane"`
+	PacketPath      string `json:"packetPath"`
+	PacketSHA256    string `json:"packetSha256"`
+	PacketBytes     int    `json:"packetBytes"`
+	IntegrityPath   string `json:"integrityPath"`
+	IntegritySHA256 string `json:"integritySha256"`
+	IntegrityBytes  int    `json:"integrityBytes"`
+	Actor           string `json:"actor"`
+	Reason          string `json:"reason"`
+	CreatedAt       string `json:"createdAt"`
+	NoDelete        bool   `json:"noDelete"`
+	NoHeavyTool     bool   `json:"noHeavyTool"`
+	NoAuthority     bool   `json:"noAuthorityOrConfirmed"`
+}
+
 type reviewerPacketIntegrity struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	Kind          string `json:"kind"`
@@ -189,6 +212,9 @@ func ReviewerDispatchIntakeHandoffs(caseRoot string, facts mission.LedgerFacts, 
 	for _, packetPath := range packetPaths {
 		integrity, integrityErr := readReviewerPacketIntegrity(caseRoot, packetPath)
 		integrityPresent := integrityErr == nil
+		if integrityPresent && reviewerPacketRetirementCurrent(caseRoot, packetPath, integrity) {
+			continue
+		}
 		packet, ok := readReviewerDispatchPacket(packetPath)
 		if !ok {
 			if !integrityPresent {
@@ -532,14 +558,45 @@ func readReviewerDispatchPacket(path string) (reviewerDispatchPacket, bool) {
 	return packet, true
 }
 
+func readStableReviewerWorkstreamArtifact(caseRoot, path, label string) ([]byte, error) {
+	if !reviewpath.CollectionNamespacePathSafe(caseRoot, path, false) {
+		return nil, fmt.Errorf("%s path is not safe", label)
+	}
+	before, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", label, err)
+	}
+	if !before.Mode().IsRegular() || before.Size() <= 0 || before.Size() > 4<<20 {
+		return nil, fmt.Errorf("%s must be a non-empty regular file within size limit", label)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", label, err)
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+		return nil, fmt.Errorf("%s changed while opening", label)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, (4<<20)+1))
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", label, err)
+	}
+	if len(data) > 4<<20 {
+		return nil, fmt.Errorf("%s exceeds size limit", label)
+	}
+	after, err := os.Lstat(path)
+	if err != nil || !os.SameFile(opened, after) {
+		return nil, fmt.Errorf("%s changed while reading", label)
+	}
+	return data, nil
+}
+
 func readReviewerPacketIntegrity(caseRoot, packetPath string) (reviewerPacketIntegrity, error) {
 	integrityPath := filepath.Join(filepath.Dir(packetPath), "packet.integrity.json")
-	if !reviewpath.CollectionNamespacePathSafe(caseRoot, integrityPath, false) {
-		return reviewerPacketIntegrity{}, fmt.Errorf("reviewer packet integrity path is not safe")
-	}
-	data, err := os.ReadFile(integrityPath)
+	data, err := readStableReviewerWorkstreamArtifact(caseRoot, integrityPath, "reviewer packet integrity")
 	if err != nil {
-		return reviewerPacketIntegrity{}, fmt.Errorf("read reviewer packet integrity: %w", err)
+		return reviewerPacketIntegrity{}, err
 	}
 	dec := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(data)))
 	dec.DisallowUnknownFields()
@@ -551,7 +608,53 @@ func readReviewerPacketIntegrity(caseRoot, packetPath string) (reviewerPacketInt
 	if err := dec.Decode(&trailing); err != io.EOF {
 		return reviewerPacketIntegrity{}, fmt.Errorf("reviewer packet integrity must contain exactly one JSON object")
 	}
+	if integrity.SchemaVersion != 1 || integrity.Kind != "reviewer-packet-integrity" || !strings.EqualFold(strings.TrimSpace(integrity.Algorithm), "sha256") || strings.TrimSpace(integrity.PacketID) == "" || strings.TrimSpace(integrity.TargetLane) == "" || !casebind.SamePath(integrity.PacketPath, packetPath) || integrity.PacketBytes < 0 {
+		return reviewerPacketIntegrity{}, fmt.Errorf("reviewer packet integrity has unsupported identity or provenance")
+	}
+	if decoded, err := hex.DecodeString(integrity.PacketSHA256); err != nil || len(decoded) != sha256.Size {
+		return reviewerPacketIntegrity{}, fmt.Errorf("reviewer packet integrity packetSha256 is invalid")
+	}
 	return integrity, nil
+}
+
+func reviewerPacketRetirementCurrent(caseRoot, packetPath string, integrity reviewerPacketIntegrity) bool {
+	inst, err := instance.Read(caseRoot)
+	if err != nil || inst.Source == "missing" || inst.Moved() || strings.TrimSpace(inst.TemplateRoot) == "" || strings.TrimSpace(inst.TemplatePack) == "" {
+		return false
+	}
+	retirementPath := filepath.Join(filepath.Dir(packetPath), "packet.retirement.json")
+	if !reviewpath.CollectionNamespacePathSafe(caseRoot, retirementPath, false) {
+		return false
+	}
+	data, err := readStableReviewerWorkstreamArtifact(caseRoot, retirementPath, "reviewer packet retirement")
+	if err != nil {
+		return false
+	}
+	dec := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(data)))
+	dec.DisallowUnknownFields()
+	var retirement reviewerPacketRetirement
+	if err := dec.Decode(&retirement); err != nil {
+		return false
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return false
+	}
+	packetData, packetErr := readStableReviewerWorkstreamArtifact(caseRoot, packetPath, "reviewer packet")
+	integrityPath := filepath.Join(filepath.Dir(packetPath), "packet.integrity.json")
+	integrityData, integrityErr := readStableReviewerWorkstreamArtifact(caseRoot, integrityPath, "reviewer packet integrity")
+	if packetErr != nil || integrityErr != nil {
+		return false
+	}
+	packetSum := sha256.Sum256(packetData)
+	integritySum := sha256.Sum256(integrityData)
+	_, createdAtErr := time.Parse(time.RFC3339Nano, retirement.CreatedAt)
+	return retirement.SchemaVersion == 1 && retirement.Kind == "reviewer-packet-retirement" &&
+		casebind.SamePath(retirement.RepoRoot, inst.TemplateRoot) && casebind.SamePath(retirement.CaseRoot, inst.CaseRoot) && retirement.Pack == inst.TemplatePack &&
+		retirement.PacketID == integrity.PacketID && retirement.Lane == integrity.TargetLane &&
+		casebind.SamePath(retirement.PacketPath, packetPath) && retirement.PacketSHA256 == hex.EncodeToString(packetSum[:]) && retirement.PacketBytes == len(packetData) &&
+		casebind.SamePath(retirement.IntegrityPath, integrityPath) && retirement.IntegritySHA256 == hex.EncodeToString(integritySum[:]) && retirement.IntegrityBytes == len(integrityData) &&
+		strings.TrimSpace(retirement.Actor) != "" && strings.TrimSpace(retirement.Reason) != "" && createdAtErr == nil && retirement.NoDelete && retirement.NoHeavyTool && retirement.NoAuthority
 }
 
 func validateReviewerPacketIntegrity(caseRoot, packetPath string, packet reviewerDispatchPacket) error {

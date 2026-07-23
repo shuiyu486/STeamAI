@@ -35,42 +35,45 @@ import (
 )
 
 type Options struct {
-	Command                 string
-	Target                  string
-	Pack                    string
-	PackProvided            bool
-	Review                  bool
-	Apply                   bool
-	CreateCandidates        bool
-	WhatIf                  bool
-	Force                   bool
-	List                    bool
-	ReviewOutputDir         string
-	PacketPath              string
-	CandidateDecisionPath   string
-	VerifyCandidateDecision bool
-	FreshCaseRoot           string
-	AttachedCaseRoot        string
-	ReviewerResultPath      string
-	ReadyReviewerResults    bool
-	AdoptReviewerPacket     bool
-	CollectReviewerResult   bool
-	ShardID                 string
-	DiffPath                string
-	ProjectName             string
-	Route                   string
-	TaskType                string
-	Items                   string
-	ItemsFile               string
-	ItemsPerAgent           int
-	MaxParallel             int
-	Format                  string
-	Gate                    gate.Options
-	Note                    note.Options
-	Start                   workstream.StartOptions
-	Handoff                 workstream.HandoffOptions
-	Continue                workstream.ContinueOptions
-	Reconcile               workstream.ReconcileOptions
+	Command                     string
+	Target                      string
+	Pack                        string
+	PackProvided                bool
+	Review                      bool
+	Apply                       bool
+	CreateCandidates            bool
+	WhatIf                      bool
+	Force                       bool
+	List                        bool
+	ReviewOutputDir             string
+	PacketPath                  string
+	CandidateDecisionPath       string
+	VerifyCandidateDecision     bool
+	FreshCaseRoot               string
+	AttachedCaseRoot            string
+	ReviewerResultPath          string
+	ReadyReviewerResults        bool
+	AdoptReviewerPacket         bool
+	RetireInvalidReviewerPacket bool
+	ExpectedPacketSHA256        string
+	ExpectedIntegritySHA256     string
+	CollectReviewerResult       bool
+	ShardID                     string
+	DiffPath                    string
+	ProjectName                 string
+	Route                       string
+	TaskType                    string
+	Items                       string
+	ItemsFile                   string
+	ItemsPerAgent               int
+	MaxParallel                 int
+	Format                      string
+	Gate                        gate.Options
+	Note                        note.Options
+	Start                       workstream.StartOptions
+	Handoff                     workstream.HandoffOptions
+	Continue                    workstream.ContinueOptions
+	Reconcile                   workstream.ReconcileOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -166,6 +169,20 @@ func Parse(args []string) (Options, error) {
 			opt.ReadyReviewerResults = true
 		case "-AdoptReviewerPacket", "--adopt-reviewer-packet":
 			opt.AdoptReviewerPacket = true
+		case "-RetireInvalidReviewerPacket", "--retire-invalid-reviewer-packet":
+			opt.RetireInvalidReviewerPacket = true
+		case "-ExpectedPacketSha256", "--expected-packet-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedPacketSha256")
+			}
+			opt.ExpectedPacketSHA256 = args[i]
+		case "-ExpectedIntegritySha256", "--expected-integrity-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedIntegritySha256")
+			}
+			opt.ExpectedIntegritySHA256 = args[i]
 		case "-CollectReviewerResult", "--collect-reviewer-result":
 			opt.CollectReviewerResult = true
 		case "-ShardId", "--shard-id":
@@ -591,6 +608,9 @@ func Run(args []string, stdout io.Writer) error {
 	}
 	if opt.CollectReviewerResult && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("-CollectReviewerResult is supported only by plan-subagents reviewer result collection")
+	}
+	if (opt.RetireInvalidReviewerPacket || strings.TrimSpace(opt.ExpectedPacketSHA256) != "" || strings.TrimSpace(opt.ExpectedIntegritySHA256) != "") && opt.Command != commands.PlanSubagents {
+		return fmt.Errorf("reviewer packet retirement flags are supported only by plan-subagents reviewer packet retirement")
 	}
 	switch opt.Command {
 	case commands.Status:
@@ -5096,8 +5116,11 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if strings.TrimSpace(opt.ShardID) != "" && !opt.CollectReviewerResult {
 		return fmt.Errorf("-ShardId is supported only with -CollectReviewerResult")
 	}
+	if !opt.RetireInvalidReviewerPacket && (strings.TrimSpace(opt.ExpectedPacketSHA256) != "" || strings.TrimSpace(opt.ExpectedIntegritySHA256) != "") {
+		return fmt.Errorf("expected packet/integrity hashes are supported only with -RetireInvalidReviewerPacket -Apply")
+	}
 	if opt.CollectReviewerResult {
-		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.RetireInvalidReviewerPacket || strings.TrimSpace(opt.ReviewerResultPath) != "" {
 			return fmt.Errorf("plan-subagents reviewer result collection cannot combine with reviewer intake or adoption modes")
 		}
 		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
@@ -5121,6 +5144,38 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 			return writeJSON(out, result)
 		}
 		return writePlanSubagentsReviewerResultCollectionText(out, result)
+	}
+	if opt.RetireInvalidReviewerPacket {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.CollectReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" || strings.TrimSpace(opt.ShardID) != "" {
+			return fmt.Errorf("plan-subagents reviewer packet retirement cannot combine with reviewer intake or adoption modes")
+		}
+		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
+			return fmt.Errorf("plan-subagents reviewer packet retirement does not support planning scope flags")
+		}
+		if opt.Apply == opt.WhatIf {
+			return fmt.Errorf("plan-subagents reviewer packet retirement requires exactly one of -WhatIf or -Apply")
+		}
+		if opt.WhatIf && (strings.TrimSpace(opt.ExpectedPacketSHA256) != "" || strings.TrimSpace(opt.ExpectedIntegritySHA256) != "") {
+			return fmt.Errorf("plan-subagents reviewer packet retirement preview does not accept expected hashes")
+		}
+		if opt.Apply && (strings.TrimSpace(opt.ExpectedPacketSHA256) == "" || strings.TrimSpace(opt.ExpectedIntegritySHA256) == "") {
+			return fmt.Errorf("plan-subagents reviewer packet retirement apply requires expected packet and integrity hashes from WhatIf")
+		}
+		if strings.TrimSpace(opt.PacketPath) == "" {
+			return fmt.Errorf("plan-subagents reviewer packet retirement requires -PacketPath")
+		}
+		format, err := planSubagentsFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
+		}
+		result, err := subagents.RetireInvalidReviewerPacket(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerPacketRetirementOptions{PacketPath: opt.PacketPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Reason: opt.Note.Reason, ExpectedPacketSHA256: opt.ExpectedPacketSHA256, ExpectedIntegritySHA256: opt.ExpectedIntegritySHA256, WhatIf: opt.WhatIf})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePlanSubagentsReviewerPacketRetirementText(out, result)
 	}
 	if opt.AdoptReviewerPacket {
 		if opt.ReadyReviewerResults || strings.TrimSpace(opt.ReviewerResultPath) != "" {
@@ -5829,6 +5884,26 @@ func writePlanSubagentsReviewerResultCollectionText(out io.Writer, result subage
 	}
 	for _, boundary := range result.Boundary {
 		if _, err := fmt.Fprintf(out, "reviewer result collection boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue)
+}
+
+func writePlanSubagentsReviewerPacketRetirementText(out io.Writer, result subagents.ReviewerPacketRetirementResult) error {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer packet retirement：mutation=%t applied=%t requiresConfirmation=%t packet=%s lane=%s actor=%s retirementPath=%s\n", result.IsMutation, result.Applied, result.RequiresConfirmation, result.PacketID, result.Lane, result.Actor, result.RetirementPath); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "reviewer packet retirement snapshot：packetPath=%s packetSha256=%s packetBytes=%d integrityPath=%s integritySha256=%s integrityBytes=%d invalidReason=%s reason=%s\n", result.PacketPath, result.PacketSHA256, result.PacketBytes, result.IntegrityPath, result.IntegritySHA256, result.IntegrityBytes, planSubagentsTextInline(result.InvalidReason), planSubagentsTextInline(result.Reason)); err != nil {
+		return err
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "reviewer packet retirement next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "reviewer packet retirement boundary：%s\n", boundary); err != nil {
 			return err
 		}
 	}

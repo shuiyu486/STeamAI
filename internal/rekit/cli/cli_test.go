@@ -92,6 +92,16 @@ func TestParseGateValidateExecutionReport(t *testing.T) {
 	}
 }
 
+func TestParsePlanSubagentsReviewerPacketRetirement(t *testing.T) {
+	opt, err := Parse([]string{"-Command", "plan-subagents", "-RetireInvalidReviewerPacket", "-PacketPath", "packet.json", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "retire invalid packet", "-WhatIf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.RetireInvalidReviewerPacket || opt.PacketPath != "packet.json" || opt.Note.Lane != "feature-review" || opt.Note.Actor != "mission-commander" || opt.Note.Reason != "retire invalid packet" || !opt.WhatIf {
+		t.Fatalf("unexpected reviewer packet retirement options: %+v", opt)
+	}
+}
+
 func TestParsePlanSubagentsNumericOptionsRejectTrailingJunk(t *testing.T) {
 	_, err := Parse([]string{"-Command", "plan-subagents", "-ItemsPerAgent", "2x"})
 	if err == nil || !strings.Contains(err.Error(), "invalid -ItemsPerAgent") {
