@@ -61,6 +61,28 @@ func TestParseDefaults(t *testing.T) {
 	}
 }
 
+func TestParseContinueOwnerGuardOptions(t *testing.T) {
+	for _, args := range [][]string{
+		{"-Command", "continue", "main", "-Executor", "session-a", "-ExpectedExecutorGeneration", "2"},
+		{"--command", "continue", "main", "--executor", "session-a", "--expected-executor-generation", "2"},
+	} {
+		opt, err := Parse(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if opt.Continue.Selector != "main" || opt.Continue.Executor != "session-a" || opt.Continue.ExpectedExecutorGeneration != 2 || !opt.ExpectedExecutorGenerationProvided {
+			t.Fatalf("unexpected continue owner guard options: %+v", opt)
+		}
+	}
+}
+
+func TestParseContinueExpectedExecutorGenerationRejectsInvalidValue(t *testing.T) {
+	_, err := Parse([]string{"continue", "main", "-ExpectedExecutorGeneration", "2x"})
+	if err == nil || !strings.Contains(err.Error(), "invalid -ExpectedExecutorGeneration") {
+		t.Fatalf("error = %v, want invalid -ExpectedExecutorGeneration", err)
+	}
+}
+
 func TestParseGateExecutionReportPath(t *testing.T) {
 	opt, err := Parse([]string{"-Command", "gate", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json"})
 	if err != nil {
@@ -695,16 +717,16 @@ func TestRunStatusJsonCase(t *testing.T) {
 		"warnings=0",
 		"status case mission：summary=openLanes=",
 		"ready=true lanes=",
-		"status case mission queue：total=4 unblocked=4 blocked=0 requiresReview=0 followUp=2 current=/rekit continue login",
-		"status case mission queue action：bucket=current lane=feature-login label=login state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=/rekit continue login",
+		"status case mission queue：total=4 unblocked=4 blocked=0 requiresReview=0 followUp=2 current=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
+		"status case mission queue action：bucket=current lane=feature-login label=login state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status case mission queue action：bucket=followUp lane=feature-login label=login state=ready-to-continue source=missionCommanderActions.followUp blocked=false requiresReview=false command=/rekit handoff login",
 		"status case mission queue action reason：bucket=followUp lane=feature-login reason=follow Mission Commander handoff after primary action",
-		"status case mission lane action：lane=feature-login label=login status=open workspace=workspace/features/feature-login executor=session-1 generation=1 ready=true blocked=false pendingGates=0 openInterventions=0 openDecisions=0 resume=/rekit continue login handoff=/rekit handoff login commanderState=ready-to-continue commanderPrimary=/rekit continue login",
+		"status case mission lane action：lane=feature-login label=login status=open workspace=workspace/features/feature-login executor=session-1 generation=1 ready=true blocked=false pendingGates=0 openInterventions=0 openDecisions=0 resume=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1 handoff=/rekit handoff login commanderState=ready-to-continue commanderPrimary=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status case mission lane boundary：lane=feature-login boundary=no authority/confirmed writes",
 		"status case mission ready lane：login",
 		"status case mission next action：lane=feature-login",
 		"command=/rekit handoff login",
-		"status case mission brief next action：/rekit continue login",
+		"status case mission brief next action：/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status case mission handoff：preview=/rekit handoff -Target",
 		"continueBoundary=status is read-only; run continue with -WhatIf first",
 	} {
@@ -854,7 +876,7 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 		t.Fatalf("unexpected case mission ledger/progress handoff: counts=%+v sections=%+v", status.CaseMission.FactCounts, status.CaseMission.Sections)
 	}
 	evidence := status.CaseMission.ExecutionEvidenceReview[0]
-	if evidence.EventID != "obs-auth-1" || evidence.GateEventID != "gate-auth-1" || evidence.Action != "debug" || !containsSubstring(evidence.OutputRefs, "workspace/main/debug/out.txt") || !containsSubstring(evidence.EvidenceRefs, "evidence/debug.json") || !containsSubstring(evidence.Boundary, "do not replay heavy tool") || evidence.MissionCommanderAction.State != "ready-for-evidence-review" || evidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(evidence.MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || evidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(evidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
+	if evidence.EventID != "obs-auth-1" || evidence.GateEventID != "gate-auth-1" || evidence.Action != "debug" || !containsSubstring(evidence.OutputRefs, "workspace/main/debug/out.txt") || !containsSubstring(evidence.EvidenceRefs, "evidence/debug.json") || !containsSubstring(evidence.Boundary, "do not replay heavy tool") || evidence.MissionCommanderAction.State != "ready-for-evidence-review" || evidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(evidence.MissionCommanderAction.FollowUpCommands, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 3 -WhatIf") || evidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(evidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
 		t.Fatalf("unexpected case mission evidence review item: %+v", evidence)
 	}
 	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
@@ -872,7 +894,7 @@ func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 		"status case mission queue action boundary：bucket=reviewRequired lane=main boundary=observation evidence is already recorded; do not replay heavy tool",
 		"status case mission queue action：bucket=blocked lane=main label=main",
 		"status case mission blocked lane：main (pending-gate,intervention,open-decision)",
-		"status case mission lane action：lane=main label=main status=open workspace=captures/lanes/main executor=session-main generation=3 ready=false blocked=true pendingGates=1 openInterventions=1 openDecisions=3 resume=/rekit continue main handoff=/rekit handoff main commanderState=needs-reconcile commanderPrimary=/rekit reconcile main -InterventionId <eventId> -Apply",
+		"status case mission lane action：lane=main label=main status=open workspace=captures/lanes/main executor=session-main generation=3 ready=false blocked=true pendingGates=1 openInterventions=1 openDecisions=3 resume=/rekit continue main -Executor session-main -ExpectedExecutorGeneration 3 handoff=/rekit handoff main commanderState=needs-reconcile commanderPrimary=/rekit reconcile main -InterventionId <eventId> -Apply",
 		"status case mission lane blocker：lane=main reason=pending-gate",
 		"status case mission lane blocker：lane=main reason=intervention",
 		"status case mission lane blocker：lane=main reason=open-decision",
@@ -2611,7 +2633,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Apply", "login", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Apply", "login", "-Executor", "installed-session", "-ExpectedExecutorGeneration", "1", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var continueApply struct {
@@ -2642,7 +2664,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Apply", "login", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Apply", "login", "-Executor", "installed-session", "-ExpectedExecutorGeneration", "1", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
@@ -4079,12 +4101,12 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "Mission Control brief：", "ready lanes", "blocked lanes", "pending gates", "debug gate", "open decisions", "candidate: handler", "interventions", "manual override", "next agent actions", "escalations", "pending-gate requires main-agent/user decision", "Lane executor actions：", "main：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=3", "executor: current=session-main generation=3 lastTakeover=2026-01-01T00:00:00Z by=main-agent reason=fixture", "requirements: reconcile=true pendingGate=true openDecision=true", "blocker reasons: pending-gate,intervention,open-decision", "commander: state=needs-reconcile", "先 reconcile open intervention", "Execution evidence review：", "summary: total=1 readyForReview=1 mainEscalations=0 duplicates=0 outputRefs=1 evidenceRefs=1 boundaryHits=0 latestEventId=obs-auth-1 gateEventId=gate-auth-1 status=complete action=debug", "summary current action: `/rekit handoff main`", "summary boundary:", "gate-auth-1", "outputRefs: workspace/main/debug/out.txt", "evidenceRefs: evidence/debug.json", "observation evidence is already recorded; do not replay heavy tool", "commander: state=ready-for-evidence-review primary=`/rekit handoff main`", "commander follow-up:", "/rekit continue main -WhatIf", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "reconcile open intervention(s) before continuing the affected lane"} {
+	for _, expected := range []string{"项目概览：", "工作线：", "共享事实：", "Mission Control brief：", "ready lanes", "blocked lanes", "pending gates", "debug gate", "open decisions", "candidate: handler", "interventions", "manual override", "next agent actions", "escalations", "pending-gate requires main-agent/user decision", "Lane executor actions：", "main：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=3", "executor: current=session-main generation=3 lastTakeover=2026-01-01T00:00:00Z by=main-agent reason=fixture", "requirements: reconcile=true pendingGate=true openDecision=true", "blocker reasons: pending-gate,intervention,open-decision", "commander: state=needs-reconcile", "先 reconcile open intervention", "Execution evidence review：", "summary: total=1 readyForReview=1 mainEscalations=0 duplicates=0 outputRefs=1 evidenceRefs=1 boundaryHits=0 latestEventId=obs-auth-1 gateEventId=gate-auth-1 status=complete action=debug", "summary current action: `/rekit handoff main`", "summary boundary:", "gate-auth-1", "outputRefs: workspace/main/debug/out.txt", "evidenceRefs: evidence/debug.json", "observation evidence is already recorded; do not replay heavy tool", "commander: state=ready-for-evidence-review primary=`/rekit handoff main`", "commander follow-up:", "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 3 -WhatIf", "未决 candidate：", "pending-gate", "by=runtime-test", "action=debug", "最近 verification：", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "最近 decision：", "batch-overview", "未解决 intervention：", "最近 rollback：", "reconcile open intervention(s) before continuing the affected lane"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("overview missing %q:\n%s", expected, text)
 		}
 	}
-	for _, expected := range []string{"Mission Commander action index：", "main：state=needs-reconcile blocked=true ready=false primary=`/rekit reconcile main -InterventionId <eventId> -Apply`", "follow-up:", "/rekit continue main -WhatIf", "/rekit handoff main", "boundary:", "no authority/confirmed writes", "do not run continue for blocked lanes"} {
+	for _, expected := range []string{"Mission Commander action index：", "main：state=needs-reconcile blocked=true ready=false primary=`/rekit reconcile main -InterventionId <eventId> -Apply`", "follow-up:", "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 3 -WhatIf", "/rekit handoff main", "boundary:", "no authority/confirmed writes", "do not run continue for blocked lanes"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("overview missing Mission Commander action index %q:\n%s", expected, text)
 		}
@@ -4094,7 +4116,7 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 			t.Fatalf("overview missing Mission Commander action queue %q:\n%s", expected, text)
 		}
 	}
-	for _, expected := range []string{"Mission Commander next actions：", "gate-auth-1：state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`", "source=executionEvidenceReview.followUp", "command=`/rekit overview`", "review execution evidence for gateEventId gate-auth-1", "observation evidence is already recorded; do not replay heavy tool", "main：state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile main -InterventionId <eventId> -Apply`", "main：state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue main -WhatIf`", "follow-up is available only after resolving current lane blockers", "run as -WhatIf first; do not continue autonomously while lane remains blocked"} {
+	for _, expected := range []string{"Mission Commander next actions：", "gate-auth-1：state=ready-for-evidence-review source=executionEvidenceReview blocked=false requiresReview=true command=`/rekit handoff main`", "source=executionEvidenceReview.followUp", "command=`/rekit overview`", "review execution evidence for gateEventId gate-auth-1", "observation evidence is already recorded; do not replay heavy tool", "main：state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile main -InterventionId <eventId> -Apply`", "main：state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue main -Executor session-main -ExpectedExecutorGeneration 3 -WhatIf`", "follow-up is available only after resolving current lane blockers", "run as -WhatIf first; do not continue autonomously while lane remains blocked"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("overview missing Mission Commander next actions %q:\n%s", expected, text)
 		}
@@ -4216,17 +4238,17 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	if len(result.LaneExecutorActions) != 1 || result.LaneExecutorActions[0].Lane != "main" || result.LaneExecutorActions[0].CurrentExecutor != "session-main" || result.LaneExecutorActions[0].ExecutorGeneration != 3 || result.LaneExecutorActions[0].LastTakeoverBy != "main-agent" || result.LaneExecutorActions[0].LastTakeoverReason != "fixture" || !result.LaneExecutorActions[0].ExecutorAction.Blocked || result.LaneExecutorActions[0].ExecutorAction.Ready || result.LaneExecutorActions[0].ExecutorAction.PendingGates != 1 || result.LaneExecutorActions[0].ExecutorAction.OpenInterventions != 1 || result.LaneExecutorActions[0].ExecutorAction.OpenDecisions != 3 {
 		t.Fatalf("unexpected overview lane executor actions: %+v", result.LaneExecutorActions)
 	}
-	if len(result.MissionCommanderActions) != 1 || result.MissionCommanderActions[0].Lane != "main" || result.MissionCommanderActions[0].Label != "main" || !result.MissionCommanderActions[0].Blocked || result.MissionCommanderActions[0].Ready || result.MissionCommanderActions[0].PrimaryCommand != "/rekit reconcile main -InterventionId <eventId> -Apply" || result.MissionCommanderActions[0].Action.State != "needs-reconcile" || !containsSubstring(result.MissionCommanderActions[0].FollowUpCommands, "/rekit continue main -WhatIf") || !containsSubstring(result.MissionCommanderActions[0].Boundary, "do not run continue") || !slices.Contains(result.MissionCommanderActions[0].BlockerReasons, "intervention") {
+	if len(result.MissionCommanderActions) != 1 || result.MissionCommanderActions[0].Lane != "main" || result.MissionCommanderActions[0].Label != "main" || !result.MissionCommanderActions[0].Blocked || result.MissionCommanderActions[0].Ready || result.MissionCommanderActions[0].PrimaryCommand != "/rekit reconcile main -InterventionId <eventId> -Apply" || result.MissionCommanderActions[0].Action.State != "needs-reconcile" || !containsSubstring(result.MissionCommanderActions[0].FollowUpCommands, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 3 -WhatIf") || !containsSubstring(result.MissionCommanderActions[0].Boundary, "do not run continue") || !slices.Contains(result.MissionCommanderActions[0].BlockerReasons, "intervention") {
 		t.Fatalf("overview JSON missing Mission Commander action index: %+v", result.MissionCommanderActions)
 	}
-	if len(result.MissionCommanderNextActions) != 5 || result.MissionCommanderNextActions[0].Command != "/rekit handoff main" || result.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || !result.MissionCommanderNextActions[0].RequiresReview || result.MissionCommanderNextActions[1].Command != "/rekit overview" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit reconcile main -InterventionId <eventId> -Apply", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", true, true) || !containsSubstring(result.MissionCommanderNextActions[0].Reasons, "gate-auth-1") || !containsSubstring(result.MissionCommanderNextActions[0].Boundary, "do not replay heavy tool") || !containsSubstring(result.MissionCommanderNextActions[3].Reasons, "after resolving current lane blockers") || !containsSubstring(result.MissionCommanderNextActions[3].Boundary, "do not run continue") {
+	if len(result.MissionCommanderNextActions) != 5 || result.MissionCommanderNextActions[0].Command != "/rekit handoff main" || result.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || !result.MissionCommanderNextActions[0].RequiresReview || result.MissionCommanderNextActions[1].Command != "/rekit overview" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit reconcile main -InterventionId <eventId> -Apply", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 3 -WhatIf", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", true, true) || !containsSubstring(result.MissionCommanderNextActions[0].Reasons, "gate-auth-1") || !containsSubstring(result.MissionCommanderNextActions[0].Boundary, "do not replay heavy tool") || !containsSubstring(result.MissionCommanderNextActions[3].Reasons, "after resolving current lane blockers") || !containsSubstring(result.MissionCommanderNextActions[3].Boundary, "do not run continue") {
 		t.Fatalf("overview JSON missing consumable Mission Commander next actions: %+v", result.MissionCommanderNextActions)
 	}
 	queue := result.MissionCommanderActionQueue
 	if queue.Summary != "total=5 unblocked=2 blocked=3 requiresReview=5 followUp=3 current=/rekit handoff main" || queue.Counts.Total != 5 || queue.Counts.Unblocked != 2 || queue.Counts.Blocked != 3 || queue.Counts.RequiresReview != 5 || queue.Counts.FollowUp != 3 || queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit handoff main" || queue.CurrentAction.Source != "executionEvidenceReview" || len(queue.UnblockedActions) != 2 || len(queue.BlockedActions) != 3 || len(queue.ReviewRequiredActions) != 5 || len(queue.FollowUpActions) != 3 {
 		t.Fatalf("overview JSON missing Mission Commander action queue: %+v", queue)
 	}
-	if len(result.ExecutionEvidenceReview) != 1 || result.ExecutionEvidenceReview[0].GateEventID != "gate-auth-1" || result.ExecutionEvidenceReview[0].Action != "debug" || !containsSubstring(result.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/out.txt") || !containsSubstring(result.ExecutionEvidenceReview[0].EvidenceRefs, "evidence/debug.json") || !containsSubstring(result.ExecutionEvidenceReview[0].Boundary, "do not replay heavy tool") || result.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || result.ExecutionEvidenceReview[0].MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(result.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || result.ExecutionEvidenceReview[0].FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(result.ExecutionEvidenceReview[0].FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
+	if len(result.ExecutionEvidenceReview) != 1 || result.ExecutionEvidenceReview[0].GateEventID != "gate-auth-1" || result.ExecutionEvidenceReview[0].Action != "debug" || !containsSubstring(result.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/out.txt") || !containsSubstring(result.ExecutionEvidenceReview[0].EvidenceRefs, "evidence/debug.json") || !containsSubstring(result.ExecutionEvidenceReview[0].Boundary, "do not replay heavy tool") || result.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || result.ExecutionEvidenceReview[0].MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(result.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 3 -WhatIf") || result.ExecutionEvidenceReview[0].FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(result.ExecutionEvidenceReview[0].FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
 		t.Fatalf("overview JSON missing execution evidence review queue: %+v", result.ExecutionEvidenceReview)
 	}
 	if result.ExecutionEvidenceReviewSummary.Total != 1 || result.ExecutionEvidenceReviewSummary.ReadyForReviewCount != 1 || result.ExecutionEvidenceReviewSummary.MainEscalationCount != 0 || result.ExecutionEvidenceReviewSummary.OutputRefCount != 1 || result.ExecutionEvidenceReviewSummary.EvidenceRefCount != 1 || result.ExecutionEvidenceReviewSummary.LatestEventID != "obs-auth-1" || result.ExecutionEvidenceReviewSummary.LatestGateEventID != "gate-auth-1" || result.ExecutionEvidenceReviewSummary.LatestStatus != "complete" || result.ExecutionEvidenceReviewSummary.CurrentAction != "/rekit handoff main" || result.ExecutionEvidenceReviewSummary.NextActionCount != 5 || result.ExecutionEvidenceReviewSummary.ReviewRequiredActionCount != 5 || !containsSubstring(result.ExecutionEvidenceReviewSummary.Boundary, "summary is read-only") || !containsSubstring(result.ExecutionEvidenceReviewSummary.Boundary, "no authority/confirmed") {
@@ -4236,7 +4258,7 @@ func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 		t.Fatalf("overview next steps should promote execution evidence review without recommending blocked-lane continue: %+v", result.NextSteps)
 	}
 	commander := result.LaneExecutorActions[0].ExecutorAction.MissionCommanderAction
-	if commander.State != "needs-reconcile" || commander.PrimaryCommand != "/rekit reconcile main -InterventionId <eventId> -Apply" || !containsSubstring(commander.FollowUpCommands, "/rekit continue main -WhatIf") || !containsSubstring(commander.Boundary, "do not run continue") {
+	if commander.State != "needs-reconcile" || commander.PrimaryCommand != "/rekit reconcile main -InterventionId <eventId> -Apply" || !containsSubstring(commander.FollowUpCommands, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 3 -WhatIf") || !containsSubstring(commander.Boundary, "do not run continue") {
 		t.Fatalf("overview lane executor action missing Mission Commander blocker handoff: %+v", commander)
 	}
 	if !slices.Contains(result.NextSteps, "reconcile open intervention(s) before continuing the affected lane") || slices.Contains(result.NextSteps, "/rekit continue main") {
@@ -4789,6 +4811,20 @@ func TestRunPromoteCandidateVerificationRetirementValidation(t *testing.T) {
 	}
 }
 
+func TestRunRejectsExpectedExecutorGenerationOutsideContinue(t *testing.T) {
+	for _, args := range [][]string{
+		{"-Command", "start", "main", "-ExpectedExecutorGeneration", "1", "-WhatIf"},
+		{"-Command", "reconcile", "main", "--expected-executor-generation", "1", "-WhatIf"},
+		{"-Command", "status", "-ExpectedExecutorGeneration", "0"},
+	} {
+		var out bytes.Buffer
+		err := Run(args, &out)
+		if err == nil || !strings.Contains(err.Error(), "supported only by continue") {
+			t.Fatalf("expected generation outside continue error = %v", err)
+		}
+	}
+}
+
 func TestRunRejectsReviewerResultStagingFlagsOutsidePlanSubagents(t *testing.T) {
 	for _, args := range [][]string{
 		{"-Command", "status", "-StageReviewerResult"},
@@ -4837,13 +4873,13 @@ func TestRunStartPreviewDoesNotWriteBoard(t *testing.T) {
 	if result.MissionBrief.Summary == "" || result.MissionBrief.Summary != "openLanes=0 ready=0 blocked=0 pendingGates=0 authorizedGates=0 openDecisions=0 interventions=0" {
 		t.Fatalf("start preview missing pre-apply mission brief: %+v", result.MissionBrief)
 	}
-	if result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 0 || result.ExecutorAction.OpenInterventions != 0 || result.ExecutorAction.OpenDecisions != 0 || result.ExecutorAction.ResumeCommand != "/rekit continue login" || result.ExecutorAction.HandoffCommand != "/rekit handoff login" {
+	if result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 0 || result.ExecutorAction.OpenInterventions != 0 || result.ExecutorAction.OpenDecisions != 0 || result.ExecutorAction.ResumeCommand != "/rekit continue login -Executor session-preview -ExpectedExecutorGeneration 1" || result.ExecutorAction.HandoffCommand != "/rekit handoff login" {
 		t.Fatalf("start preview executor action drifted: %+v", result.ExecutorAction)
 	}
 	if result.ExecutorAction.MissionCommanderAction.State != "needs-start-apply" || result.ExecutorAction.MissionCommanderAction.PrimaryCommand != `/rekit start login -Apply -Executor session-preview -Actor main-agent -Reason "preview claim"` || !containsSubstring(result.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue login") || !containsSubstring(result.ExecutorAction.MissionCommanderAction.Boundary, "case-local lane/board/resume/checkpoint") {
 		t.Fatalf("start preview should expose full start-apply Mission Commander handoff: %+v", result.ExecutorAction.MissionCommanderAction)
 	}
-	if result.MissionCommanderAction.State != "needs-start-apply" || result.MissionCommanderAction.PrimaryCommand != result.ExecutorAction.MissionCommanderAction.PrimaryCommand || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", `/rekit start login -Apply -Executor session-preview -Actor main-agent -Reason "preview claim"`, false, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login", true, true) {
+	if result.MissionCommanderAction.State != "needs-start-apply" || result.MissionCommanderAction.PrimaryCommand != result.ExecutorAction.MissionCommanderAction.PrimaryCommand || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", `/rekit start login -Apply -Executor session-preview -Actor main-agent -Reason "preview claim"`, false, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -Executor session-preview -ExpectedExecutorGeneration 1", true, true) {
 		t.Fatalf("start preview should expose top-level Mission Commander start-apply projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	assertCLIActionQueue(t, result.MissionCommanderActionQueue, 3, 1, 2, 3, 2, `/rekit start login -Apply -Executor session-preview -Actor main-agent -Reason "preview claim"`)
@@ -4867,17 +4903,17 @@ func TestRunStartApplyClaimsAndTakesOverExecutor(t *testing.T) {
 	if result.MissionBrief.Summary == "" || !slices.Contains(result.MissionBrief.ReadyLanes, "main") || !slices.Contains(result.MissionBrief.ReadyLanes, "login") || len(result.MissionBrief.BlockedLanes) != 0 {
 		t.Fatalf("start apply JSON missing post-apply mission brief: %+v", result.MissionBrief)
 	}
-	if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 0 || result.ExecutorAction.OpenInterventions != 0 || result.ExecutorAction.OpenDecisions != 0 || result.ExecutorAction.ResumeCommand != "/rekit continue login" || result.ExecutorAction.HandoffCommand != "/rekit handoff login" {
+	if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 0 || result.ExecutorAction.OpenInterventions != 0 || result.ExecutorAction.OpenDecisions != 0 || result.ExecutorAction.ResumeCommand != "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1" || result.ExecutorAction.HandoffCommand != "/rekit handoff login" {
 		t.Fatalf("start apply executor action drifted: %+v", result.ExecutorAction)
 	}
-	if result.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || result.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue login" || !containsSubstring(result.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit handoff login") {
+	if result.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || result.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1" || !containsSubstring(result.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit handoff login") {
 		t.Fatalf("start apply should expose ready Mission Commander handoff: %+v", result.ExecutorAction.MissionCommanderAction)
 	}
-	if result.MissionCommanderAction.State != "ready-to-continue" || result.MissionCommanderAction.PrimaryCommand != "/rekit continue login" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue login", false, false) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", false, false) {
+	if result.MissionCommanderAction.State != "ready-to-continue" || result.MissionCommanderAction.PrimaryCommand != "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1", false, false) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", false, false) {
 		t.Fatalf("start apply should expose top-level Mission Commander continue projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
-	assertCLIActionQueue(t, result.MissionCommanderActionQueue, 2, 2, 0, 0, 1, "/rekit continue login")
-	if !slices.Equal(result.NextSteps, []string{"run doctor after apply", "/rekit continue login"}) {
+	assertCLIActionQueue(t, result.MissionCommanderActionQueue, 2, 2, 0, 0, 1, "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1")
+	if !slices.Equal(result.NextSteps, []string{"run doctor after apply", "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1"}) {
 		t.Fatalf("start apply next steps should recommend ready lane continue: %+v", result.NextSteps)
 	}
 	assertStartWrite(t, result.Writes, ".rekit/policy.yml", "create-policy")
@@ -4904,7 +4940,7 @@ func TestRunStartApplyClaimsAndTakesOverExecutor(t *testing.T) {
 	if again.Lane.CurrentExecutor != "session-1" || again.Lane.ExecutorGeneration != 1 {
 		t.Fatalf("same executor claim should be idempotent: %+v", again.Lane)
 	}
-	if !again.ExecutorAction.Ready || again.ExecutorAction.Blocked || again.ExecutorAction.ResumeCommand != "/rekit continue login" || again.ExecutorAction.HandoffCommand != "/rekit handoff login" {
+	if !again.ExecutorAction.Ready || again.ExecutorAction.Blocked || again.ExecutorAction.ResumeCommand != "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1" || again.ExecutorAction.HandoffCommand != "/rekit handoff login" {
 		t.Fatalf("start existing-lane executor action drifted: %+v", again.ExecutorAction)
 	}
 
@@ -4949,7 +4985,7 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	}
 	project := decodeHandoffResult(t, out.Bytes())
 	mainBefore := handoffLaneActionFor(t, project.LaneExecutorActions, "main")
-	if mainBefore.CurrentExecutor != "session-main" || mainBefore.ExecutorGeneration != 1 || !mainBefore.ExecutorAction.Ready || mainBefore.ExecutorAction.ResumeCommand != "/rekit continue main" {
+	if mainBefore.CurrentExecutor != "session-main" || mainBefore.ExecutorGeneration != 1 || !mainBefore.ExecutorAction.Ready || mainBefore.ExecutorAction.ResumeCommand != "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1" {
 		t.Fatalf("initial project handoff should expose ready main executor owner: %+v", mainBefore)
 	}
 
@@ -4964,7 +5000,7 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if preview.ExecutorAction.MissionCommanderAction.State != "needs-start-apply" || preview.ExecutorAction.MissionCommanderAction.PrimaryCommand != `/rekit start main -Apply -Executor session-main-preview -Actor mission-commander -Reason "preview replacement from handoff"` || !containsSubstring(preview.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue main") {
 		t.Fatalf("-Name main preview should require applying executor takeover before continue: %+v", preview.ExecutorAction.MissionCommanderAction)
 	}
-	if preview.MissionCommanderAction.State != "needs-start-apply" || preview.MissionCommanderAction.PrimaryCommand != preview.ExecutorAction.MissionCommanderAction.PrimaryCommand || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions", `/rekit start main -Apply -Executor session-main-preview -Actor mission-commander -Reason "preview replacement from handoff"`, false, true) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main", true, true) {
+	if preview.MissionCommanderAction.State != "needs-start-apply" || preview.MissionCommanderAction.PrimaryCommand != preview.ExecutorAction.MissionCommanderAction.PrimaryCommand || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions", `/rekit start main -Apply -Executor session-main-preview -Actor mission-commander -Reason "preview replacement from handoff"`, false, true) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -Executor session-main-preview -ExpectedExecutorGeneration 2", true, true) {
 		t.Fatalf("-Name main preview should expose top-level Mission Commander takeover projection: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
 	}
 
@@ -4976,13 +5012,13 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if !takeover.IsMutation || !takeover.Applied || takeover.Lane.ID != "main" || takeover.Lane.CurrentExecutor != "session-main-replacement" || takeover.Lane.ExecutorGeneration != 2 || takeover.Lane.LastTakeoverBy != "mission-commander" || takeover.Lane.LastTakeoverReason != "replace stale main session from handoff" {
 		t.Fatalf("main executor takeover did not update durable lane state: %+v", takeover)
 	}
-	if takeover.ExecutorAction.Blocked || !takeover.ExecutorAction.Ready || takeover.ExecutorAction.ResumeCommand != "/rekit continue main" || takeover.ExecutorAction.HandoffCommand != "/rekit handoff main" || !slices.Contains(takeover.NextSteps, "/rekit continue main") {
+	if takeover.ExecutorAction.Blocked || !takeover.ExecutorAction.Ready || takeover.ExecutorAction.ResumeCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || takeover.ExecutorAction.HandoffCommand != "/rekit handoff main" || !slices.Contains(takeover.NextSteps, "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2") {
 		t.Fatalf("main executor takeover should leave replacement session ready to continue: action=%+v next=%+v", takeover.ExecutorAction, takeover.NextSteps)
 	}
-	if takeover.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || takeover.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" {
+	if takeover.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || takeover.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" {
 		t.Fatalf("main executor takeover should expose Mission Commander continue handoff: %+v", takeover.ExecutorAction.MissionCommanderAction)
 	}
-	if takeover.MissionCommanderAction.State != "ready-to-continue" || takeover.MissionCommanderAction.PrimaryCommand != "/rekit continue main" || !containsMissionCommanderNextAction(takeover.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) || !containsMissionCommanderNextAction(takeover.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) {
+	if takeover.MissionCommanderAction.State != "ready-to-continue" || takeover.MissionCommanderAction.PrimaryCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || !containsMissionCommanderNextAction(takeover.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2", false, false) || !containsMissionCommanderNextAction(takeover.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) {
 		t.Fatalf("main executor takeover should expose top-level Mission Commander continue projection: action=%+v next=%+v", takeover.MissionCommanderAction, takeover.MissionCommanderNextActions)
 	}
 	assertStartWrite(t, takeover.Writes, ".rekit/lanes/main/lane.json", "update-executor-takeover")
@@ -5004,17 +5040,17 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
 		t.Fatalf("checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
 	}
-	if checkpoint.CurrentExecutor != "session-main-replacement" || checkpoint.ExecutorGeneration != 2 || checkpoint.LastTakeoverBy != "mission-commander" || checkpoint.LastTakeoverReason != "replace stale main session from handoff" || !checkpoint.ExecutorAction.Ready || checkpoint.ExecutorAction.ResumeCommand != "/rekit continue main" {
+	if checkpoint.CurrentExecutor != "session-main-replacement" || checkpoint.ExecutorGeneration != 2 || checkpoint.LastTakeoverBy != "mission-commander" || checkpoint.LastTakeoverReason != "replace stale main session from handoff" || !checkpoint.ExecutorAction.Ready || checkpoint.ExecutorAction.ResumeCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" {
 		t.Fatalf("checkpoint omitted replacement executor takeover state: %+v", checkpoint)
 	}
-	if checkpoint.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || checkpoint.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" {
+	if checkpoint.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || checkpoint.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" {
 		t.Fatalf("checkpoint omitted Mission Commander continue handoff: %+v", checkpoint.ExecutorAction.MissionCommanderAction)
 	}
 	resumeBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "prompts", "RESUME.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"current executor: `session-main-replacement`", "executor generation: `2`", "last takeover by: `mission-commander`", "resume command: `/rekit continue main`", "commander state: `ready-to-continue`", "commander prompt: 按 `main` 接手，然后继续该 lane。"} {
+	for _, expected := range []string{"current executor: `session-main-replacement`", "executor generation: `2`", "last takeover by: `mission-commander`", "resume command: `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`", "commander state: `ready-to-continue`", "commander prompt: 按 `main` 接手，然后继续该 lane。"} {
 		if !strings.Contains(string(resumeBytes), expected) {
 			t.Fatalf("resume missing %q after takeover:\n%s", expected, string(resumeBytes))
 		}
@@ -5032,10 +5068,10 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 		t.Fatal(err)
 	}
 	laneHandoff := decodeHandoffResult(t, out.Bytes())
-	if !laneHandoff.IsMutation || !laneHandoff.Applied || laneHandoff.Project || laneHandoff.Lane == nil || laneHandoff.Lane.ID != "main" || laneHandoff.Lane.CurrentExecutor != "session-main-replacement" || laneHandoff.Lane.ExecutorGeneration != 2 || laneHandoff.ExecutorAction == nil || !laneHandoff.ExecutorAction.Ready || laneHandoff.ExecutorAction.ResumeCommand != "/rekit continue main" {
+	if !laneHandoff.IsMutation || !laneHandoff.Applied || laneHandoff.Project || laneHandoff.Lane == nil || laneHandoff.Lane.ID != "main" || laneHandoff.Lane.CurrentExecutor != "session-main-replacement" || laneHandoff.Lane.ExecutorGeneration != 2 || laneHandoff.ExecutorAction == nil || !laneHandoff.ExecutorAction.Ready || laneHandoff.ExecutorAction.ResumeCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" {
 		t.Fatalf("lane handoff should preserve replacement executor owner and next action: %+v", laneHandoff)
 	}
-	if laneHandoff.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || laneHandoff.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" {
+	if laneHandoff.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || laneHandoff.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" {
 		t.Fatalf("lane handoff should expose Mission Commander continue handoff: %+v", laneHandoff.ExecutorAction.MissionCommanderAction)
 	}
 	laneLatest := assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
@@ -5043,12 +5079,12 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(laneHandoffText), "current executor：session-main-replacement") || !strings.Contains(string(laneHandoffText), "executor generation：2") || !strings.Contains(string(laneHandoffText), "直接说：按 `.rekit/handovers/main-latest.md` 接手，然后执行 `/rekit continue main`。") {
+	if !strings.Contains(string(laneHandoffText), "current executor：session-main-replacement") || !strings.Contains(string(laneHandoffText), "executor generation：2") || !strings.Contains(string(laneHandoffText), "直接说：按 `.rekit/handovers/main-latest.md` 接手，然后执行 `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`。") {
 		t.Fatalf("lane handoff omitted replacement executor handoff text:\n%s", string(laneHandoffText))
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "main", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "main", "-Executor", "session-main-replacement", "-ExpectedExecutorGeneration", "2", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var continuation struct {
@@ -5060,10 +5096,10 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if err := json.Unmarshal(out.Bytes(), &continuation); err != nil {
 		t.Fatalf("continue what-if did not decode: %v\n%s", err, out.String())
 	}
-	if continuation.IsMutation || continuation.Applied || continuation.Lane.CurrentExecutor != "session-main-replacement" || continuation.Lane.ExecutorGeneration != 2 || !continuation.ExecutorAction.Ready || continuation.ExecutorAction.ResumeCommand != "/rekit continue main" {
+	if continuation.IsMutation || continuation.Applied || continuation.Lane.CurrentExecutor != "session-main-replacement" || continuation.Lane.ExecutorGeneration != 2 || !continuation.ExecutorAction.Ready || continuation.ExecutorAction.ResumeCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" {
 		t.Fatalf("replacement executor cannot continue from durable handoff state: %+v", continuation)
 	}
-	if continuation.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || continuation.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" {
+	if continuation.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || continuation.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" {
 		t.Fatalf("continue what-if should expose Mission Commander continue handoff: %+v", continuation.ExecutorAction.MissionCommanderAction)
 	}
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
@@ -5082,7 +5118,7 @@ func TestRunStartProjectsExecutorActionForExistingLaneBlockers(t *testing.T) {
 		t.Fatal(err)
 	}
 	preview := decodeStartResult(t, out.Bytes())
-	if !preview.ExecutorAction.Blocked || preview.ExecutorAction.Ready || preview.ExecutorAction.PendingGates != 1 || preview.ExecutorAction.OpenInterventions != 1 || preview.ExecutorAction.OpenDecisions != 1 || !preview.ExecutorAction.ReconcileRequired || !preview.ExecutorAction.PendingGateRequired || !preview.ExecutorAction.OpenDecisionRequired || preview.ExecutorAction.ResumeCommand != "/rekit continue login" || preview.ExecutorAction.HandoffCommand != "/rekit handoff login" || !slices.Contains(preview.ExecutorAction.BlockerReasons, "pending-gate") || !slices.Contains(preview.ExecutorAction.BlockerReasons, "intervention") || !slices.Contains(preview.ExecutorAction.BlockerReasons, "open-decision") {
+	if !preview.ExecutorAction.Blocked || preview.ExecutorAction.Ready || preview.ExecutorAction.PendingGates != 1 || preview.ExecutorAction.OpenInterventions != 1 || preview.ExecutorAction.OpenDecisions != 1 || !preview.ExecutorAction.ReconcileRequired || !preview.ExecutorAction.PendingGateRequired || !preview.ExecutorAction.OpenDecisionRequired || preview.ExecutorAction.ResumeCommand != "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2" || preview.ExecutorAction.HandoffCommand != "/rekit handoff login" || !slices.Contains(preview.ExecutorAction.BlockerReasons, "pending-gate") || !slices.Contains(preview.ExecutorAction.BlockerReasons, "intervention") || !slices.Contains(preview.ExecutorAction.BlockerReasons, "open-decision") {
 		t.Fatalf("start preview existing-lane executor action drifted: %+v", preview.ExecutorAction)
 	}
 	if slices.Contains(preview.ExecutorAction.NextAgentActions, "/rekit continue main") || slices.Contains(preview.ExecutorAction.NextAgentActions, "/rekit continue login") || !containsSubstring(preview.ExecutorAction.NextAgentActions, "reconcile open intervention") || !containsSubstring(preview.ExecutorAction.NextAgentActions, "pending-gate") || !containsSubstring(preview.ExecutorAction.NextAgentActions, "candidate/decision") {
@@ -5094,7 +5130,7 @@ func TestRunStartProjectsExecutorActionForExistingLaneBlockers(t *testing.T) {
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"executor next action：reconcile open intervention(s) before continuing this lane", "executor next action：resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool", "executor next action：review open candidate/decision item(s) with evidence and authority boundary", "executor action：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=1", "executor requirements：reconcile=true pendingGate=true openDecision=true", "executor handoff：continue=`/rekit continue login` handoff=`/rekit handoff login`", "mission commander action queue：summary=total=3 unblocked=0 blocked=3 requiresReview=3 followUp=2 current=/rekit reconcile login -InterventionId <eventId> -Apply", "mission commander action queue current：state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile login -InterventionId <eventId> -Apply`", "mission commander next action：state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile login -InterventionId <eventId> -Apply`", "mission commander next action：state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -WhatIf`", "mission commander next action reason：follow-up is available only after resolving current lane blockers", "mission commander next action boundary：do not run continue for blocked lanes"} {
+	for _, expected := range []string{"executor next action：reconcile open intervention(s) before continuing this lane", "executor next action：resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool", "executor next action：review open candidate/decision item(s) with evidence and authority boundary", "executor action：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=1", "executor requirements：reconcile=true pendingGate=true openDecision=true", "executor handoff：continue=`/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2` handoff=`/rekit handoff login`", "mission commander action queue：summary=total=3 unblocked=0 blocked=3 requiresReview=3 followUp=2 current=/rekit reconcile login -InterventionId <eventId> -Apply", "mission commander action queue current：state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile login -InterventionId <eventId> -Apply`", "mission commander next action：state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile login -InterventionId <eventId> -Apply`", "mission commander next action：state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf`", "mission commander next action reason：follow-up is available only after resolving current lane blockers", "mission commander next action boundary：do not run continue for blocked lanes"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("start text missing %q:\n%s", expected, out.String())
 		}
@@ -5140,10 +5176,10 @@ func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
 		t.Fatalf("project handoff preview main executor owner snapshot drifted: %+v", main)
 	}
 	mainAction := main.ExecutorAction
-	if mainAction.Blocked || !mainAction.Ready || !slices.Equal(mainAction.NextAgentActions, []string{"/rekit continue main"}) {
+	if mainAction.Blocked || !mainAction.Ready || !slices.Equal(mainAction.NextAgentActions, []string{"/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1"}) {
 		t.Fatalf("project handoff preview main executor action should stay ready and lane-local: %+v", mainAction)
 	}
-	if mainAction.MissionCommanderAction.State != "ready-to-continue" || mainAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" {
+	if mainAction.MissionCommanderAction.State != "ready-to-continue" || mainAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1" {
 		t.Fatalf("project handoff preview main action missing Mission Commander continue handoff: %+v", mainAction.MissionCommanderAction)
 	}
 	login := handoffLaneActionFor(t, result.LaneExecutorActions, "feature-login")
@@ -5151,7 +5187,7 @@ func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
 		t.Fatalf("project handoff preview login executor owner snapshot drifted: %+v", login)
 	}
 	loginAction := login.ExecutorAction
-	if !loginAction.Blocked || !loginAction.ReconcileRequired || !loginAction.PendingGateRequired || !loginAction.OpenDecisionRequired || loginAction.PendingGates != 1 || loginAction.OpenInterventions != 1 || loginAction.OpenDecisions != 1 || loginAction.ResumeCommand != "/rekit continue login" {
+	if !loginAction.Blocked || !loginAction.ReconcileRequired || !loginAction.PendingGateRequired || !loginAction.OpenDecisionRequired || loginAction.PendingGates != 1 || loginAction.OpenInterventions != 1 || loginAction.OpenDecisions != 1 || loginAction.ResumeCommand != "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2" {
 		t.Fatalf("project handoff preview login executor action drifted: %+v", loginAction)
 	}
 	if slices.Contains(loginAction.NextAgentActions, "/rekit continue main") || slices.Contains(loginAction.NextAgentActions, "/rekit continue login") || !containsSubstring(loginAction.NextAgentActions, "reconcile open intervention") || !containsSubstring(loginAction.NextAgentActions, "pending-gate") || !containsSubstring(loginAction.NextAgentActions, "candidate/decision") {
@@ -5160,10 +5196,10 @@ func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
 	if loginAction.MissionCommanderAction.State != "needs-reconcile" || loginAction.MissionCommanderAction.PrimaryCommand != "/rekit reconcile login -InterventionId <eventId> -Apply" || !containsSubstring(loginAction.MissionCommanderAction.Boundary, "do not run continue") {
 		t.Fatalf("project handoff preview login action missing Mission Commander blocker handoff: %+v", loginAction.MissionCommanderAction)
 	}
-	if len(result.MissionCommanderNextActions) != 5 || result.MissionCommanderNextActions[0].Command != "/rekit continue main" || result.MissionCommanderNextActions[0].Source != "missionCommanderActions" || result.MissionCommanderNextActions[0].RequiresReview || !containsSubstring(result.MissionCommanderNextActions[0].Reasons, "ready lane primary action") || result.MissionCommanderNextActions[1].Command != "/rekit reconcile login -InterventionId <eventId> -Apply" || !result.MissionCommanderNextActions[1].Blocked || !result.MissionCommanderNextActions[1].RequiresReview || !containsSubstring(result.MissionCommanderNextActions[1].Reasons, "intervention") || !containsSubstring(result.MissionCommanderNextActions[1].Boundary, "do not run continue") || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -WhatIf", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", true, true) || !containsSubstring(result.MissionCommanderNextActions[3].Reasons, "after resolving current lane blockers") {
+	if len(result.MissionCommanderNextActions) != 5 || result.MissionCommanderNextActions[0].Command != "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1" || result.MissionCommanderNextActions[0].Source != "missionCommanderActions" || result.MissionCommanderNextActions[0].RequiresReview || !containsSubstring(result.MissionCommanderNextActions[0].Reasons, "ready lane primary action") || result.MissionCommanderNextActions[1].Command != "/rekit reconcile login -InterventionId <eventId> -Apply" || !result.MissionCommanderNextActions[1].Blocked || !result.MissionCommanderNextActions[1].RequiresReview || !containsSubstring(result.MissionCommanderNextActions[1].Reasons, "intervention") || !containsSubstring(result.MissionCommanderNextActions[1].Boundary, "do not run continue") || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", true, true) || !containsSubstring(result.MissionCommanderNextActions[3].Reasons, "after resolving current lane blockers") {
 		t.Fatalf("project handoff preview missing Mission Commander next actions: %+v", result.MissionCommanderNextActions)
 	}
-	assertCLIActionQueue(t, result.MissionCommanderActionQueue, 5, 2, 3, 3, 3, "/rekit continue main")
+	assertCLIActionQueue(t, result.MissionCommanderActionQueue, 5, 2, 3, 3, 3, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1")
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, after)
 }
@@ -5196,16 +5232,16 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if slices.Contains(projectLoginAction.NextAgentActions, "/rekit continue main") || slices.Contains(projectLoginAction.NextAgentActions, "/rekit continue login") || !containsSubstring(projectLoginAction.NextAgentActions, "reconcile open intervention") {
 		t.Fatalf("project handoff JSON login next actions should remain lane-local and blocker-aware: %+v", projectLoginAction.NextAgentActions)
 	}
-	if len(project.MissionCommanderNextActions) != 5 || project.MissionCommanderNextActions[0].Command != "/rekit continue main" || project.MissionCommanderNextActions[0].Source != "missionCommanderActions" || project.MissionCommanderNextActions[0].Blocked || project.MissionCommanderNextActions[0].RequiresReview || project.MissionCommanderNextActions[1].Command != "/rekit reconcile login -InterventionId <eventId> -Apply" || project.MissionCommanderNextActions[1].Source != "missionCommanderActions" || !project.MissionCommanderNextActions[1].Blocked || !project.MissionCommanderNextActions[1].RequiresReview || !containsSubstring(project.MissionCommanderNextActions[1].Reasons, "pending-gate") || !containsSubstring(project.MissionCommanderNextActions[1].Boundary, "do not run continue") || !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) || !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -WhatIf", true, true) || !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", true, true) || !containsSubstring(project.MissionCommanderNextActions[3].Reasons, "after resolving current lane blockers") {
+	if len(project.MissionCommanderNextActions) != 5 || project.MissionCommanderNextActions[0].Command != "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1" || project.MissionCommanderNextActions[0].Source != "missionCommanderActions" || project.MissionCommanderNextActions[0].Blocked || project.MissionCommanderNextActions[0].RequiresReview || project.MissionCommanderNextActions[1].Command != "/rekit reconcile login -InterventionId <eventId> -Apply" || project.MissionCommanderNextActions[1].Source != "missionCommanderActions" || !project.MissionCommanderNextActions[1].Blocked || !project.MissionCommanderNextActions[1].RequiresReview || !containsSubstring(project.MissionCommanderNextActions[1].Reasons, "pending-gate") || !containsSubstring(project.MissionCommanderNextActions[1].Boundary, "do not run continue") || !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) || !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf", true, true) || !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", true, true) || !containsSubstring(project.MissionCommanderNextActions[3].Reasons, "after resolving current lane blockers") {
 		t.Fatalf("project handoff JSON missing consumable Mission Commander next actions: %+v", project.MissionCommanderNextActions)
 	}
-	assertCLIActionQueue(t, project.MissionCommanderActionQueue, 5, 2, 3, 3, 3, "/rekit continue main")
+	assertCLIActionQueue(t, project.MissionCommanderActionQueue, 5, 2, 3, 3, 3, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1")
 	latest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
 	text, err := os.ReadFile(latest.TargetPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"# rekit 项目接手索引", "## Mission Control brief", "summary: openLanes=2 ready=1 blocked=1", "ready lanes:", "main", "blocked lanes:", "login (pending-gate,intervention,open-decision)", "pending gates:", "debug gate", "open decisions:", "decision subject", "interventions:", "manual override", "next agent actions:", "reconcile open intervention", "escalations:", "pending-gate requires main-agent/user decision", "## 工作线", "blocked=true", "executor owner：current=session-login generation=2 lastTakeover=2026-01-02T00:00:00Z by=main-agent reason=replace login session", "pendingGates=1 openInterventions=1 openDecisions=1", "requirements：reconcile=true pendingGate=true openDecision=true", "next action：reconcile open intervention(s) before continuing this lane", "next action：resolve or keep deferred pending-gate request(s)", "next action：review open candidate/decision item(s)", "continue command：`/rekit continue main`", "ready 后继续：`/rekit continue login`", "/rekit handoff login"} {
+	for _, expected := range []string{"# rekit 项目接手索引", "## Mission Control brief", "summary: openLanes=2 ready=1 blocked=1", "ready lanes:", "main", "blocked lanes:", "login (pending-gate,intervention,open-decision)", "pending gates:", "debug gate", "open decisions:", "decision subject", "interventions:", "manual override", "next agent actions:", "reconcile open intervention", "escalations:", "pending-gate requires main-agent/user decision", "## 工作线", "blocked=true", "executor owner：current=session-login generation=2 lastTakeover=2026-01-02T00:00:00Z by=main-agent reason=replace login session", "pendingGates=1 openInterventions=1 openDecisions=1", "requirements：reconcile=true pendingGate=true openDecision=true", "next action：reconcile open intervention(s) before continuing this lane", "next action：resolve or keep deferred pending-gate request(s)", "next action：review open candidate/decision item(s)", "continue command：`/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1`", "ready 后继续：`/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2`", "/rekit handoff login"} {
 		if !strings.Contains(string(text), expected) {
 			t.Fatalf("project handoff missing %q:\n%s", expected, string(text))
 		}
@@ -5213,7 +5249,7 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if strings.Contains(string(text), "continue command：`/rekit continue login`") {
 		t.Fatalf("project handoff should not present blocked lane continue as its current next action:\n%s", string(text))
 	}
-	for _, expected := range []string{"state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main`", "state=ready-to-continue source=missionCommanderActions.followUp blocked=false requiresReview=false command=`/rekit handoff main`", "state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile login -InterventionId <eventId> -Apply`", "state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -WhatIf`", "follow-up is available only after resolving current lane blockers", "run as -WhatIf first; do not continue autonomously while lane remains blocked", "commander primary：`/rekit continue main`", "commander follow-up：/rekit handoff main", "commander primary：`/rekit reconcile login -InterventionId <eventId> -Apply`", "commander follow-up：/rekit continue login -WhatIf", "commander boundary：do not run continue for blocked lanes"} {
+	for _, expected := range []string{"state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1`", "state=ready-to-continue source=missionCommanderActions.followUp blocked=false requiresReview=false command=`/rekit handoff main`", "state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile login -InterventionId <eventId> -Apply`", "state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf`", "follow-up is available only after resolving current lane blockers", "run as -WhatIf first; do not continue autonomously while lane remains blocked", "commander primary：`/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1`", "commander follow-up：/rekit handoff main", "commander primary：`/rekit reconcile login -InterventionId <eventId> -Apply`", "commander follow-up：/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf", "commander boundary：do not run continue for blocked lanes"} {
 		if !strings.Contains(string(text), expected) {
 			t.Fatalf("project handoff missing Mission Commander consumption %q:\n%s", expected, string(text))
 		}
@@ -5230,13 +5266,13 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if !slices.Contains(lane.MissionBrief.BlockedLanes, "login (pending-gate,intervention,open-decision)") || !containsSubstring(lane.MissionBrief.PendingGates, "debug gate") || !containsSubstring(lane.MissionBrief.OpenDecisions, "decision subject") || !containsSubstring(lane.MissionBrief.NextAgentActions, "review open candidate/decision item(s)") {
 		t.Fatalf("lane handoff JSON missing structured mission brief: %+v", lane.MissionBrief)
 	}
-	if lane.ExecutorAction == nil || !lane.ExecutorAction.Blocked || lane.ExecutorAction.PendingGates != 1 || lane.ExecutorAction.OpenInterventions != 1 || lane.ExecutorAction.OpenDecisions != 1 || !lane.ExecutorAction.ReconcileRequired || !lane.ExecutorAction.PendingGateRequired || !lane.ExecutorAction.OpenDecisionRequired || lane.ExecutorAction.ResumeCommand != "/rekit continue login" || lane.ExecutorAction.HandoffCommand != "/rekit handoff login" || !slices.Contains(lane.ExecutorAction.BlockerReasons, "pending-gate") || !slices.Contains(lane.ExecutorAction.BlockerReasons, "intervention") || !slices.Contains(lane.ExecutorAction.BlockerReasons, "open-decision") {
+	if lane.ExecutorAction == nil || !lane.ExecutorAction.Blocked || lane.ExecutorAction.PendingGates != 1 || lane.ExecutorAction.OpenInterventions != 1 || lane.ExecutorAction.OpenDecisions != 1 || !lane.ExecutorAction.ReconcileRequired || !lane.ExecutorAction.PendingGateRequired || !lane.ExecutorAction.OpenDecisionRequired || lane.ExecutorAction.ResumeCommand != "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2" || lane.ExecutorAction.HandoffCommand != "/rekit handoff login" || !slices.Contains(lane.ExecutorAction.BlockerReasons, "pending-gate") || !slices.Contains(lane.ExecutorAction.BlockerReasons, "intervention") || !slices.Contains(lane.ExecutorAction.BlockerReasons, "open-decision") {
 		t.Fatalf("lane handoff JSON executor action drifted: %+v", lane.ExecutorAction)
 	}
-	if lane.ExecutorAction.MissionCommanderAction.State != "needs-reconcile" || lane.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit reconcile login -InterventionId <eventId> -Apply" || !containsSubstring(lane.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue login -WhatIf") || !containsSubstring(lane.ExecutorAction.MissionCommanderAction.Boundary, "do not run continue for blocked lanes") {
+	if lane.ExecutorAction.MissionCommanderAction.State != "needs-reconcile" || lane.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit reconcile login -InterventionId <eventId> -Apply" || !containsSubstring(lane.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf") || !containsSubstring(lane.ExecutorAction.MissionCommanderAction.Boundary, "do not run continue for blocked lanes") {
 		t.Fatalf("lane handoff JSON omitted Mission Commander action consumption: %+v", lane.ExecutorAction.MissionCommanderAction)
 	}
-	if len(lane.MissionCommanderNextActions) != 3 || lane.MissionCommanderNextActions[0].Lane != "feature-login" || lane.MissionCommanderNextActions[0].Label != "login" || lane.MissionCommanderNextActions[0].Command != "/rekit reconcile login -InterventionId <eventId> -Apply" || lane.MissionCommanderNextActions[0].Source != "missionCommanderActions" || !lane.MissionCommanderNextActions[0].Blocked || !lane.MissionCommanderNextActions[0].RequiresReview || !containsSubstring(lane.MissionCommanderNextActions[0].Reasons, "open-decision") || !containsSubstring(lane.MissionCommanderNextActions[0].Boundary, "do not run continue") || !containsMissionCommanderNextAction(lane.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -WhatIf", true, true) || !containsMissionCommanderNextAction(lane.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", true, true) || !containsSubstring(lane.MissionCommanderNextActions[1].Reasons, "after resolving current lane blockers") || !containsSubstring(lane.MissionCommanderNextActions[1].Reasons, "run as -WhatIf first") {
+	if len(lane.MissionCommanderNextActions) != 3 || lane.MissionCommanderNextActions[0].Lane != "feature-login" || lane.MissionCommanderNextActions[0].Label != "login" || lane.MissionCommanderNextActions[0].Command != "/rekit reconcile login -InterventionId <eventId> -Apply" || lane.MissionCommanderNextActions[0].Source != "missionCommanderActions" || !lane.MissionCommanderNextActions[0].Blocked || !lane.MissionCommanderNextActions[0].RequiresReview || !containsSubstring(lane.MissionCommanderNextActions[0].Reasons, "open-decision") || !containsSubstring(lane.MissionCommanderNextActions[0].Boundary, "do not run continue") || !containsMissionCommanderNextAction(lane.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf", true, true) || !containsMissionCommanderNextAction(lane.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", true, true) || !containsSubstring(lane.MissionCommanderNextActions[1].Reasons, "after resolving current lane blockers") || !containsSubstring(lane.MissionCommanderNextActions[1].Reasons, "run as -WhatIf first") {
 		t.Fatalf("lane handoff JSON missing Mission Commander next action: %+v", lane.MissionCommanderNextActions)
 	}
 	assertCLIActionQueue(t, lane.MissionCommanderActionQueue, 3, 0, 3, 3, 2, "/rekit reconcile login -InterventionId <eventId> -Apply")
@@ -5248,7 +5284,7 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "先处理下列 blocker，不要执行 `/rekit continue login`", "## Mission Control brief", "blocked: true", "pending-gate:", "open intervention:", "open decision:", "next agent action:", "reconcile open intervention(s) before continuing this lane", "resolve or keep deferred pending-gate request(s)", "review open candidate/decision item(s)", "## Mission Commander next actions", "state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile login -InterventionId <eventId> -Apply`", "state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -WhatIf`", "follow-up is available only after resolving current lane blockers", "run as -WhatIf first; do not continue autonomously while lane remains blocked", "state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit handoff login`", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- pending gates: `1`", "- open interventions: `1`", "- open decisions: `1`", "- reconcile required: `true`", "- pending gate required: `true`", "- open decision required: `true`", "- resume command: `/rekit continue login`", "- handoff command: `/rekit handoff login`", "- commander primary command: `/rekit reconcile login -InterventionId <eventId> -Apply`", "commander follow-up commands:", "/rekit continue login -WhatIf", "commander boundary:", "do not run continue for blocked lanes", "blocker reasons:", "pending-gate", "intervention", "open-decision", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
+	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "先处理下列 blocker，不要执行 `/rekit continue login`", "## Mission Control brief", "blocked: true", "pending-gate:", "open intervention:", "open decision:", "next agent action:", "reconcile open intervention(s) before continuing this lane", "resolve or keep deferred pending-gate request(s)", "review open candidate/decision item(s)", "## Mission Commander next actions", "state=needs-reconcile source=missionCommanderActions blocked=true requiresReview=true command=`/rekit reconcile login -InterventionId <eventId> -Apply`", "state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf`", "follow-up is available only after resolving current lane blockers", "run as -WhatIf first; do not continue autonomously while lane remains blocked", "state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit handoff login`", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- pending gates: `1`", "- open interventions: `1`", "- open decisions: `1`", "- reconcile required: `true`", "- pending gate required: `true`", "- open decision required: `true`", "- resume command: `/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2`", "- handoff command: `/rekit handoff login`", "- commander primary command: `/rekit reconcile login -InterventionId <eventId> -Apply`", "commander follow-up commands:", "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf", "commander boundary:", "do not run continue for blocked lanes", "blocker reasons:", "pending-gate", "intervention", "open-decision", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
 		if !strings.Contains(string(laneText), expected) {
 			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
 		}
@@ -5260,7 +5296,7 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"review queued", "inspect candidate", "- commander primary command: `/rekit reconcile login -InterventionId <eventId> -Apply`", "commander follow-up commands:", "/rekit continue login -WhatIf", "commander boundary:", "do not run continue for blocked lanes"} {
+	for _, expected := range []string{"review queued", "inspect candidate", "- commander primary command: `/rekit reconcile login -InterventionId <eventId> -Apply`", "commander follow-up commands:", "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf", "commander boundary:", "do not run continue for blocked lanes"} {
 		if !strings.Contains(string(resume), expected) {
 			t.Fatalf("lane resume missing %q:\n%s", expected, string(resume))
 		}
@@ -5418,6 +5454,7 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	caseRoot := attachedCaseWithPack(t, "vmp-re")
 	writeContinueFixture(t, caseRoot)
 	writeCaseFile(t, caseRoot, ".rekit/facts/interventions.jsonl", `{"eventId":"evt-human-stop","kind":"intervention","lane":"feature-login","subject":"human correction","summary":"user changed lane direction","action":"override","status":"open","target":"workspace/features/feature-login"}`+"\n")
+	writeCaseFile(t, caseRoot, ".rekit/locks/lane-feature-login.lease", "")
 	before := snapshotFiles(t, caseRoot)
 
 	var out bytes.Buffer
@@ -5476,14 +5513,14 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	if preview.Command != "reconcile" || preview.IsMutation || preview.Applied || preview.Lane.ID != "feature-login" || preview.Intervention.EventID != "evt-human-stop" || preview.Executor != "session-2" || len(preview.WouldWrites) == 0 {
 		t.Fatalf("unexpected reconcile preview: %+v", preview)
 	}
-	if !preview.ExecutorAction.Blocked || preview.ExecutorAction.Ready || preview.ExecutorAction.OpenInterventions != 1 || !preview.ExecutorAction.ReconcileRequired || preview.ExecutorAction.ResumeCommand != "/rekit continue login" || preview.ExecutorAction.HandoffCommand != "/rekit handoff login" {
+	if !preview.ExecutorAction.Blocked || preview.ExecutorAction.Ready || preview.ExecutorAction.OpenInterventions != 1 || !preview.ExecutorAction.ReconcileRequired || preview.ExecutorAction.ResumeCommand != "/rekit continue login -Executor session-2 -ExpectedExecutorGeneration 1" || preview.ExecutorAction.HandoffCommand != "/rekit handoff login" {
 		t.Fatalf("reconcile preview executor action drifted: %+v", preview.ExecutorAction)
 	}
 	if !slices.Equal(preview.ExecutorAction.NextAgentActions, []string{"reconcile open intervention(s) before continuing this lane"}) {
 		t.Fatalf("reconcile preview should recommend only intervention reconciliation: %+v", preview.ExecutorAction.NextAgentActions)
 	}
 	wantReconcileApply := `/rekit reconcile login -InterventionId evt-human-stop -Apply -Executor session-2 -Actor main-agent -Reason "accept user correction"`
-	if preview.MissionCommanderAction.State != "needs-reconcile" || preview.MissionCommanderAction.PrimaryCommand != wantReconcileApply || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions", wantReconcileApply, false, true) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -WhatIf", true, true) {
+	if preview.MissionCommanderAction.State != "needs-reconcile" || preview.MissionCommanderAction.PrimaryCommand != wantReconcileApply || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions", wantReconcileApply, false, true) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -Executor session-2 -ExpectedExecutorGeneration 1 -WhatIf", true, true) {
 		t.Fatalf("reconcile preview should expose top-level Mission Commander apply projection: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
 	}
 	assertWriteKind(t, preview.WouldWrites, "lane-event", "would-append-executor-takeover")
@@ -5492,7 +5529,7 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "vmp-re", "-WhatIf", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"executor action：blocked=true ready=false pendingGates=0 openInterventions=1 openDecisions=0", "executor requirements：reconcile=true pendingGate=false openDecision=false", "executor handoff：continue=`/rekit continue login` handoff=`/rekit handoff login`", "mission commander action queue：summary=total=3 unblocked=1 blocked=2 requiresReview=3 followUp=2 current=/rekit reconcile login -InterventionId evt-human-stop -Apply -Executor session-2 -Actor main-agent -Reason \"accept user correction\"", "mission commander action queue current：state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -Apply -Executor session-2 -Actor main-agent -Reason \"accept user correction\"`", "mission commander next action：state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -Apply -Executor session-2 -Actor main-agent -Reason \"accept user correction\"`", "mission commander next action：state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -WhatIf`", "mission commander next action reason：run only after reconcile apply succeeds and the refreshed executor action remains ready", "mission commander next action boundary：reconcile apply only writes case-local intervention/lane/resume/checkpoint state"} {
+	for _, expected := range []string{"executor action：blocked=true ready=false pendingGates=0 openInterventions=1 openDecisions=0", "executor requirements：reconcile=true pendingGate=false openDecision=false", "executor handoff：continue=`/rekit continue login -Executor session-2 -ExpectedExecutorGeneration 1` handoff=`/rekit handoff login`", "mission commander action queue：summary=total=3 unblocked=1 blocked=2 requiresReview=3 followUp=2 current=/rekit reconcile login -InterventionId evt-human-stop -Apply -Executor session-2 -Actor main-agent -Reason \"accept user correction\"", "mission commander action queue current：state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -Apply -Executor session-2 -Actor main-agent -Reason \"accept user correction\"`", "mission commander next action：state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -Apply -Executor session-2 -Actor main-agent -Reason \"accept user correction\"`", "mission commander next action：state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -Executor session-2 -ExpectedExecutorGeneration 1 -WhatIf`", "mission commander next action reason：run only after reconcile apply succeeds and the refreshed executor action remains ready", "mission commander next action boundary：reconcile apply only writes case-local intervention/lane/resume/checkpoint state"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("reconcile text missing %q:\n%s", expected, out.String())
 		}
@@ -5536,13 +5573,13 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	if !slices.Contains(reconciled.MissionBrief.ReadyLanes, "login") || containsSubstring(reconciled.MissionBrief.BlockedLanes, "intervention") {
 		t.Fatalf("reconcile did not clear intervention blocker: %+v", reconciled.MissionBrief)
 	}
-	if reconciled.ExecutorAction.Blocked || !reconciled.ExecutorAction.Ready || reconciled.ExecutorAction.OpenInterventions != 0 || reconciled.ExecutorAction.ReconcileRequired || reconciled.ExecutorAction.ResumeCommand != "/rekit continue login" || reconciled.ExecutorAction.HandoffCommand != "/rekit handoff login" {
+	if reconciled.ExecutorAction.Blocked || !reconciled.ExecutorAction.Ready || reconciled.ExecutorAction.OpenInterventions != 0 || reconciled.ExecutorAction.ReconcileRequired || reconciled.ExecutorAction.ResumeCommand != "/rekit continue login -Executor session-2 -ExpectedExecutorGeneration 1" || reconciled.ExecutorAction.HandoffCommand != "/rekit handoff login" {
 		t.Fatalf("reconcile apply executor action drifted: %+v", reconciled.ExecutorAction)
 	}
-	if reconciled.MissionCommanderAction.State != "ready-to-continue" || reconciled.MissionCommanderAction.PrimaryCommand != "/rekit continue login" || !containsMissionCommanderNextAction(reconciled.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue login", false, false) || !containsMissionCommanderNextAction(reconciled.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", false, false) {
+	if reconciled.MissionCommanderAction.State != "ready-to-continue" || reconciled.MissionCommanderAction.PrimaryCommand != "/rekit continue login -Executor session-2 -ExpectedExecutorGeneration 1" || !containsMissionCommanderNextAction(reconciled.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue login -Executor session-2 -ExpectedExecutorGeneration 1", false, false) || !containsMissionCommanderNextAction(reconciled.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", false, false) {
 		t.Fatalf("reconcile apply should expose top-level Mission Commander continue projection: action=%+v next=%+v", reconciled.MissionCommanderAction, reconciled.MissionCommanderNextActions)
 	}
-	if !slices.Equal(reconciled.NextSteps, []string{"run doctor after apply", "/rekit continue login"}) {
+	if !slices.Equal(reconciled.NextSteps, []string{"run doctor after apply", "/rekit continue login -Executor session-2 -ExpectedExecutorGeneration 1"}) {
 		t.Fatalf("reconcile apply ready lane next steps drifted: %+v", reconciled.NextSteps)
 	}
 	interventions, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl"))
@@ -5568,7 +5605,7 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-Executor", "session-2", "-ExpectedExecutorGeneration", "1"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var cont struct {
@@ -5966,7 +6003,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "login", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "login", "-Executor", "session-login", "-ExpectedExecutorGeneration", "1", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "continue reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "continue reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") {
@@ -5974,7 +6011,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Executor", "session-login", "-ExpectedExecutorGeneration", "1", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var continueApplyBeforeIntake struct {
@@ -6103,7 +6140,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 			}
 
 			out.Reset()
-			if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Format", "json"}, &out); err != nil {
+			if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Executor", "session-login", "-ExpectedExecutorGeneration", "1", "-Format", "json"}, &out); err != nil {
 				t.Fatal(err)
 			}
 			var continueApplyAfterFirstIntake struct {
@@ -9626,7 +9663,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	writeCaseFile(t, caseRoot, ".rekit/facts/candidates.jsonl", `{"eventId":"evt-open-candidate","kind":"candidate","lane":"main","subject":"review candidate","summary":"needs authority review","status":"open","evidenceRefs":["workspace/main/main/packet.md"]}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/lanes/main/outbox.jsonl", `{"eventId":"evt-authorized-continue","kind":"observation","subject":"post auth observation","summary":"continue after authorized gate","evidence":"evidence-authorized-gate"}`+"\n")
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main", "-Executor", "session-reconcile-text", "-ExpectedExecutorGeneration", "3"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var cont struct {
@@ -9655,7 +9692,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatalf("continue JSON missing authorized gate visibility: %+v", cont.MissionBrief)
 	}
 	assertAuthorizedGateAdapterHandoffSnapshot(t, "continue", cont.AuthorizedGateAdapterHandoffs, authorizedEventID, wantContractCommand)
-	if !cont.ExecutorAction.Blocked || cont.ExecutorAction.Ready || !cont.ExecutorAction.OpenDecisionRequired || cont.ExecutorAction.PendingGates != 0 || cont.ExecutorAction.OpenInterventions != 0 || cont.ExecutorAction.OpenDecisions != 1 || !slices.Contains(cont.ExecutorAction.BlockerReasons, "open-decision") || cont.ExecutorAction.ResumeCommand != "/rekit continue main" {
+	if !cont.ExecutorAction.Blocked || cont.ExecutorAction.Ready || !cont.ExecutorAction.OpenDecisionRequired || cont.ExecutorAction.PendingGates != 0 || cont.ExecutorAction.OpenInterventions != 0 || cont.ExecutorAction.OpenDecisions != 1 || !slices.Contains(cont.ExecutorAction.BlockerReasons, "open-decision") || cont.ExecutorAction.ResumeCommand != "/rekit continue main -Executor session-reconcile-text -ExpectedExecutorGeneration 3" {
 		t.Fatalf("continue JSON missing executor action snapshot: %+v", cont.ExecutorAction)
 	}
 	if len(cont.ExecutionEvidenceReview) != 2 || cont.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || cont.ExecutionEvidenceReview[1].Status != "escalated" {
@@ -9678,7 +9715,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"- authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "## Authorized gate adapter handoff", "defaultReportPath=workspace/main/debug/session-1/adapter-report.json", "caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json", "validate: `rekit -Command gate -Pack _template", "case record: `rekit -Command gate -Pack _template -Apply -GateEventId " + authorizedEventID, "boundary: projection may read and validate an existing canonical sidecar", "## Executor action snapshot", "- open decisions: `1`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "## Mission Commander next actions", "state=ready-for-evidence-review source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff main`", "state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=true requiresReview=true command=`/rekit overview`", "review execution evidence for gateEventId " + authorizedEventID, "boundary hit or escalation in execution evidence", "follow-through: state=ready-for-evidence-review", "outcome: name=recorded-evidence-review", "when: bounded observation evidence was recorded for an authorized gate", "evidence: workspace/main/debug/session-1/result.json", "follow-through: state=needs-main-escalation", "outcome: name=boundary-or-escalation-review", "when: recorded evidence reports boundaryHits, escalation, boundary-hit, or escalated status", "evidence: workspace/main/debug/session-1/adapter-result.json", "- blocker reasons:", "open-decision"} {
+	for _, expected := range []string{"- authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "## Authorized gate adapter handoff", "defaultReportPath=workspace/main/debug/session-1/adapter-report.json", "caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json", "validate: `rekit -Command gate -Pack _template", "case record: `rekit -Command gate -Pack _template -Apply -GateEventId " + authorizedEventID, "boundary: projection may read and validate an existing canonical sidecar", "## Executor action snapshot", "- open decisions: `1`", "- open decision required: `true`", "- resume command: `/rekit continue main -Executor session-reconcile-text -ExpectedExecutorGeneration 3`", "## Mission Commander next actions", "state=ready-for-evidence-review source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff main`", "state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=true requiresReview=true command=`/rekit overview`", "review execution evidence for gateEventId " + authorizedEventID, "boundary hit or escalation in execution evidence", "follow-through: state=ready-for-evidence-review", "outcome: name=recorded-evidence-review", "when: bounded observation evidence was recorded for an authorized gate", "evidence: workspace/main/debug/session-1/result.json", "follow-through: state=needs-main-escalation", "outcome: name=boundary-or-escalation-review", "when: recorded evidence reports boundaryHits, escalation, boundary-hit, or escalated status", "evidence: workspace/main/debug/session-1/adapter-result.json", "- blocker reasons:", "open-decision"} {
 		if !strings.Contains(string(digest), expected) {
 			t.Fatalf("continue digest missing %q:\n%s", expected, string(digest))
 		}
@@ -9689,7 +9726,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Mission Control brief", "openLanes=1 ready=0 blocked=1", "- blocked lanes:", "main (open-decision)", "- open decisions:", "review candidate", "- next agent actions:", "review open candidate/decision item(s) with evidence and authority boundary", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- open decision required: `true`", "- resume command: `/rekit continue main`", "## Mission Commander next actions", "state=ready-for-evidence-review source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff main`", "state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=true requiresReview=true command=`/rekit overview`", "review execution evidence for gateEventId " + authorizedEventID, "boundary hit or escalation in execution evidence", "- blocker reasons:", "open-decision", "## Heavy-action gate decisions", "- authorized-gate:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "profile=prof-main-debug", "- pending-gate: none", "- execution evidence review:", "status=succeeded | gateEventId=" + authorizedEventID, "status=escalated | gateEventId=" + authorizedEventID, "outputRefs: workspace/main/debug/session-1/result.json", "evidenceRefs: workspace/main/debug/session-1/result.json", "review command: `review outputRefs/evidenceRefs for gateEventId " + authorizedEventID + "`", "handoff command: `/rekit handoff main`", "commander state: ready-for-evidence-review", "commander state: needs-main-escalation", "commander primary: `/rekit handoff main`", "follow-through: state=ready-for-evidence-review", "outcome: name=recorded-evidence-review", "when: bounded observation evidence was recorded for an authorized gate", "evidence: workspace/main/debug/session-1/result.json", "follow-through: state=needs-main-escalation", "outcome: name=boundary-or-escalation-review", "when: recorded evidence reports boundaryHits, escalation, boundary-hit, or escalated status", "evidence: workspace/main/debug/session-1/adapter-result.json", "commander follow-up: /rekit overview", "commander follow-up: /rekit continue main -WhatIf", "boundary: observation evidence is already recorded; do not replay heavy tool", "boundary: boundary/escalation requires main review before autonomous continuation"} {
+	for _, expected := range []string{"## Mission Control brief", "openLanes=1 ready=0 blocked=1", "- blocked lanes:", "main (open-decision)", "- open decisions:", "review candidate", "- next agent actions:", "review open candidate/decision item(s) with evidence and authority boundary", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- open decision required: `true`", "- resume command: `/rekit continue main -Executor session-reconcile-text -ExpectedExecutorGeneration 3`", "## Mission Commander next actions", "state=ready-for-evidence-review source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff main`", "state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=true requiresReview=true command=`/rekit overview`", "review execution evidence for gateEventId " + authorizedEventID, "boundary hit or escalation in execution evidence", "- blocker reasons:", "open-decision", "## Heavy-action gate decisions", "- authorized-gate:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "profile=prof-main-debug", "- pending-gate: none", "- execution evidence review:", "status=succeeded | gateEventId=" + authorizedEventID, "status=escalated | gateEventId=" + authorizedEventID, "outputRefs: workspace/main/debug/session-1/result.json", "evidenceRefs: workspace/main/debug/session-1/result.json", "review command: `review outputRefs/evidenceRefs for gateEventId " + authorizedEventID + "`", "handoff command: `/rekit handoff main`", "commander state: ready-for-evidence-review", "commander state: needs-main-escalation", "commander primary: `/rekit handoff main`", "follow-through: state=ready-for-evidence-review", "outcome: name=recorded-evidence-review", "when: bounded observation evidence was recorded for an authorized gate", "evidence: workspace/main/debug/session-1/result.json", "follow-through: state=needs-main-escalation", "outcome: name=boundary-or-escalation-review", "when: recorded evidence reports boundaryHits, escalation, boundary-hit, or escalated status", "evidence: workspace/main/debug/session-1/adapter-result.json", "commander follow-up: /rekit overview", "commander follow-up: /rekit continue main -Executor session-reconcile-text -ExpectedExecutorGeneration 3 -WhatIf", "boundary: observation evidence is already recorded; do not replay heavy tool", "boundary: boundary/escalation requires main review before autonomous continuation"} {
 		if !strings.Contains(string(resume), expected) {
 			t.Fatalf("lane resume missing %q:\n%s", expected, string(resume))
 		}
@@ -9728,14 +9765,14 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if checkpoint.MissionBrief.Summary != "openLanes=1 ready=0 blocked=1 pendingGates=0 authorizedGates=1 openDecisions=1 interventions=0" || !slices.Contains(checkpoint.MissionBrief.BlockedLanes, "main (open-decision)") || !containsSubstring(checkpoint.MissionBrief.OpenDecisions, "review candidate") || len(checkpoint.MissionBrief.PendingGates) != 0 || !containsSubstring(checkpoint.MissionBrief.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(checkpoint.MissionBrief.AuthorizedGates, "reportContract="+reportContract) {
 		t.Fatalf("lane checkpoint missing Mission Control brief snapshot: %+v", checkpoint.MissionBrief)
 	}
-	if !checkpoint.ExecutorAction.Blocked || checkpoint.ExecutorAction.Ready || !checkpoint.ExecutorAction.OpenDecisionRequired || checkpoint.ExecutorAction.PendingGates != 0 || checkpoint.ExecutorAction.OpenInterventions != 0 || checkpoint.ExecutorAction.OpenDecisions != 1 || !slices.Contains(checkpoint.ExecutorAction.BlockerReasons, "open-decision") || checkpoint.ExecutorAction.ResumeCommand != "/rekit continue main" {
+	if !checkpoint.ExecutorAction.Blocked || checkpoint.ExecutorAction.Ready || !checkpoint.ExecutorAction.OpenDecisionRequired || checkpoint.ExecutorAction.PendingGates != 0 || checkpoint.ExecutorAction.OpenInterventions != 0 || checkpoint.ExecutorAction.OpenDecisions != 1 || !slices.Contains(checkpoint.ExecutorAction.BlockerReasons, "open-decision") || checkpoint.ExecutorAction.ResumeCommand != "/rekit continue main -Executor session-reconcile-text -ExpectedExecutorGeneration 3" {
 		t.Fatalf("lane checkpoint missing typed executor action snapshot: %+v", checkpoint.ExecutorAction)
 	}
 	if len(checkpoint.PendingGates) != 0 || !containsSubstring(checkpoint.AuthorizedGates, "authorized debug") || !containsSubstring(checkpoint.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(checkpoint.AuthorizedGates, "stopConditions=timeout") || !containsSubstring(checkpoint.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(checkpoint.AuthorizedGates, "reportContract="+reportContract) || !containsSubstring(checkpoint.AuthorizedGates, "auth=preauthorized") {
 		t.Fatalf("lane checkpoint missing non-blocking authorized gate visibility: %+v", checkpoint)
 	}
 	assertAuthorizedGateAdapterHandoffSnapshot(t, "lane checkpoint", checkpoint.AuthorizedGateAdapterHandoffs, authorizedEventID, wantContractCommand)
-	if len(checkpoint.ExecutionEvidenceReview) != 2 || checkpoint.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || checkpoint.ExecutionEvidenceReview[0].Status != "succeeded" || !containsSubstring(checkpoint.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/session-1/result.json") || checkpoint.ExecutionEvidenceReview[0].HandoffCommand != "/rekit handoff main" || checkpoint.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || !containsSubstring(checkpoint.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || checkpoint.ExecutionEvidenceReview[1].Status != "escalated" || !containsSubstring(checkpoint.ExecutionEvidenceReview[1].Boundary, "requires main review") || checkpoint.ExecutionEvidenceReview[1].MissionCommanderAction.State != "needs-main-escalation" || containsSubstring(checkpoint.ExecutionEvidenceReview[1].MissionCommanderAction.FollowUpCommands, "/rekit continue main") {
+	if len(checkpoint.ExecutionEvidenceReview) != 2 || checkpoint.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || checkpoint.ExecutionEvidenceReview[0].Status != "succeeded" || !containsSubstring(checkpoint.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/session-1/result.json") || checkpoint.ExecutionEvidenceReview[0].HandoffCommand != "/rekit handoff main" || checkpoint.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || !containsSubstring(checkpoint.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -Executor session-reconcile-text -ExpectedExecutorGeneration 3 -WhatIf") || checkpoint.ExecutionEvidenceReview[1].Status != "escalated" || !containsSubstring(checkpoint.ExecutionEvidenceReview[1].Boundary, "requires main review") || checkpoint.ExecutionEvidenceReview[1].MissionCommanderAction.State != "needs-main-escalation" || containsSubstring(checkpoint.ExecutionEvidenceReview[1].MissionCommanderAction.FollowUpCommands, "/rekit continue main") {
 		t.Fatalf("lane checkpoint missing execution evidence review queue: %+v", checkpoint.ExecutionEvidenceReview)
 	}
 	assertEvidenceReviewBeforeBlockedAdapterActions(t, "lane checkpoint", checkpoint.MissionCommanderNextActions, authorizedEventID)

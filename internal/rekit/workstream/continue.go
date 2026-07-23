@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -25,7 +26,9 @@ import (
 const continuePreviewRunID = "run-preview"
 
 type ContinueOptions struct {
-	Selector string
+	Selector                   string
+	Executor                   string
+	ExpectedExecutorGeneration int
 }
 
 type ContinueResult struct {
@@ -237,9 +240,26 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	return result, nil
 }
 
-func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (ContinueResult, error) {
+func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result ContinueResult, err error) {
 	ctx, err := newContinueContext(repoRoot, caseRoot, pack, opt)
 	if err != nil {
+		return ContinueResult{}, err
+	}
+	lease, err := acquireLaneMutationLock(ctx.inst.CaseRoot, ctx.lane.ID)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	defer func() {
+		if unlockErr := lease.Unlock(); unlockErr != nil {
+			err = errors.Join(err, unlockErr)
+			result = ContinueResult{}
+		}
+	}()
+	ctx, err = newContinueContext(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	if err := lease.Validate(); err != nil {
 		return ContinueResult{}, err
 	}
 	if blocked, err := ctx.blockedByOpenInterventions(true); err != nil || blocked.Blocked {
@@ -274,7 +294,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (Contin
 	if err := os.MkdirAll(runRoot, 0o755); err != nil {
 		return ContinueResult{}, err
 	}
-	result := ContinueResult{
+	result = ContinueResult{
 		SchemaVersion:        1,
 		Command:              "continue",
 		CaseRoot:             ctx.inst.CaseRoot,
@@ -412,11 +432,42 @@ func newContinueContext(repoRoot, caseRoot, pack string, opt ContinueOptions) (c
 	if status == "archived" || status == "paused" || status == "closed" {
 		return continueContext{}, fmt.Errorf("target lane is not open: %s", lane.ID)
 	}
+	if err := validateContinueOwnerBinding(lane, opt); err != nil {
+		return continueContext{}, err
+	}
 	policy, err := readContinuePolicy(inst.CaseRoot)
 	if err != nil {
 		return continueContext{}, err
 	}
 	return continueContext{inst: inst, manifest: m, board: b, policy: policy, selector: selector, lane: lane}, nil
+}
+
+func validateContinueOwnerBinding(lane Lane, opt ContinueOptions) error {
+	currentExecutor := strings.TrimSpace(lane.CurrentExecutor)
+	if currentExecutor == "" {
+		if lane.ExecutorGeneration == 0 && strings.TrimSpace(opt.Executor) == "" && opt.ExpectedExecutorGeneration == 0 {
+			return nil
+		}
+		return fmt.Errorf("continue owner guard mismatch for legacy unassigned lane %s: expected executor=%s generation=%d current executor=unassigned generation=%d", lane.ID, textOrUnassigned(opt.Executor), opt.ExpectedExecutorGeneration, lane.ExecutorGeneration)
+	}
+	expectedExecutor := strings.TrimSpace(opt.Executor)
+	if expectedExecutor == "" {
+		return fmt.Errorf("continue requires explicit Executor and ExpectedExecutorGeneration for owned lane %s: current executor=%s generation=%d", lane.ID, currentExecutor, lane.ExecutorGeneration)
+	}
+	if opt.ExpectedExecutorGeneration <= 0 {
+		return fmt.Errorf("continue requires positive ExpectedExecutorGeneration for owned lane %s: current executor=%s generation=%d", lane.ID, currentExecutor, lane.ExecutorGeneration)
+	}
+	if expectedExecutor != currentExecutor || opt.ExpectedExecutorGeneration != lane.ExecutorGeneration {
+		return fmt.Errorf("continue owner guard is not current for lane %s: expected executor=%s generation=%d current executor=%s generation=%d", lane.ID, textOrUnassigned(expectedExecutor), opt.ExpectedExecutorGeneration, textOrUnassigned(currentExecutor), lane.ExecutorGeneration)
+	}
+	return nil
+}
+
+func textOrUnassigned(value string) string {
+	if value = strings.TrimSpace(value); value != "" {
+		return value
+	}
+	return "unassigned"
 }
 
 func (ctx continueContext) missionBrief() mission.Brief {
@@ -442,7 +493,9 @@ func (ctx continueContext) executionEvidenceReview() []ExecutionEvidenceReviewIt
 	if err != nil {
 		return nil
 	}
-	return laneExecutionEvidenceReview(ctx.lane, facts.Observations)
+	return bindExecutionEvidenceReviewContinueCommands(laneExecutionEvidenceReview(ctx.lane, facts.Observations), func(string) (Lane, bool) {
+		return ctx.lane, true
+	})
 }
 
 func (ctx continueContext) reviewerWritebacks() []ReviewerWritebackItem {

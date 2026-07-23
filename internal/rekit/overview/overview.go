@@ -172,9 +172,10 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	fmt.Fprintf(&out, "- 需要确认: %d\n", data.pending)
 	fmt.Fprintln(&out)
 
-	brief := buildMissionBrief(data.lanes, facts)
+	board := boardLanes(data.lanes)
+	brief := workstream.BindMissionBriefAuthorityContinueCommands(buildMissionBrief(data.lanes, facts), board)
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
-	evidenceReview := overviewExecutionEvidenceReview(data.lanes, facts)
+	evidenceReview := workstream.BindExecutionEvidenceReviewAuthorityContinueCommands(overviewExecutionEvidenceReview(data.lanes, facts), board)
 	authorizedGateAdapterHandoffs := workstream.AuthorizedGateAdapterHandoffs(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, "")
 	reviewerDispatchIntakeHandoffs, err := workstream.ReviewerDispatchIntakeHandoffs(data.inst.CaseRoot, facts, "")
 	if err != nil {
@@ -235,9 +236,10 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 		})
 	}
 	facts := data.facts
-	brief := buildMissionBrief(data.lanes, facts)
+	board := boardLanes(data.lanes)
+	brief := workstream.BindMissionBriefAuthorityContinueCommands(buildMissionBrief(data.lanes, facts), board)
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
-	evidenceReview := overviewExecutionEvidenceReview(data.lanes, facts)
+	evidenceReview := workstream.BindExecutionEvidenceReviewAuthorityContinueCommands(overviewExecutionEvidenceReview(data.lanes, facts), board)
 	authorizedGateAdapterHandoffs := workstream.AuthorizedGateAdapterHandoffs(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, "")
 	reviewerDispatchIntakeHandoffs, err := workstream.ReviewerDispatchIntakeHandoffs(data.inst.CaseRoot, facts, "")
 	if err != nil {
@@ -347,7 +349,13 @@ func buildMissionBrief(lanes []event, facts factSet) MissionBrief {
 }
 
 func buildLaneExecutorActions(lanes []event, facts factSet, brief MissionBrief) []mission.LaneExecutorActionSnapshot {
-	return mission.LaneExecutorActionSnapshots(boardLanes(lanes), facts.Facts, brief)
+	board := boardLanes(lanes)
+	brief = workstream.BindMissionBriefAuthorityContinueCommands(brief, board)
+	items := mission.LaneExecutorActionSnapshots(board, facts.Facts, brief)
+	for idx := range items {
+		items[idx].ExecutorAction = workstream.BindLaneAuthorityContinueCommands(items[idx].ExecutorAction, board[idx])
+	}
+	return items
 }
 
 func overviewExecutionEvidenceReview(lanes []event, facts factSet) []workstream.ExecutionEvidenceReviewItem {

@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 561：continue executor-generation stale-writer guard closure
+
+状态：已完成runtime、CLI、durable handoff、tests与nested product path implementation；独立审查识别的shared mutation serialization与namespace rebind问题已修复，focused/repeat tests与跨平台test-binary编译已通过。完整本地release minimum已通过；implementation commit/push与其remote release-gate inspection尚待本批release步骤完成。
+
+目标：关闭replacement executor通过`start` takeover或`reconcile`刷新durable lane owner后，旧executor仍可调用`continue`并写入run、facts、lane resume/checkpoint与board的真实断点。新路径要求`continue`同时提供当前`-Executor`与`-ExpectedExecutorGeneration`，并把两者作为lane-local optimistic concurrency precondition。
+
+已实现内容：
+
+- `continue -WhatIf`与`continue -Apply`在任何写入前strict读取所选lane的`currentExecutor`与`executorGeneration`；缺少调用方binding、executor不匹配或generation stale均fail-closed。legacy从未分配owner（empty executor/generation 0）的lane保持兼容。
+- stale调用保持zero-write：不创建`.rekit/runs/**`，不追加`.rekit/facts/**`，不刷新lane `RESUME.md`/checkpoint，也不修改`.rekit/board.json`；Apply与`start` takeover、`reconcile` takeover、写durable owner snapshot的`handoff -Apply`共用kernel-backed case/lane mutation lease并在锁内重读。
+- 所有workstream writer按真实全局写集取得project-exclusive lease，existing lane另取exclusive lane lease；stable external namespace不受shell cache环境变量影响，并以resolved case identity派生key。既有case-root `.re-template.yml`（若存在）提供`.rekit`换绑之外的stable lease primitive；case-local namespace与canonical instance/lane identity在mutation前重验。进程退出由kernel释放；unlock/close/identity错误显式返回。
+- runtime-generated status/overview/handoff/start/reconcile/continue、Mission Commander actions与durable `RESUME.md`/checkpoint/run digest从current lane authority重建`-Executor ... -ExpectedExecutorGeneration ...` continue command，旧owner字符串不能在takeover后存活。
+- nested case cwd、无`Target`、无`Pack`产品路径覆盖session-A generation 1→session-B generation 2 takeover、stale A preview/apply完整case snapshot zero-write、current B text preview/JSON apply成功。
+
+验证结果：focused workstream owner guard/locking/concurrency tests重复10次通过，workstream全套重复10次通过；CLI nested replaceable-session product path重复10次及完整CLI tests通过。Linux/macOS/Windows/wasm workstream test binary交叉编译通过；独立P0/P1终审无存活finding。完整本地release minimum已通过：`go run ./cmd/rekit -- -Command release-check -Format json`返回`ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`与`git diff --check`均通过。executor takeover仍只由显式`start`/`reconcile`拥有；guard不自动spawn、停止、轮询或管理session，不执行heavy action，不写authority/confirmed。
+
+上一批摘要：Batch 560已完成pack-memory candidate verification workspace retirement closure；implementation commit `303414e Retire candidate verification workspaces`已推送，对应remote run `30021860514`三平台jobs均completed failure、`runner_id=0`且`steps=[]`，仍属既有runner/billing blocker。
+
 ### Batch 560：pack-memory candidate verification workspace retirement closure
 
 状态：已完成runtime/CLI/release handoff/tests/docs implementation、nested source-case product path、多轮独立审查修复、focused重复验收、完整本地release minimum与implementation commit `303414e Retire candidate verification workspaces`/push。对应remote run `30021860514` completed failure；Linux/Windows/macOS jobs均completed failure、`runner_id=0`且`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。

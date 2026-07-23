@@ -1,9 +1,11 @@
 package workstream
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
@@ -35,6 +37,18 @@ func TestReadHandoffFactsUsesMissionLedgerSnapshot(t *testing.T) {
 	}
 	if facts.PendingDecision != 1 || len(facts.AllBatchEvents) != 9 {
 		t.Fatalf("handoff facts did not include shared ledger summaries: pending=%d batches=%d", facts.PendingDecision, len(facts.AllBatchEvents))
+	}
+}
+
+func TestWriteProjectMissionBriefBindsCurrentLaneAuthority(t *testing.T) {
+	lanes := []boardLane{{ID: "main", Authority: true, Status: "open", CurrentExecutor: "stale-executor", ExecutorGeneration: 1}}
+	current := []Lane{{ID: "main", Authority: true, Status: "open", CurrentExecutor: "replacement-executor", ExecutorGeneration: 2}}
+	var out bytes.Buffer
+	writeProjectMissionBrief(&out, lanes, mission.LedgerFacts{}, current)
+	text := out.String()
+	want := "/rekit continue main -Executor replacement-executor -ExpectedExecutorGeneration 2"
+	if !strings.Contains(text, want) || strings.Contains(text, "stale-executor") {
+		t.Fatalf("project mission brief did not rebuild continue command from current lane authority:\n%s", text)
 	}
 }
 

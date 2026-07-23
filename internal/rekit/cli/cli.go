@@ -70,6 +70,7 @@ type Options struct {
 	ExpectedReviewerResultSHA256         string
 	ExpectedIntentSHA256                 string
 	ExpectedCanonicalSHA256              string
+	ExpectedExecutorGenerationProvided   bool
 	CollectReviewerResult                bool
 	ShardID                              string
 	DiffPath                             string
@@ -372,6 +373,18 @@ func Parse(args []string) (Options, error) {
 			}
 			opt.Reconcile.Executor = args[i]
 			opt.Start.Executor = args[i]
+			opt.Continue.Executor = args[i]
+		case "-ExpectedExecutorGeneration", "--expected-executor-generation":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedExecutorGeneration")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return opt, fmt.Errorf("invalid -ExpectedExecutorGeneration: %s", args[i])
+			}
+			opt.Continue.ExpectedExecutorGeneration = n
+			opt.ExpectedExecutorGenerationProvided = true
 		case "-Subject", "--subject":
 			i++
 			if i >= len(args) {
@@ -656,6 +669,9 @@ func Run(args []string, stdout io.Writer) error {
 	opt, err := Parse(args)
 	if err != nil {
 		return err
+	}
+	if opt.ExpectedExecutorGenerationProvided && opt.Command != commands.Continue {
+		return fmt.Errorf("-ExpectedExecutorGeneration is supported only by continue")
 	}
 	ctx, err := runtime.NewWithCwd(opt.Target, opt.Pack, runtimeCwdOverride(opt))
 	if err != nil {
@@ -4057,6 +4073,49 @@ func textOr(value, fallback string) string {
 	return value
 }
 
+func bindCurrentLaneContinueCommands(caseRoot, laneID string, brief *mission.Brief, executorAction *mission.ExecutorAction, commanderAction *mission.MissionCommanderAction, nextActions []mission.MissionCommanderNextActionItem) ([]mission.MissionCommanderNextActionItem, error) {
+	lane, err := workstream.CurrentLaneAuthority(caseRoot, laneID)
+	if err != nil {
+		return nil, err
+	}
+	if brief != nil {
+		*brief = workstream.BindMissionBriefAuthorityContinueCommands(*brief, []mission.BoardLane{lane})
+	}
+	if executorAction != nil {
+		*executorAction = workstream.BindLaneAuthorityContinueCommands(*executorAction, lane)
+	}
+	if commanderAction != nil {
+		commanderAction.PrimaryCommand = workstream.BindLaneAuthorityContinueCommand(commanderAction.PrimaryCommand, lane)
+		for i := range commanderAction.FollowUpCommands {
+			commanderAction.FollowUpCommands[i] = workstream.BindLaneAuthorityContinueCommand(commanderAction.FollowUpCommands[i], lane)
+		}
+	}
+	for i := range nextActions {
+		nextActions[i].Command = workstream.BindLaneAuthorityContinueCommand(nextActions[i].Command, lane)
+	}
+	return nextActions, nil
+}
+
+func bindGateWouldExecutorAction(caseRoot, laneID string, action mission.ExecutorAction) (mission.ExecutorAction, error) {
+	lane, err := workstream.CurrentLaneAuthority(caseRoot, laneID)
+	if err != nil {
+		return mission.ExecutorAction{}, err
+	}
+	return workstream.BindLaneAuthorityContinueCommands(action, lane), nil
+}
+
+func bindNoteContinueCommands(caseRoot, laneID string, result *note.AppendResult) error {
+	var err error
+	result.MissionCommanderNextActions, err = bindCurrentLaneContinueCommands(caseRoot, laneID, &result.MissionBrief, &result.ExecutorAction, &result.MissionCommanderAction, result.MissionCommanderNextActions)
+	if err != nil {
+		return err
+	}
+	if result.WouldExecutorAction != nil {
+		result.WouldMissionCommanderNextActions, err = bindCurrentLaneContinueCommands(caseRoot, laneID, nil, result.WouldExecutorAction, result.WouldMissionCommanderAction, result.WouldMissionCommanderNextActions)
+	}
+	return err
+}
+
 func runNote(ctx runtime.Context, opt Options, out io.Writer) error {
 	target, err := commandTarget(ctx, "note", "attached case")
 	if err != nil {
@@ -4098,6 +4157,9 @@ func runNote(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	result, err := note.Append(ctx.RepoRoot, target, ctx.Pack, opt.Note, opt.WhatIf)
 	if err != nil {
+		return err
+	}
+	if err := bindNoteContinueCommands(target, eventText(result.Event, "lane"), &result); err != nil {
 		return err
 	}
 	format := strings.ToLower(strings.TrimSpace(opt.Format))
@@ -6612,6 +6674,14 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return err
 		}
+		plan.MissionCommanderNextActions, err = bindCurrentLaneContinueCommands(target, plan.EventPreview.Lane, &plan.MissionBrief, &plan.ExecutorAction, &plan.MissionCommanderAction, plan.MissionCommanderNextActions)
+		if err != nil {
+			return err
+		}
+		plan.WouldExecutorAction, err = bindGateWouldExecutorAction(target, plan.EventPreview.Lane, plan.WouldExecutorAction)
+		if err != nil {
+			return err
+		}
 		if format == "json" {
 			return writeJSON(out, plan)
 		}
@@ -6630,6 +6700,22 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	laneID := strings.TrimSpace(opt.Gate.Lane)
+	if result.Event != nil && strings.TrimSpace(result.Event.Lane) != "" {
+		laneID = result.Event.Lane
+	} else if result.ExecutionEvidence != nil && strings.TrimSpace(result.ExecutionEvidence.Lane) != "" {
+		laneID = result.ExecutionEvidence.Lane
+	}
+	result.MissionCommanderNextActions, err = bindCurrentLaneContinueCommands(target, laneID, &result.MissionBrief, &result.ExecutorAction, &result.MissionCommanderAction, result.MissionCommanderNextActions)
+	if err != nil {
+		return err
+	}
+	laneAuthority, err := workstream.CurrentLaneAuthority(target, laneID)
+	if err != nil {
+		return err
+	}
+	result.ExecutionEvidenceReview = workstream.BindExecutionEvidenceReviewAuthorityContinueCommands(result.ExecutionEvidenceReview, []mission.BoardLane{laneAuthority})
+	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	if format == "json" {
 		return writeJSON(out, result)
 	}

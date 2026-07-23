@@ -2,9 +2,11 @@ package workstream
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -17,6 +19,11 @@ import (
 )
 
 const maxHandoffRows = 5
+
+var (
+	continueOwnerBindingPattern = regexp.MustCompile(`\s+-Executor\s+(?:"(?:\\.|[^"])*"|\S+)\s+-ExpectedExecutorGeneration\s+\d+`)
+	handoffApplyBeforeLockHook  func()
+)
 
 type HandoffOptions struct {
 	Selector string
@@ -63,16 +70,42 @@ func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (Handof
 	return ctx.result(false, false, true, writes), nil
 }
 
-func HandoffApply(repoRoot, caseRoot, pack string, opt HandoffOptions) (HandoffResult, error) {
+func HandoffApply(repoRoot, caseRoot, pack string, opt HandoffOptions) (result HandoffResult, err error) {
 	ctx, err := newHandoffContext(repoRoot, caseRoot, pack, opt)
 	if err != nil {
+		return HandoffResult{}, err
+	}
+	if handoffApplyBeforeLockHook != nil {
+		handoffApplyBeforeLockHook()
+	}
+	var lease *workstreamMutationLease
+	if ctx.project {
+		lease, err = acquireProjectMutationLock(ctx.inst.CaseRoot)
+	} else {
+		lease, err = acquireLaneMutationLock(ctx.inst.CaseRoot, ctx.lane.ID)
+	}
+	if err != nil {
+		return HandoffResult{}, err
+	}
+	defer func() {
+		if unlockErr := lease.Unlock(); unlockErr != nil {
+			err = errors.Join(err, unlockErr)
+			result = HandoffResult{}
+		}
+	}()
+	ctx, err = newHandoffContext(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return HandoffResult{}, err
+	}
+	if err := lease.Validate(); err != nil {
 		return HandoffResult{}, err
 	}
 	writes, err := ctx.write()
 	if err != nil {
 		return HandoffResult{}, err
 	}
-	return ctx.result(true, true, false, writes), nil
+	result = ctx.result(true, true, false, writes)
+	return result, nil
 }
 
 type handoffContext struct {
@@ -130,6 +163,11 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	brief, err := ctx.missionBrief()
 	if err != nil {
 		brief = mission.Brief{Summary: "unavailable: " + err.Error()}
+	}
+	if lane != nil {
+		brief = bindMissionBriefContinueCommands(brief, []Lane{*lane})
+	} else if ctx.project {
+		brief = bindMissionBriefContinueCommands(brief, ctx.currentLanes())
 	}
 	var executorAction *laneExecutorAction
 	laneExecutorActions := []mission.LaneExecutorActionSnapshot{}
@@ -238,11 +276,49 @@ func (ctx handoffContext) laneExecutorActions() []mission.LaneExecutorActionSnap
 	if err != nil {
 		return nil
 	}
+	lanes := ctx.currentLanes()
 	brief := projectMissionBrief(ctx.board.Lanes, facts)
-	return mission.LaneExecutorActionSnapshots(ctx.board.Lanes, facts.Facts, brief)
+	brief = bindMissionBriefContinueCommands(brief, lanes)
+	items := mission.LaneExecutorActionSnapshots(ctx.board.Lanes, facts.Facts, brief)
+	for idx := range items {
+		lane := Lane{
+			ID:                 items[idx].Lane,
+			Status:             items[idx].Status,
+			Workspace:          items[idx].Workspace,
+			CurrentExecutor:    items[idx].CurrentExecutor,
+			ExecutorGeneration: items[idx].ExecutorGeneration,
+		}
+		for _, current := range lanes {
+			if current.ID == items[idx].Lane {
+				lane = current
+				break
+			}
+		}
+		items[idx].ExecutorAction = bindLaneContinueCommands(items[idx].ExecutorAction, lane)
+	}
+	return items
+}
+
+func (ctx handoffContext) currentLanes() []Lane {
+	lanes := make([]Lane, 0, len(ctx.board.Lanes))
+	for _, row := range ctx.board.Lanes {
+		lane, err := readLaneByID(ctx.inst.CaseRoot, row.ID)
+		if err != nil {
+			lane = Lane{
+				ID:                 row.ID,
+				Status:             row.Status,
+				Workspace:          row.Workspace,
+				CurrentExecutor:    row.CurrentExecutor,
+				ExecutorGeneration: row.ExecutorGeneration,
+			}
+		}
+		lanes = append(lanes, lane)
+	}
+	return lanes
 }
 
 func laneCommanderActionSnapshot(lane Lane, action laneExecutorAction) mission.LaneExecutorActionSnapshot {
+	action = bindLaneContinueCommands(action, lane)
 	return mission.LaneExecutorActionSnapshot{
 		Lane:               lane.ID,
 		Label:              workstreamLabel(lane),
@@ -255,6 +331,129 @@ func laneCommanderActionSnapshot(lane Lane, action laneExecutorAction) mission.L
 		LastTakeoverReason: lane.LastTakeoverReason,
 		ExecutorAction:     action,
 	}
+}
+
+func bindLaneContinueCommands(action laneExecutorAction, lane Lane) laneExecutorAction {
+	action.ResumeCommand = bindContinueCommand(action.ResumeCommand, lane)
+	for idx := range action.NextAgentActions {
+		action.NextAgentActions[idx] = bindContinueCommand(action.NextAgentActions[idx], lane)
+	}
+	action.MissionCommanderAction = bindMissionCommanderActionContinueCommands(action.MissionCommanderAction, lane)
+	return action
+}
+
+func bindMissionCommanderActionContinueCommands(action mission.MissionCommanderAction, lane Lane) mission.MissionCommanderAction {
+	action.PrimaryCommand = bindContinueCommand(action.PrimaryCommand, lane)
+	for idx := range action.FollowUpCommands {
+		action.FollowUpCommands[idx] = bindContinueCommand(action.FollowUpCommands[idx], lane)
+	}
+	return action
+}
+
+func bindExecutionEvidenceReviewContinueCommands(items []ExecutionEvidenceReviewItem, laneFor func(string) (Lane, bool)) []ExecutionEvidenceReviewItem {
+	for idx := range items {
+		lane, ok := laneFor(items[idx].MissionCommanderAction.PrimaryCommand)
+		if !ok {
+			continue
+		}
+		items[idx].MissionCommanderAction = bindMissionCommanderActionContinueCommands(items[idx].MissionCommanderAction, lane)
+		items[idx].FollowThrough = mission.ExecutionEvidenceReviewFollowThrough(items[idx])
+	}
+	return items
+}
+
+func bindContinueCommand(command string, lane Lane) string {
+	executor := strings.TrimSpace(lane.CurrentExecutor)
+	if executor == "" {
+		return command
+	}
+	label := workstreamLabel(lane)
+	prefix := "/rekit continue " + label
+	if command != prefix && !strings.HasPrefix(command, prefix+" ") {
+		return command
+	}
+	suffix := continueOwnerBindingPattern.ReplaceAllString(strings.TrimPrefix(command, prefix), "")
+	return prefix + " -Executor " + quoteCommandArg(executor) + " -ExpectedExecutorGeneration " + fmt.Sprintf("%d", lane.ExecutorGeneration) + suffix
+}
+
+func CurrentLaneAuthority(caseRoot, laneID string) (mission.BoardLane, error) {
+	lane, err := readLaneByID(caseRoot, laneID)
+	if err == nil {
+		return mission.BoardLane{
+			ID:                 lane.ID,
+			Status:             lane.Status,
+			Authority:          lane.Authority,
+			Workspace:          lane.Workspace,
+			CurrentExecutor:    lane.CurrentExecutor,
+			ExecutorGeneration: lane.ExecutorGeneration,
+		}, nil
+	}
+	board, boardErr := mission.ReadBoard(caseRoot)
+	if boardErr != nil {
+		return mission.BoardLane{}, err
+	}
+	for _, lane := range board.Lanes {
+		if lane.ID == laneID {
+			return lane, nil
+		}
+	}
+	return mission.BoardLane{ID: laneID, Authority: laneID == "main"}, nil
+}
+
+func BindLaneAuthorityContinueCommand(command string, lane mission.BoardLane) string {
+	return bindContinueCommand(command, workstreamLanesFromBoard([]mission.BoardLane{lane})[0])
+}
+
+func BindLaneAuthorityContinueCommands(action mission.ExecutorAction, lane mission.BoardLane) mission.ExecutorAction {
+	return bindLaneContinueCommands(action, workstreamLanesFromBoard([]mission.BoardLane{lane})[0])
+}
+
+func BindMissionBriefAuthorityContinueCommands(brief mission.Brief, lanes []mission.BoardLane) mission.Brief {
+	return bindMissionBriefContinueCommands(brief, workstreamLanesFromBoard(lanes))
+}
+
+func BindExecutionEvidenceReviewAuthorityContinueCommands(items []mission.ExecutionEvidenceReviewItem, lanes []mission.BoardLane) []mission.ExecutionEvidenceReviewItem {
+	workstreamLanes := workstreamLanesFromBoard(lanes)
+	return bindExecutionEvidenceReviewContinueCommands(items, func(command string) (Lane, bool) {
+		label, ok := strings.CutPrefix(strings.TrimSpace(command), "/rekit handoff ")
+		if !ok {
+			return Lane{}, false
+		}
+		for _, lane := range workstreamLanes {
+			if workstreamLabel(lane) == strings.TrimSpace(label) {
+				return lane, true
+			}
+		}
+		return Lane{}, false
+	})
+}
+
+func workstreamLanesFromBoard(lanes []mission.BoardLane) []Lane {
+	workstreamLanes := make([]Lane, 0, len(lanes))
+	for _, lane := range lanes {
+		workstreamLanes = append(workstreamLanes, Lane{
+			ID:                 lane.ID,
+			Status:             lane.Status,
+			Authority:          lane.Authority,
+			Workspace:          lane.Workspace,
+			CurrentExecutor:    lane.CurrentExecutor,
+			ExecutorGeneration: lane.ExecutorGeneration,
+		})
+	}
+	return workstreamLanes
+}
+
+func bindMissionBriefContinueCommands(brief mission.Brief, lanes []Lane) mission.Brief {
+	for idx, command := range brief.NextAgentActions {
+		for _, lane := range lanes {
+			bound := bindContinueCommand(command, lane)
+			if bound != command {
+				brief.NextAgentActions[idx] = bound
+				break
+			}
+		}
+	}
+	return brief
 }
 
 func handoffHasBlockedAction(actions []mission.LaneExecutorActionSnapshot) bool {
@@ -389,7 +588,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		fmt.Fprintf(&out, "- `%s`：最近一次自动整理摘要。\n", latestDigest)
 	}
 	fmt.Fprintln(&out)
-	writeProjectMissionBrief(&out, ctx.board.Lanes, facts)
+	writeProjectMissionBrief(&out, ctx.board.Lanes, facts, ctx.currentLanes())
 	WriteAuthorizedGateAdapterHandoffSection(&out, "## Authorized gate adapter handoff", AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, ""))
 	writeReviewerWritebackItems(&out, ReviewerWritebackItems(facts, ""))
 	reviewerDispatchIntakeHandoffs, err := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, "")
@@ -1000,7 +1199,20 @@ func (ctx handoffContext) projectExecutionEvidenceReview() []ExecutionEvidenceRe
 	if err != nil {
 		return nil
 	}
-	return ExecutionEvidenceReviewItems(facts.Observations, "", ctx.laneCommandLabel)
+	items := ExecutionEvidenceReviewItems(facts.Observations, "", ctx.laneCommandLabel)
+	lanes := ctx.currentLanes()
+	return bindExecutionEvidenceReviewContinueCommands(items, func(command string) (Lane, bool) {
+		label, ok := strings.CutPrefix(strings.TrimSpace(command), "/rekit handoff ")
+		if !ok {
+			return Lane{}, false
+		}
+		for _, lane := range lanes {
+			if workstreamLabel(lane) == strings.TrimSpace(label) {
+				return lane, true
+			}
+		}
+		return Lane{}, false
+	})
 }
 
 func (ctx handoffContext) executionEvidenceReview(lane Lane) []ExecutionEvidenceReviewItem {
@@ -1008,7 +1220,9 @@ func (ctx handoffContext) executionEvidenceReview(lane Lane) []ExecutionEvidence
 	if err != nil {
 		return nil
 	}
-	return laneExecutionEvidenceReview(lane, facts.Observations)
+	return bindExecutionEvidenceReviewContinueCommands(laneExecutionEvidenceReview(lane, facts.Observations), func(string) (Lane, bool) {
+		return lane, true
+	})
 }
 
 func (ctx handoffContext) laneCommandLabel(laneID string) string {
@@ -1030,8 +1244,8 @@ func projectMissionBrief(lanes []boardLane, facts mission.LedgerFacts) mission.B
 	})
 }
 
-func writeProjectMissionBrief(out *bytes.Buffer, lanes []boardLane, facts mission.LedgerFacts) {
-	brief := projectMissionBrief(lanes, facts)
+func writeProjectMissionBrief(out *bytes.Buffer, lanes []boardLane, facts mission.LedgerFacts, currentLanes []Lane) {
+	brief := bindMissionBriefContinueCommands(projectMissionBrief(lanes, facts), currentLanes)
 	fmt.Fprintln(out, "## Mission Control brief")
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "- summary: %s\n", brief.Summary)
@@ -1047,10 +1261,11 @@ func writeProjectMissionBrief(out *bytes.Buffer, lanes []boardLane, facts missio
 }
 
 func laneMissionBrief(lane Lane, facts mission.LedgerFacts) mission.Brief {
-	return mission.BuildWithOptions([]mission.Lane{{ID: lane.ID, Label: workstreamLabel(lane), Status: lane.Status}}, mission.LaneFacts(facts.Facts, lane.ID), mission.BuildOptions{
+	brief := mission.BuildWithOptions([]mission.Lane{{ID: lane.ID, Label: workstreamLabel(lane), Status: lane.Status}}, mission.LaneFacts(facts.Facts, lane.ID), mission.BuildOptions{
 		MaxRows:            maxHandoffRows,
 		OpenDecisionAction: "review open candidate/decision item(s) with evidence and authority boundary",
 	})
+	return bindMissionBriefContinueCommands(brief, []Lane{lane})
 }
 
 func writeLaneMissionBrief(out *bytes.Buffer, lane Lane, facts mission.LedgerFacts, action laneExecutorAction) {

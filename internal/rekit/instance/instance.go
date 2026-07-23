@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
@@ -60,7 +61,7 @@ func (i Instance) Moved() bool {
 	if err != nil {
 		return true
 	}
-	return !strings.EqualFold(strings.TrimRight(filepath.Clean(recorded), string(filepath.Separator)), strings.TrimRight(filepath.Clean(actual), string(filepath.Separator)))
+	return !samePath(recorded, actual)
 }
 
 func MovedRepairPreviewError(caseRoot, pack string) error {
@@ -98,13 +99,22 @@ func AssertAttached(target, repoRoot, pack string) (Instance, error) {
 	}
 	expected, _ := filepath.Abs(repoRoot)
 	actual, _ := filepath.Abs(inst.TemplateRoot)
-	if !strings.EqualFold(strings.TrimRight(filepath.Clean(actual), string(filepath.Separator)), strings.TrimRight(filepath.Clean(expected), string(filepath.Separator))) {
+	if !samePath(actual, expected) {
 		return Instance{}, fmt.Errorf("case is attached to a different templateRoot: %s", inst.TemplateRoot)
 	}
 	if !strings.EqualFold(inst.TemplatePack, pack) {
 		return Instance{}, fmt.Errorf("case is attached to a different templatePack: %s", inst.TemplatePack)
 	}
 	return inst, nil
+}
+
+func samePath(left, right string) bool {
+	left = strings.TrimRight(filepath.Clean(left), string(filepath.Separator))
+	right = strings.TrimRight(filepath.Clean(right), string(filepath.Separator))
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }
 
 func readScalarFile(path string) (map[string]string, error) {

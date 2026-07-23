@@ -118,6 +118,12 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 /rekit promote -Apply -Format text         # 确认 review scope 后写回 pack，并打印 validation / backup handoff
 ```
 
+### Batch 561 当前实施边界
+
+Batch 561 为 `continue` executor-generation stale-writer guard，当前状态是 implementation in progress，不能当作已验证 runtime 行为。计划中的调用方 contract 是：选定lane后，`continue -WhatIf`与`continue -Apply`都提供当前`-Executor <executor-id>`和`-ExpectedExecutorGeneration <generation>`；runtime在创建run、追加facts、刷新lane `RESUME.md`/checkpoint或修改board前，strict比对durable `currentExecutor`与`executorGeneration`，Apply在mutation边界内再次比对。缺失、不匹配或takeover后的旧generation均fail-closed且zero-write。
+
+该guard只防止旧executor继续写durable lane state。executor takeover仍通过显式`start <name> -Apply -Executor ...`或`reconcile <name> ... -Apply`记录；runtime不自动spawn、停止、轮询或管理session，不执行heavy action，不写authority/confirmed。在runtime与product-path验证完成前，不应把上述参数要求描述为已发布能力。
+
 ## 验证标准
 
 - `/rekit`（无子命令，默认 status）和 `/rekit status` 都能正确显示 kit/case 绑定与 pack 来源；attached case 或 nested lane workspace 中未显式传 `-Pack` 时，应使用 case metadata 的 `templatePack`，并在 status 中显示 `packSource=case-metadata`；显式 `-Pack` 显示 `packSource=explicit`，kit-mode 默认 pack 显示 `packSource=repo-default`；case 模式还应显示 pack 是否匹配 metadata `templatePack`，显式 pack 不一致时输出诊断但仍保持显式 `-Pack` 优先，并为 pack mismatch、moved metadata 或 shim drift/missing 输出 bounded status/repair preview next step。authorized-gate 的 default/canonical adapter sidecar 若已存在，status/overview/handoff/start/reconcile/continue 及 durable handoff 会只读复用 strict validation并将`repair-adapter-report`、`ready-to-record-evidence`或exact`evidence-already-recorded`合并到统一Mission Commander queue：typed actions按`gateEventId`逐gate去重，invalid repair或valid显式record优先于普通lane continue，同gate已有exact recorded execution evidence时不重复加入record，changed sidecar会重新进入repair/record，missing sidecar不误删旧evidence；多gate boundary/escalation evidence成为current并停止自主continue，其它adapter action保留但blocked，start/reconcile的显式bounded Apply仍优先于adapter action；但runtime不会自动record或replay。同路径sidecar内容改变后必须重新视为待record，leaf/intermediate symlink或non-regular sidecar必须fail-closed。`status`本身仍只读，`repair -Apply`与adapter evidence record仍需显式确认。

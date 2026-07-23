@@ -1,9 +1,13 @@
 package workstream
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
@@ -60,6 +64,78 @@ func TestLaneExecutorActionReadyUsesMissionBriefReadyLane(t *testing.T) {
 	}
 	if !slices.Equal(action.NextAgentActions, []string{"/rekit continue login"}) {
 		t.Fatalf("ready lane should recommend only its own continue command: %+v", action.NextAgentActions)
+	}
+}
+
+func TestLaneExecutorActionBindsContinueCommandsToCurrentOwner(t *testing.T) {
+	lane := Lane{ID: "feature-login", Name: "login", Status: "open", CurrentExecutor: "session two", ExecutorGeneration: 2}
+	facts := mission.Facts{}
+	brief := mission.BuildWithOptions([]mission.Lane{{ID: lane.ID, Label: "login", Status: lane.Status}}, facts, mission.BuildOptions{MaxRows: 5})
+	action := laneExecutorActionFor(lane, facts, brief)
+	want := `/rekit continue login -Executor "session two" -ExpectedExecutorGeneration 2`
+	if action.ResumeCommand != want || action.MissionCommanderAction.PrimaryCommand != want {
+		t.Fatalf("current owner was not bound into executable continue commands: %+v", action)
+	}
+	if !slices.Equal(action.NextAgentActions, []string{want}) {
+		t.Fatalf("next actions did not use current owner: %+v", action.NextAgentActions)
+	}
+}
+
+func TestBindLaneContinueCommandsTakeoverReplacesStaleDurableCommand(t *testing.T) {
+	stale := laneExecutorAction{
+		ResumeCommand:    "/rekit continue login -Executor executor-one -ExpectedExecutorGeneration 1",
+		NextAgentActions: []string{"/rekit continue login -Executor executor-one -ExpectedExecutorGeneration 1"},
+		MissionCommanderAction: mission.MissionCommanderAction{
+			PrimaryCommand:   "/rekit continue login -Executor executor-one -ExpectedExecutorGeneration 1",
+			FollowUpCommands: []string{"/rekit continue login -Executor executor-one -ExpectedExecutorGeneration 1 -WhatIf"},
+		},
+	}
+	lane := Lane{ID: "feature-login", Name: "login", Status: "open", CurrentExecutor: "executor-two", ExecutorGeneration: 2}
+	bound := bindLaneContinueCommands(stale, lane)
+	want := "/rekit continue login -Executor executor-two -ExpectedExecutorGeneration 2"
+	if bound.ResumeCommand != want || bound.NextAgentActions[0] != want || bound.MissionCommanderAction.PrimaryCommand != want || bound.MissionCommanderAction.FollowUpCommands[0] != want+" -WhatIf" {
+		t.Fatalf("stale durable handoff command survived current authority rebinding: %+v", bound)
+	}
+}
+
+func TestTakeoverRefreshesDurableResumeCheckpointHandoffAndDigestCommands(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "executor-one")
+	before, err := HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.ExecutorAction == nil || !strings.Contains(before.ExecutorAction.ResumeCommand, "-Executor executor-one -ExpectedExecutorGeneration 1") {
+		t.Fatalf("initial handoff did not bind first owner: %+v", before.ExecutorAction)
+	}
+	if _, err := StartApply(repoRoot, caseRoot, defaults.DefaultPack, StartOptions{Selector: "devirt-main", Executor: "executor-two", Actor: "main-agent", TakeoverReason: "replacement"}); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := HandoffPreview(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/rekit continue main -Executor executor-two -ExpectedExecutorGeneration 2"
+	if preview.ExecutorAction == nil || preview.ExecutorAction.ResumeCommand != want {
+		t.Fatalf("live handoff did not switch to current owner: %+v", preview.ExecutorAction)
+	}
+	applied, err := ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-two", ExpectedExecutorGeneration: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{
+		filepath.Join(caseRoot, ".rekit", "lanes", "devirt-main", "prompts", "RESUME.md"),
+		filepath.Join(caseRoot, ".rekit", "lanes", "devirt-main", "checkpoints", "latest.json"),
+		filepath.Join(caseRoot, ".rekit", "runs", applied.RunID, "digest.md"),
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(data)
+		if !strings.Contains(text, want) || strings.Contains(text, "-Executor executor-one -ExpectedExecutorGeneration 1") {
+			t.Fatalf("durable artifact did not use only current authority command %s:\n%s", path, text)
+		}
 	}
 }
 

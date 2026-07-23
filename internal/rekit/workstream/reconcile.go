@@ -1,6 +1,7 @@
 package workstream
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -83,9 +84,26 @@ func ReconcilePreview(repoRoot, caseRoot, pack string, opt ReconcileOptions) (Re
 	return ctx.result(false, false, true, ctx.plannedWrites()), nil
 }
 
-func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (ReconcileResult, error) {
+func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (result ReconcileResult, err error) {
 	ctx, err := newReconcileContext(repoRoot, caseRoot, pack, opt)
 	if err != nil {
+		return ReconcileResult{}, err
+	}
+	lease, err := acquireLaneMutationLock(ctx.inst.CaseRoot, ctx.lane.ID)
+	if err != nil {
+		return ReconcileResult{}, err
+	}
+	defer func() {
+		if unlockErr := lease.Unlock(); unlockErr != nil {
+			err = errors.Join(err, unlockErr)
+			result = ReconcileResult{}
+		}
+	}()
+	ctx, err = newReconcileContext(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return ReconcileResult{}, err
+	}
+	if err := lease.Validate(); err != nil {
 		return ReconcileResult{}, err
 	}
 	now := isoNow()
@@ -196,7 +214,7 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (Reco
 	if err != nil {
 		return ReconcileResult{}, err
 	}
-	result := ctx.result(true, true, false, writes)
+	result = ctx.result(true, true, false, writes)
 	result.ResolutionEventID = resolutionID
 	result.PreviousExecutor = previousExecutor
 	result.ExecutorGeneration = generation
@@ -296,6 +314,15 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 	laneFacts := mission.LaneFacts(ctx.facts.Facts, ctx.lane.ID)
 	executorAction := laneExecutorActionFor(ctx.lane, laneFacts, laneBrief)
 	if !applied && executorAction.MissionCommanderAction.State == "needs-reconcile" {
+		continuationLane := ctx.lane
+		if ctx.executor != "" && !strings.EqualFold(strings.TrimSpace(continuationLane.CurrentExecutor), ctx.executor) {
+			continuationLane.CurrentExecutor = ctx.executor
+			continuationLane.ExecutorGeneration = max(continuationLane.ExecutorGeneration, 0) + 1
+		} else if ctx.executor != "" && continuationLane.ExecutorGeneration == 0 {
+			continuationLane.CurrentExecutor = ctx.executor
+			continuationLane.ExecutorGeneration = 1
+		}
+		executorAction = bindLaneContinueCommands(executorAction, continuationLane)
 		executorAction.MissionCommanderAction = ctx.reconcileApplyCommanderAction()
 	}
 	commanderAction := executorAction.MissionCommanderAction
@@ -348,6 +375,14 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 
 func (ctx reconcileContext) reconcileApplyCommanderAction() mission.MissionCommanderAction {
 	label := workstreamLabel(ctx.lane)
+	continuationLane := ctx.lane
+	if ctx.executor != "" && !strings.EqualFold(strings.TrimSpace(continuationLane.CurrentExecutor), ctx.executor) {
+		continuationLane.CurrentExecutor = ctx.executor
+		continuationLane.ExecutorGeneration = max(continuationLane.ExecutorGeneration, 0) + 1
+	} else if ctx.executor != "" && continuationLane.ExecutorGeneration == 0 {
+		continuationLane.CurrentExecutor = ctx.executor
+		continuationLane.ExecutorGeneration = 1
+	}
 	command := "/rekit reconcile " + label + " -InterventionId " + quoteCommandArg(mission.Value(ctx.intervention, "eventId")) + " -Apply"
 	if strings.TrimSpace(ctx.executor) != "" {
 		command += " -Executor " + quoteCommandArg(ctx.executor)
@@ -363,7 +398,7 @@ func (ctx reconcileContext) reconcileApplyCommanderAction() mission.MissionComma
 		Prompt:         "先 review reconcile preview，再写入 selected open intervention 的 resolution 与 lane state refresh。",
 		PrimaryCommand: command,
 		FollowUpCommands: []string{
-			"/rekit continue " + label + " -WhatIf",
+			bindContinueCommand("/rekit continue "+label+" -WhatIf", continuationLane),
 			"/rekit handoff " + label,
 		},
 		Boundary: []string{
