@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 549：reviewer Agent handoff / immutable result collection closure
 
-状态：implementation 已完成，正在进行独立审查与完整本地 release minimum。
+状态：已完成 implementation、focused/package validation、独立审查修复、完整本地 release minimum、implementation commit `ae6b8bd Close reviewer result collection handoff`/push 与远程 release-gate inspection。对应run `29974679916` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。
 
 目标：关闭 `plan-subagents` packet 已能描述 reviewer task、strict intake 已能消费 canonical result，但主 Agent仍需手工拼 Claude Code Agent调用并直接写 canonical `reviewerResultPath` 的 operational 断点。让 packet提供 typed Agent tool request与独立 candidate path，并由 Go-native collection WhatIf→Apply严格验证和不可覆盖地发布exact result bytes，再接续既有 packet-level batch intake。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：reviewer只返回JSON、不写文件/ledger；主Agent保存candidate并显式执行collection WhatIf→Apply。collection不写facts、不执行heavy tool、不修改managed/project source、不写authority/confirmed；intake仍是独立WhatIf→Apply。禁止新增PowerShell runtime logic。
 
-验证结果：focused `subagents` / `workstream` / `cli` packages与case-local product-path tests已通过；独立审查发现并修复collection可被重算packetId引向case review namespace外、WhatIf遗漏canonical collision/non-regular preflight、`-ShardId`在非collection batch Apply被静默忽略三项问题，并补充forged namespace、WhatIf/Apply collision、invalid canonical与CLI no-write guards。完整本地release minimum已通过`release-check -Format json`（`ready=true`）、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`与`git diff --check`；待implementation commit/push及远程release-gate inspection。
+验证结果：focused `subagents` / `workstream` / `cli` packages与case-local product-path tests已通过；独立审查发现并修复collection可被重算packetId引向case review namespace外、WhatIf遗漏canonical collision/non-regular preflight、`-ShardId`在非collection batch Apply被静默忽略三项问题，并补充forged namespace、WhatIf/Apply collision、invalid canonical与CLI no-write guards。完整本地release minimum已通过`release-check -Format json`（`ready=true`）、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`与`git diff --check`。implementation run `29974679916`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
 上一批摘要：Batch 548已完成reviewer packet adoption / continuation preflight closure，implementation commit `cc451d0 Close reviewer packet continuation preflight`已推送；对应run `29971220679`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
