@@ -55,11 +55,14 @@ type Options struct {
 	ReadyReviewerResults         bool
 	AdoptReviewerPacket          bool
 	RetireInvalidReviewerPacket  bool
+	RetireReviewerResultRecovery bool
 	ExpectedPacketSHA256         string
 	ExpectedIntegritySHA256      string
 	RecoverReviewerResult        bool
 	ExpectedCandidateSHA256      string
 	ExpectedReviewerResultSHA256 string
+	ExpectedIntentSHA256         string
+	ExpectedCanonicalSHA256      string
 	CollectReviewerResult        bool
 	ShardID                      string
 	DiffPath                     string
@@ -174,6 +177,8 @@ func Parse(args []string) (Options, error) {
 			opt.AdoptReviewerPacket = true
 		case "-RetireInvalidReviewerPacket", "--retire-invalid-reviewer-packet":
 			opt.RetireInvalidReviewerPacket = true
+		case "-RetireReviewerResultRecovery", "--retire-reviewer-result-recovery":
+			opt.RetireReviewerResultRecovery = true
 		case "-ExpectedPacketSha256", "--expected-packet-sha256":
 			i++
 			if i >= len(args) {
@@ -200,6 +205,18 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedReviewerResultSha256")
 			}
 			opt.ExpectedReviewerResultSHA256 = args[i]
+		case "-ExpectedIntentSha256", "--expected-intent-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedIntentSha256")
+			}
+			opt.ExpectedIntentSHA256 = args[i]
+		case "-ExpectedCanonicalSha256", "--expected-canonical-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedCanonicalSha256")
+			}
+			opt.ExpectedCanonicalSHA256 = args[i]
 		case "-CollectReviewerResult", "--collect-reviewer-result":
 			opt.CollectReviewerResult = true
 		case "-ShardId", "--shard-id":
@@ -5133,14 +5150,17 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(opt.ShardID) != "" && !opt.CollectReviewerResult && !opt.RecoverReviewerResult {
-		return fmt.Errorf("-ShardId is supported only with -CollectReviewerResult or -RecoverReviewerResult")
+	if strings.TrimSpace(opt.ShardID) != "" && !opt.CollectReviewerResult && !opt.RecoverReviewerResult && !opt.RetireReviewerResultRecovery {
+		return fmt.Errorf("-ShardId is supported only with -CollectReviewerResult, -RecoverReviewerResult, or -RetireReviewerResultRecovery")
 	}
 	if !opt.RetireInvalidReviewerPacket && (strings.TrimSpace(opt.ExpectedPacketSHA256) != "" || strings.TrimSpace(opt.ExpectedIntegritySHA256) != "") {
 		return fmt.Errorf("expected packet/integrity hashes are supported only with -RetireInvalidReviewerPacket -Apply")
 	}
 	if !opt.RecoverReviewerResult && (strings.TrimSpace(opt.ExpectedCandidateSHA256) != "" || strings.TrimSpace(opt.ExpectedReviewerResultSHA256) != "") {
 		return fmt.Errorf("expected candidate/result hashes are supported only with -RecoverReviewerResult -Apply")
+	}
+	if !opt.RetireReviewerResultRecovery && (strings.TrimSpace(opt.ExpectedIntentSHA256) != "" || strings.TrimSpace(opt.ExpectedCanonicalSHA256) != "") {
+		return fmt.Errorf("expected intent/canonical hashes are supported only with -RetireReviewerResultRecovery -Apply")
 	}
 	if opt.CollectReviewerResult {
 		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.RetireInvalidReviewerPacket || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" {
@@ -5167,6 +5187,38 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 			return writeJSON(out, result)
 		}
 		return writePlanSubagentsReviewerResultCollectionText(out, result)
+	}
+	if opt.RetireReviewerResultRecovery {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.CollectReviewerResult || opt.RecoverReviewerResult || opt.RetireInvalidReviewerPacket || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+			return fmt.Errorf("plan-subagents reviewer result recovery disposition cannot combine with other reviewer modes")
+		}
+		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
+			return fmt.Errorf("plan-subagents reviewer result recovery disposition does not support planning scope flags")
+		}
+		if opt.Apply == opt.WhatIf {
+			return fmt.Errorf("plan-subagents reviewer result recovery disposition requires exactly one of -WhatIf or -Apply")
+		}
+		if opt.WhatIf && (strings.TrimSpace(opt.ExpectedIntentSHA256) != "" || strings.TrimSpace(opt.ExpectedCanonicalSHA256) != "") {
+			return fmt.Errorf("plan-subagents reviewer result recovery disposition preview does not accept expected hashes")
+		}
+		if opt.Apply && (strings.TrimSpace(opt.ExpectedIntentSHA256) == "" || strings.TrimSpace(opt.ExpectedCanonicalSHA256) == "") {
+			return fmt.Errorf("plan-subagents reviewer result recovery disposition apply requires expected intent and canonical hashes from WhatIf")
+		}
+		if strings.TrimSpace(opt.PacketPath) == "" || strings.TrimSpace(opt.ShardID) == "" {
+			return fmt.Errorf("plan-subagents reviewer result recovery disposition requires -PacketPath and -ShardId")
+		}
+		format, err := planSubagentsFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
+		}
+		result, err := subagents.RetireAmbiguousReviewerResultRecovery(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultRecoveryDispositionOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Reason: opt.Note.Reason, ExpectedIntentSHA256: opt.ExpectedIntentSHA256, ExpectedCanonicalSHA256: opt.ExpectedCanonicalSHA256, WhatIf: opt.WhatIf})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePlanSubagentsReviewerResultRecoveryDispositionText(out, result)
 	}
 	if opt.RetireInvalidReviewerPacket {
 		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.CollectReviewerResult || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" || strings.TrimSpace(opt.ShardID) != "" {
@@ -5959,6 +6011,26 @@ func writePlanSubagentsReviewerResultRecoveryText(out io.Writer, result subagent
 	}
 	for _, boundary := range result.Boundary {
 		if _, err := fmt.Fprintf(out, "reviewer result recovery boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue)
+}
+
+func writePlanSubagentsReviewerResultRecoveryDispositionText(out io.Writer, result subagents.ReviewerResultRecoveryDispositionResult) error {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer result recovery disposition：mutation=%t applied=%t requiresConfirmation=%t packet=%s shard=%s lane=%s actor=%s dispositionPath=%s\n", result.IsMutation, result.Applied, result.RequiresConfirmation, result.PacketID, result.ShardID, result.Lane, result.Actor, result.DispositionPath); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "reviewer result recovery disposition snapshot：candidate=%s candidateSha256=%s canonical=%s canonicalSha256=%s intent=%s intentSha256=%s quarantine=%s reason=%s\n", result.CandidatePath, result.CandidateSHA256, result.ReviewerResultPath, result.CanonicalSHA256, result.IntentPath, result.IntentSHA256, result.QuarantinePath, planSubagentsTextInline(result.Reason)); err != nil {
+		return err
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "reviewer result recovery disposition next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "reviewer result recovery disposition boundary：%s\n", boundary); err != nil {
 			return err
 		}
 	}

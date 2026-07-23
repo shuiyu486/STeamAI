@@ -391,6 +391,17 @@ func ensureReviewerResultCollectionRecoveryComplete(caseRoot string, packet Pack
 	} else if err != nil {
 		return err
 	}
+	dispositionPath := filepath.Join(root, handoff.ShardID+".recovery.disposition.json")
+	if _, dispositionStatErr := os.Lstat(dispositionPath); dispositionStatErr == nil {
+		if current, dispositionErr := reviewerResultRecoveryDispositionCurrent(caseRoot, packet, packetPath, handoff, lane, candidate); dispositionErr != nil {
+			return fmt.Errorf("reviewer result recovery disposition is invalid; collection remains blocked: %w", dispositionErr)
+		} else if current {
+			return nil
+		}
+		return fmt.Errorf("reviewer result recovery disposition does not match current canonical bindings; collection remains blocked")
+	} else if !os.IsNotExist(dispositionStatErr) {
+		return dispositionStatErr
+	}
 	intent, err := readReviewerResultRecoveryReceipt(caseRoot, intentPath)
 	if err != nil {
 		return fmt.Errorf("reviewer result recovery intent is invalid; collection remains blocked: %w", err)

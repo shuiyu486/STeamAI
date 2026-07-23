@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 557：ambiguous reviewer recovery disposition closure
+
+状态：implementation、focused/package validation、独立审查修复与完整本地release minimum已完成；commit/push与远程release-gate inspection待完成。
+
+目标：把Batch 556的`reviewer-result-recovery-ambiguous`硬阻断收口为显式Mission Commander review-first路径。当unfinished strict intent+exact quarantine与canonical exact reviewed candidate同时存在时，主Agent可WhatIf复核intent/canonical hashes，再Apply写`retain-canonical` disposition receipt；不删除或修改canonical、intent或quarantine，receipt current时恢复collection→intake。
+
+已完成内容：
+
+- 新增`-RetireReviewerResultRecovery -ShardId ... -WhatIf/-Apply`。strict disposition绑定repo/case/pack、packet/shard/lane、candidate/canonical/intent exact hash+size、canonical paths、quarantine、actor/reason/timestamp和no-delete/no-facts/no-heavy/no-authority flags；Apply在共享packet/shard mutation lock内重读全部bindings，以hard-link no-replace发布receipt，exact replay幂等。
+- disposition仅允许canonical regular bytes exact等于reviewed candidate、intent unfinished且strict current、exact quarantine仍current；任一bytes/path/receipt drift均fail-closed。collection与direct/batch intake只在current disposition存在时忽略unfinished intent，并继续既有strict candidate/canonical validation；canonical后续变化恢复blocked。
+- durable workstream在ambiguous state提升typed disposition WhatIf而非不可执行finalize；新增disposition command/path。package tests覆盖preview no-write、expected-hash Apply、canonical/quarantine保持不变、collection恢复与canonical drift重新blocked。
+
+边界：disposition不删除、覆盖、移动或清理任何result/intent/quarantine，不写verdict/facts/authority/confirmed，不执行heavy-tool，不新增PowerShell runtime logic。
+
+验证结果：related `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`已通过。独立审查发现并修复workstream不读取disposition导致Apply后仍循环ambiguous，以及receipt可指向alternate intent / intent repo-pack drift两项问题；现在canonical intent path、attached repo/pack、packet与disposition provenance统一strict绑定，Apply后workstream可前进，forged/drifted receipt fail-closed。完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）与Linux package交叉编译已通过。
+
+上一批摘要：Batch 556已完成recovery ambiguity guard，implementation commit `2c0867a Block ambiguous reviewer recovery retries`与release inspection commit `8cd7a01 Record Batch 556 release gate inspection`已推送；implementation SHA未生成GitHub Actions run/check suite，已如实记录为release-gate-not-created。
+
 ### Batch 556：reviewer result recovery ambiguity guard closure
 
 状态：已完成implementation、focused validation、独立审查修复、完整本地release minimum、implementation commit `2c0867a Block ambiguous reviewer recovery retries`/push与远程release-gate inspection。inspection时远程`main`已指向该commit，但GitHub Actions尚未为该SHA生成release-gate run或check suite；不能声明remote CI green。
