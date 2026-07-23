@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 557：ambiguous reviewer recovery disposition closure
 
-状态：implementation、focused/package validation、独立审查修复与完整本地release minimum已完成；commit/push与远程release-gate inspection待完成。
+状态：已完成implementation、focused/package validation、独立审查修复、完整本地release minimum、implementation commit `3f932d9 Resolve ambiguous reviewer recovery state`/push与远程release-gate inspection。对应run `29994310884` completed failure；Windows/Linux jobs completed failure且`steps=[]`，macOS在run完成后仍queued且`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。
 
 目标：把Batch 556的`reviewer-result-recovery-ambiguous`硬阻断收口为显式Mission Commander review-first路径。当unfinished strict intent+exact quarantine与canonical exact reviewed candidate同时存在时，主Agent可WhatIf复核intent/canonical hashes，再Apply写`retain-canonical` disposition receipt；不删除或修改canonical、intent或quarantine，receipt current时恢复collection→intake。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：disposition不删除、覆盖、移动或清理任何result/intent/quarantine，不写verdict/facts/authority/confirmed，不执行heavy-tool，不新增PowerShell runtime logic。
 
-验证结果：related `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`已通过。独立审查发现并修复workstream不读取disposition导致Apply后仍循环ambiguous，以及receipt可指向alternate intent / intent repo-pack drift两项问题；现在canonical intent path、attached repo/pack、packet与disposition provenance统一strict绑定，Apply后workstream可前进，forged/drifted receipt fail-closed。完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）与Linux package交叉编译已通过。
+验证结果：related `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`已通过。独立审查发现并修复workstream不读取disposition导致Apply后仍循环ambiguous，以及receipt可指向alternate intent / intent repo-pack drift两项问题；现在canonical intent path、attached repo/pack、packet与disposition provenance统一strict绑定，Apply后workstream可前进，forged/drifted receipt fail-closed。完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）与Linux package交叉编译已通过。implementation commit `3f932d9`已推送；远程run `29994310884`中Windows/Linux completed failure且`steps=[]`，macOS在run完成后仍queued且`steps=[]`，未出现不同于既有runner/billing blocker的新远程信号。
 
 上一批摘要：Batch 556已完成recovery ambiguity guard，implementation commit `2c0867a Block ambiguous reviewer recovery retries`与release inspection commit `8cd7a01 Record Batch 556 release gate inspection`已推送；implementation SHA未生成GitHub Actions run/check suite，已如实记录为release-gate-not-created。
 
