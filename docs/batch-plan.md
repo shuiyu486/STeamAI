@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 550：reviewer collection capability gating closure
 
-状态：implementation、focused package/CLI validation、两轮独立审查修复与完整本地release minimum已完成；尚未commit/push或检查对应远程release gate。
+状态：已完成implementation、focused/package validation、两轮独立审查修复、完整本地release minimum、implementation commit `b0ea8c7 Gate reviewer collection capabilities`/push与远程release-gate inspection。对应run `29977522917` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。
 
 目标：关闭Batch 549 collection执行端只接受canonical case-local review namespace，但planning仍会为attached custom `-ReviewOutputDir` / explicit `-PacketPath`生成必然失败collection commands的真实性断点。让planning、collection runtime与durable workstream共享同一canonical geometry，并把direct/batch intake能力与collection mutation能力显式分离。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：不禁止custom review artifacts，不删除legacy direct/batch intake。runtime不spawn、stop、poll或monitor reviewer；collection不写facts、不执行heavy tool、不修改managed/project source、不写authority/confirmed；intake仍独立要求WhatIf→Apply。禁止新增PowerShell runtime logic。
 
-验证结果：focused `reviewpath` / `subagents` / `workstream` / `cli` tests已通过，覆盖default/custom canonical正例、case-local/external/custom-name/nested/case-variant packet capability suppression、nested runtime rejection、forged downstream geometry suppression、forged collection command canonical rebuild、missing candidate directory capability保留、canonical review symlink pre-write拒绝与`.rekit` symlink collection WhatIf/Apply no-publish。完整本地release minimum（`release-check` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过；两轮独立审查发现的case-root symlink祖先、fresh packet candidate parent、case-sensitive packet name与embedded command trust缺口均已修复。
+验证结果：focused `reviewpath` / `subagents` / `workstream` / `cli` tests已通过，覆盖default/custom canonical正例、case-local/external/custom-name/nested/case-variant packet capability suppression、nested runtime rejection、forged downstream geometry suppression、forged collection command canonical rebuild、missing candidate directory capability保留、canonical review symlink pre-write拒绝与`.rekit` symlink collection WhatIf/Apply no-publish。完整本地release minimum（`release-check` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过；两轮独立审查发现的case-root symlink祖先、fresh packet candidate parent、case-sensitive packet name与embedded command trust缺口均已修复。远程run `29977522917`三平台jobs均在执行任何step前失败，未提供新的代码失败信号。
 
 上一批摘要：Batch 549已完成reviewer Agent handoff / immutable result collection closure，implementation commit `ae6b8bd Close reviewer result collection handoff`与release inspection commit `7aa1a7d Record Batch 549 release gate inspection`已推送；对应run `29974679916`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
