@@ -6854,7 +6854,15 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents shard owner binding：shard=shard-01 targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
 		"plan-subagents shard owner boundary：shard=shard-01 boundary=runtime only records reviewer owner provenance; it does not spawn, stop, monitor, or manage reviewer/member sessions",
 		"plan-subagents reviewer writeback：shard=shard-01 handoff=/rekit plan-subagents -ReviewerResultPath ... -WhatIf/-Apply validates reviewer results and writes verification-before-decision facts for the main agent",
-		"plan-subagents shard next action：shard=shard-01 action=launch a read-only reviewer with dispatchPrompt, inspect its JSON against reviewerResultContract, place it at reviewerResultPath, run reviewerIntakeCommands.previewCommand",
+		"plan-subagents shard next action：shard=shard-01 action=launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object at reviewerResultCandidatePath, run reviewerCollectionCommands.previewCommand then applyCommand, then use reviewerIntakeCommands or packet-level batch intake WhatIf before Apply",
+		"plan-subagents shard agent tool request：shard=shard-01 tool=Claude Code Agent agentType=read-only-reviewer readOnly=true expectedOutput=exactly one ReviewerResult JSON object; no Markdown fence or surrounding prose",
+		"plan-subagents reviewer result candidate：shard=shard-01 path=",
+		"canonical=",
+		"plan-subagents reviewer collection command：shard=shard-01 candidate=",
+		"-CollectReviewerResult",
+		"-ShardId \"shard-01\"",
+		"-WhatIf -Format json` apply=`/rekit plan-subagents",
+		"-Apply -Format json`",
 		"plan-subagents shard dispatch prompt：shard=shard-01 prompt=You are a read-only reviewer for rekit plan-subagents shard shard-01.",
 		"plan-subagents shard boundary：shard=shard-01 boundary=runtime does not spawn subagents",
 		"plan-subagents reviewer result contract：shard=shard-01 format=single JSON object per shard",
@@ -12090,25 +12098,26 @@ type planSubagentsDispatchSummary struct {
 }
 
 type planSubagentsHandoff struct {
-	ShardID                  string                         `json:"shardId"`
-	Status                   string                         `json:"status"`
-	ReviewerResultPath       string                         `json:"reviewerResultPath"`
-	OwnerBinding             planSubagentsOwnerBinding      `json:"ownerBinding"`
-	DispatchPrompt           string                         `json:"dispatchPrompt"`
-	Items                    []string                       `json:"items"`
-	ReadOnlyBoundary         []string                       `json:"readOnlyBoundary"`
-	ExpectedOutput           string                         `json:"expectedOutput"`
-	ReviewerWriteback        string                         `json:"reviewerWriteback"`
-	ReviewerResultContract   planSubagentsReviewerContract  `json:"reviewerResultContract"`
-	ReviewerIntakeCommands   planSubagentsIntakeCommands    `json:"reviewerIntakeCommands"`
-	MainAgentNextAction      string                         `json:"mainAgentNextAction"`
-	IntakeChecklist          []string                       `json:"intakeChecklist"`
-	ReviewerDecisionMappings []planSubagentsDecisionMapping `json:"reviewerDecisionMappings"`
-	ConflictHandling         []string                       `json:"conflictHandling"`
-	WritebackSequence        []planSubagentsWritebackStep   `json:"writebackSequence"`
-	PostReviewMerge          []string                       `json:"postReviewMerge"`
-	CompletionCriteria       []string                       `json:"completionCriteria"`
-	FailureHandling          string                         `json:"failureHandling"`
+	ShardID                     string                         `json:"shardId"`
+	Status                      string                         `json:"status"`
+	ReviewerResultPath          string                         `json:"reviewerResultPath"`
+	ReviewerResultCandidatePath string                         `json:"reviewerResultCandidatePath"`
+	OwnerBinding                planSubagentsOwnerBinding      `json:"ownerBinding"`
+	DispatchPrompt              string                         `json:"dispatchPrompt"`
+	Items                       []string                       `json:"items"`
+	ReadOnlyBoundary            []string                       `json:"readOnlyBoundary"`
+	ExpectedOutput              string                         `json:"expectedOutput"`
+	ReviewerWriteback           string                         `json:"reviewerWriteback"`
+	ReviewerResultContract      planSubagentsReviewerContract  `json:"reviewerResultContract"`
+	ReviewerIntakeCommands      planSubagentsIntakeCommands    `json:"reviewerIntakeCommands"`
+	MainAgentNextAction         string                         `json:"mainAgentNextAction"`
+	IntakeChecklist             []string                       `json:"intakeChecklist"`
+	ReviewerDecisionMappings    []planSubagentsDecisionMapping `json:"reviewerDecisionMappings"`
+	ConflictHandling            []string                       `json:"conflictHandling"`
+	WritebackSequence           []planSubagentsWritebackStep   `json:"writebackSequence"`
+	PostReviewMerge             []string                       `json:"postReviewMerge"`
+	CompletionCriteria          []string                       `json:"completionCriteria"`
+	FailureHandling             string                         `json:"failureHandling"`
 }
 
 type planSubagentsReviewerContract struct {

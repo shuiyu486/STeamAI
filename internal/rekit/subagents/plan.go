@@ -208,15 +208,32 @@ type ReviewerOrchestrationNextActionSummary struct {
 	RequiresReview bool   `json:"requiresReview,omitempty"`
 }
 
+type ReviewerAgentToolRequest struct {
+	Tool           string `json:"tool"`
+	AgentType      string `json:"agentType"`
+	ReadOnly       bool   `json:"readOnly"`
+	Prompt         string `json:"prompt"`
+	ExpectedOutput string `json:"expectedOutput"`
+}
+
+type ReviewerResultCollectionCommands struct {
+	CandidatePath  string `json:"candidatePath"`
+	PreviewCommand string `json:"previewCommand"`
+	ApplyCommand   string `json:"applyCommand"`
+}
+
 type ReviewerDispatch struct {
-	ShardID            string   `json:"shardId"`
-	ReviewerRole       string   `json:"reviewerRole"`
-	Status             string   `json:"status"`
-	Items              []string `json:"items"`
-	DispatchPrompt     string   `json:"dispatchPrompt"`
-	ReviewerResultPath string   `json:"reviewerResultPath"`
-	PreviewCommand     string   `json:"previewCommand"`
-	ApplyCommand       string   `json:"applyCommand"`
+	ShardID                     string                            `json:"shardId"`
+	ReviewerRole                string                            `json:"reviewerRole"`
+	Status                      string                            `json:"status"`
+	Items                       []string                          `json:"items"`
+	DispatchPrompt              string                            `json:"dispatchPrompt"`
+	AgentToolRequest            *ReviewerAgentToolRequest         `json:"agentToolRequest,omitempty"`
+	ReviewerResultPath          string                            `json:"reviewerResultPath"`
+	ReviewerResultCandidatePath string                            `json:"reviewerResultCandidatePath,omitempty"`
+	CollectionCommands          *ReviewerResultCollectionCommands `json:"collectionCommands,omitempty"`
+	PreviewCommand              string                            `json:"previewCommand"`
+	ApplyCommand                string                            `json:"applyCommand"`
 }
 
 type ReviewerOrchestrationStep struct {
@@ -262,25 +279,28 @@ type Shard struct {
 }
 
 type ShardHandoff struct {
-	ShardID                  string                    `json:"shardId"`
-	Status                   string                    `json:"status"`
-	ReviewerResultPath       string                    `json:"reviewerResultPath"`
-	OwnerBinding             OwnerBinding              `json:"ownerBinding"`
-	DispatchPrompt           string                    `json:"dispatchPrompt"`
-	Items                    []string                  `json:"items"`
-	ReadOnlyBoundary         []string                  `json:"readOnlyBoundary"`
-	ExpectedOutput           string                    `json:"expectedOutput"`
-	ReviewerWriteback        string                    `json:"reviewerWriteback"`
-	ReviewerResultContract   ReviewerResultContract    `json:"reviewerResultContract"`
-	ReviewerIntakeCommands   ReviewerIntakeCommands    `json:"reviewerIntakeCommands"`
-	MainAgentNextAction      string                    `json:"mainAgentNextAction"`
-	IntakeChecklist          []string                  `json:"intakeChecklist"`
-	ReviewerDecisionMappings []ReviewerDecisionMapping `json:"reviewerDecisionMappings"`
-	ConflictHandling         []string                  `json:"conflictHandling"`
-	WritebackSequence        []WritebackSequenceStep   `json:"writebackSequence"`
-	PostReviewMerge          []string                  `json:"postReviewMerge"`
-	CompletionCriteria       []string                  `json:"completionCriteria"`
-	FailureHandling          string                    `json:"failureHandling"`
+	ShardID                     string                            `json:"shardId"`
+	Status                      string                            `json:"status"`
+	ReviewerResultPath          string                            `json:"reviewerResultPath"`
+	ReviewerResultCandidatePath string                            `json:"reviewerResultCandidatePath,omitempty"`
+	OwnerBinding                OwnerBinding                      `json:"ownerBinding"`
+	DispatchPrompt              string                            `json:"dispatchPrompt"`
+	AgentToolRequest            *ReviewerAgentToolRequest         `json:"agentToolRequest,omitempty"`
+	ReviewerCollectionCommands  *ReviewerResultCollectionCommands `json:"reviewerCollectionCommands,omitempty"`
+	Items                       []string                          `json:"items"`
+	ReadOnlyBoundary            []string                          `json:"readOnlyBoundary"`
+	ExpectedOutput              string                            `json:"expectedOutput"`
+	ReviewerWriteback           string                            `json:"reviewerWriteback"`
+	ReviewerResultContract      ReviewerResultContract            `json:"reviewerResultContract"`
+	ReviewerIntakeCommands      ReviewerIntakeCommands            `json:"reviewerIntakeCommands"`
+	MainAgentNextAction         string                            `json:"mainAgentNextAction"`
+	IntakeChecklist             []string                          `json:"intakeChecklist"`
+	ReviewerDecisionMappings    []ReviewerDecisionMapping         `json:"reviewerDecisionMappings"`
+	ConflictHandling            []string                          `json:"conflictHandling"`
+	WritebackSequence           []WritebackSequenceStep           `json:"writebackSequence"`
+	PostReviewMerge             []string                          `json:"postReviewMerge"`
+	CompletionCriteria          []string                          `json:"completionCriteria"`
+	FailureHandling             string                            `json:"failureHandling"`
 }
 
 type ReviewerResultContract struct {
@@ -668,34 +688,46 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 	for _, shard := range shards {
 		contract := reviewerResultContract()
 		resultPath := filepath.Join(observability.ResultRoot, shard.ID+".json")
+		candidatePath := filepath.Join(observability.ResultRoot, "candidates", shard.ID+".json")
 		intake := intakeChecklist()
 		mappings := reviewerDecisionMappings()
 		conflicts := conflictHandlingSteps()
 		commands := reviewerIntakeCommands(planRoot, pack, observability.PacketPath, resultPath, targetLane, intakeAvailable)
-		nextAction := "launch a read-only reviewer with dispatchPrompt, inspect its JSON against reviewerResultContract, place it at reviewerResultPath, run reviewerIntakeCommands.previewCommand, inspect the combined verification/decision/postValidation envelope, then run reviewerIntakeCommands.applyCommand"
+		dispatchPrompt := shardDispatchPrompt(shard, route, readOnlyBoundary, reviewLoop, ownerBinding, resultPath)
+		collectionCommands := reviewerResultCollectionCommands(observability.PacketPath, shard.ID, targetLane, candidatePath, intakeAvailable)
+		nextAction := "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object at reviewerResultCandidatePath, run reviewerCollectionCommands.previewCommand then applyCommand, then use reviewerIntakeCommands or packet-level batch intake WhatIf before Apply; direct plan-subagents -ReviewerResultPath intake remains available for legacy packets"
 		if !intakeAvailable {
-			nextAction = "launch a read-only reviewer with dispatchPrompt, inspect its JSON against reviewerResultContract, and place it at reviewerResultPath; attach or init the target as a rekit case before running reviewerIntakeCommands.previewCommand or applyCommand"
+			nextAction = "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, and retain the single JSON object; attach or init the target as a rekit case before reviewerCollectionCommands and reviewerIntakeCommands become runnable"
 		}
 		handoffs = append(handoffs, ShardHandoff{
-			ShardID:                  shard.ID,
-			Status:                   "planned",
-			ReviewerResultPath:       resultPath,
-			OwnerBinding:             ownerBinding,
-			DispatchPrompt:           shardDispatchPrompt(shard, route, readOnlyBoundary, reviewLoop, ownerBinding, resultPath),
-			Items:                    append([]string{}, shard.Items...),
-			ReadOnlyBoundary:         append([]string{}, readOnlyBoundary...),
-			ExpectedOutput:           route.OutputContract,
-			ReviewerWriteback:        reviewLoop.VerdictWriteback,
-			ReviewerResultContract:   contract,
-			ReviewerIntakeCommands:   commands,
-			MainAgentNextAction:      nextAction,
-			IntakeChecklist:          intake,
-			ReviewerDecisionMappings: mappings,
-			ConflictHandling:         conflicts,
-			WritebackSequence:        writebackSequenceSteps(commands),
-			PostReviewMerge:          postReviewMergeSteps(),
-			CompletionCriteria:       append([]string{}, reviewLoop.CompletionCriteria...),
-			FailureHandling:          reviewLoop.FailureHandling,
+			ShardID:                     shard.ID,
+			Status:                      "planned",
+			ReviewerResultPath:          resultPath,
+			ReviewerResultCandidatePath: candidatePath,
+			OwnerBinding:                ownerBinding,
+			DispatchPrompt:              dispatchPrompt,
+			AgentToolRequest: &ReviewerAgentToolRequest{
+				Tool:           "Claude Code Agent",
+				AgentType:      "read-only-reviewer",
+				ReadOnly:       true,
+				Prompt:         dispatchPrompt,
+				ExpectedOutput: "exactly one ReviewerResult JSON object; no Markdown fence or surrounding prose",
+			},
+			ReviewerCollectionCommands: &collectionCommands,
+			Items:                      append([]string{}, shard.Items...),
+			ReadOnlyBoundary:           append([]string{}, readOnlyBoundary...),
+			ExpectedOutput:             route.OutputContract,
+			ReviewerWriteback:          reviewLoop.VerdictWriteback,
+			ReviewerResultContract:     contract,
+			ReviewerIntakeCommands:     commands,
+			MainAgentNextAction:        nextAction,
+			IntakeChecklist:            intake,
+			ReviewerDecisionMappings:   mappings,
+			ConflictHandling:           conflicts,
+			WritebackSequence:          writebackSequenceSteps(commands),
+			PostReviewMerge:            postReviewMergeSteps(),
+			CompletionCriteria:         append([]string{}, reviewLoop.CompletionCriteria...),
+			FailureHandling:            reviewLoop.FailureHandling,
 		})
 	}
 	return handoffs
@@ -906,6 +938,17 @@ func reviewerBatchIntakeCommands(planRoot, pack, packetPath, targetLane string, 
 	return base + " -WhatIf -Format json", base + " -Apply -Format json"
 }
 
+func reviewerResultCollectionCommands(packetPath, shardID, targetLane, candidatePath string, intakeAvailable bool) ReviewerResultCollectionCommands {
+	commands := ReviewerResultCollectionCommands{CandidatePath: candidatePath}
+	if !intakeAvailable {
+		return commands
+	}
+	base := "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -CollectReviewerResult -ShardId " + quoteCommandArg(shardID) + " -Lane " + quoteCommandArg(targetLane) + " -Actor <main-agent>"
+	commands.PreviewCommand = base + " -WhatIf -Format json"
+	commands.ApplyCommand = base + " -Apply -Format json"
+	return commands
+}
+
 func reviewerIntakeCommandBinding(binding, source, command string, requiredFields []string, expectedOutput string) WritebackCommandBinding {
 	return WritebackCommandBinding{
 		Binding:        binding,
@@ -986,14 +1029,17 @@ func newReviewerOrchestration(planRoot, pack string, handoffs []ShardHandoff, ob
 	dispatches := make([]ReviewerDispatch, 0, len(handoffs))
 	for _, handoff := range handoffs {
 		dispatches = append(dispatches, ReviewerDispatch{
-			ShardID:            handoff.ShardID,
-			ReviewerRole:       "read-only-reviewer",
-			Status:             handoff.Status,
-			Items:              append([]string{}, handoff.Items...),
-			DispatchPrompt:     handoff.DispatchPrompt,
-			ReviewerResultPath: handoff.ReviewerResultPath,
-			PreviewCommand:     handoff.ReviewerIntakeCommands.PreviewCommand,
-			ApplyCommand:       handoff.ReviewerIntakeCommands.ApplyCommand,
+			ShardID:                     handoff.ShardID,
+			ReviewerRole:                "read-only-reviewer",
+			Status:                      handoff.Status,
+			Items:                       append([]string{}, handoff.Items...),
+			DispatchPrompt:              handoff.DispatchPrompt,
+			AgentToolRequest:            handoff.AgentToolRequest,
+			ReviewerResultPath:          handoff.ReviewerResultPath,
+			ReviewerResultCandidatePath: handoff.ReviewerResultCandidatePath,
+			CollectionCommands:          handoff.ReviewerCollectionCommands,
+			PreviewCommand:              handoff.ReviewerIntakeCommands.PreviewCommand,
+			ApplyCommand:                handoff.ReviewerIntakeCommands.ApplyCommand,
 		})
 	}
 	batchPreview, batchApply := reviewerBatchIntakeCommands(planRoot, pack, observability.PacketPath, ownerBinding.TargetLane, intakeAvailable)

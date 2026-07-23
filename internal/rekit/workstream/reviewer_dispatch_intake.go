@@ -20,74 +20,96 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
+type ReviewerAgentToolRequest struct {
+	Tool           string `json:"tool"`
+	AgentType      string `json:"agentType"`
+	ReadOnly       bool   `json:"readOnly"`
+	Prompt         string `json:"prompt"`
+	ExpectedOutput string `json:"expectedOutput"`
+}
+
+type ReviewerResultCollectionCommands struct {
+	CandidatePath  string `json:"candidatePath"`
+	PreviewCommand string `json:"previewCommand"`
+	ApplyCommand   string `json:"applyCommand"`
+}
+
 type ReviewerDispatchIntakeHandoff struct {
-	PacketID                         string   `json:"packetId,omitempty"`
-	PacketPath                       string   `json:"packetPath"`
-	SummaryPath                      string   `json:"summaryPath,omitempty"`
-	ResultRoot                       string   `json:"resultRoot,omitempty"`
-	TargetLane                       string   `json:"targetLane,omitempty"`
-	ShardID                          string   `json:"shardId"`
-	DispatchIndex                    int      `json:"dispatchIndex,omitempty"`
-	DispatchTotal                    int      `json:"dispatchTotal,omitempty"`
-	DispatchCompleted                int      `json:"dispatchCompleted"`
-	DispatchOpen                     int      `json:"dispatchOpen"`
-	DispatchWaitingForReviewerResult int      `json:"dispatchWaitingForReviewerResult"`
-	DispatchReadyForPreview          int      `json:"dispatchReadyForPreview"`
-	DispatchAttachRequired           int      `json:"dispatchAttachRequired"`
-	DispatchOnlyOpen                 int      `json:"dispatchOnlyOpen"`
-	LatestCompletedShardID           string   `json:"latestCompletedShardId,omitempty"`
-	NextOpenShardID                  string   `json:"nextOpenShardId,omitempty"`
-	RemainingShardIDs                []string `json:"remainingShardIds,omitempty"`
-	State                            string   `json:"state"`
-	ReviewerResultPath               string   `json:"reviewerResultPath,omitempty"`
-	ReviewerResultPresent            bool     `json:"reviewerResultPresent"`
-	ReviewerResultState              string   `json:"reviewerResultState,omitempty"`
-	IntakeAvailable                  bool     `json:"intakeAvailable"`
-	DispatchOnly                     bool     `json:"dispatchOnly"`
-	VerificationRecorded             bool     `json:"verificationRecorded"`
-	DecisionRecorded                 bool     `json:"decisionRecorded"`
-	DispatchCommand                  string   `json:"dispatchCommand,omitempty"`
-	PreviewCommand                   string   `json:"previewCommand,omitempty"`
-	ApplyCommand                     string   `json:"applyCommand,omitempty"`
-	BatchPreviewCommand              string   `json:"batchPreviewCommand,omitempty"`
-	BatchApplyCommand                string   `json:"batchApplyCommand,omitempty"`
-	OwnerExecutor                    string   `json:"ownerExecutor,omitempty"`
-	OwnerGeneration                  int      `json:"ownerGeneration,omitempty"`
-	OwnerBindingMode                 string   `json:"ownerBindingMode,omitempty"`
-	CurrentExecutor                  string   `json:"currentExecutor,omitempty"`
-	CurrentGeneration                int      `json:"currentGeneration,omitempty"`
-	OwnerAdoptionRequired            bool     `json:"ownerAdoptionRequired"`
-	OwnerAdoptionPath                string   `json:"ownerAdoptionPath,omitempty"`
-	OwnerAdoptionPreviewCommand      string   `json:"ownerAdoptionPreviewCommand,omitempty"`
-	Evidence                         []string `json:"evidence,omitempty"`
-	Boundary                         []string `json:"boundary,omitempty"`
+	PacketID                         string                            `json:"packetId,omitempty"`
+	PacketPath                       string                            `json:"packetPath"`
+	SummaryPath                      string                            `json:"summaryPath,omitempty"`
+	ResultRoot                       string                            `json:"resultRoot,omitempty"`
+	TargetLane                       string                            `json:"targetLane,omitempty"`
+	ShardID                          string                            `json:"shardId"`
+	DispatchIndex                    int                               `json:"dispatchIndex,omitempty"`
+	DispatchTotal                    int                               `json:"dispatchTotal,omitempty"`
+	DispatchCompleted                int                               `json:"dispatchCompleted"`
+	DispatchOpen                     int                               `json:"dispatchOpen"`
+	DispatchWaitingForReviewerResult int                               `json:"dispatchWaitingForReviewerResult"`
+	DispatchReadyForPreview          int                               `json:"dispatchReadyForPreview"`
+	DispatchAttachRequired           int                               `json:"dispatchAttachRequired"`
+	DispatchOnlyOpen                 int                               `json:"dispatchOnlyOpen"`
+	LatestCompletedShardID           string                            `json:"latestCompletedShardId,omitempty"`
+	NextOpenShardID                  string                            `json:"nextOpenShardId,omitempty"`
+	RemainingShardIDs                []string                          `json:"remainingShardIds,omitempty"`
+	State                            string                            `json:"state"`
+	ReviewerResultPath               string                            `json:"reviewerResultPath,omitempty"`
+	ReviewerResultPresent            bool                              `json:"reviewerResultPresent"`
+	ReviewerResultState              string                            `json:"reviewerResultState,omitempty"`
+	ReviewerResultCandidatePath      string                            `json:"reviewerResultCandidatePath,omitempty"`
+	ReviewerResultCandidateState     string                            `json:"reviewerResultCandidateState,omitempty"`
+	AgentToolRequest                 *ReviewerAgentToolRequest         `json:"agentToolRequest,omitempty"`
+	ReviewerResultCollectionCommands *ReviewerResultCollectionCommands `json:"reviewerResultCollectionCommands,omitempty"`
+	IntakeAvailable                  bool                              `json:"intakeAvailable"`
+	DispatchOnly                     bool                              `json:"dispatchOnly"`
+	VerificationRecorded             bool                              `json:"verificationRecorded"`
+	DecisionRecorded                 bool                              `json:"decisionRecorded"`
+	DispatchCommand                  string                            `json:"dispatchCommand,omitempty"`
+	PreviewCommand                   string                            `json:"previewCommand,omitempty"`
+	ApplyCommand                     string                            `json:"applyCommand,omitempty"`
+	BatchPreviewCommand              string                            `json:"batchPreviewCommand,omitempty"`
+	BatchApplyCommand                string                            `json:"batchApplyCommand,omitempty"`
+	OwnerExecutor                    string                            `json:"ownerExecutor,omitempty"`
+	OwnerGeneration                  int                               `json:"ownerGeneration,omitempty"`
+	OwnerBindingMode                 string                            `json:"ownerBindingMode,omitempty"`
+	CurrentExecutor                  string                            `json:"currentExecutor,omitempty"`
+	CurrentGeneration                int                               `json:"currentGeneration,omitempty"`
+	OwnerAdoptionRequired            bool                              `json:"ownerAdoptionRequired"`
+	OwnerAdoptionPath                string                            `json:"ownerAdoptionPath,omitempty"`
+	OwnerAdoptionPreviewCommand      string                            `json:"ownerAdoptionPreviewCommand,omitempty"`
+	Evidence                         []string                          `json:"evidence,omitempty"`
+	Boundary                         []string                          `json:"boundary,omitempty"`
 }
 
 type ReviewerDispatchIntakeSummary struct {
-	Total                         int      `json:"total"`
-	WaitingForReviewerResult      int      `json:"waitingForReviewerResult"`
-	ReadyForPreview               int      `json:"readyForPreview"`
-	AttachRequired                int      `json:"attachRequired"`
-	DispatchOnly                  int      `json:"dispatchOnly"`
-	LaneCount                     int      `json:"laneCount"`
-	Lanes                         []string `json:"lanes,omitempty"`
-	PacketCount                   int      `json:"packetCount"`
-	LatestPacketDispatchTotal     int      `json:"latestPacketDispatchTotal,omitempty"`
-	LatestPacketDispatchCompleted int      `json:"latestPacketDispatchCompleted"`
-	LatestPacketDispatchOpen      int      `json:"latestPacketDispatchOpen"`
-	LatestPacketNextOpenShardID   string   `json:"latestPacketNextOpenShardId,omitempty"`
-	LatestCompletedShardID        string   `json:"latestCompletedShardId,omitempty"`
-	RemainingShardIDs             []string `json:"remainingShardIds,omitempty"`
-	LatestPacketPath              string   `json:"latestPacketPath,omitempty"`
-	LatestShardID                 string   `json:"latestShardId,omitempty"`
-	LatestState                   string   `json:"latestState,omitempty"`
-	LatestReviewerResultPath      string   `json:"latestReviewerResultPath,omitempty"`
-	LatestPreviewCommand          string   `json:"latestPreviewCommand,omitempty"`
-	LatestApplyCommand            string   `json:"latestApplyCommand,omitempty"`
-	LatestBatchPreviewCommand     string   `json:"latestBatchPreviewCommand,omitempty"`
-	LatestBatchApplyCommand       string   `json:"latestBatchApplyCommand,omitempty"`
-	NextAction                    string   `json:"nextAction,omitempty"`
-	Boundary                      []string `json:"boundary,omitempty"`
+	Total                              int      `json:"total"`
+	WaitingForReviewerResult           int      `json:"waitingForReviewerResult"`
+	ReadyForPreview                    int      `json:"readyForPreview"`
+	AttachRequired                     int      `json:"attachRequired"`
+	DispatchOnly                       int      `json:"dispatchOnly"`
+	LaneCount                          int      `json:"laneCount"`
+	Lanes                              []string `json:"lanes,omitempty"`
+	PacketCount                        int      `json:"packetCount"`
+	LatestPacketDispatchTotal          int      `json:"latestPacketDispatchTotal,omitempty"`
+	LatestPacketDispatchCompleted      int      `json:"latestPacketDispatchCompleted"`
+	LatestPacketDispatchOpen           int      `json:"latestPacketDispatchOpen"`
+	LatestPacketNextOpenShardID        string   `json:"latestPacketNextOpenShardId,omitempty"`
+	LatestCompletedShardID             string   `json:"latestCompletedShardId,omitempty"`
+	RemainingShardIDs                  []string `json:"remainingShardIds,omitempty"`
+	LatestPacketPath                   string   `json:"latestPacketPath,omitempty"`
+	LatestShardID                      string   `json:"latestShardId,omitempty"`
+	LatestState                        string   `json:"latestState,omitempty"`
+	LatestReviewerResultPath           string   `json:"latestReviewerResultPath,omitempty"`
+	LatestReviewerResultCandidatePath  string   `json:"latestReviewerResultCandidatePath,omitempty"`
+	LatestReviewerResultCandidateState string   `json:"latestReviewerResultCandidateState,omitempty"`
+	LatestCollectionPreviewCommand     string   `json:"latestCollectionPreviewCommand,omitempty"`
+	LatestCollectionApplyCommand       string   `json:"latestCollectionApplyCommand,omitempty"`
+	LatestPreviewCommand               string   `json:"latestPreviewCommand,omitempty"`
+	LatestApplyCommand                 string   `json:"latestApplyCommand,omitempty"`
+	LatestBatchPreviewCommand          string   `json:"latestBatchPreviewCommand,omitempty"`
+	LatestBatchApplyCommand            string   `json:"latestBatchApplyCommand,omitempty"`
+	NextAction                         string   `json:"nextAction,omitempty"`
+	Boundary                           []string `json:"boundary,omitempty"`
 }
 
 type reviewerDispatchPacket struct {
@@ -129,11 +151,14 @@ type reviewerDispatchPacketOwner struct {
 }
 
 type reviewerDispatchPacketDispatch struct {
-	ShardID            string `json:"shardId"`
-	Status             string `json:"status"`
-	ReviewerResultPath string `json:"reviewerResultPath"`
-	PreviewCommand     string `json:"previewCommand"`
-	ApplyCommand       string `json:"applyCommand"`
+	ShardID                     string                            `json:"shardId"`
+	Status                      string                            `json:"status"`
+	ReviewerResultPath          string                            `json:"reviewerResultPath"`
+	ReviewerResultCandidatePath string                            `json:"reviewerResultCandidatePath"`
+	AgentToolRequest            *ReviewerAgentToolRequest         `json:"agentToolRequest"`
+	CollectionCommands          *ReviewerResultCollectionCommands `json:"collectionCommands"`
+	PreviewCommand              string                            `json:"previewCommand"`
+	ApplyCommand                string                            `json:"applyCommand"`
 }
 
 func ReviewerDispatchIntakeHandoffs(caseRoot string, facts mission.LedgerFacts, laneID string) ([]ReviewerDispatchIntakeHandoff, error) {
@@ -232,7 +257,7 @@ func reviewerDispatchPacketProgress(items []ReviewerDispatchIntakeHandoff) revie
 		switch item.State {
 		case "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
 			progress.WaitingForReviewerResult++
-		case "ready-for-reviewer-intake-preview":
+		case "ready-for-reviewer-result-collection-preview", "ready-for-reviewer-intake-preview":
 			progress.ReadyForPreview++
 		case "reviewer-packet-owner-adoption-required":
 			progress.AttachRequired++
@@ -266,7 +291,7 @@ func MissionCommanderNextActionsWithReviewerDispatches(base []mission.MissionCom
 	for _, packetID := range packetOrder {
 		handoff := packetRepresentatives[packetID]
 		state := handoff.State
-		blocked := state != "ready-for-reviewer-intake-preview" && state != "reviewer-packet-owner-adoption-required"
+		blocked := state != "ready-for-reviewer-result-collection-preview" && state != "ready-for-reviewer-intake-preview" && state != "reviewer-packet-owner-adoption-required"
 		packetActions = append(packetActions, mission.MissionCommanderNextActionItem{
 			Lane:           handoff.TargetLane,
 			Label:          packetID,
@@ -324,9 +349,9 @@ func reviewerDispatchActionPriority(item ReviewerDispatchIntakeHandoff) int {
 	switch item.State {
 	case "reviewer-packet-owner-adoption-required":
 		return 0
-	case "reviewer-result-symlink-blocked", "attach-required-before-reviewer-intake":
+	case "reviewer-result-symlink-blocked", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "attach-required-before-reviewer-intake":
 		return 1
-	case "ready-for-reviewer-intake-preview":
+	case "ready-for-reviewer-result-collection-preview", "ready-for-reviewer-intake-preview":
 		return 2
 	default:
 		return 3
@@ -354,7 +379,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		switch item.State {
 		case "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
 			summary.WaitingForReviewerResult++
-		case "ready-for-reviewer-intake-preview":
+		case "ready-for-reviewer-result-collection-preview", "ready-for-reviewer-intake-preview":
 			summary.ReadyForPreview++
 			latestReady = &items[idx]
 		case "attach-required-before-reviewer-intake", "reviewer-packet-owner-adoption-required":
@@ -373,6 +398,12 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		summary.LatestShardID = latest.ShardID
 		summary.LatestState = latest.State
 		summary.LatestReviewerResultPath = latest.ReviewerResultPath
+		summary.LatestReviewerResultCandidatePath = latest.ReviewerResultCandidatePath
+		summary.LatestReviewerResultCandidateState = latest.ReviewerResultCandidateState
+		if latest.ReviewerResultCollectionCommands != nil {
+			summary.LatestCollectionPreviewCommand = latest.ReviewerResultCollectionCommands.PreviewCommand
+			summary.LatestCollectionApplyCommand = latest.ReviewerResultCollectionCommands.ApplyCommand
+		}
 		summary.LatestPreviewCommand = latest.PreviewCommand
 		summary.LatestApplyCommand = latest.ApplyCommand
 		summary.LatestBatchPreviewCommand = latest.BatchPreviewCommand
@@ -435,6 +466,7 @@ func readReviewerDispatchPacket(path string) (reviewerDispatchPacket, bool) {
 
 func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts, packet reviewerDispatchPacket, packetPath, targetLane string, dispatch reviewerDispatchPacketDispatch, idx int) ReviewerDispatchIntakeHandoff {
 	resultPath := strings.TrimSpace(dispatch.ReviewerResultPath)
+	candidatePath := strings.TrimSpace(dispatch.ReviewerResultCandidatePath)
 	resultState := refsf.RegularFileMissing
 	if resultPath != "" {
 		classified, err := refsf.ClassifyNonEmptyRegularFile(resultPath)
@@ -445,10 +477,28 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		}
 	}
 	present := resultState == refsf.RegularFileReady
+	candidateState := ""
+	if candidatePath != "" {
+		candidateState = "missing"
+		if present {
+			candidateState = "collected"
+		} else if classified, err := refsf.ClassifyNonEmptyRegularFile(candidatePath); err != nil || classified == refsf.RegularFileSymlink || classified == refsf.RegularFileWaiting {
+			candidateState = "invalid"
+		} else if classified == refsf.RegularFileReady {
+			candidateState = "ready"
+		}
+	}
 	intakeAvailable := reviewerDispatchIntakeCommandAvailable(dispatch.PreviewCommand) && reviewerDispatchIntakeCommandAvailable(dispatch.ApplyCommand)
 	verificationRecorded := reviewerDispatchWritebackRecorded(facts.Verifications, packet.PacketID, dispatch.ShardID, resultPath)
 	decisionRecorded := reviewerDispatchWritebackRecorded(facts.Decisions, packet.PacketID, dispatch.ShardID, resultPath)
 	state := reviewerDispatchIntakeState(resultState, intakeAvailable)
+	if !present && resultState == refsf.RegularFileWaiting && candidatePath != "" {
+		state = "reviewer-result-canonical-invalid"
+	} else if !present && candidateState == "invalid" {
+		state = "reviewer-result-candidate-invalid"
+	} else if !present && candidateState == "ready" && dispatch.CollectionCommands != nil && reviewerDispatchIntakeCommandAvailable(dispatch.CollectionCommands.PreviewCommand) {
+		state = "ready-for-reviewer-result-collection-preview"
+	}
 	currentExecutor, currentGeneration := reviewerDispatchCurrentOwner(caseRoot, targetLane)
 	adoptionPath := filepath.Join(caseRoot, ".rekit", "reviewer-adoptions", packet.PacketID+".json")
 	adoptionCurrent := reviewerDispatchAdoptionCurrent(caseRoot, adoptionPath, packet, packetPath, currentExecutor, currentGeneration)
@@ -458,35 +508,39 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		state = "reviewer-packet-owner-adoption-required"
 	}
 	item := ReviewerDispatchIntakeHandoff{
-		PacketID:                    packet.PacketID,
-		PacketPath:                  packetPath,
-		SummaryPath:                 packet.Observability.SummaryPath,
-		ResultRoot:                  packet.ReviewerOrchestration.ResultRoot,
-		TargetLane:                  targetLane,
-		ShardID:                     dispatch.ShardID,
-		DispatchIndex:               idx + 1,
-		DispatchTotal:               len(packet.ReviewerOrchestration.Dispatches),
-		State:                       state,
-		ReviewerResultPath:          resultPath,
-		ReviewerResultPresent:       present,
-		ReviewerResultState:         string(resultState),
-		IntakeAvailable:             intakeAvailable,
-		DispatchOnly:                !intakeAvailable,
-		VerificationRecorded:        verificationRecorded,
-		DecisionRecorded:            decisionRecorded,
-		DispatchCommand:             reviewerDispatchCommand(dispatch.ShardID, resultPath, idx),
-		PreviewCommand:              dispatch.PreviewCommand,
-		ApplyCommand:                dispatch.ApplyCommand,
-		BatchPreviewCommand:         packet.ReviewerOrchestration.BatchPreviewCommand,
-		BatchApplyCommand:           packet.ReviewerOrchestration.BatchApplyCommand,
-		OwnerExecutor:               packet.ReviewerOrchestration.OwnerBinding.CurrentExecutor,
-		OwnerGeneration:             packet.ReviewerOrchestration.OwnerBinding.ExecutorGeneration,
-		OwnerBindingMode:            packet.ReviewerOrchestration.OwnerBinding.BindingMode,
-		CurrentExecutor:             currentExecutor,
-		CurrentGeneration:           currentGeneration,
-		OwnerAdoptionRequired:       ownerStale && !adoptionCurrent,
-		OwnerAdoptionPath:           adoptionPath,
-		OwnerAdoptionPreviewCommand: reviewerDispatchAdoptionPreviewCommand(packetPath, targetLane),
+		PacketID:                         packet.PacketID,
+		PacketPath:                       packetPath,
+		SummaryPath:                      packet.Observability.SummaryPath,
+		ResultRoot:                       packet.ReviewerOrchestration.ResultRoot,
+		TargetLane:                       targetLane,
+		ShardID:                          dispatch.ShardID,
+		DispatchIndex:                    idx + 1,
+		DispatchTotal:                    len(packet.ReviewerOrchestration.Dispatches),
+		State:                            state,
+		ReviewerResultPath:               resultPath,
+		ReviewerResultPresent:            present,
+		ReviewerResultState:              string(resultState),
+		ReviewerResultCandidatePath:      candidatePath,
+		ReviewerResultCandidateState:     candidateState,
+		AgentToolRequest:                 dispatch.AgentToolRequest,
+		ReviewerResultCollectionCommands: dispatch.CollectionCommands,
+		IntakeAvailable:                  intakeAvailable,
+		DispatchOnly:                     !intakeAvailable,
+		VerificationRecorded:             verificationRecorded,
+		DecisionRecorded:                 decisionRecorded,
+		DispatchCommand:                  reviewerDispatchCommand(dispatch.ShardID, candidatePath, resultPath, dispatch.AgentToolRequest, idx),
+		PreviewCommand:                   dispatch.PreviewCommand,
+		ApplyCommand:                     dispatch.ApplyCommand,
+		BatchPreviewCommand:              packet.ReviewerOrchestration.BatchPreviewCommand,
+		BatchApplyCommand:                packet.ReviewerOrchestration.BatchApplyCommand,
+		OwnerExecutor:                    packet.ReviewerOrchestration.OwnerBinding.CurrentExecutor,
+		OwnerGeneration:                  packet.ReviewerOrchestration.OwnerBinding.ExecutorGeneration,
+		OwnerBindingMode:                 packet.ReviewerOrchestration.OwnerBinding.BindingMode,
+		CurrentExecutor:                  currentExecutor,
+		CurrentGeneration:                currentGeneration,
+		OwnerAdoptionRequired:            ownerStale && !adoptionCurrent,
+		OwnerAdoptionPath:                adoptionPath,
+		OwnerAdoptionPreviewCommand:      reviewerDispatchAdoptionPreviewCommand(packetPath, targetLane),
 	}
 	if item.OwnerAdoptionRequired {
 		item.BatchPreviewCommand = ""
@@ -645,6 +699,9 @@ func reviewerDispatchIntakeEvidence(caseRoot string, item ReviewerDispatchIntake
 	if strings.TrimSpace(item.ResultRoot) != "" {
 		evidence = append(evidence, "resultRoot "+reviewerDispatchDisplayPath(caseRoot, item.ResultRoot))
 	}
+	if strings.TrimSpace(item.ReviewerResultCandidatePath) != "" {
+		evidence = append(evidence, "reviewerResultCandidate "+firstText(item.ReviewerResultCandidateState, "missing")+" "+reviewerDispatchDisplayPath(caseRoot, item.ReviewerResultCandidatePath))
+	}
 	if strings.TrimSpace(item.ReviewerResultPath) != "" {
 		state := "missing"
 		if item.ReviewerResultPresent {
@@ -665,7 +722,8 @@ func reviewerDispatchIntakeBoundary(item ReviewerDispatchIntakeHandoff) []string
 	boundary := []string{
 		"reviewer dispatch intake handoff is read-only; full packet.json and reviewerOrchestration remain source of truth",
 		"runtime does not spawn, stop, monitor, or manage reviewer sessions",
-		"reviewer result JSON must be collected before reviewer-intake preview/apply",
+		"reviewer returns one JSON object; the main agent saves it to the packet-derived candidate path and runs collection -WhatIf before -Apply",
+		"collection publishes exact candidate bytes only to the immutable packet-derived reviewer result path and never overwrites different bytes",
 		"reviewer intake must run -WhatIf before -Apply and must not write authority/confirmed state or execute heavy tools",
 	}
 	if item.DispatchOnly {
@@ -692,18 +750,33 @@ func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string
 	switch item.State {
 	case "reviewer-packet-owner-adoption-required":
 		return firstText(item.OwnerAdoptionPreviewCommand, "adopt reviewer packet "+item.PacketID+" before intake")
+	case "ready-for-reviewer-result-collection-preview":
+		if item.ReviewerResultCollectionCommands != nil {
+			return firstText(item.ReviewerResultCollectionCommands.PreviewCommand, "run reviewer result collection -WhatIf for "+item.ShardID)
+		}
+		return "run reviewer result collection -WhatIf for " + item.ShardID
 	case "ready-for-reviewer-intake-preview":
 		return firstText(item.BatchPreviewCommand, item.PreviewCommand, "run reviewer-intake -WhatIf for "+item.ShardID)
 	case "attach-required-before-reviewer-intake":
 		return "attach or init the target as a rekit case before reviewer-intake writeback for " + item.ShardID
 	case "reviewer-result-symlink-blocked":
 		return "replace the symlink reviewer result with a regular non-empty file for " + item.ShardID
+	case "reviewer-result-candidate-invalid":
+		return "replace the invalid reviewer result candidate for " + item.ShardID + " at " + item.ReviewerResultCandidatePath + ", then rerun collection -WhatIf"
+	case "reviewer-result-canonical-invalid":
+		return "remove or repair the non-regular canonical reviewer result for " + item.ShardID + " at " + item.ReviewerResultPath + ", then rerun collection -WhatIf"
 	default:
+		if item.AgentToolRequest != nil && strings.TrimSpace(item.ReviewerResultCandidatePath) != "" {
+			return item.DispatchCommand
+		}
 		return "collect read-only reviewer JSON for " + item.ShardID + " at " + item.ReviewerResultPath
 	}
 }
 
-func reviewerDispatchCommand(shardID, reviewerResultPath string, idx int) string {
+func reviewerDispatchCommand(shardID, candidatePath, reviewerResultPath string, request *ReviewerAgentToolRequest, idx int) string {
+	if request != nil && strings.TrimSpace(candidatePath) != "" {
+		return "dispatch read-only reviewer for " + shardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].agentToolRequest.prompt; save exactly one JSON object at " + reviewerDispatchQuoteCommandArg(candidatePath) + ", then run reviewer result collection WhatIf before Apply"
+	}
 	return "dispatch read-only reviewer for " + shardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt; collect JSON at " + reviewerDispatchQuoteCommandArg(reviewerResultPath)
 }
 
@@ -739,9 +812,15 @@ func appendReviewerDispatchIntakeHandoff(lines []string, items []ReviewerDispatc
 		return append(lines, "- none")
 	}
 	summary := ReviewerDispatchIntakeSummaryFor(items)
-	lines = append(lines, fmt.Sprintf("- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d packets=%d latestPacketProgress=%d/%d open=%d nextOpen=%s remaining=%s latestShard=%s latestState=%s nextAction=`%s`", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestShardID, summary.LatestState, summary.NextAction))
+	lines = append(lines, fmt.Sprintf("- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d packets=%d latestPacketProgress=%d/%d open=%d nextOpen=%s remaining=%s latestShard=%s latestState=%s candidateState=%s nextAction=`%s`", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultCandidateState, summary.NextAction))
 	for _, item := range items {
-		lines = append(lines, fmt.Sprintf("- dispatch intake: lane=%s shard=%s state=%s progress=%d/%d open=%d nextOpen=%s remaining=%s resultPresent=%t resultState=%s packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s` batchPreview=`%s` batchApply=`%s`", item.TargetLane, item.ShardID, item.State, item.DispatchCompleted, item.DispatchTotal, item.DispatchOpen, item.NextOpenShardID, strings.Join(item.RemainingShardIDs, ","), item.ReviewerResultPresent, item.ReviewerResultState, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand, item.BatchPreviewCommand, item.BatchApplyCommand))
+		lines = append(lines, fmt.Sprintf("- dispatch intake: lane=%s shard=%s state=%s progress=%d/%d open=%d nextOpen=%s remaining=%s candidateState=%s candidate=`%s` resultPresent=%t resultState=%s packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s` batchPreview=`%s` batchApply=`%s`", item.TargetLane, item.ShardID, item.State, item.DispatchCompleted, item.DispatchTotal, item.DispatchOpen, item.NextOpenShardID, strings.Join(item.RemainingShardIDs, ","), item.ReviewerResultCandidateState, item.ReviewerResultCandidatePath, item.ReviewerResultPresent, item.ReviewerResultState, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand, item.BatchPreviewCommand, item.BatchApplyCommand))
+		if item.AgentToolRequest != nil {
+			lines = append(lines, fmt.Sprintf("  - agent tool: tool=%s agentType=%s readOnly=%t expectedOutput=%s", item.AgentToolRequest.Tool, item.AgentToolRequest.AgentType, item.AgentToolRequest.ReadOnly, item.AgentToolRequest.ExpectedOutput))
+		}
+		if item.ReviewerResultCollectionCommands != nil {
+			lines = append(lines, fmt.Sprintf("  - collection: preview=`%s` apply=`%s`", item.ReviewerResultCollectionCommands.PreviewCommand, item.ReviewerResultCollectionCommands.ApplyCommand))
+		}
 		for _, evidence := range mission.LimitStrings(item.Evidence, maxHandoffRows) {
 			lines = append(lines, "  - evidence: "+evidence)
 		}
@@ -759,9 +838,15 @@ func WriteReviewerDispatchIntakeHandoffSection(out *bytes.Buffer, title string, 
 	summary := ReviewerDispatchIntakeSummaryFor(items)
 	fmt.Fprintln(out, title)
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d packets=%d latestPacketProgress=%d/%d open=%d nextOpen=%s remaining=%s latestShard=%s latestState=%s nextAction=`%s`\n", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestShardID, summary.LatestState, summary.NextAction)
+	fmt.Fprintf(out, "- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d packets=%d latestPacketProgress=%d/%d open=%d nextOpen=%s remaining=%s latestShard=%s latestState=%s candidateState=%s nextAction=`%s`\n", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultCandidateState, summary.NextAction)
 	for _, item := range items {
-		fmt.Fprintf(out, "- dispatch intake: lane=%s shard=%s state=%s progress=%d/%d open=%d nextOpen=%s remaining=%s resultPresent=%t packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s`\n", item.TargetLane, item.ShardID, item.State, item.DispatchCompleted, item.DispatchTotal, item.DispatchOpen, item.NextOpenShardID, strings.Join(item.RemainingShardIDs, ","), item.ReviewerResultPresent, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand)
+		fmt.Fprintf(out, "- dispatch intake: lane=%s shard=%s state=%s progress=%d/%d open=%d nextOpen=%s remaining=%s candidateState=%s candidate=`%s` resultPresent=%t packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s`\n", item.TargetLane, item.ShardID, item.State, item.DispatchCompleted, item.DispatchTotal, item.DispatchOpen, item.NextOpenShardID, strings.Join(item.RemainingShardIDs, ","), item.ReviewerResultCandidateState, item.ReviewerResultCandidatePath, item.ReviewerResultPresent, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand)
+		if item.AgentToolRequest != nil {
+			fmt.Fprintf(out, "  - agent tool: tool=%s agentType=%s readOnly=%t expectedOutput=%s\n", item.AgentToolRequest.Tool, item.AgentToolRequest.AgentType, item.AgentToolRequest.ReadOnly, item.AgentToolRequest.ExpectedOutput)
+		}
+		if item.ReviewerResultCollectionCommands != nil {
+			fmt.Fprintf(out, "  - collection: preview=`%s` apply=`%s`\n", item.ReviewerResultCollectionCommands.PreviewCommand, item.ReviewerResultCollectionCommands.ApplyCommand)
+		}
 		for _, evidence := range item.Evidence {
 			fmt.Fprintf(out, "  - evidence: %s\n", evidence)
 		}

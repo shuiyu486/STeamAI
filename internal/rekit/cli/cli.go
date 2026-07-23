@@ -54,6 +54,8 @@ type Options struct {
 	ReviewerResultPath      string
 	ReadyReviewerResults    bool
 	AdoptReviewerPacket     bool
+	CollectReviewerResult   bool
+	ShardID                 string
 	DiffPath                string
 	ProjectName             string
 	Route                   string
@@ -164,6 +166,14 @@ func Parse(args []string) (Options, error) {
 			opt.ReadyReviewerResults = true
 		case "-AdoptReviewerPacket", "--adopt-reviewer-packet":
 			opt.AdoptReviewerPacket = true
+		case "-CollectReviewerResult", "--collect-reviewer-result":
+			opt.CollectReviewerResult = true
+		case "-ShardId", "--shard-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ShardId")
+			}
+			opt.ShardID = args[i]
 		case "-DiffPath", "--diff-path":
 			i++
 			if i >= len(args) {
@@ -578,6 +588,9 @@ func Run(args []string, stdout io.Writer) error {
 	}
 	if opt.ReadyReviewerResults && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("-ReadyReviewerResults is supported only by plan-subagents reviewer batch intake")
+	}
+	if opt.CollectReviewerResult && opt.Command != commands.PlanSubagents {
+		return fmt.Errorf("-CollectReviewerResult is supported only by plan-subagents reviewer result collection")
 	}
 	switch opt.Command {
 	case commands.Status:
@@ -4602,7 +4615,7 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 	if summary.Total == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake summary：total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d lanes=%d packets=%d latestPacketProgress=%d/%d latestPacketOpen=%d latestPacketNextOpen=%s latestCompletedShard=%s remaining=%s latestPacket=%s latestShard=%s latestState=%s latestReviewerResult=%s nextAction=%s\n", prefix, summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.LaneCount, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, summary.LatestCompletedShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestPacketPath, summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultPath, summary.NextAction); err != nil {
+	if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake summary：total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d lanes=%d packets=%d latestPacketProgress=%d/%d latestPacketOpen=%d latestPacketNextOpen=%s latestCompletedShard=%s remaining=%s latestPacket=%s latestShard=%s latestState=%s latestCandidateState=%s latestCandidate=%s latestReviewerResult=%s nextAction=%s\n", prefix, summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.LaneCount, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, summary.LatestCompletedShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestPacketPath, summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultCandidateState, summary.LatestReviewerResultCandidatePath, summary.LatestReviewerResultPath, summary.NextAction); err != nil {
 		return err
 	}
 	if strings.TrimSpace(summary.LatestBatchPreviewCommand) != "" {
@@ -4623,6 +4636,16 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 	for _, item := range items {
 		if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake：lane=%s shard=%s state=%s dispatchIndex=%d dispatchTotal=%d dispatchCompleted=%d dispatchOpen=%d dispatchWaitingForReviewerResult=%d dispatchReadyForPreview=%d dispatchAttachRequired=%d dispatchOnlyOpen=%d nextOpen=%s remaining=%s resultPresent=%t intakeAvailable=%t dispatchOnly=%t verificationRecorded=%t decisionRecorded=%t packet=%s reviewerResult=%s preview=`%s` apply=`%s`\n", prefix, item.TargetLane, item.ShardID, item.State, item.DispatchIndex, item.DispatchTotal, item.DispatchCompleted, item.DispatchOpen, item.DispatchWaitingForReviewerResult, item.DispatchReadyForPreview, item.DispatchAttachRequired, item.DispatchOnlyOpen, item.NextOpenShardID, strings.Join(item.RemainingShardIDs, ","), item.ReviewerResultPresent, item.IntakeAvailable, item.DispatchOnly, item.VerificationRecorded, item.DecisionRecorded, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand); err != nil {
 			return err
+		}
+		if item.AgentToolRequest != nil {
+			if _, err := fmt.Fprintf(out, "%s reviewer dispatch agent tool：shard=%s tool=%s agentType=%s readOnly=%t expectedOutput=%s\n", prefix, item.ShardID, item.AgentToolRequest.Tool, item.AgentToolRequest.AgentType, item.AgentToolRequest.ReadOnly, item.AgentToolRequest.ExpectedOutput); err != nil {
+				return err
+			}
+		}
+		if item.ReviewerResultCollectionCommands != nil {
+			if _, err := fmt.Fprintf(out, "%s reviewer result collection：shard=%s candidate=%s state=%s preview=`%s` apply=`%s`\n", prefix, item.ShardID, item.ReviewerResultCandidatePath, item.ReviewerResultCandidateState, item.ReviewerResultCollectionCommands.PreviewCommand, item.ReviewerResultCollectionCommands.ApplyCommand); err != nil {
+				return err
+			}
 		}
 		if strings.TrimSpace(item.DispatchCommand) != "" {
 			if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake dispatch：shard=%s command=`%s`\n", prefix, item.ShardID, item.DispatchCommand); err != nil {
@@ -5070,6 +5093,35 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(opt.ShardID) != "" && !opt.CollectReviewerResult {
+		return fmt.Errorf("-ShardId is supported only with -CollectReviewerResult")
+	}
+	if opt.CollectReviewerResult {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+			return fmt.Errorf("plan-subagents reviewer result collection cannot combine with reviewer intake or adoption modes")
+		}
+		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
+			return fmt.Errorf("plan-subagents reviewer result collection does not support planning scope flags")
+		}
+		if opt.Apply == opt.WhatIf {
+			return fmt.Errorf("plan-subagents reviewer result collection requires exactly one of -WhatIf or -Apply")
+		}
+		if strings.TrimSpace(opt.PacketPath) == "" || strings.TrimSpace(opt.ShardID) == "" {
+			return fmt.Errorf("plan-subagents reviewer result collection requires -PacketPath and -ShardId")
+		}
+		format, err := planSubagentsFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
+		}
+		result, err := subagents.CollectReviewerResult(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultCollectionOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePlanSubagentsReviewerResultCollectionText(out, result)
+	}
 	if opt.AdoptReviewerPacket {
 		if opt.ReadyReviewerResults || strings.TrimSpace(opt.ReviewerResultPath) != "" {
 			return fmt.Errorf("plan-subagents reviewer packet adoption cannot combine with reviewer intake modes")
@@ -5418,6 +5470,21 @@ func writePlanSubagentsShardHandoffText(out io.Writer, result subagents.Result) 
 				return err
 			}
 		}
+		if request := handoff.AgentToolRequest; request != nil {
+			if _, err := fmt.Fprintf(out, "plan-subagents shard agent tool request：shard=%s tool=%s agentType=%s readOnly=%t expectedOutput=%s\n", handoff.ShardID, request.Tool, request.AgentType, request.ReadOnly, planSubagentsTextInline(request.ExpectedOutput)); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(handoff.ReviewerResultCandidatePath) != "" {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer result candidate：shard=%s path=%s canonical=%s\n", handoff.ShardID, handoff.ReviewerResultCandidatePath, handoff.ReviewerResultPath); err != nil {
+				return err
+			}
+		}
+		if commands := handoff.ReviewerCollectionCommands; commands != nil {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer collection command：shard=%s candidate=%s preview=`%s` apply=`%s`\n", handoff.ShardID, commands.CandidatePath, commands.PreviewCommand, commands.ApplyCommand); err != nil {
+				return err
+			}
+		}
 		if strings.TrimSpace(handoff.DispatchPrompt) != "" {
 			if _, err := fmt.Fprintf(out, "plan-subagents shard dispatch prompt：shard=%s prompt=%s\n", handoff.ShardID, planSubagentsTextInline(handoff.DispatchPrompt)); err != nil {
 				return err
@@ -5746,6 +5813,26 @@ func writeReviewerIntakeSummaryText(out io.Writer, summary subagents.ReviewerInt
 		}
 	}
 	return nil
+}
+
+func writePlanSubagentsReviewerResultCollectionText(out io.Writer, result subagents.ReviewerResultCollectionResult) error {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer result collection：status=%s mutation=%t applied=%t alreadyCollected=%t packet=%s shard=%s lane=%s reviewerSession=%s\n", result.Status, result.IsMutation, result.Applied, result.AlreadyCollected, result.PacketID, result.ShardID, result.Lane, result.ReviewerSession); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "reviewer result collection artifact：candidate=%s candidateSha256=%s candidateBytes=%d canonical=%s canonicalSha256=%s\n", result.CandidatePath, result.CandidateSHA256, result.CandidateBytes, result.ReviewerResultPath, result.ReviewerResultSHA256); err != nil {
+		return err
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "reviewer result collection next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "reviewer result collection boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue)
 }
 
 func writePlanSubagentsReviewerPacketAdoptionText(out io.Writer, result subagents.ReviewerPacketAdoptionResult) error {

@@ -633,6 +633,27 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	}
 }
 
+func TestRunPlanSubagentsRejectsShardIDOutsideCollection(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-Lane", "feature-review", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	out.Reset()
+	err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-ShardId", "shard-01", "-Lane", "feature-review", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "supported only with -CollectReviewerResult") {
+		t.Fatalf("-ShardId outside collection error = %v", err)
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
+		t.Fatalf("invalid shard-scoped batch intake wrote verification facts:\n%s", got)
+	}
+}
+
 func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
@@ -675,8 +696,35 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(handoff.ReviewerResultPath, data, 0o644); err != nil {
+		if handoff.ReviewerResultCandidatePath == "" || handoff.ReviewerResultCandidatePath == handoff.ReviewerResultPath {
+			t.Fatalf("reviewer collection candidate path is not distinct: %+v", handoff)
+		}
+		if err := os.MkdirAll(filepath.Dir(handoff.ReviewerResultCandidatePath), 0o755); err != nil {
 			t.Fatal(err)
+		}
+		if err := os.WriteFile(handoff.ReviewerResultCandidatePath, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		out.Reset()
+		if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		collectionPreview := decodeReviewerResultCollectionCLIResult(t, out.Bytes())
+		if collectionPreview.Mode != "reviewer-result-collection" || collectionPreview.Status != "previewed" || collectionPreview.IsMutation || collectionPreview.Applied || collectionPreview.CandidatePath != handoff.ReviewerResultCandidatePath || collectionPreview.ReviewerResultPath != handoff.ReviewerResultPath {
+			t.Fatalf("unexpected reviewer result collection preview: %+v", collectionPreview)
+		}
+		if _, err := os.Stat(handoff.ReviewerResultPath); !os.IsNotExist(err) {
+			t.Fatalf("reviewer result collection WhatIf wrote canonical result: %v", err)
+		}
+
+		out.Reset()
+		if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		collectionApply := decodeReviewerResultCollectionCLIResult(t, out.Bytes())
+		if collectionApply.Status != "collected" || !collectionApply.IsMutation || !collectionApply.Applied || collectionApply.AlreadyCollected || collectionApply.CandidateSHA256 == "" || collectionApply.CandidateSHA256 != collectionApply.ReviewerResultSHA256 {
+			t.Fatalf("unexpected reviewer result collection apply: %+v", collectionApply)
 		}
 	}
 
@@ -980,6 +1028,27 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 			t.Fatalf("reviewer intake partial recovery text missing %q:\n%s", expected, out.String())
 		}
 	}
+}
+
+type reviewerResultCollectionCLIResult struct {
+	Mode                 string `json:"mode"`
+	IsMutation           bool   `json:"isMutation"`
+	Applied              bool   `json:"applied"`
+	Status               string `json:"status"`
+	CandidatePath        string `json:"candidatePath"`
+	CandidateSHA256      string `json:"candidateSha256"`
+	ReviewerResultPath   string `json:"reviewerResultPath"`
+	ReviewerResultSHA256 string `json:"reviewerResultSha256"`
+	AlreadyCollected     bool   `json:"alreadyCollected"`
+}
+
+func decodeReviewerResultCollectionCLIResult(t *testing.T, data []byte) reviewerResultCollectionCLIResult {
+	t.Helper()
+	var result reviewerResultCollectionCLIResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("reviewer result collection stdout is not JSON: %v\n%s", err, string(data))
+	}
+	return result
 }
 
 type reviewerBatchIntakeCLIResult struct {
