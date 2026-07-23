@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 553：canonical reviewer result recovery / quarantine closure
 
-状态：implementation、focused/package/product-path validation、两轮独立审查修复与完整本地release minimum已完成；尚未commit/push，尚未检查implementation commit对应远程release gate。
+状态：已完成implementation、focused/package/product-path validation、两轮独立审查修复、完整本地release minimum、implementation commit `e351c3d Recover conflicting reviewer results`/push与远程release-gate inspection。对应run `29985101781` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。
 
 目标：关闭read-only reviewer candidate已正确生成、但canonical reviewer result已存在不同损坏或冲突bytes时，immutable collection拒绝覆盖且Mission Commander只能要求手工删除/修补result的operational断点。提供explicit WhatIf→Apply exact recovery，保留冲突bytes的可审计quarantine，再恢复collection→intake路径。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：recovery只隔离一份exact conflicting regular canonical result，不自动spawn/stop/poll/monitor reviewer，不执行heavy-tool，不写facts/authority/confirmed，不替换candidate、不撤销既有verification/decision；collection与intake仍分别要求显式WhatIf→Apply。禁止新增PowerShell runtime logic。
 
-验证结果：focused `subagents` / `workstream` / `cli` tests与case-local nested CLI product path已通过；完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。两轮独立审查发现并修复最终路径直接写导致截断intent/receipt dead end、interrupted recovery可被collection绕过、actor/reason drift、workstream未strict区分intent/committed receipt四项问题；复核确认核心执行端与strict projection闭环。
+验证结果：focused `subagents` / `workstream` / `cli` tests与case-local nested CLI product path已通过；完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。两轮独立审查发现并修复最终路径直接写导致截断intent/receipt dead end、interrupted recovery可被collection绕过、actor/reason drift、workstream未strict区分intent/committed receipt四项问题；复核确认核心执行端与strict projection闭环。远程run `29985101781`三平台jobs均在执行任何step前失败，未提供新的代码失败信号。
 
 上一批摘要：Batch 552已完成invalid reviewer packet recovery / exact retirement closure，implementation commit `26d9061 Retire invalid reviewer packets safely`与release inspection commit `b9f8e46 Record Batch 552 release gate inspection`已推送；对应run `29981677697`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
