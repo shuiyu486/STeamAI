@@ -242,16 +242,18 @@ type ReleaseHandoffPackMemoryCandidateStatus struct {
 }
 
 type ReleaseHandoffPackMemoryCandidateDecisionReceipt struct {
-	Path                  string `json:"path"`
-	Accepted              int    `json:"accepted"`
-	Rejected              int    `json:"rejected"`
-	Superseded            int    `json:"superseded"`
-	PacketPath            string `json:"packetPath"`
-	DecisionPath          string `json:"decisionPath"`
-	VerificationPending   bool   `json:"verificationPending"`
-	VerificationCommand   string `json:"verificationCommand,omitempty"`
-	VerificationProofPath string `json:"verificationProofPath,omitempty"`
-	VerificationComplete  bool   `json:"verificationComplete"`
+	Path                         string `json:"path"`
+	Accepted                     int    `json:"accepted"`
+	Rejected                     int    `json:"rejected"`
+	Superseded                   int    `json:"superseded"`
+	PacketPath                   string `json:"packetPath"`
+	DecisionPath                 string `json:"decisionPath"`
+	VerificationPending          bool   `json:"verificationPending"`
+	VerificationWorkspaceRoot    string `json:"verificationWorkspaceRoot,omitempty"`
+	VerificationProvisionCommand string `json:"verificationProvisionCommand,omitempty"`
+	VerificationCommand          string `json:"verificationCommand,omitempty"`
+	VerificationProofPath        string `json:"verificationProofPath,omitempty"`
+	VerificationComplete         bool   `json:"verificationComplete"`
 }
 
 type ReleaseHandoffPackMemoryCandidateIndexEntry struct {
@@ -651,7 +653,7 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 		status.Action = "cleanup stale pack-memory candidate indexPath or regenerate candidates before review"
 	}
 	if !status.RequiresReview && !status.RequiresCleanup && status.RequiresVerification {
-		status.Action = "run the candidate decision verification command with distinct prepared fresh/attached cases, review WhatIf, then Apply"
+		status.Action = "run the candidate verification case provisioning WhatIf/expected-hash Apply, then run candidate decision verification WhatIf/Apply"
 	}
 	status.Evidence = append(status.Evidence, "candidateRoot "+candidateRootRel, "toolingRoot "+toolingRootRel)
 	if candidateFileCount > 0 {
@@ -997,27 +999,29 @@ type candidateDecisionActionInventory struct {
 }
 
 type candidateDecisionReceiptInventory struct {
-	SchemaVersion         int                                `json:"schemaVersion"`
-	Kind                  string                             `json:"kind"`
-	Pack                  string                             `json:"pack"`
-	RepoRoot              string                             `json:"repoRoot"`
-	CaseRoot              string                             `json:"caseRoot"`
-	PacketPath            string                             `json:"packetPath"`
-	DecisionPath          string                             `json:"decisionPath"`
-	PacketHash            string                             `json:"packetHash"`
-	DecisionHash          string                             `json:"decisionHash"`
-	BackupRoot            string                             `json:"backupRoot"`
-	IndexPath             string                             `json:"indexPath"`
-	Accepted              int                                `json:"accepted"`
-	Rejected              int                                `json:"rejected"`
-	Superseded            int                                `json:"superseded"`
-	Actions               []candidateDecisionActionInventory `json:"actions"`
-	DecisionEvidence      []string                           `json:"decisionEvidence"`
-	ReceiptPath           string                             `json:"receiptPath"`
-	VerificationProofPath string                             `json:"verificationProofPath,omitempty"`
-	VerificationPending   bool                               `json:"verificationPending"`
-	VerificationCommand   string                             `json:"verificationCommand,omitempty"`
-	Boundary              []string                           `json:"boundary"`
+	SchemaVersion                int                                `json:"schemaVersion"`
+	Kind                         string                             `json:"kind"`
+	Pack                         string                             `json:"pack"`
+	RepoRoot                     string                             `json:"repoRoot"`
+	CaseRoot                     string                             `json:"caseRoot"`
+	PacketPath                   string                             `json:"packetPath"`
+	DecisionPath                 string                             `json:"decisionPath"`
+	PacketHash                   string                             `json:"packetHash"`
+	DecisionHash                 string                             `json:"decisionHash"`
+	BackupRoot                   string                             `json:"backupRoot"`
+	IndexPath                    string                             `json:"indexPath"`
+	Accepted                     int                                `json:"accepted"`
+	Rejected                     int                                `json:"rejected"`
+	Superseded                   int                                `json:"superseded"`
+	Actions                      []candidateDecisionActionInventory `json:"actions"`
+	DecisionEvidence             []string                           `json:"decisionEvidence"`
+	ReceiptPath                  string                             `json:"receiptPath"`
+	VerificationProofPath        string                             `json:"verificationProofPath,omitempty"`
+	VerificationPending          bool                               `json:"verificationPending"`
+	VerificationWorkspaceRoot    string                             `json:"verificationWorkspaceRoot,omitempty"`
+	VerificationProvisionCommand string                             `json:"verificationProvisionCommand,omitempty"`
+	VerificationCommand          string                             `json:"verificationCommand,omitempty"`
+	Boundary                     []string                           `json:"boundary"`
 }
 
 type candidateDecisionEvidenceInventory struct {
@@ -1138,11 +1142,18 @@ func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) (
 		if err := decodeReleaseHandoffStrictJSON(data, &raw); err != nil {
 			return nil, fmt.Errorf("decode candidate decision receipt %s: %w", path, err)
 		}
-		if raw.SchemaVersion != 1 || raw.Kind != "pack-memory-candidate-decision-receipt" || raw.Pack != packID || !sameReleaseHandoffPath(raw.RepoRoot, repo) || strings.TrimSpace(raw.CaseRoot) == "" || strings.TrimSpace(raw.PacketHash) == "" || strings.TrimSpace(raw.DecisionHash) == "" || strings.TrimSpace(raw.PacketPath) == "" || strings.TrimSpace(raw.DecisionPath) == "" || !sameReleaseHandoffPath(raw.ReceiptPath, path) || raw.Accepted < 0 || raw.Rejected < 0 || raw.Superseded < 0 || raw.Accepted+raw.Rejected+raw.Superseded != len(raw.Actions) || (raw.Accepted > 0 && (!raw.VerificationPending || strings.TrimSpace(raw.VerificationCommand) == "" || strings.TrimSpace(raw.VerificationProofPath) == "")) {
+		if raw.SchemaVersion != 1 || raw.Kind != "pack-memory-candidate-decision-receipt" || raw.Pack != packID || !sameReleaseHandoffPath(raw.RepoRoot, repo) || strings.TrimSpace(raw.CaseRoot) == "" || strings.TrimSpace(raw.PacketHash) == "" || strings.TrimSpace(raw.DecisionHash) == "" || strings.TrimSpace(raw.PacketPath) == "" || strings.TrimSpace(raw.DecisionPath) == "" || !sameReleaseHandoffPath(raw.ReceiptPath, path) || raw.Accepted < 0 || raw.Rejected < 0 || raw.Superseded < 0 || raw.Accepted+raw.Rejected+raw.Superseded != len(raw.Actions) || (raw.Accepted > 0 && (!raw.VerificationPending || strings.TrimSpace(raw.VerificationWorkspaceRoot) == "" || strings.TrimSpace(raw.VerificationProvisionCommand) == "" || strings.TrimSpace(raw.VerificationCommand) == "" || strings.TrimSpace(raw.VerificationProofPath) == "")) {
 			return nil, fmt.Errorf("candidate decision receipt binding mismatch: %s", path)
 		}
 		if !sameReleaseHandoffPath(raw.IndexPath, filepath.Join(candidateRoot, "index.json")) {
 			return nil, fmt.Errorf("candidate decision receipt index binding mismatch: %s", path)
+		}
+		if raw.Accepted > 0 {
+			provisionID := shortReleaseHandoffHash(raw.PacketHash + raw.DecisionHash)
+			expectedWorkspace := filepath.Join(raw.CaseRoot, ".rekit", "verifications", "candidate-decisions", provisionID)
+			if !sameReleaseHandoffPath(raw.VerificationWorkspaceRoot, expectedWorkspace) || !strings.Contains(raw.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") || !strings.Contains(raw.VerificationProvisionCommand, raw.PacketPath) || !strings.Contains(raw.VerificationProvisionCommand, raw.DecisionPath) {
+				return nil, fmt.Errorf("candidate decision receipt provisioning binding mismatch: %s", path)
+			}
 		}
 		if !pathWithinReleaseHandoffRoot(candidateRoot, raw.BackupRoot) {
 			return nil, fmt.Errorf("candidate decision receipt backup leaves candidate root: %s", raw.BackupRoot)
@@ -1198,16 +1209,18 @@ func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) (
 			}
 		}
 		receipts = append(receipts, ReleaseHandoffPackMemoryCandidateDecisionReceipt{
-			Path:                  filepath.ToSlash(filepath.Join(proofRootRel, entry.Name())),
-			Accepted:              raw.Accepted,
-			Rejected:              raw.Rejected,
-			Superseded:            raw.Superseded,
-			PacketPath:            releaseHandoffRepoRelative(repo, raw.PacketPath),
-			DecisionPath:          releaseHandoffRepoRelative(repo, raw.DecisionPath),
-			VerificationPending:   raw.VerificationPending,
-			VerificationCommand:   raw.VerificationCommand,
-			VerificationProofPath: proofRel,
-			VerificationComplete:  proofComplete,
+			Path:                         filepath.ToSlash(filepath.Join(proofRootRel, entry.Name())),
+			Accepted:                     raw.Accepted,
+			Rejected:                     raw.Rejected,
+			Superseded:                   raw.Superseded,
+			PacketPath:                   releaseHandoffRepoRelative(repo, raw.PacketPath),
+			DecisionPath:                 releaseHandoffRepoRelative(repo, raw.DecisionPath),
+			VerificationPending:          raw.VerificationPending,
+			VerificationWorkspaceRoot:    raw.VerificationWorkspaceRoot,
+			VerificationProvisionCommand: raw.VerificationProvisionCommand,
+			VerificationCommand:          raw.VerificationCommand,
+			VerificationProofPath:        proofRel,
+			VerificationComplete:         proofComplete,
 		})
 	}
 	sort.Slice(receipts, func(i, j int) bool { return receipts[i].Path < receipts[j].Path })
@@ -1707,7 +1720,7 @@ func releaseHandoffPackMemoryCandidateDetails(inventory ReleaseHandoffPackMemory
 			details = append(details, fmt.Sprintf("indexCandidate pack=%s path=%s candidate=%s", pack.Pack, entry.Path, entry.Candidate))
 		}
 		for _, receipt := range pack.DecisionReceipts {
-			details = append(details, fmt.Sprintf("decisionReceipt pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t proofPath=%s command=%s", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationProofPath, receipt.VerificationCommand))
+			details = append(details, fmt.Sprintf("decisionReceipt pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t workspace=%s provisionCommand=%s proofPath=%s command=%s", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationWorkspaceRoot, receipt.VerificationProvisionCommand, receipt.VerificationProofPath, receipt.VerificationCommand))
 		}
 		summary := pack.ReviewSummary
 		details = append(details, fmt.Sprintf("reviewSummary pack=%s total=%d decisionArtifacts=%d cleanupArtifacts=%d reconsumeArtifacts=%d proofPresent=%d proofMissing=%d proofComplete=%t nextAction=%s", pack.Pack, summary.Total, summary.DecisionArtifactCount, summary.CleanupArtifactCount, summary.ReconsumeArtifactCount, summary.ProofSummary.Present, summary.ProofSummary.Missing, summary.ProofSummary.Complete, summary.NextAction))

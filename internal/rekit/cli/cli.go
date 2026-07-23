@@ -35,54 +35,56 @@ import (
 )
 
 type Options struct {
-	Command                      string
-	Target                       string
-	Pack                         string
-	PackProvided                 bool
-	Review                       bool
-	Apply                        bool
-	CreateCandidates             bool
-	WhatIf                       bool
-	Force                        bool
-	List                         bool
-	ReviewOutputDir              string
-	PacketPath                   string
-	CandidateDecisionPath        string
-	VerifyCandidateDecision      bool
-	FreshCaseRoot                string
-	AttachedCaseRoot             string
-	ReviewerResultPath           string
-	ReadyReviewerResults         bool
-	AdoptReviewerPacket          bool
-	RetireInvalidReviewerPacket  bool
-	RetireReviewerResultRecovery bool
-	StageReviewerResult          bool
-	ReviewerResultSourcePath     string
-	ExpectedSourceSHA256         string
-	ExpectedPacketSHA256         string
-	ExpectedIntegritySHA256      string
-	RecoverReviewerResult        bool
-	ExpectedCandidateSHA256      string
-	ExpectedReviewerResultSHA256 string
-	ExpectedIntentSHA256         string
-	ExpectedCanonicalSHA256      string
-	CollectReviewerResult        bool
-	ShardID                      string
-	DiffPath                     string
-	ProjectName                  string
-	Route                        string
-	TaskType                     string
-	Items                        string
-	ItemsFile                    string
-	ItemsPerAgent                int
-	MaxParallel                  int
-	Format                       string
-	Gate                         gate.Options
-	Note                         note.Options
-	Start                        workstream.StartOptions
-	Handoff                      workstream.HandoffOptions
-	Continue                     workstream.ContinueOptions
-	Reconcile                    workstream.ReconcileOptions
+	Command                             string
+	Target                              string
+	Pack                                string
+	PackProvided                        bool
+	Review                              bool
+	Apply                               bool
+	CreateCandidates                    bool
+	WhatIf                              bool
+	Force                               bool
+	List                                bool
+	ReviewOutputDir                     string
+	PacketPath                          string
+	CandidateDecisionPath               string
+	VerifyCandidateDecision             bool
+	ProvisionCandidateVerificationCases bool
+	ExpectedProvisionSHA256             string
+	FreshCaseRoot                       string
+	AttachedCaseRoot                    string
+	ReviewerResultPath                  string
+	ReadyReviewerResults                bool
+	AdoptReviewerPacket                 bool
+	RetireInvalidReviewerPacket         bool
+	RetireReviewerResultRecovery        bool
+	StageReviewerResult                 bool
+	ReviewerResultSourcePath            string
+	ExpectedSourceSHA256                string
+	ExpectedPacketSHA256                string
+	ExpectedIntegritySHA256             string
+	RecoverReviewerResult               bool
+	ExpectedCandidateSHA256             string
+	ExpectedReviewerResultSHA256        string
+	ExpectedIntentSHA256                string
+	ExpectedCanonicalSHA256             string
+	CollectReviewerResult               bool
+	ShardID                             string
+	DiffPath                            string
+	ProjectName                         string
+	Route                               string
+	TaskType                            string
+	Items                               string
+	ItemsFile                           string
+	ItemsPerAgent                       int
+	MaxParallel                         int
+	Format                              string
+	Gate                                gate.Options
+	Note                                note.Options
+	Start                               workstream.StartOptions
+	Handoff                             workstream.HandoffOptions
+	Continue                            workstream.ContinueOptions
+	Reconcile                           workstream.ReconcileOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -156,6 +158,14 @@ func Parse(args []string) (Options, error) {
 			opt.CandidateDecisionPath = args[i]
 		case "-VerifyCandidateDecision", "--verify-candidate-decision":
 			opt.VerifyCandidateDecision = true
+		case "-ProvisionCandidateVerificationCases", "--provision-candidate-verification-cases":
+			opt.ProvisionCandidateVerificationCases = true
+		case "-ExpectedProvisionSha256", "--expected-provision-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedProvisionSha256")
+			}
+			opt.ExpectedProvisionSHA256 = args[i]
 		case "-FreshCaseRoot", "--fresh-case-root":
 			i++
 			if i >= len(args) {
@@ -650,6 +660,9 @@ func Run(args []string, stdout io.Writer) error {
 			ctx.Pack = inst.TemplatePack
 			opt.Pack = inst.TemplatePack
 		}
+	}
+	if (opt.ProvisionCandidateVerificationCases || strings.TrimSpace(opt.ExpectedProvisionSHA256) != "") && opt.Command != commands.Promote {
+		return fmt.Errorf("candidate verification provisioning flags are supported only by promote")
 	}
 	if strings.TrimSpace(opt.ReviewerResultPath) != "" && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("-ReviewerResultPath is supported only by plan-subagents reviewer intake")
@@ -1333,7 +1346,7 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 			}
 		}
 		for _, receipt := range pack.DecisionReceipts {
-			if _, err := fmt.Fprintf(out, "release-check pack-memory decision receipt：pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t proofPath=%s command=%s\n", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationProofPath, receipt.VerificationCommand); err != nil {
+			if _, err := fmt.Fprintf(out, "release-check pack-memory decision receipt：pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t workspace=%s proofPath=%s provisionCommand=%s command=%s\n", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationWorkspaceRoot, receipt.VerificationProofPath, receipt.VerificationProvisionCommand, receipt.VerificationCommand); err != nil {
 				return err
 			}
 		}
@@ -2495,7 +2508,7 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 			}
 		}
 		for _, receipt := range pack.DecisionReceipts {
-			if _, err := fmt.Fprintf(out, "status pack-memory decision receipt：pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t proofPath=%s command=%s\n", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationProofPath, receipt.VerificationCommand); err != nil {
+			if _, err := fmt.Fprintf(out, "status pack-memory decision receipt：pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t workspace=%s proofPath=%s provisionCommand=%s command=%s\n", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationWorkspaceRoot, receipt.VerificationProofPath, receipt.VerificationProvisionCommand, receipt.VerificationCommand); err != nil {
 				return err
 			}
 		}
@@ -6344,6 +6357,35 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if opt.ProvisionCandidateVerificationCases {
+		if strings.TrimSpace(opt.PacketPath) == "" || strings.TrimSpace(opt.CandidateDecisionPath) == "" || strings.TrimSpace(opt.FreshCaseRoot) == "" || strings.TrimSpace(opt.AttachedCaseRoot) == "" {
+			return fmt.Errorf("promote -ProvisionCandidateVerificationCases requires -PacketPath, -CandidateDecisionPath, -FreshCaseRoot, and -AttachedCaseRoot")
+		}
+		if opt.Apply == opt.WhatIf {
+			return fmt.Errorf("promote -ProvisionCandidateVerificationCases requires exactly one of -WhatIf or -Apply")
+		}
+		if opt.Apply && strings.TrimSpace(opt.ExpectedProvisionSHA256) == "" {
+			return fmt.Errorf("promote candidate verification provisioning Apply requires -ExpectedProvisionSha256 from WhatIf")
+		}
+		if opt.WhatIf && strings.TrimSpace(opt.ExpectedProvisionSHA256) != "" {
+			return fmt.Errorf("promote candidate verification provisioning WhatIf does not accept -ExpectedProvisionSha256")
+		}
+		if opt.VerifyCandidateDecision || opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" {
+			return fmt.Errorf("promote -ProvisionCandidateVerificationCases cannot be combined with verification/create/review artifact options")
+		}
+		format, err := workstreamFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported promote candidate verification provisioning format: %s", opt.Format)
+		}
+		result, err := promote.ProvisionCandidateVerificationCases(ctx.RepoRoot, target, ctx.Pack, promote.CandidateVerificationProvisionOptions{PacketPath: opt.PacketPath, DecisionPath: opt.CandidateDecisionPath, FreshCaseRoot: opt.FreshCaseRoot, AttachedCaseRoot: opt.AttachedCaseRoot, ExpectedProvisionSHA256: opt.ExpectedProvisionSHA256, WhatIf: opt.WhatIf})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePromoteCandidateVerificationProvisionText(out, result)
+	}
 	if opt.VerifyCandidateDecision {
 		if strings.TrimSpace(opt.PacketPath) == "" || strings.TrimSpace(opt.CandidateDecisionPath) == "" {
 			return fmt.Errorf("promote -VerifyCandidateDecision requires -PacketPath and -CandidateDecisionPath")
@@ -7119,6 +7161,36 @@ func writeSyncApplyText(out io.Writer, result syncreview.ApplyResult) error {
 	}
 	for _, step := range result.NextSteps {
 		if _, err := fmt.Fprintf(out, "%s apply next step：%s\n", result.Command, step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writePromoteCandidateVerificationProvisionText(out io.Writer, result promote.CandidateVerificationProvisionResult) error {
+	if _, err := fmt.Fprintf(out, "promote candidate verification provision：mode=%s mutation=%t applied=%t replay=%t pack=%s provision=%s workspace=%s receipt=%s\n", result.Mode, result.IsMutation, result.Applied, result.Replay, result.Pack, result.ProvisionSHA256, result.WorkspaceRoot, result.ReceiptPath); err != nil {
+		return err
+	}
+	for _, item := range result.Cases {
+		if _, err := fmt.Fprintf(out, "promote candidate verification case：role=%s root=%s project=%s applied=%t replay=%t doctorRows=%d writes=%d\n", item.Role, item.CaseRoot, item.ProjectName, item.Applied, item.Replay, item.DoctorRows, len(item.Writes)); err != nil {
+			return err
+		}
+	}
+	if result.ApplyCommand != "" {
+		if _, err := fmt.Fprintf(out, "promote candidate verification provision apply command：%s\n", result.ApplyCommand); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(out, "promote candidate verification preview command：%s\n", result.VerificationPreviewCommand); err != nil {
+		return err
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "promote candidate verification provision boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "promote candidate verification provision next step：%s\n", step); err != nil {
 			return err
 		}
 	}

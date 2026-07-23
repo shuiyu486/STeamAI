@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -99,6 +98,16 @@ func TestParsePlanSubagentsReviewerPacketRetirement(t *testing.T) {
 	}
 	if !opt.RetireInvalidReviewerPacket || opt.PacketPath != "packet.json" || opt.Note.Lane != "feature-review" || opt.Note.Actor != "mission-commander" || opt.Note.Reason != "retire invalid packet" || !opt.WhatIf {
 		t.Fatalf("unexpected reviewer packet retirement options: %+v", opt)
+	}
+}
+
+func TestParsePromoteCandidateVerificationProvisioning(t *testing.T) {
+	opt, err := Parse([]string{"-Command", "promote", "-ProvisionCandidateVerificationCases", "-PacketPath", "packet.json", "-CandidateDecisionPath", "decisions.json", "-FreshCaseRoot", "fresh", "-AttachedCaseRoot", "attached", "-ExpectedProvisionSha256", strings.Repeat("a", 64), "-Apply", "-Format", "json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.ProvisionCandidateVerificationCases || opt.PacketPath != "packet.json" || opt.CandidateDecisionPath != "decisions.json" || opt.FreshCaseRoot != "fresh" || opt.AttachedCaseRoot != "attached" || opt.ExpectedProvisionSHA256 != strings.Repeat("a", 64) || !opt.Apply {
+		t.Fatalf("unexpected provisioning parse: %+v", opt)
 	}
 }
 
@@ -2543,7 +2552,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if strings.Contains(out.String(), "{\n  ") {
 		t.Fatalf("installed entrypoint default status leaked JSON:\n%s", out.String())
 	}
-	for _, line := range strings.Split(out.String(), "\n") {
+	for line := range strings.SplitSeq(out.String(), "\n") {
 		if strings.Contains(line, "status case shim") && (strings.Contains(line, "rekit.ps1") || strings.Contains(line, "go run") || strings.Contains(line, "PowerShell")) {
 			t.Fatalf("installed entrypoint shim handoff leaked low-level entrypoint detail: %s\n%s", line, out.String())
 		}
@@ -4720,6 +4729,19 @@ func TestRunNoteAppendRejectsInvalidInputs(t *testing.T) {
 				t.Fatalf("error = %q, want %q", err.Error(), tc.want)
 			}
 		})
+	}
+}
+
+func TestRunRejectsCandidateVerificationProvisioningFlagsOutsidePromote(t *testing.T) {
+	for _, args := range [][]string{
+		{"-Command", "status", "-ProvisionCandidateVerificationCases"},
+		{"-Command", "status", "-ExpectedProvisionSha256", strings.Repeat("a", 64)},
+	} {
+		var out bytes.Buffer
+		err := Run(args, &out)
+		if err == nil || !strings.Contains(err.Error(), "supported only by promote") {
+			t.Fatalf("candidate verification provisioning flags outside promote error = %v", err)
+		}
 	}
 }
 
@@ -7803,8 +7825,37 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	decisionPath := filepath.Join(reviewRoot, "decisions.json")
-	decisionJSON := fmt.Sprintf(`{"schemaVersion":1,"kind":"pack-memory-candidate-decisions","packetHash":"%s","decisions":[{"candidatePath":%q,"decision":"accept","candidateHash":"%s","packTargetHash":"%s","reason":"reviewed bounded candidate diff","actor":"mission-commander","evidenceRefs":[{"path":%q,"sha256":"%s"}]}]}`+"\n", testSHA256(packetBytes), managed.CandidatePath, testSHA256(candidateBytes), testSHA256(packBytes), created.ReviewWorkspace.CombinedDiffPath, testSHA256(evidenceBytes))
-	if err := os.WriteFile(decisionPath, []byte(decisionJSON), 0o644); err != nil {
+	decisions := []promote.CandidateDecisionItem{{
+		CandidatePath:  managed.CandidatePath,
+		Decision:       "accept",
+		CandidateHash:  testSHA256(candidateBytes),
+		PackTargetHash: testSHA256(packBytes),
+		Reason:         "reviewed bounded candidate diff",
+		Actor:          "mission-commander",
+		EvidenceRefs:   []promote.CandidateDecisionEvidence{{Path: created.ReviewWorkspace.CombinedDiffPath, SHA256: testSHA256(evidenceBytes)}},
+	}}
+	for _, item := range created.ReviewPlan.ReviewItems {
+		if item.ReviewDecision != "pending-review" || item.CandidatePath == managed.CandidatePath {
+			continue
+		}
+		itemBytes, err := os.ReadFile(item.CandidatePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decisions = append(decisions, promote.CandidateDecisionItem{
+			CandidatePath: item.CandidatePath,
+			Decision:      "reject",
+			CandidateHash: testSHA256(itemBytes),
+			Reason:        "reviewed bounded candidate diff",
+			Actor:         "mission-commander",
+			EvidenceRefs:  []promote.CandidateDecisionEvidence{{Path: created.ReviewWorkspace.CombinedDiffPath, SHA256: testSHA256(evidenceBytes)}},
+		})
+	}
+	decisionBytes, err := json.Marshal(promote.CandidateDecisionFile{SchemaVersion: 1, Kind: "pack-memory-candidate-decisions", PacketHash: testSHA256(packetBytes), Decisions: decisions})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(decisionPath, append(decisionBytes, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -7816,15 +7867,26 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
 		t.Fatal(err)
 	}
-	if preview.IsMutation || preview.Applied || preview.Accepted != 1 || len(preview.Actions) != 1 {
+	if preview.IsMutation || preview.Applied || preview.Accepted != 1 || preview.Rejected != len(decisions)-1 || len(preview.Actions) != len(decisions) {
 		t.Fatalf("unexpected candidate decision preview: %+v", preview)
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-Apply", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"promote candidate decision：mode=candidate-decision mutation=true applied=true rolledBack=false recoveryRequired=false", "accepted=1 rejected=0 superseded=0", "promote candidate decision action：candidate=", "candidateBackup=", "targetBackup=", "merge-accepted-candidate-and-cleanup", "no authority/confirmed writes"} {
+	var decisionApplied promote.CandidateDecisionResult
+	if err := json.Unmarshal(out.Bytes(), &decisionApplied); err != nil {
+		t.Fatal(err)
+	}
+	if decisionApplied.Receipt == nil || !decisionApplied.Receipt.VerificationPending || decisionApplied.Receipt.VerificationWorkspaceRoot == "" || !strings.Contains(decisionApplied.Receipt.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") {
+		t.Fatalf("candidate decision omitted verification provisioning handoff: %+v", decisionApplied)
+	}
+	out.Reset()
+	if err := writePromoteCandidateDecisionText(&out, decisionApplied); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"promote candidate decision：mode=candidate-decision mutation=true applied=true rolledBack=false recoveryRequired=false", "accepted=1 rejected=1 superseded=0", "promote candidate decision action：candidate=", "candidateBackup=", "targetBackup=", "merge-accepted-candidate-and-cleanup", "no authority/confirmed writes"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("candidate decision text omitted %q:\n%s", expected, out.String())
 		}
@@ -7837,16 +7899,54 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("candidate decision did not merge reviewed candidate: %q", string(merged))
 	}
 
-	freshCase := filepath.Join(t.TempDir(), "fresh-case")
-	attachedCase := filepath.Join(t.TempDir(), "attached-case")
-	for _, target := range []string{freshCase, attachedCase} {
-		out.Reset()
-		if err := Run([]string{"-Command", "init", "-Target", target, "-Pack", "_template", "-Apply", "-Format", "json"}, &out); err != nil {
-			t.Fatal(err)
+	freshCase := filepath.Join(decisionApplied.Receipt.VerificationWorkspaceRoot, "fresh")
+	attachedCase := filepath.Join(decisionApplied.Receipt.VerificationWorkspaceRoot, "attached")
+	nested := filepath.Join(caseRoot, "workspace", "candidate-verification")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(nested); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldwd) })
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-ProvisionCandidateVerificationCases", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var provisionPreview promote.CandidateVerificationProvisionResult
+	if err := json.Unmarshal(out.Bytes(), &provisionPreview); err != nil {
+		t.Fatal(err)
+	}
+	if provisionPreview.IsMutation || provisionPreview.Applied || provisionPreview.ProvisionSHA256 == "" || provisionPreview.WorkspaceRoot != decisionApplied.Receipt.VerificationWorkspaceRoot {
+		t.Fatalf("unexpected candidate verification provision preview: %+v", provisionPreview)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-ProvisionCandidateVerificationCases", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-ExpectedProvisionSha256", provisionPreview.ProvisionSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var provisionApplied promote.CandidateVerificationProvisionResult
+	if err := json.Unmarshal(out.Bytes(), &provisionApplied); err != nil {
+		t.Fatal(err)
+	}
+	if !provisionApplied.IsMutation || !provisionApplied.Applied || provisionApplied.Replay || len(provisionApplied.Cases) != 2 || provisionApplied.Cases[0].DoctorRows == 0 || provisionApplied.Cases[1].DoctorRows == 0 {
+		t.Fatalf("unexpected candidate verification provision apply: %+v", provisionApplied)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-ProvisionCandidateVerificationCases", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-ExpectedProvisionSha256", provisionPreview.ProvisionSHA256, "-Apply", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"promote candidate verification provision：mode=already-provisioned", "replay=true", "promote candidate verification case：role=fresh", "promote candidate verification case：role=attached", "does not run final verification"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("candidate verification provision text omitted %q:\n%s", expected, out.String())
 		}
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-WhatIf", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var verification promote.CandidateDecisionVerificationResult
@@ -7857,7 +7957,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("unexpected candidate verification preview: %+v", verification)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-Apply", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-Apply", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{"promote candidate verification：mutation=true applied=true ready=true", "freshDoctorRows=", "attachedDoctorRows=", "write authority/confirmed"} {

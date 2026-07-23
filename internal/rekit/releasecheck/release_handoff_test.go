@@ -323,6 +323,8 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 	proofPath := filepath.Join(proofRoot, "fixture.candidate-verification-proof.json")
 	packetPath := filepath.Join(repo, "case", ".rekit", "reviews", "packet.json")
 	decisionPath := filepath.Join(repo, "case", ".rekit", "reviews", "decisions.json")
+	packetHash := "packet-hash"
+	decisionHash := "decision-hash"
 	backupRoot := filepath.Join(repo, "packs", "fixture", "promote-candidates", ".decision-backup", "fixture")
 	writeFile(t, filepath.Join(backupRoot, "committed.json"), "{\"applied\":true}\n")
 	caseRoot := filepath.Join(repo, "case")
@@ -341,27 +343,29 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 		"evidenceRefs":        []string{},
 	}}
 	receipt := map[string]any{
-		"schemaVersion":         1,
-		"kind":                  "pack-memory-candidate-decision-receipt",
-		"pack":                  "fixture",
-		"repoRoot":              repo,
-		"caseRoot":              caseRoot,
-		"packetPath":            packetPath,
-		"decisionPath":          decisionPath,
-		"packetHash":            "packet-hash",
-		"decisionHash":          "decision-hash",
-		"backupRoot":            backupRoot,
-		"indexPath":             filepath.Join(candidateRoot, "index.json"),
-		"accepted":              1,
-		"rejected":              0,
-		"superseded":            0,
-		"actions":               actions,
-		"decisionEvidence":      []string{},
-		"receiptPath":           receiptPath,
-		"verificationPending":   true,
-		"verificationCommand":   "/rekit promote -VerifyCandidateDecision -FreshCaseRoot <fresh-case> -AttachedCaseRoot <attached-case> -WhatIf -Format json",
-		"verificationProofPath": proofPath,
-		"boundary":              []string{"fixture boundary"},
+		"schemaVersion":                1,
+		"kind":                         "pack-memory-candidate-decision-receipt",
+		"pack":                         "fixture",
+		"repoRoot":                     repo,
+		"caseRoot":                     caseRoot,
+		"packetPath":                   packetPath,
+		"decisionPath":                 decisionPath,
+		"packetHash":                   "packet-hash",
+		"decisionHash":                 "decision-hash",
+		"backupRoot":                   backupRoot,
+		"indexPath":                    filepath.Join(candidateRoot, "index.json"),
+		"accepted":                     1,
+		"rejected":                     0,
+		"superseded":                   0,
+		"actions":                      actions,
+		"decisionEvidence":             []string{},
+		"receiptPath":                  receiptPath,
+		"verificationPending":          true,
+		"verificationWorkspaceRoot":    filepath.Join(caseRoot, ".rekit", "verifications", "candidate-decisions", shortReleaseHandoffHash(packetHash+decisionHash)),
+		"verificationProvisionCommand": "/rekit promote -PacketPath " + packetPath + " -CandidateDecisionPath " + decisionPath + " -ProvisionCandidateVerificationCases -FreshCaseRoot <workspace>/fresh -AttachedCaseRoot <workspace>/attached -WhatIf -Format json",
+		"verificationCommand":          "/rekit promote -VerifyCandidateDecision -FreshCaseRoot <workspace>/fresh -AttachedCaseRoot <workspace>/attached -WhatIf -Format json",
+		"verificationProofPath":        proofPath,
+		"boundary":                     []string{"fixture boundary"},
 	}
 	data, err := json.MarshalIndent(receipt, "", "  ")
 	if err != nil {
@@ -374,7 +378,7 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 		t.Fatalf("pending candidate verification was not projected: %+v", inventory)
 	}
 	pack := inventory.Packs[0]
-	if pack.PendingVerifications != 1 || pack.CompletedVerifications != 0 || !pack.RequiresVerification || pack.RequiresReview || pack.RequiresCleanup || len(pack.DecisionReceipts) != 1 || pack.DecisionReceipts[0].VerificationComplete || !strings.Contains(pack.DecisionReceipts[0].VerificationCommand, "-FreshCaseRoot") {
+	if pack.PendingVerifications != 1 || pack.CompletedVerifications != 0 || !pack.RequiresVerification || pack.RequiresReview || pack.RequiresCleanup || len(pack.DecisionReceipts) != 1 || pack.DecisionReceipts[0].VerificationComplete || pack.DecisionReceipts[0].VerificationWorkspaceRoot == "" || !strings.Contains(pack.DecisionReceipts[0].VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") || !strings.Contains(pack.DecisionReceipts[0].VerificationCommand, "-FreshCaseRoot") || !strings.Contains(pack.Action, "provisioning WhatIf/expected-hash Apply") {
 		t.Fatalf("pending candidate verification handoff drifted: %+v", pack)
 	}
 
@@ -385,8 +389,8 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 		"caseRoot":              caseRoot,
 		"freshCaseRoot":         freshCaseRoot,
 		"attachedCaseRoot":      attachedCaseRoot,
-		"packetHash":            "packet-hash",
-		"decisionHash":          "decision-hash",
+		"packetHash":            packetHash,
+		"decisionHash":          decisionHash,
 		"receiptHash":           sha256ReleaseHandoff(append(data, '\n')),
 		"receiptPath":           receiptPath,
 		"verificationProofPath": proofPath,

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -108,27 +109,29 @@ type CandidateDecisionVerificationResult struct {
 }
 
 type CandidateDecisionReceipt struct {
-	SchemaVersion         int                       `json:"schemaVersion"`
-	Kind                  string                    `json:"kind"`
-	Pack                  string                    `json:"pack"`
-	RepoRoot              string                    `json:"repoRoot"`
-	CaseRoot              string                    `json:"caseRoot"`
-	PacketPath            string                    `json:"packetPath"`
-	DecisionPath          string                    `json:"decisionPath"`
-	PacketHash            string                    `json:"packetHash"`
-	DecisionHash          string                    `json:"decisionHash"`
-	BackupRoot            string                    `json:"backupRoot"`
-	IndexPath             string                    `json:"indexPath"`
-	Accepted              int                       `json:"accepted"`
-	Rejected              int                       `json:"rejected"`
-	Superseded            int                       `json:"superseded"`
-	Actions               []CandidateDecisionAction `json:"actions"`
-	DecisionEvidence      []string                  `json:"decisionEvidence"`
-	ReceiptPath           string                    `json:"receiptPath"`
-	VerificationProofPath string                    `json:"verificationProofPath,omitempty"`
-	VerificationPending   bool                      `json:"verificationPending"`
-	VerificationCommand   string                    `json:"verificationCommand,omitempty"`
-	Boundary              []string                  `json:"boundary"`
+	SchemaVersion                int                       `json:"schemaVersion"`
+	Kind                         string                    `json:"kind"`
+	Pack                         string                    `json:"pack"`
+	RepoRoot                     string                    `json:"repoRoot"`
+	CaseRoot                     string                    `json:"caseRoot"`
+	PacketPath                   string                    `json:"packetPath"`
+	DecisionPath                 string                    `json:"decisionPath"`
+	PacketHash                   string                    `json:"packetHash"`
+	DecisionHash                 string                    `json:"decisionHash"`
+	BackupRoot                   string                    `json:"backupRoot"`
+	IndexPath                    string                    `json:"indexPath"`
+	Accepted                     int                       `json:"accepted"`
+	Rejected                     int                       `json:"rejected"`
+	Superseded                   int                       `json:"superseded"`
+	Actions                      []CandidateDecisionAction `json:"actions"`
+	DecisionEvidence             []string                  `json:"decisionEvidence"`
+	ReceiptPath                  string                    `json:"receiptPath"`
+	VerificationProofPath        string                    `json:"verificationProofPath,omitempty"`
+	VerificationPending          bool                      `json:"verificationPending"`
+	VerificationWorkspaceRoot    string                    `json:"verificationWorkspaceRoot,omitempty"`
+	VerificationProvisionCommand string                    `json:"verificationProvisionCommand,omitempty"`
+	VerificationCommand          string                    `json:"verificationCommand,omitempty"`
+	Boundary                     []string                  `json:"boundary"`
 }
 
 type CandidateDecisionResult struct {
@@ -188,179 +191,301 @@ type candidateDecisionTransaction struct {
 	Actions         []CandidateDecisionAction `json:"actions"`
 }
 
-func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecisionVerificationOptions) (CandidateDecisionVerificationResult, error) {
+func candidateDecisionActionCounts(actions []CandidateDecisionAction) (accepted, rejected, superseded int) {
+	for _, action := range actions {
+		switch action.Decision {
+		case "accept":
+			accepted++
+		case "reject":
+			rejected++
+		case "superseded":
+			superseded++
+		}
+	}
+	return accepted, rejected, superseded
+}
+
+type candidateDecisionAuthority struct {
+	instance      instance.Instance
+	manifest      *manifest.Manifest
+	packet        CandidateReviewPacket
+	decisions     CandidateDecisionFile
+	packetPath    string
+	decisionPath  string
+	packetHash    string
+	decisionHash  string
+	receiptPath   string
+	receiptBytes  []byte
+	receipt       CandidateDecisionReceipt
+	candidateRoot string
+}
+
+func loadCandidateDecisionAuthority(repoRoot, caseRoot, pack, packetInput, decisionInput string) (candidateDecisionAuthority, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
-		return CandidateDecisionVerificationResult{}, err
+		return candidateDecisionAuthority{}, err
 	}
 	m, err := manifest.Load(repoRoot, pack)
 	if err != nil {
-		return CandidateDecisionVerificationResult{}, err
+		return candidateDecisionAuthority{}, err
 	}
-	packetPath, packetBytes, err := readStrictCandidateDecisionFile(opt.PacketPath, "candidate review packet")
+	packetPath, packetBytes, err := readStrictCandidateDecisionFile(packetInput, "candidate review packet")
 	if err != nil {
-		return CandidateDecisionVerificationResult{}, err
+		return candidateDecisionAuthority{}, err
 	}
-	decisionPath, decisionBytes, err := readStrictCandidateDecisionFile(opt.DecisionPath, "candidate decision")
+	decisionPath, decisionBytes, err := readStrictCandidateDecisionFile(decisionInput, "candidate decision")
 	if err != nil {
-		return CandidateDecisionVerificationResult{}, err
+		return candidateDecisionAuthority{}, err
 	}
 	var packet CandidateReviewPacket
 	if err := decodeStrictJSON(packetBytes, &packet); err != nil {
-		return CandidateDecisionVerificationResult{}, fmt.Errorf("decode candidate review packet: %w", err)
+		return candidateDecisionAuthority{}, fmt.Errorf("decode candidate review packet: %w", err)
 	}
 	var decisions CandidateDecisionFile
 	if err := decodeStrictJSON(decisionBytes, &decisions); err != nil {
-		return CandidateDecisionVerificationResult{}, fmt.Errorf("decode candidate decision: %w", err)
+		return candidateDecisionAuthority{}, fmt.Errorf("decode candidate decision: %w", err)
 	}
 	packetHash := sha256Hex(packetBytes)
 	decisionHash := sha256Hex(decisionBytes)
 	if packet.SchemaVersion != 1 || packet.Kind != "pack-memory-candidate-review" || packet.Command != "promote" || decisions.SchemaVersion != 1 || decisions.Kind != "pack-memory-candidate-decisions" || !strings.EqualFold(decisions.PacketHash, packetHash) {
-		return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate verification packet/decision binding mismatch")
+		return candidateDecisionAuthority{}, fmt.Errorf("candidate verification packet/decision binding mismatch")
 	}
-	canonicalCandidateRoot := filepath.Join(m.PackRoot, "promote-candidates")
-	if !opt.WhatIf {
-		unlock, err := acquireCandidateDecisionLock(canonicalCandidateRoot)
-		if err != nil {
-			return CandidateDecisionVerificationResult{}, err
-		}
-		defer unlock()
+	candidateRoot := filepath.Join(m.PackRoot, "promote-candidates")
+	if !sameCandidateDecisionPath(packet.CandidateResult.RepoRoot, repoRoot) || !sameCandidateDecisionPath(packet.CandidateResult.CaseRoot, inst.CaseRoot) || packet.CandidateResult.Pack != pack || !sameCandidateDecisionPath(packet.CandidateResult.CandidateRoot, candidateRoot) {
+		return candidateDecisionAuthority{}, fmt.Errorf("candidate verification repo/case/pack/root binding mismatch")
 	}
-	if !sameCandidateDecisionPath(packet.CandidateResult.RepoRoot, repoRoot) || !sameCandidateDecisionPath(packet.CandidateResult.CaseRoot, inst.CaseRoot) || packet.CandidateResult.Pack != pack || !sameCandidateDecisionPath(packet.CandidateResult.CandidateRoot, canonicalCandidateRoot) {
-		return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate verification repo/case/pack/root binding mismatch")
+	proofRoot := filepath.Join(candidateRoot, "review-artifacts")
+	if err := rejectCandidateDecisionSymlinkPath(candidateRoot, proofRoot, false); err != nil {
+		return candidateDecisionAuthority{}, err
 	}
-	proofRoot := filepath.Join(canonicalCandidateRoot, "review-artifacts")
-	if err := rejectCandidateDecisionSymlinkPath(canonicalCandidateRoot, proofRoot, false); err != nil {
-		return CandidateDecisionVerificationResult{}, err
-	}
-	receiptPath := candidateDecisionReceiptPath(canonicalCandidateRoot, packetHash, decisionHash)
-	if err := rejectCandidateDecisionSymlinkPath(canonicalCandidateRoot, receiptPath, false); err != nil {
-		return CandidateDecisionVerificationResult{}, err
+	receiptPath := candidateDecisionReceiptPath(candidateRoot, packetHash, decisionHash)
+	if err := rejectCandidateDecisionSymlinkPath(candidateRoot, receiptPath, false); err != nil {
+		return candidateDecisionAuthority{}, err
 	}
 	_, receiptBytes, err := readStrictCandidateDecisionFile(receiptPath, "candidate decision receipt")
 	if err != nil {
-		return CandidateDecisionVerificationResult{}, fmt.Errorf("read candidate decision receipt: %w", err)
+		return candidateDecisionAuthority{}, fmt.Errorf("read candidate decision receipt: %w", err)
 	}
 	var receipt CandidateDecisionReceipt
 	if err := decodeStrictJSON(receiptBytes, &receipt); err != nil {
-		return CandidateDecisionVerificationResult{}, fmt.Errorf("decode candidate decision receipt: %w", err)
+		return candidateDecisionAuthority{}, fmt.Errorf("decode candidate decision receipt: %w", err)
 	}
-	if receipt.SchemaVersion != 1 || receipt.Kind != "pack-memory-candidate-decision-receipt" || receipt.Pack != pack || receipt.PacketHash != packetHash || receipt.DecisionHash != decisionHash || !sameCandidateDecisionPath(receipt.RepoRoot, repoRoot) || !sameCandidateDecisionPath(receipt.CaseRoot, inst.CaseRoot) || !sameCandidateDecisionPath(receipt.PacketPath, packetPath) || !sameCandidateDecisionPath(receipt.DecisionPath, decisionPath) || !sameCandidateDecisionPath(receipt.ReceiptPath, receiptPath) || !sameCandidateDecisionPath(receipt.IndexPath, filepath.Join(canonicalCandidateRoot, "index.json")) {
-		return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate decision receipt binding mismatch")
+	canonicalProofPath := candidateDecisionVerificationProofPath(candidateRoot, packetHash, decisionHash)
+	if receipt.SchemaVersion != 1 || receipt.Kind != "pack-memory-candidate-decision-receipt" || receipt.Pack != pack || receipt.PacketHash != packetHash || receipt.DecisionHash != decisionHash || !sameCandidateDecisionPath(receipt.RepoRoot, repoRoot) || !sameCandidateDecisionPath(receipt.CaseRoot, inst.CaseRoot) || !sameCandidateDecisionPath(receipt.PacketPath, packetPath) || !sameCandidateDecisionPath(receipt.DecisionPath, decisionPath) || !sameCandidateDecisionPath(receipt.ReceiptPath, receiptPath) || !sameCandidateDecisionPath(receipt.IndexPath, filepath.Join(candidateRoot, "index.json")) {
+		return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt binding mismatch")
 	}
-	if receipt.Accepted+receipt.Rejected+receipt.Superseded != len(receipt.Actions) || len(receipt.Actions) != len(decisions.Decisions) {
-		return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate decision receipt action counts do not match reviewed decisions")
+	accepted, rejected, superseded := candidateDecisionActionCounts(receipt.Actions)
+	if receipt.Accepted != accepted || receipt.Rejected != rejected || receipt.Superseded != superseded || len(receipt.Actions) != len(decisions.Decisions) {
+		return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt action counts do not match reviewed decisions")
 	}
-	if receipt.Accepted > 0 && (!receipt.VerificationPending || !sameCandidateDecisionPath(receipt.VerificationProofPath, candidateDecisionVerificationProofPath(canonicalCandidateRoot, packetHash, decisionHash))) {
-		return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate decision receipt verification binding mismatch")
+	if accepted > 0 {
+		workspace := candidateDecisionVerificationWorkspace(inst.CaseRoot, packetHash, decisionHash)
+		freshRoot := filepath.Join(workspace, "fresh")
+		attachedRoot := filepath.Join(workspace, "attached")
+		expectedProvisionCommand := candidateDecisionVerificationProvisionCommand(packetPath, decisionPath, freshRoot, attachedRoot)
+		expectedVerificationCommand := candidateDecisionVerificationCommand(packetPath, decisionPath, freshRoot, attachedRoot)
+		if !receipt.VerificationPending || !sameCandidateDecisionPath(receipt.VerificationProofPath, canonicalProofPath) || !sameCandidateDecisionPath(receipt.VerificationWorkspaceRoot, workspace) || receipt.VerificationProvisionCommand != expectedProvisionCommand || receipt.VerificationCommand != expectedVerificationCommand {
+			return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt verification binding mismatch")
+		}
 	}
-	if err := assertInsideRoot(canonicalCandidateRoot, receipt.BackupRoot); err != nil {
-		return CandidateDecisionVerificationResult{}, err
+	if receipt.Accepted == 0 && (receipt.VerificationPending || strings.TrimSpace(receipt.VerificationProofPath) != "" || strings.TrimSpace(receipt.VerificationWorkspaceRoot) != "" || strings.TrimSpace(receipt.VerificationProvisionCommand) != "" || strings.TrimSpace(receipt.VerificationCommand) != "") {
+		return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt verification binding mismatch")
 	}
-	if err := rejectCandidateDecisionSymlinkPath(canonicalCandidateRoot, receipt.BackupRoot, false); err != nil {
-		return CandidateDecisionVerificationResult{}, err
+	if err := assertInsideRoot(candidateRoot, receipt.BackupRoot); err != nil {
+		return candidateDecisionAuthority{}, err
+	}
+	if err := rejectCandidateDecisionSymlinkPath(candidateRoot, receipt.BackupRoot, false); err != nil {
+		return candidateDecisionAuthority{}, err
 	}
 	markerPath := filepath.Join(receipt.BackupRoot, "committed.json")
-	if err := rejectCandidateDecisionSymlinkPath(receipt.BackupRoot, markerPath, false); err != nil {
-		return CandidateDecisionVerificationResult{}, err
-	}
-	markerState, err := refsf.ClassifyNonEmptyRegularFile(markerPath)
-	if err != nil || markerState != refsf.RegularFileReady {
-		return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate decision receipt transaction is not committed: %s", receipt.BackupRoot)
-	}
 	transactionPath := filepath.Join(receipt.BackupRoot, "transaction.json")
+	if err := rejectCandidateDecisionSymlinkPath(receipt.BackupRoot, markerPath, false); err != nil {
+		return candidateDecisionAuthority{}, err
+	}
 	if err := rejectCandidateDecisionSymlinkPath(receipt.BackupRoot, transactionPath, false); err != nil {
-		return CandidateDecisionVerificationResult{}, err
+		return candidateDecisionAuthority{}, err
 	}
 	_, transactionBytes, err := readStrictCandidateDecisionFile(transactionPath, "candidate decision transaction")
 	if err != nil {
-		return CandidateDecisionVerificationResult{}, err
+		return candidateDecisionAuthority{}, err
 	}
 	var transaction candidateDecisionTransaction
 	if err := decodeStrictJSON(transactionBytes, &transaction); err != nil {
-		return CandidateDecisionVerificationResult{}, fmt.Errorf("decode candidate decision transaction: %w", err)
+		return candidateDecisionAuthority{}, fmt.Errorf("decode candidate decision transaction: %w", err)
 	}
 	_, markerBytes, err := readStrictCandidateDecisionFile(markerPath, "candidate decision committed marker")
 	if err != nil {
-		return CandidateDecisionVerificationResult{}, err
+		return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt transaction is not committed: %s", receipt.BackupRoot)
 	}
 	var committed CandidateDecisionResult
 	if err := decodeStrictJSON(markerBytes, &committed); err != nil {
-		return CandidateDecisionVerificationResult{}, fmt.Errorf("decode candidate decision committed marker: %w", err)
+		return candidateDecisionAuthority{}, fmt.Errorf("decode candidate decision committed marker: %w", err)
 	}
-	if transaction.SchemaVersion != 1 || transaction.Kind != "pack-memory-candidate-decision-transaction" || transaction.PacketHash != packetHash || transaction.DecisionHash != decisionHash || !reflect.DeepEqual(transaction.Actions, receipt.Actions) || !reflect.DeepEqual(committed.Actions, receipt.Actions) || !sameCandidateDecisionPath(transaction.Result.BackupRoot, receipt.BackupRoot) || !sameCandidateDecisionPath(transaction.Result.IndexPath, receipt.IndexPath) || !sameCandidateDecisionPath(committed.BackupRoot, receipt.BackupRoot) || !sameCandidateDecisionPath(committed.IndexPath, receipt.IndexPath) || committed.PacketHash != packetHash || committed.Pack != pack || !committed.Applied {
-		return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate decision receipt transaction binding mismatch")
+	if transaction.SchemaVersion != 1 || transaction.Kind != "pack-memory-candidate-decision-transaction" || transaction.PacketHash != packetHash || transaction.DecisionHash != decisionHash || transaction.Result.Accepted != accepted || transaction.Result.Rejected != rejected || transaction.Result.Superseded != superseded || committed.Accepted != accepted || committed.Rejected != rejected || committed.Superseded != superseded || !reflect.DeepEqual(transaction.Actions, receipt.Actions) || !reflect.DeepEqual(transaction.Result.Actions, receipt.Actions) || !reflect.DeepEqual(committed.Actions, receipt.Actions) || !sameCandidateDecisionPath(transaction.Result.BackupRoot, receipt.BackupRoot) || !sameCandidateDecisionPath(transaction.Result.IndexPath, receipt.IndexPath) || !sameCandidateDecisionPath(transaction.Result.PacketPath, packetPath) || !sameCandidateDecisionPath(transaction.Result.DecisionPath, decisionPath) || transaction.Result.PacketHash != packetHash || transaction.Result.Pack != pack || !sameCandidateDecisionPath(transaction.Result.RepoRoot, repoRoot) || !sameCandidateDecisionPath(transaction.Result.CaseRoot, inst.CaseRoot) || !sameCandidateDecisionPath(committed.BackupRoot, receipt.BackupRoot) || !sameCandidateDecisionPath(committed.IndexPath, receipt.IndexPath) || !sameCandidateDecisionPath(committed.PacketPath, packetPath) || !sameCandidateDecisionPath(committed.DecisionPath, decisionPath) || committed.PacketHash != packetHash || committed.Pack != pack || !sameCandidateDecisionPath(committed.RepoRoot, repoRoot) || !sameCandidateDecisionPath(committed.CaseRoot, inst.CaseRoot) || !committed.Applied || committed.Receipt == nil || !reflect.DeepEqual(*committed.Receipt, receipt) || !sameCandidateDecisionPath(committed.ReceiptPath, receiptPath) {
+		return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt transaction binding mismatch")
 	}
 	decisionByCandidate := map[string]CandidateDecisionItem{}
 	for _, decision := range decisions.Decisions {
-		decisionByCandidate[filepath.Clean(decision.CandidatePath)] = decision
+		key, err := candidateDecisionAuthorityKey(decision.CandidatePath)
+		if err != nil {
+			return candidateDecisionAuthority{}, fmt.Errorf("candidate decision has invalid candidatePath %q", decision.CandidatePath)
+		}
+		if _, duplicate := decisionByCandidate[key]; duplicate {
+			return candidateDecisionAuthority{}, fmt.Errorf("duplicate candidate decision for %s", decision.CandidatePath)
+		}
+		decisionByCandidate[key] = decision
 	}
 	reviewByCandidate := map[string]CandidateReviewItem{}
+	pendingReviewKeys := map[string]bool{}
 	for _, review := range packet.CandidateResult.ReviewPlan.ReviewItems {
-		reviewByCandidate[filepath.Clean(review.CandidatePath)] = review
+		key, include, err := candidateReviewAuthorityKey(review)
+		if err != nil {
+			return candidateDecisionAuthority{}, err
+		}
+		if !include {
+			continue
+		}
+		if _, duplicate := reviewByCandidate[key]; duplicate {
+			return candidateDecisionAuthority{}, fmt.Errorf("duplicate candidate review for %s", review.CandidatePath)
+		}
+		reviewByCandidate[key] = review
+		if review.ReviewDecision == "pending-review" {
+			pendingReviewKeys[key] = true
+		}
 	}
+	decisionKeys := map[string]bool{}
+	for key := range decisionByCandidate {
+		decisionKeys[key] = true
+	}
+	if !reflect.DeepEqual(decisionKeys, pendingReviewKeys) {
+		return candidateDecisionAuthority{}, fmt.Errorf("candidate decisions do not exactly cover pending review items")
+	}
+	seenActions := map[string]bool{}
 	for _, action := range receipt.Actions {
-		decision, ok := decisionByCandidate[filepath.Clean(action.CandidatePath)]
-		review, reviewed := reviewByCandidate[filepath.Clean(action.CandidatePath)]
+		key, err := candidateDecisionAuthorityKey(action.CandidatePath)
+		if err != nil {
+			return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt has invalid candidatePath %q", action.CandidatePath)
+		}
+		if seenActions[key] {
+			return candidateDecisionAuthority{}, fmt.Errorf("duplicate candidate decision receipt action for %s", action.CandidatePath)
+		}
+		seenActions[key] = true
+		decision, ok := decisionByCandidate[key]
+		review, reviewed := reviewByCandidate[key]
 		if !ok || !reviewed || strings.ToLower(strings.TrimSpace(decision.Decision)) != action.Decision || action.Kind != review.Kind || !sameCandidateDecisionPath(action.PackTarget, review.PackTarget) {
-			return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate decision receipt action is not bound to reviewed decision: %s", action.CandidatePath)
+			return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt action is not bound to reviewed decision: %s", action.CandidatePath)
 		}
 		expectedEvidence := make([]string, 0, len(decision.EvidenceRefs))
 		for _, evidence := range decision.EvidenceRefs {
 			full, err := validateCandidateDecisionEvidenceRef(repoRoot, inst.CaseRoot, evidence)
 			if err != nil {
-				return CandidateDecisionVerificationResult{}, err
+				return candidateDecisionAuthority{}, err
 			}
 			expectedEvidence = append(expectedEvidence, full)
 		}
 		if !reflect.DeepEqual(action.EvidenceRefs, expectedEvidence) {
-			return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate decision receipt evidence binding mismatch: %s", action.CandidatePath)
+			return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt evidence binding mismatch: %s", action.CandidatePath)
 		}
-		expectedAction := ""
-		switch action.Decision {
-		case "accept":
-			expectedAction = "merge-accepted-candidate-and-cleanup"
-		case "reject":
-			expectedAction = "cleanup-rejected-candidate"
-		case "superseded":
-			expectedAction = "cleanup-superseded-candidate"
+		expectedAction := map[string]string{"accept": "merge-accepted-candidate-and-cleanup", "reject": "cleanup-rejected-candidate", "superseded": "cleanup-superseded-candidate"}[action.Decision]
+		if expectedAction == "" || action.Action != expectedAction {
+			return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt action outcome mismatch: %s", action.CandidatePath)
 		}
-		if action.Action != expectedAction {
-			return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate decision receipt action outcome mismatch: %s", action.CandidatePath)
-		}
-		actionRoot := canonicalCandidateRoot
+		actionRoot := candidateRoot
 		if action.Kind == "tooling-candidate-source" {
 			if action.Decision == "accept" {
-				return CandidateDecisionVerificationResult{}, fmt.Errorf("tooling candidate cannot be accepted automatically: %s", action.CandidatePath)
+				return candidateDecisionAuthority{}, fmt.Errorf("tooling candidate cannot be accepted automatically: %s", action.CandidatePath)
 			}
 			actionRoot = filepath.Join(m.PackRoot, "tooling", "candidates")
 		} else if action.Kind != "managed-doc" {
-			return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate decision receipt has unsupported action kind: %s", action.Kind)
+			return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt has unsupported action kind: %s", action.Kind)
 		}
 		if err := rejectCandidateDecisionSymlinkPath(actionRoot, action.CandidatePath, true); err != nil {
-			return CandidateDecisionVerificationResult{}, err
+			return candidateDecisionAuthority{}, err
 		}
 		if _, err := os.Lstat(action.CandidatePath); err == nil || !os.IsNotExist(err) {
-			return CandidateDecisionVerificationResult{}, fmt.Errorf("reviewed candidate cleanup is incomplete: %s", action.CandidatePath)
+			return candidateDecisionAuthority{}, fmt.Errorf("reviewed candidate cleanup is incomplete: %s", action.CandidatePath)
 		}
 		if action.Kind == "managed-doc" && candidateIndexStillContains(receipt.IndexPath, action.CandidatePath) {
-			return CandidateDecisionVerificationResult{}, fmt.Errorf("reviewed candidate index cleanup is incomplete: %s", action.CandidatePath)
+			return candidateDecisionAuthority{}, fmt.Errorf("reviewed candidate index cleanup is incomplete: %s", action.CandidatePath)
 		}
 		if strings.TrimSpace(action.CandidateBackupPath) == "" {
-			return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate decision receipt action lacks candidate backup: %s", action.CandidatePath)
+			return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt action lacks candidate backup: %s", action.CandidatePath)
 		}
 		if err := rejectCandidateDecisionSymlinkPath(receipt.BackupRoot, action.CandidateBackupPath, false); err != nil {
-			return CandidateDecisionVerificationResult{}, err
+			return candidateDecisionAuthority{}, err
 		}
 		if !strings.EqualFold(fileSHA256(action.CandidateBackupPath), strings.TrimSpace(decision.CandidateHash)) {
-			return CandidateDecisionVerificationResult{}, fmt.Errorf("reviewed candidate backup hash mismatch: %s", action.CandidateBackupPath)
+			return candidateDecisionAuthority{}, fmt.Errorf("reviewed candidate backup hash mismatch: %s", action.CandidateBackupPath)
 		}
-		if action.Decision == "accept" {
-			if fileSHA256(action.PackTarget) == "" || fileSHA256(action.PackTarget) != fileSHA256(action.CandidateBackupPath) {
-				return CandidateDecisionVerificationResult{}, fmt.Errorf("accepted pack target no longer matches reviewed candidate backup: %s", action.PackTarget)
-			}
+		if action.Decision == "accept" && (fileSHA256(action.PackTarget) == "" || fileSHA256(action.PackTarget) != fileSHA256(action.CandidateBackupPath)) {
+			return candidateDecisionAuthority{}, fmt.Errorf("accepted pack target no longer matches reviewed candidate backup: %s", action.PackTarget)
 		}
 	}
+	if len(seenActions) != len(decisionByCandidate) {
+		return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt actions do not exactly cover reviewed decisions")
+	}
+	for key := range decisionByCandidate {
+		if !seenActions[key] {
+			return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt actions do not exactly cover reviewed decisions")
+		}
+	}
+	return candidateDecisionAuthority{instance: inst, manifest: m, packet: packet, decisions: decisions, packetPath: packetPath, decisionPath: decisionPath, packetHash: packetHash, decisionHash: decisionHash, receiptPath: receiptPath, receiptBytes: receiptBytes, receipt: receipt, candidateRoot: candidateRoot}, nil
+}
+
+func candidateReviewAuthorityKey(review CandidateReviewItem) (string, bool, error) {
+	if strings.TrimSpace(review.CandidatePath) == "" {
+		if review.ReviewDecision == "pending-review" {
+			return "", false, fmt.Errorf("malformed candidate review: pending-review has invalid candidatePath %q", review.CandidatePath)
+		}
+		return "", false, nil
+	}
+	key, err := candidateDecisionAuthorityKey(review.CandidatePath)
+	if err != nil {
+		return "", false, fmt.Errorf("candidate review has invalid candidatePath %q", review.CandidatePath)
+	}
+	return key, true, nil
+}
+
+func candidateDecisionAuthorityKey(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", fmt.Errorf("empty candidate path")
+	}
+	full, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	key := filepath.Clean(full)
+	if runtime.GOOS == "windows" {
+		key = strings.ToLower(key)
+	}
+	return key, nil
+}
+
+func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecisionVerificationOptions) (CandidateDecisionVerificationResult, error) {
+	if !opt.WhatIf {
+		m, err := manifest.Load(repoRoot, pack)
+		if err != nil {
+			return CandidateDecisionVerificationResult{}, err
+		}
+		unlock, err := acquireCandidateDecisionLock(filepath.Join(m.PackRoot, "promote-candidates"))
+		if err != nil {
+			return CandidateDecisionVerificationResult{}, err
+		}
+		defer unlock()
+	}
+	authority, err := loadCandidateDecisionAuthority(repoRoot, caseRoot, pack, opt.PacketPath, opt.DecisionPath)
+	if err != nil {
+		return CandidateDecisionVerificationResult{}, err
+	}
+	inst := authority.instance
+	m := authority.manifest
+	packetHash := authority.packetHash
+	decisionHash := authority.decisionHash
+	receipt := authority.receipt
+	receiptBytes := authority.receiptBytes
+	receiptPath := authority.receiptPath
+	canonicalCandidateRoot := authority.candidateRoot
 	packRows, err := doctor.Pack(repoRoot, pack)
 	if err != nil {
 		return CandidateDecisionVerificationResult{}, err
@@ -437,6 +562,9 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 }
 
 func ApplyCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecisionOptions) (CandidateDecisionResult, error) {
+	if err := prepareCandidateDecisionPlan(opt); err != nil {
+		return CandidateDecisionResult{}, err
+	}
 	if opt.WhatIf {
 		plan, err := planCandidateDecisions(repoRoot, caseRoot, pack, opt)
 		if err != nil {
@@ -468,6 +596,58 @@ func ApplyCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecis
 		return CandidateDecisionResult{}, err
 	}
 	return applyCandidateDecisionPlan(plan)
+}
+
+func prepareCandidateDecisionPlan(opt CandidateDecisionOptions) error {
+	_, packetBytes, err := readStrictCandidateDecisionFile(opt.PacketPath, "candidate review packet")
+	if err != nil {
+		return err
+	}
+	_, decisionBytes, err := readStrictCandidateDecisionFile(opt.DecisionPath, "candidate decision")
+	if err != nil {
+		return err
+	}
+	var packet CandidateReviewPacket
+	if err := decodeStrictJSON(packetBytes, &packet); err != nil {
+		return fmt.Errorf("decode candidate review packet: %w", err)
+	}
+	var decisions CandidateDecisionFile
+	if err := decodeStrictJSON(decisionBytes, &decisions); err != nil {
+		return fmt.Errorf("decode candidate decision: %w", err)
+	}
+	byCandidate := map[string]CandidateReviewItem{}
+	pendingReviewKeys := map[string]bool{}
+	for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
+		key, include, err := candidateReviewAuthorityKey(item)
+		if err != nil {
+			return err
+		}
+		if !include {
+			continue
+		}
+		if _, duplicate := byCandidate[key]; duplicate {
+			return fmt.Errorf("duplicate candidate review for %s", item.CandidatePath)
+		}
+		byCandidate[key] = item
+		if item.ReviewDecision == "pending-review" {
+			pendingReviewKeys[key] = true
+		}
+	}
+	decisionKeys := map[string]bool{}
+	for _, decision := range decisions.Decisions {
+		key, err := candidateDecisionAuthorityKey(decision.CandidatePath)
+		if err != nil {
+			return fmt.Errorf("candidate decision has invalid candidatePath %q", decision.CandidatePath)
+		}
+		if decisionKeys[key] {
+			return fmt.Errorf("duplicate candidate decision for %s", decision.CandidatePath)
+		}
+		decisionKeys[key] = true
+	}
+	if !reflect.DeepEqual(decisionKeys, pendingReviewKeys) {
+		return fmt.Errorf("candidate decisions do not exactly cover pending review items")
+	}
+	return nil
 }
 
 func planCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecisionOptions) (candidateDecisionPlan, error) {
@@ -541,9 +721,11 @@ func planCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecisi
 	}
 	byCandidate := map[string]CandidateReviewItem{}
 	for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
-		if strings.TrimSpace(item.CandidatePath) != "" {
-			byCandidate[filepath.Clean(item.CandidatePath)] = item
+		if strings.TrimSpace(item.CandidatePath) == "" {
+			continue
 		}
+		key, _ := candidateDecisionAuthorityKey(item.CandidatePath)
+		byCandidate[key] = item
 	}
 	result := CandidateDecisionResult{
 		SchemaVersion: 1,
@@ -572,19 +754,11 @@ func planCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecisi
 	} else {
 		result.NextSteps = []string{"run /rekit doctor for the pack", "record fresh/attached reconsume proof when an accepted candidate changes reusable pack content"}
 	}
-	seen := map[string]bool{}
 	planned := make([]candidateDecisionPlanItem, 0, len(decisions.Decisions))
 	for _, decision := range decisions.Decisions {
-		candidatePath, err := filepath.Abs(strings.TrimSpace(decision.CandidatePath))
-		if err != nil || strings.TrimSpace(decision.CandidatePath) == "" {
-			return candidateDecisionPlan{}, fmt.Errorf("candidate decision has invalid candidatePath %q", decision.CandidatePath)
-		}
-		candidatePath = filepath.Clean(candidatePath)
-		if seen[strings.ToLower(candidatePath)] {
-			return candidateDecisionPlan{}, fmt.Errorf("duplicate candidate decision for %s", candidatePath)
-		}
-		seen[strings.ToLower(candidatePath)] = true
-		reviewItem, ok := byCandidate[candidatePath]
+		key, _ := candidateDecisionAuthorityKey(decision.CandidatePath)
+		candidatePath := filepath.Clean(strings.TrimSpace(decision.CandidatePath))
+		reviewItem, ok := byCandidate[key]
 		if !ok || reviewItem.ReviewDecision != "pending-review" {
 			return candidateDecisionPlan{}, fmt.Errorf("candidate %s is not a pending review item in packet", candidatePath)
 		}
@@ -845,7 +1019,11 @@ func writeCandidateDecisionReceipt(plan candidateDecisionPlan, result CandidateD
 		},
 	}
 	if receipt.VerificationPending {
-		receipt.VerificationCommand = fmt.Sprintf("/rekit promote -PacketPath %s -CandidateDecisionPath %s -VerifyCandidateDecision -FreshCaseRoot <fresh-case> -AttachedCaseRoot <attached-case> -WhatIf -Format json", quoteCandidateDecisionArg(result.PacketPath), quoteCandidateDecisionArg(result.DecisionPath))
+		receipt.VerificationWorkspaceRoot = candidateDecisionVerificationWorkspace(result.CaseRoot, result.PacketHash, plan.decisionHash)
+		freshRoot := filepath.Join(receipt.VerificationWorkspaceRoot, "fresh")
+		attachedRoot := filepath.Join(receipt.VerificationWorkspaceRoot, "attached")
+		receipt.VerificationProvisionCommand = candidateDecisionVerificationProvisionCommand(result.PacketPath, result.DecisionPath, freshRoot, attachedRoot)
+		receipt.VerificationCommand = candidateDecisionVerificationCommand(result.PacketPath, result.DecisionPath, freshRoot, attachedRoot)
 	}
 	data, err := json.MarshalIndent(receipt, "", "  ")
 	if err != nil {
@@ -910,6 +1088,18 @@ func candidateDecisionReceiptPath(candidateRoot, packetHash, decisionHash string
 
 func candidateDecisionVerificationProofPath(candidateRoot, packetHash, decisionHash string) string {
 	return filepath.Join(candidateRoot, "review-artifacts", shortHash(packetHash+decisionHash)+".candidate-verification-proof.json")
+}
+
+func candidateDecisionVerificationWorkspace(caseRoot, packetHash, decisionHash string) string {
+	return filepath.Join(caseRoot, ".rekit", "verifications", "candidate-decisions", shortHash(packetHash+decisionHash))
+}
+
+func candidateDecisionVerificationProvisionCommand(packetPath, decisionPath, freshRoot, attachedRoot string) string {
+	return fmt.Sprintf("/rekit promote -PacketPath %s -CandidateDecisionPath %s -ProvisionCandidateVerificationCases -FreshCaseRoot %s -AttachedCaseRoot %s -WhatIf -Format json", quoteCandidateDecisionArg(packetPath), quoteCandidateDecisionArg(decisionPath), quoteCandidateDecisionArg(freshRoot), quoteCandidateDecisionArg(attachedRoot))
+}
+
+func candidateDecisionVerificationCommand(packetPath, decisionPath, freshRoot, attachedRoot string) string {
+	return fmt.Sprintf("/rekit promote -PacketPath %s -CandidateDecisionPath %s -VerifyCandidateDecision -FreshCaseRoot %s -AttachedCaseRoot %s -WhatIf -Format json", quoteCandidateDecisionArg(packetPath), quoteCandidateDecisionArg(decisionPath), quoteCandidateDecisionArg(freshRoot), quoteCandidateDecisionArg(attachedRoot))
 }
 
 func slicesCompact(values []string) []string {

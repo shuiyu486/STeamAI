@@ -41,20 +41,7 @@ func TestApplyCandidateDecisionsPreviewsAndAppliesReviewedManagedCandidate(t *te
 		t.Fatalf("review packet omitted pending managed candidate: %+v", packet.CandidateResult.ReviewPlan.ReviewItems)
 	}
 	decisionPath := filepath.Join(workspaceRoot, "decisions.json")
-	decision := CandidateDecisionFile{
-		SchemaVersion: 1,
-		Kind:          "pack-memory-candidate-decisions",
-		PacketHash:    sha256Hex(packetBytes),
-		Decisions: []CandidateDecisionItem{{
-			CandidatePath:  managed.CandidatePath,
-			Decision:       "accept",
-			CandidateHash:  fileSHA256(managed.CandidatePath),
-			PackTargetHash: fileSHA256(managed.PackTarget),
-			Reason:         "reviewed bounded diff and accepted reusable content",
-			Actor:          "mission-commander",
-			EvidenceRefs:   []CandidateDecisionEvidence{{Path: created.ReviewWorkspace.CombinedDiffPath, SHA256: fileSHA256(created.ReviewWorkspace.CombinedDiffPath)}},
-		}},
-	}
+	decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
 	writeCandidateDecisionFixture(t, decisionPath, decision)
 	originalPack, err := os.ReadFile(managed.PackTarget)
 	if err != nil {
@@ -65,7 +52,7 @@ func TestApplyCandidateDecisionsPreviewsAndAppliesReviewedManagedCandidate(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.IsMutation || preview.Applied || preview.Accepted != 1 || len(preview.Actions) != 1 || preview.Actions[0].Action != "merge-accepted-candidate-and-cleanup" {
+	if preview.IsMutation || preview.Applied || preview.Accepted != 1 || preview.Rejected != 1 || len(preview.Actions) != 2 || preview.Actions[0].Action != "merge-accepted-candidate-and-cleanup" {
 		t.Fatalf("unexpected candidate decision preview: %+v", preview)
 	}
 	packAfterPreview, err := os.ReadFile(managed.PackTarget)
@@ -126,7 +113,7 @@ func TestVerifyCandidateDecisionPreviewsAppliesAndReplays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if applied.Receipt == nil || applied.ReceiptPath == "" || !applied.Receipt.VerificationPending || !strings.Contains(applied.Receipt.VerificationCommand, "-FreshCaseRoot <fresh-case>") {
+	if applied.Receipt == nil || applied.ReceiptPath == "" || !applied.Receipt.VerificationPending || !strings.Contains(applied.Receipt.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") {
 		t.Fatalf("candidate decision receipt omitted verification handoff: %+v", applied)
 	}
 	if _, err := syncpkg.Apply(repoRoot, freshCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "fresh"}); err != nil {
@@ -263,6 +250,36 @@ func TestVerifyCandidateDecisionClosesMixedManagedAcceptAndToolingReject(t *test
 	}
 	if kinds["managed-doc"] != "accept" || kinds["tooling-candidate-source"] != "reject" {
 		t.Fatalf("mixed verification action binding drifted: %+v", verified.VerifiedActions)
+	}
+
+	forgedActions := []CandidateDecisionAction{applied.Actions[0], applied.Actions[0]}
+	receipt := *applied.Receipt
+	receipt.Accepted = 2
+	receipt.Rejected = 0
+	receipt.Actions = forgedActions
+	transactionPath := filepath.Join(applied.BackupRoot, "transaction.json")
+	var transaction candidateDecisionTransaction
+	if err := decodeStrictJSON(readCandidateDecisionTestFile(t, transactionPath), &transaction); err != nil {
+		t.Fatal(err)
+	}
+	transaction.Actions = forgedActions
+	transaction.Result.Accepted = 2
+	transaction.Result.Rejected = 0
+	transaction.Result.Actions = forgedActions
+	writeCandidateDecisionTestJSON(t, transactionPath, transaction)
+	committedPath := filepath.Join(applied.BackupRoot, "committed.json")
+	var committed CandidateDecisionResult
+	if err := decodeStrictJSON(readCandidateDecisionTestFile(t, committedPath), &committed); err != nil {
+		t.Fatal(err)
+	}
+	committed.Accepted = 2
+	committed.Rejected = 0
+	committed.Actions = forgedActions
+	committed.Receipt = &receipt
+	writeCandidateDecisionTestJSON(t, committedPath, committed)
+	writeCandidateDecisionTestJSON(t, applied.ReceiptPath, receipt)
+	if _, err := loadCandidateDecisionAuthority(repoRoot, sourceCase, pack, created.ReviewWorkspace.PacketPath, decisionPath); err == nil || !strings.Contains(err.Error(), "duplicate candidate decision receipt action") {
+		t.Fatalf("forged duplicate-one/omit-another receipt+transaction+committed error = %v", err)
 	}
 }
 
@@ -445,6 +462,219 @@ func TestVerifyCandidateDecisionRejectsDriftAndInvalidRoots(t *testing.T) {
 	}
 }
 
+func TestApplyCandidateDecisionsRejectsIncompleteOrDuplicateReviewAuthorityBeforeMutation(t *testing.T) {
+	tests := []struct {
+		name           string
+		mutatePacket   func(*CandidateReviewPacket, CandidateReviewItem, CandidateReviewItem)
+		mutateDecision func(*CandidateDecisionFile)
+		wantError      string
+	}{
+		{
+			name: "empty pending review candidate path",
+			mutatePacket: func(packet *CandidateReviewPacket, managed, _ CandidateReviewItem) {
+				for idx := range packet.CandidateResult.ReviewPlan.ReviewItems {
+					if packet.CandidateResult.ReviewPlan.ReviewItems[idx].CandidatePath == managed.CandidatePath {
+						packet.CandidateResult.ReviewPlan.ReviewItems[idx].CandidatePath = ""
+						return
+					}
+				}
+			},
+			wantError: "malformed candidate review: pending-review has invalid candidatePath",
+		},
+		{
+			name: "blank pending review candidate path",
+			mutatePacket: func(packet *CandidateReviewPacket, managed, _ CandidateReviewItem) {
+				for idx := range packet.CandidateResult.ReviewPlan.ReviewItems {
+					if packet.CandidateResult.ReviewPlan.ReviewItems[idx].CandidatePath == managed.CandidatePath {
+						packet.CandidateResult.ReviewPlan.ReviewItems[idx].CandidatePath = " \t "
+						return
+					}
+				}
+			},
+			wantError: "malformed candidate review: pending-review has invalid candidatePath",
+		},
+		{
+			name: "normalized duplicate review",
+			mutatePacket: func(packet *CandidateReviewPacket, managed, _ CandidateReviewItem) {
+				duplicate := managed
+				duplicate.CandidatePath = filepath.Dir(managed.CandidatePath) + string(filepath.Separator) + "." + string(filepath.Separator) + filepath.Base(managed.CandidatePath)
+				packet.CandidateResult.ReviewPlan.ReviewItems = append(packet.CandidateResult.ReviewPlan.ReviewItems, duplicate)
+			},
+			wantError: "duplicate candidate review",
+		},
+		{
+			name:         "normalized duplicate decision",
+			mutatePacket: func(_ *CandidateReviewPacket, _, _ CandidateReviewItem) {},
+			mutateDecision: func(decision *CandidateDecisionFile) {
+				duplicate := decision.Decisions[0]
+				duplicate.CandidatePath = filepath.Dir(duplicate.CandidatePath) + string(filepath.Separator) + "." + string(filepath.Separator) + filepath.Base(duplicate.CandidatePath)
+				decision.Decisions = append(decision.Decisions, duplicate)
+			},
+			wantError: "duplicate candidate decision",
+		},
+		{
+			name:         "missing pending review decision",
+			mutatePacket: func(_ *CandidateReviewPacket, _, _ CandidateReviewItem) {},
+			mutateDecision: func(decision *CandidateDecisionFile) {
+				decision.Decisions = decision.Decisions[:1]
+			},
+			wantError: "candidate decisions do not exactly cover pending review items",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoRoot, caseRoot, pack := promoteFixture(t)
+			created, err := CreateCandidates(repoRoot, caseRoot, pack, CandidateOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, err = WriteCandidateReviewWorkspace(created, CandidateArtifactOptions{ReviewOutputDir: filepath.Join(caseRoot, ".rekit", "reviews", "candidate-authority-"+safeCandidateName(tt.name))})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var packet CandidateReviewPacket
+			if err := decodeStrictJSON(readCandidateDecisionTestFile(t, created.ReviewWorkspace.PacketPath), &packet); err != nil {
+				t.Fatal(err)
+			}
+			var managed, tooling CandidateReviewItem
+			for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
+				if item.ReviewDecision != "pending-review" {
+					continue
+				}
+				switch item.Kind {
+				case "managed-doc":
+					managed = item
+				case "tooling-candidate-source":
+					tooling = item
+				}
+			}
+			if managed.CandidatePath == "" || tooling.CandidatePath == "" {
+				t.Fatalf("authority fixture omitted pending reviews: managed=%+v tooling=%+v", managed, tooling)
+			}
+			evidence := CandidateDecisionEvidence{Path: created.ReviewWorkspace.CombinedDiffPath, SHA256: fileSHA256(created.ReviewWorkspace.CombinedDiffPath)}
+			decision := CandidateDecisionFile{
+				SchemaVersion: 1,
+				Kind:          "pack-memory-candidate-decisions",
+				Decisions: []CandidateDecisionItem{
+					{CandidatePath: managed.CandidatePath, Decision: "accept", CandidateHash: fileSHA256(managed.CandidatePath), PackTargetHash: fileSHA256(managed.PackTarget), Reason: "reviewed", Actor: "mission-commander", EvidenceRefs: []CandidateDecisionEvidence{evidence}},
+					{CandidatePath: tooling.CandidatePath, Decision: "reject", CandidateHash: fileSHA256(tooling.CandidatePath), Reason: "reviewed", Actor: "mission-commander", EvidenceRefs: []CandidateDecisionEvidence{evidence}},
+				},
+			}
+			tt.mutatePacket(&packet, managed, tooling)
+			writeCandidateDecisionTestJSON(t, created.ReviewWorkspace.PacketPath, packet)
+			packetBytes := readCandidateDecisionTestFile(t, created.ReviewWorkspace.PacketPath)
+			decision.PacketHash = sha256Hex(packetBytes)
+			if tt.mutateDecision != nil {
+				tt.mutateDecision(&decision)
+			}
+			decisionPath := filepath.Join(filepath.Dir(created.ReviewWorkspace.PacketPath), "decisions.json")
+			writeCandidateDecisionFixture(t, decisionPath, decision)
+
+			candidateBefore := map[string][]byte{
+				managed.CandidatePath: readCandidateDecisionTestFile(t, managed.CandidatePath),
+				tooling.CandidatePath: readCandidateDecisionTestFile(t, tooling.CandidatePath),
+			}
+			targetBefore := readCandidateDecisionTestFile(t, managed.PackTarget)
+			indexBefore := readCandidateDecisionTestFile(t, created.IndexPath)
+			backupRoot := filepath.Join(created.CandidateRoot, ".decision-backup")
+			receiptRoot := filepath.Join(created.CandidateRoot, "review-artifacts")
+
+			for _, whatIf := range []bool{true, false} {
+				_, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, WhatIf: whatIf})
+				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+					t.Fatalf("WhatIf=%v error = %v, want %q", whatIf, err, tt.wantError)
+				}
+				for path, before := range candidateBefore {
+					if after := readCandidateDecisionTestFile(t, path); string(after) != string(before) {
+						t.Fatalf("WhatIf=%v mutated candidate %s", whatIf, path)
+					}
+				}
+				if after := readCandidateDecisionTestFile(t, managed.PackTarget); string(after) != string(targetBefore) {
+					t.Fatalf("WhatIf=%v mutated pack target", whatIf)
+				}
+				if after := readCandidateDecisionTestFile(t, created.IndexPath); string(after) != string(indexBefore) {
+					t.Fatalf("WhatIf=%v mutated candidate index", whatIf)
+				}
+				if entries, err := os.ReadDir(backupRoot); err == nil && len(entries) != 0 || err != nil && !os.IsNotExist(err) {
+					t.Fatalf("WhatIf=%v created transaction entries: entries=%v err=%v", whatIf, entries, err)
+				}
+				if entries, err := os.ReadDir(receiptRoot); err == nil && len(entries) != 0 || err != nil && !os.IsNotExist(err) {
+					t.Fatalf("WhatIf=%v created receipt entries: entries=%v err=%v", whatIf, entries, err)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadCandidateDecisionAuthorityRejectsEmptyPendingReviewCandidatePathOnReplay(t *testing.T) {
+	for _, candidatePath := range []string{"", " \t "} {
+		name := "empty"
+		if candidatePath != "" {
+			name = "blank"
+		}
+		t.Run(name, func(t *testing.T) {
+			repoRoot, caseRoot, pack := promoteFixture(t)
+			created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "authority-replay-"+name)
+			decisionPath := filepath.Join(filepath.Dir(created.ReviewWorkspace.PacketPath), "decisions.json")
+			decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+			writeCandidateDecisionFixture(t, decisionPath, decision)
+			applied, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for idx := range packet.CandidateResult.ReviewPlan.ReviewItems {
+				if packet.CandidateResult.ReviewPlan.ReviewItems[idx].CandidatePath == managed.CandidatePath {
+					packet.CandidateResult.ReviewPlan.ReviewItems[idx].CandidatePath = candidatePath
+					break
+				}
+			}
+			writeCandidateDecisionTestJSON(t, created.ReviewWorkspace.PacketPath, packet)
+			packetHash := sha256Hex(readCandidateDecisionTestFile(t, created.ReviewWorkspace.PacketPath))
+			decision.PacketHash = packetHash
+			writeCandidateDecisionTestJSON(t, decisionPath, decision)
+			decisionHash := sha256Hex(readCandidateDecisionTestFile(t, decisionPath))
+			receiptPath := candidateDecisionReceiptPath(created.CandidateRoot, packetHash, decisionHash)
+
+			receipt := *applied.Receipt
+			receipt.PacketHash = packetHash
+			receipt.DecisionHash = decisionHash
+			receipt.ReceiptPath = receiptPath
+			receipt.VerificationProofPath = candidateDecisionVerificationProofPath(created.CandidateRoot, packetHash, decisionHash)
+			receipt.VerificationWorkspaceRoot = candidateDecisionVerificationWorkspace(caseRoot, packetHash, decisionHash)
+			freshRoot := filepath.Join(receipt.VerificationWorkspaceRoot, "fresh")
+			attachedRoot := filepath.Join(receipt.VerificationWorkspaceRoot, "attached")
+			receipt.VerificationProvisionCommand = candidateDecisionVerificationProvisionCommand(created.ReviewWorkspace.PacketPath, decisionPath, freshRoot, attachedRoot)
+			receipt.VerificationCommand = candidateDecisionVerificationCommand(created.ReviewWorkspace.PacketPath, decisionPath, freshRoot, attachedRoot)
+			writeCandidateDecisionTestJSON(t, receiptPath, receipt)
+
+			transactionPath := filepath.Join(applied.BackupRoot, "transaction.json")
+			var transaction candidateDecisionTransaction
+			if err := decodeStrictJSON(readCandidateDecisionTestFile(t, transactionPath), &transaction); err != nil {
+				t.Fatal(err)
+			}
+			transaction.PacketHash = packetHash
+			transaction.DecisionHash = decisionHash
+			transaction.Result.PacketHash = packetHash
+			writeCandidateDecisionTestJSON(t, transactionPath, transaction)
+
+			committedPath := filepath.Join(applied.BackupRoot, "committed.json")
+			var committed CandidateDecisionResult
+			if err := decodeStrictJSON(readCandidateDecisionTestFile(t, committedPath), &committed); err != nil {
+				t.Fatal(err)
+			}
+			committed.PacketHash = packetHash
+			committed.ReceiptPath = receiptPath
+			committed.Receipt = &receipt
+			writeCandidateDecisionTestJSON(t, committedPath, committed)
+
+			if _, err := loadCandidateDecisionAuthority(repoRoot, caseRoot, pack, created.ReviewWorkspace.PacketPath, decisionPath); err == nil || !strings.Contains(err.Error(), "malformed candidate review: pending-review has invalid candidatePath") {
+				t.Fatalf("authority replay error = %v", err)
+			}
+		})
+	}
+}
+
 func TestApplyCandidateDecisionsRejectsHashDriftAndToolingAutoAccept(t *testing.T) {
 	repoRoot, caseRoot, pack := promoteFixture(t)
 	created, err := CreateCandidates(repoRoot, caseRoot, pack, CandidateOptions{})
@@ -467,7 +697,7 @@ func TestApplyCandidateDecisionsRejectsHashDriftAndToolingAutoAccept(t *testing.
 		if item.ReviewDecision != "pending-review" {
 			continue
 		}
-		decision := CandidateDecisionFile{SchemaVersion: 1, Kind: "pack-memory-candidate-decisions", PacketHash: sha256Hex(packetBytes), Decisions: []CandidateDecisionItem{{CandidatePath: item.CandidatePath, Decision: "accept", CandidateHash: fileSHA256(item.CandidatePath), PackTargetHash: fileSHA256(item.PackTarget), Reason: "reviewed", Actor: "mission-commander", EvidenceRefs: []CandidateDecisionEvidence{{Path: created.ReviewWorkspace.CombinedDiffPath, SHA256: fileSHA256(created.ReviewWorkspace.CombinedDiffPath)}}}}}
+		decision := reviewedCandidateDecision(packet, item, created.ReviewWorkspace.CombinedDiffPath)
 		decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-drift", safeCandidateName(item.Kind)+"-decision.json")
 		writeCandidateDecisionFixture(t, decisionPath, decision)
 		if item.Kind == "tooling-candidate-source" {
@@ -716,7 +946,7 @@ func TestApplyCandidateDecisionsTakesOverMalformedLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
-	if err != nil || !result.Applied || result.Rejected != 1 {
+	if err != nil || !result.Applied || result.Rejected != len(decision.Decisions) {
 		t.Fatalf("malformed stale lock takeover failed: result=%+v err=%v", result, err)
 	}
 }
@@ -734,7 +964,7 @@ func TestApplyCandidateDecisionsTakesOverStaleLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
-	if err != nil || !result.Applied || result.Rejected != 1 {
+	if err != nil || !result.Applied || result.Rejected != len(decision.Decisions) {
 		t.Fatalf("stale lock takeover failed: result=%+v err=%v", result, err)
 	}
 }
@@ -813,29 +1043,58 @@ func candidateDecisionFixture(t *testing.T, repoRoot, caseRoot, pack, name strin
 func reviewedCandidateDecision(packet CandidateReviewPacket, managed CandidateReviewItem, evidencePath string) CandidateDecisionFile {
 	packetBytes, _ := json.MarshalIndent(packet, "", "  ")
 	packetBytes = append(packetBytes, '\n')
+	evidence := CandidateDecisionEvidence{Path: evidencePath, SHA256: fileSHA256(evidencePath)}
+	decisions := []CandidateDecisionItem{{
+		CandidatePath:  managed.CandidatePath,
+		Decision:       "accept",
+		CandidateHash:  fileSHA256(managed.CandidatePath),
+		PackTargetHash: fileSHA256(managed.PackTarget),
+		Reason:         "reviewed bounded candidate diff",
+		Actor:          "mission-commander",
+		EvidenceRefs:   []CandidateDecisionEvidence{evidence},
+	}}
+	for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
+		if item.ReviewDecision != "pending-review" || sameCandidateDecisionPath(item.CandidatePath, managed.CandidatePath) {
+			continue
+		}
+		decisions = append(decisions, CandidateDecisionItem{
+			CandidatePath: item.CandidatePath,
+			Decision:      "reject",
+			CandidateHash: fileSHA256(item.CandidatePath),
+			Reason:        "reviewed bounded candidate diff",
+			Actor:         "mission-commander",
+			EvidenceRefs:  []CandidateDecisionEvidence{evidence},
+		})
+	}
 	return CandidateDecisionFile{
 		SchemaVersion: 1,
 		Kind:          "pack-memory-candidate-decisions",
 		PacketHash:    sha256Hex(packetBytes),
-		Decisions: []CandidateDecisionItem{{
-			CandidatePath:  managed.CandidatePath,
-			Decision:       "accept",
-			CandidateHash:  fileSHA256(managed.CandidatePath),
-			PackTargetHash: fileSHA256(managed.PackTarget),
-			Reason:         "reviewed bounded candidate diff",
-			Actor:          "mission-commander",
-			EvidenceRefs:   []CandidateDecisionEvidence{{Path: evidencePath, SHA256: fileSHA256(evidencePath)}},
-		}},
+		Decisions:     decisions,
 	}
 }
 
 func writeCandidateDecisionFixture(t *testing.T, path string, decision CandidateDecisionFile) {
 	t.Helper()
-	data, err := json.MarshalIndent(decision, "", "  ")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCandidateDecisionTestJSON(t, path, decision)
+}
+
+func readCandidateDecisionTestFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	return data
+}
+
+func writeCandidateDecisionTestJSON(t *testing.T, path string, value any) {
+	t.Helper()
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {

@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 559：pack-memory candidate verification case provisioning closure
+
+状态：已完成runtime/CLI/release handoff/tests/docs implementation、多轮独立审查修复与最终bounded验收、focused/package/nested case product-path validation及完整本地release minimum；implementation commit/push与远程release-gate inspection待执行。
+
+目标：关闭accepted pack-memory candidate decision之后，Mission Commander必须手工创建并管理两个验证case才能进入既有`VerifyCandidateDecision`的operational断点。由Go-native runtime提供source-case-local canonical workspace、两个distinct no-overwrite case的WhatIf→expected-hash Apply、durable exact/partial replay，并返回既有final verification WhatIf handoff。
+
+已完成内容：
+
+- accepted decision receipt新增canonical verification workspace与concrete provisioning command。`promote -ProvisionCandidateVerificationCases`要求packet/decision、两个workspace direct-child roots以及exactly one of WhatIf/Apply；WhatIf返回完整write sets与provision hash，Apply锁内重读并要求`ExpectedProvisionSha256`。
+- 新增deterministic exclusive init package，生成attached metadata/thin shim/managed+template files/state/verification role marker，所有leaf使用exclusive create；different bytes、symlink/non-regular/unplanned object fail-closed，exact replay幂等并支持partial exact completion。
+- provisioning写source-case-local `provision.intent.json`与`provision.receipt.json`，运行两个case doctor后只返回现有`VerifyCandidateDecision -WhatIf`命令，不创建final repo-local verification proof。release/status handoff投影workspace、provision command与final verification command。
+- CLI产品路径从candidate decision Apply继续到nested source case cwd、无`Target`/无`Pack`的provision WhatIf→expected-hash Apply→exact replay text→VerifyCandidateDecision WhatIf；package tests覆盖preview no-write、Apply/replay、root geometry/collision与final proof absence。
+
+边界：provisioning只创建两个source-case-local verification cases和durable intent/receipt；不merge/cleanup candidate，不执行final verification或heavy tool，不写facts/authority/confirmed，不自动删除cases，不新增PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/sync ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck -count=1`与CLI nested product path、release/status projection已通过。首轮独立审查识别并修复authoritative decision receipt binding、intent crash resume、双root first-leaf preflight、workspace symlink/rebind与provision receipt exact Cases/Writes binding；第二轮复核进一步要求action-derived decision counts、reservation→Apply之间全root preflight、source/workspace namespace与receipt后置重验；第三轮及终局复核继续发现reserved root未固定filesystem identity、workspace/child root在doctor与receipt阶段可换绑、final leaf中断写不可恢复、receipt写后未精确重验刚发布leaf，以及decision/action覆盖可在mutation前或空pending path下绕过。现在exclusive init以Go 1.26 `os.Root` handle端到端固定workspace、parent与reserved roots，所有replay扫描、目录创建、doctor前后identity检查及leaf写入都相对pinned namespace；leaf和receipt均先完整写入deterministic owned temp，再用handle-relative no-replace link发布，支持publish前crash恢复且不暴露半成品。receipt发布后要求同一leaf identity、exact newline bytes、root/workspace/intent仍current；共享normalized review/decision/action validator拒绝重复、空pending path与不完整覆盖，均有并发换绑、crash resume、truncate/replace、duplicate-one/omit-another和pre-mutation no-write回归。完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）与Linux sync/promote test binary交叉编译已通过；直接设置`GOOS=linux`运行`go test`会尝试在Windows执行Linux binary并按预期失败，已改用`go test -c`验证并清理产物。最终bounded验收专门复核post-link crash temp reconciliation，确认completed leaf/receipt replay会在regular、exact bytes与`os.SameFile`全部成立后清理owned temp，different identity或bytes drift fail-closed，无剩余高置信finding。
+
+上一批摘要：Batch 558已完成reviewer result staging / candidate publication closure，implementation commit `8e79971 Stage reviewer results safely`与release inspection commit `9c1fedc Record Batch 558 release gate inspection`已推送；对应run `30000837518`三平台jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
+
 ### Batch 558：reviewer result staging / candidate publication closure
 
 状态：已完成implementation、focused/package/product-path validation、独立审查修复、最终复核、完整本地release minimum、implementation commit `8e79971 Stage reviewer results safely`/push与远程release-gate inspection。对应run `30000837518` completed failure；Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。
