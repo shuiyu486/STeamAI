@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 547：authorized adapter Mission Commander action queue closure
 
-状态：已完成 implementation、focused/package validation、三轮独立审查修复与完整本地 release minimum；尚未执行 commit/push 或远程 release-gate inspection。
+状态：已完成 implementation、focused/package validation、三轮独立审查修复、完整本地 release minimum、implementation commit `889c421 Close authorized adapter action queue`/push 与远程 release-gate inspection。对应 run `29967797366` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有 runner/billing blocker，不能声明 remote CI green。
 
 目标：关闭canonical adapter live state虽已进入status/handoff/continue独立字段、但replacement executor仍需把repair/record/escalation与普通lane continue手工拼接优先级的operational断点。把missing validation、invalid repair、valid record-ready、recorded evidence review与recorded main escalation收口到统一`MissionCommanderNextActions[]` / `MissionCommanderActionQueue`及durable handoff。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：queue只排序并投影已有typed commands；不执行adapter/heavy-tool、不自动record observation、不写authority/confirmed。record仍要求主Agent显式复核并执行；不新增PowerShell runtime logic。
 
-验证结果：focused adapter product-path、Mission Commander multi-gate identity/main escalation、missing sidecar preservation、blocked start takeover priority tests，以及`go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli -count=1`均通过；三轮独立审查发现并修复same-path changed sidecar误去重、跨gate actions消失、start/reconcile preview优先级、多gate identity去重与main escalation current排序。完整本地release minimum已通过`release-check -Format json`（`ready=true`）、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`与`git diff --check`。
+验证结果：focused adapter product-path、Mission Commander multi-gate identity/main escalation、missing sidecar preservation、blocked start takeover priority tests，以及`go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli -count=1`均通过；三轮独立审查发现并修复same-path changed sidecar误去重、跨gate actions消失、start/reconcile preview优先级、多gate identity去重与main escalation current排序。完整本地release minimum已通过`release-check -Format json`（`ready=true`）、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`与`git diff --check`。implementation run `29967797366`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
 上一批摘要：Batch 546已完成canonical adapter sidecar live Mission Commander closure，implementation commits `fb1bd07 Close adapter sidecar live handoff`、`7038f04 Align recorded adapter handoff state`与release inspection commit `ca976d4 Record Batch 546 release gate inspection`已推送；最终implementation run `29964742726`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
