@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 556：reviewer result recovery ambiguity guard closure
 
-状态：implementation、focused validation、独立审查修复与完整本地release minimum已完成；commit/push和远程release-gate inspection待完成。
+状态：已完成implementation、focused validation、独立审查修复、完整本地release minimum、implementation commit `2c0867a Block ambiguous reviewer recovery retries`/push与远程release-gate inspection。inspection时远程`main`已指向该commit，但GitHub Actions尚未为该SHA生成release-gate run或check suite；不能声明remote CI green。
 
 目标：关闭recovery intent与exact quarantine已存在、但canonical reviewer result path又被同bytes regular file或同snapshot obstruction占据时，runtime无法证明两者是同一filesystem object却会自动删除canonical对象的断点。将该状态明确视为ambiguous并fail-closed，保留canonical对象供主Agent复核；真正post-move/pre-receipt crash在canonical missing时仍可确定性finalize。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：不自动删除、覆盖或替换ambiguous canonical object；不改变reviewer verdict/facts/authority/confirmed，不执行heavy-tool，不新增PowerShell runtime logic。
 
-验证结果：focused/related `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`已通过。独立审查发现workstream仍将ambiguous状态误投影为可执行finalize；已新增`reviewer-result-recovery-ambiguous` blocked state、移除Apply command并提供`cannot prove`人工复核提示。完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。
+验证结果：focused/related `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`已通过。独立审查发现workstream仍将ambiguous状态误投影为可执行finalize；已新增`reviewer-result-recovery-ambiguous` blocked state、移除Apply command并提供`cannot prove`人工复核提示。完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。implementation commit `2c0867a`已推送；inspection时`git ls-remote`确认remote `main`为exact SHA，但`gh run list --commit`、Actions runs API与commit check-runs均为空，未生成可检查的implementation run；这是不同于既有`steps=[]`的remote signal，按事实记录为release-gate-not-created。
 
 上一批摘要：Batch 555已完成Windows file-symlink obstruction recovery，implementation commit `14585d1 Recover symlink reviewer result obstructions`与release inspection commit `0f01b57 Record Batch 555 release gate inspection`已推送；对应run `29991470157`三平台jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
