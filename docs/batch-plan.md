@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 561：continue executor-generation stale-writer guard closure
 
-状态：已完成runtime、CLI、durable handoff、tests与nested product path implementation；独立审查识别的shared mutation serialization与namespace rebind问题已修复，focused/repeat tests与跨平台test-binary编译已通过。完整本地release minimum已通过；implementation commit/push与其remote release-gate inspection尚待本批release步骤完成。
+状态：已完成runtime、CLI、durable handoff、tests与nested product path implementation；独立审查识别的shared mutation serialization与namespace rebind问题已修复，focused/repeat tests、跨平台test-binary编译与完整本地release minimum已通过。implementation commit `46c1c66 Guard continue against stale executors`已推送；对应remote run `30035030511` completed failure，Linux/Windows/macOS jobs均`runner_id=0`且`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。
 
 目标：关闭replacement executor通过`start` takeover或`reconcile`刷新durable lane owner后，旧executor仍可调用`continue`并写入run、facts、lane resume/checkpoint与board的真实断点。新路径要求`continue`同时提供当前`-Executor`与`-ExpectedExecutorGeneration`，并把两者作为lane-local optimistic concurrency precondition。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 - runtime-generated status/overview/handoff/start/reconcile/continue、Mission Commander actions与durable `RESUME.md`/checkpoint/run digest从current lane authority重建`-Executor ... -ExpectedExecutorGeneration ...` continue command，旧owner字符串不能在takeover后存活。
 - nested case cwd、无`Target`、无`Pack`产品路径覆盖session-A generation 1→session-B generation 2 takeover、stale A preview/apply完整case snapshot zero-write、current B text preview/JSON apply成功。
 
-验证结果：focused workstream owner guard/locking/concurrency tests重复10次通过，workstream全套重复10次通过；CLI nested replaceable-session product path重复10次及完整CLI tests通过。Linux/macOS/Windows/wasm workstream test binary交叉编译通过；独立P0/P1终审无存活finding。完整本地release minimum已通过：`go run ./cmd/rekit -- -Command release-check -Format json`返回`ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`与`git diff --check`均通过。executor takeover仍只由显式`start`/`reconcile`拥有；guard不自动spawn、停止、轮询或管理session，不执行heavy action，不写authority/confirmed。
+验证结果：focused workstream owner guard/locking/concurrency tests重复10次通过，workstream全套重复10次通过；CLI nested replaceable-session product path重复10次及完整CLI tests通过。Linux/macOS/Windows/wasm workstream test binary交叉编译通过；独立P0/P1终审无存活finding。完整本地release minimum已通过：`go run ./cmd/rekit -- -Command release-check -Format json`返回`ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`与`git diff --check`均通过。remote inspection：run `30035030511`的Linux job `89300743081`、Windows job `89300743034`、macOS job `89300743005`均completed failure且`steps=[]`，未获得runner执行；该信号与既有billing/spending-limit blocker相同。executor takeover仍只由显式`start`/`reconcile`拥有；guard不自动spawn、停止、轮询或管理session，不执行heavy action，不写authority/confirmed。
 
 上一批摘要：Batch 560已完成pack-memory candidate verification workspace retirement closure；implementation commit `303414e Retire candidate verification workspaces`已推送，对应remote run `30021860514`三平台jobs均completed failure、`runner_id=0`且`steps=[]`，仍属既有runner/billing blocker。
 
