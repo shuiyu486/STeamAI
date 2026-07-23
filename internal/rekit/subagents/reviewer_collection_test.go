@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -154,6 +155,81 @@ func TestCollectReviewerResultRejectsRehashedPacketPathForgery(t *testing.T) {
 	opt := ReviewerResultCollectionOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", WhatIf: true}
 	if _, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "canonical case review namespace") {
 		t.Fatalf("rehashed packet path forgery error = %v", err)
+	}
+}
+
+func TestCollectReviewerResultRejectsNestedCanonicalPacket(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	reviewRoot := filepath.Join(caseRoot, ".rekit", "reviews", "outer", "inner")
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake", ReviewOutputDir: reviewRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	handoff := &packet.ShardHandoffs[0]
+	if handoff.ReviewerCollectionCommands != nil || handoff.ReviewerResultCandidatePath != "" || packet.ReviewerOrchestration.Summary.CollectionAvailable {
+		t.Fatalf("nested packet advertised collection: %+v", packet.ReviewerOrchestration)
+	}
+	candidatePath := filepath.Join(packet.ReviewerOrchestration.ResultRoot, "candidates", handoff.ShardID+".json")
+	handoff.ReviewerResultCandidatePath = candidatePath
+	packet.ReviewerOrchestration.Dispatches[0].ReviewerResultCandidatePath = candidatePath
+	packet.PacketID = packetIdentity(packet)
+	data, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plan.PacketPath, append(data, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(candidatePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidatePath, reviewerResultForPacket(t, packet, "accept", "accepted", nil), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opt := ReviewerResultCollectionOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", WhatIf: true}
+	if _, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "canonical case review packet") {
+		t.Fatalf("nested packet collection error = %v", err)
+	}
+}
+
+func TestCollectReviewerResultRejectsRekitSymlinkBeforeReadingOrPublishing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is not reliably available on Windows")
+	}
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	handoff := packet.ShardHandoffs[0]
+	if err := os.MkdirAll(filepath.Dir(handoff.ReviewerResultCandidatePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handoff.ReviewerResultCandidatePath, reviewerResultForPacket(t, packet, "accept", "accepted", nil), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside-metadata")
+	if err := os.Rename(filepath.Join(caseRoot, ".rekit"), outside); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(caseRoot, ".rekit")); err != nil {
+		t.Fatal(err)
+	}
+	opt := ReviewerResultCollectionOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander"}
+	for _, whatIf := range []bool{true, false} {
+		opt.WhatIf = whatIf
+		if _, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
+			t.Fatalf("collection with .rekit symlink WhatIf=%t error = %v", whatIf, err)
+		}
+		if _, err := os.Stat(filepath.Join(outside, "reviews", filepath.Base(filepath.Dir(plan.PacketPath)), "results", handoff.ShardID+".json")); !os.IsNotExist(err) {
+			t.Fatalf("collection WhatIf=%t wrote outside canonical result: %v", whatIf, err)
+		}
 	}
 }
 

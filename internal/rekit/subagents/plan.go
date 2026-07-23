@@ -15,6 +15,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 )
 
 const commandName = "plan-subagents"
@@ -168,6 +169,7 @@ type ReviewerOrchestrationSummary struct {
 	OwnerBinding         ReviewerOrchestrationOwnerSummary        `json:"ownerBinding"`
 	DispatchCount        int                                      `json:"dispatchCount"`
 	IntakeAvailable      bool                                     `json:"intakeAvailable"`
+	CollectionAvailable  bool                                     `json:"collectionAvailable"`
 	DispatchOnly         bool                                     `json:"dispatchOnly"`
 	ActionTotal          int                                      `json:"actionTotal"`
 	ActionUnblocked      int                                      `json:"actionUnblocked"`
@@ -409,6 +411,14 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	collectionAvailable := false
+	if namespace, ok := reviewpath.CanonicalCollectionNamespace(planRoot, paths.PacketPath); caseTarget && ok {
+		if !reviewpath.CollectionNamespacePathSafe(planRoot, paths.Root, true) {
+			return Result{}, fmt.Errorf("canonical reviewer artifact paths must not traverse symlinks or escape the attached case")
+		}
+		collectionAvailable = samePath(paths.Root, namespace.ReviewRoot) &&
+			samePath(paths.ResultRoot, namespace.ResultRoot)
+	}
 	if err := prepareArtifactDirs(paths); err != nil {
 		return Result{}, err
 	}
@@ -419,8 +429,8 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 		return Result{}, err
 	}
 	targetLane := ownerBinding.TargetLane
-	shardHandoffs := newShardHandoffs(shards, route, observability, reviewLoop, planRoot, m.Pack, ownerBinding, caseTarget)
-	orchestration := newReviewerOrchestration(planRoot, m.Pack, shardHandoffs, observability, reviewLoop, ownerBinding, maxParallel, caseTarget)
+	shardHandoffs := newShardHandoffs(shards, route, observability, reviewLoop, planRoot, m.Pack, ownerBinding, caseTarget, collectionAvailable)
+	orchestration := newReviewerOrchestration(planRoot, m.Pack, shardHandoffs, observability, reviewLoop, ownerBinding, maxParallel, caseTarget, collectionAvailable)
 	commanderAction := reviewerPlanMissionCommanderAction(planRoot, m.Pack, orchestration, caseTarget)
 	commanderNextActions := reviewerPlanMissionCommanderNextActions(planRoot, m.Pack, orchestration, commanderAction, caseTarget)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
@@ -681,7 +691,7 @@ func shardPrompt(items []string) string {
 	return "Review only these items: " + strings.Join(items, ", ") + ". Return one reviewer result JSON object using the shard handoff dispatchPrompt; do not return routeOutput alone, write files, or paste long logs."
 }
 
-func newShardHandoffs(shards []Shard, route Route, observability Observability, reviewLoop ReviewLoop, planRoot, pack string, ownerBinding OwnerBinding, intakeAvailable bool) []ShardHandoff {
+func newShardHandoffs(shards []Shard, route Route, observability Observability, reviewLoop ReviewLoop, planRoot, pack string, ownerBinding OwnerBinding, intakeAvailable, collectionAvailable bool) []ShardHandoff {
 	handoffs := make([]ShardHandoff, 0, len(shards))
 	readOnlyBoundary := append([]string{}, observability.BlockedActions...)
 	targetLane := ownerBinding.TargetLane
@@ -694,16 +704,22 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 		conflicts := conflictHandlingSteps()
 		commands := reviewerIntakeCommands(planRoot, pack, observability.PacketPath, resultPath, targetLane, intakeAvailable)
 		dispatchPrompt := shardDispatchPrompt(shard, route, readOnlyBoundary, reviewLoop, ownerBinding, resultPath)
-		collectionCommands := reviewerResultCollectionCommands(observability.PacketPath, shard.ID, targetLane, candidatePath, intakeAvailable)
-		nextAction := "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object at reviewerResultCandidatePath, run reviewerCollectionCommands.previewCommand then applyCommand, then use reviewerIntakeCommands or packet-level batch intake WhatIf before Apply; direct plan-subagents -ReviewerResultPath intake remains available for legacy packets"
-		if !intakeAvailable {
-			nextAction = "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, and retain the single JSON object; attach or init the target as a rekit case before reviewerCollectionCommands and reviewerIntakeCommands become runnable"
+		var collectionCommands *ReviewerResultCollectionCommands
+		reviewerResultCandidatePath := ""
+		nextAction := "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object directly at reviewerResultPath, then use reviewerIntakeCommands or packet-level batch intake WhatIf before Apply"
+		if collectionAvailable {
+			commands := reviewerResultCollectionCommands(observability.PacketPath, shard.ID, targetLane, candidatePath)
+			collectionCommands = &commands
+			reviewerResultCandidatePath = candidatePath
+			nextAction = "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object at reviewerResultCandidatePath, run reviewerCollectionCommands.previewCommand then applyCommand, then use reviewerIntakeCommands or packet-level batch intake WhatIf before Apply; direct plan-subagents -ReviewerResultPath intake remains available for legacy packets"
+		} else if !intakeAvailable {
+			nextAction = "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, and retain the single JSON object; attach or init the target as a rekit case and regenerate a canonical case-local packet before reviewerCollectionCommands or reviewerIntakeCommands become runnable"
 		}
 		handoffs = append(handoffs, ShardHandoff{
 			ShardID:                     shard.ID,
 			Status:                      "planned",
 			ReviewerResultPath:          resultPath,
-			ReviewerResultCandidatePath: candidatePath,
+			ReviewerResultCandidatePath: reviewerResultCandidatePath,
 			OwnerBinding:                ownerBinding,
 			DispatchPrompt:              dispatchPrompt,
 			AgentToolRequest: &ReviewerAgentToolRequest{
@@ -713,7 +729,7 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 				Prompt:         dispatchPrompt,
 				ExpectedOutput: "exactly one ReviewerResult JSON object; no Markdown fence or surrounding prose",
 			},
-			ReviewerCollectionCommands: &collectionCommands,
+			ReviewerCollectionCommands: collectionCommands,
 			Items:                      append([]string{}, shard.Items...),
 			ReadOnlyBoundary:           append([]string{}, readOnlyBoundary...),
 			ExpectedOutput:             route.OutputContract,
@@ -938,11 +954,8 @@ func reviewerBatchIntakeCommands(planRoot, pack, packetPath, targetLane string, 
 	return base + " -WhatIf -Format json", base + " -Apply -Format json"
 }
 
-func reviewerResultCollectionCommands(packetPath, shardID, targetLane, candidatePath string, intakeAvailable bool) ReviewerResultCollectionCommands {
+func reviewerResultCollectionCommands(packetPath, shardID, targetLane, candidatePath string) ReviewerResultCollectionCommands {
 	commands := ReviewerResultCollectionCommands{CandidatePath: candidatePath}
-	if !intakeAvailable {
-		return commands
-	}
 	base := "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -CollectReviewerResult -ShardId " + quoteCommandArg(shardID) + " -Lane " + quoteCommandArg(targetLane) + " -Actor <main-agent>"
 	commands.PreviewCommand = base + " -WhatIf -Format json"
 	commands.ApplyCommand = base + " -Apply -Format json"
@@ -1019,12 +1032,14 @@ func postReviewMergeSteps() []string {
 	}
 }
 
-func newReviewerOrchestration(planRoot, pack string, handoffs []ShardHandoff, observability Observability, reviewLoop ReviewLoop, ownerBinding OwnerBinding, maxParallel int, intakeAvailable bool) ReviewerOrchestrationPlan {
+func newReviewerOrchestration(planRoot, pack string, handoffs []ShardHandoff, observability Observability, reviewLoop ReviewLoop, ownerBinding OwnerBinding, maxParallel int, intakeAvailable, collectionAvailable bool) ReviewerOrchestrationPlan {
 	mode := "manual-main-agent-intake"
-	scope := "dispatch read-only reviewers, collect one JSON result per shard, then run packet-level ready-result batch intake preview/apply"
-	if !intakeAvailable {
+	scope := "dispatch read-only reviewers, save one JSON result directly to each reviewerResultPath, then run strict direct or packet-level batch intake preview/apply"
+	if collectionAvailable {
+		scope = "dispatch read-only reviewers, save one JSON candidate per shard, publish immutable canonical results with collection preview/apply, then run packet-level ready-result batch intake preview/apply"
+	} else if !intakeAvailable {
 		mode = "dispatch-only-unattached-target"
-		scope = "dispatch read-only reviewers and collect JSON results only; attach or init the target before reviewer-intake writeback"
+		scope = "dispatch read-only reviewers and retain JSON results only; attach or init the target and regenerate a canonical case-local packet before collection or reviewer-intake writeback"
 	}
 	dispatches := make([]ReviewerDispatch, 0, len(handoffs))
 	for _, handoff := range handoffs {
@@ -1055,7 +1070,7 @@ func newReviewerOrchestration(planRoot, pack string, handoffs []ShardHandoff, ob
 		BatchApplyCommand:   batchApply,
 		MaxParallel:         maxParallel,
 		Dispatches:          dispatches,
-		Lifecycle:           reviewerOrchestrationLifecycle(intakeAvailable),
+		Lifecycle:           reviewerOrchestrationLifecycle(intakeAvailable, collectionAvailable),
 		RuntimeBoundary:     append([]string{}, observability.BlockedActions...),
 		CompletionCriteria:  append([]string{}, reviewLoop.CompletionCriteria...),
 	}
@@ -1175,6 +1190,15 @@ func reviewerPlanMissionCommanderNextActions(planRoot, pack string, orchestratio
 	return mission.UniqueCommanderNextActions(items)
 }
 
+func orchestrationCollectionAvailable(orchestration ReviewerOrchestrationPlan) bool {
+	for _, dispatch := range orchestration.Dispatches {
+		if dispatch.CollectionCommands != nil && strings.TrimSpace(dispatch.CollectionCommands.PreviewCommand) != "" && strings.TrimSpace(dispatch.CollectionCommands.ApplyCommand) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func reviewerOrchestrationSummary(orchestration ReviewerOrchestrationPlan) ReviewerOrchestrationSummary {
 	summary := ReviewerOrchestrationSummary{
 		Mode:                orchestration.Mode,
@@ -1194,7 +1218,8 @@ func reviewerOrchestrationSummary(orchestration ReviewerOrchestrationPlan) Revie
 			RequiredForIntake:  orchestration.OwnerBinding.RequiredForIntake,
 			SpawnOwner:         orchestration.OwnerBinding.MainAgentSpawnOwner,
 		},
-		DispatchCount: len(orchestration.Dispatches),
+		DispatchCount:       len(orchestration.Dispatches),
+		CollectionAvailable: orchestrationCollectionAvailable(orchestration),
 		Boundary: []string{
 			"planning summary is read-only; full reviewerOrchestration dispatches, lifecycle, action queue, and shard handoffs remain available",
 			"runtime only writes review artifacts and does not spawn, stop, monitor, or manage reviewer sessions",
@@ -1272,7 +1297,14 @@ func reviewerPlanDispatchCommand(orchestration ReviewerOrchestrationPlan, idx in
 		return ""
 	}
 	dispatch := orchestration.Dispatches[idx]
-	return "dispatch read-only reviewer for " + dispatch.ShardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt; collect JSON at " + quoteCommandArg(dispatch.ReviewerResultPath)
+	target := dispatch.ReviewerResultPath
+	if dispatch.CollectionCommands != nil && strings.TrimSpace(dispatch.ReviewerResultCandidatePath) != "" {
+		target = dispatch.ReviewerResultCandidatePath
+	}
+	if orchestration.Summary.DispatchOnly || strings.EqualFold(orchestration.Mode, "dispatch-only-unattached-target") {
+		return "dispatch read-only reviewer for " + dispatch.ShardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt; retain the returned JSON until a canonical case-local packet is regenerated"
+	}
+	return "dispatch read-only reviewer for " + dispatch.ShardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt; collect JSON at " + quoteCommandArg(target)
 }
 
 func reviewerPlanCommanderBoundary(intakeAvailable bool) []string {
@@ -1299,7 +1331,7 @@ func reviewerPlanLaneLabel(lane string) string {
 	return mission.BoardLaneLabel(mission.BoardLane{ID: lane})
 }
 
-func reviewerOrchestrationLifecycle(intakeAvailable bool) []ReviewerOrchestrationStep {
+func reviewerOrchestrationLifecycle(intakeAvailable, collectionAvailable bool) []ReviewerOrchestrationStep {
 	steps := []ReviewerOrchestrationStep{
 		{
 			Step:          "dispatch-reviewers",
@@ -1347,7 +1379,19 @@ func reviewerOrchestrationLifecycle(intakeAvailable bool) []ReviewerOrchestratio
 			NextOnFailure: "open-main-agent-blocker",
 		},
 	}
+	if collectionAvailable {
+		steps[1].Action = "save each single reviewer JSON object at reviewerResultCandidatePath, run collection WhatIf then Apply, and publish exact bytes only to the canonical reviewerResultPath"
+		steps[1].Inputs = []string{"reviewerResultContract", "reviewerResultCandidatePath", "reviewerCollectionCommands"}
+		steps[1].MustPass = []string{"each candidate is a single JSON object", "packetId/routeId/shardId/items match the packet", "collection preview passes before immutable no-overwrite apply"}
+	} else if intakeAvailable {
+		steps[1].Action = "save each single reviewer JSON object directly at reviewerResultPath; this custom packet has no canonical collection capability"
+		steps[1].Inputs = []string{"reviewerResultContract", "reviewerOrchestration.dispatches[].reviewerResultPath"}
+		steps[1].MustPass = []string{"each result is a single JSON object", "packetId/routeId/shardId/items match the packet", "do not run reviewer result collection for this noncanonical packet"}
+	}
 	if !intakeAvailable {
+		steps[1].Action = "retain each reviewer JSON object externally and regenerate a canonical case-local packet after attach or init"
+		steps[1].Inputs = []string{"reviewerResultContract", "reviewerOrchestration.dispatches[].agentToolRequest"}
+		steps[1].MustPass = []string{"each result is a single JSON object", "do not present collection or intake commands as runnable", "regenerate the packet after attachment before writeback"}
 		steps[2].Action = "defer reviewer-intake until the target is attached or initialized as a rekit case"
 		steps[2].MustPass = []string{"previewCommand is n/a for dispatch-only out-of-case review artifacts", "do not expect readyForWriteback or postValidation until the target is an attached rekit case"}
 		steps[2].NextOnSuccess = "attach-or-init-target"
@@ -1712,7 +1756,7 @@ func summaryText(packetID string, route Route, taskType string, itemCount, shard
 	)
 	summary := orchestration.Summary
 	lines = append(lines,
-		fmt.Sprintf("- reviewer orchestration summary: mode=`%s`; targetLane=`%s`; reviewers=`%d`; dispatches=`%d`; maxParallel=`%d`; intakeAvailable=`%t`; dispatchOnly=`%t`; actions=`%d`; unblocked=`%d`; blocked=`%d`; requiresReview=`%d`; followUp=`%d`; queue=`%s`", summary.Mode, summary.TargetLane, summary.ReviewerCount, summary.DispatchCount, summary.MaxParallel, summary.IntakeAvailable, summary.DispatchOnly, summary.ActionTotal, summary.ActionUnblocked, summary.ActionBlocked, summary.ActionRequiresReview, summary.ActionFollowUp, summary.QueueSummary),
+		fmt.Sprintf("- reviewer orchestration summary: mode=`%s`; targetLane=`%s`; reviewers=`%d`; dispatches=`%d`; maxParallel=`%d`; intakeAvailable=`%t`; collectionAvailable=`%t`; dispatchOnly=`%t`; actions=`%d`; unblocked=`%d`; blocked=`%d`; requiresReview=`%d`; followUp=`%d`; queue=`%s`", summary.Mode, summary.TargetLane, summary.ReviewerCount, summary.DispatchCount, summary.MaxParallel, summary.IntakeAvailable, summary.CollectionAvailable, summary.DispatchOnly, summary.ActionTotal, summary.ActionUnblocked, summary.ActionBlocked, summary.ActionRequiresReview, summary.ActionFollowUp, summary.QueueSummary),
 		fmt.Sprintf("- reviewer orchestration summary owner: targetLane=`%s`; mode=`%s`; currentExecutor=`%s`; generation=`%d`; requiredForIntake=`%t`; spawnOwner=`%s`", summary.OwnerBinding.TargetLane, summary.OwnerBinding.BindingMode, textOr(summary.OwnerBinding.CurrentExecutor, "unassigned"), summary.OwnerBinding.ExecutorGeneration, summary.OwnerBinding.RequiredForIntake, summary.OwnerBinding.SpawnOwner),
 	)
 	if strings.TrimSpace(summary.BatchPreviewCommand) != "" {

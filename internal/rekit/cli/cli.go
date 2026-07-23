@@ -5362,7 +5362,7 @@ func planSubagentsReviewerResultSkeletonJSON(packetID, routeID string, handoff s
 }
 
 func writePlanSubagentsReviewerOrchestrationSummaryText(out io.Writer, summary subagents.ReviewerOrchestrationSummary) error {
-	if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration summary：mode=%s targetLane=%s reviewers=%d dispatches=%d maxParallel=%d intakeAvailable=%t dispatchOnly=%t packet=%s resultRoot=%s actions=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d queue=%s\n", summary.Mode, summary.TargetLane, summary.ReviewerCount, summary.DispatchCount, summary.MaxParallel, summary.IntakeAvailable, summary.DispatchOnly, summary.PacketPath, summary.ResultRoot, summary.ActionTotal, summary.ActionUnblocked, summary.ActionBlocked, summary.ActionRequiresReview, summary.ActionFollowUp, summary.QueueSummary); err != nil {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration summary：mode=%s targetLane=%s reviewers=%d dispatches=%d maxParallel=%d intakeAvailable=%t collectionAvailable=%t dispatchOnly=%t packet=%s resultRoot=%s actions=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d queue=%s\n", summary.Mode, summary.TargetLane, summary.ReviewerCount, summary.DispatchCount, summary.MaxParallel, summary.IntakeAvailable, summary.CollectionAvailable, summary.DispatchOnly, summary.PacketPath, summary.ResultRoot, summary.ActionTotal, summary.ActionUnblocked, summary.ActionBlocked, summary.ActionRequiresReview, summary.ActionFollowUp, summary.QueueSummary); err != nil {
 		return err
 	}
 	binding := summary.OwnerBinding

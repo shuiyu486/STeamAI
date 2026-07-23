@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -33,10 +34,10 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 		t.Fatalf("ShardHandoffs = %+v, want 2", result.ShardHandoffs)
 	}
 	firstDispatch := result.ReviewerOrchestration.Dispatches[0]
-	if result.ReviewerOrchestration.Mode != "dispatch-only-unattached-target" || result.ReviewerOrchestration.ReviewerCount != 2 || result.ReviewerOrchestration.MaxParallel != 5 || len(result.ReviewerOrchestration.Dispatches) != 2 || len(result.ReviewerOrchestration.Lifecycle) != 5 || firstDispatch.ShardID != "shard-01" || firstDispatch.AgentToolRequest == nil || firstDispatch.CollectionCommands == nil || firstDispatch.ReviewerResultCandidatePath != result.ShardHandoffs[0].ReviewerResultCandidatePath || firstDispatch.AgentToolRequest.Prompt != result.ShardHandoffs[0].DispatchPrompt || result.ReviewerOrchestration.BatchPreviewCommand != "" || result.ReviewerOrchestration.BatchApplyCommand != "" || !strings.Contains(result.ReviewerOrchestration.Lifecycle[0].Action, "does not spawn") {
+	if result.ReviewerOrchestration.Mode != "dispatch-only-unattached-target" || result.ReviewerOrchestration.ReviewerCount != 2 || result.ReviewerOrchestration.MaxParallel != 5 || len(result.ReviewerOrchestration.Dispatches) != 2 || len(result.ReviewerOrchestration.Lifecycle) != 5 || firstDispatch.ShardID != "shard-01" || firstDispatch.AgentToolRequest == nil || firstDispatch.CollectionCommands != nil || firstDispatch.ReviewerResultCandidatePath != "" || firstDispatch.AgentToolRequest.Prompt != result.ShardHandoffs[0].DispatchPrompt || result.ReviewerOrchestration.BatchPreviewCommand != "" || result.ReviewerOrchestration.BatchApplyCommand != "" || !strings.Contains(result.ReviewerOrchestration.Lifecycle[0].Action, "does not spawn") {
 		t.Fatalf("unexpected reviewer orchestration: %+v", result.ReviewerOrchestration)
 	}
-	if result.ReviewerOrchestration.Summary.Mode != result.ReviewerOrchestration.Mode || result.ReviewerOrchestration.Summary.DispatchCount != 2 || result.ReviewerOrchestration.Summary.IntakeAvailable || !result.ReviewerOrchestration.Summary.DispatchOnly || result.ReviewerOrchestration.Summary.FirstDispatch == nil || result.ReviewerOrchestration.Summary.FirstDispatch.ShardID != "shard-01" || !strings.Contains(result.ReviewerOrchestration.Summary.FirstDispatch.DispatchCommand, "dispatch read-only reviewer for shard-01") || !slices.Contains(result.ReviewerOrchestration.Summary.Boundary, "runtime only writes review artifacts and does not spawn, stop, monitor, or manage reviewer sessions") {
+	if result.ReviewerOrchestration.Summary.Mode != result.ReviewerOrchestration.Mode || result.ReviewerOrchestration.Summary.DispatchCount != 2 || result.ReviewerOrchestration.Summary.IntakeAvailable || result.ReviewerOrchestration.Summary.CollectionAvailable || !result.ReviewerOrchestration.Summary.DispatchOnly || result.ReviewerOrchestration.Summary.FirstDispatch == nil || result.ReviewerOrchestration.Summary.FirstDispatch.ShardID != "shard-01" || !strings.Contains(result.ReviewerOrchestration.Summary.FirstDispatch.DispatchCommand, "dispatch read-only reviewer for shard-01") || !slices.Contains(result.ReviewerOrchestration.Summary.Boundary, "runtime only writes review artifacts and does not spawn, stop, monitor, or manage reviewer sessions") {
 		t.Fatalf("unexpected reviewer orchestration summary: %+v", result.ReviewerOrchestration.Summary)
 	}
 	if result.MissionCommanderAction.State != "reviewer-dispatch-only-target-unattached" || result.ReviewerOrchestration.MissionCommanderAction == nil || result.ReviewerOrchestration.MissionCommanderAction.State != result.MissionCommanderAction.State || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.dispatch", "dispatch read-only reviewer for shard-01", false, true) || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.dispatchOnly.attachTarget", "/rekit init", false, true) {
@@ -128,7 +129,7 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 	if result.ReviewerOrchestration.Mode != "manual-main-agent-intake" || result.ReviewerOrchestration.TargetLane != "feature-intake" || result.ReviewerOrchestration.Dispatches[0].PreviewCommand == "" || strings.Contains(result.ReviewerOrchestration.Dispatches[0].PreviewCommand, "n/a:") {
 		t.Fatalf("attached case reviewer orchestration did not expose runnable intake: %+v", result.ReviewerOrchestration)
 	}
-	if !result.ReviewerOrchestration.Summary.IntakeAvailable || result.ReviewerOrchestration.Summary.DispatchOnly || result.ReviewerOrchestration.Summary.OwnerBinding.CurrentExecutor != "session-plan" || result.ReviewerOrchestration.Summary.CurrentAction == nil || result.ReviewerOrchestration.Summary.ActionTotal == 0 || !strings.Contains(result.ReviewerOrchestration.Summary.FirstDispatch.PreviewCommand, "-WhatIf -Format json") || !strings.Contains(result.ReviewerOrchestration.Summary.FirstDispatch.ApplyCommand, "-Apply -Format json") {
+	if !result.ReviewerOrchestration.Summary.IntakeAvailable || !result.ReviewerOrchestration.Summary.CollectionAvailable || result.ReviewerOrchestration.Summary.DispatchOnly || result.ReviewerOrchestration.Dispatches[0].CollectionCommands == nil || result.ReviewerOrchestration.Dispatches[0].ReviewerResultCandidatePath == "" || result.ReviewerOrchestration.Summary.OwnerBinding.CurrentExecutor != "session-plan" || result.ReviewerOrchestration.Summary.CurrentAction == nil || result.ReviewerOrchestration.Summary.ActionTotal == 0 || !strings.Contains(result.ReviewerOrchestration.Summary.FirstDispatch.PreviewCommand, "-WhatIf -Format json") || !strings.Contains(result.ReviewerOrchestration.Summary.FirstDispatch.ApplyCommand, "-Apply -Format json") {
 		t.Fatalf("attached case reviewer orchestration summary omitted runnable intake: %+v", result.ReviewerOrchestration.Summary)
 	}
 	if result.MissionCommanderAction.State != "ready-for-reviewer-dispatch" || result.ReviewerOrchestration.MissionCommanderAction == nil || result.ReviewerOrchestration.MissionCommanderAction.PrimaryCommand != result.MissionCommanderAction.PrimaryCommand || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.dispatch", "dispatch read-only reviewer for shard-01", false, true) || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.batchIntake.preview", "-ReadyReviewerResults", true, true) || !hasPlanCommanderNextAction(result.MissionCommanderNextActions, "reviewerOrchestration.batchIntake.apply", "-Apply -Format json", true, true) {
@@ -138,8 +139,82 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(summary), "owner binding current executor: `session-plan`") || !strings.Contains(string(summary), "owner binding required for intake: `true`") || !strings.Contains(string(summary), "reviewer orchestration summary owner: targetLane=`feature-intake`; mode=`current-executor-generation`; currentExecutor=`session-plan`") || !strings.Contains(string(summary), "intakeAvailable=`true`; dispatchOnly=`false`") {
+	if !strings.Contains(string(summary), "owner binding current executor: `session-plan`") || !strings.Contains(string(summary), "owner binding required for intake: `true`") || !strings.Contains(string(summary), "reviewer orchestration summary owner: targetLane=`feature-intake`; mode=`current-executor-generation`; currentExecutor=`session-plan`") || !strings.Contains(string(summary), "intakeAvailable=`true`; collectionAvailable=`true`; dispatchOnly=`false`") {
 		t.Fatalf("summary omitted owner binding or compact orchestration summary:\n%s", string(summary))
+	}
+}
+
+func TestWritePlanGatesCollectionForCustomArtifacts(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "plan-collection-gating-test", CreateLocalFiles: true, Command: "init"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name           string
+		reviewRoot     string
+		packetPath     string
+		wantCollection bool
+	}{
+		{name: "canonical-custom-root", reviewRoot: filepath.Join(caseRoot, ".rekit", "reviews", "custom-review"), wantCollection: true},
+		{name: "case-local-noncanonical-root", reviewRoot: filepath.Join(caseRoot, "artifacts", "review"), wantCollection: false},
+		{name: "external-root", reviewRoot: filepath.Join(t.TempDir(), "review"), wantCollection: false},
+		{name: "custom-packet-name", reviewRoot: filepath.Join(caseRoot, ".rekit", "reviews", "custom-name"), packetPath: filepath.Join(caseRoot, ".rekit", "reviews", "custom-name", "custom.json"), wantCollection: false},
+		{name: "nested-packet", reviewRoot: filepath.Join(caseRoot, ".rekit", "reviews", "nested"), packetPath: filepath.Join(caseRoot, ".rekit", "reviews", "nested", "subdir", "packet.json"), wantCollection: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake", ReviewOutputDir: test.reviewRoot, PacketPath: test.packetPath})
+			if err != nil {
+				t.Fatal(err)
+			}
+			dispatch := result.ReviewerOrchestration.Dispatches[0]
+			handoff := result.ShardHandoffs[0]
+			if !result.ReviewerOrchestration.Summary.IntakeAvailable || result.ReviewerOrchestration.Summary.CollectionAvailable != test.wantCollection {
+				t.Fatalf("unexpected capabilities: %+v", result.ReviewerOrchestration.Summary)
+			}
+			if (dispatch.CollectionCommands != nil) != test.wantCollection || (handoff.ReviewerCollectionCommands != nil) != test.wantCollection || (handoff.ReviewerResultCandidatePath != "") != test.wantCollection {
+				t.Fatalf("collection handoff did not match capability: dispatch=%+v handoff=%+v", dispatch, handoff)
+			}
+			if !test.wantCollection && (!strings.Contains(handoff.MainAgentNextAction, "directly at reviewerResultPath") || strings.Contains(handoff.MainAgentNextAction, "run reviewerCollectionCommands")) {
+				t.Fatalf("noncanonical packet advertised collection: %s", handoff.MainAgentNextAction)
+			}
+		})
+	}
+}
+
+func TestWritePlanRejectsCanonicalReviewSymlinkBeforeWriting(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is not reliably available on Windows")
+	}
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "plan-symlink-test", CreateLocalFiles: true, Command: "init"}); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside-review")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reviewRoot := filepath.Join(caseRoot, ".rekit", "reviews", "linked-review")
+	if err := os.MkdirAll(filepath.Dir(reviewRoot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, reviewRoot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake", ReviewOutputDir: reviewRoot}); err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
+		t.Fatalf("canonical review symlink error = %v", err)
+	}
+	if entries, err := os.ReadDir(outside); err != nil || len(entries) != 0 {
+		t.Fatalf("planning wrote through canonical review symlink: entries=%v err=%v", entries, err)
 	}
 }
 
@@ -205,8 +280,8 @@ func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantI
 	if !strings.Contains(handoff.ExpectedOutput, "decision") || !strings.Contains(handoff.ReviewerWriteback, "plan-subagents -ReviewerResultPath") || !strings.Contains(handoff.MainAgentNextAction, "reviewerResultContract") || !strings.Contains(handoff.MainAgentNextAction, "reviewerIntakeCommands") {
 		t.Fatalf("unexpected reviewer contract: %+v", handoff)
 	}
-	if handoff.AgentToolRequest == nil || handoff.AgentToolRequest.Tool != "Claude Code Agent" || !handoff.AgentToolRequest.ReadOnly || handoff.AgentToolRequest.Prompt != handoff.DispatchPrompt || handoff.ReviewerCollectionCommands == nil || filepath.Dir(handoff.ReviewerResultCandidatePath) != filepath.Join(filepath.Dir(handoff.ReviewerResultPath), "candidates") {
-		t.Fatalf("unexpected reviewer Agent/collection handoff: %+v", handoff)
+	if handoff.AgentToolRequest == nil || handoff.AgentToolRequest.Tool != "Claude Code Agent" || !handoff.AgentToolRequest.ReadOnly || handoff.AgentToolRequest.Prompt != handoff.DispatchPrompt || handoff.ReviewerCollectionCommands != nil || handoff.ReviewerResultCandidatePath != "" {
+		t.Fatalf("unexpected out-of-case reviewer Agent/collection handoff: %+v", handoff)
 	}
 	if handoff.ReviewerResultContract.OutputFormat == "" || !slices.Contains(handoff.ReviewerResultContract.RequiredFields, "recommendedVerdict") || !slices.Contains(handoff.ReviewerResultContract.RequiredFields, "routeOutput") || !slices.Contains(handoff.ReviewerResultContract.AllowedDecisions, "needs-more-evidence") || !slices.Contains(handoff.ReviewerResultContract.EvidenceRules, "missing, ambiguous, or inaccessible evidenceRefs require decision=needs-more-evidence or defer") || !slices.Contains(handoff.ReviewerResultContract.ConflictSignals, "reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects") {
 		t.Fatalf("unexpected reviewer result contract: %+v", handoff.ReviewerResultContract)

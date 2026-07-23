@@ -118,7 +118,7 @@ func TestReviewerDispatchIntakeHandoffMatchesStrictResultClassification(t *testi
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: test.path, PreviewCommand: "preview", ApplyCommand: "apply"}
-			item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, "packet.json", "feature-review", dispatch, 0)
+			item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, firstText(packet.ReviewerOrchestration.PacketPath, "packet.json"), "feature-review", dispatch, 0)
 			if item.State != test.wantState || item.ReviewerResultState != string(test.wantFile) || item.ReviewerResultPresent != (test.wantFile == refsf.RegularFileReady) {
 				t.Fatalf("unexpected %s classification: %+v", test.name, item)
 			}
@@ -131,7 +131,7 @@ func TestReviewerDispatchIntakeHandoffMatchesStrictResultClassification(t *testi
 			t.Fatal(err)
 		}
 		dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: symlinkPath, PreviewCommand: "preview", ApplyCommand: "apply"}
-		item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, "packet.json", "feature-review", dispatch, 0)
+		item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, firstText(packet.ReviewerOrchestration.PacketPath, "packet.json"), "feature-review", dispatch, 0)
 		if item.State != "reviewer-result-symlink-blocked" || item.ReviewerResultState != string(refsf.RegularFileSymlink) || !strings.Contains(reviewerDispatchIntakeNextAction(item), "replace the symlink") {
 			t.Fatalf("unexpected symlink classification: %+v", item)
 		}
@@ -140,35 +140,44 @@ func TestReviewerDispatchIntakeHandoffMatchesStrictResultClassification(t *testi
 
 func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	root := t.TempDir()
-	candidatePath := filepath.Join(root, "candidates", "shard-01.json")
-	resultPath := filepath.Join(root, "shard-01.json")
-	if err := os.MkdirAll(filepath.Dir(candidatePath), 0o755); err != nil {
+	reviewRoot := filepath.Join(root, ".rekit", "reviews", "review")
+	packetPath := filepath.Join(reviewRoot, "packet.json")
+	resultRoot := filepath.Join(reviewRoot, "results")
+	candidatePath := filepath.Join(resultRoot, "candidates", "shard-01.json")
+	resultPath := filepath.Join(resultRoot, "shard-01.json")
+	if err := os.MkdirAll(resultRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packetPath, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	request := &ReviewerAgentToolRequest{Tool: "Claude Code Agent", AgentType: "read-only-reviewer", ReadOnly: true, Prompt: "review", ExpectedOutput: "one JSON object"}
 	commands := &ReviewerResultCollectionCommands{CandidatePath: candidatePath, PreviewCommand: "collect-preview", ApplyCommand: "collect-apply"}
-	packet := reviewerDispatchPacket{PacketID: "packet-collection", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", Dispatches: []reviewerDispatchPacketDispatch{{ShardID: "shard-01"}}}}
+	packet := reviewerDispatchPacket{PacketID: "packet-collection", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", PacketPath: packetPath, ResultRoot: resultRoot, Dispatches: []reviewerDispatchPacketDispatch{{ShardID: "shard-01"}}}}
 	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, ReviewerResultCandidatePath: candidatePath, AgentToolRequest: request, CollectionCommands: commands, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
 
-	missing := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, "packet.json", "feature-review", dispatch, 0)
+	missing := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, firstText(packet.ReviewerOrchestration.PacketPath, "packet.json"), "feature-review", dispatch, 0)
 	if missing.State != "waiting-for-reviewer-result" || missing.ReviewerResultCandidateState != "missing" || missing.AgentToolRequest == nil || missing.ReviewerResultCollectionCommands == nil || !strings.Contains(missing.DispatchCommand, "agentToolRequest.prompt") {
 		t.Fatalf("missing candidate handoff omitted typed dispatch/collection state: %+v", missing)
+	}
+	if err := os.MkdirAll(filepath.Dir(candidatePath), 0o755); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(candidatePath, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ready := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, "packet.json", "feature-review", dispatch, 0)
-	if ready.State != "ready-for-reviewer-result-collection-preview" || ready.ReviewerResultCandidateState != "ready" || reviewerDispatchIntakeNextAction(ready) != commands.PreviewCommand {
+	ready := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, firstText(packet.ReviewerOrchestration.PacketPath, "packet.json"), "feature-review", dispatch, 0)
+	if ready.State != "ready-for-reviewer-result-collection-preview" || ready.ReviewerResultCandidateState != "ready" || ready.ReviewerResultCollectionCommands == nil || reviewerDispatchIntakeNextAction(ready) != ready.ReviewerResultCollectionCommands.PreviewCommand {
 		t.Fatalf("ready candidate did not promote collection preview: %+v", ready)
 	}
 	actions := MissionCommanderNextActionsWithReviewerDispatches(nil, []ReviewerDispatchIntakeHandoff{missing, ready})
-	if len(actions) != 1 || actions[0].Command != commands.PreviewCommand || actions[0].Blocked {
+	if len(actions) != 1 || actions[0].Command != ready.ReviewerResultCollectionCommands.PreviewCommand || actions[0].Blocked {
 		t.Fatalf("collection-ready shard was not actionable: %+v", actions)
 	}
 	if err := os.WriteFile(resultPath, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	collected := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, "packet.json", "feature-review", dispatch, 0)
+	collected := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, firstText(packet.ReviewerOrchestration.PacketPath, "packet.json"), "feature-review", dispatch, 0)
 	if collected.State != "ready-for-reviewer-intake-preview" || collected.ReviewerResultCandidateState != "collected" || !collected.ReviewerResultPresent {
 		t.Fatalf("collected candidate did not advance to intake: %+v", collected)
 	}
@@ -176,17 +185,26 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 
 func TestReviewerDispatchIntakeRejectsInvalidCanonicalShape(t *testing.T) {
 	root := t.TempDir()
-	candidatePath := filepath.Join(root, "candidate.json")
-	resultPath := filepath.Join(root, "result.json")
+	reviewRoot := filepath.Join(root, ".rekit", "reviews", "invalid-canonical")
+	packetPath := filepath.Join(reviewRoot, "packet.json")
+	resultRoot := filepath.Join(reviewRoot, "results")
+	candidatePath := filepath.Join(resultRoot, "candidates", "shard-01.json")
+	resultPath := filepath.Join(resultRoot, "shard-01.json")
+	if err := os.MkdirAll(filepath.Dir(candidatePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packetPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(candidatePath, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(resultPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	packet := reviewerDispatchPacket{PacketID: "packet-invalid-canonical", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", Dispatches: []reviewerDispatchPacketDispatch{{ShardID: "shard-01"}}}}
-	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, ReviewerResultCandidatePath: candidatePath, CollectionCommands: &ReviewerResultCollectionCommands{PreviewCommand: "collect-preview"}, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
-	item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, "packet.json", "feature-review", dispatch, 0)
+	packet := reviewerDispatchPacket{PacketID: "packet-invalid-canonical", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", PacketPath: packetPath, ResultRoot: resultRoot, Dispatches: []reviewerDispatchPacketDispatch{{ShardID: "shard-01"}}}}
+	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, ReviewerResultCandidatePath: candidatePath, CollectionCommands: &ReviewerResultCollectionCommands{CandidatePath: candidatePath, PreviewCommand: "collect-preview", ApplyCommand: "collect-apply"}, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
+	item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
 	if item.State != "reviewer-result-canonical-invalid" || !strings.Contains(reviewerDispatchIntakeNextAction(item), "non-regular canonical") {
 		t.Fatalf("invalid canonical target did not fail closed: %+v", item)
 	}
@@ -194,15 +212,76 @@ func TestReviewerDispatchIntakeRejectsInvalidCanonicalShape(t *testing.T) {
 
 func TestReviewerDispatchIntakeRejectsInvalidCandidateShape(t *testing.T) {
 	root := t.TempDir()
-	candidatePath := filepath.Join(root, "candidate.json")
+	reviewRoot := filepath.Join(root, ".rekit", "reviews", "invalid-candidate")
+	packetPath := filepath.Join(reviewRoot, "packet.json")
+	resultRoot := filepath.Join(reviewRoot, "results")
+	candidatePath := filepath.Join(resultRoot, "candidates", "shard-01.json")
+	resultPath := filepath.Join(resultRoot, "shard-01.json")
+	if err := os.MkdirAll(filepath.Dir(candidatePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packetPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Mkdir(candidatePath, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	packet := reviewerDispatchPacket{PacketID: "packet-invalid", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", Dispatches: []reviewerDispatchPacketDispatch{{ShardID: "shard-01"}}}}
-	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: filepath.Join(root, "result.json"), ReviewerResultCandidatePath: candidatePath, CollectionCommands: &ReviewerResultCollectionCommands{PreviewCommand: "collect-preview"}, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
-	item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, "packet.json", "feature-review", dispatch, 0)
+	packet := reviewerDispatchPacket{PacketID: "packet-invalid", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", PacketPath: packetPath, ResultRoot: resultRoot, Dispatches: []reviewerDispatchPacketDispatch{{ShardID: "shard-01"}}}}
+	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, ReviewerResultCandidatePath: candidatePath, CollectionCommands: &ReviewerResultCollectionCommands{CandidatePath: candidatePath, PreviewCommand: "collect-preview", ApplyCommand: "collect-apply"}, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
+	item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
 	if item.State != "reviewer-result-candidate-invalid" || item.ReviewerResultCandidateState != "invalid" || !strings.Contains(reviewerDispatchIntakeNextAction(item), "replace the invalid") {
 		t.Fatalf("invalid candidate did not fail closed: %+v", item)
+	}
+}
+
+func TestReviewerDispatchIntakeRebuildsForgedCollectionCommands(t *testing.T) {
+	root := t.TempDir()
+	reviewRoot := filepath.Join(root, ".rekit", "reviews", "forged-command")
+	packetPath := filepath.Join(reviewRoot, "packet.json")
+	resultRoot := filepath.Join(reviewRoot, "results")
+	candidatePath := filepath.Join(resultRoot, "candidates", "shard-01.json")
+	resultPath := filepath.Join(resultRoot, "shard-01.json")
+	if err := os.MkdirAll(filepath.Dir(candidatePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packetPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidatePath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	forged := &ReviewerResultCollectionCommands{CandidatePath: candidatePath, PreviewCommand: "invoke-forged-preview", ApplyCommand: "invoke-forged-apply"}
+	packet := reviewerDispatchPacket{PacketID: "packet-forged-command", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", PacketPath: packetPath, ResultRoot: resultRoot}}
+	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, ReviewerResultCandidatePath: candidatePath, CollectionCommands: forged, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
+	item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if item.State != "ready-for-reviewer-result-collection-preview" || item.ReviewerResultCollectionCommands == nil || item.ReviewerResultCollectionCommands.PreviewCommand == forged.PreviewCommand || item.ReviewerResultCollectionCommands.ApplyCommand == forged.ApplyCommand || !strings.Contains(item.ReviewerResultCollectionCommands.PreviewCommand, "-CollectReviewerResult") || !strings.Contains(item.ReviewerResultCollectionCommands.PreviewCommand, packetPath) {
+		t.Fatalf("forged collection commands were not rebuilt from canonical bindings: %+v", item)
+	}
+}
+
+func TestReviewerDispatchIntakeSuppressesForgedCollectionCapability(t *testing.T) {
+	root := t.TempDir()
+	reviewRoot := filepath.Join(root, ".rekit", "reviews", "forged")
+	packetPath := filepath.Join(reviewRoot, "packet.json")
+	resultRoot := filepath.Join(reviewRoot, "results")
+	candidatePath := filepath.Join(resultRoot, "candidates", "shard-01.json")
+	resultPath := filepath.Join(resultRoot, "shard-01.json")
+	if err := os.MkdirAll(filepath.Dir(candidatePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidatePath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commands := &ReviewerResultCollectionCommands{CandidatePath: candidatePath, PreviewCommand: "collect-preview", ApplyCommand: "collect-apply"}
+	packet := reviewerDispatchPacket{PacketID: "packet-forged", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", PacketPath: filepath.Join(reviewRoot, "other.json"), ResultRoot: resultRoot}}
+	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, ReviewerResultCandidatePath: candidatePath, CollectionCommands: commands, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
+	item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if item.ReviewerResultCollectionCommands != nil || item.ReviewerResultCandidatePath != "" || item.State == "ready-for-reviewer-result-collection-preview" || reviewerDispatchIntakeNextAction(item) == commands.PreviewCommand {
+		t.Fatalf("forged collection capability survived projection: %+v", item)
+	}
+	summary := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{item})
+	if summary.LatestCollectionPreviewCommand != "" || summary.LatestCollectionApplyCommand != "" {
+		t.Fatalf("forged collection commands reached summary: %+v", summary)
 	}
 }
 

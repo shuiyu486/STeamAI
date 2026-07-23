@@ -10,6 +10,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 )
 
 type ReviewerResultCollectionOptions struct {
@@ -149,6 +150,10 @@ func prepareReviewerResultCollection(repoRoot, caseRoot, pack string, opt Review
 	if err != nil {
 		return preparedReviewerResultCollection{}, err
 	}
+	if _, ok := reviewpath.CanonicalCollectionNamespace(caseRoot, packetPath); !ok ||
+		!reviewpath.CollectionNamespacePathSafe(caseRoot, packetPath, false) {
+		return preparedReviewerResultCollection{}, fmt.Errorf("review packet must be a symlink-free canonical case review packet")
+	}
 	packetData, err := readStableReviewerArtifact(filepath.Dir(packetPath), packetPath, "review packet", maxReviewPacketBytes)
 	if err != nil {
 		return preparedReviewerResultCollection{}, err
@@ -188,14 +193,20 @@ func prepareReviewerResultCollection(repoRoot, caseRoot, pack string, opt Review
 	if err != nil {
 		return preparedReviewerResultCollection{}, err
 	}
-	reviewRoot := filepath.Dir(packetPath)
-	caseReviewRoot := filepath.Join(caseRoot, ".rekit", "reviews")
-	expectedResultRoot := filepath.Join(reviewRoot, "results")
-	expectedCandidatePath := filepath.Join(expectedResultRoot, "candidates", shardID+".json")
-	expectedResultPath := filepath.Join(expectedResultRoot, shardID+".json")
-	if !pathInside(caseReviewRoot, packetPath) || !samePath(packetPath, filepath.Join(reviewRoot, "packet.json")) || !samePath(resultRoot, expectedResultRoot) || !samePath(candidatePath, expectedCandidatePath) || !samePath(resultPath, expectedResultPath) {
+	namespace, ok := reviewpath.CanonicalCollectionNamespace(caseRoot, packetPath)
+	if !ok || !reviewpath.CanonicalCollectionShard(caseRoot, packetPath, resultRoot, shardID, candidatePath, resultPath) {
 		return preparedReviewerResultCollection{}, fmt.Errorf("reviewer result collection paths must match the canonical case review namespace for shard %q", shardID)
 	}
+	if !reviewpath.CollectionNamespacePathSafe(caseRoot, packetPath, false) ||
+		!reviewpath.CollectionNamespacePathSafe(caseRoot, resultRoot, false) ||
+		!reviewpath.CollectionNamespacePathSafe(caseRoot, candidatePath, false) ||
+		!reviewpath.CollectionNamespacePathSafe(caseRoot, filepath.Dir(resultPath), false) {
+		return preparedReviewerResultCollection{}, fmt.Errorf("reviewer result collection paths must not traverse symlinks or escape the attached case")
+	}
+	reviewRoot := namespace.ReviewRoot
+	expectedResultRoot := namespace.ResultRoot
+	expectedCandidatePath := filepath.Join(expectedResultRoot, "candidates", shardID+".json")
+	expectedResultPath := filepath.Join(expectedResultRoot, shardID+".json")
 	if !samePath(packet.Observability.ReviewRoot, reviewRoot) || !samePath(packet.Observability.ResultRoot, expectedResultRoot) || !samePath(packet.ReviewerOrchestration.PacketPath, packetPath) || !samePath(handoff.ReviewerResultCandidatePath, expectedCandidatePath) || !samePath(handoff.ReviewerResultPath, expectedResultPath) {
 		return preparedReviewerResultCollection{}, fmt.Errorf("review packet observability/orchestration paths do not match canonical collection paths for shard %q", shardID)
 	}

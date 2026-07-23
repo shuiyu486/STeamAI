@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 550：reviewer collection capability gating closure
+
+状态：implementation、focused package/CLI validation、两轮独立审查修复与完整本地release minimum已完成；尚未commit/push或检查对应远程release gate。
+
+目标：关闭Batch 549 collection执行端只接受canonical case-local review namespace，但planning仍会为attached custom `-ReviewOutputDir` / explicit `-PacketPath`生成必然失败collection commands的真实性断点。让planning、collection runtime与durable workstream共享同一canonical geometry，并把direct/batch intake能力与collection mutation能力显式分离。
+
+已完成内容：
+
+- 新增共享canonical review namespace helper：只接受`<case>/.rekit/reviews/<单层review>/packet.json`，并严格派生`results/candidates/<shard>.json`与`results/<shard>.json`；planning与collection runtime复用同一定义，nested/custom packet不再被视为collection-capable。
+- `reviewerOrchestration.summary`新增`collectionAvailable`，与`intakeAvailable`/`dispatchOnly`分离。attached canonical packet继续生成typed candidate与collection WhatIf/Apply；attached custom/noncanonical artifact保持strict direct与packet batch intake，但省略candidate/collection commands并改用direct-result guidance；out-of-case packet保持纯dispatch-only，attach/init后要求重新生成canonical packet。
+- durable workstream以实际扫描到的packet path为权威，并重新绑定embedded packet path、result root、candidate/result paths和collection candidate path；任一geometry不一致即抑制collection command/state/summary，不让forged packet进入Mission Commander collection queue，同时保留legacy direct intake fallback。
+- collection执行端要求单层canonical packet，并从case root检查packet、result、candidate与publication parent的完整祖先链；planning在创建canonical review artifact目录前拒绝symlink traversal，collection在首次读取packet前拒绝`.rekit`或review root symlink。现有strict candidate validation、WhatIf→Apply、exact bytes/no-overwrite publication与idempotent replay保持不变。
+
+边界：不禁止custom review artifacts，不删除legacy direct/batch intake。runtime不spawn、stop、poll或monitor reviewer；collection不写facts、不执行heavy tool、不修改managed/project source、不写authority/confirmed；intake仍独立要求WhatIf→Apply。禁止新增PowerShell runtime logic。
+
+验证结果：focused `reviewpath` / `subagents` / `workstream` / `cli` tests已通过，覆盖default/custom canonical正例、case-local/external/custom-name/nested/case-variant packet capability suppression、nested runtime rejection、forged downstream geometry suppression、forged collection command canonical rebuild、missing candidate directory capability保留、canonical review symlink pre-write拒绝与`.rekit` symlink collection WhatIf/Apply no-publish。完整本地release minimum（`release-check` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过；两轮独立审查发现的case-root symlink祖先、fresh packet candidate parent、case-sensitive packet name与embedded command trust缺口均已修复。
+
+上一批摘要：Batch 549已完成reviewer Agent handoff / immutable result collection closure，implementation commit `ae6b8bd Close reviewer result collection handoff`与release inspection commit `7aa1a7d Record Batch 549 release gate inspection`已推送；对应run `29974679916`的Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
+
 ### Batch 549：reviewer Agent handoff / immutable result collection closure
 
 状态：已完成 implementation、focused/package validation、独立审查修复、完整本地 release minimum、implementation commit `ae6b8bd Close reviewer result collection handoff`/push 与远程 release-gate inspection。对应run `29974679916` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。

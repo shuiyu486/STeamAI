@@ -6823,7 +6823,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing summary: %v", err)
 	}
-	for _, expected := range []string{"## bounded dispatch observability", "### reviewer orchestration", "reviewer orchestration summary:", "reviewer orchestration summary batch intake:", "-ReadyReviewerResults", "reviewer orchestration summary first dispatch:", "reviewer orchestration summary current action:", "reviewer orchestration summary next action:", "reviewer orchestration summary boundary:", "intakeAvailable=`true`; dispatchOnly=`false`", "mission commander action queue:", "orchestration-step:", "reviewer-dispatch:", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result path:", "reviewer result skeleton:", "\"packetId\":\"packet-", "reviewer routeOutput field hints:", "tool_scope=read-only", "reviewer result binding: packetId=`packet-", "routeOutput evidence inside evidenceRefs", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "-ReviewerResultPath", "-WhatIf -Format json", "preview-check:", "post-review:"} {
+	for _, expected := range []string{"## bounded dispatch observability", "### reviewer orchestration", "reviewer orchestration summary:", "reviewer orchestration summary batch intake:", "-ReadyReviewerResults", "reviewer orchestration summary first dispatch:", "reviewer orchestration summary current action:", "reviewer orchestration summary next action:", "reviewer orchestration summary boundary:", "intakeAvailable=`true`; collectionAvailable=`true`; dispatchOnly=`false`", "mission commander action queue:", "orchestration-step:", "reviewer-dispatch:", "route selected by", "shard-01: `planned`", "runtime does not spawn subagents", "verdict writeback", "reviewer result path:", "reviewer result skeleton:", "\"packetId\":\"packet-", "reviewer routeOutput field hints:", "tool_scope=read-only", "reviewer result binding: packetId=`packet-", "routeOutput evidence inside evidenceRefs", "reviewer result contract", "evidence-rule:", "conflict-signal:", "intake-check:", "decision-map:", "conflict-handling:", "writeback-step:", "command-binding:", "writeback-blocker:", "reviewer intake preview", "-ReviewerResultPath", "-WhatIf -Format json", "preview-check:", "post-review:"} {
 		if !strings.Contains(string(summary), expected) {
 			t.Fatalf("summary missing %q:\n%s", expected, string(summary))
 		}
@@ -6836,7 +6836,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	for _, expected := range []string{
 		"plan-subagents：writesReviewArtifacts=true reviewRequired=true items=2 shards=2",
 		"plan-subagents reviewer orchestration：mode=manual-main-agent-intake",
-		"plan-subagents reviewer orchestration summary：mode=manual-main-agent-intake targetLane=devirt-main reviewers=2 dispatches=2 maxParallel=2 intakeAvailable=true dispatchOnly=false",
+		"plan-subagents reviewer orchestration summary：mode=manual-main-agent-intake targetLane=devirt-main reviewers=2 dispatches=2 maxParallel=2 intakeAvailable=true collectionAvailable=true dispatchOnly=false",
 		"plan-subagents reviewer orchestration summary owner：targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
 		"plan-subagents reviewer orchestration summary batch intake：preview=`/rekit plan-subagents",
 		"-ReadyReviewerResults",
@@ -6844,7 +6844,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents reviewer orchestration summary current action：state=ready-for-reviewer-dispatch source=reviewerOrchestration.dispatch blocked=false requiresReview=true command=`dispatch read-only reviewer for shard-01",
 		"plan-subagents reviewer orchestration summary next action：state=ready-for-reviewer-batch-intake-preview source=reviewerOrchestration.batchIntake.preview blocked=true requiresReview=true",
 		"plan-subagents reviewer orchestration summary boundary：planning summary is read-only; full reviewerOrchestration dispatches, lifecycle, action queue, and shard handoffs remain available",
-		"plan-subagents reviewer orchestration scope：scope=dispatch read-only reviewers, collect one JSON result per shard, then run packet-level ready-result batch intake preview/apply packet=",
+		"plan-subagents reviewer orchestration scope：scope=dispatch read-only reviewers, save one JSON candidate per shard, publish immutable canonical results with collection preview/apply, then run packet-level ready-result batch intake preview/apply packet=",
 		"plan-subagents reviewer orchestration owner：targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
 		"plan-subagents reviewer orchestration lifecycle：step=dispatch-reviewers owner=main-agent inputs=reviewerOrchestration.dispatches[].dispatchPrompt,ownerBinding,packetPath mustPass=one reviewerSession is assigned per reviewer result,reviewers receive only read-only boundary and shard items,no reviewer writes files or ledgers nextOnSuccess=collect-results",
 		"plan-subagents reviewer orchestration boundary：boundary=runtime does not spawn subagents",
@@ -6943,6 +6943,9 @@ func TestRunPlanSubagentsItemsFileAndOutOfCaseGuard(t *testing.T) {
 		t.Fatalf("review root = %q, want %q", result.ReviewRoot, reviewRoot)
 	}
 	commands := packet.ShardHandoffs[0].ReviewerIntakeCommands
+	if packet.ReviewerOrchestration.Summary.CollectionAvailable || packet.ShardHandoffs[0].ReviewerCollectionCommands != nil || packet.ShardHandoffs[0].ReviewerResultCandidatePath != "" {
+		t.Fatalf("out-of-case plan advertised reviewer collection: %+v", packet.ReviewerOrchestration)
+	}
 	if !strings.Contains(commands.PreviewCommand, "n/a: reviewer intake requires an attached rekit case") || !strings.Contains(commands.ApplyCommand, "n/a: reviewer intake requires an attached rekit case") || !slices.Contains(commands.PreviewChecks, "out-of-case review artifacts are dispatch-only; reviewer intake/writeback is unavailable until the target is an attached rekit case") || !slices.Contains(commands.BlockedOutputs, "out-of-case plan packets must not be presented as immediately runnable reviewer intake commands") {
 		t.Fatalf("out-of-case plan exposed runnable reviewer intake commands: %+v", commands)
 	}
@@ -6961,6 +6964,9 @@ func TestRunPlanSubagentsTemplatePackRoutes(t *testing.T) {
 	}
 	if !strings.Contains(packet.ReviewLoop.VerdictWriteback, "plan-subagents -ReviewerResultPath") || len(packet.Observability.BlockedActions) == 0 {
 		t.Fatalf("template route missing review loop contract: %+v", packet)
+	}
+	if !packet.ReviewerOrchestration.Summary.IntakeAvailable || packet.ReviewerOrchestration.Summary.CollectionAvailable || packet.ShardHandoffs[0].ReviewerCollectionCommands != nil || packet.ShardHandoffs[0].ReviewerResultCandidatePath != "" || strings.Contains(packet.ShardHandoffs[0].MainAgentNextAction, "run reviewerCollectionCommands") {
+		t.Fatalf("attached custom artifact overclaimed collection capability: %+v", packet.ReviewerOrchestration)
 	}
 }
 
@@ -12074,6 +12080,7 @@ type planSubagentsOrchestrationSummary struct {
 	OwnerBinding         planSubagentsOwnerBinding        `json:"ownerBinding"`
 	DispatchCount        int                              `json:"dispatchCount"`
 	IntakeAvailable      bool                             `json:"intakeAvailable"`
+	CollectionAvailable  bool                             `json:"collectionAvailable"`
 	DispatchOnly         bool                             `json:"dispatchOnly"`
 	ActionTotal          int                              `json:"actionTotal"`
 	ActionUnblocked      int                              `json:"actionUnblocked"`
@@ -12097,27 +12104,34 @@ type planSubagentsDispatchSummary struct {
 	ApplyCommand       string `json:"applyCommand"`
 }
 
+type planSubagentsCollectionCommands struct {
+	CandidatePath  string `json:"candidatePath"`
+	PreviewCommand string `json:"previewCommand"`
+	ApplyCommand   string `json:"applyCommand"`
+}
+
 type planSubagentsHandoff struct {
-	ShardID                     string                         `json:"shardId"`
-	Status                      string                         `json:"status"`
-	ReviewerResultPath          string                         `json:"reviewerResultPath"`
-	ReviewerResultCandidatePath string                         `json:"reviewerResultCandidatePath"`
-	OwnerBinding                planSubagentsOwnerBinding      `json:"ownerBinding"`
-	DispatchPrompt              string                         `json:"dispatchPrompt"`
-	Items                       []string                       `json:"items"`
-	ReadOnlyBoundary            []string                       `json:"readOnlyBoundary"`
-	ExpectedOutput              string                         `json:"expectedOutput"`
-	ReviewerWriteback           string                         `json:"reviewerWriteback"`
-	ReviewerResultContract      planSubagentsReviewerContract  `json:"reviewerResultContract"`
-	ReviewerIntakeCommands      planSubagentsIntakeCommands    `json:"reviewerIntakeCommands"`
-	MainAgentNextAction         string                         `json:"mainAgentNextAction"`
-	IntakeChecklist             []string                       `json:"intakeChecklist"`
-	ReviewerDecisionMappings    []planSubagentsDecisionMapping `json:"reviewerDecisionMappings"`
-	ConflictHandling            []string                       `json:"conflictHandling"`
-	WritebackSequence           []planSubagentsWritebackStep   `json:"writebackSequence"`
-	PostReviewMerge             []string                       `json:"postReviewMerge"`
-	CompletionCriteria          []string                       `json:"completionCriteria"`
-	FailureHandling             string                         `json:"failureHandling"`
+	ShardID                     string                           `json:"shardId"`
+	Status                      string                           `json:"status"`
+	ReviewerResultPath          string                           `json:"reviewerResultPath"`
+	ReviewerResultCandidatePath string                           `json:"reviewerResultCandidatePath"`
+	ReviewerCollectionCommands  *planSubagentsCollectionCommands `json:"reviewerCollectionCommands"`
+	OwnerBinding                planSubagentsOwnerBinding        `json:"ownerBinding"`
+	DispatchPrompt              string                           `json:"dispatchPrompt"`
+	Items                       []string                         `json:"items"`
+	ReadOnlyBoundary            []string                         `json:"readOnlyBoundary"`
+	ExpectedOutput              string                           `json:"expectedOutput"`
+	ReviewerWriteback           string                           `json:"reviewerWriteback"`
+	ReviewerResultContract      planSubagentsReviewerContract    `json:"reviewerResultContract"`
+	ReviewerIntakeCommands      planSubagentsIntakeCommands      `json:"reviewerIntakeCommands"`
+	MainAgentNextAction         string                           `json:"mainAgentNextAction"`
+	IntakeChecklist             []string                         `json:"intakeChecklist"`
+	ReviewerDecisionMappings    []planSubagentsDecisionMapping   `json:"reviewerDecisionMappings"`
+	ConflictHandling            []string                         `json:"conflictHandling"`
+	WritebackSequence           []planSubagentsWritebackStep     `json:"writebackSequence"`
+	PostReviewMerge             []string                         `json:"postReviewMerge"`
+	CompletionCriteria          []string                         `json:"completionCriteria"`
+	FailureHandling             string                           `json:"failureHandling"`
 }
 
 type planSubagentsReviewerContract struct {

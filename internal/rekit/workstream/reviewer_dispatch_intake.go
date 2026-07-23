@@ -16,8 +16,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 )
 
 type ReviewerAgentToolRequest struct {
@@ -176,8 +178,7 @@ func ReviewerDispatchIntakeHandoffs(caseRoot string, facts mission.LedgerFacts, 
 		if strings.TrimSpace(laneID) != "" && packetTargetLane != laneID {
 			continue
 		}
-		packetPathText := firstText(packet.ReviewerOrchestration.PacketPath, packetPath)
-		items = append(items, reviewerDispatchIntakeHandoffsForPacket(caseRoot, facts, packet, packetPathText, packetTargetLane)...)
+		items = append(items, reviewerDispatchIntakeHandoffsForPacket(caseRoot, facts, packet, packetPath, packetTargetLane)...)
 	}
 	return limitReviewerDispatchIntakeHandoffs(items, maxHandoffRows), nil
 }
@@ -464,9 +465,38 @@ func readReviewerDispatchPacket(path string) (reviewerDispatchPacket, bool) {
 	return packet, true
 }
 
+func reviewerDispatchCollectionCommands(packetPath, shardID, lane, candidatePath string) ReviewerResultCollectionCommands {
+	base := "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) +
+		" -CollectReviewerResult -ShardId " + quoteCommandArg(shardID) +
+		" -Lane " + quoteCommandArg(lane) + " -Actor <main-agent>"
+	return ReviewerResultCollectionCommands{
+		CandidatePath:  candidatePath,
+		PreviewCommand: base + " -WhatIf -Format json",
+		ApplyCommand:   base + " -Apply -Format json",
+	}
+}
+
 func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts, packet reviewerDispatchPacket, packetPath, targetLane string, dispatch reviewerDispatchPacketDispatch, idx int) ReviewerDispatchIntakeHandoff {
 	resultPath := strings.TrimSpace(dispatch.ReviewerResultPath)
 	candidatePath := strings.TrimSpace(dispatch.ReviewerResultCandidatePath)
+	collectionAvailable := packet.ReviewerOrchestration.PacketPath != "" &&
+		reviewpath.CanonicalCollectionShard(caseRoot, packetPath, packet.ReviewerOrchestration.ResultRoot, dispatch.ShardID, candidatePath, resultPath) &&
+		reviewpath.CollectionNamespacePathSafe(caseRoot, packetPath, false) &&
+		reviewpath.CollectionNamespacePathSafe(caseRoot, packet.ReviewerOrchestration.ResultRoot, false) &&
+		reviewpath.CollectionNamespacePathSafe(caseRoot, filepath.Dir(candidatePath), true) &&
+		reviewpath.CollectionNamespacePathSafe(caseRoot, filepath.Dir(resultPath), false) &&
+		casebind.SamePath(packet.ReviewerOrchestration.PacketPath, packetPath) &&
+		dispatch.CollectionCommands != nil &&
+		casebind.SamePath(dispatch.CollectionCommands.CandidatePath, candidatePath) &&
+		reviewerDispatchIntakeCommandAvailable(dispatch.CollectionCommands.PreviewCommand) &&
+		reviewerDispatchIntakeCommandAvailable(dispatch.CollectionCommands.ApplyCommand)
+	var collectionCommands *ReviewerResultCollectionCommands
+	if collectionAvailable {
+		commands := reviewerDispatchCollectionCommands(packetPath, dispatch.ShardID, targetLane, candidatePath)
+		collectionCommands = &commands
+	} else {
+		candidatePath = ""
+	}
 	resultState := refsf.RegularFileMissing
 	if resultPath != "" {
 		classified, err := refsf.ClassifyNonEmptyRegularFile(resultPath)
@@ -496,7 +526,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		state = "reviewer-result-canonical-invalid"
 	} else if !present && candidateState == "invalid" {
 		state = "reviewer-result-candidate-invalid"
-	} else if !present && candidateState == "ready" && dispatch.CollectionCommands != nil && reviewerDispatchIntakeCommandAvailable(dispatch.CollectionCommands.PreviewCommand) {
+	} else if !present && candidateState == "ready" && collectionCommands != nil && reviewerDispatchIntakeCommandAvailable(collectionCommands.PreviewCommand) {
 		state = "ready-for-reviewer-result-collection-preview"
 	}
 	currentExecutor, currentGeneration := reviewerDispatchCurrentOwner(caseRoot, targetLane)
@@ -523,7 +553,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		ReviewerResultCandidatePath:      candidatePath,
 		ReviewerResultCandidateState:     candidateState,
 		AgentToolRequest:                 dispatch.AgentToolRequest,
-		ReviewerResultCollectionCommands: dispatch.CollectionCommands,
+		ReviewerResultCollectionCommands: collectionCommands,
 		IntakeAvailable:                  intakeAvailable,
 		DispatchOnly:                     !intakeAvailable,
 		VerificationRecorded:             verificationRecorded,
@@ -722,9 +752,15 @@ func reviewerDispatchIntakeBoundary(item ReviewerDispatchIntakeHandoff) []string
 	boundary := []string{
 		"reviewer dispatch intake handoff is read-only; full packet.json and reviewerOrchestration remain source of truth",
 		"runtime does not spawn, stop, monitor, or manage reviewer sessions",
-		"reviewer returns one JSON object; the main agent saves it to the packet-derived candidate path and runs collection -WhatIf before -Apply",
-		"collection publishes exact candidate bytes only to the immutable packet-derived reviewer result path and never overwrites different bytes",
 		"reviewer intake must run -WhatIf before -Apply and must not write authority/confirmed state or execute heavy tools",
+	}
+	if item.ReviewerResultCollectionCommands != nil {
+		boundary = append(boundary,
+			"reviewer returns one JSON object; the main agent saves it to the packet-derived candidate path and runs collection -WhatIf before -Apply",
+			"collection publishes exact candidate bytes only to the immutable packet-derived reviewer result path and never overwrites different bytes",
+		)
+	} else if item.IntakeAvailable {
+		boundary = append(boundary, "this packet has no canonical collection capability; save reviewer JSON directly to reviewerResultPath and use strict direct or batch intake")
 	}
 	if item.DispatchOnly {
 		boundary = append(boundary, "dispatch-only packets require an attached rekit case before reviewer-intake writeback")
