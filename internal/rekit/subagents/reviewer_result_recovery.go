@@ -486,17 +486,7 @@ func quarantineReviewerResultObstruction(caseRoot, resultPath, quarantinePath, n
 		if movedErr != nil || moved != expected {
 			return fmt.Errorf("reviewer result obstruction quarantine already contains a different object")
 		}
-		current, currentErr := readReviewerResultObstruction(caseRoot, resultPath)
-		if currentErr != nil || current != expected {
-			return fmt.Errorf("canonical reviewer result obstruction changed before interrupted recovery resumed")
-		}
-		if err := collectionRoot.Remove(filepath.Base(resultPath)); err != nil {
-			return err
-		}
-		if _, statErr := collectionRoot.Lstat(filepath.Base(resultPath)); !os.IsNotExist(statErr) {
-			return fmt.Errorf("canonical reviewer result obstruction reappeared after interrupted recovery cleanup")
-		}
-		return nil
+		return fmt.Errorf("reviewer result obstruction quarantine exists while the canonical path is occupied; recovery cannot prove the canonical object is the one already quarantined")
 	} else if !os.IsNotExist(err) {
 		return err
 	}
@@ -547,14 +537,7 @@ func quarantineReviewerResult(caseRoot, resultPath, quarantinePath string, expec
 		if !bytes.Equal(existing, expected) {
 			return fmt.Errorf("reviewer result recovery quarantine already contains different bytes")
 		}
-		current, readErr := readStableReviewerArtifact(root, resultPath, "canonical reviewer result", maxReviewerResultBytes)
-		if readErr != nil || !bytes.Equal(current, expected) {
-			return fmt.Errorf("canonical reviewer result changed before interrupted recovery resumed")
-		}
-		if err := os.Remove(resultPath); err != nil {
-			return err
-		}
-		return nil
+		return fmt.Errorf("reviewer result recovery quarantine exists while the canonical path is occupied; recovery cannot prove the canonical bytes are the object already quarantined")
 	} else if !os.IsNotExist(err) {
 		return err
 	}

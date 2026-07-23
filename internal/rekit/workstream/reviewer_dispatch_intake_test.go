@@ -298,8 +298,8 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 		t.Fatal(err)
 	}
 	reappeared := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
-	if reappeared.State != "reviewer-result-recovery-finalize-required" || reappeared.ReviewerResultRecoveryApplyCommand == "" {
-		t.Fatalf("reappeared canonical result bypassed interrupted recovery: %+v", reappeared)
+	if reappeared.State != "reviewer-result-recovery-ambiguous" || reappeared.ReviewerResultRecoveryApplyCommand != "" || !strings.Contains(reviewerDispatchIntakeNextAction(reappeared), "cannot prove") {
+		t.Fatalf("reappeared canonical result was not blocked as ambiguous: %+v", reappeared)
 	}
 	if err := os.Remove(resultPath); err != nil {
 		t.Fatal(err)
@@ -308,8 +308,8 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 		t.Fatal(err)
 	}
 	reappearedEmpty := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
-	if reappearedEmpty.State != "reviewer-result-recovery-finalize-required" || reappearedEmpty.ReviewerResultRecoveryApplyCommand == "" {
-		t.Fatalf("reappeared empty obstruction overrode interrupted recovery: %+v", reappearedEmpty)
+	if reappearedEmpty.State != "reviewer-result-recovery-ambiguous" || reappearedEmpty.ReviewerResultRecoveryApplyCommand != "" {
+		t.Fatalf("reappeared empty obstruction was not blocked as ambiguous: %+v", reappearedEmpty)
 	}
 	if err := os.Remove(resultPath); err != nil {
 		t.Fatal(err)

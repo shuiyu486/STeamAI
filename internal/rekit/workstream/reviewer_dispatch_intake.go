@@ -474,7 +474,7 @@ func reviewerDispatchActionPriority(item ReviewerDispatchIntakeHandoff) int {
 	switch item.State {
 	case "reviewer-packet-owner-adoption-required":
 		return 0
-	case "reviewer-packet-integrity-invalid", "reviewer-result-symlink-blocked", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "reviewer-result-recovery-invalid", "attach-required-before-reviewer-intake":
+	case "reviewer-packet-integrity-invalid", "reviewer-result-symlink-blocked", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "reviewer-result-recovery-invalid", "reviewer-result-recovery-ambiguous", "attach-required-before-reviewer-intake":
 		return 1
 	case "reviewer-result-recovery-required", "reviewer-result-recovery-finalize-required", "ready-for-reviewer-result-collection-preview", "ready-for-reviewer-intake-preview":
 		return 2
@@ -927,6 +927,10 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 			state = "reviewer-result-recovery-invalid"
 			return
 		}
+		if resultState != refsf.RegularFileMissing {
+			state = "reviewer-result-recovery-ambiguous"
+			return
+		}
 		state = "reviewer-result-recovery-finalize-required"
 		recoveryCommand = reviewerDispatchResultRecoveryCommand(packetPath, dispatch.ShardID, targetLane)
 		recoveryApplyCommand = reviewerDispatchResultRecoveryApplyCommand(packetPath, dispatch.ShardID, targetLane, intent)
@@ -934,7 +938,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 	if !verificationRecorded && !decisionRecorded {
 		projectRecoveryState()
 	}
-	recoveryProjected := state == "reviewer-result-recovery-invalid" || state == "reviewer-result-recovery-finalize-required"
+	recoveryProjected := state == "reviewer-result-recovery-invalid" || state == "reviewer-result-recovery-ambiguous" || state == "reviewer-result-recovery-finalize-required"
 	if !recoveryProjected && !present && resultState == refsf.RegularFileWaiting && candidatePath != "" {
 		state = "reviewer-result-canonical-invalid"
 		if reviewerResultObstructionRecoverable(resultPath) {
@@ -1217,6 +1221,8 @@ func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string
 		return firstText(item.ReviewerResultRecoveryApplyCommand, item.ReviewerResultRecoveryCommand, "finalize reviewer result recovery for "+item.ShardID)
 	case "reviewer-result-recovery-invalid":
 		return "repair or regenerate the strict reviewer result recovery intent for " + item.ShardID + "; collection remains blocked"
+	case "reviewer-result-recovery-ambiguous":
+		return "review the canonical reviewer result and exact quarantine for " + item.ShardID + "; runtime cannot prove they are the same filesystem object"
 	case "ready-for-reviewer-result-collection-preview":
 		if item.ReviewerResultCollectionCommands != nil {
 			return firstText(item.ReviewerResultCollectionCommands.PreviewCommand, "run reviewer result collection -WhatIf for "+item.ShardID)

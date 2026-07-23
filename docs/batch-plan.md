@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 556：reviewer result recovery ambiguity guard closure
+
+状态：implementation、focused validation、独立审查修复与完整本地release minimum已完成；commit/push和远程release-gate inspection待完成。
+
+目标：关闭recovery intent与exact quarantine已存在、但canonical reviewer result path又被同bytes regular file或同snapshot obstruction占据时，runtime无法证明两者是同一filesystem object却会自动删除canonical对象的断点。将该状态明确视为ambiguous并fail-closed，保留canonical对象供主Agent复核；真正post-move/pre-receipt crash在canonical missing时仍可确定性finalize。
+
+已完成内容：
+
+- regular-byte与typed obstruction quarantine分支在发现exact quarantine已存在且canonical path仍occupied时，不再按content/snapshot相等推断已移动对象并删除canonical leaf，而是返回`cannot prove` typed error。这样concurrent recreation或同内容替换不会被recovery重试静默删除。
+- recovery intent保持unfinished；collection、direct/batch intake与durable workstream继续通过既有intent/receipt/quarantine guard保持blocked。canonical missing + exact intent/quarantine仍由`resumeReviewerResultRecovery` WhatIf→Apply写committed receipt，不改变Batch 553-555 crash-finalize语义。
+- 新增regular bytes与empty-file obstruction重现测试，证明ambiguous retry失败且canonical对象保持原状。
+
+边界：不自动删除、覆盖或替换ambiguous canonical object；不改变reviewer verdict/facts/authority/confirmed，不执行heavy-tool，不新增PowerShell runtime logic。
+
+验证结果：focused/related `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`已通过。独立审查发现workstream仍将ambiguous状态误投影为可执行finalize；已新增`reviewer-result-recovery-ambiguous` blocked state、移除Apply command并提供`cannot prove`人工复核提示。完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。
+
+上一批摘要：Batch 555已完成Windows file-symlink obstruction recovery，implementation commit `14585d1 Recover symlink reviewer result obstructions`与release inspection commit `0f01b57 Record Batch 555 release gate inspection`已推送；对应run `29991470157`三平台jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
+
 ### Batch 555：Windows symlink reviewer result recovery closure
 
 状态：已完成implementation、focused validation、独立审查修复、完整本地release minimum、implementation commit `14585d1 Recover symlink reviewer result obstructions`/push与远程release-gate inspection。对应run `29991470157` completed failure；Linux/macOS/Windows jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。
