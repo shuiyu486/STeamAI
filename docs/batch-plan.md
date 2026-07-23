@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 560：pack-memory candidate verification workspace retirement closure
 
-状态：已完成runtime/CLI/release handoff/tests/docs implementation、nested source-case product path、多轮独立审查修复、focused重复验收与完整本地release minimum。implementation commit/push 与远程 release-gate inspection 待本轮后续按真实结果回填。
+状态：已完成runtime/CLI/release handoff/tests/docs implementation、nested source-case product path、多轮独立审查修复、focused重复验收、完整本地release minimum与implementation commit `303414e Retire candidate verification workspaces`/push。对应remote run `30021860514` completed failure；Linux/Windows/macOS jobs均completed failure、`runner_id=0`且`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。
 
 目标：关闭accepted candidate完成provisioning与final verification后，source-case-local canonical verification workspace只能长期残留或由维护者手工递归删除的operational断点。由Go-native runtime提供strict review-first WhatIf→expected-hash Apply retirement，在保留repo-local final evidence的同时只移除exact provisioned trees。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：retirement只清理完成final verification的canonical provisioned workspace；repo-local retirement intent/receipt作为最终证据保留。不merge/cleanup candidate，不写facts/authority/confirmed，不执行heavy tool，不新增PowerShell runtime logic。
 
-验证结果：focused retirement、CLI nested cwd/no `Target`/no `Pack` product path与release/status lifecycle tests已通过；独立审查发现并修复final-proof replay漏验、按名称删除replacement TOCTOU、随机quarantine无法跨进程resume、workspace整体换绑跨identity删除窗口，以及release/status把不可恢复tree drift误报为in-progress。当前实现以deterministic owned quarantine支持leaf/directory/root post-rename crash resume，通过single-prepare parent-bound apply将fresh/attached roots绑定同一pinned workspace identity，并在completed replay与intent resume重验final proof。完整本地release minimum已通过：`go run ./cmd/rekit -- -Command release-check -Format json`返回`ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`均通过；Linux sync/promote/CLI test binaries交叉编译也通过并已清理。implementation commit与remote inspection结果待本轮后续回填，当前不能声明remote CI green。
+验证结果：focused retirement、CLI nested cwd/no `Target`/no `Pack` product path与release/status lifecycle tests已通过；独立审查发现并修复final-proof replay漏验、按名称删除replacement TOCTOU、随机quarantine无法跨进程resume、workspace整体换绑跨identity删除窗口，以及release/status把不可恢复tree drift误报为in-progress。当前实现以deterministic owned quarantine支持leaf/directory/root post-rename crash resume，通过single-prepare parent-bound apply将fresh/attached roots绑定同一pinned workspace identity，并在completed replay与intent resume重验final proof。完整本地release minimum已通过：`go run ./cmd/rekit -- -Command release-check -Format json`返回`ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`均通过；Linux sync/promote/CLI test binaries交叉编译也通过并已清理。implementation commit `303414e`已推送；remote run `30021860514`三平台jobs均在执行任何step前失败，`runner_id=0`且`steps=[]`，未提供不同于既有runner/billing blocker的新代码失败信号，当前不能声明remote CI green。
 
 上一批摘要：Batch 559已完成pack-memory candidate verification case provisioning closure，implementation commit `c65f511 Provision candidate verification cases`已推送；对应run `30012510308`三平台jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
