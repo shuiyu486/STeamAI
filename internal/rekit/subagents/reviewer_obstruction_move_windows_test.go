@@ -29,6 +29,7 @@ func TestMoveReviewerResultObstructionPinsQuarantineNamespace(t *testing.T) {
 		resultPath,
 		quarantinePath,
 		guardPath,
+		reviewerResultObstructionSnapshot{Kind: "empty-file"},
 		func() error {
 			if err := os.Rename(quarantineRoot, movedRoot); err == nil {
 				t.Fatal("quarantine namespace moved while its guard was held")

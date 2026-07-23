@@ -71,7 +71,7 @@ func reviewerObstructionHandleMatchesPath(handle syscall.Handle, expectedPath st
 	return nil
 }
 
-func moveReviewerResultObstructionExact(resultPath, quarantinePath, namespaceGuardPath string, validate func() error) error {
+func moveReviewerResultObstructionExact(resultPath, quarantinePath, namespaceGuardPath string, expected reviewerResultObstructionSnapshot, validate func() error) error {
 	resultPath16, err := syscall.UTF16PtrFromString(resultPath)
 	if err != nil {
 		return err
@@ -144,12 +144,20 @@ func moveReviewerResultObstructionExact(resultPath, quarantinePath, namespaceGua
 	if err := syscall.GetFileInformationByHandle(handle, &sourceInfo); err != nil {
 		return err
 	}
-	if sourceInfo.FileAttributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-		return fmt.Errorf("exact symlink reviewer result obstruction move is unavailable until its reparse data can be handle-validated")
-	}
-	if sourceInfo.FileAttributes&syscall.FILE_ATTRIBUTE_DIRECTORY != 0 ||
-		sourceInfo.FileSizeHigh != 0 || sourceInfo.FileSizeLow != 0 {
-		return fmt.Errorf("reviewer result obstruction source handle is not an empty regular file")
+	switch expected.Kind {
+	case "empty-file":
+		if sourceInfo.FileAttributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 ||
+			sourceInfo.FileAttributes&syscall.FILE_ATTRIBUTE_DIRECTORY != 0 ||
+			sourceInfo.FileSizeHigh != 0 || sourceInfo.FileSizeLow != 0 {
+			return fmt.Errorf("reviewer result obstruction source handle is not an empty regular file")
+		}
+	case "symlink":
+		if sourceInfo.FileAttributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT == 0 ||
+			sourceInfo.FileAttributes&syscall.FILE_ATTRIBUTE_DIRECTORY != 0 {
+			return fmt.Errorf("reviewer result obstruction source handle is not a file symlink")
+		}
+	default:
+		return fmt.Errorf("exact %s reviewer result obstruction move is unavailable", expected.Kind)
 	}
 	if err := validate(); err != nil {
 		return err

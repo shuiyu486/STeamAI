@@ -732,7 +732,7 @@ func reviewerResultObstructionRecoverable(path string) bool {
 	if err != nil {
 		return false
 	}
-	return runtime.GOOS == "windows" && st.Mode().IsRegular() && st.Size() == 0
+	return runtime.GOOS == "windows" && (st.Mode()&os.ModeSymlink != 0 || st.Mode().IsRegular() && st.Size() == 0)
 }
 
 func readReviewerResultRecoveryRecord(caseRoot, path string) (reviewerResultRecoveryRecord, error) {
@@ -942,7 +942,9 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		}
 	} else if !recoveryProjected && !present && resultState == refsf.RegularFileSymlink && candidatePath != "" {
 		state = "reviewer-result-symlink-blocked"
-		recoveryCommand = reviewerDispatchResultRecoveryCommand(packetPath, dispatch.ShardID, targetLane)
+		if reviewerResultObstructionRecoverable(resultPath) {
+			recoveryCommand = reviewerDispatchResultRecoveryCommand(packetPath, dispatch.ShardID, targetLane)
+		}
 	} else if !recoveryProjected && !present && candidateState == "invalid" {
 		state = "reviewer-result-candidate-invalid"
 	} else if !recoveryProjected && !present && candidateState == "ready" && collectionCommands != nil && reviewerDispatchIntakeCommandAvailable(collectionCommands.PreviewCommand) {

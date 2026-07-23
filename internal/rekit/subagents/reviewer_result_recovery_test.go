@@ -335,7 +335,7 @@ func TestRecoverReviewerResultInterruptedIntentRejectsActorReasonDrift(t *testin
 }
 
 func TestRecoverReviewerResultQuarantinesCanonicalObstructions(t *testing.T) {
-	for _, kind := range []string{"empty-file"} {
+	for _, kind := range []string{"empty-file", "symlink"} {
 		t.Run(kind, func(t *testing.T) {
 			repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 			caseRoot := filepath.Join(t.TempDir(), "case")
