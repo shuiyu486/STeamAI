@@ -5949,7 +5949,7 @@ func writePlanSubagentsReviewerResultRecoveryText(out io.Writer, result subagent
 	if _, err := fmt.Fprintf(out, "plan-subagents reviewer result recovery：mutation=%t applied=%t alreadyRecovered=%t requiresConfirmation=%t packet=%s shard=%s lane=%s actor=%s\n", result.IsMutation, result.Applied, result.AlreadyRecovered, result.RequiresConfirmation, result.PacketID, result.ShardID, result.Lane, result.Actor); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(out, "reviewer result recovery snapshot：candidate=%s candidateSha256=%s candidateBytes=%d canonical=%s canonicalSha256=%s canonicalBytes=%d quarantine=%s receipt=%s reason=%s\n", result.CandidatePath, result.CandidateSHA256, result.CandidateBytes, result.ReviewerResultPath, result.ReviewerResultSHA256, result.ReviewerResultBytes, result.QuarantinePath, result.ReceiptPath, planSubagentsTextInline(result.Reason)); err != nil {
+	if _, err := fmt.Fprintf(out, "reviewer result recovery snapshot：candidate=%s candidateSha256=%s candidateBytes=%d canonical=%s canonicalKind=%s canonicalSha256=%s canonicalBytes=%d canonicalMode=%d canonicalLinkTarget=%s quarantine=%s receipt=%s reason=%s\n", result.CandidatePath, result.CandidateSHA256, result.CandidateBytes, result.ReviewerResultPath, result.ReviewerResultKind, result.ReviewerResultSHA256, result.ReviewerResultBytes, result.ReviewerResultMode, planSubagentsTextInline(result.ReviewerResultLinkTarget), result.QuarantinePath, result.ReceiptPath, planSubagentsTextInline(result.Reason)); err != nil {
 		return err
 	}
 	for _, step := range result.NextSteps {

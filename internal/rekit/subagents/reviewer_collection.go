@@ -53,16 +53,18 @@ type ReviewerResultCollectionResult struct {
 }
 
 type preparedReviewerResultCollection struct {
-	packetPath       string
-	packetData       []byte
-	packet           Packet
-	handoff          ShardHandoff
-	candidate        []byte
-	canonical        []byte
-	result           ReviewerResult
-	alreadyCollected bool
-	lane             string
-	actor            string
+	packetPath           string
+	packetData           []byte
+	packet               Packet
+	handoff              ShardHandoff
+	candidate            []byte
+	canonical            []byte
+	canonicalPresent     bool
+	canonicalObstruction *reviewerResultObstructionSnapshot
+	result               ReviewerResult
+	alreadyCollected     bool
+	lane                 string
+	actor                string
 }
 
 func CollectReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultCollectionOptions) (ReviewerResultCollectionResult, error) {
@@ -102,7 +104,7 @@ func CollectReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultCo
 		return finalizeReviewerResultCollectionResult(result), nil
 	}
 
-	unlock, err := acquireReviewerIntakeLock(caseRoot, "reviewer-collection-"+prepared.packet.PacketID+"-"+prepared.handoff.ShardID)
+	unlock, err := acquireReviewerIntakeLock(caseRoot, reviewerResultMutationLockID(prepared.packet.PacketID, prepared.handoff.ShardID))
 	if err != nil {
 		return ReviewerResultCollectionResult{}, err
 	}
@@ -262,6 +264,16 @@ func prepareReviewerResultCollectionMode(repoRoot, caseRoot, pack string, opt Re
 		}
 	}
 	canonical, canonicalPresent, canonicalErr := existingReviewerResult(resultRoot, resultPath)
+	var obstruction *reviewerResultObstructionSnapshot
+	if canonicalErr != nil && allowCollision {
+		snapshot, snapshotErr := readReviewerResultObstruction(caseRoot, resultPath)
+		if snapshotErr != nil {
+			return preparedReviewerResultCollection{}, snapshotErr
+		}
+		obstruction = &snapshot
+		canonicalPresent = true
+		canonicalErr = nil
+	}
 	if canonicalErr != nil {
 		return preparedReviewerResultCollection{}, canonicalErr
 	}
@@ -269,7 +281,7 @@ func prepareReviewerResultCollectionMode(repoRoot, caseRoot, pack string, opt Re
 	if canonicalPresent && !alreadyCollected && !allowCollision {
 		return preparedReviewerResultCollection{}, fmt.Errorf("canonical reviewer result %q already contains different bytes; run reviewer result recovery -WhatIf; refusing overwrite", resultPath)
 	}
-	return preparedReviewerResultCollection{packetPath: packetPath, packetData: packetData, packet: packet, handoff: handoff, candidate: candidate, canonical: canonical, result: reviewerResult, alreadyCollected: alreadyCollected, lane: lane, actor: actor}, nil
+	return preparedReviewerResultCollection{packetPath: packetPath, packetData: packetData, packet: packet, handoff: handoff, candidate: candidate, canonical: canonical, canonicalPresent: canonicalPresent, canonicalObstruction: obstruction, result: reviewerResult, alreadyCollected: alreadyCollected, lane: lane, actor: actor}, nil
 }
 
 func newReviewerResultCollectionResult(repoRoot, caseRoot, pack string, opt ReviewerResultCollectionOptions, prepared preparedReviewerResultCollection) ReviewerResultCollectionResult {

@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 554：canonical reviewer result filesystem obstruction recovery closure
+
+状态：implementation、focused/package/product-path validation、独立审查修复与完整本地release minimum已完成；implementation commit/push与远程release-gate inspection待完成。
+
+目标：关闭strict reviewer candidate已正确生成、但canonical reviewer result path被empty regular file占据时，Mission Commander仍只能要求手工删除/修复的operational断点。把Batch 553 exact conflict recovery扩展为typed object snapshot与Windows handle-bound no-replace quarantine；symlink、directory与其它non-regular object保持typed fail-closed，直到其snapshot能够直接从source handle验证。
+
+已完成内容：
+
+- `-RecoverReviewerResult`现在用anchored `os.Root` + `Lstat`区分`regular-file`、`empty-file`、`symlink`、`directory`与`non-regular`；obstruction fingerprint绑定kind、mode、size与symlink target文本。WhatIf返回kind/fingerprint/mode/link target及expected-hash Apply command，Apply在共享packet/shard mutation lock内重读同一object snapshot，漂移即拒绝。
+- Windows runnable obstruction recovery收窄为empty regular file：source以`FILE_OPEN_REPARSE_POINT` object handle打开，并用handle attributes绑定non-directory、non-reparse、size-zero shape；durable intent先作为no-delete-share namespace guard打开并验证canonical final path，再打开destination parent handle，以`NtSetInformationFile(FileRenameInformation=10)`执行handle-relative no-replace move。同步测试证明guard持有期间recoveries namespace不能被移走，而move仍可成功。symlink、directory及其它non-regular object均typed识别但fail-closed，不跟随link target、不自动移动或递归删除；非Windows平台也不提升runnable recovery。strict intent/receipt与hash-addressed quarantine保留Batch 553 crash-finalize、exact replay、collection guard及verification/decision writeback prohibition语义。
+- recovery、collection与direct/batch intake共享同一packet/shard mutation lock；intake在锁内重读exact canonical result并重新检查intent/receipt/quarantine，workstream也在canonical path重现时优先投影unfinished recovery。durable workstream只为Windows empty-file blocker提升typed WhatIf；symlink、directory与其它non-regular object不生成runnable recovery command。
+- CLI text显示canonical kind/mode/link target；nested case cwd/no Target/no Pack product path覆盖planning→candidate→empty file obstruction→recovery WhatIf JSON/text→expected-hash Apply→collection WhatIf/Apply→batch intake WhatIf。focused `subagents`、`workstream`、`cli` tests已通过。
+
+边界：recovery不跟随或修改symlink target，不自动移动或递归处理任何directory，不spawn/stop/poll/monitor reviewer，不执行heavy-tool，不写或撤销facts/authority/confirmed；collection与intake继续分别要求显式WhatIf→Apply。禁止新增PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/subagents ./internal/rekit/cli -count=1`、Windows namespace-guard同步测试、obstruction case-local CLI product path与Linux package交叉编译已通过；完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。独立审查发现并修复object snapshot重验与move间漂移、pre-quarantine intent重试CreatedAt不一致、unfinished recovery可被direct/batch intake与workstream绕过、destination parent可被移出case及old-parent/new-guard split；最终将无法直接从source handle验证snapshot的symlink/directory/其它non-regular recovery收窄为typed fail-closed，仅保留handle attributes可绑定的Windows empty-file runnable recovery，并统一mutation lock、durable intent guard、锁内result重读及preview/Apply双重intake guard。implementation commit/push与远程release-gate inspection待补。
+
+上一批摘要：Batch 553已完成canonical reviewer result regular-byte conflict recovery，implementation commit `e351c3d Recover conflicting reviewer results`与release inspection commit `9955561 Record Batch 553 release gate inspection`已推送；对应run `29985101781`三平台jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
+
 ### Batch 553：canonical reviewer result recovery / quarantine closure
 
 状态：已完成implementation、focused/package/product-path validation、两轮独立审查修复、完整本地release minimum、implementation commit `e351c3d Recover conflicting reviewer results`/push与远程release-gate inspection。对应run `29985101781` completed failure；Linux/macOS/Windows jobs均`steps=[]`，仍为既有runner/billing blocker，不能声明remote CI green。

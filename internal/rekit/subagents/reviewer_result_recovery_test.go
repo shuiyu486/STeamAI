@@ -164,6 +164,126 @@ func TestRecoverReviewerResultResumesInterruptedIntent(t *testing.T) {
 	}
 }
 
+func TestRecoverReviewerResultReusesIntentCreatedBeforeQuarantine(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	if err := os.MkdirAll(filepath.Join(caseRoot, "workspace"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded reviewer evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	handoff := packet.ShardHandoffs[0]
+	candidate := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
+	if err := os.MkdirAll(filepath.Dir(handoff.ReviewerResultCandidatePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handoff.ReviewerResultCandidatePath, candidate, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handoff.ReviewerResultPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opt := ReviewerResultRecoveryOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", Reason: "resume pre-quarantine intent", WhatIf: true}
+	preview, err := RecoverReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := prepareReviewerResultCollectionMode(repoRoot, caseRoot, defaults.DefaultPack, ReviewerResultCollectionOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: opt.Actor, WhatIf: true}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := reviewerResultRecoveryPaths(prepared)
+	result := newReviewerResultRecoveryResult(repoRoot, caseRoot, defaults.DefaultPack, opt, prepared, paths)
+	if err := ensureReviewerResultRecoveryRoot(caseRoot, paths); err != nil {
+		t.Fatal(err)
+	}
+	intent := reviewerResultRecoveryReceipt(result)
+	if err := writeReviewerResultRecoveryReceipt(caseRoot, paths.intentPath, intent); err != nil {
+		t.Fatal(err)
+	}
+
+	opt.WhatIf = false
+	opt.ExpectedCandidateSHA256 = preview.CandidateSHA256
+	opt.ExpectedReviewerResultSHA256 = preview.ReviewerResultSHA256
+	if _, err := RecoverReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt); err != nil {
+		t.Fatal(err)
+	}
+	committed, err := readReviewerResultRecoveryReceipt(caseRoot, paths.receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if committed.CreatedAt != intent.CreatedAt {
+		t.Fatalf("committed CreatedAt = %q, want durable intent %q", committed.CreatedAt, intent.CreatedAt)
+	}
+	collectionOpt := ReviewerResultCollectionOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: opt.Actor, WhatIf: true}
+	if _, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, collectionOpt); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRecoverReviewerResultInterruptedIntentBlocksDirectIntake(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	if err := os.MkdirAll(filepath.Join(caseRoot, "workspace"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded reviewer evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	handoff := packet.ShardHandoffs[0]
+	candidate := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
+	if err := os.MkdirAll(filepath.Dir(handoff.ReviewerResultCandidatePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handoff.ReviewerResultCandidatePath, candidate, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handoff.ReviewerResultPath, []byte(`{"interrupted":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opt := ReviewerResultRecoveryOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", Reason: "interrupted direct intake guard", WhatIf: true}
+	prepared, err := prepareReviewerResultCollectionMode(repoRoot, caseRoot, defaults.DefaultPack, ReviewerResultCollectionOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: opt.Actor, WhatIf: true}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := reviewerResultRecoveryPaths(prepared)
+	result := newReviewerResultRecoveryResult(repoRoot, caseRoot, defaults.DefaultPack, opt, prepared, paths)
+	if err := ensureReviewerResultRecoveryRoot(caseRoot, paths); err != nil {
+		t.Fatal(err)
+	}
+	intent := reviewerResultRecoveryReceipt(result)
+	if err := writeReviewerResultRecoveryReceipt(caseRoot, paths.intentPath, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := quarantineReviewerResult(caseRoot, handoff.ReviewerResultPath, paths.quarantinePath, prepared.canonical); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handoff.ReviewerResultPath, candidate, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	intakeOpt := ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: handoff.ReviewerResultPath, Lane: packet.TargetLane, Actor: opt.Actor, ExpectedShardID: handoff.ShardID, WhatIf: true}
+	if _, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, intakeOpt); err == nil || !strings.Contains(err.Error(), "recovery is incomplete") {
+		t.Fatalf("direct intake during interrupted recovery error = %v", err)
+	}
+	batchOpt := ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: packet.TargetLane, Actor: opt.Actor, WhatIf: true}
+	if _, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, batchOpt); err == nil || !strings.Contains(err.Error(), "recovery is incomplete") {
+		t.Fatalf("batch intake during interrupted recovery error = %v", err)
+	}
+}
+
 func TestRecoverReviewerResultInterruptedIntentRejectsActorReasonDrift(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
@@ -214,6 +334,129 @@ func TestRecoverReviewerResultInterruptedIntentRejectsActorReasonDrift(t *testin
 	}
 }
 
+func TestRecoverReviewerResultQuarantinesCanonicalObstructions(t *testing.T) {
+	for _, kind := range []string{"empty-file"} {
+		t.Run(kind, func(t *testing.T) {
+			repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+			caseRoot := filepath.Join(t.TempDir(), "case")
+			writeReviewerIntakeCase(t, repoRoot, caseRoot)
+			plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			packet := readReviewerPacket(t, plan.PacketPath)
+			if err := os.MkdirAll(filepath.Join(caseRoot, "workspace"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded reviewer evidence\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			handoff := packet.ShardHandoffs[0]
+			candidate := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
+			if err := os.MkdirAll(filepath.Dir(handoff.ReviewerResultCandidatePath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(handoff.ReviewerResultCandidatePath, candidate, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			switch kind {
+			case "empty-file":
+				if err := os.WriteFile(handoff.ReviewerResultPath, nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			case "directory":
+				if err := os.Mkdir(handoff.ReviewerResultPath, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			case "symlink":
+				target := filepath.Join(caseRoot, "workspace", "outside-result.json")
+				if err := os.WriteFile(target, []byte("outside must remain\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, handoff.ReviewerResultPath); err != nil {
+					t.Skipf("symlink unavailable: %v", err)
+				}
+			}
+			opt := ReviewerResultRecoveryOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", Reason: "quarantine canonical obstruction", WhatIf: true}
+			preview, err := RecoverReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if preview.ReviewerResultKind != kind || preview.ReviewerResultSHA256 == "" {
+				t.Fatalf("unexpected obstruction preview: %+v", preview)
+			}
+			opt.WhatIf = false
+			opt.ExpectedCandidateSHA256 = preview.CandidateSHA256
+			opt.ExpectedReviewerResultSHA256 = preview.ReviewerResultSHA256
+			applied, err := RecoverReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !applied.Applied || applied.ReviewerResultKind != kind {
+				t.Fatalf("unexpected obstruction recovery: %+v", applied)
+			}
+			if _, err := os.Lstat(handoff.ReviewerResultPath); !os.IsNotExist(err) {
+				t.Fatalf("canonical obstruction remains: %v", err)
+			}
+			if !reviewerResultRecoveryQuarantineMatches(caseRoot, reviewerResultRecoveryReceipt(applied)) {
+				t.Fatal("quarantined obstruction does not match receipt")
+			}
+			collectionOpt := ReviewerResultCollectionOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", WhatIf: true}
+			if _, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, collectionOpt); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestRecoverReviewerResultRejectsCanonicalDirectories(t *testing.T) {
+	for _, nonEmpty := range []bool{false, true} {
+		t.Run(map[bool]string{false: "empty", true: "non-empty"}[nonEmpty], func(t *testing.T) {
+			repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+			caseRoot := filepath.Join(t.TempDir(), "case")
+			writeReviewerIntakeCase(t, repoRoot, caseRoot)
+			plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			packet := readReviewerPacket(t, plan.PacketPath)
+			if err := os.MkdirAll(filepath.Join(caseRoot, "workspace"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded reviewer evidence\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			handoff := packet.ShardHandoffs[0]
+			candidate := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
+			if err := os.MkdirAll(filepath.Dir(handoff.ReviewerResultCandidatePath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(handoff.ReviewerResultCandidatePath, candidate, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(handoff.ReviewerResultPath, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if nonEmpty {
+				if err := os.WriteFile(filepath.Join(handoff.ReviewerResultPath, "foreign.txt"), []byte("do not remove\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			opt := ReviewerResultRecoveryOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", Reason: "recover obstruction", WhatIf: true}
+			_, err = RecoverReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt)
+			want := "canonical reviewer result directory cannot be recovered automatically"
+			if nonEmpty {
+				want = "non-empty canonical reviewer result directory"
+			}
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("directory recovery error = %v, want %q", err, want)
+			}
+			if _, statErr := os.Stat(handoff.ReviewerResultPath); statErr != nil {
+				t.Fatalf("canonical directory was changed: %v", statErr)
+			}
+		})
+	}
+}
 func TestRecoverReviewerResultRejectsDriftAndWriteback(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")

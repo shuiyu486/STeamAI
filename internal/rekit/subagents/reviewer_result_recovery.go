@@ -18,6 +18,67 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 )
 
+type reviewerResultObstructionSnapshot struct {
+	Kind        string
+	Fingerprint string
+	Bytes       int
+	Mode        uint32
+	LinkTarget  string
+}
+
+func readReviewerResultObstruction(caseRoot, path string) (reviewerResultObstructionSnapshot, error) {
+	parent := filepath.Dir(path)
+	if !reviewpath.CollectionNamespacePathSafe(caseRoot, parent, false) {
+		return reviewerResultObstructionSnapshot{}, fmt.Errorf("reviewer result obstruction parent path is not safe")
+	}
+	root, err := os.OpenRoot(parent)
+	if err != nil {
+		return reviewerResultObstructionSnapshot{}, err
+	}
+	defer root.Close()
+	return readReviewerResultObstructionAt(root, filepath.Base(path))
+}
+
+func readReviewerResultObstructionAt(root *os.Root, name string) (reviewerResultObstructionSnapshot, error) {
+	st, err := root.Lstat(name)
+	if err != nil {
+		return reviewerResultObstructionSnapshot{}, err
+	}
+	kind := "non-regular"
+	linkTarget := ""
+	switch {
+	case st.Mode()&os.ModeSymlink != 0:
+		kind = "symlink"
+		linkTarget, err = root.Readlink(name)
+		if err != nil {
+			return reviewerResultObstructionSnapshot{}, err
+		}
+	case st.IsDir():
+		kind = "directory"
+		dir, openErr := root.Open(name)
+		if openErr != nil {
+			return reviewerResultObstructionSnapshot{}, openErr
+		}
+		entries, readErr := dir.ReadDir(1)
+		closeErr := dir.Close()
+		if readErr != nil && readErr != io.EOF {
+			return reviewerResultObstructionSnapshot{}, readErr
+		}
+		if closeErr != nil {
+			return reviewerResultObstructionSnapshot{}, closeErr
+		}
+		if len(entries) != 0 {
+			return reviewerResultObstructionSnapshot{}, fmt.Errorf("non-empty canonical reviewer result directory cannot be recovered automatically")
+		}
+	case st.Mode().IsRegular() && st.Size() == 0:
+		kind = "empty-file"
+	case st.Mode().IsRegular():
+		return reviewerResultObstructionSnapshot{}, fmt.Errorf("canonical reviewer result is regular and non-empty")
+	}
+	identity := fmt.Sprintf("kind=%s\nmode=%d\nsize=%d\nlink=%s\n", kind, uint32(st.Mode()), st.Size(), linkTarget)
+	return reviewerResultObstructionSnapshot{Kind: kind, Fingerprint: sha256Hex([]byte(identity)), Bytes: int(st.Size()), Mode: uint32(st.Mode()), LinkTarget: linkTarget}, nil
+}
+
 type ReviewerResultRecoveryOptions struct {
 	PacketPath                   string
 	ShardID                      string
@@ -30,29 +91,32 @@ type ReviewerResultRecoveryOptions struct {
 }
 
 type ReviewerResultRecoveryReceipt struct {
-	SchemaVersion        int    `json:"schemaVersion"`
-	Kind                 string `json:"kind"`
-	RepoRoot             string `json:"repoRoot"`
-	CaseRoot             string `json:"caseRoot"`
-	Pack                 string `json:"pack"`
-	PacketID             string `json:"packetId"`
-	PacketPath           string `json:"packetPath"`
-	ShardID              string `json:"shardId"`
-	Lane                 string `json:"lane"`
-	CandidatePath        string `json:"candidatePath"`
-	CandidateSHA256      string `json:"candidateSha256"`
-	CandidateBytes       int    `json:"candidateBytes"`
-	ReviewerResultPath   string `json:"reviewerResultPath"`
-	ReviewerResultSHA256 string `json:"reviewerResultSha256"`
-	ReviewerResultBytes  int    `json:"reviewerResultBytes"`
-	QuarantinePath       string `json:"quarantinePath"`
-	Actor                string `json:"actor"`
-	Reason               string `json:"reason"`
-	CreatedAt            string `json:"createdAt"`
-	NoVerdict            bool   `json:"noReviewerVerdict"`
-	NoFacts              bool   `json:"noFactsWrite"`
-	NoHeavyTool          bool   `json:"noHeavyTool"`
-	NoAuthority          bool   `json:"noAuthorityOrConfirmed"`
+	SchemaVersion            int    `json:"schemaVersion"`
+	Kind                     string `json:"kind"`
+	RepoRoot                 string `json:"repoRoot"`
+	CaseRoot                 string `json:"caseRoot"`
+	Pack                     string `json:"pack"`
+	PacketID                 string `json:"packetId"`
+	PacketPath               string `json:"packetPath"`
+	ShardID                  string `json:"shardId"`
+	Lane                     string `json:"lane"`
+	CandidatePath            string `json:"candidatePath"`
+	CandidateSHA256          string `json:"candidateSha256"`
+	CandidateBytes           int    `json:"candidateBytes"`
+	ReviewerResultPath       string `json:"reviewerResultPath"`
+	ReviewerResultKind       string `json:"reviewerResultKind"`
+	ReviewerResultSHA256     string `json:"reviewerResultSha256"`
+	ReviewerResultBytes      int    `json:"reviewerResultBytes"`
+	ReviewerResultMode       uint32 `json:"reviewerResultMode"`
+	ReviewerResultLinkTarget string `json:"reviewerResultLinkTarget,omitempty"`
+	QuarantinePath           string `json:"quarantinePath"`
+	Actor                    string `json:"actor"`
+	Reason                   string `json:"reason"`
+	CreatedAt                string `json:"createdAt"`
+	NoVerdict                bool   `json:"noReviewerVerdict"`
+	NoFacts                  bool   `json:"noFactsWrite"`
+	NoHeavyTool              bool   `json:"noHeavyTool"`
+	NoAuthority              bool   `json:"noAuthorityOrConfirmed"`
 }
 
 type ReviewerResultRecoveryResult struct {
@@ -76,8 +140,11 @@ type ReviewerResultRecoveryResult struct {
 	CandidateSHA256             string                                   `json:"candidateSha256"`
 	CandidateBytes              int                                      `json:"candidateBytes"`
 	ReviewerResultPath          string                                   `json:"reviewerResultPath"`
+	ReviewerResultKind          string                                   `json:"reviewerResultKind"`
 	ReviewerResultSHA256        string                                   `json:"reviewerResultSha256"`
 	ReviewerResultBytes         int                                      `json:"reviewerResultBytes"`
+	ReviewerResultMode          uint32                                   `json:"reviewerResultMode"`
+	ReviewerResultLinkTarget    string                                   `json:"reviewerResultLinkTarget,omitempty"`
 	QuarantinePath              string                                   `json:"quarantinePath"`
 	IntentPath                  string                                   `json:"intentPath"`
 	ReceiptPath                 string                                   `json:"receiptPath"`
@@ -116,11 +183,11 @@ func RecoverReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultRe
 	}
 	paths := reviewerResultRecoveryPaths(prepared)
 	result := newReviewerResultRecoveryResult(repoRoot, inst.CaseRoot, pack, opt, prepared, paths)
-	if len(prepared.canonical) == 0 {
+	if !prepared.canonicalPresent {
 		if opt.WhatIf {
 			return resumeReviewerResultRecovery(inst.CaseRoot, result, paths, opt)
 		}
-		unlock, lockErr := acquireReviewerIntakeLock(inst.CaseRoot, "reviewer-collection-"+prepared.packet.PacketID+"-"+prepared.handoff.ShardID)
+		unlock, lockErr := acquireReviewerIntakeLock(inst.CaseRoot, reviewerResultMutationLockID(prepared.packet.PacketID, prepared.handoff.ShardID))
 		if lockErr != nil {
 			return ReviewerResultRecoveryResult{}, lockErr
 		}
@@ -134,15 +201,21 @@ func RecoverReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultRe
 		if err := ensureReviewerResultRecoveryAllowed(inst.CaseRoot, prepared.packet, prepared.handoff.ShardID, prepared.lane); err != nil {
 			return ReviewerResultRecoveryResult{}, err
 		}
-		if len(prepared.canonical) != 0 {
+		if prepared.canonicalPresent {
 			return ReviewerResultRecoveryResult{}, fmt.Errorf("reviewer result changed after recovery preview")
 		}
 		paths = reviewerResultRecoveryPaths(prepared)
 		result = newReviewerResultRecoveryResult(repoRoot, inst.CaseRoot, pack, opt, prepared, paths)
 		return resumeReviewerResultRecovery(inst.CaseRoot, result, paths, opt)
 	}
-	if bytes.Equal(prepared.canonical, prepared.candidate) {
+	if prepared.canonicalObstruction == nil && bytes.Equal(prepared.canonical, prepared.candidate) {
 		return ReviewerResultRecoveryResult{}, fmt.Errorf("canonical reviewer result already matches the candidate; recovery is not required")
+	}
+	if prepared.canonicalObstruction != nil && prepared.canonicalObstruction.Kind == "directory" {
+		return ReviewerResultRecoveryResult{}, fmt.Errorf("canonical reviewer result directory cannot be recovered automatically; leave concurrent directory contents untouched")
+	}
+	if prepared.canonicalObstruction != nil && (!reviewerResultObstructionMoveSupported() || prepared.canonicalObstruction.Kind != "empty-file") {
+		return ReviewerResultRecoveryResult{}, fmt.Errorf("exact %s reviewer result obstruction recovery is unavailable on this platform until its source snapshot can be handle-validated", prepared.canonicalObstruction.Kind)
 	}
 	if opt.WhatIf {
 		result.NextSteps = []string{"inspect the exact candidate and canonical reviewer result hashes, then run the returned recovery command with -Apply"}
@@ -154,7 +227,7 @@ func RecoverReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultRe
 		return finalizeReviewerResultRecoveryResult(result), nil
 	}
 
-	unlock, err := acquireReviewerIntakeLock(inst.CaseRoot, "reviewer-collection-"+prepared.packet.PacketID+"-"+prepared.handoff.ShardID)
+	unlock, err := acquireReviewerIntakeLock(inst.CaseRoot, reviewerResultMutationLockID(prepared.packet.PacketID, prepared.handoff.ShardID))
 	if err != nil {
 		return ReviewerResultRecoveryResult{}, err
 	}
@@ -177,10 +250,21 @@ func RecoverReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultRe
 	if err := ensureReviewerResultRecoveryRoot(inst.CaseRoot, paths); err != nil {
 		return ReviewerResultRecoveryResult{}, err
 	}
-	if err := writeReviewerResultRecoveryReceipt(inst.CaseRoot, paths.intentPath, receipt); err != nil {
+	if existingIntent, intentErr := readReviewerResultRecoveryReceipt(inst.CaseRoot, paths.intentPath); intentErr == nil {
+		if !reviewerResultRecoveryReceiptEquivalent(existingIntent, receipt) {
+			return ReviewerResultRecoveryResult{}, fmt.Errorf("reviewer result recovery intent already exists with different bindings")
+		}
+		receipt = existingIntent
+	} else if _, statErr := os.Lstat(paths.intentPath); statErr == nil || !os.IsNotExist(statErr) {
+		return ReviewerResultRecoveryResult{}, fmt.Errorf("reviewer result recovery intent already exists but is invalid")
+	} else if err := writeReviewerResultRecoveryReceipt(inst.CaseRoot, paths.intentPath, receipt); err != nil {
 		return ReviewerResultRecoveryResult{}, fmt.Errorf("write reviewer result recovery intent: %w", err)
 	}
-	if err := quarantineReviewerResult(inst.CaseRoot, prepared.handoff.ReviewerResultPath, paths.quarantinePath, prepared.canonical); err != nil {
+	if prepared.canonicalObstruction != nil {
+		if err := quarantineReviewerResultObstruction(inst.CaseRoot, prepared.handoff.ReviewerResultPath, paths.quarantinePath, paths.intentPath, *prepared.canonicalObstruction); err != nil {
+			return ReviewerResultRecoveryResult{}, err
+		}
+	} else if err := quarantineReviewerResult(inst.CaseRoot, prepared.handoff.ReviewerResultPath, paths.quarantinePath, prepared.canonical); err != nil {
 		return ReviewerResultRecoveryResult{}, err
 	}
 	if err := writeReviewerResultRecoveryReceipt(inst.CaseRoot, paths.receiptPath, receipt); err != nil {
@@ -205,7 +289,9 @@ type reviewerResultRecoveryPathSet struct {
 func reviewerResultRecoveryPaths(prepared preparedReviewerResultCollection) reviewerResultRecoveryPathSet {
 	root := filepath.Join(prepared.packet.ReviewerOrchestration.ResultRoot, "recoveries")
 	resultSHA := sha256Hex(prepared.canonical)
-	if len(prepared.canonical) == 0 {
+	if prepared.canonicalObstruction != nil {
+		resultSHA = prepared.canonicalObstruction.Fingerprint
+	} else if !prepared.canonicalPresent {
 		resultSHA = "missing"
 	}
 	return reviewerResultRecoveryPathSet{
@@ -216,6 +302,21 @@ func reviewerResultRecoveryPaths(prepared preparedReviewerResultCollection) revi
 }
 
 func newReviewerResultRecoveryResult(repoRoot, caseRoot, pack string, opt ReviewerResultRecoveryOptions, prepared preparedReviewerResultCollection, paths reviewerResultRecoveryPathSet) ReviewerResultRecoveryResult {
+	resultKind := "regular-file"
+	resultSHA := sha256Hex(prepared.canonical)
+	resultBytes := len(prepared.canonical)
+	var resultMode uint32
+	linkTarget := ""
+	if prepared.canonicalObstruction != nil {
+		resultKind = prepared.canonicalObstruction.Kind
+		resultSHA = prepared.canonicalObstruction.Fingerprint
+		resultBytes = prepared.canonicalObstruction.Bytes
+		resultMode = prepared.canonicalObstruction.Mode
+		linkTarget = prepared.canonicalObstruction.LinkTarget
+	} else if !prepared.canonicalPresent {
+		resultKind = "missing"
+		resultSHA = ""
+	}
 	boundary := []string{
 		"recovery quarantines one exact conflicting canonical reviewer result; it never overwrites it with candidate bytes",
 		"recovery does not create a reviewer verdict, append facts, or undo an existing verification or decision",
@@ -229,7 +330,8 @@ func newReviewerResultRecoveryResult(repoRoot, caseRoot, pack string, opt Review
 		PacketID: prepared.packet.PacketID, PacketPath: prepared.packetPath,
 		ShardID: prepared.handoff.ShardID, Lane: prepared.lane, Actor: prepared.actor, Reason: strings.TrimSpace(opt.Reason),
 		CandidatePath: prepared.handoff.ReviewerResultCandidatePath, CandidateSHA256: sha256Hex(prepared.candidate), CandidateBytes: len(prepared.candidate),
-		ReviewerResultPath: prepared.handoff.ReviewerResultPath, ReviewerResultSHA256: sha256Hex(prepared.canonical), ReviewerResultBytes: len(prepared.canonical),
+		ReviewerResultPath: prepared.handoff.ReviewerResultPath, ReviewerResultKind: resultKind,
+		ReviewerResultSHA256: resultSHA, ReviewerResultBytes: resultBytes, ReviewerResultMode: resultMode, ReviewerResultLinkTarget: linkTarget,
 		QuarantinePath: paths.quarantinePath, IntentPath: paths.intentPath, ReceiptPath: paths.receiptPath, Boundary: boundary,
 	}
 }
@@ -298,7 +400,9 @@ func ensureReviewerResultCollectionRecoveryComplete(caseRoot string, packet Pack
 		PacketID: packet.PacketID, PacketPath: packetPath, ShardID: handoff.ShardID, Lane: lane,
 		Actor: intent.Actor, Reason: intent.Reason,
 		CandidatePath: handoff.ReviewerResultCandidatePath, CandidateSHA256: sha256Hex(candidate), CandidateBytes: len(candidate),
-		ReviewerResultPath: handoff.ReviewerResultPath, ReviewerResultSHA256: intent.ReviewerResultSHA256, ReviewerResultBytes: intent.ReviewerResultBytes,
+		ReviewerResultPath: handoff.ReviewerResultPath, ReviewerResultKind: intent.ReviewerResultKind,
+		ReviewerResultSHA256: intent.ReviewerResultSHA256, ReviewerResultBytes: intent.ReviewerResultBytes,
+		ReviewerResultMode: intent.ReviewerResultMode, ReviewerResultLinkTarget: intent.ReviewerResultLinkTarget,
 		QuarantinePath: intent.QuarantinePath,
 		IntentPath:     intentPath, ReceiptPath: filepath.Join(root, handoff.ShardID+".recovery.json"),
 	}
@@ -308,6 +412,32 @@ func ensureReviewerResultCollectionRecoveryComplete(caseRoot string, packet Pack
 	receipt, err := readReviewerResultRecoveryReceipt(caseRoot, result.ReceiptPath)
 	if err != nil || receipt.CreatedAt != intent.CreatedAt || !reviewerResultRecoveryReceiptEquivalent(receipt, intent) {
 		return fmt.Errorf("reviewer result recovery must be finalized before collection")
+	}
+	if !reviewerResultRecoveryQuarantineMatches(caseRoot, receipt) {
+		return fmt.Errorf("exact quarantined reviewer result is missing or changed; collection remains blocked")
+	}
+	return nil
+}
+
+func ensureReviewerResultIntakeRecoveryComplete(caseRoot string, packet Packet, packetPath, shardID, lane, resultPath string) error {
+	for _, handoff := range packet.ShardHandoffs {
+		if handoff.ShardID != shardID || !casebind.SamePath(handoff.ReviewerResultPath, resultPath) {
+			continue
+		}
+		intentPath := filepath.Join(packet.ReviewerOrchestration.ResultRoot, "recoveries", handoff.ShardID+".recovery.intent.json")
+		if _, err := os.Lstat(intentPath); os.IsNotExist(err) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		candidate, err := readStableReviewerArtifact(filepath.Dir(handoff.ReviewerResultCandidatePath), handoff.ReviewerResultCandidatePath, "reviewer result candidate", maxReviewerResultBytes)
+		if err != nil {
+			return fmt.Errorf("reviewer result recovery intent exists but its exact candidate is unavailable; intake remains blocked: %w", err)
+		}
+		if err := ensureReviewerResultCollectionRecoveryComplete(caseRoot, packet, packetPath, handoff, lane, candidate); err != nil {
+			return fmt.Errorf("reviewer result recovery is incomplete; intake remains blocked: %w", err)
+		}
+		return nil
 	}
 	return nil
 }
@@ -329,6 +459,63 @@ func ensureReviewerResultRecoveryRoot(caseRoot string, paths reviewerResultRecov
 		!reviewpath.CollectionNamespacePathSafe(caseRoot, paths.receiptPath, true) ||
 		!reviewpath.CollectionNamespacePathSafe(caseRoot, paths.quarantinePath, true) {
 		return fmt.Errorf("reviewer result recovery paths are not safe")
+	}
+	return nil
+}
+
+func quarantineReviewerResultObstruction(caseRoot, resultPath, quarantinePath, namespaceGuardPath string, expected reviewerResultObstructionSnapshot) error {
+	if expected.Kind == "directory" {
+		return fmt.Errorf("canonical reviewer result directory cannot be recovered automatically; leave concurrent directory contents untouched")
+	}
+	quarantineRoot := filepath.Dir(quarantinePath)
+	resultRoot := filepath.Dir(resultPath)
+	if !casebind.SamePath(resultRoot, filepath.Dir(quarantineRoot)) || !reviewpath.CollectionNamespacePathSafe(caseRoot, resultRoot, false) || !reviewpath.CollectionNamespacePathSafe(caseRoot, quarantineRoot, false) || !reviewpath.CollectionNamespacePathSafe(caseRoot, quarantinePath, true) {
+		return fmt.Errorf("reviewer result obstruction recovery paths are not safe")
+	}
+	collectionRoot, err := os.OpenRoot(resultRoot)
+	if err != nil {
+		return err
+	}
+	defer collectionRoot.Close()
+	current, err := readReviewerResultObstruction(caseRoot, resultPath)
+	if err != nil || current != expected {
+		return fmt.Errorf("canonical reviewer result obstruction changed after recovery preview")
+	}
+	if _, err := os.Lstat(quarantinePath); err == nil {
+		moved, movedErr := readReviewerResultObstruction(caseRoot, quarantinePath)
+		if movedErr != nil || moved != expected {
+			return fmt.Errorf("reviewer result obstruction quarantine already contains a different object")
+		}
+		current, currentErr := readReviewerResultObstruction(caseRoot, resultPath)
+		if currentErr != nil || current != expected {
+			return fmt.Errorf("canonical reviewer result obstruction changed before interrupted recovery resumed")
+		}
+		if err := collectionRoot.Remove(filepath.Base(resultPath)); err != nil {
+			return err
+		}
+		if _, statErr := collectionRoot.Lstat(filepath.Base(resultPath)); !os.IsNotExist(statErr) {
+			return fmt.Errorf("canonical reviewer result obstruction reappeared after interrupted recovery cleanup")
+		}
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	validate := func() error {
+		current, err := readReviewerResultObstructionAt(collectionRoot, filepath.Base(resultPath))
+		if err != nil || current != expected {
+			return fmt.Errorf("canonical reviewer result obstruction changed immediately before exact move")
+		}
+		return nil
+	}
+	if expected.Kind != "empty-file" {
+		return fmt.Errorf("exact %s reviewer result obstruction recovery is unavailable until its source snapshot can be handle-validated", expected.Kind)
+	}
+	if err := moveReviewerResultObstructionExact(resultPath, quarantinePath, namespaceGuardPath, validate); err != nil {
+		return fmt.Errorf("quarantine canonical reviewer result obstruction: %w", err)
+	}
+	moved, movedErr := readReviewerResultObstruction(caseRoot, quarantinePath)
+	if movedErr != nil || moved != expected {
+		return fmt.Errorf("verify exact quarantined reviewer result obstruction")
 	}
 	return nil
 }
@@ -390,14 +577,16 @@ func resumeReviewerResultRecovery(caseRoot string, result ReviewerResultRecovery
 	if intentErr != nil {
 		return ReviewerResultRecoveryResult{}, fmt.Errorf("canonical reviewer result is missing and no exact recovery receipt or recoverable intent exists")
 	}
+	result.ReviewerResultKind = intent.ReviewerResultKind
 	result.ReviewerResultSHA256 = intent.ReviewerResultSHA256
 	result.ReviewerResultBytes = intent.ReviewerResultBytes
+	result.ReviewerResultMode = intent.ReviewerResultMode
+	result.ReviewerResultLinkTarget = intent.ReviewerResultLinkTarget
 	result.QuarantinePath = intent.QuarantinePath
 	if !reviewerResultRecoveryReceiptCurrent(intent, result) {
 		return ReviewerResultRecoveryResult{}, fmt.Errorf("reviewer result recovery intent does not match the current candidate and canonical namespace")
 	}
-	quarantined, err := readStableReviewerArtifact(filepath.Dir(intent.QuarantinePath), intent.QuarantinePath, "quarantined reviewer result", maxReviewerResultBytes)
-	if err != nil || sha256Hex(quarantined) != intent.ReviewerResultSHA256 || len(quarantined) != intent.ReviewerResultBytes {
+	if !reviewerResultRecoveryQuarantineMatches(caseRoot, intent) {
 		return ReviewerResultRecoveryResult{}, fmt.Errorf("exact quarantined reviewer result for recovery intent is missing or changed")
 	}
 	if result.IsMutation {
@@ -418,15 +607,26 @@ func resumeReviewerResultRecovery(caseRoot string, result ReviewerResultRecovery
 	return finalizeReviewerResultRecoveryResult(result), nil
 }
 
+func reviewerResultRecoveryQuarantineMatches(caseRoot string, receipt ReviewerResultRecoveryReceipt) bool {
+	if receipt.ReviewerResultKind == "regular-file" {
+		data, err := readStableReviewerArtifact(filepath.Dir(receipt.QuarantinePath), receipt.QuarantinePath, "quarantined reviewer result", maxReviewerResultBytes)
+		return err == nil && sha256Hex(data) == receipt.ReviewerResultSHA256 && len(data) == receipt.ReviewerResultBytes
+	}
+	snapshot, err := readReviewerResultObstruction(caseRoot, receipt.QuarantinePath)
+	return err == nil && snapshot.Kind == receipt.ReviewerResultKind && snapshot.Fingerprint == receipt.ReviewerResultSHA256 && snapshot.Bytes == receipt.ReviewerResultBytes && snapshot.Mode == receipt.ReviewerResultMode && snapshot.LinkTarget == receipt.ReviewerResultLinkTarget
+}
+
 func recoveredReviewerResult(result ReviewerResultRecoveryResult, receipt ReviewerResultRecoveryReceipt, already bool) (ReviewerResultRecoveryResult, error) {
+	result.ReviewerResultKind = receipt.ReviewerResultKind
 	result.ReviewerResultSHA256 = receipt.ReviewerResultSHA256
 	result.ReviewerResultBytes = receipt.ReviewerResultBytes
+	result.ReviewerResultMode = receipt.ReviewerResultMode
+	result.ReviewerResultLinkTarget = receipt.ReviewerResultLinkTarget
 	result.QuarantinePath = receipt.QuarantinePath
 	if !reviewerResultRecoveryReceiptCurrent(receipt, result) {
 		return ReviewerResultRecoveryResult{}, fmt.Errorf("reviewer result recovery receipt does not match the current candidate and canonical namespace")
 	}
-	quarantined, err := readStableReviewerArtifact(filepath.Dir(receipt.QuarantinePath), receipt.QuarantinePath, "quarantined reviewer result", maxReviewerResultBytes)
-	if err != nil || sha256Hex(quarantined) != receipt.ReviewerResultSHA256 || len(quarantined) != receipt.ReviewerResultBytes {
+	if !reviewerResultRecoveryQuarantineMatches(result.CaseRoot, receipt) {
 		return ReviewerResultRecoveryResult{}, fmt.Errorf("exact quarantined reviewer result is missing or changed")
 	}
 	result.Applied = true
@@ -440,7 +640,9 @@ func reviewerResultRecoveryReceipt(result ReviewerResultRecoveryResult) Reviewer
 		RepoRoot: result.RepoRoot, CaseRoot: result.CaseRoot, Pack: result.Pack,
 		PacketID: result.PacketID, PacketPath: result.PacketPath, ShardID: result.ShardID, Lane: result.Lane,
 		CandidatePath: result.CandidatePath, CandidateSHA256: result.CandidateSHA256, CandidateBytes: result.CandidateBytes,
-		ReviewerResultPath: result.ReviewerResultPath, ReviewerResultSHA256: result.ReviewerResultSHA256, ReviewerResultBytes: result.ReviewerResultBytes,
+		ReviewerResultPath: result.ReviewerResultPath, ReviewerResultKind: result.ReviewerResultKind,
+		ReviewerResultSHA256: result.ReviewerResultSHA256, ReviewerResultBytes: result.ReviewerResultBytes,
+		ReviewerResultMode: result.ReviewerResultMode, ReviewerResultLinkTarget: result.ReviewerResultLinkTarget,
 		QuarantinePath: result.QuarantinePath, Actor: result.Actor, Reason: result.Reason,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), NoVerdict: true, NoFacts: true, NoHeavyTool: true, NoAuthority: true,
 	}
@@ -521,8 +723,9 @@ func readReviewerResultRecoveryReceipt(_ string, path string) (ReviewerResultRec
 	if receipt.SchemaVersion != 1 || receipt.Kind != "reviewer-result-recovery" {
 		return ReviewerResultRecoveryReceipt{}, fmt.Errorf("reviewer result recovery receipt schema or kind is invalid")
 	}
-	if !validReviewerRecoverySHA256(receipt.CandidateSHA256) || !validReviewerRecoverySHA256(receipt.ReviewerResultSHA256) || receipt.CandidateBytes <= 0 || receipt.ReviewerResultBytes <= 0 {
-		return ReviewerResultRecoveryReceipt{}, fmt.Errorf("reviewer result recovery receipt hash or byte binding is invalid")
+	validResultKind := receipt.ReviewerResultKind == "regular-file" || receipt.ReviewerResultKind == "empty-file" || receipt.ReviewerResultKind == "symlink" || receipt.ReviewerResultKind == "directory" || receipt.ReviewerResultKind == "non-regular"
+	if !validReviewerRecoverySHA256(receipt.CandidateSHA256) || !validReviewerRecoverySHA256(receipt.ReviewerResultSHA256) || receipt.CandidateBytes <= 0 || !validResultKind || (receipt.ReviewerResultKind == "regular-file" && receipt.ReviewerResultBytes <= 0) || receipt.ReviewerResultBytes < 0 {
+		return ReviewerResultRecoveryReceipt{}, fmt.Errorf("reviewer result recovery receipt hash, kind, or byte binding is invalid")
 	}
 	if strings.TrimSpace(receipt.PacketID) == "" || strings.TrimSpace(receipt.ShardID) == "" || strings.TrimSpace(receipt.Lane) == "" || strings.TrimSpace(receipt.Actor) == "" || strings.TrimSpace(receipt.Reason) == "" {
 		return ReviewerResultRecoveryReceipt{}, fmt.Errorf("reviewer result recovery receipt identity binding is incomplete")
@@ -543,19 +746,23 @@ func reviewerResultRecoveryReceiptEquivalent(a, b ReviewerResultRecoveryReceipt)
 		casebind.SamePath(a.RepoRoot, b.RepoRoot) && casebind.SamePath(a.CaseRoot, b.CaseRoot) && a.Pack == b.Pack &&
 		a.PacketID == b.PacketID && casebind.SamePath(a.PacketPath, b.PacketPath) && a.ShardID == b.ShardID && a.Lane == b.Lane &&
 		casebind.SamePath(a.CandidatePath, b.CandidatePath) && a.CandidateSHA256 == b.CandidateSHA256 && a.CandidateBytes == b.CandidateBytes &&
-		casebind.SamePath(a.ReviewerResultPath, b.ReviewerResultPath) && a.ReviewerResultSHA256 == b.ReviewerResultSHA256 && a.ReviewerResultBytes == b.ReviewerResultBytes &&
+		casebind.SamePath(a.ReviewerResultPath, b.ReviewerResultPath) && a.ReviewerResultKind == b.ReviewerResultKind && a.ReviewerResultSHA256 == b.ReviewerResultSHA256 && a.ReviewerResultBytes == b.ReviewerResultBytes && a.ReviewerResultMode == b.ReviewerResultMode && a.ReviewerResultLinkTarget == b.ReviewerResultLinkTarget &&
 		casebind.SamePath(a.QuarantinePath, b.QuarantinePath) && a.Actor == b.Actor && a.Reason == b.Reason &&
 		a.NoVerdict == b.NoVerdict && a.NoFacts == b.NoFacts && a.NoHeavyTool == b.NoHeavyTool && a.NoAuthority == b.NoAuthority
 }
 
 func reviewerResultRecoveryReceiptCurrent(receipt ReviewerResultRecoveryReceipt, result ReviewerResultRecoveryResult) bool {
 	expectedQuarantinePath := filepath.Join(filepath.Dir(result.ReceiptPath), result.ShardID+"-"+receipt.ReviewerResultSHA256+".json")
+	quarantinePathSafe := reviewpath.CollectionNamespacePathSafe(result.CaseRoot, receipt.QuarantinePath, false)
+	if receipt.ReviewerResultKind != "regular-file" {
+		quarantinePathSafe = reviewpath.CollectionNamespacePathSafe(result.CaseRoot, filepath.Dir(receipt.QuarantinePath), false)
+	}
 	return receipt.SchemaVersion == 1 && receipt.Kind == "reviewer-result-recovery" &&
 		casebind.SamePath(receipt.RepoRoot, result.RepoRoot) && casebind.SamePath(receipt.CaseRoot, result.CaseRoot) && receipt.Pack == result.Pack &&
 		receipt.PacketID == result.PacketID && casebind.SamePath(receipt.PacketPath, result.PacketPath) && receipt.ShardID == result.ShardID && receipt.Lane == result.Lane &&
 		casebind.SamePath(receipt.CandidatePath, result.CandidatePath) && receipt.CandidateSHA256 == result.CandidateSHA256 && receipt.CandidateBytes == result.CandidateBytes &&
-		casebind.SamePath(receipt.ReviewerResultPath, result.ReviewerResultPath) && validReviewerRecoverySHA256(receipt.ReviewerResultSHA256) && receipt.ReviewerResultBytes > 0 &&
-		casebind.SamePath(receipt.QuarantinePath, expectedQuarantinePath) && reviewpath.CollectionNamespacePathSafe(result.CaseRoot, receipt.QuarantinePath, false) &&
+		casebind.SamePath(receipt.ReviewerResultPath, result.ReviewerResultPath) && receipt.ReviewerResultKind == result.ReviewerResultKind && validReviewerRecoverySHA256(receipt.ReviewerResultSHA256) && receipt.ReviewerResultBytes == result.ReviewerResultBytes && receipt.ReviewerResultMode == result.ReviewerResultMode && receipt.ReviewerResultLinkTarget == result.ReviewerResultLinkTarget &&
+		casebind.SamePath(receipt.QuarantinePath, expectedQuarantinePath) && quarantinePathSafe &&
 		receipt.Actor == result.Actor && receipt.Reason == result.Reason &&
 		receipt.NoVerdict && receipt.NoFacts && receipt.NoHeavyTool && receipt.NoAuthority
 }

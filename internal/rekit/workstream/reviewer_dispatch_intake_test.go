@@ -279,7 +279,7 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent := reviewerResultRecoveryRecord{SchemaVersion: 1, Kind: "reviewer-result-recovery", RepoRoot: inst.TemplateRoot, CaseRoot: root, Pack: inst.TemplatePack, PacketID: packet.PacketID, PacketPath: packetPath, ShardID: "shard-01", Lane: "feature-review", CandidatePath: candidatePath, CandidateSHA256: reviewerDispatchBytesSHA256(candidateBytes), CandidateBytes: len(candidateBytes), ReviewerResultPath: resultPath, ReviewerResultSHA256: resultHash, ReviewerResultBytes: len(quarantined), QuarantinePath: quarantinePath, Actor: "mission-commander", Reason: "recover conflict", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), NoVerdict: true, NoFacts: true, NoHeavyTool: true, NoAuthority: true}
+	intent := reviewerResultRecoveryRecord{SchemaVersion: 1, Kind: "reviewer-result-recovery", RepoRoot: inst.TemplateRoot, CaseRoot: root, Pack: inst.TemplatePack, PacketID: packet.PacketID, PacketPath: packetPath, ShardID: "shard-01", Lane: "feature-review", CandidatePath: candidatePath, CandidateSHA256: reviewerDispatchBytesSHA256(candidateBytes), CandidateBytes: len(candidateBytes), ReviewerResultPath: resultPath, ReviewerResultKind: "regular-file", ReviewerResultSHA256: resultHash, ReviewerResultBytes: len(quarantined), QuarantinePath: quarantinePath, Actor: "mission-commander", Reason: "recover conflict", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), NoVerdict: true, NoFacts: true, NoHeavyTool: true, NoAuthority: true}
 	intentBytes, err := json.Marshal(intent)
 	if err != nil {
 		t.Fatal(err)
@@ -293,6 +293,26 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	interrupted := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
 	if interrupted.State != "reviewer-result-recovery-finalize-required" || interrupted.ReviewerResultRecoveryApplyCommand == "" || reviewerDispatchIntakeNextAction(interrupted) != interrupted.ReviewerResultRecoveryApplyCommand {
 		t.Fatalf("interrupted recovery did not block collection and promote exact finalize: %+v", interrupted)
+	}
+	if err := os.WriteFile(resultPath, candidateBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reappeared := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if reappeared.State != "reviewer-result-recovery-finalize-required" || reappeared.ReviewerResultRecoveryApplyCommand == "" {
+		t.Fatalf("reappeared canonical result bypassed interrupted recovery: %+v", reappeared)
+	}
+	if err := os.Remove(resultPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(resultPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reappearedEmpty := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if reappearedEmpty.State != "reviewer-result-recovery-finalize-required" || reappearedEmpty.ReviewerResultRecoveryApplyCommand == "" {
+		t.Fatalf("reappeared empty obstruction overrode interrupted recovery: %+v", reappearedEmpty)
+	}
+	if err := os.Remove(resultPath); err != nil {
+		t.Fatal(err)
 	}
 	actions = MissionCommanderNextActionsWithReviewerDispatches(nil, []ReviewerDispatchIntakeHandoff{interrupted})
 	if len(actions) != 1 || actions[0].Blocked || actions[0].Command != interrupted.ReviewerResultRecoveryApplyCommand || !strings.Contains(actions[0].Command, "-Actor mission-commander") || !strings.Contains(actions[0].Command, "-Reason \"recover conflict\"") {
@@ -339,8 +359,15 @@ func TestReviewerDispatchIntakeRejectsInvalidCanonicalShape(t *testing.T) {
 	packet := reviewerDispatchPacket{PacketID: "packet-invalid-canonical", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", PacketPath: packetPath, ResultRoot: resultRoot, Dispatches: []reviewerDispatchPacketDispatch{{ShardID: "shard-01"}}}}
 	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, ReviewerResultCandidatePath: candidatePath, CollectionCommands: &ReviewerResultCollectionCommands{CandidatePath: candidatePath, PreviewCommand: "collect-preview", ApplyCommand: "collect-apply"}, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
 	item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
-	if item.State != "reviewer-result-canonical-invalid" || !strings.Contains(reviewerDispatchIntakeNextAction(item), "non-regular canonical") {
-		t.Fatalf("invalid canonical target did not fail closed: %+v", item)
+	if item.State != "reviewer-result-canonical-invalid" || item.ReviewerResultRecoveryCommand != "" || !strings.Contains(reviewerDispatchIntakeNextAction(item), "automatic recovery remains blocked") {
+		t.Fatalf("empty canonical directory did not remain fail-closed: %+v", item)
+	}
+	if err := os.WriteFile(filepath.Join(resultPath, "foreign.txt"), []byte("do not remove\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blocked := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if blocked.State != "reviewer-result-canonical-invalid" || blocked.ReviewerResultRecoveryCommand != "" || !strings.Contains(reviewerDispatchIntakeNextAction(blocked), "automatic recovery remains blocked") {
+		t.Fatalf("non-empty canonical directory did not remain blocked: %+v", blocked)
 	}
 }
 

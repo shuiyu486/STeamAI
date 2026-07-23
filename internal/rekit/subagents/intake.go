@@ -635,6 +635,9 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 	if reviewerResult.PacketID != packet.PacketID {
 		return ReviewerIntakeResult{}, fmt.Errorf("reviewer result packetId %q does not match packet %q", reviewerResult.PacketID, packet.PacketID)
 	}
+	if err := ensureReviewerResultIntakeRecoveryComplete(caseRoot, packet, packetPath, reviewerResult.ShardID, lane, resultPath); err != nil {
+		return ReviewerIntakeResult{}, err
+	}
 	if reviewerResult.RouteID != packet.Route.ID {
 		return ReviewerIntakeResult{}, fmt.Errorf("reviewer result routeId %q does not match packet route %q", reviewerResult.RouteID, packet.Route.ID)
 	}
@@ -749,7 +752,7 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		return finalizeReviewerIntakeResult(result), nil
 	}
 
-	unlock, err := acquireReviewerIntakeLock(caseRoot, reviewerShardLockID(packet, reviewerResult, lane))
+	unlock, err := acquireReviewerIntakeLock(caseRoot, reviewerResultMutationLockID(packet.PacketID, reviewerResult.ShardID))
 	if err != nil {
 		return ReviewerIntakeResult{}, err
 	}
@@ -766,6 +769,16 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		return ReviewerIntakeResult{}, err
 	}
 	if err := validatePacketIntegrity(caseRoot, packetPath, packet, packetBytes); err != nil {
+		return ReviewerIntakeResult{}, err
+	}
+	currentResultBytes, err := readBoundedFile(resultPath, "reviewer result", maxReviewerResultBytes)
+	if err != nil {
+		return ReviewerIntakeResult{}, err
+	}
+	if !bytes.Equal(currentResultBytes, resultBytes) {
+		return ReviewerIntakeResult{}, fmt.Errorf("reviewer result changed before writeback")
+	}
+	if err := ensureReviewerResultIntakeRecoveryComplete(caseRoot, packet, packetPath, reviewerResult.ShardID, lane, resultPath); err != nil {
 		return ReviewerIntakeResult{}, err
 	}
 	if err := validateAdoptedOwnerStillCurrent(caseRoot, effectiveOwner); err != nil {
@@ -2255,10 +2268,8 @@ func reviewerIntakeID(packet Packet, result ReviewerResult, lane string) string 
 	return "review-" + hex.EncodeToString(sum[:])[:16]
 }
 
-func reviewerShardLockID(packet Packet, result ReviewerResult, lane string) string {
-	seed := strings.Join([]string{packet.PacketID, packet.Route.ID, result.ShardID, strings.TrimSpace(lane)}, "|")
-	sum := sha256.Sum256([]byte(seed))
-	return "reviewer-shard-" + hex.EncodeToString(sum[:])[:16]
+func reviewerResultMutationLockID(packetID, shardID string) string {
+	return "reviewer-result-" + strings.TrimSpace(packetID) + "-" + strings.TrimSpace(shardID)
 }
 
 func requiredAbsolutePath(path, label string) (string, error) {
