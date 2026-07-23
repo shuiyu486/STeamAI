@@ -633,7 +633,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	}
 }
 
-func TestRunPlanSubagentsRejectsShardIDOutsideCollection(t *testing.T) {
+func TestRunPlanSubagentsRejectsShardIDOutsideReviewerShardModes(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
@@ -646,7 +646,7 @@ func TestRunPlanSubagentsRejectsShardIDOutsideCollection(t *testing.T) {
 	plan := decodePlanSubagentsResult(t, out.Bytes())
 	out.Reset()
 	err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-ShardId", "shard-01", "-Lane", "feature-review", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out)
-	if err == nil || !strings.Contains(err.Error(), "supported only with -CollectReviewerResult") {
+	if err == nil || !strings.Contains(err.Error(), "supported only with -StageReviewerResult") {
 		t.Fatalf("-ShardId outside collection error = %v", err)
 	}
 	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
@@ -699,11 +699,31 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 		if handoff.ReviewerResultCandidatePath == "" || handoff.ReviewerResultCandidatePath == handoff.ReviewerResultPath {
 			t.Fatalf("reviewer collection candidate path is not distinct: %+v", handoff)
 		}
-		if err := os.MkdirAll(filepath.Dir(handoff.ReviewerResultCandidatePath), 0o755); err != nil {
+		sourcePath := filepath.Join(caseRoot, "workspace", "reviewer-results", handoff.ShardID+".json")
+		if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(handoff.ReviewerResultCandidatePath, data, 0o644); err != nil {
+		if err := os.WriteFile(sourcePath, data, 0o644); err != nil {
 			t.Fatal(err)
+		}
+		out.Reset()
+		if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-StageReviewerResult", "-ShardId", handoff.ShardID, "-ReviewerResultSourcePath", sourcePath, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		stagingPreview := decodeReviewerResultStagingCLIResult(t, out.Bytes())
+		if stagingPreview.Mode != "reviewer-result-staging" || stagingPreview.Status != "previewed" || stagingPreview.IsMutation || stagingPreview.Applied || stagingPreview.SourceSHA256 == "" || stagingPreview.CandidatePath != handoff.ReviewerResultCandidatePath {
+			t.Fatalf("unexpected reviewer result staging preview: %+v", stagingPreview)
+		}
+		if _, err := os.Stat(handoff.ReviewerResultCandidatePath); !os.IsNotExist(err) {
+			t.Fatalf("reviewer result staging WhatIf wrote candidate: %v", err)
+		}
+		out.Reset()
+		if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-StageReviewerResult", "-ShardId", handoff.ShardID, "-ReviewerResultSourcePath", sourcePath, "-Lane", "feature-review", "-Actor", "mission-commander", "-ExpectedSourceSha256", stagingPreview.SourceSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		stagingApply := decodeReviewerResultStagingCLIResult(t, out.Bytes())
+		if stagingApply.Status != "staged" || !stagingApply.IsMutation || !stagingApply.Applied || stagingApply.AlreadyStaged {
+			t.Fatalf("unexpected reviewer result staging apply: %+v", stagingApply)
 		}
 
 		out.Reset()
@@ -1028,6 +1048,27 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 			t.Fatalf("reviewer intake partial recovery text missing %q:\n%s", expected, out.String())
 		}
 	}
+}
+
+type reviewerResultStagingCLIResult struct {
+	Mode          string `json:"mode"`
+	IsMutation    bool   `json:"isMutation"`
+	Applied       bool   `json:"applied"`
+	Status        string `json:"status"`
+	SourcePath    string `json:"sourcePath"`
+	SourceSHA256  string `json:"sourceSha256"`
+	SourceBytes   int    `json:"sourceBytes"`
+	CandidatePath string `json:"candidatePath"`
+	AlreadyStaged bool   `json:"alreadyStaged"`
+}
+
+func decodeReviewerResultStagingCLIResult(t *testing.T, data []byte) reviewerResultStagingCLIResult {
+	t.Helper()
+	var result reviewerResultStagingCLIResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("reviewer result staging stdout is not JSON: %v\n%s", err, string(data))
+	}
+	return result
 }
 
 type reviewerResultCollectionCLIResult struct {

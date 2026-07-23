@@ -226,13 +226,17 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := &ReviewerAgentToolRequest{Tool: "Claude Code Agent", AgentType: "read-only-reviewer", ReadOnly: true, Prompt: "review", ExpectedOutput: "one JSON object"}
+	staging := &ReviewerResultStagingCommands{SourcePathArgument: "<case-local-reviewer-json>", PreviewCommand: "forged-staging-preview"}
 	commands := &ReviewerResultCollectionCommands{CandidatePath: candidatePath, PreviewCommand: "collect-preview", ApplyCommand: "collect-apply"}
 	packet := reviewerDispatchPacket{PacketID: "packet-collection", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", PacketPath: packetPath, ResultRoot: resultRoot, Dispatches: []reviewerDispatchPacketDispatch{{ShardID: "shard-01"}}}}
-	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, ReviewerResultCandidatePath: candidatePath, AgentToolRequest: request, CollectionCommands: commands, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
+	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, ReviewerResultCandidatePath: candidatePath, AgentToolRequest: request, StagingCommands: staging, CollectionCommands: commands, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
 
 	missing := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, firstText(packet.ReviewerOrchestration.PacketPath, "packet.json"), "feature-review", dispatch, 0)
-	if missing.State != "waiting-for-reviewer-result" || missing.ReviewerResultCandidateState != "missing" || missing.AgentToolRequest == nil || missing.ReviewerResultCollectionCommands == nil || !strings.Contains(missing.DispatchCommand, "agentToolRequest.prompt") {
+	if missing.State != "waiting-for-reviewer-result" || missing.ReviewerResultCandidateState != "missing" || missing.AgentToolRequest == nil || missing.ReviewerResultStagingCommand == "" || missing.ReviewerResultCollectionCommands == nil || !strings.Contains(missing.DispatchCommand, "agentToolRequest.prompt") || !strings.Contains(missing.DispatchCommand, "expected-hash Apply") {
 		t.Fatalf("missing candidate handoff omitted typed dispatch/collection state: %+v", missing)
+	}
+	if !strings.Contains(missing.ReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(missing.ReviewerResultStagingCommand, "-ReviewerResultSourcePath <case-local-reviewer-json>") || strings.Contains(missing.ReviewerResultStagingCommand, "forged-staging-preview") {
+		t.Fatalf("staging command was not rebuilt from canonical bindings: %+v", missing)
 	}
 	if err := os.MkdirAll(filepath.Dir(candidatePath), 0o755); err != nil {
 		t.Fatal(err)

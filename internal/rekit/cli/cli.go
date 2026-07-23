@@ -56,6 +56,9 @@ type Options struct {
 	AdoptReviewerPacket          bool
 	RetireInvalidReviewerPacket  bool
 	RetireReviewerResultRecovery bool
+	StageReviewerResult          bool
+	ReviewerResultSourcePath     string
+	ExpectedSourceSHA256         string
 	ExpectedPacketSHA256         string
 	ExpectedIntegritySHA256      string
 	RecoverReviewerResult        bool
@@ -179,6 +182,20 @@ func Parse(args []string) (Options, error) {
 			opt.RetireInvalidReviewerPacket = true
 		case "-RetireReviewerResultRecovery", "--retire-reviewer-result-recovery":
 			opt.RetireReviewerResultRecovery = true
+		case "-StageReviewerResult", "--stage-reviewer-result":
+			opt.StageReviewerResult = true
+		case "-ReviewerResultSourcePath", "--reviewer-result-source-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerResultSourcePath")
+			}
+			opt.ReviewerResultSourcePath = args[i]
+		case "-ExpectedSourceSha256", "--expected-source-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedSourceSha256")
+			}
+			opt.ExpectedSourceSHA256 = args[i]
 		case "-ExpectedPacketSha256", "--expected-packet-sha256":
 			i++
 			if i >= len(args) {
@@ -636,6 +653,9 @@ func Run(args []string, stdout io.Writer) error {
 	}
 	if strings.TrimSpace(opt.ReviewerResultPath) != "" && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("-ReviewerResultPath is supported only by plan-subagents reviewer intake")
+	}
+	if (opt.StageReviewerResult || strings.TrimSpace(opt.ReviewerResultSourcePath) != "" || strings.TrimSpace(opt.ExpectedSourceSHA256) != "") && opt.Command != commands.PlanSubagents {
+		return fmt.Errorf("reviewer result staging flags are supported only by plan-subagents reviewer result staging")
 	}
 	if opt.ReadyReviewerResults && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("-ReadyReviewerResults is supported only by plan-subagents reviewer batch intake")
@@ -5150,8 +5170,8 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(opt.ShardID) != "" && !opt.CollectReviewerResult && !opt.RecoverReviewerResult && !opt.RetireReviewerResultRecovery {
-		return fmt.Errorf("-ShardId is supported only with -CollectReviewerResult, -RecoverReviewerResult, or -RetireReviewerResultRecovery")
+	if strings.TrimSpace(opt.ShardID) != "" && !opt.StageReviewerResult && !opt.CollectReviewerResult && !opt.RecoverReviewerResult && !opt.RetireReviewerResultRecovery {
+		return fmt.Errorf("-ShardId is supported only with -StageReviewerResult, -CollectReviewerResult, -RecoverReviewerResult, or -RetireReviewerResultRecovery")
 	}
 	if !opt.RetireInvalidReviewerPacket && (strings.TrimSpace(opt.ExpectedPacketSHA256) != "" || strings.TrimSpace(opt.ExpectedIntegritySHA256) != "") {
 		return fmt.Errorf("expected packet/integrity hashes are supported only with -RetireInvalidReviewerPacket -Apply")
@@ -5161,6 +5181,41 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	if !opt.RetireReviewerResultRecovery && (strings.TrimSpace(opt.ExpectedIntentSHA256) != "" || strings.TrimSpace(opt.ExpectedCanonicalSHA256) != "") {
 		return fmt.Errorf("expected intent/canonical hashes are supported only with -RetireReviewerResultRecovery -Apply")
+	}
+	if !opt.StageReviewerResult && (strings.TrimSpace(opt.ReviewerResultSourcePath) != "" || strings.TrimSpace(opt.ExpectedSourceSHA256) != "") {
+		return fmt.Errorf("reviewer result source path/hash are supported only with -StageReviewerResult")
+	}
+	if opt.StageReviewerResult {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.RetireInvalidReviewerPacket || opt.RetireReviewerResultRecovery || opt.CollectReviewerResult || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+			return fmt.Errorf("plan-subagents reviewer result staging cannot combine with other reviewer modes")
+		}
+		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
+			return fmt.Errorf("plan-subagents reviewer result staging does not support planning scope flags")
+		}
+		if opt.Apply == opt.WhatIf {
+			return fmt.Errorf("plan-subagents reviewer result staging requires exactly one of -WhatIf or -Apply")
+		}
+		if opt.WhatIf && strings.TrimSpace(opt.ExpectedSourceSHA256) != "" {
+			return fmt.Errorf("plan-subagents reviewer result staging preview does not accept an expected source hash")
+		}
+		if opt.Apply && strings.TrimSpace(opt.ExpectedSourceSHA256) == "" {
+			return fmt.Errorf("plan-subagents reviewer result staging apply requires expected source hash from WhatIf")
+		}
+		if strings.TrimSpace(opt.PacketPath) == "" || strings.TrimSpace(opt.ShardID) == "" || strings.TrimSpace(opt.ReviewerResultSourcePath) == "" {
+			return fmt.Errorf("plan-subagents reviewer result staging requires -PacketPath, -ShardId, and -ReviewerResultSourcePath")
+		}
+		format, err := planSubagentsFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
+		}
+		result, err := subagents.StageReviewerResult(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultStagingOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedSourceSHA256: opt.ExpectedSourceSHA256, WhatIf: opt.WhatIf})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePlanSubagentsReviewerResultStagingText(out, result)
 	}
 	if opt.CollectReviewerResult {
 		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.RetireInvalidReviewerPacket || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" {
@@ -5642,6 +5697,11 @@ func writePlanSubagentsShardHandoffText(out io.Writer, result subagents.Result) 
 				return err
 			}
 		}
+		if commands := handoff.ReviewerStagingCommands; commands != nil {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer staging command：shard=%s source=%s preview=`%s`\n", handoff.ShardID, commands.SourcePathArgument, commands.PreviewCommand); err != nil {
+				return err
+			}
+		}
 		if commands := handoff.ReviewerCollectionCommands; commands != nil {
 			if _, err := fmt.Fprintf(out, "plan-subagents reviewer collection command：shard=%s candidate=%s preview=`%s` apply=`%s`\n", handoff.ShardID, commands.CandidatePath, commands.PreviewCommand, commands.ApplyCommand); err != nil {
 				return err
@@ -5975,6 +6035,26 @@ func writeReviewerIntakeSummaryText(out io.Writer, summary subagents.ReviewerInt
 		}
 	}
 	return nil
+}
+
+func writePlanSubagentsReviewerResultStagingText(out io.Writer, result subagents.ReviewerResultStagingResult) error {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer result staging：status=%s mutation=%t applied=%t alreadyStaged=%t packet=%s shard=%s lane=%s actor=%s reviewerSession=%s\n", result.Status, result.IsMutation, result.Applied, result.AlreadyStaged, result.PacketID, result.ShardID, result.Lane, result.Actor, result.ReviewerResult.ReviewerSession); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "reviewer result staging artifact：source=%s sourceSha256=%s sourceBytes=%d candidate=%s\n", result.SourcePath, result.SourceSHA256, result.SourceBytes, result.CandidatePath); err != nil {
+		return err
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "reviewer result staging next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "reviewer result staging boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue)
 }
 
 func writePlanSubagentsReviewerResultCollectionText(out io.Writer, result subagents.ReviewerResultCollectionResult) error {

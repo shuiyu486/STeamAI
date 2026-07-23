@@ -224,39 +224,9 @@ func prepareReviewerResultCollectionMode(repoRoot, caseRoot, pack string, opt Re
 	if err != nil {
 		return preparedReviewerResultCollection{}, err
 	}
-	reviewerResult, err := decodeReviewerResult(candidate)
+	reviewerResult, err := validateReviewerResultCandidate(repoRoot, caseRoot, packet, shardID, candidate)
 	if err != nil {
 		return preparedReviewerResultCollection{}, err
-	}
-	if reviewerResult.PacketID != packet.PacketID {
-		return preparedReviewerResultCollection{}, fmt.Errorf("reviewer result packetId %q does not match packet %q", reviewerResult.PacketID, packet.PacketID)
-	}
-	if reviewerResult.RouteID != packet.Route.ID {
-		return preparedReviewerResultCollection{}, fmt.Errorf("reviewer result routeId %q does not match packet route %q", reviewerResult.RouteID, packet.Route.ID)
-	}
-	if reviewerResult.ShardID != shardID {
-		return preparedReviewerResultCollection{}, fmt.Errorf("reviewer result shard %q does not match expected packet handoff shard %q", reviewerResult.ShardID, shardID)
-	}
-	shard, ok := shardByID(packet.Shards, shardID)
-	if !ok || !slicesEqual(reviewerResult.Items, shard.Items) {
-		return preparedReviewerResultCollection{}, fmt.Errorf("reviewer result items do not match packet shard %s: got %v, want %v", shardID, reviewerResult.Items, shard.Items)
-	}
-	if err := validateRouteOutput(packet.OutputContract, reviewerResult.RouteOutput); err != nil {
-		return preparedReviewerResultCollection{}, err
-	}
-	if err := validateRouteOutputBindings(reviewerResult); err != nil {
-		return preparedReviewerResultCollection{}, err
-	}
-	mapping, ok := reviewerDecisionMappingByDecision(reviewerResult.Decision)
-	if !ok {
-		return preparedReviewerResultCollection{}, fmt.Errorf("invalid reviewer decision %q", reviewerResult.Decision)
-	}
-	blocked, err := reviewerIntakeBlockers(repoRoot, caseRoot, packet, reviewerResult, mapping)
-	if err != nil {
-		return preparedReviewerResultCollection{}, err
-	}
-	if len(blocked) > 0 {
-		return preparedReviewerResultCollection{}, fmt.Errorf("reviewer result candidate is not ready for immutable collection: %s", strings.Join(blocked, "; "))
 	}
 	if !allowCollision {
 		if err := ensureReviewerResultCollectionRecoveryComplete(caseRoot, packet, packetPath, handoff, lane, candidate); err != nil {
@@ -282,6 +252,44 @@ func prepareReviewerResultCollectionMode(repoRoot, caseRoot, pack string, opt Re
 		return preparedReviewerResultCollection{}, fmt.Errorf("canonical reviewer result %q already contains different bytes; run reviewer result recovery -WhatIf; refusing overwrite", resultPath)
 	}
 	return preparedReviewerResultCollection{packetPath: packetPath, packetData: packetData, packet: packet, handoff: handoff, candidate: candidate, canonical: canonical, canonicalPresent: canonicalPresent, canonicalObstruction: obstruction, result: reviewerResult, alreadyCollected: alreadyCollected, lane: lane, actor: actor}, nil
+}
+
+func validateReviewerResultCandidate(repoRoot, caseRoot string, packet Packet, shardID string, candidate []byte) (ReviewerResult, error) {
+	reviewerResult, err := decodeReviewerResult(candidate)
+	if err != nil {
+		return ReviewerResult{}, err
+	}
+	if reviewerResult.PacketID != packet.PacketID {
+		return ReviewerResult{}, fmt.Errorf("reviewer result packetId %q does not match packet %q", reviewerResult.PacketID, packet.PacketID)
+	}
+	if reviewerResult.RouteID != packet.Route.ID {
+		return ReviewerResult{}, fmt.Errorf("reviewer result routeId %q does not match packet route %q", reviewerResult.RouteID, packet.Route.ID)
+	}
+	if reviewerResult.ShardID != shardID {
+		return ReviewerResult{}, fmt.Errorf("reviewer result shard %q does not match expected packet handoff shard %q", reviewerResult.ShardID, shardID)
+	}
+	shard, ok := shardByID(packet.Shards, shardID)
+	if !ok || !slicesEqual(reviewerResult.Items, shard.Items) {
+		return ReviewerResult{}, fmt.Errorf("reviewer result items do not match packet shard %s: got %v, want %v", shardID, reviewerResult.Items, shard.Items)
+	}
+	if err := validateRouteOutput(packet.OutputContract, reviewerResult.RouteOutput); err != nil {
+		return ReviewerResult{}, err
+	}
+	if err := validateRouteOutputBindings(reviewerResult); err != nil {
+		return ReviewerResult{}, err
+	}
+	mapping, ok := reviewerDecisionMappingByDecision(reviewerResult.Decision)
+	if !ok {
+		return ReviewerResult{}, fmt.Errorf("invalid reviewer decision %q", reviewerResult.Decision)
+	}
+	blocked, err := reviewerIntakeBlockers(repoRoot, caseRoot, packet, reviewerResult, mapping)
+	if err != nil {
+		return ReviewerResult{}, err
+	}
+	if len(blocked) > 0 {
+		return ReviewerResult{}, fmt.Errorf("reviewer result candidate is not ready for immutable collection: %s", strings.Join(blocked, "; "))
+	}
+	return reviewerResult, nil
 }
 
 func newReviewerResultCollectionResult(repoRoot, caseRoot, pack string, opt ReviewerResultCollectionOptions, prepared preparedReviewerResultCollection) ReviewerResultCollectionResult {

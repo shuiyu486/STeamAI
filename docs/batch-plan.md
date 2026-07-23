@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 558：reviewer result staging / candidate publication closure
+
+状态：已完成implementation、focused/package/product-path validation、独立审查修复、最终复核与完整本地release minimum；等待implementation commit/push与远程release-gate inspection。
+
+目标：关闭主Agent必须把read-only reviewer返回JSON直接写入packet-derived canonical candidate path的产品断点。允许先保存到任意case-local source，再以Go-owned WhatIf→expected-source-hash Apply严格验证并no-overwrite发布candidate，随后进入既有collection→intake。
+
+已完成内容：
+
+- 新增`plan-subagents -StageReviewerResult -ReviewerResultSourcePath ... -ShardId ... -WhatIf/-Apply`。WhatIf stable读取symlink-free case-local non-empty regular source，复用collection authoritative validator校验packet integrity、route/shard/items、routeOutput、decision/evidence/blockers，并返回source SHA-256/size及packet-derived candidate target；Apply在共享packet/shard mutation lock内重读并绑定expected source hash。
+- staging通过既有temp file + Sync + hard-link no-replace publication发布exact source bytes；different/obstructed candidate不覆盖，exact replay幂等，source保持不变。candidate parent仅在canonical result namespace内按需创建并重验symlink-free geometry。
+- fresh planning packet/shard handoff、terminal text与durable workstream投影typed staging preview template；主Agent路径变为read-only Agent JSON → bounded case-local source → staging WhatIf/Apply → collection WhatIf/Apply → packet batch intake。legacy packet缺staging字段仍保留collection capability并由workstream从canonical bindings重建命令。
+- package与CLI product-path tests覆盖WhatIf no-write、expected-hash Apply、source drift、candidate collision、out-of-case与case-internal symlink source、candidate directory换绑、idempotent replay，以及nested case cwd/no Target/no Pack staging→collection→batch intake。
+
+边界：staging不删除或修改source，不覆盖different candidate，不自动collection/intake，不spawn/stop/poll/monitor reviewer，不执行heavy-tool，不写facts/authority/confirmed，不新增PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli`已通过。独立审查发现并修复source/candidate publication祖先namespace换绑竞态与staging flags在非`plan-subagents`命令被静默忽略；复核进一步发现`os.Root`会跟随case内symlink，以及packet validation与publication之间仍可整体换绑普通namespace。现已用同一逐组件no-follow parent handle读取packet+integrity并绑定identity，保存validated result-root identity供publication重验，在link前后确认canonical result/candidates paths仍绑定prepared handles。case-internal source symlink、同步candidate directory换绑与prepare→publication result namespace替换测试证明错误namespace无写入、不会误报staged。完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）与Linux package交叉编译已通过。最终独立复核确认所有post-Link失败出口均执行SameFile限定清理，candidate bytes、result/candidates namespace与packet snapshot全部通过后才返回`staged`，无剩余高置信finding。
+
+上一批摘要：Batch 557已完成ambiguous recovery disposition closure，implementation commit `3f932d9 Resolve ambiguous reviewer recovery state`与release inspection commit `d9b8a15 Record Batch 557 release gate inspection`已推送；对应run `29994310884`仍为既有`steps=[]` runner/billing blocker。
+
 ### Batch 557：ambiguous reviewer recovery disposition closure
 
 状态：已完成implementation、focused/package validation、独立审查修复、完整本地release minimum、implementation commit `3f932d9 Resolve ambiguous reviewer recovery state`/push与远程release-gate inspection。对应run `29994310884` completed failure；Windows/Linux jobs completed failure且`steps=[]`，macOS在run完成后仍queued且`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。

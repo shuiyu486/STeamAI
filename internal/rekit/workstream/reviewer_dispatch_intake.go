@@ -31,6 +31,11 @@ type ReviewerAgentToolRequest struct {
 	ExpectedOutput string `json:"expectedOutput"`
 }
 
+type ReviewerResultStagingCommands struct {
+	SourcePathArgument string `json:"sourcePathArgument"`
+	PreviewCommand     string `json:"previewCommand"`
+}
+
 type ReviewerResultCollectionCommands struct {
 	CandidatePath  string `json:"candidatePath"`
 	PreviewCommand string `json:"previewCommand"`
@@ -121,6 +126,7 @@ type ReviewerDispatchIntakeHandoff struct {
 	ReviewerResultCandidatePath              string                            `json:"reviewerResultCandidatePath,omitempty"`
 	ReviewerResultCandidateState             string                            `json:"reviewerResultCandidateState,omitempty"`
 	AgentToolRequest                         *ReviewerAgentToolRequest         `json:"agentToolRequest,omitempty"`
+	ReviewerResultStagingCommand             string                            `json:"reviewerResultStagingCommand,omitempty"`
 	ReviewerResultCollectionCommands         *ReviewerResultCollectionCommands `json:"reviewerResultCollectionCommands,omitempty"`
 	ReviewerResultRecoveryCommand            string                            `json:"reviewerResultRecoveryCommand,omitempty"`
 	ReviewerResultRecoveryApplyCommand       string                            `json:"reviewerResultRecoveryApplyCommand,omitempty"`
@@ -261,6 +267,7 @@ type reviewerDispatchPacketDispatch struct {
 	ReviewerResultPath          string                            `json:"reviewerResultPath"`
 	ReviewerResultCandidatePath string                            `json:"reviewerResultCandidatePath"`
 	AgentToolRequest            *ReviewerAgentToolRequest         `json:"agentToolRequest"`
+	StagingCommands             *ReviewerResultStagingCommands    `json:"stagingCommands"`
 	CollectionCommands          *ReviewerResultCollectionCommands `json:"collectionCommands"`
 	PreviewCommand              string                            `json:"previewCommand"`
 	ApplyCommand                string                            `json:"applyCommand"`
@@ -916,6 +923,14 @@ func reviewerDispatchResultRecoveryApplyCommand(packetPath, shardID, lane string
 		" -Apply -Format json"
 }
 
+func reviewerDispatchResultStagingCommand(packetPath, shardID, lane string) string {
+	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) +
+		" -StageReviewerResult -ShardId " + quoteCommandArg(shardID) +
+		" -ReviewerResultSourcePath <case-local-reviewer-json>" +
+		" -Lane " + quoteCommandArg(lane) + " -Actor <main-agent>" +
+		" -WhatIf -Format json"
+}
+
 func reviewerDispatchCollectionCommands(packetPath, shardID, lane, candidatePath string) ReviewerResultCollectionCommands {
 	base := "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) +
 		" -CollectReviewerResult -ShardId " + quoteCommandArg(shardID) +
@@ -941,8 +956,10 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		casebind.SamePath(dispatch.CollectionCommands.CandidatePath, candidatePath) &&
 		reviewerDispatchIntakeCommandAvailable(dispatch.CollectionCommands.PreviewCommand) &&
 		reviewerDispatchIntakeCommandAvailable(dispatch.CollectionCommands.ApplyCommand)
+	stagingCommand := ""
 	var collectionCommands *ReviewerResultCollectionCommands
 	if collectionAvailable {
+		stagingCommand = reviewerDispatchResultStagingCommand(packetPath, dispatch.ShardID, targetLane)
 		commands := reviewerDispatchCollectionCommands(packetPath, dispatch.ShardID, targetLane, candidatePath)
 		collectionCommands = &commands
 	} else {
@@ -1074,6 +1091,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		ReviewerResultCandidatePath:              candidatePath,
 		ReviewerResultCandidateState:             candidateState,
 		AgentToolRequest:                         dispatch.AgentToolRequest,
+		ReviewerResultStagingCommand:             stagingCommand,
 		ReviewerResultCollectionCommands:         collectionCommands,
 		ReviewerResultRecoveryCommand:            recoveryCommand,
 		ReviewerResultRecoveryApplyCommand:       recoveryApplyCommand,
@@ -1083,7 +1101,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		DispatchOnly:                             !intakeAvailable,
 		VerificationRecorded:                     verificationRecorded,
 		DecisionRecorded:                         decisionRecorded,
-		DispatchCommand:                          reviewerDispatchCommand(dispatch.ShardID, candidatePath, resultPath, dispatch.AgentToolRequest, idx),
+		DispatchCommand:                          reviewerDispatchCommand(dispatch.ShardID, stagingCommand, candidatePath, resultPath, dispatch.AgentToolRequest, idx),
 		PreviewCommand:                           dispatch.PreviewCommand,
 		ApplyCommand:                             dispatch.ApplyCommand,
 		BatchPreviewCommand:                      packet.ReviewerOrchestration.BatchPreviewCommand,
@@ -1281,8 +1299,9 @@ func reviewerDispatchIntakeBoundary(item ReviewerDispatchIntakeHandoff) []string
 	}
 	if item.ReviewerResultCollectionCommands != nil {
 		boundary = append(boundary,
-			"reviewer returns one JSON object; the main agent saves it to the packet-derived candidate path and runs collection -WhatIf before -Apply",
-			"collection publishes exact candidate bytes only to the immutable packet-derived reviewer result path and never overwrites different bytes",
+			"reviewer returns one JSON object; the main agent saves it to a bounded case-local source, runs staging -WhatIf, and uses its expected-source-hash -Apply command to publish the packet-derived candidate",
+			"staging and collection publish exact bytes without overwriting different candidates or canonical reviewer results",
+			"collection publishes exact candidate bytes only to the immutable packet-derived reviewer result path",
 		)
 	} else if item.IntakeAvailable {
 		boundary = append(boundary, "this packet has no canonical collection capability; save reviewer JSON directly to reviewerResultPath and use strict direct or batch intake")
@@ -1347,9 +1366,9 @@ func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string
 	}
 }
 
-func reviewerDispatchCommand(shardID, candidatePath, reviewerResultPath string, request *ReviewerAgentToolRequest, idx int) string {
-	if request != nil && strings.TrimSpace(candidatePath) != "" {
-		return "dispatch read-only reviewer for " + shardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].agentToolRequest.prompt; save exactly one JSON object at " + reviewerDispatchQuoteCommandArg(candidatePath) + ", then run reviewer result collection WhatIf before Apply"
+func reviewerDispatchCommand(shardID, stagingCommand, candidatePath, reviewerResultPath string, request *ReviewerAgentToolRequest, idx int) string {
+	if request != nil && strings.TrimSpace(candidatePath) != "" && strings.TrimSpace(stagingCommand) != "" {
+		return "dispatch read-only reviewer for " + shardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].agentToolRequest.prompt; save exactly one JSON object to a case-local source, run staging preview " + reviewerDispatchQuoteCommandArg(stagingCommand) + ", use its expected-hash Apply command to publish " + reviewerDispatchQuoteCommandArg(candidatePath) + ", then run reviewer result collection WhatIf before Apply"
 	}
 	return "dispatch read-only reviewer for " + shardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt; collect JSON at " + reviewerDispatchQuoteCommandArg(reviewerResultPath)
 }
@@ -1392,6 +1411,9 @@ func appendReviewerDispatchIntakeHandoff(lines []string, items []ReviewerDispatc
 		if item.AgentToolRequest != nil {
 			lines = append(lines, fmt.Sprintf("  - agent tool: tool=%s agentType=%s readOnly=%t expectedOutput=%s", item.AgentToolRequest.Tool, item.AgentToolRequest.AgentType, item.AgentToolRequest.ReadOnly, item.AgentToolRequest.ExpectedOutput))
 		}
+		if item.ReviewerResultStagingCommand != "" {
+			lines = append(lines, fmt.Sprintf("  - staging: preview=`%s`", item.ReviewerResultStagingCommand))
+		}
 		if item.ReviewerResultCollectionCommands != nil {
 			lines = append(lines, fmt.Sprintf("  - collection: preview=`%s` apply=`%s`", item.ReviewerResultCollectionCommands.PreviewCommand, item.ReviewerResultCollectionCommands.ApplyCommand))
 		}
@@ -1417,6 +1439,9 @@ func WriteReviewerDispatchIntakeHandoffSection(out *bytes.Buffer, title string, 
 		fmt.Fprintf(out, "- dispatch intake: lane=%s shard=%s state=%s progress=%d/%d open=%d nextOpen=%s remaining=%s candidateState=%s candidate=`%s` resultPresent=%t packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s`\n", item.TargetLane, item.ShardID, item.State, item.DispatchCompleted, item.DispatchTotal, item.DispatchOpen, item.NextOpenShardID, strings.Join(item.RemainingShardIDs, ","), item.ReviewerResultCandidateState, item.ReviewerResultCandidatePath, item.ReviewerResultPresent, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand)
 		if item.AgentToolRequest != nil {
 			fmt.Fprintf(out, "  - agent tool: tool=%s agentType=%s readOnly=%t expectedOutput=%s\n", item.AgentToolRequest.Tool, item.AgentToolRequest.AgentType, item.AgentToolRequest.ReadOnly, item.AgentToolRequest.ExpectedOutput)
+		}
+		if item.ReviewerResultStagingCommand != "" {
+			fmt.Fprintf(out, "  - staging: preview=`%s`\n", item.ReviewerResultStagingCommand)
 		}
 		if item.ReviewerResultCollectionCommands != nil {
 			fmt.Fprintf(out, "  - collection: preview=`%s` apply=`%s`\n", item.ReviewerResultCollectionCommands.PreviewCommand, item.ReviewerResultCollectionCommands.ApplyCommand)

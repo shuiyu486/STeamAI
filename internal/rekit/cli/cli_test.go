@@ -102,6 +102,16 @@ func TestParsePlanSubagentsReviewerPacketRetirement(t *testing.T) {
 	}
 }
 
+func TestParsePlanSubagentsReviewerResultStaging(t *testing.T) {
+	opt, err := Parse([]string{"-Command", "plan-subagents", "-StageReviewerResult", "-PacketPath", "packet.json", "-ShardId", "shard-01", "-ReviewerResultSourcePath", "workspace/reviewer.json", "-Lane", "feature-review", "-Actor", "mission-commander", "-ExpectedSourceSha256", strings.Repeat("a", 64), "-Apply"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.StageReviewerResult || opt.PacketPath != "packet.json" || opt.ShardID != "shard-01" || opt.ReviewerResultSourcePath != "workspace/reviewer.json" || opt.Note.Lane != "feature-review" || opt.Note.Actor != "mission-commander" || opt.ExpectedSourceSHA256 != strings.Repeat("a", 64) || !opt.Apply {
+		t.Fatalf("unexpected reviewer result staging options: %+v", opt)
+	}
+}
+
 func TestParsePlanSubagentsReviewerResultRecovery(t *testing.T) {
 	opt, err := Parse([]string{"-Command", "plan-subagents", "-RecoverReviewerResult", "-PacketPath", "packet.json", "-ShardId", "shard-01", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "quarantine conflict", "-ExpectedCandidateSha256", strings.Repeat("a", 64), "-ExpectedReviewerResultSha256", strings.Repeat("b", 64), "-Apply"})
 	if err != nil {
@@ -4713,6 +4723,20 @@ func TestRunNoteAppendRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
+func TestRunRejectsReviewerResultStagingFlagsOutsidePlanSubagents(t *testing.T) {
+	for _, args := range [][]string{
+		{"-Command", "status", "-StageReviewerResult"},
+		{"-Command", "status", "-ReviewerResultSourcePath", "reviewer.json"},
+		{"-Command", "status", "-ExpectedSourceSha256", strings.Repeat("a", 64)},
+	} {
+		var out bytes.Buffer
+		err := Run(args, &out)
+		if err == nil || !strings.Contains(err.Error(), "supported only by plan-subagents reviewer result staging") {
+			t.Fatalf("staging flags outside plan-subagents error = %v", err)
+		}
+	}
+}
+
 func TestRunNoteRejectsUnsupportedWriteFlags(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
@@ -6864,7 +6888,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents reviewer orchestration summary current action：state=ready-for-reviewer-dispatch source=reviewerOrchestration.dispatch blocked=false requiresReview=true command=`dispatch read-only reviewer for shard-01",
 		"plan-subagents reviewer orchestration summary next action：state=ready-for-reviewer-batch-intake-preview source=reviewerOrchestration.batchIntake.preview blocked=true requiresReview=true",
 		"plan-subagents reviewer orchestration summary boundary：planning summary is read-only; full reviewerOrchestration dispatches, lifecycle, action queue, and shard handoffs remain available",
-		"plan-subagents reviewer orchestration scope：scope=dispatch read-only reviewers, save one JSON candidate per shard, publish immutable canonical results with collection preview/apply, then run packet-level ready-result batch intake preview/apply packet=",
+		"plan-subagents reviewer orchestration scope：scope=dispatch read-only reviewers, save each JSON to a case-local staging source, publish a validated packet-derived candidate with staging preview/expected-hash apply, publish immutable canonical results with collection preview/apply, then run packet-level ready-result batch intake preview/apply packet=",
 		"plan-subagents reviewer orchestration owner：targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
 		"plan-subagents reviewer orchestration lifecycle：step=dispatch-reviewers owner=main-agent inputs=reviewerOrchestration.dispatches[].dispatchPrompt,ownerBinding,packetPath mustPass=one reviewerSession is assigned per reviewer result,reviewers receive only read-only boundary and shard items,no reviewer writes files or ledgers nextOnSuccess=collect-results",
 		"plan-subagents reviewer orchestration boundary：boundary=runtime does not spawn subagents",
@@ -6874,10 +6898,13 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents shard owner binding：shard=shard-01 targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
 		"plan-subagents shard owner boundary：shard=shard-01 boundary=runtime only records reviewer owner provenance; it does not spawn, stop, monitor, or manage reviewer/member sessions",
 		"plan-subagents reviewer writeback：shard=shard-01 handoff=/rekit plan-subagents -ReviewerResultPath ... -WhatIf/-Apply validates reviewer results and writes verification-before-decision facts for the main agent",
-		"plan-subagents shard next action：shard=shard-01 action=launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object at reviewerResultCandidatePath, run reviewerCollectionCommands.previewCommand then applyCommand, then use reviewerIntakeCommands or packet-level batch intake WhatIf before Apply",
+		"plan-subagents shard next action：shard=shard-01 action=launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object to any case-local source, run reviewerStagingCommands.previewCommand then its expected-hash Apply command, run reviewerCollectionCommands.previewCommand then applyCommand, then use reviewerIntakeCommands or packet-level batch intake WhatIf before Apply",
 		"plan-subagents shard agent tool request：shard=shard-01 tool=Claude Code Agent agentType=read-only-reviewer readOnly=true expectedOutput=exactly one ReviewerResult JSON object; no Markdown fence or surrounding prose",
 		"plan-subagents reviewer result candidate：shard=shard-01 path=",
 		"canonical=",
+		"plan-subagents reviewer staging command：shard=shard-01 source=<case-local-reviewer-json> preview=`/rekit plan-subagents",
+		"-StageReviewerResult",
+		"-ReviewerResultSourcePath <case-local-reviewer-json>",
 		"plan-subagents reviewer collection command：shard=shard-01 candidate=",
 		"-CollectReviewerResult",
 		"-ShardId \"shard-01\"",
