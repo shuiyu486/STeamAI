@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 554：canonical reviewer result filesystem obstruction recovery closure
 
-状态：implementation、focused/package/product-path validation、独立审查修复与完整本地release minimum已完成；implementation commit/push与远程release-gate inspection待完成。
+状态：已完成implementation、focused/package/product-path validation、独立审查修复、完整本地release minimum、implementation commit `18e6325 Recover obstructed reviewer result files`/push与远程release-gate inspection。对应run `29990736280` completed failure；Linux/Windows jobs completed failure且`steps=[]`，macOS job在run完成后仍显示queued且`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。
 
 目标：关闭strict reviewer candidate已正确生成、但canonical reviewer result path被empty regular file占据时，Mission Commander仍只能要求手工删除/修复的operational断点。把Batch 553 exact conflict recovery扩展为typed object snapshot与Windows handle-bound no-replace quarantine；symlink、directory与其它non-regular object保持typed fail-closed，直到其snapshot能够直接从source handle验证。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：recovery不跟随或修改symlink target，不自动移动或递归处理任何directory，不spawn/stop/poll/monitor reviewer，不执行heavy-tool，不写或撤销facts/authority/confirmed；collection与intake继续分别要求显式WhatIf→Apply。禁止新增PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/subagents ./internal/rekit/cli -count=1`、Windows namespace-guard同步测试、obstruction case-local CLI product path与Linux package交叉编译已通过；完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。独立审查发现并修复object snapshot重验与move间漂移、pre-quarantine intent重试CreatedAt不一致、unfinished recovery可被direct/batch intake与workstream绕过、destination parent可被移出case及old-parent/new-guard split；最终将无法直接从source handle验证snapshot的symlink/directory/其它non-regular recovery收窄为typed fail-closed，仅保留handle attributes可绑定的Windows empty-file runnable recovery，并统一mutation lock、durable intent guard、锁内result重读及preview/Apply双重intake guard。implementation commit/push与远程release-gate inspection待补。
+验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/subagents ./internal/rekit/cli -count=1`、Windows namespace-guard同步测试、obstruction case-local CLI product path与Linux package交叉编译已通过；完整本地release minimum（`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`）已通过。独立审查发现并修复object snapshot重验与move间漂移、pre-quarantine intent重试CreatedAt不一致、unfinished recovery可被direct/batch intake与workstream绕过、destination parent可被移出case及old-parent/new-guard split；最终将无法直接从source handle验证snapshot的symlink/directory/其它non-regular recovery收窄为typed fail-closed，仅保留handle attributes可绑定的Windows empty-file runnable recovery，并统一mutation lock、durable intent guard、锁内result重读及preview/Apply双重intake guard。implementation commit `18e6325`已推送；远程run `29990736280`中Linux/Windows completed failure且`steps=[]`，macOS在run完成后仍queued且`steps=[]`，未出现不同于既有runner/billing blocker的新远程信号。
 
 上一批摘要：Batch 553已完成canonical reviewer result regular-byte conflict recovery，implementation commit `e351c3d Recover conflicting reviewer results`与release inspection commit `9955561 Record Batch 553 release gate inspection`已推送；对应run `29985101781`三平台jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
