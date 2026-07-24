@@ -522,6 +522,18 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if len(contract.LiveValidation.AdapterCandidates) != 0 {
 		t.Fatalf("fixture without tooling catalog should not invent adapter candidates: %+v", contract.LiveValidation.AdapterCandidates)
 	}
+	if strings.Join(contract.LiveValidation.ScaffoldArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -Format json" {
+		t.Fatalf("adapter report contract scaffold args drifted: %+v", contract.LiveValidation.ScaffoldArgs)
+	}
+	if contract.LiveValidation.ScaffoldCommand != "rekit "+strings.Join(contract.LiveValidation.ScaffoldArgs, " ") {
+		t.Fatalf("adapter report contract scaffold command drifted: %q", contract.LiveValidation.ScaffoldCommand)
+	}
+	if len(contract.LiveValidation.ScaffoldApplyArgs) != 14 || strings.Join(contract.LiveValidation.ScaffoldApplyArgs[:10], " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -ExpectedExecutionReportSha256" || contract.LiveValidation.ScaffoldApplyArgs[11] != "-Apply" || strings.Join(contract.LiveValidation.ScaffoldApplyArgs[12:], " ") != "-Format json" {
+		t.Fatalf("adapter report contract scaffold apply args drifted: %+v", contract.LiveValidation.ScaffoldApplyArgs)
+	}
+	if contract.LiveValidation.SidecarTemplateSHA256 == "" || contract.LiveValidation.ScaffoldApplyArgs[10] != contract.LiveValidation.SidecarTemplateSHA256 || !strings.Contains(contract.LiveValidation.ScaffoldApplyCommand, contract.LiveValidation.SidecarTemplateSHA256) {
+		t.Fatalf("adapter report contract scaffold hash handoff drifted: hash=%q args=%+v command=%q", contract.LiveValidation.SidecarTemplateSHA256, contract.LiveValidation.ScaffoldApplyArgs, contract.LiveValidation.ScaffoldApplyCommand)
+	}
 	if strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" {
 		t.Fatalf("adapter report contract validate args drifted: %+v", contract.LiveValidation.ValidateArgs)
 	}
@@ -533,6 +545,18 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	}
 	if contract.LiveValidation.RecordCommand != "rekit "+strings.Join(contract.LiveValidation.RecordArgs, " ") {
 		t.Fatalf("adapter report contract record command drifted: %q", contract.LiveValidation.RecordCommand)
+	}
+	if strings.Join(contract.LiveValidation.CaseRelativeScaffoldArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json" {
+		t.Fatalf("adapter report contract case-relative scaffold args drifted: %+v", contract.LiveValidation.CaseRelativeScaffoldArgs)
+	}
+	if contract.LiveValidation.CaseRelativeScaffoldCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeScaffoldArgs, " ") {
+		t.Fatalf("adapter report contract case-relative scaffold command drifted: %q", contract.LiveValidation.CaseRelativeScaffoldCommand)
+	}
+	if len(contract.LiveValidation.CaseRelativeScaffoldApplyArgs) != 14 || strings.Join(contract.LiveValidation.CaseRelativeScaffoldApplyArgs[:10], " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256" || contract.LiveValidation.CaseRelativeScaffoldApplyArgs[10] != contract.LiveValidation.SidecarTemplateSHA256 || contract.LiveValidation.CaseRelativeScaffoldApplyArgs[11] != "-Apply" || strings.Join(contract.LiveValidation.CaseRelativeScaffoldApplyArgs[12:], " ") != "-Format json" {
+		t.Fatalf("adapter report contract case-relative scaffold apply args drifted: %+v", contract.LiveValidation.CaseRelativeScaffoldApplyArgs)
+	}
+	if contract.LiveValidation.CaseRelativeScaffoldApplyCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeScaffoldApplyArgs, " ") {
+		t.Fatalf("adapter report contract case-relative scaffold apply command drifted: %q", contract.LiveValidation.CaseRelativeScaffoldApplyCommand)
 	}
 	if strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json" {
 		t.Fatalf("adapter report contract case-relative validate args drifted: %+v", contract.LiveValidation.CaseRelativeValidateArgs)
@@ -667,6 +691,100 @@ func TestAdapterReportContractProjectsPackToolingCandidateOperationalClosure(t *
 	if !recorded.Applied || recorded.ExecutionEvidence == nil || recorded.ExecutionEvidence.Execution.Adapter == nil || recorded.ExecutionEvidence.Execution.Adapter.AdapterID != candidate.ID || recorded.ExecutionEvidence.Execution.AdapterContext == nil || recorded.ExecutionEvidence.Execution.AdapterContext.ID != candidate.ID || recorded.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" {
 		t.Fatalf("adapter candidate sidecar should record bounded observation evidence: %+v", recorded)
 	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
+func TestScaffoldAdapterExecutionReportPreviewApplyAndReplay(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportRel := "workspace/main/debug/session-1/adapter-report.json"
+	reportFull := filepath.Join(caseRoot, filepath.FromSlash(reportRel))
+
+	preview, err := ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Kind != "adapter-execution-report-scaffold" || preview.GateEventID != authorized.EventID || preview.ReportPath != reportRel || preview.IsMutation || preview.Applied || preview.Mode != "preview" || preview.ReportSHA256 == "" || !preview.RequiresConfirmation || preview.SidecarTemplate.GateEventID != authorized.EventID || preview.SidecarTemplate.Action != "debug" || !strings.Contains(preview.ApplyCommand, "-ExpectedExecutionReportSha256 "+preview.ReportSHA256) {
+		t.Fatalf("unexpected scaffold preview: %+v", preview)
+	}
+	if preview.MissionCommanderAction.State != "ready-for-adapter-report-scaffold-apply" || preview.MissionCommanderAction.PrimaryCommand != preview.ApplyCommand || !gateNextActionContainsSource(preview.MissionCommanderNextActions, "adapterReportScaffold.preview") || !gateNextActionContainsCommand(preview.MissionCommanderNextActions, preview.ValidateCommand) || !gateNextActionBoundaryContains(preview.MissionCommanderNextActions, "does not execute the adapter") {
+		t.Fatalf("scaffold preview omitted Mission Commander handoff: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
+	}
+	assertGateNotExists(t, reportFull)
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+
+	applied, err := ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExpectedExecutionReportSHA256: preview.ReportSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.IsMutation || !applied.Applied || applied.Mode != "scaffolded" || applied.AlreadyExists || applied.RequiresConfirmation || applied.ReportSHA256 != preview.ReportSHA256 || applied.MissionCommanderAction.State != "adapter-report-scaffolded-awaiting-adapter-output" || applied.MissionCommanderAction.PrimaryCommand != applied.ValidateCommand {
+		t.Fatalf("unexpected scaffold apply result: %+v", applied)
+	}
+	writtenBytes, err := os.ReadFile(reportFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var written AdapterReportSidecarTemplate
+	if err := json.Unmarshal(writtenBytes, &written); err != nil {
+		t.Fatalf("scaffolded report did not decode: %v\n%s", err, string(writtenBytes))
+	}
+	if written.Kind != "adapter-execution-report" || written.GateEventID != authorized.EventID || written.Action != "debug" || written.Status != "succeeded|failed|boundary-hit|escalated|aborted" || !strings.Contains(strings.Join(written.OutputRefs, ","), "authorized outputPaths") {
+		t.Fatalf("scaffolded sidecar template drifted: %+v", written)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+
+	replay, err := ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExpectedExecutionReportSHA256: preview.ReportSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replay.IsMutation || replay.Applied || !replay.AlreadyExists || replay.Mode != "already-scaffolded" || replay.ApplyCommand != "" || replay.RequiresConfirmation {
+		t.Fatalf("unexpected exact scaffold replay: %+v", replay)
+	}
+	if _, err := ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExpectedExecutionReportSHA256: strings.Repeat("0", 64)}); err == nil || !strings.Contains(err.Error(), "template changed after preview") {
+		t.Fatalf("hash-gated scaffold replay error = %v, want template changed", err)
+	}
+	writeGateText(t, filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "custom-report.json"), `{"different":true}`)
+	_, err = ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: "workspace/main/debug/session-1/custom-report.json"})
+	if err == nil || !strings.Contains(err.Error(), "target already exists with different bytes") {
+		t.Fatalf("different existing scaffold error = %v, want refusal", err)
+	}
+}
+
+func TestScaffoldAdapterExecutionReportAcceptsCwdRelativeAuthorizedPath(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1")
+	preview, err := ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportCwd: workspace, ExecutionReportPath: "adapter-report.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || preview.Applied || preview.IsMutation {
+		t.Fatalf("cwd-relative scaffold preview drifted: %+v", preview)
+	}
+	applied, err := ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportCwd: workspace, ExecutionReportPath: "adapter-report.json", ExpectedExecutionReportSHA256: preview.ReportSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.Applied || applied.ReportPath != preview.ReportPath {
+		t.Fatalf("cwd-relative scaffold apply drifted: %+v", applied)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "adapter-report.json")); err != nil {
+		t.Fatalf("cwd-relative scaffold did not write sidecar: %v", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }

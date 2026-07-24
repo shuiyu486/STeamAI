@@ -111,6 +111,16 @@ func TestParseGateValidateExecutionReport(t *testing.T) {
 	}
 }
 
+func TestParseGateScaffoldExecutionReport(t *testing.T) {
+	opt, err := Parse([]string{"-Command", "gate", "-ScaffoldExecutionReport", "-GateEventId", "evt-authorized", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-ExpectedExecutionReportSha256", strings.Repeat("a", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.Gate.ScaffoldExecutionReport || opt.Gate.GateEventID != "evt-authorized" || opt.Gate.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || opt.Gate.ExpectedExecutionReportSHA256 != strings.Repeat("a", 64) {
+		t.Fatalf("unexpected gate scaffold options: %+v", opt.Gate)
+	}
+}
+
 func TestParsePlanSubagentsReviewerPacketRetirement(t *testing.T) {
 	opt, err := Parse([]string{"-Command", "plan-subagents", "-RetireInvalidReviewerPacket", "-PacketPath", "packet.json", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "retire invalid packet", "-WhatIf"})
 	if err != nil {
@@ -9219,7 +9229,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	statusHandoff := status.CaseMission.AuthorizedGateHandoffs[0]
 	wantStatusContract := "/rekit gate -Target " + statusQuoteCommandArg(caseRoot) + " -Pack _template -GateEventId " + authorizedEventID + " -ExecutionReportContract -Format json"
-	if statusHandoff.EventID != authorizedEventID || statusHandoff.Lane != "main" || statusHandoff.Subject != "authorized debug" || statusHandoff.Action != "debug" || statusHandoff.Target != "target-alpha" || statusHandoff.Status != "authorized-gate" || statusHandoff.Authorization != "preauthorized" || statusHandoff.Profile != "prof-main-debug" || statusHandoff.ReportContract != wantStatusContract || statusHandoff.DefaultReportPath != "workspace/main/debug/session-1/adapter-report.json" || statusHandoff.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || statusHandoff.HandoffCommand != "/rekit handoff main" || !containsSubstring(statusHandoff.Evidence, "authorized outputPaths workspace/main/debug/session-1") || !containsSubstring(statusHandoff.Evidence, "authorized stopConditions timeout") || !strings.Contains(statusHandoff.ValidateBoundary, "ValidateExecutionReport") || !strings.Contains(statusHandoff.RecordBoundary, "valid=true") || statusHandoff.ReportSummary == nil || statusHandoff.ReportSummary.State != "needs-adapter-report-validation" || statusHandoff.ReportSummary.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || statusHandoff.ReportSummary.AllowedStatusCount != 5 || statusHandoff.ReportSummary.OutcomeCount != 3 || statusHandoff.LiveValidation == nil || statusHandoff.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || statusHandoff.LiveValidation.AdapterCandidateCount != 0 || statusHandoff.LiveValidation.SidecarTemplateAdapterID != "<adapter-id>" {
+	if statusHandoff.EventID != authorizedEventID || statusHandoff.Lane != "main" || statusHandoff.Subject != "authorized debug" || statusHandoff.Action != "debug" || statusHandoff.Target != "target-alpha" || statusHandoff.Status != "authorized-gate" || statusHandoff.Authorization != "preauthorized" || statusHandoff.Profile != "prof-main-debug" || statusHandoff.ReportContract != wantStatusContract || statusHandoff.DefaultReportPath != "workspace/main/debug/session-1/adapter-report.json" || statusHandoff.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || statusHandoff.HandoffCommand != "/rekit handoff main" || !containsSubstring(statusHandoff.Evidence, "authorized outputPaths workspace/main/debug/session-1") || !containsSubstring(statusHandoff.Evidence, "authorized stopConditions timeout") || !strings.Contains(statusHandoff.ValidateBoundary, "ValidateExecutionReport") || !strings.Contains(statusHandoff.RecordBoundary, "valid=true") || statusHandoff.ReportSummary == nil || statusHandoff.ReportSummary.State != "needs-adapter-report-validation" || statusHandoff.ReportSummary.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || statusHandoff.ReportSummary.AllowedStatusCount != 5 || statusHandoff.ReportSummary.OutcomeCount != 3 || statusHandoff.LiveValidation == nil || statusHandoff.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || statusHandoff.LiveValidation.AdapterCandidateCount != 0 || statusHandoff.LiveValidation.SidecarTemplateAdapterID != "<adapter-id>" || statusHandoff.LiveValidation.SidecarTemplateSHA256 == "" || !strings.Contains(statusHandoff.LiveValidation.ScaffoldApplyCommand, statusHandoff.LiveValidation.SidecarTemplateSHA256) || !strings.Contains(statusHandoff.LiveValidation.CaseRelativeScaffoldCommand, "-ScaffoldExecutionReport") || !strings.Contains(statusHandoff.LiveValidation.CaseRelativeScaffoldApplyCommand, statusHandoff.LiveValidation.SidecarTemplateSHA256) {
 		t.Fatalf("unexpected status authorized gate handoff: %+v", statusHandoff)
 	}
 	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
@@ -9232,7 +9242,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		"status case mission authorized gate handoff：eventId=" + authorizedEventID + " lane=main subject=authorized debug action=debug target=target-alpha status=authorized-gate",
 		"auth=preauthorized profile=prof-main-debug reportContract=" + wantStatusContract + " defaultReportPath=workspace/main/debug/session-1/adapter-report.json reportPath=workspace/main/debug/session-1/adapter-report.json handoff=/rekit handoff main",
 		"status case mission authorized gate report summary：eventId=" + authorizedEventID + " state=needs-adapter-report-validation reportPath=workspace/main/debug/session-1/adapter-report.json defaultReportPath=workspace/main/debug/session-1/adapter-report.json reportPresent=false valid=false recordReady=false recordBlocked=true requiresValidation=true",
-		"status case mission authorized gate live validation：eventId=" + authorizedEventID + " reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json adapterCandidates=0 selectedAdapter= sidecarAdapter=<adapter-id>",
+		"status case mission authorized gate live validation：eventId=" + authorizedEventID + " reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json adapterCandidates=0 selectedAdapter= sidecarAdapter=<adapter-id> templateSha256=",
+		"scaffold=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -Format json scaffoldApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -ExpectedExecutionReportSha256",
+		"caseScaffold=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json caseScaffoldApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256",
 		"status case mission authorized gate live workspace：eventId=" + authorizedEventID + " workspace=workspace/main/debug/session-1",
 		"status case mission authorized gate validate boundary：eventId=" + authorizedEventID,
 		"status case mission authorized gate record boundary：eventId=" + authorizedEventID,
@@ -9300,6 +9312,17 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		} `json:"authorizedBudget"`
 		RefPathRequires []string `json:"refPathRequires"`
 		DeniedActions   []string `json:"deniedActions"`
+		LiveValidation  struct {
+			ScaffoldCommand                  string   `json:"scaffoldCommand"`
+			ScaffoldApplyCommand             string   `json:"scaffoldApplyCommand"`
+			SidecarTemplateSHA256            string   `json:"sidecarTemplateSha256"`
+			ScaffoldArgs                     []string `json:"scaffoldArgs"`
+			ScaffoldApplyArgs                []string `json:"scaffoldApplyArgs"`
+			CaseRelativeScaffoldCommand      string   `json:"caseRelativeScaffoldCommand"`
+			CaseRelativeScaffoldApplyCommand string   `json:"caseRelativeScaffoldApplyCommand"`
+			CaseRelativeScaffoldArgs         []string `json:"caseRelativeScaffoldArgs"`
+			CaseRelativeScaffoldApplyArgs    []string `json:"caseRelativeScaffoldApplyArgs"`
+		} `json:"liveValidation"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &contract); err != nil {
 		t.Fatalf("adapter report contract stdout is not JSON: %v\n%s", err, out.String())
@@ -9317,6 +9340,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 	if strings.Join(contract.AllowedStatuses, ",") != "succeeded,failed,boundary-hit,escalated,aborted" || strings.Join(contract.AllowedOutputPaths, ",") != "workspace/main/debug/session-1" || contract.AuthorizedBudget.RuntimeSeconds != 30 || contract.SummaryMaxBytes != 4096 || contract.EscalationMaxBytes != 4096 || !containsSubstring(contract.RefPathRequires, "evidenceRefs must stay under authorized outputPaths") || !containsSubstring(contract.BoundaryStatusRequires, "boundaryHits or escalation") || !containsSubstring(contract.BoundaryStatusRequires, "authorized stopConditions") || !containsSubstring(contract.StatusSummaryRequires, "failed/boundary-hit/escalated/aborted") || !slices.Contains(contract.DeniedActions, "heavy-tool execution") {
 		t.Fatalf("adapter report contract omitted live validation boundaries: %+v", contract)
+	}
+	if contract.LiveValidation.SidecarTemplateSHA256 == "" || !strings.Contains(contract.LiveValidation.ScaffoldCommand, "-ScaffoldExecutionReport") || !strings.Contains(contract.LiveValidation.ScaffoldApplyCommand, contract.LiveValidation.SidecarTemplateSHA256) || !strings.Contains(contract.LiveValidation.CaseRelativeScaffoldCommand, "workspace/main/debug/session-1/adapter-report.json") || !strings.Contains(contract.LiveValidation.CaseRelativeScaffoldApplyCommand, contract.LiveValidation.SidecarTemplateSHA256) || !slices.Contains(contract.LiveValidation.ScaffoldArgs, "-ScaffoldExecutionReport") || !slices.Contains(contract.LiveValidation.CaseRelativeScaffoldArgs, "workspace/main/debug/session-1/adapter-report.json") {
+		t.Fatalf("adapter report contract omitted scaffold live validation handoff: %+v", contract.LiveValidation)
 	}
 	contractStages := []string{}
 	for _, stage := range contract.ValidationFailureStages {
@@ -9409,6 +9435,84 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if evidenceCommander.MissionCommanderAction.State != "ready-for-evidence-review" || evidenceCommander.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !containsSubstring(evidenceCommander.MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || !containsSubstring(evidenceCommander.MissionCommanderAction.Boundary, "bounded observation evidence") || !containsSubstring(evidenceCommander.MissionCommanderAction.Boundary, "did not execute the heavy tool") || !containsSubstring(evidenceCommander.NextSteps, "/rekit handoff main") {
 		t.Fatalf("execution evidence omitted Mission Commander review handoff: action=%+v next=%+v", evidenceCommander.MissionCommanderAction, evidenceCommander.NextSteps)
 	}
+	observationsBeforeScaffold, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scaffoldReportPath := "workspace/main/debug/session-1/scaffold-cli.json"
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ScaffoldExecutionReport", "-GateEventId", authorizedEventID, "-ExecutionReportPath", scaffoldReportPath, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var scaffoldPreview struct {
+		Kind                        string                           `json:"kind"`
+		IsMutation                  bool                             `json:"isMutation"`
+		Applied                     bool                             `json:"applied"`
+		Mode                        string                           `json:"mode"`
+		ReportPath                  string                           `json:"reportPath"`
+		ReportSHA256                string                           `json:"reportSha256"`
+		RequiresConfirmation        bool                             `json:"requiresConfirmation"`
+		AlreadyExists               bool                             `json:"alreadyExists"`
+		ApplyCommand                string                           `json:"applyCommand"`
+		ValidateCommand             string                           `json:"validateCommand"`
+		RecordCommand               string                           `json:"recordCommand"`
+		Boundary                    []string                         `json:"boundary"`
+		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &scaffoldPreview); err != nil {
+		t.Fatalf("scaffold preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if scaffoldPreview.Kind != "adapter-execution-report-scaffold" || scaffoldPreview.IsMutation || scaffoldPreview.Applied || scaffoldPreview.Mode != "preview" || scaffoldPreview.ReportPath != scaffoldReportPath || scaffoldPreview.ReportSHA256 == "" || !scaffoldPreview.RequiresConfirmation || scaffoldPreview.AlreadyExists || !strings.Contains(scaffoldPreview.ApplyCommand, scaffoldPreview.ReportSHA256) || !containsSubstring(scaffoldPreview.Boundary, "does not execute the adapter") || scaffoldPreview.MissionCommanderAction.State != "ready-for-adapter-report-scaffold-apply" || scaffoldPreview.MissionCommanderAction.PrimaryCommand != scaffoldPreview.ApplyCommand || !containsMissionCommanderNextAction(scaffoldPreview.MissionCommanderNextActions, "adapterReportScaffold.preview", scaffoldPreview.ApplyCommand, false, true) {
+		t.Fatalf("unexpected scaffold preview: %+v", scaffoldPreview)
+	}
+	assertFileNotExists(t, filepath.Join(caseRoot, filepath.FromSlash(scaffoldReportPath)))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ScaffoldExecutionReport", "-Apply", "-GateEventId", authorizedEventID, "-ExecutionReportPath", scaffoldReportPath, "-ExpectedExecutionReportSha256", scaffoldPreview.ReportSHA256, "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"gate adapter report scaffold：mode=scaffolded applied=true reportPath=" + scaffoldReportPath + " reportSha256=" + scaffoldPreview.ReportSHA256 + " alreadyExists=false requiresConfirmation=false",
+		"gate adapter report scaffold sidecar：kind=adapter-execution-report adapterId=<adapter-id> action=debug status=succeeded|failed|boundary-hit|escalated|aborted gateEventId=" + authorizedEventID,
+		"gate adapter report scaffold validate command：/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -ValidateExecutionReport -ExecutionReportPath " + scaffoldReportPath + " -Format json",
+		"gate adapter report scaffold record command：/rekit gate -Pack _template -Apply -GateEventId " + authorizedEventID + " -ExecutionReportPath " + scaffoldReportPath + " -Actor <executor-id> -Format json",
+		"gate adapter report scaffold boundary：scaffold does not execute the adapter or heavy tool",
+		"adapter report scaffold commander action：state=adapter-report-scaffolded-awaiting-adapter-output primary=`/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -ValidateExecutionReport -ExecutionReportPath " + scaffoldReportPath + " -Format json`",
+		"mission commander next action：state=adapter-report-scaffolded-awaiting-adapter-output source=adapterReportScaffold.validation",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("scaffold apply text missing %q:\n%s", expected, out.String())
+		}
+	}
+	scaffolded, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(scaffoldReportPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(scaffolded), `"gateEventId": "`+authorizedEventID+`"`) || !strings.Contains(string(scaffolded), `"status": "succeeded|failed|boundary-hit|escalated|aborted"`) {
+		t.Fatalf("scaffolded sidecar content drifted:\n%s", string(scaffolded))
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ScaffoldExecutionReport", "-Apply", "-GateEventId", authorizedEventID, "-ExecutionReportPath", scaffoldReportPath, "-ExpectedExecutionReportSha256", strings.Repeat("0", 64), "-Format", "json"}, &out); err == nil || !strings.Contains(err.Error(), "template changed after preview") {
+		t.Fatalf("scaffold apply with wrong hash error = %v, want template changed", err)
+	}
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/scaffold-different.json", `{"different":true}`)
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ScaffoldExecutionReport", "-GateEventId", authorizedEventID, "-ExecutionReportPath", "workspace/main/debug/session-1/scaffold-different.json", "-Format", "json"}, &out); err == nil || !strings.Contains(err.Error(), "target already exists with different bytes") {
+		t.Fatalf("scaffold existing different error = %v, want refusal", err)
+	}
+
+	observationsAfterScaffold, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(observationsAfterScaffold) != string(observationsBeforeScaffold) {
+		t.Fatalf("scaffold preview/apply changed observations before record:\nbefore=%s\nafter=%s", string(observationsBeforeScaffold), string(observationsAfterScaffold))
+	}
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 	if len(evidenceCommander.ExecutionEvidenceReview) != 1 || evidenceCommander.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || evidenceCommander.ExecutionEvidenceReview[0].Status != "succeeded" || evidenceCommander.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || len(evidenceCommander.MissionCommanderNextActions) != 5 || evidenceCommander.MissionCommanderNextActions[0].Source != "executionEvidenceReview" || evidenceCommander.MissionCommanderNextActions[0].Command != "/rekit handoff main" || evidenceCommander.MissionCommanderNextActions[1].Command != "/rekit overview" || evidenceCommander.MissionCommanderNextActions[2].Command != "/rekit continue main -WhatIf" || evidenceCommander.MissionCommanderNextActions[3].Source != "missionCommanderActions" || evidenceCommander.MissionCommanderNextActions[3].Command != "/rekit continue main" || evidenceCommander.MissionCommanderNextActions[4].Source != "missionCommanderActions.followUp" || evidenceCommander.MissionCommanderNextActions[4].Command != "/rekit handoff main" || !containsSubstring(evidenceCommander.MissionCommanderNextActions[4].Reasons, "follow Mission Commander handoff after primary action") {
 		t.Fatalf("execution evidence omitted review queue or next actions: review=%+v next=%+v", evidenceCommander.ExecutionEvidenceReview, evidenceCommander.MissionCommanderNextActions)
 	}
@@ -13349,6 +13453,13 @@ func assertFileExists(t *testing.T, path string) {
 	}
 	if st.IsDir() {
 		t.Fatalf("expected file, got directory: %s", path)
+	}
+}
+
+func assertFileNotExists(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
+		t.Fatalf("path exists or stat failed unexpectedly for %s: %v", path, err)
 	}
 }
 

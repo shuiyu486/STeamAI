@@ -585,6 +585,14 @@ func Parse(args []string) (Options, error) {
 			opt.Gate.ExecutionReportContract = true
 		case "-ValidateExecutionReport", "--validate-execution-report":
 			opt.Gate.ValidateExecutionReport = true
+		case "-ScaffoldExecutionReport", "--scaffold-execution-report":
+			opt.Gate.ScaffoldExecutionReport = true
+		case "-ExpectedExecutionReportSha256", "--expected-execution-report-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedExecutionReportSha256")
+			}
+			opt.Gate.ExpectedExecutionReportSHA256 = args[i]
 		case "-Format", "--format":
 			i++
 			if i >= len(args) {
@@ -1685,19 +1693,24 @@ type statusAuthorizedGateHandoff struct {
 }
 
 type statusAuthorizedGateLiveValidationHandoff struct {
-	InvocationCwd               string                     `json:"invocationCwd,omitempty"`
-	AuthorizedWorkspaces        []string                   `json:"authorizedWorkspaces,omitempty"`
-	ReportFileName              string                     `json:"reportFileName,omitempty"`
-	CaseRelativeReportPath      string                     `json:"caseRelativeReportPath,omitempty"`
-	ValidateCommand             string                     `json:"validateCommand,omitempty"`
-	RecordCommand               string                     `json:"recordCommand,omitempty"`
-	CaseRelativeValidateCommand string                     `json:"caseRelativeValidateCommand,omitempty"`
-	CaseRelativeRecordCommand   string                     `json:"caseRelativeRecordCommand,omitempty"`
-	AdapterCandidateCount       int                        `json:"adapterCandidateCount"`
-	SelectedAdapterID           string                     `json:"selectedAdapterId,omitempty"`
-	SelectedAdapter             *gate.AdapterToolCandidate `json:"selectedAdapter,omitempty"`
-	SidecarTemplateAdapterID    string                     `json:"sidecarTemplateAdapterId,omitempty"`
-	ReplayBehavior              string                     `json:"replayBehavior,omitempty"`
+	InvocationCwd                    string                     `json:"invocationCwd,omitempty"`
+	AuthorizedWorkspaces             []string                   `json:"authorizedWorkspaces,omitempty"`
+	ReportFileName                   string                     `json:"reportFileName,omitempty"`
+	CaseRelativeReportPath           string                     `json:"caseRelativeReportPath,omitempty"`
+	ValidateCommand                  string                     `json:"validateCommand,omitempty"`
+	RecordCommand                    string                     `json:"recordCommand,omitempty"`
+	ScaffoldCommand                  string                     `json:"scaffoldCommand,omitempty"`
+	ScaffoldApplyCommand             string                     `json:"scaffoldApplyCommand,omitempty"`
+	SidecarTemplateSHA256            string                     `json:"sidecarTemplateSha256,omitempty"`
+	CaseRelativeValidateCommand      string                     `json:"caseRelativeValidateCommand,omitempty"`
+	CaseRelativeRecordCommand        string                     `json:"caseRelativeRecordCommand,omitempty"`
+	CaseRelativeScaffoldCommand      string                     `json:"caseRelativeScaffoldCommand,omitempty"`
+	CaseRelativeScaffoldApplyCommand string                     `json:"caseRelativeScaffoldApplyCommand,omitempty"`
+	AdapterCandidateCount            int                        `json:"adapterCandidateCount"`
+	SelectedAdapterID                string                     `json:"selectedAdapterId,omitempty"`
+	SelectedAdapter                  *gate.AdapterToolCandidate `json:"selectedAdapter,omitempty"`
+	SidecarTemplateAdapterID         string                     `json:"sidecarTemplateAdapterId,omitempty"`
+	ReplayBehavior                   string                     `json:"replayBehavior,omitempty"`
 }
 
 type statusInterventionHandoff struct {
@@ -2236,7 +2249,7 @@ func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorize
 		}
 	}
 	if live := handoff.LiveValidation; live != nil {
-		if _, err := fmt.Fprintf(out, "status case mission authorized gate live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s validate=%s record=%s caseValidate=%s caseRecord=%s\n", handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.ValidateCommand, live.RecordCommand, live.CaseRelativeValidateCommand, live.CaseRelativeRecordCommand); err != nil {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s templateSha256=%s scaffold=%s scaffoldApply=%s validate=%s record=%s caseScaffold=%s caseScaffoldApply=%s caseValidate=%s caseRecord=%s\n", handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.SidecarTemplateSHA256, live.ScaffoldCommand, live.ScaffoldApplyCommand, live.ValidateCommand, live.RecordCommand, live.CaseRelativeScaffoldCommand, live.CaseRelativeScaffoldApplyCommand, live.CaseRelativeValidateCommand, live.CaseRelativeRecordCommand); err != nil {
 			return err
 		}
 		if live.SelectedAdapter != nil {
@@ -3227,19 +3240,24 @@ func statusAuthorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveVal
 		selectedAdapter = &candidate
 	}
 	return statusAuthorizedGateLiveValidationHandoff{
-		InvocationCwd:               live.InvocationCwd,
-		AuthorizedWorkspaces:        append([]string{}, live.AuthorizedWorkspaces...),
-		ReportFileName:              live.ReportFileName,
-		CaseRelativeReportPath:      live.CaseRelativeReportPath,
-		ValidateCommand:             live.ValidateCommand,
-		RecordCommand:               live.RecordCommand,
-		CaseRelativeValidateCommand: live.CaseRelativeValidateCommand,
-		CaseRelativeRecordCommand:   live.CaseRelativeRecordCommand,
-		AdapterCandidateCount:       len(live.AdapterCandidates),
-		SelectedAdapterID:           selectedAdapterID,
-		SelectedAdapter:             selectedAdapter,
-		SidecarTemplateAdapterID:    live.SidecarTemplate.AdapterID,
-		ReplayBehavior:              live.ReplayBehavior,
+		InvocationCwd:                    live.InvocationCwd,
+		AuthorizedWorkspaces:             append([]string{}, live.AuthorizedWorkspaces...),
+		ReportFileName:                   live.ReportFileName,
+		CaseRelativeReportPath:           live.CaseRelativeReportPath,
+		ValidateCommand:                  live.ValidateCommand,
+		RecordCommand:                    live.RecordCommand,
+		ScaffoldCommand:                  live.ScaffoldCommand,
+		ScaffoldApplyCommand:             live.ScaffoldApplyCommand,
+		SidecarTemplateSHA256:            live.SidecarTemplateSHA256,
+		CaseRelativeValidateCommand:      live.CaseRelativeValidateCommand,
+		CaseRelativeRecordCommand:        live.CaseRelativeRecordCommand,
+		CaseRelativeScaffoldCommand:      live.CaseRelativeScaffoldCommand,
+		CaseRelativeScaffoldApplyCommand: live.CaseRelativeScaffoldApplyCommand,
+		AdapterCandidateCount:            len(live.AdapterCandidates),
+		SelectedAdapterID:                selectedAdapterID,
+		SelectedAdapter:                  selectedAdapter,
+		SidecarTemplateAdapterID:         live.SidecarTemplate.AdapterID,
+		ReplayBehavior:                   live.ReplayBehavior,
 	}
 }
 
@@ -3975,7 +3993,7 @@ func writeAuthorizedGateAdapterHandoffText(out io.Writer, prefix string, items [
 			}
 		}
 		if live := handoff.LiveValidation; live != nil {
-			if _, err := fmt.Fprintf(out, "%s authorized gate adapter live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s validate=%s record=%s caseValidate=%s caseRecord=%s\n", prefix, handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.ValidateCommand, live.RecordCommand, live.CaseRelativeValidateCommand, live.CaseRelativeRecordCommand); err != nil {
+			if _, err := fmt.Fprintf(out, "%s authorized gate adapter live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s templateSha256=%s scaffold=%s scaffoldApply=%s validate=%s record=%s caseScaffold=%s caseScaffoldApply=%s caseValidate=%s caseRecord=%s\n", prefix, handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.SidecarTemplateSHA256, live.ScaffoldCommand, live.ScaffoldApplyCommand, live.ValidateCommand, live.RecordCommand, live.CaseRelativeScaffoldCommand, live.CaseRelativeScaffoldApplyCommand, live.CaseRelativeValidateCommand, live.CaseRelativeRecordCommand); err != nil {
 				return err
 			}
 			if live.SelectedAdapter != nil {
@@ -6891,9 +6909,15 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.Gate.ExecutionReportContract && opt.Gate.ValidateExecutionReport {
 		return fmt.Errorf("gate -ExecutionReportContract cannot be combined with -ValidateExecutionReport")
 	}
+	if opt.Gate.ScaffoldExecutionReport && (opt.Gate.ExecutionReportContract || opt.Gate.ValidateExecutionReport) {
+		return fmt.Errorf("gate -ScaffoldExecutionReport cannot be combined with contract or validation modes")
+	}
 	if opt.Gate.ExecutionReportContract {
 		if opt.Apply || opt.WhatIf {
 			return fmt.Errorf("gate -ExecutionReportContract is read-only; omit -Apply and -WhatIf")
+		}
+		if strings.TrimSpace(opt.Gate.ExpectedExecutionReportSHA256) != "" {
+			return fmt.Errorf("gate -ExecutionReportContract cannot be combined with -ExpectedExecutionReportSha256")
 		}
 		if wantsGateExecutionEvidenceDetails(opt.Gate) {
 			return fmt.Errorf("gate -ExecutionReportContract cannot be combined with execution evidence fields")
@@ -6911,6 +6935,9 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 		if opt.Apply || opt.WhatIf {
 			return fmt.Errorf("gate -ValidateExecutionReport is read-only; omit -Apply and -WhatIf")
 		}
+		if strings.TrimSpace(opt.Gate.ExpectedExecutionReportSHA256) != "" {
+			return fmt.Errorf("gate -ValidateExecutionReport cannot be combined with -ExpectedExecutionReportSha256")
+		}
 		if strings.TrimSpace(opt.Gate.ExecutionReportPath) == "" {
 			return fmt.Errorf("gate -ValidateExecutionReport requires -ExecutionReportPath")
 		}
@@ -6926,6 +6953,29 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 			return writeJSON(out, validation)
 		}
 		return writeGateAdapterReportValidationText(out, validation)
+	}
+	if opt.Gate.ScaffoldExecutionReport {
+		if opt.WhatIf {
+			return fmt.Errorf("gate -ScaffoldExecutionReport uses read-only preview by default; omit -WhatIf")
+		}
+		if wantsGateExecutionEvidenceDetailsExceptReportPath(opt.Gate) {
+			return fmt.Errorf("gate -ScaffoldExecutionReport cannot be combined with execution evidence fields other than -ExecutionReportPath")
+		}
+		if opt.Apply && strings.TrimSpace(opt.Gate.ExpectedExecutionReportSHA256) == "" {
+			return fmt.Errorf("gate -ScaffoldExecutionReport -Apply requires -ExpectedExecutionReportSha256 from preview")
+		}
+		if !opt.Apply && strings.TrimSpace(opt.Gate.ExpectedExecutionReportSHA256) != "" {
+			return fmt.Errorf("gate -ExpectedExecutionReportSha256 is only valid with -ScaffoldExecutionReport -Apply")
+		}
+		opt.Gate.ExecutionReportCwd = ctx.Cwd
+		scaffold, err := gate.ScaffoldAdapterExecutionReport(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, scaffold)
+		}
+		return writeGateAdapterReportScaffoldText(out, scaffold)
 	}
 	executionEvidence := wantsGateExecutionEvidence(opt.Gate)
 	if opt.WhatIf {
@@ -7070,6 +7120,21 @@ func writeGateAdapterReportLiveValidationText(out io.Writer, live gate.AdapterRe
 			return err
 		}
 	}
+	if strings.TrimSpace(live.ScaffoldCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold command：%s\n", live.ScaffoldCommand); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(live.ScaffoldApplyCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold apply command：%s\n", live.ScaffoldApplyCommand); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(live.SidecarTemplateSHA256) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report sidecar template hash：sha256=%s\n", live.SidecarTemplateSHA256); err != nil {
+			return err
+		}
+	}
 	template := live.SidecarTemplate
 	if _, err := fmt.Fprintf(out, "gate adapter report sidecar template：kind=%s adapterId=%s action=%s status=%s gateEventId=%s\n", template.Kind, template.AdapterID, template.Action, template.Status, template.GateEventID); err != nil {
 		return err
@@ -7132,6 +7197,68 @@ func writeGateAdapterReportSummaryText(out io.Writer, prefix string, summary gat
 	return nil
 }
 
+func writeGateAdapterReportScaffoldText(out io.Writer, scaffold gate.AdapterExecutionReportScaffold) error {
+	if _, err := fmt.Fprintf(out, "gate adapter report scaffold：mode=%s applied=%t reportPath=%s reportSha256=%s alreadyExists=%t requiresConfirmation=%t\n", scaffold.Mode, scaffold.Applied, scaffold.ReportPath, scaffold.ReportSHA256, scaffold.AlreadyExists, scaffold.RequiresConfirmation); err != nil {
+		return err
+	}
+	template := scaffold.SidecarTemplate
+	if _, err := fmt.Fprintf(out, "gate adapter report scaffold sidecar：kind=%s adapterId=%s action=%s status=%s gateEventId=%s\n", template.Kind, template.AdapterID, template.Action, template.Status, template.GateEventID); err != nil {
+		return err
+	}
+	if len(template.OutputRefs) > 0 {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold outputRefs：%s\n", strings.Join(template.OutputRefs, ",")); err != nil {
+			return err
+		}
+	}
+	if len(template.EvidenceRefs) > 0 {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold evidenceRefs：%s\n", strings.Join(template.EvidenceRefs, ",")); err != nil {
+			return err
+		}
+	}
+	if len(template.BoundaryHits) > 0 {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold boundaryHits：%s\n", strings.Join(template.BoundaryHits, ",")); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(template.Escalation) != "" || strings.TrimSpace(template.Summary) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold summary：escalation=%s summary=%s\n", template.Escalation, template.Summary); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(scaffold.ApplyCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold apply command：%s\n", scaffold.ApplyCommand); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(scaffold.ValidateCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold validate command：%s\n", scaffold.ValidateCommand); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(scaffold.RecordCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold record command：%s\n", scaffold.RecordCommand); err != nil {
+			return err
+		}
+	}
+	for _, step := range scaffold.NextSteps {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range scaffold.Boundary {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	if err := writeMissionCommanderActionText(out, "adapter report scaffold commander action", mission.ExecutorAction{MissionCommanderAction: scaffold.MissionCommanderAction}); err != nil {
+		return err
+	}
+	if err := writeMissionCommanderActionQueueText(out, scaffold.MissionCommanderActionQueue); err != nil {
+		return err
+	}
+	return writeMissionCommanderNextActionsText(out, scaffold.MissionCommanderNextActions)
+}
+
 func writeGateAdapterReportContractText(out io.Writer, contract gate.AdapterExecutionReportContract) error {
 	if _, err := fmt.Fprintf(out, "gate adapter report contract：gateEventId=%s action=%s lane=%s reportPath=%s mutation=%t\n", contract.GateEventID, contract.Action, contract.Lane, contract.DefaultReportPath, contract.IsMutation); err != nil {
 		return err
@@ -7144,6 +7271,24 @@ func writeGateAdapterReportContractText(out io.Writer, contract gate.AdapterExec
 	}
 	if _, err := fmt.Fprintf(out, "gate adapter report contract outputPaths：%s\n", strings.Join(contract.AllowedOutputPaths, ",")); err != nil {
 		return err
+	}
+	if strings.TrimSpace(contract.LiveValidation.CaseRelativeScaffoldCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold command：%s\n", contract.LiveValidation.CaseRelativeScaffoldCommand); err != nil {
+			return err
+		}
+	} else if strings.TrimSpace(contract.LiveValidation.ScaffoldCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold command：%s\n", contract.LiveValidation.ScaffoldCommand); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(contract.LiveValidation.CaseRelativeScaffoldApplyCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold apply command：%s\n", contract.LiveValidation.CaseRelativeScaffoldApplyCommand); err != nil {
+			return err
+		}
+	} else if strings.TrimSpace(contract.LiveValidation.ScaffoldApplyCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold apply command：%s\n", contract.LiveValidation.ScaffoldApplyCommand); err != nil {
+			return err
+		}
 	}
 	if strings.TrimSpace(contract.LiveValidation.CaseRelativeValidateCommand) != "" {
 		if _, err := fmt.Fprintf(out, "gate adapter report validate command：%s\n", contract.LiveValidation.CaseRelativeValidateCommand); err != nil {

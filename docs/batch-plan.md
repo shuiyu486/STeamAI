@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 568：authorized-gate adapter report scaffold lifecycle closure
+
+状态：Go runtime、CLI text/status/workstream handoff、tests 与本地 release minimum 已完成；implementation commit / push 与 implementation remote release-gate inspection 待执行。本批延续 Batch 527–528、535、547 的 authorized-gate adapter handoff closure，但不再只是字段投影：新增 Go-native deterministic scaffold preview/apply lifecycle，关闭 replacement executor 必须手工拼 `adapter-report.json` sidecar 的 product-path 断点。
+
+目标：让 replacement executor 在 authorized-gate adapter sidecar lifecycle 中，从 contract/status/handoff/continue 第一屏直接获得可复核、hash-gated 的 `adapter-report.json` scaffold preview/apply、validate 与 record 顺序，而不是手工复制 sidecar template、猜 workspace-relative/case-relative path 或在 validate/record 前绕过 review-first boundary。
+
+已实现内容：
+
+- `gate -ExecutionReportContract` 的 live validation handoff 现在生成 deterministic `AdapterReportSidecarTemplate` bytes 与 `sidecarTemplateSha256`，并投影 workspace-relative / case-relative scaffold preview/apply args 和 commands；status、handoff、continue 与 durable Markdown 复用同一 scaffold/hash/validate/record handoff。
+- 新增 `gate -ScaffoldExecutionReport` Go-native runtime/CLI path：默认只读 preview 返回 exact sidecar template、`reportSha256`、authorized report path、apply/validate/record commands、Mission Commander action queue 与 no-heavy/no-record boundary；`-Apply` 必须携带 preview 返回的 `-ExpectedExecutionReportSha256`。
+- Scaffold Apply 只写缺失的 bounded `adapter-report.json` template；若目标已存在且 bytes 完全相同则返回 `already-scaffolded`，若目标存在不同 bytes 或 expected hash drift 则 fail-closed。workspace-relative path 从 authorized output workspace 接续，case-relative path 可从任意 case-local cwd 接续。
+- CLI product path 覆盖 scaffold JSON preview no-write、text Apply、wrong-hash refusal、different existing sidecar refusal、status JSON/text scaffold handoff，以及 observations/authority/confirmed zero-write boundary；package tests 覆盖 preview/apply/replay、cwd-relative authorized path 与 contract scaffold args/hash projection。
+
+边界：本批只写缺失 sidecar scaffold；不执行 adapter/heavy tool，不 validate sidecar，不 record observation evidence，不写 authority/confirmed，不自动创建输出 artifact，不改变 `gate -Apply -GateEventId ...` 的 valid=true record boundary，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/gate ./internal/rekit/cli ./internal/rekit/workstream` 通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 尚未执行，当前不能声明 remote CI green。
+
 ### Batch 567：reviewer dispatch next-action handoff closure
 
 状态：已完成 Go runtime、CLI text/status product-path、tests、本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `b7f1abc` 已推送。implementation run `30086308317` completed failure，Linux/Windows/macOS jobs `89459180192`/`89459180264`/`89459180311` 均 `runner_id=0` 且 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。

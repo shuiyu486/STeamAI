@@ -35,19 +35,24 @@ type AuthorizedGateAdapterHandoff struct {
 }
 
 type AuthorizedGateLiveValidationHandoff struct {
-	InvocationCwd               string                     `json:"invocationCwd,omitempty"`
-	AuthorizedWorkspaces        []string                   `json:"authorizedWorkspaces,omitempty"`
-	ReportFileName              string                     `json:"reportFileName,omitempty"`
-	CaseRelativeReportPath      string                     `json:"caseRelativeReportPath,omitempty"`
-	ValidateCommand             string                     `json:"validateCommand,omitempty"`
-	RecordCommand               string                     `json:"recordCommand,omitempty"`
-	CaseRelativeValidateCommand string                     `json:"caseRelativeValidateCommand,omitempty"`
-	CaseRelativeRecordCommand   string                     `json:"caseRelativeRecordCommand,omitempty"`
-	AdapterCandidateCount       int                        `json:"adapterCandidateCount"`
-	SelectedAdapterID           string                     `json:"selectedAdapterId,omitempty"`
-	SelectedAdapter             *gate.AdapterToolCandidate `json:"selectedAdapter,omitempty"`
-	SidecarTemplateAdapterID    string                     `json:"sidecarTemplateAdapterId,omitempty"`
-	ReplayBehavior              string                     `json:"replayBehavior,omitempty"`
+	InvocationCwd                    string                     `json:"invocationCwd,omitempty"`
+	AuthorizedWorkspaces             []string                   `json:"authorizedWorkspaces,omitempty"`
+	ReportFileName                   string                     `json:"reportFileName,omitempty"`
+	CaseRelativeReportPath           string                     `json:"caseRelativeReportPath,omitempty"`
+	ValidateCommand                  string                     `json:"validateCommand,omitempty"`
+	RecordCommand                    string                     `json:"recordCommand,omitempty"`
+	ScaffoldCommand                  string                     `json:"scaffoldCommand,omitempty"`
+	ScaffoldApplyCommand             string                     `json:"scaffoldApplyCommand,omitempty"`
+	SidecarTemplateSHA256            string                     `json:"sidecarTemplateSha256,omitempty"`
+	CaseRelativeValidateCommand      string                     `json:"caseRelativeValidateCommand,omitempty"`
+	CaseRelativeRecordCommand        string                     `json:"caseRelativeRecordCommand,omitempty"`
+	CaseRelativeScaffoldCommand      string                     `json:"caseRelativeScaffoldCommand,omitempty"`
+	CaseRelativeScaffoldApplyCommand string                     `json:"caseRelativeScaffoldApplyCommand,omitempty"`
+	AdapterCandidateCount            int                        `json:"adapterCandidateCount"`
+	SelectedAdapterID                string                     `json:"selectedAdapterId,omitempty"`
+	SelectedAdapter                  *gate.AdapterToolCandidate `json:"selectedAdapter,omitempty"`
+	SidecarTemplateAdapterID         string                     `json:"sidecarTemplateAdapterId,omitempty"`
+	ReplayBehavior                   string                     `json:"replayBehavior,omitempty"`
 }
 
 func AuthorizedGateAdapterHandoffs(repoRoot, caseRoot, pack string, requests []map[string]any, laneID string) []AuthorizedGateAdapterHandoff {
@@ -161,19 +166,24 @@ func authorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveValidatio
 		selectedAdapter = &candidate
 	}
 	return AuthorizedGateLiveValidationHandoff{
-		InvocationCwd:               live.InvocationCwd,
-		AuthorizedWorkspaces:        append([]string{}, live.AuthorizedWorkspaces...),
-		ReportFileName:              live.ReportFileName,
-		CaseRelativeReportPath:      live.CaseRelativeReportPath,
-		ValidateCommand:             live.ValidateCommand,
-		RecordCommand:               live.RecordCommand,
-		CaseRelativeValidateCommand: live.CaseRelativeValidateCommand,
-		CaseRelativeRecordCommand:   live.CaseRelativeRecordCommand,
-		AdapterCandidateCount:       len(live.AdapterCandidates),
-		SelectedAdapterID:           selectedAdapterID,
-		SelectedAdapter:             selectedAdapter,
-		SidecarTemplateAdapterID:    live.SidecarTemplate.AdapterID,
-		ReplayBehavior:              live.ReplayBehavior,
+		InvocationCwd:                    live.InvocationCwd,
+		AuthorizedWorkspaces:             append([]string{}, live.AuthorizedWorkspaces...),
+		ReportFileName:                   live.ReportFileName,
+		CaseRelativeReportPath:           live.CaseRelativeReportPath,
+		ValidateCommand:                  live.ValidateCommand,
+		RecordCommand:                    live.RecordCommand,
+		ScaffoldCommand:                  live.ScaffoldCommand,
+		ScaffoldApplyCommand:             live.ScaffoldApplyCommand,
+		SidecarTemplateSHA256:            live.SidecarTemplateSHA256,
+		CaseRelativeValidateCommand:      live.CaseRelativeValidateCommand,
+		CaseRelativeRecordCommand:        live.CaseRelativeRecordCommand,
+		CaseRelativeScaffoldCommand:      live.CaseRelativeScaffoldCommand,
+		CaseRelativeScaffoldApplyCommand: live.CaseRelativeScaffoldApplyCommand,
+		AdapterCandidateCount:            len(live.AdapterCandidates),
+		SelectedAdapterID:                selectedAdapterID,
+		SelectedAdapter:                  selectedAdapter,
+		SidecarTemplateAdapterID:         live.SidecarTemplate.AdapterID,
+		ReplayBehavior:                   live.ReplayBehavior,
 	}
 }
 
@@ -307,8 +317,13 @@ func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item Authorize
 		if live.SelectedAdapter != nil {
 			writeAuthorizedGateSelectedAdapterMarkdown(out, *live.SelectedAdapter)
 		}
+		fmt.Fprintf(out, "  - scaffold: `%s`\n", live.ScaffoldCommand)
+		fmt.Fprintf(out, "  - scaffold apply: `%s`\n", live.ScaffoldApplyCommand)
+		fmt.Fprintf(out, "  - sidecar template sha256: `%s`\n", live.SidecarTemplateSHA256)
 		fmt.Fprintf(out, "  - validate: `%s`\n", live.ValidateCommand)
 		fmt.Fprintf(out, "  - record: `%s`\n", live.RecordCommand)
+		fmt.Fprintf(out, "  - case scaffold: `%s`\n", live.CaseRelativeScaffoldCommand)
+		fmt.Fprintf(out, "  - case scaffold apply: `%s`\n", live.CaseRelativeScaffoldApplyCommand)
 		fmt.Fprintf(out, "  - case validate: `%s`\n", live.CaseRelativeValidateCommand)
 		fmt.Fprintf(out, "  - case record: `%s`\n", live.CaseRelativeRecordCommand)
 		for _, workspace := range live.AuthorizedWorkspaces {
