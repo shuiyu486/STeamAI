@@ -2712,6 +2712,7 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 			return statusInventory{}, err
 		}
 		status.ProjectHandoff = buildStatusProjectHandoff(release.ReleaseHandoff)
+		bindStatusCaseCandidateDecisionDraftHandoffs(status.ProjectHandoff, ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
 		return status, nil
 	}
 	m, err := manifest.Load(ctx.RepoRoot, ctx.Pack)
@@ -3312,6 +3313,171 @@ func statusLaneCommandLabel(lane string) string {
 
 func statusQuoteCommandArg(value string) string {
 	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+}
+
+func bindStatusCaseCandidateDecisionDraftHandoffs(handoff *statusProjectHandoff, repoRoot, caseRoot, pack string) {
+	if handoff == nil {
+		return
+	}
+	caseHandoffs := statusCaseCandidateDecisionDraftHandoffs(repoRoot, caseRoot, pack)
+	if len(caseHandoffs) == 0 {
+		return
+	}
+	for i := range handoff.PackMemoryCandidates.Packs {
+		status := &handoff.PackMemoryCandidates.Packs[i]
+		key := strings.ToLower(strings.TrimSpace(status.Pack))
+		drafts := caseHandoffs[key]
+		for j := len(drafts) - 1; j >= 0; j-- {
+			draft := drafts[j]
+			if draft.Handoff != nil && statusCaseCandidateDraftCoversPackStatus(repoRoot, *status, draft.CandidatePaths) {
+				status.DecisionDraftHandoff = draft.Handoff
+				break
+			}
+		}
+	}
+}
+
+type statusCaseCandidateDecisionDraft struct {
+	Handoff        *promote.CandidateDecisionDraftHandoff
+	CandidatePaths map[string]bool
+}
+
+func statusCaseCandidateDecisionDraftHandoffs(repoRoot, caseRoot, pack string) map[string][]statusCaseCandidateDecisionDraft {
+	reviewRoot := filepath.Join(caseRoot, ".rekit", "reviews")
+	out := map[string][]statusCaseCandidateDecisionDraft{}
+	_ = filepath.WalkDir(reviewRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d == nil || d.IsDir() || d.Name() != "packet.json" {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > 2*1024*1024 {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		var packet promote.CandidateReviewPacket
+		if err := json.Unmarshal(data, &packet); err != nil {
+			return nil
+		}
+		draft := statusCaseCandidateDecisionDraftHandoff(repoRoot, caseRoot, pack, path, packet)
+		if draft != nil {
+			key := strings.ToLower(strings.TrimSpace(packet.CandidateResult.Pack))
+			out[key] = append(out[key], *draft)
+		}
+		return nil
+	})
+	return out
+}
+
+func statusCaseCandidateDecisionDraftHandoff(repoRoot, caseRoot, pack, packetPath string, packet promote.CandidateReviewPacket) *statusCaseCandidateDecisionDraft {
+	result := packet.CandidateResult
+	if packet.Kind != "pack-memory-candidate-review" || packet.Command != "promote" || !samePath(result.RepoRoot, repoRoot) || !samePath(result.CaseRoot, caseRoot) || !strings.EqualFold(result.Pack, pack) {
+		return nil
+	}
+	handoff := result.ReviewPlan.DecisionDraftHandoff
+	if handoff == nil || strings.TrimSpace(handoff.PacketPath) == "" || !samePath(handoff.PacketPath, packetPath) || len(handoff.PreviewCommands) == 0 || !statusCandidateDecisionDraftInputsPresent(result, *handoff) {
+		return nil
+	}
+	return &statusCaseCandidateDecisionDraft{
+		Handoff:        cloneCandidateDecisionDraftHandoff(*handoff),
+		CandidatePaths: statusCaseCandidateDraftPaths(repoRoot, result),
+	}
+}
+
+func statusCandidateDecisionDraftInputsPresent(result promote.CandidateResult, handoff promote.CandidateDecisionDraftHandoff) bool {
+	if len(handoff.EvidenceRefs) == 0 {
+		return false
+	}
+	for _, evidence := range handoff.EvidenceRefs {
+		if !statusRegularNonEmptyFile(evidence) {
+			return false
+		}
+	}
+	pending := 0
+	for _, item := range result.ReviewPlan.ReviewItems {
+		if item.ReviewDecision != "pending-review" {
+			continue
+		}
+		pending++
+		if !statusRegularNonEmptyFile(item.CandidatePath) {
+			return false
+		}
+		if item.Kind == "managed-doc" && !statusRegularFile(item.PackTarget) {
+			return false
+		}
+	}
+	return pending > 0
+}
+
+func statusCaseCandidateDraftPaths(repoRoot string, result promote.CandidateResult) map[string]bool {
+	paths := map[string]bool{}
+	for _, item := range result.ReviewPlan.ReviewItems {
+		if item.ReviewDecision != "pending-review" {
+			continue
+		}
+		if rel := statusRepoRelativePath(repoRoot, item.CandidatePath); rel != "" {
+			paths[rel] = true
+		}
+	}
+	return paths
+}
+
+func statusCaseCandidateDraftCoversPackStatus(repoRoot string, status releasecheck.ReleaseHandoffPackMemoryCandidateStatus, packetPaths map[string]bool) bool {
+	if len(packetPaths) == 0 {
+		return false
+	}
+	candidatePaths := append([]string{}, status.CandidatePaths...)
+	candidatePaths = append(candidatePaths, status.ToolingPaths...)
+	if len(candidatePaths) == 0 {
+		return false
+	}
+	for _, path := range candidatePaths {
+		rel := statusRepoRelativePath(repoRoot, path)
+		if rel == "" || !packetPaths[rel] {
+			return false
+		}
+	}
+	return true
+}
+
+func statusRepoRelativePath(repoRoot, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	clean := filepath.Clean(path)
+	if filepath.IsAbs(clean) {
+		rel, err := filepath.Rel(repoRoot, clean)
+		if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+			return ""
+		}
+		clean = rel
+	}
+	return filepath.ToSlash(clean)
+}
+
+func statusRegularFile(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular()
+}
+
+func statusRegularNonEmptyFile(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular() && info.Size() > 0
+}
+
+func cloneCandidateDecisionDraftHandoff(handoff promote.CandidateDecisionDraftHandoff) *promote.CandidateDecisionDraftHandoff {
+	cloned := handoff
+	cloned.EvidenceRefs = append([]string{}, handoff.EvidenceRefs...)
+	cloned.SupportedDecisions = append([]string{}, handoff.SupportedDecisions...)
+	cloned.Boundary = append([]string{}, handoff.Boundary...)
+	cloned.PreviewCommands = append([]promote.CandidateDecisionDraftCommand{}, handoff.PreviewCommands...)
+	for i := range cloned.PreviewCommands {
+		cloned.PreviewCommands[i].Boundary = append([]string{}, handoff.PreviewCommands[i].Boundary...)
+	}
+	return &cloned
 }
 
 func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProjectHandoff {

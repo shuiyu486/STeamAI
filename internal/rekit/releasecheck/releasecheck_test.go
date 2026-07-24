@@ -11,7 +11,7 @@ import (
 )
 
 func TestReleaseCheckIncludesManifestHeavyToolGateActions(t *testing.T) {
-	result, err := Build(repoRoot(t))
+	result, err := Build(cleanReleaseRepoRoot(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,6 +540,65 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func cleanReleaseRepoRoot(t *testing.T) string {
+	t.Helper()
+	src := repoRoot(t)
+	dst := filepath.Join(t.TempDir(), "repo")
+	if err := filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d == nil {
+			return nil
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		relSlash := filepath.ToSlash(rel)
+		if rel == "." {
+			return os.MkdirAll(dst, 0o755)
+		}
+		if d.IsDir() {
+			if relSlash == ".git" || releaseCheckTestVolatileCandidateDir(relSlash) {
+				return filepath.SkipDir
+			}
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			return os.MkdirAll(filepath.Join(dst, rel), info.Mode().Perm())
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode().Perm())
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return dst
+}
+
+func releaseCheckTestVolatileCandidateDir(relSlash string) bool {
+	parts := strings.Split(relSlash, "/")
+	if len(parts) >= 3 && parts[0] == "packs" && parts[2] == "promote-candidates" {
+		return true
+	}
+	return len(parts) >= 4 && parts[0] == "packs" && parts[2] == "tooling" && parts[3] == "candidates"
 }
 
 func repoRoot(t *testing.T) string {

@@ -1075,10 +1075,10 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
 	candidateBefore := snapshotFiles(t, candidateRoot)
 	toolingBefore := snapshotFiles(t, toolingRoot)
-	t.Cleanup(func() {
-		removeNewFiles(t, candidateRoot, candidateBefore)
-		removeNewFiles(t, toolingRoot, toolingBefore)
-	})
+	removeNewFiles(t, candidateRoot, candidateBefore)
+	removeNewFiles(t, toolingRoot, toolingBefore)
+	defer removeNewFiles(t, candidateRoot, candidateBefore)
+	defer removeNewFiles(t, toolingRoot, toolingBefore)
 	writePathFile(t, filepath.Join(candidateRoot, "batch501-status.candidate.md"), "# candidate\n")
 	writePathFile(t, filepath.Join(toolingRoot, "batch501-tooling.candidate.md"), "# tooling\n")
 	writePathFile(t, filepath.Join(candidateRoot, "index.json"), `[
@@ -7694,7 +7694,7 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 	if pack.Pack != "_template" || pack.CandidateRoot != "packs/_template/promote-candidates" || pack.ToolingRoot != "packs/_template/tooling/candidates" || pack.IndexPath != "packs/_template/promote-candidates/index.json" || pack.CandidateFiles != 1 || pack.ToolingFiles != 1 || pack.IndexEntries != 1 || !pack.RequiresReview || !pack.RequiresCleanup || !containsSubstring(pack.Evidence, "promote-candidates files=1") || !containsSubstring(pack.Boundary, "does not merge, delete") {
 		t.Fatalf("unexpected nested status pack-memory candidate pack: %+v", pack)
 	}
-	if handoff := pack.DecisionDraftHandoff; handoff == nil || handoff.Mode != "candidate-decision-draft-review-workspace-required" || handoff.DecisionPath != "packs/_template/promote-candidates/review-artifacts/candidate-decisions.json" || !containsSubstring(handoff.SupportedDecisions, "accept-managed-reject-tooling") || !strings.Contains(handoff.NextAction, "write or select") || !containsSubstring(handoff.Boundary, "cannot infer the case-local review packet") {
+	if handoff := pack.DecisionDraftHandoff; handoff == nil || handoff.Mode != "candidate-decision-draft-handoff" || handoff.PacketPath != result.ReviewWorkspace.PacketPath || handoff.DecisionPath != filepath.Join(reviewRoot, "candidate-decisions.json") || !containsSubstring(handoff.EvidenceRefs, result.ReviewWorkspace.CombinedDiffPath) || !containsSubstring(handoff.SupportedDecisions, "accept-managed-reject-tooling") || len(handoff.PreviewCommands) == 0 || !strings.Contains(handoff.PreviewCommands[0].PreviewCommand, "-DraftCandidateDecision") || !strings.Contains(handoff.PreviewCommands[0].ApplyCommandTemplate, "<decisionSha256-from-WhatIf>") || !strings.Contains(handoff.NextAction, "-DraftCandidateDecision") || !containsSubstring(handoff.Boundary, "draft Apply writes only") {
 		t.Fatalf("unexpected nested status pack-memory decision draft handoff: %+v", pack.DecisionDraftHandoff)
 	}
 
@@ -7709,8 +7709,12 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 receipts=0 pendingVerification=0 completedVerification=0 review=true cleanup=true verification=false",
 		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4",
 		"status pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
-		"status pack-memory decision draft handoff：pack=_template mode=candidate-decision-draft-review-workspace-required packet= decisionPath=packs/_template/promote-candidates/review-artifacts/candidate-decisions.json nextAction=write or select at least one repo-local pack-memory review evidence ref before running promote -DraftCandidateDecision",
+		"status pack-memory decision draft handoff：pack=_template mode=candidate-decision-draft-handoff packet=" + result.ReviewWorkspace.PacketPath + " decisionPath=" + filepath.Join(reviewRoot, "candidate-decisions.json") + " nextAction=/rekit promote -PacketPath",
+		"status pack-memory decision draft evidence ref：pack=_template evidence=" + result.ReviewWorkspace.CombinedDiffPath,
 		"status pack-memory decision draft supported decision：pack=_template decision=accept-managed-reject-tooling",
+		"status pack-memory decision draft preview command：pack=_template decision=accept-managed-reject-tooling command=/rekit promote -PacketPath",
+		"status pack-memory decision draft apply template：pack=_template decision=accept-managed-reject-tooling command=/rekit promote -PacketPath",
+		"status pack-memory decision draft handoff boundary：pack=_template boundary=draft Apply writes only the case-local decisionPath JSON and is exact replay only",
 		"status pack-memory candidate path：pack=_template path=packs/_template/promote-candidates/",
 		"status pack-memory tooling candidate path：pack=_template path=packs/_template/tooling/candidates/",
 		"status pack-memory candidate index：pack=_template path=references/template/README.md candidate=packs/_template/promote-candidates/",

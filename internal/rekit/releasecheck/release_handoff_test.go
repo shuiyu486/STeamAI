@@ -16,7 +16,7 @@ import (
 )
 
 func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
-	result, err := Build(repoRoot(t))
+	result, err := Build(cleanReleaseRepoRoot(t))
 	if err != nil {
 		t.Fatal(err)
 	}
