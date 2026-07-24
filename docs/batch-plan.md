@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 571：pack-memory candidate cleanup proof draft closure
 
-状态：已完成 Go runtime、CLI route/text、release/status receipt-derived handoff、tests 与本地 release minimum；implementation commit/push 与 release inspection 待执行。本批延续 Batch 570：candidate decision note proof 已能 deterministic draft，但 candidate decision Apply 已清理 candidate/index 之后，`candidate-cleanup-proof` 仍只能靠人工命令 transcript 或 loose Markdown，replacement executor 在 candidate 文件已消失后还必须手工从 receipt/backup/journal 拼证明。
+状态：已完成 Go runtime、CLI route/text、release/status receipt-derived handoff、tests、本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `8a69ced` 已推送。implementation run `30121928443` completed failure，macOS/Linux/Windows jobs `89576438286`/`89576438289`/`89576438299` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 570：candidate decision note proof 已能 deterministic draft，但 candidate decision Apply 已清理 candidate/index 之后，`candidate-cleanup-proof` 仍只能靠人工命令 transcript 或 loose Markdown，replacement executor 在 candidate 文件已消失后还必须手工从 receipt/backup/journal 拼证明。
 
 目标：让 Mission Commander / replacement executor 在 committed candidate decision receipt 之后，用 Go-native `promote -DraftReviewProof -ProofType candidate-cleanup-proof -CandidateDecisionPath ...` 生成可复核、hash-gated、repo-local 的 cleanup proof draft；release/status 即使 candidatePath 已删除，也能从 durable receipt 投影下一份 missing cleanup proof、所需 packet/decision 与 WhatIf/Apply template。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只生成和写入 cleanup proof note，并增强只读 release/status handoff；不 merge pack sources、不 cleanup candidate/index（cleanup 已由 explicit candidate decision Apply 完成并被 receipt 证明）、不运行 doctor/init/reconsume、不执行 verification provisioning/final verification/retirement、不执行 heavy tool、不写 authority/confirmed、不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。implementation commit/push 与 implementation remote release-gate inspection 仍待执行，当前不能声明 remote CI green。
+验证结果：focused `go test ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 已记录：implementation run `30121928443` completed failure，macOS/Linux/Windows jobs `89576438286`/`89576438289`/`89576438299` 均 `steps=[]`，仍属既有 runner/billing blocker，当前不能声明 remote CI green。
 
 ### Batch 570：pack-memory candidate review proof draft closure
 
