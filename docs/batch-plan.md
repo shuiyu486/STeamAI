@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 570：pack-memory candidate review proof draft closure
 
-状态：已完成 Go runtime、CLI routing/text handoff、release/status next-missing proof template projection 与 focused tests；implementation commit/push、完整本地 release minimum 与 release inspection 尚未执行。本批延续 Batch 500–534、538、563–566 的 pack-memory candidate review/decision/proof closure：之前 release/status 能指出下一份 missing proof，但 replacement executor 仍需手工撰写 proof note 内容与绑定 packet/candidate/evidence/hash，容易把 proof 写成不可审计的空 skeleton 或混入 case 绝对路径。
+状态：已完成 Go runtime、CLI routing/text handoff、release/status next-missing proof template projection、tests、本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `163efef` 已推送。implementation run `30115319001` completed failure，Windows/macOS/Linux jobs `89554436431`/`89554436471`/`89554436637` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 500–534、538、563–566 的 pack-memory candidate review/decision/proof closure：之前 release/status 能指出下一份 missing proof，但 replacement executor 仍需手工撰写 proof note 内容与绑定 packet/candidate/evidence/hash，容易把 proof 写成不可审计的空 skeleton 或混入 case 绝对路径。
 
 目标：让 Mission Commander / replacement executor 在 review candidate 后，用 Go-native `promote -DraftReviewProof` 生成可复核、hash-gated、repo-local 的 `candidate-decision-note` proof draft：先 WhatIf 复核 proof note 内容与 `proofSha256`，再 Apply 写入 `packs/<pack>/promote-candidates/review-artifacts/*.{md,json,txt}`，随后由只读 release/status proof summary 识别 presence 并推进后续 cleanup/reconsume proof 阶段。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只生成和写入 review 后的 repo-local candidate decision proof note；不 merge pack sources、不 cleanup candidate/index、不运行 doctor/init/reconsume、不执行 heavy tool、不写 authority/confirmed、不创建或推断 case-local packet、不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck -count=1` 通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。implementation push 与 remote inspection 尚未执行，当前不能声明 remote CI green。
+验证结果：focused `go test ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck -count=1` 通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 已记录：implementation run `30115319001` completed failure，Windows/macOS/Linux jobs `89554436431`/`89554436471`/`89554436637` 均 `steps=[]`，仍属既有 runner/billing blocker，当前不能声明 remote CI green。
 
 ### Batch 569：authorized-gate adapter report deterministic draft sidecar closure
 
