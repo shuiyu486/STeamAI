@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 565：case-local candidate review packet handoff closure
 
-状态：已完成 Go runtime、CLI product-path tests、releasecheck cross-package test isolation、CHANGELOG 与完整本地 release minimum；implementation commit/push 与远程 release-gate inspection 待执行。
+状态：已完成 Go runtime、CLI product-path tests、releasecheck cross-package test isolation、CHANGELOG、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `730741a`已推送。implementation run `30079861360` completed failure，macOS/Windows/Linux jobs `89438735982`/`89438736026`/`89438736057` 均`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。本release inspection record仅记录该implementation run；不要为inspection commit自身CI追加第三个记录提交，除非出现不同于既有`steps=[]`的新远程信号。
 
 目标：关闭 Batch 564 后的 case-local status 断点：attached case 中已经存在 `.rekit/reviews/**/packet.json` durable pack-memory candidate review packet，且 packet 内包含可运行 `decisionDraftHandoff` 时，replacement executor 在 nested case cwd / no `-Target` / no `-Pack` 的第一屏不应只看到 release/status repo-only fallback guidance，也不应重新生成 review workspace 或手工回忆 draft command、packet path、decision path、evidence refs 与 expected-hash Apply 语义。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只增强 case-mode status 的只读 packet-derived handoff 与测试隔离；不写 decision file、不 merge/cleanup candidate、不更新 pack source、不运行 doctor/init/reconsume、不写 facts/authority/confirmed、不执行 heavy tool、不新增 PowerShell runtime logic。release/status fallback guidance 在没有可绑定 packet 时保持原状，远程 CI green 仍只能由实际 GitHub Actions jobs 获得 runner 并通过后声明。
 
-验证结果：focused `go test ./internal/rekit/cli -run TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime -count=1` 通过；`go test ./internal/rekit/releasecheck ./internal/rekit/cli -count=1` 通过；完整 `go test ./...` 通过；本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。远程 release-gate inspection 待 implementation commit/push 后执行；不能声明 remote CI green。
+验证结果：focused `go test ./internal/rekit/cli -run TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime -count=1` 通过；`go test ./internal/rekit/releasecheck ./internal/rekit/cli -count=1` 通过；完整 `go test ./...` 通过；本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection：implementation run `30079861360` 的 macOS job `89438735982`、Windows job `89438736026`、Linux job `89438736057` 均 completed failure 且 `steps=[]`，未获得runner执行；该信号与既有billing/spending-limit blocker相同，当前不能声明 remote CI green。
 
 上一批摘要：Batch 564 已完成 pack-memory candidate decision draft handoff closure；implementation commit `d1814c1` 与 release inspection commit `9d37d0c` 已推送；implementation run `30076216089` completed failure，Windows/macOS/Linux jobs 均 `steps=[]`，仍属既有 runner/billing blocker。
 
