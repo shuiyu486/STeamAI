@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 569：authorized-gate adapter report deterministic draft sidecar closure
 
-状态：已完成 Go runtime、CLI text/status/workstream handoff、tests 与本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。本批延续 Batch 568 的 scaffold lifecycle：scaffold 只给 replacement executor 一个 exact placeholder，而 draft path 进一步关闭 executor 必须手工编辑 `adapter-report.json` 关键字段的 product-path 断点。
+状态：已完成 Go runtime、CLI text/status/workstream handoff、tests、本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `23841d7` 已推送。implementation run `30111240646` completed failure，Windows/Linux/macOS jobs `89541005392`/`89541005458`/`89541005459` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 568 的 scaffold lifecycle：scaffold 只给 replacement executor 一个 exact placeholder，而 draft path 进一步关闭 executor 必须手工编辑 `adapter-report.json` 关键字段的 product-path 断点。
 
 目标：让 replacement executor 在 authorized-gate adapter sidecar lifecycle 中，从 contract/status/handoff 第一屏拿到 deterministic `gate -DraftExecutionReport` preview/apply handoff：先复核 executor-reported bounded fields 与 exact hash，再 hash-gated 写入缺失 sidecar或替换 exact scaffold，然后 read-only validate，最后只在 `valid=true` 后 record bounded observation evidence。
 
