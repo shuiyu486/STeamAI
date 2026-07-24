@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 575：pack-memory lifecycle proof deterministic draft closure
 
-状态：已完成 runtime、CLI、release/status handoff、tests 与本地 release minimum；尚未提交/push 或执行 implementation remote release-gate inspection。本批延续 Batch 570–574：candidate decision note、receipt-derived cleanup proof 与 lifecycle proof strict attestation 已闭环，但 `pack-doctor-output`、`fresh-case-reconsume-proof` 与 `attached-case-reconsume-proof` 仍需要 replacement executor 手工撰写 strict JSON proof note，容易遗漏 stage/checks/evidence hash 或写入 case 绝对路径。
+状态：已完成 runtime、CLI、release/status handoff、tests、本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `0524688` 已推送。implementation run `30134331373` completed failure，macOS/Windows/Linux jobs `89615073082`/`89615073103`/`89615073118` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 570–574：candidate decision note、receipt-derived cleanup proof 与 lifecycle proof strict attestation 已闭环，但 `pack-doctor-output`、`fresh-case-reconsume-proof` 与 `attached-case-reconsume-proof` 仍需要 replacement executor 手工撰写 strict JSON proof note，容易遗漏 stage/checks/evidence hash 或写入 case 绝对路径。
 
 目标：让 Mission Commander / replacement executor 在 review candidate 后，用 Go-native `promote -DraftReviewProof` 为 lifecycle/reconsume proof 生成 deterministic、packet/candidate/evidence-bound strict JSON proof note；先 WhatIf 复核 `proofSha256` 与 exact proof bytes，再用 expected-hash Apply 只写 repo-local review artifact，随后由 release/status strict attestation 接续 proof summary。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只生成和写入 lifecycle/reconsume proof note，并增强只读 release/status handoff；不运行 doctor/init/reconsume、不 merge/cleanup candidates、不执行 verification provisioning/final verification/retirement、不执行 heavy tool、不写 authority/confirmed、不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 尚未执行，当前不能声明 remote CI green。
+验证结果：focused `go test ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 已记录：implementation run `30134331373` completed failure，macOS/Windows/Linux jobs `89615073082`/`89615073103`/`89615073118` 均 `steps=[]`，未提供代码执行日志，按既有 runner/billing blocker 记录，不能声明 remote CI green。
 
 ### Batch 574：pack-memory lifecycle proof strict release attestation
 
