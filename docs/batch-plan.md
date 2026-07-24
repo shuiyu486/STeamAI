@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 563：pack-memory candidate decision draft closure
 
-状态：已完成 Go runtime、CLI、package/CLI product-path implementation 与本地验证；implementation commit/push 待执行，remote release-gate inspection pending。Batch 563 不能在未推送 implementation commit 且未检查该 commit 对应 remote release-gate run 前声明 remote CI green。
+状态：已完成 Go runtime、CLI、package/CLI product-path implementation、本地验证、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `188ddc0`已推送。implementation run `30071689533` completed failure，Windows/Linux/macOS jobs `89413717542`/`89413717566`/`89413717568` 均`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。本release inspection record仅记录该implementation run；不要为inspection commit自身CI追加第三个记录提交，除非出现不同于既有`steps=[]`的新远程信号。
 
 目标：关闭 pack-memory candidate decision product path 中 Mission Commander / replacement executor 必须手工拼完整 `CandidateDecisionFile` 的断点。旧路径要求人工计算 packet SHA-256、candidate SHA-256、accepted pack target SHA-256、evidence SHA-256，并精确覆盖所有 pending review items；该手工 JSON 既易错，也会让后续 verification/provisioning/retirement 闭环在入口处依赖不可审计的手写中间件。
 
