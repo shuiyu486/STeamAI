@@ -31,6 +31,17 @@ type CandidateDecisionOptions struct {
 	WhatIf       bool
 }
 
+type CandidateDecisionDraftOptions struct {
+	PacketPath             string
+	DecisionPath           string
+	Decision               string
+	Reason                 string
+	Actor                  string
+	EvidenceRefs           string
+	ExpectedDecisionSHA256 string
+	WhatIf                 bool
+}
+
 type CandidateDecisionVerificationOptions struct {
 	PacketPath       string
 	DecisionPath     string
@@ -54,6 +65,32 @@ type CandidateDecisionItem struct {
 	Reason         string                      `json:"reason"`
 	Actor          string                      `json:"actor"`
 	EvidenceRefs   []CandidateDecisionEvidence `json:"evidenceRefs"`
+}
+
+type CandidateDecisionDraftResult struct {
+	SchemaVersion  int                     `json:"schemaVersion"`
+	Command        string                  `json:"command"`
+	Mode           string                  `json:"mode"`
+	CaseRoot       string                  `json:"caseRoot"`
+	RepoRoot       string                  `json:"repoRoot"`
+	Pack           string                  `json:"pack"`
+	PacketPath     string                  `json:"packetPath"`
+	DecisionPath   string                  `json:"decisionPath"`
+	PacketHash     string                  `json:"packetHash"`
+	DecisionSHA256 string                  `json:"decisionSha256"`
+	IsMutation     bool                    `json:"isMutation"`
+	Applied        bool                    `json:"applied"`
+	AlreadyWritten bool                    `json:"alreadyWritten,omitempty"`
+	Decision       string                  `json:"decision"`
+	DecisionCount  int                     `json:"decisionCount"`
+	Accepted       int                     `json:"accepted"`
+	Rejected       int                     `json:"rejected"`
+	Superseded     int                     `json:"superseded"`
+	Decisions      []CandidateDecisionItem `json:"decisions"`
+	PreviewCommand string                  `json:"previewCommand,omitempty"`
+	ApplyCommand   string                  `json:"applyCommand,omitempty"`
+	NextSteps      []string                `json:"nextSteps"`
+	Boundary       []string                `json:"boundary"`
 }
 
 type CandidateDecisionEvidence struct {
@@ -183,6 +220,11 @@ type candidateDecisionPlanItem struct {
 	review           CandidateReviewItem
 	action           CandidateDecisionAction
 	candidateRemoved bool
+}
+
+type preparedCandidateDecisionDraft struct {
+	result        CandidateDecisionDraftResult
+	decisionBytes []byte
 }
 
 type candidateDecisionTransaction struct {
@@ -592,6 +634,409 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 		return CandidateDecisionVerificationResult{}, err
 	}
 	return result, nil
+}
+
+func DraftCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecisionDraftOptions) (CandidateDecisionDraftResult, error) {
+	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
+	if err != nil {
+		return CandidateDecisionDraftResult{}, err
+	}
+	if opt.WhatIf && strings.TrimSpace(opt.ExpectedDecisionSHA256) != "" {
+		return CandidateDecisionDraftResult{}, fmt.Errorf("candidate decision draft WhatIf does not accept -ExpectedDecisionSha256")
+	}
+	if !opt.WhatIf {
+		decoded, decodeErr := hex.DecodeString(strings.TrimSpace(opt.ExpectedDecisionSHA256))
+		if decodeErr != nil || len(decoded) != sha256.Size {
+			return CandidateDecisionDraftResult{}, fmt.Errorf("candidate decision draft Apply requires a valid -ExpectedDecisionSha256 from WhatIf")
+		}
+	}
+	prepared, err := prepareCandidateDecisionDraft(repoRoot, inst.CaseRoot, pack, opt)
+	if err != nil {
+		return CandidateDecisionDraftResult{}, err
+	}
+	result := prepared.result
+	if opt.WhatIf {
+		return result, nil
+	}
+	if !strings.EqualFold(result.DecisionSHA256, strings.TrimSpace(opt.ExpectedDecisionSHA256)) {
+		return CandidateDecisionDraftResult{}, fmt.Errorf("candidate decision draft changed after preview")
+	}
+	already, err := writeCandidateDecisionDraftFile(inst.CaseRoot, result.DecisionPath, prepared.decisionBytes)
+	if err != nil {
+		return CandidateDecisionDraftResult{}, err
+	}
+	result.Applied = true
+	result.AlreadyWritten = already
+	return result, nil
+}
+
+func prepareCandidateDecisionDraft(repoRoot, caseRoot, pack string, opt CandidateDecisionDraftOptions) (preparedCandidateDecisionDraft, error) {
+	packetPath, packetBytes, err := readStrictCandidateDecisionFile(opt.PacketPath, "candidate review packet")
+	if err != nil {
+		return preparedCandidateDecisionDraft{}, err
+	}
+	decisionPath, err := candidateDecisionDraftPath(caseRoot, opt.DecisionPath)
+	if err != nil {
+		return preparedCandidateDecisionDraft{}, err
+	}
+	decisionMode := strings.ToLower(strings.TrimSpace(opt.Decision))
+	if decisionMode == "" {
+		return preparedCandidateDecisionDraft{}, fmt.Errorf("candidate decision draft requires -Decision")
+	}
+	reason := strings.TrimSpace(opt.Reason)
+	actor := strings.TrimSpace(opt.Actor)
+	if reason == "" || actor == "" {
+		return preparedCandidateDecisionDraft{}, fmt.Errorf("candidate decision draft requires -Reason and -Actor")
+	}
+	evidenceRefs, evidenceArg, err := candidateDecisionDraftEvidenceRefs(repoRoot, caseRoot, opt.EvidenceRefs)
+	if err != nil {
+		return preparedCandidateDecisionDraft{}, err
+	}
+	var packet CandidateReviewPacket
+	if err := decodeStrictJSON(packetBytes, &packet); err != nil {
+		return preparedCandidateDecisionDraft{}, fmt.Errorf("decode candidate review packet: %w", err)
+	}
+	packetHash := sha256Hex(packetBytes)
+	if packet.SchemaVersion != 1 || packet.Kind != "pack-memory-candidate-review" || packet.Command != "promote" {
+		return preparedCandidateDecisionDraft{}, fmt.Errorf("candidate review packet has unsupported schema/kind/command")
+	}
+	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
+	if err != nil {
+		return preparedCandidateDecisionDraft{}, err
+	}
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return preparedCandidateDecisionDraft{}, err
+	}
+	canonicalCandidateRoot := filepath.Join(m.PackRoot, "promote-candidates")
+	canonicalToolingRoot := filepath.Join(m.PackRoot, "tooling", "candidates")
+	canonicalIndexPath := filepath.Join(canonicalCandidateRoot, "index.json")
+	if !sameCandidateDecisionPath(packet.CandidateResult.RepoRoot, repoRoot) || !sameCandidateDecisionPath(packet.CandidateResult.CaseRoot, inst.CaseRoot) || packet.CandidateResult.Pack != pack {
+		return preparedCandidateDecisionDraft{}, fmt.Errorf("candidate review packet repo/case/pack binding mismatch")
+	}
+	if !sameCandidateDecisionPath(packet.CandidateResult.CandidateRoot, canonicalCandidateRoot) || !sameCandidateDecisionPath(packet.CandidateResult.ToolingRoot, canonicalToolingRoot) {
+		return preparedCandidateDecisionDraft{}, fmt.Errorf("candidate review packet roots do not match canonical pack candidate roots")
+	}
+	if !candidateDecisionPacketIndexValid(packet, canonicalIndexPath) {
+		return preparedCandidateDecisionDraft{}, fmt.Errorf("candidate review packet indexPath does not match canonical index")
+	}
+	allowMissingCandidateRoot := strings.TrimSpace(packet.CandidateResult.IndexPath) == ""
+	for _, path := range []string{m.PackRoot, canonicalCandidateRoot, canonicalToolingRoot, canonicalIndexPath} {
+		allowMissing := path == canonicalIndexPath || path == canonicalCandidateRoot && allowMissingCandidateRoot
+		if err := rejectCandidateDecisionSymlinkPath(m.PackRoot, path, allowMissing); err != nil {
+			return preparedCandidateDecisionDraft{}, err
+		}
+	}
+	indexEntries, err := readCandidateIndex(canonicalIndexPath)
+	if err != nil {
+		return preparedCandidateDecisionDraft{}, err
+	}
+	managedTargets := map[string]string{}
+	for _, rel := range m.ManagedFiles {
+		target, err := m.SourcePath(rel)
+		if err != nil {
+			return preparedCandidateDecisionDraft{}, err
+		}
+		managedTargets[filepath.ToSlash(rel)] = filepath.Clean(target)
+	}
+	reviewKeys := map[string]bool{}
+	for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
+		key, include, err := candidateReviewAuthorityKey(item)
+		if err != nil {
+			return preparedCandidateDecisionDraft{}, err
+		}
+		if !include {
+			continue
+		}
+		if reviewKeys[key] {
+			return preparedCandidateDecisionDraft{}, fmt.Errorf("duplicate candidate review for %s", item.CandidatePath)
+		}
+		reviewKeys[key] = true
+	}
+	decisions := []CandidateDecisionItem{}
+	for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
+		if item.ReviewDecision != "pending-review" {
+			continue
+		}
+		decision, err := candidateDecisionDraftItemDecision(decisionMode, item)
+		if err != nil {
+			return preparedCandidateDecisionDraft{}, err
+		}
+		candidatePath := filepath.Clean(strings.TrimSpace(item.CandidatePath))
+		candidateRoot := packet.CandidateResult.CandidateRoot
+		if item.Kind == "tooling-candidate-source" {
+			candidateRoot = packet.CandidateResult.ToolingRoot
+		}
+		if err := assertInsideRoot(candidateRoot, candidatePath); err != nil {
+			return preparedCandidateDecisionDraft{}, err
+		}
+		if err := rejectCandidateDecisionSymlinkPath(m.PackRoot, candidatePath, false); err != nil {
+			return preparedCandidateDecisionDraft{}, err
+		}
+		if item.Kind == "managed-doc" && !candidateIndexContains(indexEntries, item.Path, candidatePath) {
+			return preparedCandidateDecisionDraft{}, fmt.Errorf("managed candidate %s is not bound to path %s in indexPath", candidatePath, item.Path)
+		}
+		if item.Kind == "managed-doc" {
+			expectedTarget, ok := managedTargets[filepath.ToSlash(item.Path)]
+			if !ok || !sameCandidateDecisionPath(expectedTarget, item.PackTarget) {
+				return preparedCandidateDecisionDraft{}, fmt.Errorf("managed candidate %s packTarget does not match manifest path %s", candidatePath, item.Path)
+			}
+		}
+		state, err := refsf.ClassifyNonEmptyRegularFile(candidatePath)
+		if err != nil {
+			return preparedCandidateDecisionDraft{}, err
+		}
+		if state != refsf.RegularFileReady {
+			return preparedCandidateDecisionDraft{}, fmt.Errorf("candidate %s must be a non-empty regular file, got %s", candidatePath, state)
+		}
+		if !candidateWriteMatches(packet.CandidateResult.Writes, item.Path, item.Kind, candidatePath) {
+			return preparedCandidateDecisionDraft{}, fmt.Errorf("candidate %s is not bound to a create-candidate write in packet", candidatePath)
+		}
+		decisionItem := CandidateDecisionItem{
+			CandidatePath: candidatePath,
+			Decision:      decision,
+			CandidateHash: fileSHA256(candidatePath),
+			Reason:        reason,
+			Actor:         actor,
+			EvidenceRefs:  append([]CandidateDecisionEvidence(nil), evidenceRefs...),
+		}
+		if decision == "accept" {
+			if item.Kind != "managed-doc" || strings.TrimSpace(item.PackTarget) == "" {
+				return preparedCandidateDecisionDraft{}, fmt.Errorf("candidate %s kind %s cannot be accepted automatically; merge tooling candidates manually", candidatePath, item.Kind)
+			}
+			if err := assertInsideRoot(m.PackRoot, item.PackTarget); err != nil {
+				return preparedCandidateDecisionDraft{}, err
+			}
+			if err := rejectCandidateDecisionSymlinkPath(m.PackRoot, item.PackTarget, false); err != nil {
+				return preparedCandidateDecisionDraft{}, err
+			}
+			decisionItem.PackTargetHash = fileSHA256(item.PackTarget)
+		}
+		decisions = append(decisions, decisionItem)
+	}
+	if len(decisions) == 0 {
+		return preparedCandidateDecisionDraft{}, fmt.Errorf("candidate decision draft found no pending review items")
+	}
+	sort.Slice(decisions, func(i, j int) bool { return decisions[i].CandidatePath < decisions[j].CandidatePath })
+	decisionFile := CandidateDecisionFile{SchemaVersion: 1, Kind: "pack-memory-candidate-decisions", PacketHash: packetHash, Decisions: decisions}
+	decisionBytes, err := json.MarshalIndent(decisionFile, "", "  ")
+	if err != nil {
+		return preparedCandidateDecisionDraft{}, err
+	}
+	decisionBytes = append(decisionBytes, '\n')
+	accepted, rejected, superseded := candidateDecisionDraftCounts(decisions)
+	mode := "candidate-decision-draft"
+	if opt.WhatIf {
+		mode = "candidate-decision-draft-preview"
+	}
+	decisionSHA := sha256Hex(decisionBytes)
+	previewCommand := candidateDecisionDraftCommand(packetPath, decisionPath, decisionMode, reason, actor, evidenceArg, "", false)
+	applyCommand := candidateDecisionDraftCommand(packetPath, decisionPath, decisionMode, reason, actor, evidenceArg, decisionSHA, true)
+	result := CandidateDecisionDraftResult{
+		SchemaVersion:  1,
+		Command:        "promote",
+		Mode:           mode,
+		CaseRoot:       inst.CaseRoot,
+		RepoRoot:       repoRoot,
+		Pack:           pack,
+		PacketPath:     packetPath,
+		DecisionPath:   decisionPath,
+		PacketHash:     packetHash,
+		DecisionSHA256: decisionSHA,
+		IsMutation:     !opt.WhatIf,
+		Decision:       decisionMode,
+		DecisionCount:  len(decisions),
+		Accepted:       accepted,
+		Rejected:       rejected,
+		Superseded:     superseded,
+		Decisions:      decisions,
+		PreviewCommand: previewCommand,
+		ApplyCommand:   applyCommand,
+		Boundary: []string{
+			"candidate decision draft writes only one case-local decision JSON file on Apply",
+			"draft decisions are bound to the exact durable review packet, current candidate bytes, pack target hash when accepting, and non-empty evidenceRefs",
+			"drafting does not merge candidates, cleanup candidate files, run doctor/init/reconsume, write authority/confirmed, or execute heavy tools",
+		},
+	}
+	if opt.WhatIf {
+		result.NextSteps = []string{"inspect generated decisions and exact decision SHA-256, then rerun the returned draft command with -ExpectedDecisionSha256 and -Apply"}
+	} else {
+		result.NextSteps = []string{"run promote -CandidateDecisionPath with -WhatIf to preview candidate merge/cleanup before -Apply"}
+	}
+	return preparedCandidateDecisionDraft{result: result, decisionBytes: decisionBytes}, nil
+}
+
+func candidateDecisionDraftPath(caseRoot, decisionInput string) (string, error) {
+	if strings.TrimSpace(decisionInput) == "" {
+		return "", fmt.Errorf("candidate decision draft requires -CandidateDecisionPath")
+	}
+	decisionPath, err := filepath.Abs(strings.TrimSpace(decisionInput))
+	if err != nil {
+		return "", err
+	}
+	if err := assertInsideRoot(caseRoot, decisionPath); err != nil {
+		return "", fmt.Errorf("candidate decision draft path must stay under the attached case: %w", err)
+	}
+	if err := rejectCandidateDecisionSymlinkPath(caseRoot, filepath.Dir(decisionPath), false); err != nil {
+		return "", err
+	}
+	return decisionPath, nil
+}
+
+func candidateDecisionDraftItemDecision(decisionMode string, item CandidateReviewItem) (string, error) {
+	switch decisionMode {
+	case "accept":
+		if item.Kind != "managed-doc" {
+			return "", fmt.Errorf("candidate %s kind %s cannot be accepted automatically; use reject or superseded for tooling candidates", item.CandidatePath, item.Kind)
+		}
+		return "accept", nil
+	case "accept-managed", "accept-managed-reject-tooling":
+		if item.Kind == "managed-doc" {
+			return "accept", nil
+		}
+		return "reject", nil
+	case "reject", "superseded":
+		return decisionMode, nil
+	default:
+		return "", fmt.Errorf("unsupported candidate decision draft mode %q; allowed: accept, accept-managed-reject-tooling, reject, superseded", decisionMode)
+	}
+}
+
+func candidateDecisionDraftEvidenceRefs(repoRoot, caseRoot, refs string) ([]CandidateDecisionEvidence, string, error) {
+	parts := splitCandidateDecisionDraftList(refs)
+	if len(parts) == 0 {
+		return nil, "", fmt.Errorf("candidate decision draft requires -EvidenceRefs")
+	}
+	evidence := make([]CandidateDecisionEvidence, 0, len(parts))
+	for _, ref := range parts {
+		item, err := candidateDecisionDraftEvidenceRef(repoRoot, caseRoot, ref)
+		if err != nil {
+			return nil, "", err
+		}
+		evidence = append(evidence, item)
+	}
+	return evidence, candidateDecisionEvidenceRefsArg(evidence), nil
+}
+
+func candidateDecisionDraftEvidenceRef(repoRoot, caseRoot, ref string) (CandidateDecisionEvidence, error) {
+	value := strings.TrimSpace(ref)
+	if value == "" {
+		return CandidateDecisionEvidence{}, fmt.Errorf("candidate decision draft evidence ref is empty")
+	}
+	full := value
+	if !filepath.IsAbs(full) {
+		full = filepath.Join(caseRoot, filepath.FromSlash(value))
+	}
+	full, err := filepath.Abs(full)
+	if err != nil {
+		return CandidateDecisionEvidence{}, err
+	}
+	insideRepo := assertInsideRoot(repoRoot, full) == nil
+	insideCase := assertInsideRoot(caseRoot, full) == nil
+	if !insideRepo && !insideCase {
+		return CandidateDecisionEvidence{}, fmt.Errorf("evidenceRef %q must stay under repoRoot or caseRoot", value)
+	}
+	evidenceRoot := caseRoot
+	if insideRepo && !insideCase {
+		evidenceRoot = repoRoot
+	}
+	if err := rejectCandidateDecisionSymlinkPath(evidenceRoot, full, false); err != nil {
+		return CandidateDecisionEvidence{}, err
+	}
+	state, err := refsf.ClassifyNonEmptyRegularFile(full)
+	if err != nil {
+		return CandidateDecisionEvidence{}, err
+	}
+	if state != refsf.RegularFileReady {
+		return CandidateDecisionEvidence{}, fmt.Errorf("evidenceRef %q must be a non-empty regular file, got %s", value, state)
+	}
+	stored := value
+	if insideCase {
+		if rel, err := filepath.Rel(caseRoot, full); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+			stored = filepath.ToSlash(rel)
+		}
+	}
+	return CandidateDecisionEvidence{Path: stored, SHA256: fileSHA256(full)}, nil
+}
+
+func splitCandidateDecisionDraftList(value string) []string {
+	items := []string{}
+	for _, part := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' }) {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			items = append(items, part)
+		}
+	}
+	return items
+}
+
+func candidateDecisionEvidenceRefsArg(evidence []CandidateDecisionEvidence) string {
+	parts := make([]string, 0, len(evidence))
+	for _, item := range evidence {
+		parts = append(parts, item.Path)
+	}
+	return strings.Join(parts, ",")
+}
+
+func candidateDecisionDraftCounts(decisions []CandidateDecisionItem) (accepted, rejected, superseded int) {
+	for _, decision := range decisions {
+		switch decision.Decision {
+		case "accept":
+			accepted++
+		case "reject":
+			rejected++
+		case "superseded":
+			superseded++
+		}
+	}
+	return accepted, rejected, superseded
+}
+
+func candidateDecisionDraftCommand(packetPath, decisionPath, decision, reason, actor, evidenceRefs, expectedDecisionSHA256 string, apply bool) string {
+	base := "/rekit promote -PacketPath " + quoteCandidateDecisionArg(packetPath) +
+		" -CandidateDecisionPath " + quoteCandidateDecisionArg(decisionPath) +
+		" -DraftCandidateDecision -Decision " + quoteCandidateDecisionArg(decision) +
+		" -Reason " + quoteCandidateDecisionArg(reason) +
+		" -Actor " + quoteCandidateDecisionArg(actor) +
+		" -EvidenceRefs " + quoteCandidateDecisionArg(evidenceRefs)
+	if apply {
+		return base + " -ExpectedDecisionSha256 " + quoteCandidateDecisionArg(expectedDecisionSHA256) + " -Apply -Format json"
+	}
+	return base + " -WhatIf -Format json"
+}
+
+func writeCandidateDecisionDraftFile(caseRoot, path string, data []byte) (bool, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	if err := rejectCandidateDecisionSymlinkPath(caseRoot, filepath.Dir(path), false); err != nil {
+		return false, err
+	}
+	if err := rejectCandidateDecisionSymlinkPath(caseRoot, path, true); err != nil {
+		return false, err
+	}
+	err := writeDurableExclusiveFile(path, data)
+	if err == nil {
+		return false, nil
+	}
+	if !os.IsExist(err) {
+		return false, err
+	}
+	state, stateErr := refsf.ClassifyNonEmptyRegularFile(path)
+	if stateErr != nil {
+		return false, stateErr
+	}
+	if state != refsf.RegularFileReady {
+		return false, fmt.Errorf("existing candidate decision draft must be a non-empty regular file: %s", path)
+	}
+	existing, readErr := os.ReadFile(path)
+	if readErr != nil {
+		return false, readErr
+	}
+	if !bytes.Equal(existing, data) {
+		return false, fmt.Errorf("existing candidate decision draft does not match replay: %s", path)
+	}
+	return true, nil
 }
 
 func ApplyCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecisionOptions) (CandidateDecisionResult, error) {

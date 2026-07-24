@@ -11,6 +11,114 @@ import (
 	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
+func TestDraftCandidateDecisionsPreviewsAppliesAndReplaysDecisionFile(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "draft")
+	decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-draft", "decisions.json")
+
+	preview, err := DraftCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, Decision: "accept-managed-reject-tooling", Reason: "reviewed bounded candidate diff", Actor: "mission-commander", EvidenceRefs: created.ReviewWorkspace.CombinedDiffPath, WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.IsMutation || preview.Applied || preview.DecisionSHA256 == "" || preview.PacketHash == "" || preview.Accepted != 1 || preview.Rejected != 1 || preview.DecisionCount != 2 || len(preview.Decisions) != 2 || preview.ApplyCommand == "" || !strings.Contains(preview.ApplyCommand, "-ExpectedDecisionSha256") {
+		t.Fatalf("unexpected candidate decision draft preview: %+v", preview)
+	}
+	if _, err := os.Stat(decisionPath); !os.IsNotExist(err) {
+		t.Fatalf("candidate decision draft WhatIf wrote decision file: %v", err)
+	}
+	for _, decision := range preview.Decisions {
+		if decision.Reason != "reviewed bounded candidate diff" || decision.Actor != "mission-commander" || decision.CandidateHash == "" || len(decision.EvidenceRefs) != 1 || decision.EvidenceRefs[0].SHA256 == "" {
+			t.Fatalf("candidate decision draft omitted reviewed bindings: %+v", decision)
+		}
+		if sameCandidateDecisionPath(decision.CandidatePath, managed.CandidatePath) && (decision.Decision != "accept" || decision.PackTargetHash == "") {
+			t.Fatalf("managed draft decision was not accepted with pack target binding: %+v", decision)
+		}
+	}
+
+	applied, err := DraftCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, Decision: "accept-managed-reject-tooling", Reason: "reviewed bounded candidate diff", Actor: "mission-commander", EvidenceRefs: created.ReviewWorkspace.CombinedDiffPath, ExpectedDecisionSHA256: preview.DecisionSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.IsMutation || !applied.Applied || applied.AlreadyWritten || applied.DecisionSHA256 != preview.DecisionSHA256 {
+		t.Fatalf("unexpected candidate decision draft apply: %+v", applied)
+	}
+	data, err := os.ReadFile(decisionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file CandidateDecisionFile
+	if err := decodeStrictJSON(data, &file); err != nil {
+		t.Fatal(err)
+	}
+	if file.PacketHash != preview.PacketHash || len(file.Decisions) != preview.DecisionCount {
+		t.Fatalf("candidate decision draft file is not packet-bound: %+v", file)
+	}
+	replay, err := DraftCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, Decision: "accept-managed-reject-tooling", Reason: "reviewed bounded candidate diff", Actor: "mission-commander", EvidenceRefs: created.ReviewWorkspace.CombinedDiffPath, ExpectedDecisionSHA256: preview.DecisionSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replay.Applied || !replay.AlreadyWritten {
+		t.Fatalf("candidate decision draft replay was not idempotent: %+v", replay)
+	}
+	if _, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, WhatIf: true}); err != nil {
+		t.Fatalf("drafted candidate decision should be accepted by existing decision planner: %v", err)
+	}
+	if packet.CandidateResult.RepoRoot == "" {
+		t.Fatalf("fixture packet omitted repo binding: %+v", packet)
+	}
+}
+
+func TestDraftCandidateDecisionsRejectsUnsafeInputs(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, err := CreateCandidates(repoRoot, caseRoot, pack, CandidateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err = WriteCandidateReviewWorkspace(created, CandidateArtifactOptions{ReviewOutputDir: filepath.Join(caseRoot, ".rekit", "reviews", "candidate-draft-unsafe")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-draft-unsafe", "decisions.json")
+	base := CandidateDecisionDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, Decision: "accept-managed-reject-tooling", Reason: "reviewed bounded candidate diff", Actor: "mission-commander", EvidenceRefs: created.ReviewWorkspace.CombinedDiffPath, WhatIf: true}
+	tests := []struct {
+		name      string
+		mutate    func(*CandidateDecisionDraftOptions)
+		wantError string
+	}{
+		{
+			name: "accept tooling fail closed",
+			mutate: func(opt *CandidateDecisionDraftOptions) {
+				opt.Decision = "accept"
+			},
+			wantError: "cannot be accepted automatically",
+		},
+		{
+			name: "missing evidence",
+			mutate: func(opt *CandidateDecisionDraftOptions) {
+				opt.EvidenceRefs = ""
+			},
+			wantError: "requires -EvidenceRefs",
+		},
+		{
+			name: "decision path escapes case",
+			mutate: func(opt *CandidateDecisionDraftOptions) {
+				opt.DecisionPath = filepath.Join(repoRoot, "outside-decisions.json")
+			},
+			wantError: "must stay under the attached case",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opt := base
+			tc.mutate(&opt)
+			_, err := DraftCandidateDecisions(repoRoot, caseRoot, pack, opt)
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("error = %v, want %q", err, tc.wantError)
+			}
+		})
+	}
+}
+
 func TestApplyCandidateDecisionsPreviewsAndAppliesReviewedManagedCandidate(t *testing.T) {
 	repoRoot, caseRoot, pack := promoteFixture(t)
 	created, err := CreateCandidates(repoRoot, caseRoot, pack, CandidateOptions{})

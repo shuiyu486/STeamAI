@@ -2,8 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -4807,6 +4805,28 @@ func TestRunPromoteCandidateVerificationRetirementValidation(t *testing.T) {
 	}
 }
 
+func TestRunPromoteRejectsCandidateDecisionDraftFlagsOnOtherReviewRoutes(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	hash := strings.Repeat("c", 64)
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-Command", "promote", "-RetireCandidateVerificationWorkspace", "-PacketPath", "packet.json", "-CandidateDecisionPath", "decisions.json", "-DraftCandidateDecision", "-WhatIf"}, "cannot be combined"},
+		{[]string{"-Command", "promote", "-RetireCandidateVerificationWorkspace", "-PacketPath", "packet.json", "-CandidateDecisionPath", "decisions.json", "-ExpectedDecisionSha256", hash, "-WhatIf"}, "cannot be combined"},
+		{[]string{"-Command", "promote", "-ProvisionCandidateVerificationCases", "-PacketPath", "packet.json", "-CandidateDecisionPath", "decisions.json", "-FreshCaseRoot", "fresh", "-AttachedCaseRoot", "attached", "-DraftCandidateDecision", "-WhatIf"}, "cannot be combined"},
+		{[]string{"-Command", "promote", "-ProvisionCandidateVerificationCases", "-PacketPath", "packet.json", "-CandidateDecisionPath", "decisions.json", "-FreshCaseRoot", "fresh", "-AttachedCaseRoot", "attached", "-ExpectedDecisionSha256", hash, "-WhatIf"}, "cannot be combined"},
+		{[]string{"-Command", "promote", "-VerifyCandidateDecision", "-PacketPath", "packet.json", "-CandidateDecisionPath", "decisions.json", "-FreshCaseRoot", "fresh", "-AttachedCaseRoot", "attached", "-ExpectedDecisionSha256", hash, "-Apply"}, "cannot be combined"},
+	} {
+		var out bytes.Buffer
+		args := append(append([]string(nil), tc.args...), "-Target", caseRoot, "-Pack", "_template")
+		err := Run(args, &out)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("args=%v error=%v, want %q", args, err, tc.want)
+		}
+	}
+}
+
 func TestRunRejectsExpectedExecutorGenerationOutsideContinue(t *testing.T) {
 	for _, args := range [][]string{
 		{"-Command", "start", "main", "-ExpectedExecutorGeneration", "1", "-WhatIf"},
@@ -7881,10 +7901,6 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if managed.CandidatePath == "" || managed.PackTarget == "" || created.ReviewWorkspace == nil {
 		t.Fatalf("candidate result omitted reviewed managed item: %+v", created)
 	}
-	packetBytes, err := os.ReadFile(created.ReviewWorkspace.PacketPath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	candidateBytes, err := os.ReadFile(managed.CandidatePath)
 	if err != nil {
 		t.Fatal(err)
@@ -7898,43 +7914,54 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	evidenceBytes, err := os.ReadFile(created.ReviewWorkspace.CombinedDiffPath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	decisionPath := filepath.Join(reviewRoot, "decisions.json")
-	decisions := []promote.CandidateDecisionItem{{
-		CandidatePath:  managed.CandidatePath,
-		Decision:       "accept",
-		CandidateHash:  testSHA256(candidateBytes),
-		PackTargetHash: testSHA256(packBytes),
-		Reason:         "reviewed bounded candidate diff",
-		Actor:          "mission-commander",
-		EvidenceRefs:   []promote.CandidateDecisionEvidence{{Path: created.ReviewWorkspace.CombinedDiffPath, SHA256: testSHA256(evidenceBytes)}},
-	}}
-	for _, item := range created.ReviewPlan.ReviewItems {
-		if item.ReviewDecision != "pending-review" || item.CandidatePath == managed.CandidatePath {
-			continue
-		}
-		itemBytes, err := os.ReadFile(item.CandidatePath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		decisions = append(decisions, promote.CandidateDecisionItem{
-			CandidatePath: item.CandidatePath,
-			Decision:      "reject",
-			CandidateHash: testSHA256(itemBytes),
-			Reason:        "reviewed bounded candidate diff",
-			Actor:         "mission-commander",
-			EvidenceRefs:  []promote.CandidateDecisionEvidence{{Path: created.ReviewWorkspace.CombinedDiffPath, SHA256: testSHA256(evidenceBytes)}},
-		})
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-DraftCandidateDecision", "-Decision", "accept-managed-reject-tooling", "-Reason", "reviewed bounded candidate diff", "-Actor", "mission-commander", "-EvidenceRefs", created.ReviewWorkspace.CombinedDiffPath, "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
 	}
-	decisionBytes, err := json.Marshal(promote.CandidateDecisionFile{SchemaVersion: 1, Kind: "pack-memory-candidate-decisions", PacketHash: testSHA256(packetBytes), Decisions: decisions})
+	var draftPreview promote.CandidateDecisionDraftResult
+	if err := json.Unmarshal(out.Bytes(), &draftPreview); err != nil {
+		t.Fatal(err)
+	}
+	if draftPreview.IsMutation || draftPreview.Applied || draftPreview.DecisionSHA256 == "" || draftPreview.Accepted != 1 || draftPreview.Rejected == 0 || draftPreview.DecisionCount != draftPreview.Accepted+draftPreview.Rejected+draftPreview.Superseded || len(draftPreview.Decisions) != draftPreview.DecisionCount {
+		t.Fatalf("unexpected candidate decision draft preview: %+v", draftPreview)
+	}
+	if _, err := os.Stat(decisionPath); !os.IsNotExist(err) {
+		t.Fatalf("candidate decision draft WhatIf wrote decision file: %v", err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-DraftCandidateDecision", "-Decision", "accept-managed-reject-tooling", "-Reason", "reviewed bounded candidate diff", "-Actor", "mission-commander", "-EvidenceRefs", created.ReviewWorkspace.CombinedDiffPath, "-ExpectedDecisionSha256", draftPreview.DecisionSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var draftApplied promote.CandidateDecisionDraftResult
+	if err := json.Unmarshal(out.Bytes(), &draftApplied); err != nil {
+		t.Fatal(err)
+	}
+	if !draftApplied.IsMutation || !draftApplied.Applied || draftApplied.AlreadyWritten || draftApplied.DecisionSHA256 != draftPreview.DecisionSHA256 || draftApplied.DecisionCount != draftPreview.DecisionCount {
+		t.Fatalf("unexpected candidate decision draft apply: %+v", draftApplied)
+	}
+	var decisionFile promote.CandidateDecisionFile
+	decisionBytes, err := os.ReadFile(decisionPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(decisionPath, append(decisionBytes, '\n'), 0o644); err != nil {
+	if err := json.Unmarshal(decisionBytes, &decisionFile); err != nil {
 		t.Fatal(err)
+	}
+	if decisionFile.PacketHash != draftPreview.PacketHash || len(decisionFile.Decisions) != draftPreview.DecisionCount || decisionFile.Decisions[0].CandidateHash == "" || len(decisionFile.Decisions[0].EvidenceRefs) == 0 || decisionFile.Decisions[0].EvidenceRefs[0].SHA256 == "" {
+		t.Fatalf("candidate decision draft file was not fully materialized: %+v", decisionFile)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-DraftCandidateDecision", "-Decision", "accept-managed-reject-tooling", "-Reason", "reviewed bounded candidate diff", "-Actor", "mission-commander", "-EvidenceRefs", created.ReviewWorkspace.CombinedDiffPath, "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"promote candidate decision draft：mode=candidate-decision-draft-preview", "decisionSha256=", "promote candidate decision draft apply command：", "drafting does not merge candidates"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("candidate decision draft text omitted %q:\n%s", expected, out.String())
+		}
 	}
 
 	out.Reset()
@@ -7945,7 +7972,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
 		t.Fatal(err)
 	}
-	if preview.IsMutation || preview.Applied || preview.Accepted != 1 || preview.Rejected != len(decisions)-1 || len(preview.Actions) != len(decisions) {
+	if preview.IsMutation || preview.Applied || preview.Accepted != 1 || preview.Rejected != draftPreview.DecisionCount-1 || len(preview.Actions) != draftPreview.DecisionCount {
 		t.Fatalf("unexpected candidate decision preview: %+v", preview)
 	}
 
@@ -8167,11 +8194,6 @@ func hasCandidateVerificationRetirementStatus(candidates releasecheck.ReleaseHan
 		}
 	}
 	return false
-}
-
-func testSHA256(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
 }
 
 func TestRunSyncReviewEmitsNonMutatingPlan(t *testing.T) {

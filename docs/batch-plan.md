@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 563：pack-memory candidate decision draft closure
+
+状态：已完成 Go runtime、CLI、package/CLI product-path implementation 与本地验证；implementation commit/push 待执行，remote release-gate inspection pending。Batch 563 不能在未推送 implementation commit 且未检查该 commit 对应 remote release-gate run 前声明 remote CI green。
+
+目标：关闭 pack-memory candidate decision product path 中 Mission Commander / replacement executor 必须手工拼完整 `CandidateDecisionFile` 的断点。旧路径要求人工计算 packet SHA-256、candidate SHA-256、accepted pack target SHA-256、evidence SHA-256，并精确覆盖所有 pending review items；该手工 JSON 既易错，也会让后续 verification/provisioning/retirement 闭环在入口处依赖不可审计的手写中间件。
+
+已实现内容：
+
+- 新增 `promote -DraftCandidateDecision` Go-native draft/record path：`-WhatIf` 从 durable candidate review packet 与 evidence refs 生成完整 `pack-memory-candidate-decisions` JSON preview，自动补齐 exact packet hash、candidate hash、accepted managed-doc pack target hash 与 evidence SHA-256，并返回 deterministic `decisionSha256` 与 hash-gated Apply command；`-Apply` 要求 `-ExpectedDecisionSha256` 匹配 preview 后只写 case-local decision JSON。
+- draft 严格绑定 attached repo/case/pack、canonical `promote-candidates` / `tooling/candidates` roots、candidate index、manifest managed target、packet pending review authority 与 create-candidate writes；duplicate/invalid review authority、candidate drift、managed index/target drift、unsafe evidence 或 out-of-case decision file 均 fail-closed。
+- decision modes 支持 `accept`、`reject`、`superseded` 与 `accept-managed-reject-tooling`；tooling candidate auto-accept 继续 fail-closed，混合 managed accept + tooling reject 不再需要主 Agent 手工分流和手写 hash。existing `promote -CandidateDecisionPath ... -WhatIf/-Apply` 继续消费 drafted decision file，后续 verification provisioning/final verification/retirement path 不变。
+- CLI parse/routing/text 输出新增 draft fields、`decisionSha256`、preview/apply command 与 no-merge/no-cleanup/no-heavy boundary；provision/verify/retire routes 显式拒绝 draft/hash flags，避免 `-DraftCandidateDecision` 或 `-ExpectedDecisionSha256` 被前置 promote 子路由静默吞掉。CLI nested case product path 覆盖 draft preview/apply/text 后继续进入既有 decision preview/apply、verification provisioning、final verification与retirement闭环。
+
+边界：draft 只创建或复用 exact case-local decision JSON；不 merge/cleanup candidate，不写 pack source，不运行 doctor/init/reconsume，不执行 verification/provisioning/retirement，不写 facts/authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/promote ./internal/rekit/cli -count=1`通过；完整`go test ./...`通过；本地release minimum已通过：`go run ./cmd/rekit -- -Command release-check -Format json`返回`ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go vet ./...`与`git diff --check`均通过（仅保留Windows工作树LF→CRLF提示）。独立只读审查发现并已修复promote前置 verification/provision/retire 子路由可能吞掉draft/hash flags的问题；复核后focused/full/local release minimum均通过。
+
+上一批摘要：Batch 562已完成 reviewer orchestration packet-derived staging source path closure；implementation commit `91416dc`与release inspection commit `8397714`已推送；implementation run `30068351329`三平台jobs均completed failure且`steps=[]`，仍属既有runner/billing blocker。
+
 ### Batch 562：reviewer orchestration packet-derived staging source path closure
 
 状态：已完成runtime、CLI、durable handoff与nested product path implementation；focused reviewer orchestration tests、完整`go test ./...`与本地release minimum已通过。implementation commit `91416dc`已推送；implementation run `30068351329` completed failure，Linux/Windows/macOS jobs `89403665163`/`89403665173`/`89403665190` 均`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。本release inspection record仅记录该implementation run；不要为inspection commit自身CI追加第三个记录提交，除非出现不同于既有`steps=[]`的新远程信号。
