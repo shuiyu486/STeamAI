@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 568：authorized-gate adapter report scaffold lifecycle closure
 
-状态：Go runtime、CLI text/status/workstream handoff、tests 与本地 release minimum 已完成；implementation commit / push 与 implementation remote release-gate inspection 待执行。本批延续 Batch 527–528、535、547 的 authorized-gate adapter handoff closure，但不再只是字段投影：新增 Go-native deterministic scaffold preview/apply lifecycle，关闭 replacement executor 必须手工拼 `adapter-report.json` sidecar 的 product-path 断点。
+状态：已完成 Go runtime、CLI text/status/workstream handoff、tests、本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `fcf3947` 已推送。implementation run `30092290998` completed failure，Windows/Linux/macOS jobs `89478076140`/`89478076208`/`89478076210` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 527–528、535、547 的 authorized-gate adapter handoff closure，但不再只是字段投影：新增 Go-native deterministic scaffold preview/apply lifecycle，关闭 replacement executor 必须手工拼 `adapter-report.json` sidecar 的 product-path 断点。
 
 目标：让 replacement executor 在 authorized-gate adapter sidecar lifecycle 中，从 contract/status/handoff/continue 第一屏直接获得可复核、hash-gated 的 `adapter-report.json` scaffold preview/apply、validate 与 record 顺序，而不是手工复制 sidecar template、猜 workspace-relative/case-relative path 或在 validate/record 前绕过 review-first boundary。
 
