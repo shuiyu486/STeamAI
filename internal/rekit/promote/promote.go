@@ -1202,7 +1202,21 @@ func candidateReviewNextMissingProof(stage, proofPath string, artifact Candidate
 		proof.DraftCommand = "/rekit promote -PacketPath <packet.json> -CandidateDecisionPath <candidate-decisions.json> -DraftReviewProof -ProofPath " + quoteCandidateDecisionArg(proofPath) + " -ProofType candidate-cleanup-proof -CandidatePath " + quoteCandidateDecisionArg(artifact.CandidatePath) + " -Reason <cleanup-proof-reason> -Actor <actor> -EvidenceRefs <cleanup-evidence-ref> -WhatIf -Format json"
 		proof.DraftApplyTemplate = "/rekit promote -PacketPath <packet.json> -CandidateDecisionPath <candidate-decisions.json> -DraftReviewProof -ProofPath " + quoteCandidateDecisionArg(proofPath) + " -ProofType candidate-cleanup-proof -CandidatePath " + quoteCandidateDecisionArg(artifact.CandidatePath) + " -Reason <cleanup-proof-reason> -Actor <actor> -EvidenceRefs <cleanup-evidence-ref> -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json"
 	}
+	if candidateReviewLifecycleProofType(artifact.Name) && strings.TrimSpace(artifact.CandidatePath) != "" {
+		proof.RequiresPacket = true
+		proof.DraftCommand = "/rekit promote -PacketPath <packet.json> -DraftReviewProof -ProofPath " + quoteCandidateDecisionArg(proofPath) + " -ProofType " + quoteCandidateDecisionArg(artifact.Name) + " -CandidatePath " + quoteCandidateDecisionArg(artifact.CandidatePath) + " -Reason <lifecycle-proof-reason> -Actor <actor> -EvidenceRefs <repo-local-lifecycle-evidence-ref> -WhatIf -Format json"
+		proof.DraftApplyTemplate = "/rekit promote -PacketPath <packet.json> -DraftReviewProof -ProofPath " + quoteCandidateDecisionArg(proofPath) + " -ProofType " + quoteCandidateDecisionArg(artifact.Name) + " -CandidatePath " + quoteCandidateDecisionArg(artifact.CandidatePath) + " -Reason <lifecycle-proof-reason> -Actor <actor> -EvidenceRefs <repo-local-lifecycle-evidence-ref> -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json"
+	}
 	return proof
+}
+
+func candidateReviewLifecycleProofType(proofType string) bool {
+	switch strings.TrimSpace(proofType) {
+	case "pack-doctor-output", "fresh-case-reconsume-proof", "attached-case-reconsume-proof":
+		return true
+	default:
+		return false
+	}
 }
 
 func candidateReviewProofStem(candidatePath, packTarget string) string {

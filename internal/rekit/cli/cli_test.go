@@ -1179,7 +1179,7 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 	if handoff := pack.DecisionDraftHandoff; handoff == nil || handoff.Mode != "candidate-decision-draft-review-workspace-required" || handoff.DecisionPath != "packs/_template/promote-candidates/review-artifacts/candidate-decisions.json" || !containsSubstring(handoff.EvidenceRefs, "batch501-status.candidate-decision-note.md") || !containsSubstring(handoff.SupportedDecisions, "accept-managed-reject-tooling") || !strings.Contains(handoff.NextAction, "promote -CreateCandidates -Review") || !containsSubstring(handoff.Boundary, "cannot infer the case-local review packet") {
 		t.Fatalf("unexpected status pack-memory decision draft handoff: %+v", pack.DecisionDraftHandoff)
 	}
-	if summary := pack.ReviewSummary; summary.Total != 3 || summary.CandidateFiles != 1 || summary.ToolingFiles != 1 || summary.IndexEntries != 1 || summary.DecisionArtifactCount != 2 || summary.CleanupArtifactCount != 2 || summary.ReconsumeArtifactCount != 4 || summary.ProofSummary.Total != 8 || summary.ProofSummary.Present != 1 || summary.ProofSummary.Missing != 7 || summary.ProofSummary.DecisionPresent != 1 || summary.ProofSummary.DecisionMissing != 1 || summary.ProofSummary.CleanupMissing != 2 || summary.ProofSummary.ReconsumeMissing != 4 || summary.ProofSummary.ProofProgress != "1/8" || summary.ProofSummary.CurrentStage != "decision-proof-required" || summary.ProofSummary.NextMissingProofType != "candidate-decision-note" || summary.ProofSummary.NextMissingProofPath != "packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md" || summary.ProofSummary.NextMissingCandidatePath != "packs/_template/tooling/candidates/batch501-tooling.candidate.md" || summary.ProofSummary.NextMissingPackTarget != "tooling/catalog.yml or tooling/recipes/*" || summary.ProofSummary.NextMissingProof == nil || summary.ProofSummary.NextMissingProof.ProofType != "candidate-decision-note" || summary.ProofSummary.NextMissingProof.Stage != "decision-proof-required" || !strings.Contains(summary.ProofSummary.NextMissingProof.Action, "selected decisionFollowThrough outcome") || !containsSubstring(summary.ProofSummary.NextMissingProof.Evidence, "decision note path/ref") || summary.ProofSummary.Complete || summary.ProofSummary.ProofRoot != "packs/_template/promote-candidates/review-artifacts" || !strings.Contains(summary.ProofSummary.NextAction, "candidate-decision-note") || !containsSubstring(summary.ProofSummary.Boundary, "read-only") || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || !containsSubstring(summary.Boundary, "reviewSummary is read-only") {
+	if summary := pack.ReviewSummary; summary.Total != 3 || summary.CandidateFiles != 1 || summary.ToolingFiles != 1 || summary.IndexEntries != 1 || summary.DecisionArtifactCount != 2 || summary.CleanupArtifactCount != 2 || summary.ReconsumeArtifactCount != 4 || summary.ProofSummary.Total != 8 || summary.ProofSummary.Present != 1 || summary.ProofSummary.Missing != 7 || summary.ProofSummary.DecisionPresent != 1 || summary.ProofSummary.DecisionMissing != 1 || summary.ProofSummary.CleanupMissing != 2 || summary.ProofSummary.ReconsumeMissing != 4 || summary.ProofSummary.ProofProgress != "1/8" || summary.ProofSummary.CurrentStage != "decision-proof-required" || summary.ProofSummary.NextMissingProofType != "candidate-decision-note" || summary.ProofSummary.NextMissingProofPath != "packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md" || summary.ProofSummary.NextMissingCandidatePath != "packs/_template/tooling/candidates/batch501-tooling.candidate.md" || summary.ProofSummary.NextMissingPackTarget != "packs/_template/tooling" || summary.ProofSummary.NextMissingProof == nil || summary.ProofSummary.NextMissingProof.ProofType != "candidate-decision-note" || summary.ProofSummary.NextMissingProof.Stage != "decision-proof-required" || !strings.Contains(summary.ProofSummary.NextMissingProof.Action, "selected decisionFollowThrough outcome") || !containsSubstring(summary.ProofSummary.NextMissingProof.Evidence, "decision note path/ref") || summary.ProofSummary.Complete || summary.ProofSummary.ProofRoot != "packs/_template/promote-candidates/review-artifacts" || !strings.Contains(summary.ProofSummary.NextAction, "candidate-decision-note") || !containsSubstring(summary.ProofSummary.Boundary, "read-only") || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || !containsSubstring(summary.Boundary, "reviewSummary is read-only") {
 		t.Fatalf("unexpected status pack-memory candidate review summary: %+v", summary)
 	}
 
@@ -1191,8 +1191,8 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup/verification work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates or complete listed candidate decision verification",
 		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 receipts=0 pendingVerification=0 completedVerification=0 review=true cleanup=true verification=false",
 		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4 proofTotal=8 proofPresent=1 proofMissing=7 proofProgress=1/8 proofStage=decision-proof-required nextMissingProofType=candidate-decision-note nextMissingProofPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md proofComplete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
-		"status pack-memory proof summary：pack=_template total=8 present=1 missing=7 progress=1/8 stage=decision-proof-required decisionPresent=1 decisionMissing=1 cleanupPresent=0 cleanupMissing=2 reconsumePresent=0 reconsumeMissing=4 nextMissingType=candidate-decision-note nextMissingPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingTarget=tooling/catalog.yml or tooling/recipes/* complete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
-		"status pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note path=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md candidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md packTarget=tooling/catalog.yml or tooling/recipes/*",
+		"status pack-memory proof summary：pack=_template total=8 present=1 missing=7 progress=1/8 stage=decision-proof-required decisionPresent=1 decisionMissing=1 cleanupPresent=0 cleanupMissing=2 reconsumePresent=0 reconsumeMissing=4 nextMissingType=candidate-decision-note nextMissingPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingTarget=packs/_template/tooling complete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
+		"status pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note path=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md candidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md packTarget=packs/_template/tooling",
 		"status pack-memory next missing proof evidence：pack=_template evidence=selected decisionFollowThrough outcome",
 		"status pack-memory proof summary boundary：pack=_template boundary=proofSummary is read-only; release/status detects and validates bounded proof files but does not create or reconsume them",
 		"status pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
@@ -1204,7 +1204,7 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		"status pack-memory tooling candidate path：pack=_template path=packs/_template/tooling/candidates/",
 		"status pack-memory candidate index：pack=_template path=references/template/README.md candidate=packs/_template/promote-candidates/",
 		"status pack-memory review artifact：pack=_template name=candidate-decision-note candidatePath=packs/_template/promote-candidates/batch501-status.candidate.md packTarget=references/template/README.md proofPresent=true proofPath=packs/_template/promote-candidates/review-artifacts/batch501-status.candidate-decision-note.md",
-		"status pack-memory review artifact：pack=_template name=candidate-cleanup-proof candidatePath=packs/_template/promote-candidates/batch501-status.candidate.md packTarget=references/template/README.md proofPresent=false proofPath= expectedProofs=packs/_template/promote-candidates/review-artifacts/batch501-status.candidate-cleanup-proof.md",
+		"status pack-memory review artifact：pack=_template name=candidate-cleanup-proof candidatePath=packs/_template/promote-candidates/batch501-status.candidate.md packTarget=packs/_template/references/template/README.md proofPresent=false proofPath= expectedProofs=packs/_template/promote-candidates/review-artifacts/batch501-status.candidate-cleanup-proof.md",
 		"status pack-memory review artifact evidence：pack=_template name=candidate-decision-note evidence=selected decisionFollowThrough outcome",
 		"status pack-memory review artifact boundary：pack=_template name=candidate-cleanup-proof boundary=cleanup is limited to candidateRoot/toolingRoot and indexPath",
 		"status pack-memory candidate evidence：pack=_template evidence=promote-candidates files=1",
@@ -1222,8 +1222,8 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"release-check pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4 proofTotal=8 proofPresent=1 proofMissing=7 proofProgress=1/8 proofStage=decision-proof-required nextMissingProofType=candidate-decision-note nextMissingProofPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md proofComplete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
-		"release-check pack-memory proof summary：pack=_template total=8 present=1 missing=7 progress=1/8 stage=decision-proof-required decisionPresent=1 decisionMissing=1 cleanupPresent=0 cleanupMissing=2 reconsumePresent=0 reconsumeMissing=4 nextMissingType=candidate-decision-note nextMissingPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingTarget=tooling/catalog.yml or tooling/recipes/* complete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
-		"release-check pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note path=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md candidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md packTarget=tooling/catalog.yml or tooling/recipes/*",
+		"release-check pack-memory proof summary：pack=_template total=8 present=1 missing=7 progress=1/8 stage=decision-proof-required decisionPresent=1 decisionMissing=1 cleanupPresent=0 cleanupMissing=2 reconsumePresent=0 reconsumeMissing=4 nextMissingType=candidate-decision-note nextMissingPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingTarget=packs/_template/tooling complete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
+		"release-check pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note path=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md candidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md packTarget=packs/_template/tooling",
 		"release-check pack-memory next missing proof evidence：pack=_template evidence=selected decisionFollowThrough outcome",
 		"release-check pack-memory decision draft handoff：pack=_template mode=candidate-decision-draft-review-workspace-required packet= decisionPath=packs/_template/promote-candidates/review-artifacts/candidate-decisions.json nextAction=rerun promote -CreateCandidates -Review from the attached source case",
 		"release-check pack-memory decision draft evidence ref：pack=_template evidence=packs/_template/promote-candidates/review-artifacts/batch501-status.candidate-decision-note.md",
@@ -8084,6 +8084,52 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	for _, expected := range []string{"promote candidate review proof draft：mode=already-drafted", "proofSha256=", "draft does not merge or cleanup candidates"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("candidate review proof draft text omitted %q:\n%s", expected, out.String())
+		}
+	}
+
+	lifecycleEvidencePath := filepath.Join(candidateRoot, "review-artifacts", "product-path.lifecycle-evidence.md")
+	writePathFile(t, lifecycleEvidencePath, "pack doctor passed for lifecycle proof draft\n")
+	lifecycleProofPath := filepath.Join(candidateRoot, "review-artifacts", "product-path.pack-doctor-output.json")
+	lifecycleProofPathArg := filepath.ToSlash(filepath.Join("packs", "_template", "promote-candidates", "review-artifacts", "product-path.pack-doctor-output.json"))
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-DraftReviewProof", "-ProofPath", lifecycleProofPathArg, "-ProofType", "pack-doctor-output", "-CandidatePath", candidatePathArg, "-Reason", "pack doctor output reviewed", "-Actor", "mission-commander", "-EvidenceRefs", lifecycleEvidencePath, "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var lifecycleProofPreview promote.CandidateLifecycleProofDraftResult
+	if err := json.Unmarshal(out.Bytes(), &lifecycleProofPreview); err != nil {
+		t.Fatal(err)
+	}
+	if lifecycleProofPreview.IsMutation || lifecycleProofPreview.Applied || lifecycleProofPreview.ProofSHA256 == "" || lifecycleProofPreview.ProofPath != lifecycleProofPath || lifecycleProofPreview.Proof.Kind != "pack-memory-candidate-lifecycle-proof" || lifecycleProofPreview.Proof.PackTarget != "packs/_template/references/template/README.md" || !strings.Contains(lifecycleProofPreview.ApplyCommand, "-ExpectedProofSha256") || strings.Contains(lifecycleProofPreview.ApplyCommand, "-CandidateDecisionPath") {
+		t.Fatalf("unexpected candidate lifecycle proof preview: %+v", lifecycleProofPreview)
+	}
+	if _, err := os.Stat(lifecycleProofPath); !os.IsNotExist(err) {
+		t.Fatalf("candidate lifecycle proof WhatIf wrote proof file: %v", err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-DraftReviewProof", "-ProofPath", lifecycleProofPathArg, "-ProofType", "pack-doctor-output", "-CandidatePath", candidatePathArg, "-Reason", "pack doctor output reviewed", "-Actor", "mission-commander", "-EvidenceRefs", lifecycleEvidencePath, "-ExpectedProofSha256", lifecycleProofPreview.ProofSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var lifecycleProofApplied promote.CandidateLifecycleProofDraftResult
+	if err := json.Unmarshal(out.Bytes(), &lifecycleProofApplied); err != nil {
+		t.Fatal(err)
+	}
+	if !lifecycleProofApplied.IsMutation || !lifecycleProofApplied.Applied || lifecycleProofApplied.AlreadyWritten || lifecycleProofApplied.ProofSHA256 != lifecycleProofPreview.ProofSHA256 {
+		t.Fatalf("unexpected candidate lifecycle proof apply: %+v", lifecycleProofApplied)
+	}
+	lifecycleProofBytes, err := os.ReadFile(lifecycleProofPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(lifecycleProofBytes, []byte(caseRoot)) || bytes.Contains(lifecycleProofBytes, []byte(root)) {
+		t.Fatalf("candidate lifecycle proof persisted absolute path: %s", string(lifecycleProofBytes))
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-DraftReviewProof", "-ProofPath", lifecycleProofPathArg, "-ProofType", "pack-doctor-output", "-CandidatePath", candidatePathArg, "-Reason", "pack doctor output reviewed", "-Actor", "mission-commander", "-EvidenceRefs", lifecycleEvidencePath, "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"promote candidate lifecycle proof draft：mode=already-drafted", "packTarget=packs/_template/references/template/README.md", "pack-doctor=passed", "does not run doctor, init, reconsume, or heavy tools"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("candidate lifecycle proof draft text omitted %q:\n%s", expected, out.String())
 		}
 	}
 

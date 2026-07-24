@@ -878,6 +878,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 	}
 	for _, path := range status.CandidatePaths {
 		packTarget := packMemoryCandidatePackTarget(status.IndexCandidates, path)
+		proofPackTarget := packMemoryCandidateProofPackTarget(status, packTarget)
 		artifacts = append(artifacts,
 			ReleaseHandoffPackMemoryCandidateReviewArtifact{
 				Name:          "candidate-decision-note",
@@ -892,7 +893,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 			ReleaseHandoffPackMemoryCandidateReviewArtifact{
 				Name:          "candidate-cleanup-proof",
 				CandidatePath: path,
-				PackTarget:    packTarget,
+				PackTarget:    proofPackTarget,
 				When:          "after deleting candidatePath because it was rejected, superseded, or accepted and merged into pack source",
 				Action:        "record candidatePath deletion check and indexPath update/removal proof",
 				Format:        "strict JSON pack-memory-candidate-lifecycle-proof with candidate-absent and index-entry-absent checks plus hashed evidenceRefs",
@@ -905,7 +906,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 			ReleaseHandoffPackMemoryCandidateReviewArtifact{
 				Name:          "pack-doctor-output",
 				CandidatePath: path,
-				PackTarget:    packTarget,
+				PackTarget:    proofPackTarget,
 				When:          "after an accept decision merges reusable content into packTarget",
 				Action:        "record doctor command output before declaring accepted merge complete",
 				Format:        "strict JSON pack-memory-candidate-lifecycle-proof with a passed pack-doctor check plus hashed evidenceRefs",
@@ -922,7 +923,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 			ReleaseHandoffPackMemoryCandidateReviewArtifact{
 				Name:          "candidate-decision-note",
 				CandidatePath: path,
-				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
+				PackTarget:    packMemoryCandidateToolingProofPackTarget(status),
 				When:          "before merge, cleanup, or reconsume; choose accept, reject, or superseded for this tooling candidate",
 				Action:        "record reviewed decision and selected decisionFollowThrough outcome outside authority/confirmed stores",
 				Format:        "strict JSON pack-memory-candidate-review-proof note with decision, reason, candidatePath, packTarget, reviewItem, evidenceRefs, and boundary",
@@ -932,7 +933,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 			ReleaseHandoffPackMemoryCandidateReviewArtifact{
 				Name:          "candidate-cleanup-proof",
 				CandidatePath: path,
-				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
+				PackTarget:    packMemoryCandidateToolingProofPackTarget(status),
 				When:          "after deleting candidatePath because it was rejected, superseded, or accepted and merged into pack tooling",
 				Action:        "record candidatePath deletion check and tooling candidate directory cleanup proof",
 				Format:        "strict JSON pack-memory-candidate-lifecycle-proof with candidate-absent check plus hashed evidenceRefs",
@@ -945,7 +946,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 			ReleaseHandoffPackMemoryCandidateReviewArtifact{
 				Name:          "pack-doctor-output",
 				CandidatePath: path,
-				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
+				PackTarget:    packMemoryCandidateToolingProofPackTarget(status),
 				When:          "after an accept decision merges reusable tooling into packTarget",
 				Action:        "record doctor command output before declaring accepted tooling merge complete",
 				Format:        "strict JSON pack-memory-candidate-lifecycle-proof with a passed pack-doctor check plus hashed evidenceRefs",
@@ -958,7 +959,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 			ReleaseHandoffPackMemoryCandidateReviewArtifact{
 				Name:          "fresh-case-reconsume-proof",
 				CandidatePath: path,
-				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
+				PackTarget:    packMemoryCandidateToolingProofPackTarget(status),
 				When:          "after accepting tooling candidate into tooling/catalog.yml or tooling/recipes/*",
 				Action:        "record temporary fresh-case init and doctor output proving pack tooling reconsume",
 				Format:        "strict JSON pack-memory-candidate-lifecycle-proof with passed fresh-case-reconsume and pack-doctor checks plus hashed evidenceRefs",
@@ -972,7 +973,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 			ReleaseHandoffPackMemoryCandidateReviewArtifact{
 				Name:          "attached-case-reconsume-proof",
 				CandidatePath: path,
-				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
+				PackTarget:    packMemoryCandidateToolingProofPackTarget(status),
 				When:          "when validating an existing attached case after accepted tooling merge",
 				Action:        "record attached-case doctor output proving pack tooling is resolved through templateRoot/templatePack",
 				Format:        "strict JSON pack-memory-candidate-lifecycle-proof with passed attached-case-reconsume and pack-doctor checks plus hashed evidenceRefs",
@@ -1648,7 +1649,21 @@ func packMemoryCandidateNextMissingProof(stage, proofPath string, artifact Relea
 		proof.DraftCommand = "/rekit promote -PacketPath <packet.json> -CandidateDecisionPath <candidate-decisions.json> -DraftReviewProof -ProofPath " + quoteReleaseHandoffCommandArg(proofPath) + " -ProofType candidate-cleanup-proof -CandidatePath " + quoteReleaseHandoffCommandArg(artifact.CandidatePath) + " -Reason <cleanup-proof-reason> -Actor <actor> -EvidenceRefs <cleanup-evidence-ref> -WhatIf -Format json"
 		proof.DraftApplyTemplate = "/rekit promote -PacketPath <packet.json> -CandidateDecisionPath <candidate-decisions.json> -DraftReviewProof -ProofPath " + quoteReleaseHandoffCommandArg(proofPath) + " -ProofType candidate-cleanup-proof -CandidatePath " + quoteReleaseHandoffCommandArg(artifact.CandidatePath) + " -Reason <cleanup-proof-reason> -Actor <actor> -EvidenceRefs <cleanup-evidence-ref> -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json"
 	}
+	if packMemoryCandidateLifecycleProofType(artifact.Name) && strings.TrimSpace(artifact.CandidatePath) != "" {
+		proof.RequiresPacket = true
+		proof.DraftCommand = "/rekit promote -PacketPath <packet.json> -DraftReviewProof -ProofPath " + quoteReleaseHandoffCommandArg(proofPath) + " -ProofType " + quoteReleaseHandoffCommandArg(artifact.Name) + " -CandidatePath " + quoteReleaseHandoffCommandArg(artifact.CandidatePath) + " -Reason <lifecycle-proof-reason> -Actor <actor> -EvidenceRefs <repo-local-lifecycle-evidence-ref> -WhatIf -Format json"
+		proof.DraftApplyTemplate = "/rekit promote -PacketPath <packet.json> -DraftReviewProof -ProofPath " + quoteReleaseHandoffCommandArg(proofPath) + " -ProofType " + quoteReleaseHandoffCommandArg(artifact.Name) + " -CandidatePath " + quoteReleaseHandoffCommandArg(artifact.CandidatePath) + " -Reason <lifecycle-proof-reason> -Actor <actor> -EvidenceRefs <repo-local-lifecycle-evidence-ref> -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json"
+	}
 	return proof
+}
+
+func packMemoryCandidateLifecycleProofType(proofType string) bool {
+	switch strings.TrimSpace(proofType) {
+	case "pack-doctor-output", "fresh-case-reconsume-proof", "attached-case-reconsume-proof":
+		return true
+	default:
+		return false
+	}
 }
 
 func packMemoryCandidateProofArtifactStage(name string) string {
@@ -2853,6 +2868,22 @@ func packMemoryCandidatePackTarget(entries []ReleaseHandoffPackMemoryCandidateIn
 		}
 	}
 	return ""
+}
+
+func packMemoryCandidateProofPackTarget(status ReleaseHandoffPackMemoryCandidateStatus, packTarget string) string {
+	packTarget = strings.TrimSpace(packTarget)
+	if packTarget == "" {
+		return ""
+	}
+	packTarget = filepath.ToSlash(packTarget)
+	if strings.HasPrefix(packTarget, "packs/") {
+		return packTarget
+	}
+	return filepath.ToSlash(filepath.Join("packs", status.Pack, filepath.FromSlash(packTarget)))
+}
+
+func packMemoryCandidateToolingProofPackTarget(status ReleaseHandoffPackMemoryCandidateStatus) string {
+	return filepath.ToSlash(filepath.Dir(filepath.FromSlash(status.ToolingRoot)))
 }
 
 func candidateFiles(root, relRoot string) ([]string, error) {

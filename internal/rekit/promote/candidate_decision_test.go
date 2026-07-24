@@ -116,6 +116,121 @@ func TestDraftCandidateReviewProofPreviewsAppliesAndReplaysProofNote(t *testing.
 	}
 }
 
+func TestDraftCandidateLifecycleProofPreviewsAppliesAndReplaysProofNote(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, _, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "lifecycle-proof")
+	evidencePath := filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "lifecycle-evidence.md")
+	writeText(t, evidencePath, "pack doctor and reconsume passed\n")
+	proofPath := filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "lifecycle-proof.fresh-case-reconsume-proof.json")
+
+	preview, err := DraftCandidateLifecycleProof(repoRoot, caseRoot, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, ProofPath: proofPath, ProofType: "fresh-case-reconsume-proof", CandidatePath: managed.CandidatePath, Reason: "fresh case reconsume verified", Actor: "mission-commander", EvidenceRefs: evidencePath, WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.IsMutation || preview.Applied || preview.ProofSHA256 == "" || preview.PacketHash == "" || preview.ProofPath != proofPath || preview.Proof.Kind != "pack-memory-candidate-lifecycle-proof" || preview.Proof.ProofType != "fresh-case-reconsume-proof" || preview.Proof.PackTarget != "packs/"+pack+"/references/template/README.md" || len(preview.Proof.Checks) != 2 || preview.Proof.Checks[0].Name != "fresh-case-reconsume" || preview.Proof.Checks[1].Name != "pack-doctor" || !strings.Contains(preview.ApplyCommand, "-ExpectedProofSha256") || strings.Contains(preview.ApplyCommand, "-CandidateDecisionPath") {
+		t.Fatalf("unexpected candidate lifecycle proof preview: %+v", preview)
+	}
+	if _, err := os.Stat(proofPath); !os.IsNotExist(err) {
+		t.Fatalf("candidate lifecycle proof WhatIf wrote proof file: %v", err)
+	}
+
+	applied, err := DraftCandidateLifecycleProof(repoRoot, caseRoot, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, ProofPath: proofPath, ProofType: "fresh-case-reconsume-proof", CandidatePath: managed.CandidatePath, Reason: "fresh case reconsume verified", Actor: "mission-commander", EvidenceRefs: evidencePath, ExpectedProofSHA256: preview.ProofSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.IsMutation || !applied.Applied || applied.AlreadyWritten || applied.ProofSHA256 != preview.ProofSHA256 {
+		t.Fatalf("unexpected candidate lifecycle proof apply: %+v", applied)
+	}
+	data, err := os.ReadFile(proofPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte(caseRoot)) || bytes.Contains(data, []byte(repoRoot)) {
+		t.Fatalf("lifecycle proof note should not persist absolute repo/case roots: %s", string(data))
+	}
+	var note CandidateLifecycleProofNote
+	if err := decodeStrictJSON(data, &note); err != nil {
+		t.Fatal(err)
+	}
+	if note.Pack != pack || note.CandidatePath != candidateReviewProofRepoRelative(repoRoot, managed.CandidatePath) || note.PackTarget != "packs/"+pack+"/references/template/README.md" || note.ReviewItem.Stage != "reconsume-proof-required" || len(note.EvidenceRefs) != 1 || note.EvidenceRefs[0].Path != candidateReviewProofRepoRelative(repoRoot, evidencePath) || note.EvidenceRefs[0].SHA256 == "" {
+		t.Fatalf("candidate lifecycle proof note is not candidate/evidence-bound: %+v", note)
+	}
+	replay, err := DraftCandidateLifecycleProof(repoRoot, caseRoot, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, ProofPath: proofPath, ProofType: "fresh-case-reconsume-proof", CandidatePath: managed.CandidatePath, Reason: "fresh case reconsume verified", Actor: "mission-commander", EvidenceRefs: evidencePath, ExpectedProofSHA256: preview.ProofSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replay.Applied || !replay.AlreadyWritten {
+		t.Fatalf("candidate lifecycle proof replay was not idempotent: %+v", replay)
+	}
+}
+
+func TestDraftCandidateLifecycleProofRejectsUnsafeInputs(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, _, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "lifecycle-proof-unsafe")
+	evidencePath := filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "lifecycle-unsafe-evidence.md")
+	writeText(t, evidencePath, "pack doctor passed\n")
+	base := CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, ProofPath: filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "lifecycle-unsafe.pack-doctor-output.json"), ProofType: "pack-doctor-output", CandidatePath: managed.CandidatePath, Reason: "pack doctor verified", Actor: "mission-commander", EvidenceRefs: evidencePath, WhatIf: true}
+	tests := []struct {
+		name      string
+		mutate    func(*CandidateReviewProofDraftOptions)
+		wantError string
+	}{
+		{
+			name: "missing evidence",
+			mutate: func(opt *CandidateReviewProofDraftOptions) {
+				opt.EvidenceRefs = ""
+			},
+			wantError: "requires at least one repo-local -EvidenceRefs item",
+		},
+		{
+			name: "case local evidence",
+			mutate: func(opt *CandidateReviewProofDraftOptions) {
+				caseEvidence := filepath.Join(caseRoot, ".rekit", "reviews", "lifecycle-proof-unsafe", "case-evidence.md")
+				writeText(t, caseEvidence, "case-local evidence should not be stored in lifecycle proof\n")
+				opt.EvidenceRefs = caseEvidence
+			},
+			wantError: "must stay under repoRoot",
+		},
+		{
+			name: "decision path",
+			mutate: func(opt *CandidateReviewProofDraftOptions) {
+				opt.DecisionPath = filepath.Join(caseRoot, "decisions.json")
+			},
+			wantError: "does not accept -CandidateDecisionPath",
+		},
+		{
+			name: "proof decision",
+			mutate: func(opt *CandidateReviewProofDraftOptions) {
+				opt.Decision = "accept"
+			},
+			wantError: "does not accept -ProofDecision",
+		},
+		{
+			name: "unsupported proof type",
+			mutate: func(opt *CandidateReviewProofDraftOptions) {
+				opt.ProofType = "candidate-cleanup-proof"
+			},
+			wantError: "supports only -ProofType",
+		},
+		{
+			name: "different existing proof",
+			mutate: func(opt *CandidateReviewProofDraftOptions) {
+				writeText(t, opt.ProofPath, "different\n")
+			},
+			wantError: "already exists with different bytes",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opt := base
+			tc.mutate(&opt)
+			if _, err := DraftCandidateLifecycleProof(repoRoot, caseRoot, pack, opt); err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("DraftCandidateLifecycleProof error = %v, want %q", err, tc.wantError)
+			}
+		})
+	}
+}
+
 func TestDraftCandidateCleanupReviewProofPreviewsAppliesAndReplaysProofNote(t *testing.T) {
 	repoRoot, caseRoot, pack := promoteFixture(t)
 	created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "cleanup-proof")

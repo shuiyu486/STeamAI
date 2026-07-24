@@ -6861,7 +6861,18 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("unsupported promote candidate review proof draft format: %s", opt.Format)
 		}
-		result, err := promote.DraftCandidateReviewProof(ctx.RepoRoot, target, ctx.Pack, promote.CandidateReviewProofDraftOptions{PacketPath: opt.PacketPath, DecisionPath: opt.CandidateDecisionPath, ProofPath: opt.ReviewProofPath, ProofType: opt.ReviewProofType, CandidatePath: opt.ReviewProofCandidatePath, Decision: opt.CandidateDecision, Reason: opt.CandidateDecisionReason, Actor: opt.CandidateDecisionActor, EvidenceRefs: opt.CandidateDecisionEvidenceRefs, ExpectedProofSHA256: opt.ExpectedReviewProofSHA256, WhatIf: opt.WhatIf})
+		proofOptions := promote.CandidateReviewProofDraftOptions{PacketPath: opt.PacketPath, DecisionPath: opt.CandidateDecisionPath, ProofPath: opt.ReviewProofPath, ProofType: opt.ReviewProofType, CandidatePath: opt.ReviewProofCandidatePath, Decision: opt.CandidateDecision, Reason: opt.CandidateDecisionReason, Actor: opt.CandidateDecisionActor, EvidenceRefs: opt.CandidateDecisionEvidenceRefs, ExpectedProofSHA256: opt.ExpectedReviewProofSHA256, WhatIf: opt.WhatIf}
+		if isCandidateLifecycleProofType(opt.ReviewProofType) {
+			result, err := promote.DraftCandidateLifecycleProof(ctx.RepoRoot, target, ctx.Pack, proofOptions)
+			if err != nil {
+				return err
+			}
+			if format == "json" {
+				return writeJSON(out, result)
+			}
+			return writePromoteCandidateLifecycleProofDraftText(out, result)
+		}
+		result, err := promote.DraftCandidateReviewProof(ctx.RepoRoot, target, ctx.Pack, proofOptions)
 		if err != nil {
 			return err
 		}
@@ -8047,6 +8058,44 @@ func writePromoteCandidateReviewProofDraftText(out io.Writer, result promote.Can
 	return nil
 }
 
+func writePromoteCandidateLifecycleProofDraftText(out io.Writer, result promote.CandidateLifecycleProofDraftResult) error {
+	if _, err := fmt.Fprintf(out, "promote candidate lifecycle proof draft：mode=%s mutation=%t applied=%t alreadyWritten=%t proofType=%s packet=%s proof=%s packetHash=%s proofSha256=%s candidate=%s packTarget=%s actor=%s\n", result.Mode, result.IsMutation, result.Applied, result.AlreadyWritten, result.ProofType, result.PacketPath, result.ProofPath, result.PacketHash, result.ProofSHA256, result.CandidatePath, result.PackTarget, result.Actor); err != nil {
+		return err
+	}
+	evidenceRefs := make([]string, 0, len(result.Proof.EvidenceRefs))
+	for _, evidence := range result.Proof.EvidenceRefs {
+		evidenceRefs = append(evidenceRefs, evidence.Path+"@"+evidence.SHA256)
+	}
+	checkSummaries := make([]string, 0, len(result.Proof.Checks))
+	for _, check := range result.Proof.Checks {
+		checkSummaries = append(checkSummaries, check.Name+"="+check.Status)
+	}
+	if _, err := fmt.Fprintf(out, "promote candidate lifecycle proof draft note：kind=%s reason=%s evidence=%s checks=%s\n", result.Proof.Kind, result.Reason, strings.Join(evidenceRefs, ","), strings.Join(checkSummaries, ",")); err != nil {
+		return err
+	}
+	if result.PreviewCommand != "" {
+		if _, err := fmt.Fprintf(out, "promote candidate lifecycle proof draft preview command：%s\n", result.PreviewCommand); err != nil {
+			return err
+		}
+	}
+	if result.ApplyCommand != "" {
+		if _, err := fmt.Fprintf(out, "promote candidate lifecycle proof draft apply command：%s\n", result.ApplyCommand); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "promote candidate lifecycle proof draft boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "promote candidate lifecycle proof draft next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writePromoteCandidateDecisionDraftText(out io.Writer, result promote.CandidateDecisionDraftResult) error {
 	if _, err := fmt.Fprintf(out, "promote candidate decision draft：mode=%s mutation=%t applied=%t alreadyWritten=%t decision=%s decisionCount=%d accepted=%d rejected=%d superseded=%d packet=%s decisions=%s packetHash=%s decisionSha256=%s\n", result.Mode, result.IsMutation, result.Applied, result.AlreadyWritten, result.Decision, result.DecisionCount, result.Accepted, result.Rejected, result.Superseded, result.PacketPath, result.DecisionPath, result.PacketHash, result.DecisionSHA256); err != nil {
 		return err
@@ -8393,6 +8442,15 @@ func wantsReviewArtifacts(opt Options) bool {
 
 func wantsReviewProofDetails(opt Options) bool {
 	return strings.TrimSpace(opt.ReviewProofPath) != "" || strings.TrimSpace(opt.ReviewProofType) != "" || strings.TrimSpace(opt.ReviewProofCandidatePath) != "" || strings.TrimSpace(opt.ExpectedReviewProofSHA256) != ""
+}
+
+func isCandidateLifecycleProofType(proofType string) bool {
+	switch strings.TrimSpace(proofType) {
+	case "pack-doctor-output", "fresh-case-reconsume-proof", "attached-case-reconsume-proof":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeReviewArtifacts(out io.Writer, plan review.Plan, opt Options) error {
