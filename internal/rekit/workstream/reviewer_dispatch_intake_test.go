@@ -117,8 +117,41 @@ func TestReviewerDispatchIntakeSummaryPrefersReadyPacketBatchCommand(t *testing.
 	}
 
 	summary := ReviewerDispatchIntakeSummaryFor(items)
-	if summary.ReadyForPreview != 1 || summary.LatestBatchPreviewCommand != readyBatchPreview || summary.LatestBatchApplyCommand != readyBatchApply || summary.NextAction != readyBatchPreview {
+	if summary.ReadyForPreview != 1 || summary.LatestBatchPreviewCommand != readyBatchPreview || summary.LatestBatchApplyCommand != readyBatchApply || summary.NextAction != readyBatchPreview || summary.NextActionShardID != "shard-01" || summary.NextActionState != "ready-for-reviewer-intake-preview" || summary.NextActionBatchPreviewCommand != readyBatchPreview || summary.NextActionBatchApplyCommand != readyBatchApply {
 		t.Fatalf("summary did not promote the ready packet batch command: %+v", summary)
+	}
+}
+
+func TestReviewerDispatchIntakeSummaryProjectsWaitingNextAction(t *testing.T) {
+	items := []ReviewerDispatchIntakeHandoff{
+		{
+			PacketID:                     "packet-waiting",
+			PacketPath:                   "waiting-packet.json",
+			TargetLane:                   "feature-review",
+			ShardID:                      "shard-01",
+			State:                        "waiting-for-reviewer-result",
+			ReviewerResultSourcePath:     "results/sources/shard-01.json",
+			ReviewerResultSourceState:    "missing",
+			ReviewerResultCandidatePath:  "results/candidates/shard-01.json",
+			ReviewerResultCandidateState: "missing",
+			AgentToolRequest:             &ReviewerAgentToolRequest{Tool: "Claude Code Agent", AgentType: "read-only-reviewer", ReadOnly: true, Prompt: "review", ExpectedOutput: "one JSON object"},
+			ReviewerResultStagingCommand: "/rekit plan-subagents -StageReviewerResult -ShardId shard-01 -WhatIf -Format json",
+			DispatchCommand:              "dispatch read-only reviewer for shard-01",
+		},
+		{
+			PacketID:                 "packet-waiting",
+			PacketPath:               "waiting-packet.json",
+			TargetLane:               "feature-review",
+			ShardID:                  "shard-02",
+			State:                    "waiting-for-reviewer-result",
+			ReviewerResultSourcePath: "results/sources/shard-02.json",
+			DispatchCommand:          "dispatch read-only reviewer for shard-02",
+		},
+	}
+
+	summary := ReviewerDispatchIntakeSummaryFor(items)
+	if summary.WaitingForReviewerResult != 2 || summary.LatestShardID != "shard-02" || summary.NextActionShardID != "shard-01" || summary.NextActionState != "waiting-for-reviewer-result" || summary.NextActionReviewerResultSourcePath != "results/sources/shard-01.json" || summary.NextActionReviewerResultCandidatePath != "results/candidates/shard-01.json" || !strings.Contains(summary.NextActionReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(summary.NextAction, "dispatch read-only reviewer for shard-01") {
+		t.Fatalf("summary did not project first waiting next action separate from latest shard: %+v", summary)
 	}
 }
 

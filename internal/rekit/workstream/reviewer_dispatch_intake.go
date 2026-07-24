@@ -157,36 +157,50 @@ type ReviewerDispatchIntakeHandoff struct {
 }
 
 type ReviewerDispatchIntakeSummary struct {
-	Total                              int      `json:"total"`
-	WaitingForReviewerResult           int      `json:"waitingForReviewerResult"`
-	ReadyForPreview                    int      `json:"readyForPreview"`
-	AttachRequired                     int      `json:"attachRequired"`
-	DispatchOnly                       int      `json:"dispatchOnly"`
-	LaneCount                          int      `json:"laneCount"`
-	Lanes                              []string `json:"lanes,omitempty"`
-	PacketCount                        int      `json:"packetCount"`
-	LatestPacketDispatchTotal          int      `json:"latestPacketDispatchTotal,omitempty"`
-	LatestPacketDispatchCompleted      int      `json:"latestPacketDispatchCompleted"`
-	LatestPacketDispatchOpen           int      `json:"latestPacketDispatchOpen"`
-	LatestPacketNextOpenShardID        string   `json:"latestPacketNextOpenShardId,omitempty"`
-	LatestCompletedShardID             string   `json:"latestCompletedShardId,omitempty"`
-	RemainingShardIDs                  []string `json:"remainingShardIds,omitempty"`
-	LatestPacketPath                   string   `json:"latestPacketPath,omitempty"`
-	LatestShardID                      string   `json:"latestShardId,omitempty"`
-	LatestState                        string   `json:"latestState,omitempty"`
-	LatestReviewerResultPath           string   `json:"latestReviewerResultPath,omitempty"`
-	LatestReviewerResultSourcePath     string   `json:"latestReviewerResultSourcePath,omitempty"`
-	LatestReviewerResultSourceState    string   `json:"latestReviewerResultSourceState,omitempty"`
-	LatestReviewerResultCandidatePath  string   `json:"latestReviewerResultCandidatePath,omitempty"`
-	LatestReviewerResultCandidateState string   `json:"latestReviewerResultCandidateState,omitempty"`
-	LatestCollectionPreviewCommand     string   `json:"latestCollectionPreviewCommand,omitempty"`
-	LatestCollectionApplyCommand       string   `json:"latestCollectionApplyCommand,omitempty"`
-	LatestPreviewCommand               string   `json:"latestPreviewCommand,omitempty"`
-	LatestApplyCommand                 string   `json:"latestApplyCommand,omitempty"`
-	LatestBatchPreviewCommand          string   `json:"latestBatchPreviewCommand,omitempty"`
-	LatestBatchApplyCommand            string   `json:"latestBatchApplyCommand,omitempty"`
-	NextAction                         string   `json:"nextAction,omitempty"`
-	Boundary                           []string `json:"boundary,omitempty"`
+	Total                                  int      `json:"total"`
+	WaitingForReviewerResult               int      `json:"waitingForReviewerResult"`
+	ReadyForPreview                        int      `json:"readyForPreview"`
+	AttachRequired                         int      `json:"attachRequired"`
+	DispatchOnly                           int      `json:"dispatchOnly"`
+	LaneCount                              int      `json:"laneCount"`
+	Lanes                                  []string `json:"lanes,omitempty"`
+	PacketCount                            int      `json:"packetCount"`
+	LatestPacketDispatchTotal              int      `json:"latestPacketDispatchTotal,omitempty"`
+	LatestPacketDispatchCompleted          int      `json:"latestPacketDispatchCompleted"`
+	LatestPacketDispatchOpen               int      `json:"latestPacketDispatchOpen"`
+	LatestPacketNextOpenShardID            string   `json:"latestPacketNextOpenShardId,omitempty"`
+	LatestCompletedShardID                 string   `json:"latestCompletedShardId,omitempty"`
+	RemainingShardIDs                      []string `json:"remainingShardIds,omitempty"`
+	LatestPacketPath                       string   `json:"latestPacketPath,omitempty"`
+	LatestShardID                          string   `json:"latestShardId,omitempty"`
+	LatestState                            string   `json:"latestState,omitempty"`
+	LatestReviewerResultPath               string   `json:"latestReviewerResultPath,omitempty"`
+	LatestReviewerResultSourcePath         string   `json:"latestReviewerResultSourcePath,omitempty"`
+	LatestReviewerResultSourceState        string   `json:"latestReviewerResultSourceState,omitempty"`
+	LatestReviewerResultCandidatePath      string   `json:"latestReviewerResultCandidatePath,omitempty"`
+	LatestReviewerResultCandidateState     string   `json:"latestReviewerResultCandidateState,omitempty"`
+	LatestReviewerResultStagingCommand     string   `json:"latestReviewerResultStagingCommand,omitempty"`
+	LatestCollectionPreviewCommand         string   `json:"latestCollectionPreviewCommand,omitempty"`
+	LatestCollectionApplyCommand           string   `json:"latestCollectionApplyCommand,omitempty"`
+	LatestPreviewCommand                   string   `json:"latestPreviewCommand,omitempty"`
+	LatestApplyCommand                     string   `json:"latestApplyCommand,omitempty"`
+	LatestBatchPreviewCommand              string   `json:"latestBatchPreviewCommand,omitempty"`
+	LatestBatchApplyCommand                string   `json:"latestBatchApplyCommand,omitempty"`
+	NextActionShardID                      string   `json:"nextActionShardId,omitempty"`
+	NextActionState                        string   `json:"nextActionState,omitempty"`
+	NextActionReviewerResultSourcePath     string   `json:"nextActionReviewerResultSourcePath,omitempty"`
+	NextActionReviewerResultSourceState    string   `json:"nextActionReviewerResultSourceState,omitempty"`
+	NextActionReviewerResultCandidatePath  string   `json:"nextActionReviewerResultCandidatePath,omitempty"`
+	NextActionReviewerResultCandidateState string   `json:"nextActionReviewerResultCandidateState,omitempty"`
+	NextActionReviewerResultStagingCommand string   `json:"nextActionReviewerResultStagingCommand,omitempty"`
+	NextActionCollectionPreviewCommand     string   `json:"nextActionCollectionPreviewCommand,omitempty"`
+	NextActionCollectionApplyCommand       string   `json:"nextActionCollectionApplyCommand,omitempty"`
+	NextActionPreviewCommand               string   `json:"nextActionPreviewCommand,omitempty"`
+	NextActionApplyCommand                 string   `json:"nextActionApplyCommand,omitempty"`
+	NextActionBatchPreviewCommand          string   `json:"nextActionBatchPreviewCommand,omitempty"`
+	NextActionBatchApplyCommand            string   `json:"nextActionBatchApplyCommand,omitempty"`
+	NextAction                             string   `json:"nextAction,omitempty"`
+	Boundary                               []string `json:"boundary,omitempty"`
 }
 
 type reviewerPacketIntegrityReference struct {
@@ -531,7 +545,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 	summary := ReviewerDispatchIntakeSummary{}
 	lanes := map[string]bool{}
 	packets := map[string]bool{}
-	var latestReady *ReviewerDispatchIntakeHandoff
+	var nextAction *ReviewerDispatchIntakeHandoff
 	for idx := range items {
 		item := items[idx]
 		summary.Total++
@@ -550,9 +564,12 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 			summary.WaitingForReviewerResult++
 		case "ready-for-reviewer-result-staging-preview", "ready-for-reviewer-result-collection-preview", "ready-for-reviewer-intake-preview":
 			summary.ReadyForPreview++
-			latestReady = &items[idx]
-		case "attach-required-before-reviewer-intake", "reviewer-packet-owner-adoption-required":
+		}
+		if item.State == "attach-required-before-reviewer-intake" || item.State == "reviewer-packet-owner-adoption-required" {
 			summary.AttachRequired++
+		}
+		if nextAction == nil || reviewerDispatchActionPriority(item) < reviewerDispatchActionPriority(*nextAction) {
+			nextAction = &items[idx]
 		}
 	}
 	for lane := range lanes {
@@ -571,6 +588,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		summary.LatestReviewerResultSourceState = latest.ReviewerResultSourceState
 		summary.LatestReviewerResultCandidatePath = latest.ReviewerResultCandidatePath
 		summary.LatestReviewerResultCandidateState = latest.ReviewerResultCandidateState
+		summary.LatestReviewerResultStagingCommand = latest.ReviewerResultStagingCommand
 		if latest.ReviewerResultCollectionCommands != nil {
 			summary.LatestCollectionPreviewCommand = latest.ReviewerResultCollectionCommands.PreviewCommand
 			summary.LatestCollectionApplyCommand = latest.ReviewerResultCollectionCommands.ApplyCommand
@@ -586,14 +604,27 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		summary.LatestCompletedShardID = latest.LatestCompletedShardID
 		summary.RemainingShardIDs = append([]string{}, latest.RemainingShardIDs...)
 		summary.NextAction = reviewerDispatchIntakeNextAction(latest)
-		if latestReady != nil {
-			summary.LatestBatchPreviewCommand = latestReady.BatchPreviewCommand
-			summary.LatestBatchApplyCommand = latestReady.BatchApplyCommand
-			if strings.TrimSpace(summary.LatestBatchPreviewCommand) != "" {
-				summary.NextAction = summary.LatestBatchPreviewCommand
-			} else {
-				summary.NextAction = reviewerDispatchIntakeNextAction(*latestReady)
+		if nextAction != nil {
+			summary.NextActionShardID = nextAction.ShardID
+			summary.NextActionState = nextAction.State
+			summary.NextActionReviewerResultSourcePath = nextAction.ReviewerResultSourcePath
+			summary.NextActionReviewerResultSourceState = nextAction.ReviewerResultSourceState
+			summary.NextActionReviewerResultCandidatePath = nextAction.ReviewerResultCandidatePath
+			summary.NextActionReviewerResultCandidateState = nextAction.ReviewerResultCandidateState
+			summary.NextActionReviewerResultStagingCommand = nextAction.ReviewerResultStagingCommand
+			if nextAction.ReviewerResultCollectionCommands != nil {
+				summary.NextActionCollectionPreviewCommand = nextAction.ReviewerResultCollectionCommands.PreviewCommand
+				summary.NextActionCollectionApplyCommand = nextAction.ReviewerResultCollectionCommands.ApplyCommand
 			}
+			summary.NextActionPreviewCommand = nextAction.PreviewCommand
+			summary.NextActionApplyCommand = nextAction.ApplyCommand
+			summary.NextActionBatchPreviewCommand = nextAction.BatchPreviewCommand
+			summary.NextActionBatchApplyCommand = nextAction.BatchApplyCommand
+			if nextAction.State == "ready-for-reviewer-intake-preview" && strings.TrimSpace(nextAction.BatchPreviewCommand) != "" {
+				summary.LatestBatchPreviewCommand = nextAction.BatchPreviewCommand
+				summary.LatestBatchApplyCommand = nextAction.BatchApplyCommand
+			}
+			summary.NextAction = reviewerDispatchIntakeNextAction(*nextAction)
 		}
 		summary.Boundary = reviewerDispatchIntakeSummaryBoundary()
 	}

@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 567：reviewer dispatch next-action handoff closure
+
+状态：已完成 Go runtime、CLI text/status product-path、tests 与本地 release minimum；implementation commit/push 待执行，远程 release-gate inspection 待 implementation commit 触发后记录。当前仍不能声明 remote CI green，除非实际远程 jobs 获得 runner 并通过；若远程仍是既有 runner/billing blocker，则只记录一次 implementation run inspection，不为 inspection commit 自身 CI 追加第三个记录提交。
+
+目标：关闭 multi-shard reviewer dispatch/intake 接手断点：downstream `status` / `handoff` / `continue` summary 既要保留 latest packet/shard progress，也要明确 replacement executor 当前真正该处理的 shard。旧 summary 容易在 latest shard 仍 waiting、较早 shard 已 source-ready / collection-ready / intake-ready 时只展示 latest 或 batch preview，迫使接手者手工扫描完整 item 列表、source/candidate paths 与 staging/collection commands。
+
+已实现内容：
+
+- `ReviewerDispatchIntakeSummary` 新增 `nextActionShardId`、`nextActionState`、next-action reviewer result source/candidate path 与 state、staging command、collection preview/apply、single preview/apply、batch preview/apply，并继续保留 latest packet/shard fields；summary next action 选择复用 Mission Commander reviewer dispatch priority，ready staging/collection/intake 不再被 later waiting shard 覆盖。
+- `status` / `handoff` / `continue` text first-screen 新增 `reviewer dispatch next action` line，同屏显示 next-action shard/state、source/candidate state/path、staging/collection/batch/single preview/apply 与 nextAction，避免 replacement executor 从 compact summary + per-item details 中手工拼当前命令。
+- CLI nested product path 覆盖 waiting→source-ready→staging/collection→ready batch intake：all-waiting 时 next action 指向第一 open shard 的 dispatch/staging source；source ready 时提升 `ready-for-reviewer-result-staging-preview` 与 `-StageReviewerResult`；ready intake 时仍投影 packet-level `-ReadyReviewerResults` batch preview。
+- Workstream tests 锁定 ready packet batch preview 不被 later waiting shard 覆盖，并锁定 all-waiting summary 中 next-action shard 可与 latest shard 分离。
+
+边界：本批只增强 reviewer dispatch/intake 的只读 summary/text handoff 与本机 product-path coverage；不 spawn、stop、poll 或 monitor reviewer，不创建 reviewer result，不执行 staging/collection/intake，不写 facts/authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestReviewerDispatchIntakeSummaryPrefersReadyPacketBatchCommand|TestReviewerDispatchIntakeSummaryProjectsWaitingNextAction|TestRunPlanSubagentsReviewerOrchestrationE2E" -count=1` 通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 待 implementation commit/push 后执行；当前不能声明 remote CI green。
+
+上一批摘要：Batch 566 已完成 pack-memory verification provisioning handoff closure；implementation commit `1ece655` 与 release inspection commit `5f8c216` 已推送；implementation run `30083919952` completed failure，Linux/Windows/macOS jobs `89451553739`/`89451553777`/`89451553842` 均 `runner_id=0` 且 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。
+
 ### Batch 566：pack-memory verification provisioning handoff closure
 
 状态：已完成 Go runtime、CLI text/status product-path、release/status inventory、tests、本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `1ece655` 已推送。implementation run `30083919952` completed failure，Linux/Windows/macOS jobs `89451553739`/`89451553777`/`89451553842` 均 `runner_id=0` 且 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
