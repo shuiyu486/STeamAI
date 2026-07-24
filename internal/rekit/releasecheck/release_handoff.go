@@ -179,20 +179,21 @@ type ReleaseHandoffPackMemoryCandidateReviewSummary struct {
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewNextMissingProof struct {
-	Stage                  string   `json:"stage,omitempty"`
-	ProofType              string   `json:"proofType,omitempty"`
-	Path                   string   `json:"path,omitempty"`
-	CandidatePath          string   `json:"candidatePath,omitempty"`
-	PackTarget             string   `json:"packTarget,omitempty"`
-	When                   string   `json:"when,omitempty"`
-	Action                 string   `json:"action,omitempty"`
-	Format                 string   `json:"format,omitempty"`
-	DraftCommand           string   `json:"draftCommand,omitempty"`
-	DraftApplyTemplate     string   `json:"draftApplyTemplate,omitempty"`
-	RequiresPacket         bool     `json:"requiresPacket,omitempty"`
-	RequiresExplicitReview bool     `json:"requiresExplicitReview,omitempty"`
-	Evidence               []string `json:"evidence,omitempty"`
-	Boundary               []string `json:"boundary,omitempty"`
+	Stage                     string   `json:"stage,omitempty"`
+	ProofType                 string   `json:"proofType,omitempty"`
+	Path                      string   `json:"path,omitempty"`
+	CandidatePath             string   `json:"candidatePath,omitempty"`
+	PackTarget                string   `json:"packTarget,omitempty"`
+	When                      string   `json:"when,omitempty"`
+	Action                    string   `json:"action,omitempty"`
+	Format                    string   `json:"format,omitempty"`
+	DraftCommand              string   `json:"draftCommand,omitempty"`
+	DraftApplyTemplate        string   `json:"draftApplyTemplate,omitempty"`
+	RequiresPacket            bool     `json:"requiresPacket,omitempty"`
+	RequiresCandidateDecision bool     `json:"requiresCandidateDecision,omitempty"`
+	RequiresExplicitReview    bool     `json:"requiresExplicitReview,omitempty"`
+	Evidence                  []string `json:"evidence,omitempty"`
+	Boundary                  []string `json:"boundary,omitempty"`
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewProofSummary struct {
@@ -247,36 +248,46 @@ type ReleaseHandoffPackMemoryCandidateStatus struct {
 	Boundary               []string                                            `json:"boundary,omitempty"`
 }
 
+type ReleaseHandoffPackMemoryCandidateDecisionReceiptAction struct {
+	CandidatePath       string `json:"candidatePath"`
+	Kind                string `json:"kind"`
+	Decision            string `json:"decision"`
+	PackTarget          string `json:"packTarget,omitempty"`
+	CandidateBackupPath string `json:"candidateBackupPath,omitempty"`
+	TargetBackupPath    string `json:"targetBackupPath,omitempty"`
+}
+
 type ReleaseHandoffPackMemoryCandidateDecisionReceipt struct {
-	Path                         string `json:"path"`
-	Accepted                     int    `json:"accepted"`
-	Rejected                     int    `json:"rejected"`
-	Superseded                   int    `json:"superseded"`
-	PacketPath                   string `json:"packetPath"`
-	DecisionPath                 string `json:"decisionPath"`
-	VerificationPending          bool   `json:"verificationPending"`
-	VerificationWorkspaceRoot    string `json:"verificationWorkspaceRoot,omitempty"`
-	VerificationProvisionCommand string `json:"verificationProvisionCommand,omitempty"`
-	VerificationCommand          string `json:"verificationCommand,omitempty"`
-	VerificationProofPath        string `json:"verificationProofPath,omitempty"`
-	VerificationComplete         bool   `json:"verificationComplete"`
-	ProvisionStatus              string `json:"provisionStatus,omitempty"`
-	ProvisionIntentPath          string `json:"provisionIntentPath,omitempty"`
-	ProvisionReceiptPath         string `json:"provisionReceiptPath,omitempty"`
-	ProvisionSHA256              string `json:"provisionSha256,omitempty"`
-	ProvisionApplyCommand        string `json:"provisionApplyCommand,omitempty"`
-	ProvisionInProgress          bool   `json:"provisionInProgress"`
-	ProvisionComplete            bool   `json:"provisionComplete"`
-	ProvisionNextAction          string `json:"provisionNextAction,omitempty"`
-	RetirementStatus             string `json:"retirementStatus,omitempty"`
-	RetirementPreviewCommand     string `json:"retirementPreviewCommand,omitempty"`
-	RetirementIntentPath         string `json:"retirementIntentPath,omitempty"`
-	RetirementReceiptPath        string `json:"retirementReceiptPath,omitempty"`
-	RetirementSHA256             string `json:"retirementSha256,omitempty"`
-	RetirementRequired           bool   `json:"retirementRequired"`
-	RetirementInProgress         bool   `json:"retirementInProgress"`
-	Retired                      bool   `json:"retired"`
-	RetirementNextAction         string `json:"retirementNextAction,omitempty"`
+	Path                         string                                                   `json:"path"`
+	Accepted                     int                                                      `json:"accepted"`
+	Rejected                     int                                                      `json:"rejected"`
+	Superseded                   int                                                      `json:"superseded"`
+	PacketPath                   string                                                   `json:"packetPath"`
+	DecisionPath                 string                                                   `json:"decisionPath"`
+	Actions                      []ReleaseHandoffPackMemoryCandidateDecisionReceiptAction `json:"actions,omitempty"`
+	VerificationPending          bool                                                     `json:"verificationPending"`
+	VerificationWorkspaceRoot    string                                                   `json:"verificationWorkspaceRoot,omitempty"`
+	VerificationProvisionCommand string                                                   `json:"verificationProvisionCommand,omitempty"`
+	VerificationCommand          string                                                   `json:"verificationCommand,omitempty"`
+	VerificationProofPath        string                                                   `json:"verificationProofPath,omitempty"`
+	VerificationComplete         bool                                                     `json:"verificationComplete"`
+	ProvisionStatus              string                                                   `json:"provisionStatus,omitempty"`
+	ProvisionIntentPath          string                                                   `json:"provisionIntentPath,omitempty"`
+	ProvisionReceiptPath         string                                                   `json:"provisionReceiptPath,omitempty"`
+	ProvisionSHA256              string                                                   `json:"provisionSha256,omitempty"`
+	ProvisionApplyCommand        string                                                   `json:"provisionApplyCommand,omitempty"`
+	ProvisionInProgress          bool                                                     `json:"provisionInProgress"`
+	ProvisionComplete            bool                                                     `json:"provisionComplete"`
+	ProvisionNextAction          string                                                   `json:"provisionNextAction,omitempty"`
+	RetirementStatus             string                                                   `json:"retirementStatus,omitempty"`
+	RetirementPreviewCommand     string                                                   `json:"retirementPreviewCommand,omitempty"`
+	RetirementIntentPath         string                                                   `json:"retirementIntentPath,omitempty"`
+	RetirementReceiptPath        string                                                   `json:"retirementReceiptPath,omitempty"`
+	RetirementSHA256             string                                                   `json:"retirementSha256,omitempty"`
+	RetirementRequired           bool                                                     `json:"retirementRequired"`
+	RetirementInProgress         bool                                                     `json:"retirementInProgress"`
+	Retired                      bool                                                     `json:"retired"`
+	RetirementNextAction         string                                                   `json:"retirementNextAction,omitempty"`
 }
 
 type ReleaseHandoffPackMemoryCandidateIndexEntry struct {
@@ -581,6 +592,9 @@ func releaseHandoffPackMemoryCandidates(repo string, packs []manifest.PackSummar
 		if openUnits == 0 && status.IndexPath != "" {
 			openUnits = 1
 		}
+		if openUnits == 0 && status.ProofSummary.CleanupMissing > 0 {
+			openUnits = status.ProofSummary.CleanupMissing
+		}
 		inventory.Total += openUnits
 		inventory.Packs = append(inventory.Packs, status)
 	}
@@ -663,17 +677,27 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 		DecisionReceipts:       receipts,
 		PendingVerifications:   pendingVerifications,
 		CompletedVerifications: completedVerifications,
-		HasOpenWork:            candidateFileCount > 0 || toolingFileCount > 0 || indexEntryCount > 0 || indexExists || pendingVerifications > 0,
 	}
+	receiptCleanupArtifacts := packMemoryCandidateDecisionCleanupArtifacts(status, proofRoot)
+	receiptCleanupMissing := 0
+	for _, artifact := range receiptCleanupArtifacts {
+		if !artifact.ProofPresent {
+			receiptCleanupMissing++
+		}
+	}
+	status.HasOpenWork = candidateFileCount > 0 || toolingFileCount > 0 || indexEntryCount > 0 || indexExists || pendingVerifications > 0 || receiptCleanupMissing > 0
 	if !status.HasOpenWork {
 		return status, nil
 	}
 	status.RequiresReview = candidateFileCount > 0 || toolingFileCount > 0
-	status.RequiresCleanup = candidateFileCount > 0 || toolingFileCount > 0 || indexEntryCount > 0 || indexExists
+	status.RequiresCleanup = candidateFileCount > 0 || toolingFileCount > 0 || indexEntryCount > 0 || indexExists || receiptCleanupMissing > 0
 	status.RequiresVerification = pendingVerifications > 0
 	status.Action = "review candidate files against pack targets, record accept/reject/superseded decisions, then cleanup candidatePath and indexPath"
 	if !status.RequiresReview && status.RequiresCleanup {
-		status.Action = "cleanup stale pack-memory candidate indexPath or regenerate candidates before review"
+		status.Action = "draft deterministic candidate-cleanup-proof for committed candidate decision receipts"
+		if receiptCleanupMissing == 0 {
+			status.Action = "cleanup stale pack-memory candidate indexPath or regenerate candidates before review"
+		}
 	}
 	if !status.RequiresReview && !status.RequiresCleanup && status.RequiresVerification {
 		status.Action = "run the candidate verification case provisioning WhatIf/expected-hash Apply, then run candidate decision verification WhatIf/Apply"
@@ -709,6 +733,7 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 		status.Evidence = append(status.Evidence, fmt.Sprintf("candidate decision receipts=%d pendingVerification=%d completedVerification=%d", len(receipts), pendingVerifications, completedVerifications))
 	}
 	status.ReviewArtifacts = packMemoryCandidateReviewArtifacts(status, proofRoot)
+	status.ReviewArtifacts = append(status.ReviewArtifacts, receiptCleanupArtifacts...)
 	status.DecisionDraftHandoff = packMemoryCandidateDecisionDraftHandoff(status)
 	status.ProofSummary = packMemoryCandidateReviewProofSummary(status)
 	status.ReviewSummary = packMemoryCandidateReviewSummary(status)
@@ -812,7 +837,7 @@ func packMemoryCandidateReviewSummary(status ReleaseHandoffPackMemoryCandidateSt
 	if status.HasOpenWork {
 		summary.Boundary = []string{
 			"pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
-			"release/status handoff does not merge or delete candidates and does not create decision/cleanup/reconsume proof",
+			"release/status handoff does not merge or delete candidates; deterministic cleanup proof draft still requires explicit promote -DraftReviewProof WhatIf/Apply",
 			"review candidates before merge; do not write authority/confirmed or execute heavy tools",
 		}
 	}
@@ -822,7 +847,8 @@ func packMemoryCandidateReviewSummary(status ReleaseHandoffPackMemoryCandidateSt
 func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidateStatus, proofRoot string) []ReleaseHandoffPackMemoryCandidateReviewArtifact {
 	artifacts := []ReleaseHandoffPackMemoryCandidateReviewArtifact{}
 	baseBoundary := []string{
-		"review artifact is guidance only; runtime does not write decision, cleanup, or reconsume proof",
+		"review artifact is guidance only; release/status does not write decision, cleanup, or reconsume proof",
+		"deterministic proof drafts require explicit promote -DraftReviewProof WhatIf/Apply",
 		"do not write authority/confirmed",
 		"do not execute heavy tools",
 	}
@@ -953,6 +979,45 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 	return artifacts
 }
 
+func packMemoryCandidateDecisionCleanupArtifacts(status ReleaseHandoffPackMemoryCandidateStatus, proofRoot string) []ReleaseHandoffPackMemoryCandidateReviewArtifact {
+	artifacts := []ReleaseHandoffPackMemoryCandidateReviewArtifact{}
+	baseBoundary := []string{
+		"review artifact is guidance only; release/status does not write decision, cleanup, or reconsume proof",
+		"deterministic proof drafts require explicit promote -DraftReviewProof WhatIf/Apply",
+		"do not write authority/confirmed",
+		"do not execute heavy tools",
+		"cleanup proof is derived from a durable candidate decision receipt after candidatePath and index cleanup",
+	}
+	for _, receipt := range status.DecisionReceipts {
+		for _, action := range receipt.Actions {
+			proofPath := filepath.ToSlash(filepath.Join(status.ProofRoot, packMemoryCandidateProofStem(action.CandidatePath, action.PackTarget)+".candidate-cleanup-proof.md"))
+			artifact := ReleaseHandoffPackMemoryCandidateReviewArtifact{
+				Name:          "candidate-cleanup-proof",
+				CandidatePath: action.CandidatePath,
+				PackTarget:    action.PackTarget,
+				When:          "after candidate decision Apply committed receipt cleanup for this reviewed candidate",
+				Action:        "draft deterministic cleanup proof bound to candidate review packet, candidate decision file, receipt, transaction journal, committed marker, and backup hashes",
+				Format:        "JSON proof note generated by promote -DraftReviewProof -ProofType candidate-cleanup-proof",
+				Evidence:      []string{"candidate decision receipt", "transaction journal", "committed marker", "candidate backup hash", "candidatePath absent check", "index entry absent check"},
+				Boundary: append(append([]string{}, baseBoundary...),
+					"cleanup proof draft does not merge, delete, run doctor/init/reconsume, or validate cases",
+				),
+			}
+			artifact.ExpectedProofs = []string{proofPath}
+			for _, ext := range []string{".md", ".json", ".txt"} {
+				candidate := filepath.Join(proofRoot, packMemoryCandidateProofStem(action.CandidatePath, action.PackTarget)+".candidate-cleanup-proof"+ext)
+				if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+					artifact.ProofPath = filepath.ToSlash(filepath.Join(status.ProofRoot, filepath.Base(candidate)))
+					artifact.ProofPresent = true
+					break
+				}
+			}
+			artifacts = append(artifacts, artifact)
+		}
+	}
+	return artifacts
+}
+
 func packMemoryCandidateReviewProofSummary(status ReleaseHandoffPackMemoryCandidateStatus) ReleaseHandoffPackMemoryCandidateReviewProofSummary {
 	summary := ReleaseHandoffPackMemoryCandidateReviewProofSummary{
 		Total:     len(status.ReviewArtifacts),
@@ -1055,6 +1120,12 @@ func packMemoryCandidateNextMissingProof(stage, proofPath string, artifact Relea
 		proof.RequiresExplicitReview = true
 		proof.DraftCommand = "/rekit promote -PacketPath <packet.json> -DraftReviewProof -ProofPath " + quoteReleaseHandoffCommandArg(proofPath) + " -ProofType candidate-decision-note -CandidatePath " + quoteReleaseHandoffCommandArg(artifact.CandidatePath) + " -ProofDecision <accept|reject|superseded> -Reason <reviewed-reason> -Actor <actor> -EvidenceRefs <review-evidence-ref> -WhatIf -Format json"
 		proof.DraftApplyTemplate = "/rekit promote -PacketPath <packet.json> -DraftReviewProof -ProofPath " + quoteReleaseHandoffCommandArg(proofPath) + " -ProofType candidate-decision-note -CandidatePath " + quoteReleaseHandoffCommandArg(artifact.CandidatePath) + " -ProofDecision <accept|reject|superseded> -Reason <reviewed-reason> -Actor <actor> -EvidenceRefs <review-evidence-ref> -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json"
+	}
+	if artifact.Name == "candidate-cleanup-proof" && strings.TrimSpace(artifact.CandidatePath) != "" {
+		proof.RequiresPacket = true
+		proof.RequiresCandidateDecision = true
+		proof.DraftCommand = "/rekit promote -PacketPath <packet.json> -CandidateDecisionPath <candidate-decisions.json> -DraftReviewProof -ProofPath " + quoteReleaseHandoffCommandArg(proofPath) + " -ProofType candidate-cleanup-proof -CandidatePath " + quoteReleaseHandoffCommandArg(artifact.CandidatePath) + " -Reason <cleanup-proof-reason> -Actor <actor> -EvidenceRefs <cleanup-evidence-ref> -WhatIf -Format json"
+		proof.DraftApplyTemplate = "/rekit promote -PacketPath <packet.json> -CandidateDecisionPath <candidate-decisions.json> -DraftReviewProof -ProofPath " + quoteReleaseHandoffCommandArg(proofPath) + " -ProofType candidate-cleanup-proof -CandidatePath " + quoteReleaseHandoffCommandArg(artifact.CandidatePath) + " -Reason <cleanup-proof-reason> -Actor <actor> -EvidenceRefs <cleanup-evidence-ref> -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json"
 	}
 	return proof
 }
@@ -1385,6 +1456,7 @@ func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) (
 			Superseded:                   raw.Superseded,
 			PacketPath:                   releaseHandoffRepoRelative(repo, raw.PacketPath),
 			DecisionPath:                 releaseHandoffRepoRelative(repo, raw.DecisionPath),
+			Actions:                      releaseHandoffCandidateDecisionReceiptActions(repo, raw.Actions),
 			VerificationPending:          raw.VerificationPending,
 			VerificationWorkspaceRoot:    raw.VerificationWorkspaceRoot,
 			VerificationProvisionCommand: raw.VerificationProvisionCommand,
@@ -1406,6 +1478,21 @@ func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) (
 	}
 	sort.Slice(receipts, func(i, j int) bool { return receipts[i].Path < receipts[j].Path })
 	return receipts, nil
+}
+
+func releaseHandoffCandidateDecisionReceiptActions(repo string, actions []candidateDecisionActionInventory) []ReleaseHandoffPackMemoryCandidateDecisionReceiptAction {
+	out := make([]ReleaseHandoffPackMemoryCandidateDecisionReceiptAction, 0, len(actions))
+	for _, action := range actions {
+		out = append(out, ReleaseHandoffPackMemoryCandidateDecisionReceiptAction{
+			CandidatePath:       releaseHandoffRepoRelative(repo, action.CandidatePath),
+			Kind:                action.Kind,
+			Decision:            action.Decision,
+			PackTarget:          releaseHandoffRepoRelative(repo, action.PackTarget),
+			CandidateBackupPath: releaseHandoffRepoRelative(repo, action.CandidateBackupPath),
+			TargetBackupPath:    releaseHandoffRepoRelative(repo, action.TargetBackupPath),
+		})
+	}
+	return out
 }
 
 func populateCandidateVerificationProvisionHandoff(repo, decisionReceiptPath string, decisionReceiptData []byte, receipt candidateDecisionReceiptInventory, handoff *ReleaseHandoffPackMemoryCandidateDecisionReceipt) error {
@@ -2078,6 +2165,9 @@ func pathWithinReleaseHandoffRoot(root, path string) bool {
 }
 
 func releaseHandoffRepoRelative(repo, path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
 	if rel, err := filepath.Rel(repo, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return filepath.ToSlash(rel)
 	}

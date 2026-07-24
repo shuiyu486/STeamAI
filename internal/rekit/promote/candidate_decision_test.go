@@ -116,6 +116,122 @@ func TestDraftCandidateReviewProofPreviewsAppliesAndReplaysProofNote(t *testing.
 	}
 }
 
+func TestDraftCandidateCleanupReviewProofPreviewsAppliesAndReplaysProofNote(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "cleanup-proof")
+	decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-cleanup-proof", "decisions.json")
+	decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	appliedDecision, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if appliedDecision.Receipt == nil || appliedDecision.ReceiptPath == "" || len(appliedDecision.Actions) == 0 {
+		t.Fatalf("candidate decision did not produce cleanup receipt: %+v", appliedDecision)
+	}
+	proofPath := filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "cleanup-proof.candidate-cleanup-proof.json")
+
+	preview, err := DraftCandidateReviewProof(repoRoot, caseRoot, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, ProofPath: proofPath, ProofType: "candidate-cleanup-proof", CandidatePath: managed.CandidatePath, Reason: "receipt cleanup verified", Actor: "mission-commander", WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.IsMutation || preview.Applied || preview.ProofSHA256 == "" || preview.DecisionHash == "" || preview.DecisionPath != decisionPath || preview.Proof.Cleanup == nil || preview.Proof.Cleanup.DecisionReceiptHash == "" || preview.Proof.Cleanup.TransactionHash == "" || preview.Proof.Cleanup.CommittedHash == "" || preview.Proof.Cleanup.CandidateBackupHash == "" || !preview.Proof.Cleanup.CandidateAbsent || !preview.Proof.Cleanup.IndexEntryAbsent || preview.Proof.CandidatePath == managed.CandidatePath || !strings.Contains(preview.ApplyCommand, "-CandidateDecisionPath") || !strings.Contains(preview.ApplyCommand, "-ExpectedProofSha256") {
+		t.Fatalf("unexpected candidate cleanup proof preview: %+v", preview)
+	}
+	if preview.Proof.Cleanup.DecisionReceiptPath != candidateReviewProofRepoRelative(repoRoot, appliedDecision.ReceiptPath) || preview.Proof.CandidateHash != fileSHA256(appliedDecision.Actions[0].CandidateBackupPath) {
+		t.Fatalf("cleanup proof was not receipt/backup-bound: %+v action=%+v", preview.Proof, appliedDecision.Actions[0])
+	}
+	if _, err := os.Stat(proofPath); !os.IsNotExist(err) {
+		t.Fatalf("candidate cleanup proof WhatIf wrote proof file: %v", err)
+	}
+
+	applied, err := DraftCandidateReviewProof(repoRoot, caseRoot, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, ProofPath: proofPath, ProofType: "candidate-cleanup-proof", CandidatePath: managed.CandidatePath, Reason: "receipt cleanup verified", Actor: "mission-commander", ExpectedProofSHA256: preview.ProofSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.IsMutation || !applied.Applied || applied.AlreadyWritten || applied.ProofSHA256 != preview.ProofSHA256 {
+		t.Fatalf("unexpected candidate cleanup proof apply: %+v", applied)
+	}
+	data, err := os.ReadFile(proofPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte(caseRoot)) || bytes.Contains(data, []byte(repoRoot)) {
+		t.Fatalf("cleanup proof note should not persist absolute repo/case roots: %s", string(data))
+	}
+	var note CandidateReviewProofNote
+	if err := decodeStrictJSON(data, &note); err != nil {
+		t.Fatal(err)
+	}
+	if note.DecisionHash != preview.DecisionHash || note.Cleanup == nil || note.Cleanup.PackTargetHash == "" || len(note.EvidenceRefs) == 0 || note.EvidenceRefs[0].SHA256 == "" {
+		t.Fatalf("cleanup proof note is not decision/cleanup/evidence-bound: %+v", note)
+	}
+	replay, err := DraftCandidateReviewProof(repoRoot, caseRoot, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, ProofPath: proofPath, ProofType: "candidate-cleanup-proof", CandidatePath: managed.CandidatePath, Reason: "receipt cleanup verified", Actor: "mission-commander", ExpectedProofSHA256: preview.ProofSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replay.Applied || !replay.AlreadyWritten {
+		t.Fatalf("candidate cleanup proof replay was not idempotent: %+v", replay)
+	}
+}
+
+func TestDraftCandidateCleanupReviewProofRejectsUnsafeInputs(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, packet, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "cleanup-proof-unsafe")
+	decisionPath := filepath.Join(caseRoot, ".rekit", "reviews", "candidate-cleanup-proof-unsafe", "decisions.json")
+	decision := reviewedCandidateDecision(packet, managed, created.ReviewWorkspace.CombinedDiffPath)
+	writeCandidateDecisionFixture(t, decisionPath, decision)
+	if _, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath}); err != nil {
+		t.Fatal(err)
+	}
+	base := CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, ProofPath: filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "cleanup-unsafe.candidate-cleanup-proof.json"), ProofType: "candidate-cleanup-proof", CandidatePath: managed.CandidatePath, Reason: "receipt cleanup verified", Actor: "mission-commander", WhatIf: true}
+	tests := []struct {
+		name      string
+		mutate    func(*CandidateReviewProofDraftOptions)
+		wantError string
+	}{
+		{
+			name: "missing decision path",
+			mutate: func(opt *CandidateReviewProofDraftOptions) {
+				opt.DecisionPath = ""
+			},
+			wantError: "requires -CandidateDecisionPath",
+		},
+		{
+			name: "unknown candidate",
+			mutate: func(opt *CandidateReviewProofDraftOptions) {
+				opt.CandidatePath = filepath.Join(repoRoot, "packs", pack, "promote-candidates", "missing.candidate.md")
+			},
+			wantError: "candidatePath not found in decision receipt actions",
+		},
+		{
+			name: "different existing proof",
+			mutate: func(opt *CandidateReviewProofDraftOptions) {
+				if err := os.MkdirAll(filepath.Dir(opt.ProofPath), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(opt.ProofPath, []byte("different\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantError: "already exists with different bytes",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opt := base
+			if tc.name == "different existing proof" {
+				opt.ProofPath = filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "cleanup-unsafe-existing.candidate-cleanup-proof.json")
+			}
+			tc.mutate(&opt)
+			_, err := DraftCandidateReviewProof(repoRoot, caseRoot, pack, opt)
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("error = %v, want %q", err, tc.wantError)
+			}
+		})
+	}
+}
+
 func TestDraftCandidateReviewProofRejectsUnsafeInputs(t *testing.T) {
 	repoRoot, caseRoot, pack := promoteFixture(t)
 	created, _, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "review-proof-unsafe")

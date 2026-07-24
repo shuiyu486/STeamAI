@@ -106,20 +106,21 @@ type CandidateDecisionDraftHandoff struct {
 }
 
 type CandidateReviewNextMissingProof struct {
-	Stage                  string   `json:"stage,omitempty"`
-	ProofType              string   `json:"proofType,omitempty"`
-	Path                   string   `json:"path,omitempty"`
-	CandidatePath          string   `json:"candidatePath,omitempty"`
-	PackTarget             string   `json:"packTarget,omitempty"`
-	When                   string   `json:"when,omitempty"`
-	Action                 string   `json:"action,omitempty"`
-	Format                 string   `json:"format,omitempty"`
-	DraftCommand           string   `json:"draftCommand,omitempty"`
-	DraftApplyTemplate     string   `json:"draftApplyTemplate,omitempty"`
-	RequiresPacket         bool     `json:"requiresPacket,omitempty"`
-	RequiresExplicitReview bool     `json:"requiresExplicitReview,omitempty"`
-	Evidence               []string `json:"evidence,omitempty"`
-	Boundary               []string `json:"boundary,omitempty"`
+	Stage                     string   `json:"stage,omitempty"`
+	ProofType                 string   `json:"proofType,omitempty"`
+	Path                      string   `json:"path,omitempty"`
+	CandidatePath             string   `json:"candidatePath,omitempty"`
+	PackTarget                string   `json:"packTarget,omitempty"`
+	When                      string   `json:"when,omitempty"`
+	Action                    string   `json:"action,omitempty"`
+	Format                    string   `json:"format,omitempty"`
+	DraftCommand              string   `json:"draftCommand,omitempty"`
+	DraftApplyTemplate        string   `json:"draftApplyTemplate,omitempty"`
+	RequiresPacket            bool     `json:"requiresPacket,omitempty"`
+	RequiresCandidateDecision bool     `json:"requiresCandidateDecision,omitempty"`
+	RequiresExplicitReview    bool     `json:"requiresExplicitReview,omitempty"`
+	Evidence                  []string `json:"evidence,omitempty"`
+	Boundary                  []string `json:"boundary,omitempty"`
 }
 
 type CandidateReviewProofSummary struct {
@@ -939,7 +940,7 @@ func candidateReviewPlan(result CandidateResult, whatIf bool) CandidateReviewPla
 			"create-candidates writes only promote-candidates and tooling/candidates when not WhatIf",
 			"reviewPlan does not merge candidates into pack sources",
 			"tooling candidates require manual catalog or recipe merge before reuse",
-			"reviewArtifacts identifies expected decision/cleanup/reconsume evidence only; runtime does not create decision records, cleanup proof, or reconsume proof",
+			"reviewArtifacts identifies expected decision/cleanup/reconsume evidence and deterministic draft handoffs only; create-candidates does not write proof files",
 			"mainAgentExecutionPlan and decisionFollowThrough are guidance only; runtime does not execute merge, cleanup, init, or doctor commands",
 			"decisionChecklist describes review options; decisionFollowThrough maps accepted/rejected/superseded outcomes to follow-through steps for the main Agent",
 			"no authority/confirmed writes",
@@ -1195,6 +1196,12 @@ func candidateReviewNextMissingProof(stage, proofPath string, artifact Candidate
 		proof.DraftCommand = "/rekit promote -PacketPath <packet.json> -DraftReviewProof -ProofPath " + quoteCandidateDecisionArg(proofPath) + " -ProofType candidate-decision-note -CandidatePath " + quoteCandidateDecisionArg(artifact.CandidatePath) + " -ProofDecision <accept|reject|superseded> -Reason <reviewed-reason> -Actor <actor> -EvidenceRefs <review-evidence-ref> -WhatIf -Format json"
 		proof.DraftApplyTemplate = "/rekit promote -PacketPath <packet.json> -DraftReviewProof -ProofPath " + quoteCandidateDecisionArg(proofPath) + " -ProofType candidate-decision-note -CandidatePath " + quoteCandidateDecisionArg(artifact.CandidatePath) + " -ProofDecision <accept|reject|superseded> -Reason <reviewed-reason> -Actor <actor> -EvidenceRefs <review-evidence-ref> -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json"
 	}
+	if artifact.Name == "candidate-cleanup-proof" && strings.TrimSpace(artifact.CandidatePath) != "" {
+		proof.RequiresPacket = true
+		proof.RequiresCandidateDecision = true
+		proof.DraftCommand = "/rekit promote -PacketPath <packet.json> -CandidateDecisionPath <candidate-decisions.json> -DraftReviewProof -ProofPath " + quoteCandidateDecisionArg(proofPath) + " -ProofType candidate-cleanup-proof -CandidatePath " + quoteCandidateDecisionArg(artifact.CandidatePath) + " -Reason <cleanup-proof-reason> -Actor <actor> -EvidenceRefs <cleanup-evidence-ref> -WhatIf -Format json"
+		proof.DraftApplyTemplate = "/rekit promote -PacketPath <packet.json> -CandidateDecisionPath <candidate-decisions.json> -DraftReviewProof -ProofPath " + quoteCandidateDecisionArg(proofPath) + " -ProofType candidate-cleanup-proof -CandidatePath " + quoteCandidateDecisionArg(artifact.CandidatePath) + " -Reason <cleanup-proof-reason> -Actor <actor> -EvidenceRefs <cleanup-evidence-ref> -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json"
+	}
 	return proof
 }
 
@@ -1247,7 +1254,7 @@ func candidateMainAgentExecutionPlan(result CandidateResult, plan CandidateRevie
 			Actions:   []string{"record one decision artifact per pending-review candidate", "record cleanup evidence after deleting rejected, superseded, or accepted-merged candidatePath", "record doctor and fresh/attached reconsume evidence after accepted tooling merges", "keep artifacts outside authority/confirmed stores"},
 			Expected:  "replacement executor can resume from reviewArtifacts without reopening every candidate, indexPath, or command transcript",
 			Evidence:  []string{"reviewArtifacts entries populated with decision-note, cleanup-proof, doctor-output, and reconsume-proof expectations"},
-			Boundary:  []string{"reviewArtifacts is evidence guidance only", "runtime does not create decision artifacts or run cleanup/reconsume commands", "do not write authority/confirmed"},
+			Boundary:  []string{"reviewArtifacts is evidence guidance only", "create-candidates does not create proof files or run cleanup/reconsume commands", "deterministic proof drafts require explicit promote -DraftReviewProof WhatIf/Apply", "do not write authority/confirmed"},
 		})
 	}
 	if whatIf {
@@ -1498,7 +1505,8 @@ func candidateReviewItem(result CandidateResult, write CandidateWrite) Candidate
 
 func candidateReviewArtifacts(result CandidateResult, item CandidateReviewItem, whatIf bool) []CandidateReviewArtifact {
 	baseBoundary := []string{
-		"review artifact is guidance only; runtime does not write decision, cleanup, or reconsume proof",
+		"review artifact is guidance only; create-candidates does not write decision, cleanup, or reconsume proof",
+		"deterministic proof drafts require explicit promote -DraftReviewProof WhatIf/Apply",
 		"do not write authority/confirmed",
 		"do not execute heavy tools",
 	}

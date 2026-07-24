@@ -141,6 +141,16 @@ func TestParsePromoteDraftReviewProof(t *testing.T) {
 	}
 }
 
+func TestParsePromoteDraftCleanupReviewProof(t *testing.T) {
+	opt, err := Parse([]string{"-Command", "promote", "-DraftReviewProof", "-PacketPath", "packet.json", "-CandidateDecisionPath", "decisions.json", "-ProofPath", "cleanup-proof.json", "-ProofType", "candidate-cleanup-proof", "-CandidatePath", "packs/unit/promote-candidates/candidate.candidate.md", "-Reason", "cleanup verified", "-Actor", "mission-commander", "-ExpectedProofSha256", strings.Repeat("d", 64), "-Apply", "-Format", "json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.DraftReviewProof || opt.PacketPath != "packet.json" || opt.CandidateDecisionPath != "decisions.json" || opt.ReviewProofPath != "cleanup-proof.json" || opt.ReviewProofType != "candidate-cleanup-proof" || opt.ReviewProofCandidatePath != "packs/unit/promote-candidates/candidate.candidate.md" || opt.CandidateDecisionReason != "cleanup verified" || opt.CandidateDecisionActor != "mission-commander" || opt.ExpectedReviewProofSHA256 != strings.Repeat("d", 64) || !opt.Apply {
+		t.Fatalf("unexpected cleanup review proof parse: %+v", opt)
+	}
+}
+
 func TestParsePlanSubagentsReviewerPacketRetirement(t *testing.T) {
 	opt, err := Parse([]string{"-Command", "plan-subagents", "-RetireInvalidReviewerPacket", "-PacketPath", "packet.json", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "retire invalid packet", "-WhatIf"})
 	if err != nil {
@@ -1263,16 +1273,21 @@ type packMemoryCandidateProofSummary struct {
 }
 
 type nextMissingProofDetail struct {
-	Stage         string   `json:"stage"`
-	ProofType     string   `json:"proofType"`
-	Path          string   `json:"path"`
-	CandidatePath string   `json:"candidatePath"`
-	PackTarget    string   `json:"packTarget"`
-	When          string   `json:"when"`
-	Action        string   `json:"action"`
-	Format        string   `json:"format"`
-	Evidence      []string `json:"evidence"`
-	Boundary      []string `json:"boundary"`
+	Stage                     string   `json:"stage"`
+	ProofType                 string   `json:"proofType"`
+	Path                      string   `json:"path"`
+	CandidatePath             string   `json:"candidatePath"`
+	PackTarget                string   `json:"packTarget"`
+	When                      string   `json:"when"`
+	Action                    string   `json:"action"`
+	Format                    string   `json:"format"`
+	DraftCommand              string   `json:"draftCommand"`
+	DraftApplyTemplate        string   `json:"draftApplyTemplate"`
+	RequiresPacket            bool     `json:"requiresPacket"`
+	RequiresCandidateDecision bool     `json:"requiresCandidateDecision"`
+	RequiresExplicitReview    bool     `json:"requiresExplicitReview"`
+	Evidence                  []string `json:"evidence"`
+	Boundary                  []string `json:"boundary"`
 }
 
 func TestRunStatusRejectsUnsupportedFormat(t *testing.T) {
@@ -8122,6 +8137,46 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	}
 	if decisionApplied.Receipt == nil || !decisionApplied.Receipt.VerificationPending || decisionApplied.Receipt.VerificationWorkspaceRoot == "" || !strings.Contains(decisionApplied.Receipt.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") || !containsSubstring(decisionApplied.NextSteps, "verificationProvisionCommand") || !containsSubstring(decisionApplied.NextSteps, "verificationCommand") {
 		t.Fatalf("candidate decision omitted verification provisioning handoff: %+v", decisionApplied)
+	}
+	cleanupProofPath := filepath.Join(candidateRoot, "review-artifacts", "product-path.candidate-cleanup-proof.json")
+	cleanupProofPathArg := filepath.ToSlash(filepath.Join("packs", "_template", "promote-candidates", "review-artifacts", "product-path.candidate-cleanup-proof.json"))
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-DraftReviewProof", "-ProofPath", cleanupProofPathArg, "-ProofType", "candidate-cleanup-proof", "-CandidatePath", candidatePathArg, "-Reason", "receipt cleanup verified", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var cleanupProofPreview promote.CandidateReviewProofDraftResult
+	if err := json.Unmarshal(out.Bytes(), &cleanupProofPreview); err != nil {
+		t.Fatal(err)
+	}
+	if cleanupProofPreview.IsMutation || cleanupProofPreview.Applied || cleanupProofPreview.ProofSHA256 == "" || cleanupProofPreview.DecisionPath != decisionPath || cleanupProofPreview.Proof.Cleanup == nil || !cleanupProofPreview.Proof.Cleanup.CandidateAbsent || !cleanupProofPreview.Proof.Cleanup.IndexEntryAbsent || !strings.Contains(cleanupProofPreview.ApplyCommand, "-CandidateDecisionPath") {
+		t.Fatalf("unexpected candidate cleanup proof preview: %+v", cleanupProofPreview)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-DraftReviewProof", "-ProofPath", cleanupProofPathArg, "-ProofType", "candidate-cleanup-proof", "-CandidatePath", candidatePathArg, "-Reason", "receipt cleanup verified", "-Actor", "mission-commander", "-ExpectedProofSha256", cleanupProofPreview.ProofSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var cleanupProofApplied promote.CandidateReviewProofDraftResult
+	if err := json.Unmarshal(out.Bytes(), &cleanupProofApplied); err != nil {
+		t.Fatal(err)
+	}
+	if !cleanupProofApplied.IsMutation || !cleanupProofApplied.Applied || cleanupProofApplied.AlreadyWritten || cleanupProofApplied.ProofSHA256 != cleanupProofPreview.ProofSHA256 {
+		t.Fatalf("unexpected candidate cleanup proof apply: %+v", cleanupProofApplied)
+	}
+	cleanupProofBytes, err := os.ReadFile(cleanupProofPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(cleanupProofBytes, []byte(caseRoot)) || bytes.Contains(cleanupProofBytes, []byte(root)) {
+		t.Fatalf("candidate cleanup proof persisted absolute path: %s", string(cleanupProofBytes))
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-DraftReviewProof", "-ProofPath", cleanupProofPathArg, "-ProofType", "candidate-cleanup-proof", "-CandidatePath", candidatePathArg, "-Reason", "receipt cleanup verified", "-Actor", "mission-commander", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"promote candidate review proof draft：mode=already-drafted", "promote candidate review cleanup proof：receipt=", "candidateAbsent=true", "indexEntryAbsent=true"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("candidate cleanup proof draft text omitted %q:\n%s", expected, out.String())
+		}
 	}
 	out.Reset()
 	if err := writePromoteCandidateDecisionText(&out, decisionApplied); err != nil {

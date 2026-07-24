@@ -384,7 +384,7 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 	}
 	pack := inventory.Packs[0]
 	receiptStatus := pack.DecisionReceipts[0]
-	if pack.PendingVerifications != 1 || pack.CompletedVerifications != 0 || !pack.RequiresVerification || pack.RequiresReview || pack.RequiresCleanup || len(pack.DecisionReceipts) != 1 || receiptStatus.VerificationComplete || receiptStatus.VerificationWorkspaceRoot == "" || !strings.Contains(receiptStatus.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") || !strings.Contains(receiptStatus.VerificationCommand, "-FreshCaseRoot") || receiptStatus.ProvisionStatus != "required" || receiptStatus.ProvisionIntentPath == "" || receiptStatus.ProvisionReceiptPath == "" || receiptStatus.ProvisionApplyCommand == "" || receiptStatus.ProvisionInProgress || receiptStatus.ProvisionComplete || !strings.Contains(receiptStatus.ProvisionNextAction, "verificationProvisionCommand") || !strings.Contains(pack.Action, "verificationProvisionCommand") {
+	if pack.PendingVerifications != 1 || pack.CompletedVerifications != 0 || !pack.RequiresVerification || pack.RequiresReview || !pack.RequiresCleanup || len(pack.DecisionReceipts) != 1 || len(receiptStatus.Actions) != 1 || receiptStatus.Actions[0].CandidatePath != "packs/fixture/promote-candidates/memory.candidate.md" || receiptStatus.VerificationComplete || receiptStatus.VerificationWorkspaceRoot == "" || !strings.Contains(receiptStatus.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") || !strings.Contains(receiptStatus.VerificationCommand, "-FreshCaseRoot") || receiptStatus.ProvisionStatus != "required" || receiptStatus.ProvisionIntentPath == "" || receiptStatus.ProvisionReceiptPath == "" || receiptStatus.ProvisionApplyCommand == "" || receiptStatus.ProvisionInProgress || receiptStatus.ProvisionComplete || !strings.Contains(receiptStatus.ProvisionNextAction, "verificationProvisionCommand") || !strings.Contains(pack.Action, "candidate-cleanup-proof") || pack.ProofSummary.NextMissingProof == nil || !pack.ProofSummary.NextMissingProof.RequiresCandidateDecision || !strings.Contains(pack.ProofSummary.NextMissingProof.DraftCommand, "-ProofType candidate-cleanup-proof") || !strings.Contains(pack.ProofSummary.NextMissingProof.DraftApplyTemplate, "<proofSha256-from-WhatIf>") {
 		t.Fatalf("pending candidate verification handoff drifted: %+v", pack)
 	}
 
@@ -548,6 +548,7 @@ func TestReleaseHandoffPackMemoryCandidateVerificationRetirementLifecycle(t *tes
 	}
 	proofData = append(proofData, '\n')
 	writeFile(t, proofPath, string(proofData))
+	writeFile(t, filepath.Join(proofRoot, "memory.candidate-cleanup-proof.md"), "# cleanup proof\n")
 	ownedContent := "owned verification artifact\n"
 	freshOwned := filepath.Join(freshRoot, "owned.txt")
 	attachedOwned := filepath.Join(attachedRoot, "owned.txt")
@@ -878,6 +879,7 @@ func TestReleaseHandoffPackMemoryToolingRejectReceiptDoesNotBlock(t *testing.T) 
 	}
 	writeFile(t, filepath.Join(backupRoot, "committed.json"), string(committedData)+"\n")
 	writeFile(t, receiptPath, string(data)+"\n")
+	writeFile(t, filepath.Join(proofRoot, "tool.candidate-cleanup-proof.md"), "# cleanup proof\n")
 	inventory := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
 	if !inventory.Ready || inventory.Total != 0 || len(inventory.Packs) != 0 || len(inventory.Warnings) != 0 {
 		t.Fatalf("completed tooling reject receipt blocked release handoff: %+v", inventory)

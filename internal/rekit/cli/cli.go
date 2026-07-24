@@ -1355,7 +1355,7 @@ func writePackMemoryCandidateReviewSummaryText(out io.Writer, prefix, pack strin
 		}
 		if proof.NextMissingProof != nil {
 			next := proof.NextMissingProof
-			if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof：pack=%s stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s when=%s action=%s format=%s requiresPacket=%t requiresExplicitReview=%t draft=%s draftApply=%s\n", prefix, pack, textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none"), next.RequiresPacket, next.RequiresExplicitReview, textOr(next.DraftCommand, "none"), textOr(next.DraftApplyTemplate, "none")); err != nil {
+			if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof：pack=%s stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s when=%s action=%s format=%s requiresPacket=%t requiresCandidateDecision=%t requiresExplicitReview=%t draft=%s draftApply=%s\n", prefix, pack, textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none"), next.RequiresPacket, next.RequiresCandidateDecision, next.RequiresExplicitReview, textOr(next.DraftCommand, "none"), textOr(next.DraftApplyTemplate, "none")); err != nil {
 				return err
 			}
 			for _, evidence := range next.Evidence {
@@ -6851,14 +6851,17 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		if opt.WhatIf && strings.TrimSpace(opt.ExpectedReviewProofSHA256) != "" {
 			return fmt.Errorf("promote candidate review proof draft WhatIf does not accept -ExpectedProofSha256")
 		}
-		if opt.DraftCandidateDecision || strings.TrimSpace(opt.CandidateDecisionPath) != "" || strings.TrimSpace(opt.ExpectedDecisionSHA256) != "" || opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || opt.ProvisionCandidateVerificationCases || opt.RetireCandidateVerificationWorkspace || opt.VerifyCandidateDecision || strings.TrimSpace(opt.ExpectedProvisionSHA256) != "" || strings.TrimSpace(opt.ExpectedRetirementSHA256) != "" || strings.TrimSpace(opt.FreshCaseRoot) != "" || strings.TrimSpace(opt.AttachedCaseRoot) != "" {
+		if strings.TrimSpace(opt.ReviewProofType) != "candidate-cleanup-proof" && strings.TrimSpace(opt.CandidateDecisionPath) != "" {
+			return fmt.Errorf("promote -DraftReviewProof accepts -CandidateDecisionPath only with -ProofType candidate-cleanup-proof")
+		}
+		if opt.DraftCandidateDecision || strings.TrimSpace(opt.ExpectedDecisionSHA256) != "" || opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || opt.ProvisionCandidateVerificationCases || opt.RetireCandidateVerificationWorkspace || opt.VerifyCandidateDecision || strings.TrimSpace(opt.ExpectedProvisionSHA256) != "" || strings.TrimSpace(opt.ExpectedRetirementSHA256) != "" || strings.TrimSpace(opt.FreshCaseRoot) != "" || strings.TrimSpace(opt.AttachedCaseRoot) != "" {
 			return fmt.Errorf("promote -DraftReviewProof cannot be combined with decision/provisioning/verification/create/review artifact options")
 		}
 		format, err := workstreamFormat(opt.Format)
 		if err != nil {
 			return fmt.Errorf("unsupported promote candidate review proof draft format: %s", opt.Format)
 		}
-		result, err := promote.DraftCandidateReviewProof(ctx.RepoRoot, target, ctx.Pack, promote.CandidateReviewProofDraftOptions{PacketPath: opt.PacketPath, ProofPath: opt.ReviewProofPath, ProofType: opt.ReviewProofType, CandidatePath: opt.ReviewProofCandidatePath, Decision: opt.CandidateDecision, Reason: opt.CandidateDecisionReason, Actor: opt.CandidateDecisionActor, EvidenceRefs: opt.CandidateDecisionEvidenceRefs, ExpectedProofSHA256: opt.ExpectedReviewProofSHA256, WhatIf: opt.WhatIf})
+		result, err := promote.DraftCandidateReviewProof(ctx.RepoRoot, target, ctx.Pack, promote.CandidateReviewProofDraftOptions{PacketPath: opt.PacketPath, DecisionPath: opt.CandidateDecisionPath, ProofPath: opt.ReviewProofPath, ProofType: opt.ReviewProofType, CandidatePath: opt.ReviewProofCandidatePath, Decision: opt.CandidateDecision, Reason: opt.CandidateDecisionReason, Actor: opt.CandidateDecisionActor, EvidenceRefs: opt.CandidateDecisionEvidenceRefs, ExpectedProofSHA256: opt.ExpectedReviewProofSHA256, WhatIf: opt.WhatIf})
 		if err != nil {
 			return err
 		}
@@ -8016,6 +8019,11 @@ func writePromoteCandidateReviewProofDraftText(out io.Writer, result promote.Can
 	if _, err := fmt.Fprintf(out, "promote candidate review proof draft note：kind=%s candidateHash=%s reason=%s evidence=%s\n", result.Proof.Kind, result.Proof.CandidateHash, result.Reason, strings.Join(evidenceRefs, ",")); err != nil {
 		return err
 	}
+	if cleanup := result.Proof.Cleanup; cleanup != nil {
+		if _, err := fmt.Fprintf(out, "promote candidate review cleanup proof：receipt=%s transaction=%s committed=%s candidateBackup=%s candidateAbsent=%t indexEntryAbsent=%t packTargetHash=%s\n", cleanup.DecisionReceiptPath, cleanup.TransactionPath, cleanup.CommittedPath, cleanup.CandidateBackupPath, cleanup.CandidateAbsent, cleanup.IndexEntryAbsent, cleanup.PackTargetHash); err != nil {
+			return err
+		}
+	}
 	if result.PreviewCommand != "" {
 		if _, err := fmt.Fprintf(out, "promote candidate review proof draft preview command：%s\n", result.PreviewCommand); err != nil {
 			return err
@@ -8148,7 +8156,7 @@ func writePromoteCandidateReviewSummaryText(out io.Writer, summary promote.Candi
 		}
 		if proof.NextMissingProof != nil {
 			next := proof.NextMissingProof
-			if _, err := fmt.Fprintf(out, "promote candidates review next missing proof：stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s when=%s action=%s format=%s\n", textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none")); err != nil {
+			if _, err := fmt.Fprintf(out, "promote candidates review next missing proof：stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s when=%s action=%s format=%s requiresPacket=%t requiresCandidateDecision=%t requiresExplicitReview=%t draft=%s draftApply=%s\n", textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none"), next.RequiresPacket, next.RequiresCandidateDecision, next.RequiresExplicitReview, textOr(next.DraftCommand, "none"), textOr(next.DraftApplyTemplate, "none")); err != nil {
 				return err
 			}
 			for _, evidence := range next.Evidence {

@@ -17,6 +17,7 @@ import (
 
 type CandidateReviewProofDraftOptions struct {
 	PacketPath          string
+	DecisionPath        string
 	ProofPath           string
 	ProofType           string
 	CandidatePath       string
@@ -37,7 +38,9 @@ type CandidateReviewProofDraftResult struct {
 	RepoRoot       string                   `json:"repoRoot"`
 	Pack           string                   `json:"pack"`
 	PacketPath     string                   `json:"packetPath"`
+	DecisionPath   string                   `json:"decisionPath,omitempty"`
 	PacketHash     string                   `json:"packetHash"`
+	DecisionHash   string                   `json:"decisionHash,omitempty"`
 	ProofPath      string                   `json:"proofPath"`
 	ProofType      string                   `json:"proofType"`
 	ProofSHA256    string                   `json:"proofSha256"`
@@ -56,11 +59,30 @@ type CandidateReviewProofDraftResult struct {
 	Boundary       []string                 `json:"boundary"`
 }
 
+type CandidateReviewCleanupProof struct {
+	DecisionReceiptPath string `json:"decisionReceiptPath"`
+	DecisionReceiptHash string `json:"decisionReceiptHash"`
+	TransactionPath     string `json:"transactionPath"`
+	TransactionHash     string `json:"transactionHash"`
+	CommittedPath       string `json:"committedPath"`
+	CommittedHash       string `json:"committedHash"`
+	CandidateBackupPath string `json:"candidateBackupPath"`
+	CandidateBackupHash string `json:"candidateBackupHash"`
+	TargetBackupPath    string `json:"targetBackupPath,omitempty"`
+	TargetBackupHash    string `json:"targetBackupHash,omitempty"`
+	IndexPath           string `json:"indexPath,omitempty"`
+	IndexPresent        bool   `json:"indexPresent"`
+	IndexEntryAbsent    bool   `json:"indexEntryAbsent"`
+	CandidateAbsent     bool   `json:"candidateAbsent"`
+	PackTargetHash      string `json:"packTargetHash,omitempty"`
+}
+
 type CandidateReviewProofNote struct {
 	SchemaVersion  int                               `json:"schemaVersion"`
 	Kind           string                            `json:"kind"`
 	Pack           string                            `json:"pack"`
 	PacketHash     string                            `json:"packetHash"`
+	DecisionHash   string                            `json:"decisionHash,omitempty"`
 	ProofType      string                            `json:"proofType"`
 	CandidatePath  string                            `json:"candidatePath"`
 	CandidateHash  string                            `json:"candidateHash"`
@@ -71,6 +93,7 @@ type CandidateReviewProofNote struct {
 	Actor          string                            `json:"actor"`
 	EvidenceRefs   []CandidateDecisionEvidence       `json:"evidenceRefs"`
 	ReviewItem     CandidateReviewProofReviewItemRef `json:"reviewItem"`
+	Cleanup        *CandidateReviewCleanupProof      `json:"cleanup,omitempty"`
 	Boundary       []string                          `json:"boundary"`
 }
 
@@ -147,8 +170,17 @@ func prepareCandidateReviewProofDraft(repoRoot, caseRoot, pack string, opt Candi
 	if proofType == "" {
 		proofType = "candidate-decision-note"
 	}
-	if proofType != "candidate-decision-note" {
-		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate review proof draft supports only -ProofType candidate-decision-note")
+	switch proofType {
+	case "candidate-decision-note", "candidate-cleanup-proof":
+	default:
+		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate review proof draft supports only -ProofType candidate-decision-note or candidate-cleanup-proof")
+	}
+	candidatePath := strings.TrimSpace(opt.CandidatePath)
+	if candidatePath == "" {
+		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate review proof draft requires -CandidatePath")
+	}
+	if proofType == "candidate-cleanup-proof" {
+		return prepareCandidateCleanupReviewProofDraft(repoRoot, caseRoot, pack, opt, packetPath, packetBytes)
 	}
 	decision := strings.ToLower(strings.TrimSpace(opt.Decision))
 	switch decision {
@@ -157,10 +189,6 @@ func prepareCandidateReviewProofDraft(repoRoot, caseRoot, pack string, opt Candi
 		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate review proof draft requires -Decision accept|reject|superseded")
 	default:
 		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate review proof draft requires a per-candidate decision: accept, reject, or superseded")
-	}
-	candidatePath := strings.TrimSpace(opt.CandidatePath)
-	if candidatePath == "" {
-		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate review proof draft requires -CandidatePath")
 	}
 	reviewItem, err := candidateReviewProofItem(packet, candidatePath, repoRoot)
 	if err != nil {
@@ -251,8 +279,8 @@ func prepareCandidateReviewProofDraft(repoRoot, caseRoot, pack string, opt Candi
 	}
 	proofBytes = append(proofBytes, '\n')
 	proofSHA256 := sha256Hex(proofBytes)
-	previewCommand := candidateReviewProofDraftCommand(packetPath, proofPath, proofType, reviewItem.CandidatePath, decision, proof.Reason, proof.Actor, opt.EvidenceRefs, "", false)
-	applyCommand := candidateReviewProofDraftCommand(packetPath, proofPath, proofType, reviewItem.CandidatePath, decision, proof.Reason, proof.Actor, opt.EvidenceRefs, proofSHA256, true)
+	previewCommand := candidateReviewProofDraftCommand(packetPath, "", proofPath, proofType, reviewItem.CandidatePath, decision, proof.Reason, proof.Actor, opt.EvidenceRefs, "", false)
+	applyCommand := candidateReviewProofDraftCommand(packetPath, "", proofPath, proofType, reviewItem.CandidatePath, decision, proof.Reason, proof.Actor, opt.EvidenceRefs, proofSHA256, true)
 	result := CandidateReviewProofDraftResult{
 		SchemaVersion:  1,
 		Command:        "promote",
@@ -293,10 +321,196 @@ func prepareCandidateReviewProofDraft(repoRoot, caseRoot, pack string, opt Candi
 	return preparedCandidateReviewProofDraft{result: result, proofBytes: proofBytes}, nil
 }
 
+func prepareCandidateCleanupReviewProofDraft(repoRoot, caseRoot, pack string, opt CandidateReviewProofDraftOptions, packetPath string, packetBytes []byte) (preparedCandidateReviewProofDraft, error) {
+	if strings.TrimSpace(opt.DecisionPath) == "" {
+		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate cleanup proof draft requires -CandidateDecisionPath")
+	}
+	decisionPath, decisionBytes, err := readStrictCandidateDecisionFile(opt.DecisionPath, "candidate decision")
+	if err != nil {
+		return preparedCandidateReviewProofDraft{}, err
+	}
+	authority, err := loadCandidateDecisionAuthority(repoRoot, caseRoot, pack, packetPath, decisionPath)
+	if err != nil {
+		return preparedCandidateReviewProofDraft{}, err
+	}
+	packetHash := sha256Hex(packetBytes)
+	decisionHash := sha256Hex(decisionBytes)
+	if !strings.EqualFold(authority.packetHash, packetHash) || !strings.EqualFold(authority.decisionHash, decisionHash) {
+		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate cleanup proof draft packet/decision binding mismatch")
+	}
+	candidatePath := candidateReviewProofResolveRepoPath(repoRoot, opt.CandidatePath)
+	action, ok := candidateReviewCleanupProofAction(authority.receipt.Actions, candidatePath)
+	if !ok {
+		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate cleanup proof draft candidatePath not found in decision receipt actions: %s", candidatePath)
+	}
+	if _, err := os.Lstat(action.CandidatePath); err == nil || !os.IsNotExist(err) {
+		return preparedCandidateReviewProofDraft{}, fmt.Errorf("reviewed candidate cleanup is incomplete: %s", action.CandidatePath)
+	}
+	indexEntryAbsent := true
+	if action.Kind == "managed-doc" {
+		indexEntryAbsent = !candidateIndexStillContains(authority.receipt.IndexPath, action.CandidatePath)
+		if !indexEntryAbsent {
+			return preparedCandidateReviewProofDraft{}, fmt.Errorf("reviewed candidate index cleanup is incomplete: %s", action.CandidatePath)
+		}
+	}
+	if strings.TrimSpace(opt.Reason) == "" {
+		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate cleanup proof draft requires -Reason")
+	}
+	if strings.TrimSpace(opt.Actor) == "" {
+		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate cleanup proof draft requires -Actor")
+	}
+	evidenceInput := strings.TrimSpace(opt.EvidenceRefs)
+	if evidenceInput == "" {
+		evidenceInput = strings.Join(action.EvidenceRefs, ",")
+	}
+	evidenceRefs, err := parseCandidateReviewProofEvidenceRefs(repoRoot, caseRoot, evidenceInput)
+	if err != nil {
+		return preparedCandidateReviewProofDraft{}, err
+	}
+	if len(evidenceRefs) == 0 {
+		return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate cleanup proof draft requires at least one receipt or -EvidenceRefs item")
+	}
+	proofPath, err := candidateReviewProofDraftPath(repoRoot, authority.candidateRoot, opt.ProofPath, "candidate-cleanup-proof", action.CandidatePath)
+	if err != nil {
+		return preparedCandidateReviewProofDraft{}, err
+	}
+	receiptHash := sha256Hex(authority.receiptBytes)
+	transactionPath := filepath.Join(authority.receipt.BackupRoot, "transaction.json")
+	_, transactionBytes, err := readStrictCandidateDecisionFile(transactionPath, "candidate decision transaction")
+	if err != nil {
+		return preparedCandidateReviewProofDraft{}, err
+	}
+	committedPath := filepath.Join(authority.receipt.BackupRoot, "committed.json")
+	_, committedBytes, err := readStrictCandidateDecisionFile(committedPath, "candidate decision committed marker")
+	if err != nil {
+		return preparedCandidateReviewProofDraft{}, err
+	}
+	indexPresent := false
+	if info, err := os.Lstat(authority.receipt.IndexPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate cleanup proof indexPath must be a regular file when present: %s", authority.receipt.IndexPath)
+		}
+		indexPresent = true
+	} else if !os.IsNotExist(err) {
+		return preparedCandidateReviewProofDraft{}, err
+	}
+	backupHash := fileSHA256(action.CandidateBackupPath)
+	cleanup := CandidateReviewCleanupProof{
+		DecisionReceiptPath: candidateReviewProofRepoRelative(repoRoot, authority.receiptPath),
+		DecisionReceiptHash: receiptHash,
+		TransactionPath:     candidateReviewProofRepoRelative(repoRoot, transactionPath),
+		TransactionHash:     sha256Hex(transactionBytes),
+		CommittedPath:       candidateReviewProofRepoRelative(repoRoot, committedPath),
+		CommittedHash:       sha256Hex(committedBytes),
+		CandidateBackupPath: candidateReviewProofRepoRelative(repoRoot, action.CandidateBackupPath),
+		CandidateBackupHash: backupHash,
+		TargetBackupPath:    candidateReviewProofRepoRelative(repoRoot, action.TargetBackupPath),
+		TargetBackupHash:    fileSHA256(action.TargetBackupPath),
+		IndexPath:           candidateReviewProofRepoRelative(repoRoot, authority.receipt.IndexPath),
+		IndexPresent:        indexPresent,
+		IndexEntryAbsent:    indexEntryAbsent,
+		CandidateAbsent:     true,
+	}
+	if action.Decision == "accept" {
+		cleanup.PackTargetHash = fileSHA256(action.PackTarget)
+	}
+	proofReviewItem := CandidateReviewProofReviewItemRef{CandidatePath: candidateReviewProofRepoRelative(repoRoot, action.CandidatePath), CandidateHash: backupHash, PackTarget: candidateReviewProofRepoRelative(repoRoot, action.PackTarget), Kind: action.Kind}
+	proof := CandidateReviewProofNote{
+		SchemaVersion:  1,
+		Kind:           "pack-memory-candidate-review-proof",
+		Pack:           pack,
+		PacketHash:     packetHash,
+		DecisionHash:   decisionHash,
+		ProofType:      "candidate-cleanup-proof",
+		CandidatePath:  proofReviewItem.CandidatePath,
+		CandidateHash:  backupHash,
+		PackTarget:     proofReviewItem.PackTarget,
+		PackTargetHash: cleanup.PackTargetHash,
+		Decision:       action.Decision,
+		Reason:         strings.TrimSpace(opt.Reason),
+		Actor:          strings.TrimSpace(opt.Actor),
+		EvidenceRefs:   evidenceRefs,
+		ReviewItem:     proofReviewItem,
+		Cleanup:        &cleanup,
+		Boundary:       candidateReviewProofDraftBoundary(),
+	}
+	proofBytes, err := json.MarshalIndent(proof, "", "  ")
+	if err != nil {
+		return preparedCandidateReviewProofDraft{}, err
+	}
+	proofBytes = append(proofBytes, '\n')
+	proofSHA256 := sha256Hex(proofBytes)
+	previewCommand := candidateReviewProofDraftCommand(packetPath, decisionPath, proofPath, "candidate-cleanup-proof", action.CandidatePath, action.Decision, proof.Reason, proof.Actor, evidenceInput, "", false)
+	applyCommand := candidateReviewProofDraftCommand(packetPath, decisionPath, proofPath, "candidate-cleanup-proof", action.CandidatePath, action.Decision, proof.Reason, proof.Actor, evidenceInput, proofSHA256, true)
+	result := CandidateReviewProofDraftResult{
+		SchemaVersion:  1,
+		Command:        "promote",
+		Kind:           "pack-memory-candidate-review-proof-draft",
+		Mode:           "proof-draft-preview",
+		CaseRoot:       caseRoot,
+		RepoRoot:       repoRoot,
+		Pack:           pack,
+		PacketPath:     packetPath,
+		DecisionPath:   decisionPath,
+		PacketHash:     packetHash,
+		DecisionHash:   decisionHash,
+		ProofPath:      proofPath,
+		ProofType:      "candidate-cleanup-proof",
+		ProofSHA256:    proofSHA256,
+		CandidatePath:  action.CandidatePath,
+		PackTarget:     action.PackTarget,
+		Decision:       action.Decision,
+		Reason:         proof.Reason,
+		Actor:          proof.Actor,
+		IsMutation:     !opt.WhatIf,
+		Applied:        false,
+		Proof:          proof,
+		PreviewCommand: previewCommand,
+		ApplyCommand:   applyCommand,
+		NextSteps:      []string{"review the deterministic cleanup proof note and exact hash", "write only the cleanup proof note with the returned expected-hash Apply command", "rerun release-check or status to refresh pack-memory proof summary"},
+		Boundary:       candidateReviewProofDraftBoundary(),
+	}
+	if existing, err := os.ReadFile(proofPath); err == nil {
+		if bytes.Equal(existing, proofBytes) {
+			result.Mode = "already-drafted"
+			result.ApplyCommand = ""
+			result.NextSteps = []string{"the exact cleanup proof note already exists", "rerun release-check or status to refresh pack-memory proof summary"}
+		} else {
+			return preparedCandidateReviewProofDraft{}, fmt.Errorf("candidate review proof draft target already exists with different bytes: %s", proofPath)
+		}
+	} else if !os.IsNotExist(err) {
+		return preparedCandidateReviewProofDraft{}, err
+	}
+	return preparedCandidateReviewProofDraft{result: result, proofBytes: proofBytes}, nil
+}
+
+func candidateReviewCleanupProofAction(actions []CandidateDecisionAction, candidatePath string) (CandidateDecisionAction, bool) {
+	for _, action := range actions {
+		if candidateReviewProofSameCleanPath(action.CandidatePath, candidatePath) {
+			return action, true
+		}
+	}
+	return CandidateDecisionAction{}, false
+}
+
+func candidateReviewProofSameCleanPath(left, right string) bool {
+	leftFull, leftErr := filepath.Abs(left)
+	rightFull, rightErr := filepath.Abs(right)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	leftFull = filepath.Clean(leftFull)
+	rightFull = filepath.Clean(rightFull)
+	if strings.EqualFold(leftFull, rightFull) {
+		return true
+	}
+	return sameCandidateDecisionPath(leftFull, rightFull)
+}
+
 func candidateReviewProofItem(packet CandidateReviewPacket, candidatePath, repoRoot string) (CandidateReviewProofReviewItemRef, error) {
 	candidatePath = candidateReviewProofResolveRepoPath(repoRoot, candidatePath)
 	for _, item := range packet.CandidateResult.ReviewPlan.ReviewItems {
-		if sameCandidateDecisionPath(item.CandidatePath, candidatePath) {
+		if sameCandidateDecisionPath(item.CandidatePath, candidatePath) || candidateReviewProofSameCleanPath(item.CandidatePath, candidatePath) {
 			return CandidateReviewProofReviewItemRef{CandidatePath: item.CandidatePath, CandidateHash: fileSHA256(item.CandidatePath), PackTarget: item.PackTarget, Kind: item.Kind}, nil
 		}
 	}
@@ -347,9 +561,26 @@ func parseCandidateReviewProofEvidenceRefs(repoRoot, caseRoot, value string) ([]
 		if err != nil {
 			return nil, err
 		}
+		evidence.Path = candidateReviewProofEvidencePath(repoRoot, caseRoot, evidence.Path)
 		out = append(out, evidence)
 	}
 	return out, nil
+}
+
+func candidateReviewProofEvidencePath(repoRoot, caseRoot, path string) string {
+	value := strings.TrimSpace(path)
+	if value == "" {
+		return ""
+	}
+	if filepath.IsAbs(value) {
+		if rel, err := filepath.Rel(caseRoot, value); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+			return filepath.ToSlash(rel)
+		}
+		if rel, err := filepath.Rel(repoRoot, value); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return filepath.ToSlash(value)
 }
 
 func candidateReviewProofDraftPath(repoRoot, candidateRoot, value, proofType, candidatePath string) (string, error) {
@@ -427,9 +658,12 @@ func writeCandidateReviewProofDraftFile(caseRoot, path string, data []byte) (boo
 	return true, nil
 }
 
-func candidateReviewProofDraftCommand(packetPath, proofPath, proofType, candidatePath, decision, reason, actor, evidenceRefs, expectedProofSHA256 string, apply bool) string {
-	base := "/rekit promote -PacketPath " + quoteCandidateDecisionArg(packetPath) +
-		" -DraftReviewProof -ProofPath " + quoteCandidateDecisionArg(proofPath) +
+func candidateReviewProofDraftCommand(packetPath, decisionPath, proofPath, proofType, candidatePath, decision, reason, actor, evidenceRefs, expectedProofSHA256 string, apply bool) string {
+	base := "/rekit promote -PacketPath " + quoteCandidateDecisionArg(packetPath)
+	if strings.TrimSpace(decisionPath) != "" {
+		base += " -CandidateDecisionPath " + quoteCandidateDecisionArg(decisionPath)
+	}
+	base += " -DraftReviewProof -ProofPath " + quoteCandidateDecisionArg(proofPath) +
 		" -ProofType " + quoteCandidateDecisionArg(proofType) +
 		" -CandidatePath " + quoteCandidateDecisionArg(candidatePath) +
 		" -ProofDecision " + quoteCandidateDecisionArg(decision) +
