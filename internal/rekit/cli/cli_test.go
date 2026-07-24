@@ -2612,9 +2612,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	}
 
 	firstHandoff := packet.ShardHandoffs[0]
-	if err := os.WriteFile(firstHandoff.ReviewerResultPath, reviewerResultForCLIPlan(t, packet, firstHandoff, "accept", "accepted", "installed-reviewer-session-1"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	stageAndCollectReviewerResultForCLIPlan(t, &out, nil, plan.PacketPath, firstHandoff, "feature-login", "mission-commander", reviewerResultForCLIPlan(t, packet, firstHandoff, "accept", "accepted", "installed-reviewer-session-1"))
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", firstHandoff.ReviewerResultPath, "-Lane", "feature-login", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
@@ -2652,9 +2650,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	}
 
 	lastHandoff := packet.ShardHandoffs[1]
-	if err := os.WriteFile(lastHandoff.ReviewerResultPath, reviewerResultForCLIPlan(t, packet, lastHandoff, "accept", "accepted", "reviewer-session-installed-2"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	stageAndCollectReviewerResultForCLIPlan(t, &out, nil, plan.PacketPath, lastHandoff, "feature-login", "mission-commander", reviewerResultForCLIPlan(t, packet, lastHandoff, "accept", "accepted", "reviewer-session-installed-2"))
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", lastHandoff.ReviewerResultPath, "-Lane", "feature-login", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
@@ -6046,9 +6042,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 			verdict = "rejected"
 		}
 		data := reviewerResultForCLIPlan(t, packet, handoff, decision, verdict, "reviewer-session-"+handoff.ShardID)
-		if err := os.WriteFile(handoff.ReviewerResultPath, data, 0o644); err != nil {
-			t.Fatal(err)
-		}
+		stageAndCollectReviewerResultForCLIPlan(t, &out, []string{"-Target", caseRoot, "-Pack", "_template"}, plan.PacketPath, handoff, "feature-login", "mission-commander", data)
 		if idx == 0 {
 			out.Reset()
 			if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
@@ -6966,6 +6960,9 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if !slices.Contains(firstHandoff.PostReviewMerge, "run reviewerIntakeCommands.previewCommand and inspect verification, decision, and postValidation before applyCommand") || !slices.Contains(firstHandoff.PostReviewMerge, "retry the identical applyCommand when an interrupted writeback needs idempotent completion") {
 		t.Fatalf("unexpected post-review merge guidance: %+v", firstHandoff.PostReviewMerge)
 	}
+	if firstHandoff.ReviewerStagingCommands == nil || firstHandoff.ReviewerStagingCommands.SourcePath == "" || firstHandoff.ReviewerStagingCommands.SourcePathArgument != firstHandoff.ReviewerStagingCommands.SourcePath || !strings.Contains(firstHandoff.ReviewerStagingCommands.SourcePath, filepath.Join("results", "sources", "shard-01.json")) || !strings.Contains(firstHandoff.ReviewerStagingCommands.PreviewCommand, "-StageReviewerResult") || !strings.Contains(firstHandoff.ReviewerStagingCommands.PreviewCommand, "-ReviewerResultSourcePath "+statusQuoteCommandArg(firstHandoff.ReviewerStagingCommands.SourcePath)) {
+		t.Fatalf("unexpected reviewer staging commands: %+v", firstHandoff.ReviewerStagingCommands)
+	}
 	summary, err := os.ReadFile(result.SummaryPath)
 	if err != nil {
 		t.Fatalf("missing summary: %v", err)
@@ -6991,7 +6988,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents reviewer orchestration summary current action：state=ready-for-reviewer-dispatch source=reviewerOrchestration.dispatch blocked=false requiresReview=true command=`dispatch read-only reviewer for shard-01",
 		"plan-subagents reviewer orchestration summary next action：state=ready-for-reviewer-batch-intake-preview source=reviewerOrchestration.batchIntake.preview blocked=true requiresReview=true",
 		"plan-subagents reviewer orchestration summary boundary：planning summary is read-only; full reviewerOrchestration dispatches, lifecycle, action queue, and shard handoffs remain available",
-		"plan-subagents reviewer orchestration scope：scope=dispatch read-only reviewers, save each JSON to a case-local staging source, publish a validated packet-derived candidate with staging preview/expected-hash apply, publish immutable canonical results with collection preview/apply, then run packet-level ready-result batch intake preview/apply packet=",
+		"plan-subagents reviewer orchestration scope：scope=dispatch read-only reviewers, save each JSON to reviewerStagingCommands.sourcePath, publish a validated packet-derived candidate with staging preview/expected-hash apply, publish immutable canonical results with collection preview/apply, then run packet-level ready-result batch intake preview/apply packet=",
 		"plan-subagents reviewer orchestration owner：targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
 		"plan-subagents reviewer orchestration lifecycle：step=dispatch-reviewers owner=main-agent inputs=reviewerOrchestration.dispatches[].dispatchPrompt,ownerBinding,packetPath mustPass=one reviewerSession is assigned per reviewer result,reviewers receive only read-only boundary and shard items,no reviewer writes files or ledgers nextOnSuccess=collect-results",
 		"plan-subagents reviewer orchestration boundary：boundary=runtime does not spawn subagents",
@@ -7001,13 +6998,13 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents shard owner binding：shard=shard-01 targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
 		"plan-subagents shard owner boundary：shard=shard-01 boundary=runtime only records reviewer owner provenance; it does not spawn, stop, monitor, or manage reviewer/member sessions",
 		"plan-subagents reviewer writeback：shard=shard-01 handoff=/rekit plan-subagents -ReviewerResultPath ... -WhatIf/-Apply validates reviewer results and writes verification-before-decision facts for the main agent",
-		"plan-subagents shard next action：shard=shard-01 action=launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object to any case-local source, run reviewerStagingCommands.previewCommand then its expected-hash Apply command, run reviewerCollectionCommands.previewCommand then applyCommand, then use reviewerIntakeCommands or packet-level batch intake WhatIf before Apply",
+		"plan-subagents shard next action：shard=shard-01 action=launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object to reviewerStagingCommands.sourcePath, run reviewerStagingCommands.previewCommand then its expected-hash Apply command, run reviewerCollectionCommands.previewCommand then applyCommand, then use packet-level batch intake WhatIf before Apply; direct plan-subagents -ReviewerResultPath intake remains available for legacy packets",
 		"plan-subagents shard agent tool request：shard=shard-01 tool=Claude Code Agent agentType=read-only-reviewer readOnly=true expectedOutput=exactly one ReviewerResult JSON object; no Markdown fence or surrounding prose",
 		"plan-subagents reviewer result candidate：shard=shard-01 path=",
 		"canonical=",
-		"plan-subagents reviewer staging command：shard=shard-01 source=<case-local-reviewer-json> preview=`/rekit plan-subagents",
+		"plan-subagents reviewer staging command：shard=shard-01 source=",
 		"-StageReviewerResult",
-		"-ReviewerResultSourcePath <case-local-reviewer-json>",
+		"-ReviewerResultSourcePath ",
 		"plan-subagents reviewer collection command：shard=shard-01 candidate=",
 		"-CollectReviewerResult",
 		"-ShardId \"shard-01\"",
@@ -12456,6 +12453,12 @@ type planSubagentsDispatchSummary struct {
 	ApplyCommand       string `json:"applyCommand"`
 }
 
+type planSubagentsStagingCommands struct {
+	SourcePath         string `json:"sourcePath"`
+	SourcePathArgument string `json:"sourcePathArgument"`
+	PreviewCommand     string `json:"previewCommand"`
+}
+
 type planSubagentsCollectionCommands struct {
 	CandidatePath  string `json:"candidatePath"`
 	PreviewCommand string `json:"previewCommand"`
@@ -12467,6 +12470,7 @@ type planSubagentsHandoff struct {
 	Status                      string                           `json:"status"`
 	ReviewerResultPath          string                           `json:"reviewerResultPath"`
 	ReviewerResultCandidatePath string                           `json:"reviewerResultCandidatePath"`
+	ReviewerStagingCommands     *planSubagentsStagingCommands    `json:"reviewerStagingCommands"`
 	ReviewerCollectionCommands  *planSubagentsCollectionCommands `json:"reviewerCollectionCommands"`
 	OwnerBinding                planSubagentsOwnerBinding        `json:"ownerBinding"`
 	DispatchPrompt              string                           `json:"dispatchPrompt"`

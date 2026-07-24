@@ -30,7 +30,7 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	if err := os.WriteFile(evidencePath, []byte("bounded reviewer evidence\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	resultPath := filepath.Join(t.TempDir(), "reviewer-result.json")
+	resultPath := plan.ShardHandoffs[0].ReviewerResultPath
 	reviewerResult := map[string]any{
 		"packetId":           packet.PacketID,
 		"routeId":            packet.Route.ID,
@@ -52,9 +52,7 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(resultPath, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	stageAndCollectReviewerResultForCLIPlan(t, &out, []string{"-Target", caseRoot, "-Pack", "_template"}, plan.PacketPath, plan.ShardHandoffs[0], packet.TargetLane, "mission-commander", data)
 
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
@@ -361,9 +359,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(resultPath, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	stageAndCollectReviewerResultForCLIPlan(t, &out, nil, plan.PacketPath, plan.ShardHandoffs[0], packet.TargetLane, "mission-commander", data)
 
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReviewerResultPath", resultPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
@@ -699,7 +695,10 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 		if handoff.ReviewerResultCandidatePath == "" || handoff.ReviewerResultCandidatePath == handoff.ReviewerResultPath {
 			t.Fatalf("reviewer collection candidate path is not distinct: %+v", handoff)
 		}
-		sourcePath := filepath.Join(caseRoot, "workspace", "reviewer-results", handoff.ShardID+".json")
+		if handoff.ReviewerStagingCommands == nil || handoff.ReviewerStagingCommands.SourcePath == "" || handoff.ReviewerStagingCommands.SourcePathArgument != handoff.ReviewerStagingCommands.SourcePath {
+			t.Fatalf("reviewer staging source path was not packet-derived: %+v", handoff.ReviewerStagingCommands)
+		}
+		sourcePath := handoff.ReviewerStagingCommands.SourcePath
 		if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -819,12 +818,13 @@ func TestRunPlanSubagentsReviewerIntakeBlockedRepairGuidanceCaseLocalProductPath
 	})
 
 	out.Reset()
-	if err := Run([]string{"-Command", "plan-subagents", "-TaskType", "feature-analysis", "-Items", "alpha"}, &out); err != nil {
+	legacyReviewRoot := filepath.Join(caseRoot, "artifacts", "legacy-blocked-reviewer-intake")
+	if err := Run([]string{"-Command", "plan-subagents", "-TaskType", "feature-analysis", "-Items", "alpha", "-ReviewOutputDir", legacyReviewRoot}, &out); err != nil {
 		t.Fatal(err)
 	}
 	plan := decodePlanSubagentsResult(t, out.Bytes())
 	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
-	resultPath := plan.ShardHandoffs[0].ReviewerResultPath
+	resultPath := filepath.Join(t.TempDir(), "reviewer-result.json")
 	reviewerResult := map[string]any{
 		"packetId":           packet.PacketID,
 		"routeId":            packet.Route.ID,
@@ -945,7 +945,12 @@ func TestRunPlanSubagentsReadyReviewerResultsEmitsStrictErrorEnvelope(t *testing
 		t.Fatal(err)
 	}
 	plan := decodePlanSubagentsResult(t, out.Bytes())
-	if err := os.WriteFile(plan.ShardHandoffs[0].ReviewerResultPath, []byte("{malformed"), 0o644); err != nil {
+	handoff := plan.ShardHandoffs[0]
+	malformed := []byte("{malformed")
+	if err := os.WriteFile(handoff.ReviewerResultCandidatePath, malformed, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handoff.ReviewerResultPath, malformed, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
@@ -1090,6 +1095,64 @@ func decodeReviewerResultCollectionCLIResult(t *testing.T, data []byte) reviewer
 		t.Fatalf("reviewer result collection stdout is not JSON: %v\n%s", err, string(data))
 	}
 	return result
+}
+
+func stageAndCollectReviewerResultForCLIPlan(t *testing.T, out *bytes.Buffer, baseArgs []string, packetPath string, handoff planSubagentsHandoff, lane, actor string, data []byte) {
+	t.Helper()
+	if handoff.ReviewerStagingCommands == nil || handoff.ReviewerStagingCommands.SourcePath == "" || handoff.ReviewerStagingCommands.SourcePathArgument != handoff.ReviewerStagingCommands.SourcePath {
+		t.Fatalf("reviewer staging source path was not packet-derived: %+v", handoff.ReviewerStagingCommands)
+	}
+	if handoff.ReviewerResultCandidatePath == "" || handoff.ReviewerResultCandidatePath == handoff.ReviewerResultPath {
+		t.Fatalf("reviewer collection candidate path is not distinct: %+v", handoff)
+	}
+	sourcePath := handoff.ReviewerStagingCommands.SourcePath
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sourcePath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-StageReviewerResult", "-ShardId", handoff.ShardID, "-ReviewerResultSourcePath", sourcePath, "-Lane", lane, "-Actor", actor, "-WhatIf", "-Format", "json"), out); err != nil {
+		t.Fatal(err)
+	}
+	stagingPreview := decodeReviewerResultStagingCLIResult(t, out.Bytes())
+	if stagingPreview.Mode != "reviewer-result-staging" || stagingPreview.Status != "previewed" || stagingPreview.IsMutation || stagingPreview.Applied || stagingPreview.SourcePath != sourcePath || stagingPreview.SourceSHA256 == "" || stagingPreview.CandidatePath != handoff.ReviewerResultCandidatePath {
+		t.Fatalf("unexpected reviewer result staging preview: %+v", stagingPreview)
+	}
+
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-StageReviewerResult", "-ShardId", handoff.ShardID, "-ReviewerResultSourcePath", sourcePath, "-Lane", lane, "-Actor", actor, "-ExpectedSourceSha256", stagingPreview.SourceSHA256, "-Apply", "-Format", "json"), out); err != nil {
+		t.Fatal(err)
+	}
+	stagingApply := decodeReviewerResultStagingCLIResult(t, out.Bytes())
+	if stagingApply.Status != "staged" || !stagingApply.IsMutation || !stagingApply.Applied || stagingApply.AlreadyStaged || stagingApply.CandidatePath != handoff.ReviewerResultCandidatePath {
+		t.Fatalf("unexpected reviewer result staging apply: %+v", stagingApply)
+	}
+
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", lane, "-Actor", actor, "-WhatIf", "-Format", "json"), out); err != nil {
+		t.Fatal(err)
+	}
+	collectionPreview := decodeReviewerResultCollectionCLIResult(t, out.Bytes())
+	if collectionPreview.Mode != "reviewer-result-collection" || collectionPreview.Status != "previewed" || collectionPreview.IsMutation || collectionPreview.Applied || collectionPreview.CandidatePath != handoff.ReviewerResultCandidatePath || collectionPreview.ReviewerResultPath != handoff.ReviewerResultPath {
+		t.Fatalf("unexpected reviewer result collection preview: %+v", collectionPreview)
+	}
+
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", lane, "-Actor", actor, "-Apply", "-Format", "json"), out); err != nil {
+		t.Fatal(err)
+	}
+	collectionApply := decodeReviewerResultCollectionCLIResult(t, out.Bytes())
+	if collectionApply.Status != "collected" || !collectionApply.IsMutation || !collectionApply.Applied || collectionApply.AlreadyCollected || collectionApply.CandidatePath != handoff.ReviewerResultCandidatePath || collectionApply.ReviewerResultPath != handoff.ReviewerResultPath || collectionApply.CandidateSHA256 == "" || collectionApply.CandidateSHA256 != collectionApply.ReviewerResultSHA256 {
+		t.Fatalf("unexpected reviewer result collection apply: %+v", collectionApply)
+	}
+}
+
+func planSubagentsCLIArgs(baseArgs []string, extra ...string) []string {
+	args := append([]string{"-Command", "plan-subagents"}, baseArgs...)
+	return append(args, extra...)
 }
 
 type reviewerBatchIntakeCLIResult struct {

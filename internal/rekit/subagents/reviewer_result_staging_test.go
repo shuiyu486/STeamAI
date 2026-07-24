@@ -34,7 +34,13 @@ func TestStageReviewerResultPublishesCandidateForCollection(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded reviewer evidence\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sourcePath := filepath.Join(caseRoot, "workspace", "reviewer-return.json")
+	if handoff.ReviewerStagingCommands == nil || handoff.ReviewerStagingCommands.SourcePath == "" {
+		t.Fatalf("missing packet-derived reviewer staging source path: %+v", handoff)
+	}
+	sourcePath := handoff.ReviewerStagingCommands.SourcePath
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	source := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
 	if err := os.WriteFile(sourcePath, source, 0o644); err != nil {
 		t.Fatal(err)
@@ -281,7 +287,13 @@ func TestStageReviewerResultFailsClosedOnSourceDriftAndCandidateCollision(t *tes
 	if err := os.WriteFile(filepath.Join(workspace, "review-evidence.md"), []byte("bounded reviewer evidence\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sourcePath := filepath.Join(workspace, "reviewer-return.json")
+	if handoff.ReviewerStagingCommands == nil || handoff.ReviewerStagingCommands.SourcePath == "" {
+		t.Fatalf("missing packet-derived reviewer staging source path: %+v", handoff)
+	}
+	sourcePath := handoff.ReviewerStagingCommands.SourcePath
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	source := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
 	if err := os.WriteFile(sourcePath, source, 0o644); err != nil {
 		t.Fatal(err)
@@ -350,7 +362,7 @@ func TestStageReviewerResultFailsClosedOnSourceDriftAndCandidateCollision(t *tes
 	internalLink := filepath.Join(caseRoot, "linked-source")
 	if err := os.Symlink(internalTarget, internalLink); err == nil {
 		opt.SourcePath = filepath.Join(internalLink, "reviewer-return.json")
-		if _, err := StageReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "non-symlink directory") {
+		if _, err := StageReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "must match the packet-derived") {
 			t.Fatalf("case-internal source symlink error = %v", err)
 		}
 	}
@@ -359,7 +371,7 @@ func TestStageReviewerResultFailsClosedOnSourceDriftAndCandidateCollision(t *tes
 		t.Fatal(err)
 	}
 	opt.SourcePath = outside
-	if _, err := StageReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "escapes root") {
+	if _, err := StageReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "must match the packet-derived") {
 		t.Fatalf("out-of-case source error = %v", err)
 	}
 }

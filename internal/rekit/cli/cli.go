@@ -4780,7 +4780,7 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 	if summary.Total == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake summary：total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d lanes=%d packets=%d latestPacketProgress=%d/%d latestPacketOpen=%d latestPacketNextOpen=%s latestCompletedShard=%s remaining=%s latestPacket=%s latestShard=%s latestState=%s latestCandidateState=%s latestCandidate=%s latestReviewerResult=%s nextAction=%s\n", prefix, summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.LaneCount, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, summary.LatestCompletedShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestPacketPath, summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultCandidateState, summary.LatestReviewerResultCandidatePath, summary.LatestReviewerResultPath, summary.NextAction); err != nil {
+	if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake summary：total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d lanes=%d packets=%d latestPacketProgress=%d/%d latestPacketOpen=%d latestPacketNextOpen=%s latestCompletedShard=%s remaining=%s latestPacket=%s latestShard=%s latestState=%s latestSourceState=%s latestSource=%s latestCandidateState=%s latestCandidate=%s latestReviewerResult=%s nextAction=%s\n", prefix, summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.LaneCount, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, summary.LatestCompletedShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestPacketPath, summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultSourceState, summary.LatestReviewerResultSourcePath, summary.LatestReviewerResultCandidateState, summary.LatestReviewerResultCandidatePath, summary.LatestReviewerResultPath, summary.NextAction); err != nil {
 		return err
 	}
 	if strings.TrimSpace(summary.LatestBatchPreviewCommand) != "" {
@@ -4804,6 +4804,11 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 		}
 		if item.AgentToolRequest != nil {
 			if _, err := fmt.Fprintf(out, "%s reviewer dispatch agent tool：shard=%s tool=%s agentType=%s readOnly=%t expectedOutput=%s\n", prefix, item.ShardID, item.AgentToolRequest.Tool, item.AgentToolRequest.AgentType, item.AgentToolRequest.ReadOnly, item.AgentToolRequest.ExpectedOutput); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(item.ReviewerResultSourcePath) != "" {
+			if _, err := fmt.Fprintf(out, "%s reviewer result source：shard=%s source=%s state=%s stagingPreview=`%s`\n", prefix, item.ShardID, item.ReviewerResultSourcePath, item.ReviewerResultSourceState, item.ReviewerResultStagingCommand); err != nil {
 				return err
 			}
 		}
@@ -5786,7 +5791,7 @@ func writePlanSubagentsShardHandoffText(out io.Writer, result subagents.Result) 
 			}
 		}
 		if commands := handoff.ReviewerStagingCommands; commands != nil {
-			if _, err := fmt.Fprintf(out, "plan-subagents reviewer staging command：shard=%s source=%s preview=`%s`\n", handoff.ShardID, commands.SourcePathArgument, commands.PreviewCommand); err != nil {
+			if _, err := fmt.Fprintf(out, "plan-subagents reviewer staging command：shard=%s source=%s sourcePath=%s preview=`%s`\n", handoff.ShardID, commands.SourcePathArgument, commands.SourcePath, commands.PreviewCommand); err != nil {
 				return err
 			}
 		}

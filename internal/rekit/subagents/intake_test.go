@@ -152,9 +152,7 @@ func TestIntakeReadyReviewerResultsPreviewsAndAppliesAllReadyShards(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(handoff.ReviewerResultPath, data, 0o644); err != nil {
-			t.Fatal(err)
-		}
+		writeCollectedReviewerResult(t, handoff, data)
 	}
 
 	preview, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
@@ -191,6 +189,78 @@ func TestIntakeReadyReviewerResultsPreviewsAndAppliesAllReadyShards(t *testing.T
 	}
 }
 
+func TestIntakeReadyReviewerResultsRequiresPacketDerivedCollection(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	handoff := packet.ShardHandoffs[0]
+	if handoff.ReviewerStagingCommands == nil || handoff.ReviewerCollectionCommands == nil || handoff.ReviewerResultCandidatePath == "" {
+		t.Fatalf("fresh packet omitted collection bindings: %+v", handoff)
+	}
+	if err := os.MkdirAll(filepath.Join(caseRoot, "workspace"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handoff.ReviewerResultPath, reviewerResultForPacket(t, packet, "accept", "accepted", nil), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	batch, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	if err == nil || !strings.Contains(err.Error(), "requires staging and collection") || !batch.Stopped || batch.StopShardID != handoff.ShardID || batch.Ready != 0 || batch.Processed != 0 {
+		t.Fatalf("direct canonical reviewer result bypass was not blocked: result=%+v err=%v", batch, err)
+	}
+	if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
+		t.Fatalf("blocked direct bypass wrote verification ledger:\n%s", got)
+	}
+}
+
+func TestIntakeReviewerResultRequiresPacketDerivedCanonicalPathForCollectionBoundPacket(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	handoff := packet.ShardHandoffs[0]
+	if handoff.ReviewerStagingCommands == nil || handoff.ReviewerStagingCommands.SourcePath == "" || handoff.ReviewerResultCandidatePath == "" {
+		t.Fatalf("fresh packet omitted collection bindings: %+v", handoff)
+	}
+	if err := os.MkdirAll(filepath.Join(caseRoot, "workspace"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
+	arbitraryPath := filepath.Join(caseRoot, "workspace", "reviewer-direct.json")
+	for _, path := range []string{handoff.ReviewerStagingCommands.SourcePath, handoff.ReviewerResultCandidatePath, arbitraryPath} {
+		t.Run(filepath.Base(filepath.Dir(path))+"-"+filepath.Base(path), func(t *testing.T) {
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: path, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+			if err == nil || !strings.Contains(err.Error(), "requires packet-derived canonical reviewerResultPath") {
+				t.Fatalf("noncanonical reviewer result intake path was not blocked: path=%s err=%v", path, err)
+			}
+			if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
+				t.Fatalf("blocked direct path wrote verification ledger:\n%s", got)
+			}
+		})
+	}
+}
+
 func TestIntakeReadyReviewerResultsBindsPathToShardAndPreservesWaiting(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
@@ -213,6 +283,12 @@ func TestIntakeReadyReviewerResultsBindsPathToShardAndPreservesWaiting(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Dir(first.ReviewerResultCandidatePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first.ReviewerResultCandidatePath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(first.ReviewerResultPath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -230,6 +306,9 @@ func TestIntakeReadyReviewerResultsBindsPathToShardAndPreservesWaiting(t *testin
 	valid.RouteOutput["item"] = strings.Join(first.Items, ",")
 	data, err = json.Marshal(valid)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first.ReviewerResultCandidatePath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(first.ReviewerResultPath, data, 0o644); err != nil {
@@ -270,9 +349,7 @@ func TestIntakeReadyReviewerResultsStopsBeforeLaterShardOnBlocker(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(handoff.ReviewerResultPath, data, 0o644); err != nil {
-			t.Fatal(err)
-		}
+		writeCollectedReviewerResult(t, handoff, data)
 	}
 	result, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander"})
 	if err != nil {
@@ -293,10 +370,7 @@ func TestIntakeReviewerResultRejectsWrongPacketAndRouteBindings(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	plan := writeLegacyDirectReviewerPlan(t, repoRoot, caseRoot, Options{TaskType: "feature-analysis", Items: "alpha"})
 	packet := readReviewerPacket(t, plan.PacketPath)
 	for _, tc := range []struct {
 		name     string
@@ -330,10 +404,7 @@ func TestIntakeReviewerResultBlocksInvalidEvidenceRefs(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	plan := writeLegacyDirectReviewerPlan(t, repoRoot, caseRoot, Options{TaskType: "feature-analysis", Items: "alpha"})
 	packet := readReviewerPacket(t, plan.PacketPath)
 	for _, ref := range []string{"n/a", "workspace/missing-evidence.md", filepath.Join(t.TempDir(), "outside.md"), "../escape.md", "workspace"} {
 		t.Run(strings.ReplaceAll(ref, string(filepath.Separator), "_"), func(t *testing.T) {
@@ -366,10 +437,7 @@ func TestIntakeReviewerResultRejectsRouteOutputContractViolations(t *testing.T) 
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	plan := writeLegacyDirectReviewerPlan(t, repoRoot, caseRoot, Options{TaskType: "feature-analysis", Items: "alpha"})
 	packet := readReviewerPacket(t, plan.PacketPath)
 	for _, tc := range []struct {
 		name   string
@@ -408,10 +476,7 @@ func TestIntakeReviewerResultRejectsStaleOwnerBinding(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	plan := writeLegacyDirectReviewerPlan(t, repoRoot, caseRoot, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
 	packet := readReviewerPacket(t, plan.PacketPath)
 	if !packet.OwnerBinding.RequiredForIntake || packet.OwnerBinding.CurrentExecutor != "session-main" {
 		t.Fatalf("plan did not bind owner executor: %+v", packet.OwnerBinding)
@@ -449,6 +514,12 @@ func TestAdoptReviewerPacketPreservesPacketIdentityAndEnablesIntake(t *testing.T
 		t.Fatal(err)
 	}
 	packet := readReviewerPacket(t, plan.PacketPath)
+	if err := os.MkdirAll(filepath.Join(caseRoot, "workspace"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	root, err := filepath.Abs(repoRoot)
 	if err != nil {
 		t.Fatal(err)
@@ -480,10 +551,7 @@ func TestAdoptReviewerPacketPreservesPacketIdentityAndEnablesIntake(t *testing.T
 	if !bytes.Equal(packetBefore, packetAfter) {
 		t.Fatal("reviewer packet adoption modified immutable packet bytes")
 	}
-	resultPath := filepath.Join(t.TempDir(), "reviewer-result.json")
-	if err := os.WriteFile(resultPath, reviewerResultForPlan(t, plan.PacketPath, "accept", "accepted", nil), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	resultPath := writeCollectedReviewerResult(t, packet.ShardHandoffs[0], reviewerResultForPacket(t, packet, "accept", "accepted", nil))
 	intake, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
 	if err != nil {
 		t.Fatal(err)
@@ -563,6 +631,13 @@ func TestReviewerPacketAdoptionBecomesStaleAfterSecondTakeover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	if err := os.MkdirAll(filepath.Join(caseRoot, "workspace"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	root, err := filepath.Abs(repoRoot)
 	if err != nil {
 		t.Fatal(err)
@@ -576,10 +651,7 @@ func TestReviewerPacketAdoptionBecomesStaleAfterSecondTakeover(t *testing.T) {
 	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-third", Actor: "mission-commander", TakeoverReason: "second takeover"}); err != nil {
 		t.Fatal(err)
 	}
-	resultPath := filepath.Join(t.TempDir(), "reviewer-result.json")
-	if err := os.WriteFile(resultPath, reviewerResultForPlan(t, plan.PacketPath, "accept", "accepted", nil), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	resultPath := writeCollectedReviewerResult(t, packet.ShardHandoffs[0], reviewerResultForPacket(t, packet, "accept", "accepted", nil))
 	_, err = IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
 	if err == nil || !strings.Contains(err.Error(), "adoption is stale") {
 		t.Fatalf("error = %v, want stale adoption rejection", err)
@@ -726,10 +798,7 @@ func TestIntakeReviewerResultWhatIfAndApply(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	plan := writeLegacyDirectReviewerPlan(t, repoRoot, caseRoot, Options{TaskType: "feature-analysis", Items: "alpha"})
 	resultPath := filepath.Join(t.TempDir(), "reviewer-result.json")
 	if err := os.WriteFile(resultPath, reviewerResultForPlan(t, plan.PacketPath, "accept", "accepted", nil), 0o644); err != nil {
 		t.Fatal(err)
@@ -799,10 +868,7 @@ func TestIntakeReviewerResultBlocksConflictsWithoutWrites(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	plan := writeLegacyDirectReviewerPlan(t, repoRoot, caseRoot, Options{TaskType: "feature-analysis", Items: "alpha"})
 	resultPath := filepath.Join(t.TempDir(), "reviewer-result.json")
 	if err := os.WriteFile(resultPath, reviewerResultForPlan(t, plan.PacketPath, "accept", "accepted", []string{"overlaps another shard"}), 0o644); err != nil {
 		t.Fatal(err)
@@ -838,10 +904,7 @@ func TestIntakeReviewerResultRecoversPartialVerificationWrite(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
-	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	plan := writeLegacyDirectReviewerPlan(t, repoRoot, caseRoot, Options{TaskType: "feature-analysis", Items: "alpha"})
 	resultPath := filepath.Join(t.TempDir(), "reviewer-result.json")
 	if err := os.WriteFile(resultPath, reviewerResultForPlan(t, plan.PacketPath, "accept", "accepted", nil), 0o644); err != nil {
 		t.Fatal(err)
@@ -974,6 +1037,43 @@ func readOptionalFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func writeLegacyDirectReviewerPlan(t *testing.T, repoRoot, caseRoot string, opt Options) Result {
+	t.Helper()
+	name := strings.NewReplacer("/", "-", "\\", "-", " ", "-").Replace(t.Name())
+	opt.ReviewOutputDir = filepath.Join(caseRoot, "artifacts", "legacy-reviewer-intake", name)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	for _, handoff := range packet.ShardHandoffs {
+		if handoff.ReviewerStagingCommands != nil || handoff.ReviewerCollectionCommands != nil || handoff.ReviewerResultCandidatePath != "" {
+			t.Fatalf("legacy direct reviewer plan unexpectedly has collection bindings: %+v", handoff)
+		}
+	}
+	if packet.PacketIntegrity != nil {
+		t.Fatalf("legacy direct reviewer plan unexpectedly has packet integrity sidecar: %+v", packet.PacketIntegrity)
+	}
+	return plan
+}
+
+func writeCollectedReviewerResult(t *testing.T, handoff ShardHandoff, data []byte) string {
+	t.Helper()
+	if handoff.ReviewerResultCandidatePath == "" || handoff.ReviewerResultPath == "" {
+		t.Fatalf("reviewer handoff missing collection paths: %+v", handoff)
+	}
+	if err := os.MkdirAll(filepath.Dir(handoff.ReviewerResultCandidatePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handoff.ReviewerResultCandidatePath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handoff.ReviewerResultPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return handoff.ReviewerResultPath
 }
 
 func writeReviewerIntakeCase(t *testing.T, repoRoot, caseRoot string) {

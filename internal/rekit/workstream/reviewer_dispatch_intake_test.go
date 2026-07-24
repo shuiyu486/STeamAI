@@ -225,8 +225,9 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	if err := os.WriteFile(packetPath, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	sourcePath := filepath.Join(resultRoot, "sources", "shard-01.json")
 	request := &ReviewerAgentToolRequest{Tool: "Claude Code Agent", AgentType: "read-only-reviewer", ReadOnly: true, Prompt: "review", ExpectedOutput: "one JSON object"}
-	staging := &ReviewerResultStagingCommands{SourcePathArgument: "<case-local-reviewer-json>", PreviewCommand: "forged-staging-preview"}
+	staging := &ReviewerResultStagingCommands{SourcePath: sourcePath, SourcePathArgument: sourcePath, PreviewCommand: "forged-staging-preview"}
 	commands := &ReviewerResultCollectionCommands{CandidatePath: candidatePath, PreviewCommand: "collect-preview", ApplyCommand: "collect-apply"}
 	packet := reviewerDispatchPacket{PacketID: "packet-collection", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", PacketPath: packetPath, ResultRoot: resultRoot, Dispatches: []reviewerDispatchPacketDispatch{{ShardID: "shard-01"}}}}
 	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, ReviewerResultCandidatePath: candidatePath, AgentToolRequest: request, StagingCommands: staging, CollectionCommands: commands, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
@@ -235,8 +236,21 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	if missing.State != "waiting-for-reviewer-result" || missing.ReviewerResultCandidateState != "missing" || missing.AgentToolRequest == nil || missing.ReviewerResultStagingCommand == "" || missing.ReviewerResultCollectionCommands == nil || !strings.Contains(missing.DispatchCommand, "agentToolRequest.prompt") || !strings.Contains(missing.DispatchCommand, "expected-hash Apply") {
 		t.Fatalf("missing candidate handoff omitted typed dispatch/collection state: %+v", missing)
 	}
-	if !strings.Contains(missing.ReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(missing.ReviewerResultStagingCommand, "-ReviewerResultSourcePath <case-local-reviewer-json>") || strings.Contains(missing.ReviewerResultStagingCommand, "forged-staging-preview") {
-		t.Fatalf("staging command was not rebuilt from canonical bindings: %+v", missing)
+	if missing.ReviewerResultSourcePath != sourcePath || missing.ReviewerResultSourceState != "missing" || !strings.Contains(missing.ReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(missing.ReviewerResultStagingCommand, "-ReviewerResultSourcePath "+quoteCommandArg(sourcePath)) || strings.Contains(missing.ReviewerResultStagingCommand, "forged-staging-preview") {
+		t.Fatalf("staging command was not rebuilt from canonical source bindings: %+v", missing)
+	}
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sourceReady := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if sourceReady.State != "ready-for-reviewer-result-staging-preview" || sourceReady.ReviewerResultSourceState != "ready" || reviewerDispatchIntakeNextAction(sourceReady) != sourceReady.ReviewerResultStagingCommand || sourceReady.ReviewerResultCandidateState != "missing" {
+		t.Fatalf("source-ready handoff did not promote staging preview: %+v", sourceReady)
+	}
+	if err := os.Remove(sourcePath); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Dir(candidatePath), 0o755); err != nil {
 		t.Fatal(err)
@@ -396,6 +410,35 @@ func TestReviewerDispatchIntakeRejectsInvalidCandidateShape(t *testing.T) {
 	item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
 	if item.State != "reviewer-result-candidate-invalid" || item.ReviewerResultCandidateState != "invalid" || !strings.Contains(reviewerDispatchIntakeNextAction(item), "replace the invalid") {
 		t.Fatalf("invalid candidate did not fail closed: %+v", item)
+	}
+}
+
+func TestReviewerDispatchIntakeRejectsForgedStagingSourceBinding(t *testing.T) {
+	root := t.TempDir()
+	reviewRoot := filepath.Join(root, ".rekit", "reviews", "review")
+	packetPath := filepath.Join(reviewRoot, "packet.json")
+	resultRoot := filepath.Join(reviewRoot, "results")
+	candidatePath := filepath.Join(resultRoot, "candidates", "shard-01.json")
+	resultPath := filepath.Join(resultRoot, "shard-01.json")
+	forgedSource := filepath.Join(root, "workspace", "forged.json")
+	if err := os.MkdirAll(filepath.Dir(forgedSource), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(resultRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packetPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	request := &ReviewerAgentToolRequest{Tool: "Claude Code Agent", AgentType: "read-only-reviewer", ReadOnly: true, Prompt: "review", ExpectedOutput: "one JSON object"}
+	staging := &ReviewerResultStagingCommands{SourcePath: forgedSource, SourcePathArgument: forgedSource, PreviewCommand: "forged-staging-preview"}
+	commands := &ReviewerResultCollectionCommands{CandidatePath: candidatePath, PreviewCommand: "collect-preview", ApplyCommand: "collect-apply"}
+	packet := reviewerDispatchPacket{PacketID: "packet-collection", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", PacketPath: packetPath, ResultRoot: resultRoot, Dispatches: []reviewerDispatchPacketDispatch{{ShardID: "shard-01"}}}}
+	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, ReviewerResultCandidatePath: candidatePath, AgentToolRequest: request, StagingCommands: staging, CollectionCommands: commands, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
+
+	item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if item.ReviewerResultSourcePath != "" || item.ReviewerResultStagingCommand != "" || item.ReviewerResultCollectionCommands != nil || item.State != "waiting-for-reviewer-result" || strings.Contains(item.DispatchCommand, forgedSource) || strings.Contains(item.DispatchCommand, "forged-staging-preview") {
+		t.Fatalf("forged source binding was projected as runnable: %+v", item)
 	}
 }
 

@@ -236,6 +236,7 @@ type ReviewerAgentToolRequest struct {
 }
 
 type ReviewerResultStagingCommands struct {
+	SourcePath         string `json:"sourcePath,omitempty"`
 	SourcePathArgument string `json:"sourcePathArgument"`
 	PreviewCommand     string `json:"previewCommand"`
 }
@@ -750,25 +751,26 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 		contract := reviewerResultContract()
 		resultPath := filepath.Join(observability.ResultRoot, shard.ID+".json")
 		candidatePath := filepath.Join(observability.ResultRoot, "candidates", shard.ID+".json")
+		sourcePath := filepath.Join(observability.ResultRoot, "sources", shard.ID+".json")
 		intake := intakeChecklist()
 		mappings := reviewerDecisionMappings()
 		conflicts := conflictHandlingSteps()
 		commands := reviewerIntakeCommands(planRoot, pack, observability.PacketPath, resultPath, targetLane, intakeAvailable)
-		dispatchPrompt := shardDispatchPrompt(shard, route, readOnlyBoundary, reviewLoop, ownerBinding, resultPath)
 		var stagingCommands *ReviewerResultStagingCommands
 		var collectionCommands *ReviewerResultCollectionCommands
 		reviewerResultCandidatePath := ""
 		nextAction := "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object directly at reviewerResultPath, then use reviewerIntakeCommands or packet-level batch intake WhatIf before Apply"
 		if collectionAvailable {
-			staging := reviewerResultStagingCommands(observability.PacketPath, shard.ID, targetLane)
+			staging := reviewerResultStagingCommands(observability.PacketPath, shard.ID, targetLane, sourcePath)
 			stagingCommands = &staging
 			commands := reviewerResultCollectionCommands(observability.PacketPath, shard.ID, targetLane, candidatePath)
 			collectionCommands = &commands
 			reviewerResultCandidatePath = candidatePath
-			nextAction = "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object to any case-local source, run reviewerStagingCommands.previewCommand then its expected-hash Apply command, run reviewerCollectionCommands.previewCommand then applyCommand, then use reviewerIntakeCommands or packet-level batch intake WhatIf before Apply; direct plan-subagents -ReviewerResultPath intake remains available for legacy packets"
+			nextAction = "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object to reviewerStagingCommands.sourcePath, run reviewerStagingCommands.previewCommand then its expected-hash Apply command, run reviewerCollectionCommands.previewCommand then applyCommand, then use packet-level batch intake WhatIf before Apply; direct plan-subagents -ReviewerResultPath intake remains available for legacy packets"
 		} else if !intakeAvailable {
 			nextAction = "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, and retain the single JSON object; attach or init the target as a rekit case and regenerate a canonical case-local packet before reviewerCollectionCommands or reviewerIntakeCommands become runnable"
 		}
+		dispatchPrompt := shardDispatchPrompt(shard, route, readOnlyBoundary, reviewLoop, ownerBinding, resultPath, collectionAvailable, intakeAvailable)
 		handoffs = append(handoffs, ShardHandoff{
 			ShardID:                     shard.ID,
 			Status:                      "planned",
@@ -1009,10 +1011,11 @@ func reviewerBatchIntakeCommands(planRoot, pack, packetPath, targetLane string, 
 	return base + " -WhatIf -Format json", base + " -Apply -Format json"
 }
 
-func reviewerResultStagingCommands(packetPath, shardID, targetLane string) ReviewerResultStagingCommands {
-	base := "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -StageReviewerResult -ShardId " + quoteCommandArg(shardID) + " -ReviewerResultSourcePath <case-local-reviewer-json> -Lane " + quoteCommandArg(targetLane) + " -Actor <main-agent>"
+func reviewerResultStagingCommands(packetPath, shardID, targetLane, sourcePath string) ReviewerResultStagingCommands {
+	base := "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -StageReviewerResult -ShardId " + quoteCommandArg(shardID) + " -ReviewerResultSourcePath " + quoteCommandArg(sourcePath) + " -Lane " + quoteCommandArg(targetLane) + " -Actor <main-agent>"
 	return ReviewerResultStagingCommands{
-		SourcePathArgument: "<case-local-reviewer-json>",
+		SourcePath:         sourcePath,
+		SourcePathArgument: sourcePath,
 		PreviewCommand:     base + " -WhatIf -Format json",
 	}
 }
@@ -1099,7 +1102,7 @@ func newReviewerOrchestration(planRoot, pack string, handoffs []ShardHandoff, ob
 	mode := "manual-main-agent-intake"
 	scope := "dispatch read-only reviewers, save one JSON result directly to each reviewerResultPath, then run strict direct or packet-level batch intake preview/apply"
 	if collectionAvailable {
-		scope = "dispatch read-only reviewers, save each JSON to a case-local staging source, publish a validated packet-derived candidate with staging preview/expected-hash apply, publish immutable canonical results with collection preview/apply, then run packet-level ready-result batch intake preview/apply"
+		scope = "dispatch read-only reviewers, save each JSON to reviewerStagingCommands.sourcePath, publish a validated packet-derived candidate with staging preview/expected-hash apply, publish immutable canonical results with collection preview/apply, then run packet-level ready-result batch intake preview/apply"
 	} else if !intakeAvailable {
 		mode = "dispatch-only-unattached-target"
 		scope = "dispatch read-only reviewers and retain JSON results only; attach or init the target and regenerate a canonical case-local packet before collection or reviewer-intake writeback"
@@ -1365,7 +1368,7 @@ func reviewerPlanDispatchCommand(orchestration ReviewerOrchestrationPlan, idx in
 		return "dispatch read-only reviewer for " + dispatch.ShardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt; retain the returned JSON until a canonical case-local packet is regenerated"
 	}
 	if dispatch.StagingCommands != nil {
-		return "dispatch read-only reviewer for " + dispatch.ShardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt; save the returned JSON to a bounded case-local source, then run " + dispatch.StagingCommands.PreviewCommand
+		return "dispatch read-only reviewer for " + dispatch.ShardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt; save the returned JSON to " + quoteCommandArg(dispatch.StagingCommands.SourcePath) + ", then run " + dispatch.StagingCommands.PreviewCommand
 	}
 	return "dispatch read-only reviewer for " + dispatch.ShardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt; collect JSON at " + quoteCommandArg(dispatch.ReviewerResultPath)
 }
@@ -1443,9 +1446,9 @@ func reviewerOrchestrationLifecycle(intakeAvailable, collectionAvailable bool) [
 		},
 	}
 	if collectionAvailable {
-		steps[1].Action = "save each single reviewer JSON object to any case-local source, run staging WhatIf then its expected-hash Apply to the packet-derived candidate, then run collection WhatIf then Apply to publish exact bytes only to the canonical reviewerResultPath"
-		steps[1].Inputs = []string{"reviewerResultContract", "reviewerStagingCommands", "reviewerResultCandidatePath", "reviewerCollectionCommands"}
-		steps[1].MustPass = []string{"each source is one symlink-free case-local regular JSON file", "packetId/routeId/shardId/items match the packet", "staging source hash is reviewed before no-overwrite candidate publication", "collection preview passes before immutable no-overwrite apply"}
+		steps[1].Action = "save each single reviewer JSON object to reviewerStagingCommands.sourcePath, run staging WhatIf then its expected-hash Apply to the packet-derived candidate, then run collection WhatIf then Apply to publish exact bytes only to the canonical reviewerResultPath"
+		steps[1].Inputs = []string{"reviewerResultContract", "reviewerStagingCommands.sourcePath", "reviewerStagingCommands.previewCommand", "reviewerResultCandidatePath", "reviewerCollectionCommands"}
+		steps[1].MustPass = []string{"each source is one symlink-free case-local regular JSON file at the packet-derived source path", "packetId/routeId/shardId/items match the packet", "staging source hash is reviewed before no-overwrite candidate publication", "collection preview passes before immutable no-overwrite apply"}
 	} else if intakeAvailable {
 		steps[1].Action = "save each single reviewer JSON object directly at reviewerResultPath; this custom packet has no canonical collection capability"
 		steps[1].Inputs = []string{"reviewerResultContract", "reviewerOrchestration.dispatches[].reviewerResultPath"}
@@ -1573,8 +1576,14 @@ func reviewerRouteOutputFieldHintsFor(fields []string, items []string, evidenceR
 	return strings.Join(hints, "; ")
 }
 
-func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, reviewLoop ReviewLoop, ownerBinding OwnerBinding, resultPath string) string {
+func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, reviewLoop ReviewLoop, ownerBinding OwnerBinding, resultPath string, collectionAvailable, intakeAvailable bool) string {
 	contract := reviewerResultContract()
+	resultHandling := "Return the result to the main agent. The main agent will save it directly at reviewerResultPath for strict reviewer intake: " + resultPath + ". Do not write ledger paths yourself."
+	if collectionAvailable {
+		resultHandling = "Return the result to the main agent. The main agent will save it to reviewerStagingCommands.sourcePath for case-local staging before publication to: " + resultPath + ". Do not write canonical result or ledger paths yourself."
+	} else if !intakeAvailable {
+		resultHandling = "Return the result to the main agent. The main agent will retain it until the target is attached or initialized and a canonical case-local packet is regenerated. Do not write result or ledger paths yourself."
+	}
 	lines := []string{
 		"You are a read-only reviewer for rekit plan-subagents shard " + shard.ID + ".",
 		"Route: " + route.ID + ".",
@@ -1590,7 +1599,7 @@ func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, re
 		"If blocked intake is unavoidable, return a safer needs-more-evidence/defer result and let the main agent consume reviewerIntakeCommands.repairGuidance before rerunning previewCommand.",
 		"Keep routeOutput.decision and routeOutput.confidence equal to the top-level decision/confidence; keep routeOutput.evidence inside evidenceRefs.",
 		"Allowed decisions: " + strings.Join(contract.AllowedDecisions, ", ") + ".",
-		"Return the result to the main agent for case-local staging before publication to: " + resultPath + ". Do not write this path yourself.",
+		resultHandling,
 		"Do not write files, run heavy tools, append ledgers, or change authority/confirmed state.",
 		"The main agent owns reviewer spawn, merge, validation, handoff, and ledger writeback: " + reviewLoop.VerdictWriteback + ".",
 	}
@@ -1741,7 +1750,7 @@ func requirePathUnder(root, path, label string) error {
 }
 
 func prepareArtifactDirs(paths artifactPaths) error {
-	for _, dir := range []string{paths.Root, paths.DiffRoot, paths.PreviewRoot, paths.ResultRoot, filepath.Dir(paths.PacketPath), filepath.Dir(paths.CombinedDiffPath)} {
+	for _, dir := range []string{paths.Root, paths.DiffRoot, paths.PreviewRoot, paths.ResultRoot, filepath.Join(paths.ResultRoot, "sources"), filepath.Join(paths.ResultRoot, "candidates"), filepath.Dir(paths.PacketPath), filepath.Dir(paths.CombinedDiffPath)} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
@@ -1879,6 +1888,10 @@ func summaryText(packetID string, route Route, taskType string, itemCount, shard
 	} else {
 		for _, handoff := range shardHandoffs {
 			lines = append(lines, fmt.Sprintf("- %s: `%s`; expected output=`%s`; main-agent result path=`%s`", handoff.ShardID, handoff.DispatchPrompt, handoff.ExpectedOutput, handoff.ReviewerResultPath))
+			if handoff.ReviewerStagingCommands != nil {
+				lines = append(lines, "  - reviewer result source path: `"+handoff.ReviewerStagingCommands.SourcePath+"`")
+				lines = append(lines, "  - reviewer staging preview: `"+handoff.ReviewerStagingCommands.PreviewCommand+"`")
+			}
 			lines = append(lines, "  - reviewer result path: `"+handoff.ReviewerResultPath+"`")
 			lines = append(lines, "  - reviewer result skeleton: `"+reviewerResultSummarySkeleton(packetID, handoff, route)+"`")
 			lines = append(lines, "  - reviewer routeOutput field hints: `"+reviewerRouteOutputSummaryFieldHints(handoff.ExpectedOutput, handoff.Items, packetID)+"`")

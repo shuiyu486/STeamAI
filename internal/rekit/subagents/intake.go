@@ -23,6 +23,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/overview"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
@@ -527,6 +528,13 @@ func IntakeReadyReviewerResults(repoRoot, caseRoot, pack string, opt ReviewerBat
 		case refsf.RegularFileSymlink:
 			return result, fmt.Errorf("reviewer batch intake result path %q for shard %s must not be a symlink", resultPath, handoff.ShardID)
 		}
+		if err := ensureReviewerResultCollectedForIntake(caseRoot, packet, packetPath, handoff, resultPath); err != nil {
+			result.Stopped = true
+			result.StopShardID = handoff.ShardID
+			result.StopReason = err.Error()
+			result.NextSteps = []string{"publish the packet-derived reviewer result candidate via staging and collection before rerunning batch intake"}
+			return result, err
+		}
 		result.Ready++
 		intake, intakeErr := IntakeReviewerResult(repoRoot, caseRoot, pack, ReviewerIntakeOptions{
 			PacketPath:         packetPath,
@@ -572,6 +580,43 @@ func IntakeReadyReviewerResults(repoRoot, caseRoot, pack string, opt ReviewerBat
 		result.NextSteps = []string{"consume the final shard postValidation and downstream reviewer writeback handoff before continuing the lane"}
 	}
 	return result, nil
+}
+
+func ensureReviewerResultCollectedForIntake(caseRoot string, packet Packet, packetPath string, handoff ShardHandoff, resultPath string) error {
+	collectionBound := handoff.ReviewerStagingCommands != nil || handoff.ReviewerCollectionCommands != nil || strings.TrimSpace(handoff.ReviewerResultCandidatePath) != ""
+	if !collectionBound {
+		return nil
+	}
+	if !samePath(resultPath, handoff.ReviewerResultPath) {
+		return fmt.Errorf("reviewer result intake for shard %q requires packet-derived canonical reviewerResultPath after staging and collection", handoff.ShardID)
+	}
+	candidatePath, err := requiredAbsolutePath(handoff.ReviewerResultCandidatePath, "reviewer result candidate")
+	if err != nil {
+		return fmt.Errorf("reviewer result intake requires a packet-derived reviewer result candidate for shard %q: %w", handoff.ShardID, err)
+	}
+	resultRoot, err := requiredAbsolutePath(packet.ReviewerOrchestration.ResultRoot, "reviewer result root")
+	if err != nil {
+		return err
+	}
+	if !reviewpath.CanonicalCollectionShard(caseRoot, packetPath, resultRoot, handoff.ShardID, candidatePath, handoff.ReviewerResultPath) ||
+		!reviewpath.CollectionNamespacePathSafe(caseRoot, packetPath, false) ||
+		!reviewpath.CollectionNamespacePathSafe(caseRoot, resultRoot, false) ||
+		!reviewpath.CollectionNamespacePathSafe(caseRoot, filepath.Dir(candidatePath), true) ||
+		!reviewpath.CollectionNamespacePathSafe(caseRoot, resultPath, false) {
+		return fmt.Errorf("reviewer result intake for shard %q requires canonical packet-derived collection paths", handoff.ShardID)
+	}
+	candidate, err := readStableReviewerArtifact(resultRoot, candidatePath, "reviewer result candidate", maxReviewerResultBytes)
+	if err != nil {
+		return fmt.Errorf("reviewer result intake for shard %q requires staging and collection before canonical intake: %w", handoff.ShardID, err)
+	}
+	canonical, err := readStableReviewerArtifact(resultRoot, resultPath, "canonical reviewer result", maxReviewerResultBytes)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(candidate, canonical) {
+		return fmt.Errorf("reviewer result intake for shard %q requires canonical reviewer result bytes to match the packet-derived candidate; run collection/recovery before intake", handoff.ShardID)
+	}
+	return nil
 }
 
 func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOptions) (ReviewerIntakeResult, error) {
@@ -634,6 +679,13 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 	}
 	if reviewerResult.PacketID != packet.PacketID {
 		return ReviewerIntakeResult{}, fmt.Errorf("reviewer result packetId %q does not match packet %q", reviewerResult.PacketID, packet.PacketID)
+	}
+	handoff, ok := shardHandoffByID(packet.ShardHandoffs, reviewerResult.ShardID)
+	if !ok {
+		return ReviewerIntakeResult{}, fmt.Errorf("reviewer result shard %q is not present in packet handoffs", reviewerResult.ShardID)
+	}
+	if err := ensureReviewerResultCollectedForIntake(caseRoot, packet, packetPath, handoff, resultPath); err != nil {
+		return ReviewerIntakeResult{}, err
 	}
 	if err := ensureReviewerResultIntakeRecoveryComplete(caseRoot, packet, packetPath, reviewerResult.ShardID, lane, resultPath); err != nil {
 		return ReviewerIntakeResult{}, err
@@ -777,6 +829,13 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 	}
 	if !bytes.Equal(currentResultBytes, resultBytes) {
 		return ReviewerIntakeResult{}, fmt.Errorf("reviewer result changed before writeback")
+	}
+	latestHandoff, ok := shardHandoffByID(packet.ShardHandoffs, reviewerResult.ShardID)
+	if !ok {
+		return ReviewerIntakeResult{}, fmt.Errorf("reviewer result shard %q is not present in packet handoffs", reviewerResult.ShardID)
+	}
+	if err := ensureReviewerResultCollectedForIntake(caseRoot, packet, packetPath, latestHandoff, resultPath); err != nil {
+		return ReviewerIntakeResult{}, err
 	}
 	if err := ensureReviewerResultIntakeRecoveryComplete(caseRoot, packet, packetPath, reviewerResult.ShardID, lane, resultPath); err != nil {
 		return ReviewerIntakeResult{}, err

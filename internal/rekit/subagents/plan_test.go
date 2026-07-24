@@ -49,6 +49,9 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if !slices.Contains(result.ReviewerOrchestration.Lifecycle[2].MustPass, "do not expect readyForWriteback or postValidation until the target is an attached rekit case") || slices.Contains(result.ReviewerOrchestration.Lifecycle[2].MustPass, "isMutation=false") || !slices.Contains(result.ReviewerOrchestration.Lifecycle[3].MustPass, "no verification or decision ledger events are expected for dispatch-only artifacts") || slices.Contains(result.ReviewerOrchestration.Lifecycle[3].MustPass, "verification event precedes linked decision event") {
 		t.Fatalf("out-of-case lifecycle advertised runnable intake gates: %+v", result.ReviewerOrchestration.Lifecycle)
 	}
+	if strings.Contains(result.ShardHandoffs[0].DispatchPrompt, "reviewerStagingCommands.sourcePath") || !strings.Contains(result.ShardHandoffs[0].DispatchPrompt, "retain it until the target is attached or initialized") {
+		t.Fatalf("dispatch-only prompt advertised unavailable staging source: %s", result.ShardHandoffs[0].DispatchPrompt)
+	}
 	assertShardHandoff(t, result.ShardHandoffs[0], "shard-01", []string{"alpha", "beta"})
 
 	packetBytes, err := os.ReadFile(result.PacketPath)
@@ -203,6 +206,9 @@ func TestWritePlanGatesCollectionForCustomArtifacts(t *testing.T) {
 			}
 			if !test.wantCollection && (!strings.Contains(handoff.MainAgentNextAction, "directly at reviewerResultPath") || strings.Contains(handoff.MainAgentNextAction, "run reviewerCollectionCommands")) {
 				t.Fatalf("noncanonical packet advertised collection: %s", handoff.MainAgentNextAction)
+			}
+			if !test.wantCollection && (strings.Contains(handoff.DispatchPrompt, "reviewerStagingCommands.sourcePath") || !strings.Contains(handoff.DispatchPrompt, "save it directly at reviewerResultPath")) {
+				t.Fatalf("noncanonical packet dispatch prompt advertised unavailable staging source: %s", handoff.DispatchPrompt)
 			}
 		})
 	}

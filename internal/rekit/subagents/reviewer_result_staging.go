@@ -217,6 +217,15 @@ func prepareReviewerResultStaging(repoRoot, caseRoot, pack string, opt ReviewerR
 	if err != nil {
 		return preparedReviewerResultStaging{}, err
 	}
+	if handoff.ReviewerStagingCommands != nil && strings.TrimSpace(handoff.ReviewerStagingCommands.SourcePath) != "" {
+		expectedSourcePath, err := requiredAbsolutePath(handoff.ReviewerStagingCommands.SourcePath, "reviewer result staging source handoff")
+		if err != nil {
+			return preparedReviewerResultStaging{}, err
+		}
+		if !reviewpath.CollectionNamespacePathSafe(caseRoot, expectedSourcePath, false) || !samePath(sourcePath, expectedSourcePath) {
+			return preparedReviewerResultStaging{}, fmt.Errorf("reviewer result staging source must match the packet-derived reviewerStagingCommands.sourcePath for shard %q", shardID)
+		}
+	}
 	if samePath(sourcePath, expectedCandidatePath) || samePath(sourcePath, expectedResultPath) {
 		return preparedReviewerResultStaging{}, fmt.Errorf("reviewer result staging source must be separate from canonical candidate and result paths")
 	}

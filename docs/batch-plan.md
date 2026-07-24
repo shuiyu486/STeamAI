@@ -16,6 +16,26 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 562：reviewer orchestration packet-derived staging source path closure
+
+状态：已完成runtime、CLI、durable handoff与nested product path implementation；focused reviewer orchestration tests、完整`go test ./...`与本地release minimum已通过。implementation commit、push与release inspection待执行；远程release判断仍须以implementation commit触发的GitHub Actions实际run为准，既有`steps=[]` runner/billing blocker不能声明remote CI green。
+
+目标：关闭Batch 558/549后remaining reviewer orchestration E2E断点：planning/status/handoff仍让主Agent把read-only reviewer JSON保存到任意`<case-local-reviewer-json>`，replacement executor必须手工选择或回忆source落点，且downstream无法从packet-derived state判断“source已ready，可运行staging preview”。新路径把source落点收口到canonical review namespace并与staging Apply严格绑定。
+
+已实现内容：
+
+- fresh canonical reviewer packet为每个shard生成`.rekit/reviews/<review>/results/sources/<shard>.json`，并在`reviewerStagingCommands.sourcePath/sourcePathArgument/previewCommand`、shard handoff、dispatch prompt、terminal text与summary中直接投影；main agent动作改为保存唯一ReviewerResult JSON到`reviewerStagingCommands.sourcePath`，再运行staging WhatIf与expected-source-hash Apply。
+- `StageReviewerResult`在新packet携带source path时要求`-ReviewerResultSourcePath`与packet-derived `reviewerStagingCommands.sourcePath` exact匹配；forged或任意case-local source不再可运行。legacy packet缺少source field时仍保留既有兼容staging语义。
+- durable reviewer dispatch intake从packet/resultRoot重建canonical source/candidate/result bindings，投影`reviewerResultSourcePath`与`reviewerResultSourceState`；source ready时提升`ready-for-reviewer-result-staging-preview`，invalid source fail-closed，candidate ready与canonical collected仍接续collection preview与reviewer intake preview。Mission Commander next actions、status/handoff/continue text/Markdown同步输出source state与staging command。
+- CLI nested cwd/no `Target`/no `Pack` product path覆盖read-only reviewer JSON保存到packet-derived source、staging WhatIf/expected-hash Apply、collection WhatIf/Apply与packet-level ReadyReviewerResults；workstream tests覆盖source-ready promotion、forged source binding suppression与canonical command rebuild。
+- collection-bound canonical reviewer intake不再可被直接写`reviewerResultPath`绕过：fresh canonical packet的direct single/batch intake在canonical result path上要求packet-derived candidate存在且candidate/canonical bytes完全一致；candidate missing、invalid或不匹配会投影`reviewer-result-collection-required`/candidate-invalid并要求先走staging→collection。dispatch-only/noncanonical reviewer prompt也不再引用不可用的`reviewerStagingCommands.sourcePath`，保持legacy direct intake或attach/regenerate guidance。
+
+边界：runtime不spawn、stop、poll或monitor reviewer；不执行heavy-tool；staging/collection不写facts/authority/confirmed；`continue -Apply`和reviewer intake仍保持既有显式WhatIf→Apply边界；不新增PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`通过；完整`go test ./...`通过；本地release minimum已通过：`go run ./cmd/rekit -- -Command release-check -Format json`返回`ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go vet ./...`与`git diff --check`均通过。implementation commit/push与远程release inspection尚待执行。
+
+上一批摘要：Batch 561已完成continue executor-generation stale-writer guard closure；implementation commit `46c1c66 Guard continue against stale executors`与release inspection commit `a5c7343 Record Batch 561 release gate inspection`已推送；对应remote run `30035030511`三平台jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
+
 ### Batch 561：continue executor-generation stale-writer guard closure
 
 状态：已完成runtime、CLI、durable handoff、tests与nested product path implementation；独立审查识别的shared mutation serialization与namespace rebind问题已修复，focused/repeat tests、跨平台test-binary编译与完整本地release minimum已通过。implementation commit `46c1c66 Guard continue against stale executors`已推送；对应remote run `30035030511` completed failure，Linux/Windows/macOS jobs均`runner_id=0`且`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。
