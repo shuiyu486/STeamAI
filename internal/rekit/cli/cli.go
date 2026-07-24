@@ -1255,6 +1255,39 @@ func writeReleasePublicDefaultDocsText(out io.Writer, docs defaultdocs.Readiness
 	return nil
 }
 
+func writePackMemoryCandidateDecisionDraftHandoffText(out io.Writer, prefix, pack string, handoff *promote.CandidateDecisionDraftHandoff) error {
+	if handoff == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s pack-memory decision draft handoff：pack=%s mode=%s packet=%s decisionPath=%s nextAction=%s\n", prefix, pack, handoff.Mode, handoff.PacketPath, handoff.DecisionPath, handoff.NextAction); err != nil {
+		return err
+	}
+	for _, evidence := range handoff.EvidenceRefs {
+		if _, err := fmt.Fprintf(out, "%s pack-memory decision draft evidence ref：pack=%s evidence=%s\n", prefix, pack, evidence); err != nil {
+			return err
+		}
+	}
+	for _, decision := range handoff.SupportedDecisions {
+		if _, err := fmt.Fprintf(out, "%s pack-memory decision draft supported decision：pack=%s decision=%s\n", prefix, pack, decision); err != nil {
+			return err
+		}
+	}
+	for _, command := range handoff.PreviewCommands {
+		if _, err := fmt.Fprintf(out, "%s pack-memory decision draft preview command：pack=%s decision=%s command=%s\n", prefix, pack, command.Decision, command.PreviewCommand); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "%s pack-memory decision draft apply template：pack=%s decision=%s command=%s\n", prefix, pack, command.Decision, command.ApplyCommandTemplate); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range handoff.Boundary {
+		if _, err := fmt.Fprintf(out, "%s pack-memory decision draft handoff boundary：pack=%s boundary=%s\n", prefix, pack, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writePackMemoryCandidateReviewSummaryText(out io.Writer, prefix, pack string, summary releasecheck.ReleaseHandoffPackMemoryCandidateReviewSummary) error {
 	if summary.Total == 0 && !summary.HasIndex {
 		return nil
@@ -1378,6 +1411,9 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 			return err
 		}
 		if err := writePackMemoryCandidateReviewSummaryText(out, "release-check", pack.Pack, pack.ReviewSummary); err != nil {
+			return err
+		}
+		if err := writePackMemoryCandidateDecisionDraftHandoffText(out, "release-check", pack.Pack, pack.DecisionDraftHandoff); err != nil {
 			return err
 		}
 		for _, path := range pack.CandidatePaths {
@@ -2540,6 +2576,9 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 			return err
 		}
 		if err := writePackMemoryCandidateReviewSummaryText(out, "status", pack.Pack, pack.ReviewSummary); err != nil {
+			return err
+		}
+		if err := writePackMemoryCandidateDecisionDraftHandoffText(out, "status", pack.Pack, pack.DecisionDraftHandoff); err != nil {
 			return err
 		}
 		for _, path := range pack.CandidatePaths {
@@ -7157,6 +7196,39 @@ func writePromoteCandidateReviewArtifactsText(out io.Writer, artifacts []promote
 	return nil
 }
 
+func writePromoteCandidateDecisionDraftHandoffText(out io.Writer, handoff *promote.CandidateDecisionDraftHandoff) error {
+	if handoff == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "promote candidates decision draft handoff：mode=%s packet=%s decisionPath=%s nextAction=%s\n", handoff.Mode, handoff.PacketPath, handoff.DecisionPath, handoff.NextAction); err != nil {
+		return err
+	}
+	for _, evidence := range handoff.EvidenceRefs {
+		if _, err := fmt.Fprintf(out, "promote candidates decision draft evidence ref：%s\n", evidence); err != nil {
+			return err
+		}
+	}
+	for _, command := range handoff.PreviewCommands {
+		if _, err := fmt.Fprintf(out, "promote candidates decision draft preview command：decision=%s command=%s\n", command.Decision, command.PreviewCommand); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "promote candidates decision draft apply template：decision=%s command=%s\n", command.Decision, command.ApplyCommandTemplate); err != nil {
+			return err
+		}
+		for _, boundary := range command.Boundary {
+			if _, err := fmt.Fprintf(out, "promote candidates decision draft command boundary：decision=%s boundary=%s\n", command.Decision, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, boundary := range handoff.Boundary {
+		if _, err := fmt.Fprintf(out, "promote candidates decision draft handoff boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writePromoteCandidateExecutionPlanText(out io.Writer, steps []promote.CandidateExecutionStep) error {
 	for _, step := range steps {
 		if _, err := fmt.Fprintf(out, "promote candidates execution step：name=%s when=%s expected=%s\n", step.Name, step.When, step.Expected); err != nil {
@@ -7573,11 +7645,14 @@ func writePromoteCandidatesText(out io.Writer, result promote.CandidateResult) e
 		if _, err := fmt.Fprintf(out, "promote candidates review workspace：root=%s packet=%s summary=%s combinedDiff=%s mutation=%t\n", workspace.ReviewRoot, workspace.PacketPath, workspace.SummaryPath, workspace.CombinedDiffPath, workspace.WritesArtifacts); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(out, "promote candidates review workspace boundary：workspace records bounded review artifacts only; it does not merge/cleanup candidates, update pack sources, run doctor/init/reconsume, create proof files, write authority/confirmed, or execute heavy tools"); err != nil {
+		if _, err := fmt.Fprintln(out, "promote candidates review workspace boundary：workspace records bounded review artifacts only; decision draft handoff is guidance only; it does not merge/cleanup candidates, update pack sources, run doctor/init/reconsume, create cleanup/reconsume proof files, write authority/confirmed, or execute heavy tools"); err != nil {
 			return err
 		}
 	}
 	if err := writePromoteCandidateReviewSummaryText(out, result.ReviewPlan.ReviewSummary); err != nil {
+		return err
+	}
+	if err := writePromoteCandidateDecisionDraftHandoffText(out, result.ReviewPlan.DecisionDraftHandoff); err != nil {
 		return err
 	}
 	if err := writePromoteCandidateReviewPlanText(out, result.ReviewPlan.ReviewItems, result.ReviewPlan.DecisionChecklist); err != nil {

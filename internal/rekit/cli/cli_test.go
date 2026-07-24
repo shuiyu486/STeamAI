@@ -1103,18 +1103,19 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 				Total      int    `json:"total"`
 				NextAction string `json:"nextAction"`
 				Packs      []struct {
-					Pack            string                               `json:"pack"`
-					CandidateRoot   string                               `json:"candidateRoot"`
-					ToolingRoot     string                               `json:"toolingRoot"`
-					IndexPath       string                               `json:"indexPath"`
-					CandidateFiles  int                                  `json:"candidateFiles"`
-					ToolingFiles    int                                  `json:"toolingFiles"`
-					IndexEntries    int                                  `json:"indexEntries"`
-					RequiresReview  bool                                 `json:"requiresReview"`
-					RequiresCleanup bool                                 `json:"requiresCleanup"`
-					ReviewSummary   packMemoryCandidateReviewSummaryJSON `json:"reviewSummary"`
-					Evidence        []string                             `json:"evidence"`
-					Boundary        []string                             `json:"boundary"`
+					Pack                 string                               `json:"pack"`
+					CandidateRoot        string                               `json:"candidateRoot"`
+					ToolingRoot          string                               `json:"toolingRoot"`
+					IndexPath            string                               `json:"indexPath"`
+					CandidateFiles       int                                  `json:"candidateFiles"`
+					ToolingFiles         int                                  `json:"toolingFiles"`
+					IndexEntries         int                                  `json:"indexEntries"`
+					RequiresReview       bool                                 `json:"requiresReview"`
+					RequiresCleanup      bool                                 `json:"requiresCleanup"`
+					ReviewSummary        packMemoryCandidateReviewSummaryJSON `json:"reviewSummary"`
+					DecisionDraftHandoff *candidateDecisionDraftHandoff       `json:"decisionDraftHandoff"`
+					Evidence             []string                             `json:"evidence"`
+					Boundary             []string                             `json:"boundary"`
 				} `json:"packs"`
 			} `json:"packMemoryCandidates"`
 		} `json:"projectHandoff"`
@@ -1129,6 +1130,9 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 	pack := candidates.Packs[0]
 	if pack.Pack != "_template" || pack.CandidateRoot != "packs/_template/promote-candidates" || pack.ToolingRoot != "packs/_template/tooling/candidates" || pack.IndexPath != "packs/_template/promote-candidates/index.json" || pack.CandidateFiles != 1 || pack.ToolingFiles != 1 || pack.IndexEntries != 1 || !pack.RequiresReview || !pack.RequiresCleanup || !containsSubstring(pack.Evidence, "promote-candidates files=1") || !containsSubstring(pack.Boundary, "does not merge, delete") {
 		t.Fatalf("unexpected status pack-memory candidate pack: %+v", pack)
+	}
+	if handoff := pack.DecisionDraftHandoff; handoff == nil || handoff.Mode != "candidate-decision-draft-review-workspace-required" || handoff.DecisionPath != "packs/_template/promote-candidates/review-artifacts/candidate-decisions.json" || !containsSubstring(handoff.EvidenceRefs, "batch501-status.candidate-decision-note.md") || !containsSubstring(handoff.SupportedDecisions, "accept-managed-reject-tooling") || !strings.Contains(handoff.NextAction, "promote -CreateCandidates -Review") || !containsSubstring(handoff.Boundary, "cannot infer the case-local review packet") {
+		t.Fatalf("unexpected status pack-memory decision draft handoff: %+v", pack.DecisionDraftHandoff)
 	}
 	if summary := pack.ReviewSummary; summary.Total != 3 || summary.CandidateFiles != 1 || summary.ToolingFiles != 1 || summary.IndexEntries != 1 || summary.DecisionArtifactCount != 2 || summary.CleanupArtifactCount != 2 || summary.ReconsumeArtifactCount != 4 || summary.ProofSummary.Total != 8 || summary.ProofSummary.Present != 1 || summary.ProofSummary.Missing != 7 || summary.ProofSummary.DecisionPresent != 1 || summary.ProofSummary.DecisionMissing != 1 || summary.ProofSummary.CleanupMissing != 2 || summary.ProofSummary.ReconsumeMissing != 4 || summary.ProofSummary.ProofProgress != "1/8" || summary.ProofSummary.CurrentStage != "decision-proof-required" || summary.ProofSummary.NextMissingProofType != "candidate-decision-note" || summary.ProofSummary.NextMissingProofPath != "packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md" || summary.ProofSummary.NextMissingCandidatePath != "packs/_template/tooling/candidates/batch501-tooling.candidate.md" || summary.ProofSummary.NextMissingPackTarget != "tooling/catalog.yml or tooling/recipes/*" || summary.ProofSummary.NextMissingProof == nil || summary.ProofSummary.NextMissingProof.ProofType != "candidate-decision-note" || summary.ProofSummary.NextMissingProof.Stage != "decision-proof-required" || !strings.Contains(summary.ProofSummary.NextMissingProof.Action, "selected decisionFollowThrough outcome") || !containsSubstring(summary.ProofSummary.NextMissingProof.Evidence, "decision note path/ref") || summary.ProofSummary.Complete || summary.ProofSummary.ProofRoot != "packs/_template/promote-candidates/review-artifacts" || !strings.Contains(summary.ProofSummary.NextAction, "candidate-decision-note") || !containsSubstring(summary.ProofSummary.Boundary, "read-only") || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || !containsSubstring(summary.Boundary, "reviewSummary is read-only") {
 		t.Fatalf("unexpected status pack-memory candidate review summary: %+v", summary)
@@ -1147,6 +1151,10 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		"status pack-memory next missing proof evidence：pack=_template evidence=selected decisionFollowThrough outcome",
 		"status pack-memory proof summary boundary：pack=_template boundary=proofSummary is read-only; release/status detects proof files but does not create or validate their contents",
 		"status pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
+		"status pack-memory decision draft handoff：pack=_template mode=candidate-decision-draft-review-workspace-required packet= decisionPath=packs/_template/promote-candidates/review-artifacts/candidate-decisions.json nextAction=rerun promote -CreateCandidates -Review from the attached source case",
+		"status pack-memory decision draft evidence ref：pack=_template evidence=packs/_template/promote-candidates/review-artifacts/batch501-status.candidate-decision-note.md",
+		"status pack-memory decision draft supported decision：pack=_template decision=accept-managed-reject-tooling",
+		"status pack-memory decision draft handoff boundary：pack=_template boundary=release/status handoff cannot infer the case-local review packet",
 		"status pack-memory candidate path：pack=_template path=packs/_template/promote-candidates/",
 		"status pack-memory tooling candidate path：pack=_template path=packs/_template/tooling/candidates/",
 		"status pack-memory candidate index：pack=_template path=references/template/README.md candidate=packs/_template/promote-candidates/",
@@ -1172,6 +1180,10 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		"release-check pack-memory proof summary：pack=_template total=8 present=1 missing=7 progress=1/8 stage=decision-proof-required decisionPresent=1 decisionMissing=1 cleanupPresent=0 cleanupMissing=2 reconsumePresent=0 reconsumeMissing=4 nextMissingType=candidate-decision-note nextMissingPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingTarget=tooling/catalog.yml or tooling/recipes/* complete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
 		"release-check pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note path=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md candidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md packTarget=tooling/catalog.yml or tooling/recipes/*",
 		"release-check pack-memory next missing proof evidence：pack=_template evidence=selected decisionFollowThrough outcome",
+		"release-check pack-memory decision draft handoff：pack=_template mode=candidate-decision-draft-review-workspace-required packet= decisionPath=packs/_template/promote-candidates/review-artifacts/candidate-decisions.json nextAction=rerun promote -CreateCandidates -Review from the attached source case",
+		"release-check pack-memory decision draft evidence ref：pack=_template evidence=packs/_template/promote-candidates/review-artifacts/batch501-status.candidate-decision-note.md",
+		"release-check pack-memory decision draft supported decision：pack=_template decision=accept-managed-reject-tooling",
+		"release-check pack-memory decision draft handoff boundary：pack=_template boundary=release/status handoff cannot infer the case-local review packet",
 		"release-check pack-memory review artifact：pack=_template name=candidate-decision-note candidatePath=packs/_template/promote-candidates/batch501-status.candidate.md packTarget=references/template/README.md proofPresent=true proofPath=packs/_template/promote-candidates/review-artifacts/batch501-status.candidate-decision-note.md",
 		"release-check pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
 	} {
@@ -7651,18 +7663,19 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 				Total      int    `json:"total"`
 				NextAction string `json:"nextAction"`
 				Packs      []struct {
-					Pack            string                               `json:"pack"`
-					CandidateRoot   string                               `json:"candidateRoot"`
-					ToolingRoot     string                               `json:"toolingRoot"`
-					IndexPath       string                               `json:"indexPath"`
-					CandidateFiles  int                                  `json:"candidateFiles"`
-					ToolingFiles    int                                  `json:"toolingFiles"`
-					IndexEntries    int                                  `json:"indexEntries"`
-					RequiresReview  bool                                 `json:"requiresReview"`
-					RequiresCleanup bool                                 `json:"requiresCleanup"`
-					ReviewSummary   packMemoryCandidateReviewSummaryJSON `json:"reviewSummary"`
-					Evidence        []string                             `json:"evidence"`
-					Boundary        []string                             `json:"boundary"`
+					Pack                 string                               `json:"pack"`
+					CandidateRoot        string                               `json:"candidateRoot"`
+					ToolingRoot          string                               `json:"toolingRoot"`
+					IndexPath            string                               `json:"indexPath"`
+					CandidateFiles       int                                  `json:"candidateFiles"`
+					ToolingFiles         int                                  `json:"toolingFiles"`
+					IndexEntries         int                                  `json:"indexEntries"`
+					RequiresReview       bool                                 `json:"requiresReview"`
+					RequiresCleanup      bool                                 `json:"requiresCleanup"`
+					ReviewSummary        packMemoryCandidateReviewSummaryJSON `json:"reviewSummary"`
+					DecisionDraftHandoff *candidateDecisionDraftHandoff       `json:"decisionDraftHandoff"`
+					Evidence             []string                             `json:"evidence"`
+					Boundary             []string                             `json:"boundary"`
 				} `json:"packs"`
 			} `json:"packMemoryCandidates"`
 		} `json:"projectHandoff"`
@@ -7681,6 +7694,9 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 	if pack.Pack != "_template" || pack.CandidateRoot != "packs/_template/promote-candidates" || pack.ToolingRoot != "packs/_template/tooling/candidates" || pack.IndexPath != "packs/_template/promote-candidates/index.json" || pack.CandidateFiles != 1 || pack.ToolingFiles != 1 || pack.IndexEntries != 1 || !pack.RequiresReview || !pack.RequiresCleanup || !containsSubstring(pack.Evidence, "promote-candidates files=1") || !containsSubstring(pack.Boundary, "does not merge, delete") {
 		t.Fatalf("unexpected nested status pack-memory candidate pack: %+v", pack)
 	}
+	if handoff := pack.DecisionDraftHandoff; handoff == nil || handoff.Mode != "candidate-decision-draft-review-workspace-required" || handoff.DecisionPath != "packs/_template/promote-candidates/review-artifacts/candidate-decisions.json" || !containsSubstring(handoff.SupportedDecisions, "accept-managed-reject-tooling") || !strings.Contains(handoff.NextAction, "write or select") || !containsSubstring(handoff.Boundary, "cannot infer the case-local review packet") {
+		t.Fatalf("unexpected nested status pack-memory decision draft handoff: %+v", pack.DecisionDraftHandoff)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
@@ -7693,6 +7709,8 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 receipts=0 pendingVerification=0 completedVerification=0 review=true cleanup=true verification=false",
 		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4",
 		"status pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
+		"status pack-memory decision draft handoff：pack=_template mode=candidate-decision-draft-review-workspace-required packet= decisionPath=packs/_template/promote-candidates/review-artifacts/candidate-decisions.json nextAction=write or select at least one repo-local pack-memory review evidence ref before running promote -DraftCandidateDecision",
+		"status pack-memory decision draft supported decision：pack=_template decision=accept-managed-reject-tooling",
 		"status pack-memory candidate path：pack=_template path=packs/_template/promote-candidates/",
 		"status pack-memory tooling candidate path：pack=_template path=packs/_template/tooling/candidates/",
 		"status pack-memory candidate index：pack=_template path=references/template/README.md candidate=packs/_template/promote-candidates/",
@@ -12691,6 +12709,21 @@ type candidateReviewProofSummary struct {
 	Boundary                 []string                `json:"boundary"`
 }
 
+type candidateDecisionDraftHandoff struct {
+	Mode               string   `json:"mode"`
+	PacketPath         string   `json:"packetPath"`
+	DecisionPath       string   `json:"decisionPath"`
+	EvidenceRefs       []string `json:"evidenceRefs"`
+	SupportedDecisions []string `json:"supportedDecisions"`
+	PreviewCommands    []struct {
+		Decision             string `json:"decision"`
+		PreviewCommand       string `json:"previewCommand"`
+		ApplyCommandTemplate string `json:"applyCommandTemplate"`
+	} `json:"previewCommands"`
+	NextAction string   `json:"nextAction"`
+	Boundary   []string `json:"boundary"`
+}
+
 type candidateReviewPlan struct {
 	Mode                        string                              `json:"mode"`
 	ItemCount                   int                                 `json:"itemCount"`
@@ -12718,7 +12751,8 @@ type candidateReviewPlan struct {
 		Evidence      []string `json:"evidence"`
 		Boundary      []string `json:"boundary"`
 	} `json:"reviewArtifacts"`
-	Reconsume struct {
+	DecisionDraftHandoff *candidateDecisionDraftHandoff `json:"decisionDraftHandoff"`
+	Reconsume            struct {
 		Mode                  string   `json:"mode"`
 		Tooling               string   `json:"tooling"`
 		Commands              []string `json:"commands"`

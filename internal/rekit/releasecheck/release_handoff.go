@@ -230,6 +230,7 @@ type ReleaseHandoffPackMemoryCandidateStatus struct {
 	ReviewSummary          ReleaseHandoffPackMemoryCandidateReviewSummary      `json:"reviewSummary"`
 	ProofSummary           ReleaseHandoffPackMemoryCandidateReviewProofSummary `json:"proofSummary"`
 	DecisionReceipts       []ReleaseHandoffPackMemoryCandidateDecisionReceipt  `json:"decisionReceipts,omitempty"`
+	DecisionDraftHandoff   *promote.CandidateDecisionDraftHandoff              `json:"decisionDraftHandoff,omitempty"`
 	PendingVerifications   int                                                 `json:"pendingVerifications"`
 	CompletedVerifications int                                                 `json:"completedVerifications"`
 	ProofRoot              string                                              `json:"proofRoot,omitempty"`
@@ -688,6 +689,7 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 		status.Evidence = append(status.Evidence, fmt.Sprintf("candidate decision receipts=%d pendingVerification=%d completedVerification=%d", len(receipts), pendingVerifications, completedVerifications))
 	}
 	status.ReviewArtifacts = packMemoryCandidateReviewArtifacts(status, proofRoot)
+	status.DecisionDraftHandoff = packMemoryCandidateDecisionDraftHandoff(status)
 	status.ProofSummary = packMemoryCandidateReviewProofSummary(status)
 	status.ReviewSummary = packMemoryCandidateReviewSummary(status)
 	status.Boundary = []string{
@@ -696,6 +698,58 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 		"do not promote case-specific artifacts, traces, dumps, captures, payloads, flags, or customer data",
 	}
 	return status, nil
+}
+
+func packMemoryCandidateDecisionDraftHandoff(status ReleaseHandoffPackMemoryCandidateStatus) *promote.CandidateDecisionDraftHandoff {
+	if !status.RequiresReview || strings.TrimSpace(status.ProofRoot) == "" {
+		return nil
+	}
+	evidenceRefs := packMemoryCandidateDecisionDraftEvidenceRefs(status)
+	handoff := promote.CandidateDecisionDraftHandoff{
+		Mode:               "candidate-decision-draft-review-workspace-required",
+		DecisionPath:       filepath.ToSlash(filepath.Join(status.ProofRoot, "candidate-decisions.json")),
+		EvidenceRefs:       evidenceRefs,
+		DefaultReason:      "reviewed pack-memory candidate inventory, decision proofs, and cleanup/reconsume expectations",
+		DefaultActor:       "mission-commander",
+		SupportedDecisions: packMemoryCandidateDecisionDraftSupportedDecisions(status),
+		Boundary: []string{
+			"release/status handoff cannot infer the case-local review packet; run promote -CreateCandidates -Review from the attached source case to materialize packet-bound draft commands",
+			"draft preview must be run only after reviewing packet.json, bounded diffs, sanitized previews, and evidence refs",
+			"WhatIf returns decisionSha256; Apply must use the exact returned -ExpectedDecisionSha256",
+			"drafting does not merge candidates, cleanup candidate files, run doctor/init/reconsume, write authority/confirmed, or execute heavy tools",
+		},
+	}
+	if len(evidenceRefs) == 0 {
+		handoff.NextAction = "write or select at least one repo-local pack-memory review evidence ref before running promote -DraftCandidateDecision"
+		return &handoff
+	}
+	handoff.NextAction = "rerun promote -CreateCandidates -Review from the attached source case, then use the packet decisionDraftHandoff preview/apply commands"
+	return &handoff
+}
+
+func packMemoryCandidateDecisionDraftEvidenceRefs(status ReleaseHandoffPackMemoryCandidateStatus) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, artifact := range status.ReviewArtifacts {
+		path := strings.TrimSpace(artifact.ProofPath)
+		if path == "" {
+			continue
+		}
+		clean := filepath.ToSlash(filepath.Clean(path))
+		if seen[clean] {
+			continue
+		}
+		seen[clean] = true
+		out = append(out, clean)
+	}
+	return out
+}
+
+func packMemoryCandidateDecisionDraftSupportedDecisions(status ReleaseHandoffPackMemoryCandidateStatus) []string {
+	if status.ToolingFiles > 0 {
+		return []string{"accept-managed-reject-tooling", "reject", "superseded"}
+	}
+	return []string{"accept", "accept-managed-reject-tooling", "reject", "superseded"}
 }
 
 func packMemoryCandidateReviewSummary(status ReleaseHandoffPackMemoryCandidateStatus) ReleaseHandoffPackMemoryCandidateReviewSummary {
@@ -1997,6 +2051,9 @@ func releaseHandoffPackMemoryCandidateDetails(inventory ReleaseHandoffPackMemory
 		}
 		for _, receipt := range pack.DecisionReceipts {
 			details = append(details, fmt.Sprintf("decisionReceipt pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t workspace=%s provisionCommand=%s proofPath=%s command=%s retirementStatus=%s retirementRequired=%t retirementInProgress=%t retired=%t retirementIntent=%s retirementReceipt=%s retirementSha256=%s retirementPreviewCommand=%s retirementNextAction=%s", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationWorkspaceRoot, receipt.VerificationProvisionCommand, receipt.VerificationProofPath, receipt.VerificationCommand, receipt.RetirementStatus, receipt.RetirementRequired, receipt.RetirementInProgress, receipt.Retired, receipt.RetirementIntentPath, receipt.RetirementReceiptPath, receipt.RetirementSHA256, receipt.RetirementPreviewCommand, receipt.RetirementNextAction))
+		}
+		if handoff := pack.DecisionDraftHandoff; handoff != nil {
+			details = append(details, fmt.Sprintf("decisionDraftHandoff pack=%s mode=%s decisionPath=%s evidenceRefs=%d supportedDecisions=%s nextAction=%s", pack.Pack, handoff.Mode, handoff.DecisionPath, len(handoff.EvidenceRefs), strings.Join(handoff.SupportedDecisions, ","), handoff.NextAction))
 		}
 		summary := pack.ReviewSummary
 		details = append(details, fmt.Sprintf("reviewSummary pack=%s total=%d decisionArtifacts=%d cleanupArtifacts=%d reconsumeArtifacts=%d proofPresent=%d proofMissing=%d proofComplete=%t nextAction=%s", pack.Pack, summary.Total, summary.DecisionArtifactCount, summary.CleanupArtifactCount, summary.ReconsumeArtifactCount, summary.ProofSummary.Present, summary.ProofSummary.Missing, summary.ProofSummary.Complete, summary.NextAction))

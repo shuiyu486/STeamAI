@@ -16,6 +16,25 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 564：pack-memory candidate decision draft handoff closure
+
+状态：已完成 Go runtime、CLI、package/release/status product-path implementation、focused/full 本地验证；implementation commit/push 与 implementation remote release-gate inspection 待执行。远程 CI green 仍需以 implementation commit 触发的实际 GitHub Actions job 为准，`release-check` inventory ready 不代表 remote green。
+
+目标：关闭 Batch 563 之后的 operational handoff 断点：虽然 `promote -DraftCandidateDecision` 已能自动生成 packet-bound decision file，但 `promote -CreateCandidates -Review` workspace、terminal、Mission Commander action queue，以及 downstream `status` / `release-check` open pack-memory candidate handoff 仍可能只提示人工 review/cleanup，replacement executor 需要手工回忆 draft command、packet path、decision path、evidence refs 与 expected-hash Apply 语义。
+
+已实现内容：
+
+- `promote -CreateCandidates -Review` 现在在 durable `candidateResult.reviewPlan.decisionDraftHandoff` 中写入 packet path、case-local decision path、review evidence refs、supported decisions、preview commands、`<decisionSha256-from-WhatIf>` Apply templates、next action 与 no-merge/no-cleanup/no-heavy/no-authority boundary；workspace `summary.md` 与 CLI text 同步输出 draft preview/apply handoff。
+- Mission Commander queue 保持 review-first：current action 仍是 `reviewPlan.decisionChecklist`，draft preview 作为 review 后下一步进入 `reviewPlan.decisionDraftHandoff`，避免 draft action 抢占 review 或绕过人工复核。actual candidates 生成可运行 draft command；WhatIf candidates 因 candidate bytes 未 materialize，只给出先 rerun without `-WhatIf` 的 materialize guidance。
+- `release-check` 与 kit/case `status` 的 open pack-memory candidate handoff 新增 `decisionDraftHandoff`，从 repo-local proof refs、supported decisions 与 pack candidate residue生成只读 guidance，提示从 attached source case 重新生成 review workspace 或先补充 repo-local evidence ref，再使用 packet handoff 的 draft preview/apply path；release/status 不推断 case-local packet、不写 decision file。
+- CLI JSON/text product paths 覆盖 review workspace handoff、status/release-check downstream handoff、nested case cwd/no `Target`/no `Pack` 状态投影；package tests 证明 workspace packet handoff 可直接调用 `DraftCandidateDecisions` 生成可用 preview，且 WhatIf 不写 decision file。
+
+边界：本批只把 Batch 563 的 Go-native draft path接入 durable review/status/release handoff；不 merge/cleanup candidates，不写 pack source，不运行 doctor/init/reconsume，不创建 proof，不写 facts/authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。release/status handoff 只读且不声称 remote CI green。
+
+验证结果：focused `go test ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck -count=1`通过；完整`go test ./...`通过；本地release minimum已通过：`go run ./cmd/rekit -- -Command release-check -Format json`返回`ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go vet ./...`与`git diff --check`均通过（仅保留Windows工作树LF→CRLF提示）。implementation commit/push 与远程 inspection 尚未执行，不能声明 remote CI green。
+
+上一批摘要：Batch 563已完成 pack-memory candidate decision draft closure；implementation commit `188ddc0`与release inspection commit `9934a22`已推送；implementation run `30071689533` completed failure，Windows/Linux/macOS jobs `89413717542`/`89413717566`/`89413717568`均`steps=[]`，仍属既有runner/billing blocker。
+
 ### Batch 563：pack-memory candidate decision draft closure
 
 状态：已完成 Go runtime、CLI、package/CLI product-path implementation、本地验证、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `188ddc0`已推送。implementation run `30071689533` completed failure，Windows/Linux/macOS jobs `89413717542`/`89413717566`/`89413717568` 均`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。本release inspection record仅记录该implementation run；不要为inspection commit自身CI追加第三个记录提交，除非出现不同于既有`steps=[]`的新远程信号。

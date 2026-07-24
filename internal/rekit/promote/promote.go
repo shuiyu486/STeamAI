@@ -83,6 +83,28 @@ type CandidateReviewArtifact struct {
 	Boundary      []string `json:"boundary,omitempty"`
 }
 
+type CandidateDecisionDraftCommand struct {
+	Decision             string   `json:"decision"`
+	When                 string   `json:"when"`
+	PreviewCommand       string   `json:"previewCommand"`
+	ApplyCommandTemplate string   `json:"applyCommandTemplate"`
+	Expected             string   `json:"expected"`
+	Boundary             []string `json:"boundary,omitempty"`
+}
+
+type CandidateDecisionDraftHandoff struct {
+	Mode               string                          `json:"mode"`
+	PacketPath         string                          `json:"packetPath,omitempty"`
+	DecisionPath       string                          `json:"decisionPath,omitempty"`
+	EvidenceRefs       []string                        `json:"evidenceRefs,omitempty"`
+	DefaultReason      string                          `json:"defaultReason,omitempty"`
+	DefaultActor       string                          `json:"defaultActor,omitempty"`
+	SupportedDecisions []string                        `json:"supportedDecisions,omitempty"`
+	PreviewCommands    []CandidateDecisionDraftCommand `json:"previewCommands,omitempty"`
+	NextAction         string                          `json:"nextAction,omitempty"`
+	Boundary           []string                        `json:"boundary,omitempty"`
+}
+
 type CandidateReviewNextMissingProof struct {
 	Stage         string   `json:"stage,omitempty"`
 	ProofType     string   `json:"proofType,omitempty"`
@@ -168,6 +190,7 @@ type CandidateReviewPlan struct {
 	DecisionFollowThrough       []CandidateDecisionFollowThrough         `json:"decisionFollowThrough"`
 	CleanupTargets              []CandidateCleanupTarget                 `json:"cleanupTargets"`
 	ReviewArtifacts             []CandidateReviewArtifact                `json:"reviewArtifacts,omitempty"`
+	DecisionDraftHandoff        *CandidateDecisionDraftHandoff           `json:"decisionDraftHandoff,omitempty"`
 	MainAgentExecutionPlan      []CandidateExecutionStep                 `json:"mainAgentExecutionPlan"`
 	Reconsume                   CandidateReconsumeGuidance               `json:"reconsume"`
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
@@ -544,6 +567,7 @@ func WriteCandidateReviewWorkspace(result CandidateResult, opt CandidateArtifact
 		return CandidateResult{}, fmt.Errorf("decode candidate review input: %w", err)
 	}
 	result.ReviewWorkspace = &workspace
+	result = withCandidateDecisionDraftHandoff(result, reviewInput, workspace)
 	packetResult := result
 	packet := CandidateReviewPacket{
 		SchemaVersion:   1,
@@ -552,8 +576,9 @@ func WriteCandidateReviewWorkspace(result CandidateResult, opt CandidateArtifact
 		CandidateResult: packetResult,
 		ReviewInput:     reviewInput,
 		Boundary: []string{
-			"review workspace records candidate review context, bounded diffs, and sanitized previews only",
-			"review workspace does not merge or delete candidates, update pack sources, run doctor/init/reconsume, or create expected proof files",
+			"review workspace records candidate review context, bounded diffs, sanitized previews, and candidate decision draft handoff only",
+			"review workspace does not merge or delete candidates, update pack sources, run doctor/init/reconsume, or create cleanup/reconsume proof files",
+			"candidate decision draft handoff only previews or writes a case-local decision JSON after explicit WhatIf hash review",
 			"review workspace does not write authority/confirmed or execute heavy tools",
 		},
 	}
@@ -587,7 +612,7 @@ func candidateReviewWorkspaceSummary(result CandidateResult, plan review.Plan, w
 		"",
 		"1. Read packet.json candidateResult.reviewPlan and reviewInput before choosing candidate decisions.",
 		"2. Inspect bounded diffs and sanitized previews under this workspace.",
-		"3. Record one expected decision proof per pending or blocked review item.",
+		"3. Use decisionDraftHandoff to run a Go-native draft preview, inspect decisionSha256, then use the returned expected-hash Apply command if the reviewed decisions are correct.",
 		"4. Follow only the selected decisionFollowThrough outcome; cleanup and reconsume remain explicit main-Agent actions.",
 		"",
 		"## 验证标准",
@@ -595,14 +620,205 @@ func candidateReviewWorkspaceSummary(result CandidateResult, plan review.Plan, w
 		fmt.Sprintf("- review input changed/planned items: %d", plan.Summary.Changed),
 		fmt.Sprintf("- review input blocked items: %d", plan.Summary.Blocked),
 		fmt.Sprintf("- next missing proof: %s", summary.ProofSummary.NextMissingProofPath),
+	}
+	if handoff := result.ReviewPlan.DecisionDraftHandoff; handoff != nil {
+		lines = append(lines,
+			fmt.Sprintf("- decision draft handoff: mode=%s decisionPath=%s", handoff.Mode, handoff.DecisionPath),
+			fmt.Sprintf("- decision draft next action: %s", handoff.NextAction),
+		)
+		for _, command := range handoff.PreviewCommands {
+			lines = append(lines,
+				fmt.Sprintf("- decision draft preview (%s): %s", command.Decision, command.PreviewCommand),
+				fmt.Sprintf("- decision draft apply template (%s): %s", command.Decision, command.ApplyCommandTemplate),
+			)
+		}
+	}
+	lines = append(lines,
 		"",
 		"## 风险与注意事项",
 		"",
-		"- This workspace is review evidence only; it does not merge or delete candidates, update pack sources, run doctor/init/reconsume, or create expected proof files.",
-		"- Do not write authority/confirmed state or execute heavy tools from this workspace.",
+		"- This workspace is review evidence plus decision draft handoff only; it does not merge or delete candidates, update pack sources, run doctor/init/reconsume, or create cleanup/reconsume proof files.",
+		"- Draft handoff can only preview or write one case-local decision JSON after explicit WhatIf hash review; it does not write authority/confirmed or execute heavy tools.",
 		"- Do not copy case-specific samples, traces, dumps, captures, payloads, flags, customer data, or absolute case paths into pack sources.",
-	}
+	)
 	return strings.Join(lines, "\r\n") + "\r\n"
+}
+
+func withCandidateDecisionDraftHandoff(result CandidateResult, plan review.Plan, workspace review.ArtifactResult) CandidateResult {
+	handoff := candidateDecisionDraftHandoff(result, plan, workspace)
+	if handoff == nil {
+		return result
+	}
+	result.ReviewPlan.DecisionDraftHandoff = handoff
+	result.ReviewPlan.MainAgentExecutionPlan = append([]CandidateExecutionStep{candidateDecisionDraftExecutionStep(*handoff)}, result.ReviewPlan.MainAgentExecutionPlan...)
+	draftAction := candidateDecisionDraftNextAction(*handoff)
+	if len(result.ReviewPlan.MissionCommanderNextActions) == 0 {
+		result.ReviewPlan.MissionCommanderNextActions = []mission.MissionCommanderNextActionItem{draftAction}
+	} else {
+		updated := append([]mission.MissionCommanderNextActionItem{}, result.ReviewPlan.MissionCommanderNextActions[:1]...)
+		updated = append(updated, draftAction)
+		updated = append(updated, result.ReviewPlan.MissionCommanderNextActions[1:]...)
+		result.ReviewPlan.MissionCommanderNextActions = updated
+	}
+	result.ReviewPlan.MissionCommanderNextActions = mission.UniqueCommanderNextActions(result.ReviewPlan.MissionCommanderNextActions)
+	result.ReviewPlan.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.ReviewPlan.MissionCommanderNextActions)
+	result.ReviewPlan.MissionCommanderAction = candidateDecisionDraftCommanderAction(result.ReviewPlan.MissionCommanderAction, *handoff)
+	result.ReviewPlan.ReviewSummary = CandidateReviewSummaryFor(result, result.ReviewPlan, !result.IsMutation)
+	return result
+}
+
+func candidateDecisionDraftHandoff(result CandidateResult, plan review.Plan, workspace review.ArtifactResult) *CandidateDecisionDraftHandoff {
+	if candidatePendingReviewCount(result.ReviewPlan.ReviewItems) == 0 {
+		return nil
+	}
+	evidenceRefs := candidateDecisionDraftHandoffEvidenceRefs(plan, workspace)
+	handoff := CandidateDecisionDraftHandoff{
+		Mode:               "candidate-decision-draft-handoff",
+		PacketPath:         workspace.PacketPath,
+		DecisionPath:       filepath.Join(workspace.ReviewRoot, "candidate-decisions.json"),
+		EvidenceRefs:       evidenceRefs,
+		DefaultReason:      "reviewed durable candidate packet, bounded diff, and sanitized previews",
+		DefaultActor:       "mission-commander",
+		SupportedDecisions: candidateDecisionDraftSupportedDecisions(result.ReviewPlan.ReviewItems),
+		Boundary: []string{
+			"run the draft preview after reviewing packet.json, bounded diffs, sanitized previews, and evidence refs",
+			"WhatIf returns decisionSha256; Apply must use the exact returned -ExpectedDecisionSha256",
+			"draft Apply writes only the case-local decisionPath JSON and is exact replay only",
+			"drafting does not merge candidates, cleanup candidate files, run doctor/init/reconsume, write authority/confirmed, or execute heavy tools",
+		},
+	}
+	if !result.IsMutation {
+		handoff.Mode = "candidate-decision-draft-after-materialize"
+		handoff.NextAction = "rerun promote -CreateCandidates -Review without -WhatIf before using decision draft commands; preview candidates do not exist yet"
+		handoff.Boundary = append([]string{"WhatIf did not create candidatePath bytes; DraftCandidateDecision requires materialized candidates"}, handoff.Boundary...)
+		return &handoff
+	}
+	if len(evidenceRefs) == 0 {
+		handoff.NextAction = "choose at least one non-empty case-local or repo-local evidence ref before running promote -DraftCandidateDecision"
+		return &handoff
+	}
+	for _, decision := range handoff.SupportedDecisions {
+		preview := candidateDecisionDraftCommand(handoff.PacketPath, handoff.DecisionPath, decision, handoff.DefaultReason, handoff.DefaultActor, strings.Join(handoff.EvidenceRefs, ","), "", false)
+		apply := candidateDecisionDraftCommand(handoff.PacketPath, handoff.DecisionPath, decision, handoff.DefaultReason, handoff.DefaultActor, strings.Join(handoff.EvidenceRefs, ","), "<decisionSha256-from-WhatIf>", true)
+		handoff.PreviewCommands = append(handoff.PreviewCommands, CandidateDecisionDraftCommand{
+			Decision:             decision,
+			When:                 candidateDecisionDraftCommandWhen(decision),
+			PreviewCommand:       preview,
+			ApplyCommandTemplate: apply,
+			Expected:             "inspect generated decisions and decisionSha256 before replacing the placeholder in the Apply template",
+			Boundary:             append([]string{}, handoff.Boundary...),
+		})
+	}
+	if len(handoff.PreviewCommands) > 0 {
+		handoff.NextAction = handoff.PreviewCommands[0].PreviewCommand
+	}
+	return &handoff
+}
+
+func candidateDecisionDraftHandoffEvidenceRefs(plan review.Plan, workspace review.ArtifactResult) []string {
+	candidates := []string{workspace.CombinedDiffPath, workspace.SummaryPath}
+	for _, item := range plan.Items {
+		candidates = append(candidates, item.DiffPath)
+	}
+	for _, item := range plan.ToolingItems {
+		candidates = append(candidates, item.SanitizedPreviewPath)
+	}
+	out := []string{}
+	seen := map[string]bool{}
+	for _, path := range candidates {
+		path = strings.TrimSpace(path)
+		if path == "" || seen[filepath.Clean(path)] {
+			continue
+		}
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() || info.Size() == 0 {
+			continue
+		}
+		seen[filepath.Clean(path)] = true
+		out = append(out, path)
+	}
+	return out
+}
+
+func candidateDecisionDraftSupportedDecisions(items []CandidateReviewItem) []string {
+	hasTooling := false
+	for _, item := range items {
+		if item.ReviewDecision == "pending-review" && item.Kind == "tooling-candidate-source" {
+			hasTooling = true
+			break
+		}
+	}
+	if hasTooling {
+		return []string{"accept-managed-reject-tooling", "reject", "superseded"}
+	}
+	return []string{"accept", "accept-managed-reject-tooling", "reject", "superseded"}
+}
+
+func candidateDecisionDraftCommandWhen(decision string) string {
+	switch decision {
+	case "accept":
+		return "after every pending candidate is a reviewed managed-doc candidate that should be accepted"
+	case "accept-managed-reject-tooling":
+		return "after managed-doc candidates should be accepted and tooling candidates should remain manual or rejected"
+	case "reject":
+		return "after every pending candidate should be rejected"
+	case "superseded":
+		return "after every pending candidate is replaced by newer reviewed content"
+	default:
+		return "after reviewing all pending candidates"
+	}
+}
+
+func candidatePendingReviewCount(items []CandidateReviewItem) int {
+	count := 0
+	for _, item := range items {
+		if item.ReviewDecision == "pending-review" {
+			count++
+		}
+	}
+	return count
+}
+
+func candidateDecisionDraftExecutionStep(handoff CandidateDecisionDraftHandoff) CandidateExecutionStep {
+	commands := []string{}
+	for _, command := range handoff.PreviewCommands {
+		commands = append(commands, command.PreviewCommand, command.ApplyCommandTemplate)
+	}
+	return CandidateExecutionStep{
+		Name:     "draft-candidate-decision-file",
+		When:     "after reviewing candidate review packet, bounded diffs, sanitized previews, and before candidate merge/cleanup",
+		Commands: commands,
+		Expected: "Go-native draft preview returns decisionSha256 and the expected-hash Apply writes only decisionPath",
+		Evidence: append([]string{"decisionDraftHandoff packetPath/decisionPath/evidenceRefs", "draft preview decisionSha256"}, handoff.EvidenceRefs...),
+		Boundary: append([]string{}, handoff.Boundary...),
+	}
+}
+
+func candidateDecisionDraftNextAction(handoff CandidateDecisionDraftHandoff) mission.MissionCommanderNextActionItem {
+	return mission.MissionCommanderNextActionItem{
+		State:          "pack-memory-candidates:decision-draft-preview",
+		Command:        handoff.NextAction,
+		Source:         "reviewPlan.decisionDraftHandoff",
+		RequiresReview: true,
+		Reasons:        []string{"use the Go-native candidate decision draft path instead of hand-authoring packet/candidate/target/evidence hashes", "inspect decisionSha256 before running the expected-hash Apply template"},
+		Boundary:       append([]string{}, handoff.Boundary...),
+	}
+}
+
+func candidateDecisionDraftCommanderAction(base mission.MissionCommanderAction, handoff CandidateDecisionDraftHandoff) mission.MissionCommanderAction {
+	commands := append([]string{}, base.FollowUpCommands...)
+	for _, command := range handoff.PreviewCommands {
+		commands = append(commands, command.PreviewCommand)
+	}
+	if len(handoff.PreviewCommands) == 0 && strings.TrimSpace(handoff.NextAction) != "" {
+		commands = append(commands, handoff.NextAction)
+	}
+	base.FollowUpCommands = mission.UniqueStrings(commands)
+	base.Boundary = mission.UniqueStrings(append(base.Boundary, handoff.Boundary...))
+	if strings.TrimSpace(base.Prompt) != "" {
+		base.Prompt += " decisionDraftHandoff 提供 Go-native decision file preview/apply；不要手写 packet/candidate/evidence hash。"
+	}
+	return base
 }
 
 func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (ApplyResult, error) {

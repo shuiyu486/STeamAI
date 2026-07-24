@@ -308,6 +308,9 @@ func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
 	if !releaseHandoffReviewArtifactProofContains(pack.ReviewArtifacts, "candidate-decision-note", "packs/fixture/promote-candidates/candidate.candidate.md", "packs/fixture/promote-candidates/review-artifacts/candidate.candidate-decision-note.md", true) || !releaseHandoffReviewArtifactProofContains(pack.ReviewArtifacts, "candidate-cleanup-proof", "packs/fixture/promote-candidates/candidate.candidate.md", "packs/fixture/promote-candidates/review-artifacts/candidate.candidate-cleanup-proof.md", false) {
 		t.Fatalf("pack-memory candidate proof handoff drifted: %+v", pack.ReviewArtifacts)
 	}
+	if handoff := pack.DecisionDraftHandoff; handoff == nil || handoff.Mode != "candidate-decision-draft-review-workspace-required" || handoff.DecisionPath != "packs/fixture/promote-candidates/review-artifacts/candidate-decisions.json" || !slices.Contains(handoff.EvidenceRefs, "packs/fixture/promote-candidates/review-artifacts/candidate.candidate-decision-note.md") || !slices.Contains(handoff.SupportedDecisions, "accept-managed-reject-tooling") || !strings.Contains(handoff.NextAction, "promote -CreateCandidates -Review") || !releaseHandoffStringsContain(handoff.Boundary, "cannot infer the case-local review packet") {
+		t.Fatalf("pack-memory candidate decision draft handoff drifted: %+v", pack.DecisionDraftHandoff)
+	}
 	for _, evidence := range []string{"promote-candidates files=1", "tooling/candidates files=1", "indexPath packs/fixture/promote-candidates/index.json entries=1"} {
 		if !slices.Contains(pack.Evidence, evidence) {
 			t.Fatalf("pack-memory candidate evidence missing %q: %+v", evidence, pack.Evidence)

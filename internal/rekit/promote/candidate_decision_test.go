@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
@@ -66,6 +67,40 @@ func TestDraftCandidateDecisionsPreviewsAppliesAndReplaysDecisionFile(t *testing
 	if packet.CandidateResult.RepoRoot == "" {
 		t.Fatalf("fixture packet omitted repo binding: %+v", packet)
 	}
+}
+
+func TestCandidateReviewWorkspaceSurfacesUsableDecisionDraftHandoff(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, packet, _ := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "draft-handoff")
+	handoff := created.ReviewPlan.DecisionDraftHandoff
+	if handoff == nil || handoff.PacketPath != created.ReviewWorkspace.PacketPath || handoff.DecisionPath == "" || len(handoff.EvidenceRefs) == 0 || len(handoff.PreviewCommands) == 0 || !strings.Contains(handoff.PreviewCommands[0].PreviewCommand, "-DraftCandidateDecision") || !strings.Contains(handoff.PreviewCommands[0].ApplyCommandTemplate, "<decisionSha256-from-WhatIf>") {
+		t.Fatalf("candidate review workspace omitted decision draft handoff: %+v", handoff)
+	}
+	if packet.CandidateResult.ReviewPlan.DecisionDraftHandoff == nil || packet.CandidateResult.ReviewPlan.DecisionDraftHandoff.NextAction == "" {
+		t.Fatalf("candidate review packet omitted durable decision draft handoff: %+v", packet.CandidateResult.ReviewPlan.DecisionDraftHandoff)
+	}
+	if created.ReviewPlan.MissionCommanderActionQueue.CurrentAction == nil || created.ReviewPlan.MissionCommanderActionQueue.CurrentAction.Source != "reviewPlan.decisionChecklist" || !candidateDecisionDraftNextActionForTest(created.ReviewPlan.MissionCommanderNextActions) {
+		t.Fatalf("candidate review handoff should keep review first and queue draft next: %+v", created.ReviewPlan.MissionCommanderActionQueue)
+	}
+	preview, err := DraftCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionDraftOptions{PacketPath: handoff.PacketPath, DecisionPath: handoff.DecisionPath, Decision: handoff.SupportedDecisions[0], Reason: handoff.DefaultReason, Actor: handoff.DefaultActor, EvidenceRefs: strings.Join(handoff.EvidenceRefs, ","), WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.DecisionSHA256 == "" || preview.DecisionPath != handoff.DecisionPath || preview.DecisionCount != 2 || preview.Accepted != 1 || preview.Rejected != 1 {
+		t.Fatalf("decision draft handoff did not produce usable preview: %+v", preview)
+	}
+	if _, err := os.Stat(handoff.DecisionPath); !os.IsNotExist(err) {
+		t.Fatalf("decision draft handoff preview wrote decision file: %v", err)
+	}
+}
+
+func candidateDecisionDraftNextActionForTest(items []mission.MissionCommanderNextActionItem) bool {
+	for _, item := range items {
+		if item.Source == "reviewPlan.decisionDraftHandoff" && strings.Contains(item.Command, "-DraftCandidateDecision") {
+			return true
+		}
+	}
+	return false
 }
 
 func TestDraftCandidateDecisionsRejectsUnsafeInputs(t *testing.T) {
