@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 572：pack-memory cleanup proof strict release attestation
+
+状态：已完成 release/status strict attestation runtime、tests 与本地 release minimum；implementation commit/push 和 implementation remote release-gate inspection 待本批后续 cadence 记录。本批延续 Batch 571：candidate cleanup proof 已能由 committed receipt deterministic draft，但 release/status 仍把 `review-artifacts/*.candidate-cleanup-proof.{md,json,txt}` 的任意非目录文件当作 proof present，导致 `# cleanup proof` 这类 loose placeholder 可关闭 release handoff。
+
+目标：让 release/status 对 receipt-derived `candidate-cleanup-proof` 只接受 strict JSON proof note，并重新绑定 durable receipt、candidate decision、transaction journal、committed marker、backup hashes、candidate absent、index entry absent、accepted packTarget hash 与 evidence refs；伪 proof、hash drift、绝对路径持久化或当前 cleanup state drift 均 fail-closed 为 release handoff warning。
+
+已实现内容：
+
+- `releasecheck` 在扫描 receipt-derived cleanup proof 时不再只看文件存在；会 strict decode `pack-memory-candidate-review-proof` JSON，并校验 `schemaVersion`、`proofType=candidate-cleanup-proof`、pack、packet hash、decision hash、candidate/packTarget/reviewItem identity、decision/reason/actor、boundary 与 no absolute / no escaping stored paths。
+- Cleanup proof validator 绑定 committed receipt path/hash、transaction journal path/hash、committed marker path/hash、candidate backup path/hash、target backup path/hash、candidate absent 当前状态、managed-doc index entry absent 当前状态、index presence，以及 accepted packTarget current hash 必须等于 reviewed candidate backup hash。
+- Evidence refs 必须非空、repo/case-local、relative stored、非 symlink regular file 且 SHA-256 匹配；malformed/loose Markdown proof、non-regular proof、receipt/backup/journal/hash/path/current-state drift 都会使 pack-memory candidate inventory 进入 warning，而不是误报 release ready。
+- Release/status handoff 保持只读：只从 durable receipt/action 保留 hidden full-path authority 用于本机校验，对 JSON 输出仍只暴露 repo-relative public identity；proof 缺失继续投影 Batch 571 的 `promote -DraftReviewProof -ProofType candidate-cleanup-proof -CandidateDecisionPath ...` WhatIf/Apply template。
+
+边界：本批只增强 release/status 对已存在 cleanup proof 的只读 strict attestation；不生成 proof、不 merge pack sources、不 cleanup candidate/index、不运行 doctor/init/reconsume、不执行 verification provisioning/final verification/retirement、不执行 heavy tool、不写 authority/confirmed、不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/promote -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 待 implementation commit 推送后记录；当前不能声明 remote CI green。
+
 ### Batch 571：pack-memory candidate cleanup proof draft closure
 
 状态：已完成 Go runtime、CLI route/text、release/status receipt-derived handoff、tests、本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `8a69ced` 已推送。implementation run `30121928443` completed failure，macOS/Linux/Windows jobs `89576438286`/`89576438289`/`89576438299` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 570：candidate decision note proof 已能 deterministic draft，但 candidate decision Apply 已清理 candidate/index 之后，`candidate-cleanup-proof` 仍只能靠人工命令 transcript 或 loose Markdown，replacement executor 在 candidate 文件已消失后还必须手工从 receipt/backup/journal 拼证明。

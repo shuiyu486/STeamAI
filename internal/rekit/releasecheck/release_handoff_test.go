@@ -548,7 +548,14 @@ func TestReleaseHandoffPackMemoryCandidateVerificationRetirementLifecycle(t *tes
 	}
 	proofData = append(proofData, '\n')
 	writeFile(t, proofPath, string(proofData))
-	writeFile(t, filepath.Join(proofRoot, "memory.candidate-cleanup-proof.md"), "# cleanup proof\n")
+	acceptedCandidateBackupPath := actions[0]["candidateBackupPath"].(string)
+	acceptedPackTarget := actions[0]["packTarget"].(string)
+	writeFile(t, acceptedCandidateBackupPath, "accepted memory content\n")
+	writeFile(t, acceptedPackTarget, "accepted memory content\n")
+	writeFile(t, filepath.Join(backupRoot, "transaction.json"), "{\"kind\":\"transaction\"}\n")
+	acceptedCleanupEvidence := filepath.Join(caseRoot, "cleanup-evidence.md")
+	writeFile(t, acceptedCleanupEvidence, "cleanup proof evidence\n")
+	writeCandidateCleanupProof(t, repo, caseRoot, filepath.Join(proofRoot, "memory.candidate-cleanup-proof.md"), "fixture", packetHash, decisionHash, receiptPath, filepath.Join(backupRoot, "transaction.json"), filepath.Join(backupRoot, "committed.json"), actions[0]["candidatePath"].(string), acceptedCandidateBackupPath, acceptedPackTarget, "", filepath.Join(candidateRoot, "index.json"), "accept", "managed-doc", acceptedCleanupEvidence)
 	ownedContent := "owned verification artifact\n"
 	freshOwned := filepath.Join(freshRoot, "owned.txt")
 	attachedOwned := filepath.Join(attachedRoot, "owned.txt")
@@ -879,7 +886,13 @@ func TestReleaseHandoffPackMemoryToolingRejectReceiptDoesNotBlock(t *testing.T) 
 	}
 	writeFile(t, filepath.Join(backupRoot, "committed.json"), string(committedData)+"\n")
 	writeFile(t, receiptPath, string(data)+"\n")
-	writeFile(t, filepath.Join(proofRoot, "tool.candidate-cleanup-proof.md"), "# cleanup proof\n")
+	cleanupProofPath := filepath.Join(proofRoot, "tool.candidate-cleanup-proof.md")
+	writeFile(t, cleanupProofPath, "# cleanup proof\n")
+	looseProof := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if looseProof.Ready || looseProof.Summary != "pack-memory candidate inventory has warnings" || len(looseProof.Warnings) == 0 || !strings.Contains(fmt.Sprint(looseProof.Warnings), "decode candidate cleanup proof") {
+		t.Fatalf("loose cleanup proof was not rejected: %+v", looseProof)
+	}
+	writeCandidateCleanupProof(t, repo, caseRoot, cleanupProofPath, "fixture", packetHash, decisionHash, receiptPath, filepath.Join(backupRoot, "transaction.json"), filepath.Join(backupRoot, "committed.json"), candidatePath, candidateBackupPath, "", "", indexPath, "reject", "tooling-candidate-source", evidencePath)
 	inventory := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
 	if !inventory.Ready || inventory.Total != 0 || len(inventory.Packs) != 0 || len(inventory.Warnings) != 0 {
 		t.Fatalf("completed tooling reject receipt blocked release handoff: %+v", inventory)
@@ -1014,6 +1027,75 @@ description: Fixture pack.
 	}
 	assertWarningContains(t, result.ReleaseHandoff.Warnings, "docs/context-routing.md")
 	assertWarningContains(t, result.Warnings, "release handoff read-first document missing")
+}
+
+func writeCandidateCleanupProof(t *testing.T, repo, caseRoot, proofPath, pack, packetHash, decisionHash, receiptPath, transactionPath, committedPath, candidatePath, candidateBackupPath, packTarget, targetBackupPath, indexPath, decision, kind, evidencePath string) {
+	t.Helper()
+	candidateHash := fileSHA256ReleaseHandoff(candidateBackupPath)
+	packTargetHash := ""
+	if decision == "accept" {
+		packTargetHash = fileSHA256ReleaseHandoff(packTarget)
+	}
+	evidenceRel, err := filepath.Rel(caseRoot, evidencePath)
+	if err != nil || strings.HasPrefix(evidenceRel, ".."+string(filepath.Separator)) || filepath.IsAbs(evidenceRel) {
+		evidenceRel, err = filepath.Rel(repo, evidencePath)
+		if err != nil || strings.HasPrefix(evidenceRel, ".."+string(filepath.Separator)) || filepath.IsAbs(evidenceRel) {
+			t.Fatalf("cleanup proof evidence leaves repo/case: %s", evidencePath)
+		}
+	}
+	proof := map[string]any{
+		"schemaVersion":  1,
+		"kind":           "pack-memory-candidate-review-proof",
+		"pack":           pack,
+		"packetHash":     packetHash,
+		"decisionHash":   decisionHash,
+		"proofType":      "candidate-cleanup-proof",
+		"candidatePath":  releaseHandoffRepoRelative(repo, candidatePath),
+		"candidateHash":  candidateHash,
+		"packTarget":     releaseHandoffRepoRelative(repo, packTarget),
+		"packTargetHash": packTargetHash,
+		"decision":       decision,
+		"reason":         "reviewed cleanup receipt and current candidate residue state",
+		"actor":          "mission-commander",
+		"evidenceRefs": []map[string]any{{
+			"path":   filepath.ToSlash(evidenceRel),
+			"sha256": fileSHA256ReleaseHandoff(evidencePath),
+		}},
+		"reviewItem": map[string]any{
+			"candidatePath": releaseHandoffRepoRelative(repo, candidatePath),
+			"candidateHash": candidateHash,
+			"packTarget":    releaseHandoffRepoRelative(repo, packTarget),
+			"kind":          kind,
+		},
+		"cleanup": map[string]any{
+			"decisionReceiptPath": releaseHandoffRepoRelative(repo, receiptPath),
+			"decisionReceiptHash": fileSHA256ReleaseHandoff(receiptPath),
+			"transactionPath":     releaseHandoffRepoRelative(repo, transactionPath),
+			"transactionHash":     fileSHA256ReleaseHandoff(transactionPath),
+			"committedPath":       releaseHandoffRepoRelative(repo, committedPath),
+			"committedHash":       fileSHA256ReleaseHandoff(committedPath),
+			"candidateBackupPath": releaseHandoffRepoRelative(repo, candidateBackupPath),
+			"candidateBackupHash": candidateHash,
+			"targetBackupPath":    releaseHandoffRepoRelative(repo, targetBackupPath),
+			"targetBackupHash":    fileSHA256ReleaseHandoff(targetBackupPath),
+			"indexPath":           releaseHandoffRepoRelative(repo, indexPath),
+			"indexPresent":        refExists(indexPath),
+			"indexEntryAbsent":    true,
+			"candidateAbsent":     true,
+			"packTargetHash":      packTargetHash,
+		},
+		"boundary": []string{"cleanup proof fixture is read-only release handoff evidence"},
+	}
+	data, err := json.MarshalIndent(proof, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, proofPath, string(data)+"\n")
+}
+
+func refExists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
 }
 
 func assertHandoffReadFirst(t *testing.T, handoff ReleaseHandoff, path string) {
