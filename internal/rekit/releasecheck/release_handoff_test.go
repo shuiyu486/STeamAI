@@ -274,8 +274,12 @@ func TestLatestBatchRemoteGateRecognizesEqualsEmptyStepsAndChineseNegativeGreen(
 
 func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
 	repo := t.TempDir()
-	writeFile(t, filepath.Join(repo, "packs", "fixture", "promote-candidates", "candidate.candidate.md"), "# candidate\n")
-	writeFile(t, filepath.Join(repo, "packs", "fixture", "tooling", "candidates", "tool.candidate.md"), "# tooling\n")
+	candidatePath := filepath.Join(repo, "packs", "fixture", "promote-candidates", "candidate.candidate.md")
+	toolingPath := filepath.Join(repo, "packs", "fixture", "tooling", "candidates", "tool.candidate.md")
+	proofRoot := filepath.Join(repo, "packs", "fixture", "promote-candidates", "review-artifacts")
+	proofPath := filepath.Join(proofRoot, "candidate.candidate-decision-note.md")
+	writeFile(t, candidatePath, "# candidate\n")
+	writeFile(t, toolingPath, "# tooling\n")
 	writeFile(t, filepath.Join(repo, "packs", "fixture", "promote-candidates", "index.json"), `[
   {
     "path": "references/template/README.md",
@@ -283,7 +287,14 @@ func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
   }
 ]
 `)
-	writeFile(t, filepath.Join(repo, "packs", "fixture", "promote-candidates", "review-artifacts", "candidate.candidate-decision-note.md"), "# decision\n")
+	writeFile(t, proofPath, "# decision\n")
+	looseProof := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if looseProof.Ready || looseProof.Summary != "pack-memory candidate inventory has warnings" || len(looseProof.Warnings) == 0 || !strings.Contains(fmt.Sprint(looseProof.Warnings), "decode candidate decision proof") {
+		t.Fatalf("loose candidate decision proof was not rejected: %+v", looseProof)
+	}
+	evidencePath := filepath.Join(proofRoot, "candidate.review-evidence.md")
+	writeFile(t, evidencePath, "reviewed decision evidence\n")
+	writeCandidateDecisionProof(t, repo, proofPath, "fixture", "packet-hash", candidatePath, filepath.Join(repo, "packs", "fixture", "references", "template", "README.md"), "reject", "managed-doc", evidencePath)
 
 	inventory := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
 	if inventory.Ready || inventory.Summary != "pack-memory candidate inventory has open review/cleanup/verification work" || inventory.Total != 3 || len(inventory.Packs) != 1 || !strings.Contains(inventory.NextAction, "review listed pack-memory candidates") || len(inventory.Warnings) == 0 {
@@ -1027,6 +1038,49 @@ description: Fixture pack.
 	}
 	assertWarningContains(t, result.ReleaseHandoff.Warnings, "docs/context-routing.md")
 	assertWarningContains(t, result.Warnings, "release handoff read-first document missing")
+}
+
+func writeCandidateDecisionProof(t *testing.T, repo, proofPath, pack, packetHash, candidatePath, packTarget, decision, kind, evidencePath string) {
+	t.Helper()
+	candidateHash := fileSHA256ReleaseHandoff(candidatePath)
+	packTargetHash := ""
+	if decision == "accept" {
+		packTargetHash = fileSHA256ReleaseHandoff(packTarget)
+	}
+	evidenceRel, err := filepath.Rel(repo, evidencePath)
+	if err != nil || strings.HasPrefix(evidenceRel, ".."+string(filepath.Separator)) || filepath.IsAbs(evidenceRel) {
+		t.Fatalf("candidate decision proof evidence leaves repo: %s", evidencePath)
+	}
+	proof := map[string]any{
+		"schemaVersion":  1,
+		"kind":           "pack-memory-candidate-review-proof",
+		"pack":           pack,
+		"packetHash":     packetHash,
+		"proofType":      "candidate-decision-note",
+		"candidatePath":  releaseHandoffRepoRelative(repo, candidatePath),
+		"candidateHash":  candidateHash,
+		"packTarget":     releaseHandoffRepoRelative(repo, packTarget),
+		"packTargetHash": packTargetHash,
+		"decision":       decision,
+		"reason":         "reviewed candidate decision proof fixture",
+		"actor":          "mission-commander",
+		"evidenceRefs": []map[string]any{{
+			"path":   filepath.ToSlash(evidenceRel),
+			"sha256": fileSHA256ReleaseHandoff(evidencePath),
+		}},
+		"reviewItem": map[string]any{
+			"candidatePath": releaseHandoffRepoRelative(repo, candidatePath),
+			"candidateHash": candidateHash,
+			"packTarget":    releaseHandoffRepoRelative(repo, packTarget),
+			"kind":          kind,
+		},
+		"boundary": []string{"candidate decision proof fixture is read-only release handoff evidence"},
+	}
+	data, err := json.MarshalIndent(proof, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, proofPath, string(data)+"\n")
 }
 
 func writeCandidateCleanupProof(t *testing.T, repo, caseRoot, proofPath, pack, packetHash, decisionHash, receiptPath, transactionPath, committedPath, candidatePath, candidateBackupPath, packTarget, targetBackupPath, indexPath, decision, kind, evidencePath string) {

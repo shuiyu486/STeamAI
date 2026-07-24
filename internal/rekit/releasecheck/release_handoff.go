@@ -752,7 +752,11 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 	if len(receipts) > 0 {
 		status.Evidence = append(status.Evidence, fmt.Sprintf("candidate decision receipts=%d pendingVerification=%d completedVerification=%d", len(receipts), pendingVerifications, completedVerifications))
 	}
-	status.ReviewArtifacts = packMemoryCandidateReviewArtifacts(status, proofRoot)
+	reviewArtifacts, err := packMemoryCandidateReviewArtifacts(status, proofRoot)
+	if err != nil {
+		return ReleaseHandoffPackMemoryCandidateStatus{}, fmt.Errorf("pack-memory candidate review proof scan failed for %s: %w", pack.ID, err)
+	}
+	status.ReviewArtifacts = reviewArtifacts
 	status.ReviewArtifacts = append(status.ReviewArtifacts, receiptCleanupArtifacts...)
 	status.DecisionDraftHandoff = packMemoryCandidateDecisionDraftHandoff(status)
 	status.ProofSummary = packMemoryCandidateReviewProofSummary(status)
@@ -864,7 +868,7 @@ func packMemoryCandidateReviewSummary(status ReleaseHandoffPackMemoryCandidateSt
 	return summary
 }
 
-func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidateStatus, proofRoot string) []ReleaseHandoffPackMemoryCandidateReviewArtifact {
+func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidateStatus, proofRoot string) ([]ReleaseHandoffPackMemoryCandidateReviewArtifact, error) {
 	artifacts := []ReleaseHandoffPackMemoryCandidateReviewArtifact{}
 	baseBoundary := []string{
 		"review artifact is guidance only; release/status does not write decision, cleanup, or reconsume proof",
@@ -994,9 +998,13 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 		})
 	}
 	for i := range artifacts {
-		artifacts[i] = packMemoryCandidateReviewArtifactWithProof(status, artifacts[i], proofRoot)
+		artifact, err := packMemoryCandidateReviewArtifactWithProof(status, artifacts[i], proofRoot)
+		if err != nil {
+			return nil, err
+		}
+		artifacts[i] = artifact
 	}
-	return artifacts
+	return artifacts, nil
 }
 
 func packMemoryCandidateDecisionCleanupArtifacts(status ReleaseHandoffPackMemoryCandidateStatus, proofRoot string) ([]ReleaseHandoffPackMemoryCandidateReviewArtifact, error) {
@@ -1049,6 +1057,130 @@ func packMemoryCandidateDecisionCleanupArtifacts(status ReleaseHandoffPackMemory
 		}
 	}
 	return artifacts, nil
+}
+
+func validatePackMemoryCandidateDecisionProof(status ReleaseHandoffPackMemoryCandidateStatus, artifact ReleaseHandoffPackMemoryCandidateReviewArtifact, proofRoot, path string) error {
+	repo := strings.TrimSpace(status.repoRootFull)
+	if repo == "" {
+		return fmt.Errorf("candidate decision proof validation lacks repo authority: %s", path)
+	}
+	if !pathWithinReleaseHandoffRoot(proofRoot, path) {
+		return fmt.Errorf("candidate decision proof leaves proof root: %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var proof candidateReviewProofNoteInventory
+	if err := decodeReleaseHandoffStrictJSON(data, &proof); err != nil {
+		return fmt.Errorf("decode candidate decision proof %s: %w", path, err)
+	}
+	kind, candidateRoot, err := releaseHandoffCandidateDecisionProofKind(status, artifact.CandidatePath)
+	if err != nil {
+		return err
+	}
+	candidateFull := filepath.Join(repo, filepath.FromSlash(artifact.CandidatePath))
+	if err := validateReleaseHandoffHashedFile(candidateRoot, candidateFull, proof.CandidateHash, "candidate decision proof candidate"); err != nil {
+		return err
+	}
+	expectedPackTarget := releaseHandoffCandidateDecisionProofPackTarget(status, artifact, kind)
+	if proof.Cleanup != nil || proof.SchemaVersion != 1 || proof.Kind != "pack-memory-candidate-review-proof" || proof.Pack != status.Pack || proof.ProofType != "candidate-decision-note" || strings.TrimSpace(proof.PacketHash) == "" || strings.TrimSpace(proof.DecisionHash) != "" || proof.CandidatePath != artifact.CandidatePath || proof.PackTarget != expectedPackTarget || strings.TrimSpace(proof.Reason) == "" || strings.TrimSpace(proof.Actor) == "" || len(proof.Boundary) == 0 {
+		return fmt.Errorf("candidate decision proof binding mismatch: %s", path)
+	}
+	if !candidateCleanupProofStoresOnlyRelativePaths(proof) {
+		return fmt.Errorf("candidate decision proof stores absolute or escaping path: %s", path)
+	}
+	if proof.ReviewItem.CandidatePath != proof.CandidatePath || proof.ReviewItem.CandidateHash != proof.CandidateHash || proof.ReviewItem.Kind != kind || proof.ReviewItem.PackTarget != proof.PackTarget {
+		return fmt.Errorf("candidate decision proof review item binding mismatch: %s", path)
+	}
+	switch proof.Decision {
+	case "accept":
+		if kind != "managed-doc" || strings.TrimSpace(expectedPackTarget) == "" {
+			return fmt.Errorf("candidate decision proof cannot accept this candidate: %s", path)
+		}
+		packTargetFull := filepath.Join(repo, filepath.FromSlash(expectedPackTarget))
+		packRoot := filepath.Join(repo, "packs", filepath.FromSlash(status.Pack))
+		if !pathWithinReleaseHandoffRoot(packRoot, packTargetFull) {
+			return fmt.Errorf("candidate decision proof packTarget leaves pack root: %s", proof.PackTarget)
+		}
+		packTargetHash := fileSHA256ReleaseHandoff(packTargetFull)
+		if strings.TrimSpace(packTargetHash) == "" || !strings.EqualFold(proof.PackTargetHash, packTargetHash) {
+			return fmt.Errorf("candidate decision proof packTarget hash mismatch: %s", path)
+		}
+	case "reject", "superseded":
+		if strings.TrimSpace(proof.PackTargetHash) != "" {
+			return fmt.Errorf("candidate decision proof unexpected packTarget hash: %s", path)
+		}
+	default:
+		return fmt.Errorf("candidate decision proof has unsupported decision: %s", path)
+	}
+	if err := validateCandidateDecisionProofEvidenceRefs(repo, proof.EvidenceRefs); err != nil {
+		return err
+	}
+	return nil
+}
+
+func releaseHandoffCandidateDecisionProofKind(status ReleaseHandoffPackMemoryCandidateStatus, candidatePath string) (string, string, error) {
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(candidatePath)))
+	candidateRoot := strings.TrimRight(filepath.ToSlash(status.CandidateRoot), "/")
+	toolingRoot := strings.TrimRight(filepath.ToSlash(status.ToolingRoot), "/")
+	switch {
+	case toolingRoot != "" && strings.HasPrefix(clean, toolingRoot+"/"):
+		return "tooling-candidate-source", filepath.Join(status.repoRootFull, filepath.FromSlash(status.ToolingRoot)), nil
+	case candidateRoot != "" && strings.HasPrefix(clean, candidateRoot+"/"):
+		return "managed-doc", filepath.Join(status.repoRootFull, filepath.FromSlash(status.CandidateRoot)), nil
+	default:
+		return "", "", fmt.Errorf("candidate decision proof candidate leaves known candidate roots: %s", candidatePath)
+	}
+}
+
+func releaseHandoffCandidateDecisionProofPackTarget(status ReleaseHandoffPackMemoryCandidateStatus, artifact ReleaseHandoffPackMemoryCandidateReviewArtifact, kind string) string {
+	if kind == "tooling-candidate-source" {
+		return filepath.ToSlash(filepath.Dir(filepath.FromSlash(status.ToolingRoot)))
+	}
+	packTarget := strings.TrimSpace(artifact.PackTarget)
+	if packTarget == "" {
+		return ""
+	}
+	if strings.HasPrefix(filepath.ToSlash(packTarget), "packs/") {
+		return filepath.ToSlash(packTarget)
+	}
+	return filepath.ToSlash(filepath.Join("packs", status.Pack, filepath.FromSlash(packTarget)))
+}
+
+func validateCandidateDecisionProofEvidenceRefs(repo string, evidenceRefs []candidateDecisionEvidenceInventory) error {
+	if len(evidenceRefs) == 0 {
+		return fmt.Errorf("candidate decision proof requires non-empty evidenceRefs")
+	}
+	seen := map[string]bool{}
+	for _, evidence := range evidenceRefs {
+		if strings.TrimSpace(evidence.Path) == "" || strings.TrimSpace(evidence.SHA256) == "" {
+			return fmt.Errorf("candidate decision proof evidence path or hash is empty")
+		}
+		if !releaseHandoffStoredRelativePath(evidence.Path) {
+			return fmt.Errorf("candidate decision proof evidence stores absolute or escaping path: %s", evidence.Path)
+		}
+		key := filepath.ToSlash(filepath.Clean(filepath.FromSlash(evidence.Path)))
+		if seen[key] {
+			return fmt.Errorf("candidate decision proof evidence duplicated: %s", evidence.Path)
+		}
+		seen[key] = true
+		full := filepath.Join(repo, filepath.FromSlash(evidence.Path))
+		if err := rejectReleaseHandoffSymlinkPath(repo, full, true); err != nil {
+			return err
+		}
+		info, err := os.Lstat(full)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > 1024*1024 || !strings.EqualFold(fileSHA256ReleaseHandoff(full), evidence.SHA256) {
+			return fmt.Errorf("candidate decision proof evidence hash mismatch: %s", evidence.Path)
+		}
+	}
+	return nil
 }
 
 func validatePackMemoryCandidateCleanupProof(status ReleaseHandoffPackMemoryCandidateStatus, receipt ReleaseHandoffPackMemoryCandidateDecisionReceipt, action ReleaseHandoffPackMemoryCandidateDecisionReceiptAction, proofRoot, path string) error {
@@ -1333,7 +1465,7 @@ func packMemoryCandidateReviewProofSummary(status ReleaseHandoffPackMemoryCandid
 			summary.NextAction = "all expected pack-memory review proof files are present; review candidate cleanup/reconsume outcomes before release handoff"
 		}
 		summary.Boundary = []string{
-			"proofSummary is read-only; release/status detects proof files but does not create or validate their contents",
+			"proofSummary is read-only; release/status detects and validates bounded proof files but does not create or reconsume them",
 			"proof files must stay repo-local review evidence and must not contain case-specific artifacts, traces, dumps, captures, payloads, flags, or customer data",
 		}
 	}
@@ -2479,22 +2611,37 @@ func releaseHandoffRepoRelative(repo, path string) string {
 	return filepath.ToSlash(path)
 }
 
-func packMemoryCandidateReviewArtifactWithProof(status ReleaseHandoffPackMemoryCandidateStatus, artifact ReleaseHandoffPackMemoryCandidateReviewArtifact, proofRoot string) ReleaseHandoffPackMemoryCandidateReviewArtifact {
+func packMemoryCandidateReviewArtifactWithProof(status ReleaseHandoffPackMemoryCandidateStatus, artifact ReleaseHandoffPackMemoryCandidateReviewArtifact, proofRoot string) (ReleaseHandoffPackMemoryCandidateReviewArtifact, error) {
 	if strings.TrimSpace(status.ProofRoot) == "" {
-		return artifact
+		return artifact, nil
 	}
 	stem := packMemoryCandidateProofStem(artifact.CandidatePath, artifact.PackTarget)
 	for _, ext := range []string{".md", ".json", ".txt"} {
 		name := stem + "." + artifact.Name + ext
 		rel := filepath.ToSlash(filepath.Join(status.ProofRoot, name))
 		artifact.ExpectedProofs = append(artifact.ExpectedProofs, rel)
-		info, err := os.Stat(filepath.Join(proofRoot, name))
-		if err == nil && !info.IsDir() && artifact.ProofPath == "" {
+		candidate := filepath.Join(proofRoot, name)
+		info, err := os.Lstat(candidate)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return artifact, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > 1024*1024 {
+			return artifact, fmt.Errorf("candidate review proof must be a non-empty regular file: %s", candidate)
+		}
+		if artifact.Name == "candidate-decision-note" {
+			if err := validatePackMemoryCandidateDecisionProof(status, artifact, proofRoot, candidate); err != nil {
+				return artifact, err
+			}
+		}
+		if artifact.ProofPath == "" {
 			artifact.ProofPath = rel
 			artifact.ProofPresent = true
 		}
 	}
-	return artifact
+	return artifact, nil
 }
 
 func packMemoryCandidateProofStem(candidatePath, packTarget string) string {

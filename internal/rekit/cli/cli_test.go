@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -1128,7 +1130,10 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
   }
 ]
 `)
-	writePathFile(t, filepath.Join(candidateRoot, "review-artifacts", "batch501-status.candidate-decision-note.md"), "# decision\n")
+	proofPath := filepath.Join(candidateRoot, "review-artifacts", "batch501-status.candidate-decision-note.md")
+	evidencePath := filepath.Join(candidateRoot, "review-artifacts", "batch501-status.review-evidence.md")
+	writePathFile(t, evidencePath, "bounded candidate decision evidence\n")
+	writeCLIPackMemoryCandidateDecisionProof(t, root, proofPath, "_template", "packet-hash", filepath.Join(candidateRoot, "batch501-status.candidate.md"), filepath.Join(root, "packs", "_template", "references", "template", "README.md"), "reject", "managed-doc", evidencePath)
 
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
@@ -1189,7 +1194,7 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		"status pack-memory proof summary：pack=_template total=8 present=1 missing=7 progress=1/8 stage=decision-proof-required decisionPresent=1 decisionMissing=1 cleanupPresent=0 cleanupMissing=2 reconsumePresent=0 reconsumeMissing=4 nextMissingType=candidate-decision-note nextMissingPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingTarget=tooling/catalog.yml or tooling/recipes/* complete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
 		"status pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note path=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md candidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md packTarget=tooling/catalog.yml or tooling/recipes/*",
 		"status pack-memory next missing proof evidence：pack=_template evidence=selected decisionFollowThrough outcome",
-		"status pack-memory proof summary boundary：pack=_template boundary=proofSummary is read-only; release/status detects proof files but does not create or validate their contents",
+		"status pack-memory proof summary boundary：pack=_template boundary=proofSummary is read-only; release/status detects and validates bounded proof files but does not create or reconsume them",
 		"status pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
 		"status pack-memory decision draft handoff：pack=_template mode=candidate-decision-draft-review-workspace-required packet= decisionPath=packs/_template/promote-candidates/review-artifacts/candidate-decisions.json nextAction=rerun promote -CreateCandidates -Review from the attached source case",
 		"status pack-memory decision draft evidence ref：pack=_template evidence=packs/_template/promote-candidates/review-artifacts/batch501-status.candidate-decision-note.md",
@@ -13812,6 +13817,67 @@ func writePathFile(t *testing.T, path, text string) {
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeCLIPackMemoryCandidateDecisionProof(t *testing.T, repo, proofPath, pack, packetHash, candidatePath, packTarget, decision, kind, evidencePath string) {
+	t.Helper()
+	evidenceRel, err := filepath.Rel(repo, evidencePath)
+	if err != nil || strings.HasPrefix(evidenceRel, ".."+string(filepath.Separator)) || filepath.IsAbs(evidenceRel) {
+		t.Fatalf("candidate decision proof evidence leaves repo: %s", evidencePath)
+	}
+	candidateRel, err := filepath.Rel(repo, candidatePath)
+	if err != nil || strings.HasPrefix(candidateRel, ".."+string(filepath.Separator)) || filepath.IsAbs(candidateRel) {
+		t.Fatalf("candidate decision proof candidate leaves repo: %s", candidatePath)
+	}
+	packTargetRel, err := filepath.Rel(repo, packTarget)
+	if err != nil || strings.HasPrefix(packTargetRel, ".."+string(filepath.Separator)) || filepath.IsAbs(packTargetRel) {
+		t.Fatalf("candidate decision proof pack target leaves repo: %s", packTarget)
+	}
+	candidateHash := cliTestFileSHA256(t, candidatePath)
+	packTargetHash := ""
+	if decision == "accept" {
+		packTargetHash = cliTestFileSHA256(t, packTarget)
+	}
+	proof := map[string]any{
+		"schemaVersion":  1,
+		"kind":           "pack-memory-candidate-review-proof",
+		"pack":           pack,
+		"packetHash":     packetHash,
+		"proofType":      "candidate-decision-note",
+		"candidatePath":  filepath.ToSlash(candidateRel),
+		"candidateHash":  candidateHash,
+		"packTarget":     filepath.ToSlash(packTargetRel),
+		"packTargetHash": packTargetHash,
+		"decision":       decision,
+		"reason":         "reviewed status pack-memory candidate decision proof fixture",
+		"actor":          "mission-commander",
+		"evidenceRefs": []map[string]any{{
+			"path":   filepath.ToSlash(evidenceRel),
+			"sha256": cliTestFileSHA256(t, evidencePath),
+		}},
+		"reviewItem": map[string]any{
+			"candidatePath": filepath.ToSlash(candidateRel),
+			"candidateHash": candidateHash,
+			"packTarget":    filepath.ToSlash(packTargetRel),
+			"kind":          kind,
+		},
+		"boundary": []string{"candidate decision proof fixture is read-only release handoff evidence"},
+	}
+	data, err := json.MarshalIndent(proof, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePathFile(t, proofPath, string(data)+"\n")
+}
+
+func cliTestFileSHA256(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func writeCaseFile(t *testing.T, caseRoot, rel, text string) {
