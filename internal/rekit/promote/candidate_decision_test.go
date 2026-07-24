@@ -1,6 +1,7 @@
 package promote
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -66,6 +67,103 @@ func TestDraftCandidateDecisionsPreviewsAppliesAndReplaysDecisionFile(t *testing
 	}
 	if packet.CandidateResult.RepoRoot == "" {
 		t.Fatalf("fixture packet omitted repo binding: %+v", packet)
+	}
+}
+
+func TestDraftCandidateReviewProofPreviewsAppliesAndReplaysProofNote(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, _, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "review-proof")
+	proofPath := filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "review-proof.candidate-decision-note.md")
+
+	preview, err := DraftCandidateReviewProof(repoRoot, caseRoot, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, ProofPath: proofPath, ProofType: "candidate-decision-note", CandidatePath: managed.CandidatePath, Decision: "accept", Reason: "reviewed bounded candidate diff", Actor: "mission-commander", EvidenceRefs: created.ReviewWorkspace.CombinedDiffPath, WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.IsMutation || preview.Applied || preview.ProofSHA256 == "" || preview.PacketHash == "" || preview.ProofPath != proofPath || preview.Proof.CandidateHash == "" || preview.Proof.PackTargetHash == "" || preview.Proof.CandidatePath == managed.CandidatePath || !strings.HasPrefix(preview.Proof.CandidatePath, "packs/") || preview.ApplyCommand == "" || !strings.Contains(preview.ApplyCommand, "-ExpectedProofSha256") {
+		t.Fatalf("unexpected candidate review proof preview: %+v", preview)
+	}
+	if _, err := os.Stat(proofPath); !os.IsNotExist(err) {
+		t.Fatalf("candidate review proof WhatIf wrote proof file: %v", err)
+	}
+
+	applied, err := DraftCandidateReviewProof(repoRoot, caseRoot, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, ProofPath: proofPath, ProofType: "candidate-decision-note", CandidatePath: managed.CandidatePath, Decision: "accept", Reason: "reviewed bounded candidate diff", Actor: "mission-commander", EvidenceRefs: created.ReviewWorkspace.CombinedDiffPath, ExpectedProofSHA256: preview.ProofSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.IsMutation || !applied.Applied || applied.AlreadyWritten || applied.ProofSHA256 != preview.ProofSHA256 {
+		t.Fatalf("unexpected candidate review proof apply: %+v", applied)
+	}
+	data, err := os.ReadFile(proofPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte(caseRoot)) || bytes.Contains(data, []byte(repoRoot)) {
+		t.Fatalf("proof note should not persist absolute repo/case roots: %s", string(data))
+	}
+	var note CandidateReviewProofNote
+	if err := decodeStrictJSON(data, &note); err != nil {
+		t.Fatal(err)
+	}
+	if note.PacketHash != preview.PacketHash || note.CandidateHash != fileSHA256(managed.CandidatePath) || len(note.EvidenceRefs) != 1 || note.EvidenceRefs[0].SHA256 == "" {
+		t.Fatalf("candidate review proof note is not packet/candidate/evidence-bound: %+v", note)
+	}
+	replay, err := DraftCandidateReviewProof(repoRoot, caseRoot, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, ProofPath: proofPath, ProofType: "candidate-decision-note", CandidatePath: managed.CandidatePath, Decision: "accept", Reason: "reviewed bounded candidate diff", Actor: "mission-commander", EvidenceRefs: created.ReviewWorkspace.CombinedDiffPath, ExpectedProofSHA256: preview.ProofSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replay.Applied || !replay.AlreadyWritten {
+		t.Fatalf("candidate review proof replay was not idempotent: %+v", replay)
+	}
+}
+
+func TestDraftCandidateReviewProofRejectsUnsafeInputs(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, _, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "review-proof-unsafe")
+	proofPath := filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "unsafe.candidate-decision-note.json")
+	base := CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, ProofPath: proofPath, ProofType: "candidate-decision-note", CandidatePath: managed.CandidatePath, Decision: "reject", Reason: "reviewed bounded candidate diff", Actor: "mission-commander", EvidenceRefs: created.ReviewWorkspace.CombinedDiffPath, WhatIf: true}
+	tests := []struct {
+		name      string
+		mutate    func(*CandidateReviewProofDraftOptions)
+		wantError string
+	}{
+		{
+			name: "missing evidence",
+			mutate: func(opt *CandidateReviewProofDraftOptions) {
+				opt.EvidenceRefs = ""
+			},
+			wantError: "requires at least one -EvidenceRefs",
+		},
+		{
+			name: "proof escapes repo",
+			mutate: func(opt *CandidateReviewProofDraftOptions) {
+				opt.ProofPath = filepath.Join(caseRoot, ".rekit", "proof.json")
+			},
+			wantError: "must stay under pack promote-candidates/review-artifacts",
+		},
+		{
+			name: "candidate missing",
+			mutate: func(opt *CandidateReviewProofDraftOptions) {
+				if err := os.Remove(managed.CandidatePath); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantError: "must be a non-empty regular file",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "candidate missing" {
+				repoRoot, caseRoot, pack = promoteFixture(t)
+				created, _, managed = candidateDecisionFixture(t, repoRoot, caseRoot, pack, "review-proof-unsafe-missing")
+				base = CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, ProofPath: filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "unsafe-missing.candidate-decision-note.json"), ProofType: "candidate-decision-note", CandidatePath: managed.CandidatePath, Decision: "reject", Reason: "reviewed bounded candidate diff", Actor: "mission-commander", EvidenceRefs: created.ReviewWorkspace.CombinedDiffPath, WhatIf: true}
+			}
+			opt := base
+			tc.mutate(&opt)
+			_, err := DraftCandidateReviewProof(repoRoot, caseRoot, pack, opt)
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("error = %v, want %q", err, tc.wantError)
+			}
+		})
 	}
 }
 

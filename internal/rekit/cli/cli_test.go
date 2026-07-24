@@ -131,6 +131,16 @@ func TestParseGateDraftExecutionReport(t *testing.T) {
 	}
 }
 
+func TestParsePromoteDraftReviewProof(t *testing.T) {
+	opt, err := Parse([]string{"-Command", "promote", "-DraftReviewProof", "-PacketPath", "packet.json", "-ProofPath", "proof.md", "-ProofType", "candidate-decision-note", "-CandidatePath", "packs/unit/promote-candidates/candidate.candidate.md", "-ProofDecision", "reject", "-Reason", "reviewed", "-Actor", "mission-commander", "-EvidenceRefs", "evidence.md", "-ExpectedProofSha256", strings.Repeat("c", 64), "-Apply", "-Format", "json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.DraftReviewProof || opt.PacketPath != "packet.json" || opt.ReviewProofPath != "proof.md" || opt.ReviewProofType != "candidate-decision-note" || opt.ReviewProofCandidatePath != "packs/unit/promote-candidates/candidate.candidate.md" || opt.CandidateDecision != "reject" || opt.CandidateDecisionReason != "reviewed" || opt.CandidateDecisionActor != "mission-commander" || opt.CandidateDecisionEvidenceRefs != "evidence.md" || opt.ExpectedReviewProofSHA256 != strings.Repeat("c", 64) || !opt.Apply {
+		t.Fatalf("unexpected draft review proof parse: %+v", opt)
+	}
+}
+
 func TestParsePlanSubagentsReviewerPacketRetirement(t *testing.T) {
 	opt, err := Parse([]string{"-Command", "plan-subagents", "-RetireInvalidReviewerPacket", "-PacketPath", "packet.json", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "retire invalid packet", "-WhatIf"})
 	if err != nil {
@@ -8007,6 +8017,54 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	}
 	if _, err := os.Stat(decisionPath); !os.IsNotExist(err) {
 		t.Fatalf("candidate decision draft WhatIf wrote decision file: %v", err)
+	}
+	proofPath := filepath.Join(candidateRoot, "review-artifacts", "product-path.candidate-decision-note.md")
+	proofPathArg := filepath.ToSlash(filepath.Join("packs", "_template", "promote-candidates", "review-artifacts", "product-path.candidate-decision-note.md"))
+	candidatePathArg, err := filepath.Rel(root, managed.CandidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidatePathArg = filepath.ToSlash(candidatePathArg)
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-DraftReviewProof", "-ProofPath", proofPathArg, "-ProofType", "candidate-decision-note", "-CandidatePath", candidatePathArg, "-ProofDecision", "accept", "-Reason", "reviewed bounded candidate diff", "-Actor", "mission-commander", "-EvidenceRefs", created.ReviewWorkspace.CombinedDiffPath, "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var proofPreview promote.CandidateReviewProofDraftResult
+	if err := json.Unmarshal(out.Bytes(), &proofPreview); err != nil {
+		t.Fatal(err)
+	}
+	if proofPreview.IsMutation || proofPreview.Applied || proofPreview.ProofSHA256 == "" || proofPreview.ProofPath != proofPath || proofPreview.Proof.CandidatePath == managed.CandidatePath || proofPreview.Proof.PackTargetHash == "" || !strings.Contains(proofPreview.ApplyCommand, "-ExpectedProofSha256") {
+		t.Fatalf("unexpected candidate review proof draft preview: %+v", proofPreview)
+	}
+	if _, err := os.Stat(proofPath); !os.IsNotExist(err) {
+		t.Fatalf("candidate review proof draft WhatIf wrote proof file: %v", err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-DraftReviewProof", "-ProofPath", proofPathArg, "-ProofType", "candidate-decision-note", "-CandidatePath", candidatePathArg, "-ProofDecision", "accept", "-Reason", "reviewed bounded candidate diff", "-Actor", "mission-commander", "-EvidenceRefs", created.ReviewWorkspace.CombinedDiffPath, "-ExpectedProofSha256", proofPreview.ProofSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var proofApplied promote.CandidateReviewProofDraftResult
+	if err := json.Unmarshal(out.Bytes(), &proofApplied); err != nil {
+		t.Fatal(err)
+	}
+	if !proofApplied.IsMutation || !proofApplied.Applied || proofApplied.AlreadyWritten || proofApplied.ProofSHA256 != proofPreview.ProofSHA256 {
+		t.Fatalf("unexpected candidate review proof draft apply: %+v", proofApplied)
+	}
+	proofBytes, err := os.ReadFile(proofPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(proofBytes, []byte(caseRoot)) || bytes.Contains(proofBytes, []byte(root)) {
+		t.Fatalf("candidate review proof persisted absolute path: %s", string(proofBytes))
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-DraftReviewProof", "-ProofPath", proofPathArg, "-ProofType", "candidate-decision-note", "-CandidatePath", candidatePathArg, "-ProofDecision", "accept", "-Reason", "reviewed bounded candidate diff", "-Actor", "mission-commander", "-EvidenceRefs", created.ReviewWorkspace.CombinedDiffPath, "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"promote candidate review proof draft：mode=already-drafted", "proofSha256=", "draft does not merge or cleanup candidates"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("candidate review proof draft text omitted %q:\n%s", expected, out.String())
+		}
 	}
 
 	out.Reset()

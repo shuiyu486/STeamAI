@@ -179,16 +179,20 @@ type ReleaseHandoffPackMemoryCandidateReviewSummary struct {
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewNextMissingProof struct {
-	Stage         string   `json:"stage,omitempty"`
-	ProofType     string   `json:"proofType,omitempty"`
-	Path          string   `json:"path,omitempty"`
-	CandidatePath string   `json:"candidatePath,omitempty"`
-	PackTarget    string   `json:"packTarget,omitempty"`
-	When          string   `json:"when,omitempty"`
-	Action        string   `json:"action,omitempty"`
-	Format        string   `json:"format,omitempty"`
-	Evidence      []string `json:"evidence,omitempty"`
-	Boundary      []string `json:"boundary,omitempty"`
+	Stage                  string   `json:"stage,omitempty"`
+	ProofType              string   `json:"proofType,omitempty"`
+	Path                   string   `json:"path,omitempty"`
+	CandidatePath          string   `json:"candidatePath,omitempty"`
+	PackTarget             string   `json:"packTarget,omitempty"`
+	When                   string   `json:"when,omitempty"`
+	Action                 string   `json:"action,omitempty"`
+	Format                 string   `json:"format,omitempty"`
+	DraftCommand           string   `json:"draftCommand,omitempty"`
+	DraftApplyTemplate     string   `json:"draftApplyTemplate,omitempty"`
+	RequiresPacket         bool     `json:"requiresPacket,omitempty"`
+	RequiresExplicitReview bool     `json:"requiresExplicitReview,omitempty"`
+	Evidence               []string `json:"evidence,omitempty"`
+	Boundary               []string `json:"boundary,omitempty"`
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewProofSummary struct {
@@ -1034,7 +1038,7 @@ func packMemoryCandidateNextExpectedProof(artifact ReleaseHandoffPackMemoryCandi
 }
 
 func packMemoryCandidateNextMissingProof(stage, proofPath string, artifact ReleaseHandoffPackMemoryCandidateReviewArtifact) ReleaseHandoffPackMemoryCandidateReviewNextMissingProof {
-	return ReleaseHandoffPackMemoryCandidateReviewNextMissingProof{
+	proof := ReleaseHandoffPackMemoryCandidateReviewNextMissingProof{
 		Stage:         stage,
 		ProofType:     artifact.Name,
 		Path:          proofPath,
@@ -1046,6 +1050,13 @@ func packMemoryCandidateNextMissingProof(stage, proofPath string, artifact Relea
 		Evidence:      append([]string{}, artifact.Evidence...),
 		Boundary:      append([]string{}, artifact.Boundary...),
 	}
+	if artifact.Name == "candidate-decision-note" && strings.TrimSpace(artifact.CandidatePath) != "" {
+		proof.RequiresPacket = true
+		proof.RequiresExplicitReview = true
+		proof.DraftCommand = "/rekit promote -PacketPath <packet.json> -DraftReviewProof -ProofPath " + quoteReleaseHandoffCommandArg(proofPath) + " -ProofType candidate-decision-note -CandidatePath " + quoteReleaseHandoffCommandArg(artifact.CandidatePath) + " -ProofDecision <accept|reject|superseded> -Reason <reviewed-reason> -Actor <actor> -EvidenceRefs <review-evidence-ref> -WhatIf -Format json"
+		proof.DraftApplyTemplate = "/rekit promote -PacketPath <packet.json> -DraftReviewProof -ProofPath " + quoteReleaseHandoffCommandArg(proofPath) + " -ProofType candidate-decision-note -CandidatePath " + quoteReleaseHandoffCommandArg(artifact.CandidatePath) + " -ProofDecision <accept|reject|superseded> -Reason <reviewed-reason> -Actor <actor> -EvidenceRefs <review-evidence-ref> -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json"
+	}
+	return proof
 }
 
 func packMemoryCandidateProofArtifactStage(name string) string {

@@ -49,6 +49,11 @@ type Options struct {
 	PacketPath                           string
 	CandidateDecisionPath                string
 	DraftCandidateDecision               bool
+	DraftReviewProof                     bool
+	ReviewProofPath                      string
+	ReviewProofType                      string
+	ReviewProofCandidatePath             string
+	ExpectedReviewProofSHA256            string
 	CandidateDecision                    string
 	CandidateDecisionReason              string
 	CandidateDecisionActor               string
@@ -167,6 +172,32 @@ func Parse(args []string) (Options, error) {
 			opt.CandidateDecisionPath = args[i]
 		case "-DraftCandidateDecision", "--draft-candidate-decision":
 			opt.DraftCandidateDecision = true
+		case "-DraftReviewProof", "--draft-review-proof":
+			opt.DraftReviewProof = true
+		case "-ProofPath", "--proof-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ProofPath")
+			}
+			opt.ReviewProofPath = args[i]
+		case "-ProofType", "--proof-type":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ProofType")
+			}
+			opt.ReviewProofType = args[i]
+		case "-CandidatePath", "--candidate-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -CandidatePath")
+			}
+			opt.ReviewProofCandidatePath = args[i]
+		case "-ExpectedProofSha256", "--expected-proof-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedProofSha256")
+			}
+			opt.ExpectedReviewProofSHA256 = args[i]
 		case "-ExpectedDecisionSha256", "--expected-decision-sha256":
 			i++
 			if i >= len(args) {
@@ -323,6 +354,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -Decision")
 			}
 			opt.Note.Decision = args[i]
+			opt.CandidateDecision = args[i]
+		case "-ProofDecision", "--proof-decision":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ProofDecision")
+			}
 			opt.CandidateDecision = args[i]
 		case "-Reason", "--reason":
 			i++
@@ -1318,7 +1355,7 @@ func writePackMemoryCandidateReviewSummaryText(out io.Writer, prefix, pack strin
 		}
 		if proof.NextMissingProof != nil {
 			next := proof.NextMissingProof
-			if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof：pack=%s stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s when=%s action=%s format=%s\n", prefix, pack, textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none")); err != nil {
+			if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof：pack=%s stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s when=%s action=%s format=%s requiresPacket=%t requiresExplicitReview=%t draft=%s draftApply=%s\n", prefix, pack, textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none"), next.RequiresPacket, next.RequiresExplicitReview, textOr(next.DraftCommand, "none"), textOr(next.DraftApplyTemplate, "none")); err != nil {
 				return err
 			}
 			for _, evidence := range next.Evidence {
@@ -6727,7 +6764,7 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		if opt.WhatIf && strings.TrimSpace(opt.ExpectedRetirementSHA256) != "" {
 			return fmt.Errorf("promote candidate verification retirement WhatIf does not accept -ExpectedRetirementSha256")
 		}
-		if opt.ProvisionCandidateVerificationCases || opt.VerifyCandidateDecision || opt.DraftCandidateDecision || opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.ExpectedProvisionSHA256) != "" || strings.TrimSpace(opt.ExpectedDecisionSHA256) != "" || strings.TrimSpace(opt.FreshCaseRoot) != "" || strings.TrimSpace(opt.AttachedCaseRoot) != "" {
+		if opt.ProvisionCandidateVerificationCases || opt.VerifyCandidateDecision || opt.DraftCandidateDecision || opt.DraftReviewProof || opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.ExpectedProvisionSHA256) != "" || strings.TrimSpace(opt.ExpectedDecisionSHA256) != "" || strings.TrimSpace(opt.FreshCaseRoot) != "" || strings.TrimSpace(opt.AttachedCaseRoot) != "" || wantsReviewProofDetails(opt) {
 			return fmt.Errorf("promote -RetireCandidateVerificationWorkspace cannot be combined with provisioning/verification/draft/create/review artifact options")
 		}
 		format, err := workstreamFormat(opt.Format)
@@ -6759,7 +6796,7 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		if opt.WhatIf && strings.TrimSpace(opt.ExpectedProvisionSHA256) != "" {
 			return fmt.Errorf("promote candidate verification provisioning WhatIf does not accept -ExpectedProvisionSha256")
 		}
-		if opt.VerifyCandidateDecision || opt.DraftCandidateDecision || opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.ExpectedDecisionSHA256) != "" {
+		if opt.VerifyCandidateDecision || opt.DraftCandidateDecision || opt.DraftReviewProof || opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.ExpectedDecisionSHA256) != "" || wantsReviewProofDetails(opt) {
 			return fmt.Errorf("promote -ProvisionCandidateVerificationCases cannot be combined with verification/draft/create/review artifact options")
 		}
 		format, err := workstreamFormat(opt.Format)
@@ -6782,7 +6819,7 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		if opt.Apply == opt.WhatIf {
 			return fmt.Errorf("promote -VerifyCandidateDecision requires exactly one of -WhatIf or -Apply")
 		}
-		if opt.DraftCandidateDecision || opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.ExpectedDecisionSHA256) != "" {
+		if opt.DraftCandidateDecision || opt.DraftReviewProof || opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.ExpectedDecisionSHA256) != "" || wantsReviewProofDetails(opt) {
 			return fmt.Errorf("promote -VerifyCandidateDecision cannot be combined with draft/create/review artifact options")
 		}
 		format, err := workstreamFormat(opt.Format)
@@ -6797,6 +6834,41 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 			return writeJSON(out, result)
 		}
 		return writePromoteCandidateVerificationText(out, result)
+	}
+	if opt.DraftReviewProof {
+		if strings.TrimSpace(opt.PacketPath) == "" {
+			return fmt.Errorf("promote -DraftReviewProof requires -PacketPath")
+		}
+		if strings.TrimSpace(opt.ReviewProofCandidatePath) == "" {
+			return fmt.Errorf("promote -DraftReviewProof requires -CandidatePath")
+		}
+		if opt.Apply == opt.WhatIf {
+			return fmt.Errorf("promote -DraftReviewProof requires exactly one of -WhatIf or -Apply")
+		}
+		if opt.Apply && strings.TrimSpace(opt.ExpectedReviewProofSHA256) == "" {
+			return fmt.Errorf("promote candidate review proof draft Apply requires -ExpectedProofSha256 from WhatIf")
+		}
+		if opt.WhatIf && strings.TrimSpace(opt.ExpectedReviewProofSHA256) != "" {
+			return fmt.Errorf("promote candidate review proof draft WhatIf does not accept -ExpectedProofSha256")
+		}
+		if opt.DraftCandidateDecision || strings.TrimSpace(opt.CandidateDecisionPath) != "" || strings.TrimSpace(opt.ExpectedDecisionSHA256) != "" || opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || opt.ProvisionCandidateVerificationCases || opt.RetireCandidateVerificationWorkspace || opt.VerifyCandidateDecision || strings.TrimSpace(opt.ExpectedProvisionSHA256) != "" || strings.TrimSpace(opt.ExpectedRetirementSHA256) != "" || strings.TrimSpace(opt.FreshCaseRoot) != "" || strings.TrimSpace(opt.AttachedCaseRoot) != "" {
+			return fmt.Errorf("promote -DraftReviewProof cannot be combined with decision/provisioning/verification/create/review artifact options")
+		}
+		format, err := workstreamFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported promote candidate review proof draft format: %s", opt.Format)
+		}
+		result, err := promote.DraftCandidateReviewProof(ctx.RepoRoot, target, ctx.Pack, promote.CandidateReviewProofDraftOptions{PacketPath: opt.PacketPath, ProofPath: opt.ReviewProofPath, ProofType: opt.ReviewProofType, CandidatePath: opt.ReviewProofCandidatePath, Decision: opt.CandidateDecision, Reason: opt.CandidateDecisionReason, Actor: opt.CandidateDecisionActor, EvidenceRefs: opt.CandidateDecisionEvidenceRefs, ExpectedProofSHA256: opt.ExpectedReviewProofSHA256, WhatIf: opt.WhatIf})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePromoteCandidateReviewProofDraftText(out, result)
+	}
+	if wantsReviewProofDetails(opt) {
+		return fmt.Errorf("promote review proof draft fields require -DraftReviewProof")
 	}
 	if opt.DraftCandidateDecision {
 		if strings.TrimSpace(opt.PacketPath) == "" || strings.TrimSpace(opt.CandidateDecisionPath) == "" {
@@ -7933,6 +8005,40 @@ func writePromoteCandidateVerificationText(out io.Writer, result promote.Candida
 	return nil
 }
 
+func writePromoteCandidateReviewProofDraftText(out io.Writer, result promote.CandidateReviewProofDraftResult) error {
+	if _, err := fmt.Fprintf(out, "promote candidate review proof draft：mode=%s mutation=%t applied=%t alreadyWritten=%t proofType=%s decision=%s packet=%s proof=%s packetHash=%s proofSha256=%s candidate=%s packTarget=%s actor=%s\n", result.Mode, result.IsMutation, result.Applied, result.AlreadyWritten, result.ProofType, result.Decision, result.PacketPath, result.ProofPath, result.PacketHash, result.ProofSHA256, result.CandidatePath, result.PackTarget, result.Actor); err != nil {
+		return err
+	}
+	evidenceRefs := make([]string, 0, len(result.Proof.EvidenceRefs))
+	for _, evidence := range result.Proof.EvidenceRefs {
+		evidenceRefs = append(evidenceRefs, evidence.Path+"@"+evidence.SHA256)
+	}
+	if _, err := fmt.Fprintf(out, "promote candidate review proof draft note：kind=%s candidateHash=%s reason=%s evidence=%s\n", result.Proof.Kind, result.Proof.CandidateHash, result.Reason, strings.Join(evidenceRefs, ",")); err != nil {
+		return err
+	}
+	if result.PreviewCommand != "" {
+		if _, err := fmt.Fprintf(out, "promote candidate review proof draft preview command：%s\n", result.PreviewCommand); err != nil {
+			return err
+		}
+	}
+	if result.ApplyCommand != "" {
+		if _, err := fmt.Fprintf(out, "promote candidate review proof draft apply command：%s\n", result.ApplyCommand); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "promote candidate review proof draft boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "promote candidate review proof draft next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writePromoteCandidateDecisionDraftText(out io.Writer, result promote.CandidateDecisionDraftResult) error {
 	if _, err := fmt.Fprintf(out, "promote candidate decision draft：mode=%s mutation=%t applied=%t alreadyWritten=%t decision=%s decisionCount=%d accepted=%d rejected=%d superseded=%d packet=%s decisions=%s packetHash=%s decisionSha256=%s\n", result.Mode, result.IsMutation, result.Applied, result.AlreadyWritten, result.Decision, result.DecisionCount, result.Accepted, result.Rejected, result.Superseded, result.PacketPath, result.DecisionPath, result.PacketHash, result.DecisionSHA256); err != nil {
 		return err
@@ -8275,6 +8381,10 @@ func writeReviewPlanItemText(out io.Writer, command, label string, item review.I
 
 func wantsReviewArtifacts(opt Options) bool {
 	return opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.PacketPath) != "" || strings.TrimSpace(opt.DiffPath) != ""
+}
+
+func wantsReviewProofDetails(opt Options) bool {
+	return strings.TrimSpace(opt.ReviewProofPath) != "" || strings.TrimSpace(opt.ReviewProofType) != "" || strings.TrimSpace(opt.ReviewProofCandidatePath) != "" || strings.TrimSpace(opt.ExpectedReviewProofSHA256) != ""
 }
 
 func writeReviewArtifacts(out io.Writer, plan review.Plan, opt Options) error {
