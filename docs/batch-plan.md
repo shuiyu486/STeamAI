@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 574：pack-memory lifecycle proof strict release attestation
+
+状态：已完成 release/status lifecycle proof strict attestation runtime、tests 与 focused validation；完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection 待执行。本批延续 Batch 570–573：candidate decision note 与 receipt-derived cleanup proof 已 strict attested，但 open review artifacts 中的 `candidate-cleanup-proof`、`pack-doctor-output`、`fresh-case-reconsume-proof` 与 `attached-case-reconsume-proof` 仍可能因 loose Markdown/command transcript placeholder 被当作 proof present，使 proof summary 提前推进 cleanup/reconsume stage。
+
+目标：让 release/status 对 pack-memory lifecycle proof 只接受 strict JSON `pack-memory-candidate-lifecycle-proof`，并按 proof type 绑定 pack、candidatePath、packTarget、reviewItem、proof stage、checks、boundary 与 repo-local hashed evidence refs；loose placeholder、malformed JSON、absolute/escaping paths、missing checks、candidate cleanup state drift 或 evidence mismatch 都 fail-closed 为 release handoff warning。
+
+已实现内容：
+
+- `releasecheck` 在扫描 open review artifacts 时，不再只对 `candidate-decision-note` 做 strict validation；`candidate-cleanup-proof`、`pack-doctor-output`、`fresh-case-reconsume-proof` 与 `attached-case-reconsume-proof` 也必须 strict decode `pack-memory-candidate-lifecycle-proof` JSON。
+- Lifecycle proof validator 绑定 `schemaVersion=1`、kind、pack、proofType、candidatePath、packTarget、reviewItem proofType/stage、reason、actor、boundary、no absolute/no escaping stored paths，以及 non-empty repo-local evidence refs；evidence 必须是 non-empty regular file 且 SHA-256 匹配。
+- Per-proof checks fail-closed：cleanup proof 需要 `candidate-absent`，managed-doc cleanup 还需要 `index-entry-absent` 并重查当前 index；doctor proof 需要 `pack-doctor`；fresh/attached reconsume proof 分别需要 `fresh-case-reconsume` / `attached-case-reconsume` 加 `pack-doctor`。
+- Promote/release review artifact format guidance 从 loose Markdown/command transcript 更新为 strict JSON proof note guidance；releasecheck coverage 显式断言 loose cleanup/doctor/fresh/attached lifecycle proof 被 warning 拒绝，valid lifecycle proof 才能计入 proof summary present。
+
+边界：本批只增强 release/status 对已有 lifecycle proof 的只读 strict attestation 与 artifact guidance；不生成 lifecycle proof、不 merge/cleanup candidates、不运行 doctor/init/reconsume、不执行 verification provisioning/final verification/retirement、不执行 heavy tool、不写 authority/confirmed、不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/promote -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 尚未执行，当前不能声明 remote CI green。
+
 ### Batch 573：pack-memory candidate decision proof strict release attestation
 
 状态：已完成 release/status strict attestation runtime、tests、本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `1da3ec5` 已推送。implementation run `30127801426` completed failure，macOS/Linux/Windows jobs `89595308951`/`89595309015`/`89595309019` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 570–572：`promote -DraftReviewProof -ProofType candidate-decision-note` 已能生成 deterministic proof note，cleanup proof 也已 strict attested，但 open-residue `candidate-decision-note` 在 release/status 中仍可能因 loose `# decision` placeholder 被当作 proof present。

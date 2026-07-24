@@ -319,6 +319,59 @@ func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
 	if !releaseHandoffReviewArtifactProofContains(pack.ReviewArtifacts, "candidate-decision-note", "packs/fixture/promote-candidates/candidate.candidate.md", "packs/fixture/promote-candidates/review-artifacts/candidate.candidate-decision-note.md", true) || !releaseHandoffReviewArtifactProofContains(pack.ReviewArtifacts, "candidate-cleanup-proof", "packs/fixture/promote-candidates/candidate.candidate.md", "packs/fixture/promote-candidates/review-artifacts/candidate.candidate-cleanup-proof.md", false) {
 		t.Fatalf("pack-memory candidate proof handoff drifted: %+v", pack.ReviewArtifacts)
 	}
+	writeFile(t, filepath.Join(proofRoot, "candidate.candidate-cleanup-proof.md"), "# cleanup\n")
+	looseCleanupProof := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if looseCleanupProof.Ready || looseCleanupProof.Summary != "pack-memory candidate inventory has warnings" || len(looseCleanupProof.Warnings) == 0 || !strings.Contains(fmt.Sprint(looseCleanupProof.Warnings), "decode candidate lifecycle proof") {
+		t.Fatalf("loose open candidate cleanup proof was not rejected: %+v", looseCleanupProof)
+	}
+	writeFile(t, filepath.Join(proofRoot, "candidate.cleanup-evidence.md"), "candidate absent and index entry absent\n")
+	if err := os.Remove(candidatePath); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(repo, "packs", "fixture", "promote-candidates", "index.json"), `[]
+`)
+	writeCandidateLifecycleProof(t, repo, filepath.Join(proofRoot, "candidate.candidate-cleanup-proof.md"), "fixture", "candidate-cleanup-proof", candidatePath, filepath.Join(repo, "packs", "fixture", "references", "template", "README.md"), []map[string]any{{"name": "candidate-absent", "status": "passed", "summary": "candidate path is absent"}, {"name": "index-entry-absent", "status": "passed", "summary": "index no longer references candidate"}}, filepath.Join(proofRoot, "candidate.cleanup-evidence.md"))
+	cleanupInventory := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if cleanupInventory.Ready || cleanupInventory.Summary != "pack-memory candidate inventory has open review/cleanup/verification work" || len(cleanupInventory.Packs) != 1 || cleanupInventory.Packs[0].ProofSummary.Present != 0 || cleanupInventory.Packs[0].ProofSummary.CleanupPresent != 0 || cleanupInventory.Packs[0].ProofSummary.CurrentStage != "decision-proof-required" || len(cleanupInventory.Packs[0].CandidatePaths) != 0 {
+		t.Fatalf("unexpected post-cleanup candidate inventory: %+v", cleanupInventory)
+	}
+	writeFile(t, filepath.Join(proofRoot, "tool.candidate-decision-note.md"), "# tooling decision\n")
+	looseToolingProof := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if looseToolingProof.Ready || looseToolingProof.Summary != "pack-memory candidate inventory has warnings" || len(looseToolingProof.Warnings) == 0 || !strings.Contains(fmt.Sprint(looseToolingProof.Warnings), "decode candidate decision proof") {
+		t.Fatalf("loose tooling decision proof was not rejected: %+v", looseToolingProof)
+	}
+	writeFile(t, filepath.Join(proofRoot, "tool.decision-evidence.md"), "tooling rejected\n")
+	writeCandidateDecisionProof(t, repo, filepath.Join(proofRoot, "tool.candidate-decision-note.md"), "fixture", "packet-hash", toolingPath, filepath.Join(repo, "packs", "fixture", "tooling"), "reject", "tooling-candidate-source", filepath.Join(proofRoot, "tool.decision-evidence.md"))
+	writeFile(t, filepath.Join(proofRoot, "tool.pack-doctor-output.md"), "# doctor\n")
+	looseDoctorProof := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if looseDoctorProof.Ready || looseDoctorProof.Summary != "pack-memory candidate inventory has warnings" || len(looseDoctorProof.Warnings) == 0 || !strings.Contains(fmt.Sprint(looseDoctorProof.Warnings), "decode candidate lifecycle proof") {
+		t.Fatalf("loose doctor proof was not rejected: %+v", looseDoctorProof)
+	}
+	writeFile(t, filepath.Join(proofRoot, "tool.doctor-evidence.md"), "doctor passed\n")
+	writeCandidateLifecycleProof(t, repo, filepath.Join(proofRoot, "tool.pack-doctor-output.md"), "fixture", "pack-doctor-output", toolingPath, "tooling/catalog.yml or tooling/recipes/*", []map[string]any{{"name": "pack-doctor", "status": "passed", "summary": "doctor passed"}}, filepath.Join(proofRoot, "tool.doctor-evidence.md"))
+	writeFile(t, filepath.Join(proofRoot, "tool.fresh-case-reconsume-proof.md"), "# fresh\n")
+	looseFreshProof := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if looseFreshProof.Ready || looseFreshProof.Summary != "pack-memory candidate inventory has warnings" || len(looseFreshProof.Warnings) == 0 || !strings.Contains(fmt.Sprint(looseFreshProof.Warnings), "decode candidate lifecycle proof") {
+		t.Fatalf("loose fresh reconsume proof was not rejected: %+v", looseFreshProof)
+	}
+	writeFile(t, filepath.Join(proofRoot, "tool.fresh-evidence.md"), "fresh reconsume passed\n")
+	writeCandidateLifecycleProof(t, repo, filepath.Join(proofRoot, "tool.fresh-case-reconsume-proof.md"), "fixture", "fresh-case-reconsume-proof", toolingPath, "tooling/catalog.yml or tooling/recipes/*", []map[string]any{{"name": "fresh-case-reconsume", "status": "passed", "summary": "fresh case doctor passed"}, {"name": "pack-doctor", "status": "passed", "summary": "pack doctor passed"}}, filepath.Join(proofRoot, "tool.fresh-evidence.md"))
+	writeFile(t, filepath.Join(proofRoot, "tool.attached-case-reconsume-proof.md"), "# attached\n")
+	looseAttachedProof := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if looseAttachedProof.Ready || looseAttachedProof.Summary != "pack-memory candidate inventory has warnings" || len(looseAttachedProof.Warnings) == 0 || !strings.Contains(fmt.Sprint(looseAttachedProof.Warnings), "decode candidate lifecycle proof") {
+		t.Fatalf("loose attached reconsume proof was not rejected: %+v", looseAttachedProof)
+	}
+	writeFile(t, filepath.Join(proofRoot, "tool.attached-evidence.md"), "attached reconsume passed\n")
+	writeCandidateLifecycleProof(t, repo, filepath.Join(proofRoot, "tool.attached-case-reconsume-proof.md"), "fixture", "attached-case-reconsume-proof", toolingPath, "tooling/catalog.yml or tooling/recipes/*", []map[string]any{{"name": "attached-case-reconsume", "status": "passed", "summary": "attached case doctor passed"}, {"name": "pack-doctor", "status": "passed", "summary": "pack doctor passed"}}, filepath.Join(proofRoot, "tool.attached-evidence.md"))
+	lifecycleInventory := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if lifecycleInventory.Ready || len(lifecycleInventory.Packs) != 1 || lifecycleInventory.Packs[0].ProofSummary.Present != 4 || lifecycleInventory.Packs[0].ProofSummary.DecisionPresent != 1 || lifecycleInventory.Packs[0].ProofSummary.CleanupPresent != 0 || lifecycleInventory.Packs[0].ProofSummary.ReconsumePresent != 3 || lifecycleInventory.Packs[0].ProofSummary.CurrentStage != "cleanup-proof-required" {
+		t.Fatalf("strict lifecycle proofs were not accepted: %+v", lifecycleInventory)
+	}
+	writeFile(t, filepath.Join(proofRoot, "tool.candidate-cleanup-proof.md"), "# tooling cleanup\n")
+	looseToolingCleanupProof := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if looseToolingCleanupProof.Ready || looseToolingCleanupProof.Summary != "pack-memory candidate inventory has warnings" || len(looseToolingCleanupProof.Warnings) == 0 || !strings.Contains(fmt.Sprint(looseToolingCleanupProof.Warnings), "decode candidate lifecycle proof") {
+		t.Fatalf("loose tooling cleanup proof was not rejected: %+v", looseToolingCleanupProof)
+	}
 	if handoff := pack.DecisionDraftHandoff; handoff == nil || handoff.Mode != "candidate-decision-draft-review-workspace-required" || handoff.DecisionPath != "packs/fixture/promote-candidates/review-artifacts/candidate-decisions.json" || !slices.Contains(handoff.EvidenceRefs, "packs/fixture/promote-candidates/review-artifacts/candidate.candidate-decision-note.md") || !slices.Contains(handoff.SupportedDecisions, "accept-managed-reject-tooling") || !strings.Contains(handoff.NextAction, "promote -CreateCandidates -Review") || !releaseHandoffStringsContain(handoff.Boundary, "cannot infer the case-local review packet") {
 		t.Fatalf("pack-memory candidate decision draft handoff drifted: %+v", pack.DecisionDraftHandoff)
 	}
@@ -1038,6 +1091,41 @@ description: Fixture pack.
 	}
 	assertWarningContains(t, result.ReleaseHandoff.Warnings, "docs/context-routing.md")
 	assertWarningContains(t, result.Warnings, "release handoff read-first document missing")
+}
+
+func writeCandidateLifecycleProof(t *testing.T, repo, proofPath, pack, proofType, candidatePath, packTarget string, checks []map[string]any, evidencePath string) {
+	t.Helper()
+	evidenceRel, err := filepath.Rel(repo, evidencePath)
+	if err != nil || strings.HasPrefix(evidenceRel, ".."+string(filepath.Separator)) || filepath.IsAbs(evidenceRel) {
+		t.Fatalf("candidate lifecycle proof evidence leaves repo: %s", evidencePath)
+	}
+	proof := map[string]any{
+		"schemaVersion": 1,
+		"kind":          "pack-memory-candidate-lifecycle-proof",
+		"pack":          pack,
+		"proofType":     proofType,
+		"candidatePath": releaseHandoffRepoRelative(repo, candidatePath),
+		"packTarget":    releaseHandoffRepoRelative(repo, packTarget),
+		"reason":        "reviewed candidate lifecycle proof fixture",
+		"actor":         "mission-commander",
+		"evidenceRefs": []map[string]any{{
+			"path":   filepath.ToSlash(evidenceRel),
+			"sha256": fileSHA256ReleaseHandoff(evidencePath),
+		}},
+		"reviewItem": map[string]any{
+			"candidatePath": releaseHandoffRepoRelative(repo, candidatePath),
+			"packTarget":    releaseHandoffRepoRelative(repo, packTarget),
+			"proofType":     proofType,
+			"stage":         packMemoryCandidateProofArtifactStage(proofType),
+		},
+		"checks":   checks,
+		"boundary": []string{"candidate lifecycle proof fixture is read-only release handoff evidence"},
+	}
+	data, err := json.MarshalIndent(proof, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, proofPath, string(data)+"\n")
 }
 
 func writeCandidateDecisionProof(t *testing.T, repo, proofPath, pack, packetHash, candidatePath, packTarget, decision, kind, evidencePath string) {

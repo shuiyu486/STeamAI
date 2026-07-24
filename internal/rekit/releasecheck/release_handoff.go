@@ -885,7 +885,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 				PackTarget:    packTarget,
 				When:          "before merge, cleanup, or reconsume; choose accept, reject, or superseded for this candidate",
 				Action:        "record reviewed decision and selected decisionFollowThrough outcome outside authority/confirmed stores",
-				Format:        "markdown or JSON note with decision, reason, candidatePath, packTarget, and selected decisionFollowThrough outcome",
+				Format:        "strict JSON pack-memory-candidate-review-proof note with decision, reason, candidatePath, packTarget, reviewItem, evidenceRefs, and boundary",
 				Evidence:      []string{"decision note path/ref", "selected decisionFollowThrough outcome"},
 				Boundary:      append([]string{}, baseBoundary...),
 			},
@@ -895,7 +895,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 				PackTarget:    packTarget,
 				When:          "after deleting candidatePath because it was rejected, superseded, or accepted and merged into pack source",
 				Action:        "record candidatePath deletion check and indexPath update/removal proof",
-				Format:        "markdown or command transcript with candidatePath missing check and indexPath diff/removal check",
+				Format:        "strict JSON pack-memory-candidate-lifecycle-proof with candidate-absent and index-entry-absent checks plus hashed evidenceRefs",
 				Evidence:      []string{"candidatePath deletion check", "indexPath update/removal check"},
 				Boundary: append(append([]string{}, baseBoundary...),
 					"cleanup is limited to candidateRoot/toolingRoot and indexPath",
@@ -908,7 +908,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 				PackTarget:    packTarget,
 				When:          "after an accept decision merges reusable content into packTarget",
 				Action:        "record doctor command output before declaring accepted merge complete",
-				Format:        "command transcript or Markdown evidence containing `go run ./cmd/rekit -- -Command doctor -Pack " + status.Pack + "` output",
+				Format:        "strict JSON pack-memory-candidate-lifecycle-proof with a passed pack-doctor check plus hashed evidenceRefs",
 				Evidence:      []string{"doctor command output"},
 				Boundary: append(append([]string{}, baseBoundary...),
 					"doctor validates pack state only",
@@ -925,7 +925,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
 				When:          "before merge, cleanup, or reconsume; choose accept, reject, or superseded for this tooling candidate",
 				Action:        "record reviewed decision and selected decisionFollowThrough outcome outside authority/confirmed stores",
-				Format:        "markdown or JSON note with decision, reason, candidatePath, packTarget, and selected decisionFollowThrough outcome",
+				Format:        "strict JSON pack-memory-candidate-review-proof note with decision, reason, candidatePath, packTarget, reviewItem, evidenceRefs, and boundary",
 				Evidence:      []string{"decision note path/ref", "selected decisionFollowThrough outcome"},
 				Boundary:      append([]string{}, baseBoundary...),
 			},
@@ -935,7 +935,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
 				When:          "after deleting candidatePath because it was rejected, superseded, or accepted and merged into pack tooling",
 				Action:        "record candidatePath deletion check and tooling candidate directory cleanup proof",
-				Format:        "markdown or command transcript with candidatePath missing check",
+				Format:        "strict JSON pack-memory-candidate-lifecycle-proof with candidate-absent check plus hashed evidenceRefs",
 				Evidence:      []string{"candidatePath deletion check", "tooling/candidates cleanup check"},
 				Boundary: append(append([]string{}, baseBoundary...),
 					"cleanup is limited to candidateRoot/toolingRoot and indexPath",
@@ -948,7 +948,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
 				When:          "after an accept decision merges reusable tooling into packTarget",
 				Action:        "record doctor command output before declaring accepted tooling merge complete",
-				Format:        "command transcript or Markdown evidence containing `go run ./cmd/rekit -- -Command doctor -Pack " + status.Pack + "` output",
+				Format:        "strict JSON pack-memory-candidate-lifecycle-proof with a passed pack-doctor check plus hashed evidenceRefs",
 				Evidence:      []string{"doctor command output"},
 				Boundary: append(append([]string{}, baseBoundary...),
 					"doctor validates pack state only",
@@ -961,7 +961,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
 				When:          "after accepting tooling candidate into tooling/catalog.yml or tooling/recipes/*",
 				Action:        "record temporary fresh-case init and doctor output proving pack tooling reconsume",
-				Format:        "command transcript with init -Target <fresh-case> -Apply and doctor -Target <fresh-case> output",
+				Format:        "strict JSON pack-memory-candidate-lifecycle-proof with passed fresh-case-reconsume and pack-doctor checks plus hashed evidenceRefs",
 				Evidence:      []string{"fresh case .rekit/instance.yml", "fresh case doctor output"},
 				Boundary: append(append([]string{}, baseBoundary...),
 					"use a temporary fresh case only",
@@ -975,7 +975,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 				PackTarget:    "tooling/catalog.yml or tooling/recipes/*",
 				When:          "when validating an existing attached case after accepted tooling merge",
 				Action:        "record attached-case doctor output proving pack tooling is resolved through templateRoot/templatePack",
-				Format:        "command transcript with doctor -Target <attached-case> output",
+				Format:        "strict JSON pack-memory-candidate-lifecycle-proof with passed attached-case-reconsume and pack-doctor checks plus hashed evidenceRefs",
 				Evidence:      []string{"attached case doctor output"},
 				Boundary: append(append([]string{}, baseBoundary...),
 					"do not overwrite case-local files while checking reconsume",
@@ -990,7 +990,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 			CandidatePath: status.IndexPath,
 			When:          "after confirming stale indexPath has no matching candidate files",
 			Action:        "record indexPath removal or regeneration proof",
-			Format:        "markdown or command transcript with indexPath diff/removal check",
+			Format:        "strict JSON pack-memory-candidate-lifecycle-proof with index removal/regeneration checks plus hashed evidenceRefs",
 			Evidence:      []string{"indexPath update/removal check"},
 			Boundary: append(append([]string{}, baseBoundary...),
 				"cleanup is limited to candidateRoot/toolingRoot and indexPath",
@@ -1181,6 +1181,147 @@ func validateCandidateDecisionProofEvidenceRefs(repo string, evidenceRefs []cand
 		}
 	}
 	return nil
+}
+
+func validatePackMemoryCandidateLifecycleProof(status ReleaseHandoffPackMemoryCandidateStatus, artifact ReleaseHandoffPackMemoryCandidateReviewArtifact, proofRoot, path string) error {
+	repo := strings.TrimSpace(status.repoRootFull)
+	if repo == "" {
+		return fmt.Errorf("candidate lifecycle proof validation lacks repo authority: %s", path)
+	}
+	if !pathWithinReleaseHandoffRoot(proofRoot, path) {
+		return fmt.Errorf("candidate lifecycle proof leaves proof root: %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var proof candidateLifecycleProofInventory
+	if err := decodeReleaseHandoffStrictJSON(data, &proof); err != nil {
+		return fmt.Errorf("decode candidate lifecycle proof %s: %w", path, err)
+	}
+	if proof.SchemaVersion != 1 || proof.Kind != "pack-memory-candidate-lifecycle-proof" || proof.Pack != status.Pack || proof.ProofType != artifact.Name || proof.CandidatePath != artifact.CandidatePath || proof.PackTarget != artifact.PackTarget || strings.TrimSpace(proof.Reason) == "" || strings.TrimSpace(proof.Actor) == "" || len(proof.Boundary) == 0 || len(proof.Checks) == 0 {
+		return fmt.Errorf("candidate lifecycle proof binding mismatch: %s", path)
+	}
+	if proof.ReviewItem.CandidatePath != proof.CandidatePath || proof.ReviewItem.PackTarget != proof.PackTarget || proof.ReviewItem.ProofType != proof.ProofType || proof.ReviewItem.Stage != packMemoryCandidateProofArtifactStage(artifact.Name) {
+		return fmt.Errorf("candidate lifecycle proof review item binding mismatch: %s", path)
+	}
+	if !candidateLifecycleProofStoresOnlyRelativePaths(proof) {
+		return fmt.Errorf("candidate lifecycle proof stores absolute or escaping path: %s", path)
+	}
+	switch proof.ProofType {
+	case "candidate-cleanup-proof":
+		if err := validateOpenCandidateLifecycleCleanupProof(repo, status, artifact, proof); err != nil {
+			return err
+		}
+	case "pack-doctor-output":
+		if !candidateLifecycleProofCheckPassed(proof.Checks, "pack-doctor") {
+			return fmt.Errorf("candidate lifecycle proof missing pack-doctor check: %s", path)
+		}
+	case "fresh-case-reconsume-proof":
+		if !candidateLifecycleProofCheckPassed(proof.Checks, "fresh-case-reconsume") || !candidateLifecycleProofCheckPassed(proof.Checks, "pack-doctor") {
+			return fmt.Errorf("candidate lifecycle proof missing fresh-case reconsume checks: %s", path)
+		}
+	case "attached-case-reconsume-proof":
+		if !candidateLifecycleProofCheckPassed(proof.Checks, "attached-case-reconsume") || !candidateLifecycleProofCheckPassed(proof.Checks, "pack-doctor") {
+			return fmt.Errorf("candidate lifecycle proof missing attached-case reconsume checks: %s", path)
+		}
+	default:
+		return fmt.Errorf("candidate lifecycle proof has unsupported proofType: %s", path)
+	}
+	if err := validateCandidateLifecycleProofEvidenceRefs(repo, proof.EvidenceRefs); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateOpenCandidateLifecycleCleanupProof(repo string, status ReleaseHandoffPackMemoryCandidateStatus, artifact ReleaseHandoffPackMemoryCandidateReviewArtifact, proof candidateLifecycleProofInventory) error {
+	if !candidateLifecycleProofCheckPassed(proof.Checks, "candidate-absent") {
+		return fmt.Errorf("candidate lifecycle cleanup proof missing candidate-absent check: %s", artifact.CandidatePath)
+	}
+	candidateFull := filepath.Join(repo, filepath.FromSlash(artifact.CandidatePath))
+	candidateRoot := filepath.Join(repo, filepath.FromSlash(status.CandidateRoot))
+	if strings.HasPrefix(filepath.ToSlash(artifact.CandidatePath), strings.TrimRight(filepath.ToSlash(status.ToolingRoot), "/")+"/") {
+		candidateRoot = filepath.Join(repo, filepath.FromSlash(status.ToolingRoot))
+	}
+	if err := rejectReleaseHandoffSymlinkPath(candidateRoot, candidateFull, true); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(candidateFull); !os.IsNotExist(err) {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("candidate lifecycle cleanup proof candidate still exists: %s", artifact.CandidatePath)
+	}
+	if strings.HasPrefix(filepath.ToSlash(artifact.CandidatePath), strings.TrimRight(filepath.ToSlash(status.CandidateRoot), "/")+"/") {
+		if !candidateLifecycleProofCheckPassed(proof.Checks, "index-entry-absent") {
+			return fmt.Errorf("candidate lifecycle cleanup proof missing index-entry-absent check: %s", artifact.CandidatePath)
+		}
+		if strings.TrimSpace(status.IndexPath) != "" {
+			indexFull := filepath.Join(repo, filepath.FromSlash(status.IndexPath))
+			contains, err := releaseHandoffCandidateIndexContains(status, indexFull, artifact.CandidatePath)
+			if err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			if contains {
+				return fmt.Errorf("candidate lifecycle cleanup proof index still contains candidate: %s", artifact.CandidatePath)
+			}
+		}
+	}
+	return nil
+}
+
+func candidateLifecycleProofCheckPassed(checks []candidateLifecycleProofCheckInventory, name string) bool {
+	for _, check := range checks {
+		if check.Name == name && check.Status == "passed" && strings.TrimSpace(check.Summary) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func validateCandidateLifecycleProofEvidenceRefs(repo string, evidenceRefs []candidateDecisionEvidenceInventory) error {
+	if len(evidenceRefs) == 0 {
+		return fmt.Errorf("candidate lifecycle proof requires non-empty evidenceRefs")
+	}
+	seen := map[string]bool{}
+	for _, evidence := range evidenceRefs {
+		if strings.TrimSpace(evidence.Path) == "" || strings.TrimSpace(evidence.SHA256) == "" {
+			return fmt.Errorf("candidate lifecycle proof evidence path or hash is empty")
+		}
+		if !releaseHandoffStoredRelativePath(evidence.Path) {
+			return fmt.Errorf("candidate lifecycle proof evidence stores absolute or escaping path: %s", evidence.Path)
+		}
+		key := filepath.ToSlash(filepath.Clean(filepath.FromSlash(evidence.Path)))
+		if seen[key] {
+			return fmt.Errorf("candidate lifecycle proof evidence duplicated: %s", evidence.Path)
+		}
+		seen[key] = true
+		full := filepath.Join(repo, filepath.FromSlash(evidence.Path))
+		if err := rejectReleaseHandoffSymlinkPath(repo, full, false); err != nil {
+			return err
+		}
+		info, err := os.Lstat(full)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > 1024*1024 || !strings.EqualFold(fileSHA256ReleaseHandoff(full), evidence.SHA256) {
+			return fmt.Errorf("candidate lifecycle proof evidence hash mismatch: %s", evidence.Path)
+		}
+	}
+	return nil
+}
+
+func candidateLifecycleProofStoresOnlyRelativePaths(proof candidateLifecycleProofInventory) bool {
+	paths := []string{proof.CandidatePath, proof.PackTarget, proof.ReviewItem.CandidatePath, proof.ReviewItem.PackTarget}
+	for _, evidence := range proof.EvidenceRefs {
+		paths = append(paths, evidence.Path)
+	}
+	for _, path := range paths {
+		if !releaseHandoffStoredRelativePath(path) {
+			return false
+		}
+	}
+	return true
 }
 
 func validatePackMemoryCandidateCleanupProof(status ReleaseHandoffPackMemoryCandidateStatus, receipt ReleaseHandoffPackMemoryCandidateDecisionReceipt, action ReleaseHandoffPackMemoryCandidateDecisionReceiptAction, proofRoot, path string) error {
@@ -1640,6 +1781,34 @@ type candidateReviewProofNoteInventory struct {
 	ReviewItem     candidateReviewProofReviewItemInventory `json:"reviewItem"`
 	Cleanup        *candidateReviewCleanupProofInventory   `json:"cleanup,omitempty"`
 	Boundary       []string                                `json:"boundary"`
+}
+
+type candidateLifecycleProofInventory struct {
+	SchemaVersion int                                     `json:"schemaVersion"`
+	Kind          string                                  `json:"kind"`
+	Pack          string                                  `json:"pack"`
+	ProofType     string                                  `json:"proofType"`
+	CandidatePath string                                  `json:"candidatePath"`
+	PackTarget    string                                  `json:"packTarget,omitempty"`
+	Reason        string                                  `json:"reason"`
+	Actor         string                                  `json:"actor"`
+	EvidenceRefs  []candidateDecisionEvidenceInventory    `json:"evidenceRefs"`
+	ReviewItem    candidateLifecycleReviewItemInventory   `json:"reviewItem"`
+	Checks        []candidateLifecycleProofCheckInventory `json:"checks"`
+	Boundary      []string                                `json:"boundary"`
+}
+
+type candidateLifecycleReviewItemInventory struct {
+	CandidatePath string `json:"candidatePath"`
+	PackTarget    string `json:"packTarget,omitempty"`
+	ProofType     string `json:"proofType"`
+	Stage         string `json:"stage"`
+}
+
+type candidateLifecycleProofCheckInventory struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Summary string `json:"summary"`
 }
 
 type candidateDecisionResultInventory struct {
@@ -2631,8 +2800,13 @@ func packMemoryCandidateReviewArtifactWithProof(status ReleaseHandoffPackMemoryC
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > 1024*1024 {
 			return artifact, fmt.Errorf("candidate review proof must be a non-empty regular file: %s", candidate)
 		}
-		if artifact.Name == "candidate-decision-note" {
+		switch artifact.Name {
+		case "candidate-decision-note":
 			if err := validatePackMemoryCandidateDecisionProof(status, artifact, proofRoot, candidate); err != nil {
+				return artifact, err
+			}
+		case "candidate-cleanup-proof", "pack-doctor-output", "fresh-case-reconsume-proof", "attached-case-reconsume-proof":
+			if err := validatePackMemoryCandidateLifecycleProof(status, artifact, proofRoot, candidate); err != nil {
 				return artifact, err
 			}
 		}

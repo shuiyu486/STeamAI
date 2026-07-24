@@ -1503,7 +1503,7 @@ func candidateReviewItem(result CandidateResult, write CandidateWrite) Candidate
 	return item
 }
 
-func candidateReviewArtifacts(result CandidateResult, item CandidateReviewItem, whatIf bool) []CandidateReviewArtifact {
+func candidateReviewArtifacts(_ CandidateResult, item CandidateReviewItem, whatIf bool) []CandidateReviewArtifact {
 	baseBoundary := []string{
 		"review artifact is guidance only; create-candidates does not write decision, cleanup, or reconsume proof",
 		"deterministic proof drafts require explicit promote -DraftReviewProof WhatIf/Apply",
@@ -1524,12 +1524,16 @@ func candidateReviewArtifacts(result CandidateResult, item CandidateReviewItem, 
 			Action:        "record reviewed decision and selected decisionFollowThrough outcome outside authority/confirmed stores",
 			CandidatePath: item.CandidatePath,
 			PackTarget:    item.PackTarget,
-			Format:        "markdown or JSON note with decision, reason, candidatePath, packTarget, and selected decisionFollowThrough outcome",
+			Format:        "strict JSON pack-memory-candidate-review-proof note with decision, reason, candidatePath, packTarget, reviewItem, evidenceRefs, and boundary",
 			Evidence:      []string{"decision note path/ref", "selected decisionFollowThrough outcome"},
 			Boundary:      append([]string{}, baseBoundary...),
 		})
 		if item.CleanupPath != "" {
 			when := "after deleting candidatePath because it was rejected, superseded, or accepted and merged into pack source"
+			format := "strict JSON pack-memory-candidate-lifecycle-proof with candidate-absent and index-entry-absent checks plus hashed evidenceRefs"
+			if item.Kind == "tooling-candidate-source" {
+				format = "strict JSON pack-memory-candidate-lifecycle-proof with candidate-absent check plus hashed evidenceRefs"
+			}
 			if whatIf {
 				when = "after rerun without WhatIf materializes candidatePath, then deleting it because it was rejected, superseded, or accepted and merged"
 			}
@@ -1540,7 +1544,7 @@ func candidateReviewArtifacts(result CandidateResult, item CandidateReviewItem, 
 				When:          when,
 				Action:        "record candidatePath deletion check and indexPath update/removal proof",
 				CandidatePath: item.CleanupPath,
-				Format:        "markdown or command transcript with candidatePath missing check and indexPath diff/removal check",
+				Format:        format,
 				Evidence:      []string{"candidatePath deletion check", "indexPath update/removal check"},
 				Boundary: append(append([]string{}, baseBoundary...),
 					"cleanup is limited to candidateRoot/toolingRoot and indexPath",
@@ -1555,7 +1559,7 @@ func candidateReviewArtifacts(result CandidateResult, item CandidateReviewItem, 
 			When:       "after an accept decision merges reusable content into packTarget",
 			Action:     "record doctor command output before declaring accepted merge complete",
 			PackTarget: item.PackTarget,
-			Format:     "command transcript or Markdown evidence containing `go run ./cmd/rekit -- -Command doctor -Pack " + result.Pack + "` output",
+			Format:     "strict JSON pack-memory-candidate-lifecycle-proof with a passed pack-doctor check plus hashed evidenceRefs",
 			Evidence:   []string{"doctor command output"},
 			Boundary: append(append([]string{}, baseBoundary...),
 				"doctor validates pack state only",
@@ -1572,7 +1576,7 @@ func candidateReviewArtifacts(result CandidateResult, item CandidateReviewItem, 
 					Action:        "record temporary fresh-case init and doctor output proving pack tooling reconsume",
 					CandidatePath: item.CandidatePath,
 					PackTarget:    item.PackTarget,
-					Format:        "command transcript with init -Target <fresh-case> -Apply and doctor -Target <fresh-case> output",
+					Format:        "strict JSON pack-memory-candidate-lifecycle-proof with passed fresh-case-reconsume and pack-doctor checks plus hashed evidenceRefs",
 					Evidence:      []string{"fresh case .rekit/instance.yml", "fresh case doctor output"},
 					Boundary: append(append([]string{}, baseBoundary...),
 						"use a temporary fresh case only",
@@ -1588,7 +1592,7 @@ func candidateReviewArtifacts(result CandidateResult, item CandidateReviewItem, 
 					Action:        "record attached-case doctor output proving pack tooling is resolved through templateRoot/templatePack",
 					CandidatePath: item.CandidatePath,
 					PackTarget:    item.PackTarget,
-					Format:        "command transcript with doctor -Target <attached-case> output",
+					Format:        "strict JSON pack-memory-candidate-lifecycle-proof with passed attached-case-reconsume and pack-doctor checks plus hashed evidenceRefs",
 					Evidence:      []string{"attached case doctor output"},
 					Boundary: append(append([]string{}, baseBoundary...),
 						"do not overwrite case-local files while checking reconsume",
