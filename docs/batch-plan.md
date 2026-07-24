@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 572：pack-memory cleanup proof strict release attestation
 
-状态：已完成 release/status strict attestation runtime、tests 与本地 release minimum；implementation commit/push 和 implementation remote release-gate inspection 待本批后续 cadence 记录。本批延续 Batch 571：candidate cleanup proof 已能由 committed receipt deterministic draft，但 release/status 仍把 `review-artifacts/*.candidate-cleanup-proof.{md,json,txt}` 的任意非目录文件当作 proof present，导致 `# cleanup proof` 这类 loose placeholder 可关闭 release handoff。
+状态：已完成 release/status strict attestation runtime、tests、本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `6b2dc9e` 已推送。implementation run `30125818500` completed failure，Linux/macOS/Windows jobs `89588941832`/`89588941883`/`89588941910` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 571：candidate cleanup proof 已能由 committed receipt deterministic draft，但 release/status 仍把 `review-artifacts/*.candidate-cleanup-proof.{md,json,txt}` 的任意非目录文件当作 proof present，导致 `# cleanup proof` 这类 loose placeholder 可关闭 release handoff。
 
 目标：让 release/status 对 receipt-derived `candidate-cleanup-proof` 只接受 strict JSON proof note，并重新绑定 durable receipt、candidate decision、transaction journal、committed marker、backup hashes、candidate absent、index entry absent、accepted packTarget hash 与 evidence refs；伪 proof、hash drift、绝对路径持久化或当前 cleanup state drift 均 fail-closed 为 release handoff warning。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只增强 release/status 对已存在 cleanup proof 的只读 strict attestation；不生成 proof、不 merge pack sources、不 cleanup candidate/index、不运行 doctor/init/reconsume、不执行 verification provisioning/final verification/retirement、不执行 heavy tool、不写 authority/confirmed、不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/promote -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 待 implementation commit 推送后记录；当前不能声明 remote CI green。
+验证结果：focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/promote -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 已记录：implementation run `30125818500` completed failure，Linux/macOS/Windows jobs `89588941832`/`89588941883`/`89588941910` 均 `steps=[]`，仍属既有 runner/billing blocker，当前不能声明 remote CI green。
 
 ### Batch 571：pack-memory candidate cleanup proof draft closure
 
