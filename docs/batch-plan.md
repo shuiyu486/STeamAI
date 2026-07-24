@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 562：reviewer orchestration packet-derived staging source path closure
 
-状态：已完成runtime、CLI、durable handoff与nested product path implementation；focused reviewer orchestration tests、完整`go test ./...`与本地release minimum已通过。implementation commit、push与release inspection待执行；远程release判断仍须以implementation commit触发的GitHub Actions实际run为准，既有`steps=[]` runner/billing blocker不能声明remote CI green。
+状态：已完成runtime、CLI、durable handoff与nested product path implementation；focused reviewer orchestration tests、完整`go test ./...`与本地release minimum已通过。implementation commit `91416dc`已推送；implementation run `30068351329` completed failure，Linux/Windows/macOS jobs `89403665163`/`89403665173`/`89403665190` 均`steps=[]`，仍属既有runner/billing blocker，不能声明remote CI green。本release inspection record仅记录该implementation run；不要为inspection commit自身CI追加第三个记录提交，除非出现不同于既有`steps=[]`的新远程信号。
 
 目标：关闭Batch 558/549后remaining reviewer orchestration E2E断点：planning/status/handoff仍让主Agent把read-only reviewer JSON保存到任意`<case-local-reviewer-json>`，replacement executor必须手工选择或回忆source落点，且downstream无法从packet-derived state判断“source已ready，可运行staging preview”。新路径把source落点收口到canonical review namespace并与staging Apply严格绑定。
 
@@ -32,7 +32,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：runtime不spawn、stop、poll或monitor reviewer；不执行heavy-tool；staging/collection不写facts/authority/confirmed；`continue -Apply`和reviewer intake仍保持既有显式WhatIf→Apply边界；不新增PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`通过；完整`go test ./...`通过；本地release minimum已通过：`go run ./cmd/rekit -- -Command release-check -Format json`返回`ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go vet ./...`与`git diff --check`均通过。implementation commit/push与远程release inspection尚待执行。
+验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1`通过；完整`go test ./...`通过；本地release minimum已通过：`go run ./cmd/rekit -- -Command release-check -Format json`返回`ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go vet ./...`与`git diff --check`均通过。implementation commit `91416dc Close reviewer staging source paths`已推送；remote inspection：run `30068351329`的Linux job `89403665163`、Windows job `89403665173`、macOS job `89403665190`均completed failure且`steps=[]`，未获得runner执行；该信号与既有billing/spending-limit blocker相同，当前不能声明remote CI green。
 
 上一批摘要：Batch 561已完成continue executor-generation stale-writer guard closure；implementation commit `46c1c66 Guard continue against stale executors`与release inspection commit `a5c7343 Record Batch 561 release gate inspection`已推送；对应remote run `30035030511`三平台jobs均completed failure且`steps=[]`，仍为既有runner/billing blocker。
 
