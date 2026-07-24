@@ -1229,8 +1229,6 @@ func planCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecisi
 	if opt.WhatIf {
 		result.Mode = "candidate-decision-preview"
 		result.NextSteps = []string{"inspect every planned action and evidenceRefs, then rerun the identical command with -Apply"}
-	} else {
-		result.NextSteps = []string{"run /rekit doctor for the pack", "record fresh/attached reconsume proof when an accepted candidate changes reusable pack content"}
 	}
 	planned := make([]candidateDecisionPlanItem, 0, len(decisions.Decisions))
 	for _, decision := range decisions.Decisions {
@@ -1432,12 +1430,13 @@ func applyCandidateDecisionPlan(plan candidateDecisionPlan) (CandidateDecisionRe
 		}
 		mutated = markCandidateDecisionRemoved(mutated, item.action.CandidatePath)
 	}
-	receipt, err := writeCandidateDecisionReceipt(plan, result)
+	receipt, nextSteps, err := writeCandidateDecisionReceipt(plan, result)
 	if err != nil {
 		return rollbackCandidateDecision(result, mutated, plan, "write candidate decision receipt", err)
 	}
 	result.ReceiptPath = receipt.ReceiptPath
 	result.Receipt = &receipt
+	result.NextSteps = nextSteps
 	result.Applied = true
 	result.RecoveryRequired = false
 	result.FailedAction = ""
@@ -1448,16 +1447,16 @@ func applyCandidateDecisionPlan(plan candidateDecisionPlan) (CandidateDecisionRe
 	return result, nil
 }
 
-func writeCandidateDecisionReceipt(plan candidateDecisionPlan, result CandidateDecisionResult) (CandidateDecisionReceipt, error) {
+func writeCandidateDecisionReceipt(plan candidateDecisionPlan, result CandidateDecisionResult) (CandidateDecisionReceipt, []string, error) {
 	proofRoot := filepath.Join(plan.packet.CandidateResult.CandidateRoot, "review-artifacts")
 	if err := rejectCandidateDecisionSymlinkPath(plan.packet.CandidateResult.CandidateRoot, proofRoot, true); err != nil {
-		return CandidateDecisionReceipt{}, err
+		return CandidateDecisionReceipt{}, nil, err
 	}
 	if err := os.MkdirAll(proofRoot, 0o755); err != nil {
-		return CandidateDecisionReceipt{}, err
+		return CandidateDecisionReceipt{}, nil, err
 	}
 	if err := rejectCandidateDecisionSymlinkPath(plan.packet.CandidateResult.CandidateRoot, proofRoot, false); err != nil {
-		return CandidateDecisionReceipt{}, err
+		return CandidateDecisionReceipt{}, nil, err
 	}
 	receiptPath := candidateDecisionReceiptPath(plan.packet.CandidateResult.CandidateRoot, plan.result.PacketHash, plan.decisionHash)
 	evidence := []string{}
@@ -1496,21 +1495,26 @@ func writeCandidateDecisionReceipt(plan candidateDecisionPlan, result CandidateD
 			"no authority/confirmed writes and no heavy-tool execution",
 		},
 	}
+	nextSteps := []string{"retain the candidate decision receipt as terminal cleanup evidence; no accepted candidate verification is pending"}
 	if receipt.VerificationPending {
 		receipt.VerificationWorkspaceRoot = candidateDecisionVerificationWorkspace(result.CaseRoot, result.PacketHash, plan.decisionHash)
 		freshRoot := filepath.Join(receipt.VerificationWorkspaceRoot, "fresh")
 		attachedRoot := filepath.Join(receipt.VerificationWorkspaceRoot, "attached")
 		receipt.VerificationProvisionCommand = candidateDecisionVerificationProvisionCommand(result.PacketPath, result.DecisionPath, freshRoot, attachedRoot)
 		receipt.VerificationCommand = candidateDecisionVerificationCommand(result.PacketPath, result.DecisionPath, freshRoot, attachedRoot)
+		nextSteps = []string{
+			"run the receipt verificationProvisionCommand with -WhatIf and inspect the no-overwrite fresh/attached verification case plan",
+			"run the returned expected-hash provisioning Apply command, then run the verificationCommand only after provisioning succeeds",
+		}
 	}
 	data, err := json.MarshalIndent(receipt, "", "  ")
 	if err != nil {
-		return CandidateDecisionReceipt{}, err
+		return CandidateDecisionReceipt{}, nil, err
 	}
 	if err := writeDurableExclusiveFile(receiptPath, append(data, '\n')); err != nil {
-		return CandidateDecisionReceipt{}, err
+		return CandidateDecisionReceipt{}, nil, err
 	}
-	return receipt, nil
+	return receipt, nextSteps, nil
 }
 
 func verifyCandidateDecisionCaseContent(packRoot, caseRoot, label string, actions []CandidateDecisionAction) error {

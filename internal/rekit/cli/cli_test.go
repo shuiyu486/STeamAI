@@ -8006,14 +8006,14 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &decisionApplied); err != nil {
 		t.Fatal(err)
 	}
-	if decisionApplied.Receipt == nil || !decisionApplied.Receipt.VerificationPending || decisionApplied.Receipt.VerificationWorkspaceRoot == "" || !strings.Contains(decisionApplied.Receipt.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") {
+	if decisionApplied.Receipt == nil || !decisionApplied.Receipt.VerificationPending || decisionApplied.Receipt.VerificationWorkspaceRoot == "" || !strings.Contains(decisionApplied.Receipt.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") || !containsSubstring(decisionApplied.NextSteps, "verificationProvisionCommand") || !containsSubstring(decisionApplied.NextSteps, "verificationCommand") {
 		t.Fatalf("candidate decision omitted verification provisioning handoff: %+v", decisionApplied)
 	}
 	out.Reset()
 	if err := writePromoteCandidateDecisionText(&out, decisionApplied); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"promote candidate decision：mode=candidate-decision mutation=true applied=true rolledBack=false recoveryRequired=false", "accepted=1 rejected=1 superseded=0", "promote candidate decision action：candidate=", "candidateBackup=", "targetBackup=", "merge-accepted-candidate-and-cleanup", "no authority/confirmed writes"} {
+	for _, expected := range []string{"promote candidate decision：mode=candidate-decision mutation=true applied=true rolledBack=false recoveryRequired=false", "accepted=1 rejected=1 superseded=0", "promote candidate decision receipt：", "verificationProvisionCommand=", "verificationCommand=", "promote candidate decision action：candidate=", "candidateBackup=", "targetBackup=", "merge-accepted-candidate-and-cleanup", "no authority/confirmed writes"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("candidate decision text omitted %q:\n%s", expected, out.String())
 		}
@@ -8025,6 +8025,22 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if string(merged) != string(candidateBytes) {
 		t.Fatalf("candidate decision did not merge reviewed candidate: %q", string(merged))
 	}
+
+	candidateBeforePendingProvisionStatus := snapshotFiles(t, candidateRoot)
+	workspaceBeforePendingProvisionStatus := snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot)
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var pendingProvisionStatus statusInventory
+	if err := json.Unmarshal(out.Bytes(), &pendingProvisionStatus); err != nil {
+		t.Fatalf("pending provision status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if pendingProvisionStatus.IsMutation || pendingProvisionStatus.ProjectHandoff == nil || !hasCandidateVerificationProvisionStatus(pendingProvisionStatus.ProjectHandoff.PackMemoryCandidates, "required") {
+		t.Fatalf("status omitted required candidate verification provisioning handoff or mutated: %+v", pendingProvisionStatus)
+	}
+	assertSnapshotEqual(t, candidateBeforePendingProvisionStatus, snapshotFiles(t, candidateRoot))
+	assertSnapshotEqual(t, workspaceBeforePendingProvisionStatus, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
 
 	freshCase := filepath.Join(decisionApplied.Receipt.VerificationWorkspaceRoot, "fresh")
 	attachedCase := filepath.Join(decisionApplied.Receipt.VerificationWorkspaceRoot, "attached")
@@ -8072,6 +8088,33 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 			t.Fatalf("candidate verification provision text omitted %q:\n%s", expected, out.String())
 		}
 	}
+
+	candidateBeforeProvisionStatus := snapshotFiles(t, candidateRoot)
+	workspaceBeforeProvisionStatus := snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot)
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var provisionStatus statusInventory
+	if err := json.Unmarshal(out.Bytes(), &provisionStatus); err != nil {
+		t.Fatalf("provision status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if provisionStatus.IsMutation || provisionStatus.ProjectHandoff == nil || !hasCandidateVerificationProvisionStatus(provisionStatus.ProjectHandoff.PackMemoryCandidates, "complete") {
+		t.Fatalf("status omitted completed candidate verification provisioning handoff or mutated: %+v", provisionStatus)
+	}
+	assertSnapshotEqual(t, candidateBeforeProvisionStatus, snapshotFiles(t, candidateRoot))
+	assertSnapshotEqual(t, workspaceBeforeProvisionStatus, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "provisionStatus=complete provisionInProgress=false provisionComplete=true") || !strings.Contains(out.String(), "provisionApplyCommand=") || !strings.Contains(out.String(), "provisionNextAction=run verificationCommand") {
+		t.Fatalf("status text omitted completed candidate verification provisioning handoff:\n%s", out.String())
+	}
+	assertSnapshotEqual(t, candidateBeforeProvisionStatus, snapshotFiles(t, candidateRoot))
+	assertSnapshotEqual(t, workspaceBeforeProvisionStatus, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
+
 	out.Reset()
 	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
@@ -8205,6 +8248,17 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 			t.Fatalf("candidate verification retirement text omitted %q:\n%s", expected, out.String())
 		}
 	}
+}
+
+func hasCandidateVerificationProvisionStatus(candidates releasecheck.ReleaseHandoffPackMemoryCandidateList, status string) bool {
+	for _, pack := range candidates.Packs {
+		for _, receipt := range pack.DecisionReceipts {
+			if receipt.ProvisionStatus == status {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func hasCandidateVerificationRetirementStatus(candidates releasecheck.ReleaseHandoffPackMemoryCandidateList, status string) bool {

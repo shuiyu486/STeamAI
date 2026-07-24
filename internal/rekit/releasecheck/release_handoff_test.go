@@ -383,7 +383,8 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 		t.Fatalf("pending candidate verification was not projected: %+v", inventory)
 	}
 	pack := inventory.Packs[0]
-	if pack.PendingVerifications != 1 || pack.CompletedVerifications != 0 || !pack.RequiresVerification || pack.RequiresReview || pack.RequiresCleanup || len(pack.DecisionReceipts) != 1 || pack.DecisionReceipts[0].VerificationComplete || pack.DecisionReceipts[0].VerificationWorkspaceRoot == "" || !strings.Contains(pack.DecisionReceipts[0].VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") || !strings.Contains(pack.DecisionReceipts[0].VerificationCommand, "-FreshCaseRoot") || !strings.Contains(pack.Action, "provisioning WhatIf/expected-hash Apply") {
+	receiptStatus := pack.DecisionReceipts[0]
+	if pack.PendingVerifications != 1 || pack.CompletedVerifications != 0 || !pack.RequiresVerification || pack.RequiresReview || pack.RequiresCleanup || len(pack.DecisionReceipts) != 1 || receiptStatus.VerificationComplete || receiptStatus.VerificationWorkspaceRoot == "" || !strings.Contains(receiptStatus.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") || !strings.Contains(receiptStatus.VerificationCommand, "-FreshCaseRoot") || receiptStatus.ProvisionStatus != "required" || receiptStatus.ProvisionIntentPath == "" || receiptStatus.ProvisionReceiptPath == "" || receiptStatus.ProvisionApplyCommand == "" || receiptStatus.ProvisionInProgress || receiptStatus.ProvisionComplete || !strings.Contains(receiptStatus.ProvisionNextAction, "verificationProvisionCommand") || !strings.Contains(pack.Action, "verificationProvisionCommand") {
 		t.Fatalf("pending candidate verification handoff drifted: %+v", pack)
 	}
 
